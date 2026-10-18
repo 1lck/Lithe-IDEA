@@ -791,21 +791,16 @@ final class MacServiceContainer {
                     )
                 }
             }
-            let workbench = descriptor.pluginManifest.modules.filter { !$0.contributions.isEmpty }.map { declaration in
+            // The build-systems module also carries the enabled state; the
+            // execution module reads it before handing the plugin to Rust Core.
+            let workbench = descriptor.pluginManifest.modules.filter {
+                !$0.contributions.isEmpty || $0.manifest.id == .buildSystemsExtension(descriptor.id.rawValue)
+            }.map { declaration in
                 ModuleFactory(manifest: declaration.manifest, contributions: declaration.contributions) {
                     DeclarativeWorkbenchModule(declaration: declaration)
                 }
             }
-            // The module only carries the enabled state; the execution
-            // module reads it before handing the plugin to Rust Core.
-            let buildSystems = descriptor.pluginManifest.modules
-                .filter { $0.manifest.id == .buildSystemsExtension(descriptor.id.rawValue) }
-                .map { declaration in
-                    ModuleFactory(manifest: declaration.manifest) {
-                        DeclarativeWorkbenchModule(declaration: declaration)
-                    }
-                }
-            return servers + executions + workbench + buildSystems
+            return servers + executions + workbench
         }
     }
 }

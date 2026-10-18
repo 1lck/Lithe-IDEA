@@ -94,6 +94,31 @@ final class MacBuildToolResolver: BuildToolResolving {
         throw BuildToolResolutionError(Self.unavailableMessage(displayName, problems: problems))
     }
 
+    /// Project import needs the installation path for global settings, but
+    /// must not run build code or a version probe merely by opening a project.
+    func languageImportExecutable(_ invocation: BuildInvocation, workspaceURL: URL) -> URL? {
+        let environment = runtime.processEnvironment()
+        for candidate in invocation.executables {
+            switch candidate {
+            case .projectFile(let path, let requires):
+                let url = workspaceURL.appendingPathComponent(path).standardizedFileURL
+                if requires.allSatisfy({ fileStorage.fileExists(at: workspaceURL.appendingPathComponent($0)) }),
+                   fileStorage.isExecutable(at: url) { return url }
+            case .environment(let variable, let path):
+                if let url = environmentExecutable(
+                    variable: variable, path: path, invocation: invocation, environment: environment
+                ) { return url }
+            case .command(let command):
+                if let url = commandCandidates(command).first { return url }
+            case .runtime:
+                // Runtime selection can probe a JDK; it is unnecessary for an
+                // optional installation settings path and stays lazy.
+                continue
+            }
+        }
+        return nil
+    }
+
     /// Keeps a candidate when the build tool declares no minimum version or
     /// its probe satisfies it.
     private func accept(

@@ -602,8 +602,10 @@ changes a plan.
   than four headings or has an empty heading falls back to the template's, so
   a tool that reports a bad heading still has its task filed.
 
-The macOS host still lists every build system in the shared Build window and
-ignores these fields; per-system windows are being added.
+The macOS host gives each detected build system its own tool window and uses
+these presentation fields. The host-drawn windows share Build Output, docking,
+layout restoration, activation, and lifecycle with other workbench contributions.
+Windows has not integrated build-system windows yet.
 
 ### Templates
 

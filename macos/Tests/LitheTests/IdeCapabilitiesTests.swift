@@ -81,6 +81,5 @@ private final class CapabilityActionsFixture: IdeCapabilityActions {
     func startAPIConfiguration(_ configuration: RunConfiguration) async {}
     func registerIdeCapabilities(_ feature: IdeCapabilitiesFeatureModel) {}
     func unregisterIdeCapabilities() {}
-    func showMavenOutput() {}
     func copyIdeConfiguration(_ text: String) {}
 }

@@ -34,59 +34,59 @@ struct WorkbenchFeatureModelTests {
     }
 
     @Test
-    func pluginsOpenInSettingsWhileMavenRemainsVisible() {
+    func pluginsOpenInSettingsWhileARightToolRemainsVisible() {
         let model = WorkbenchFeatureModel()
-        model.setVisibility(.maven, isVisible: true)
+        model.setVisibility(.database, isVisible: true)
 
         model.presentSettings(category: .plugins)
 
         #expect(model.isSettingsPresented)
         #expect(model.requestedSettingsCategory == .plugins)
-        #expect(model.isVisible(.maven))
+        #expect(model.isVisible(.database))
     }
 
     @Test
-    func mavenNavigationDoesNotReplaceBottomTools() {
+    func rightDockedToolDoesNotReplaceBottomTools() {
         let model = WorkbenchFeatureModel()
         model.setVisibility(.terminal, isVisible: true)
-        model.setVisibility(.maven, isVisible: true)
+        model.setVisibility(.database, isVisible: true)
         #expect(model.activeToolWindow == .terminal)
-        #expect(model.isVisible(.maven))
+        #expect(model.isVisible(.database))
 
         model.setVisibility(.run, isVisible: true)
-        #expect(model.isVisible(.maven))
+        #expect(model.isVisible(.database))
         #expect(model.isVisible(.run))
         #expect(!model.isVisible(.terminal))
 
         model.setVisibility(.debug, isVisible: true)
-        #expect(model.isVisible(.maven))
+        #expect(model.isVisible(.database))
         #expect(model.isVisible(.debug))
     }
 
     @Test
-    func mavenNavigationAndOutputCloseIndependently() {
+    func rightDockedToolAndBuildOutputCloseIndependently() {
         let model = WorkbenchFeatureModel()
-        model.setVisibility(.maven, isVisible: true)
-        model.setVisibility(.mavenOutput, isVisible: true)
-        model.setVisibility(.mavenOutput, isVisible: false)
-        #expect(model.isVisible(.maven))
+        model.setVisibility(.database, isVisible: true)
+        model.setVisibility(.buildOutput, isVisible: true)
+        model.setVisibility(.buildOutput, isVisible: false)
+        #expect(model.isVisible(.database))
         #expect(model.activeToolWindow == nil)
 
-        model.setVisibility(.mavenOutput, isVisible: true)
-        model.toggleVisibility(.maven)
-        #expect(!model.isVisible(.maven))
-        #expect(model.isVisible(.mavenOutput))
+        model.setVisibility(.buildOutput, isVisible: true)
+        model.toggleVisibility(.database)
+        #expect(!model.isVisible(.database))
+        #expect(model.isVisible(.buildOutput))
 
-        model.toggleVisibility(.maven)
+        model.toggleVisibility(.database)
         model.hideAllToolWindows()
-        #expect(!model.isVisible(.maven))
+        #expect(!model.isVisible(.database))
         #expect(model.activeToolWindow == nil)
     }
 
     @Test
-    func agentDocksBesideTheEditorAndSharesTheRightSlotWithMaven() {
+    func agentDocksBesideTheEditorAndSharesTheRightSlotWithDatabase() {
         // The Agent conversation must keep the editor visible, so it takes the
-        // right dock instead of the bottom tool window. Maven and Agent share
+        // right dock instead of the bottom tool window. Database and Agent share
         // that dock, and neither replaces a bottom tool window.
         let model = WorkbenchFeatureModel()
         model.setVisibility(.terminal, isVisible: true)
@@ -95,14 +95,14 @@ struct WorkbenchFeatureModelTests {
         #expect(model.activeToolWindow == .terminal)
         #expect(model.activeRightToolWindow == .agent)
 
-        model.setVisibility(.maven, isVisible: true)
-        #expect(model.isVisible(.maven))
+        model.setVisibility(.database, isVisible: true)
+        #expect(model.isVisible(.database))
         #expect(!model.isVisible(.agent))
         #expect(model.isVisible(.terminal))
 
         model.toggleVisibility(.agent)
         #expect(model.isVisible(.agent))
-        #expect(!model.isVisible(.maven))
+        #expect(!model.isVisible(.database))
 
         model.hideBottomToolWindow()
         #expect(model.isVisible(.agent))
@@ -112,17 +112,17 @@ struct WorkbenchFeatureModelTests {
     }
 
     @Test
-    func workspaceResetClearsBothMavenAreas() {
+    func workspaceResetClearsRightAndBottomAreas() {
         let model = WorkbenchFeatureModel()
-        model.setVisibility(.maven, isVisible: true)
-        model.setVisibility(.mavenOutput, isVisible: true)
+        model.setVisibility(.database, isVisible: true)
+        model.setVisibility(.buildOutput, isVisible: true)
         model.reset()
-        #expect(!model.isVisible(.maven))
-        #expect(!model.isVisible(.mavenOutput))
+        #expect(!model.isVisible(.database))
+        #expect(!model.isVisible(.buildOutput))
     }
 
     @Test
-    func languageNavigationReplacesBottomToolWithoutClosingMavenDock() {
+    func languageNavigationReplacesBottomToolWithoutClosingRightDock() {
         let store = WorkbenchFeatureModelTestStore()
         let settings = AppSettings(store: store)
         let services = MacServiceContainer(
@@ -131,19 +131,19 @@ struct WorkbenchFeatureModelTests {
             moduleLaunchMode: .safeMode
         ).services
         let model = AppModel(settings: settings, services: services)
-        model.isMavenVisible = true
+        model.workbenchFeature.setVisibility(.database, isVisible: true)
         model.isTerminalVisible = true
 
         model.presentLanguageNavigationResults(.references)
 
-        #expect(model.isMavenVisible)
+        #expect(model.workbenchFeature.isVisible(.database))
         #expect(model.isReferencesVisible)
         #expect(!model.isTerminalVisible)
 
         model.isTerminalVisible = true
         model.presentLanguageNavigationResults(.implementations)
 
-        #expect(model.isMavenVisible)
+        #expect(model.workbenchFeature.isVisible(.database))
         #expect(model.isImplementationChooserVisible)
         #expect(!model.isReferencesVisible)
         #expect(!model.isTerminalVisible)

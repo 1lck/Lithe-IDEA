@@ -93,6 +93,15 @@ package final class BuildSystemService: ObservableObject {
     @Published package private(set) var diagnostics: [BuildDiagnostic] = []
     @Published package private(set) var testResults: BuildTestResults?
     package private(set) var workspaceURL: URL?
+    /// Core-normalized input shared with the Java language service. Nil while
+    /// a new detection or option change is preparing its replacement.
+    @Published package private(set) var languageImport: JavaLanguageImportConfiguration?
+    package var onLanguageImportChanged: ((URL) -> Void)?
+    /// Retained until workspace reset, so removing the last Maven import can
+    /// clear its previous Profiles and paths in an already running Java session.
+    package private(set) var hasPublishedMavenLanguageImport = false
+    private var languageImportTask: Task<Void, Never>?
+    private var languageImportID: UUID?
 
     private let planner: any BuildSystemPlanning
     private let tools: any BuildToolResolving
@@ -185,6 +194,7 @@ package final class BuildSystemService: ObservableObject {
         detectionTask?.cancel(); detectionTask = nil
         redetectTask?.cancel(); redetectTask = nil
         self.workspaceURL = workspaceURL?.standardizedFileURL
+        hasPublishedMavenLanguageImport = false
         entries = []
         modelRevisions = [:]
         dependencyRevisions = [:]
@@ -203,11 +213,13 @@ package final class BuildSystemService: ObservableObject {
     package func detect() {
         guard let workspaceURL else { return }
         detectionTask?.cancel()
+        invalidateLanguageImport()
         let sources = sources()
         guard !sources.isEmpty else {
             entries = []
             issues = []
             isDetecting = false
+            publishLanguageImport(JavaLanguageImportConfiguration(), workspaceURL: workspaceURL)
             return
         }
         isDetecting = true
@@ -266,6 +278,7 @@ package final class BuildSystemService: ObservableObject {
                 }
                 self.issues = detected.issues
                 self.persistDroppedOptions()
+                self.refreshLanguageImport()
             case .failure(let error):
                 self.entries = []
                 self.issues = [error.localizedDescription]
@@ -310,6 +323,110 @@ package final class BuildSystemService: ObservableObject {
             guard !Task.isCancelled else { return }
             self?.detect()
         }
+    }
+
+    // MARK: Language import
+
+    private func invalidateLanguageImport() {
+        languageImportTask?.cancel()
+        languageImportTask = nil
+        languageImportID = nil
+        languageImport = nil
+    }
+
+    private func publishLanguageImport(_ value: JavaLanguageImportConfiguration, workspaceURL: URL) {
+        if value.mavenContext != nil { hasPublishedMavenLanguageImport = true }
+        languageImport = value
+        onLanguageImportChanged?(workspaceURL)
+    }
+
+    /// The compatibility bridge for the migrated tool window. Core owns the
+    /// import kind and option mapping; the host only selects one instance of
+    /// each kind and passively resolves its optional installation path.
+    private func refreshLanguageImport() {
+        guard let workspaceURL else { return }
+        invalidateLanguageImport()
+        let id = UUID()
+        languageImportID = id
+        let generation = generation
+        let inputs = entries.sorted {
+            let left = $0.instance, right = $1.instance
+            let leftDepth = left.root == "." ? 0 : left.root.split(separator: "/").count
+            let rightDepth = right.root == "." ? 0 : right.root.split(separator: "/").count
+            return (leftDepth, left.root, left.id, left.pluginID) < (rightDepth, right.root, right.id, right.pluginID)
+        }.map { entry in
+            LanguageImportInput(
+                entry: entry,
+                options: optionsStore.options(workspaceURL: workspaceURL, buildSystemID: entry.instance.buildSystemID)
+            )
+        }
+        let planner = planner
+        languageImportTask = Task { [weak self] in
+            let result = await Task.detached(priority: .userInitiated) {
+                Result { try Self.languageImports(planner: planner, workspaceURL: workspaceURL, inputs: inputs) }
+            }.value
+            guard let self, self.generation == generation, self.languageImportID == id, !Task.isCancelled else { return }
+            do {
+                var imports = try result.get()
+                for input in inputs {
+                    guard case .maven? = imports[input.entry.id] else { continue }
+                    let invocation = try planner.invocationPlan(input.entry.target, root: input.entry.instance.root)
+                    guard let executable = self.tools.languageImportExecutable(invocation, workspaceURL: workspaceURL) else { continue }
+                    let configured = await Task.detached(priority: .userInitiated) {
+                        Result {
+                            let resolution = try planner.resolveOptions(
+                                input.entry.target, options: input.options, modelValues: input.entry.model?.optionValues
+                            )
+                            return try planner.languageImport(
+                                input.entry.target, workspaceURL: workspaceURL, root: input.entry.instance.root,
+                                options: Self.effectiveOptionValues(resolution, stored: input.options), executableURL: executable
+                            )
+                        }
+                    }.value
+                    guard self.generation == generation, self.languageImportID == id, !Task.isCancelled else { return }
+                    imports[input.entry.id] = try configured.get()
+                }
+                var maven: MavenLaunchContext?
+                var gradle: JavaGradleImportConfiguration?
+                for input in inputs {
+                    switch imports[input.entry.id] {
+                    case .maven(let context)?: if maven == nil { maven = context }
+                    case .gradle(let context)?: if gradle == nil { gradle = context }
+                    case nil: break
+                    }
+                }
+                self.languageImportTask = nil
+                self.publishLanguageImport(
+                    JavaLanguageImportConfiguration(mavenContext: maven, javaGradle: gradle), workspaceURL: workspaceURL
+                )
+            } catch {
+                guard self.generation == generation, self.languageImportID == id, !Task.isCancelled else { return }
+                self.languageImportTask = nil
+                self.issues.append(error.localizedDescription)
+            }
+        }
+    }
+
+    private struct LanguageImportInput: Sendable {
+        let entry: BuildSystemEntry
+        let options: [String: ToolingJSONValue]
+    }
+
+    nonisolated private static func languageImports(
+        planner: any BuildSystemPlanning, workspaceURL: URL, inputs: [LanguageImportInput]
+    ) throws -> [String: BuildLanguageImport] {
+        var imports: [String: BuildLanguageImport] = [:]
+        for input in inputs {
+            try Task.checkCancellation()
+            let resolution = try planner.resolveOptions(
+                input.entry.target, options: input.options, modelValues: input.entry.model?.optionValues
+            )
+            imports[input.entry.id] = try planner.languageImport(
+                input.entry.target, workspaceURL: workspaceURL, root: input.entry.instance.root,
+                options: effectiveOptionValues(resolution, stored: input.options), executableURL: nil
+            )
+        }
+        return imports
     }
 
     // MARK: Model
@@ -369,6 +486,7 @@ package final class BuildSystemService: ObservableObject {
                 }
                 self.noteModelChanged(entryID)
                 self.refreshOptions(buildSystemID: entry.instance.buildSystemID)
+                self.refreshLanguageImport()
             case .failure(let error) where error is CancellationError:
                 self.update(entryID) {
                     $0.modelState = $0.model == nil ? .notLoaded : .loaded
@@ -520,6 +638,10 @@ package final class BuildSystemService: ObservableObject {
 
     /// Ends every process this service started.
     package func stop() {
+        detectionTask?.cancel(); detectionTask = nil
+        redetectTask?.cancel(); redetectTask = nil
+        isDetecting = false
+        invalidateLanguageImport()
         stopRun()
         for task in modelTasks.values { task.cancel() }
         for task in dependencyTasks.values { task.cancel() }
@@ -719,6 +841,25 @@ package final class BuildSystemService: ObservableObject {
         // The options take part in the sync fingerprint, so a changed value
         // marks a loaded command model stale.
         detect()
+    }
+
+    /// An instance editor sees only values accepted by that instance. Replacing
+    /// its multi-selection must preserve choices that are visible only in a
+    /// sibling instance; reset still removes the complete stored override.
+    package func setInstanceOption(_ entryID: String, optionID: String, value: ToolingJSONValue?) {
+        guard let workspaceURL, let entry = entry(entryID) else { return }
+        if case .array(let next)? = value,
+           let option = entry.options.first(where: { $0.id == optionID }), option.kind == .multiSelect,
+           case .array(let visible) = option.value,
+           case .array(let stored)? = optionsStore.options(
+               workspaceURL: workspaceURL, buildSystemID: entry.instance.buildSystemID
+           )[optionID] {
+            let siblingValues = stored.filter { !visible.contains($0) }
+            let merged = siblingValues + next.filter { !siblingValues.contains($0) }
+            setOption(entryID, optionID: optionID, value: .array(merged))
+        } else {
+            setOption(entryID, optionID: optionID, value: value)
+        }
     }
 
     private func refreshOptions(buildSystemID: String) {

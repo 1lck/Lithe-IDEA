@@ -1,4 +1,5 @@
 import Foundation
+import LitheModuleAPI
 
 // Note: 构建系统插件契约见 .agents/notes/implemented/architecture/2026-10-17-build-system-plugin-contract.md
 
@@ -44,14 +45,43 @@ public struct DeclarativeBuildSystem: Equatable, Sendable {
         public let targetTags: [String]
         public let requiresUserArguments: Bool
         public let description: String?
+        /// Headings the tool window files the task under, outermost first;
+        /// empty files it by `group`. On a `fromModel` template it is the
+        /// default of the model tasks.
+        public let category: [String]
 
         public init(
             id: String, displayName: String, group: BuildTaskGroup, scopes: [BuildScope],
-            fromModel: Bool, targetTags: [String], requiresUserArguments: Bool, description: String?
+            fromModel: Bool, targetTags: [String], requiresUserArguments: Bool, description: String?,
+            category: [String] = []
         ) {
             self.id = id; self.displayName = displayName; self.group = group; self.scopes = scopes
             self.fromModel = fromModel; self.targetTags = targetTags
             self.requiresUserArguments = requiresUserArguments; self.description = description
+            self.category = category
+        }
+    }
+
+    /// Where the tool window offers an option besides its option list.
+    /// Display only: resolution and plans never read it.
+    public enum OptionPresentation: String, Equatable, Sendable {
+        /// A toggle on the toolbar; boolean options with an icon.
+        case toolbar
+        /// A checklist node at the top of the tree; multiSelect options.
+        case tree
+    }
+
+    /// The display part of an option declaration. Values, kinds, and
+    /// choices come from `build.resolveOptions`.
+    public struct Option: Equatable, Identifiable, Sendable {
+        public let id: String
+        /// Nil for an option shown only in the option list, and for a
+        /// placement from a newer contract this host does not know.
+        public let presentation: OptionPresentation?
+        public let icon: PluginUIIcon?
+
+        public init(id: String, presentation: OptionPresentation? = nil, icon: PluginUIIcon? = nil) {
+            self.id = id; self.presentation = presentation; self.icon = icon
         }
     }
 
@@ -63,7 +93,10 @@ public struct DeclarativeBuildSystem: Equatable, Sendable {
 
     public let id: String
     public let displayName: String
+    /// Icon of the build system's tool window.
+    public let icon: PluginUIIcon?
     public let modelSource: ModelSource?
+    public let options: [Option]
     public let tasks: [Task]
     /// Empty when the build system declares no test command.
     public let testScopes: [BuildScope]
@@ -73,11 +106,55 @@ public struct DeclarativeBuildSystem: Equatable, Sendable {
     public let dependencyScopes: [BuildScope]
 
     public init(
-        id: String, displayName: String, modelSource: ModelSource?, tasks: [Task],
-        testScopes: [BuildScope], testTargetTags: [String] = [], dependencyScopes: [BuildScope]
+        id: String, displayName: String, icon: PluginUIIcon? = nil, modelSource: ModelSource?,
+        options: [Option] = [], tasks: [Task], testScopes: [BuildScope], testTargetTags: [String] = [],
+        dependencyScopes: [BuildScope]
     ) {
-        self.id = id; self.displayName = displayName; self.modelSource = modelSource; self.tasks = tasks
+        self.id = id; self.displayName = displayName; self.icon = icon; self.modelSource = modelSource
+        self.options = options; self.tasks = tasks
         self.testScopes = testScopes; self.testTargetTags = testTargetTags; self.dependencyScopes = dependencyScopes
+    }
+
+    public func option(_ id: String) -> Option? {
+        options.first { $0.id == id }
+    }
+
+    // MARK: Tool window
+
+    /// Contribution visibility keys naming the build system a host-derived
+    /// window or command belongs to.
+    public static let pluginIDKey = "buildSystemPluginID"
+    public static let buildSystemIDKey = "buildSystemID"
+
+    /// The host's tool window for one build system. Plugin-declared UI ids
+    /// cannot contain `:`, so this never collides with the plugin's own windows.
+    public static func toolWindowID(pluginID: String, buildSystemID: String) -> String {
+        "\(pluginID).build-systems:\(buildSystemID)"
+    }
+
+    /// Key of an option's packaged toolbar icon among the plugin's icon resources.
+    public static func optionIconID(toolWindowID: String, optionID: String) -> String {
+        "\(toolWindowID).option.\(optionID)"
+    }
+
+    /// The tool window and its toggle command. Both are derived from the
+    /// declaration: a plugin declares neither id, so every build system gets
+    /// the same window with its own title and icon.
+    public func contributions(pluginID: String, order: Int) -> [ModuleContribution] {
+        let windowID = Self.toolWindowID(pluginID: pluginID, buildSystemID: id)
+        let visibility = [Self.pluginIDKey: pluginID, Self.buildSystemIDKey: id]
+        return [
+            ModuleContribution(
+                id: windowID, kind: .toolWindow, title: displayName, placement: .rightSidebar,
+                order: 100 + order, actionID: windowID + ".toggle", rendererID: windowID,
+                visibility: visibility, uiIcon: icon
+            ),
+            ModuleContribution(
+                id: windowID + ".command", kind: .command, title: displayName, placement: .commandPalette,
+                order: order, actionID: windowID + ".command",
+                visibility: visibility.merging(["toolWindowID": windowID]) { _, new in new }, uiIcon: icon
+            )
+        ]
     }
 }
 
@@ -255,17 +332,20 @@ package struct BuildModel: Equatable, Sendable, Decodable {
         /// The `fromModel` task declaration whose arguments run it.
         package let template: String
         package let group: BuildTaskGroup
+        /// Headings the tool window files the task under, outermost first.
+        /// Core already fell back to the template's category.
+        package let category: [String]
         package let execution: BuildExecution
         package let properties: [String: String]
 
         package init(
             id: String, projectID: String, name: String, path: String, template: String,
-            group: BuildTaskGroup = .other, execution: BuildExecution = .task,
-            properties: [String: String] = [:]
+            group: BuildTaskGroup = .other, category: [String] = [], execution: BuildExecution = .task,
+            properties: [String: String] = [:], displayName: String? = nil, description: String? = nil
         ) {
             self.id = id; self.projectID = projectID; self.name = name; self.path = path
-            displayName = nil; description = nil
-            self.template = template; self.group = group; self.execution = execution
+            self.displayName = displayName; self.description = description
+            self.template = template; self.group = group; self.category = category; self.execution = execution
             self.properties = properties
         }
 
@@ -279,12 +359,14 @@ package struct BuildModel: Equatable, Sendable, Decodable {
             description = try values.decodeIfPresent(String.self, forKey: .description)
             template = try values.decode(String.self, forKey: .template)
             group = try values.decodeIfPresent(BuildTaskGroup.self, forKey: .group) ?? .other
+            category = try values.decodeIfPresent([String].self, forKey: .category) ?? []
             execution = try values.decodeIfPresent(BuildExecution.self, forKey: .execution) ?? .task
             properties = try values.decodeIfPresent([String: String].self, forKey: .properties) ?? [:]
         }
 
         private enum CodingKeys: String, CodingKey {
-            case id, projectID, name, path, displayName, description, template, group, execution, properties
+            case id, projectID, name, path, displayName, description, template, group, category, execution
+            case properties
         }
     }
 
@@ -419,6 +501,12 @@ package protocol BuildToolResolving: AnyObject {
         workspaceURL: URL,
         checkVersion: @escaping @Sendable (_ runtime: String?, _ output: String) throws -> BuildVersionCheck
     ) async throws -> ResolvedBuildTool
+    /// Passive discovery for project import; must never probe or execute tools.
+    func languageImportExecutable(_ invocation: BuildInvocation, workspaceURL: URL) -> URL?
+}
+
+package extension BuildToolResolving {
+    func languageImportExecutable(_ invocation: BuildInvocation, workspaceURL: URL) -> URL? { nil }
 }
 
 // MARK: Options
@@ -431,6 +519,10 @@ package struct BuildResolvedOption: Equatable, Identifiable, Sendable, Decodable
         package let value: String
         package let title: String?
         package let fromModel: Bool
+
+        package init(value: String, title: String? = nil, fromModel: Bool = false) {
+            self.value = value; self.title = title; self.fromModel = fromModel
+        }
 
         package init(from decoder: Decoder) throws {
             let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -739,6 +831,27 @@ package struct BuildSyncState: Equatable, Sendable, Decodable {
     }
 }
 
+// MARK: Language import
+
+/// The result of `build.languageImport`; the kind is a language-server
+/// capability, independent of the plugin and build-system identifiers.
+package enum BuildLanguageImport: Equatable, Sendable, Decodable {
+    case maven(MavenLaunchContext)
+    case gradle(JavaGradleImportConfiguration)
+
+    package init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        switch try values.decode(String.self, forKey: .kind) {
+        case "maven": self = .maven(try values.decode(MavenLaunchContext.self, forKey: .mavenContext))
+        case "gradle": self = .gradle(try values.decode(JavaGradleImportConfiguration.self, forKey: .javaGradle))
+        default:
+            throw DecodingError.dataCorruptedError(forKey: .kind, in: values, debugDescription: "Unknown language import kind")
+        }
+    }
+
+    private enum CodingKeys: String, CodingKey { case kind, mavenContext, javaGradle }
+}
+
 // MARK: Core operations
 
 /// The `build.*` commands of Rust Core. Implementations throw
@@ -750,6 +863,13 @@ package protocol BuildSystemPlanning: Sendable {
         sources: [BuildSystemPluginSource],
         options: [String: [String: ToolingJSONValue]]
     ) throws -> BuildDetection
+    func languageImport(
+        _ target: BuildSystemTarget,
+        workspaceURL: URL,
+        root: String,
+        options: [String: ToolingJSONValue],
+        executableURL: URL?
+    ) throws -> BuildLanguageImport?
     func invocationPlan(_ target: BuildSystemTarget, root: String) throws -> BuildInvocation
     func checkToolVersion(_ target: BuildSystemTarget, runtime: String?, output: String) throws -> BuildVersionCheck
     func resolveOptions(

@@ -518,6 +518,86 @@ struct BuildSystemServiceTests {
         #expect(planner.taskPlanContexts.last?.options["features"] == .array([]))
     }
 
+    @Test
+    func instanceOptionEditsPreserveSiblingOnlySelections() async throws {
+        let planner = FakeBuildPlanner()
+        planner.dynamicOptions = true
+        planner.detection = BuildDetection(instances: [
+            try Self.nestedInstance(id: "fixture:a", root: "a", features: ["cli", "fast"]),
+            try Self.nestedInstance(id: "fixture:b", root: "b", features: ["gui"])
+        ])
+        let harness = Harness(planner: planner)
+        defer { harness.service.stop() }
+        harness.optionsStore.values["fixture"] = ["features": .array([.string("cli"), .string("gui")])]
+        harness.service.reset(workspaceURL: Self.workspace)
+        #expect(await harness.waitForEntries { $0.count == 2 })
+
+        harness.service.setInstanceOption("fixture:a", optionID: "features", value: .array([.string("fast")]))
+        #expect(harness.optionsStore.values["fixture"]?["features"] == .array([.string("gui"), .string("fast")]))
+        #expect(harness.service.entry("fixture:a")?.options.first?.value == .array([.string("fast")]))
+        #expect(harness.service.entry("fixture:b")?.options.first?.value == .array([.string("gui")]))
+
+        harness.service.setInstanceOption("fixture:b", optionID: "features", value: .array([]))
+        #expect(harness.optionsStore.values["fixture"]?["features"] == .array([.string("fast")]))
+        harness.service.setInstanceOption("fixture:a", optionID: "features", value: .array([]))
+        #expect(harness.optionsStore.values["fixture"]?["features"] == .array([]))
+        // Clearing the final selection keeps an explicit empty override;
+        // resetting removes that override so declaration defaults can apply.
+        harness.service.setInstanceOption("fixture:a", optionID: "features", value: nil)
+        #expect(harness.optionsStore.values["fixture"]?["features"] == nil)
+    }
+
+    @Test
+    func languageImportPublishesTheSameEffectiveOptionsAsBuildPlansAndClearsDisabledPlugins() async throws {
+        let planner = FakeBuildPlanner()
+        planner.hasMavenLanguageImport = true
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "static")])
+        planner.optionsResolution = try decode(BuildOptionsResolution.self, """
+        {"options": [
+          {"id":"profiles", "displayName":"Profiles", "kind":"multiSelect", "value":["dev"], "source":"user"},
+          {"id":"settingsFile", "displayName":"Settings", "kind":"file", "value":"/fixture/settings.xml", "source":"user"},
+          {"id":"localRepository", "displayName":"Repository", "kind":"directory", "value":"/fixture/repository", "source":"user"}
+         ], "dropped":["profiles"], "fingerprint":"first"}
+        """)
+        let harness = Harness(planner: planner)
+        defer { harness.service.stop() }
+        harness.optionsStore.values["fixture"] = [
+            "profiles": .array([.string("dev"), .string("removed")]),
+            "settingsFile": .string("/fixture/settings.xml"), "localRepository": .string("/fixture/repository")
+        ]
+        let published = BuildTestGate()
+        var callbacks = 0
+        harness.service.onLanguageImportChanged = { _ in callbacks += 1; published.open() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        #expect(await published.waitUntilOpen())
+        let context = try #require(harness.service.languageImport?.mavenContext)
+        #expect(context.profiles == ["dev"])
+        #expect(context.settingsPath == "/fixture/settings.xml")
+        #expect(context.localRepositoryPath == "/fixture/repository")
+        harness.service.runTask(Self.instanceID, request: BuildTaskRequest(task: "build"), title: "Build")
+        #expect(await harness.waitForRunState { $0 == .succeeded })
+        #expect(planner.languageImportInputs.last == planner.taskPlanContexts.last?.options)
+
+        let changed = BuildTestGate()
+        harness.service.onLanguageImportChanged = { _ in callbacks += 1; changed.open() }
+        planner.optionsResolution = try decode(BuildOptionsResolution.self, """
+        {"options": [{"id":"profiles", "displayName":"Profiles", "kind":"multiSelect", "value":[], "source":"user"}],
+         "dropped":[], "fingerprint":"second"}
+        """)
+        harness.service.setOption(Self.instanceID, optionID: "profiles", value: .array([]))
+        #expect(await changed.waitUntilOpen())
+        #expect(harness.service.languageImport?.mavenContext?.profiles == [])
+        #expect(harness.service.languageImport?.mavenContext?.settingsPath == nil)
+        harness.sources = []
+        harness.service.pluginsChanged()
+        #expect(harness.service.languageImport == JavaLanguageImportConfiguration())
+        #expect(harness.service.hasPublishedMavenLanguageImport)
+        #expect(callbacks == 3)
+        harness.service.reset(workspaceURL: nil)
+        #expect(!harness.service.hasPublishedMavenLanguageImport)
+        #expect(harness.service.languageImport == nil)
+    }
+
     /// Output still draining from a cancelled command must not appear in the
     /// run that replaced it.
     @Test
@@ -1307,6 +1387,8 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
         var optionsResolution: BuildOptionsResolution?
         var loadedOptionsResolution: BuildOptionsResolution?
         var dynamicOptions = false
+        var hasMavenLanguageImport = false
+        var languageImportInputs: [[String: ToolingJSONValue]] = []
         var modelOptionValues: [String: [String]]?
         var fingerprint = "initial"
         var decodedModelOutputs: [BuildCommandOutput] = []
@@ -1343,6 +1425,12 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
         get { access { $0.dynamicOptions } }
         set { access { $0.dynamicOptions = newValue } }
     }
+    var hasMavenLanguageImport: Bool {
+        get { access { $0.hasMavenLanguageImport } }
+        set { access { $0.hasMavenLanguageImport = newValue } }
+    }
+    var languageImportInputs: [[String: ToolingJSONValue]] { access { $0.languageImportInputs } }
+
     var modelOptionValues: [String: [String]]? {
         get { access { $0.modelOptionValues } }
         set { access { $0.modelOptionValues = newValue } }
@@ -1386,6 +1474,29 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
             gate.finished.open()
         }
         return detection
+    }
+
+    func languageImport(
+        _ target: BuildSystemTarget, workspaceURL: URL, root: String,
+        options: [String: ToolingJSONValue], executableURL: URL?
+    ) throws -> BuildLanguageImport? {
+        access { $0.languageImportInputs.append(options) }
+        guard hasMavenLanguageImport else { return nil }
+        func text(_ id: String) -> String? {
+            guard case .string(let value)? = options[id] else { return nil }
+            return value
+        }
+        let profiles: [String]
+        if case .array(let values)? = options["profiles"] {
+            profiles = values.compactMap { if case .string(let value) = $0 { value } else { nil } }
+        } else {
+            profiles = []
+        }
+        return .maven(MavenLaunchContext(
+            reactorPath: root, profiles: profiles, settingsPath: text("settingsFile"),
+            localRepositoryPath: text("localRepository"), skipTests: false,
+            mavenExecutablePath: executableURL?.path, javaHomePath: nil
+        ))
     }
 
     func invocationPlan(_ target: BuildSystemTarget, root: String) throws -> BuildInvocation {

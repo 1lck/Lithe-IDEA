@@ -1,0 +1,357 @@
+{
+  "schemaVersion": 2,
+  "id": "dev.lithe.fixture.maven-build",
+  "displayName": "Maven Build Fixture",
+  "version": "0.1.0",
+  "pluginAPIVersion": 3,
+  "requires": {
+    "buildSystems": 1
+  },
+  "vendor": {
+    "id": "dev.lithe",
+    "displayName": "Lithe",
+    "signatureRequirement": "publisherPackage"
+  },
+  "permissions": [
+    "process.build"
+  ],
+  "activationEvents": [
+    "onBuildSystem:maven"
+  ],
+  "languages": [],
+  "buildSystems": [
+    {
+      "id": "maven",
+      "displayName": "Maven",
+      "hostIntegration": "maven",
+      "detection": {
+        "markers": [
+          "pom.xml"
+        ],
+        "nesting": "outermost"
+      },
+      "invocation": {
+        "executables": [
+          {
+            "kind": "projectFile",
+            "path": "mvnw",
+            "requires": [
+              ".mvn/wrapper/maven-wrapper.properties"
+            ],
+            "platforms": [
+              "macos",
+              "linux"
+            ]
+          },
+          {
+            "kind": "projectFile",
+            "path": "mvnw.cmd",
+            "requires": [
+              ".mvn/wrapper/maven-wrapper.properties"
+            ],
+            "platforms": [
+              "windows"
+            ]
+          },
+          {
+            "kind": "environment",
+            "variable": "MAVEN_HOME",
+            "path": "bin/mvn",
+            "platforms": [
+              "macos",
+              "linux"
+            ]
+          },
+          {
+            "kind": "environment",
+            "variable": "MAVEN_HOME",
+            "path": "bin/mvn.cmd",
+            "platforms": [
+              "windows"
+            ]
+          },
+          {
+            "kind": "command",
+            "command": "mvn"
+          }
+        ],
+        "environmentInputs": [
+          "MAVEN_HOME"
+        ],
+        "runtimeDependencies": [
+          {
+            "id": "java",
+            "minimumVersion": "8"
+          }
+        ],
+        "globalArguments": [
+          "-B",
+          "-ntp",
+          "${optionArguments:profiles}",
+          "${optionArguments:settingsFile}",
+          "${optionArguments:localRepository}",
+          "${optionArguments:offline}"
+        ],
+        "version": {
+          "arguments": [
+            "--version"
+          ],
+          "pattern": "Apache Maven (\\d+\\.\\d+\\.\\d+)"
+        },
+        "minimumVersion": "3.6.3"
+      },
+      "options": [
+        {
+          "id": "profiles",
+          "displayName": "Profiles",
+          "kind": "multiSelect",
+          "choicesFromModel": true,
+          "allowCustom": true,
+          "arguments": [
+            "-P",
+            "${value}"
+          ],
+          "presentation": "tree"
+        },
+        {
+          "id": "settingsFile",
+          "displayName": "Settings File",
+          "kind": "file",
+          "arguments": [
+            "-s",
+            "${value}"
+          ]
+        },
+        {
+          "id": "localRepository",
+          "displayName": "Local Repository",
+          "kind": "directory",
+          "arguments": [
+            "-Dmaven.repo.local=${value}"
+          ]
+        },
+        {
+          "id": "offline",
+          "displayName": "Offline",
+          "kind": "boolean",
+          "arguments": [
+            "-o"
+          ],
+          "presentation": "toolbar",
+          "icon": {
+            "host": "refresh"
+          }
+        },
+        {
+          "id": "skipTests",
+          "displayName": "Skip Tests",
+          "kind": "boolean",
+          "arguments": [
+            "-DskipTests"
+          ],
+          "presentation": "toolbar",
+          "icon": {
+            "host": "run"
+          }
+        }
+      ],
+      "model": {
+        "source": "hostIntegration"
+      },
+      "tasks": [
+        {
+          "id": "clean",
+          "displayName": "clean",
+          "group": "lifecycle",
+          "scopes": [
+            "workspace",
+            "project"
+          ],
+          "arguments": [
+            {
+              "value": "-pl",
+              "when": "nestedProjectSelected"
+            },
+            {
+              "value": "${project.path}",
+              "when": "nestedProjectSelected"
+            },
+            "clean"
+          ],
+          "category": [
+            "Lifecycle"
+          ]
+        },
+        {
+          "id": "compile",
+          "displayName": "compile",
+          "group": "lifecycle",
+          "scopes": [
+            "workspace",
+            "project"
+          ],
+          "arguments": [
+            {
+              "value": "-pl",
+              "when": "nestedProjectSelected"
+            },
+            {
+              "value": "${project.path}",
+              "when": "nestedProjectSelected"
+            },
+            "compile"
+          ],
+          "category": [
+            "Lifecycle"
+          ]
+        },
+        {
+          "id": "package",
+          "displayName": "package",
+          "group": "lifecycle",
+          "scopes": [
+            "workspace",
+            "project"
+          ],
+          "arguments": [
+            {
+              "value": "-pl",
+              "when": "nestedProjectSelected"
+            },
+            {
+              "value": "${project.path}",
+              "when": "nestedProjectSelected"
+            },
+            "${optionArguments:skipTests}",
+            "package"
+          ],
+          "category": [
+            "Lifecycle"
+          ]
+        },
+        {
+          "id": "install",
+          "displayName": "install",
+          "group": "lifecycle",
+          "scopes": [
+            "workspace",
+            "project"
+          ],
+          "arguments": [
+            {
+              "value": "-pl",
+              "when": "nestedProjectSelected"
+            },
+            {
+              "value": "${project.path}",
+              "when": "nestedProjectSelected"
+            },
+            "${optionArguments:skipTests}",
+            "install"
+          ],
+          "category": [
+            "Lifecycle"
+          ]
+        },
+        {
+          "id": "goal",
+          "displayName": "Run Maven Goal…",
+          "group": "other",
+          "scopes": [
+            "workspace",
+            "project"
+          ],
+          "requiresUserArguments": true,
+          "arguments": [
+            {
+              "value": "-pl",
+              "when": "nestedProjectSelected"
+            },
+            {
+              "value": "${project.path}",
+              "when": "nestedProjectSelected"
+            },
+            "${optionArguments:skipTests}",
+            "${userArguments}"
+          ]
+        }
+      ],
+      "test": {
+        "scopes": [
+          "workspace",
+          "project"
+        ],
+        "filters": [
+          "suite",
+          "case"
+        ],
+        "arguments": [
+          {
+            "value": "-pl",
+            "when": "nestedProjectSelected"
+          },
+          {
+            "value": "${project.path}",
+            "when": "nestedProjectSelected"
+          },
+          {
+            "value": "-Dtest=${test.suite}",
+            "when": [
+              "suiteSelected",
+              "noCaseSelected"
+            ]
+          },
+          {
+            "value": "-Dtest=${test.suite}#${test.case}",
+            "when": [
+              "suiteSelected",
+              "caseSelected"
+            ]
+          },
+          {
+            "value": "-Dsurefire.failIfNoSpecifiedTests=false",
+            "when": "suiteSelected"
+          },
+          "test"
+        ],
+        "results": {
+          "decoder": "hostIntegration"
+        }
+      },
+      "diagnostics": {
+        "decoder": "lineMatcher",
+        "patterns": [
+          {
+            "regex": "^\\[(ERROR|WARNING)\\] (.+?\\.(?:java|kt)):\\[(\\d+),(\\d+)\\] (.+)$",
+            "file": 2,
+            "line": 3,
+            "column": 4,
+            "message": 5,
+            "severity": 1,
+            "severities": {
+              "ERROR": "error",
+              "WARNING": "warning"
+            }
+          }
+        ]
+      },
+      "dependencies": {
+        "source": "hostIntegration"
+      },
+      "sync": {
+        "watch": [
+          ".mvn/maven.config",
+          "pom.xml"
+        ]
+      },
+      "layout": {
+        "excluded": [
+          "target"
+        ]
+      },
+      "icon": {
+        "host": "tool-window"
+      }
+    }
+  ]
+}
