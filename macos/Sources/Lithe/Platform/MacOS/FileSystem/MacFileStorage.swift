@@ -4,6 +4,15 @@ import Foundation
 struct MacFileStorage: FileStorage {
     let identity: MacAppIdentity
 
+#if DEBUG
+    /// Deterministic seams for tests that interleave another writer inside
+    /// the compare-and-publish sequence, or simulate a volume without the
+    /// renamex_np capabilities. Never set outside tests.
+    var afterPreparingTemporaryForTesting: (@Sendable () -> Void)?
+    var beforeRollbackExchangeForTesting: (@Sendable () -> Void)?
+    var unsupportedExchangeForTesting = false
+#endif
+
     init(identity: MacAppIdentity = MacAppIdentity()) {
         self.identity = identity
     }
@@ -100,7 +109,13 @@ struct MacFileStorage: FileStorage {
         let temporary = url.deletingLastPathComponent().appendingPathComponent(
             ".\(url.lastPathComponent).lithe-\(UUID().uuidString)"
         )
-        try data.write(to: temporary)
+#if DEBUG
+        if unsupportedExchangeForTesting { throw CocoaError(.featureUnsupported) }
+#endif
+        try prepareTemporaryFile(data, at: temporary)
+#if DEBUG
+        afterPreparingTemporaryForTesting?()
+#endif
         var removeTemporary = true
         defer { if removeTemporary { try? FileManager.default.removeItem(at: temporary) } }
 
@@ -108,9 +123,7 @@ struct MacFileStorage: FileStorage {
             // Publish without replacing a file another process just created.
             guard renamex_np(temporary.path, url.path, UInt32(RENAME_EXCL)) == 0 else {
                 if errno == EEXIST { return false }
-                if renameIsUnsupported() {
-                    return try publishNewFileWithoutExchange(data, at: url)
-                }
+                if renameIsUnsupported() { throw CocoaError(.featureUnsupported) }
                 throw CocoaError(.fileWriteUnknown)
             }
             return true
@@ -121,19 +134,24 @@ struct MacFileStorage: FileStorage {
         // save becomes observable.
         guard renamex_np(temporary.path, url.path, UInt32(RENAME_SWAP)) == 0 else {
             if errno == ENOENT { return false }
-            if renameIsUnsupported() {
-                return try publishAfterCompare(data, at: url, expecting: expected)
-            }
+            if renameIsUnsupported() { throw CocoaError(.featureUnsupported) }
             throw CocoaError(.fileWriteUnknown)
         }
         let matches: Bool
         do {
             matches = try snapshotMatches(at: temporary, expected: expected)
         } catch {
-            let state = (try? resolveMismatch(
-                data, &removeTemporary, temporary: temporary, target: url
-            )) ?? .unknown
-            if case .superseded = state { return false }
+            do {
+                if case .superseded = try resolveMismatch(
+                    data, &removeTemporary, temporary: temporary, target: url
+                ) {
+                    return false
+                }
+            } catch let retained as FileStorageRetainedCopyError {
+                throw retained
+            } catch {
+                // The temporary file is kept on unresolved failures.
+            }
             throw CocoaError(.fileWriteUnknown)
         }
         guard matches else {
@@ -157,15 +175,28 @@ struct MacFileStorage: FileStorage {
         return try Data(contentsOf: url) == expected
     }
 
-    /// Restores the displaced bytes after a failed comparison. A failed
-    /// exchange keeps the temporary file, which holds the only remaining copy
-    /// of the external save, instead of deleting it.
+    /// Restores the displaced bytes after a failed comparison. The rollback
+    /// exchange must have moved the bytes this call published into the
+    /// temporary file; if it displaced a newer external save instead, those
+    /// bytes are kept and the write fails closed. A failed exchange likewise
+    /// keeps the copy rather than deleting it.
     private func undoExchange(
-        _ removeTemporary: inout Bool, temporary: URL, target: URL
+        _ published: Data, _ removeTemporary: inout Bool, temporary: URL, target: URL
     ) throws {
+#if DEBUG
+        beforeRollbackExchangeForTesting?()
+#endif
         guard renamex_np(temporary.path, target.path, UInt32(RENAME_SWAP)) == 0 else {
             removeTemporary = false
-            throw CocoaError(.fileWriteUnknown)
+            throw FileStorageRetainedCopyError(
+                destinationPath: target.path, retainedPath: temporary.path
+            )
+        }
+        guard (try? snapshotMatches(at: temporary, expected: published)) == true else {
+            removeTemporary = false
+            throw FileStorageRetainedCopyError(
+                destinationPath: target.path, retainedPath: temporary.path
+            )
         }
     }
 
@@ -201,12 +232,16 @@ struct MacFileStorage: FileStorage {
         let state = destinationState(published: published, at: target)
         switch state {
         case .published:
-            try undoExchange(&removeTemporary, temporary: temporary, target: target)
+            try undoExchange(
+                published, &removeTemporary, temporary: temporary, target: target
+            )
         case .superseded:
             break
         case .unknown:
             removeTemporary = false
-            throw CocoaError(.fileWriteUnknown)
+            throw FileStorageRetainedCopyError(
+                destinationPath: target.path, retainedPath: temporary.path
+            )
         }
         return state
     }
@@ -218,11 +253,12 @@ struct MacFileStorage: FileStorage {
         let temporary = url.deletingLastPathComponent().appendingPathComponent(
             ".\(url.lastPathComponent).lithe-\(UUID().uuidString)"
         )
+#if DEBUG
+        if unsupportedExchangeForTesting { throw CocoaError(.featureUnsupported) }
+#endif
         guard renamex_np(url.path, temporary.path, UInt32(RENAME_EXCL)) == 0 else {
             if errno == ENOENT { return false }
-            if renameIsUnsupported() {
-                return try removeAfterCompare(at: url, expected: expected)
-            }
+            if renameIsUnsupported() { throw CocoaError(.featureUnsupported) }
             throw CocoaError(.fileWriteUnknown)
         }
         var removeTemporary = true
@@ -233,10 +269,20 @@ struct MacFileStorage: FileStorage {
             matches = try snapshotMatches(at: temporary, expected: expected)
         } catch {
             removeTemporary = restoreMovedFile(temporary, to: url)
+            if !removeTemporary {
+                throw FileStorageRetainedCopyError(
+                    destinationPath: url.path, retainedPath: temporary.path
+                )
+            }
             throw CocoaError(.fileWriteUnknown)
         }
         guard matches else {
             removeTemporary = restoreMovedFile(temporary, to: url)
+            if !removeTemporary {
+                throw FileStorageRetainedCopyError(
+                    destinationPath: url.path, retainedPath: temporary.path
+                )
+            }
             return false
         }
         return true
@@ -252,43 +298,35 @@ struct MacFileStorage: FileStorage {
         // EEXIST: another process already created a newer file; keep that one.
         return errno == EEXIST
     }
-    /// `renamex_np` flags are volume capabilities. Volumes without them still
-    /// need working MCP saves, so fall back to compare-then-write/remove and
-    /// accept the same residual window a plain atomic write had.
+    /// `renamex_np` flags are volume capabilities. A volume that cannot provide
+    /// the conditional exchange cannot uphold the port's lost-update guarantee,
+    /// so the operation fails closed instead of degrading to an unconditional
+    /// overwrite or delete.
     private func renameIsUnsupported() -> Bool {
         errno == ENOTSUP || errno == EOPNOTSUPP || errno == EINVAL || errno == ENOSYS
     }
 
-    private func publishNewFileWithoutExchange(_ data: Data, at url: URL) throws -> Bool {
+    /// Creates the staged copy owner-only from the start, so a secret-bearing
+    /// MCP configuration is never readable by other local users while staged.
+    private func prepareTemporaryFile(_ data: Data, at url: URL) throws {
+        guard FileManager.default.createFile(
+            atPath: url.path,
+            contents: nil,
+            attributes: [.posixPermissions: 0o600]
+        ) else {
+            throw CocoaError(.fileWriteUnknown)
+        }
         do {
-            try data.write(to: url, options: .withoutOverwriting)
-            return true
-        } catch let error as CocoaError where error.code == .fileWriteFileExists {
-            return false
+            let handle = try FileHandle(forWritingTo: url)
+            defer { try? handle.close() }
+            try handle.write(contentsOf: data)
         } catch {
-            // Exclusive create can leave a partial file on some failures.
-            // Remove it only when it is a prefix of our own bytes, so a file
-            // another process created meanwhile is never deleted.
-            if let current = try? Data(contentsOf: url),
-               current.count < data.count, data.starts(with: current) {
-                try? FileManager.default.removeItem(at: url)
-            }
+            try? FileManager.default.removeItem(at: url)
             throw error
         }
-    }
-
-    private func publishAfterCompare(
-        _ data: Data, at url: URL, expecting expected: Data
-    ) throws -> Bool {
-        guard try snapshotMatches(at: url, expected: expected) else { return false }
-        try data.write(to: url, options: .atomic)
-        return true
-    }
-
-    private func removeAfterCompare(at url: URL, expected: Data) throws -> Bool {
-        guard try snapshotMatches(at: url, expected: expected) else { return false }
-        try FileManager.default.removeItem(at: url)
-        return true
+        try? FileManager.default.setAttributes(
+            [.posixPermissions: 0o600], ofItemAtPath: url.path
+        )
     }
 
     func createDirectory(at url: URL, withIntermediateDirectories: Bool) throws {

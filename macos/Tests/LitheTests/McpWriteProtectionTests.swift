@@ -126,6 +126,101 @@ struct FileStorageReplacementTests {
         #expect(isDirectory.boolValue)
         #expect(try fixture.entries() == ["config.toml"])
     }
+
+    /// A writer that saves after the destination check but before the rollback
+    /// exchange must not have its bytes swapped into the temporary file and
+    /// then deleted by the defer.
+    @Test
+    func rollbackPreservesASaveThatLandsAfterTheDestinationCheck() throws {
+#if DEBUG
+        let fixture = try ReplacementFixture()
+        defer { fixture.cleanUp() }
+        try fixture.write("external-b")
+        var storage = MacFileStorage()
+        let target = fixture.url
+        let newer = Data("external-c".utf8)
+        storage.beforeRollbackExchangeForTesting = {
+            try? newer.write(to: target)
+        }
+
+        var retained: FileStorageRetainedCopyError?
+        do {
+            _ = try storage.replaceData(
+                Data("published-p".utf8), at: fixture.url, expecting: Data("planned-a".utf8)
+            )
+        } catch let error as FileStorageRetainedCopyError {
+            retained = error
+        }
+        let error = try #require(retained)
+        #expect(error.retainedPath.contains(".config.toml.lithe-"))
+        // The rollback exchange displaced C. It must be kept on disk instead
+        // of being deleted together with the temporary file.
+        let names = try fixture.entries()
+        let keptName = try #require(names.first { $0.hasPrefix(".config.toml.lithe-") })
+        let keptURL = fixture.root.appendingPathComponent(keptName)
+        #expect(try String(contentsOf: keptURL, encoding: .utf8) == "external-c")
+        #expect(try fixture.text() == "external-b")
+#else
+        Issue.record("This regression requires DEBUG test hooks")
+#endif
+    }
+
+    @Test
+    func stagesTheTemporaryFileOwnerOnly() throws {
+#if DEBUG
+        let fixture = try ReplacementFixture()
+        defer { fixture.cleanUp() }
+        try fixture.write("snapshot")
+        var storage = MacFileStorage()
+        let root = fixture.root
+        let observed = ObservedFileMode()
+        storage.afterPreparingTemporaryForTesting = {
+            let names = (try? FileManager.default.contentsOfDirectory(atPath: root.path)) ?? []
+            guard let name = names.first(where: { $0.hasPrefix(".config.toml.lithe-") }) else {
+                return
+            }
+            let attributes = try? FileManager.default.attributesOfItem(
+                atPath: root.appendingPathComponent(name).path
+            )
+            observed.permissions = (attributes?[.posixPermissions] as? NSNumber)?.intValue
+        }
+
+        #expect(try storage.replaceData(
+            Data("next".utf8), at: fixture.url, expecting: Data("snapshot".utf8)
+        ))
+        #expect(observed.permissions == 0o600)
+#else
+        Issue.record("This regression requires DEBUG test hooks")
+#endif
+    }
+
+    @Test
+    func unsupportedExchangeFailsClosedWithoutTouchingTheFile() throws {
+#if DEBUG
+        let fixture = try ReplacementFixture()
+        defer { fixture.cleanUp() }
+        try fixture.write("snapshot")
+        var storage = MacFileStorage()
+        storage.unsupportedExchangeForTesting = true
+
+        #expect(throws: CocoaError.self) {
+            _ = try storage.replaceData(
+                Data("next".utf8), at: fixture.url, expecting: Data("snapshot".utf8)
+            )
+        }
+        #expect(throws: CocoaError.self) {
+            _ = try storage.removeData(at: fixture.url, expecting: Data("snapshot".utf8))
+        }
+        #expect(try fixture.text() == "snapshot")
+        #expect(try fixture.entries() == ["config.toml"])
+#else
+        Issue.record("This regression requires DEBUG test hooks")
+#endif
+    }
+}
+
+private final class ObservedFileMode: @unchecked Sendable {
+    var permissions: Int?
 }
 
 @MainActor

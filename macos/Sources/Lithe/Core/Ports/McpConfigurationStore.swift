@@ -175,6 +175,7 @@ enum McpConfigurationError: LocalizedError, Equatable {
     case changedOnDisk
     case rollbackFailed(String)
     case notWritable(String)
+    case retainedCopy(destination: String, retained: String)
     case core(String)
 
     var errorDescription: String? {
@@ -191,6 +192,12 @@ enum McpConfigurationError: LocalizedError, Equatable {
             String(format: String(localized: "Some MCP configuration files could not be restored: %@. Refresh and check these files before retrying."), paths)
         case .notWritable(let path):
             String(format: String(localized: "Could not write %@."), path)
+        case .retainedCopy(let destination, let retained):
+            String(
+                format: String(localized: "Could not write %@. The previous contents were kept in %@."),
+                destination,
+                retained
+            )
         case .core(let message):
             message
         }

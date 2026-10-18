@@ -2707,6 +2707,7 @@
 "“%@” was created outside Lithe. Take ownership before changing it." = "“%@”是在 Lithe 之外创建的。请先接管所有权再修改。";
 "“%@” changed outside Lithe. Refresh and try again." = "“%@”在 Lithe 之外被修改。请刷新后重试。";
 "Could not read %@: %@" = "无法读取 %@：%@";
+"Could not write %@. The previous contents were kept in %@." = "无法写入 %@。之前的内容已保留在 %@。";
 "Enter a server name." = "请输入服务器名称。";
 "Use letters, digits, dots, dashes or underscores. The name must start with a letter or digit." = "只能使用字母、数字、点、短横线或下划线，且必须以字母或数字开头。";
 "Choose at least one Agent." = "请至少选择一个 Agent。";

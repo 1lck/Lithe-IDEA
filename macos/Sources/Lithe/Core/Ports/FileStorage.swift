@@ -19,6 +19,21 @@ struct FileMetadata: Sendable {
     }
 }
 
+/// A conditional write could not be completed and the displaced bytes were
+/// kept beside the destination instead of being deleted.
+struct FileStorageRetainedCopyError: LocalizedError, Equatable, Sendable {
+    let destinationPath: String
+    let retainedPath: String
+
+    var errorDescription: String? {
+        String(
+            format: String(localized: "Could not write %@. The previous contents were kept in %@."),
+            destinationPath,
+            retainedPath
+        )
+    }
+}
+
 protocol FileStorage: Sendable {
     func homeDirectory() -> URL
     func cacheDirectory() -> URL

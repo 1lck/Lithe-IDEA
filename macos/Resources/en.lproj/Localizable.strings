@@ -1428,6 +1428,7 @@
 "“%@” was created outside Lithe. Take ownership before changing it." = "“%@” was created outside Lithe. Take ownership before changing it.";
 "“%@” changed outside Lithe. Refresh and try again." = "“%@” changed outside Lithe. Refresh and try again.";
 "Could not read %@: %@" = "Could not read %@: %@";
+"Could not write %@. The previous contents were kept in %@." = "Could not write %@. The previous contents were kept in %@.";
 "Enter a server name." = "Enter a server name.";
 "Use letters, digits, dots, dashes or underscores. The name must start with a letter or digit." = "Use letters, digits, dots, dashes or underscores. The name must start with a letter or digit.";
 "Choose at least one Agent." = "Choose at least one Agent.";

@@ -129,6 +129,11 @@ final class MacAgentMcpConfigurationStore: McpConfigurationStore {
             ) else {
                 throw McpConfigurationError.changedOnDisk
             }
+        } catch let error as FileStorageRetainedCopyError {
+            restorePermissions(permissions, to: target, ifHolding: data)
+            throw McpConfigurationError.retainedCopy(
+                destination: error.destinationPath, retained: error.retainedPath
+            )
         } catch let error as McpConfigurationError {
             throw error
         } catch {
@@ -180,6 +185,10 @@ final class MacAgentMcpConfigurationStore: McpConfigurationStore {
                 ) else {
                     throw McpConfigurationError.changedOnDisk
                 }
+            } catch let error as FileStorageRetainedCopyError {
+                throw McpConfigurationError.retainedCopy(
+                    destination: error.destinationPath, retained: error.retainedPath
+                )
             } catch let error as McpConfigurationError {
                 throw error
             } catch {
