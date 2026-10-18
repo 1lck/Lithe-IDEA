@@ -455,13 +455,14 @@ package final class BuildSystemService: ObservableObject {
             let context = try service.planContext(entry, workspaceURL: workspaceURL)
             let plan = try service.planner.testPlan(entry.target, context: context, request: request)
             if plan.results != nil, request.project == nil, request.projects.isEmpty,
-               entry.model == nil, entry.instance.modelSource != nil {
-                // Report globs are relative to each project; without the model
-                // a subproject's reports are invisible and a failing run would
-                // decode as success. A plugin without a model has no projects
-                // to discover, so its own reports stay readable.
+               entry.instance.modelSource != nil,
+               entry.model == nil || entry.isReloadRequired {
+                // Report globs are relative to each project; without a current
+                // model a new subproject's reports are invisible and a failing
+                // run would decode as success. A plugin without a model has no
+                // projects to discover, so its own reports stay readable.
                 throw BuildSystemServiceError(String(
-                    localized: "Load the project model before running all tests, so subproject reports are collected."
+                    localized: "Load or reload the project model before running all tests, so subproject reports are collected."
                 ))
             }
             let started = Date()

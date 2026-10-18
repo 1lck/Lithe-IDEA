@@ -911,6 +911,39 @@ struct BuildSystemServiceTests {
         })
     }
 
+    /// A stale model's project list can miss a newly added subproject, so its
+    /// reports would not be collected.
+    @Test
+    func staleModelCannotCollectWorkspaceReports() async throws {
+        let planner = FakeBuildPlanner()
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "command")])
+        planner.modelOutput = .stdout
+        planner.testPlanDeclaresResults = true
+        let runner = FakeBuildRunner()
+        runner.script = .init(
+            chunks: [],
+            result: BuildCommandResult(termination: .exited(0), standardOutput: "MODEL")
+        )
+        let harness = Harness(planner: planner, runner: runner)
+        defer { harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        #expect(await harness.waitForEntries { $0.first?.modelState == .notLoaded })
+        harness.service.loadModel(Self.instanceID)
+        #expect(await harness.waitForEntries { $0.first?.modelState == .loaded })
+        let commandsBefore = runner.requests.count
+
+        planner.fingerprint = "changed"
+        harness.service.detect()
+        #expect(await harness.waitForEntries { $0.first?.isReloadRequired == true })
+
+        harness.service.runTests(Self.instanceID, request: BuildTestRequest(), title: "Tests")
+        #expect(await harness.waitForRunState { state in
+            if case .failed = state { return true }
+            return false
+        })
+        #expect(runner.requests.count == commandsBefore)
+    }
+
     // MARK: Fixtures
 
     private static let instanceID = "fixture:app"
