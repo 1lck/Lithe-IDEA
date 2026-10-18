@@ -53,8 +53,22 @@ export function terminalShellFamily(shell?: string | null): TerminalShellFamily 
  * environment variable. Windows forbids `"` in file names, so no escaping is
  * needed inside the quotes.
  */
+/**
+ * Characters PowerShell accepts as a single-quote delimiter. Verified against
+ * PowerShell 5.1 by executing an injection inside the quoted path and checking
+ * for the side effect: ASCII `'` and the four typographic quotes below all end
+ * the string, so every one of them must be doubled. `'` alone is not enough —
+ * a file named `report’;whoami;#.txt` escaped the literal and ran `whoami`.
+ */
+const POWERSHELL_SINGLE_QUOTES = /['\u2018\u2019\u201A\u201B]/g;
+
 function quotePathForShell(path: string, family: TerminalShellFamily): string {
-  if (family === "powershell" || family === "nushell") {
+  if (family === "powershell") {
+    // Doubling is PowerShell's escape inside a single-quoted string and keeps the
+    // literal value intact for every character above.
+    return `'${path.replace(POWERSHELL_SINGLE_QUOTES, (quote) => quote + quote)}'`;
+  }
+  if (family === "nushell") {
     return `'${path.replace(/'/g, "''")}'`;
   }
   if (family === "posix") {

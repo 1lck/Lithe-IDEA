@@ -133,34 +133,56 @@ describe("formatPathsForTerminal", () => {
   });
 });
 
-// PowerShell's typographic quotes are not string delimiters. Verified with the
-// PowerShell 5.1 lexer (System.Management.Automation.Language.Parser): a path
-// containing U+2019 parses as ONE StringLiteral token, while the same shape with
-// an ASCII apostrophe parses into a StringLiteral followed by a separate
-// statement and a comment. Only the ASCII apostrophe therefore needs doubling.
-// These cases pin the emitted text so a future shell change is visible.
-describe("typographic quotes inside a quoted path", () => {
+// Regression: PowerShell treats the typographic single quotes U+2018, U+2019,
+// U+201A and U+201B as string delimiters too. Verified by executing an injection
+// inside the quoted path and observing its side effect — a file named
+// `report’;whoami;#.txt` ended the literal and ran the injected statement.
+// Escaping only ASCII `'` therefore left a command-injection hole open.
+describe("typographic single quotes that PowerShell treats as delimiters", () => {
   for (const [name, codePoint] of [
-    ["left single quote", 0x2018],
-    ["right single quote", 0x2019],
-    ["single low quote", 0x201a],
-    ["reversed single quote", 0x201b],
-    ["fullwidth apostrophe", 0xff07],
-    ["prime", 0x2032],
+    ["left single quote U+2018", 0x2018],
+    ["right single quote U+2019", 0x2019],
+    ["single low quote U+201A", 0x201a],
+    ["reversed single quote U+201B", 0x201b],
   ] as const) {
-    test(`keeps the ${name} literal for PowerShell`, () => {
-      const path = `C:\\work\\report${String.fromCodePoint(codePoint)};whoami;#.txt`;
-      const text = formatPathsForTerminal([path], { shell: "powershell" });
+    test(`doubles the ${name} so it cannot end the literal`, () => {
+      const quote = String.fromCodePoint(codePoint);
+      const text = formatPathsForTerminal([`C:\\work\\report${quote}X.txt`], {
+        shell: "powershell",
+      });
 
-      expect(text).toBe(`'${path}'`);
+      expect(text).toBe(`'C:\\work\\report${quote}${quote}X.txt'`);
     });
   }
 
-  // The only ASCII apostrophe escapes by doubling, so the shell lexes the whole
-  // path as one literal instead of ending it early.
-  test("doubles the ASCII apostrophe so it cannot end the literal", () => {
+  test("doubles the ASCII apostrophe as well", () => {
     expect(formatPathsForTerminal(["C:\\work\\it's.txt"], { shell: "powershell" })).toBe(
       "'C:\\work\\it''s.txt'",
+    );
+  });
+
+  // These two are not PowerShell delimiters, so doubling them would corrupt the
+  // file name instead of protecting it — pin that they stay as written.
+  for (const [name, codePoint] of [
+    ["fullwidth apostrophe U+FF07", 0xff07],
+    ["prime U+2032", 0x2032],
+  ] as const) {
+    test(`leaves the ${name} as written for PowerShell`, () => {
+      const quote = String.fromCodePoint(codePoint);
+      const text = formatPathsForTerminal([`C:\\work\\report${quote}X.txt`], {
+        shell: "powershell",
+      });
+
+      expect(text).toBe(`'C:\\work\\report${quote}X.txt'`);
+    });
+  }
+
+  // POSIX shells only treat ASCII `'` as a delimiter, so the typographic quotes
+  // must not be doubled there or the path would no longer match the file.
+  test("does not double typographic quotes for POSIX shells", () => {
+    const quote = String.fromCodePoint(0x2019);
+    expect(formatPathsForTerminal([`/home/me/report${quote}X.txt`], { shell: "bash" })).toBe(
+      `/home/me/report${quote}X.txt`.replace(/^/, "'").replace(/$/, "'"),
     );
   });
 });
