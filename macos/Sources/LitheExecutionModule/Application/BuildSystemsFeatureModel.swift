@@ -23,8 +23,8 @@ package final class BuildSystemsFeatureModel: ObservableObject {
     package var runState: BuildRunState { service.runState }
     package var runningTitle: String? { service.runningTitle }
     package var output: String { service.output }
-    /// Directory the last command ran in, for relative source links.
-    package var outputDirectory: URL? { service.outputDirectory }
+    /// Directories of the commands that wrote the current output.
+    package var outputRoots: [URL] { service.outputRoots }
     package var diagnostics: [BuildDiagnostic] { service.diagnostics }
     package var testResults: BuildTestResults? { service.testResults }
     package var isRunning: Bool { service.isRunning }

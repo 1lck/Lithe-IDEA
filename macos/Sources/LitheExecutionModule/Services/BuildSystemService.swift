@@ -87,9 +87,9 @@ package final class BuildSystemService: ObservableObject {
     @Published package private(set) var hasActiveWork = false
     @Published package private(set) var runningTitle: String?
     @Published package private(set) var output = ""
-    /// Directory the command that wrote the output ran in, so relative source
-    /// paths in the text are resolved against the instance root.
-    @Published package private(set) var outputDirectory: URL?
+    /// Directories of every command that wrote the current output, so relative
+    /// source paths are resolved against the instance roots that produced them.
+    @Published package private(set) var outputRoots: [URL] = []
     @Published package private(set) var diagnostics: [BuildDiagnostic] = []
     @Published package private(set) var testResults: BuildTestResults?
     package private(set) var workspaceURL: URL?
@@ -186,7 +186,6 @@ package final class BuildSystemService: ObservableObject {
         redetectTask?.cancel(); redetectTask = nil
         self.workspaceURL = workspaceURL?.standardizedFileURL
         entries = []
-        outputDirectory = nil
         modelRevisions = [:]
         dependencyRevisions = [:]
         fileRevision = 0
@@ -498,7 +497,9 @@ package final class BuildSystemService: ObservableObject {
                     throw CancellationError()
                 } catch {
                     guard service.isCurrent(run) else { throw CancellationError() }
-                    service.appendOutput("\n" + error.localizedDescription + "\n")
+                    service.appendOutput(
+                        "\n" + error.localizedDescription + "\n", in: service.outputDirectory(entry)
+                    )
                 }
             }
             return collected.exitCode
@@ -535,6 +536,7 @@ package final class BuildSystemService: ObservableObject {
     package func clearOutput() {
         output = ""
         outputByteCount = 0
+        outputRoots = []
         diagnostics = []
         testResults = nil
     }
@@ -567,7 +569,9 @@ package final class BuildSystemService: ObservableObject {
                 state = .cancelled
             } catch {
                 if self.runID == id {
-                    self.appendOutput(error.localizedDescription + "\n")
+                    self.appendOutput(
+                        error.localizedDescription + "\n", in: self.outputDirectory(entryID: entryID)
+                    )
                 }
                 state = .failed(error.localizedDescription)
             }
@@ -626,6 +630,7 @@ package final class BuildSystemService: ObservableObject {
         let generation = generation
         let id = UUID()
         let optionFingerprint = optionFingerprint(entry, workspaceURL: workspaceURL)
+        let startFileRevision = fileRevision
         let task = Task { [weak self] in
             guard let self else { return }
             let result = await self.performDependencyLoad(
@@ -638,8 +643,8 @@ package final class BuildSystemService: ObservableObject {
                   !Task.isCancelled else { return }
             self.dependencyTasks[taskKey] = nil
             let current = self.entry(entryID) ?? entry
-            let configChanged = self.optionFingerprint(current, workspaceURL: workspaceURL)
-                != optionFingerprint
+            let configChanged = self.fileRevision != startFileRevision
+                || self.optionFingerprint(current, workspaceURL: workspaceURL) != optionFingerprint
             self.update(entryID) {
                 if configChanged {
                     // The tree answers the old option values; showing it under
@@ -851,8 +856,6 @@ package final class BuildSystemService: ObservableObject {
         capturesStandardOutput: Bool,
         timeout: Duration?
     ) async throws -> BuildCommandRequest {
-        let directory = workspaceURL.appendingPathComponent(entry.instance.root).standardizedFileURL
-        if outputDirectory != directory { outputDirectory = directory }
         let planner = planner
         let target = entry.target
         let invocation = try planner.invocationPlan(target, root: entry.instance.root)
@@ -890,11 +893,12 @@ package final class BuildSystemService: ObservableObject {
         let request = try await commandRequest(
             plan, entry: entry, workspaceURL: workspaceURL, capturesStandardOutput: false, timeout: nil
         )
-        if canAppend(owner) { appendOutput(Self.commandLine(request)) }
+        let directory = outputDirectory(entry)
+        if canAppend(owner) { appendOutput(Self.commandLine(request), in: directory) }
         let collector = OutputCollector(limit: Self.decodedOutputLimit)
         let result = try await run(request, owner: owner) { [weak self] chunk in
             collector.append(chunk)
-            self?.appendOutput(chunk)
+            self?.appendOutput(chunk, in: directory)
         }
         let exitCode: Int32? = switch result.termination {
         case .exited(let code): code
@@ -918,13 +922,14 @@ package final class BuildSystemService: ObservableObject {
             plan, entry: entry, workspaceURL: workspaceURL,
             capturesStandardOutput: capturesStandardOutput, timeout: timeout
         )
+        let directory = outputDirectory(entry)
         if canAppend(owner) {
-            appendOutput("\n▶ " + title + "\n" + Self.commandLine(request))
+            appendOutput("\n▶ " + title + "\n" + Self.commandLine(request), in: directory)
         }
         let tail = OutputCollector(limit: 64 * 1024, keepsTail: true)
         let result = try await run(request, owner: owner) { [weak self] chunk in
             tail.append(chunk)
-            self?.appendOutput(chunk)
+            self?.appendOutput(chunk, in: directory)
         }
         switch result.termination {
         case .timedOut:
@@ -974,14 +979,25 @@ package final class BuildSystemService: ObservableObject {
         }
     }
 
-    private func appendOutput(_ chunk: String) {
+    private func appendOutput(_ chunk: String, in directory: URL?) {
         guard !chunk.isEmpty else { return }
+        if let directory, !outputRoots.contains(directory) {
+            outputRoots = (outputRoots + [directory]).sorted { $0.path < $1.path }
+        }
         output += chunk
         outputByteCount += chunk.utf8.count
         if outputByteCount > Self.visibleOutputLimit {
             output = String(output.suffix(Self.visibleOutputLimit / 2))
             outputByteCount = output.utf8.count
         }
+    }
+
+    private func outputDirectory(_ entry: BuildSystemEntry) -> URL? {
+        workspaceURL?.appendingPathComponent(entry.instance.root).standardizedFileURL
+    }
+
+    private func outputDirectory(entryID: String) -> URL? {
+        entry(entryID).flatMap(outputDirectory)
     }
 
     private func refreshActivity() {

@@ -960,14 +960,76 @@ struct BuildSystemServiceTests {
         defer { harness.service.stop() }
         harness.service.reset(workspaceURL: Self.workspace)
         #expect(await harness.waitForEntries { !$0.isEmpty })
-        #expect(harness.service.outputDirectory == nil)
+        #expect(harness.service.outputRoots.isEmpty)
 
         harness.service.runTask("fixture:a", request: BuildTaskRequest(task: "build"), title: "Build")
         #expect(await harness.waitForRunState { $0 == .succeeded })
         #expect(
-            harness.service.outputDirectory
-                == Self.workspace.appendingPathComponent("a").standardizedFileURL
+            harness.service.outputRoots
+                == [Self.workspace.appendingPathComponent("a").standardizedFileURL]
         )
+    }
+
+    /// A task and a dependency load may run at the same time; each command's
+    /// output keeps its own instance root for relative source links.
+    @Test
+    func outputRootsCoverEveryCommandThatWroteOutput() async throws {
+        let planner = FakeBuildPlanner()
+        planner.detection = BuildDetection(instances: [
+            try Self.nestedInstance(id: "fixture:a", root: "a", features: []),
+            try Self.nestedInstance(id: "fixture:b", root: "b", features: [])
+        ])
+        let runner = ReplacedOutputRunner()
+        let harness = Harness(planner: planner, runner: runner)
+        defer { harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        #expect(await harness.waitForEntries { $0.count == 2 })
+
+        harness.service.runTask("fixture:a", request: BuildTaskRequest(task: "build"), title: "A")
+        #expect(await runner.earlyWritten.waitUntilOpen())
+        harness.service.loadDependencies("fixture:b", project: nil)
+        #expect(await harness.waitForEntries { entry in
+            guard case .loaded = entry.first(where: { $0.id == "fixture:b" })?.dependencies["b"]
+            else { return false }
+            return true
+        })
+
+        runner.releaseLate.open()
+        #expect(await harness.waitForRunState { $0 == .succeeded })
+        #expect(
+            harness.service.outputRoots
+                == [
+                    Self.workspace.appendingPathComponent("a").standardizedFileURL,
+                    Self.workspace.appendingPathComponent("b").standardizedFileURL
+                ]
+        )
+    }
+
+    /// A dependency tree read from old build files must not be published as
+    /// current when detection already saw the new files.
+    @Test
+    func fileChangeDuringDependencyLoadMarksTheResultStale() async throws {
+        let planner = FakeBuildPlanner()
+        planner.detection = BuildDetection(instances: [
+            try Self.instance(modelSource: "static", model: Self.model(name: "loaded"))
+        ])
+        let runner = ReplacedOutputRunner()
+        let harness = Harness(planner: planner, runner: runner)
+        defer { harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        #expect(await harness.waitForEntries { !$0.isEmpty })
+
+        harness.service.loadDependencies(Self.instanceID, project: nil)
+        #expect(await runner.earlyWritten.waitUntilOpen())
+        harness.service.workspaceFilesChanged([
+            Self.workspace.appendingPathComponent("app/pom.xml")
+        ])
+
+        runner.releaseLate.open()
+        #expect(await harness.waitForEntries { entry in
+            guard case .failed = entry.first?.dependencies["app"] else { return false }
+            return true
+        })
     }
 
     // MARK: Fixtures
