@@ -40,29 +40,21 @@ const CANONICAL_VERSION: u32 = 1;
 impl From<DocumentDecoder> for Format {
     fn from(decoder: DocumentDecoder) -> Self {
         match decoder {
-            DocumentDecoder::Json => Format::Json,
             DocumentDecoder::Toml => Format::Toml,
-            DocumentDecoder::Yaml => Format::Yaml,
         }
     }
 }
 
 fn model_format(decoder: ModelDecoder) -> Option<Format> {
     match decoder {
-        ModelDecoder::Json => Some(Format::Json),
         ModelDecoder::JsonStream => Some(Format::JsonStream),
-        ModelDecoder::Toml => Some(Format::Toml),
-        ModelDecoder::Yaml => Some(Format::Yaml),
         ModelDecoder::LitheBuildModel => None,
     }
 }
 
 fn dependency_format(decoder: DependencyDecoder) -> Option<Format> {
     match decoder {
-        DependencyDecoder::Json => Some(Format::Json),
         DependencyDecoder::JsonStream => Some(Format::JsonStream),
-        DependencyDecoder::Toml => Some(Format::Toml),
-        DependencyDecoder::Yaml => Some(Format::Yaml),
         DependencyDecoder::LitheDependencies => None,
     }
 }
@@ -841,10 +833,9 @@ fn map_dependency(
     rule: &DependencyRule,
     document: &Value,
     node: &Node<'_>,
-    depth: usize,
     budget: &mut usize,
 ) -> Option<DependencyNode> {
-    if *budget == 0 || depth >= MAX_DEPENDENCY_DEPTH {
+    if *budget == 0 {
         return None;
     }
     let name = rule.name.text(document, node)?;
@@ -856,21 +847,13 @@ fn map_dependency(
         .iter()
         .filter_map(|(key, spec)| Some((key.clone(), spec.text(document, node)?)))
         .collect();
-    let children = match &rule.children {
-        None => Vec::new(),
-        Some(selector) => select::nodes(selector, document, node)
-            .iter()
-            .filter(|child| select::all_hold(&rule.filter, document, child))
-            .filter_map(|child| map_dependency(rule, document, child, depth + 1, budget))
-            .collect(),
-    };
     Some(DependencyNode {
         name,
         group: text(&rule.group),
         version: text(&rule.version),
         scope: text(&rule.scope),
         properties,
-        children,
+        children: Vec::new(),
     })
 }
 
@@ -934,7 +917,7 @@ pub(crate) fn decode_dependencies(
                     select::nodes(&rule.each, &document, &root_node)
                         .iter()
                         .filter(|node| select::all_hold(&rule.filter, &document, node))
-                        .filter_map(|node| map_dependency(rule, &document, node, 0, &mut budget))
+                        .filter_map(|node| map_dependency(rule, &document, node, &mut budget))
                         .collect()
                 }
                 _ => canonical_dependencies(serde_json::from_str(&text), &mut budget)?,

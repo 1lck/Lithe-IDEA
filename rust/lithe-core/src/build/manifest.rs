@@ -413,25 +413,21 @@ pub(crate) enum ModelSource {
     Provider,
 }
 
-/// Structured formats a static model file may use.
+/// Structured formats a static model file may use. A tool whose manifest
+/// uses another format gets a plugin command that prints `litheBuildModel`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) enum DocumentDecoder {
-    Json,
     Toml,
-    Yaml,
 }
 
 /// Formats a model command may print.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) enum ModelDecoder {
-    Json,
-    /// Whitespace-separated JSON values: NDJSON, or concatenated objects
-    /// such as `go list -json` prints.
+    /// Whitespace-separated JSON values: NDJSON, concatenated objects such
+    /// as `go list -json` prints, or a single document.
     JsonStream,
-    Toml,
-    Yaml,
     /// The canonical model format; needs no map.
     LitheBuildModel,
 }
@@ -440,12 +436,9 @@ pub(crate) enum ModelDecoder {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) enum DependencyDecoder {
-    Json,
-    /// Whitespace-separated JSON values: NDJSON, or concatenated objects
-    /// such as `go list -json` prints.
+    /// Whitespace-separated JSON values: NDJSON, concatenated objects such
+    /// as `go list -json` prints, or a single document.
     JsonStream,
-    Toml,
-    Yaml,
     /// The canonical dependency format; needs no map.
     LitheDependencies,
 }
@@ -460,18 +453,15 @@ pub(crate) enum OutputChannel {
     OutputFile,
 }
 
-/// Mapping of a decoded document onto the model.
+/// Mapping of a decoded document onto the model: projects with their
+/// targets and content roots, and option values. The map only selects
+/// values; anything that needs more, such as tasks or parent links read from
+/// the tool, comes from a plugin command that prints `litheBuildModel`.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct ModelMap {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) projects: Vec<ProjectRule>,
-    /// Targets that carry their own `path` and attach to the deepest
-    /// project containing it.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub(crate) targets: Vec<TargetRule>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub(crate) tasks: Vec<TaskRule>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub(crate) option_values: BTreeMap<String, OptionValueRule>,
 }
@@ -519,19 +509,14 @@ pub(crate) struct ProjectRule {
     pub(crate) name: FieldSpec,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) display_name: Option<FieldSpec>,
-    /// Project directory; the instance root when absent.
+    /// Project directory; the instance root when absent. The parent is the
+    /// deepest project containing it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) path: Option<FieldSpec>,
-    /// Directory of the parent project; the deepest containing project when
-    /// absent.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) parent: Option<FieldSpec>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub(crate) properties: BTreeMap<String, FieldSpec>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) targets: Vec<TargetRule>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub(crate) tasks: Vec<TaskRule>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) content_roots: Vec<ContentRootRule>,
 }
@@ -551,38 +536,11 @@ pub(crate) struct TargetRule {
     pub(crate) name: FieldSpec,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) path: Option<FieldSpec>,
-    pub(crate) tags: TagSpec,
+    pub(crate) tags: Vec<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub(crate) properties: BTreeMap<String, FieldSpec>,
 }
 rule_match!(TargetRule);
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct TaskRule {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) each: Option<String>,
-    #[serde(default, rename = "where", skip_serializing_if = "Vec::is_empty")]
-    pub(crate) filter: Vec<Predicate>,
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub(crate) fallback: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) when_file: Option<String>,
-    pub(crate) name: FieldSpec,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) path: Option<FieldSpec>,
-    /// ID of the `fromModel` task declaration whose arguments run it.
-    pub(crate) template: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) display_name: Option<FieldSpec>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) description: Option<FieldSpec>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) execution: Option<ExecutionSpec>,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub(crate) properties: BTreeMap<String, FieldSpec>,
-}
-rule_match!(TaskRule);
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -608,32 +566,6 @@ pub(crate) struct OptionValueRule {
     #[serde(default, rename = "where", skip_serializing_if = "Vec::is_empty")]
     pub(crate) filter: Vec<Predicate>,
     pub(crate) value: FieldSpec,
-}
-
-/// Target tags: a literal list, or raw values mapped onto tags.
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(untagged)]
-pub(crate) enum TagSpec {
-    Literal(Vec<String>),
-    Mapped {
-        from: String,
-        map: BTreeMap<String, Vec<String>>,
-        #[serde(default)]
-        default: Vec<String>,
-    },
-}
-
-/// A task's execution: a literal, or a raw value mapped onto one.
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(untagged)]
-pub(crate) enum ExecutionSpec {
-    Literal(BuildExecution),
-    Mapped {
-        from: String,
-        map: BTreeMap<String, BuildExecution>,
-        #[serde(default)]
-        default: Option<BuildExecution>,
-    },
 }
 
 /// Role of a source directory in a project.
@@ -880,7 +812,8 @@ pub(crate) enum DependenciesSource {
     },
 }
 
-/// Mapping of one dependency node; `children` reapplies the same rule.
+/// Mapping of one dependency element onto a flat list. Dependency trees
+/// come from `litheDependencies`.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct DependencyRule {
@@ -896,9 +829,6 @@ pub(crate) struct DependencyRule {
     pub(crate) scope: Option<FieldSpec>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub(crate) properties: BTreeMap<String, FieldSpec>,
-    /// Child elements, mapped with this same rule.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) children: Option<String>,
 }
 
 /// Files whose change makes the model stale, relative to the instance root
@@ -909,14 +839,13 @@ pub(crate) struct SyncDeclaration {
     pub(crate) watch: Vec<String>,
 }
 
-/// Output and generated directories, relative to each project directory.
+/// Output directories excluded from every project, relative to each
+/// project directory.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct LayoutDeclaration {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) excluded: Vec<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub(crate) generated: Vec<String>,
 }
 
 impl BuildSystemDeclaration {
@@ -1220,7 +1149,7 @@ impl BuildSystemDeclaration {
         let option_ids = self.validate_options(field)?;
         self.validate_invocation(field, &option_ids)?;
         let model_templates = self.validate_tasks(field, &option_ids)?;
-        self.validate_model(field, &option_ids, &model_templates)?;
+        self.validate_model(field, &option_ids)?;
         self.validate_run(field, &option_ids, &model_templates)?;
         self.validate_test(field, &option_ids)?;
         self.validate_diagnostics(field)?;
@@ -1232,11 +1161,6 @@ impl BuildSystemDeclaration {
             check_paths(
                 &mut layout.excluded,
                 &format!("{field}.layout.excluded"),
-                false,
-            )?;
-            check_paths(
-                &mut layout.generated,
-                &format!("{field}.layout.generated"),
                 false,
             )?;
         }
@@ -1570,12 +1494,7 @@ impl BuildSystemDeclaration {
         Ok(templates)
     }
 
-    fn validate_model(
-        &self,
-        field: &str,
-        options: &BTreeSet<String>,
-        templates: &BTreeSet<String>,
-    ) -> Validation<()> {
+    fn validate_model(&self, field: &str, options: &BTreeSet<String>) -> Validation<()> {
         let field = format!("{field}.model");
         let model_options: BTreeSet<String> = self
             .options
@@ -1598,7 +1517,7 @@ impl BuildSystemDeclaration {
                         "The model file must be relative to the build-system root.",
                     ));
                 }
-                map.validate(&format!("{field}.map"), templates, &model_options)
+                map.validate(&format!("{field}.map"), &model_options)
             }
             Some(ModelSource::Command {
                 arguments,
@@ -1629,9 +1548,7 @@ impl BuildSystemDeclaration {
                         format!("{field}.map"),
                         "A model command with a generic format needs a map.",
                     )),
-                    (_, Some(map)) => {
-                        map.validate(&format!("{field}.map"), templates, &model_options)
-                    }
+                    (_, Some(map)) => map.validate(&format!("{field}.map"), &model_options),
                 }
             }
             Some(ModelSource::HostIntegration | ModelSource::Provider) => Ok(()),
@@ -2166,12 +2083,7 @@ impl OptionDeclaration {
 }
 
 impl ModelMap {
-    fn validate(
-        &self,
-        field: &str,
-        templates: &BTreeSet<String>,
-        model_options: &BTreeSet<String>,
-    ) -> Validation<()> {
+    fn validate(&self, field: &str, model_options: &BTreeSet<String>) -> Validation<()> {
         if self.projects.is_empty() {
             return Err(invalid(
                 format!("{field}.projects"),
@@ -2183,20 +2095,13 @@ impl ModelMap {
             let field = format!("{field}.projects[{index}]");
             check_rule(rule, &field)?;
             rule.name.validate(&format!("{field}.name"))?;
-            for spec in [&rule.display_name, &rule.path, &rule.parent]
-                .into_iter()
-                .flatten()
-            {
+            for spec in [&rule.display_name, &rule.path].into_iter().flatten() {
                 spec.validate(&field)?;
             }
             check_properties(&rule.properties, &field)?;
             check_rule_count(rule.targets.len(), &format!("{field}.targets"))?;
             for (target_index, target) in rule.targets.iter().enumerate() {
-                target.validate(&format!("{field}.targets[{target_index}]"), false)?;
-            }
-            check_rule_count(rule.tasks.len(), &format!("{field}.tasks"))?;
-            for (task_index, task) in rule.tasks.iter().enumerate() {
-                task.validate(&format!("{field}.tasks[{task_index}]"), templates, false)?;
+                target.validate(&format!("{field}.targets[{target_index}]"))?;
             }
             check_rule_count(rule.content_roots.len(), &format!("{field}.contentRoots"))?;
             for (root_index, content_root) in rule.content_roots.iter().enumerate() {
@@ -2204,14 +2109,6 @@ impl ModelMap {
                 check_rule(content_root, &field)?;
                 content_root.path.validate(&format!("{field}.path"))?;
             }
-        }
-        check_rule_count(self.targets.len(), &format!("{field}.targets"))?;
-        for (index, target) in self.targets.iter().enumerate() {
-            target.validate(&format!("{field}.targets[{index}]"), true)?;
-        }
-        check_rule_count(self.tasks.len(), &format!("{field}.tasks"))?;
-        for (index, task) in self.tasks.iter().enumerate() {
-            task.validate(&format!("{field}.tasks[{index}]"), templates, true)?;
         }
         for (id, rule) in &self.option_values {
             let field = format!("{field}.optionValues.{id}");
@@ -2283,65 +2180,17 @@ fn check_properties(properties: &BTreeMap<String, FieldSpec>, field: &str) -> Va
 }
 
 impl TargetRule {
-    fn validate(&self, field: &str, top_level: bool) -> Validation<()> {
+    fn validate(&self, field: &str) -> Validation<()> {
         check_rule(self, field)?;
         self.name.validate(&format!("{field}.name"))?;
-        if top_level && self.path.is_none() {
-            return Err(invalid(
-                format!("{field}.path"),
-                "Top-level targets need a path to find their project.",
-            ));
-        }
         if let Some(path) = &self.path {
             path.validate(&format!("{field}.path"))?;
         }
         check_properties(&self.properties, field)?;
-        let tags_field = format!("{field}.tags");
-        let tags: Vec<&String> = match &self.tags {
-            TagSpec::Literal(tags) => tags.iter().collect(),
-            TagSpec::Mapped { from, map, default } => {
-                select::validate(from, &format!("{tags_field}.from"), true)?;
-                map.values().flatten().chain(default.iter()).collect()
-            }
-        };
-        if tags.iter().any(|tag| !is_tag(tag)) {
-            return Err(invalid(tags_field, "Tags are identifiers."));
+        if self.tags.iter().any(|tag| !is_tag(tag)) {
+            return Err(invalid(format!("{field}.tags"), "Tags are identifiers."));
         }
         Ok(())
-    }
-}
-
-impl TaskRule {
-    fn validate(
-        &self,
-        field: &str,
-        templates: &BTreeSet<String>,
-        top_level: bool,
-    ) -> Validation<()> {
-        check_rule(self, field)?;
-        self.name.validate(&format!("{field}.name"))?;
-        if !templates.contains(&self.template) {
-            return Err(invalid(
-                format!("{field}.template"),
-                "The template must name a fromModel task.",
-            ));
-        }
-        if top_level && self.path.is_none() {
-            return Err(invalid(
-                format!("{field}.path"),
-                "Top-level tasks need a path to find their project.",
-            ));
-        }
-        for spec in [&self.path, &self.display_name, &self.description]
-            .into_iter()
-            .flatten()
-        {
-            spec.validate(field)?;
-        }
-        if let Some(ExecutionSpec::Mapped { from, .. }) = &self.execution {
-            select::validate(from, &format!("{field}.execution.from"), true)?;
-        }
-        check_properties(&self.properties, field)
     }
 }
 
@@ -2356,10 +2205,6 @@ impl DependencyRule {
         {
             spec.validate(field)?;
         }
-        check_properties(&self.properties, field)?;
-        if let Some(children) = &self.children {
-            select::validate(children, &format!("{field}.children"), false)?;
-        }
-        Ok(())
+        check_properties(&self.properties, field)
     }
 }

@@ -90,7 +90,7 @@ Lithe 对构建工具的支持原本分散在三处：Rust Core 里写死的运�
 
 - 模型来源有 `static`、`command`、`provider`、`hostIntegration` 四档，依赖来源有 `command`、`provider`、`hostIntegration`。`buildServer`（BSP）档留到第 5 节的 P3。
 - Provider 的两种写法都必须写 `executesProjectCode` 和 `mayUseNetwork`，原计划的共享写法 `{ "languageServer": "java" }` 没有这两个标志，现在缺少就是 `plugin.manifest.invalid`。Provider 的模型请求总是覆盖整个实例，依赖请求只支持工作区和工程两层。
-- 解码格式是 `json`、`jsonStream`、`toml`、`yaml`、`junitXml`、`lineMatcher` 和四个规范格式（`litheBuildModel`、`litheTestResults`、`litheDependencies`、`litheDiagnostics`）。原计划的 `trx`、`tap`、`sarif`、`goTestJson` 还没有实现，有实际插件需要时再升级 API 级别加入。
+- 解码格式是静态模型的 `toml`、命令输出的 `jsonStream`、`junitXml`、`lineMatcher` 和四个规范格式（`litheBuildModel`、`litheTestResults`、`litheDependencies`、`litheDiagnostics`），其余格式在第 7 节的审查中拿掉了。原计划的 `trx`、`tap`、`sarif`、`goTestJson` 还没有实现，有实际插件需要时作为 `buildSystems` 的新版本加入。
 - 选项参数通过 `${optionArguments}` 或 `${optionArguments:<id>}` 整体放置，没有原计划的 `${option:<id>}` 拼接变量；拼接方式由选项自己的 `arguments` 模板决定。
 - `runtimeDependencies` 是开放列表：`java`、`node`、`go` 由宿主管理，其他运行时由插件自己描述。可执行文件新增了 `runtime` 一类。
 - Maven 用 `outermost` 嵌套加 `maven` 集成，没有为它增加专用的嵌套方式。
@@ -256,11 +256,13 @@ Maven 在 P4 内部的迁移顺序：
 3. Windows 用同一组 fixture 切换。
 4. 删除已被声明取代的 Core 命令（先删 `maven.diagnostics`）；其余 `maven.*` 降为集成内部函数，从 `rust-core-api.md` 中移除。
 
-### 7. 发布前按真实插件审查 API 3 的字段
+### 7. 发布前按真实插件审查 API 3 的字段（已完成）
 
-API 3 还没有发布。`buildSystems` 的版本 1 一旦发布就要长期支持；而按能力分版本之后，以后再加字段只影响用到它的插件（作为 `buildSystems` 版本 2）。所以发布前可以先拿掉没有真实插件需要的部分，等需要时再加。
+API 3 还没有发布。`buildSystems` 的版本 1 一旦发布就要长期支持；而按能力分版本之后，以后再加字段只影响用到它的插件（作为 `buildSystems` 版本 2）。所以发布前先拿掉了没有真实插件需要的部分。
 
-审查方法：列出 schema 里 `buildSystems` 的全部字段路径和枚举值，共 463 个，再对照六个 fixture（Cargo、Go、Gradle、Maven 和两个 Provider）实际用到的部分。其中 283 个路径没有 fixture 用到，223 个是 `map` 选择器的各种写法。“没有 fixture 用到”不等于没有测试，其中一部分由 `build_systems.rs` 的单元测试覆盖。
+审查方法：列出 schema 里 `buildSystems` 的字段路径和枚举值，对照六个 fixture（Cargo、Go、Gradle、Maven 和两个 Provider）实际用到的部分。第一版盘点把 fixture 已经用到的 `where`（Go）、`fallback`、`whenFile`、`optionValues`（Cargo）、`transform`（Go 的 `lastSegment`）、字面值 `value` 和依赖 `map`（Go）误列为未使用，复查后改正。
+
+2026-10-18 的决定：
 
 | 结论 | 内容 | 理由 |
 | --- | --- | --- |
@@ -269,12 +271,14 @@ API 3 还没有发布。`buildSystems` 的版本 1 一旦发布就要长期支�
 | 保留 | 选项的 `singleSelect`、`choices`、`default` | Cargo 的 `--profile`、CMake 的构建类型都是单选，下一个真实插件大概率会用到 |
 | 保留 | 参数的 `{value, when}` 条件写法（`globalArguments`、`model.arguments`、`run[].arguments`） | 条件求值是模板的公共机制，只在某几个列表里禁止，规则反而不规整 |
 | 保留，但第一个使用它的插件要补 fixture | 规范格式 `litheTestResults`、`litheDiagnostics`；诊断严重级别 `warning`、`information`、`hint` | 这是插件自带脚本的出口：没有 JUnit 报告、也没有固定输出格式的工具只能靠它。目前只有单元测试 |
-| 可以推迟，但要和已有决定一起评估 | `invocation.runtimeDependencies[]` 里 `java`、`node`、`go` 以外的自定义运行时（自带 `executables` 和 `version` 探测） | 没有 fixture 使用：现有 fixture 都直接从 `PATH` 找构建工具本身（`cargo`、`go`、`mix`），Gradle、Maven 只需要宿主管理的 `java`。它是一整套发现逻辑，推迟能减少要长期支持的范围。但[构建系统插件契约](../../implemented/architecture/2026-10-17-build-system-plugin-contract.md)为 .NET、Erlang、Dart 这类工具特意保留了开放的运行时清单，推迟前要确认这些工具在“构建工具本身在 `PATH` 上”时已经够用 |
-| 可以推迟 | `map` 里没有 fixture 用到的规则：`where` 谓词、`fallback`、`whenFile`、`transform`、字面量 `value`、`parent`，map 里的 targets 和 tasks 规则，大部分 `contentRoots` 类型，`optionValues` 映射 | 这是未使用路径的大头。真实工具要么输出 `litheBuildModel`（Gradle），要么只用到基本字段（Cargo、Go）。规则越多，`map` 越像一门需要长期维护的小语言 |
-| 可以推迟 | 模型解码器 `yaml`；依赖解码器 `json`、`toml`、`yaml` 和依赖的 `map` | 没有构建工具用 YAML 输出模型；依赖树实际来自 `litheDependencies`（脚本或 Provider）或 `hostIntegration` |
-| 可以推迟 | `layout.generated` | 宿主还没有展示生成目录的地方，Maven 的生成源码目录目前由 `hostIntegration` 处理 |
+| 保留 | `invocation.runtimeDependencies[]` 里 `java`、`node`、`go` 以外的自定义运行时 | 没有 fixture 使用，但它是[构建系统插件契约](../../implemented/architecture/2026-10-17-build-system-plugin-contract.md)为 .NET、Erlang、Dart 这类工具保留的开放运行时清单；拿掉后这些工具只能假设自己在 `PATH` 上，宿主也无法提示版本不够 |
+| 保留 | fixture 用到的映射规则：`where`、`fallback`、`whenFile`、`each`、选择器的各种写法、`lastSegment`、字面值、`optionValues`；工程级的目标和内容根；依赖的平铺 `map` | 真实插件在用 |
+| 保留 | 内容根的全部类型 | 类型与 `litheBuildModel` 共用一个枚举，只在映射里收窄会让两种来源的词汇不一致 |
+| 已拿掉 | 工程里的任务规则（`tasks`、`template`、执行方式）、`map` 顶层的 `targets` 和 `tasks`、工程的 `parent`、映射出来的标签、`parentDirectory` 变换、依赖的 `children` | 没有 fixture 使用。规则越多，`map` 越像一门要长期维护的小语言；从工具读任务、算父子关系、产出依赖树，都交给插件脚本输出 `litheBuildModel`、`litheDependencies` |
+| 已拿掉 | 静态模型的 `json`、`yaml`；模型命令的 `json`、`toml`、`yaml`；依赖命令的 `json`、`toml`、`yaml` | 静态清单只有 `Cargo.toml` 这一种真实用法；命令输出的单个 JSON 文档由 `jsonStream` 读成单元素数组 |
+| 已拿掉 | `layout.generated` | 宿主还没有展示生成目录的地方，Maven 的生成源码目录目前由 `hostIntegration` 处理 |
 
-建议在发布 API 3 之前逐项决定是否拿掉“可以推迟”的部分。拿掉时同步删除 schema、README、Rust 实现和对应的单元测试；以后再作为 `buildSystems` 的新版本加回来。
+拿掉的部分已从 schema、README、Rust 实现和单元测试中删除；`invalid-manifests.json` 里有九条用例证明这些写法现在会被拒绝。代价是 Deno、npm 这类清单是 JSON 的工具不能再纯静态声明，要附带脚本走 `command` 来源，任务要等用户请求后才出现。以后真有插件需要，作为 `buildSystems` 版本 2 加回来，并附带 fixture。
 
 ### 正确做法
 
@@ -308,7 +312,7 @@ API 3 还没有发布。`buildSystems` 的版本 1 一旦发布就要长期支�
 Core 契约部分的验收已在已实现的 Note 里完成。剩下的工作按下列标准验收：
 
 - 一个只声明 `buildSystems`、不声明语言和 UI 的插件能在两端安装、启用和禁用；宿主的 `hostCapabilities` 含 `buildSystems` 后，插件市场列出它的 API 3 版本。
-- 发布 API 3 之前，第 7 节里“可以推迟”的每一项都已决定保留还是拿掉，拿掉的部分已从 schema、README 和 Core 中删除。
+- 发布 API 3 之前，第 7 节的字段审查已完成（2026-10-18），拿掉的部分已从 schema、README 和 Core 中删除；发布前如果又加了 `buildSystems` 字段，按同样方法再审一遍。
 - Cargo 改由构建模型生成运行配置后，生成结果（含 ID）与现有探测器的标准答案一致；用户已写的覆盖配置不会脱钩。
 - 安装一个第三方 Gradle 构建插件后，它注入的每个运行任务各自生成一条运行配置，名字包含 project 路径和任务名，满足 Issue #10 的验收条件，Core 和宿主都不改代码。
 - 在未信任的工作区打开项目时，没有任何 `command` 档进程被启动；Wrapper 只在用户操作后运行。

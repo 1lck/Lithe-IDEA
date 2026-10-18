@@ -8,7 +8,7 @@ Lithe 现在用一套统一的构建模型描述所有项目级构建工具（Bu
 
 Rust Core 负责校验声明、识别工程、展开每一条命令行，并把输出解码成统一的形状，通过 13 个 `build.*` JSON 命令交给宿主。宿主只负责找可执行文件、启动进程、监听文件和保存用户选择，代码里不按构建系统的名字写分支。因此社区插件不改宿主代码就能加入一个新构建工具。
 
-声明和规范格式表达不了的工具（Gradle Tooling API 等），由插件自带的 Provider 进程回答。Provider 就是语言服务器那种进程：共用启动字段、校验和启动计划，只多回答 `lithe/build/model`、`lithe/build/dependencies`，回复仍由 Core 解码（第 9 节）。
+映射（`map`）只从解码后的文档里挑值。挑值以外的逻辑由插件自己处理：读 JSON、YAML 清单，从工具读任务，计算父子关系，这些都交给插件自带的脚本输出规范格式（第 6 节）。声明和规范格式都表达不了的工具（Gradle Tooling API 等），由插件自带的 Provider 进程回答。Provider 就是语言服务器那种进程：共用启动字段、校验和启动计划，只多回答 `lithe/build/model`、`lithe/build/dependencies`，回复仍由 Core 解码（第 9 节）。
 
 目前落地的是 Core、共享契约和 macOS 宿主（第 10 节）。macOS 有了通用 Build 工具窗口，并向 Core 声明 `buildSystems: [1]`；Windows 宿主还没有接入，两端都还不会向 Provider 发请求。API 3 的清单按能力分版本，构建系统是其中的 `buildSystems` 能力；插件市场只在宿主声明支持对应能力时才列出 API 3 的版本，见[声明式插件按能力分版本](2026-10-17-plugin-capability-versions.md)。宿主接入和 Maven 迁移的计划见[构建系统 Provider 提案](../../proposed/architecture/2026-10-17-build-system-provider-api.md)。
 
@@ -77,11 +77,12 @@ Rust Core 负责校验声明、识别工程、展开每一条命令行，并把�
 - **运行时**：`java`、`node`、`go` 由宿主管理，只写 ID 和最低版本，按用户的运行时设置发现。其他任何 ID 都由插件自己写可执行文件候选和版本探测，所以运行时列表是开放的。
 - **自带逻辑**：插件附带的脚本（例如 Gradle 的 init script，即初始化脚本）可以直接输出规范格式，不必写选择器映射。规范格式有 `litheBuildModel`、`litheTestResults`、`litheDependencies`、`litheDiagnostics`。规范文档里的未知字段会被忽略，所以新脚本配旧宿主也能用。插件自带的常驻 Provider 进程也用这几种格式回复（第 9 节）。
 
-固定词汇（要扩展就升级 API 级别）：
+固定词汇（要扩展就给对应能力加一个新版本，见[声明式插件按能力分版本](2026-10-17-plugin-capability-versions.md)）：
 
 - 权限只新增一个 `process.build`；激活事件是 `onBuildSystem:<id>`。
 - 模板变量和参数条件。
-- 解码格式：`json`、`jsonStream`、`toml`、`yaml`、`junitXml`、`lineMatcher` 和上面四个规范格式。
+- 解码格式：静态模型读 `toml`；模型和依赖命令的输出用 `jsonStream`；测试报告用 `junitXml`，诊断用 `lineMatcher`；再加上上面四个规范格式。
+- 映射规则和选择器（第 6 节）。
 - `hostIntegration`（具名的宿主内置实现）：只有官方 `dev.lithe.*` 插件能声明，目前只有 `maven`。第三方声明会得到 `plugin.integration.unsupported`。
 
 封闭这几项的原因是：两端宿主必须对同一份声明做出逐字相同的解释。如果允许插件自定义变量或解码器，未知的部分在某个宿主上会被静默忽略，同一个插件在两端会生成不同的命令行。
@@ -106,12 +107,14 @@ Rust Core 负责校验声明、识别工程、展开每一条命令行，并把�
 
 ### 6. 模型来源与解码
 
-- `static`：识别时直接读取 `json`、`toml` 或 `yaml` 清单，不启动进程，打开项目即可运行。Cargo fixture 读 `Cargo.toml`。
-- `command`：宿主运行模型命令，Core 解码输出。声明里的 `executesProjectCode`、`mayUseNetwork` 只用于展示；凡是选中 `projectFile` 候选，宿主一律按执行仓库代码处理，不采信插件的声明。Go fixture 用 `go list -json`（`jsonStream` 解码），Gradle fixture 用 init script 输出 `litheBuildModel`。
+- `static`：识别时直接读取 `toml` 清单，不启动进程，打开项目即可运行。Cargo fixture 读 `Cargo.toml`。清单是 JSON 或 YAML 的工具（`deno.json`、`package.json`）用插件脚本，走 `command` 来源。
+- `command`：宿主运行模型命令，Core 解码输出。声明里的 `executesProjectCode`、`mayUseNetwork` 只用于展示；凡是选中 `projectFile` 候选，宿主一律按执行仓库代码处理，不采信插件的声明。Go fixture 用 `go list -json`（`jsonStream` 解码；`jsonStream` 也接受单个 JSON 文档），Gradle fixture 用 init script 输出 `litheBuildModel`。
 - `provider`：插件自带的 Provider 进程回答，见第 9 节。
 - `hostIntegration`：见第 8 节。
 
-映射（`map`）用选择器从解码后的文档取出工程、目标、任务、内容根和选项取值。选择器是 JSON Pointer 加少量扩展：`@key`、从文档根开始的 `$/…`、`*`、`where` 过滤、`fallback`、`whenFile`、字面值 `{ "value": … }` 和两种 `transform`。选择器不提供控制流，表达不了的情况就让插件脚本输出规范格式。
+映射（`map`）只挑值：用选择器从解码后的文档取出工程（连同工程的目标和内容根）和选项取值。选择器是 JSON Pointer 加少量扩展：`@key`、从文档根开始的 `$/…`、`*`、`where` 过滤、`fallback`、`whenFile`、字面值 `{ "value": … }` 和 `lastSegment` 变换。目标标签是字面列表；工程的父工程是包含它的最深一层工程，不能映射；依赖映射只产出平铺列表，依赖树来自 `litheDependencies`。选择器不提供控制流。
+
+映射表达不了的部分由插件自己处理：插件脚本（或者工具加初始化脚本）输出 `litheBuildModel`、`litheDependencies`，或者由 Provider 回答。API 3 发布前按真实插件裁剪过一次（2026-10-18），去掉了没有 fixture 使用的部分：工程里的任务规则、`map` 顶层的目标和任务、`parent`、映射出来的标签、`parentDirectory` 变换、依赖的 `children`、静态模型的 `json` 和 `yaml`、命令输出的 `json`、`toml` 和 `yaml`，以及 `layout.generated`。原因是每条映射规则都是 Lithe 自己定义的语义，发布后两端宿主要长期逐字相同地支持；脚本里的逻辑则归插件所有，插件可以自己演进。以后真有插件需要、又不适合放在插件里的规则，作为 `buildSystems` 的新版本加回来，并补 fixture。
 
 路径必须相对实例根，或者是工作区内的绝对路径，其他路径一律丢弃。规范格式里内容根的 `project` 只指明归属，`path` 同样相对实例根；曾经按工程目录再拼一次，子工程会得到 `app/app/src/main/java`。读取静态模型、报告和同步监视文件前，还要校验符号链接最终指向工作区内：允许 `workspace/alias → workspace/data`，拒绝 `workspace/model.json → /outside/model.json`；否则模型和指纹会泄露外部文件内容。宿主显式传入的 `outputFile` 保留读取工作区外临时输出的能力。输出不符合解码格式时返回 `plugin.build.invalidOutput`，不静默返回空列表。
 
@@ -184,7 +187,7 @@ macOS 宿主接受级别 3，并在 `PluginManifest.hostCapabilities` 里声明 
 
 ### 正确做法
 
-- 社区作者支持 Deno：`detection.markers` 写 `deno.json`；`model` 用 `static` 档，从 `/tasks` 用 `@key` 读任务名；`run` 从任务生成运行入口；再给 `build-plans.json` 补一条标准答案。Core 和宿主都不改。
+- 社区作者支持 Deno：`detection.markers` 写 `deno.json`；插件附带一个读 `deno.json` 的脚本（例如 `model.ts`），`model` 用 `command` 来源，参数写 `run --allow-read ${pluginDir}/model.ts`，脚本把 `tasks` 写成 `litheBuildModel` 里的任务；再给 `build-plans.json` 补一条标准答案。Core 和宿主都不改。
 - 某个 Gradle 插件注入了新的运行任务：插件更新 init script，让它把任务写进 `litheBuildModel`，并标上 `execution: "service"`。用户刷新模型后就能看到，Lithe 不需要发版。
 - 构建工具需要一个宿主不管理的运行时（例如 `dotnet`）：在 `runtimeDependencies` 里写这个 ID、它的可执行文件候选和版本探测。
 - Gradle 插件想用 Tooling API：`provider` 用 `runtime` 启动包内的 jar，`model` 和 `dependencies` 写 `source: "provider"`，jar 回复 `litheBuildModel`、`litheDependencies`。语言服务器已经导入了工程时（例如 ElixirLS），用共享写法，不要再启动一个进程各自导入一遍。
@@ -192,7 +195,8 @@ macOS 宿主接受级别 3，并在 `PluginManifest.hostCapabilities` 里声明 
 ### 不要这样做
 
 - 在 `build/` 或宿主里写 `if build_system_id == "gradle"`。这与已撤销的 `descriptor.id == "java"` 是同一类特判。
-- 给模板引擎加变量、给解码器加格式，却不升级 API 级别、不补 fixture。
+- 给模板引擎加变量、给解码器加格式、给映射加规则，却不给对应能力加新版本、不补 fixture。
+- 为了让某个插件少写一段脚本，就给 `map` 加一条规则。映射只挑值，需要计算的部分放在插件脚本里。
 - 为了图方便给社区插件开放 `hostIntegration`，或者再加一个新的集成。新的构建系统应该用声明或规范格式。
 - 在宿主里自己拼 argv 或解析输出。即使只差一个参数，也要改声明或 Core，否则两端会各写一份。
 - 为 Provider 另写一份启动字段和校验，或者新增 `build.providerLaunchPlan`。宿主也不要直接使用 Provider 的回复，必须先交给 Core 解码。
@@ -210,6 +214,14 @@ macOS 宿主接受级别 3，并在 `PluginManifest.hostCapabilities` 里声明 
 ### 用 JMESPath 之类的完整查询语言做选择器
 
 最有吸引力的地方：表达力强，社区熟悉。不采用，因为它很快会变成一门编程语言，两端宿主还要依赖同一个第三方实现的同一版本。现在的选择器是 JSON Pointer 加有限扩展，表达不了的情况交给插件脚本输出规范格式。
+
+### 保留没有插件使用的字段，只是不校验
+
+最有吸引力的地方：字段本来就是可选的，不用删代码，以后想用的插件直接能用。不采用，因为字段只要还在 schema 里、宿主还要解释它，就同样是要长期支持的承诺；去掉校验只会让写错的声明静默失效，同一份声明在两端还可能得到不同结果，路径越界检查也跟着丢掉。
+
+### 保留全部映射规则和解码格式
+
+最有吸引力的地方：Deno、npm 这类清单是 JSON 的工具可以纯静态声明，打开项目就能看到任务，不必启动进程。不采用，因为这些规则没有真实插件验证过，语义一旦发布就锁定在 `buildSystems` 版本 1 里。同样的需求用插件脚本输出 `litheBuildModel` 就能满足，代价是要等用户请求时才运行。真有插件需要时，作为 `buildSystems` 版本 2 加回来，并附带 fixture。
 
 ### 为 Provider 定义一种新的进程类型
 
@@ -235,7 +247,7 @@ macOS 宿主接受级别 3，并在 `PluginManifest.hostCapabilities` 里声明 
 代价：
 
 - 契约面很大：schema 和 README 增加了上千行，评审和后续修改都要同步 schema、README、fixture 和标准答案。
-- 声明的表达力有上限。复杂工具（Gradle、Bazel）必须附带脚本输出规范格式，插件作者要维护这部分脚本。
+- 声明的表达力有上限，而且这次有意收窄了：映射只挑值。复杂工具（Gradle、Bazel）必须附带脚本输出规范格式，插件作者要维护这部分脚本。清单是 JSON 或 YAML 的工具（Deno、npm）也要附带脚本；macOS 只在用户请求时运行模型命令，所以这类工具的任务要点击“加载模型”后才出现，不能像 `toml` 静态模型那样打开项目就显示。
 - Maven 仍保留一块 Core 专用的集成代码，要等进程型 Provider 落地、两端宿主迁移完成后才能删除。
 - 标准答案固定了配置指纹。改动选项的序列化方式会让所有涉及指纹的标准答案一起变化，需要逐条确认。
 - `ServerProcess` 由语言服务器和 Provider 共用：改动其中任何字段或校验，两者会一起变化，需要同时检查两边的 fixture。
@@ -245,7 +257,7 @@ macOS 宿主接受级别 3，并在 `PluginManifest.hostCapabilities` 里声明 
 
 - `cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib build_systems`：四个 fixture 通过校验；`build-plans.json` 的全部标准答案；在临时工作区里验证 Cargo 运行入口与内置探测器逐字一致、嵌套、优先级与拒绝、Maven reactor 识别、Gradle 规范格式输出文件、JUnit 报告、同步指纹、Maven 任务参数与内置实现一致，以及互斥条件下允许重复引用选项。
 - `cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib build_systems` 还覆盖 Provider：`build-plans.json` 里 `gradle-provider`、`mix-provider` 的请求计划和 `result` 解码；`provider_processes_are_install_review_programs`（自有进程和共享写法在安装审查中的条目）；`launch_plans_name_exactly_one_process`；`provider_models_are_not_read_during_detection`。
-- `cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib declarative_plugins`：`invalid-manifests.json` 里的非法清单，包括社区插件声明 `hostIntegration`、未声明权限、路径越界、未保护的模板变量和选项重复放置，以及 Provider 的十种错误写法（没有来源使用、混写、缺少标志、缺少权限、入口越界、不支持的运行时、未声明的设置等）；`command-plans.json` 里按 `buildSystemID` 选中的启动计划。
+- `cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib declarative_plugins`：`invalid-manifests.json` 里的非法清单，包括社区插件声明 `hostIntegration`、未声明权限、路径越界、未保护的模板变量和选项重复放置，以及 Provider 的十种错误写法（没有来源使用、混写、缺少标志、缺少权限、入口越界、不支持的运行时、未声明的设置等），和裁剪后不再接受的九种写法（静态 `yaml`、命令 `json`、任务规则、顶层目标、`parent`、映射标签、`parentDirectory`、依赖 `children`、`layout.generated`）；`command-plans.json` 里按 `buildSystemID` 选中的启动计划。
 - `./scripts/verify-shared-contracts.sh`：schema 与 fixture 一致；`build-plans.json` 的用例名唯一、操作合法、拒绝码都有文档、不含机器路径；`command-plans.json` 的每个用例只给出 `languageID`、`buildSystemID` 之一。
 - `./scripts/verify-rust-core-comments.sh`：`build/` 模块的注释规范。
 - `./scripts/test-macos.sh --filter 'RustBuildSystemOperationsTests|BuildSystemServiceTests'`：Swift 一侧对真实 Rust Core 调用 `build.*`（cargo、go、maven fixture 的识别、选项 `dropped`、调用计划、版本探测、任务和测试 argv、命令模型解码、诊断与同步指纹）；`BuildSystemService` 用假的 Core、运行器和存储验证识别问题列表、stdout 捕获与输出文件清理、失败退出码、输出顺序与诊断、停止、选项改存生效值、指纹变化后的重新加载提示，以及停用插件后停止命令并移除实例。

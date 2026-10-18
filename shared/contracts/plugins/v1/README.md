@@ -558,14 +558,14 @@ declaration are relative, use `/`, and stay inside their base directory
 | `runtimeDependencies` | `java`, `node`, and `go` are host-managed: only `id` and `minimumVersion`, discovered with the user's runtime settings; `build.invocationPlan` returns the probe arguments Core reads their version with, so hosts keep no per-runtime probe. Any other ID describes its own `executables` and `version` probe, so the runtime list is open. |
 | `options` | Build dimensions the user chooses: `boolean`, `singleSelect`, `multiSelect`, `text`, `file`, `directory`. Each contributes `arguments` and `environment` (with `${value}`) when it has a value. Choices are declared, come from the model (`choicesFromModel`), or are free (`allowCustom`). |
 | `provider` | The process that answers model and dependency requests when no command prints them; see [Build providers](#build-providers). |
-| `model` | `static` (a `json`, `toml`, or `yaml` file read during detection, no process), `command` (a command whose output Core decodes; it states `executesProjectCode` and `mayUseNetwork`), `provider`, or `hostIntegration`. |
+| `model` | `static` (a `toml` file read during detection, no process), `command` (a command whose output Core decodes; it states `executesProjectCode` and `mayUseNetwork`), `provider`, or `hostIntegration`. |
 | `tasks` | The task catalog. `scopes` say what a task runs on (`workspace`, `project`, `target`); `targetTags` restrict targets; `requiresUserArguments` makes the host ask for arguments. A `fromModel` task is the template for tasks the model lists. |
 | `run` | Run entries from model targets (`fromTargets.tags`, with `arguments`) or model tasks (`fromTasks`, reusing the template task's arguments). |
 | `test` | How tests run: `scopes`, `targetTags`, the `filters` (`suite`, `case`) it can select, and `results` (`junitXml` or `litheTestResults` report globs relative to the project, or `hostIntegration`). A workspace run reads the globs under the root and every model project. A requested filter must reach the command line through a template whose conditions hold; a `case` guarded by `suiteSelected` therefore needs its suite. |
 | `diagnostics` | `lineMatcher` patterns with capture-group numbers, or `litheDiagnostics` lines. |
-| `dependencies` | A command (with `scopes`) whose output Core decodes into a tree, `provider` (with `scopes`, `workspace` and `project` only), or `hostIntegration`. |
+| `dependencies` | A command (with `scopes`) whose output Core decodes, as a flat list through a `map` or as a tree from `litheDependencies`; `provider` (with `scopes`, `workspace` and `project` only); or `hostIntegration`. |
 | `sync` | Files whose change makes the model stale, relative to the root and to each project. |
-| `layout` | `excluded` and `generated` directories relative to each project. |
+| `layout` | `excluded` directories relative to each project, added to every project as `excluded` content roots. |
 
 ### Templates
 
@@ -594,20 +594,33 @@ contributes nothing. Unknown, misplaced, unguarded, or repeated variables are
 
 ### Model and outputs
 
-A model command prints to `stdout` (default) or to the host-allocated
-`${outputFile}`. Decoders are `json`, `jsonStream` (whitespace-separated JSON
-values such as NDJSON or `go list -json`, decoded as an array), `toml`,
-`yaml`, or a canonical format that needs no `map`.
+A model or dependency command prints to `stdout` (default) or to the
+host-allocated `${outputFile}`. Its decoder is `jsonStream`
+(whitespace-separated JSON values such as NDJSON or `go list -json`, decoded
+as an array; a single document becomes a one-element array) or a canonical
+format that needs no `map`. A static model file is `toml`.
 
-A `map` turns a decoded document into projects, targets, tasks, content
-roots, and option values. Rules select elements with `each`, filter them with
-`where` predicates (`{ "pointer", "equals" | "exists" }`), apply only as a
-`fallback` or `whenFile` a file exists, and read fields with selectors: `""`
-(the element), `@key` (its key), `/a/b` (relative to the element), `$/a/b`
-(from the document root), `*` (each item). A field is a selector, `{ "from",
-"transform": "lastSegment" | "parentDirectory" }`, or a literal
-`{ "value": "src" }`. Paths are relative to the root or absolute inside the
-workspace; anything else is dropped.
+A `map` only selects values. A model map turns a decoded document into
+projects, each with its targets and content roots, and into option values; a
+dependency map turns it into a flat list. Rules select elements with `each`,
+filter them with `where` predicates (`{ "pointer", "equals" | "exists" }`),
+apply only as a `fallback` or `whenFile` a file exists, and read fields with
+selectors: `""` (the element), `@key` (its key), `/a/b` (relative to the
+element), `$/a/b` (from the document root), `*` (each item). A field is a
+selector, `{ "from", "transform": "lastSegment" }`, or a literal
+`{ "value": "src" }`. Target `tags` are a literal list, and a project's
+parent is the deepest project containing it. Paths are relative to the root
+or absolute inside the workspace; anything else is dropped.
+
+Whatever a map cannot express is the plugin's own work: other file formats,
+tasks read from the tool, explicit parent links, tags computed from values,
+and dependency trees. The plugin's command (a script under `${pluginDir}`,
+or the tool itself with a plugin-supplied init script, as Gradle does) prints
+`litheBuildModel` or `litheDependencies`, or a
+[build provider](#build-providers) answers. Unlike a static file, a command
+runs only when the host starts it on request. The map does not grow into a
+transformation language: a later `buildSystems` version adds a rule only when
+real plugins need it and it cannot reasonably live in the plugin.
 
 Canonical formats let a plugin's own script print the shape Core expects:
 

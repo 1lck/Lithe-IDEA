@@ -21,13 +21,13 @@ const MAX_GLOB_DIRECTORIES: usize = 4000;
 /// Deepest directory a `**` reaches below its base.
 const MAX_GLOB_DEPTH: usize = 12;
 
-/// Structured formats shared by model and dependency output.
+/// Structured formats Core parses: the canonical documents (JSON), and the
+/// formats a plugin's map reads.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Format {
     Json,
     JsonStream,
     Toml,
-    Yaml,
 }
 
 pub(crate) fn invalid_output(message: impl Into<String>) -> PluginRejection {
@@ -47,7 +47,6 @@ pub(crate) fn document(text: &str, format: Format) -> Validation<Value> {
             .map(Value::Array)
             .map_err(|error| error.to_string()),
         Format::Toml => toml::from_str::<Value>(text).map_err(|error| error.to_string()),
-        Format::Yaml => serde_yaml_ng::from_str::<Value>(text).map_err(|error| error.to_string()),
     };
     parsed.map_err(|error| {
         invalid_output(format!(

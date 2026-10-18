@@ -734,8 +734,7 @@
             },
             "transform": {
               "enum": [
-                "lastSegment",
-                "parentDirectory"
+                "lastSegment"
               ]
             }
           }
@@ -850,124 +849,12 @@
           "$ref": "#/$defs/buildFieldSpec"
         },
         "tags": {
-          "oneOf": [
-            {
-              "type": "array",
-              "items": {
-                "type": "string",
-                "pattern": "^[a-z0-9-]+$",
-                "maxLength": 64
-              }
-            },
-            {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "from",
-                "map"
-              ],
-              "properties": {
-                "from": {
-                  "type": "string"
-                },
-                "map": {
-                  "type": "object",
-                  "additionalProperties": {
-                    "type": "array",
-                    "items": {
-                      "type": "string",
-                      "pattern": "^[a-z0-9-]+$",
-                      "maxLength": 64
-                    }
-                  }
-                },
-                "default": {
-                  "type": "array",
-                  "items": {
-                    "type": "string",
-                    "pattern": "^[a-z0-9-]+$",
-                    "maxLength": 64
-                  }
-                }
-              }
-            }
-          ]
-        },
-        "properties": {
-          "$ref": "#/$defs/buildFieldMap"
-        }
-      }
-    },
-    "buildTaskRule": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "name",
-        "template"
-      ],
-      "properties": {
-        "each": {
-          "type": "string"
-        },
-        "where": {
           "type": "array",
           "items": {
-            "$ref": "#/$defs/buildPredicate"
+            "type": "string",
+            "pattern": "^[a-z0-9-]+$",
+            "maxLength": 64
           }
-        },
-        "fallback": {
-          "type": "boolean"
-        },
-        "whenFile": {
-          "type": "string",
-          "minLength": 1,
-          "pattern": "^[^/\\\\]"
-        },
-        "name": {
-          "$ref": "#/$defs/buildFieldSpec"
-        },
-        "path": {
-          "$ref": "#/$defs/buildFieldSpec"
-        },
-        "template": {
-          "type": "string",
-          "pattern": "^[a-z][a-z0-9-]*$",
-          "maxLength": 64
-        },
-        "displayName": {
-          "$ref": "#/$defs/buildFieldSpec"
-        },
-        "description": {
-          "$ref": "#/$defs/buildFieldSpec"
-        },
-        "execution": {
-          "oneOf": [
-            {
-              "$ref": "#/$defs/buildExecution"
-            },
-            {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "from",
-                "map"
-              ],
-              "properties": {
-                "from": {
-                  "type": "string"
-                },
-                "map": {
-                  "type": "object",
-                  "additionalProperties": {
-                    "$ref": "#/$defs/buildExecution"
-                  }
-                },
-                "default": {
-                  "$ref": "#/$defs/buildExecution"
-                }
-              }
-            }
-          ]
         },
         "properties": {
           "$ref": "#/$defs/buildFieldMap"
@@ -1013,9 +900,6 @@
               "path": {
                 "$ref": "#/$defs/buildFieldSpec"
               },
-              "parent": {
-                "$ref": "#/$defs/buildFieldSpec"
-              },
               "properties": {
                 "$ref": "#/$defs/buildFieldMap"
               },
@@ -1023,12 +907,6 @@
                 "type": "array",
                 "items": {
                   "$ref": "#/$defs/buildTargetRule"
-                }
-              },
-              "tasks": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/$defs/buildTaskRule"
                 }
               },
               "contentRoots": {
@@ -1076,18 +954,6 @@
                 }
               }
             }
-          }
-        },
-        "targets": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/buildTargetRule"
-          }
-        },
-        "tasks": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/buildTaskRule"
           }
         },
         "optionValues": {
@@ -1148,9 +1014,6 @@
         },
         "properties": {
           "$ref": "#/$defs/buildFieldMap"
-        },
-        "children": {
-          "type": "string"
         }
       }
     },
@@ -1389,9 +1252,7 @@
                 },
                 "decoder": {
                   "enum": [
-                    "json",
-                    "toml",
-                    "yaml"
+                    "toml"
                   ]
                 },
                 "map": {
@@ -1424,10 +1285,7 @@
                 },
                 "decoder": {
                   "enum": [
-                    "json",
                     "jsonStream",
-                    "toml",
-                    "yaml",
                     "litheBuildModel"
                   ]
                 },
@@ -1827,10 +1685,7 @@
                 },
                 "decoder": {
                   "enum": [
-                    "json",
                     "jsonStream",
-                    "toml",
-                    "yaml",
                     "litheDependencies"
                   ]
                 },
@@ -1900,15 +1755,6 @@
           "additionalProperties": false,
           "properties": {
             "excluded": {
-              "type": "array",
-              "items": {
-                "type": "string",
-                "minLength": 1,
-                "pattern": "^[^/\\\\]"
-              },
-              "maxItems": 32
-            },
-            "generated": {
               "type": "array",
               "items": {
                 "type": "string",

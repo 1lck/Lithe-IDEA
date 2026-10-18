@@ -210,7 +210,6 @@ pub(crate) enum FieldSpec {
 #[serde(rename_all = "camelCase")]
 pub(crate) enum Transform {
     LastSegment,
-    ParentDirectory,
 }
 
 impl FieldSpec {
@@ -252,13 +251,6 @@ impl FieldSpec {
                 .next()
                 .unwrap_or_default()
                 .to_string(),
-            Some(Transform::ParentDirectory) => {
-                match text.trim_end_matches(['/', '\\']).rsplit_once(['/', '\\']) {
-                    Some((parent, _)) if !parent.is_empty() => parent.to_string(),
-                    Some(_) => "/".to_string(),
-                    None => ".".to_string(),
-                }
-            }
         };
         (!text.is_empty()).then_some(text)
     }

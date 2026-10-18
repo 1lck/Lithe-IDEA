@@ -8,8 +8,8 @@
 
 use super::decode::{self, Workspace};
 use super::manifest::{
-    BuildExecution, BuildSystemDeclaration, ContentRootKind, ContentRootRule, ExecutionSpec,
-    ModelMap, ProjectRule, RuleMatch, TagSpec, TargetRule, TaskGroup, TaskRule,
+    BuildExecution, BuildSystemDeclaration, ContentRootKind, ContentRootRule, ModelMap,
+    ProjectRule, RuleMatch, TargetRule, TaskGroup,
 };
 use super::select::{self, FieldSpec, Node};
 use crate::plugins::declarative::{is_identifier, Validation};
@@ -358,13 +358,12 @@ impl<'a> ModelBuilder<'a> {
         if let Some(layout) = self.build_system.layout.clone() {
             for index in 0..self.model.projects.len() {
                 let base = self.model.projects[index].path.clone();
-                for (paths, kind) in [
-                    (&layout.excluded, ContentRootKind::Excluded),
-                    (&layout.generated, ContentRootKind::GeneratedSource),
-                ] {
-                    for path in paths {
-                        self.add_content_root(index, decode::join_relative(&base, path), kind);
-                    }
+                for path in &layout.excluded {
+                    self.add_content_root(
+                        index,
+                        decode::join_relative(&base, path),
+                        ContentRootKind::Excluded,
+                    );
                 }
             }
         }
@@ -417,13 +416,6 @@ pub(crate) fn map_document(builder: &mut ModelBuilder<'_>, map: &ModelMap, docum
     let root = Node::root(document);
     apply_rules(&map.projects, document, &root, |rule, node| {
         map_project(builder, rule, document, node)
-    });
-    let base = builder.root.to_string();
-    apply_rules(&map.targets, document, &root, |rule, node| {
-        map_target(builder, None, &base, rule, document, node)
-    });
-    apply_rules(&map.tasks, document, &root, |rule, node| {
-        map_task(builder, None, &base, rule, document, node)
     });
     for (option, rule) in &map.option_values {
         for node in select::nodes(&rule.each, document, &root) {
@@ -521,11 +513,6 @@ fn map_project(
     let Some(name) = rule.name.text(document, node) else {
         return false;
     };
-    let parent = rule
-        .parent
-        .as_ref()
-        .and_then(|spec| spec.text(document, node))
-        .and_then(|raw| builder.workspace.relativize(&raw, &root));
     let display_name = rule
         .display_name
         .as_ref()
@@ -534,16 +521,13 @@ fn map_project(
         path.clone(),
         &name,
         display_name,
-        parent,
+        None,
         properties(&rule.properties, document, node),
     ) else {
         return false;
     };
     apply_rules(&rule.targets, document, node, |target, element| {
-        map_target(builder, Some(project), &path, target, document, element)
-    });
-    apply_rules(&rule.tasks, document, node, |task, element| {
-        map_task(builder, Some(project), &path, task, document, element)
+        map_target(builder, project, &path, target, document, element)
     });
     apply_rules(
         &rule.content_roots,
@@ -556,23 +540,9 @@ fn map_project(
     true
 }
 
-/// Resolves the project of a target or task: the enclosing project rule's,
-/// or for top-level rules the deepest project containing its path.
-fn owning_project(
-    builder: &ModelBuilder<'_>,
-    project: Option<usize>,
-    path: Option<&str>,
-) -> Option<usize> {
-    match (project, path) {
-        (Some(project), _) => Some(project),
-        (None, Some(path)) => builder.containing_project(path),
-        (None, None) => None,
-    }
-}
-
 fn map_target(
     builder: &mut ModelBuilder<'_>,
-    project: Option<usize>,
+    project: usize,
     base: &str,
     rule: &TargetRule,
     document: &Value,
@@ -581,9 +551,6 @@ fn map_target(
     let Some(path) = mapped_path(builder, rule.path.as_ref(), base, document, node) else {
         return false;
     };
-    let Some(project) = owning_project(builder, project, path.as_deref()) else {
-        return false;
-    };
     let directory = path
         .clone()
         .unwrap_or_else(|| builder.model.projects[project].path.clone());
@@ -592,78 +559,16 @@ fn map_target(
     }
     let Some(name) = rule.name.text(document, node) else {
         return false;
-    };
-    let tags = match &rule.tags {
-        TagSpec::Literal(tags) => tags.clone(),
-        TagSpec::Mapped { from, map, default } => {
-            let mapped: Vec<String> = select::scalars(from, document, node)
-                .iter()
-                .filter_map(|raw| map.get(raw))
-                .flatten()
-                .cloned()
-                .collect();
-            if mapped.is_empty() {
-                default.clone()
-            } else {
-                mapped
-            }
-        }
     };
     let count = builder.model.targets.len();
     builder.add_target(
         project,
         path,
         &name,
-        tags,
+        rule.tags.clone(),
         properties(&rule.properties, document, node),
     );
     builder.model.targets.len() > count
-}
-
-fn map_task(
-    builder: &mut ModelBuilder<'_>,
-    project: Option<usize>,
-    base: &str,
-    rule: &TaskRule,
-    document: &Value,
-    node: &Node<'_>,
-) -> bool {
-    let Some(path) = mapped_path(builder, rule.path.as_ref(), base, document, node) else {
-        return false;
-    };
-    let Some(project) = owning_project(builder, project, path.as_deref()) else {
-        return false;
-    };
-    let directory = path
-        .clone()
-        .unwrap_or_else(|| builder.model.projects[project].path.clone());
-    if !when_file_holds(builder, rule, &directory) {
-        return false;
-    }
-    let Some(name) = rule.name.text(document, node) else {
-        return false;
-    };
-    let execution = match &rule.execution {
-        None => None,
-        Some(ExecutionSpec::Literal(execution)) => Some(*execution),
-        Some(ExecutionSpec::Mapped { from, map, default }) => select::scalars(from, document, node)
-            .iter()
-            .find_map(|raw| map.get(raw).copied())
-            .or(*default),
-    };
-    let text = |spec: &Option<FieldSpec>| spec.as_ref().and_then(|spec| spec.text(document, node));
-    let count = builder.model.tasks.len();
-    builder.add_task(
-        project,
-        path,
-        &name,
-        &rule.template,
-        text(&rule.display_name),
-        text(&rule.description),
-        execution,
-        properties(&rule.properties, document, node),
-    );
-    builder.model.tasks.len() > count
 }
 
 fn map_content_root(

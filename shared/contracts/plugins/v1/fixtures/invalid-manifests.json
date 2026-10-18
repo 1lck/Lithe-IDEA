@@ -640,6 +640,60 @@
       "expectedCode": "plugin.manifest.invalid"
     },
     {
+      "name": "a static model in a format the map does not read",
+      "base": "cargo-build.plugin.json",
+      "edits": [{ "op": "set", "path": "/buildSystems/0/model/decoder", "value": "yaml" }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "a model command printing a single JSON document reads it as jsonStream",
+      "base": "go-build.plugin.json",
+      "edits": [{ "op": "set", "path": "/buildSystems/0/model/decoder", "value": "json" }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "a model map lists no tasks",
+      "base": "cargo-build.plugin.json",
+      "edits": [{ "op": "set", "path": "/buildSystems/0/model/map/projects/0/tasks", "value": [] }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "a model map has no top-level targets",
+      "base": "cargo-build.plugin.json",
+      "edits": [{ "op": "set", "path": "/buildSystems/0/model/map/targets", "value": [] }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "a project rule names no parent",
+      "base": "go-build.plugin.json",
+      "edits": [{ "op": "set", "path": "/buildSystems/0/model/map/projects/0/parent", "value": "/Dir" }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "target tags are a literal list",
+      "base": "cargo-build.plugin.json",
+      "edits": [{ "op": "set", "path": "/buildSystems/0/model/map/projects/0/targets/0/tags", "value": { "from": "/kind", "map": { "bin": ["application"] } } }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "lastSegment is the only transform",
+      "base": "go-build.plugin.json",
+      "edits": [{ "op": "set", "path": "/buildSystems/0/model/map/projects/0/targets/0/properties/short/transform", "value": "parentDirectory" }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "a dependency map is flat",
+      "base": "go-build.plugin.json",
+      "edits": [{ "op": "set", "path": "/buildSystems/0/dependencies/map/children", "value": "/Deps/*" }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "layout lists only excluded directories",
+      "base": "cargo-build.plugin.json",
+      "edits": [{ "op": "set", "path": "/buildSystems/0/layout/generated", "value": ["target/generated"] }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
       "name": "diagnostic capture group beyond the pattern",
       "base": "cargo-build.plugin.json",
       "edits": [{ "op": "set", "path": "/buildSystems/0/diagnostics/patterns/0/message", "value": 9 }],
