@@ -73,25 +73,25 @@ test("names both destinations instead of pushing to an unrelated branch", async 
 });
 
 test("reports the confirmed destination", async () => {
-  let chosen: GitPushTargetChoice | null = null;
+  const choices: GitPushTargetChoice[] = [];
   await renderPrompt(
     (choice) => {
-      chosen = choice;
+      choices.push(choice);
     },
     () => {},
   );
   await clickByTestId("git-push-target-prompt-publish");
-  expect(chosen).toBe("publish");
+  expect(choices).toEqual(["publish"]);
 });
 
 test("keeps the divergent upstream when the user chooses it", async () => {
-  let chosen: GitPushTargetChoice | null = null;
+  const choices: GitPushTargetChoice[] = [];
   await renderPrompt(
     (choice) => {
-      chosen = choice;
+      choices.push(choice);
     },
     () => {},
   );
   await clickByTestId("git-push-target-prompt-upstream");
-  expect(chosen).toBe("upstream");
+  expect(choices).toEqual(["upstream"]);
 });

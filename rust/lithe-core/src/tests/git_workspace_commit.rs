@@ -613,7 +613,12 @@ fn git_workspace_commit_push_carries_the_confirmed_target() {
     git(&repo.0, &["switch", "-q", "-c", "feature/topic", "main"]);
     git(
         &repo.0,
-        &["branch", "-q", "--set-upstream-to=origin/main", "feature/topic"],
+        &[
+            "branch",
+            "-q",
+            "--set-upstream-to=origin/main",
+            "feature/topic",
+        ],
     );
     staged_file(&repo.0, "topic.txt", "topic");
 
