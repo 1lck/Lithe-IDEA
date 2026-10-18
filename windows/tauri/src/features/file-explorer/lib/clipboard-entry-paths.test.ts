@@ -77,4 +77,19 @@ describe("shouldPasteFileClipboardPaths", () => {
       }),
     ).toBe(false);
   });
+
+  // Documents a deliberate trade-off, not an oversight: recovering the same text
+  // twice around a file copy looks exactly like an untouched clipboard without an
+  // OS change counter. Inserting the paths keeps copy-and-paste-to-terminal a
+  // single step, and the mis-insertion is visible and reversible. If this ever
+  // needs to change, the decision in the function comment changes with it.
+  test("keeps file paths when the same text was copied again around the file copy", () => {
+    expect(
+      shouldPasteFileClipboardPaths({
+        entryCount: 1,
+        sourceClipboardText: "echo hello",
+        currentClipboardText: "echo hello",
+      }),
+    ).toBe(true);
+  });
 });

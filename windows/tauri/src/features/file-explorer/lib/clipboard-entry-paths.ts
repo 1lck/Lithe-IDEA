@@ -21,9 +21,16 @@ export function clipboardEntryPaths(entries: readonly { path: string }[]): strin
  * after copying files, so the text wins; this keeps the terminal from silently
  * ignoring what the user copied most recently.
  *
- * Comparing text cannot detect copying the same string again around a file copy,
- * because the Tauri clipboard plugin exposes no change counter. The terminal also
- * offers an explicit "paste file paths" action that skips this check.
+ * Copying the exact same string again around a file copy is indistinguishable
+ * from not copying at all, because the Tauri clipboard plugin exposes no change
+ * counter; that path inserts the file paths. Keeping the automatic behavior is a
+ * deliberate trade-off: inserting paths is what the user asked the copy to be
+ * good for, the false case needs the same content twice with a file copy between,
+ * and its cost is a visible, harmless insertion the user can undo by pasting
+ * again. Dropping the automatic case instead would add a manual step to every
+ * copy-to-terminal, and removing it would need an OS change counter the plugin
+ * does not provide. The terminal also offers an explicit "paste file paths"
+ * action for callers that must not guess.
  */
 export function shouldPasteFileClipboardPaths({
   entryCount,
