@@ -67,6 +67,13 @@ GitHub 只能取消整个 workflow 运行，不能取消单个 job，所以 PR �
 复用的结果没有测过“PR + 新的 base”这个组合，由合并后的 universal 打包
 兜底。
 
+关闭或合并 PR 时，清理工作流按来源仓库、来源分支和关闭时间查找所有历史运行，
+不能只查最后一次提交：后续 gate 可能仍在复用更早提交的 job，且关闭后 GitHub 的
+运行元数据可能不再包含该 PR。保留关闭后创建的运行、其他来源仓库和非 PR 事件；
+历史运行若仍关联另一个 PR，也不取消。清理使用 GitHub 的强制取消接口，避免旧版
+`always()` 步骤继续占用托管 Runner。取消失败只有在运行已结束时才视为正常竞争，
+权限或 API 故障必须使清理检查失败，不能伪装成清理成功。
+
 四个汇总 gate 在当前 workflow 被取消时跳过，避免上游 `cancelled` 被成功断言再次
 标成 failure。取消不算验证通过；替代运行仍必须完成所有选中的 lane。当前 workflow
 未取消时，即使分类或测试失败，gate 也必须执行并失败；外部复用来源失败、取消、
@@ -326,6 +333,7 @@ Swift 测试已经编译完整 Lithe 目标。再生成两个 DMG 会在普通�
 - `actionlint .github/workflows/ci-macos.yml .github/workflows/ci-windows.yml .github/workflows/ci-database.yml .github/workflows/ci-plugins.yml`
 - `./scripts/test-classify-ci-changes.sh`：包含 Draft PR 关闭 runner lane、保留 Linux lane，以及 macOS Java 不触发 real-JDT、共享引擎和 Windows Java 仍触发的正反例。
 - `node --test scripts/ci-workflow-gates.test.mjs scripts/plan-ci-lane-reuse.test.mjs scripts/verify-reused-ci-jobs.test.mjs`：从实际工作流执行 gate shell，验证取消条件、分类/测试失败、lane 覆盖及复用来源的失败传播。
+- `node --test scripts/cancel-closed-pr-runs.test.mjs`：用离线 GitHub CLI 替身执行关闭清理，验证分页历史运行、来源隔离、关闭时间、取消竞争和 API 失败传播。
 - `./scripts/test-classify-ci-changes.sh` 覆盖 `save-macos-cargo-build-cache` 改动触发全部 macOS lane。
 - `actionlint .github/workflows/ci-macos.yml .github/workflows/release-preview-macos.yml`
 - `./scripts/test-macos.sh`
