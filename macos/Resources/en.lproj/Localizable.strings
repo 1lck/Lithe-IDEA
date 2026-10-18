@@ -1909,3 +1909,16 @@
 "Turn usage" = "Turn usage";
 "Copy reply" = "Copy reply";
 "Copy table" = "Copy table";
+
+/* Plugin web tool windows */
+"Show its own page in a tool window" = "Show its own page in a tool window";
+"Load the %@ model" = "Load the %@ model";
+"Load the dependencies of %@" = "Load the dependencies of %@";
+"Tests" = "Tests";
+"Allow “%@” to run build tools?" = "Allow “%@” to run build tools?";
+"The plugin’s page asks to run them in %@." = "The plugin’s page asks to run them in %@.";
+"Lithe asks again after the plugin is disabled, updated, or Lithe restarts." = "Lithe asks again after the plugin is disabled, updated, or Lithe restarts.";
+"Arguments from the page:" = "Arguments from the page:";
+"Allow" = "Allow";
+"Don’t Allow" = "Don’t Allow";
+"Restart Lithe to load the updated page." = "Restart Lithe to load the updated page.";

@@ -260,9 +260,15 @@ struct BuildSystemServiceTests {
         harness.service.reset(workspaceURL: Self.workspace)
         #expect(await harness.waitForEntries { !$0.isEmpty })
 
-        harness.service.runTask(Self.instanceID, request: BuildTaskRequest(task: "build"), title: "Build")
+        let runID = try #require(harness.service.runTask(Self.instanceID, request: BuildTaskRequest(task: "build"), title: "Build"))
+        #expect(harness.service.currentRunID == runID)
         #expect(harness.service.runState == .running)
+        var ended: [BuildRunEnd] = []
+        let observation = harness.service.runEnded.sink { ended.append($0) }
+        defer { observation.cancel() }
         #expect(await harness.waitForRunState { $0 != .running })
+        #expect(ended == [BuildRunEnd(runID: runID, entryID: Self.instanceID,
+            state: harness.service.runState, exitCode: 1)])
 
         guard case .failed = harness.service.runState else {
             Issue.record("Expected a failed run, got \(harness.service.runState)")
@@ -290,8 +296,15 @@ struct BuildSystemServiceTests {
         #expect(await runner.started.waitUntilOpen())
         #expect(harness.service.hasActiveWork)
 
+        let runID = try #require(harness.service.currentRunID)
+        #expect(harness.service.runTask("missing", request: BuildTaskRequest(task: "build"), title: "Missing") == nil)
+        #expect(harness.service.currentRunID == runID)
+        var ended: [BuildRunEnd] = []
+        let observation = harness.service.runEnded.sink { ended.append($0) }
+        defer { observation.cancel() }
         harness.service.stopRun()
         #expect(harness.service.runState == .cancelled)
+        #expect(ended == [BuildRunEnd(runID: runID, entryID: Self.instanceID, state: .cancelled, exitCode: nil)])
         #expect(await runner.cancelled.waitUntilOpen())
         #expect(!harness.service.hasActiveWork)
     }

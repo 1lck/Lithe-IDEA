@@ -680,6 +680,8 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     /// operation instead of racing a capability release.
     private func beginModuleRuntimeShutdown() {
         cancelContributionActivations()
+        // A plugin page belongs to the workspace it was opened in.
+        services.pluginWebPages.closeAll()
         moduleSessionCoordinator?.beginShutdown()
     }
 
