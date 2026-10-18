@@ -307,8 +307,14 @@ final class PluginWebBridge {
         return try start(build, entry: entry) { build.runTests(entry.id, request: request, title: title) }
     }
 
-    /// Starts a run the way the host's buttons do and tracks it for `build.runChanged`.
+    /// Starts and tracks a page's run without replacing work from another caller.
     private func start(_ build: any PluginWebBuildAccess, entry: BuildSystemEntry, _ run: () -> UUID?) throws -> ToolingJSONValue {
+        // Consent can suspend while a native control or another page starts a
+        // run. Check on the main actor immediately before the synchronous start,
+        // which would otherwise cancel that run and clear its output.
+        guard build.currentRunID == nil else {
+            throw PluginWebBridgeFailure.unavailable("Another task or test is running. Stop it before starting a run from this page.")
+        }
         guard let serviceRunID = run() else {
             throw PluginWebBridgeFailure.unavailable("\(entry.instance.displayName) could not start.")
         }
@@ -531,10 +537,16 @@ final class PluginWebBridge {
         guard let items else {
             throw PluginWebBridgeFailure.invalidSelection("Load the model before selecting a \(what).")
         }
-        guard let item = items.first(where: {
-            (selection.path == nil || $0.selectionPath == selection.path) && (selection.name == nil || $0.name == selection.name)
-        }) else {
+        let candidates = items.filter {
+            (selection.path == nil || $0.selectionPath == selection.path)
+                && (selection.name == nil || $0.name == selection.name)
+                && (selection.tags == nil || Set($0.selectionTags) == selection.tags)
+        }
+        guard let item = candidates.first else {
             throw PluginWebBridgeFailure.invalidSelection("The model has no such \(what).")
+        }
+        guard candidates.count == 1 else {
+            throw PluginWebBridgeFailure.invalidSelection("The selection matches more than one \(what) in the model.")
         }
         return item
     }
@@ -545,14 +557,19 @@ final class PluginWebBridge {
     }
 }
 
-/// Model entities a page selects by `name` and workspace-relative `path`.
+/// Model entities a page selects by name, workspace-relative path, and target tags.
 protocol PluginWebSelectable {
     var name: String { get }
     var selectionPath: String { get }
+    var selectionTags: [String] { get }
 }
 
+extension PluginWebSelectable { var selectionTags: [String] { [] } }
 extension BuildModel.Project: PluginWebSelectable { var selectionPath: String { path } }
-extension BuildModel.Target: PluginWebSelectable { var selectionPath: String { path } }
+extension BuildModel.Target: PluginWebSelectable {
+    var selectionPath: String { path }
+    var selectionTags: [String] { tags }
+}
 extension BuildModel.Task: PluginWebSelectable { var selectionPath: String { path } }
 
 /// Request parameters. Unknown fields are refused so a misspelt field is
@@ -561,6 +578,7 @@ private struct Parameters {
     struct Selection {
         let name: String?
         let path: String?
+        let tags: Set<String>?
     }
 
     let values: [String: ToolingJSONValue]
@@ -616,8 +634,8 @@ private struct Parameters {
     }
 
     /// `{ name?, path?, tags?, execution?, properties? }` as `build.taskPlan`
-    /// takes it. Only `name` and `path` pick the entity; the host sends the
-    /// model's own values, so a page cannot put text of its own into argv.
+    /// takes it. Names, paths, and validated tag sets identify one model entity;
+    /// the host rebuilds all plan values from it, including tags and properties.
     func selection(_ key: String) throws -> Selection? {
         switch values[key] {
         case nil, .null?: return nil
@@ -625,13 +643,19 @@ private struct Parameters {
             let selection = try Parameters(.object(fields), allowed: ["name", "path", "tags", "execution", "properties"])
             let name = try selection.optionalString("name", limit: 1024)
             let path = try selection.optionalString("path", limit: 4096)
+            let tags = try selection.strings("tags", count: 64, limit: 64)
+            if let tags, tags.contains(where: { $0.isEmpty || $0.unicodeScalars.contains(where: {
+                CharacterSet.controlCharacters.contains($0)
+            }) }) {
+                throw PluginWebBridgeFailure.invalidRequest("\(key).tags must contain non-empty printable strings.")
+            }
             guard name != nil || path != nil else {
                 throw PluginWebBridgeFailure.invalidRequest("\(key) needs a name or a path.")
             }
             if let path, path.hasPrefix("/") || path.contains("\\") || path.split(separator: "/").contains("..") {
                 throw PluginWebBridgeFailure.forbidden("\(path) is outside the workspace.")
             }
-            return Selection(name: name, path: path)
+            return Selection(name: name, path: path, tags: tags.map { Set($0) })
         default: throw PluginWebBridgeFailure.invalidRequest("\(key) must be a selection object.")
         }
     }

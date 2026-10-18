@@ -116,14 +116,170 @@ struct PluginWebBridgeTests {
         let harness = try BridgeHarness()
         defer { harness.cleanUp() }
         let otherRun = UUID()
-        harness.build.currentRunID = otherRun
         harness.build.acceptsRuns = false
         #expect(try await harness.error("build.runTask", ["instance": .string("own"), "task": .string("build")])
             == "plugin.build.unavailable")
+        harness.build.currentRunID = otherRun
         #expect(try await harness.error("build.cancel", ["run": .string(otherRun.uuidString.lowercased())])
             == "plugin.web.invalidRequest")
         #expect(harness.build.stopCount == 0)
         #expect(harness.host.outputShown == 0)
+    }
+
+    @Test(arguments: ["build.runTask", "build.runTests"])
+    func busyBuildIsNotReplacedOrItsOutputCleared(method: String) async throws {
+        let harness = try BridgeHarness()
+        defer { harness.cleanUp() }
+        let otherRun = UUID()
+        harness.build.currentRunID = otherRun
+        harness.build.output = "Native build output\n"
+
+        #expect(try await harness.error(method, BridgeHarness.runParameters(method)) == "plugin.build.unavailable")
+        #expect(harness.build.currentRunID == otherRun)
+        #expect(harness.build.tasks.isEmpty)
+        #expect(harness.build.tests.isEmpty)
+        #expect(harness.build.stopCount == 0)
+        #expect(harness.build.outputClearCount == 0)
+        #expect(harness.build.output == "Native build output\n")
+        #expect(harness.host.outputShown == 0)
+        #expect(try await harness.error("build.cancel", ["run": .string(otherRun.uuidString.lowercased())])
+            == "plugin.web.invalidRequest")
+        #expect(harness.build.stopCount == 0)
+    }
+
+    @Test(arguments: ["build.runTask", "build.runTests"])
+    func runStartedWhileAwaitingConsentIsNotReplaced(method: String) async throws {
+        let harness = try BridgeHarness()
+        defer { harness.cleanUp() }
+        let confirmationRequested = TestGate()
+        let confirm = TestGate()
+        harness.host.confirmProcessStart = {
+            confirmationRequested.open()
+            return await confirm.waitUntilOpen()
+        }
+        let pending = Task { try await harness.error(method, BridgeHarness.runParameters(method)) }
+        defer { confirm.open(); pending.cancel() }
+        #expect(await confirmationRequested.waitUntilOpen(), "The request never reached process confirmation")
+
+        // A native control or another page starts a run while this page's
+        // confirmation is suspended. Only then does the user allow this request.
+        let otherRun = UUID()
+        harness.build.currentRunID = otherRun
+        harness.build.output = "Another page's build output\n"
+        confirm.open()
+        #expect(try await pending.value == "plugin.build.unavailable")
+        #expect(harness.host.consents.count == 1)
+        #expect(harness.build.currentRunID == otherRun)
+        #expect(harness.build.tasks.isEmpty)
+        #expect(harness.build.tests.isEmpty)
+        #expect(harness.build.stopCount == 0)
+        #expect(harness.build.outputClearCount == 0)
+        #expect(harness.build.output == "Another page's build output\n")
+        #expect(harness.host.outputShown == 0)
+        #expect(try await harness.error("build.cancel", ["run": .string(otherRun.uuidString.lowercased())])
+            == "plugin.web.invalidRequest")
+        #expect(harness.build.stopCount == 0)
+    }
+
+    @Test(arguments: ["build.runTask", "build.runTests"], ["application", "example"])
+    func sameNameTargetsAreSelectedByTheirModelTags(method: String, kind: String) async throws {
+        let model = try BridgeHarness.sameNameTargets()
+        let harness = try BridgeHarness(model: model)
+        defer { harness.cleanUp() }
+        let selected = try #require(model.targets.first { $0.tags.contains(kind) })
+        var params = BridgeHarness.runParameters(method)
+        params["target"] = .object([
+            "name": .string("demo"), "path": .string("app"),
+            "tags": .array(selected.tags.reversed().map(ToolingJSONValue.string)),
+            "execution": .string("service"), "properties": .object(["source": .string("injected")])
+        ])
+
+        _ = try await harness.ok(method, params)
+        let requestTarget = method == "build.runTask" ? harness.build.tasks.first?.target : harness.build.tests.first?.target
+        #expect(requestTarget == BuildSelection(target: selected))
+        #expect(requestTarget?.properties == ["source": kind])
+        #expect(requestTarget?.execution == nil)
+        #expect(harness.host.outputShown == 1)
+    }
+
+    @Test func cargoExampleSelectionReachesTheRealCorePlan() async throws {
+        let manifest = try Data(contentsOf: DeclarativePluginTestSupport.repositoryRoot
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/cargo-build.plugin.json"))
+        let descriptor = try DeclarativePluginTestSupport.operations.validate(manifest: manifest)
+        let source = BuildSystemPluginSource(
+            pluginID: descriptor.id.rawValue, manifest: descriptor.normalizedManifest,
+            packageURL: DeclarativePluginTestSupport.repositoryRoot, buildSystems: descriptor.buildSystems
+        )
+        let harness = try BridgeHarness(source: source)
+        defer { harness.cleanUp() }
+        try Data("""
+        [package]
+        name = "demo"
+        version = "0.1.0"
+        [[example]]
+        name = "demo"
+        """.utf8).write(to: harness.workspace.appendingPathComponent("Cargo.toml"))
+        try FileManager.default.createDirectory(at: harness.workspace.appendingPathComponent("src"), withIntermediateDirectories: true)
+        try Data("fn main() {}\n".utf8).write(to: harness.workspace.appendingPathComponent("src/main.rs"))
+        let planner = RustBuildSystemOperations(core: RustCoreBridge())
+        let detection = try planner.detect(workspaceURL: harness.workspace, sources: [source], options: [:])
+        let instance = try #require(detection.instances.first)
+        let model = try #require(instance.model)
+        let example = try #require(model.targets.first { $0.name == "demo" && $0.tags == ["example"] })
+        #expect(model.targets.contains { $0.name == "demo" && $0.path == example.path && $0.tags == ["application"] })
+        let declaration = try #require(source.buildSystems.first)
+        harness.build.entries = [BuildSystemEntry(
+            instance: instance, declaration: declaration, source: source, model: model, modelState: .loaded
+        )]
+
+        _ = try await harness.ok("build.runTask", [
+            "instance": .string(instance.id), "task": .string("example"),
+            "target": .object(["name": .string("demo"), "path": .string(example.path), "tags": .array([.string("example")])])
+        ])
+        let request = try #require(harness.build.tasks.first)
+        let plan = try planner.taskPlan(
+            BuildSystemTarget(manifest: source.manifest, buildSystemID: instance.buildSystemID),
+            context: BuildPlanContext(root: instance.root, options: [:]), request: request
+        )
+        #expect(request.target == BuildSelection(target: example))
+        #expect(plan.arguments == ["run", "--example", "demo"])
+        #expect(plan.execution == .application)
+    }
+
+    @Test(arguments: ["build.runTask", "build.runTests"])
+    func ambiguousOrUnknownTargetTagsDoNotStartARun(method: String) async throws {
+        let harness = try BridgeHarness(model: BridgeHarness.sameNameTargets())
+        defer { harness.cleanUp() }
+        var params = BridgeHarness.runParameters(method)
+        let target: [String: ToolingJSONValue] = ["name": .string("demo"), "path": .string("app")]
+        params["target"] = .object(target)
+        #expect(try await harness.error(method, params) == "plugin.build.invalidSelection")
+        let invalidTags: [[String]] = [[], ["missing"], ["example"], ["example", "runnable", "forged"]]
+        for tags in invalidTags {
+            params["target"] = .object(target.merging(["tags": .array(tags.map(ToolingJSONValue.string))]) { _, new in new })
+            #expect(try await harness.error(method, params) == "plugin.build.invalidSelection")
+        }
+        #expect(harness.build.tasks.isEmpty)
+        #expect(harness.build.tests.isEmpty)
+        #expect(harness.host.consents.isEmpty)
+    }
+
+    @Test(arguments: ["build.runTask", "build.runTests"])
+    func malformedTargetTagsAreRefused(method: String) async throws {
+        let harness = try BridgeHarness(model: BridgeHarness.sameNameTargets())
+        defer { harness.cleanUp() }
+        let malformed: [ToolingJSONValue] = [
+            .string("example"), .array([.integer(1)]), .array([.string("")]), .array([.string("example\n")]),
+            .array([.string(String(repeating: "x", count: 65))]), .array(Array(repeating: .string("example"), count: 65))
+        ]
+        for tags in malformed {
+            var params = BridgeHarness.runParameters(method)
+            params["target"] = .object(["name": .string("demo"), "path": .string("app"), "tags": tags])
+            #expect(try await harness.error(method, params) == "plugin.web.invalidRequest")
+        }
+        #expect(harness.build.tasks.isEmpty)
+        #expect(harness.build.tests.isEmpty)
+        #expect(harness.host.consents.isEmpty)
     }
 
     @Test func workspaceChangeDuringActivationCannotStartOrReturnBuildWork() async throws {
@@ -435,6 +591,7 @@ private final class FakeHost: PluginWebBridgeHost {
     var opened: [URL] = []
     var outputShown = 0
     var onAccess: (() -> Void)?
+    var confirmProcessStart: (@MainActor () async -> Bool)?
 
     init(workspaceURL: URL, build: FakeBuildAccess) {
         pluginWebWorkspaceURL = workspaceURL
@@ -449,6 +606,7 @@ private final class FakeHost: PluginWebBridgeHost {
     }
     func pluginWebConfirmProcessStart(_ consent: PluginWebProcessConsent) async -> Bool {
         consents.append(consent)
+        if let confirmProcessStart { return await confirmProcessStart() }
         return allowsProcesses
     }
 }
@@ -465,7 +623,10 @@ private final class FakeBuildAccess: PluginWebBuildAccess {
     var currentRunID: UUID?
     var modelLoads: [String] = []
     var tasks: [BuildTaskRequest] = []
+    var tests: [BuildTestRequest] = []
     var stopCount = 0
+    var output = ""
+    private(set) var outputClearCount = 0
     private let changeSubject = PassthroughSubject<Void, Never>()
     private let endSubject = PassthroughSubject<BuildRunEnd, Never>()
 
@@ -478,13 +639,22 @@ private final class FakeBuildAccess: PluginWebBuildAccess {
     func runTask(_ entryID: String, request: BuildTaskRequest, title: String) -> UUID? {
         guard acceptsRuns else { return nil }
         tasks.append(request)
-        currentRunID = UUID()
-        return currentRunID
+        return startRun()
     }
     func runTests(_ entryID: String, request: BuildTestRequest, title: String) -> UUID? {
         guard acceptsRuns else { return nil }
-        currentRunID = UUID()
-        return currentRunID
+        tests.append(request)
+        return startRun()
+    }
+    /// Match BuildSystemService's replacement semantics so a missed bridge
+    /// busy check observably cancels the existing run and clears its output.
+    private func startRun() -> UUID {
+        if currentRunID != nil { stopRun() }
+        outputClearCount += 1
+        output = ""
+        let id = UUID()
+        currentRunID = id
+        return id
     }
     func loadDependencies(_ entryID: String, project: BuildModel.Project?) {}
     func setOption(_ entryID: String, optionID: String, value: ToolingJSONValue?) {}
@@ -507,7 +677,7 @@ private final class BridgeHarness {
     let host: FakeHost
     let bridge: PluginWebBridge
 
-    init() throws {
+    init(model: BuildModel? = nil, source: BuildSystemPluginSource? = nil) throws {
         root = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-bridge-\(UUID().uuidString)")
         workspace = root.appendingPathComponent("workspace")
         outside = root.appendingPathComponent("outside/secret.txt")
@@ -519,11 +689,12 @@ private final class BridgeHarness {
             at: workspace.appendingPathComponent("link"), withDestinationURL: outside.deletingLastPathComponent()
         )
         window = PluginWebWindow(
-            pluginID: "dev.example.web", pluginName: "Fixture", windowID: "dev.example.web.window",
-            entry: "ui/index.html", packageURL: root, buildSystemIDs: ["fixture"], isInspectable: false
+            pluginID: source?.pluginID ?? "dev.example.web", pluginName: "Fixture", windowID: "dev.example.web.window",
+            entry: "ui/index.html", packageURL: root,
+            buildSystemIDs: source.map { Set($0.buildSystems.map(\.id)) } ?? ["fixture"], isInspectable: false
         )
         build = FakeBuildAccess(entries: [
-            Self.entry(id: "own", pluginID: "dev.example.web"),
+            Self.entry(id: "own", pluginID: "dev.example.web", model: model),
             Self.entry(id: "foreign", pluginID: "dev.example.other")
         ])
         host = FakeHost(workspaceURL: workspace, build: build)
@@ -563,16 +734,35 @@ private final class BridgeHarness {
         return try JSONDecoder().decode([String: ToolingJSONValue].self, from: Data(await bridge.handle(message).utf8))
     }
 
-    private static func entry(id: String, pluginID: String) -> BuildSystemEntry {
+    static func runParameters(_ method: String) -> [String: ToolingJSONValue] {
+        var params: [String: ToolingJSONValue] = ["instance": .string("own")]
+        if method == "build.runTask" { params["task"] = .string("build") }
+        return params
+    }
+
+    /// Cargo permits an application and an example called `demo` in the same
+    /// project directory. Tags distinguish them; properties still come from the model.
+    static func sameNameTargets() throws -> BuildModel {
+        try JSONDecoder().decode(BuildModel.self, from: Data(#"""
+        {"projects":[{"id":"app","path":"app","name":"app"}],"targets":[
+          {"id":"app:application:demo","projectID":"app","name":"demo","path":"app",
+           "tags":["application","runnable"],"properties":{"source":"application"}},
+          {"id":"app:example:demo","projectID":"app","name":"demo","path":"app",
+           "tags":["example","runnable"],"properties":{"source":"example"}}
+        ]}
+        """#.utf8))
+    }
+
+    private static func entry(id: String, pluginID: String, model: BuildModel? = nil) -> BuildSystemEntry {
         let declaration = DeclarativeBuildSystem(
             id: "fixture", displayName: "Fixture", modelSource: .static,
             tasks: [DeclarativeBuildSystem.Task(
-                id: "build", displayName: "Build", group: .build, scopes: [.workspace, .project],
+                id: "build", displayName: "Build", group: .build, scopes: [.workspace, .project, .target],
                 fromModel: false, targetTags: [], requiresUserArguments: false, description: nil
             )],
-            testScopes: [], dependencyScopes: []
+            testScopes: [.workspace, .project, .target], dependencyScopes: []
         )
-        let model = BuildModel(projects: [BuildModel.Project(id: "app", path: "app", name: "app")])
+        let model = model ?? BuildModel(projects: [BuildModel.Project(id: "app", path: "app", name: "app")])
         return BuildSystemEntry(
             instance: BuildSystemInstance(
                 id: id, pluginID: pluginID, buildSystemID: "fixture", displayName: "Fixture", root: "",
