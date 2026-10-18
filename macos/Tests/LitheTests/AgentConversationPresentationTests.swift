@@ -374,7 +374,7 @@ struct AgentConversationPresentationTests {
     }
 
     @Test
-    func commandSuggestionsKeepAWritingLineAtDefaultAndMinimumComposerHeights() throws {
+    func commandSuggestionsKeepTwoWritingLinesAtDefaultAndMinimumComposerHeights() throws {
         let commands = (0..<200).map {
             AgentCommand(name: "command-\($0)", description: "An upstream command with a long description", hint: nil)
         }
@@ -390,12 +390,10 @@ struct AgentConversationPresentationTests {
                         } composer: {
                             AgentComposerContent(files: files, commands: Array(commands.prefix(count)), highlightedIndex: 0,
                                                  onSelect: { _ in }, onRemoveFile: { _ in }, onFocus: {}) {
-                                Color.clear.frame(height: AgentComposerMetrics.contextHeight - 2)
-                            } editor: {
                                 TextField("Message the Agent", text: .constant("/"), axis: .vertical)
-                                    .textFieldStyle(.plain).font(.system(size: 13)).lineLimit(1...)
+                                    .textFieldStyle(.plain).font(LitheTheme.uiFont).lineLimit(AgentComposerMetrics.minimumWritingLines...)
                                     .background(AgentDraftFrameProbe { editor = $0 })
-                                    .padding(.horizontal, 8).padding(.vertical, 7)
+                                    .padding(.horizontal, 8).padding(.vertical, AgentComposerMetrics.writingVerticalInset)
                                     .frame(maxWidth: .infinity, alignment: .topLeading)
                             } toolbar: {
                                 Color.clear.frame(height: AgentComposerMetrics.toolbarHeight - 2)
@@ -418,11 +416,11 @@ struct AgentConversationPresentationTests {
                         #expect(frame.height > 0, "The actual text field must survive \(count) commands and \(files.count) attachments")
                         #expect(pane.insetBy(dx: -0.5, dy: -0.5).contains(frame), "The writing line must stay inside the sized pane")
                         if files.isEmpty, count == 0 {
-                            let inputHeight = pane.height - AgentComposerMetrics.bottomInset - (AgentComposerMetrics.contextHeight - 2)
-                            #expect(abs(inputHeight - 60) < 0.5, "A single writing line and toolbar stay compact across panel sizes")
+                            let inputHeight = pane.height - AgentComposerMetrics.bottomInset
+                            #expect(abs(inputHeight - 78) < 0.5, "Two writing lines and one toolbar stay compact without a top strip")
                         }
                         let writingScroll = try #require(enclosingScroll(of: input))
-                        #expect(writingScroll.bounds.height >= AgentComposerMetrics.writingLineHeight - 0.5)
+                        #expect(writingScroll.bounds.height >= AgentComposerMetrics.minimumWritingHeight - 0.5)
                         if count > 0 {
                             let list = try #require(commandScroll(in: host, excluding: input))
                             let listFrame = host.convert(list.bounds, from: list)
@@ -861,7 +859,9 @@ struct AgentConversationPresentationTests {
             if let scroll = view as? NSScrollView, scroll.hasVerticalScroller { return scroll }
             return view.subviews.lazy.compactMap { verticalScroll(in: $0) }.first
         }
+        var stage = 0
         func layout(until condition: () -> Bool) async throws {
+            stage += 1
             let deadline = ContinuousClock.now.advanced(by: .seconds(2))
             repeat {
                 await withCheckedContinuation { gate in
@@ -874,19 +874,21 @@ struct AgentConversationPresentationTests {
                 }
                 if condition() { return }
             } while ContinuousClock.now < deadline
-            try #require(condition(), "Native composer failed to reach its expected content size")
+            try #require(condition(), "Native composer stage \(stage) failed: writing=\(verticalScroll(in: host)?.bounds.height ?? -1), composer=\(composer?.bounds.height ?? -1)")
         }
-        try await layout { composer != nil && verticalScroll(in: host)?.bounds.height == 32 }
+        try await layout { composer != nil && abs((verticalScroll(in: host)?.bounds.height ?? 0) - 50) < 0.5 }
         let pane = try #require(composer)
         let scroll = try #require(verticalScroll(in: host))
         let emptyHeight = pane.bounds.height
-        #expect(emptyHeight < 140, "Empty production composer must start with one writing line")
+        #expect(emptyHeight < 140, "Empty production composer must reserve two writing lines")
         #expect(abs(pane.bounds.width - (editorLayout ? 880 : 1100)) < 1)
 
         draft.text = "First line\nSecond line\nThird line\nFourth line"
-        try await layout { scroll.bounds.height > 60 && pane.bounds.height > emptyHeight + 25 }
+        try await layout { scroll.bounds.height > 60 && pane.bounds.height > emptyHeight + 15 }
         let fourLineHeight = scroll.bounds.height
         #expect(fourLineHeight < 120, "Four lines should use their natural height")
+        #expect(abs((pane.bounds.height - emptyHeight) - (fourLineHeight - 50)) < 1,
+                "The composer must grow by the additional writing height above its two-line baseline")
 
         draft.text = (0..<80).map { "Line \($0): 输入越多，书写区会增高。" }.joined(separator: "\n")
         try await layout { scroll.bounds.height > fourLineHeight && (scroll.documentView?.bounds.height ?? 0) > 700 }
@@ -899,20 +901,20 @@ struct AgentConversationPresentationTests {
 
         draft.files = [try AgentFileReference(url: URL(fileURLWithPath: "/example/project/README.md"))]
         draft.text = ""
-        try await layout { abs(scroll.bounds.height - 32) < 0.5 && pane.bounds.height > emptyHeight + 25 }
+        try await layout { abs(scroll.bounds.height - 50) < 0.5 && pane.bounds.height > emptyHeight + 25 }
         #expect(abs(pane.bounds.height - emptyHeight - 34) < 1)
         draft.files = []
         try await layout { abs(pane.bounds.height - emptyHeight) < 0.5 }
 
-        draft.text = String(repeating: "输入内容应按当前窗口宽度换行。 Draft grows with its content. ", count: 4)
-        try await layout { scroll.bounds.height > 32 }
+        draft.text = String(repeating: "输入内容应按当前窗口宽度换行。 Draft grows with its content. ", count: 8)
+        try await layout { scroll.bounds.height > 50 }
         let wideHeight = scroll.bounds.height
         window.setContentSize(NSSize(width: 320, height: 400))
         try await layout { scroll.bounds.height > wideHeight + 15 && pane.bounds.width < 321 }
         #expect(abs(pane.bounds.width - (editorLayout ? 256 : 320)) < 1)
         #expect(pane.bounds.height + AgentComposerMetrics.splitTopInset <= 400 * 0.6 + 1)
         draft.text = ""
-        try await layout { abs(scroll.bounds.height - 32) < 0.5 && abs(pane.bounds.height - emptyHeight) < 1 }
+        try await layout { abs(scroll.bounds.height - 50) < 0.5 && abs(pane.bounds.height - emptyHeight) < 1 }
     }
 
     private func enclosingScroll(of view: NSView) -> NSScrollView? {

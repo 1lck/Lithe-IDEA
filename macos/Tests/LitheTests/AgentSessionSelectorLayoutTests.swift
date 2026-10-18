@@ -66,7 +66,7 @@ struct AgentSessionSelectorLayoutTests {
     }
 
     @Test
-    func contextRingAppearsOnlyAfterTheFirstUsageReport() async throws {
+    func sessionDetailsKeepsOneEntryBeforeAndAfterContextUsageArrives() async throws {
         let usage = try #require(AgentContextUsage(usedTokens: 1200, capacityTokens: 10000))
         for scheme in [ColorScheme.dark, .light] {
             func composer(_ usage: AgentContextUsage?) -> some View {
@@ -78,12 +78,12 @@ struct AgentSessionSelectorLayoutTests {
             let host = NSHostingView(rootView: composer(nil))
             let window = makeWindow(host, size: NSSize(width: 320, height: 180))
             defer { window.contentView = nil; window.close() }
-            // Before the first report only the Agent menu and the details trigger remain.
+            // The shared details entry is available even before the first usage report.
             try #require(await waitUntil(updating: host) { dropdownAnchors(in: host).count == 2 })
             try capture(host, name: "context-ring-unreported-\(scheme)")
             host.rootView = composer(usage)
-            try #require(await waitUntil(updating: host) { dropdownAnchors(in: host).count == 3 },
-                          "The context trigger must appear once the Agent reports usage")
+            try #require(await waitUntil(updating: host) { dropdownAnchors(in: host).count == 2 },
+                          "Reporting context usage must not add a second details entry")
             // The ring sits in the bottom command bar, left of Send.
             let triggers = dropdownAnchors(in: host).sorted {
                 let lhs = $0.convert($0.bounds, to: nil), rhs = $1.convert($0.bounds, to: nil)
@@ -95,48 +95,77 @@ struct AgentSessionSelectorLayoutTests {
         }
     }
 
-    @Test
-    func contextAndDetailsStayReachableAndCloseWhenTheSessionChanges() async throws {
+    @Test(arguments: [true, false], [280.0, 540.0])
+    func unifiedDetailsScrollAndDismissInBothUsageStates(reported: Bool, width: CGFloat) async throws {
         let usage = try #require(AgentContextUsage(usedTokens: 1200, capacityTokens: 10000))
         var conversation = AgentConversation()
         conversation.completedTurns = [.init(id: "turn", startedAt: .now)]
+        conversation.recordModelCall(try #require(AgentModelCall.parse([
+            "api": "anthropicMessages", "status": 200, "streaming": true, "firstTokenMs": 700, "durationMs": 1250,
+            "usage": ["inputTokens": 1200, "cacheReadTokens": 600, "cacheWriteTokens": 0, "outputTokens": 165]
+        ])))
         for scheme in [ColorScheme.dark, .light] {
-            func composer(_ sessionID: String) -> some View {
-                AgentComposerView(agents: [], selectedAgent: .init(id: "codex", name: "Codex"),
-                    isResponding: true, isBlocked: false, onSend: { _, _ in }, onCancel: {},
-                    onSelectAgent: { _ in }, onOpenSettings: {}, onError: { _ in }, sessionID: sessionID,
-                    contextUsage: usage, sessionStatistics: conversation.sessionStatistics).environment(\.colorScheme, scheme)
-            }
-            let host = NSHostingView(rootView: composer("first"))
-            let window = makeWindow(host, size: NSSize(width: 320, height: 180))
-            defer { window.contentView = nil; window.close() }
-            for isDetails in [false, true] {
-                let triggers = dropdownAnchors(in: host).sorted {
-                    let lhs = $0.convert($0.bounds, to: nil), rhs = $1.convert($1.bounds, to: nil)
-                    return abs(lhs.midY - rhs.midY) > 1 ? lhs.midY > rhs.midY : lhs.midX < rhs.midX
+            for language in ["en", "zh-Hans"] {
+                let locale = Locale(identifier: language)
+                func composer(_ sessionID: String, showsToolbar: Bool = true) -> some View {
+                    AgentComposerView(agents: [], selectedAgent: .init(id: "codex", name: "Codex"),
+                        isResponding: true, isBlocked: false, onSend: { _, _ in }, onCancel: {},
+                        onSelectAgent: { _ in }, onOpenSettings: {}, onError: { _ in }, sessionID: sessionID,
+                        contextUsage: reported ? usage : nil, sessionStatistics: conversation.sessionStatistics,
+                        showsToolbar: showsToolbar).environment(\.colorScheme, scheme).environment(\.locale, locale)
                 }
-                let trigger = try #require(isDetails ? triggers.first : triggers.last)
-                try click(NSPoint(x: trigger.bounds.midX, y: trigger.bounds.midY), in: trigger, window: window)
-                try #require(await waitUntil(updating: host) { popup(in: window) != nil })
-                let panel = try #require(popup(in: window))
-                #expect(panel.frame.width >= 240, "Detailed data stays accessible at the narrow panel width")
-                try capture(try #require(panel.contentView), name: "classic-\(isDetails ? "details" : "context")-\(scheme)")
-                if isDetails {
-                    host.rootView = composer("second")
-                    #expect(await waitUntil(updating: host) { popup(in: window) == nil }, "A new session closes stale details")
-                } else {
-                    let content = try #require(panel.contentView)
-                    let inset = 14 + LitheTheme.Metrics.toolbarIconButtonSize / 2
-                    let y = content.isFlipped ? content.bounds.minY + inset : content.bounds.maxY - inset
-                    try click(NSPoint(x: content.bounds.maxX - inset, y: y), in: content, window: panel)
-                    #expect(await waitUntil(updating: host) { popup(in: window) == nil }, "The context header's close button dismisses its shared popup")
+                let host = NSHostingView(rootView: composer("first"))
+                let window = makeWindow(host, size: NSSize(width: width, height: 180))
+                defer { window.contentView = nil; window.close() }
+                try #require(await waitUntil(updating: host) { dropdownAnchors(in: host).count == 2 })
+                let trigger = try #require(dropdownAnchors(in: host).max {
+                    $0.convert($0.bounds, to: host).midX < $1.convert($1.bounds, to: host).midX
+                })
+                #expect(trigger.convert(trigger.bounds, to: host).midY < 90,
+                        "The single details entry stays beside Send with or without context usage")
+                func openDetails() async throws -> NSPanel {
+                    try click(NSPoint(x: trigger.bounds.midX, y: trigger.bounds.midY), in: trigger, window: window)
+                    try #require(await waitUntil(updating: host) { popup(in: window) != nil })
+                    return try #require(popup(in: window))
                 }
+                let panel = try await openDetails()
+                let content = try #require(panel.contentView)
+                #expect(panel.frame.width >= 240)
+                let name = "unified-details-\(scheme)-\(language)-\(Int(width))-\(reported)"
+                try capture(content, name: name)
+                let scroll = try #require(scrollView(in: content))
+                let document = try #require(scroll.documentView)
+                #expect(document.bounds.height > scroll.contentView.bounds.height,
+                        "Combined context, session and token details remain in one scrollable document")
+                let bottom = max(0, document.bounds.maxY - scroll.contentView.bounds.height)
+                scroll.contentView.scroll(to: NSPoint(x: 0, y: bottom))
+                scroll.reflectScrolledClipView(scroll.contentView)
+                try #require(await waitUntil(updating: content) {
+                    abs(scroll.contentView.bounds.minY - bottom) < 1
+                }, "The same popup must scroll to its final token details")
+                try capture(content, name: name + "-tokens")
+                scroll.contentView.scroll(to: .zero)
+                scroll.reflectScrolledClipView(scroll.contentView)
+                try #require(await waitUntil(updating: content) { abs(scroll.contentView.bounds.minY) < 1 })
+                let inset = 14 + LitheTheme.Metrics.toolbarIconButtonSize / 2
+                let y = document.isFlipped ? document.bounds.minY + inset : document.bounds.maxY - inset
+                try click(NSPoint(x: document.bounds.maxX - inset, y: y), in: document, window: panel)
+                try #require(await waitUntil(updating: host) { popup(in: window) == nil }, "Close dismisses all details")
+                _ = try await openDetails()
+                try sendKey(53, to: try #require(popup(in: window)))
+                #expect(await waitUntil(updating: host) { popup(in: window) == nil }, "Escape dismisses the shared popup")
+                _ = try await openDetails()
+                host.rootView = composer("second")
+                #expect(await waitUntil(updating: host) { popup(in: window) == nil }, "Switching sessions closes stale details")
+                _ = try await openDetails()
+                host.rootView = composer("second", showsToolbar: false)
+                #expect(await waitUntil(updating: host) { popup(in: window) == nil && dropdownAnchors(in: host).isEmpty })
             }
         }
     }
 
     @Test(arguments: [280.0, 540.0])
-    func subscriptionQuotaSummaryStaysAboveComposerWithoutClickPopup(width: CGFloat) async throws {
+    func subscriptionQuotaSharesTheFooterWithoutClickPopup(width: CGFloat) async throws {
         let snapshot = try #require(AgentSubscriptionQuota.parse([
             "windows": [
                 ["id": "weekly", "name": "codex", "limitSeconds": 604800, "usedPercent": 36, "resetsAt": 4102444800],
@@ -165,11 +194,13 @@ struct AgentSessionSelectorLayoutTests {
             defer { window.contentView = nil; window.close() }
             try #require(await waitUntil(updating: host) { dropdownAnchors(in: host).count == 4 })
             let anchors = dropdownAnchors(in: host)
-            let top = try #require(anchors.max { $0.convert($0.bounds, to: nil).midY < $1.convert($1.bounds, to: nil).midY })
-            let rect = top.convert(top.bounds, to: host)
-            let summaryPoint = NSPoint(x: rect.minX - 20, y: rect.midY)
-            #expect(summaryPoint.x > 0, "The quota text remains inside a narrow top strip")
-            #expect(anchors.filter { $0 !== top }.count == 3, "Quota is a text hover source, not a new bottom-bar dropdown")
+            let details = try #require(anchors.max { $0.convert($0.bounds, to: nil).midX < $1.convert($1.bounds, to: nil).midX })
+            let rect = details.convert(details.bounds, to: host)
+            let summaryPoint = NSPoint(x: rect.minX - 4 - LitheTheme.Metrics.toolbarIconButtonSize / 2, y: rect.midY)
+            #expect(summaryPoint.x > 0, "The quota ring stays inside the compact footer")
+            #expect(anchors.allSatisfy { abs($0.convert($0.bounds, to: host).midY - rect.midY) < 1 },
+                    "All dropdowns share one footer; no top strip remains")
+            #expect(anchors.filter { $0 !== details }.count == 3, "Quota remains a hover source rather than another dropdown")
             try capture(host, name: "quota-summary-\(width)-\(scheme)")
             try click(summaryPoint, in: host, window: window)
             #expect(popup(in: window) == nil, "The summary must not open a persistent click panel")
