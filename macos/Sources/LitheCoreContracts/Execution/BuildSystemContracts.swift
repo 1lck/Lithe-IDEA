@@ -501,6 +501,12 @@ package protocol BuildToolResolving: AnyObject {
         workspaceURL: URL,
         checkVersion: @escaping @Sendable (_ runtime: String?, _ output: String) throws -> BuildVersionCheck
     ) async throws -> ResolvedBuildTool
+    /// Passive discovery for project import; must never probe or execute tools.
+    func languageImportExecutable(_ invocation: BuildInvocation, workspaceURL: URL) -> URL?
+}
+
+package extension BuildToolResolving {
+    func languageImportExecutable(_ invocation: BuildInvocation, workspaceURL: URL) -> URL? { nil }
 }
 
 // MARK: Options
@@ -821,6 +827,27 @@ package struct BuildSyncState: Equatable, Sendable, Decodable {
     }
 }
 
+// MARK: Language import
+
+/// The result of `build.languageImport`; the kind is a language-server
+/// capability, independent of the plugin and build-system identifiers.
+package enum BuildLanguageImport: Equatable, Sendable, Decodable {
+    case maven(MavenLaunchContext)
+    case gradle(JavaGradleImportConfiguration)
+
+    package init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        switch try values.decode(String.self, forKey: .kind) {
+        case "maven": self = .maven(try values.decode(MavenLaunchContext.self, forKey: .mavenContext))
+        case "gradle": self = .gradle(try values.decode(JavaGradleImportConfiguration.self, forKey: .javaGradle))
+        default:
+            throw DecodingError.dataCorruptedError(forKey: .kind, in: values, debugDescription: "Unknown language import kind")
+        }
+    }
+
+    private enum CodingKeys: String, CodingKey { case kind, mavenContext, javaGradle }
+}
+
 // MARK: Core operations
 
 /// The `build.*` commands of Rust Core. Implementations throw
@@ -832,6 +859,13 @@ package protocol BuildSystemPlanning: Sendable {
         sources: [BuildSystemPluginSource],
         options: [String: [String: ToolingJSONValue]]
     ) throws -> BuildDetection
+    func languageImport(
+        _ target: BuildSystemTarget,
+        workspaceURL: URL,
+        root: String,
+        options: [String: ToolingJSONValue],
+        executableURL: URL?
+    ) throws -> BuildLanguageImport?
     func invocationPlan(_ target: BuildSystemTarget, root: String) throws -> BuildInvocation
     func checkToolVersion(_ target: BuildSystemTarget, runtime: String?, output: String) throws -> BuildVersionCheck
     func resolveOptions(

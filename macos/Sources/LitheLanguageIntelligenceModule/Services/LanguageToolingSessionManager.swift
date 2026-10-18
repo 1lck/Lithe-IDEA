@@ -73,6 +73,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
     private let workspaceStateResetter: ((LanguageProviderDescriptor, URL, String?) throws -> Void)?
     private let workspaceStateCleaner: ((LanguageProviderDescriptor, URL, String?) throws -> Int)?
     private var mavenContextProvider: (LanguageProviderDescriptor, URL) -> MavenLaunchContext? = { _, _ in nil }
+    private var javaLanguageImportProvider: ((LanguageProviderDescriptor, URL) throws -> JavaLanguageImportConfiguration)?
 
     package init(
         catalog: LanguageProviderCatalog = .compatibilityFallback,
@@ -203,6 +204,23 @@ package final class LanguageToolingSessionManager: ObservableObject,
         _ provider: @escaping (LanguageProviderDescriptor, URL) -> MavenLaunchContext?
     ) {
         mavenContextProvider = provider
+    }
+
+    /// The host must prepare plugin imports before any entry point can start
+    /// Java. Throwing here prevents a synchronous document/run path from using
+    /// a previous workspace's context while that preparation is pending.
+    package func configureJavaLanguageImportProvider(
+        _ provider: @escaping (LanguageProviderDescriptor, URL) throws -> JavaLanguageImportConfiguration
+    ) {
+        javaLanguageImportProvider = provider
+    }
+
+    private func javaLanguageImport(
+        _ descriptor: LanguageProviderDescriptor, rootURL: URL
+    ) throws -> JavaLanguageImportConfiguration {
+        guard descriptor.id == "java" else { return JavaLanguageImportConfiguration() }
+        if let javaLanguageImportProvider { return try javaLanguageImportProvider(descriptor, rootURL) }
+        return JavaLanguageImportConfiguration(mavenContext: mavenContextProvider(descriptor, rootURL))
     }
 
     package func retryMavenProfiles(providerID: String) {
@@ -445,9 +463,15 @@ package final class LanguageToolingSessionManager: ObservableObject,
               let session = languageServers["java"],
               session.isRunning,
               languageServerRoots["java"] == root,
-              let descriptor = catalog.descriptors.first(where: { $0.id == "java" }),
-              let context = mavenContextProvider(descriptor, root) else {
+              let descriptor = catalog.descriptors.first(where: { $0.id == "java" }) else {
             return .noSession
+        }
+        let context: MavenLaunchContext
+        do {
+            guard let configured = try javaLanguageImport(descriptor, rootURL: root).mavenContext else { return .noSession }
+            context = configured
+        } catch {
+            return .failed(LanguageServerRuntimeFailure(code: "languageImportUnavailable", message: error.localizedDescription))
         }
         switch session.updateMavenConfiguration(context, reloadProjects: reloadProjects) {
         case .success(let update): return .updated(update)
@@ -1642,10 +1666,12 @@ package final class LanguageToolingSessionManager: ObservableObject,
         )
 
         do {
+            let importConfiguration = try javaLanguageImport(descriptor, rootURL: rootURL)
             try created.start(
                 rootURL: rootURL,
                 workspaceFingerprint: workspaceFingerprint,
-                mavenContext: mavenContextProvider(descriptor, rootURL)
+                mavenContext: importConfiguration.mavenContext,
+                javaGradle: importConfiguration.javaGradle
             )
         } catch {
             if languageServerSessionIdentities[descriptor.id] == sessionIdentity {

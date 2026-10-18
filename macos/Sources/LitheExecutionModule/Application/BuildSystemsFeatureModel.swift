@@ -31,6 +31,14 @@ package final class BuildSystemsFeatureModel: ObservableObject {
     package var hasActiveWork: Bool { service.hasActiveWork }
     package var hasBuildSystemPlugins: Bool { service.hasBuildSystemPlugins }
     package var workspaceURL: URL? { service.workspaceURL }
+    package var languageImport: JavaLanguageImportConfiguration? { service.languageImport }
+    package var onLanguageImportChanged: ((URL) -> Void)? {
+        get { service.onLanguageImportChanged }
+        set { service.onLanguageImportChanged = newValue }
+    }
+    package func prepareLanguageImport(workspaceURL: URL) async throws -> JavaLanguageImportConfiguration {
+        try await service.prepareLanguageImport(workspaceURL: workspaceURL)
+    }
 
     package func entry(_ id: String) -> BuildSystemEntry? { service.entry(id) }
     package func reset(workspaceURL: URL?) { service.reset(workspaceURL: workspaceURL) }

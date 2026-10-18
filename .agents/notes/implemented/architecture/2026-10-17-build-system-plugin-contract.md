@@ -208,9 +208,9 @@ macOS 宿主接受级别 3，并在 `PluginManifest.hostCapabilities` 里声明 
 - **视图状态不能跨模型沿用。** 模型、实例列表或工作区变化后清除所选任务和未提交的参数弹窗，避免运行旧模型中的请求。任务分组节点按每级标题的 UTF-8 长度编码身份；标题即使含有分隔符，也不能和另一条分组路径共用折叠状态。
 - **已删除。** `MavenView`、`MavenBuildOutputView`、`MavenDependencyLocalization`、`BuildSystemsView`，`execution.maven`、`execution.maven.output`、`execution.build` 贡献，`toggle-maven` 命令和对应的 `ToolWindow` 常量。旧布局里的这些 ID 和其他未知贡献一样被忽略；`ToolWindow.restoredID` 改为显式映射旧名字，不再依赖 `allCases` 的顺序。
 
-还留着的 Maven 宿主代码：`MavenService`（以及 `MavenFeatureModel`）仍负责 JDT 的 Maven 配置同步（Profile、settings、本地仓库）、模块运行/调试的启动上下文，以及 `lithe_maven_*` Agent 工具。Agent 执行的 Maven 目标不再有专门的输出窗口，Agent 通过 `lithe_operation_output` 读取输出。`MavenResolutionProblems`（JDT 报告的 `pom.xml` 问题）仍供编辑器诊断使用，但不再显示在构建窗口里。通用构建窗口读取的依赖也尚未成为 Java 依赖侧栏的补充来源。
+还留着的 Maven 宿主代码：`MavenService`（以及 `MavenFeatureModel`）仍负责未声明插件导入配置时的兼容设置、模块运行/调试的启动上下文，以及 `lithe_maven_*` Agent 工具。Agent 执行的 Maven 目标不再有专门的输出窗口，Agent 通过 `lithe_operation_output` 读取输出。`MavenResolutionProblems`（JDT 报告的 `pom.xml` 问题）仍供编辑器诊断使用，但不再显示在构建窗口里。通用构建窗口读取的依赖也尚未成为 Java 依赖侧栏的补充来源。
 
-当前窗口迁移尚未接入插件选项到 JDT 的通用桥。并行的 Core 实现已定义 `buildSystems[].languageImport`，用清单映射选项，再由 `build.languageImport` 返回 `mavenContext` / `javaGradle`；该接口由主会话负责集成，本树的 Swift 桥尚未转发它。宿主接入时只转发这些结果，不能按插件 ID 或构建系统名字反推参数。完成配置同步迁移后，还要迁移运行/调试和 Agent 工具，才具备删除 `MavenService` 的条件。
+macOS 已接入插件选项到 JDT 的通用桥（第 12 节）：Core 归一化 `mavenContext` / `javaGradle`，Swift 只负责等待、转发和过期保护。运行/调试与 Agent 工具仍使用原来的 Maven 业务，因此还不能删除 `MavenService`。
 
 ### 12. 语言服务器导入：`languageImport`
 
@@ -218,7 +218,17 @@ JDT LS 自己导入 Maven 和 Gradle 工程。导入用的 Profile、settings �
 
 所以 2026-10-18 给 `buildSystems` v1 加了可选的 `languageImport`：`kind` 写插件对应的导入（`maven` 或 `gradle`），`options` 把导入设置映射到插件自己的选项 ID。`maven` 有 `profiles`（多选）、`settingsFile`（文件）和 `localRepository`（目录）；`gradle` 有 `offline`（布尔）和 `gradleUserHome`（目录）。校验要求映射的选项存在且类型匹配。`build.languageImport` 按用户存储的值解析选项，返回 `lsp.startServer` 已经接受的 `mavenContext` 或 `javaGradle`。宿主只做转发，不认插件。
 
-Gradle 的 `offline` 和 `userHome` 是用户自己选的值，不是猜测，所以和 #1302 “不猜构建脚本里的设置”不冲突：没设置时仍然不发送，Buildship 用自己的默认值。这两个值只在会话启动时生效；Maven 仍可通过 `lsp.updateMavenConfiguration` 热更新。
+Gradle 的 `offline` 和 `userHome` 是用户自己选的值，不是猜测，所以和 #1302 “不猜构建脚本里的设置”不冲突：没有目录值时不发送 `userHome`，`offline` 按 Core 返回的生效布尔值传递。这两个值只在会话启动时生效；Maven 仍可通过 `lsp.updateMavenConfiguration` 热更新。
+
+macOS 接入规则（2026-10-18）：
+
+- `BuildSystemService` 在无进程检测后，用当前模型接受的有效选项调用 `build.languageImport`。只按返回的 `kind` 转发，不按插件或构建系统 ID 判断。Maven 安装路径来自 `MacBuildToolResolver.languageImportExecutable` 的被动发现，不执行版本探测、Wrapper 或运行时探测；找不到工具仍可使用 JDT 的默认安装设置。
+- 一个 JDT 会话可同时带一个 Maven 和一个 Gradle 输入。检测到多个相同种类的实例时，先选工作区根，再选最浅的根，最后按路径和稳定 ID 排序；不合并不同 reactor 的 Profiles 或机器路径。没有对应插件输入时保留原 Maven 设置兼容路径；`MavenService` 仍是 Run/Debug/Agent 业务的现有提供者。
+- 打开项目、编辑器同步、Run/Debug、测试发现、Java 入口点与维护操作在启动前都受同一份准备结果约束。维护入口携带包含重开代次的 `WorkspaceIdentity`，每个异步边界后重查；同步启动入口在配置尚未准备好时拒绝启动，不能借旧 Maven 上下文绕过等待。
+- 检测、选项或插件变化使导入结果失效并重新计算。命令模型加载后可能收窄可选值，因此发布模型和生效选项后也要重新归一化；受监听文件变化影响时，立即清除旧输入并取消旧检测，再沿用 500 毫秒合并等待重算，等待期间不能读取保存前的配置。直接发起的检测会取消尚未到期的合并任务，避免迟到的重复检测再次清空刚准备好的配置。完成时同时校验工作区代次、检测 UUID 和取消状态，再通知同一工作区的 Java 会话；Maven 原地更新，Gradle 等下次会话启动。等待者有 30 秒期限，各自取消只释放自己的 continuation；停止或重置取消所有等待者，旧检测不能清除新检测或更新新工作区。
+- 这条通路不创建文件或缓存。JDT 的状态和 settings 副本仍由现有平台可写缓存和 Core 管理，不写 app bundle 或插件包；不会改变签名或 Sparkle delta 的发行基线。
+
+回归覆盖：`languageImportMapsPluginOptionIDsWithoutBuildSystemNameAssumptions` 验证 Core 的两类结果解码；`languageImportUsesEffectiveOptionsAndRefreshesAfterSelection`、`languageImportWaiterCancellationDoesNotCancelSharedDetection`、`stoppingServiceFinishesARegisteredLanguageImportWaiter`、`replacedWorkspaceDoesNotPublishItsPendingLanguageImport` 验证选项、注册后的共享等待取消、停止与工作区替换；`watchedFilesInvalidateLanguageImportBeforeDebouncedDetection` 用注入的有界事件控制合并等待，确认旧配置立即失效，等待者只收到重新计算的值；`commandModelRecomputesLanguageImportWithItsAcceptedOptions` 验证模型收窄选项后会更新导入输入；`pluginImportReachesJavaStartupAndMavenHotUpdateWithoutLegacyFallback` 和 `pendingPluginImportCannotStartJavaWithLegacyContext` 验证启动及热更新；`languageImportDiscoversWrapperWithoutExecutingItOrRuntimeProbes` 验证被动发现不执行工具。真实 JDT 导入验收仍待完成，矩阵保持 `pending`。
 
 正确做法：Maven 插件写 `"languageImport": { "kind": "maven", "options": { "profiles": "profiles", "settingsFile": "settingsFile", "localRepository": "localRepository" } }`，宿主在选项变化后调用 `build.languageImport` 并把 `mavenContext` 交给 `lsp.updateMavenConfiguration`。
 

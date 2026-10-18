@@ -5,7 +5,7 @@ import LitheModuleAPI
 
 extension AppModel {
     func rebuildJavaIndex() {
-        guard let workspaceURL else {
+        guard let identity = currentWorkspaceIdentity else {
             showNotification(
                 settings.language == .simplifiedChinese
                     ? "请先打开一个项目"
@@ -17,8 +17,8 @@ extension AppModel {
         Task { @MainActor [weak self] in
             guard let self else { return }
             do {
-                let sessions = try await languageSessionsForWorkspaceMaintenance()
-                try sessions.rebuildWorkspaceState(providerID: "java", rootURL: workspaceURL)
+                let sessions = try await languageSessionsForWorkspaceMaintenance(for: identity)
+                try sessions.rebuildWorkspaceState(providerID: "java", rootURL: identity.url)
                 cancelJavaLanguageServerPreparation()
                 languageIntelligenceModuleCoordinator.resetWorkspaceState(languageToolingFeature)
                 showNotification(
@@ -48,12 +48,9 @@ extension AppModel {
                 self?.handleLanguageSessionChange()
             }
         )
-        capability.sessions.configureMavenContextProvider { [weak self] descriptor, rootURL in
-            guard descriptor.id == "java",
-                  self?.workspaceURL?.standardizedFileURL == rootURL.standardizedFileURL else {
-                return nil
-            }
-            return self?.mavenFeatureIfActive?.launchContext
+        capability.sessions.configureJavaLanguageImportProvider { [weak self] _, rootURL in
+            guard let self else { throw CancellationError() }
+            return try self.javaLanguageImportConfiguration(rootURL: rootURL)
         }
         capability.tools.onCandidatesChanged = { [weak self] providerID in
             guard let self,
@@ -70,13 +67,21 @@ extension AppModel {
         }
     }
 
-    func languageSessionsForWorkspaceMaintenance() async throws
+    func languageSessionsForWorkspaceMaintenance(for expectedIdentity: WorkspaceIdentity? = nil) async throws
         -> LanguageToolingSessionManager
     {
+        guard let identity = expectedIdentity ?? currentWorkspaceIdentity,
+              isCurrentWorkspace(identity), !Task.isCancelled else { throw CancellationError() }
+        try await prepareBuildLanguageImport()
+        guard isCurrentWorkspace(identity) else { throw CancellationError() }
         let sessions = try await languageIntelligenceModuleCoordinator.sessionsForMaintenance(
             current: languageToolingSessionsIfActive
         )
+        try Task.checkCancellation()
+        guard isCurrentWorkspace(identity) else { throw CancellationError() }
         await registerPluginLanguageServers(in: sessions)
+        try Task.checkCancellation()
+        guard isCurrentWorkspace(identity) else { throw CancellationError() }
         return sessions
     }
 
@@ -88,7 +93,9 @@ extension AppModel {
         let supports = services.pluginCatalog.languageSupports.values
             .map(\.declaration)
             .sorted { $0.id < $1.id }
+        let identity = currentWorkspaceIdentity
         for support in supports {
+            guard !Task.isCancelled, currentWorkspaceIdentity == identity else { return }
             guard let moduleID = support.languageServerModuleID,
                   !languageToolingFeature.isDisabled(support.id),
                   let snapshot = try? services.moduleRuntime.snapshot(for: moduleID),
@@ -102,6 +109,7 @@ extension AppModel {
                 // is started; it must not block the other languages.
                 capability = try? await services.moduleRuntime.activateCapability(capabilityID)
             }
+            guard !Task.isCancelled, currentWorkspaceIdentity == identity else { return }
             guard let provider = capability as? any LanguageServerExtensionProviding,
                   sessions.registerLanguageServerExtension(provider, support: support) else { continue }
             if let tools = languageServerToolsIfActive,
