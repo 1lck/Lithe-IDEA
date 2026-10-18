@@ -4,7 +4,19 @@
   "group": "调试器",
   "capability": "启动调试与断点",
   "macos": {
-    "evidence": ["macos/Sources/Lithe/Views/Debug", "shared/fixtures/debug"],
+    "evidence": [
+      "macos/Sources/Lithe/Views/Debug",
+      "shared/fixtures/debug",
+      "macos/EditorFrontend/main.ts",
+      "frontend/editor/src/workbench.ts",
+      "macos/Sources/Lithe/Platform/MacOS/MonacoWorkbenchEditor.swift",
+      "macos/Resources/IDEAIcons/expui/breakpoints",
+      "macos/Experiments/Monaco/workbench.integration.ts",
+      "macos/Sources/LitheDebugModule/Application/DebugBreakpointLocationValidator.swift",
+      "macos/Sources/LitheDebugModule/Application/GenericDebugFeatureModel.swift",
+      "macos/Tests/LitheTests/RealJavaDebugIntegrationTests.swift",
+      "shared/fixtures/debug/breakpoint-binding-v1.json"
+    ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
   },
@@ -23,6 +35,6 @@
     "verificationStatus": "pending"
   },
   "owner": "Debug",
-  "verification": "设置、命中、禁用和重新定位断点，确认调试会话生命周期。 Windows验证Java gutter增删断点、禁用断点和暂停行装饰；只读编辑器不增删断点，切换/销毁编辑器后订阅与装饰均释放。 Windows盘符路径的大小写/分隔符别名必须在 gutter mutation、按文件查询和 Monaco 投影使用同一字面身份；第二次点击移除可见位置及其历史重复别名，保留其他行/模块和原始持久化路径。POSIX大小写保持区分，真实store与隔离localStorage回归登记Windows CI。",
+  "verification": "设置、命中、禁用和重新定位断点，确认调试会话生命周期。 Windows验证Java gutter增删断点、禁用断点和暂停行装饰；只读编辑器不增删断点，切换/销毁编辑器后订阅与装饰均释放。 Windows盘符路径的大小写/分隔符别名必须在 gutter mutation、按文件查询和 Monaco 投影使用同一字面身份；第二次点击移除可见位置及其历史重复别名，保留其他行/模块和原始持久化路径。POSIX大小写保持区分，真实store与隔离localStorage回归登记Windows CI。 macOS WebKit验证IDEA原始14pt断点SVG明暗变体、普通/禁用/静音/未验证/日志状态，未启动调试时为普通实心断点；启用且暂停的断点采用IDEA配色行背景，禁用和日志断点无此背景，增删不改变文本或边栏宽度。 可编辑行号区hover显示原始断点SVG预览，Islands深/浅透明度0.35/0.30，光标为pointer；已有断点保持完整不透明度，只读与Git blame不显示可点击预览。 macOS断点位置只检查合法源码行和provider能力，不以@注解、类型声明或单独花括号启发式拒绝；hover与点击共享宿主能力，未支持文件和只读等状态不发请求。真实JUnit/TestNG调试同时保留方法结束括号断点并在方法体语句暂停、检查局部变量及继续退出。Core requestedLine与适配器ID关联实际行号和后续无位置事件，拒绝旧请求回包；显示已调整位置的圆点仍切换原始持久化断点，新会话撤销旧绑定确认。",
   "notes": "Windows 真实调试产品链路仍在 #466 跟进。 本次Windows改动保留Core/JDT的DAP及Java目标所有权，仅修复前端事件、请求和资源生命周期；完整界面及跨平台验收保持pending。 路径键复用既有装饰规则，不等同于原生文件句柄/符号链接身份，不全量迁移用户断点。"
 }

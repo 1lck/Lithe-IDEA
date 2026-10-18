@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import LitheCoreContracts
 import LitheGitModule
 import LitheTerminalModule
 
@@ -19,6 +20,20 @@ enum EditorDocumentIconResolver {
         return hasMain ? "expui/nodes/runnableMark.svg" : nil
     }
 
+}
+
+private struct EditorDocumentTabStyle: ViewModifier {
+    @ObservedObject var document: EditorDocument
+    @Environment(\.colorScheme) private var colorScheme
+    let project: MavenProject?
+    let isSelected: Bool
+    let isActive: Bool
+
+    func body(content: Content) -> some View {
+        content.modifier(LitheToolWindowTabStyle(isSelected: isSelected, isActive: isActive,
+            fileColor: EditorDocument.isTestSourceFile(document.url, project: project, hasTests: document.hasJavaTests)
+                ? LitheToolWindowTabStyle.testSourceColor(for: colorScheme) : nil))
+    }
 }
 
 private struct EditorDocumentTabIcon: View {
@@ -765,7 +780,8 @@ struct EditorAreaView: View {
             .allowsHitTesting(isActive || hoveredTabItem == .document(document.id))
             .padding(.trailing, 4)
         }
-        .modifier(LitheToolWindowTabStyle(isSelected: isActive, isActive: editorGroupIsActive))
+        .modifier(EditorDocumentTabStyle(document: document, project: model.mavenFeatureIfActive?.project,
+            isSelected: isActive, isActive: editorGroupIsActive))
         .padding(.horizontal, 4)
         .padding(.vertical, 4)
     }

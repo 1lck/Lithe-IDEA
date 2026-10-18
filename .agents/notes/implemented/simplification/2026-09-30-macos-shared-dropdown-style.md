@@ -1480,6 +1480,15 @@ Community `idea/262.9437.185` 的 `JavaFileIconPatcher.kt` 取文件对应类的
 本次仅修改编辑器标签，不额外修改项目树或其他面板。
 
 
+测试文件标签内部配色同样对照 Community `idea/262.9437.185`：`TestsScope` 把测试
+源码范围映射到 `FileColor.Green`，不是运行结果的成功色。`ManyIslandsDark/Light.theme.json`
+分别为 #1C261C / #EDFAEF；`IslandsTabPainter.paintTab` 在选中标签里内缩3pt绘制，
+非活动使用40%透明度。共享 `LitheToolWindowTabStyle` 仅在调用者传入文件范围色时
+增加该层，原工具窗口标签不传色，保留现有焦点、边框与hover行为。编辑器使用导入的
+Maven项目及子模块源码根角色（含自定义目录和测试辅助类），没有根信息时复用已有
+JDT Run marker 的测试元数据，不根据文件名包含 Test 推断。深浅主题与活动/非活动
+像素验证见 `EditorTabColorTests`，源码根边界验证见 `EditorTabLayoutTests`。
+
 ### 2026-10-17 编辑器结构线颜色与匹配边界
 
 - 依据 Community `idea/262.9437.185` 的 `platform/platform-resources/src/themes/islands/IslandSchemeDark.xml`，Lithe 深色编辑器普通结构线使用 `INDENT_GUIDE=#323438`，配对结构线使用 `MATCHED_BRACES_INDENT_GUIDE_COLOR=#4E5157`；其他主题沿用原配色。

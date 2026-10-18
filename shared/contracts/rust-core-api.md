@@ -1773,6 +1773,13 @@ Terminal operation events are exactly one of `operationCompleted` with a typed
 result or `operationFailed` with the adapter command and safe message. Other
 ordered events are `stateChanged`, `initialized`, `output`, `stopped`,
 `continued`, `terminated`, and `breakpoint`. Source coordinates are one-based.
+Source breakpoint confirmations include optional `requestedLine` alongside the
+adapter-resolved `line`. Core retains their association by adapter breakpoint ID,
+so later location-free `breakpoint` events preserve both the requested anchor and
+resolved location. Responses to superseded per-file sets are discarded. Platforms
+persist the requested anchor and may display the resolved line; placement alone
+does not imply that bytecode was bound or that execution will suspend there.
+The correlation fixture is `shared/fixtures/debug/breakpoint-binding-v1.json`.
 The compatibility flow is captured in
 `shared/fixtures/debug/dap-session-v1.json`; exception normalization cases are
 captured in `shared/fixtures/debug/exception-info-v1.json`.

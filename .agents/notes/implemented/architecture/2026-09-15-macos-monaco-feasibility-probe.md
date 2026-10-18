@@ -647,6 +647,74 @@ CoreText 注册，因此 `MonacoWorkbenchAssets` 从安装包现有 `Fonts` 目�
 默认语法和语义颜色读取原生 `color-mappings.json`，不复制一套色值；Monaco
 表面、光标、选择、行号和引导线读取原生宿主解析后的主题颜色。
 
+macOS 普通行号列对照 Community `idea/262.9437.185`
+（`b75ab523e6adbe1d26112219729eacbcfd24daa0`）的 `EditorGutterLayout.createNewUILayout`
+与 `JBUI.CurrentTheme.Editor.Gutter`：非紧凑 New UI 在数字列前保留4pt空注释区
+和4pt间隔，合计8pt。Islands/Dark/Light 及其父主题未覆盖普通值；Darcula
+仅给紧凑模式覆盖为0+2pt，本次不引入紧凑模式。断点替换行号，占用数字列本身，
+不能再把断点宽度加到左边距而得到22pt。实际字形左缘还受右对齐、最大行号位数
+与字体度量影响，不能把截图中某个数字的左缘当成固定边距。
+`macos/EditorFrontend/main.ts` 在数字测量宽度前加8pt，数字内容保留现有最低16pt，
+利用原有右对齐让留白落在左边，运行与折叠槽不增加宽度。上游布局同时负责内容宽度
+和命中区域；不能单独改CSS或拆改 `lineNumbersLeft`，因为Monaco命中计算按槽位
+宽度连续相加，不读取这个数字绘制偏移，拆改会导致断点误判为动作区。Git blame 的自定义
+注释行号和Diff布局不应用这个适配。验证使用真实WebKit工作台探针，覆盖列宽、
+左右间隔、分屏与原有运行/断点/折叠点击。
+
+macOS 断点图标使用同一 Community revision 的 `expui/breakpoints` 原始14×14 SVG，
+不再受Codicon字体字形和字号影响；SVG自身圆形直径12pt，保持原始颜色和空白。
+`XBreakpointUIUtil.calculateSpecialIcon` 将会话中的验证结果与未启动调试的普通断点
+分开，因此桥接额外传入 `sessionActive`，闲置断点即使尚未验证也画普通实心圆。
+禁用、静音、日志和会话内未验证仍有独立图标，条件断点保留条件语义并使用普通圆形。
+对照 `XBreakpointVisualRepresentation.getBreakpointAttributes`，只给启用且会暂停的
+断点添加代码区行背景；静音不删除该背景，禁用或日志断点去掉背景。颜色来自
+`IslandSchemeDark.xml` 的 `BREAKPOINT_ATTRIBUTES`（#40252B）及浅色父方案
+`DefaultColorSchemesManager.xml`（#FAEAE6），不染色整个行号边栏。
+样式只在macOS的 `lithe-line-numbers-first` 入口生效，不改Windows图标、断点请求
+与执行行样式。真实WebKit回归验证各状态、深浅主题、移除装饰及文本历史不变。
+
+断点hover预览按同版本 `ManyIslandsDark/Light.theme.json` 的
+`Breakpoint.iconHoverAlpha` 使用0.35/0.30，不采用绘制函数的0.5回退值。
+预览复用原始普通断点SVG，只替换当前悬停行的行号；已有断点保持原状态与不透明度。
+可编辑行号区显示小手，只读、关闭中的冻结文档和Git blame自定义行号不启用预览。
+
+断点位置与运行时绑定分开处理：删除客户端按 `@`、类型声明和单独花括号拒绝行的
+文本启发式。IDEA 的 `JavaLineBreakpointTypeBase/JavaLineBreakpointType` 使用 PSI，
+实际安装还由 `LineBreakpoint.createRequestForPreparedClass` 查字节码位置；单独的
+括号可保留断点但不保证暂停。Lithe 复用已打包 java-debug 0.53.2/JDT 的语法和绑定，
+不再用另一份客户端 Java 解析器猜“可执行”。检查过该版本的
+`BreakpointLocationsRequestHander`：它只返回已设置断点的候选位置，不能当作设置前
+的源码行枚举接口。这里保留源码行位置并由适配器明确确认，而非另建一套 PSI 或
+把所有行号拒绝条件复制到 TypeScript。宿主按文件 provider 的 debugAdapter 能力发送
+`canToggleBreakpoints`，由同一工作台入口控制 hover 和请求；未支持文件、只读、冻结
+及 blame 行号不显示可添加预览，点击被相同入口拦截。
+
+Core 给源码断点确认保留 `requestedLine`，并以适配器 ID 关联后续只携带 ID 的事件；
+旧文件请求的迟到回包被丢弃。macOS 保存原始位置，显示适配器返回的位置，并在点击
+已移动圆点时操作原断点，避免圆点显示在第5行却又新增第5行的第二个断点。新会话清空
+上次的绑定确认。编辑器还直接订阅宿主变化，在Debug模块第一次缓存后重连特性订阅；
+仅靠SwiftUI重新present会漏掉“首次点击不改变视图输入”的情况，直到打开Debug面板
+才显示已保存红点。运行时验证同时设置方法体语句和方法结束括号，确认语句实际暂停、
+读取局部变量，保留括号断点后移除它并继续到正常结束；不要求所有可保存的红点都命中。
+
+软换行开关使用WebKit内的标准HTML按钮，和代码区共用同一光标系统；原来的
+SwiftUI按钮、透明原生覆盖按钮、cursor rect及手动光标回调全部删除。原生覆盖层的
+独立测试无法证明WebKit不会异步重设光标，真实工作区仍出现I-beam/小手竞争，
+因此不再添加第三套光标修补。按钮复用原始16pt softWrap SVG，22pt命中尺寸、
+圆角、hover/选中颜色、禁用透明度从 `LitheIconButtonStyle` 和共享metrics传入。
+布局仍依据Monaco的缩略图/滚动条宽度，在视口右上留8pt；查找栏打开时隐藏。
+
+`EditorSoftWrapToggleConfiguration` 仅提供原生可见性、可用性、选中状态和本地化文案；
+点击通过同源 `toggleSoftWrap` 消息修改原有 `AppSettings.editorSoftWrapEnabled`，
+不是另存一份网页设置。宿主检查当前配置的可见/可用状态，拒绝隐藏或禁用按钮发来的
+请求；状态继续经现有configure流程应用到编辑器。mousedown保留编辑选区，HTML
+button保留键盘和无障碍语义。只读搜索/Problems预览不要求额外EditorChrome环境对象。
+
+提示灯泡复用Community同版本 `expui/codeInsight/intentionBulb{,_dark}.svg` 原始16pt
+资源，覆盖Monaco内容区与gutter两种灯泡位置的字体字形；保留Monaco的动作计算、
+菜单入口、快捷键和preferred标记。当前桥接未提供IDEA的error-fix分类，不根据同一行
+是否有无关错误猜测红色灯泡，也不引入新的快速修复语义。真实WebKit检查明暗SVG、
+灯泡可见性与既有quick-fix执行回归。
 自动测试中的 Unicode 编辑不等于真实中文或日文组合输入。输入法候选窗口、
 触控板动量、VoiceOver、原生快捷键、跨进程总内存、崩溃恢复和 NSTextView
 对照采样仍需单独验证。当前文本入口默认使用 Monaco，不代表全量替换已经验收。

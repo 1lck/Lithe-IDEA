@@ -60,6 +60,7 @@ final class Probe: NSObject, NSApplicationDelegate, WKScriptMessageHandlerWithRe
         ["id": "parent", "line": 2, "direction": "up", "relation": "inheritance"],
         ["id": "implementers", "line": 2, "direction": "down", "relation": "interface"]
     ]]
+    var softWrapToggleCount = 0
     var debugRequests: [[String: Any]] = []
     var definitionRequests: [[String: Any]] = []
     var editorLayout: [String: Any] = [:]
@@ -143,6 +144,13 @@ final class Probe: NSObject, NSApplicationDelegate, WKScriptMessageHandlerWithRe
                 return
             }
             switch type {
+            case "toggleSoftWrap":
+                softWrapToggleCount += 1
+                replyHandler(["ok": true], nil)
+            case "softWrapToggleCount": replyHandler(["count": softWrapToggleCount], nil)
+            case "cursorSnapshot":
+                replyHandler(["cursor": NSCursor.current == .pointingHand ? "pointer" : NSCursor.current == .iBeam ? "text" : NSCursor.current == .arrow ? "arrow" : "other",
+                              "description": String(describing: NSCursor.current)], nil)
             case "closeFixtureDocument":
                 guard let id = body["documentID"] as? String else { throw ProbeError.invalid("Missing fixture ID") }
                 fixtureDocuments[id] = nil

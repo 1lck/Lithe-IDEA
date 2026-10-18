@@ -1,3 +1,4 @@
+import { LightBulbWidget } from "monaco-editor/esm/vs/editor/contrib/codeAction/browser/lightBulbWidget.js";
 import { runEditorCommand } from "@lithe/editor/editor-commands";
 import { ICommandService } from "monaco-editor/esm/vs/platform/commands/common/commands.js";
 import { IBulkEditService } from "monaco-editor/esm/vs/editor/browser/services/bulkEditService.js";
@@ -707,16 +708,28 @@ async function verify() {
           const style = getComputedStyle(number);
           context.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
           const digitWidth = Math.max(...[..."0123456789"].map(digit => context.measureText(digit).width));
-          const expected = Math.round(Math.max(16, String(count).length * digitWidth));
+          const expected = 8 + Math.round(Math.max(16, String(count).length * digitWidth));
           assert(Math.abs(editor.getLayoutInfo().lineNumbersWidth - expected) <= 1,
             `number column did not follow measured font: ${count} lines, ${fontSize}pt`);
-          assert(editor.getLayoutInfo().lineNumbersLeft === 0, "number column retained an extra left glyph margin");
+          const layout = editor.getLayoutInfo();
+          assert(layout.glyphMarginWidth === 0 && layout.lineNumbersLeft === 0,
+            "leading inset changed Monaco's native gutter coordinate system");
+          const text = document.createRange();
+          text.selectNodeContents(number);
+          const bounds = text.getBoundingClientRect();
+          assert(bounds.left - editor.getDomNode()!.getBoundingClientRect().left >= 8 &&
+            Math.abs(bounds.right - number.getBoundingClientRect().right) <= 1,
+            "leading inset was missing or created whitespace after the number");
+          assert(layout.decorationsLeft === layout.lineNumbersLeft + layout.lineNumbersWidth &&
+            layout.contentLeft - layout.decorationsLeft === 40,
+            "leading inset widened the trailing action/folding lanes");
           assert(style.textAlign === "right", "line numbers lost right alignment");
         }
       }
       await window.lithe.showSecondary({ id: "number-width-split", text: Array(1000).fill("line").join("\n"),
         revision: 0, language: "plaintext", readonly: true });
       const secondary = monacoEditor.getEditors().find(view => view !== editor)!;
+      assert(secondary.getLayoutInfo().lineNumbersWidth >= 8 + 16, "split lost the leading number inset");
       assert(secondary.getLayoutInfo().lineNumbersWidth > editor.getLayoutInfo().lineNumbersWidth,
         "split editors shared one document's line-number width");
     } finally {
@@ -724,6 +737,64 @@ async function verify() {
       await window.lithe.retain([]);
       window.lithe.configure({ dark: true, fontFamily: "monospace", fontSize: 13, wrap: false, minimap: true });
     }
+  });
+  await check("soft wrap button owns WebKit cursor and hit testing without stealing editor selection", async () => {
+    await window.lithe.activate({ id: "soft-wrap-web-button", text: "first\nsecond", revision: 0, language: "plaintext", readonly: false });
+    const config = { visible: true, enabled: true, selected: false, label: "Soft Wraps", title: "Use soft wraps",
+      size: 22, radius: 5, disabledOpacity: 0.45, hover: "#FFFFFF17", pressed: "#FFFFFF18" };
+    try {
+      window.lithe.softWrapControl(config);
+      const button = document.querySelector<HTMLButtonElement>(".lithe-soft-wrap")!;
+      const selection = new Selection(1, 2, 1, 4);
+      editor.setSelection(selection);
+      const count = (await send({ type: "softWrapToggleCount" })).count;
+      editor.render(true);
+      const layout = editor.getLayoutInfo();
+      for (const y of [10, layout.height / 2]) {
+        const hit = document.elementFromPoint(layout.contentLeft + 100, y)!;
+        assert(getComputedStyle(hit).cursor === "text", `code area lost I-beam at y=${y}: ${hit.className}, ${getComputedStyle(hit).cursor}, parent=${hit.parentElement?.className}`);
+      }
+      for (const minimap of [false, true]) {
+        window.lithe.configure({ dark: true, fontFamily: "monospace", fontSize: 13, wrap: false, minimap });
+        const bounds = button.getBoundingClientRect(), layout = editor.getLayoutInfo();
+        const inset = layout.minimap.minimapWidth > 0 ? layout.width - layout.minimap.minimapLeft : layout.verticalScrollbarWidth;
+        assert(bounds.width === 22 && bounds.height === 22 && bounds.top === 8 && innerWidth - bounds.right === inset + 8,
+          "soft wrap button changed its native size or minimap-relative position");
+        for (const offset of [2, 11, 20]) {
+          const hit = document.elementFromPoint(bounds.left + offset, bounds.top + 11);
+          assert(hit === button && getComputedStyle(hit!).cursor === "pointer", "editor claimed the button's cursor or hit area");
+        }
+      }
+      button.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+      button.click();
+      assert((await send({ type: "softWrapToggleCount" })).count === count + 1, "soft wrap click did not reach native settings");
+      assert(editor.getSelection()!.equalsSelection(selection), "soft wrap button changed the editor selection");
+      window.lithe.softWrapControl({ ...config, enabled: false, selected: true });
+      button.click();
+      assert(button.disabled && getComputedStyle(button).cursor === "default" && button.getAttribute("aria-pressed") === "true",
+        "disabled or selected native setting state was lost");
+      assert((await send({ type: "softWrapToggleCount" })).count === count + 1, "disabled soft wrap button executed");
+      window.lithe.softWrapControl({ ...config, visible: false });
+      assert(button.hidden, "find-bar/hidden soft wrap button retained a hit target");
+    } finally { window.lithe.softWrapControl({ ...config, visible: false }); await window.lithe.retain([]); }
+  });
+  await check("IDEA intention bulbs replace glyphs while retaining Monaco actions", async () => {
+    await window.lithe.activate({ id: "idea-bulb", text: "first\n    second\nthird", revision: 0, language: "plaintext", readonly: false });
+    const widget = editor.getContribution<LightBulbWidget>(LightBulbWidget.ID)!;
+    const actions = { validActions: [{ action: { title: "Fix", kind: "quickfix" } }], hasAutoFix: true,
+      hasAIFix: false, allAIFixes: false } as any;
+    try {
+      for (const dark of [false, true]) {
+        window.lithe.configure({ dark, fontFamily: "monospace", fontSize: 13, wrap: false, minimap: true });
+        editor.setPosition({ lineNumber: 2, column: 5 }); editor.focus();
+        widget.update(actions, { type: 1 } as any, new Position(2, 5)); editor.render(true);
+        const node = widget.getDomNode(), style = getComputedStyle(node, ":before");
+        assert(style.width === "16px" && style.height === "16px" && style.content === '\"\"' &&
+          style.backgroundImage.includes(dark ? "F2C55C" : "FFAF0F"),
+          `IDEA bulb SVG/theme mapping failed: dark=${dark}, image=${style.backgroundImage}`);
+        assert(widget.getPosition() !== null, "restyling hid the real Monaco lightbulb");
+      }
+    } finally { widget.hide(); monacoEditor.setModelMarkers(editor.getModel()!, "bulb-test", []); await window.lithe.retain([]); }
   });
   await check("native soft wrap placement follows minimap visibility and editor width", async () => {
     const original = editor.getLayoutInfo();
@@ -1545,6 +1616,112 @@ async function verify() {
       await window.lithe.freeze(id);
       window.lithe.hideSecondary();
       await window.lithe.retain([]);
+    }
+  });
+  await check("breakpoint hover and clicks share document capability including brace and annotation lines", async () => {
+    const id = "breakpoint-placement";
+    await window.lithe.activate({ id, text: "@Test void run() {\n    int value = 1;\n}", revision: 0, language: "java", readonly: false });
+    const clickLine = async (line: number) => {
+      editor.render(true);
+      const node = [...document.querySelectorAll<HTMLElement>("#editor .line-numbers")]
+        .find(node => node.textContent === String(line))!;
+      assert(!!node, "requested line number is missing");
+      const bounds = node.getBoundingClientRect();
+      let listener: { dispose(): void } | undefined;
+      try {
+        await withDeadline(new Promise<void>(resolve => {
+          listener = editor.onMouseDown(() => resolve());
+          const point = { bubbles: true, button: 0, buttons: 1,
+            clientX: bounds.right - 4, clientY: bounds.top + bounds.height / 2 };
+          node.dispatchEvent(new MouseEvent("mousedown", point));
+          document.dispatchEvent(new MouseEvent("mouseup", { ...point, buttons: 0 }));
+        }), "gutter click did not reach Monaco");
+      } finally { listener?.dispose(); }
+    };
+    try {
+      await window.lithe.debugState(id, { muted: false, canToggleBreakpoints: true, revision: 0, breakpoints: [] });
+      assert(editor.getDomNode()!.hasAttribute("data-lithe-breakpoints-editable"), "supported document has no hover target");
+      for (const line of [1, 3]) {
+        await clickLine(line);
+        const request = (await send({ type: "debugRequests" })).requests.at(-1);
+        assert(request?.id === id && request.line === line && request.type === "toggleBreakpoint",
+          "annotation or brace was falsely rejected as non-executable");
+      }
+      await window.lithe.debugState(id, { muted: false, canToggleBreakpoints: false, revision: 0, breakpoints: [] });
+      assert(!editor.getDomNode()!.hasAttribute("data-lithe-breakpoints-editable"), "unsupported document retained hover target");
+      const before = (await send({ type: "debugRequests" })).requests.length;
+      await clickLine(3);
+      assert((await send({ type: "debugRequests" })).requests.length === before, "unsupported document still sent a breakpoint");
+      await window.lithe.debugState(id, { muted: false, canToggleBreakpoints: true, revision: -1, breakpoints: [] });
+      assert(!editor.getDomNode()!.hasAttribute("data-lithe-breakpoints-editable"), "stale state restored clickable hover");
+    } finally { await window.lithe.retain([]); }
+  });
+
+  await check("native breakpoints use IDEA SVGs and line backgrounds without shifting the gutter", async () => {
+    const id = "breakpoint-style";
+    await window.lithe.activate({ id, text: "first\nsecond\nthird", revision: 0, language: "plaintext", readonly: false });
+    const model = editor.getModel()!, version = model.getVersionId(), contentLeft = editor.getLayoutInfo().contentLeft;
+    const point = { line: 1, enabled: true, verified: false, logpoint: false };
+    try {
+      for (const dark of [false, true]) {
+        window.lithe.configure({ dark, fontFamily: "monospace", fontSize: 13, wrap: false, minimap: true });
+        await window.lithe.debugState(id, { muted: false, sessionActive: false, breakpoints: [point] });
+        editor.render(true);
+        const icon = document.querySelector("#editor .line-numbers.lithe-breakpoint-regular")!;
+        assert(!!icon, "breakpoint without a debug session was treated as invalid");
+        assert(getComputedStyle(icon).cursor === "pointer", "editable breakpoint did not use the hand cursor");
+        editor.updateOptions({ readOnly: true });
+        assert(!editor.getDomNode()!.hasAttribute("data-lithe-breakpoints-editable") && getComputedStyle(icon).cursor !== "pointer",
+          "read-only editor retained clickable breakpoint hover");
+        editor.updateOptions({ readOnly: false });
+        const style = getComputedStyle(icon, ":before");
+        assert(style.opacity === "1", "existing breakpoint became a translucent hover preview");
+        assert(style.width === "14px" && style.height === "14px" && style.backgroundImage.includes(dark ? "DB5C5C" : "E55765"),
+          "ordinary breakpoint did not use the original 14pt IDEA solid SVG and theme color");
+        const image = new Image();
+        image.src = style.backgroundImage.slice(5, -2);
+        await withDeadline(image.decode(), "breakpoint SVG could not decode");
+        const canvas = document.createElement("canvas");
+        canvas.width = canvas.height = 14;
+        const context = canvas.getContext("2d")!;
+        context.drawImage(image, 0, 0);
+        assert(image.naturalWidth === 14 && image.naturalHeight === 14 &&
+          [...context.getImageData(7, 7, 1, 1).data].join() === (dark ? "219,92,92,255" : "229,87,101,255"),
+          "ordinary breakpoint SVG was hollow, recolored, or resized");
+        const line = document.querySelector("#editor .lithe-breakpoint-line")!;
+        assert(!!line && getComputedStyle(line).backgroundColor === (dark ? "rgb(64, 37, 43)" : "rgb(250, 234, 230)"),
+          "enabled breakpoint line did not use IDEA scheme background");
+        assert(editor.getLayoutInfo().contentLeft === contentLeft, "breakpoint changed the gutter width");
+      }
+      for (const [muted, enabled, logpoint, sessionActive, icon] of [
+        [false, false, false, false, "disabled"], [true, true, false, false, "muted"],
+        [true, false, false, false, "mutedDisabled"], [false, true, true, false, "logpoint"],
+        [false, false, true, false, "logpointDisabled"], [false, true, false, true, "invalid"],
+      ] as const) {
+        await window.lithe.debugState(id, { muted, sessionActive, breakpoints: [{ ...point, enabled, logpoint }] });
+        editor.render(true);
+        const element = document.querySelector(`#editor .line-numbers.lithe-breakpoint-${icon}`)!;
+        assert(!!element && getComputedStyle(element, ":before").backgroundImage.startsWith('url("data:image/svg+xml,'),
+          `IDEA ${icon} breakpoint SVG was missing`);
+        assert(!!document.querySelector("#editor .lithe-breakpoint-line") === (enabled && !logpoint),
+          "disabled breakpoint or logpoint retained a suspension background");
+      }
+      for (const logpoint of [false, true]) {
+        await window.lithe.debugState(id, { muted: false, sessionActive: true,
+          breakpoints: [{ ...point, verified: true, logpoint }] });
+        editor.render(true);
+        const icon = document.querySelector(`#editor .line-numbers.lithe-breakpoint-${logpoint ? "logpointValid" : "valid"}`)!;
+        assert(!!icon && getComputedStyle(icon, ":before").backgroundImage.includes("svg+xml"),
+          "adapter verification did not select the original IDEA verified icon");
+      }
+      await window.lithe.debugState(id, { muted: false, breakpoints: [] });
+      editor.render(true);
+      assert(!document.querySelector("#editor .lithe-breakpoint-line, #editor .line-numbers.lithe-breakpoint"),
+        "removed breakpoint retained its icon or line background");
+      assert(model.getVersionId() === version && model.getValue() === "first\nsecond\nthird", "breakpoint styles changed document history");
+    } finally {
+      await window.lithe.retain([]);
+      window.lithe.configure({ dark: true, fontFamily: "monospace", fontSize: 13, wrap: false, minimap: true });
     }
   });
   await check("debug markers distinguish breakpoint state and clear without changing document history", async () => {

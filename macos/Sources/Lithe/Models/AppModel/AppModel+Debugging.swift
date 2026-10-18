@@ -290,17 +290,10 @@ extension AppModel {
     }
 
     func toggleDebugBreakpoint(fileURL: URL, line: Int) {
-        if languageProviderCatalog.provider(for: fileURL)?.id == "java",
-           let document = openDocuments.first(where: {
-               $0.url.standardizedFileURL == fileURL.standardizedFileURL
-           }),
-           !DebugBreakpointLocationValidator.isExecutableJavaLine(
-               source: document.text,
-               line: line
-           ) {
-            showNotification("This line cannot hold a Java breakpoint")
-            return
-        }
+        guard let document = openDocuments.first(where: {
+            $0.url.standardizedFileURL == fileURL.standardizedFileURL
+        }), !document.isReadOnly,
+        DebugBreakpointLocationValidator.canSetSourceBreakpoint(source: document.text, line: line) else { return }
         if languageProviderCatalog.provider(for: fileURL)?
             .capabilities.contains(.debugAdapter) == true {
             Task { [weak self] in
@@ -337,7 +330,7 @@ extension AppModel {
         let normalizedURL = fileURL.standardizedFileURL
         debugBreakpointPresentation.pendingEditor = genericDebugFeatureIfActive?.breakpoints
             .filter {
-                $0.fileURL.standardizedFileURL == normalizedURL && $0.line == line
+                $0.fileURL.standardizedFileURL == normalizedURL && ($0.resolvedLine ?? $0.line) == line
             }
             .min { ($0.column ?? 0) < ($1.column ?? 0) }
     }

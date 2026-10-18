@@ -1,108 +1,31 @@
-import SwiftUI
 import AppKit
+import SwiftUI
 
-/// 缩略图左侧的软换行开关：复用统一工具栏按钮样式，
-/// 状态经 AppSettings 持久化；超大文件（行数阈值见 `LitheTextViewportLayout`）
-/// 时按钮禁用，布局层兜底保持不换行。
-struct EditorSoftWrapToggle: View {
-    @ObservedObject var session: MonacoWorkbenchSession
-    @EnvironmentObject private var settings: AppSettings
-    @EnvironmentObject private var chrome: EditorChromeModel
+/// Native settings and shared toolbar metrics for the WebKit-owned soft-wrap button.
+/// Keeping the hit target inside WebKit prevents competing native/text cursor owners.
+struct EditorSoftWrapToggleConfiguration: Equatable {
+    let visible: Bool
+    let enabled: Bool
+    let selected: Bool
+    let hover: String
+    let pressed: String
 
-    var body: some View {
-        // 查找栏是覆盖在编辑器顶部的悬浮弹层，窄面板（分屏、展开侧边
-        // 工具窗口）下会占满可用宽度。此时隐藏本开关，避免盖住查找栏
-        // 关闭按钮的点击区域。
-        if !chrome.isFindBarVisible, let inset = session.minimapTrailingInset {
-            softWrapButton
-                .padding(.top, 8)
-                .padding(.trailing, inset + 8)
-        }
+    init(visible: Bool, enabled: Bool, selected: Bool) {
+        self.visible = visible
+        self.enabled = enabled
+        self.selected = selected
+        let style = LitheIconButtonStyle()
+        hover = MonacoWorkbenchThemeConfiguration.cssColor(NSColor(style.hoverBackground))
+        pressed = MonacoWorkbenchThemeConfiguration.cssColor(NSColor(style.pressedBackground))
     }
 
-    private var softWrapButton: some View {
-        Button {
-            settings.editorSoftWrapEnabled.toggle()
-        } label: {
-            LitheIDEAIcon(resourcePath: "expui/general/softWrap.svg", size: 16, preservesOriginalColors: true)
-        }
-        .buttonStyle(LitheIconButtonStyle(
-            size: LitheTheme.Metrics.toolbarIconButtonSize,
-            isSelected: settings.editorSoftWrapEnabled
-        ))
-        .disabled(!chrome.isSoftWrapAvailable)
-        .background(EditorCursorShieldView(cursor: .arrow))
-        // The underlying WebKit editor otherwise retains its text cursor over this overlay.
-        .onContinuousHover { phase in
-            if case .active = phase { NSCursor.arrow.set() }
-        }
-        .help(helpText)
-        .accessibilityLabel(Text("Soft Wraps"))
-        .accessibilityValue(Text(settings.editorSoftWrapEnabled ? "On" : "Off"))
-    }
-
-    private var helpText: LocalizedStringKey {
-        if !chrome.isSoftWrapAvailable {
-            return "Soft wrap is unavailable for very large files"
-        }
-        return settings.editorSoftWrapEnabled ? "Disable soft wraps" : "Use soft wraps"
-    }
-}
-
-/// A native AppKit view placed behind the button to establish a cursor rect and tracking area,
-/// preventing the underlying WebKit text cursor (I-beam) from claiming the pointer.
-private struct EditorCursorShieldView: NSViewRepresentable {
-    let cursor: NSCursor
-
-    func makeNSView(context: Context) -> CursorShieldNSView {
-        let view = CursorShieldNSView()
-        view.cursor = cursor
-        return view
-    }
-
-    func updateNSView(_ nsView: CursorShieldNSView, context: Context) {
-        nsView.cursor = cursor
-    }
-}
-
-private final class CursorShieldNSView: NSView {
-    var cursor: NSCursor = .arrow {
-        didSet {
-            window?.invalidateCursorRects(for: self)
-        }
-    }
-
-    private var tracking: NSTrackingArea?
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(
-            rect: .zero,
-            options: [.inVisibleRect, .activeAlways, .cursorUpdate, .mouseEnteredAndExited, .mouseMoved],
-            owner: self,
-            userInfo: nil
-        )
-        addTrackingArea(area)
-        tracking = area
-    }
-
-    override func resetCursorRects() {
-        super.resetCursorRects()
-        addCursorRect(bounds, cursor: cursor)
-    }
-
-    override func cursorUpdate(with event: NSEvent) {
-        cursor.set()
-    }
-
-    override func mouseEntered(with event: NSEvent) {
-        super.mouseEntered(with: event)
-        cursor.set()
-    }
-
-    override func mouseMoved(with event: NSEvent) {
-        super.mouseMoved(with: event)
-        cursor.set()
+    var bridgePayload: [String: Any] {
+        let style = LitheIconButtonStyle()
+        let title = !enabled ? String(localized: "Soft wrap is unavailable for very large files")
+            : selected ? String(localized: "Disable soft wraps") : String(localized: "Use soft wraps")
+        return ["visible": visible, "enabled": enabled, "selected": selected,
+                "label": String(localized: "Soft Wraps"), "title": title,
+                "size": LitheTheme.Metrics.toolbarIconButtonSize, "radius": style.cornerRadius,
+                "disabledOpacity": style.disabledOpacity, "hover": hover, "pressed": pressed]
     }
 }

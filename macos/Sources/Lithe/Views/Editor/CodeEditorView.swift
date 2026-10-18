@@ -1860,15 +1860,16 @@ struct CodeEditorView: NSViewRepresentable {
             let blameLines = model.gitBlameLines[url] ?? []
             let genericBreakpointLines = (model.genericDebugFeatureIfActive?.breakpoints ?? []).filter {
                 $0.fileURL.standardizedFileURL == url
-            }.map(\.line)
+            }.map { $0.resolvedLine ?? $0.line }
             let debugBreakpointLines = Set(genericBreakpointLines)
             let debugBreakpointStates = (model.genericDebugFeatureIfActive?.breakpoints ?? [])
                 .filter { $0.fileURL.standardizedFileURL == url }
                 .reduce(into: [Int: EditorDebugBreakpointState]()) { states, breakpoint in
                     // A source line can carry multiple column breakpoints;
                     // show it as confirmed when any adapter location is confirmed.
-                    let previous = states[breakpoint.line]
-                    states[breakpoint.line] = EditorDebugBreakpointState(
+                    let line = breakpoint.resolvedLine ?? breakpoint.line
+                    let previous = states[line]
+                    states[line] = EditorDebugBreakpointState(
                         enabled: previous?.enabled == true || breakpoint.enabled,
                         verified: previous?.verified == true || breakpoint.verified
                     )
@@ -1877,7 +1878,7 @@ struct CodeEditorView: NSViewRepresentable {
                 model.genericDebugFeatureIfActive?.breakpoints
                     .filter { $0.fileURL.standardizedFileURL == url }
                     .compactMap { breakpoint in
-                        breakpoint.message.map { (breakpoint.line, $0) }
+                        breakpoint.message.map { (breakpoint.resolvedLine ?? breakpoint.line, $0) }
                     } ?? [],
                 uniquingKeysWith: { first, _ in first }
             )
@@ -1922,7 +1923,7 @@ struct CodeEditorView: NSViewRepresentable {
                     canAdd: { [weak textView, fileExtension] line in
                         guard fileExtension.lowercased() == "java",
                               let textView else { return false }
-                        return DebugBreakpointLocationValidator.isExecutableJavaLine(
+                        return DebugBreakpointLocationValidator.canSetSourceBreakpoint(
                             source: textView.string,
                             line: EditorDebugBreakpointLocation.productLine(forEditorLine: line)
                         )
@@ -1939,7 +1940,7 @@ struct CodeEditorView: NSViewRepresentable {
                         )
                         guard let feature = model?.genericDebugFeatureIfActive,
                               let breakpoint = feature.breakpoints.first(where: {
-                                  $0.fileURL.standardizedFileURL == url && $0.line == productLine
+                                  $0.fileURL.standardizedFileURL == url && ($0.resolvedLine ?? $0.line) == productLine
                               }) else { return }
                         feature.removeBreakpoint(breakpoint)
                     },
@@ -1949,7 +1950,7 @@ struct CodeEditorView: NSViewRepresentable {
                         )
                         guard let feature = model?.genericDebugFeatureIfActive,
                               let breakpoint = feature.breakpoints.first(where: {
-                                  $0.fileURL.standardizedFileURL == url && $0.line == productLine
+                                  $0.fileURL.standardizedFileURL == url && ($0.resolvedLine ?? $0.line) == productLine
                               }) else { return }
                         feature.setBreakpointEnabled(breakpoint, enabled: enabled)
                     },

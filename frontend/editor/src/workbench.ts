@@ -58,7 +58,7 @@ export function mountWorkbench(host: WorkbenchHost) {
   type GitMarker = { id: string; line: number; kind: "added" | "modified" | "deleted"; stage: boolean; unstage: boolean; discard: boolean };
   type BlameLine = { line: number; commit: string; author: string; date: string };
   type JavaMarker = { id: string; line: number; direction: "up" | "down"; relation?: "interface" | "inheritance" };
-  type Entry = { source: SourceText; model: monaco.editor.ITextModel; release: () => void; revision: number; chain: Promise<unknown>; readonly: boolean; frozen: boolean; freezeOperation?: string; pendingEdits: number; state: monaco.editor.ICodeEditorViewState | null; debugDecorations?: string[]; debugPaused?: boolean; debugGeneration?: number; closingHolds?: number; filename?: string; locationRevision: number; contextGeneration: number };
+  type Entry = { source: SourceText; model: monaco.editor.ITextModel; release: () => void; revision: number; chain: Promise<unknown>; readonly: boolean; frozen: boolean; freezeOperation?: string; pendingEdits: number; state: monaco.editor.ICodeEditorViewState | null; debugDecorations?: string[]; debugPaused?: boolean; canToggleBreakpoints?: boolean; debugGeneration?: number; closingHolds?: number; filename?: string; locationRevision: number; contextGeneration: number };
   const entries = new Map<string, Entry>();
   const workers: Worker[] = [];
   const closingOperations = new Map<string, { entry?: Entry; cancelled: boolean }>();
@@ -678,10 +678,19 @@ export function mountWorkbench(host: WorkbenchHost) {
           view.updateOptions({ lineDecorationsWidth: width, extraEditorClassName: className });
         }
       }
+      if (host.lineNumbersFirst) {
+        const entry = [...entries.values()].find(entry => entry.model === view.getModel());
+        view.getDomNode()?.toggleAttribute("data-lithe-breakpoints-editable", !!entry &&
+          entry.canToggleBreakpoints === true && !entry.readonly && !entry.frozen && !entry.closingHolds && !failed &&
+          !view.getOption(monaco.editor.EditorOption.readOnly) && typeof view.getRawOptions().lineNumbers !== "function");
+      }
       const value = navigation();
       for (const direction of ["up", "down"] as const) navigationKeys[direction].set(!!value?.markers.some(marker => marker.direction === direction));
     };
     navigationContexts.set(view, refresh);
+    view.onDidChangeConfiguration(event => {
+      if (event.hasChanged(monaco.editor.EditorOption.readOnly) || event.hasChanged(monaco.editor.EditorOption.lineNumbers)) refresh();
+    });
     view.onDidChangeCursorPosition(refresh); view.onDidChangeModel(refresh); view.onDidChangeModelContent(refresh);
     const navigate = async (direction: "up" | "down", line?: number) => {
       const value = navigation(line), marker = value?.markers.find(marker => marker.direction === direction);
@@ -713,12 +722,12 @@ export function mountWorkbench(host: WorkbenchHost) {
     function request(type: "toggleBreakpoint" | "editBreakpoint" | "runToCursor", line: number, column = 1) {
       const model = view.getModel();
       const pair = [...entries].find(([, entry]) => entry.model === model);
-      if (!pair || pair[1].readonly || pair[1].frozen || !!pair[1].closingHolds || failed) return;
+      if (!pair || view.getOption(monaco.editor.EditorOption.readOnly) || pair[1].canToggleBreakpoints === false || pair[1].readonly || pair[1].frozen || !!pair[1].closingHolds || failed) return;
       const [id, entry] = pair;
       const version = entry.model.getVersionId();
       return entry.chain.then(async () => {
         if (entries.get(id) !== entry || entry.model.isDisposed() || entry.model.getVersionId() !== version ||
-            entry.frozen || !!entry.closingHolds || failed) return;
+            entry.canToggleBreakpoints === false || entry.readonly || entry.frozen || !!entry.closingHolds || failed) return;
         await send({ type, id, revision: entry.revision, line, column });
       }).catch(error => console.warn("Debug request failed", error));
     }
@@ -736,7 +745,8 @@ export function mountWorkbench(host: WorkbenchHost) {
     if (attached) scheduleNavigation(...attached);
     refresh();
     return view.onMouseDown(event => {
-      if (event.target.element?.closest(".lithe-java-navigation, .lithe-java-run, .lithe-blame")) return;
+      if (event.target.element?.closest(".lithe-java-navigation, .lithe-java-run, .lithe-blame") ||
+          host.lineNumbersFirst && typeof view.getRawOptions().lineNumbers === "function") return;
       if ((event.target.type !== monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN &&
            !(host.lineNumbersFirst && event.target.type === monaco.editor.MouseTargetType.GUTTER_LINE_NUMBERS)) || !event.target.position ||
           (!event.event.leftButton && !event.event.rightButton)) return;
@@ -1025,10 +1035,13 @@ export function mountWorkbench(host: WorkbenchHost) {
       }
       monaco.editor.setTheme(name);
     },
-    async debugState(id: string, state: { breakpoints: { line: number; enabled: boolean; verified: boolean; logpoint: boolean; conditional?: boolean; message?: string }[]; muted: boolean; paused?: boolean; canRunToCursor?: boolean; executionLine?: number; revision?: number; variables?: { name: string; value: string }[] }) {
+    async debugState(id: string, state: { breakpoints: { line: number; enabled: boolean; verified: boolean; logpoint: boolean; conditional?: boolean; message?: string }[]; muted: boolean; canToggleBreakpoints?: boolean; sessionActive?: boolean; paused?: boolean; canRunToCursor?: boolean; executionLine?: number; revision?: number; variables?: { name: string; value: string }[] }) {
       await activation;
       const entry = entries.get(id);
       if (!entry) return;
+      if (state.revision === undefined || state.revision === entry.revision)
+        entry.canToggleBreakpoints = state.canToggleBreakpoints ?? true;
+      for (const view of allEditors()) if (view.getModel() === entry.model) navigationContexts.get(view)?.();
       entry.debugPaused = state.paused === true;
       entry.debugGeneration = (entry.debugGeneration ?? 0) + 1;
       for (const view of allEditors()) if (view.getModel() === entry.model)
@@ -1036,9 +1049,15 @@ export function mountWorkbench(host: WorkbenchHost) {
       const decorations: monaco.editor.IModelDeltaDecoration[] = state.breakpoints
         .filter(point => point.line >= 1 && point.line <= entry.model.getLineCount()).map(point => {
           const className = `codicon codicon-${point.logpoint ? "debug-breakpoint-log" : point.conditional ? "debug-breakpoint-conditional" : "debug-breakpoint"}${!point.enabled || state.muted ? "-disabled" : !point.verified ? "-unverified" : ""} lithe-breakpoint`;
+          const icon = state.muted ? (point.enabled ? "muted" : "mutedDisabled")
+            : !point.enabled ? (point.logpoint ? "logpointDisabled" : "disabled")
+            : state.sessionActive ? (!point.verified ? "invalid" : point.logpoint ? "logpointValid" : "valid")
+            : point.logpoint ? "logpoint" : "regular";
           return {
             range: new monaco.Range(point.line, 1, point.line, 1),
-            options: { lineNumberClassName: host.lineNumbersFirst ? className : undefined,
+            options: { lineNumberClassName: host.lineNumbersFirst ? `${className} lithe-breakpoint-${icon}` : undefined,
+              isWholeLine: host.lineNumbersFirst && point.enabled && !point.logpoint,
+              className: host.lineNumbersFirst && point.enabled && !point.logpoint ? "lithe-breakpoint-line" : undefined,
               glyphMarginClassName: className,
               glyphMarginHoverMessage: point.message ? { value: point.message, isTrusted: false } : undefined,
               stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges },
