@@ -190,6 +190,18 @@ modify_macos_cache_save_action() {
 modify_metadata() { printf '%s\n' 'cask "lithe" do' '  version "1.0.0"' 'end' > Casks/lithe.rb; }
 modify_classifier() { printf '%s\n' '# classifier test change' >> scripts/classify-ci-changes.sh; }
 modify_java_jdt() { printf '%s\n' 'pub fn normalize() { let _ = 1; }' > rust/lithe-core/src/lsp/languages/java_tests.rs; }
+add_macos_java_source() { printf '%s\n' 'struct JavaLaunchArguments {}' > macos/Sources/Lithe/JavaLaunchArguments.swift; }
+add_macos_java_test() { printf '%s\n' 'struct EditorJavaViewportTests {}' > macos/Tests/LitheTests/EditorJavaViewportTests.swift; }
+add_shared_jdt_engine() {
+    mkdir -p rust/lithe-core/src/lsp/interface
+    printf '%s\n' 'pub fn initialize() {}' > rust/lithe-core/src/lsp/interface/engine.rs
+}
+add_bundled_jdt_manifest() {
+    mkdir -p third_party/jdtls
+    printf '%s\n' '{"version":"fixture"}' > third_party/jdtls/manifest.json
+}
+add_jdk_preparation_script() { printf '%s\n' '#!/bin/zsh' 'print -- jdk' > scripts/prepare-jdk.sh; }
+add_windows_java_source() { printf '%s\n' 'export const java = true;' > windows/tauri/src/java.ts; }
 modify_swift_and_database() {
     modify_swift_source
     modify_database_swift
@@ -315,9 +327,29 @@ assert_classification windows-frontend \
 assert_classification windows-rust \
     "$(classification false false false false false false true true false false)" \
     modify_windows_rust
+# Swift Java adapters compile in the Swift lane; only the shared engine and
+# its Windows consumers select the separate real-JDT integration lane.
+assert_classification macos-java-source \
+    "$(classification true false false false false false false false false false)" \
+    add_macos_java_source
+assert_classification macos-java-test \
+    "$(classification true false false false false false false false false false)" \
+    add_macos_java_test
 assert_classification java-jdt \
     "$(classification false false false true false true true true false false false true)" \
     modify_java_jdt
+assert_classification shared-jdt-engine \
+    "$(classification false false false true false true true true false false false true)" \
+    add_shared_jdt_engine
+assert_classification bundled-jdt-manifest \
+    "$(classification true true true true true true true true false false true true)" \
+    add_bundled_jdt_manifest
+assert_classification jdk-preparation \
+    "$(classification false false false false false true false false false false false true)" \
+    add_jdk_preparation_script
+assert_classification windows-java-source \
+    "$(classification false false false false false false true false false false false true)" \
+    add_windows_java_source
 assert_classification download-cache-validator \
     "$(classification true true true true false true true true false false)" \
     modify_download_cache_validator

@@ -314,7 +314,7 @@ hosts. Level 3 versions each section on its own. A level 3 manifest lists in
 | `serverProcess` | The launch fields of language servers and of build providers with a process of their own: `launch`, `arguments`, `validationArguments`, `runtimeDependencies`, `initializationOptions` | `1` |
 | `executionProviders` | `executionProviders[]` | `1` |
 | `settings` | `settings[]` | `1` |
-| `ui` | `ui` | `1` |
+| `ui` | `ui` | `1`, `2` (adds [web content](#web-content-ui-2)) |
 | `buildSystems` | Declarative build detection, models, and command plans | `1` |
 | `buildProviders` | `buildSystems[].provider`, including own-process and shared language-server providers | `1` |
 
@@ -396,6 +396,8 @@ Rules for publishing across levels and capability versions:
 | `process.run` | any provider declares `run` |
 | `process.test` | any provider declares `test` |
 | `process.build` | `buildSystems` is not empty |
+| `ui.contribute` | `ui` is declared |
+| `ui.web` | a tool window shows [web content](#web-content-ui-2) |
 
 | Activation event | Meaning |
 | --- | --- |
@@ -574,6 +576,34 @@ declaration are relative, use `/`, and stay inside their base directory
 | `dependencies` | A command (with `scopes`) whose output Core decodes, as a flat list through a `map` or as a tree from `litheDependencies`; `provider` (with `scopes`, `workspace` and `project` only); or `hostIntegration`. |
 | `sync` | Files whose change makes the model stale, relative to the root and to each project. |
 | `layout` | `excluded` directories relative to each project, added to every project as `excluded` content roots. |
+| `languageImport` | The project import Lithe's Java language server performs for this build system: `kind` `maven` or `gradle`, and `options` mapping its settings to the plugin's own option IDs. `maven` has `profiles` (`multiSelect`), `settingsFile` (`file`) and `localRepository` (`directory`); `gradle` has `offline` (`boolean`) and `gradleUserHome` (`directory`). `build.languageImport` turns the user's values into the `mavenContext` or `javaGradle` input of `lsp.startServer`; settings without an option keep the language server's defaults. |
+
+### Presentation
+
+Each enabled build system gets a tool window of its own, titled with its
+`displayName`; `icon` (a [UI icon](#ui-icons-macos-host)) is its activity-bar
+icon. As for every tool window, the host owns the shell: dock, order,
+visibility, layout, and lifecycle. The host draws the window body from the
+model, and three optional fields tell it where an entry goes. None of them
+changes a plan.
+
+- `options[].presentation: "toolbar"` puts a boolean option on the window's
+  toolbar as a toggle, for offline mode or skipping tests; it needs an
+  `icon`. `"tree"` shows a multiSelect option as a checklist node at the top
+  of the tree (Maven profiles). Without `presentation` the option appears only
+  in the option list. An icon on an option that is not `toolbar` is
+  `plugin.manifest.invalid`.
+- `tasks[].category` lists 1–4 headings, outermost first, that file the task
+  in its project (`["Lifecycle"]`). Without it the host files the task by
+  `group`. On a `fromModel` template it is the default for the tasks the
+  model lists.
+- A model task in a `litheBuildModel` document can carry its own `category`,
+  an array of strings. Core trims the headings. A category that is deeper
+  than four headings or has an empty heading falls back to the template's, so
+  a tool that reports a bad heading still has its task filed.
+
+The macOS host still lists every build system in the shared Build window and
+ignores these fields; per-system windows are being added.
 
 ### Templates
 
@@ -637,7 +667,7 @@ Canonical formats let a plugin's own script print the shape Core expects:
 
 | Format | Shape |
 | --- | --- |
-| `litheBuildModel` | `{ "format": "litheBuildModel", "version": 1, "projects", "targets", "tasks", "contentRoots", "optionValues" }` with the model's field names |
+| `litheBuildModel` | `{ "format": "litheBuildModel", "version": 1, "projects", "targets", "tasks", "contentRoots", "optionValues" }` with the model's field names; `tasks[].category` is an array of headings |
 | `litheTestResults` | `{ "format": "litheTestResults", "version": 1, "tests": [{ "suite", "case", "status", "message"?, "durationMillis"?, "path"?, "line"? }] }` |
 | `litheDependencies` | `{ "format": "litheDependencies", "version": 1, "dependencies": [{ "name", "group"?, "version"?, "scope"?, "properties"?, "children" }] }` |
 | `litheDiagnostics` | output lines `{ "lithe": "diagnostic", "path", "line", "column"?, "severity"?, "message" }` |
@@ -765,6 +795,9 @@ command payload is a Core `invalid_request` failure instead.
 | `plugin.launch.missing` | Host | The packaged language server is missing or not executable |
 | `plugin.runtime.missing` | Host | A declared runtime (for example Node.js) cannot be found, or is older than its `minimumVersion`, when the server starts |
 | `plugin.legacyNative.updateRequired` | Host | An installed schema-1 native package must be replaced by its declarative version |
+| `plugin.web.unknownMethod` | Host | A plugin page called a bridge method the host does not implement |
+| `plugin.web.invalidRequest` | Host | A bridge call has malformed parameters |
+| `plugin.web.forbidden` | Host | A bridge call names an instance, run, or path outside the page's plugin or workspace, or the page is closed |
 
 Host-facing plugin states are `notInstalled`, `installed` (enabled or
 disabled), `running`, `restartRequired`, `updateRequired`, and `failed`.
@@ -796,6 +829,8 @@ nonempty UI catalog. See `fixtures/hello-lithe.plugin.json` and the UI cases in
   fields are rejected with `plugin.manifest.invalid`.
 - Titles are at most 256 UTF-8 bytes and window text at most 65536 UTF-8 bytes.
   Text is displayed literally; it is never evaluated as HTML or a script.
+  A window shows exactly one of `text` and, from `ui` 2 on,
+  [`web`](#web-content-ui-2).
 - Declare `onView:<window-id>` and `onCommand:<command-id>` for every window and
   command, plus `ui.contribute`. The existing permission and activation error
   codes apply. IDs and presentation order are normalized deterministically.
@@ -816,14 +851,88 @@ packages without language or UI contributions remain unchanged for v2 compatibil
 The macOS host supports mouse docking through the existing shared dock state;
 that presentation behavior does not grant additional plugin execution capabilities.
 
+### Web content (`ui` 2)
+
+A plugin does not have to bring a UI: build systems get a host-drawn window
+(see [Presentation](#presentation)), and text windows need no code. A plugin
+that wants its own UI can show its own page in a tool window instead of
+`text`:
+
+```json
+"requires": { "ui": 2 },
+"permissions": ["ui.contribute", "ui.web"],
+"ui": { "toolWindows": [{ "id": "…", "title": "…", "placement": "right", "web": { "entry": "ui/index.html" } }] }
+```
+
+- `web` needs `pluginAPIVersion` 3, `requires.ui: 2`, and the `ui.web`
+  permission, which the install review lists like every permission.
+  `requires.ui: 2` without a web window is `plugin.manifest.invalid`, so a
+  text-only plugin stays installable on hosts that run only `ui` 1.
+- `entry` is a package-relative `.html` path. `fixtures/web-panel.plugin.json`
+  is the example; the web cases of `fixtures/invalid-manifests.json` are the
+  rejections.
+
+The window shell stays the host's: dock, title, activity-bar entry, order,
+visibility, layout, and lifecycle are declared or managed exactly as for a
+text window. The page fills the body only and cannot open, place, size, or
+title a window.
+
+Hosts load a page under these rules:
+
+- Only files of the installed package are served, read-only, from an origin
+  private to the plugin. The host's content security policy refuses network
+  connections, remote resources, frames, inline scripts, and `eval`.
+  Navigation away from the package, popups, and downloads are blocked.
+- Web storage is not persistent. A page keeps its state through the bridge.
+- The host creates the page when the window is first shown. It may destroy
+  the page whenever the window is hidden, and does destroy it when the plugin
+  is disabled, updated, or uninstalled. A page restores itself from its
+  state.
+- The root element carries `data-theme` (`light` or `dark`) and the host's
+  `--lithe-*` CSS colour and font variables, updated with the theme.
+
+Before the page's scripts run, the host defines `window.lithe` (bridge
+version 1): `lithe.context` (`pluginID`, `windowID`, `platform`, `locale`,
+`theme`), `lithe.request(method, params)`, which returns a promise of the
+result or rejects with `{ code, message }`, and `lithe.on(event, listener)`,
+which returns an unsubscribe function. A page reaches only its own plugin's
+build systems and the open workspace. Requests that run anything go through
+the same workspace trust and consent prompts as the host's own controls, and
+their output appears in the host's Build output window.
+
+| Method | Parameters | Result |
+| --- | --- | --- |
+| `build.instances` | none | `{ instances: [{ id, buildSystemID, root, state, model?, options, error? }] }`: this plugin's detected instances, `model` as `build.decodeModel` returns it, `options` the stored values |
+| `build.refresh` | `{ instance }` | `{}`; reloads the model |
+| `build.runTask` | `{ instance, task, project?, target?, modelTask?, userArguments? }`, the selection of `build.taskPlan` | `{ run }` |
+| `build.runTests` | `{ instance, project?, target?, suite?, case? }`, the selection of `build.testPlan` | `{ run }` |
+| `build.cancel` | `{ run }` | `{}` |
+| `build.dependencies` | `{ instance, project? }` | the tree `build.decodeDependencies` returns |
+| `build.setOptions` | `{ instance, values }` | `{ options }`, checked by `build.resolveOptions` and stored like values set in the host's option list |
+| `workspace.openFile` | `{ path, line?, column? }`, a path inside the workspace | `{}` |
+| `ui.getState`, `ui.setState` | none, `{ state }` | `{ state }`, `{}`; JSON of at most 64 KiB per window and workspace |
+
+| Event | Payload |
+| --- | --- |
+| `build.instancesChanged` | `{ instances }`, as `build.instances` returns them |
+| `build.runChanged` | `{ run, instance, state, exitCode? }`, `state` one of `running`, `succeeded`, `failed`, `cancelled` |
+| `ui.themeChanged` | `{ theme }` |
+
+Bridge errors are `plugin.web.unknownMethod`, `plugin.web.invalidRequest`,
+and `plugin.web.forbidden`. Build requests also report the `build.*` codes.
+No host implements web content yet. macOS sends `ui: [1]`, so Core refuses a
+`ui` 2 plugin there with `plugin.api.unsupported` until its web-view host ships.
+
 ### Future public extension direction (not implemented in API level 2)
 
-- Third-party UI uses a separately versioned JSON component tree (Tree/List/Form/
-  Input/Button, data sources and events) rendered by native platform adapters.
-  Plugin UI does not use HTML, Webviews or third-party frontend frameworks.
-  Built-in or trusted native modules may register Native View/Renderer Factories
-  under the same host window management. This does not restore arbitrary dynamic
-  third-party Swift Bundle loading; ABI, signing and isolation need separate design.
+- Plugins may bring their own UI as [web content](#web-content-ui-2) inside
+  host-owned windows. A separately versioned JSON component tree
+  (Tree/List/Form/Input/Button, data sources and events) rendered by native
+  platform adapters remains the direction for plugins that want native
+  controls without writing a page. Built-in or trusted native modules may
+  register Native View/Renderer Factories under the same host window
+  management. This does not restore arbitrary dynamic third-party Swift
+  Bundle loading; ABI, signing and isolation need separate design.
 - Actions declare handlers and availability/context conditions independently of
   Tool Windows. Commands, menus/context menus, toolbars, status bars and settings
   contributions must not require dummy windows. Opening a window is one action kind.
