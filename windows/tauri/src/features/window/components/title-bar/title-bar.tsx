@@ -1,3 +1,4 @@
+import { TitleRunControl } from "@/features/run/components/title-run-control";
 import { NewEntryDialogHost } from "@/features/file-explorer/components/new-entry-dialog-host";
 import { getCurrentWindow, type Window as TauriWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -416,6 +417,7 @@ export const TitleBar = ({
           </ChromeGroup>
         </ChromeGroup>
         <ChromeGroup className="pointer-events-auto z-20">
+          <TitleRunControl />
           {quickOpenAction}
           {settingsAction}
           {isWindows ? <TitleBarUpdateControl visible={showUpdateControl} /> : null}

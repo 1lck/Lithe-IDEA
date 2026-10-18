@@ -307,6 +307,31 @@ jobs:
           node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-debugger-breakpoint-paths.json -- src/features/debugger/stores/debugger-breakpoints.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Test selected Run and Debug toolbar
+        shell: pwsh
+        timeout-minutes: 3
+        run: |
+          $runner = ".agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs"
+          # Keep action spies and mounted control tests isolated from other suites.
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-selected-run-actions.json -- src/features/run/actions/selected-run-actions.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-title-run-control.json -- src/features/run/components/title-run-control.test.tsx
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Test Run launch ownership
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          $runner = ".agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs"
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-selected-run-owner.json -- src/features/run/actions/selected-run-owner.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-run-output-lifecycle.json -- src/features/run/stores/run.store.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-run-prelaunch.json -- src/features/run/stores/run-prelaunch.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-run-maven-context.json -- src/features/run/stores/run-maven-context.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Test Java file and package creation
         shell: pwsh
         timeout-minutes: 6
