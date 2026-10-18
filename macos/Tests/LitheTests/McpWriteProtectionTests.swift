@@ -502,3 +502,81 @@ private struct ReplaceFailureFileStorage: FileStorage {
         try files.copyItem(at: sourceURL, to: destinationURL)
     }
 }
+
+/// Batch rollback must keep the retained-copy location when it aggregates
+/// failures, otherwise the user cannot find the newest external save.
+@MainActor
+struct McpBatchRollbackDetailTests {
+    @Test
+    func rollbackFailureReportsTheRetainedCopyPath() throws {
+        let first = McpConfigurationFile(
+            agent: .claudeCode, scope: .global,
+            url: URL(fileURLWithPath: "/tmp/lithe-first.json"), projectPath: nil
+        )
+        let second = McpConfigurationFile(
+            agent: .codex, scope: .global,
+            url: URL(fileURLWithPath: "/tmp/lithe-second.toml"), projectPath: nil
+        )
+        let store = RetainedRollbackStore(files: [first, second])
+
+        do {
+            _ = try store.writeBatch([
+                McpConfigurationChange(file: first, source: "old-first", content: "new-first"),
+                McpConfigurationChange(file: second, source: "old-second", content: "new-second")
+            ])
+            Issue.record("Expected a rollback failure")
+        } catch let error as McpConfigurationError {
+            guard case .rollbackFailed(let details) = error else {
+                Issue.record("Expected rollbackFailed, got \(error)")
+                return
+            }
+            #expect(details.contains(first.url.path))
+            #expect(details.contains("/tmp/lithe-first.json.lithe-recovery"))
+        }
+    }
+}
+
+@MainActor
+private final class RetainedRollbackStore: McpConfigurationStore {
+    let files: [McpConfigurationFile]
+
+    init(files: [McpConfigurationFile]) {
+        self.files = files
+    }
+
+    func configurationFiles(workspace: URL?) -> [McpConfigurationFile] { files }
+
+    func read(_ file: McpConfigurationFile) throws -> String? {
+        file == files[0] ? "old-first" : "old-second"
+    }
+
+    func write(
+        _ content: String, to file: McpConfigurationFile, replacing expected: String?
+    ) throws -> McpWriteReceipt {
+        if file == files[1] { throw McpConfigurationError.notWritable(file.url.path) }
+        return McpWriteReceipt(backupURL: nil)
+    }
+
+    func restore(_ change: McpConfigurationChange) throws {
+        throw McpConfigurationError.retainedCopy(
+            destination: change.file.url.path,
+            retained: change.file.url.path + ".lithe-recovery"
+        )
+    }
+
+    func parse(
+        _ file: McpConfigurationFile, content: String
+    ) throws -> [McpServerDefinition] {
+        throw McpConfigurationError.unavailable
+    }
+
+    func planWrite(
+        _ request: McpWriteRequest, for file: McpConfigurationFile
+    ) throws -> McpWritePlan {
+        throw McpConfigurationError.unavailable
+    }
+
+    func excludeFromVersionControl(_ relativePath: String, workspace: URL) throws {
+        throw McpConfigurationError.unavailable
+    }
+}

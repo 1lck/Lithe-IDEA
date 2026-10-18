@@ -259,6 +259,16 @@ extension McpConfigurationStore {
             for change in completed.reversed() {
                 do {
                     try restore(change)
+                } catch let retained as McpConfigurationError {
+                    if case .retainedCopy = retained {
+                        // The hidden recovery file is the only copy of the
+                        // newest external save; keep its path in the message.
+                        unrestored.append(
+                            "\(change.file.url.path): \(retained.localizedDescription)"
+                        )
+                    } else {
+                        unrestored.append(change.file.url.path)
+                    }
                 } catch {
                     unrestored.append(change.file.url.path)
                 }

@@ -87,6 +87,12 @@ struct GitSettingsPresentationTests {
         let explicit = GitConfigurationFallback.inheritedTagBehavior(remote: "upstream", prune: true, entries: mixed)
         #expect(explicit.value == "all")
         #expect(explicit.source?.key == "remote.upstream.tagopt")
+
+        // Fetch ignores skipFetchAll remotes when fetching all remotes, so
+        // their tagOpt must not make the inherited value look remote-dependent.
+        let skipped = mixed + [entry("remote.upstream.skipfetchall", "true")]
+        #expect(GitConfigurationFallback.inheritedTagBehavior(remote: nil, prune: true, entries: skipped).value == "none")
+        #expect(GitConfigurationFallback.inheritedTagBehavior(remote: "upstream", prune: true, entries: skipped).value == "all")
     }
 
     @Test(arguments: [true, false])

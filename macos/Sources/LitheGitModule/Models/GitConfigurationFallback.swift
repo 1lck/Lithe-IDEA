@@ -85,7 +85,13 @@ package enum GitConfigurationFallback {
         var names: [String] = []
         for entry in entries where entry.effective && entry.key.hasPrefix("remote.") && entry.key.hasSuffix(".url") {
             let name = String(entry.key.dropFirst("remote.".count).dropLast(".url".count))
-            if !names.contains(name) { names.append(name) }
+            // Fetch ignores `remote.<name>.skipFetchAll` remotes when it fetches
+            // every remote; their tagOpt must not make the inherited value look
+            // remote-dependent. An explicitly selected remote is still used.
+            let skipped = entries.last {
+                $0.key == "remote.\(name).skipfetchall" && $0.effective
+            }?.value == "true"
+            if !skipped && !names.contains(name) { names.append(name) }
         }
         return names
     }

@@ -150,13 +150,16 @@ fn entries(bytes: &[u8]) -> Result<Vec<Entry>, CoreError> {
     Ok(result)
 }
 
-/// Canonicalizes inherited tag booleans with Git's parser, as Fetch does.
+/// Canonicalizes remote booleans with Git's parser, as Fetch does, for both
+/// tag pruning and the `skipFetchAll` remote filter.
 /// Raw selected-file values remain separate for optimistic editing.
-fn normalize_prune_tags(root: &str, entries: &mut [Entry]) -> Result<(), CoreError> {
+fn normalize_remote_booleans(root: &str, entries: &mut [Entry]) -> Result<(), CoreError> {
     for entry in entries.iter_mut().filter(|entry| {
         entry.effective
             && (entry.key == "fetch.prunetags"
-                || (entry.key.starts_with("remote.") && entry.key.ends_with(".prunetags")))
+                || (entry.key.starts_with("remote.")
+                    && (entry.key.ends_with(".prunetags")
+                        || entry.key.ends_with(".skipfetchall"))))
     }) {
         let output = capture_git_with_options(
             root,
@@ -178,7 +181,7 @@ fn normalize_prune_tags(root: &str, entries: &mut [Entry]) -> Result<(), CoreErr
                 _ => {
                     return Err(CoreError::new(
                         ErrorCode::ParseFailed,
-                        "Git returned an invalid tag pruning boolean",
+                        "Git returned an invalid remote boolean",
                     ));
                 }
             }
@@ -363,7 +366,7 @@ fn inspect(root: &str, scope: &str) -> Result<Value, CoreError> {
         ],
     )?;
     let mut entries = entries(&output)?;
-    normalize_prune_tags(root, &mut entries)?;
+    normalize_remote_booleans(root, &mut entries)?;
     let mut fields = Vec::new();
     for (key, choices) in EDITABLE {
         if scope == "global" && key.starts_with("lithe.") {
@@ -548,5 +551,49 @@ mod inherited_tag_tests {
             .find(|field| field["key"] == "fetch.prunetags")
             .unwrap();
         assert_eq!(field["configuredValues"], json!(["yes"]));
+    }
+
+    #[test]
+    fn inspection_normalizes_skip_fetch_all_booleans() {
+        let repo = Repository(std::env::temp_dir().join(format!(
+            "lithe-skip-fetch-booleans-{}-{}",
+            std::process::id(),
+            SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        )));
+        fs::create_dir_all(&repo.0).unwrap();
+        let initialized = repo.request(
+            "git.command",
+            json!({ "arguments": ["init", "--template=", "-q", "-b", "main"] }),
+        );
+        assert_eq!(initialized["ok"], true, "{initialized}");
+        assert_eq!(initialized["data"]["exitCode"], 0, "{initialized}");
+
+        let path = repo.0.join(".git/config");
+        let mut config = fs::read_to_string(&path).unwrap();
+        config.push_str(
+            "\n[remote \"yes\"]\nurl = /tmp/yes\nskipFetchAll = yes\n"
+        );
+        config.push_str(
+            "\n[remote \"valueless\"]\nurl = /tmp/valueless\nskipFetchAll\n"
+        );
+        config.push_str(
+            "\n[remote \"empty\"]\nurl = /tmp/empty\nskipFetchAll =\n"
+        );
+        config.push_str(
+            "\n[remote \"no\"]\nurl = /tmp/no\nskipFetchAll = no\n"
+        );
+        fs::write(path, config).unwrap();
+
+        let response = repo.request("git.executionInspect", json!({}));
+        assert_eq!(response["ok"], true, "{response}");
+        let entries = response["data"]["entries"].as_array().unwrap();
+        for (name, expected) in [("yes", "true"), ("valueless", "true"), ("empty", "false"), ("no", "false")] {
+            let key = format!("remote.{name}.skipfetchall");
+            let entry = entries
+                .iter()
+                .find(|entry| entry["key"] == key && entry["effective"] == true)
+                .unwrap();
+            assert_eq!(entry["value"], expected, "{key}");
+        }
     }
 }
