@@ -133,5 +133,9 @@ export function formatDroppedPathsForTerminal(
 ): string {
   const paths = parseDroppedPaths(rawPaths);
   if (paths.length === 0) return "";
-  return `${quoteTerminalPaths(paths, shell)} `;
+  // Quoting can drop every path (a name the shell cannot represent literally),
+  // which would otherwise emit a lone trailing space.
+  const quoted = quoteTerminalPaths(paths, shell);
+  if (!quoted) return "";
+  return `${quoted} `;
 }

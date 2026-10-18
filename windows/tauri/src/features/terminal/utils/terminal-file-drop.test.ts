@@ -238,4 +238,11 @@ describe("formatDroppedPathsForTerminal", () => {
   test("ignores relative input because OS drags are absolute", () => {
     expect(formatDroppedPathsForTerminal(["src/Main.java"], "cmd")).toBe("");
   });
+
+  // Regression: quoting can drop every path, and the trailing space was appended
+  // regardless, so an OS drop of a name the shell cannot represent inserted a
+  // lone space into the prompt.
+  test("emits nothing when quoting drops every dropped path", () => {
+    expect(formatDroppedPathsForTerminal(["C:\\work\\a`it's.txt"], "nu")).toBe("");
+  });
 });

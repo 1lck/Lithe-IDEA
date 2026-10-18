@@ -955,6 +955,7 @@ export const XtermTerminal = ({
               <ContextMenuShortcut>Ctrl+Shift+V</ContextMenuShortcut>
             </ContextMenuItem>
             <ContextMenuItem
+              disabled={!connectionId}
               aria-label={t("terminal.pasteCopiedFilePaths")}
               onClick={() => {
                 void readCopiedFilePathsText(resolveShell())
