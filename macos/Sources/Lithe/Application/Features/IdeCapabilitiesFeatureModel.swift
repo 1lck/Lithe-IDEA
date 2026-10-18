@@ -202,7 +202,6 @@ final class IdeCapabilitiesFeatureModel: ObservableObject {
             guard path == "." || module != nil else { return failed("NOT_FOUND", "Unknown Maven module") }
             let goals = args["goals"] as? [String] ?? []
             maven.runCustomGoal(goals.joined(separator: " "), module: module)
-            model.showMavenOutput()
             guard let operationID = maven.outputOperationID else { return failed("LAUNCH_FAILED", "Maven launch did not start") }
             return ["operationID": operationID, "state": mavenState(maven)]
         case "lithe_run_list":

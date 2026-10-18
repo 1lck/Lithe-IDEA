@@ -23,6 +23,24 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
         return outcome.value.detection
     }
 
+    func languageImport(
+        _ target: BuildSystemTarget,
+        workspaceURL: URL,
+        root: String,
+        options: [String: ToolingJSONValue],
+        executableURL: URL?
+    ) throws -> BuildLanguageImport? {
+        let outcome: Outcome<LanguageImportResult> = try execute(
+            "build.languageImport",
+            target: target,
+            request: LanguageImportRequest(
+                workspaceRoot: workspaceURL.path, root: root, options: options,
+                executablePath: executableURL?.path
+            )
+        )
+        return outcome.value.languageImport
+    }
+
     func invocationPlan(_ target: BuildSystemTarget, root: String) throws -> BuildInvocation {
         let outcome: Outcome<InvocationResult> = try execute(
             "build.invocationPlan",
@@ -247,6 +265,17 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
         let manifest: ToolingJSONValue
         let buildSystemID: String
         let request: Request
+    }
+
+    private struct LanguageImportRequest: Encodable {
+        let workspaceRoot: String
+        let root: String
+        let options: [String: ToolingJSONValue]
+        let executablePath: String?
+    }
+
+    private struct LanguageImportResult: Decodable {
+        let languageImport: BuildLanguageImport?
     }
 
     private struct InvocationRequest: Encodable {

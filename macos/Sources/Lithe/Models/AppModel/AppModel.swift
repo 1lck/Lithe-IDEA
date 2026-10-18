@@ -662,7 +662,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         await ideCapabilities.shutdown()
         shortcutSessionCoordinator?.shutdown()
         documentLanguageCoordinator?.stop()
-        cancelJavaTestWorkflows()
+        cancelJavaWorkspaceWorkflows()
         languageToolingSessionsIfActive?.stopAll()
         executionModuleCoordinator.stopTests(languageTestServiceIfActive)
         stopTerminalSessions()
@@ -680,6 +680,8 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     /// operation instead of racing a capability release.
     private func beginModuleRuntimeShutdown() {
         cancelContributionActivations()
+        // A plugin page belongs to the workspace it was opened in.
+        services.pluginWebPages.closeAll()
         moduleSessionCoordinator?.beginShutdown()
     }
 
@@ -1306,8 +1308,9 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
 
     @discardableResult
     func activateLanguageServerIfAvailable(for document: EditorDocument) -> Bool {
-        guard let workspaceURL,
+        guard let identity = currentWorkspaceIdentity,
               let descriptor = languageProviderCatalog.provider(for: document.url) else { return false }
+        let workspaceURL = identity.url
         guard !languageToolingFeature.isDisabled(descriptor.id) else {
             languageToolingSessionsIfActive?.recordLanguageServerLog(
                 providerID: descriptor.id,
@@ -1338,6 +1341,8 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
                     guard let self, let document else { return }
                     do {
                         _ = try await self.services.moduleRuntime.activateCapability(capabilityID)
+                        guard self.isCurrentWorkspace(identity), !Task.isCancelled,
+                              self.openDocuments.contains(where: { $0 === document }) else { return }
                         _ = self.activateLanguageServerIfAvailable(for: document)
                     } catch {
                         self.languageToolingFeature.markActivationFailed(
@@ -1378,7 +1383,8 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
                tools.needsCandidateValidation(for: registered) {
                 Task { [weak self, weak document] in
                     await tools.refreshCandidates(for: registered)
-                    guard let self, let document else { return }
+                    guard let self, let document, self.isCurrentWorkspace(identity), !Task.isCancelled,
+                          self.openDocuments.contains(where: { $0 === document }) else { return }
                     _ = self.activateLanguageServerIfAvailable(for: document)
                 }
                 return false
@@ -1394,6 +1400,8 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
                     let value = try await self.services.moduleRuntime.activateCapability(.languageIntelligence)
                     guard let capability = value as? LitheLanguageIntelligenceModule.LanguageIntelligenceCapability else { return }
                     self.bindLanguageIntelligenceCapability(capability)
+                    guard self.isCurrentWorkspace(identity), !Task.isCancelled,
+                          self.openDocuments.contains(where: { $0 === document }) else { return }
                     _ = self.activateLanguageServerIfAvailable(for: document)
                 } catch {
                     self.languageToolingFeature.markActivationFailed(

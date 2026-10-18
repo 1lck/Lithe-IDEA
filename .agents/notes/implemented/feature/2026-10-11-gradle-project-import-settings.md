@@ -40,7 +40,7 @@ TS 侧只做透传：`JavaLspLaunch` 增加可选的 `javaGradle`，`resolve-edi
 
 ## 后果
 
-Gradle 与 Maven 在导入设置上结构对称，行为可预期、可扩展。Windows 下发的两个开关与 Buildship 默认值一致，导入结果不变；真正改变行为的是工作区指纹：`settings.gradle` 或 wrapper 描述文件变化会换用新的 JDT 数据目录并重新导入，而改写 `gradle.properties` 不会。macOS 未接入显式设置与指纹扩展（`MacJdtWorkspaceState.buildFileNames` 仍只覆盖 `pom.xml`、`build.gradle`、`build.gradle.kts`），同一工程在两个平台上的指纹含义并不相同，这是本 PR 的已知不对称。若工作区根未声明 Gradle 构建文件，Core 不会下发任何 `java.import` 设置，纯 Maven 工程不受影响。
+Gradle 与 Maven 在导入设置上结构对称，行为可预期、可扩展。Windows 下发的两个开关与 Buildship 默认值一致，导入结果不变；真正改变行为的是工作区指纹：`settings.gradle` 或 wrapper 描述文件变化会换用新的 JDT 数据目录并重新导入，而改写 `gradle.properties` 不会。macOS 在 2026-10-18 经构建插件 `languageImport` 接入显式设置：`BuildSystemService` 等待 Core 归一化后，把 `javaGradle` 经语言会话和 Rust Swift 桥传给启动请求，离线和 User Home 选项等下次会话启动生效。没有插件输入时保留 Buildship 默认行为。macOS 尚未扩展指纹（`MacJdtWorkspaceState.buildFileNames` 仍只覆盖 `pom.xml`、`build.gradle`、`build.gradle.kts`），同一工程在两个平台上的指纹含义并不相同；真实 macOS 导入验收也仍待完成。若工作区根未声明 Gradle 构建文件，Core 不会下发任何 `java.import` 设置，纯 Maven 工程不受影响。
 
 ## 验证
 

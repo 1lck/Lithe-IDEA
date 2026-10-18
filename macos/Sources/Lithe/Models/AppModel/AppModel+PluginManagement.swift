@@ -21,6 +21,7 @@ extension AppModel {
         ) else { return }
         do {
             try services.pluginManager.installPackage(at: packageURL)
+            closeStalePluginWebPages()
             objectWillChange.send()
         } catch {
             showNotification(error.localizedDescription)
@@ -40,6 +41,7 @@ extension AppModel {
         do {
             try await services.pluginManager.uninstall(pluginID)
             buildSystemsFeatureIfActive?.pluginsChanged()
+            closeStalePluginWebPages()
             objectWillChange.send()
         } catch {
             showNotification(error.localizedDescription)
@@ -71,6 +73,7 @@ extension AppModel {
         }
         if !appliedPluginIDs.isEmpty {
             buildSystemsFeatureIfActive?.pluginsChanged()
+            closeStalePluginWebPages()
         }
         objectWillChange.send()
         return appliedPluginIDs
@@ -90,6 +93,7 @@ extension AppModel {
     func rollbackPlugin(_ pluginID: PluginID) {
         do {
             try services.pluginManager.rollback(pluginID)
+            closeStalePluginWebPages()
             objectWillChange.send()
         } catch {
             showNotification(error.localizedDescription)
