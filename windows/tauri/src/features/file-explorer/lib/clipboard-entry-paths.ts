@@ -16,35 +16,27 @@ export function clipboardEntryPaths(entries: readonly { path: string }[]): strin
  * Decide whether a terminal paste should insert the copied file paths instead
  * of the system clipboard text.
  *
- * `sourceClipboardText` is the system clipboard text observed when the entries
- * were copied. If the clipboard now holds anything else, the user copied text
- * after copying files, so the text wins; this keeps the terminal from silently
- * ignoring what the user copied most recently.
+ * `sourceSequence` is Windows' clipboard change counter read when the entries
+ * were copied, and `currentSequence` is the same counter read at paste time. A
+ * different value proves the clipboard changed after the copy, so whatever the
+ * user copied since then wins. Comparing the counter rather than the text is what
+ * makes this correct: copying the same string again around a file copy leaves the
+ * text identical but the counter different, and only the counter can tell them
+ * apart.
  *
- * Documents a deliberate trade-off rather than a bug. Copying the exact same
- * string again around a file copy is indistinguishable from not copying at all,
- * because the Tauri clipboard plugin exposes no change counter; that case inserts
- * the file paths. Keeping the automatic behavior is worth it because inserting
- * paths is what copying a file is for in a terminal, the false case needs the
- * same content twice with a file copy in between, and its cost is one unexpected
- * insertion instead of a lost line. Its one dead end is that copying the same
- * text again does not recover the text; copy different text, or paste from
- * another source. Dropping the automatic case would add a manual step to every
- * copy-to-terminal while still needing an OS change counter to become exact.
- * The explicit "paste file paths" action covers callers that must not guess.
+ * A missing counter means the platform cannot answer, so the caller keeps the
+ * previous behavior and pastes the clipboard text.
  */
 export function shouldPasteFileClipboardPaths({
   entryCount,
-  sourceClipboardText,
-  currentClipboardText,
+  sourceSequence,
+  currentSequence,
 }: {
   entryCount: number;
-  sourceClipboardText: string | null;
-  currentClipboardText: string;
+  sourceSequence: number | null;
+  currentSequence: number | null;
 }): boolean {
   if (entryCount === 0) return false;
-  // Without a recorded snapshot the recency of the copy is unknown, so keep the
-  // previous behavior and paste the clipboard text.
-  if (sourceClipboardText === null) return false;
-  return currentClipboardText === sourceClipboardText;
+  if (sourceSequence === null || currentSequence === null) return false;
+  return currentSequence === sourceSequence;
 }

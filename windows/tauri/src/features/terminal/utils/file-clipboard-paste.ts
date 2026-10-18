@@ -1,3 +1,4 @@
+import { invoke } from "@/platform/tauri-core";
 import {
   clipboardEntryPaths,
   shouldPasteFileClipboardPaths,
@@ -21,24 +22,24 @@ async function fileClipboardPasteText(
   shell: string | null,
   allowStale: boolean,
 ): Promise<string | null> {
-  const { clipboard, sourceClipboardText } = useFileClipboardStore.getState();
+  const { clipboard, sourceClipboardSequence } = useFileClipboardStore.getState();
   const entries = clipboard?.entries ?? [];
   if (entries.length === 0) return null;
 
   if (!allowStale) {
-    let currentClipboardText: string;
+    let currentSequence: number | null;
     try {
-      currentClipboardText = await readClipboardText();
+      currentSequence = await invoke<number>("clipboard_sequence_number");
     } catch {
-      // An unreadable clipboard cannot prove the file copy is still the latest
-      // user action, so fall back instead of guessing.
+      // Without the counter the recency of the copy is unknown, so fall back
+      // instead of guessing.
       return null;
     }
 
     const prefersFilePaths = shouldPasteFileClipboardPaths({
       entryCount: entries.length,
-      sourceClipboardText,
-      currentClipboardText,
+      sourceSequence: sourceClipboardSequence,
+      currentSequence,
     });
     if (!prefersFilePaths) return null;
   }

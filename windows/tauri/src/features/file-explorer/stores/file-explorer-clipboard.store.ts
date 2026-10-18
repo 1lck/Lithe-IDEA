@@ -1,15 +1,17 @@
 import { invoke } from "@/platform/tauri-core";
 import { create } from "zustand";
 import { createSelectors } from "@/utils/zustand-selectors";
-import { readClipboardText } from "@/utils/clipboard";
 
 /**
- * Record what the system clipboard held when files were copied, without
- * writing it. A failed read must not break copying, so it reports "unknown".
+ * Read Windows' clipboard change counter without touching the clipboard.
+ *
+ * The counter is the only reliable way to tell "nothing copied since the file
+ * copy" from "the same text copied again", which content comparison cannot do.
+ * A failed read must not break copying, so it reports "unknown".
  */
-async function snapshotClipboardText(): Promise<string | null> {
+async function snapshotClipboardSequence(): Promise<number | null> {
   try {
-    return await readClipboardText();
+    return await invoke<number>("clipboard_sequence_number");
   } catch {
     return null;
   }
@@ -34,11 +36,11 @@ interface PastedEntry {
 interface FileClipboardStore {
   clipboard: FileClipboardState | null;
   /**
-   * System clipboard text observed when the entries were copied. The terminal
-   * compares it with the current clipboard to tell whether the file copy is
-   * still the user's latest action; reading it never writes the clipboard.
+   * Clipboard change counter read when the entries were copied. The terminal
+   * compares it with a fresh reading to tell whether the file copy is still the
+   * user's latest action; reading it never writes the clipboard.
    */
-  sourceClipboardText: string | null;
+  sourceClipboardSequence: number | null;
   actions: {
     copy: (entries: ClipboardEntry[]) => Promise<void>;
     cut: (entries: ClipboardEntry[]) => Promise<void>;
@@ -50,15 +52,21 @@ interface FileClipboardStore {
 
 const useFileClipboardStoreBase = create<FileClipboardStore>()((set) => ({
   clipboard: null,
-  sourceClipboardText: null,
+  sourceClipboardSequence: null,
   actions: {
     copy: async (entries: ClipboardEntry[]) => {
       await invoke("clipboard_set", { entries, operation: "copy" });
-      set({ clipboard: { entries, operation: "copy" }, sourceClipboardText: await snapshotClipboardText() });
+      set({
+        clipboard: { entries, operation: "copy" },
+        sourceClipboardSequence: await snapshotClipboardSequence(),
+      });
     },
     cut: async (entries: ClipboardEntry[]) => {
       await invoke("clipboard_set", { entries, operation: "cut" });
-      set({ clipboard: { entries, operation: "cut" }, sourceClipboardText: await snapshotClipboardText() });
+      set({
+        clipboard: { entries, operation: "cut" },
+        sourceClipboardSequence: await snapshotClipboardSequence(),
+      });
     },
     paste: async (targetDirectory: string) => {
       const result = await invoke<PastedEntry[]>("clipboard_paste", {
@@ -71,10 +79,12 @@ const useFileClipboardStoreBase = create<FileClipboardStore>()((set) => ({
     },
     clear: async () => {
       await invoke("clipboard_clear");
-      set({ clipboard: null, sourceClipboardText: null });
+      set({ clipboard: null, sourceClipboardSequence: null });
     },
     setClipboard: (state: FileClipboardState | null) => {
-      set(state ? { clipboard: state } : { clipboard: null, sourceClipboardText: null });
+      // The counter belongs to the copy that produced this state, so a state
+      // arriving from another window keeps the one already recorded here.
+      set(state ? { clipboard: state } : { clipboard: null, sourceClipboardSequence: null });
     },
   },
 }));

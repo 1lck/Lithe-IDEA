@@ -230,6 +230,7 @@ fn main() {
             host::clipboard_get,
             host::clipboard_paste,
             host::clipboard_clear,
+            host::clipboard_sequence_number,
             host::create_app_window,
             project_windows::claim_project_window,
             project_windows::release_project_window,

@@ -160,6 +160,28 @@ pub fn clipboard_clear(
         .map_err(|error| error.to_string())
 }
 
+/// Returns Windows' clipboard change counter.
+///
+/// The counter increments on every clipboard write by any process, so comparing
+/// two readings tells the caller whether the clipboard changed in between —
+/// something clipboard *content* cannot express, because copying the same text
+/// again leaves the content identical. The terminal uses it to decide whether a
+/// copied file is still the user's most recent clipboard action.
+#[cfg(windows)]
+#[tauri::command]
+pub fn clipboard_sequence_number() -> u32 {
+    // SAFETY: the function takes no arguments, has no failure mode, and only
+    // reads a counter that Windows maintains for the calling session.
+    unsafe { windows_sys::Win32::System::DataExchange::GetClipboardSequenceNumber() }
+}
+
+/// Reports that no change counter is available on this platform.
+#[cfg(not(windows))]
+#[tauri::command]
+pub fn clipboard_sequence_number() -> u32 {
+    0
+}
+
 #[tauri::command]
 pub fn clipboard_paste(
     app: AppHandle,

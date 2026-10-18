@@ -36,34 +36,54 @@ describe("clipboardEntryPaths", () => {
 });
 
 describe("shouldPasteFileClipboardPaths", () => {
-  test("uses the copied file paths while the clipboard still holds the same text", () => {
+  test("uses the copied file paths while the clipboard counter is unchanged", () => {
     expect(
       shouldPasteFileClipboardPaths({
         entryCount: 1,
-        sourceClipboardText: "unchanged",
-        currentClipboardText: "unchanged",
+        sourceSequence: 42,
+        currentSequence: 42,
       }),
     ).toBe(true);
   });
 
-  // Copying text after copying files must win, otherwise the terminal would
-  // silently insert stale paths instead of what the user copied last.
-  test("defers to text copied after the file copy", () => {
+  // The whole reason for a counter instead of the text: copying different content
+  // after the file copy must win, so the terminal inserts what the user copied
+  // last.
+  test("defers to anything copied after the file copy", () => {
     expect(
       shouldPasteFileClipboardPaths({
         entryCount: 1,
-        sourceClipboardText: "before",
-        currentClipboardText: "copied later",
+        sourceSequence: 42,
+        currentSequence: 43,
       }),
     ).toBe(false);
   });
 
-  test("defers when there is no remembered snapshot", () => {
+  // Regression: comparing text could not detect this case, because copying the
+  // same string twice leaves the content identical while the counter advances.
+  test("defers when the same text was copied again after the file copy", () => {
     expect(
       shouldPasteFileClipboardPaths({
         entryCount: 1,
-        sourceClipboardText: null,
-        currentClipboardText: "anything",
+        sourceSequence: 42,
+        currentSequence: 45,
+      }),
+    ).toBe(false);
+  });
+
+  test("defers when either reading is unavailable", () => {
+    expect(
+      shouldPasteFileClipboardPaths({
+        entryCount: 1,
+        sourceSequence: null,
+        currentSequence: 42,
+      }),
+    ).toBe(false);
+    expect(
+      shouldPasteFileClipboardPaths({
+        entryCount: 1,
+        sourceSequence: 42,
+        currentSequence: null,
       }),
     ).toBe(false);
   });
@@ -72,24 +92,9 @@ describe("shouldPasteFileClipboardPaths", () => {
     expect(
       shouldPasteFileClipboardPaths({
         entryCount: 0,
-        sourceClipboardText: "unchanged",
-        currentClipboardText: "unchanged",
+        sourceSequence: 42,
+        currentSequence: 42,
       }),
     ).toBe(false);
-  });
-
-  // Documents a deliberate trade-off, not an oversight: recovering the same text
-  // twice around a file copy looks exactly like an untouched clipboard without an
-  // OS change counter. Inserting the paths keeps copy-and-paste-to-terminal a
-  // single step, and the mis-insertion is visible and reversible. If this ever
-  // needs to change, the decision in the function comment changes with it.
-  test("keeps file paths when the same text was copied again around the file copy", () => {
-    expect(
-      shouldPasteFileClipboardPaths({
-        entryCount: 1,
-        sourceClipboardText: "echo hello",
-        currentClipboardText: "echo hello",
-      }),
-    ).toBe(true);
   });
 });
