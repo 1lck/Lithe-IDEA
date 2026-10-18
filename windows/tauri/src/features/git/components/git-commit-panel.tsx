@@ -123,7 +123,6 @@ const GitCommitPanel = ({
   const { t } = useTranslation();
   const [amend, setAmend] = useState(false);
   useEffect(() => setAmend(false), [repoPath, currentBranch]);
-  const [includeParentReferences, setIncludeParentReferences] = useState(true);
   // Pending destination question for commit-and-push on a divergent branch.
   const [pushTargetPrompt, setPushTargetPrompt] = useState<{
     preview: GitPushPreview;

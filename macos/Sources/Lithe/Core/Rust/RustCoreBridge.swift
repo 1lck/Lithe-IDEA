@@ -3027,7 +3027,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         checkout: Bool = false,
         amend: Bool = false,
         force: Bool = false,
-        autoStash: Bool = false
+        autoStash: Bool = false,
+        pushTarget: String? = nil
     ) -> GitCommandPayload? {
         execute(
             command: "git.write",
@@ -3048,7 +3049,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 checkout: checkout,
                 amend: amend,
                 force: force,
-                autoStash: autoStash
+                autoStash: autoStash,
+                pushTarget: pushTarget
             )
         )
     }
