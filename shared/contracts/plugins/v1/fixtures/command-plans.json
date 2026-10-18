@@ -692,6 +692,169 @@
         "status": "rejected",
         "code": "plugin.launch.unavailable"
       }
+    },
+    {
+      "name": "gradle provider launch is a java runtime launch selected by build system",
+      "plugin": "gradle-provider.plugin.json",
+      "buildSystemID": "gradle",
+      "operation": "languageServerLaunchPlan",
+      "request": {
+        "pluginDirectory": "/plugins/gradle/versions/0.1.0",
+        "stateDirectory": "/state/gradle",
+        "workspaceStateDirectory": "/state/gradle/workspaces/abc",
+        "architecture": "arm64",
+        "settings": {
+          "providerHeapMB": 2048
+        }
+      },
+      "expected": {
+        "status": "ok",
+        "plan": {
+          "launch": {
+            "kind": "runtime",
+            "tool": "java",
+            "entry": "provider/gradle-tooling-provider.jar",
+            "minimumVersion": "17",
+            "versionArguments": [
+              "--version"
+            ]
+          },
+          "arguments": [
+            "-Xmx2048m",
+            "-jar",
+            "/plugins/gradle/versions/0.1.0/provider/gradle-tooling-provider.jar",
+            "--stdio",
+            "--cache",
+            "/state/gradle/workspaces/abc/tooling"
+          ],
+          "validationArguments": [],
+          "runtimeRequirements": [
+            {
+              "tool": "java",
+              "minimumVersion": "17"
+            }
+          ],
+          "initializationOptions": {
+            "initScript": "/plugins/gradle/versions/0.1.0/provider/lithe-model.init.gradle"
+          },
+          "settings": {
+            "providerHeapMB": 2048
+          },
+          "requiredDirectories": [
+            "workspaceState"
+          ],
+          "requiredPackagePaths": [
+            "provider/gradle-tooling-provider.jar",
+            "provider/lithe-model.init.gradle"
+          ],
+          "buildProvider": {
+            "buildSystemID": "gradle",
+            "executesProjectCode": true,
+            "mayUseNetwork": true
+          }
+        }
+      }
+    },
+    {
+      "name": "mix provider launch is the elixir language server plan and names that server",
+      "plugin": "mix-provider.plugin.json",
+      "buildSystemID": "mix",
+      "operation": "languageServerLaunchPlan",
+      "request": {
+        "pluginDirectory": "/plugins/mix/versions/0.1.0",
+        "stateDirectory": "/state/mix",
+        "workspaceStateDirectory": "/state/mix/workspaces/abc",
+        "architecture": "x86_64"
+      },
+      "expected": {
+        "status": "ok",
+        "plan": {
+          "launch": {
+            "kind": "systemCommand",
+            "commands": [
+              "elixir-ls"
+            ]
+          },
+          "arguments": [
+            "--stdio"
+          ],
+          "validationArguments": [],
+          "runtimeRequirements": [],
+          "requiredDirectories": [],
+          "requiredPackagePaths": [],
+          "buildProvider": {
+            "buildSystemID": "mix",
+            "executesProjectCode": true,
+            "mayUseNetwork": false,
+            "languageServer": "elixir"
+          }
+        }
+      }
+    },
+    {
+      "name": "elixir language server launch carries no build provider",
+      "plugin": "mix-provider.plugin.json",
+      "languageID": "elixir",
+      "operation": "languageServerLaunchPlan",
+      "request": {
+        "pluginDirectory": "/plugins/mix/versions/0.1.0",
+        "stateDirectory": "/state/mix",
+        "workspaceStateDirectory": "/state/mix/workspaces/abc",
+        "architecture": "x86_64"
+      },
+      "expected": {
+        "status": "ok",
+        "plan": {
+          "launch": {
+            "kind": "systemCommand",
+            "commands": [
+              "elixir-ls"
+            ]
+          },
+          "arguments": [
+            "--stdio"
+          ],
+          "validationArguments": [],
+          "runtimeRequirements": [],
+          "requiredDirectories": [],
+          "requiredPackagePaths": []
+        }
+      }
+    },
+    {
+      "name": "launch plan refuses a build system without a provider",
+      "plugin": "cargo-build.plugin.json",
+      "buildSystemID": "cargo",
+      "operation": "languageServerLaunchPlan",
+      "request": {
+        "pluginDirectory": "/plugins/cargo/versions/0.1.0",
+        "stateDirectory": "/state/cargo",
+        "workspaceStateDirectory": "/state/cargo/workspaces/abc",
+        "architecture": "x86_64"
+      },
+      "expected": {
+        "status": "rejected",
+        "code": "plugin.launch.unavailable"
+      }
+    },
+    {
+      "name": "launch plan refuses an undeclared build system",
+      "plugin": "gradle-provider.plugin.json",
+      "buildSystemID": "maven",
+      "operation": "languageServerLaunchPlan",
+      "request": {
+        "pluginDirectory": "/plugins/gradle/versions/0.1.0",
+        "stateDirectory": "/state/gradle",
+        "workspaceStateDirectory": "/state/gradle/workspaces/abc",
+        "architecture": "arm64",
+        "settings": {
+          "providerHeapMB": 2048
+        }
+      },
+      "expected": {
+        "status": "rejected",
+        "code": "plugin.launch.unavailable"
+      }
     }
   ]
 }

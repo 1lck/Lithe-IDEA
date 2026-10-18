@@ -5,10 +5,12 @@ struct GitFetchSettingsView: View {
     @Binding var options: GitFetchOptions
     var body: some View {
         GitSettingsCard {
-            GitSettingsHeader(icon: "arrow.down.circle", title: "Fetch defaults", subtitle: "Set the defaults used by ordinary Fetch in every project.")
+            GitSettingsHeader(
+                icon: "arrow.down.circle",
+                title: "Fetch defaults",
+                info: "Set the defaults used by ordinary Fetch in every project. Credentials use your existing Git helper and SSH configuration."
+            )
             GitFetchPolicyControls(options: $options)
-            Text("Credentials use your existing Git helper and SSH configuration.")
-                .font(LitheTheme.smallFont).foregroundStyle(LitheTheme.secondaryText)
             Button("Reset Fetch defaults") { options = GitFetchOptions() }.lithePointer()
         }
     }

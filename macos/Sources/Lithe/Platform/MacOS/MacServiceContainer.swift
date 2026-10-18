@@ -359,6 +359,38 @@ final class MacServiceContainer {
                         toolchainRegistry: runToolchainRegistry,
                         metadataResolver: ProcessRunToolchainMetadataResolver(processRunner: processRunner)
                     )
+                    let buildSystemPlugins = pluginStartup.registeredPlugins.filter { !$0.descriptor.buildSystems.isEmpty }
+                    let buildSystems = buildSystemPlugins.isEmpty ? nil : BuildSystemService(
+                        planner: RustBuildSystemOperations(core: rustCore),
+                        tools: MacBuildToolResolver(
+                            runtime: runtimeService,
+                            processRunner: processRunner,
+                            fileStorage: fileStorage
+                        ),
+                        optionsStore: MacBuildOptionsStore(store: store),
+                        stateLocator: MacBuildSystemStateLocator(
+                            directories: MacPluginStateDirectories(fileStorage: fileStorage),
+                            fileStorage: fileStorage
+                        ),
+                        runner: MacBuildCommandRunner(processRegistry: processRegistry),
+                        sources: {
+                            // Enablement is read on every detection, so turning a
+                            // plugin off takes its build systems away at once.
+                            buildSystemPlugins.compactMap { plugin -> BuildSystemPluginSource? in
+                                let id = plugin.descriptor.id.rawValue
+                                guard let snapshot = try? moduleRuntime.snapshot(for: .buildSystemsExtension(id)),
+                                      snapshot.state != .disabled,
+                                      !snapshot.isQuarantined,
+                                      !snapshot.isSuppressedBySafeMode else { return nil }
+                                return BuildSystemPluginSource(
+                                    pluginID: id,
+                                    manifest: plugin.descriptor.normalizedManifest,
+                                    packageURL: plugin.packageURL,
+                                    buildSystems: plugin.descriptor.buildSystems
+                                )
+                            }
+                        }
+                    )
                     let graph = ExecutionFeatureGraph(
                         maven: MavenService(
                             runtimeService: runtimeService,
@@ -397,7 +429,8 @@ final class MacServiceContainer {
                                     reports: reports
                                 )
                             }
-                        )
+                        ),
+                        buildSystems: buildSystems
                     )
                     let mavenFeature = graph.mavenFeature
                     graph.run.configureLanguageDependencyProvider { [weak mavenFeature] languageID, workspace, serviceID in
@@ -661,6 +694,7 @@ final class MacServiceContainer {
             agentProviderConfigurationParser: MacAgentProviderConfigurationParser(core: rustCore),
             aiConfigurationSources: aiConfigurationSources,
             recentProjectsStore: RecentProjectsStore(store: store),
+            recentProjectBranchReader: MacRecentProjectBranchReader(storage: fileStorage),
             workspaceSessionStore: WorkspaceSessionStore(store: store),
             directoryMarkStore: directoryMarkStore,
             workbenchLayoutStore: WorkbenchLayoutStore(store: store),
@@ -673,6 +707,9 @@ final class MacServiceContainer {
         )
         services.ideCapabilityRegistry = ideCapabilityRegistry
         services.ideHostTransport = MacIdeHostTransport(core: rustCore, storage: fileStorage)
+        services.mcpConfigurationStore = MacAgentMcpConfigurationStore(
+            core: rustCore, storage: fileStorage
+        )
         services.processExitCoordinator = ProcessExitCoordinator(
             core: RustProcessLifecycleDecider(core: rustCore),
             presenter: MacProcessExitConfirmationPresenter.shared
@@ -759,7 +796,16 @@ final class MacServiceContainer {
                     DeclarativeWorkbenchModule(declaration: declaration)
                 }
             }
-            return servers + executions + workbench
+            // The module only carries the enabled state; the execution
+            // module reads it before handing the plugin to Rust Core.
+            let buildSystems = descriptor.pluginManifest.modules
+                .filter { $0.manifest.id == .buildSystemsExtension(descriptor.id.rawValue) }
+                .map { declaration in
+                    ModuleFactory(manifest: declaration.manifest) {
+                        DeclarativeWorkbenchModule(declaration: declaration)
+                    }
+                }
+            return servers + executions + workbench + buildSystems
         }
     }
 }

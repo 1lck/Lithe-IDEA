@@ -137,6 +137,7 @@ extension AppModel {
         )
         guard let execution = await activateExecutionModule() else { return }
         guard isCurrentWorkspace(identity) else { return }
+        loadBuildSystems(execution)
         execution.tests.discover(workspaceURL: target, files: files)
         await execution.projectDevelopment.loadProject(
             at: target,

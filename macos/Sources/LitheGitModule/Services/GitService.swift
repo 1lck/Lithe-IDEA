@@ -16,6 +16,7 @@ package protocol GitOperations: Sendable {
     func stepWorkspaceCommit(_ session: GitWorkspaceCommitSession) -> Result<GitWorkspaceCommitSession, GitWorkspaceCommitFailure>
 
     func consolePresentation(_ request: GitConsolePresentationRequest) -> GitConsolePresentation?
+    func executableResolution() -> Result<GitExecutableResolution, GitFetchFailure>
     func executionSettings(_ request: GitConfigurationEdit, save: Bool) -> Result<GitExecutionSettingsSnapshot, GitFetchFailure>
     func remoteURL(at rootURL: URL, remote: String) -> String?
     func answerAuthentication(requestID: String, answer: String?) -> Bool
@@ -194,6 +195,7 @@ package extension GitOperations {
     func snapshot(at rootURL: URL, repositoryRoots: [URL]) -> GitSnapshot? { snapshot(at: rootURL) }
 
     func consolePresentation(_ request: GitConsolePresentationRequest) -> GitConsolePresentation? { nil }
+    func executableResolution() -> Result<GitExecutableResolution, GitFetchFailure> { .failure(GitFetchFailure("Git executable resolution is unavailable.")) }
     func executionSettings(_ request: GitConfigurationEdit, save: Bool) -> Result<GitExecutionSettingsSnapshot, GitFetchFailure> { .failure(GitFetchFailure("Git configuration inspection is unavailable.")) }
     func remoteURL(at rootURL: URL, remote: String) -> String? { nil }
     func answerAuthentication(requestID: String, answer: String?) -> Bool { false }
@@ -606,6 +608,10 @@ package struct GitService: Sendable {
         return await Task.detached(priority: .userInitiated) {
             GitExecutionContext.$current.withValue(context) { operations.executionSettings(request, save: save) }
         }.value
+    }
+    func executableResolution() async -> Result<GitExecutableResolution, GitFetchFailure> {
+        let operations = self.operations
+        return await Task.detached(priority: .userInitiated) { operations.executableResolution() }.value
     }
     func remoteURL(at rootURL: URL, remote: String) async -> String? {
         let operations = self.operations

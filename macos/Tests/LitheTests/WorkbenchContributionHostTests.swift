@@ -1040,11 +1040,13 @@ struct WorkbenchContributionHostTests {
             .agentConversation: BuiltInModuleCatalog.contributions(for: .agentConversation),
             .execution: BuiltInModuleCatalog.contributions(for: .execution)])
         let position = DockPosition(anchor: .right, group: .primary)
-        #expect(workbench.tools(in: position) == [.database, .agent, .maven])
+        // The Build tool window shows only with a build-system plugin, but
+        // it is always docked after Maven.
+        #expect(workbench.tools(in: position) == [.database, .agent, .maven, .buildSystems])
         workbench.moveContribution("execution.maven", earlier: true)
-        #expect(workbench.tools(in: position) == [.database, .maven, .agent])
+        #expect(workbench.tools(in: position) == [.database, .maven, .agent, .buildSystems])
         workbench.moveContribution("execution.maven", earlier: false)
-        #expect(workbench.tools(in: position) == [.database, .agent, .maven])
+        #expect(workbench.tools(in: position) == [.database, .agent, .maven, .buildSystems])
     }
 
     @Test func servicesCommandActivatesDatabaseWithoutOpeningItsSidebar() async throws {

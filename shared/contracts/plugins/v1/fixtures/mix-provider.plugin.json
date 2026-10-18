@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 2,
+  "id": "dev.lithe.fixture.mix-provider",
+  "displayName": "Mix Provider Fixture",
+  "version": "0.1.0",
+  "pluginAPIVersion": 3,
+  "requires": { "buildProviders": 1, "buildSystems": 1, "languageServers": 1, "languages": 1, "serverProcess": 1 },
+  "vendor": {
+    "id": "org.example",
+    "displayName": "Example",
+    "signatureRequirement": "publisherPackage"
+  },
+  "permissions": [
+    "languageServer.launch",
+    "process.build"
+  ],
+  "activationEvents": [
+    "onBuildSystem:mix",
+    "onLanguage:elixir"
+  ],
+  "languages": [
+    {
+      "id": "elixir",
+      "displayName": "Elixir",
+      "fileExtensions": ["ex", "exs"],
+      "projectFileNames": ["mix.exs"]
+    }
+  ],
+  "languageServers": [
+    {
+      "languageID": "elixir",
+      "launch": { "kind": "systemCommand", "commands": ["elixir-ls"] },
+      "arguments": ["--stdio"]
+    }
+  ],
+  "buildSystems": [
+    {
+      "id": "mix",
+      "displayName": "Mix",
+      "detection": { "markers": ["mix.exs"], "nesting": "outermost" },
+      "invocation": {
+        "executables": [{ "kind": "command", "command": "mix" }]
+      },
+      "provider": {
+        "languageServer": "elixir",
+        "executesProjectCode": true,
+        "mayUseNetwork": false
+      },
+      "model": { "source": "provider" },
+      "tasks": [
+        {
+          "id": "compile",
+          "displayName": "Compile",
+          "group": "build",
+          "scopes": ["workspace"],
+          "arguments": ["compile"]
+        },
+        {
+          "id": "deps-get",
+          "displayName": "Fetch Dependencies",
+          "group": "other",
+          "scopes": ["workspace"],
+          "arguments": ["deps.get"]
+        }
+      ],
+      "dependencies": { "source": "provider", "scopes": ["workspace"] },
+      "sync": { "watch": ["mix.exs", "mix.lock"] },
+      "layout": { "excluded": ["_build", "deps"] }
+    }
+  ]
+}

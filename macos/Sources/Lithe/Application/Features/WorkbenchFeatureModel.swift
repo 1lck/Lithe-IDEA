@@ -44,8 +44,11 @@ final class WorkbenchFeatureModel: ObservableObject {
         static let run = Self(rawValue: "execution.run")
         static let tests = Self(rawValue: "execution.tests")
         static let debug = Self(rawValue: "debug.session")
+        static let buildSystems = Self(rawValue: "execution.build")
+        static let buildOutput = Self(rawValue: "execution.build.output")
         static let allCases: [Self] = [.project, .changes, .pullRequests, .search, .database,
-            .gitLog, .terminal, .agent, .databaseServices, .references, .problems, .maven, .mavenOutput, .spring, .run, .tests, .debug]
+            .gitLog, .terminal, .agent, .databaseServices, .references, .problems, .maven, .mavenOutput, .spring, .run, .tests, .debug,
+            .buildSystems, .buildOutput]
         // Docking layouts written before contribution registration used enum case names.
         static func restoredID(_ id: String) -> String {
             let legacy = ["project", "changes", "pullRequests", "search", "database", "gitLog", "terminal", "agent",
@@ -115,7 +118,7 @@ final class WorkbenchFeatureModel: ObservableObject {
     /// visible while they are open.
     static func isRightDocked(_ toolWindow: ToolWindow) -> Bool {
         switch toolWindow {
-        case .maven, .agent, .database: true
+        case .maven, .agent, .database, .buildSystems: true
         default: false
         }
     }

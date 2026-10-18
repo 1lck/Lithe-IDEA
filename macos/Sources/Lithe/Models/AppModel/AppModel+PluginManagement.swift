@@ -39,6 +39,7 @@ extension AppModel {
     func uninstallPlugin(_ pluginID: PluginID) async {
         do {
             try await services.pluginManager.uninstall(pluginID)
+            buildSystemsFeatureIfActive?.pluginsChanged()
             objectWillChange.send()
         } catch {
             showNotification(error.localizedDescription)
@@ -67,6 +68,9 @@ extension AppModel {
             } catch {
                 showNotification(error.localizedDescription)
             }
+        }
+        if !appliedPluginIDs.isEmpty {
+            buildSystemsFeatureIfActive?.pluginsChanged()
         }
         objectWillChange.send()
         return appliedPluginIDs

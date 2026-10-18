@@ -1,0 +1,32 @@
+{
+  "id": "build-system-plugins",
+  "area": "扩展",
+  "group": "插件与主题",
+  "capability": "构建系统插件（API 3 buildSystems）：插件用 JSON 声明构建工具的识别、可执行文件、选项、任务、运行入口、测试和输出格式，或由插件自带、与语言服务器同类的 Provider 进程回答模型和依赖，Rust Core 统一校验、生成命令行或 Provider 请求并解码结果，宿主在通用 Build 工具窗口中运行",
+  "macos": {
+    "evidence": [
+      "rust/lithe-core/src/build",
+      "shared/contracts/plugins/v1/fixtures/build-plans.json",
+      "macos/Sources/Lithe/Core/Rust/RustBuildSystemOperations.swift",
+      "macos/Sources/Lithe/Platform/MacOS/Build",
+      "macos/Sources/LitheExecutionModule/Services/BuildSystemService.swift",
+      "macos/Sources/Lithe/Views/Run/BuildSystemsView.swift",
+      "macos/Sources/Lithe/Views/Run/BuildOutputView.swift",
+      "macos/Tests/LitheTests/RustBuildSystemOperationsTests.swift",
+      "macos/Tests/LitheExecutionModuleTests/BuildSystemServiceTests.swift"
+    ],
+    "implementationStatus": "partial",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "rust/lithe-core/src/build",
+      "shared/contracts/plugins/v1/fixtures/build-plans.json",
+      "shared/contracts/plugins/v1/fixtures/gradle-provider.plugin.json"
+    ],
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable"
+  },
+  "owner": "Extensions",
+  "verification": "macOS 已接入 static、command、hostIntegration 三种模型来源：宿主向 Core 声明 buildSystems 能力，插件市场因此列出兼容的 API 3 声明式版本；Provider 另外要求 buildProviders 能力，macOS 尚未声明，市场与安装审查拒绝 Provider 插件；Build 工具窗口列出实例、工程、任务、测试、选项和依赖，Build Output 显示输出、诊断与测试结果。模型和依赖重复加载按操作身份隔离，过期任务不能清理新任务或覆盖新状态；Java 探测使用 Java 8 兼容参数并读取 stderr，模型中的 target/task/content root 必须位于实例根内。Provider 进程（lithe/build/*）与模型 run 入口尚未接入；Windows 宿主尚未调用 build.* 命令。自动化：cargo test -p lithe-core --lib build_systems、scripts/verify-shared-contracts.sh、./scripts/test-macos.sh --filter 'RustBuildSystemOperationsTests|BuildSystemServiceTests'。手动验证：安装 fixtures 中 cargo-build、go-build 形态的插件包，确认 Build 工具窗口列出实例、工程、任务和选项；执行任务与测试的 argv 与 build-plans.json 一致，停止与输出上限生效；JUnit 报告与 lineMatcher 诊断可跳转到源码；命令模型和项目内 Wrapper 只在用户点击加载或运行后启动；禁用插件后实例消失；Windows 接入后另需验证未信任工作区不启动任何模型命令或 Wrapper；gradle-provider 形态的自有 Provider 只在用户操作或工作区信任后启动、停用插件时停止，mix-provider 形态复用语言服务器会话而不启动第二个进程；运行前后 app bundle 文件清单不变（scripts/verify-runtime-bundle-immutability.sh）。"
+}

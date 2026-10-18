@@ -233,7 +233,8 @@ enum WorkbenchModuleUIComposition {
                             openProjectInCurrentWindow: { [weak model] in model?.openProject($0, placement: .thisWindow) },
                             openProjectInNewWindow: { [weak model] in model?.openProject($0, placement: .newWindow) },
                             temporaryDirectory: { [storage = model.services.fileStorage] in storage.temporaryDirectory() }
-                        )
+                        ),
+                        presentationCache: model.gitLogPresentationCache
                     ))
                 },
                 contentIdentity: { WorkbenchModuleUIRegistry.Renderer.featureIdentity($0.gitFeatureIfActive) }
@@ -273,7 +274,9 @@ enum WorkbenchModuleUIComposition {
             .init(id: "execution.maven.toggle", perform: { $0.toggleMaven() }, activateOwner: { await $0.activateExecutionModule() != nil }),
             .init(id: "execution.maven.output.toggle", perform: { $0.workbenchFeature.toggleVisibility(.mavenOutput) }, activateOwner: { await $0.activateExecutionModule() != nil }),
             .init(id: "execution.run.toggle", perform: { $0.toggleRun() }, activateOwner: { await $0.activateExecutionModule() != nil }),
-            .init(id: "execution.tests.toggle", perform: { $0.toggleTests() }, activateOwner: { await $0.activateExecutionModule() != nil })
+            .init(id: "execution.tests.toggle", perform: { $0.toggleTests() }, activateOwner: { await $0.activateExecutionModule() != nil }),
+            .init(id: "execution.build.toggle", perform: { $0.toggleBuildSystems() }, activateOwner: { await $0.activateExecutionModule() != nil }),
+            .init(id: "execution.build.output.toggle", perform: { $0.workbenchFeature.toggleVisibility(.buildOutput) }, activateOwner: { await $0.activateExecutionModule() != nil })
         ],
         renderers: [
             .init(
@@ -307,6 +310,37 @@ enum WorkbenchModuleUIComposition {
                     return AnyView(MavenBuildOutputView(feature: feature))
                 },
                 contentIdentity: { WorkbenchModuleUIRegistry.Renderer.featureIdentity($0.mavenFeatureIfActive) }
+            ),
+            .init(
+                id: "execution.build",
+                ideaAssetPath: nil,
+                isVisible: { $0.hasBuildSystemPlugins },
+                isSelected: { $0.workbenchFeature.isVisible(.buildSystems) },
+                content: { model in
+                    guard let feature = model.buildSystemsFeatureIfActive else {
+                        return AnyView(WorkbenchModuleUIRegistry.moduleLoadingView)
+                    }
+                    return AnyView(BuildSystemsView(feature: feature))
+                },
+                contentIdentity: { WorkbenchModuleUIRegistry.Renderer.featureIdentity($0.buildSystemsFeatureIfActive) },
+                rightSidebarBehavior: .docked
+            ),
+            .init(
+                id: "execution.build.output",
+                ideaAssetPath: "expui/toolwindows/run@20x20.svg",
+                isVisible: { model in
+                    guard let feature = model.buildSystemsFeatureIfActive else { return false }
+                    return model.workbenchFeature.isVisible(.buildOutput)
+                        || feature.runState != .idle || !feature.output.isEmpty
+                },
+                isSelected: { $0.workbenchFeature.isVisible(.buildOutput) },
+                content: { model in
+                    guard let feature = model.buildSystemsFeatureIfActive else {
+                        return AnyView(WorkbenchModuleUIRegistry.moduleLoadingView)
+                    }
+                    return AnyView(BuildOutputView(feature: feature))
+                },
+                contentIdentity: { WorkbenchModuleUIRegistry.Renderer.featureIdentity($0.buildSystemsFeatureIfActive) }
             ),
             .init(
                 id: "execution.run",
