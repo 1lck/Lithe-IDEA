@@ -45,6 +45,11 @@ final class ExecutionModuleCoordinator {
             store.observe(.execution, observation: capability.testService.objectWillChange.sink { [weak self] (_: ()) in
                 self?.onChange()
             })
+            if let buildSystems = capability.buildSystemsFeature {
+                store.observe(.execution, observation: buildSystems.objectWillChange.sink { [weak self] (_: ()) in
+                    self?.onChange()
+                })
+            }
             return capability
         } catch {
             onError(error.localizedDescription)
@@ -58,18 +63,21 @@ final class ExecutionModuleCoordinator {
             mavenFeature: capability.mavenFeature,
             runFeature: capability.runFeature,
             tests: capability.testService,
-            projectDevelopment: capability.projectDevelopment
+            projectDevelopment: capability.projectDevelopment,
+            buildSystems: capability.buildSystemsFeature
         )
     }
 
     func resetFeatures(
         maven: MavenFeatureModel?,
         run: RunFeatureModel?,
-        tests: LanguageTestService?
+        tests: LanguageTestService?,
+        buildSystems: BuildSystemsFeatureModel?
     ) {
         maven?.reset()
         run?.reset()
         tests?.reset()
+        buildSystems?.reset(workspaceURL: nil)
     }
 
     func stopFeatures(maven: MavenFeatureModel?, run: RunFeatureModel?) {

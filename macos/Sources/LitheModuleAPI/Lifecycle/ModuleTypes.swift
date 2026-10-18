@@ -291,6 +291,11 @@ public extension ModuleID {
     static func languageExecutionExtension(_ languageID: String) -> ModuleID {
         ModuleID("dev.lithe.language.\(languageID).execution")
     }
+
+    /// The build systems one declarative plugin declares, enabled together.
+    static func buildSystemsExtension(_ pluginID: String) -> ModuleID {
+        ModuleID("\(pluginID).build-systems")
+    }
 }
 
 public extension ModuleCapabilityID {

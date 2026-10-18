@@ -15,6 +15,7 @@ pub use classpath_jar::{
     plan_classpath_jar_launch, ClasspathJarPlan, ClasspathJarRequest, ClasspathStyle,
 };
 pub(crate) use configuration::*;
+pub(crate) use detectors::{scan, DirectoryContext};
 pub use launch_command::{
     java_feature_version_from_release, plan_launch_command, plan_launch_command_request,
     LaunchCommandPlan, LaunchCommandPlanRequest, LaunchCommandPlanResponse,

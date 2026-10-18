@@ -1,5 +1,6 @@
 //! Plugin manifest parsing, compatibility checks, and deterministic catalog merging.
 
+pub mod capabilities;
 pub mod declarative;
 pub mod marketplace;
 

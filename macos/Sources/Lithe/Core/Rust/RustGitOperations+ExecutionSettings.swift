@@ -2,6 +2,13 @@ import Foundation
 import LitheGitModule
 
 extension RustGitOperations {
+    func executableResolution() -> Result<GitExecutableResolution, GitFetchFailure> {
+        // Resolution intentionally works without a repository; the payload is
+        // empty because the execution preferences travel with every request.
+        struct EmptyPayload: Encodable {}
+        return core.executeResult(command: "git.executable", payload: EmptyPayload())
+            .mapError { GitFetchFailure($0.userMessage) }
+    }
     func executionSettings(_ request: GitConfigurationEdit, save: Bool) -> Result<GitExecutionSettingsSnapshot, GitFetchFailure> {
         core.executeResult(command: save ? "git.executionConfigure" : "git.executionInspect", payload: request)
             .mapError { GitFetchFailure($0.userMessage) }

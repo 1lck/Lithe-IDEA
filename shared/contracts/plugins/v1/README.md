@@ -11,15 +11,17 @@ This directory is the cross-platform source of truth:
 | File | Purpose |
 | --- | --- |
 | `plugin-manifest.schema.json` | JSON shape of `plugin.json` |
-| `fixtures/*.plugin.json` | Valid example manifests (PHP, Go, Java, and a discovered Node runtime) |
+| `fixtures/*.plugin.json` | Valid example manifests: language plugins (PHP, Go, Java, a discovered Node runtime), UI (`hello-lithe`), and level 3 build systems (Cargo, Go, Gradle, Maven, and two build providers) |
 | `fixtures/invalid-manifests.json` | Edits to a valid manifest and the rejection code every host must report |
 | `fixtures/command-plans.json` | Golden run/test command expansions and language-server launch plans |
 | `fixtures/runtime-versions.json` | Golden outcomes of the launch runtime version check |
+| `fixtures/build-plans.json` | Golden build-system plans and decoded outputs |
 | `plugin-index.schema.json` | JSON shape of a marketplace source index |
 | `fixtures/marketplace/*.json` | Marketplace index, availability, source URL, and install review golden cases |
 
 Validation and template expansion are implemented once in Rust Core
-(`rust/lithe-core/src/plugins/declarative.rs`) and exposed through the
+(`rust/lithe-core/src/plugins/`, with build systems in
+`rust/lithe-core/src/build/`) and exposed through the
 `plugins.declarative.*` commands in `../../rust-core-api.md`. Hosts must not
 reimplement them.
 
@@ -44,17 +46,23 @@ symbolic links. A host treats an installed package as read-only.
 | `id` | Stable plugin ID: lowercase letters, digits, `.` and `-`. |
 | `displayName` | Name shown in plugin management. |
 | `version` | Plugin version, `major.minor.patch`. Independent of the Lithe version. |
-| `pluginAPIVersion` | Declarative plugin API level the package needs. Hosts list the levels they support; Lithe's own version is never used for compatibility. This contract defines levels `1` and `2`; see API levels. |
+| `pluginAPIVersion` | Declarative plugin API level of the manifest format. Hosts list the levels they support; Lithe's own version is never used for compatibility. This contract defines levels `1`, `2`, and `3`; see [API levels](#api-levels). |
+| `requires` | Level 3 only, and required there: every capability the manifest uses, with the version of that capability's contract it was written against; see [Capability versions](#capability-versions-level-3). |
 | `vendor` | `id`, `displayName`, and `signatureRequirement` (see Trust). |
 | `permissions` | Capabilities the plugin may ask the host to perform. |
 | `activationEvents` | When the host may start each provider. |
 | `languages` | Languages the plugin recognizes. |
 | `languageServers` | At most one language server per declared language. |
 | `executionProviders` | At most one run/test provider per declared language. |
+| `settings` | User-adjustable plugin options (level 2 and later). |
+| `ui` | Host-rendered tool windows and commands (level 2 and later). |
+| `buildSystems` | Project-level build tools (level 3). |
 
-Unknown fields are refused (`plugin.manifest.invalid`). A new field requires a
-new `pluginAPIVersion` so older hosts reject the package instead of ignoring
-part of it.
+Unknown fields are refused (`plugin.manifest.invalid`) so an older host
+rejects a package instead of ignoring part of it. At levels 1 and 2 a new
+field needs a new `pluginAPIVersion`. From level 3 on it needs a new version
+of the one capability that owns it, and only plugins that use the field
+declare that version.
 
 ### Languages
 
@@ -80,7 +88,10 @@ is part of the name, so `.toolrc` and `.env.example` stay hidden-file names. Opt
 | `hostIntegration` | API 2, official plugins only. A named integration implemented in the host, with the package resources it reads; see Host integrations. |
 
 The host owns the language-server process lifecycle, the LSP session, and
-stopping the process when the provider is disabled.
+stopping the process when the provider is disabled. An API 3 build provider is
+the same kind of process: it declares `launch`, `arguments`,
+`validationArguments`, `runtimeDependencies`, and `initializationOptions` with
+the same meaning and validation; see [Build providers](#build-providers).
 
 #### Runtime launch (API 2)
 
@@ -174,8 +185,10 @@ contains a machine path, and the host decides where state lives.
 | `${setting:<id>}` | Current value of a declared [plugin setting](#plugin-settings-api-2). Not available in `validationArguments`, and never inside a package path. |
 
 `plugins.declarative.languageServerLaunchPlan` expands a server's launch. The
-host passes `{pluginDirectory, stateDirectory, workspaceStateDirectory,
-architecture, settings?}` and receives:
+host selects the process with exactly one of `languageID` (a language server)
+and `buildSystemID` (a build provider), passes `{pluginDirectory,
+stateDirectory, workspaceStateDirectory, architecture, settings?}`, and
+receives:
 
 | Field | Meaning |
 | --- | --- |
@@ -187,8 +200,11 @@ architecture, settings?}` and receives:
 | `requiredDirectories` | `state` and/or `workspaceState`: the directories the host must create before starting the server. |
 | `requiredPackagePaths` | Sorted package-relative paths the launch points at. The host verifies each is inside the package and not a symbolic link before starting the server. |
 | `settings` | Effective value of every declared setting that produced this plan; absent when the plugin declares none. |
+| `buildProvider` | Present only for a `buildSystemID` selection: `{buildSystemID, executesProjectCode, mayUseNetwork, languageServer?}`. `languageServer` names the language whose server is the provider; the rest of the plan is then that server's plan, and the host reuses its running session instead of starting a second process. |
 
-Core never creates or reads any of these paths. The command also serves API 1
+A language without a server, an undeclared build system, and a build system
+without a provider are `plugin.launch.unavailable`. Core never creates or
+reads any of these paths. The command also serves API 1
 manifests, whose arguments are returned unchanged.
 
 #### Plugin settings (API 2)
@@ -271,6 +287,7 @@ files sorted by path, or an empty list when no project marker is present.
 | --- | --- |
 | `1` | Languages, `packaged` and `systemCommand` language servers, `node` and `go` runtime dependencies, run and test providers. |
 | `2` | `runtime` launches with a packaged or discovered runtime, host integrations, the `java` runtime, launch templates, `initializationOptions`, and plugin settings. |
+| `3` | Capability versions (`requires`), and `buildSystems`: declarative build tools with detection, options, a project model, tasks, run entries, tests, diagnostics, dependencies, and sync. |
 
 A level 2 feature in a level 1 manifest is refused with
 `plugin.manifest.invalid` (`plugin.runtime.unsupported` for the `java` tool),
@@ -278,17 +295,98 @@ so a package cannot use a feature that hosts of its declared level would
 reject for a different reason. Level 1 language-server arguments stay literal
 at every host level.
 
-Rules for publishing across levels:
+### Capability versions (level 3)
 
-- Levels only add features. The meaning of a released level never changes,
-  and hosts keep supporting older levels.
-- A plugin declares the lowest level it needs. Raising the level without
-  using a new feature only cuts off older hosts.
-- Raising a plugin's level requires a new plugin version, and its index entry
-  keeps the last version of the previous level so older hosts still have a
-  version to install. Published packages are signed and are never rewritten.
-- A host release that supports a level ships before any plugin version that
-  declares it.
+Levels 1 and 2 version the whole manifest: a change to one section raised the
+level of every plugin, and hid plugins that never use that section from older
+hosts. Level 3 versions each section on its own. A level 3 manifest lists in
+`requires` exactly the capabilities it uses:
+
+```json
+"pluginAPIVersion": 3,
+"requires": { "buildProviders": 1, "buildSystems": 1, "languageServers": 1, "languages": 1, "serverProcess": 1 }
+```
+
+| Capability | Covers | Versions |
+| --- | --- | --- |
+| `languages` | `languages[]` | `1` |
+| `languageServers` | `languageServers[]` apart from their launch fields | `1` |
+| `serverProcess` | The launch fields of language servers and of build providers with a process of their own: `launch`, `arguments`, `validationArguments`, `runtimeDependencies`, `initializationOptions` | `1` |
+| `executionProviders` | `executionProviders[]` | `1` |
+| `settings` | `settings[]` | `1` |
+| `ui` | `ui` | `1` |
+| `buildSystems` | Declarative build detection, models, and command plans | `1` |
+| `buildProviders` | `buildSystems[].provider`, including own-process and shared language-server providers | `1` |
+
+Version 1 of every capability means what its section means at level 2
+(runtime launches, launch templates, `initializationOptions`, and so on), so
+moving a level 2 manifest to level 3 only adds `requires`.
+
+- `requires` is required at level 3 and refused below it
+  (`plugin.manifest.invalid`). IDs are lowerCamelCase identifiers of at most
+  64 characters; versions are positive integers.
+- Core reads `requires` before it decodes any section. A capability or
+  version this Core build does not support is `plugin.api.unsupported` with
+  `field: "requires.<capability>"`, even when the manifest also holds a
+  section Core does not know, so the user learns which capability needs a
+  newer Lithe instead of seeing an unknown field.
+- `requires` lists exactly the capabilities the manifest uses. Leaving out a
+  used one, or listing an unused one, is `plugin.manifest.invalid`. Every
+  language server, and every build provider with its own process, uses
+  `serverProcess`; a shared build provider does not add another process. Any
+  `buildSystems[].provider` requires `buildProviders: 1`, whether it starts its
+  own process or shares a language server. A template-only build plugin must
+  omit `buildProviders`. Launch support alone does not implement Provider
+  negotiation, requests, and lifecycle.
+- The base fields (`schemaVersion`, `id`, `displayName`, `version`, `vendor`,
+  `permissions`, `activationEvents`, and `requires` itself) change only with a
+  new `pluginAPIVersion`.
+
+Validating a capability is not running it. Core validates every capability it
+supports on every platform, but each host implements only some of them, so a
+host states what it runs as `hostCapabilities: { "<capability>": [versions] }`
+in `plugins.declarative.validate`, `plugins.marketplace.validateIndex`, and
+`plugins.marketplace.installReview`:
+
+- `validate` and `installReview` refuse a level 3 manifest whose `requires`
+  names a version missing from `hostCapabilities` with
+  `plugin.api.unsupported` and `field: "requires.<capability>"`. Without
+  `hostCapabilities` they check only what Core supports.
+- `validateIndex` offers a level 3 version only when the host and this Core
+  build both support every entry of its `requires`; without
+  `hostCapabilities` it offers none. A plugin that uses no build systems is
+  therefore offered on a host that cannot run them.
+- `hostCapabilities` has no effect on levels 1 and 2.
+
+The macOS host runs levels 1 to 3 and sends its capability table, including
+`buildSystems: [1]`, with all three commands. It does not implement build
+providers and does not declare `buildProviders`. Provider plugins are therefore
+filtered from the market and refused by declarative validation and install
+review; template-only build plugins remain available. Core supports
+`buildProviders: 1` for validation and plans without a host table. Windows has
+no declarative plugin host and sends no `hostCapabilities`, so it offers no
+level 3 version.
+
+Rules for publishing across levels and capability versions:
+
+- Levels and capability versions only add. A released version never changes
+  meaning, and hosts keep supporting older versions.
+- A plugin declares the lowest level, and for each capability the lowest
+  version, it needs. Raising one without using what it adds only cuts off
+  older hosts.
+- A new capability version is added only for a change an older host must not
+  ignore. Plugins that do not use the change keep the older version and stay
+  installable wherever they were.
+- Raising a plugin's level or a capability version requires a new plugin
+  version, and its index entry keeps the last version with the previous
+  requirements so older hosts still have a version to install. Published
+  packages are signed and are never rewritten.
+- A host release that supports a level or capability version ships before any
+  plugin version that declares it.
+- The manifest holds only what a host must know before it starts a process:
+  what to start, with which permissions, for which files and projects. What a
+  running process can answer is negotiated over its own protocol (see
+  [Build providers](#build-providers)), never declared in the manifest.
 
 ## Permissions and activation
 
@@ -297,12 +395,14 @@ Rules for publishing across levels:
 | `languageServer.launch` | `languageServers` is not empty |
 | `process.run` | any provider declares `run` |
 | `process.test` | any provider declares `test` |
+| `process.build` | `buildSystems` is not empty |
 
 | Activation event | Meaning |
 | --- | --- |
 | `onLanguage:<id>` | Start the language server when a document of the language opens in a project. |
 | `onRun:<id>` | Activate the run provider when the user runs a file of the language. |
 | `onTest:<id>` | Activate the test provider when the user lists or runs tests. |
+| `onBuildSystem:<id>` | Activate the build system before its first plan, model, or decode. |
 
 Each provider needs its event and each event needs a provider. Enabling a
 plugin only permits activation; nothing starts until its event occurs.
@@ -366,7 +466,7 @@ every product shows the same catalog and the same install review.
 | `homepage` | Optional https URL. |
 | `tags` | Optional single words, lowercased and sorted by Core. |
 | `icon` | Optional `raw.githubusercontent.com` file of the same repository. |
-| `versions[]` | `version`, required `pluginAPIVersion`, `releaseDate` (`YYYY-MM-DD`), and `downloads[]`. |
+| `versions[]` | `version`, required `pluginAPIVersion`, `requires` (level 3 only, and required there: the package manifest's `requires`; capability IDs this contract does not define are allowed and make the version unavailable), `releaseDate` (`YYYY-MM-DD`), and `downloads[]`. |
 | `downloads[]` | `platforms` (for example `darwin-arm64`, `darwin-x64`, `windows-x64`, `windows-arm64`), `downloadURL`, and the archive's lowercase hex `sha256`. A platform may appear in at most one download of a version. |
 
 A `downloadURL` must be a `.zip` GitHub Release asset of the entry's own
@@ -377,7 +477,7 @@ plugin at another project's release.
 ### Validation and availability
 
 `plugins.marketplace.validateIndex` accepts
-`{ "index": object, "sourceKind": "official" | "thirdParty", "platform": string }`.
+`{ "index": object, "sourceKind": "official" | "thirdParty", "platform": string, "hostCapabilities"?: object }`.
 A malformed index root or an unsupported `schemaVersion` rejects the whole
 index. Otherwise it returns `{ "status": "ok", "index": { "plugins", "rejected" } }`:
 
@@ -386,13 +486,17 @@ index. Otherwise it returns `{ "status": "ok", "index": { "plugins", "rejected" 
   `plugin.index.officialNamespace`; a repeated ID keeps the first listing and
   refuses later ones with `plugin.index.duplicate`.
 - `plugins` is sorted by ID. Each accepted entry is normalized, lists
-  `versions` newest first, reports `platforms`, `latestVersion`, and
-  `latestReleaseDate` of the newest version, and an `availability`:
+  `versions` newest first (each with its `requires` at level 3), reports
+  `platforms`, `latestVersion`, and `latestReleaseDate` of the newest
+  version, and an `availability`:
   - `{status: "available", version, pluginAPIVersion, releaseDate, downloadURL, sha256}`
-    for the newest version with this platform's archive and a supported
-    `pluginAPIVersion`;
+    for the newest version with this platform's archive that the host can
+    run: level 1, level 2 on a platform with the level 2 UI host (macOS), or
+    level 3 with every capability of its `requires` hosted (see
+    [Capability versions](#capability-versions-level-3));
   - `{status: "unsupported", code: "plugin.index.apiUnsupported", platform, message}`
-    when the platform is listed only by versions needing a newer plugin API;
+    when the platform is listed only by versions needing a newer plugin API
+    or a capability the host does not run;
   - `{status: "unsupported", code: "plugin.index.platformUnsupported", platform, message}`
     when no version lists the platform. Hosts show "not supported on
     <platform>" instead of an install action.
@@ -408,30 +512,222 @@ index. Otherwise it returns `{ "status": "ok", "index": { "plugins", "rejected" 
   the user confirms.
 
 `plugins.marketplace.installReview` accepts
-`{ "manifest": object, "expectedID"?, "expectedVersion"?, "approvedPrograms"?: [object] }`
+`{ "manifest": object, "expectedID"?, "expectedVersion"?, "approvedPrograms"?: [object], "hostCapabilities"?: object }`
 and returns `{ "status": "ok", "review": { id, version, permissions, programs, newPrograms } }`.
 A package whose ID or version differs from the index entry is refused with
-`plugin.package.mismatch`. `programs` lists everything the host may start for
+`plugin.package.mismatch`, and a level 3 package that requires a capability
+missing from `hostCapabilities` with `plugin.api.unsupported`. `programs` lists everything the host may start for
 the plugin, sorted by `kind`, language, and tool:
 
 | `kind` | Fields | Meaning |
 | --- | --- | --- |
 | `packagedLanguageServer` | `languageID`, `path`, `arguments`, `validationArguments` | Executable inside the package, with its launch arguments and validation probe |
 | `systemLanguageServer` | `languageID`, `commands`, `arguments`, `validationArguments` | Command resolved by host tool discovery |
-| `runtime` | `tool` | Runtime the host discovers and passes to a language server |
+| `runtimeLanguageServer` | `languageID`, `tool`, `packagedRuntime`, `entry`, `runtimeArguments`, `arguments`, `validationArguments` | Package entry started by a runtime; `packagedRuntime` is `null` for a discovered runtime |
+| `buildSystem` | `buildSystemID`, `invocation`, `options`, `tasks`, `run`, `test`, `model`, `dependencies`, `hostIntegration`?, `provider`? | Every command line the build system can plan; `provider` is the shared form, which sends build requests to a language server |
+| `packagedBuildProvider`, `systemBuildProvider`, `runtimeBuildProvider` | the matching language-server fields with `buildSystemID`, `executesProjectCode`, `mayUseNetwork` instead of `languageID` | A build provider with a process of its own |
+| `runtime` | `tool`, `minimumVersion`? | Runtime the host discovers and passes to a language server or build provider |
 | `run` | `languageID`, `executable`, `arguments` | Run command and its argument template |
 | `test` | `languageID`, `executable`, `workspaceArguments`, `fileArguments`, `testCaseArguments` | Test command and its argument templates |
 
 Each entry carries everything that decides what actually runs, so an update
 that keeps the same executable but changes its arguments, argument templates,
-or validation probe is a new program. Hosts record the approved `programs`
+or validation probe is a new program; language-server and build-provider
+entries also carry `initializationOptions` when declared. Hosts record the approved `programs`
 with the installation. An update passes them as `approvedPrograms`; a
 non-empty `newPrograms` requires the user to confirm again. When several sources list the same ID, the user chooses the
 source at install time and later updates come only from that source.
 
+## API level 3: build systems
+
+`buildSystems` describes a project-level build tool (Cargo, Go, Gradle,
+Maven, …) as data. Every build tool gets the same model and the same
+commands: Core validates the declaration, detects instances, decodes the
+model, and expands every command line; the host only runs the processes Core
+planned and passes their output back. A community plugin therefore needs no
+host change to add a build tool, and no host code branches on a build-system
+ID. The fixtures `cargo-build`, `go-build`, `gradle-build`, and `maven-build`
+are complete examples, `gradle-provider` and `mix-provider` show the two
+forms of a build provider, and `fixtures/build-plans.json` is the golden list
+of plans and decoded outputs every host gets from them.
+
+A build system needs `pluginAPIVersion` 3 with `buildSystems` in `requires`,
+the `process.build` permission,
+and the activation event `onBuildSystem:<id>`. IDs of build systems, tasks,
+and run entries start with a lowercase letter and use lowercase letters,
+digits, and hyphens. Option IDs are camelCase like setting IDs. Paths in a
+declaration are relative, use `/`, and stay inside their base directory
+(`plugin.path.invalid` otherwise).
+
+| Field | Meaning |
+| --- | --- |
+| `detection` | `markers` are file names; a directory holding one is a candidate root. `nesting: "outermost"` folds deeper candidates into the outer instance (Gradle builds, Maven reactors); `"separate"` (default) keeps each (Cargo packages). `priority` (0–100, default 50) decides between plugins declaring the same ID; ties go to the smaller plugin ID. |
+| `invocation` | `executables` in preference order: `projectFile` (a wrapper inside the root, with `requires` files; always runs project code), `environment` (a path below a variable listed in `environmentInputs`), `command` (a bare name found on `PATH`), `runtime` (a declared runtime dependency itself). `platforms` limits a candidate. `globalArguments` precede every command. `version` probes the executable with literal `arguments` and a `pattern` whose first group is the version; `minimumVersion` needs a probe. |
+| `runtimeDependencies` | `java`, `node`, and `go` are host-managed: only `id` and `minimumVersion`, discovered with the user's runtime settings; `build.invocationPlan` returns the probe arguments Core reads their version with, so hosts keep no per-runtime probe. Any other ID describes its own `executables` and `version` probe, so the runtime list is open. |
+| `options` | Build dimensions the user chooses: `boolean`, `singleSelect`, `multiSelect`, `text`, `file`, `directory`. Each contributes `arguments` and `environment` (with `${value}`) when it has a value. Choices are declared, come from the model (`choicesFromModel`), or are free (`allowCustom`). |
+| `provider` | The process that answers model and dependency requests when no command prints them; see [Build providers](#build-providers). |
+| `model` | `static` (a `toml` file read during detection, no process), `command` (a command whose output Core decodes; it states `executesProjectCode` and `mayUseNetwork`), `provider`, or `hostIntegration`. |
+| `tasks` | The task catalog. `scopes` say what a task runs on (`workspace`, `project`, `target`); `targetTags` restrict targets; `requiresUserArguments` makes the host ask for arguments. A `fromModel` task is the template for tasks the model lists. |
+| `run` | Run entries from model targets (`fromTargets.tags`, with `arguments`) or model tasks (`fromTasks`, reusing the template task's arguments). |
+| `test` | How tests run: `scopes`, `targetTags`, the `filters` (`suite`, `case`) it can select, and `results` (`junitXml` or `litheTestResults` report globs relative to the project, or `hostIntegration`). A workspace run reads the globs under the root and every model project. A requested filter must reach the command line through a template whose conditions hold; a `case` guarded by `suiteSelected` therefore needs its suite. |
+| `diagnostics` | `lineMatcher` patterns with capture-group numbers, or `litheDiagnostics` lines. |
+| `dependencies` | A command (with `scopes`) whose output Core decodes, as a flat list through a `map` or as a tree from `litheDependencies`; `provider` (with `scopes`, `workspace` and `project` only); or `hostIntegration`. |
+| `sync` | Files whose change makes the model stale, relative to the root and to each project. |
+| `layout` | `excluded` directories relative to each project, added to every project as `excluded` content roots. |
+
+### Templates
+
+Arguments are template strings, or `{ "value": …, "when": condition }` with
+one condition or a list that must all hold: `projectSelected`,
+`nestedProjectSelected` (a project other than the root one), `targetSelected`,
+`suiteSelected`, `caseSelected`, and their `no…` opposites.
+
+| Variable | Available in |
+| --- | --- |
+| `${root}` | every list |
+| `${project.name}`, `${project.path}` (relative to the root), `${project.property:<key>}` | lists with a project scope; guard with `projectSelected` when the project may be absent |
+| `${target.name}`, `${target.property:<key>}` | target-scoped tasks, tests, and target run entries; guard with `targetSelected` when the target may be absent |
+| `${task.name}`, `${task.property:<key>}` | `fromModel` tasks |
+| `${test.suite}`, `${test.case}`, `${test.case:regex}` (regex-escaped) | `test.arguments`, guarded by `suiteSelected` / `caseSelected` |
+| `${optionArguments}`, `${optionArguments:<id>}` | every command list; a whole argument that expands to all options, or one option |
+| `${userArguments}` | tasks and tests; a whole argument. A task with `requiresUserArguments` must pass it |
+| `${pluginDir}`, `${workspaceStateDir}`, `${outputFile}` | model and dependency commands; `${outputFile}` exactly when `output` is `outputFile` |
+| `${value}` | option `arguments` and `environment` |
+
+Each option's arguments are emitted once per command line: reference them
+either in `globalArguments` or in the command's list, and only once within a
+list, except under opposite conditions. An option that no list references
+contributes nothing. Unknown, misplaced, unguarded, or repeated variables are
+`plugin.template.invalid`.
+
+### Model and outputs
+
+A model or dependency command prints to `stdout` (default) or to the
+host-allocated `${outputFile}`. Its decoder is `jsonStream`
+(whitespace-separated JSON values such as NDJSON or `go list -json`, decoded
+as an array; a single document becomes a one-element array) or a canonical
+format that needs no `map`. A static model file is `toml`.
+
+A `map` only selects values. A model map turns a decoded document into
+projects, each with its targets and content roots, and into option values; a
+dependency map turns it into a flat list. Rules select elements with `each`,
+filter them with `where` predicates (`{ "pointer", "equals" | "exists" }`),
+apply only as a `fallback` or `whenFile` a file exists, and read fields with
+selectors: `""` (the element), `@key` (its key), `/a/b` (relative to the
+element), `$/a/b` (from the document root), `*` (each item). A field is a
+selector, `{ "from", "transform": "lastSegment" }`, or a literal
+`{ "value": "src" }`. Target `tags` are a literal list, and a project's
+parent is the deepest project containing it. Paths are relative to the root
+or absolute inside the workspace; anything else is dropped. A target `fallback` is
+skipped only when a non-fallback target rule with an overlapping tag already
+produced a target, so an explicit binary suppresses an implicit `src/main.rs`
+target while explicit test or example targets do not.
+
+Whatever a map cannot express is the plugin's own work: other file formats,
+tasks read from the tool, explicit parent links, tags computed from values,
+and dependency trees. The plugin's command (a script under `${pluginDir}`,
+or the tool itself with a plugin-supplied init script, as Gradle does) prints
+`litheBuildModel` or `litheDependencies`, or a
+[build provider](#build-providers) answers. Unlike a static file, a command
+runs only when the host starts it on request. The map does not grow into a
+transformation language: a later `buildSystems` version adds a rule only when
+real plugins need it and it cannot reasonably live in the plugin.
+
+Canonical formats let a plugin's own script print the shape Core expects:
+
+| Format | Shape |
+| --- | --- |
+| `litheBuildModel` | `{ "format": "litheBuildModel", "version": 1, "projects", "targets", "tasks", "contentRoots", "optionValues" }` with the model's field names |
+| `litheTestResults` | `{ "format": "litheTestResults", "version": 1, "tests": [{ "suite", "case", "status", "message"?, "durationMillis"?, "path"?, "line"? }] }` |
+| `litheDependencies` | `{ "format": "litheDependencies", "version": 1, "dependencies": [{ "name", "group"?, "version"?, "scope"?, "properties"?, "children" }] }` |
+| `litheDiagnostics` | output lines `{ "lithe": "diagnostic", "path", "line", "column"?, "severity"?, "message" }` |
+
+Unknown fields in canonical documents are ignored so newer scripts work with
+older hosts. Output that does not fit its decoder is `plugin.build.invalidOutput`.
+
+### Build providers
+
+Some tools expose their model only through their own API (the Gradle Tooling
+API, Mix inside the BEAM). Their plugin declares `provider`: a long-lived LSP
+base-protocol process of the same kind as a language server, which answers
+`lithe/build/model` and `lithe/build/dependencies`. It has one of two forms,
+told apart by the `languageServer` key; mixing them is
+`plugin.manifest.invalid`.
+
+| Form | Fields |
+| --- | --- |
+| Shared | `{ "languageServer": "<languageID>", "executesProjectCode", "mayUseNetwork" }`. The named language must have a language server in the same plugin; the host sends the requests to that session. |
+| Own process | The language-server process fields (`launch`, `arguments`, `validationArguments`, `runtimeDependencies`, `initializationOptions`) plus `executesProjectCode` and `mayUseNetwork`. Validation, launch templates, settings, and the install review are those of a language server, so it needs the `languageServer.launch` permission and is listed as a `packagedBuildProvider`, `systemBuildProvider`, or `runtimeBuildProvider` program with its `buildSystemID` and flags. |
+
+`model.source: "provider"` and `dependencies.source: "provider"` use it. A
+provider no source uses, or a provider source without a provider, is
+`plugin.manifest.invalid`. Detection never starts a provider: its instances
+report `modelSource: "provider"` without a model.
+
+The host starts the process from `plugins.declarative.languageServerLaunchPlan`
+with `buildSystemID`. For a provider source, `build.modelPlan` and
+`build.dependencyPlan` return `provider: { method, params }` instead of
+`arguments`, with the request's `decoder` (`litheBuildModel` or
+`litheDependencies`) and the declared `executesProjectCode` and
+`mayUseNetwork`:
+
+| Param | Meaning |
+| --- | --- |
+| `buildSystemID`, `root` | The instance. A model request always covers the whole instance. |
+| `options` | Effective option values by option ID. |
+| `optionArguments`, `environment` | What the options contribute, for a provider that runs the tool. |
+| `project` | Dependencies only: `{ name, path }` of the selected project, or `null` for the workspace. |
+
+The host passes the JSON result of the request as `result` to
+`build.decodeModel` or `build.decodeDependencies`, which decode it like the
+canonical format of a command; a missing result is
+`plugin.build.invalidSelection`, and a result over the output limit or of
+another format is `plugin.build.invalidOutput`.
+
+The manifest only says how to start the provider and which sources use it.
+Everything else is negotiated in the LSP `initialize` exchange, so a provider
+can grow without a new manifest field or capability version:
+
+- The host sends `capabilities.experimental.litheBuild: { "versions": [1] }`,
+  the build-provider protocol versions it speaks. Version 1 is the two
+  requests above with the params and result formats of this section.
+- The provider answers `capabilities.experimental.litheBuild: { "version": 1 }`
+  with the version it chose from that list. A provider that answers no
+  version, or one the host did not offer, is not used for build requests; a
+  shared provider still serves its language.
+- Both sides ignore fields they do not know in these objects and in request
+  params and results, so either side can add optional data within a version.
+  A change the other side must not ignore needs a new protocol version.
+
+### Host integrations
+
+`hostIntegration` names host code that owns one concern while a built-in tool
+migrates onto this model. Only official plugins may name one, and only
+`maven` exists; a model, test-result, or dependency source of
+`hostIntegration` needs it. Anything else is
+`plugin.integration.unsupported`. New build systems use the declarative
+contract or a canonical format instead.
+
+### Commands
+
+The `build.*` Core commands (see `shared/contracts/rust-core-api.md`) take the
+manifest, the build-system ID, and a request, and revalidate the manifest
+every time. `build.detect` walks the workspace once for all enabled plugins
+and returns instances, with the model of `static` and `hostIntegration`
+sources. `build.invocationPlan` and `build.checkToolVersion` resolve the
+executable; `build.resolveOptions` checks stored option values and returns
+the configuration fingerprint; `build.modelPlan`, `build.taskPlan`,
+`build.testPlan`, and `build.dependencyPlan` return argv plans, or provider
+requests for a provider source;
+`build.decodeModel`, `build.decodeTestResults`, `build.decodeDiagnostics`,
+and `build.decodeDependencies` normalize output or a provider result; `build.syncFingerprint`
+digests the watched files. A selection the declaration does not allow is
+`plugin.build.invalidSelection`; an operation it does not declare is
+`plugin.build.unavailable`.
+
 ## Outcomes and error codes
 
-`plugins.declarative.*` and `plugins.marketplace.*` commands return `{"status": "ok", …}` or
+`plugins.declarative.*`, `plugins.marketplace.*`, and `build.*` commands return `{"status": "ok", …}` or
 `{"status": "rejected", "error": {"code", "message", "field"?}}`. A malformed
 command payload is a Core `invalid_request` failure instead.
 
@@ -439,25 +735,28 @@ command payload is a Core `invalid_request` failure instead.
 | --- | --- | --- |
 | `plugin.manifest.invalid` | Core | Malformed manifest, unknown field, or broken cross reference |
 | `plugin.schema.unsupported` | Core | `schemaVersion` is not `2` |
-| `plugin.api.unsupported` | Core | `pluginAPIVersion` is not supported by this host |
+| `plugin.api.unsupported` | Core | `pluginAPIVersion`, or a capability version in `requires`, is not supported by this Core build or, when the host sent `hostCapabilities`, by the host |
 | `plugin.permission.unknown` | Core | Unknown permission |
-| `plugin.permission.undeclared` | Core | A provider is declared without its permission |
+| `plugin.permission.undeclared` | Core | A provider or build system is declared without its permission |
 | `plugin.activation.invalid` | Core | Missing or orphan activation event |
 | `plugin.runtime.unsupported` | Core | Unknown runtime dependency, or a launch runtime that cannot start an entry file |
 | `plugin.template.invalid` | Core | Unknown, misplaced, or unguarded template variable |
-| `plugin.path.invalid` | Core | A request path leaves the workspace |
+| `plugin.path.invalid` | Core | A request path leaves the workspace, or a declared path leaves its base directory |
 | `plugin.test.invalidIdentifier` | Core | Empty or multi-line test identifier |
 | `plugin.test.unsupportedProject` | Core | No project marker in the workspace |
 | `plugin.execution.unavailable` | Core | The plugin has no run/test provider for the language |
 | `plugin.integration.unsupported` | Core | A host integration the host does not implement, or one requested by a plugin outside the official namespace |
-| `plugin.launch.unavailable` | Core | The plugin has no language server for the language |
+| `plugin.launch.unavailable` | Core | The plugin has no language server for the language, or no provider process for the build system |
+| `plugin.build.unavailable` | Core | The plugin declares no such build system, or the build system does not declare the requested operation |
+| `plugin.build.invalidSelection` | Core | A build request selects a scope, target, filter, or argument the declaration does not allow, or misses a required path |
+| `plugin.build.invalidOutput` | Core | Build-tool output or a report does not fit its decoder |
 | `plugin.launch.invalidRequest` | Core | A launch plan request has an unusable directory or an unknown architecture |
 | `plugin.index.invalid` | Core | Malformed index root or entry, or an invalid URL, checksum, platform, version, or date |
 | `plugin.index.schemaUnsupported` | Core | The index `schemaVersion` is not `1` |
 | `plugin.index.officialNamespace` | Core | A third-party source lists a `dev.lithe` ID |
 | `plugin.index.duplicate` | Core | An index lists the same plugin ID more than once |
 | `plugin.index.platformUnsupported` | Core | No version has an archive for this platform (availability, not a rejection) |
-| `plugin.index.apiUnsupported` | Core | Only versions needing a newer plugin API list this platform (availability, not a rejection) |
+| `plugin.index.apiUnsupported` | Core | Only versions needing a newer plugin API, or a capability the host does not run, list this platform (availability, not a rejection) |
 | `plugin.source.invalid` | Core | A marketplace source URL cannot be used |
 | `plugin.package.mismatch` | Core | A downloaded package's ID or version differs from its index entry |
 | `plugin.archive.checksumMismatch` | Host | A downloaded archive does not match the index SHA-256 |

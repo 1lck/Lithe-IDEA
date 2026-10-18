@@ -16,9 +16,11 @@ struct RecentProjectsStore {
         return projects.sorted { $0.lastOpened > $1.lastOpened }
     }
 
-    func record(_ url: URL, in projects: [RecentProject]) -> [RecentProject] {
+    func record(_ url: URL, branch: String? = nil, in projects: [RecentProject]) -> [RecentProject] {
         var updated = projects.filter { $0.path != url.path }
-        updated.insert(RecentProject(path: url.path, lastOpened: Date()), at: 0)
+        // Replace the entry instead of editing it so an old branch of a folder
+        // that is no longer a repository is cleared rather than kept stale.
+        updated.insert(RecentProject(path: url.path, lastOpened: Date(), branch: branch), at: 0)
         updated = Array(updated.prefix(20))
         save(updated)
         return updated

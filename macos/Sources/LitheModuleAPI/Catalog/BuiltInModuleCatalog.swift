@@ -125,6 +125,8 @@ public enum BuiltInModuleCatalog {
         .execution: [
             ModuleContribution(id: "execution.maven", kind: .toolWindow, title: "Maven", icon: "shippingbox", placement: .rightSidebar, order: 100, actionID: "execution.maven.toggle", rendererID: "execution.maven", visibility: ["projectKind": "maven"]),
             ModuleContribution(id: "execution.maven.output", kind: .toolWindow, title: "Maven Build", icon: "terminal", order: 400, actionID: "execution.maven.output.toggle", rendererID: "execution.maven.output"),
+            ModuleContribution(id: "execution.build", kind: .toolWindow, title: "Build", icon: "hammer", placement: .rightSidebar, order: 110, actionID: "execution.build.toggle", rendererID: "execution.build"),
+            ModuleContribution(id: "execution.build.output", kind: .toolWindow, title: "Build Output", icon: "terminal", order: 410, actionID: "execution.build.output.toggle", rendererID: "execution.build.output"),
             ModuleContribution(id: "execution.run", kind: .toolWindow, title: "Run", icon: "play.rectangle", order: 500, actionID: "execution.run.toggle", rendererID: "execution.run"),
             ModuleContribution(id: "execution.tests", kind: .toolWindow, title: "Tests", icon: "checkmark.seal", order: 600, actionID: "execution.tests.toggle", rendererID: "execution.tests")
         ],
@@ -311,6 +313,23 @@ public enum LanguageExtensionModuleManifests {
                 .languageExecutionExtension(languageID),
                 .languageTestingExtension(languageID)
             ]
+        )
+    }
+
+    /// One module for all build systems of a plugin. It owns no process of
+    /// its own: the execution module runs the commands while it is enabled.
+    public static func buildSystems(
+        pluginID: String,
+        displayName: String,
+        enabledByDefault: Bool = false
+    ) -> ModuleManifest {
+        ModuleManifest(
+            id: .buildSystemsExtension(pluginID),
+            displayName: "\(displayName) Build Systems",
+            scope: .workspace,
+            defaultState: enabledByDefault ? .enabled : .disabled,
+            activationPolicy: .onDemand,
+            dependencies: [.module(.workspace)]
         )
     }
 }

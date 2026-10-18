@@ -75,6 +75,8 @@ extension AppModel {
             case .database, .databaseServices: _ = await databaseModuleCoordinator.activate()
             case .agent: activateAgentConversation()
             case .maven, .mavenOutput, .run, .tests: _ = await activateExecutionModule()
+            case .buildSystems, .buildOutput:
+                if let access = await activateExecutionModule() { loadBuildSystems(access) }
             case .debug: _ = await activateDebugModule()
             default: break
             }
