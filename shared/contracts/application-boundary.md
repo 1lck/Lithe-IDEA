@@ -46,6 +46,14 @@ acknowledgement, without cancelling the configuration itself. Unknown delivery
 is never retried automatically. Platform UI enables
 this behavior from the negotiated capability, not the Agent's display name.
 
+Agent activity separates reported plans, native subagents and file edits. Ordinary
+tools are execution evidence, never inferred plan steps or child agents. Native
+children expose their upstream task, state and delivered output, scoped to their
+root conversation. Completion counts only explicit success; unknown outcomes
+remain disconnected. Child permissions use the owning root's existing controls.
+A platform enables this monitor only when it consumes negotiated child-session
+events; execution and history storage remain owned by the upstream Agent.
+
 The opened workspace, supplied by the product, defines the default meaning of
 "current project". A containing Git repository and inherited development rules
 do not replace that scope. The shared Host adds the same explicit workspace

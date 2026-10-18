@@ -40,15 +40,17 @@ extension AppModel {
         }
     }
 
-    /// Workspace files for an `@` mention in the Agent composer, as relative paths.
+    /// A bare `@` offers the loaded workspace inventory; keywords use file search.
     func agentFileMentions(matching query: String) async -> [AgentFileMention] {
         guard let root = workspaceURL?.standardizedFileURL else { return [] }
         let rootComponents = root.pathComponents
-        return await searchWorkflow.findFiles(query: query).prefix(20).compactMap { url in
+        let files = query.isEmpty ? projectFiles : await searchWorkflow.findFiles(query: query)
+        guard workspaceURL?.standardizedFileURL == root, !Task.isCancelled else { return [] }
+        return Array(files.lazy.compactMap { url -> AgentFileMention? in
             let components = url.standardizedFileURL.pathComponents
             guard components.starts(with: rootComponents), components.count > rootComponents.count else { return nil }
             return AgentFileMention(path: components.dropFirst(rootComponents.count).joined(separator: "/"), url: url)
-        }
+        }.prefix(20))
     }
 
     /// Stores a pasted image so it can be attached like any local file. Agents

@@ -21,6 +21,7 @@ mod session_defaults;
 mod session_restore;
 mod session_routing;
 mod steering;
+mod subagents;
 mod subscription;
 mod workspace_context;
 
@@ -41,7 +42,7 @@ use agent_client_protocol::schema::v1::{
     ClientSessionCapabilities, ContentBlock, InitializeRequest, ListSessionsRequest,
     LoadSessionRequest, NoticeCapabilities, PromptRequest, RequestPermissionOutcome,
     RequestPermissionRequest, RequestPermissionResponse, SelectedPermissionOutcome,
-    SessionConfigOption, SessionNotification, SetSessionConfigOptionRequest,
+    SessionConfigOption, SetSessionConfigOptionRequest,
 };
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::{Agent, ByteStreams, Client, ConnectionTo};
@@ -103,6 +104,10 @@ pub struct AgentLaunch {
     /// proxy and emit model-call measurements without retaining request bodies.
     #[serde(default)]
     pub observe_model_calls: bool,
+    /// Opt in only when the consuming product can present native child sessions.
+    /// Omitted/false preserves legacy adapter output for other clients.
+    #[serde(default)]
+    pub observe_subagents: bool,
     /// Exported as [`AGENT_SCOPE_ENVIRONMENT`] to the agent process tree.
     #[serde(default)]
     pub process_scope: Option<String>,
@@ -842,6 +847,7 @@ async fn run_agent(
     } = state;
     let cancelled = || stop_requested.load(Ordering::Acquire);
     let observe_model_calls = launch.observe_model_calls;
+    let observe_subagents = launch.observe_subagents;
     let process_scope = launch.process_scope.clone();
     let mut launch = resolve_with_cancel(launch, &cancelled)?;
     if cancelled() {
@@ -1053,6 +1059,7 @@ async fn run_agent(
         launch.subscription_cli,
         history,
         context_recovery,
+        observe_subagents,
         controls,
         TurnActivity {
             permissions,
@@ -1195,6 +1202,7 @@ async fn run_connection<OB, IB>(
     subscription_cli: Option<PathBuf>,
     history: Option<codex_history::CodexHistory>,
     context_recovery: Option<Arc<codex_context::Recovery>>,
+    observe_subagents: bool,
     mut controls: async_mpsc::UnboundedReceiver<Control>,
     activity: TurnActivity,
     emit: Emit,
@@ -1216,6 +1224,9 @@ where
     let updates = emit.clone();
     let context_updates = context_recovery.clone();
     let update_turns = turns.clone();
+    let subagent_sessions = Arc::new(Mutex::new(subagents::Sessions::default()));
+    let update_subagents = subagent_sessions.clone();
+    let permission_subagents = subagent_sessions.clone();
     let requests = emit.clone();
     let permission_turns = turns.clone();
     let cancel_permissions = permissions.clone();
@@ -1232,23 +1243,37 @@ where
             agent_client_protocol::on_receive_notification!(),
         )
         .on_receive_notification(
-            async move |notification: SessionNotification, _| {
+            async move |notification: subagents::Notification, _| {
                 if let Ok(update) = serde_json::to_value(notification.update) {
+                    let session_id = notification.session_id.0.to_string();
+                    if !observe_subagents && matches!(update["sessionUpdate"].as_str(), Some("subagent_spawned" | "subagent_state_update")) {
+                        return Ok(());
+                    }
+                    let owner = {
+                        let mut sessions = update_subagents.lock().map_err(|_| internal("Subagent ownership is unavailable"))?;
+                        if !sessions.observe(&session_id, &update) {
+                            return Err(internal("The Agent reported invalid subagent ownership"));
+                        }
+                        sessions.is_live(&session_id).then(|| sessions.root(&session_id)).flatten()
+                    };
                     let Some(update) = update_workspace.present_update(update) else {
                         return Ok(());
                     };
-                    let session_id = notification.session_id.0.to_string();
                     if update["sessionUpdate"] == "usage_update" {
                         if let Some(recovery) = &context_updates { recovery.prefer_upstream_report(&session_id); }
                     }
                     let mut reconnect = None;
                     if let Ok(turns) = update_turns.lock() {
-                        if let Some(turn) = turns.get(&session_id) {
-                            turn.steering.observe(&update);
+                        if let Some(turn) = owner.as_ref().and_then(|id| turns.get(id)) {
+                            if owner.as_deref() == Some(session_id.as_str()) { turn.steering.observe(&update); }
                             turn.retry.send_modify(|state| {
                                 if prompt_retry::is_progress(&update) { state.progress(); }
-                                state.observe_failure(&update);
-                                reconnect = state.observe_native_retry(&update);
+                                // A child failure is the child's outcome, not a new
+                                // failure or retry of the main Agent's model call.
+                                if owner.as_deref() == Some(session_id.as_str()) {
+                                    state.observe_failure(&update);
+                                    reconnect = state.observe_native_retry(&update);
+                                }
                             });
                         }
                     }
@@ -1266,7 +1291,14 @@ where
         )
         .on_receive_request(
             async move |request: RequestPermissionRequest, responder, connection| {
-                let session_id = request.session_id.0.to_string();
+                let source_session_id = request.session_id.0.to_string();
+                let session_id = {
+                    let sessions = permission_subagents.lock().map_err(|_| internal("Subagent ownership is unavailable"))?;
+                    sessions.is_live(&source_session_id).then(|| sessions.root(&source_session_id)).flatten()
+                };
+                let Some(session_id) = session_id else {
+                    return responder.respond(RequestPermissionResponse::new(RequestPermissionOutcome::Cancelled));
+                };
                 let request_id = uuid::Uuid::new_v4().to_string();
                 let (reply, receiver) = oneshot::channel();
                 // Register under the permission lock only while the turn is
@@ -1343,7 +1375,8 @@ where
             // distinct from model output and carries their actionable titles.
             let claude_api_key = gateway.as_ref().is_some_and(|route| route.protocol == ProviderProtocol::AnthropicMessages);
             let typed_failures = claude_api_key || gateway.as_ref().is_some_and(|route| route.native_recovery);
-            let air_capabilities = if typed_failures { vec!["recommendedValue", "sessionFailure"] } else { vec!["recommendedValue"] };
+            let mut air_capabilities = if typed_failures { vec!["recommendedValue", "sessionFailure"] } else { vec!["recommendedValue"] };
+            if observe_subagents { air_capabilities.push("nativeSubagentSessions"); }
             let capabilities = ClientCapabilities::new()
                 // Keep upstream advisories out of assistant transcript chunks.
                 .session(ClientSessionCapabilities::new().notices(NoticeCapabilities::new()))
@@ -1474,6 +1507,7 @@ where
                         });
                     }
                     AgentCommand::NewSession { token } => {
+                        let subagents = subagent_sessions.clone();
                         let connection = connection.clone();
                         let emit = emit.clone();
                         let cwd = cwd.clone();
@@ -1487,16 +1521,27 @@ where
                             )
                             .await;
                             emit(match result {
-                                Ok(response) => AgentEvent::SessionCreated {
-                                    token,
-                                    session_id: response.session_id.0.to_string(),
-                                    config_options: response.config_options,
+                                Ok(response) => match subagents.lock() {
+                                    Ok(mut sessions) => {
+                                        sessions.note_root(response.session_id.0.as_ref());
+                                        AgentEvent::SessionCreated {
+                                            token,
+                                            session_id: response.session_id.0.to_string(),
+                                            config_options: response.config_options,
+                                        }
+                                    }
+                                    Err(_) => failed(Some(token), None, "Subagent ownership is unavailable".into()),
                                 },
                                 Err(message) => failed(Some(token), None, message),
                             });
                         });
                     }
                     AgentCommand::LoadSession { token, session_id } => {
+                        {
+                            let mut sessions = subagent_sessions.lock().map_err(|_| internal("Subagent ownership is unavailable"))?;
+                            sessions.note_root(&session_id);
+                            sessions.clear(&session_id);
+                        }
                         let connection = connection.clone();
                         let emit = emit.clone();
                         let cwd = cwd.clone();

@@ -3,6 +3,7 @@ import LitheAgentConversationModule
 
 private enum AgentSelectorLayout {
     static let choiceRowHeight = LitheDropdownMetrics.rowHeight
+    static let minimumModelPanelWidth: CGFloat = 300
 }
 
 /// Search and presentation only; the Agent still owns IDs, choices and confirmed values.
@@ -160,9 +161,6 @@ struct AgentSessionSelectors: View {
             }
         }
         .disabled(isDisabled)
-        .onChange(of: isDisabled) { disabled in
-            if disabled { showsModels = false }
-        }
     }
 
     private func modelSummary(_ model: AgentSessionConfigOption) -> String {
@@ -185,7 +183,11 @@ struct AgentSessionSelectors: View {
 
     private func select(_ id: String, _ value: String) {
         guard !isDisabled else { return }
-        showsModels = false
+        // Effort supports repeated adjustment in place. Pending configuration
+        // disables the open panel until acknowledgement instead of dismissing it.
+        if options.first(where: { $0.id == id })?.category != "thought_level" {
+            showsModels = false
+        }
         onSelect(id, value)
     }
 }
@@ -213,7 +215,10 @@ struct AgentModelPopover: View {
             return [.action(AgentSessionSelectorPresentation.title(setting, locale: locale) + "  " + AgentSessionSelectorPresentation.currentTitle(setting, locale: locale),
                             localizesTitle: false, systemImage: "chevron.right") {}]
         }
-        return LitheContextMenuPresenter.menuWidth(for: modelItems + settingItems, locale: locale)
+        let menuWidth = LitheContextMenuPresenter.menuWidth(for: modelItems + settingItems, locale: locale)
+        let effortWidth = reasoning.map { AgentReasoningEffortControl.preferredWidth(for: $0, locale: locale) }.max() ?? 0
+        return min(LitheDropdownMetrics.maximumWidth,
+                   max(AgentSelectorLayout.minimumModelPanelWidth, max(menuWidth, effortWidth)))
     }
 
     var body: some View {
@@ -248,28 +253,19 @@ struct AgentModelPopover: View {
                             }
                             .help(choice.description ?? choice.name)
                         }
-                        ForEach(reasoning) { setting in
-                            Text(AgentSessionSelectorPresentation.title(setting, locale: locale))
-                                .font(LitheTheme.settingsStrongFont).foregroundStyle(LitheTheme.secondaryText)
-                                .frame(maxWidth: .infinity, minHeight: LitheDropdownMetrics.rowHeight)
-                            ForEach(setting.choices) { choice in
-                                AgentSelectorRow(isSelected: choice.id == setting.currentValue,
-                                                 action: { onSelect(setting.id, choice.id) }) {
-                                    Text(AgentSessionSelectorPresentation.choiceTitle(choice, in: setting, locale: locale)).lineLimit(1)
-                                }
-                                .help(AgentSessionSelectorPresentation.choiceDescription(choice, in: setting, locale: locale) ?? choice.name)
-                                .accessibilityIdentifier("agent-model-choice-\(setting.id)-\(choice.id)")
-                            }
-                        }
                     }
                     .padding(.horizontal, LitheDropdownMetrics.popupPadding)
                 }
                 .litheScrollViewChrome()
                 .frame(height: min(LitheDropdownMetrics.rowHeight * 15,
-                    CGFloat(choices.count + reasoning.reduce(0) { $0 + $1.choices.count + 1 }) * AgentSelectorLayout.choiceRowHeight
+                    CGFloat(choices.count) * AgentSelectorLayout.choiceRowHeight
                     + CGFloat(choices.enumerated().filter { index, choice in
                         choice.group != nil && (index == 0 || choices[index - 1].group != choice.group)
                     }.count) * 20 + (choices.isEmpty ? 36 : 0)))
+            ForEach(reasoning) { setting in
+                AgentReasoningEffortControl(option: setting, onSelect: onSelect)
+                    .padding(.vertical, 4)
+            }
             if !otherSettings.isEmpty {
                 Divider().overlay(AgentPanelStyle.border).padding(.vertical, 4)
                 ForEach(otherSettings) { setting in

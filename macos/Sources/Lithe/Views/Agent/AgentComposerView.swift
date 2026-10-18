@@ -2,7 +2,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 import LitheAgentConversationModule
 
-/// Context strip, flexible writing area, and a compact bottom command bar.
+/// Two-line writing area that grows with the draft above a single bottom command bar.
 struct AgentComposerView: View {
     @Environment(\.locale) private var locale
     let agents: [AgentOption]
@@ -33,19 +33,19 @@ struct AgentComposerView: View {
     var commands: [AgentCommand] = []
     /// Workspace files matching an `@` query; nil where no workspace is open.
     var findFiles: ((String) async -> [AgentFileMention])? = nil
+    /// Refresh a bare @ when the workspace's initial scan or file inventory changes.
+    var fileMentionRevision: UUID? = nil
     /// Saves a pasted image to platform storage and returns the file to attach.
     var savePastedImage: ((Data) throws -> URL)? = nil
     var showsToolbar = true
     var draftText: Binding<String>? = nil
     var draftFiles: Binding<[AgentFileReference]>? = nil
-    var detailsContent: (() -> AnyView)? = nil
     @State private var completion = AgentCommandCompletion()
     @State private var files: [AgentFileReference] = []
     @State private var isDropTargeted = false
     @State private var showsFilePicker = false
     @State private var mentionURLs: [String: URL] = [:]
     @State private var showsDetails = false
-    @State private var showsContext = false
     @FocusState private var isFocused: Bool
 
     private var attachments: [AgentFileReference] {
@@ -63,9 +63,20 @@ struct AgentComposerView: View {
     }
     private var currentDraft: String { draftText?.wrappedValue ?? completion.draft }
     private var hasContent: Bool { !currentDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty }
+    private var showsStopAction: Bool {
+        hasPendingContinuation || (isResponding && (!hasContent || isCancelling))
+    }
     private var displayAgentName: String? { selectedAgent?.name ?? fallbackAgentName }
     private var commandSuggestions: [AgentCommand]? {
         completion.suggestions(in: commands)
+    }
+    private struct FileMentionRequest: Equatable {
+        let query: String?
+        let inventoryRevision: UUID?
+    }
+    private var fileMentionRequest: FileMentionRequest {
+        let query = AgentCommand.mentionQuery(in: currentDraft)
+        return FileMentionRequest(query: query, inventoryRevision: query == "" ? fileMentionRevision : nil)
     }
 
     var body: some View {
@@ -82,14 +93,13 @@ struct AgentComposerView: View {
         .onChange(of: sessionID) { newSessionID in
             if newSessionID != nil { attachments.removeAll() }
             showsDetails = false
-            showsContext = false
         }
         .onAppear { if let draftText { completion.draft = draftText.wrappedValue } }
         .onChange(of: draftText?.wrappedValue) { value in
             if let value, value != completion.draft { completion.draft = value }
         }
-        .task(id: AgentCommand.mentionQuery(in: currentDraft)) {
-            await loadFileMentions(for: AgentCommand.mentionQuery(in: currentDraft))
+        .task(id: fileMentionRequest) {
+            await loadFileMentions(for: fileMentionRequest.query)
         }
         .padding(.horizontal, AgentComposerMetrics.horizontalInset)
         .padding(.bottom, AgentComposerMetrics.bottomInset)
@@ -101,65 +111,34 @@ struct AgentComposerView: View {
                              highlightedIndex: completion.highlightedIndex,
                              onSelect: complete, onRemoveFile: { id in attachments.removeAll { $0.id == id } },
                              onFocus: { isFocused = true }, isFocused: isFocused || isDropTargeted) {
-            if showsToolbar { contextBar }
-            else { Color.clear.frame(height: AgentComposerMetrics.contextHeight - 1).accessibilityHidden(true) }
-        } editor: {
             LitheSearchTextField(findFiles == nil ? "Type your task or / for commands" : "Type your task, / for commands or @ for files", text: textBinding, axis: .vertical)
-                .lineLimit(1...)
+                .lineLimit(AgentComposerMetrics.minimumWritingLines...)
                 .focused($isFocused)
                 .background(AgentPasteAttachments(isActive: isFocused, onPaste: attachPasted))
                 .onSubmit { _ = handleCommandKey(.submit) }
                 .modifier(AgentCommandKeyNavigation(onKey: handleCommandKey))
                 .padding(.horizontal, 8)
-                .padding(.vertical, 7)
+                .padding(.vertical, AgentComposerMetrics.writingVerticalInset)
                 .frame(maxWidth: .infinity, alignment: .topLeading)
         } toolbar: {
             if showsToolbar { toolbar }
         }
     }
 
-    private var contextBar: some View {
-        HStack(spacing: 6) {
-            Button { showsFilePicker = true } label: {
-                LitheIDEAIcon(resourcePath: "expui/general/add.svg", size: LitheTheme.Metrics.toolbarIconSize,
-                              fallbackSystemImage: "plus", preservesOriginalColors: true)
-            }
-            .litheToolbarIconButton()
-            .accessibilityLabel(isDropTargeted ? "Drop files here" : "Attach files")
-            .help("Drag files here or click to choose files")
-            Spacer(minLength: 0)
-            if showsSubscriptionQuota {
-                AgentSubscriptionQuotaView(quota: subscriptionQuota, account: subscriptionAccount, failure: quotaFailure)
-                    .id(sessionID ?? selectedAgent?.id)
-            }
-            Button { showsContext = false; showsDetails.toggle() } label: {
-                LitheIDEAIcon(resourcePath: "expui/status/info.svg", size: LitheTheme.Metrics.toolbarIconSize,
-                              fallbackSystemImage: "info.circle", preservesOriginalColors: true)
-            }
-            .litheToolbarIconButton()
-            .help("Show Session Details")
-            .accessibilityLabel("Session statistics")
-            .accessibilityIdentifier("agent-session-details")
-            .litheDropdown(isPresented: $showsDetails, opensUpward: true) {
-                Group {
-                    if let detailsContent { detailsContent() }
-                    else {
-                        AgentEditorDetailsPanel(statistics: sessionStatistics, contextUsage: contextUsage,
-                            fileChanges: [], workspace: { EmptyView() })
-                            .frame(height: AgentEditorConversationMetrics.detailsPopupHeight)
-                    }
-                }
-            }
+    private var attachButton: some View {
+        Button { showsFilePicker = true } label: {
+            LitheIDEAIcon(resourcePath: "expui/general/add.svg", size: LitheTheme.Metrics.toolbarIconSize,
+                          fallbackSystemImage: "plus", preservesOriginalColors: true)
         }
-        .font(LitheTheme.uiFont(size: 11))
-        .foregroundStyle(AgentPanelStyle.secondary)
-        .padding(.horizontal, AgentComposerMetrics.toolbarHorizontalInset)
-        .frame(height: AgentComposerMetrics.contextHeight - 2)
-        .background(AgentPanelStyle.context)
+        .litheToolbarIconButton()
+        .accessibilityLabel(isDropTargeted ? "Drop files here" : "Attach files")
+        .accessibilityIdentifier("agent-composer-attach-files")
+        .help("Drag files here or click to choose files")
     }
 
     private var toolbar: some View {
         HStack(spacing: 4) {
+            attachButton
             agentMenu
             if isPreparingSession {
                 Label("Loading session settings…", systemImage: "hourglass")
@@ -178,45 +157,49 @@ struct AgentComposerView: View {
                     .foregroundStyle(AgentPanelStyle.secondary).help(model)
             }
             Spacer(minLength: 0)
-            contextButton
-            if isResponding || hasPendingContinuation {
-                Button(action: onCancel) {
-                    LitheIDEAIcon(resourcePath: "expui/run/stop.svg", size: LitheTheme.Metrics.toolbarIconSize,
-                                  fallbackSystemImage: "stop.fill", preservesOriginalColors: true)
-                }
-                .litheToolbarIconButton()
-                .disabled(isCancelling)
-                .help(isCancelling ? "Stopping…" : "Stop")
-                .accessibilityLabel("Stop")
+            if showsSubscriptionQuota {
+                AgentSubscriptionQuotaView(quota: subscriptionQuota, account: subscriptionAccount, failure: quotaFailure)
+                    .id(sessionID ?? selectedAgent?.id)
             }
-            Button(action: send) {
-                LitheIDEAIcon(resourcePath: "collaboration/sendOutline.svg", size: LitheTheme.Metrics.toolbarIconSize,
-                              fallbackSystemImage: "paperplane", preservesOriginalColors: true)
+            detailsButton
+            Button(action: showsStopAction ? onCancel : send) {
+                LitheIDEAIcon(resourcePath: showsStopAction ? "expui/run/stop.svg" : "collaboration/sendOutline.svg",
+                              size: LitheTheme.Metrics.toolbarIconSize,
+                              fallbackSystemImage: showsStopAction ? "stop.fill" : "paperplane", preservesOriginalColors: true)
             }
             .litheToolbarIconButton()
-            .disabled(isCancelling || isSendingSupplement || hasPendingContinuation || !hasContent || isBlocked || isPreparingSession || isConfiguring || (isResponding && !canSteer))
-            .help(isSendingSupplement ? "Sending…" : "Send")
-            .accessibilityLabel("Send")
+            .disabled(showsStopAction ? isCancelling : (isCancelling || isSendingSupplement || hasPendingContinuation || !hasContent || isBlocked || isPreparingSession || isConfiguring || (isResponding && !canSteer)))
+            .help(showsStopAction ? (isCancelling ? "Stopping…" : "Stop") : (isSendingSupplement ? "Sending…" : "Send"))
+            .accessibilityLabel(showsStopAction ? "Stop" : "Send")
+            .accessibilityIdentifier("agent-composer-primary-action")
         }
         .padding(.horizontal, AgentComposerMetrics.toolbarHorizontalInset)
         .frame(height: AgentComposerMetrics.toolbarHeight - 2)
     }
 
-    private var contextButton: some View {
-        Button { showsDetails = false; showsContext.toggle() } label: {
-            AgentContextUsageView(usage: contextUsage, showsPercentage: false, showsHoverCard: false,
-                                  isHiddenUntilReported: true)
+    private var detailsButton: some View {
+        Button { showsDetails.toggle() } label: {
+            if contextUsage != nil {
+                AgentContextUsageView(usage: contextUsage, showsPercentage: false, showsHoverCard: false)
+            } else {
+                LitheIDEAIcon(resourcePath: "expui/status/info.svg", size: LitheTheme.Metrics.toolbarIconSize,
+                              fallbackSystemImage: "info.circle", preservesOriginalColors: true)
+                    .frame(width: LitheTheme.Metrics.toolbarIconButtonSize,
+                           height: LitheTheme.Metrics.toolbarIconButtonSize)
+            }
         }
         .buttonStyle(.litheNoPress)
+        .accessibilityLabel("Show Session Details")
+        .accessibilityValue(AgentContextUsagePresentation.details(contextUsage, locale: locale))
+        .accessibilityIdentifier("agent-session-details")
         .workbenchHoverCard(placement: .above, maximumWidth: LitheDropdownMetrics.maximumWidth) {
             WorkbenchHoverTooltipLabel(title: Text(verbatim:
                 AgentContextUsagePresentation.details(contextUsage, locale: locale)))
         }
-        .litheDropdown(isPresented: $showsContext, opensUpward: true) {
-            AgentContextPanel(usage: contextUsage, composition: sessionStatistics?.modelCalls?.latestContext,
-                              onClose: { showsContext = false })
-            .padding(14)
-            .frame(width: AgentContextPanel.popoverWidth)
+        .litheDropdown(isPresented: $showsDetails, opensUpward: true) {
+            AgentEditorDetailsPanel(statistics: sessionStatistics, contextUsage: contextUsage,
+                                    onClose: { showsDetails = false })
+                .frame(height: AgentEditorConversationMetrics.detailsPopupHeight)
         }
     }
 
@@ -287,11 +270,15 @@ struct AgentComposerView: View {
 
     /// Debounced so a fast typist searches once per pause, not per keystroke.
     private func loadFileMentions(for query: String?) async {
-        guard let query, !query.isEmpty, let findFiles else {
+        guard let query, let findFiles else {
             completion.setFileMentions([], for: nil)
             return
         }
-        try? await Task.sleep(for: .milliseconds(150))
+        // A bare @ lists the loaded workspace immediately; only searches debounce.
+        if !query.isEmpty {
+            do { try await Task.sleep(for: .milliseconds(150)) }
+            catch { return }
+        }
         guard !Task.isCancelled else { return }
         let files = await findFiles(query)
         guard !Task.isCancelled else { return }
@@ -365,8 +352,8 @@ struct AgentConversationLayout<Transcript: View, Composer: View>: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let fixedHeight = composerMinimumHeight - AgentComposerMetrics.writingLineHeight
-            let writingLimit = max(AgentComposerMetrics.writingLineHeight,
+            let fixedHeight = composerMinimumHeight - AgentComposerMetrics.minimumWritingHeight
+            let writingLimit = max(AgentComposerMetrics.minimumWritingHeight,
                 min(AgentComposerMetrics.maximumWritingHeight, geometry.size.height * 0.6 - fixedHeight))
             VStack(spacing: 0) {
                 transcript.frame(maxWidth: .infinity, maxHeight: .infinity)

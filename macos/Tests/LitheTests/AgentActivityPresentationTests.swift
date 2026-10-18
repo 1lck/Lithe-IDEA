@@ -62,6 +62,7 @@ struct AgentActivityPresentationTests {
             let host = NSHostingView(rootView: VStack {
                 Spacer()
                 AgentActivitySummaryBar(messages: [message, running], plan: plan,
+                    subagents: [.init(id: "child", parentSessionID: "root", name: "Explore", task: "Inspect sample project")],
                     onOpenFile: { opened.append($0.path) }, onKeep: { kept = $0 })
             }.frame(width: 320, height: 80).background(AgentPanelStyle.canvas).environment(\.colorScheme, scheme))
             let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 320, height: 80),
@@ -106,6 +107,117 @@ struct AgentActivityPresentationTests {
         try? capture(host, name: "activity-empty")
     }
 
+    @Test(arguments: [ColorScheme.dark, .light], ["en", "zh-Hans"])
+    func tasksShowOnlyReportedPlansAndToolsDoNotBecomeSubagents(scheme: ColorScheme, language: String) async throws {
+        // SwiftUI publishes its accessibility nodes when an assistive client is active.
+        let application = NSApplication.shared
+        let attribute = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
+        let previousAccessibility = (application.accessibilityAttributeValue(attribute) as? Bool) ?? false
+        application.accessibilitySetValue(true, forAttribute: attribute)
+        defer { application.accessibilitySetValue(previousAccessibility, forAttribute: attribute) }
+        let fixture = AgentActivityPlanFixture()
+        let host = NSHostingView(rootView: AgentActivityPlanFixtureView(fixture: fixture)
+            .environment(\.colorScheme, scheme).environment(\.locale, Locale(identifier: language)))
+        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 320, height: 100),
+            styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            window.contentView = nil
+            for popup in window.childWindows ?? [] { popup.close() }
+            window.close()
+        }
+        func count(_ panel: AgentActivitySummaryBar.Panel) -> String? {
+            let element = accessibilityElements(in: host).first {
+                $0.accessibilityIdentifier?() == "agent-activity-\(panel.rawValue)"
+            }
+            return element.flatMap { accessibilityValue(of: $0) }
+        }
+        try #require(await waitUntil(updating: host) { count(.tasks) == "0" && count(.subagents) == "0" })
+        try await openPanel(.tasks, in: host, window: window)
+        let popup = try #require(await waitForPopup(in: window, updating: host))
+        let content = try #require(popup.contentView)
+        #expect(scrollView(in: content) == nil, "Without a plan, Tasks must show an empty state instead of the tool list")
+        try capture(content, name: "tasks-no-plan-\(scheme)-\(language)")
+
+        let plan = AgentPlan(entries: [
+            .init(content: "Read project rules", status: .completed),
+            .init(content: "Check the project", status: .inProgress),
+            .init(content: "Summarize the result", status: .pending)
+        ])
+        fixture.plan = plan
+        try #require(await waitUntil(updating: host) { count(.tasks) == "1/3" })
+        try #require(await waitUntil(updating: content) { scrollView(in: content) != nil },
+                     "A reported plan must replace the empty state with its steps")
+        try capture(content, name: "tasks-reported-plan-\(scheme)-\(language)")
+
+        // Clearing a previously visible plan must not reveal the accumulated tool history.
+        fixture.plan = AgentPlan(entries: [])
+        try #require(await waitUntil(updating: host) { count(.tasks) == "0" })
+        try #require(await waitUntil(updating: content) { scrollView(in: content) == nil },
+                     "Clearing the plan must remove its steps without revealing any tool list")
+        fixture.plan = nil
+        #expect(await waitUntil(updating: host) { count(.tasks) == "0" && count(.subagents) == "0" })
+
+        try await openPanel(.subagents, in: host, window: window)
+        let runningPopup = try #require(await waitForPopup(in: window, updating: host))
+        let runningContent = try #require(runningPopup.contentView)
+        #expect(scrollView(in: runningContent) == nil, "Ordinary tools cannot populate the Subagents list")
+        try capture(runningContent, name: "tasks-no-subagents-\(scheme)-\(language)")
+    }
+
+    @Test(arguments: [ColorScheme.dark, .light], ["en", "zh-Hans"])
+    func subagentsExpandDeliveredOutputAndRefreshWithoutDismissing(scheme: ColorScheme, language: String) async throws {
+        let application = NSApplication.shared
+        let attribute = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
+        let previousAccessibility = (application.accessibilityAttributeValue(attribute) as? Bool) ?? false
+        application.accessibilitySetValue(true, forAttribute: attribute)
+        defer { application.accessibilitySetValue(previousAccessibility, forAttribute: attribute) }
+        let fixture = AgentActivityPlanFixture()
+        fixture.subagents = [.init(id: "child", parentSessionID: "root", name: "Explore", task: "Inspect the sample project")]
+        var output = AgentConversationMessage(role: .agent, text: "The sample project contains a **README**.")
+        output.subagentSessionID = "child"
+        fixture.messages.append(output)
+        let host = NSHostingView(rootView: AgentActivityPlanFixtureView(fixture: fixture)
+            .environment(\.colorScheme, scheme).environment(\.locale, Locale(identifier: language)))
+        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 320, height: 100),
+            styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            window.contentView = nil
+            for popup in window.childWindows ?? [] { popup.close() }
+            window.close()
+        }
+        func count() -> String? {
+            accessibilityElements(in: host).first { $0.accessibilityIdentifier?() == "agent-activity-subagents" }
+                .flatMap { accessibilityValue(of: $0) }
+        }
+        try #require(await waitUntil(updating: host) { count() == "0/1" })
+        try await openPanel(.subagents, in: host, window: window)
+        let popup = try #require(await waitForPopup(in: window, updating: host))
+        let content = try #require(popup.contentView)
+        let collapsedHeight = content.bounds.height
+        try click(NSPoint(x: 90, y: collapsedHeight - 22), in: content, window: popup)
+        try #require(await waitUntil(updating: content) { content.bounds.height > collapsedHeight + 30 },
+                     "Clicking a child must expand its delivered output inside the same popup")
+        #expect(content.bounds.height < 320, "Expanded details remain bounded")
+        try capture(content, name: "subagent-expanded-\(scheme)-\(language)")
+        let expandedHeight = content.bounds.height
+        fixture.subagents[0].state = .completed
+        fixture.subagents[0].task = "Inspect the sample project, verify its source files and test configuration, then report the discovered entry points and their responsibilities."
+        try #require(await waitUntil(updating: host) { count() == "1/1" })
+        // Native panel chrome hides the SwiftUI AX subtree. A longer delivered
+        // task makes the same panel's refreshed content observable through layout.
+        try #require(await waitUntil(updating: content) { content.bounds.height > expandedHeight + 10 })
+        #expect(popup.isVisible)
+        try capture(content, name: "subagent-completed-\(scheme)-\(language)")
+        try closePopup(popup)
+        #expect(await waitUntil(updating: host) { !popup.isVisible })
+    }
+
     @Test func allThreeLongListsStayBoundedAndLastFileCanOpen() async throws {
         let plan = AgentPlan(entries: (0..<40).map {
             .init(content: "Step \($0): inspect the sample project and describe the result", priority: "medium", status: .pending)
@@ -118,7 +230,8 @@ struct AgentActivityPresentationTests {
             var opened: String?
             let host = NSHostingView(rootView: VStack {
                 Spacer()
-                AgentActivitySummaryBar(messages: running + files, plan: plan, onOpenFile: { opened = $0.path })
+                AgentActivitySummaryBar(messages: running + files, plan: plan,
+                    subagents: (0..<40).map { .init(id: "child-\($0)", parentSessionID: "root", name: "Explore \($0)", task: "Inspect sample project") }, onOpenFile: { opened = $0.path })
             }.frame(width: 320, height: 400).background(AgentPanelStyle.canvas).environment(\.colorScheme, scheme))
             let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 320, height: 400),
                 styleMask: [.borderless], backing: .buffered, defer: false)
@@ -211,6 +324,23 @@ struct AgentActivityPresentationTests {
         return view.subviews.lazy.compactMap { anchor(in: $0) }.first
     }
 
+    private func accessibilityElements(in element: Any) -> [AnyObject] {
+        let accessible = element as AnyObject
+        let children = accessible.accessibilityChildren?() ?? []
+        // The shared panel's native chrome is ignored by accessibility. Walk
+        // through it to the SwiftUI host that publishes the actual content.
+        let descendants: [Any] = children.isEmpty ? ((element as? NSView)?.subviews ?? []) : children
+        return [accessible] + descendants.flatMap { accessibilityElements(in: $0) }
+    }
+
+    private func accessibilityValue(of element: AnyObject) -> String? {
+        // SwiftUI nodes need not adopt a public accessibility protocol. Read the
+        // Objective-C getter without choosing among AppKit's conflicting return types.
+        let selector = NSSelectorFromString("accessibilityValue")
+        guard let object = element as? NSObject, object.responds(to: selector) else { return nil }
+        return object.perform(selector)?.takeUnretainedValue() as? String
+    }
+
     private func closePopup(_ popup: NSWindow) throws {
         NSApp.sendEvent(try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
             timestamp: 0, windowNumber: popup.windowNumber, context: nil, characters: "\u{1b}",
@@ -297,5 +427,28 @@ struct AgentActivityPresentationTests {
         view.cacheDisplay(in: view.bounds, to: bitmap)
         let data = try #require(bitmap.representation(using: .png, properties: [:]))
         try data.write(to: URL(fileURLWithPath: directory).appendingPathComponent("\(name).png"))
+    }
+}
+
+@MainActor
+private final class AgentActivityPlanFixture: ObservableObject {
+    @Published var plan: AgentPlan?
+    @Published var subagents: [AgentSubagent] = []
+    @Published var messages = [
+        AgentConversationMessage(id: "completed", role: .tool, text: "List files", toolStatus: .completed),
+        AgentConversationMessage(id: "running", role: .tool, text: "Run sample tests", toolStatus: .inProgress)
+    ]
+}
+
+private struct AgentActivityPlanFixtureView: View {
+    @ObservedObject var fixture: AgentActivityPlanFixture
+
+    var body: some View {
+        VStack {
+            Spacer()
+            AgentActivitySummaryBar(messages: fixture.messages, plan: fixture.plan, subagents: fixture.subagents, isResponding: true)
+        }
+        .frame(width: 320, height: 100)
+        .background(AgentPanelStyle.canvas)
     }
 }

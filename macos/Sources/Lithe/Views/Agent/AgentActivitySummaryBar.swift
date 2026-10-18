@@ -6,21 +6,22 @@ import LitheAgentConversationModule
 struct AgentActivitySummaryBar: View {
     @Environment(\.locale) private var locale
     enum Panel: String, CaseIterable {
-        case tasks, running, edits
+        case tasks, subagents, edits
         var title: String {
-            switch self { case .tasks: "Tasks"; case .running: "Running"; case .edits: "Edits" }
+            switch self { case .tasks: "Tasks"; case .subagents: "Subagents"; case .edits: "Edits" }
         }
         var fallbackIcon: String {
-            switch self { case .tasks: "checklist"; case .running: "arrow.triangle.2.circlepath"; case .edits: "pencil" }
+            switch self { case .tasks: "checklist"; case .subagents: "arrow.triangle.2.circlepath"; case .edits: "pencil" }
         }
         var icon: String {
-            switch self { case .tasks: "expui/build/taskGroup.svg"; case .running: "expui/general/refresh.svg"; case .edits: "expui/general/edit.svg" }
+            switch self { case .tasks: "expui/build/taskGroup.svg"; case .subagents: "expui/general/refresh.svg"; case .edits: "expui/general/edit.svg" }
         }
     }
 
     let messages: [AgentConversationMessage]
     var sessionID: String?
     var plan: AgentPlan?
+    var subagents: [AgentSubagent] = []
     var reviewed: [String: AgentFileChange] = [:]
     var isResponding = false
     var isReviewing = false
@@ -67,7 +68,7 @@ struct AgentActivitySummaryBar: View {
         .overlay(RoundedRectangle(cornerRadius: 5).stroke(AgentPanelStyle.border, lineWidth: 1))
         .litheDropdown(isPresented: Binding(get: { panel != nil }, set: { if !$0 { panel = nil } }), opensUpward: true) {
             if let panel {
-                AgentActivityDetailsView(panel: panel, activity: activity, plan: plan,
+                AgentActivityDetailsView(panel: panel, activity: activity, plan: plan, subagents: subagents, messages: messages,
                     width: LitheDropdownMetrics.maximumWidth,
                     isResponding: isResponding, isReviewing: isReviewing, reviewError: reviewError,
                     onOpenFile: onOpenFile, onDiff: { change in self.panel = nil; selectedDiff = change },
@@ -98,9 +99,11 @@ struct AgentActivitySummaryBar: View {
     private func count(_ panel: Panel) -> String {
         switch panel {
         case .tasks:
-            if let plan { return "\(plan.completedCount)/\(plan.entries.count)" }
-            return String(activity.tools.count)
-        case .running: return String(activity.running.count)
+            guard let plan, !plan.entries.isEmpty else { return "0" }
+            return "\(plan.completedCount)/\(plan.entries.count)"
+        case .subagents:
+            guard !subagents.isEmpty else { return "0" }
+            return "\(subagents.filter { $0.state == .completed }.count)/\(subagents.count)"
         case .edits: return String(activity.files.count)
         }
     }
@@ -112,6 +115,8 @@ struct AgentActivityDetailsView: View {
     let panel: AgentActivitySummaryBar.Panel
     let activity: AgentActivity
     let plan: AgentPlan?
+    let subagents: [AgentSubagent]
+    let messages: [AgentConversationMessage]
     let width: CGFloat
     let isResponding: Bool
     let isReviewing: Bool
@@ -127,8 +132,10 @@ struct AgentActivityDetailsView: View {
             case .tasks:
                 if let plan, !plan.entries.isEmpty {
                     AgentPlanView(plan: plan, isResponding: isResponding, embedded: true)
-                } else { tools(activity.tools, empty: "No tasks yet") }
-            case .running: tools(activity.running, empty: "No tools running")
+                } else { emptyState("No tasks yet") }
+            case .subagents:
+                if subagents.isEmpty { emptyState("No subagents yet") }
+                else { AgentSubagentListView(subagents: subagents, messages: messages, onOpenFile: onOpenFile) }
             case .edits: edits
             }
             if let reviewError {
@@ -138,11 +145,6 @@ struct AgentActivityDetailsView: View {
         .frame(width: width)
         .foregroundStyle(AgentPanelStyle.text)
         .accessibilityIdentifier("agent-activity-content-\(panel.rawValue)")
-    }
-
-    @ViewBuilder private func tools(_ tools: [AgentConversationMessage], empty: LocalizedStringKey) -> some View {
-        if tools.isEmpty { emptyState(empty) }
-        else { AgentToolGroupView(messages: tools, searchText: "", onOpenFile: onOpenFile, embedded: true) }
     }
 
     private var edits: some View {

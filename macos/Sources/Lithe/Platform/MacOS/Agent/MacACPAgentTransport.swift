@@ -13,7 +13,8 @@ final class MacACPAgentTransport: AgentConversationTransport {
             "cwd": configuration.workspaceURL.path,
             "dataDirectory": configuration.dataDirectory.path,
             "authentication": configuration.authentication.rawValue,
-            "observeModelCalls": configuration.observesModelCalls
+            "observeModelCalls": configuration.observesModelCalls,
+            "observeSubagents": true
         ]
         // Marks the Agent's process tree so its tasks can be confirmed before
         // they are ended; see MacAgentProcessRegistry.

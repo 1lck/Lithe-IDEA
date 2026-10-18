@@ -59,6 +59,7 @@ fn custom_launch(command: &str, provider: ProviderCredentials) -> AgentLaunch {
         provider: Some(provider),
         authentication: AgentAuthentication::ApiKey,
         observe_model_calls: false,
+        observe_subagents: false,
         process_scope: None,
     }
 }
@@ -118,6 +119,53 @@ impl MockAgent {
         let authenticate = self.expect("authenticate").await;
         self.reply(&authenticate, json!({})).await;
     }
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn native_subagents_keep_child_permissions_owned_by_the_root_turn() {
+    let mut harness = Harness::start_observing_subagents(false, gateway(), std::env::temp_dir(), true);
+    let initialize = harness.agent.expect("initialize").await;
+    assert!(initialize["params"]["clientCapabilities"]["_meta"]["jetbrains"]["air"]["capabilities"].as_array().unwrap().contains(&json!("nativeSubagentSessions")));
+    harness.agent.reply(&initialize, json!({"protocolVersion":1,"agentCapabilities":{},"authMethods":[{"id":"gateway","name":"Gateway"}]})).await;
+    let auth = harness.agent.expect("authenticate").await;
+    harness.agent.reply(&auth, json!({})).await;
+    assert!(matches!(harness.event().await, AgentEvent::Ready { .. }));
+    harness.open_session("session-1").await;
+    harness.send(json!({"kind":"prompt","sessionId":"session-1","text":"Inspect the sample"}));
+    let prompt = harness.agent.expect("session/prompt").await;
+    let fixture = fixture();
+    for name in ["subagentSpawned", "nestedSubagentSpawned", "subagentToolCall", "subagentMessageChunk"] {
+        let event = &fixture["events"][name];
+        harness.agent.write(json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":event["sessionId"],"update":event["update"]}})).await;
+        assert_eq!(serde_json::to_value(harness.event().await).unwrap(), *event);
+    }
+    let mut request = fixture["events"]["permission"]["request"].clone();
+    request["sessionId"] = json!("child-2");
+    harness.agent.write(json!({"jsonrpc":"2.0","id":"child-permission","method":"session/request_permission","params":request})).await;
+    let AgentEvent::Permission { session_id, request_id, request: received } = harness.event().await else { panic!("child permission must reach the owning turn") };
+    assert_eq!(session_id, "session-1");
+    assert_eq!(received["sessionId"], "child-2");
+    answer_permission(&harness.permissions, &request_id, Some("allow_once".into())).unwrap();
+    let response = harness.agent.next().await;
+    assert_eq!(response["id"], "child-permission");
+    assert_eq!(response["result"]["outcome"]["optionId"], "allow_once");
+
+    // Parent cancellation must settle the child's next permission without a timer.
+    harness.agent.write(json!({"jsonrpc":"2.0","id":"pending-child","method":"session/request_permission","params":request})).await;
+    assert!(matches!(harness.event().await, AgentEvent::Permission { session_id, .. } if session_id == "session-1"));
+    harness.send(json!({"kind":"cancel","sessionId":"session-1"}));
+    let mut cancelled_permission = false;
+    let mut cancelled_turn = false;
+    for _ in 0..2 {
+        let message = harness.agent.next().await;
+        cancelled_permission |= message["id"] == "pending-child" && message["result"]["outcome"]["outcome"] == "cancelled";
+        cancelled_turn |= message["method"] == "session/cancel" && message["params"]["sessionId"] == "session-1";
+    }
+    assert!(cancelled_permission && cancelled_turn);
+    assert!(matches!(harness.event().await, AgentEvent::TurnCancelling { session_id } if session_id == "session-1"));
+    harness.agent.reply(&prompt, json!({"stopReason":"cancelled"})).await;
+    assert!(matches!(harness.event().await, AgentEvent::TurnFinished { .. }));
+    assert_eq!(harness.stop().await, Ok(()));
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -444,6 +492,10 @@ impl Harness {
     }
 
     fn start_in_workspace(subscription: bool, route: Option<GatewaySignIn>, cwd: PathBuf) -> Self {
+        Self::start_observing_subagents(subscription, route, cwd, false)
+    }
+
+    fn start_observing_subagents(subscription: bool, route: Option<GatewaySignIn>, cwd: PathBuf, observe_subagents: bool) -> Self {
         let (client, peer) = tokio::io::duplex(64 * 1024);
         let (client_reader, client_writer) = tokio::io::split(client);
         let (peer_reader, peer_writer) = tokio::io::split(peer);
@@ -457,6 +509,7 @@ impl Harness {
             subscription.then(|| PathBuf::from("/fixture/codex")),
             None,
             None,
+            observe_subagents,
             receiver,
             TurnActivity {
                 permissions: permissions.clone(),
@@ -2906,6 +2959,7 @@ fn catalog_agents_resolve_to_their_install_and_key_delivery() {
         provider: Some(provider),
         authentication: AgentAuthentication::ApiKey,
         observe_model_calls: false,
+        observe_subagents: false,
         process_scope: None,
     };
     let anthropic = ProviderCredentials {
