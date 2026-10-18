@@ -955,6 +955,22 @@ Lithe 在 `LitheMainToolbarButtonStyle` 增加可选执行底色，默认调用�
 使用 `MainToolbarAppearanceTests` 验证明暗底色、按下叠层和外侧留白，
 完整工作区的启动/停止与hover仍须在预览中检查。
 
+主工具栏的Run槽位同时承担当前目标的调试暂停/继续控制。依据Community
+`idea/262.9437.185`（`b75ab523e6adbe1d26112219729eacbcfd24daa0`）的
+`RunToolbarXDebuggerAction.kt`、`RunToolbarDebugActionHandler.kt` 与
+`RedesignedRunWidget.filterOutRunIfDebugResumeIsPresent`，选中目标正在调试时隐藏
+普通Run：运行状态显示Pause，暂停状态显示Resume；旁边的重新调试和停止仍保留。
+复用Debug工具栏既有的 `expui/run/pause.svg`、`resume.svg` 原始16pt明暗图标与
+普通主工具栏按钮外框，不给这两个控制添加重跑按钮的绿色常驻底色。
+动作仍由宿主注册表执行，控制Debug时采用Debug模块权限，并在执行请求未完成时禁用，
+避免多次继续或误启动另一轮Run。调试结束或选择其他目标后恢复Run/Rerun。
+当前摘要只公开启动标题，暂按选中标题匹配；将来启动契约提供配置ID后应改用ID，
+不能把所有工作区里任意暂停会话都当作当前运行目标。回归检查覆盖各会话状态、目标
+切换及主工具栏动作权限，实际预览还需验证按钮能继续到下一断点。
+顶栏已选测试目标时，统一的 `AppModel.startDebugging` 入口必须调用已有Java测试调试
+工作流，与Run入口使用同一个 `activeTestTarget`。不能一边显示测试方法名，一边启动
+底层Main配置，否则不仅目标错误，按目标匹配的Pause/Resume也会被正确地隐藏。
+
 输出区“Jump to latest”对应同一Community版本的 `ScrollToTheEndToolbarAction.java`，
 动作图标 `RunConfigurations.Scroll_down` 在 `PlatformIconMappings.json` 映射为
 `expui/general/scrollDown.svg`。复用现有16pt明暗资源和共享22pt工具栏按钮，

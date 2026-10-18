@@ -11,6 +11,20 @@ import Testing
 @MainActor
 struct RunEntryPointTests {
     @Test
+    func debugSelectedTestValidatesItsSourceInsteadOfLaunchingTheUnderlyingMain() throws {
+        let workspace = try JavaWorkspaceFixture()
+        defer { workspace.remove() }
+        let model = makeAppModel(workspaceOperations: SequencedWorkspaceOperations.neverScans())
+        defer { model.closeProject() }
+        model.openProjectDirectly(workspace.root)
+        model.activeTestTarget = ActiveTestTarget(name: "ExampleTest.check", providerID: "java",
+            identifier: "demo.ExampleTest#check()", fileURL: nil)
+        model.startDebugging()
+        #expect(model.notifications.contains { $0.message == "The selected Java test has no source file" })
+        #expect(model.genericDebugFeatureIfActive?.isSessionActive != true)
+    }
+
+    @Test
     func provisionalSnapshotStaysUnavailableAcrossRefreshesUntilReleased() throws {
         let workspace = try JavaWorkspaceFixture()
         defer { workspace.remove() }

@@ -70,6 +70,11 @@ extension AppModel {
     }
 
     func startDebugging() {
+        if let target = activeTestTarget {
+            debugTest(providerID: target.providerID,
+                scope: .testCase(identifier: target.identifier, fileURL: target.fileURL))
+            return
+        }
         Task { [weak self] in await self?.startDebuggingAfterActivation() }
     }
 
