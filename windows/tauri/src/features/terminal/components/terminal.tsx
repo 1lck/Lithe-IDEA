@@ -37,7 +37,10 @@ import {
 import { ClipboardIcon, CopyIcon } from "@/ui/icons";
 import { writeClipboardText } from "@/utils/clipboard";
 import { currentPlatform } from "@/utils/platform";
-import { readTerminalPasteText } from "@/features/terminal/utils/file-clipboard-paste";
+import {
+  readCopiedFilePathsText,
+  readTerminalPasteText,
+} from "@/features/terminal/utils/file-clipboard-paste";
 import {
   createTerminalAddons,
   injectLinkStyles,
@@ -180,14 +183,14 @@ export const XtermTerminal = ({
 
   const insertDroppedPaths = useCallback(
     (paths: string[]) => {
-      const text = formatDroppedPathsForTerminal(paths);
+      const text = formatDroppedPathsForTerminal(paths, getSession(sessionId)?.shell);
       if (!text) return false;
 
       writeBuffered(text);
       requestAnimationFrame(() => xtermRef.current?.focus());
       return true;
     },
-    [writeBuffered],
+    [getSession, sessionId, writeBuffered],
   );
 
   const handleTerminalFileDrop = useCallback(
@@ -209,15 +212,15 @@ export const XtermTerminal = ({
       insertDroppedPaths(detail?.paths ?? []);
     };
 
-    // In-app drops carry absolute explorer paths: this terminal is the only side
-    // that knows the directory its shell is in, so it relativizes them itself.
+    // In-app drops carry absolute explorer paths. Quoting depends on the shell
+    // that owns this session, so it happens here rather than in the explorer.
     const handlePathInsert = (event: Event) => {
       const detail = (event as CustomEvent<TerminalPathInsertDetail>).detail;
-      const paths = clipboardEntryPaths(
-        (detail?.paths ?? []).map((path) => ({ path })),
-        getSession(sessionId)?.currentDirectory ?? null,
-      );
-      const text = formatPathsForTerminal(paths, { trailingSpace: true });
+      const paths = clipboardEntryPaths((detail?.paths ?? []).map((path) => ({ path })));
+      const text = formatPathsForTerminal(paths, {
+        shell: getSession(sessionId)?.shell,
+        trailingSpace: true,
+      });
       if (!text) return;
 
       writeBuffered(text);
@@ -264,7 +267,7 @@ export const XtermTerminal = ({
     (terminal: Terminal) => {
       if (!currentConnectionIdRef.current) return;
 
-      void readTerminalPasteText(getSession(sessionId)?.currentDirectory ?? null)
+      void readTerminalPasteText(getSession(sessionId)?.shell)
         .then((text) => pasteIntoTerminal(terminal, text))
         .catch((error) => console.error("Failed to paste into terminal:", error));
     },
@@ -935,6 +938,22 @@ export const XtermTerminal = ({
               <ClipboardIcon />
               {t("terminal.paste")}
               <ContextMenuShortcut>Ctrl+Shift+V</ContextMenuShortcut>
+            </ContextMenuItem>
+            <ContextMenuItem
+              aria-label={t("terminal.pasteCopiedFilePaths")}
+              onClick={() => {
+                void readCopiedFilePathsText(getSession(sessionId)?.shell)
+                  .then((text) => {
+                    if (text) writeBuffered(text);
+                    requestAnimationFrame(() => xtermRef.current?.focus());
+                  })
+                  .catch((error) =>
+                    console.error("Failed to paste copied file paths:", error),
+                  );
+              }}
+            >
+              <ClipboardIcon />
+              {t("terminal.pasteCopiedFilePaths")}
             </ContextMenuItem>
           </ContextMenuContent>
         </ContextMenu>

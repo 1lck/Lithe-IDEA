@@ -22,9 +22,10 @@
       "windows/tauri/src/features/file-system/utils/file-system-drop-controller.ts",
       "windows/tauri/src/features/file-system/utils/file-system-drop-controller.test.ts",
       "windows/tauri/src/features/file-explorer/hooks/use-file-explorer-drag-drop.ts",
-      "windows/tauri/src/features/terminal/components/terminal.tsx"
+      "windows/tauri/src/features/terminal/components/terminal.tsx",
+      "windows/tauri/src/i18n/locale.ts"
     ]
   },
   "owner": "Workspace",
-  "verification": "在 Windows 项目树中复制一个顶层文件、一个嵌套文件、一个嵌套目录（右键菜单与 Ctrl+C/Ctrl+X 都要覆盖），确认复制行为与改动前一致：应用内剪贴板仍记录条目，系统剪贴板文本不被覆写，项目树内 Ctrl+V 仍按原逻辑粘贴文件。随后在集成终端按 Ctrl+V、Ctrl+Shift+V 与右键「粘贴」，确认插入相对目标终端目录的路径且分隔符为 /；用目录右键「在终端中打开」把 shell 起在子目录后再粘贴，确认相对路径相对该子目录而不是工作区根；终端目录未知时插入完整路径。含空格的路径被引号包裹为一个参数，含 & | < > ; ^ ( ) * ? 等 shell 元字符的文件名被引号包裹后不会触发额外命令。复制文件后再复制一段文本，确认终端粘贴得到该文本而不是路径。再把项目树条目拖到终端，确认插入路径并追加一个空格，且不再打开编辑器标签（拖到非终端 pane 仍打开文件）。从资源管理器拖入终端仍按原逻辑插入绝对路径。多条目以空格连接由单元测试覆盖。真实 Windows 产品交互验收 pending。"
+  "verification": "在 Windows 项目树中复制一个顶层文件、一个嵌套文件、一个嵌套目录（右键菜单与 Ctrl+C/Ctrl+X 都要覆盖），确认复制行为与改动前一致：应用内剪贴板仍记录条目，系统剪贴板文本不被覆写，项目树内 Ctrl+V 仍按原逻辑粘贴文件。随后在集成终端按 Ctrl+V、Ctrl+Shift+V 与右键「粘贴」，确认插入完整绝对路径；再在默认 cmd、Windows PowerShell、PowerShell Core 和 Git Bash 四种 shell 下分别验证：含 $() 与反引号的文件名（如 report$(whoami).txt）插入后被单引号包裹且不执行任何额外命令，含 & | < > ; ^ ( ) 的文件名同样不触发额外命令，Git Bash 下反斜杠路径仍可访问。在终端内执行 cd 到子目录后再次粘贴，确认绝对路径仍指向正确文件。终端右键「粘贴已复制的文件路径」在剪贴板内容变化后仍可插入复制的文件路径。复制文件后再复制一段文本，确认 Ctrl+V 得到该文本而不是路径。把项目树条目拖到终端，确认插入路径并追加一个空格，且不再打开编辑器标签（拖到非终端 pane 仍打开文件）；从资源管理器拖入终端在各 shell 下均能访问到文件。真实 Windows 产品交互验收 pending。"
 }

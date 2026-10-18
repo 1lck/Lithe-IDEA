@@ -1,23 +1,15 @@
-import { getRelativePath } from "@/utils/path-helpers";
-
 /**
- * Render copied explorer entries as path tokens a terminal can accept.
+ * Paths to insert for copied explorer entries.
  *
- * `baseDirectory` must be the directory the target shell is in, not the workspace
- * root: a terminal opened on a subdirectory, or one the user changed directory
- * in, resolves a workspace-relative path to the wrong file. Callers that cannot
- * determine that directory pass `null` and get full paths.
- *
- * Tokens are returned separately rather than pre-joined: the terminal has to
- * quote each one before joining so a path containing spaces stays one argument.
+ * They stay absolute. A relative path only resolves correctly against the shell's
+ * live directory, and on Windows neither cmd nor PowerShell reports that
+ * directory (no OSC 7), so the tracked value is just the launch directory and
+ * goes stale as soon as the user runs `cd`. An absolute path is correct wherever
+ * the shell currently is, and it also expresses the copied directory itself,
+ * which a relative path would render as an empty string.
  */
-export function clipboardEntryPaths(
-  entries: readonly { path: string }[],
-  baseDirectory?: string | null,
-): string[] {
-  return entries
-    .map((entry) => getRelativePath(entry.path, baseDirectory))
-    .filter((path) => path.length > 0);
+export function clipboardEntryPaths(entries: readonly { path: string }[]): string[] {
+  return entries.map((entry) => entry.path).filter((path) => path.length > 0);
 }
 
 /**
@@ -28,6 +20,10 @@ export function clipboardEntryPaths(
  * were copied. If the clipboard now holds anything else, the user copied text
  * after copying files, so the text wins; this keeps the terminal from silently
  * ignoring what the user copied most recently.
+ *
+ * Comparing text cannot detect copying the same string again around a file copy,
+ * because the Tauri clipboard plugin exposes no change counter. The terminal also
+ * offers an explicit "paste file paths" action that skips this check.
  */
 export function shouldPasteFileClipboardPaths({
   entryCount,

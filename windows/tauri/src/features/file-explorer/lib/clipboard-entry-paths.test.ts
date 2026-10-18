@@ -1,50 +1,37 @@
 import { describe, expect, test } from "bun:test";
-import {
-  clipboardEntryPaths,
-  shouldPasteFileClipboardPaths,
-} from "./clipboard-entry-paths";
+import { clipboardEntryPaths, shouldPasteFileClipboardPaths } from "./clipboard-entry-paths";
 
 describe("clipboardEntryPaths", () => {
-  test("relativizes against the directory the shell is in", () => {
-    expect(
-      clipboardEntryPaths([{ path: "C:\\work\\proj\\src\\Main.java" }], "C:\\work\\proj"),
-    ).toEqual(["src/Main.java"]);
-  });
-
-  // Regression: a terminal opened on a subdirectory used to relativize against
-  // the workspace root, producing `src/Main.java` where the shell resolved
-  // `C:\work\proj\src\src\Main.java`.
-  test("relativizes against a subdirectory shell", () => {
-    expect(
-      clipboardEntryPaths([{ path: "C:\\work\\proj\\src\\Main.java" }], "C:\\work\\proj\\src"),
-    ).toEqual(["Main.java"]);
-  });
-
-  // When the target directory is unknown, a relative path could resolve to the
-  // wrong file, so the full path is the only safe answer.
-  test("keeps the full path when the shell directory is unknown", () => {
-    expect(clipboardEntryPaths([{ path: "C:\\work\\proj\\a.ts" }], null)).toEqual([
-      "C:\\work\\proj\\a.ts",
+  // Paths stay absolute: on Windows no shell reports its live directory, so a
+  // relative path would resolve against a stale launch directory after `cd`.
+  test("keeps the absolute path instead of relativizing it", () => {
+    expect(clipboardEntryPaths([{ path: "C:\\work\\proj\\src\\Main.java" }])).toEqual([
+      "C:\\work\\proj\\src\\Main.java",
     ]);
   });
 
-  test("keeps the full path for entries outside the shell directory", () => {
-    expect(
-      clipboardEntryPaths([{ path: "D:\\other\\Notes.txt" }], "C:\\work\\proj"),
-    ).toEqual(["D:\\other\\Notes.txt"]);
+  // Regression: a relative path rendered the copied directory itself as an empty
+  // string, which used to be filtered out and dropped the insertion entirely.
+  test("keeps the path of a directory even when it is the shell directory", () => {
+    expect(clipboardEntryPaths([{ path: "C:\\work\\proj\\src" }])).toEqual([
+      "C:\\work\\proj\\src",
+    ]);
   });
 
-  test("keeps every entry separately so the terminal can quote each one", () => {
+  test("keeps every entry in order", () => {
     expect(
-      clipboardEntryPaths(
-        [{ path: "C:\\work\\proj\\my folder\\a.ts" }, { path: "C:\\work\\proj\\pkg" }],
-        "C:\\work\\proj",
-      ),
-    ).toEqual(["my folder/a.ts", "pkg"]);
+      clipboardEntryPaths([{ path: "C:\\work\\a.ts" }, { path: "C:\\work\\pkg" }]),
+    ).toEqual(["C:\\work\\a.ts", "C:\\work\\pkg"]);
   });
 
-  test("omits the shell directory itself because it has no relative path", () => {
-    expect(clipboardEntryPaths([{ path: "C:\\work\\proj" }], "C:\\work\\proj")).toEqual([]);
+  test("drops empty paths", () => {
+    expect(clipboardEntryPaths([{ path: "" }, { path: "C:\\work\\a.ts" }])).toEqual([
+      "C:\\work\\a.ts",
+    ]);
+  });
+
+  test("returns nothing when there are no entries", () => {
+    expect(clipboardEntryPaths([])).toEqual([]);
   });
 });
 

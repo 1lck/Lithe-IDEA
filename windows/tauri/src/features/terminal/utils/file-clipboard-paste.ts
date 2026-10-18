@@ -14,43 +14,55 @@ import { quoteTerminalPaths } from "./terminal-file-drop";
  * application can read. Translating it here means pasting keeps working for the
  * user without the copy having to overwrite the system clipboard.
  *
- * `currentDirectory` is the target shell's directory, which decides what a
- * relative path resolves to. When it is unknown the paths stay absolute.
+ * When `allowStale` is true the clipboard-recency check is skipped, so the caller
+ * can offer an explicit action that always pastes the copied paths.
  */
-async function fileClipboardPasteText(currentDirectory: string | null): Promise<string | null> {
+async function fileClipboardPasteText(
+  shell: string | null,
+  allowStale: boolean,
+): Promise<string | null> {
   const { clipboard, sourceClipboardText } = useFileClipboardStore.getState();
   const entries = clipboard?.entries ?? [];
   if (entries.length === 0) return null;
 
-  let currentClipboardText: string;
-  try {
-    currentClipboardText = await readClipboardText();
-  } catch {
-    // An unreadable clipboard cannot prove the file copy is still the latest
-    // user action, so fall back instead of guessing.
-    return null;
+  if (!allowStale) {
+    let currentClipboardText: string;
+    try {
+      currentClipboardText = await readClipboardText();
+    } catch {
+      // An unreadable clipboard cannot prove the file copy is still the latest
+      // user action, so fall back instead of guessing.
+      return null;
+    }
+
+    const prefersFilePaths = shouldPasteFileClipboardPaths({
+      entryCount: entries.length,
+      sourceClipboardText,
+      currentClipboardText,
+    });
+    if (!prefersFilePaths) return null;
   }
 
-  const prefersFilePaths = shouldPasteFileClipboardPaths({
-    entryCount: entries.length,
-    sourceClipboardText,
-    currentClipboardText,
-  });
-  if (!prefersFilePaths) return null;
-
-  const paths = clipboardEntryPaths(entries, currentDirectory);
+  const paths = clipboardEntryPaths(entries);
   if (paths.length === 0) return null;
-  return quoteTerminalPaths(paths);
+  return quoteTerminalPaths(paths, shell);
 }
 
 /**
  * Resolve what a terminal paste should insert: the copied explorer paths when
  * that copy is still the user's latest action, otherwise the clipboard text.
  */
-export async function readTerminalPasteText(
-  currentDirectory?: string | null,
-): Promise<string> {
-  const filePaths = await fileClipboardPasteText(currentDirectory ?? null);
+export async function readTerminalPasteText(shell?: string | null): Promise<string> {
+  const filePaths = await fileClipboardPasteText(shell ?? null, false);
   if (filePaths !== null) return filePaths;
   return readClipboardText();
+}
+
+/**
+ * Resolve the copied explorer paths unconditionally, for an explicit action that
+ * must not depend on guessing which copy came last. Returns null when the in-app
+ * file clipboard is empty.
+ */
+export async function readCopiedFilePathsText(shell?: string | null): Promise<string | null> {
+  return fileClipboardPasteText(shell ?? null, true);
 }
