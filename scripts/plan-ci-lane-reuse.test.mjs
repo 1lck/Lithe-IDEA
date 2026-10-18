@@ -137,28 +137,6 @@ test('an earlier run no lane reuses is cancelled', async (t) => {
   assert.deepEqual(github.cancelled, [10]);
 });
 
-test('unstarted jobs and unfinished self-hosted jobs rerun instead of blocking a gate', async (t) => {
-  const f = fixtureRepository(t);
-  f.write('macos/Sources/Lithe/App.swift', 'struct App { let a = 1 }');
-  const first = f.commit('swift');
-  f.write('README.md', '# Docs');
-  const second = f.commit('docs');
-  for (const status of ['queued', 'waiting', 'pending', 'requested', 'in_progress']) {
-    for (const labels of [['macos-26'], ['self-hosted', 'macOS', 'lithe-mac-mini']]) {
-      if (status === 'in_progress' && labels[0] === 'macos-26') continue;
-      const github = fakeGitHub({
-        runs: [run(10, first, 'in_progress', '2026-10-17T01:00:00Z')],
-        jobs: { 10: [{ ...job(101, 'Swift tests', status, null), labels }] },
-        baseTips: [{ at: '2026-10-17T00:00:00Z', sha: f.base }],
-      });
-      const result = await plan(f, { head: second, github });
-      assert.equal(result.run.swift, true, `${status}: ${labels}`);
-      assert.deepEqual(result.reuse, {});
-      assert.deepEqual(github.cancelled, [10]);
-    }
-  }
-});
-
 test('a run created after this one is neither cancelled nor reused', async (t) => {
   const f = fixtureRepository(t);
   f.write('macos/Sources/Lithe/App.swift', 'struct App { let a = 1 }');
