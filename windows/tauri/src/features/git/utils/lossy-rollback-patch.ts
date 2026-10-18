@@ -70,6 +70,10 @@ export function parseRawPatchLines(patch: string): RawPatchLine[] {
  * range from a full raw patch. The result preserves CR bytes and EOF markers
  * so `git apply` can reverse it byte-faithfully.
  *
+ * When targetOldEnd/targetNewEnd are provided, the extracted contiguous run
+ * is verified not to extend beyond the target range — a run that would affect
+ * changes outside the selected block returns null (conservative disable).
+ *
  * @returns null when the range cannot be unambiguously isolated.
  */
 export function sliceRawHunkPatch(
@@ -77,6 +81,8 @@ export function sliceRawHunkPatch(
   filePath: string,
   targetOldStart: number,
   targetNewStart: number,
+  targetOldEnd?: number,
+  targetNewEnd?: number,
 ): string | null {
   const lines = parseRawPatchLines(patch);
   if (lines.length === 0) return null;
@@ -119,6 +125,33 @@ export function sliceRawHunkPatch(
   }
   if (found && blockEnd === -1) blockEnd = lines.length - 1;
   if (!found || blockStart === -1) return null;
+
+  // Range verification: when target endpoints are provided, the contiguous
+  // run must not extend beyond them in either direction — a run that
+  // includes changes outside the selected block would roll back content
+  // the user did not choose. Additionally, the run must COVER all changed
+  // lines within the target range: when the range contains separated
+  // changes, a single contiguous run cannot represent them and the caller
+  // needs the range-based builder instead.
+  if (targetNewEnd !== undefined && targetOldEnd !== undefined) {
+    for (let i = blockStart; i <= blockEnd; i++) {
+      const line = lines[i];
+      if (line.isEofMarker) continue;
+      if (line.newLine !== null && (line.newLine > targetNewEnd || line.newLine < targetNewStart)) return null;
+      if (line.oldLine !== null && (line.oldLine > targetOldEnd || line.oldLine < targetOldStart)) return null;
+    }
+    // Coverage check: every changed line in the raw patch within the target
+    // range must be inside this contiguous run. If any is outside (separated
+    // by context from this run), the single-run slicer is insufficient.
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (line.isEofMarker || (line.prefix !== "+" && line.prefix !== "-")) continue;
+      const inTargetRange =
+        (line.oldLine !== null && line.oldLine >= targetOldStart && line.oldLine <= targetOldEnd) ||
+        (line.newLine !== null && line.newLine >= targetNewStart && line.newLine <= targetNewEnd);
+      if (inTargetRange && (i < blockStart || i > blockEnd)) return null;
+    }
+  }
 
   // Include trailing EOF markers attached to the last changed line.
   while (blockEnd + 1 < lines.length && lines[blockEnd + 1].isEofMarker) {
@@ -163,11 +196,15 @@ export function sliceRawHunkPatch(
 /**
  * Builds a GitHunk whose lines carry original bytes (CR, EOF markers) from
  * the writePatch, so the host-side patch reconstruction is byte-faithful.
+ * When target endpoints are provided, the slice is verified not to extend
+ * beyond them (a contiguous run crossing block boundaries returns null).
  */
 export function buildByteFaithfulHunk(
   diff: GitDiff,
   targetOldStart: number,
   targetNewStart: number,
+  targetOldEnd?: number,
+  targetNewEnd?: number,
 ): GitHunk | null {
   if (!diff.writePatch) return null;
   const patch = sliceRawHunkPatch(
@@ -175,6 +212,8 @@ export function buildByteFaithfulHunk(
     diff.new_path || diff.file_path,
     targetOldStart,
     targetNewStart,
+    targetOldEnd,
+    targetNewEnd,
   );
   if (!patch) return null;
   const rawLines = parseRawPatchLines(patch);
@@ -194,4 +233,118 @@ export function buildByteFaithfulHunk(
     // it, EOF markers embedded in the patch text would be lost.
     rawPatch: patch,
   };
+}
+
+/**
+ * Builds a byte-faithful GitHunk from ALL changed raw-patch lines within the
+ * given one-based range, regardless of contiguity. Used when a selection
+ * spans multiple separated change runs (e.g. insert + nearby replacement).
+ */
+export function buildFaithfulHunkFromRange(
+  diff: GitDiff,
+  oldStart: number,
+  newStart: number,
+  oldEnd: number,
+  newEnd: number,
+): GitHunk | null {
+  if (!diff.writePatch) return null;
+  const lines = parseRawPatchLines(diff.writePatch);
+  const inRange = lines.filter((line) => {
+    if (line.isEofMarker) return false;
+    if (line.prefix !== "+" && line.prefix !== "-") return false;
+    const oldOk = line.oldLine === null || (line.oldLine >= oldStart && line.oldLine <= oldEnd);
+    const newOk = line.newLine === null || (line.newLine >= newStart && line.newLine <= newEnd);
+    return oldOk && newOk;
+  });
+  if (inRange.length === 0) return null;
+  // Preserve original ordering for grouping and EOF attachment.
+  const ordered = lines.filter((line) => inRange.includes(line));
+  // Attach trailing EOF markers belonging to the last changed line.
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].isEofMarker && i > 0) {
+      const prev = lines[i - 1];
+      if (ordered.includes(prev) && !ordered.includes(lines[i])) {
+        ordered.push(lines[i]);
+      }
+    }
+  }
+  const filePath = diff.new_path || diff.file_path;
+
+  // Group into contiguous runs (adjacent in the original patch, no context
+  // gap) — each run becomes its own @@ hunk so separated changes apply
+  // correctly instead of sharing one wrong-range header.
+  const runs: RawPatchLine[][] = [];
+  let currentRun: RawPatchLine[] = [];
+  for (const line of ordered) {
+    if (line.isEofMarker) {
+      if (currentRun.length > 0) currentRun.push(line);
+      continue;
+    }
+    const prev = currentRun[currentRun.length - 1];
+    // Adjacent if both are changed lines from the same contiguous segment
+    // (their positions in the original `lines` array are consecutive).
+    const prevIdx = prev ? lines.indexOf(prev) : -1;
+    const currIdx = lines.indexOf(line);
+    if (prev && !prev.isEofMarker && currIdx === prevIdx + 1) {
+      currentRun.push(line);
+    } else {
+      if (currentRun.length > 0) runs.push(currentRun);
+      currentRun = [line];
+    }
+  }
+  if (currentRun.length > 0) runs.push(currentRun);
+
+  // Build one @@ header per run.
+  const hunkHeaders: string[] = [];
+  const allBodyLines: string[] = [];
+  for (const run of runs) {
+    let oldCount = 0;
+    let newCount = 0;
+    let firstOld: number | null = null;
+    let firstNew: number | null = null;
+    for (const line of run) {
+      if (line.isEofMarker) continue;
+      if (line.prefix === "-") {
+        oldCount++;
+        if (firstOld === null && line.oldLine !== null) firstOld = line.oldLine;
+      }
+      if (line.prefix === "+") {
+        newCount++;
+        if (firstNew === null && line.newLine !== null) firstNew = line.newLine;
+      }
+    }
+    const oStart = oldCount === 0 ? Math.max(0, (firstOld ?? oldStart) - 1) : (firstOld ?? oldStart);
+    const nStart = newCount === 0 ? Math.max(0, (firstNew ?? newStart) - 1) : (firstNew ?? newStart);
+    hunkHeaders.push(`@@ -${oStart},${oldCount} +${nStart},${newCount} @@`);
+    for (const line of run) {
+      allBodyLines.push(line.isEofMarker ? line.content : line.prefix + line.content);
+    }
+  }
+
+  // Assemble the multi-hunk patch.
+  const parts: string[] = [`diff --git a/${filePath} b/${filePath}`, `--- a/${filePath}`, `+++ b/${filePath}`];
+  for (let i = 0; i < hunkHeaders.length; i++) {
+    parts.push(hunkHeaders[i]);
+  }
+  // Interleave headers with their body lines correctly.
+  const patchLines: string[] = [`diff --git a/${filePath} b/${filePath}`, `--- a/${filePath}`, `+++ b/${filePath}`];
+  let bodyIdx = 0;
+  for (const run of runs) {
+    const hdr = hunkHeaders[runs.indexOf(run)];
+    patchLines.push(hdr);
+    for (const line of run) {
+      patchLines.push(line.isEofMarker ? line.content : line.prefix + line.content);
+    }
+  }
+  const patch = patchLines.join("\n") + "\n";
+
+  const hunkLines: GitDiffLine[] = ordered
+    .filter((line) => !line.isEofMarker)
+    .map((line) => ({
+      line_type: line.prefix === "+" ? "added" : "removed",
+      content: line.content,
+      old_line_number: line.oldLine ?? undefined,
+      new_line_number: line.newLine ?? undefined,
+    }));
+  return { file_path: filePath, lines: hunkLines, rawPatch: patch };
 }

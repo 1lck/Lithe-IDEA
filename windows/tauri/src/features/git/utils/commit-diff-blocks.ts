@@ -3,7 +3,7 @@ import type { GitDiff, GitHunk } from "../types/git.types";
 import { parseDiffHunkRange } from "./git-diff-helpers";
 import { gitGutterChangeHunk, type GitGutterChange } from "./git-gutter-changes";
 import { monacoDiffRows } from "./monaco-diff-rows";
-import { buildByteFaithfulHunk } from "./lossy-rollback-patch";
+import { buildByteFaithfulHunk, buildFaithfulHunkFromRange } from "./lossy-rollback-patch";
 import { planIndependentCommitDiff, type IndependentChange } from "./independent-commit-diff";
 
 export interface CommitDiffBlock {
@@ -108,19 +108,33 @@ export function planCommitDiffBlocks(worktree: GitDiff, staged: GitDiff): Commit
     const revertedIndex = [...indexed.after.slice(0, start), ...before, ...indexed.after.slice(end)];
     const rollbackBase = [...visible.after.slice(0, change.rightStart), ...indexLines,
       ...visible.after.slice(change.rightEnd)];
-    // Find the precise line within this block where the unstaged change
-    // begins: the first index line that differs from its worktree counterpart.
-    // This maps HEAD display coordinates to index coordinates (P1) and
-    // handles partially staged blocks where the change starts mid-block (P2).
+    // Find the full range of unstaged lines within this block: every line
+    // where index differs from worktree. This maps HEAD display coordinates
+    // to index/worktree coordinates (P1) and handles partially staged blocks
+    // (P2) and pure additions with empty old side (P4).
     let unstagedIndexStart = -1;
+    let unstagedIndexEnd = -1;
     let unstagedWorktreeStart = -1;
-    for (let i = 0; i < end - start; i++) {
-      const indexLine = indexed.after[start + i];
-      const worktreeLine = visible.after[change.rightStart + i];
-      if (indexLine !== worktreeLine) {
-        unstagedIndexStart = start + i;
-        unstagedWorktreeStart = change.rightStart + i;
-        break;
+    let unstagedWorktreeEnd = -1;
+    if (end === start) {
+      // Pure addition: no index-side lines exist; the insertion boundary is
+      // the position between index lines where the worktree lines appear.
+      unstagedIndexStart = start;
+      unstagedIndexEnd = start;
+      unstagedWorktreeStart = change.rightStart;
+      unstagedWorktreeEnd = change.rightEnd;
+    } else {
+      for (let i = 0; i < end - start; i++) {
+        const indexLine = indexed.after[start + i];
+        const worktreeLine = visible.after[change.rightStart + i];
+        if (indexLine !== worktreeLine) {
+          if (unstagedIndexStart === -1) {
+            unstagedIndexStart = start + i;
+            unstagedWorktreeStart = change.rightStart + i;
+          }
+          unstagedIndexEnd = start + i;
+          unstagedWorktreeEnd = change.rightStart + i;
+        }
       }
     }
     const block: CommitDiffBlock = {
@@ -132,12 +146,24 @@ export function planCommitDiffBlocks(worktree: GitDiff, staged: GitDiff): Commit
       leftStart: change.leftStart, rightStart: change.rightStart,
       stage: gitGutterChangeHunk(worktree.file_path, indexed.after, edit(start, indexLines, after)),
       unstage: gitGutterChangeHunk(worktree.file_path, revertedIndex, edit(start, before, indexLines)),
-      // Byte-faithful rollback targets the first line where index differs
-      // from worktree, in one-based index and worktree coordinates. When no
-      // unstaged change is found within the block or the faithful slice
-      // fails, rollback is disabled — never falls back to a lossy patch.
+      // Byte-faithful rollback passes the full unstaged range and builds
+      // directly from the raw patch's changed lines within that range —
+      // no contiguity requirement, so a block's changes can be isolated
+      // even when adjacent to another block's changes in the raw patch.
       rollback: worktree.writePatch && unstagedIndexStart >= 0
-        ? (buildByteFaithfulHunk(worktree, unstagedIndexStart + 1, unstagedWorktreeStart + 1) ?? undefined)
+        ? (buildFaithfulHunkFromRange(
+            worktree,
+            unstagedIndexStart + 1,
+            unstagedWorktreeStart + 1,
+            unstagedIndexEnd + 1,
+            unstagedWorktreeEnd + 1,
+          ) ?? buildByteFaithfulHunk(
+            worktree,
+            unstagedIndexStart + 1,
+            unstagedWorktreeStart + 1,
+            unstagedIndexEnd + 1,
+            unstagedWorktreeEnd + 1,
+          ) ?? undefined)
         : (!worktree.has_lossy_line_endings
           ? gitGutterChangeHunk(worktree.file_path, rollbackBase, edit(change.rightStart, indexLines, after))
           : undefined),
