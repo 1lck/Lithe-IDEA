@@ -11,6 +11,7 @@ function message(
     id,
     role,
     text,
+    delivery: null,
     toolStatus: null,
     toolDetails: { kind: null, input: null, output: null, locations: [], content: [] },
   };

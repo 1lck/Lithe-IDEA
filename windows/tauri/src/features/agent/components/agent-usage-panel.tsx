@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "@/i18n/locale-provider";
-import { ClockIcon, GaugeIcon } from "@/ui/icons";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/ui/hover-card";
 import Tooltip from "@/ui/tooltip";
 import { cn } from "@/utils/cn";
 import { contextUsageDetails, quotaWindowLabel } from "../services/agent-session-selectors";
@@ -82,6 +82,59 @@ export function AgentContextUsageView({ usage }: { usage: AgentContextUsage | nu
  * The most used subscription window, as `AgentSubscriptionQuotaView` on macOS.
  * Only a subscription connection mounts it; it owns no network or credentials.
  */
+const FIVE_HOURS_SECONDS = 5 * 3_600;
+const SEVEN_DAYS_SECONDS = 7 * 86_400;
+
+/** 5-hour and weekly windows first, then any provider-specific window. */
+function orderedQuotaWindows(
+  quota: AgentSubscriptionQuota | null,
+): AgentSubscriptionQuotaWindow[] {
+  const priority = (window: AgentSubscriptionQuotaWindow) =>
+    window.limitSeconds === FIVE_HOURS_SECONDS
+      ? 0
+      : window.limitSeconds === SEVEN_DAYS_SECONDS
+        ? 1
+        : 2;
+  return (quota?.windows ?? []).slice().sort((left, right) => {
+    if (priority(left) !== priority(right)) return priority(left) - priority(right);
+    if ((left.name === "codex") !== (right.name === "codex")) {
+      return left.name === "codex" ? -1 : 1;
+    }
+    if (left.limitSeconds !== right.limitSeconds) {
+      return left.limitSeconds - right.limitSeconds;
+    }
+    return left.id.localeCompare(right.id);
+  });
+}
+
+type QuotaTone = "normal" | "warning" | "error" | "unknown";
+
+function quotaTone(usedPercent: number | null, stale: boolean): QuotaTone {
+  if (stale || usedPercent === null) return "unknown";
+  if (usedPercent > 90) return "error";
+  if (usedPercent > 60) return "warning";
+  return "normal";
+}
+
+const QUOTA_STROKE: Record<QuotaTone, string> = {
+  normal: "stroke-success",
+  warning: "stroke-warning",
+  error: "stroke-destructive",
+  unknown: "stroke-subtle-foreground/60",
+};
+
+const QUOTA_TEXT: Record<QuotaTone, string> = {
+  normal: "text-success",
+  warning: "text-warning",
+  error: "text-destructive",
+  unknown: "text-subtle-foreground",
+};
+
+/**
+ * A single ring like Claude Desktop, as `AgentSubscriptionQuotaView` on macOS:
+ * a gray track filled by the most used window, with the window breakdown only
+ * in the hover card. Only a subscription connection mounts it.
+ */
 export function AgentSubscriptionQuotaView({
   quota,
   account,
@@ -100,68 +153,118 @@ export function AgentSubscriptionQuotaView({
   }, []);
 
   const stale = failure !== null || (quota !== null && isQuotaStale(quota, now));
-  const primary = quota === null ? null : mostUsedQuotaWindow(quota);
-  const usage = (window: AgentSubscriptionQuotaWindow) =>
-    t("agent.quotaView.used", {
-      window: quotaWindowLabel(window.limitSeconds),
-      percent: window.usedPercent === null ? "—" : percent(window.usedPercent / 100, 0, language),
-    });
-  const date = (seconds: number, options: Intl.DateTimeFormatOptions) =>
-    new Intl.DateTimeFormat(language, options).format(new Date(seconds * 1000));
+  const windows = orderedQuotaWindows(quota);
+  const ring = (quota === null ? null : mostUsedQuotaWindow(quota)) ?? windows[0] ?? null;
+  const tone = quotaTone(ring?.usedPercent ?? null, stale);
+  const date = (seconds: number) =>
+    new Intl.DateTimeFormat(language, {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(new Date(seconds * 1000));
+  const windowTitle = (window: AgentSubscriptionQuotaWindow): string => {
+    const label =
+      window.limitSeconds === FIVE_HOURS_SECONDS
+        ? t("agent.quotaView.fiveHours")
+        : window.limitSeconds === SEVEN_DAYS_SECONDS
+          ? t("agent.quotaView.sevenDays")
+          : quotaWindowLabel(window.limitSeconds);
+    return window.name === "codex" ? label : `${window.name} · ${label}`;
+  };
+  const percentLabel = (window: AgentSubscriptionQuotaWindow): string =>
+    window.usedPercent === null ? "—" : percent(window.usedPercent / 100, 0, language);
+  const value = ring === null ? t("agent.quotaView.unknown") : percentLabel(ring);
+  const notice =
+    failure === "accountChanged" || failure === "unauthorized"
+      ? t("agent.quotaView.accountChanged")
+      : stale
+        ? t("agent.quotaView.stale")
+        : quota === null
+          ? t("agent.quotaView.waiting")
+          : null;
 
-  const lines = [t("agent.quotaView.title")];
-  if (account !== null) lines.push(account);
-  for (const window of quota?.windows ?? []) {
-    lines.push(`${window.name === "codex" ? "" : `${window.name} · `}${usage(window)}`);
-    if (window.resetsAt !== null) {
-      lines.push(
-        t("agent.quotaView.resets", {
-          time: date(window.resetsAt, {
-            month: "short",
-            day: "numeric",
-            hour: "2-digit",
-            minute: "2-digit",
-          }),
-        }),
-      );
-    }
-  }
-  if (quota !== null) {
-    lines.push(
-      t("agent.quotaView.updated", {
-        time: date(quota.fetchedAt, { hour: "2-digit", minute: "2-digit" }),
-      }),
-    );
-  }
-  if (failure === "accountChanged" || failure === "unauthorized") {
-    lines.push(t("agent.quotaView.accountChanged"));
-  } else if (stale) {
-    lines.push(t("agent.quotaView.stale"));
-  } else if (quota === null) {
-    lines.push(t("agent.quotaView.waiting"));
-  }
-  const details = lines.join("\n");
-
-  const used = primary?.usedPercent ?? 0;
-  const tone = stale
-    ? "text-subtle-foreground/70"
-    : used >= 100
-      ? "text-destructive"
-      : used >= 90
-        ? "text-warning"
-        : "text-subtle-foreground";
-  const Icon = stale ? ClockIcon : GaugeIcon;
-
+  const circumference = 2 * Math.PI * 5.5;
   return (
-    <Tooltip side="top" content={details} className="whitespace-pre-line">
-      <span
-        role="img"
-        aria-label={`${t("agent.quotaView.title")}: ${details}`}
-        className={cn("flex shrink-0 items-center gap-1 py-1 tabular-nums", tone)}
+    <HoverCard>
+      <HoverCardTrigger
+        render={<span role="img" tabIndex={0} />}
+        aria-label={`${t("agent.quotaView.title")}: ${value}`}
+        className="flex size-7 shrink-0 cursor-default items-center justify-center rounded hover:bg-accent"
       >
-        <Icon className="size-3" />
-        {primary === null ? t("agent.quotaView.unknown") : usage(primary)}
-      </span>
-    </Tooltip>
+        <svg aria-hidden viewBox="0 0 14 14" className="size-3.5 -rotate-90">
+          <circle
+            cx="7"
+            cy="7"
+            r="5.5"
+            fill="none"
+            strokeWidth={2}
+            className="stroke-subtle-foreground/40"
+          />
+          {ring?.usedPercent === null || ring?.usedPercent === undefined ? null : (
+            <circle
+              cx="7"
+              cy="7"
+              r="5.5"
+              fill="none"
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeDasharray={`${Math.min(Math.max(ring.usedPercent / 100, 0), 1) * circumference} ${circumference}`}
+              className={QUOTA_STROKE[tone]}
+            />
+          )}
+        </svg>
+      </HoverCardTrigger>
+      <HoverCardContent side="top" align="end" className="w-64">
+        <div className="flex flex-col gap-3.5">
+          <div className="flex flex-col gap-1">
+            <div className="font-semibold ui-text-xs">{t("agent.quotaView.title")}</div>
+            {account === null ? null : (
+              <div className="truncate ui-text-caption text-subtle-foreground">{account}</div>
+            )}
+          </div>
+          {windows.map((window) => {
+            const windowTone = quotaTone(window.usedPercent, stale);
+            return (
+              <div key={window.id} className="flex flex-col gap-1.5">
+                <div className="flex items-center justify-between gap-2 ui-text-caption">
+                  <span className="truncate">{windowTitle(window)}</span>
+                  <span className={cn("shrink-0 tabular-nums", QUOTA_TEXT[windowTone])}>
+                    {t("agent.quotaView.usedPercent", { percent: percentLabel(window) })}
+                  </span>
+                </div>
+                <div className="h-1.5 overflow-hidden rounded-full bg-subtle-foreground/25">
+                  {window.usedPercent === null ? null : (
+                    <div
+                      className={cn(
+                        "h-full rounded-full",
+                        windowTone === "normal"
+                          ? "bg-success"
+                          : windowTone === "warning"
+                            ? "bg-warning"
+                            : windowTone === "error"
+                              ? "bg-destructive"
+                              : "bg-subtle-foreground/60",
+                      )}
+                      style={{
+                        width: `${Math.min(Math.max(window.usedPercent / 100, 0), 1) * 100}%`,
+                      }}
+                    />
+                  )}
+                </div>
+                {window.resetsAt === null ? null : (
+                  <div className="ui-text-caption text-subtle-foreground">
+                    {t("agent.quotaView.resets", { time: date(window.resetsAt) })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {notice === null ? null : (
+            <div className="ui-text-caption text-subtle-foreground">{notice}</div>
+          )}
+        </div>
+      </HoverCardContent>
+    </HoverCard>
   );
 }

@@ -409,6 +409,165 @@ describe("Agent connection lifecycle", () => {
     expect(model.getSnapshot().connectionState).toEqual({ status: "idle" });
     expect(model.hasActiveConnection).toBe(false);
   });
+  describe("mid-turn steering", () => {
+    async function steeringConversation(): Promise<void> {
+      await model.connect(launch());
+      transport.emit({ ...fixture.events.ready, canSteer: true });
+      model.startNewConversation();
+      transport.emit({
+        ...fixture.events.sessionCreated,
+        token: transport.command("newSession")?.token,
+      });
+      model.send("Explain this project");
+    }
+
+    function conversation() {
+      return model.getSnapshot().conversations["session-1"];
+    }
+
+    test("a supplement is sent as steer and marked received", async () => {
+      await steeringConversation();
+      model.send("Focus on the login flow");
+
+      const steer = transport.command("steer");
+      expect(steer).toEqual({
+        kind: "steer",
+        token: steer?.token,
+        sessionId: "session-1",
+        text: "Focus on the login flow",
+      });
+      expect(conversation().pendingSteeringToken).toBe(steer?.token as string);
+      const supplement = conversation().messages[conversation().messages.length - 1];
+      expect(supplement.role).toBe("user");
+      expect(supplement.delivery).toBe("sending");
+
+      transport.emit({
+        ...fixture.events.steeringResult,
+        token: steer?.token,
+      });
+      expect(conversation().pendingSteeringToken).toBeNull();
+      expect(conversation().messages[conversation().messages.length - 1].delivery).toBe("received");
+    });
+
+    test("the live user echo does not duplicate a supplement", async () => {
+      await steeringConversation();
+      model.send("Focus on the login flow");
+      const before = conversation().messages.length;
+
+      transport.emit({
+        kind: "update",
+        sessionId: "session-1",
+        update: {
+          sessionUpdate: "user_message_chunk",
+          content: { type: "text", text: "Focus on the login flow" },
+        },
+      });
+      expect(conversation().messages).toHaveLength(before);
+    });
+
+    test("promptRequired waits for the turn and replays exactly once", async () => {
+      await steeringConversation();
+      model.send("Focus on the login flow");
+      const steer = transport.command("steer");
+
+      transport.emit({
+        ...fixture.events.steeringResult,
+        token: steer?.token,
+        outcome: "promptRequired",
+      });
+      expect(conversation().isResponding).toBe(true);
+      expect(model.getSnapshot().hasPendingContinuation).toBe(true);
+      expect(transport.commands.filter((command) => command.kind === "prompt")).toHaveLength(1);
+
+      transport.emit(fixture.events.turnFinished);
+
+      const prompts = transport.commands.filter((command) => command.kind === "prompt");
+      expect(prompts).toHaveLength(2);
+      expect(prompts[1]).toEqual({
+        kind: "prompt",
+        sessionId: "session-1",
+        text: "Focus on the login flow",
+      });
+      const messages = conversation().messages;
+      expect(messages.filter((message) => message.role === "user")).toHaveLength(2);
+      expect(messages[messages.length - 1].delivery).toBe("received");
+      expect(model.getSnapshot().hasPendingContinuation).toBe(false);
+    });
+
+    test("stopping the turn revokes a deferred supplement", async () => {
+      await steeringConversation();
+      model.send("Focus on the login flow");
+      const steer = transport.command("steer");
+      transport.emit({
+        ...fixture.events.steeringResult,
+        token: steer?.token,
+        outcome: "promptRequired",
+      });
+
+      model.cancel();
+
+      expect(transport.command("cancel")).toEqual({ kind: "cancel", sessionId: "session-1" });
+      expect(model.getSnapshot().hasPendingContinuation).toBe(false);
+      const messages = conversation().messages;
+      expect(messages[messages.length - 1].delivery).toEqual({
+        failed: "Supplementary message cancelled.",
+      });
+      transport.emit(fixture.events.turnFinished);
+      expect(transport.commands.filter((command) => command.kind === "prompt")).toHaveLength(1);
+    });
+
+    test("a rejected supplement keeps its input and reason", async () => {
+      await steeringConversation();
+      model.send("Focus on the login flow");
+      const steer = transport.command("steer");
+
+      transport.emit({
+        ...fixture.events.steeringResult,
+        token: steer?.token,
+        outcome: "failed",
+        message: "This Agent does not support messages while responding",
+      });
+
+      expect(conversation().pendingSteeringToken).toBeNull();
+      expect(conversation().messages[conversation().messages.length - 1].delivery).toEqual({
+        failed: "This Agent does not support messages while responding",
+      });
+    });
+
+    test("a failed steer request does not end the running turn", async () => {
+      await steeringConversation();
+      model.send("Focus on the login flow");
+      const steer = transport.command("steer");
+
+      transport.emit({
+        kind: "requestFailed",
+        token: steer?.token,
+        sessionId: "session-1",
+        message: "The Agent rejected the supplement.",
+      });
+
+      expect(conversation().isResponding).toBe(true);
+      expect(conversation().pendingSteeringToken).toBeNull();
+      expect(conversation().messages[conversation().messages.length - 1].delivery).toEqual({
+        failed: "The Agent rejected the supplement.",
+      });
+      // The next supplement is accepted once the rejected one is cleared.
+      model.send("Also check the logout flow");
+      expect(transport.commands.filter((command) => command.kind === "steer")).toHaveLength(2);
+    });
+
+    test("a disconnect fails an unconfirmed supplement", async () => {
+      await steeringConversation();
+      model.send("Focus on the login flow");
+
+      transport.emit({ kind: "stopped", message: "The Agent exited." });
+
+      expect(conversation().messages[conversation().messages.length - 1].delivery).toEqual({
+        failed: "The Agent exited.",
+      });
+      expect(model.getSnapshot().canSteer).toBe(false);
+    });
+  });
 });
 
 describe("Agent transcript export", () => {
@@ -631,4 +790,6 @@ describe("Agent session snapshots", () => {
     expect(transport.command("loadSession")?.sessionId).toBe("session-1");
     expect(transport.command("prompt")).toBeUndefined();
   });
+
+
 });

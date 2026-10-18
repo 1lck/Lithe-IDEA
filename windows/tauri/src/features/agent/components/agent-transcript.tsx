@@ -39,6 +39,7 @@ import {
   planProgress,
   type AgentConversation,
   type AgentConversationMessage,
+  type AgentMessageDelivery,
   type AgentPermissionPrompt,
   type AgentPlanEntry,
   type AgentPlanStatus,
@@ -523,6 +524,24 @@ function ToolGroup({
   );
 }
 
+function deliveryLabel(delivery: AgentMessageDelivery, t: Translate): string {
+  if (delivery === "sending") return t("agent.composer.sending");
+  if (delivery === "received") return t("agent.composer.received");
+  switch (delivery.failed) {
+    case "The Agent is not connected.":
+      return t("agent.error.notConnected");
+    case "The Agent connection closed.":
+      return t("agent.composer.connectionClosed");
+    case "Supplementary message cancelled.":
+      return t("agent.composer.supplementCancelled");
+    case "The Agent did not accept the supplementary message.":
+    case "The Agent did not accept the supplementary message":
+      return t("agent.composer.supplementRejected");
+    default:
+      return delivery.failed;
+  }
+}
+
 function MessageRow({
   message,
   onOpenLocation,
@@ -534,11 +553,26 @@ function MessageRow({
   searchText?: string;
   isStreaming?: boolean;
 }) {
+  const { t } = useTranslation();
   if (message.role === "user") {
     return (
       <div className="flex justify-end pl-10">
-        <div className="select-text whitespace-pre-wrap break-words rounded-[10px] bg-primary/18 px-3 py-2 text-foreground ui-text-base">
-          {message.text}
+        <div className="flex flex-col items-end">
+          <div className="select-text whitespace-pre-wrap break-words rounded-[10px] bg-primary/18 px-3 py-2 text-foreground ui-text-base">
+            {message.text}
+          </div>
+          {message.delivery === null ? null : (
+            <div
+              className={cn(
+                "mt-1 max-w-full break-words text-right text-[10px]",
+                typeof message.delivery === "object"
+                  ? "text-destructive"
+                  : "text-subtle-foreground",
+              )}
+            >
+              {deliveryLabel(message.delivery, t)}
+            </div>
+          )}
         </div>
       </div>
     );
@@ -968,6 +1002,7 @@ export function AgentTranscript({
                   id: "pending",
                   role: "user",
                   text: pendingPrompt,
+                  delivery: null,
                   toolStatus: null,
                   toolDetails: {
                     kind: null,

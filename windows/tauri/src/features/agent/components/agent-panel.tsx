@@ -155,6 +155,17 @@ export function AgentPanel({
   }, [selected, surfaceActions]);
   const agentName = AGENT_NAMES[settings.agentId] ?? snapshot.agentName;
   const isConfigured = settings.enabled && rootFolderPath !== null;
+  // macOS refuses to change a provider while a connection could lose work.
+  const canChangeAuthentication =
+    snapshot.connectionState.status !== "connecting" &&
+    !snapshot.isCreatingSession &&
+    !Object.values(snapshot.conversations).some(
+      (conversation) =>
+        conversation.isResponding ||
+        conversation.isLoading ||
+        conversation.pendingConfigToken !== null ||
+        conversation.pendingPermissions.length > 0,
+    );
 
   const connect = useCallback(() => {
     if (!settings.enabled) {
@@ -167,11 +178,15 @@ export function AgentPanel({
   }, [rootFolderPath, settings]);
 
   const reconnect = useCallback(() => {
+    // Read the store at call time: a settings edit is committed before the
+    // reconnect request, while this render's `settings` is still the old value.
+    const current = useSettingsStore.getState().settings.agentPanel;
+    if (rootFolderPath === null) return;
     void agentConnection()
       .stop()
-      .then(connect)
+      .then(() => openAgentConnection(rootFolderPath, current))
       .catch(() => undefined);
-  }, [connect]);
+  }, [rootFolderPath]);
 
   useEffect(() => {
     void agentDataDirectory()
@@ -372,6 +387,7 @@ export function AgentPanel({
             management={management}
             onChange={(next) => void updateSetting("agentPanel", next)}
             onReconnect={reconnect}
+            canChangeAuthentication={canChangeAuthentication}
           />
         </div>
       </PanelFrame>

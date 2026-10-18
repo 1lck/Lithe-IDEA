@@ -23,6 +23,7 @@ import {
   parseContextUsage,
   parsePlan,
   parseSessionConfigOptions,
+  emptyToolDetails,
   parseSubscriptionQuota,
   permissionPrompt,
   promptDisplayText,
@@ -33,6 +34,7 @@ import {
   type AgentConnectionState,
   type AgentConversation,
   type AgentConversationMessage,
+  type AgentMessageDelivery,
   type AgentPrompt,
   type AgentSessionSummary,
   type AgentSubscriptionQuota,
@@ -76,6 +78,13 @@ function defaultScheduler(): AgentFlushScheduler {
 
 export class AgentConnectionBusyError extends Error {}
 
+interface AgentSupplement {
+  token: string;
+  prompt: AgentPrompt;
+  messageID: string;
+  isCancelled: boolean;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -105,6 +114,10 @@ export interface AgentConnectionSnapshot {
   /** Monotonic submission time of that prompt, so its wait is timed too. */
   pendingNewConversationStartedAt: number | null;
   canLoadSessions: boolean;
+  /** The Agent accepts a supplementary message while it is responding. */
+  canSteer: boolean;
+  /** Input deferred to a normal prompt after the current turn. */
+  hasPendingContinuation: boolean;
   isRefreshingSessions: boolean;
   historyError: string | null;
   errorMessage: string | null;
@@ -129,6 +142,8 @@ function emptySnapshot(): AgentConnectionSnapshot {
     pendingNewConversationPrompt: null,
     pendingNewConversationStartedAt: null,
     canLoadSessions: false,
+    canSteer: false,
+    hasPendingContinuation: false,
     isRefreshingSessions: false,
     historyError: null,
     errorMessage: null,
@@ -148,6 +163,10 @@ export class AgentConnectionModel {
   private nextToken = 0;
   /** Prompts waiting for a session: keyed by new-session token or session id. */
   private queuedPrompts = new Map<string, AgentPrompt>();
+  /** Supplementary input keyed by session, awaiting the host acknowledgement. */
+  private supplements = new Map<string, AgentSupplement>();
+  /** Acknowledged input that must be replayed as a normal prompt after the turn. */
+  private continuations = new Map<string, AgentSupplement>();
   private loadTokens = new Map<string, string>();
   private pendingText = new Map<string, string>();
   private createToken: string | null = null;
@@ -197,6 +216,8 @@ export class AgentConnectionModel {
     this.scheduler.cancel();
     this.canListSessions = false;
     this.queuedPrompts.clear();
+    this.supplements.clear();
+    this.continuations.clear();
     this.loadTokens.clear();
     this.failTranscripts();
     this.pendingText.clear();
@@ -238,7 +259,13 @@ export class AgentConnectionModel {
         isResponding: false,
         isCancelling: false,
         pendingConfigToken: null,
+        pendingSteeringToken: null,
         pendingPermissions: [],
+        messages: conversation.messages.map((message) =>
+          message.delivery === "sending"
+            ? { ...message, delivery: { failed: "The Agent connection closed." } }
+            : message,
+        ),
       };
     }
     this.update({
@@ -269,7 +296,10 @@ export class AgentConnectionModel {
   }
 
   private update(change: Partial<AgentConnectionSnapshot>): void {
-    this.snapshot = { ...this.snapshot, ...change };
+    const next = { ...this.snapshot, ...change };
+    next.hasPendingContinuation =
+      next.selectedSessionID !== null && this.continuations.has(next.selectedSessionID);
+    this.snapshot = next;
     for (const listener of this.listeners) listener();
   }
 
@@ -315,6 +345,7 @@ export class AgentConnectionModel {
       subscriptionPlan: null,
       subscriptionQuota: null,
       quotaFailure: null,
+      canSteer: false,
       connectionState: { status: "connecting" },
     });
     let connection: AgentTransportConnection;
@@ -529,6 +560,8 @@ export class AgentConnectionModel {
       conversation === undefined ||
       conversation.isResponding ||
       conversation.isLoading ||
+      conversation.pendingSteeringToken !== null ||
+      this.continuations.has(sessionID) ||
       conversation.pendingConfigToken !== null ||
       currentPermission(conversation) !== null
     ) {
@@ -575,8 +608,45 @@ export class AgentConnectionModel {
     }
 
     const conversation = this.snapshot.conversations[sessionID] ?? createConversation();
+    if (conversation.pendingSteeringToken !== null || this.continuations.has(sessionID)) {
+      throw new AgentConnectionBusyError("A supplementary message is still pending in this conversation.");
+    }
     if (conversation.isResponding) {
-      throw new AgentConnectionBusyError("The Agent is still responding in this conversation.");
+      if (!this.snapshot.canSteer || conversation.isCancelling) {
+        throw new AgentConnectionBusyError("The Agent is still responding in this conversation.");
+      }
+      const token = this.makeToken();
+      const command: Record<string, unknown> = {
+        kind: "steer",
+        token,
+        sessionId: sessionID,
+        text: prompt.text,
+      };
+      if (prompt.files.length > 0) command.files = prompt.files;
+      if (!this.sendCommand(command)) {
+        throw new AgentConnectionBusyError(
+          this.snapshot.errorMessage ?? "The Agent is not connected.",
+        );
+      }
+      this.flushPendingText();
+      const messageID = crypto.randomUUID();
+      this.editConversation(sessionID, (current) => ({
+        ...current,
+        messages: [
+          ...current.messages,
+          {
+            id: messageID,
+            role: "user",
+            text: promptDisplayText(prompt),
+            delivery: "sending",
+            toolStatus: null,
+            toolDetails: emptyToolDetails(),
+          },
+        ],
+        pendingSteeringToken: token,
+      }));
+      this.supplements.set(sessionID, { token, prompt, messageID, isCancelled: false });
+      return;
     }
     if (conversation.pendingConfigToken !== null) {
       throw new AgentConnectionBusyError("A configuration change is still pending.");
@@ -601,12 +671,19 @@ export class AgentConnectionModel {
     const sessionID = this.snapshot.selectedSessionID;
     if (sessionID === null) return;
     const conversation = this.snapshot.conversations[sessionID];
-    if (conversation?.isResponding !== true || conversation.isCancelling) return;
-    this.editConversation(sessionID, (current) => ({
-      ...current,
-      isCancelling: true,
-      pendingPermissions: [],
-    }));
+    const isResponding = conversation?.isResponding === true;
+    const hasContinuation = this.continuations.has(sessionID);
+    if ((!isResponding && !hasContinuation) || conversation?.isCancelling === true) return;
+    if (isResponding) {
+      this.editConversation(sessionID, (current) => ({
+        ...current,
+        isCancelling: true,
+        pendingPermissions: [],
+      }));
+    }
+    this.cancelContinuation(sessionID);
+    // A queued continuation has no native turn to cancel.
+    if (!isResponding) return;
     if (!this.sendCommand({ kind: "cancel", sessionId: sessionID })) {
       this.editConversation(sessionID, (current) => ({ ...current, isCancelling: false }));
     }
@@ -715,9 +792,43 @@ export class AgentConnectionModel {
           agentName: asString(event.agentName),
           agentVersion: asString(event.agentVersion),
           canLoadSessions: event.canLoadSessions === true,
+          canSteer: event.canSteer === true,
         });
         this.refreshSessions();
         return;
+      case "steeringResult": {
+        if (sessionID === null || token === null) return;
+        const supplement = this.supplements.get(sessionID);
+        if (supplement === undefined || supplement.token !== token) return;
+        this.supplements.delete(sessionID);
+        this.editConversation(sessionID, (current) => ({
+          ...current,
+          pendingSteeringToken: null,
+        }));
+        switch (asString(event.outcome)) {
+          case "injected":
+            this.setDelivery(sessionID, supplement.messageID, "received");
+            return;
+          case "promptRequired":
+            if (supplement.isCancelled) {
+              this.setDelivery(sessionID, supplement.messageID, {
+                failed: "Supplementary message cancelled.",
+              });
+              return;
+            }
+            this.continuations.set(sessionID, supplement);
+            this.update({});
+            this.resumeContinuation(sessionID);
+            return;
+          default:
+            this.setDelivery(sessionID, supplement.messageID, {
+              failed:
+                asString(event.message) ??
+                "The Agent did not accept the supplementary message.",
+            });
+            return;
+        }
+      }
       case "sessions": {
         if (!this.snapshot.isRefreshingSessions || token !== this.historyRefreshToken) return;
         this.mergeSessions(Array.isArray(event.sessions) ? event.sessions : []);
@@ -789,6 +900,7 @@ export class AgentConnectionModel {
         this.refreshQuota();
         if (sessionID === null) return;
         const stopReason = asString(event.stopReason);
+        if (stopReason === "cancelled") this.cancelContinuation(sessionID);
         this.flushPendingText();
         const usage = parseTurnUsage(event.usage);
         this.editConversation(sessionID, (current) => ({
@@ -798,6 +910,7 @@ export class AgentConnectionModel {
           pendingPermissions: [],
           errorMessage: stopReasonMessage(stopReason),
         }));
+        this.resumeContinuation(sessionID);
         return;
       }
       case "requestFailed":
@@ -860,6 +973,20 @@ export class AgentConnectionModel {
         configurationError: message,
       }));
       return;
+    }
+    if (sessionID !== null && token !== null) {
+      const supplement = this.supplements.get(sessionID);
+      if (supplement !== undefined && supplement.token === token) {
+        // A rejected steer belongs to the supplement, not to the running turn.
+        this.supplements.delete(sessionID);
+        this.setDelivery(sessionID, supplement.messageID, { failed: message });
+        this.editConversation(sessionID, (current) => ({
+          ...current,
+          pendingSteeringToken:
+            current.pendingSteeringToken === token ? null : current.pendingSteeringToken,
+        }));
+        return;
+      }
     }
     if (token !== null && token === this.createToken) {
       this.queuedPrompts.delete(token);
@@ -978,6 +1105,9 @@ export class AgentConnectionModel {
         return;
       }
       case "user_message_chunk": {
+        // Live input is already shown locally, including pending steering.
+        // Replay still rebuilds the upstream-owned transcript while loading.
+        if (this.snapshot.conversations[sessionID]?.isResponding === true) return;
         const text = updateText(update);
         if (text === null) return;
         this.flushPendingText();
@@ -1041,7 +1171,7 @@ export class AgentConnectionModel {
     }
   }
   /** Returns false when the command could not be queued, leaving the draft intact. */
-  private startPrompt(prompt: AgentPrompt, sessionID: string): boolean {
+  private startPrompt(prompt: AgentPrompt, sessionID: string, messageID?: string): boolean {
     const command: Record<string, unknown> = {
       kind: "prompt",
       sessionId: sessionID,
@@ -1051,15 +1181,75 @@ export class AgentConnectionModel {
     if (!this.sendCommand(command)) return false;
     this.unpromptedSessionIDs.delete(sessionID);
     this.editConversation(sessionID, (current) => {
-      const next = appendMessage(
-        { ...current, isResponding: true, errorMessage: null },
-        "user",
-        promptDisplayText(prompt),
-      );
+      const base = { ...current, isResponding: true, errorMessage: null };
+      if (messageID !== undefined) {
+        return {
+          ...base,
+          messages: current.messages.map((message) =>
+            message.id === messageID ? { ...message, delivery: "received" as const } : message,
+          ),
+          activeTurn: startTurn(messageID, prompt.submittedAt),
+        };
+      }
+      const next = appendMessage(base, "user", promptDisplayText(prompt));
       const message = next.messages[next.messages.length - 1];
       return { ...next, activeTurn: startTurn(message.id, prompt.submittedAt) };
     });
     return true;
+  }
+
+  private setDelivery(
+    sessionID: string,
+    messageID: string,
+    delivery: AgentMessageDelivery,
+  ): void {
+    this.editConversation(sessionID, (current) => ({
+      ...current,
+      messages: current.messages.map((message) =>
+        message.id === messageID ? { ...message, delivery } : message,
+      ),
+    }));
+  }
+
+  private cancelContinuation(sessionID: string): void {
+    const supplement = this.supplements.get(sessionID);
+    if (supplement !== undefined) supplement.isCancelled = true;
+    const continuation = this.continuations.get(sessionID);
+    if (continuation === undefined) return;
+    this.continuations.delete(sessionID);
+    this.setDelivery(sessionID, continuation.messageID, {
+      failed: "Supplementary message cancelled.",
+    });
+  }
+
+  /**
+   * Explicitly unconsumed input, including deferred commands, becomes a normal
+   * prompt after this turn; ambiguous delivery failures never replay.
+   */
+  private resumeContinuation(sessionID: string): void {
+    const supplement = this.continuations.get(sessionID);
+    if (supplement === undefined) return;
+    const conversation = this.snapshot.conversations[sessionID];
+    if (
+      conversation === undefined ||
+      conversation.isResponding ||
+      conversation.isCancelling ||
+      conversation.pendingConfigToken !== null
+    ) {
+      return;
+    }
+    this.continuations.delete(sessionID);
+    if (
+      conversation.configurationError !== null ||
+      !this.startPrompt(supplement.prompt, sessionID, supplement.messageID)
+    ) {
+      this.setDelivery(sessionID, supplement.messageID, {
+        failed:
+          conversation.configurationError ??
+          this.snapshot.errorMessage ??
+          "The Agent is not connected.",
+      });
+    }
   }
 
   /**
@@ -1117,6 +1307,15 @@ export class AgentConnectionModel {
     this.queuedPrompts.clear();
     this.loadTokens.clear();
     this.failTranscripts();
+    // Nothing may keep waiting for an acknowledgement that died with the old
+    // connection, and the input itself stays visible with the reason.
+    for (const [id, supplement] of [...this.supplements, ...this.continuations]) {
+      this.setDelivery(id, supplement.messageID, {
+        failed: failure?.message ?? "The Agent is not connected.",
+      });
+    }
+    this.supplements.clear();
+    this.continuations.clear();
     const conversations = { ...this.snapshot.conversations };
     for (const [id, backup] of this.loadBackups) conversations[id] = backup;
     this.loadBackups.clear();
@@ -1139,6 +1338,7 @@ export class AgentConnectionModel {
         isLoading: false,
         isResponding: false,
         isCancelling: false,
+        pendingSteeringToken: null,
         pendingConfigToken: null,
         pendingPermissions: [],
       };
@@ -1147,6 +1347,7 @@ export class AgentConnectionModel {
     this.update({
       conversations,
       connectionState: failure ?? { status: "idle" },
+      canSteer: false,
       subscriptionQuota: null,
       subscriptionEmail: null,
       subscriptionPlan: null,

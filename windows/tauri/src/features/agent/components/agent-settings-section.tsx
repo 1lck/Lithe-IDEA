@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
+import { CheckIcon } from "@/ui/icons";
 import Input from "@/ui/input";
 import Select from "@/ui/select";
 import { Spinner } from "@/ui/spinner";
 import Switch from "@/ui/switch";
 import Textarea from "@/ui/textarea";
+import { cn } from "@/utils/cn";
 import type { AgentManagement } from "../hooks/use-agent-management";
 import { readAgentApiKey, storeAgentApiKey } from "../services/agent-launch";
 import {
@@ -17,6 +19,8 @@ import {
   CLAUDE_AGENT_ID,
   CODEX_AGENT_ID,
   CUSTOM_AGENT_ID,
+  defaultAgentModel,
+  providerAfterAgentChange,
   supportsCodexSubscription,
   type AgentPanelSettings,
 } from "../types/agent-settings.types";
@@ -32,6 +36,8 @@ interface AgentSettingsSectionProps {
   management: AgentManagement;
   /** Reconnect with what was just saved. */
   onReconnect: () => void;
+  /** A running turn or pending confirmation must not lose its provider. */
+  canChangeAuthentication: boolean;
 }
 
 /**
@@ -43,6 +49,7 @@ export function AgentSettingsSection({
   onChange,
   management,
   onReconnect,
+  canChangeAuthentication,
 }: AgentSettingsSectionProps) {
   const { t } = useTranslation();
   const [apiKeyDraft, setApiKeyDraft] = useState("");
@@ -150,7 +157,12 @@ export function AgentSettingsSection({
           value={settings.agentId}
           options={agentOptions}
           onChange={(agentId) =>
-            onChange({ ...settings, agentId, authentication: "apiKey" })
+            onChange({
+              ...settings,
+              agentId,
+              authentication: "apiKey",
+              provider: providerAfterAgentChange(settings.provider, settings.agentId, agentId),
+            })
           }
         />
         <Button
@@ -291,25 +303,44 @@ export function AgentSettingsSection({
       ) : null}
 
       {supportsCodexSubscription(settings.agentId) ? (
-        <div className="flex items-center gap-2">
-          <span className="w-20 shrink-0 text-subtle-foreground">
-            {t("agent.settings.authentication")}
+        <div className="flex items-center gap-2 py-1.5">
+          <span
+            aria-hidden
+            className={cn(
+              "flex size-4 shrink-0 items-center justify-center rounded-full border",
+              isSubscription
+                ? "border-primary bg-primary text-primary-foreground"
+                : "border-subtle-foreground/60 text-subtle-foreground",
+            )}
+          >
+            {isSubscription ? <CheckIcon className="size-2.5" /> : null}
           </span>
-          <Select
-            size="sm"
-            className="min-w-0 flex-1"
-            value={settings.authentication}
-            options={[
-              { value: "apiKey", label: t("agent.settings.apiKeyMode") },
-              { value: "codexSubscription", label: t("agent.settings.subscriptionMode") },
-            ]}
-            onChange={(value) =>
+          <div className="min-w-0 flex-1">
+            <div className="text-foreground">{t("agent.settings.subscriptionMode")}</div>
+            <div className="text-subtle-foreground ui-text-caption">
+              {t("agent.settings.subscriptionRowHint")}
+            </div>
+          </div>
+          <Button
+            type="button"
+            size="xs"
+            variant={isSubscription ? "ghost" : "accent"}
+            disabled={!canChangeAuthentication}
+            title={
+              canChangeAuthentication ? undefined : t("agent.settings.busyAuthentication")
+            }
+            onClick={() => {
               onChange({
                 ...settings,
-                authentication: value === "codexSubscription" ? "codexSubscription" : "apiKey",
-              })
-            }
-          />
+                authentication: isSubscription ? "apiKey" : "codexSubscription",
+              });
+              onReconnect();
+            }}
+          >
+            {isSubscription
+              ? t("agent.settings.useApiKey")
+              : t("agent.settings.enableSubscription")}
+          </Button>
         </div>
       ) : null}
 
@@ -344,7 +375,9 @@ export function AgentSettingsSection({
               size="sm"
               className="min-w-0 flex-1"
               value={settings.provider.model}
-              placeholder={t("agent.settings.modelPlaceholder")}
+              placeholder={
+                defaultAgentModel(settings.agentId) || t("agent.settings.modelPlaceholder")
+              }
               onChange={(event) =>
                 onChange({
                   ...settings,

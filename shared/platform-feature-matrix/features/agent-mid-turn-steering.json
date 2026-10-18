@@ -21,14 +21,23 @@
     ]
   },
   "windows": {
-    "implementationStatus": "partial",
+    "implementationStatus": "implemented",
     "verificationStatus": "pending",
     "evidence": [
       "rust/lithe-agent-host/src/steering.rs",
+      "rust/lithe-agent-host/src/lib.rs",
       "shared/contracts/rust-core-api.md",
-      "windows/tauri/src/config/backend-capabilities.ts"
+      "shared/fixtures/agent/acp-events-v1.json",
+      "windows/tauri/src/config/backend-capabilities.ts",
+      "windows/tauri/src/features/agent/stores/agent-connection.model.ts",
+      "windows/tauri/src/features/agent/stores/agent-connection.model.test.ts",
+      "windows/tauri/src/features/agent/components/agent-composer.tsx",
+      "windows/tauri/src/features/agent/components/agent-transcript.tsx",
+      "windows/tauri/src/features/agent/types/agent.types.ts",
+      "windows/tauri/src/i18n/locale.ts"
     ]
   },
   "owner": "Agent",
-  "verification": "macOS 分别使用 Codex API Key、Codex 订阅和 Claude API Key，在输出、工具执行和等待授权期间发送补充，确认发送与停止独立、上游接受后调整当前任务、原计时和权限保留、用户回显不重复；连续发送保持顺序，拒绝和断连保留输入并显示错误。受控 ACP 测试覆盖完成先于补充确认、Claude promptRequired 仅续发一次且停止撤销、turnFinished 后等待多项配置时取消不发送原生 cancel，全部确认后也不再续发；Codex /status 等斜杠命令（含前导空白和附件）不调用 steering，原回复结束后由普通 prompt 响应完成，无新轮状态事件仍可继续对话；普通补充 startedNewTurn 等待新轮明确 idle，重复旧 idle 不提前结束、停止仍可达续轮且不确认时看门狗清理；超时不自动重放。深浅主题与窄面板检查发送和停止及等待配置时的 Stop/Esc 可用；切换界面语言后发送、已接收、取消和拒绝文案跟随界面语言，用户输入保持原文。真实供应商和 Windows 运行验收待完成；Windows Agent 原生后端当前未启用，仅共享协议已实现。 原生受控回归在 280/480pt 宽度与深浅主题下实际点击独立 Send/Stop，检查 steer/cancel 命令及发送中/已接收状态，并可输出补充发送前、发送中、已接收、停止中的组件截图；该验证不替代真实供应商、完整产品桌面合成或 Windows 端到端验收。"
+  "verification": "macOS 分别使用 Codex API Key、Codex 订阅和 Claude API Key，在输出、工具执行和等待授权期间发送补充，确认发送与停止独立、上游接受后调整当前任务、原计时和权限保留、用户回显不重复；连续发送保持顺序，拒绝和断连保留输入并显示错误。受控 ACP 测试覆盖完成先于补充确认、Claude promptRequired 仅续发一次且停止撤销、turnFinished 后等待多项配置时取消不发送原生 cancel，全部确认后也不再续发；Codex /status 等斜杠命令（含前导空白和附件）不调用 steering，原回复结束后由普通 prompt 响应完成，无新轮状态事件仍可继续对话；普通补充 startedNewTurn 等待新轮明确 idle，重复旧 idle 不提前结束、停止仍可达续轮且不确认时看门狗清理；超时不自动重放。深浅主题与窄面板检查发送和停止及等待配置时的 Stop/Esc 可用；切换界面语言后发送、已接收、取消和拒绝文案跟随界面语言，用户输入保持原文。真实供应商和 Windows 运行验收待完成；Windows Agent 原生后端当前未启用，仅共享协议已实现。 原生受控回归在 280/480pt 宽度与深浅主题下实际点击独立 Send/Stop，检查 steer/cancel 命令及发送中/已接收状态，并可输出补充发送前、发送中、已接收、停止中的组件截图；该验证不替代真实供应商、完整产品桌面合成或 Windows 端到端验收。 Windows：共享 Rust host 的 `steer`/`steeringResult` 已接到 Tauri 前端。回复中发送走独立 steer 命令并保留原轮次计时与授权；消息先显示“正在发送…”，`injected` 后变为“Agent 已接收”，失败保留输入与原因；`promptRequired`（含斜杠命令）在轮次结束后只以普通 prompt 续发一次，续发复用原消息 ID 不重复回显；停止会撤销未消费的 continuation；断连把未确认补充标为失败并清除 steering 能力；实时 `user_message_chunk` 在回复期间忽略，历史回放仍照常重建。单测覆盖已接收、promptRequired 单次续发、停止撤销、拒绝与断连；真实 Codex/Claude 供应商与 Windows UI 验收待执行。",
+  "notes": "2026-10-18 Windows：`AgentConnectionModel` 增加 `canSteer`、`pendingSteeringToken`、补充消息 delivery 状态与 continuation 队列；Composer 在响应中显示独立 Stop 与 Send，Send 仅在协商 `canSteer` 时可用；Transcript 在用户气泡下方显示发送/已接收/失败。"
 }
