@@ -130,9 +130,10 @@ struct MacFileStorage: FileStorage {
         do {
             matches = try snapshotMatches(at: temporary, expected: expected)
         } catch {
-            try? resolveMismatch(
+            let state = (try? resolveMismatch(
                 data, &removeTemporary, temporary: temporary, target: url
-            )
+            )) ?? .unknown
+            if case .superseded = state { return false }
             throw CocoaError(.fileWriteUnknown)
         }
         guard matches else {
@@ -193,10 +194,12 @@ struct MacFileStorage: FileStorage {
     /// A regular newer save makes the displaced copy obsolete; for a missing,
     /// special or unreadable destination the displaced bytes are the only
     /// remaining copy, so they are kept and the write fails closed.
+    @discardableResult
     private func resolveMismatch(
         _ published: Data, _ removeTemporary: inout Bool, temporary: URL, target: URL
-    ) throws {
-        switch destinationState(published: published, at: target) {
+    ) throws -> DestinationState {
+        let state = destinationState(published: published, at: target)
+        switch state {
         case .published:
             try undoExchange(&removeTemporary, temporary: temporary, target: target)
         case .superseded:
@@ -205,6 +208,7 @@ struct MacFileStorage: FileStorage {
             removeTemporary = false
             throw CocoaError(.fileWriteUnknown)
         }
+        return state
     }
 
     /// Moves the destination aside atomically, then verifies what was moved.
@@ -262,9 +266,13 @@ struct MacFileStorage: FileStorage {
         } catch let error as CocoaError where error.code == .fileWriteFileExists {
             return false
         } catch {
-            // Exclusive create can leave a partially written file on some
-            // failures; never let it become the Agent's configuration.
-            try? FileManager.default.removeItem(at: url)
+            // Exclusive create can leave a partial file on some failures.
+            // Remove it only when it is a prefix of our own bytes, so a file
+            // another process created meanwhile is never deleted.
+            if let current = try? Data(contentsOf: url),
+               current.count < data.count, data.starts(with: current) {
+                try? FileManager.default.removeItem(at: url)
+            }
             throw error
         }
     }

@@ -145,7 +145,12 @@ final class MacAgentMcpConfigurationStore: McpConfigurationStore {
     /// Only rewrites the mode while the failed publish left this call's bytes
     /// at the destination; an external file keeps the mode its writer chose.
     private func restorePermissions(_ permissions: Int, to target: URL, ifHolding data: Data) {
-        guard let current = try? storage.readData(from: target, options: []),
+        // A special or oversized file must not be read back just to restore a
+        // mode; only this call's own regular-file bytes justify touching it.
+        guard let metadata = storage.metadata(for: target),
+              metadata.isRegularFile,
+              metadata.byteCount == data.count,
+              let current = try? storage.readData(from: target, options: []),
               current == data else { return }
         applyPermissions(permissions, to: target)
     }
