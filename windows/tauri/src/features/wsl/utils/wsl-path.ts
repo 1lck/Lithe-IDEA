@@ -94,7 +94,7 @@ export function getWslDisplayPath(path: string): string {
  * WSL mounts each drive under `/mnt/<letter>` by default, so `C:\work\a.txt`
  * becomes `/mnt/c/work/a.txt`. A shell inside the distribution cannot open the
  * Windows form at all: it treats the backslashes as ordinary characters in a
- * relative filename.
+ * relative filename. A path already written in Linux form needs no translation.
  *
  * Returns null when the path cannot be translated reliably — a UNC share is not
  * mounted at a predictable location — so callers can keep the original instead of
@@ -108,8 +108,33 @@ export function windowsPathToWslPath(path: string): string | null {
     return rest ? `/mnt/${drive}/${rest}` : `/mnt/${drive}`;
   }
 
-  // A path already written in Linux form needs no translation.
   if (path.startsWith("/")) return path;
 
   return null;
+}
+
+/**
+ * Translate a path into the form a WSL distribution can open.
+ *
+ * Three shapes reach a WSL session:
+ *
+ * - `wsl://Ubuntu/home/me/proj` — the workspace protocol path the explorer uses
+ *   for a WSL root. Only the part inside the target distribution is usable, and
+ *   only when it is the same distribution the shell runs.
+ * - `C:\work\a.txt` — a local Windows drive, mounted as `/mnt/c/work/a.txt`.
+ * - `/home/me/a.txt` — already Linux, kept as written.
+ *
+ * Returns null when the path cannot be translated reliably, so callers keep the
+ * original instead of inserting a path that silently points nowhere.
+ */
+export function pathToWslPath(path: string, distro: string): string | null {
+  const info = parseWslPath(path);
+  if (info) {
+    // A path from another distribution is not reachable from this one; the
+    // `\\wsl$\<distro>` share would be a guess, so report it instead.
+    if (info.distro.toLowerCase() !== distro.toLowerCase()) return null;
+    return info.linuxPath;
+  }
+
+  return windowsPathToWslPath(path);
 }

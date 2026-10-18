@@ -133,11 +133,12 @@ describe("formatPathsForTerminal", () => {
   });
 });
 
-// PowerShell's typographic quotes are not string delimiters (verified against
-// PowerShell 5.1: U+2018, U+2019, U+201A, U+201B, U+FF07 and U+2032 all stay
-// literal inside a single-quoted string), so only the ASCII apostrophe needs the
-// doubling above. These cases pin that assumption so a future shell change is
-// visible instead of silent.
+// PowerShell's typographic quotes are not string delimiters. Verified with the
+// PowerShell 5.1 lexer (System.Management.Automation.Language.Parser): a path
+// containing U+2019 parses as ONE StringLiteral token, while the same shape with
+// an ASCII apostrophe parses into a StringLiteral followed by a separate
+// statement and a comment. Only the ASCII apostrophe therefore needs doubling.
+// These cases pin the emitted text so a future shell change is visible.
 describe("typographic quotes inside a quoted path", () => {
   for (const [name, codePoint] of [
     ["left single quote", 0x2018],
@@ -154,6 +155,14 @@ describe("typographic quotes inside a quoted path", () => {
       expect(text).toBe(`'${path}'`);
     });
   }
+
+  // The only ASCII apostrophe escapes by doubling, so the shell lexes the whole
+  // path as one literal instead of ending it early.
+  test("doubles the ASCII apostrophe so it cannot end the literal", () => {
+    expect(formatPathsForTerminal(["C:\\work\\it's.txt"], { shell: "powershell" })).toBe(
+      "'C:\\work\\it''s.txt'",
+    );
+  });
 });
 
 describe("formatDroppedPathsForTerminal", () => {
