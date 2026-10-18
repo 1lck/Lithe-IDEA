@@ -1,0 +1,1123 @@
+{
+  "format": "litheBuildModel",
+  "version": 1,
+  "projects": [
+    {
+      "path": "${workspace}",
+      "name": "reactor",
+      "displayName": "Demo Reactor",
+      "properties": {
+        "groupId": "demo",
+        "artifactId": "reactor",
+        "version": "1.0.0-SNAPSHOT",
+        "packaging": "pom"
+      }
+    },
+    {
+      "path": "${workspace}/core",
+      "name": "core",
+      "parent": "${workspace}",
+      "properties": {
+        "groupId": "demo",
+        "artifactId": "core",
+        "version": "1.0.0-SNAPSHOT",
+        "packaging": "jar"
+      }
+    },
+    {
+      "path": "${workspace}/app",
+      "name": "app",
+      "parent": "${workspace}",
+      "properties": {
+        "groupId": "demo",
+        "artifactId": "app",
+        "version": "1.0.0-SNAPSHOT",
+        "packaging": "jar"
+      }
+    }
+  ],
+  "tasks": [
+    {
+      "project": "${workspace}",
+      "name": "clean:clean",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-clean-plugin:3.5.0",
+      "category": [
+        "Plugins",
+        "clean"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-clean-plugin:3.5.0:clean"
+      }
+    },
+    {
+      "project": "${workspace}",
+      "name": "clean:help",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-clean-plugin:3.5.0",
+      "category": [
+        "Plugins",
+        "clean"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-clean-plugin:3.5.0:help"
+      }
+    },
+    {
+      "project": "${workspace}",
+      "name": "install:help",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-install-plugin:3.2.0",
+      "category": [
+        "Plugins",
+        "install"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-install-plugin:3.2.0:help"
+      }
+    },
+    {
+      "project": "${workspace}",
+      "name": "install:install",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-install-plugin:3.2.0",
+      "category": [
+        "Plugins",
+        "install"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-install-plugin:3.2.0:install"
+      }
+    },
+    {
+      "project": "${workspace}",
+      "name": "install:install-file",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-install-plugin:3.2.0",
+      "category": [
+        "Plugins",
+        "install"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-install-plugin:3.2.0:install-file"
+      }
+    },
+    {
+      "project": "${workspace}",
+      "name": "deploy:deploy",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-deploy-plugin:3.2.0",
+      "category": [
+        "Plugins",
+        "deploy"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-deploy-plugin:3.2.0:deploy"
+      }
+    },
+    {
+      "project": "${workspace}",
+      "name": "deploy:deploy-file",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-deploy-plugin:3.2.0",
+      "category": [
+        "Plugins",
+        "deploy"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-deploy-plugin:3.2.0:deploy-file"
+      }
+    },
+    {
+      "project": "${workspace}",
+      "name": "deploy:help",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-deploy-plugin:3.2.0",
+      "category": [
+        "Plugins",
+        "deploy"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-deploy-plugin:3.2.0:help"
+      }
+    },
+    {
+      "project": "${workspace}",
+      "name": "site:attach-descriptor",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-site-plugin:3.22.0",
+      "category": [
+        "Plugins",
+        "site"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-site-plugin:3.22.0:attach-descriptor"
+      }
+    },
+    {
+      "project": "${workspace}",
+      "name": "site:auto-refresh",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-site-plugin:3.22.0",
+      "category": [
+        "Plugins",
+        "site"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-site-plugin:3.22.0:auto-refresh"
+      }
+    },
+    {
+      "project": "${workspace}",
+      "name": "site:deploy",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-site-plugin:3.22.0",
+      "category": [
+        "Plugins",
+        "site"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-site-plugin:3.22.0:deploy"
+      }
+    },
+    {
+      "project": "${workspace}",
+      "name": "site:effective-site",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-site-plugin:3.22.0",
+      "category": [
+        "Plugins",
+        "site"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-site-plugin:3.22.0:effective-site"
+      }
+    },
+    {
+      "project": "${workspace}",
+      "name": "site:help",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-site-plugin:3.22.0",
+      "category": [
+        "Plugins",
+        "site"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-site-plugin:3.22.0:help"
+      }
+    },
+    {
+      "project": "${workspace}",
+      "name": "site:jar",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-site-plugin:3.22.0",
+      "category": [
+        "Plugins",
+        "site"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-site-plugin:3.22.0:jar"
+      }
+    },
+    {
+      "project": "${workspace}",
+      "name": "site:run",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-site-plugin:3.22.0",
+      "category": [
+        "Plugins",
+        "site"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-site-plugin:3.22.0:run"
+      }
+    },
+    {
+      "project": "${workspace}",
+      "name": "site:site",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-site-plugin:3.22.0",
+      "category": [
+        "Plugins",
+        "site"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-site-plugin:3.22.0:site"
+      }
+    },
+    {
+      "project": "${workspace}",
+      "name": "site:stage",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-site-plugin:3.22.0",
+      "category": [
+        "Plugins",
+        "site"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-site-plugin:3.22.0:stage"
+      }
+    },
+    {
+      "project": "${workspace}",
+      "name": "site:stage-deploy",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-site-plugin:3.22.0",
+      "category": [
+        "Plugins",
+        "site"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-site-plugin:3.22.0:stage-deploy"
+      }
+    },
+    {
+      "project": "${workspace}/core",
+      "name": "clean:clean",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-clean-plugin:3.5.0",
+      "category": [
+        "Plugins",
+        "clean"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-clean-plugin:3.5.0:clean"
+      }
+    },
+    {
+      "project": "${workspace}/core",
+      "name": "clean:help",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-clean-plugin:3.5.0",
+      "category": [
+        "Plugins",
+        "clean"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-clean-plugin:3.5.0:help"
+      }
+    },
+    {
+      "project": "${workspace}/core",
+      "name": "resources:copy-resources",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-resources-plugin:3.5.0",
+      "category": [
+        "Plugins",
+        "resources"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-resources-plugin:3.5.0:copy-resources"
+      }
+    },
+    {
+      "project": "${workspace}/core",
+      "name": "resources:help",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-resources-plugin:3.5.0",
+      "category": [
+        "Plugins",
+        "resources"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-resources-plugin:3.5.0:help"
+      }
+    },
+    {
+      "project": "${workspace}/core",
+      "name": "resources:resources",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-resources-plugin:3.5.0",
+      "category": [
+        "Plugins",
+        "resources"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-resources-plugin:3.5.0:resources"
+      }
+    },
+    {
+      "project": "${workspace}/core",
+      "name": "resources:testResources",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-resources-plugin:3.5.0",
+      "category": [
+        "Plugins",
+        "resources"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-resources-plugin:3.5.0:testResources"
+      }
+    },
+    {
+      "project": "${workspace}/core",
+      "name": "jar:help",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-jar-plugin:3.5.1",
+      "category": [
+        "Plugins",
+        "jar"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-jar-plugin:3.5.1:help"
+      }
+    },
+    {
+      "project": "${workspace}/core",
+      "name": "jar:jar",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-jar-plugin:3.5.1",
+      "category": [
+        "Plugins",
+        "jar"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-jar-plugin:3.5.1:jar"
+      }
+    },
+    {
+      "project": "${workspace}/core",
+      "name": "jar:test-jar",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-jar-plugin:3.5.1",
+      "category": [
+        "Plugins",
+        "jar"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-jar-plugin:3.5.1:test-jar"
+      }
+    },
+    {
+      "project": "${workspace}/core",
+      "name": "compiler:compile",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-compiler-plugin:3.13.0",
+      "category": [
+        "Plugins",
+        "compiler"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-compiler-plugin:3.13.0:compile"
+      }
+    },
+    {
+      "project": "${workspace}/core",
+      "name": "compiler:help",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-compiler-plugin:3.13.0",
+      "category": [
+        "Plugins",
+        "compiler"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-compiler-plugin:3.13.0:help"
+      }
+    },
+    {
+      "project": "${workspace}/core",
+      "name": "compiler:testCompile",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-compiler-plugin:3.13.0",
+      "category": [
+        "Plugins",
+        "compiler"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-compiler-plugin:3.13.0:testCompile"
+      }
+    },
+    {
+      "project": "${workspace}/core",
+      "name": "surefire:help",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-surefire-plugin:3.5.2",
+      "category": [
+        "Plugins",
+        "surefire"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-surefire-plugin:3.5.2:help"
+      }
+    },
+    {
+      "project": "${workspace}/core",
+      "name": "surefire:test",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-surefire-plugin:3.5.2",
+      "category": [
+        "Plugins",
+        "surefire"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-surefire-plugin:3.5.2:test"
+      }
+    },
+    {
+      "project": "${workspace}/core",
+      "name": "install:help",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-install-plugin:3.2.0",
+      "category": [
+        "Plugins",
+        "install"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-install-plugin:3.2.0:help"
+      }
+    },
+    {
+      "project": "${workspace}/core",
+      "name": "install:install",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-install-plugin:3.2.0",
+      "category": [
+        "Plugins",
+        "install"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-install-plugin:3.2.0:install"
+      }
+    },
+    {
+      "project": "${workspace}/core",
+      "name": "install:install-file",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-install-plugin:3.2.0",
+      "category": [
+        "Plugins",
+        "install"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-install-plugin:3.2.0:install-file"
+      }
+    },
+    {
+      "project": "${workspace}/core",
+      "name": "deploy:deploy",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-deploy-plugin:3.2.0",
+      "category": [
+        "Plugins",
+        "deploy"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-deploy-plugin:3.2.0:deploy"
+      }
+    },
+    {
+      "project": "${workspace}/core",
+      "name": "deploy:deploy-file",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-deploy-plugin:3.2.0",
+      "category": [
+        "Plugins",
+        "deploy"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-deploy-plugin:3.2.0:deploy-file"
+      }
+    },
+    {
+      "project": "${workspace}/core",
+      "name": "deploy:help",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-deploy-plugin:3.2.0",
+      "category": [
+        "Plugins",
+        "deploy"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-deploy-plugin:3.2.0:help"
+      }
+    },
+    {
+      "project": "${workspace}/core",
+      "name": "site:attach-descriptor",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-site-plugin:3.22.0",
+      "category": [
+        "Plugins",
+        "site"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-site-plugin:3.22.0:attach-descriptor"
+      }
+    },
+    {
+      "project": "${workspace}/core",
+      "name": "site:auto-refresh",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-site-plugin:3.22.0",
+      "category": [
+        "Plugins",
+        "site"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-site-plugin:3.22.0:auto-refresh"
+      }
+    },
+    {
+      "project": "${workspace}/core",
+      "name": "site:deploy",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-site-plugin:3.22.0",
+      "category": [
+        "Plugins",
+        "site"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-site-plugin:3.22.0:deploy"
+      }
+    },
+    {
+      "project": "${workspace}/core",
+      "name": "site:effective-site",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-site-plugin:3.22.0",
+      "category": [
+        "Plugins",
+        "site"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-site-plugin:3.22.0:effective-site"
+      }
+    },
+    {
+      "project": "${workspace}/core",
+      "name": "site:help",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-site-plugin:3.22.0",
+      "category": [
+        "Plugins",
+        "site"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-site-plugin:3.22.0:help"
+      }
+    },
+    {
+      "project": "${workspace}/core",
+      "name": "site:jar",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-site-plugin:3.22.0",
+      "category": [
+        "Plugins",
+        "site"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-site-plugin:3.22.0:jar"
+      }
+    },
+    {
+      "project": "${workspace}/core",
+      "name": "site:run",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-site-plugin:3.22.0",
+      "category": [
+        "Plugins",
+        "site"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-site-plugin:3.22.0:run"
+      }
+    },
+    {
+      "project": "${workspace}/core",
+      "name": "site:site",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-site-plugin:3.22.0",
+      "category": [
+        "Plugins",
+        "site"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-site-plugin:3.22.0:site"
+      }
+    },
+    {
+      "project": "${workspace}/core",
+      "name": "site:stage",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-site-plugin:3.22.0",
+      "category": [
+        "Plugins",
+        "site"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-site-plugin:3.22.0:stage"
+      }
+    },
+    {
+      "project": "${workspace}/core",
+      "name": "site:stage-deploy",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-site-plugin:3.22.0",
+      "category": [
+        "Plugins",
+        "site"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-site-plugin:3.22.0:stage-deploy"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "clean:clean",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-clean-plugin:3.5.0",
+      "category": [
+        "Plugins",
+        "clean"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-clean-plugin:3.5.0:clean"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "clean:help",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-clean-plugin:3.5.0",
+      "category": [
+        "Plugins",
+        "clean"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-clean-plugin:3.5.0:help"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "resources:copy-resources",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-resources-plugin:3.5.0",
+      "category": [
+        "Plugins",
+        "resources"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-resources-plugin:3.5.0:copy-resources"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "resources:help",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-resources-plugin:3.5.0",
+      "category": [
+        "Plugins",
+        "resources"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-resources-plugin:3.5.0:help"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "resources:resources",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-resources-plugin:3.5.0",
+      "category": [
+        "Plugins",
+        "resources"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-resources-plugin:3.5.0:resources"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "resources:testResources",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-resources-plugin:3.5.0",
+      "category": [
+        "Plugins",
+        "resources"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-resources-plugin:3.5.0:testResources"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "jar:help",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-jar-plugin:3.5.1",
+      "category": [
+        "Plugins",
+        "jar"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-jar-plugin:3.5.1:help"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "jar:jar",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-jar-plugin:3.5.1",
+      "category": [
+        "Plugins",
+        "jar"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-jar-plugin:3.5.1:jar"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "jar:test-jar",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-jar-plugin:3.5.1",
+      "category": [
+        "Plugins",
+        "jar"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-jar-plugin:3.5.1:test-jar"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "compiler:compile",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-compiler-plugin:3.13.0",
+      "category": [
+        "Plugins",
+        "compiler"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-compiler-plugin:3.13.0:compile"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "compiler:help",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-compiler-plugin:3.13.0",
+      "category": [
+        "Plugins",
+        "compiler"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-compiler-plugin:3.13.0:help"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "compiler:testCompile",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-compiler-plugin:3.13.0",
+      "category": [
+        "Plugins",
+        "compiler"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-compiler-plugin:3.13.0:testCompile"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "surefire:help",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-surefire-plugin:3.5.2",
+      "category": [
+        "Plugins",
+        "surefire"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-surefire-plugin:3.5.2:help"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "surefire:test",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-surefire-plugin:3.5.2",
+      "category": [
+        "Plugins",
+        "surefire"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-surefire-plugin:3.5.2:test"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "install:help",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-install-plugin:3.2.0",
+      "category": [
+        "Plugins",
+        "install"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-install-plugin:3.2.0:help"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "install:install",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-install-plugin:3.2.0",
+      "category": [
+        "Plugins",
+        "install"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-install-plugin:3.2.0:install"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "install:install-file",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-install-plugin:3.2.0",
+      "category": [
+        "Plugins",
+        "install"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-install-plugin:3.2.0:install-file"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "deploy:deploy",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-deploy-plugin:3.2.0",
+      "category": [
+        "Plugins",
+        "deploy"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-deploy-plugin:3.2.0:deploy"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "deploy:deploy-file",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-deploy-plugin:3.2.0",
+      "category": [
+        "Plugins",
+        "deploy"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-deploy-plugin:3.2.0:deploy-file"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "deploy:help",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-deploy-plugin:3.2.0",
+      "category": [
+        "Plugins",
+        "deploy"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-deploy-plugin:3.2.0:help"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "site:attach-descriptor",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-site-plugin:3.22.0",
+      "category": [
+        "Plugins",
+        "site"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-site-plugin:3.22.0:attach-descriptor"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "site:auto-refresh",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-site-plugin:3.22.0",
+      "category": [
+        "Plugins",
+        "site"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-site-plugin:3.22.0:auto-refresh"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "site:deploy",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-site-plugin:3.22.0",
+      "category": [
+        "Plugins",
+        "site"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-site-plugin:3.22.0:deploy"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "site:effective-site",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-site-plugin:3.22.0",
+      "category": [
+        "Plugins",
+        "site"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-site-plugin:3.22.0:effective-site"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "site:help",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-site-plugin:3.22.0",
+      "category": [
+        "Plugins",
+        "site"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-site-plugin:3.22.0:help"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "site:jar",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-site-plugin:3.22.0",
+      "category": [
+        "Plugins",
+        "site"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-site-plugin:3.22.0:jar"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "site:run",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-site-plugin:3.22.0",
+      "category": [
+        "Plugins",
+        "site"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-site-plugin:3.22.0:run"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "site:site",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-site-plugin:3.22.0",
+      "category": [
+        "Plugins",
+        "site"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-site-plugin:3.22.0:site"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "site:stage",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-site-plugin:3.22.0",
+      "category": [
+        "Plugins",
+        "site"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-site-plugin:3.22.0:stage"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "site:stage-deploy",
+      "template": "plugin-goal",
+      "description": "org.apache.maven.plugins:maven-site-plugin:3.22.0",
+      "category": [
+        "Plugins",
+        "site"
+      ],
+      "properties": {
+        "goal": "org.apache.maven.plugins:maven-site-plugin:3.22.0:stage-deploy"
+      }
+    }
+  ],
+  "contentRoots": [
+    {
+      "project": "${workspace}/core",
+      "path": "${workspace}/core/src/main/java",
+      "kind": "source"
+    },
+    {
+      "project": "${workspace}/core",
+      "path": "${workspace}/core/src/main/resources",
+      "kind": "resource"
+    },
+    {
+      "project": "${workspace}/core",
+      "path": "${workspace}/core/src/test/java",
+      "kind": "testSource"
+    },
+    {
+      "project": "${workspace}/core",
+      "path": "${workspace}/core/src/test/resources",
+      "kind": "testResource"
+    },
+    {
+      "project": "${workspace}/core",
+      "path": "${workspace}/core/target/generated-sources/annotations",
+      "kind": "generatedSource"
+    },
+    {
+      "project": "${workspace}/core",
+      "path": "${workspace}/core/target/generated-test-sources/test-annotations",
+      "kind": "generatedTestSource"
+    },
+    {
+      "project": "${workspace}/app",
+      "path": "${workspace}/app/src/main/java",
+      "kind": "source"
+    },
+    {
+      "project": "${workspace}/app",
+      "path": "${workspace}/app/src/main/resources",
+      "kind": "resource"
+    },
+    {
+      "project": "${workspace}/app",
+      "path": "${workspace}/app/src/test/java",
+      "kind": "testSource"
+    },
+    {
+      "project": "${workspace}/app",
+      "path": "${workspace}/app/src/test/resources",
+      "kind": "testResource"
+    },
+    {
+      "project": "${workspace}/app",
+      "path": "${workspace}/app/target/generated-sources/annotations",
+      "kind": "generatedSource"
+    },
+    {
+      "project": "${workspace}/app",
+      "path": "${workspace}/app/target/generated-test-sources/test-annotations",
+      "kind": "generatedTestSource"
+    }
+  ],
+  "optionValues": {
+    "profiles": [
+      "ci",
+      "release"
+    ]
+  }
+}

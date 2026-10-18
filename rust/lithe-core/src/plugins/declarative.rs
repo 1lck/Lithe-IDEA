@@ -34,6 +34,8 @@ const PERMISSION_LANGUAGE_SERVER: &str = "languageServer.launch";
 const PERMISSION_RUN: &str = "process.run";
 const PERMISSION_TEST: &str = "process.test";
 const PERMISSION_UI: &str = "ui.contribute";
+/// Running the plugin's own scripts in a host-managed web view. `ui` 2.
+const PERMISSION_UI_WEB: &str = "ui.web";
 /// Running a declared build system's executable: model, task, test, and
 /// dependency commands. API level 3.
 const PERMISSION_BUILD: &str = "process.build";
@@ -43,6 +45,7 @@ const KNOWN_PERMISSIONS: &[&str] = &[
     PERMISSION_RUN,
     PERMISSION_TEST,
     PERMISSION_UI,
+    PERMISSION_UI_WEB,
 ];
 /// Runtime tools the host knows how to discover and pass to a language
 /// server. The host exports each as `LITHE_<TOOL>_PATH` and puts its
@@ -159,8 +162,10 @@ pub struct DeclarativePluginManifest {
     build_systems: Vec<crate::build::BuildSystemDeclaration>,
 }
 
-/// Data-only UI supplied by API level 2 plugins. The host owns controls,
-/// layout and activation; no HTML, scripts or native code are accepted.
+/// UI supplied by plugins. The host owns every window shell: docking, title,
+/// activity bar, order, visibility, layout and lifecycle. Version 1 of the
+/// `ui` capability is data only; version 2 adds web content that the host
+/// loads from the package into a sandboxed web view inside that shell.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct UIContributions {
@@ -182,9 +187,26 @@ struct UIToolWindow {
     #[serde(default)]
     order: i32,
     /// Plain text shown in the window body; the host never interprets markup.
-    text: String,
+    /// Exactly one of `text` and `web`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    text: Option<String>,
+    /// The plugin's own page shown in the window body. `ui` 2.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    web: Option<UIWebContent>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     icon: Option<UIIcon>,
+}
+
+/// A page from the plugin package. The host serves only package files to it,
+/// grants no network, navigation or storage, and talks to it through the
+/// plugin web bridge, which reaches only this plugin's own declarations.
+///
+/// Note: the decision is recorded in .agents/notes/proposed/architecture/2026-10-18-plugin-web-content-in-host-windows.md
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct UIWebContent {
+    /// Package-relative HTML entry, e.g. `ui/index.html`.
+    entry: String,
 }
 
 /// Edge of the workbench where a tool window first docks.
@@ -216,7 +238,7 @@ struct UICommand {
 /// Custom assets are package-relative and are decoded only by the platform adapter.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct UIIcon {
+pub(crate) struct UIIcon {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     host: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -240,6 +262,12 @@ enum UIIconMode {
 
 impl UIIcon {
     fn validate(&self) -> Validation<()> {
+        self.validate_at("ui.icon")
+    }
+
+    /// Validates the icon and reports a failure at `field`; build systems
+    /// reuse the UI icon vocabulary for their tool windows and toolbar toggles.
+    pub(crate) fn validate_at(&self, field: &str) -> Validation<()> {
         const HOST_IDS: &[&str] = &[
             "tool-window",
             "plugin",
@@ -277,7 +305,7 @@ impl UIIcon {
         };
         if !valid {
             return Err(invalid(
-                "ui.icon",
+                field,
                 "An icon must name a supported host icon or safe package SVG/PNG resources.",
             ));
         }
@@ -1099,19 +1127,21 @@ impl DeclarativePluginManifest {
                 "UI requires 1-64 tool windows and at most 128 commands.",
             ));
         }
+        // Below level 3 there is no `requires`, and the section means `ui` 1.
+        let version = self.requires.get(capabilities::UI).copied().unwrap_or(1);
         let prefix = format!("{}.", self.id);
         let mut ids = BTreeSet::new();
         let mut windows = BTreeSet::new();
         let mut action_ids = BTreeSet::new();
-        for window in &ui.tool_windows {
+        for (index, window) in ui.tool_windows.iter().enumerate() {
             if let Some(icon) = &window.icon {
                 icon.validate()?;
             }
+            validate_window_body(window, index, version)?;
             if !is_plugin_id(&window.id)
                 || !window.id.starts_with(&prefix)
                 || window.title.trim().is_empty()
                 || window.title.len() > 256
-                || window.text.len() > 65536
                 || !ids.insert(window.id.clone())
             {
                 return Err(invalid(
@@ -1160,6 +1190,14 @@ impl DeclarativePluginManifest {
                 }
             }
         }
+        // A version only adds; declaring one without using it only hides
+        // the plugin from hosts that could run it.
+        if version >= 2 && ui.tool_windows.iter().all(|window| window.web.is_none()) {
+            return Err(invalid(
+                "requires.ui",
+                "ui 2 adds web content; a manifest without it requires ui 1.",
+            ));
+        }
         ui.tool_windows
             .sort_by(|a, b| (a.order, &a.id).cmp(&(b.order, &b.id)));
         ui.commands
@@ -1179,8 +1217,11 @@ impl DeclarativePluginManifest {
         }
         self.permissions = sorted_unique(std::mem::take(&mut self.permissions));
         let mut required = BTreeSet::new();
-        if self.ui.is_some() {
+        if let Some(ui) = &self.ui {
             required.insert(PERMISSION_UI);
+            if ui.tool_windows.iter().any(|window| window.web.is_some()) {
+                required.insert(PERMISSION_UI_WEB);
+            }
         }
         // A provider process of its own is a server process like a language
         // server, so it needs the same consent.
@@ -1885,6 +1926,43 @@ fn is_packaged_runtime_path(value: &str) -> bool {
             TemplatePart::Text(_) | TemplatePart::Variable(LaunchVariable::Arch)
         )
     }) && is_safe_relative_path(&value.replace("${arch}", "arch"))
+}
+
+/// A window body is literal text or, from `ui` 2 on, one package HTML page.
+fn validate_window_body(window: &UIToolWindow, index: usize, version: u32) -> Validation<()> {
+    let field = format!("ui.toolWindows[{index}]");
+    match (&window.text, &window.web) {
+        (Some(text), None) if text.len() <= 65536 => Ok(()),
+        (Some(_), None) => Err(invalid(
+            format!("{field}.text"),
+            "The window text is too long.",
+        )),
+        (None, Some(_)) if version < 2 => Err(invalid(
+            format!("{field}.web"),
+            "Web content requires pluginAPIVersion 3 and the ui capability version 2.",
+        )),
+        (None, Some(web)) => {
+            let entry = &web.entry;
+            let valid = is_safe_relative_path(entry)
+                && entry.len() <= 256
+                && !entry.contains(':')
+                && !entry.chars().any(char::is_control)
+                && entry.split('/').all(|part| !part.is_empty() && part != ".")
+                && entry.ends_with(".html");
+            if valid {
+                Ok(())
+            } else {
+                Err(invalid(
+                    format!("{field}.web.entry"),
+                    "The web entry must be a package-relative .html file.",
+                ))
+            }
+        }
+        _ => Err(invalid(
+            field,
+            "A tool window shows exactly one of text and web content.",
+        )),
+    }
 }
 
 fn requires_api_2(field: String) -> PluginRejection {

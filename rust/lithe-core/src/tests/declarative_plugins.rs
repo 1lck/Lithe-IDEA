@@ -16,6 +16,7 @@ macro_rules! contract_file {
 
 const PHP_FIXTURE: &str = contract_file!("fixtures/php-support.plugin.json");
 const HELLO_FIXTURE: &str = contract_file!("fixtures/hello-lithe.plugin.json");
+const WEB_PANEL_FIXTURE: &str = contract_file!("fixtures/web-panel.plugin.json");
 const GO_FIXTURE: &str = contract_file!("fixtures/go-support.plugin.json");
 const JAVA_FIXTURE: &str = contract_file!("fixtures/java-support.plugin.json");
 const NODE_RUNTIME_FIXTURE: &str = contract_file!("fixtures/node-runtime.plugin.json");
@@ -46,6 +47,7 @@ fn fixture(name: &str) -> Value {
         "php-support.plugin.json" => PHP_FIXTURE,
         "go-support.plugin.json" => GO_FIXTURE,
         "hello-lithe.plugin.json" => HELLO_FIXTURE,
+        "web-panel.plugin.json" => WEB_PANEL_FIXTURE,
         "java-support.plugin.json" => JAVA_FIXTURE,
         "node-runtime.plugin.json" => NODE_RUNTIME_FIXTURE,
         "cargo-build.plugin.json" => CARGO_BUILD_FIXTURE,
@@ -69,6 +71,7 @@ fn contract_fixtures_and_official_plugins_validate() {
         PHP_FIXTURE,
         GO_FIXTURE,
         HELLO_FIXTURE,
+        WEB_PANEL_FIXTURE,
         OFFICIAL_PHP,
         OFFICIAL_GO,
         JAVA_FIXTURE,
@@ -556,6 +559,55 @@ fn ui_contributions_are_normalized_without_interpreting_text() {
             result["plugin"]["ui"]["toolWindows"][0]["placement"],
             placement
         );
+    }
+}
+
+/// A plugin may bring its own page instead of literal text. The page is a
+/// package file behind its own consent, and a host that runs only `ui` 1
+/// never receives it, so it cannot fall back to showing the page as text.
+#[test]
+fn web_tool_windows_need_ui_2_their_permission_and_a_package_page() {
+    let outcome = validate(fixture("web-panel.plugin.json"));
+    assert_eq!(outcome["status"], "ok", "{outcome}");
+    let windows = &outcome["plugin"]["ui"]["toolWindows"];
+    assert_eq!(windows[0]["id"], "dev.lithe.fixture.web-panel.notes");
+    assert!(windows[0].get("web").is_none());
+    assert_eq!(windows[1]["web"], json!({ "entry": "ui/index.html" }));
+    assert!(windows[1].get("text").is_none());
+    assert_eq!(
+        outcome["plugin"]["permissions"],
+        json!(["ui.contribute", "ui.web"])
+    );
+
+    let validate_on = |host: Value| {
+        validate_command(json!({
+            "manifest": fixture("web-panel.plugin.json"),
+            "hostCapabilities": host,
+        }))
+        .expect("payload is well formed")
+    };
+    let text_only = validate_on(json!({ "ui": [1] }));
+    assert_eq!(text_only["status"], "rejected", "{text_only}");
+    assert_eq!(text_only["error"]["code"], "plugin.api.unsupported");
+    assert_eq!(text_only["error"]["field"], "requires.ui");
+    assert_eq!(validate_on(json!({ "ui": [1, 2] }))["status"], "ok");
+
+    for entry in [
+        "index.html",
+        "ui/pages/tree.html",
+        "ui/index.htm",
+        "../index.html",
+        "/ui/index.html",
+        "ui//index.html",
+        "ui/./index.html",
+        "https://example.com/index.html",
+        "ui/index.html#x",
+    ] {
+        let mut manifest = fixture("web-panel.plugin.json");
+        manifest["ui"]["toolWindows"][0]["web"]["entry"] = json!(entry);
+        let accepted = validate(manifest)["status"] == "ok";
+        let expected = matches!(entry, "index.html" | "ui/pages/tree.html");
+        assert_eq!(accepted, expected, "{entry}");
     }
 }
 

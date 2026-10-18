@@ -32,7 +32,8 @@ pub(crate) const SERVER_PROCESS: &str = "serverProcess";
 pub(crate) const EXECUTION_PROVIDERS: &str = "executionProviders";
 /// `settings[]`.
 pub(crate) const SETTINGS: &str = "settings";
-/// `ui`: tool windows and commands.
+/// `ui`: tool windows and commands. Version 2 adds web content in a tool
+/// window.
 pub(crate) const UI: &str = "ui";
 /// Declarative build detection, models, and command plans.
 pub(crate) const BUILD_SYSTEMS: &str = "buildSystems";
@@ -49,7 +50,7 @@ pub const SUPPORTED_CAPABILITIES: &[(&str, &[u32])] = &[
     (LANGUAGES, &[1]),
     (SERVER_PROCESS, &[1]),
     (SETTINGS, &[1]),
-    (UI, &[1]),
+    (UI, &[1, 2]),
 ];
 
 /// Longest capability ID, so a hostile index cannot grow host state.
