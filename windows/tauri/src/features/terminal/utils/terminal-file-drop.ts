@@ -9,14 +9,20 @@ export type TerminalShellFamily = "cmd" | "powershell" | "posix" | "nushell";
 /**
  * Classify the launched shell so paths can be quoted the way it expects.
  *
- * Only ids and executable paths are passed here, so substring matches are the
- * stable signal across cmd, PowerShell, Nushell and Git Bash. PowerShell is
- * checked first because `powershell` and `pwsh` both contain `sh`.
+ * The ids come from the native shell directory (`windows_shells.rs`) plus
+ * `wsl:<distribution>`, so the mapping has to stay aligned with what the product
+ * can actually launch. A shell that falls through to cmd would be quoted with
+ * double quotes, which still evaluate `$(...)` in every bash-derived shell.
+ *
+ * PowerShell is checked first because `powershell` and `pwsh` both contain `sh`.
+ * WSL, MSYS2 and Cygwin run bash, so they are POSIX despite launching on Windows.
  */
 export function terminalShellFamily(shell?: string | null): TerminalShellFamily {
   const value = (shell ?? "").toLowerCase();
   if (value.includes("powershell") || value.includes("pwsh")) return "powershell";
   if (value === "nu" || value.includes("nushell")) return "nushell";
+  // `wsl:<distro>` is bash inside a Linux distribution, not a Windows shell.
+  if (value.startsWith("wsl:") || value === "msys2" || value === "cygwin") return "posix";
   if (value.includes("cmd")) return "cmd";
   if (
     value.includes("bash") ||

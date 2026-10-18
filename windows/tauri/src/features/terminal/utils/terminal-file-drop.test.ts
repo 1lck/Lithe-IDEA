@@ -7,6 +7,8 @@ import {
 } from "./terminal-file-drop";
 
 const WINDOWS_PATH = "C:\\work\\proj\\a.txt";
+/** A file name that a shell would execute if the path were not quoted literally. */
+const INJECTION_PATH = "C:\\work\\proj\\report$(whoami).txt";
 
 describe("terminalShellFamily", () => {
   test("classifies the shells Lithe can launch", () => {
@@ -15,6 +17,16 @@ describe("terminalShellFamily", () => {
     expect(terminalShellFamily("pwsh")).toBe("powershell");
     expect(terminalShellFamily("bash")).toBe("posix");
     expect(terminalShellFamily("nu")).toBe("nushell");
+  });
+
+  // Regression: the native shell directory also offers MSYS2, Cygwin and
+  // `wsl:<distro>`, which all run bash. Falling back to cmd quoted them with
+  // double quotes, so `$(...)` in a file name still executed.
+  test("classifies WSL, MSYS2 and Cygwin as POSIX because they run bash", () => {
+    expect(terminalShellFamily("wsl:Ubuntu")).toBe("posix");
+    expect(terminalShellFamily("wsl:Debian")).toBe("posix");
+    expect(terminalShellFamily("msys2")).toBe("posix");
+    expect(terminalShellFamily("cygwin")).toBe("posix");
   });
 
   // `powershell` and `pwsh` both contain `sh`, so PowerShell must be matched
@@ -88,6 +100,23 @@ describe("formatPathsForTerminal", () => {
 
   test("does not produce a lone space when there are no paths", () => {
     expect(formatPathsForTerminal([], { shell: "cmd", trailingSpace: true })).toBe("");
+  });
+
+  // End-to-end guard from a real shell id to the inserted text: every shell the
+  // product can launch must produce a literal path, and the two shells that
+  // cannot express one (cmd percent expansion) are called out separately below.
+  test.each([
+    ["wsl:Ubuntu"],
+    ["msys2"],
+    ["cygwin"],
+    ["bash"],
+    ["powershell"],
+    ["pwsh"],
+  ])("keeps $(...) literal for the real shell id %s", (shellId) => {
+    const text = formatPathsForTerminal([INJECTION_PATH], { shell: shellId });
+
+    expect(text).toBe(`'${INJECTION_PATH}'`);
+    expect(text).not.toMatch(/^"/);
   });
 });
 
