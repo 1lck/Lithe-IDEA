@@ -158,8 +158,7 @@ fn normalize_remote_booleans(root: &str, entries: &mut [Entry]) -> Result<(), Co
         entry.effective
             && (entry.key == "fetch.prunetags"
                 || (entry.key.starts_with("remote.")
-                    && (entry.key.ends_with(".prunetags")
-                        || entry.key.ends_with(".skipfetchall"))))
+                    && (entry.key.ends_with(".prunetags") || entry.key.ends_with(".skipfetchall"))))
     }) {
         let output = capture_git_with_options(
             root,
@@ -570,24 +569,21 @@ mod inherited_tag_tests {
 
         let path = repo.0.join(".git/config");
         let mut config = fs::read_to_string(&path).unwrap();
-        config.push_str(
-            "\n[remote \"yes\"]\nurl = /tmp/yes\nskipFetchAll = yes\n"
-        );
-        config.push_str(
-            "\n[remote \"valueless\"]\nurl = /tmp/valueless\nskipFetchAll\n"
-        );
-        config.push_str(
-            "\n[remote \"empty\"]\nurl = /tmp/empty\nskipFetchAll =\n"
-        );
-        config.push_str(
-            "\n[remote \"no\"]\nurl = /tmp/no\nskipFetchAll = no\n"
-        );
+        config.push_str("\n[remote \"yes\"]\nurl = /tmp/yes\nskipFetchAll = yes\n");
+        config.push_str("\n[remote \"valueless\"]\nurl = /tmp/valueless\nskipFetchAll\n");
+        config.push_str("\n[remote \"empty\"]\nurl = /tmp/empty\nskipFetchAll =\n");
+        config.push_str("\n[remote \"no\"]\nurl = /tmp/no\nskipFetchAll = no\n");
         fs::write(path, config).unwrap();
 
         let response = repo.request("git.executionInspect", json!({}));
         assert_eq!(response["ok"], true, "{response}");
         let entries = response["data"]["entries"].as_array().unwrap();
-        for (name, expected) in [("yes", "true"), ("valueless", "true"), ("empty", "false"), ("no", "false")] {
+        for (name, expected) in [
+            ("yes", "true"),
+            ("valueless", "true"),
+            ("empty", "false"),
+            ("no", "false"),
+        ] {
             let key = format!("remote.{name}.skipfetchall");
             let entry = entries
                 .iter()
