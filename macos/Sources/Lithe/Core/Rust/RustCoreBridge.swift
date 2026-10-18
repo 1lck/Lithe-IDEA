@@ -2208,6 +2208,9 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let amend: Bool
         let force: Bool
         let autoStash: Bool
+        /// Destination confirmed for a divergent upstream; omitted so routine
+        /// pushes keep their existing behaviour.
+        let pushTarget: String?
     }
 
     private struct GitDiffRequest: Encodable {
@@ -3121,7 +3124,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         checkout: Bool = false,
         amend: Bool = false,
         force: Bool = false,
-        autoStash: Bool = false
+        autoStash: Bool = false,
+        pushTarget: String? = nil
     ) -> Result<GitCommandPayload, CoreCallError> {
         executeResult(
             command: "git.write",
@@ -3142,7 +3146,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 checkout: checkout,
                 amend: amend,
                 force: force,
-                autoStash: autoStash
+                autoStash: autoStash,
+                pushTarget: pushTarget
             )
         )
     }

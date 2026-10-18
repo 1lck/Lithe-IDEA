@@ -170,7 +170,9 @@ package protocol GitOperations: Sendable {
     func abortOperation(at rootURL: URL) -> GitProcessResult?
     func skipOperationStep(at rootURL: URL) -> GitProcessResult?
     func checkoutRevision(_ revision: String, at rootURL: URL) -> GitProcessResult?
-    func push(_ reference: GitReference, at rootURL: URL) -> GitProcessResult?
+    /// Pushes `reference`. `pushTarget` is required only for a branch that tracks a
+    /// differently named upstream; routine pushes pass `nil`.
+    func push(_ reference: GitReference, pushTarget: String?, at rootURL: URL) -> GitProcessResult?
     func cloneRepository(from remote: String, to destination: URL) -> GitProcessResult?
     func stash(message: String, includeUntracked: Bool, at rootURL: URL) -> GitProcessResult?
     func applyStash(_ stash: GitStash, at rootURL: URL) -> GitProcessResult?
@@ -1112,8 +1114,14 @@ package struct GitService: Sendable {
         await command(at: repositoryRoot) { $0.checkoutRevision(revision, at: repositoryRoot) }
     }
 
-    func push(_ reference: GitReference, at repositoryRoot: URL) async -> CommandResult {
-        await command(at: repositoryRoot) { $0.push(reference, at: repositoryRoot) }
+    func push(
+        _ reference: GitReference,
+        pushTarget: String? = nil,
+        at repositoryRoot: URL
+    ) async -> CommandResult {
+        await command(at: repositoryRoot) {
+            $0.push(reference, pushTarget: pushTarget, at: repositoryRoot)
+        }
     }
 
     func cloneRepository(from remote: String, to destination: URL) async -> CommandResult {
