@@ -460,6 +460,7 @@ private struct AgentConnectionView: View {
             }
         }
         .onAppear { feature.prepareConversation() }
+        .onChange(of: feature.composerFocusRequest) { _ in showsHistory = false }
         .onChange(of: feature.connectionState) { state in
             if state == .ready { feature.prepareConversation() }
         }
@@ -654,7 +655,8 @@ private struct AgentConnectionView: View {
             findFiles: onFindFiles,
             fileMentionRevision: fileMentionRevision,
             savePastedImage: onSavePastedImage,
-            showsToolbar: showsToolbar, draftText: $feature.draftText, draftFiles: $feature.draftFiles
+            showsToolbar: showsToolbar, draftText: $feature.draftText, draftFiles: $feature.draftFiles,
+            focusRequest: feature.composerFocusRequest
         )
         .id(draftReset)
     }

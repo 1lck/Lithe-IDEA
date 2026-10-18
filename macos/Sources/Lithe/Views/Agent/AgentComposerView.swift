@@ -40,6 +40,7 @@ struct AgentComposerView: View {
     var showsToolbar = true
     var draftText: Binding<String>? = nil
     var draftFiles: Binding<[AgentFileReference]>? = nil
+    var focusRequest: UInt = 0
     @State private var completion = AgentCommandCompletion()
     @State private var files: [AgentFileReference] = []
     @State private var isDropTargeted = false
@@ -91,10 +92,15 @@ struct AgentComposerView: View {
             }
         }
         .onChange(of: sessionID) { newSessionID in
-            if newSessionID != nil { attachments.removeAll() }
+            // Bound drafts are owned by the connection's session lifecycle.
+            if draftFiles == nil, newSessionID != nil { attachments.removeAll() }
             showsDetails = false
         }
-        .onAppear { if let draftText { completion.draft = draftText.wrappedValue } }
+        .onAppear {
+            if let draftText { completion.draft = draftText.wrappedValue }
+            if focusRequest > 0 { isFocused = true }
+        }
+        .onChange(of: focusRequest) { _ in isFocused = true }
         .onChange(of: draftText?.wrappedValue) { value in
             if let value, value != completion.draft { completion.draft = value }
         }

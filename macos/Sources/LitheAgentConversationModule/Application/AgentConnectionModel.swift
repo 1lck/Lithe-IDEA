@@ -60,9 +60,17 @@ public final class AgentConnectionModel: ObservableObject {
     @Published public private(set) var fileReviewSessionID: String?
     @Published public private(set) var fileReviewError: String?
     @Published public private(set) var fileReviewErrorSessionID: String?
-    // Drafts belong to the connection so moving its presentation does not discard unsent input.
+    // Drafts belong to each session, independent of its presentation or Agent process.
     @Published public var draftText = ""
     @Published public var draftFiles: [AgentFileReference] = []
+    @Published public private(set) var composerFocusRequest: UInt = 0
+    private struct Draft {
+        var text = ""
+        var files: [AgentFileReference] = []
+        var isEmpty: Bool { text.isEmpty && files.isEmpty }
+    }
+    private var sessionDrafts: [String: Draft] = [:]
+    private var unassignedDraft = Draft()
     private var fileReviewTask: Task<Void, Never>?
 
     /// Called when any conversation starts or stops waiting for a permission
@@ -316,9 +324,11 @@ public final class AgentConnectionModel: ObservableObject {
 
     public func startNewConversation() {
         guard !isCreatingSession else { return }
+        saveDraft()
         discardUnpersistedEmptySessions()
         draftText = ""
         draftFiles = []
+        unassignedDraft = Draft()
         selectedSessionID = nil
         errorMessage = nil
         prepareConversation()
@@ -328,8 +338,20 @@ public final class AgentConnectionModel: ObservableObject {
     public func prepareConversation() {
         guard connectionState == .ready else { return }
         if let sessionID = selectedSessionID {
-            if conversations[sessionID]?.isAttached != true { selectSession(sessionID) }
-            return
+            if unpromptedSessionIDs.contains(sessionID), conversations[sessionID]?.isAttached != true {
+                // An empty Codex session has no persisted rollout to load after
+                // reconnect. Keep its draft while replacing only the stale ID.
+                guard createToken == nil else { return }
+                conversations[sessionID] = nil
+                sessions.removeAll { $0.id == sessionID }
+                openSessionIDs.removeAll { $0 == sessionID }
+                sessionDrafts[sessionID] = nil
+                unpromptedSessionIDs.remove(sessionID)
+                selectedSessionID = nil
+            } else {
+                if conversations[sessionID]?.isAttached != true { selectSession(sessionID) }
+                return
+            }
         }
         guard createToken == nil else { return }
         let token = makeToken()
@@ -358,10 +380,18 @@ public final class AgentConnectionModel: ObservableObject {
         }
     }
     public func selectSession(_ sessionID: String) {
+        if selectedSessionID != sessionID {
+            saveDraft()
+            restoreDraft(sessionDrafts[sessionID] ?? Draft())
+        }
         selectedSessionID = sessionID
         errorMessage = nil
         openTab(sessionID)
         let conversation = conversations[sessionID]
+        if unpromptedSessionIDs.contains(sessionID), conversation?.isAttached != true {
+            prepareConversation()
+            return
+        }
         if conversation?.isAttached != true, conversation?.isLoading != true,
            connection != nil, canLoadSessions {
             beginLoad(sessionID)
@@ -381,11 +411,58 @@ public final class AgentConnectionModel: ObservableObject {
         pendingText[sessionID] = nil
         queuedPrompts[sessionID] = nil
         if selectedSessionID == sessionID {
-            selectedSessionID = openSessionIDs.last
+            if let next = openSessionIDs.last { selectSession(next) }
+            else {
+                selectedSessionID = nil
+                restoreDraft(Draft())
+                unassignedDraft = Draft()
+            }
             // Closing the final tab does not change connectionState or make
             // the view appear again, so start its replacement settings here.
             if selectedSessionID == nil { prepareConversation() }
         }
+        sessionDrafts[sessionID] = nil
+    }
+
+    /// Attach to a draft without prompting, cancelling a running turn, or waiting
+    /// for settings/history. Validate the entire batch before changing selection.
+    public func attachFiles(_ urls: [URL], to destination: AgentFileAttachmentDestination) throws {
+        let targetFiles: [AgentFileReference]
+        switch destination {
+        case .current:
+            targetFiles = draftFiles
+        case .session(let id):
+            guard sessions.contains(where: { $0.id == id }) else { throw AgentFileAttachmentError.sessionUnavailable }
+            targetFiles = id == selectedSessionID ? draftFiles : sessionDrafts[id]?.files ?? []
+        case .newConversation:
+            targetFiles = selectedSessionID == nil ? draftFiles : unassignedDraft.files
+        }
+        let files = try AgentFileReference.adding(urls, to: targetFiles)
+        switch destination {
+        case .current: break
+        case .session(let id): selectSession(id)
+        case .newConversation:
+            if selectedSessionID == nil { prepareConversation() }
+            else if isCreatingSession || !unassignedDraft.isEmpty {
+                saveDraft()
+                restoreDraft(unassignedDraft)
+                selectedSessionID = nil
+                prepareConversation()
+            } else { startNewConversation() }
+        }
+        draftFiles = files
+        composerFocusRequest &+= 1
+    }
+
+    private func saveDraft() {
+        let draft = Draft(text: draftText, files: draftFiles)
+        if let selectedSessionID { sessionDrafts[selectedSessionID] = draft }
+        else { unassignedDraft = draft }
+    }
+
+    private func restoreDraft(_ draft: Draft) {
+        draftText = draft.text
+        draftFiles = draft.files
     }
 
     public func send(_ text: String, files: [AgentFileReference] = []) throws {
@@ -702,7 +779,13 @@ public final class AgentConnectionModel: ObservableObject {
         openTab(sessionID)
         pendingNewConversationPrompt = nil
         if selectedSessionID == nil { selectedSessionID = sessionID }
+        else { sessionDrafts[sessionID] = unassignedDraft }
+        unassignedDraft = Draft()
         if let prompt { startPrompt(prompt, in: sessionID) }
+        if let selectedSessionID, selectedSessionID != sessionID,
+           unpromptedSessionIDs.contains(selectedSessionID), conversations[selectedSessionID]?.isAttached != true {
+            prepareConversation()
+        }
     }
 
     private func requestFailed(token: String?, sessionID: String?, message: String) {
@@ -1278,10 +1361,13 @@ public final class AgentConnectionModel: ObservableObject {
     }
 
     private func discardUnpersistedEmptySessions() {
-        let discarded = unpromptedSessionIDs.filter { conversations[$0]?.messages.isEmpty == true }
-        unpromptedSessionIDs.removeAll()
+        let discarded = unpromptedSessionIDs.filter {
+            let draft = $0 == selectedSessionID ? Draft(text: draftText, files: draftFiles) : sessionDrafts[$0] ?? Draft()
+            return conversations[$0]?.messages.isEmpty == true && draft.isEmpty
+        }
+        unpromptedSessionIDs.subtract(discarded)
         // Never infer this from an empty transcript alone: unloaded history must survive.
-        for id in discarded { conversations[id] = nil }
+        for id in discarded { conversations[id] = nil; sessionDrafts[id] = nil }
         sessions.removeAll { discarded.contains($0.id) }
         openSessionIDs.removeAll { discarded.contains($0) }
         if let selectedSessionID, discarded.contains(selectedSessionID) {

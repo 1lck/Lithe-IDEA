@@ -3383,3 +3383,12 @@
 "No subagent output yet" = "尚未收到子代理输出";
 
 "Disconnected" = "已断开";
+/* File context actions */
+"Add to Current Conversation · %@" = "添加到当前会话 · %@";
+"Add to Another Conversation" = "添加到其他会话";
+"New Conversation" = "新建会话";
+"Set Up Agent File Attachments…" = "设置 Agent 文件附件…";
+"Choose existing files to add to a conversation." = "请选择仍存在的文件添加到会话。";
+"Files added. Save your editor changes before sending so the Agent can read them." = "文件已添加。请在发送前保存编辑内容，以便 Agent 读取最新文件。";
+"This conversation is no longer available. Choose another conversation." = "此会话已不可用，请选择其他会话。";
+"This Agent is no longer configured. Open Agent settings to configure it." = "此 Agent 已取消配置，请打开 Agent 设置重新配置。";

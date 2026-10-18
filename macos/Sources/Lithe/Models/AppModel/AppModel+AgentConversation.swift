@@ -4,6 +4,46 @@ import LitheCoreContracts
 import LitheModuleAPI
 
 extension AppModel {
+    /// The menu captures its workspace, Agent and session before any async module
+    /// startup. A project switch must never redirect the user's file elsewhere.
+    func attachFilesToAgent(_ urls: [URL], agentID: String, destination: AgentFileAttachmentDestination,
+                            workspace: WorkspaceIdentity) async {
+        guard isCurrentWorkspace(workspace) else { return }
+        guard isAgentConversationEnabled, configuredAgentOptions.contains(where: { $0.id == agentID }) else {
+            showAgentSettings()
+            return
+        }
+        do {
+            _ = try AgentFileReference.adding(urls, to: [])
+            guard !urls.isEmpty, urls.allSatisfy({ services.fileStorage.metadata(for: $0)?.isRegularFile == true }) else {
+                showNotification(String(localized: "Choose existing files to add to a conversation."))
+                return
+            }
+            if agentConversationFeatureIfActive == nil {
+                await awaitModuleRuntimeShutdown()
+                guard isCurrentWorkspace(workspace) else { return }
+                _ = try await services.moduleRuntime.activateCapability(.agentConversation)
+            }
+            guard isCurrentWorkspace(workspace), isAgentConversationEnabled,
+                  let feature = agentConversationFeatureIfActive else { return }
+            feature.bindWorkspace(workspace.url)
+            feature.setAgents(configuredAgentOptions)
+            try feature.attachFiles(urls, agentID: agentID, to: destination)
+            selectedAgentConversationID = agentID
+            connectAgentConversation()
+            if agentChatsInEditor { showAgentChatsInEditor() }
+            else { workbenchFeature.setVisibility(.agent, isVisible: true) }
+            objectWillChange.send()
+            if openDocuments.contains(where: { document in
+                document.isDirty && urls.contains { $0.standardizedFileURL == document.url.standardizedFileURL }
+            }) {
+                showNotification(String(localized: "Files added. Save your editor changes before sending so the Agent can read them."))
+            }
+        } catch {
+            showNotification(String(localized: String.LocalizationValue(error.localizedDescription)))
+        }
+    }
+
     var agentChatsInEditor: Bool { editorTabOrderFeature.contains(.agentConversation) }
     var isAgentEditorSelected: Bool { agentChatsInEditor && editorTabOrderFeature.focusedItem == .agentConversation }
 
