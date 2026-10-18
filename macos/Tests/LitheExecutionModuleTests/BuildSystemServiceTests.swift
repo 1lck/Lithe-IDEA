@@ -936,7 +936,11 @@ struct BuildSystemServiceTests {
         harness.service.detect()
         #expect(await harness.waitForEntries { $0.first?.isReloadRequired == true })
 
-        harness.service.runTests(Self.instanceID, request: BuildTestRequest(), title: "Tests")
+        // The view passes the stale model's non-empty project list; the guard
+        // must not depend on an empty list.
+        harness.service.runTests(
+            Self.instanceID, request: BuildTestRequest(projects: ["app"]), title: "Tests"
+        )
         #expect(await harness.waitForRunState { state in
             if case .failed = state { return true }
             return false
