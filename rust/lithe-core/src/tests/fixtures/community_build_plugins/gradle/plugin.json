@@ -1,0 +1,176 @@
+{
+  "schemaVersion": 2,
+  "id": "io.github.lithe-idea.gradle-build",
+  "displayName": "Gradle",
+  "version": "0.1.0",
+  "pluginAPIVersion": 3,
+  "requires": { "buildSystems": 1 },
+  "vendor": {
+    "id": "io.github.lithe-idea",
+    "displayName": "Lithe Community",
+    "signatureRequirement": "none"
+  },
+  "permissions": ["process.build"],
+  "activationEvents": ["onBuildSystem:gradle"],
+  "languages": [],
+  "buildSystems": [
+    {
+      "id": "gradle",
+      "displayName": "Gradle",
+      "icon": { "path": "icons/gradle.svg" },
+      "detection": {
+        "markers": ["build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"],
+        "nesting": "outermost"
+      },
+      "invocation": {
+        "executables": [
+          {
+            "kind": "projectFile",
+            "path": "gradlew",
+            "requires": ["gradle/wrapper/gradle-wrapper.properties"],
+            "platforms": ["macos", "linux"]
+          },
+          {
+            "kind": "projectFile",
+            "path": "gradlew.bat",
+            "requires": ["gradle/wrapper/gradle-wrapper.properties"],
+            "platforms": ["windows"]
+          },
+          { "kind": "environment", "variable": "GRADLE_HOME", "path": "bin/gradle", "platforms": ["macos", "linux"] },
+          { "kind": "environment", "variable": "GRADLE_HOME", "path": "bin/gradle.bat", "platforms": ["windows"] },
+          { "kind": "command", "command": "gradle" }
+        ],
+        "environmentInputs": ["GRADLE_HOME"],
+        "runtimeDependencies": [{ "id": "java", "minimumVersion": "8" }],
+        "globalArguments": ["--console=plain", "${optionArguments}"],
+        "version": { "arguments": ["--version"], "pattern": "Gradle (\\d+(?:\\.\\d+){1,2})" },
+        "minimumVersion": "7.6"
+      },
+      "options": [
+        {
+          "id": "offline",
+          "displayName": "Offline",
+          "kind": "boolean",
+          "presentation": "toolbar",
+          "icon": { "path": "icons/offline.svg" },
+          "arguments": ["--offline"]
+        },
+        {
+          "id": "gradleUserHome",
+          "displayName": "Gradle User Home",
+          "kind": "directory",
+          "arguments": ["--gradle-user-home", "${value}"]
+        }
+      ],
+      "model": {
+        "source": "command",
+        "arguments": [
+          "-q",
+          "--no-configuration-cache",
+          "--no-configure-on-demand",
+          "--init-script",
+          "${pluginDir}/lithe.init.gradle",
+          "-PlitheModelOutput=${outputFile}",
+          "litheModel"
+        ],
+        "output": "outputFile",
+        "decoder": "litheBuildModel",
+        "executesProjectCode": true,
+        "mayUseNetwork": true
+      },
+      "tasks": [
+        {
+          "id": "gradle-task",
+          "displayName": "Gradle Task",
+          "group": "other",
+          "category": ["Tasks", "other"],
+          "fromModel": true,
+          "arguments": ["${task.property:path}"]
+        },
+        {
+          "id": "tasks",
+          "displayName": "Run Gradle Tasks…",
+          "group": "other",
+          "scopes": ["workspace", "project"],
+          "requiresUserArguments": true,
+          "arguments": [
+            { "value": "--project-dir", "when": "nestedProjectSelected" },
+            { "value": "${project.path}", "when": "nestedProjectSelected" },
+            "${userArguments}"
+          ]
+        }
+      ],
+      "run": [
+        {
+          "id": "task",
+          "fromTasks": { "templates": ["gradle-task"], "executions": ["application"] },
+          "workingDirectory": "root"
+        }
+      ],
+      "test": {
+        "scopes": ["workspace", "project"],
+        "filters": ["suite", "case"],
+        "arguments": [
+          { "value": "${project.property:taskPrefix}test", "when": "nestedProjectSelected" },
+          { "value": "test", "when": "noNestedProjectSelected" },
+          { "value": "--tests", "when": "suiteSelected" },
+          { "value": "${test.suite}", "when": ["suiteSelected", "noCaseSelected"] },
+          { "value": "${test.suite}.${test.case}", "when": ["suiteSelected", "caseSelected"] }
+        ],
+        "results": { "decoder": "junitXml", "reports": ["build/test-results/test/TEST-*.xml"] }
+      },
+      "diagnostics": {
+        "decoder": "lineMatcher",
+        "patterns": [
+          {
+            "regex": "^(.+\\.java):(\\d+): (error|warning): (.+)$",
+            "file": 1,
+            "line": 2,
+            "severity": 3,
+            "message": 4
+          },
+          {
+            "regex": "^([ew]): file://(.+?\\.kts?):(\\d+):(\\d+) (.+)$",
+            "file": 2,
+            "line": 3,
+            "column": 4,
+            "message": 5,
+            "severity": 1,
+            "severities": { "e": "error", "w": "warning" }
+          }
+        ]
+      },
+      "dependencies": {
+        "source": "command",
+        "scopes": ["workspace", "project"],
+        "arguments": [
+          "-q",
+          "--no-configuration-cache",
+          "--no-configure-on-demand",
+          "--init-script",
+          "${pluginDir}/lithe.init.gradle",
+          "-PlitheDependenciesOutput=${outputFile}",
+          { "value": "-PlitheDependenciesProject=${project.property:path}", "when": "projectSelected" },
+          "litheDependencyReport"
+        ],
+        "output": "outputFile",
+        "decoder": "litheDependencies",
+        "executesProjectCode": true,
+        "mayUseNetwork": true
+      },
+      "sync": {
+        "watch": [
+          "build.gradle",
+          "build.gradle.kts",
+          "gradle.properties",
+          "gradle/libs.versions.toml",
+          "gradle/wrapper/gradle-wrapper.properties",
+          "settings.gradle",
+          "settings.gradle.kts"
+        ]
+      },
+      "layout": { "excluded": [".gradle", "build"] },
+      "languageImport": { "kind": "gradle", "options": { "offline": "offline", "gradleUserHome": "gradleUserHome" } }
+    }
+  ]
+}

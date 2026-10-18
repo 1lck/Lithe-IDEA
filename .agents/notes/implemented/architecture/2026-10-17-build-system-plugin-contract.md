@@ -183,7 +183,37 @@ macOS 宿主接受级别 3，并在 `PluginManifest.hostCapabilities` 里声明 
 
 不要这样做：在 `BuildSystemService` 或视图里写 `if entry.instance.buildSystemID == "maven"`；在宿主里给 argv 补参数、自己解析工具输出；从 `Bundle.main.resourceURL` 推导输出文件的位置。
 
-### 11. 还没有开放给用户的部分
+### 11. 展示字段：每个构建系统一个窗口，照抄 Maven 窗口
+
+2026-10-18 用户决定，内置 Maven 窗口不再由宿主写死，改为随插件出现：每个启用的构建系统各有一个工具窗口。外壳（停靠、标题、活动栏、顺序、显隐、布局、生命周期）沿用现有工具窗口贡献的注入方式，只是从写死的 `execution.maven` 改为按插件声明注册。窗口内容照抄现有 `MavenView` 的结构，包括工具栏开关、Profiles 勾选树、分组任务和依赖，不重新设计。Gradle 用同一个视图，任务分组模仿 IDEA 的 `Tasks › build`。插件也可以改用自己的网页，那是可选项，见[插件自带网页界面](../../proposed/architecture/2026-10-18-plugin-web-content-in-host-windows.md)。
+
+照抄的视图不能认 Maven 这个名字，所以清单加了三个只管展示的字段，Core 校验它们，但它们不进入任何计划：
+
+- `buildSystems[].icon`：窗口和活动栏图标，沿用 UI 图标的校验。
+- `options[].presentation`：`toolbar` 把带 `icon` 的布尔选项放上工具栏（离线、跳过测试），`tree` 把多选选项放到树顶部作为勾选节点（Maven Profiles）。
+- 任务的 `category`：1～4 级标题。模板上的值是模型任务的默认值，`litheBuildModel` 里的模型任务可以自带（字符串数组）；超过四级或出现空标题时回退到模板的值，任务不会因此丢失。
+
+为什么不复用 `group`：`group` 是固定的七类语义枚举，运行配置和默认动作依赖它，表达不了 `Plugins › compiler` 或 Gradle 的任意任务组。`category` 只描述放在哪里，两者分开以后，改展示不会改变语义。
+
+正确做法：Maven 插件给 `profiles` 写 `presentation: "tree"`，给 `offline` 写 `toolbar` 和图标；扩展输出的插件目标带 `category: ["Plugins", "compiler"]`。
+
+不要这样做：在视图里写 `if buildSystemID == "maven" { showProfiles() }`，或者用 `properties.group` 这类约定键私下决定分组。
+
+当前状态：macOS 仍在共享 Build 窗口列出全部构建系统，并忽略这些字段。每个构建系统一个窗口，以及移除 `MavenView`、`MavenBuildOutputView`、`execution.maven*` 贡献和 `toggle-maven`，由宿主界面工作完成。`MavenService` 还承担着 JDT 的 Profile 同步、模块运行/调试和 `lithe_maven_*` Agent 工具；JDT 的部分改走第 12 节的 `build.languageImport`，宿主接入后才能删除。
+
+### 12. 语言服务器导入：`languageImport`
+
+JDT LS 自己导入 Maven 和 Gradle 工程。导入用的 Profile、settings 和缓存必须和用户给构建工具选的一致，否则编辑器解析出来的依赖和构建不同。以前这些值来自内置 Maven 窗口（`MavenService`），而社区插件没有 `hostIntegration`，Core 不能按插件名字认出 Maven。
+
+所以 2026-10-18 给 `buildSystems` v1 加了可选的 `languageImport`：`kind` 写插件对应的导入（`maven` 或 `gradle`），`options` 把导入设置映射到插件自己的选项 ID。`maven` 有 `profiles`（多选）、`settingsFile`（文件）和 `localRepository`（目录）；`gradle` 有 `offline`（布尔）和 `gradleUserHome`（目录）。校验要求映射的选项存在且类型匹配。`build.languageImport` 按用户存储的值解析选项，返回 `lsp.startServer` 已经接受的 `mavenContext` 或 `javaGradle`。宿主只做转发，不认插件。
+
+Gradle 的 `offline` 和 `userHome` 是用户自己选的值，不是猜测，所以和 #1302 “不猜构建脚本里的设置”不冲突：没设置时仍然不发送，Buildship 用自己的默认值。这两个值只在会话启动时生效；Maven 仍可通过 `lsp.updateMavenConfiguration` 热更新。
+
+正确做法：Maven 插件写 `"languageImport": { "kind": "maven", "options": { "profiles": "profiles", "settingsFile": "settingsFile", "localRepository": "localRepository" } }`，宿主在选项变化后调用 `build.languageImport` 并把 `mavenContext` 交给 `lsp.updateMavenConfiguration`。
+
+不要这样做：宿主按 `buildSystemID == "maven"` 或插件 ID 拼 Maven 上下文，或者从选项的 `arguments` 反推 `-P`、`-s`。
+
+### 13. 还没有开放给用户的部分
 
 - Windows 宿主还不发送 `hostCapabilities`，不会列出级别 3 的版本，也没有 Build 工具窗口。
 - 两端宿主都还不会启动 Provider、发送 `lithe/build/*` 请求，`provider` 来源目前只由 Core 测试和标准答案验证。任一 `buildSystems[].provider` 都要求 `buildProviders: 1`，包括共享语言服务器；macOS 只声明 `buildSystems: [1]`，不声明 `buildProviders`，因此市场、清单校验和安装审查都会拒绝 Provider 插件，模板构建插件仍可安装。Core 支持校验和计划，不传宿主能力表时仍允许 Provider。不要为了让插件可安装而从 `requires` 省去 `buildProviders`，那会因能力未列全被拒绝。
