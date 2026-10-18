@@ -66,7 +66,7 @@ final class MacAgentMcpConfigurationStore: McpConfigurationStore {
     }
 
     func read(_ file: McpConfigurationFile) throws -> String? {
-        try readText(at: file.url, reportedAs: file.url.path)
+        try readText(at: resolvedConfigurationTarget(file.url), reportedAs: file.url.path)
     }
 
     /// Reads one configuration file with the same bounds `write` validates.
@@ -99,7 +99,7 @@ final class MacAgentMcpConfigurationStore: McpConfigurationStore {
         guard data.count <= Self.maximumBytes else { throw McpConfigurationError.tooLarge }
         // Atomic replacement renames over the path, which would replace a
         // dotfile symlink with a regular file; write through to its target.
-        let target = resolvedWriteTarget(file.url)
+        let target = resolvedConfigurationTarget(file.url)
         // Re-read immediately before replacing. Atomic rename prevents a
         // half-written file, but not losing a save another Agent, editor or
         // Lithe instance made after this plan was computed.
@@ -131,7 +131,7 @@ final class MacAgentMcpConfigurationStore: McpConfigurationStore {
     }
 
     func restore(_ change: McpConfigurationChange) throws {
-        let target = resolvedWriteTarget(change.file.url)
+        let target = resolvedConfigurationTarget(change.file.url)
         guard try readText(at: target, reportedAs: change.file.url.path) == change.content else {
             throw McpConfigurationError.changedOnDisk
         }
@@ -267,7 +267,9 @@ final class MacAgentMcpConfigurationStore: McpConfigurationStore {
         return gitDirectory.appendingPathComponent(path).standardizedFileURL
     }
 
-    private func resolvedWriteTarget(_ url: URL) -> URL {
+    /// Reads, writes and rollback validate the same dotfiles target, while
+    /// diagnostics continue to identify the user-facing configuration path.
+    private func resolvedConfigurationTarget(_ url: URL) -> URL {
         guard let attributes = try? fileManager.attributesOfItem(atPath: url.path),
               attributes[.type] as? FileAttributeType == .typeSymbolicLink else {
             return url

@@ -57,6 +57,8 @@ package enum GitConfigurationFallback {
             let remotePruneTags = entries.last { $0.key == "remote.\(name).prunetags" && $0.effective }
             let pruneTags = remotePruneTags
                 ?? entries.last { $0.key == "fetch.prunetags" && $0.effective }
+            // Core inspection uses Git's boolean parser to canonicalize these
+            // effective entries; raw invalid values keep the tagOpt fallback.
             if pruneTags?.value == "true" {
                 // The all-tags refspec fetches every tag; only a pruning Fetch
                 // additionally removes the ones the remote no longer has.

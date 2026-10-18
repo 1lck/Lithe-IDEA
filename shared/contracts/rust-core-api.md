@@ -1069,10 +1069,14 @@ it is not console output. See `shared/fixtures/git/remote-url-v1.json`.
 It returns `{ executable, version, scope, entries, fields, temporaryConfig,
 fetchOptions, fetchError, fetchSources, credentialHelperEnabled,
 interactiveAuthentication }`. Entries are `{ key, value, scope, origin, effective }`
-in Git precedence order, limited to relevant configuration and redacted. Fields
-are `{ key, choices: string[], configuredValues: string[] }` from the selected
-file without expanding includes. Fetch source values are `{ scope, origin }`
-per preference; application sources have null origins. Invalid repository
+in Git precedence order, limited to relevant configuration and redacted. Effective
+`fetch.prunetags` and `remote.<name>.prunetags` entry values use Git's boolean
+parser and return canonical `"true"` or `"false"` for valid spellings (including
+valueless assignments); invalid values remain inspectable as their redacted raw
+text. Fields are `{ key, choices: string[], configuredValues: string[] }` from
+the selected file without expanding includes. `configuredValues` retain the raw
+values for optimistic edit checks, even when an effective entry is normalized.
+Fetch source values are `{ scope, origin }` per preference; application sources have null origins. Invalid repository
 preferences return null `fetchOptions` and a structured `fetchError`.
 
 `git.executionConfigure` adds `{ key, value: string | null, expectedValues:

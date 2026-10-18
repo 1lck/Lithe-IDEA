@@ -35,6 +35,8 @@
 
 ### 保格式编辑
 
+- 参数编辑器保留原始参数数组；显示文本没有变化时直接使用原数组，因此只编辑环境变量不会丢掉空字符串、纯空白参数或参数内的换行。用户修改了文本后按 LF 分行，保留空行和空白行；把原本非空的文本清空表示删除全部参数。逐行编辑无法区分 `[]` 与 `[""]`，也无法区分参数内部换行和参数边界，所以不把重新拆分的文本当作未修改参数的真源。
+- 读取、写入和失败恢复共用符号链接目标解析，针对目标普通文件做大小及 UTF-8 校验，保留原配置路径用于错误展示。写入和恢复修改链接目标并保留原链接，不把 dotfiles 链接替换成普通文件；读取阶段不能仅检查链接自身的文件类型。
 - Claude JSON 使用基于字节偏移的插入/删除，只改动 `mcpServers.<name>` 或 `projects.<path>.mcpServers.<name>`，其余内容逐字节保留。删除条目时只删除该键到下一个键之间的字节，不扩展到行首，因此同一行有相邻条目、或条目的值跨多行且下一个键紧跟闭合括号时，都不会连带删除其他条目；删除最后一个条目时同时删除前导逗号，并在返回计划前重新解析结果，避免写出丢失条目的半截配置。带注释或非严格 JSON 的文件拒绝写入，而不是冒险整体重排；对象里出现重复键时同样拒绝编辑，因为 `serde_json` 取最后一个值而按偏移编辑会命中第一个，二者对“实际生效的定义”判断不一致。
 - Codex TOML 使用 `toml_edit`，保留注释、表顺序和未知键。新增本地依赖 `toml_edit = "0.25"` 就是为此；原有的 `toml` 只能解析。更新已有服务器时只修改 Lithe 建模的 `command`、`args`、`env`、`url`、`http_headers`，替换值时不重建键值项，因此键上方注释、行尾注释和值装饰都保留；`args` 未变化时不重建数组，数组元素之间的注释也不会因为保存其他字段而丢失。`bearer_token_env_var`、`startup_timeout_sec`、`tool_timeout_sec` 等 Codex 专属字段原样保留。`env`/`http_headers` 中无法在本库表示的非字符串值不会因为一次编辑被删掉：即使 UI 里该 Agent 的变量列表为空，也只移除字符串键，保留非字符串值，避免删除用户从未看到的内容；只有整个容器不是对象/表（例如手写成数组）时，用户新增条目才会用新表替换该字段，因为这种形态对 Agent 本身无效，无法合并。`mcp_servers` 写成内联表时同样可以新增、编辑和删除条目；如果文本编辑实际没有改变内容，计划返回 `absent` 而不是 `removed`，防止账本忘记仍然存在的条目。重命名时先把原表整体迁移到新名称再应用建模字段，专属字段随条目一起移动；Claude JSON 重命名同样以旧条目为底稿覆盖建模键。
 - 保存前会拒绝环境变量或 Header 的重复键：配置对象/表无法表示同名两项，先写一份哈希再写成另一份会导致刷新后失去所有权，因此在 Core 和页面校验两处都直接拒绝。
@@ -94,6 +96,7 @@ Windows 的 Agent 配置路径和 Tauri 侧文件访问模型不同，同步实�
 - `cargo test --manifest-path rust/Cargo.toml -p lithe-core mcp::`（覆盖删除首项/中间项/末项、同行相邻项、值跨多行且下一个键同行的布局、单行与混合换行布局，JSON 输出重新解析，重复 JSON 键拒绝编辑；Codex 更新保留 `bearer_token_env_var`、`startup_timeout_sec`、未知键、建模键与值的注释、未变化的 args 数组内注释和非字符串 env 值，变量列表清空时也保留非字符串值；内联 `mcp_servers` 表可删除、可编辑；拒绝重复变量键；哈希忽略当前传输不写入的 command/args/env/url/headers 且与重解析一致；重命名保留专属字段）
 - `./scripts/test-macos.sh --filter McpServerLibraryTests`（覆盖计划后磁盘变化拒绝写入、文件在计划后出现拒绝创建、linked worktree 公共排除文件、关闭会话后仍能清理项目注册、项目切换后清理两个项目的注册、Git 排除失败不回滚账本、注销冲突写入错误横幅、重复变量键校验、重命名外部条目、按 Agent 开启时忽略传输不写入的字段、切换传输方式丢弃隐藏字段后仍保持所有权、重命名保留 Codex 字段、自然排序条目的所有权、两个窗口合并账本）
 - `./scripts/test-macos.sh --filter "McpBatchTransactionTests|McpServerSummaryTests|McpExcludePreservationTests"`（用第二次写入前的同步故障注入覆盖已有文件恢复、新文件删除、回滚保留外部修改与路径提示、失败保存和注册不发布账本；摘要不含 args 或 URL 凭据；exclude 原始非 UTF-8 字节保留、LF/CRLF 幂等及已有文件读取失败保护）
+- `./scripts/test-macos.sh --filter "McpArgumentRoundTripTests|McpSymlinkConfigurationTests"`（Codex 与 Claude 只改 env 时保留空参数、空白参数和嵌入换行；修改参数文本保留空行；相对及绝对符号链接可读取、生成计划、保存和备份，后续写入失败恢复链接目标，目标外部修改不覆盖，错误展示原路径并保留大小上限）
 - `./scripts/test-macos.sh --filter IdeCapabilitiesTests`
 - `./scripts/verify-service-boundaries.sh`
 - `./scripts/verify-agent-notes.sh`

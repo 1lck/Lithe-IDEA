@@ -23,6 +23,7 @@ Issue #1316 的截图里，通用、Git 和 Agent 管理页在几乎每个控件
 - 编辑器字体页提供实时预览：示例代码使用当前选中字体和字号渲染；切换字体后旧字体保留约 2.5 秒，和新字体上下并列，随后淡出，方便比较字形。`accessibilityReduceMotion` 开启时取消动画。
 - Git 行为配置行用 `ViewThatFits` 优先排成一行：设置名、当前生效值、下拉框、重置和应用按钮并排；`LitheSettingsSelect` 的触发宽度按该字段最长选项文案在 150–240 pt 内取值，避免短选项占着 220 pt 的空白框，长选项仍由 `expandsToFitOptions` 撑开弹层。窗口过窄时回退到第二行显示当前生效值，按钮保持完整。
 - 运行时的生效值不再用一整行等宽文本：`EffectiveRuntimeLabel` 用卡片展示模式徽标、来源、运行时名称和可选择复制的路径，警告与错误使用同一卡片形状和警示色。
+- Git 标签继承回显只消费 Core 的规范化布尔值：Core 用 Git 自己的 `--type=bool --get` 解释 `fetch.pruneTags` 与远程覆盖，识别 `yes/on/1`、无值和假值等写法；远程显式假值仍优先于全局真值。选中文件的原始编辑值不变，避免保存时因规范化导致误报冲突。不要在 Swift 再写一份布尔解析器，否则界面会与真实 fetch 行为漂移。
 - Git 身份输入框回显当前生效值（包括继承值），保存按钮只在草稿与显示值不同时启用；清除覆盖后输入框回到继承的生效值。这样用户看到的就是 Git 实际会使用的值，不需要从下方的小字里对照。
 - Maven 的 `settings.xml` 与 `Local Repository` 输入框在未设置覆盖时，用有效路径作为占位文本：先看已配置值，再看 `~/.m2/settings.xml`、Maven 安装的 `conf/settings.xml` 和 `~/.m2/repository`；都不存在时显示“Not found”，不再显示无信息量的“Automatic”。
 - Agent 预检把版本、路径和安装来源拆成结构化 `Detail`，用带分隔线的内嵌小表展示；`message` 保留为纯文本诊断源，测试和错误文案不受影响。状态从裸 `PASS` 文本改成带图标的胶囊徽标。
@@ -70,6 +71,7 @@ Issue 举的是通用、Git 和 Agent 管理三个页面，但同类常驻说明
 
 ## 验证
 
+- `./scripts/test-macos.sh --filter GitSettingsPresentationTests` 与 `cargo test --manifest-path rust/Cargo.toml -p lithe-core git::configuration::`（Git 布尔等价写法、无值/空值、原始编辑值不变、远程覆盖以及 prune/all/none/reachable 回显）
 - `./scripts/test-macos.sh --filter SettingsSearchVocabularyTests`
 - `./scripts/test-macos.sh --filter SettingsSidebarLayoutTests`
 - `./scripts/verify-agent-notes.sh`

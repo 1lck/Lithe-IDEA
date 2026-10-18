@@ -92,8 +92,11 @@ struct McpServerDraft: Equatable {
     var transport: McpTransport = .stdio
     var command: String = ""
     var url: String = ""
-    /// One argument per line preserves arguments that contain spaces.
+    /// One argument per line; spaces and blank lines are significant.
     var argumentsText: String = ""
+    /// Keep the exact array while its text projection is unchanged: joining is
+    /// ambiguous for no arguments vs one empty argument, and embedded newlines.
+    private var originalArguments: [String] = []
     var env: [McpKeyValue] = []
     var headers: [McpKeyValue] = []
     var enabledAgents: Set<McpAgent> = []
@@ -101,10 +104,14 @@ struct McpServerDraft: Equatable {
     var isNew: Bool { originalRowID == nil }
 
     var arguments: [String] {
-        argumentsText
-            .split(separator: "\n", omittingEmptySubsequences: false)
-            .map(String.init)
-            .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        if argumentsText == originalArguments.joined(separator: "\n") {
+            return originalArguments
+        }
+        // When text differs, an empty field clears argv; every other line is an argument.
+        // The line editor cannot create a lone empty argument or distinguish an
+        // embedded newline from an argument boundary after the text is changed.
+        guard !argumentsText.isEmpty else { return [] }
+        return argumentsText.components(separatedBy: "\n")
     }
 
     init() {}
@@ -116,7 +123,8 @@ struct McpServerDraft: Equatable {
         transport = row.definition.transport
         command = row.definition.command ?? ""
         url = row.definition.url ?? ""
-        argumentsText = row.definition.args.joined(separator: "\n")
+        originalArguments = row.definition.args
+        argumentsText = originalArguments.joined(separator: "\n")
         env = row.definition.env
         headers = row.definition.headers
         enabledAgents = row.enabledGlobalAgents

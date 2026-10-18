@@ -150,6 +150,43 @@ fn entries(bytes: &[u8]) -> Result<Vec<Entry>, CoreError> {
     Ok(result)
 }
 
+/// Canonicalizes inherited tag booleans with Git's parser, as Fetch does.
+/// Raw selected-file values remain separate for optimistic editing.
+fn normalize_prune_tags(root: &str, entries: &mut [Entry]) -> Result<(), CoreError> {
+    for entry in entries.iter_mut().filter(|entry| {
+        entry.effective
+            && (entry.key == "fetch.prunetags"
+                || (entry.key.starts_with("remote.") && entry.key.ends_with(".prunetags")))
+    }) {
+        let output = capture_git_with_options(
+            root,
+            &[
+                "config".into(),
+                "--type=bool".into(),
+                "--get".into(),
+                entry.key.clone(),
+            ],
+            None,
+            true,
+        )?;
+        // Invalid values must remain inspectable and editable. They do not
+        // enable the all-tags refspec in the inherited-policy presentation.
+        if output.exit_code == 0 {
+            match output.stdout.as_slice() {
+                b"true\n" | b"true\r\n" => entry.value = "true".into(),
+                b"false\n" | b"false\r\n" => entry.value = "false".into(),
+                _ => {
+                    return Err(CoreError::new(
+                        ErrorCode::ParseFailed,
+                        "Git returned an invalid tag pruning boolean",
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 fn scoped_values(root: &str, scope: &str, key: &str) -> Result<Vec<String>, CoreError> {
     let flag = if scope == "local" {
         "--local"
@@ -325,7 +362,8 @@ fn inspect(root: &str, scope: &str) -> Result<Value, CoreError> {
             "--list",
         ],
     )?;
-    let entries = entries(&output)?;
+    let mut entries = entries(&output)?;
+    normalize_prune_tags(root, &mut entries)?;
     let mut fields = Vec::new();
     for (key, choices) in EDITABLE {
         if scope == "global" && key.starts_with("lithe.") {
@@ -407,5 +445,108 @@ mod tests {
         assert!(!serde_json::to_string(&helpers)
             .unwrap()
             .contains("unlabelled-fixture-secret"));
+    }
+}
+
+#[cfg(test)]
+mod inherited_tag_tests {
+    use serde_json::{json, Value};
+    use std::fs;
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+    struct Repository(PathBuf);
+
+    impl Repository {
+        fn request(&self, command: &str, mut payload: Value) -> Value {
+            payload["root"] = json!(self.0);
+            // Core owns subprocess deadlines; the fixture never waits on an
+            // unbounded native child, including repository initialization.
+            serde_json::from_str(&crate::execute_json(
+                &json!({
+                    "timeoutMilliseconds": 5000,
+                    "command": command,
+                    "payload": payload,
+                })
+                .to_string(),
+            ))
+            .unwrap()
+        }
+    }
+
+    impl Drop for Repository {
+        fn drop(&mut self) {
+            if let Err(error) = fs::remove_dir_all(&self.0) {
+                eprintln!("Could not clean tag boolean repository: {error}");
+            }
+        }
+    }
+
+    // Real Git integration protects the inspection-to-presentation contract.
+    #[test]
+    fn inspection_normalizes_inherited_tag_booleans_without_changing_edit_values() {
+        let repo = Repository(std::env::temp_dir().join(format!(
+            "lithe-tag-booleans-{}-{}",
+            std::process::id(),
+            SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        )));
+        fs::create_dir_all(&repo.0).unwrap();
+        let initialized = repo.request(
+            "git.command",
+            json!({ "arguments": ["init", "--template=", "-q", "-b", "main"] }),
+        );
+        assert_eq!(initialized["ok"], true, "{initialized}");
+        assert_eq!(initialized["data"]["exitCode"], 0, "{initialized}");
+
+        // Exercise Git's parser rather than duplicating its accepted spellings.
+        // Valueless and empty assignments are deliberately distinct booleans.
+        let cases = [
+            ("yes", "pruneTags = yes", "true"),
+            ("on", "pruneTags = on", "true"),
+            ("one", "pruneTags = 1", "true"),
+            ("mixed", "pruneTags = TrUe", "true"),
+            ("valueless", "pruneTags", "true"),
+            ("no", "pruneTags = no", "false"),
+            ("off", "pruneTags = off", "false"),
+            ("zero", "pruneTags = 0", "false"),
+            ("false", "pruneTags = FaLsE", "false"),
+            ("empty", "pruneTags =", "false"),
+            ("invalid", "pruneTags = invalid", "invalid"),
+        ];
+        let path = repo.0.join(".git/config");
+        let mut config = fs::read_to_string(&path).unwrap();
+        config.push_str("\n[fetch]\npruneTags = yes\n");
+        for (name, configuration, _) in cases {
+            config.push_str(&format!("\n[remote \"{name}\"]\n{configuration}\n"));
+        }
+        fs::write(path, config).unwrap();
+
+        let response = repo.request("git.executionInspect", json!({}));
+        assert_eq!(response["ok"], true, "{response}");
+        let entries = response["data"]["entries"].as_array().unwrap();
+        for (name, _, expected) in cases {
+            let key = format!("remote.{name}.prunetags");
+            let entry = entries
+                .iter()
+                .find(|entry| entry["key"] == key && entry["effective"] == true)
+                .unwrap();
+            assert_eq!(entry["value"], expected, "{key}");
+            assert_eq!(entry["scope"], "local", "{key}");
+            assert!(entry["origin"].as_str().unwrap().ends_with(".git/config"));
+        }
+        let fetch = entries
+            .iter()
+            .find(|entry| entry["key"] == "fetch.prunetags" && entry["effective"] == true)
+            .unwrap();
+        assert_eq!(fetch["value"], "true");
+        let field = response["data"]["fields"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|field| field["key"] == "fetch.prunetags")
+            .unwrap();
+        assert_eq!(field["configuredValues"], json!(["yes"]));
     }
 }

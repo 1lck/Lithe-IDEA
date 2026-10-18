@@ -88,4 +88,45 @@ struct GitSettingsPresentationTests {
         #expect(explicit.value == "all")
         #expect(explicit.source?.key == "remote.upstream.tagopt")
     }
+
+    @Test(arguments: [true, false])
+    func inheritedTagPolicyUsesNormalizedCoreBoolean(prune: Bool) {
+        let entries = [
+            GitConfigurationEntry(key: "fetch.prunetags", value: "true", scope: "global", origin: "file:fixture.gitconfig", effective: true),
+            GitConfigurationEntry(key: "remote.origin.tagopt", value: "--no-tags", scope: "local", origin: "file:.git/config", effective: true)
+        ]
+        let behavior = GitConfigurationFallback.inheritedTagBehavior(remote: "origin", prune: prune, entries: entries)
+        #expect(behavior.value == (prune ? "prune" : "all"))
+        #expect(behavior.source?.key == "fetch.prunetags")
+        #expect(behavior.source?.scope == "global")
+    }
+
+    @Test(arguments: ["false", "invalid"])
+    func remoteTagBooleanTakesPrecedenceOverFetchDefault(value: String) {
+        let entry = { (key: String, value: String) in
+            GitConfigurationEntry(key: key, value: value, scope: "local", origin: "file:.git/config", effective: true)
+        }
+        let entries = [
+            entry("fetch.prunetags", "true"),
+            entry("remote.origin.url", "https://example.com/team/repo.git"),
+            entry("remote.origin.prunetags", value),
+            entry("remote.origin.tagopt", "--no-tags"),
+            entry("remote.upstream.url", "https://example.com/team/upstream.git")
+        ]
+        let origin = GitConfigurationFallback.inheritedTagBehavior(remote: "origin", prune: true, entries: entries)
+        #expect(origin.value == "none")
+        #expect(origin.source?.key == "remote.origin.tagopt")
+        #expect(GitConfigurationFallback.inheritedTagBehavior(remote: "upstream", prune: true, entries: entries).value == "prune")
+        #expect(GitConfigurationFallback.inheritedTagBehavior(remote: nil, prune: true, entries: entries).value == "remoteDependent")
+    }
+
+    @Test(arguments: ["false", "invalid"])
+    func disabledOrInvalidFetchTagBooleanFallsBackToReachableTags(value: String) {
+        let entries = [
+            GitConfigurationEntry(key: "fetch.prunetags", value: value, scope: "local", origin: "file:.git/config", effective: true)
+        ]
+        let behavior = GitConfigurationFallback.inheritedTagBehavior(remote: "origin", prune: true, entries: entries)
+        #expect(behavior.value == "reachable")
+        #expect(behavior.source == nil)
+    }
 }
