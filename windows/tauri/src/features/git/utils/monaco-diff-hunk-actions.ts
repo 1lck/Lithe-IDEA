@@ -52,13 +52,15 @@ export function createMonacoDiffHunkActions(
   operations: MonacoDiffHunkOperations,
 ) {
   const writable = Boolean(context?.repoPath) && !diff.is_truncated;
-  const lossySafe = !diff.has_lossy_line_endings || Boolean(diff.writePatch);
-  // Stage/unstage keep the lossy protection until their own byte-faithful
-  // channels exist; discard can ride the writePatch channel independently.
-  const toggleAction: "stage" | "unstage" | null = writable && lossySafe && context
+  // Stage/unstage keep the lossy protection unconditionally: their write
+  // hunks come from display lines which lack original bytes.
+  const toggleAction: "stage" | "unstage" | null = writable && !diff.has_lossy_line_endings && context
     ? context.isStaged ? "unstage" : "stage" : null;
+  // Discard rides the byte-faithful channel when writePatch is available;
+  // lossy files without it keep the protective fallback.
   const discardEnabled = writable && !!context && !context.isStaged && context.canDiscard === true
-    && !!operations.discard && canDiscardDiff(diff);
+    && !!operations.discard && canDiscardDiff(diff)
+    && (!diff.has_lossy_line_endings || Boolean(diff.writePatch));
   const actions: readonly HunkActionID[] = toggleAction
     ? discardEnabled ? [toggleAction, "discard"] : [toggleAction]
     : discardEnabled ? ["discard"] : [];

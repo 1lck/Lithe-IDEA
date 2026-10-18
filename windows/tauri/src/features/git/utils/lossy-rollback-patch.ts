@@ -85,7 +85,9 @@ export function sliceRawHunkPatch(
   // context stripped, original bytes (CR, EOF markers) preserved. This pairs
   // with git apply --unidiff-zero for byte-faithful reverse application.
   // A replacement block is a contiguous run of `-` and `+` lines with no
-  // context line in between; the target new-side line identifies which block.
+  // context line in between; the target identifies which block by its
+  // one-based new-side line (for replacements and insertions) or old-side
+  // line (for pure deletions, which have no new-side lines).
   let blockStart = -1;
   let blockEnd = -1;
   let currentStart = -1;
@@ -95,9 +97,16 @@ export function sliceRawHunkPatch(
     if (line.isEofMarker) continue;
     if (line.prefix === "+" || line.prefix === "-") {
       if (currentStart === -1) currentStart = i;
-      if (!found && line.newLine === targetNewStart) {
-        found = true;
-        blockStart = currentStart;
+      if (!found) {
+        // Match by new-side line for replacement/insertion blocks, or by
+        // old-side line for pure deletion blocks (newLine is null).
+        const newMatch = line.newLine !== null && line.newLine === targetNewStart;
+        const oldMatch =
+          line.newLine === null && line.oldLine !== null && line.oldLine === targetOldStart;
+        if (newMatch || oldMatch) {
+          found = true;
+          blockStart = currentStart;
+        }
       }
     } else {
       // Context line terminates the current run.
@@ -122,18 +131,28 @@ export function sliceRawHunkPatch(
   // U0 hunk: count only changed lines for each side.
   let oldCount = 0;
   let newCount = 0;
-  let oldLineNumber = 0;
+  let firstOldLine: number | null = null;
+  let firstNewLine: number | null = null;
   for (const line of hunkLines) {
     if (line.isEofMarker) continue;
     if (line.prefix === "-") {
       oldCount++;
-      if (line.oldLine !== null) oldLineNumber = line.oldLine;
+      if (firstOldLine === null && line.oldLine !== null) firstOldLine = line.oldLine;
     }
-    if (line.prefix === "+") newCount++;
+    if (line.prefix === "+") {
+      newCount++;
+      if (firstNewLine === null && line.newLine !== null) firstNewLine = line.newLine;
+    }
   }
-  // When one side has zero lines, git uses the position-before convention.
-  const oldStart = oldCount === 0 ? Math.max(0, (oldLineNumber || targetOldStart) - 1) : (hunkLines.find((l) => !l.isEofMarker && l.prefix === "-")?.oldLine ?? targetOldStart);
-  const newStart = newCount === 0 ? Math.max(0, targetNewStart - 1) : targetNewStart;
+  // When one side has zero lines, git uses the position-before convention:
+  // the hunk header's start is the line number preceding the insertion or
+  // the deletion boundary.
+  const oldStart = oldCount === 0
+    ? Math.max(0, (firstOldLine ?? targetOldStart) - 1)
+    : (firstOldLine ?? targetOldStart);
+  const newStart = newCount === 0
+    ? Math.max(0, (firstNewLine ?? targetNewStart) - 1)
+    : (firstNewLine ?? targetNewStart);
 
   const header = `@@ -${oldStart},${oldCount} +${newStart},${newCount} @@`;
   const body = hunkLines.map((line) => (line.isEofMarker ? line.content : line.prefix + line.content));

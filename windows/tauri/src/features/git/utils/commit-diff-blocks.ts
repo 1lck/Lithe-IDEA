@@ -75,9 +75,13 @@ export function planCommitDiffBlocks(worktree: GitDiff, staged: GitDiff): Commit
       indeterminate: !checked && staged.lines.length > 0, canToggle: true,
       canRollback: false, wholeFile: true, leftStart: change.leftStart, rightStart: change.rightStart }];
   }
+  // The staged projection feeds both toggle and rollback calculations; when
+  // only rollback runs the byte-faithful channel, the staged side may use
+  // the lossy projection for coordinate math — canToggle stays separately
+  // gated and stage/unstage hunks are never built from lossy data.
   const indexed = staged.lines.length === 0
     ? { before: visible.before, after: visible.before, plan: { changes: [] as IndependentChange[] } }
-    : projection(staged);
+    : projection(staged, lossyRollbackEligible);
   if (!indexed || !equal(indexed.before, visible.before)) return null;
   return visible.plan.changes.map(change => {
     let start = change.leftStart, end = change.leftEnd, overlapsBoundary = false;
@@ -104,7 +108,7 @@ export function planCommitDiffBlocks(worktree: GitDiff, staged: GitDiff): Commit
     const revertedIndex = [...indexed.after.slice(0, start), ...before, ...indexed.after.slice(end)];
     const rollbackBase = [...visible.after.slice(0, change.rightStart), ...indexLines,
       ...visible.after.slice(change.rightEnd)];
-    return {
+    const block: CommitDiffBlock = {
       id: commitDiffChangeID(visible.plan, change), checked, indeterminate,
       canToggle: !overlapsBoundary && !worktree.has_lossy_line_endings,
       // Rollback restores this block to the index, preserving included content.
@@ -113,10 +117,17 @@ export function planCommitDiffBlocks(worktree: GitDiff, staged: GitDiff): Commit
       leftStart: change.leftStart, rightStart: change.rightStart,
       stage: gitGutterChangeHunk(worktree.file_path, indexed.after, edit(start, indexLines, after)),
       unstage: gitGutterChangeHunk(worktree.file_path, revertedIndex, edit(start, before, indexLines)),
+      // Byte-faithful rollback: the plan indices are zero-based, the raw
+      // patch slicer speaks one-based line numbers. When the faithful slice
+      // fails, rollback is disabled for this block — never fall back to a
+      // lossy patch that silently drops CR or EOF bytes.
       rollback: worktree.writePatch
-        ? (buildByteFaithfulHunk(worktree, change.leftStart, change.rightStart)
-          ?? gitGutterChangeHunk(worktree.file_path, rollbackBase, edit(change.rightStart, indexLines, after)))
-        : gitGutterChangeHunk(worktree.file_path, rollbackBase, edit(change.rightStart, indexLines, after)),
+        ? (buildByteFaithfulHunk(worktree, change.leftStart + 1, change.rightStart + 1) ?? undefined)
+        : (!worktree.has_lossy_line_endings
+          ? gitGutterChangeHunk(worktree.file_path, rollbackBase, edit(change.rightStart, indexLines, after))
+          : undefined),
     };
+    block.canRollback = block.canRollback && block.rollback !== undefined;
+    return block;
   });
 }
