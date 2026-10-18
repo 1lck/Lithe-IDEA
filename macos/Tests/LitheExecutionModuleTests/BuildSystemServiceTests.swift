@@ -948,6 +948,28 @@ struct BuildSystemServiceTests {
         #expect(runner.requests.count == commandsBefore)
     }
 
+    /// Relative source paths in the Build Output belong to the instance the
+    /// last command ran in, not to the workspace root.
+    @Test
+    func outputLinksResolveRelativeToTheInstanceRoot() async throws {
+        let planner = FakeBuildPlanner()
+        planner.detection = BuildDetection(instances: [
+            try Self.nestedInstance(id: "fixture:a", root: "a", features: [])
+        ])
+        let harness = Harness(planner: planner)
+        defer { harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        #expect(await harness.waitForEntries { !$0.isEmpty })
+        #expect(harness.service.outputDirectory == nil)
+
+        harness.service.runTask("fixture:a", request: BuildTaskRequest(task: "build"), title: "Build")
+        #expect(await harness.waitForRunState { $0 == .succeeded })
+        #expect(
+            harness.service.outputDirectory
+                == Self.workspace.appendingPathComponent("a").standardizedFileURL
+        )
+    }
+
     // MARK: Fixtures
 
     private static let instanceID = "fixture:app"

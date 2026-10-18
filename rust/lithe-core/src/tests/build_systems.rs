@@ -295,6 +295,65 @@ fn cargo_run_entries_match_the_builtin_detector() {
     );
 }
 
+/// Cargo's implicit `src/main.rs` target is suppressed by an explicit binary,
+/// but not by explicit test or example targets.
+#[test]
+fn cargo_implicit_main_survives_test_and_example_targets() {
+    let workspace = TemporaryWorkspace::new("build-cargo-targets");
+    workspace
+        .write(
+            "demo/Cargo.toml",
+            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n\n[[test]]\nname = \"checks\"\npath = \"tests/checks.rs\"\n\n[[example]]\nname = \"sample\"\npath = \"examples/sample.rs\"\n",
+        )
+        .write("demo/src/main.rs", "fn main() {}\n")
+        .write("demo/tests/checks.rs", "\n")
+        .write("demo/examples/sample.rs", "fn main() {}\n")
+        .write(
+            "cli/Cargo.toml",
+            "[package]\nname = \"cli\"\nversion = \"0.1.0\"\n\n[[bin]]\nname = \"cli-bin\"\npath = \"src/bin/cli-bin.rs\"\n",
+        )
+        .write("cli/src/main.rs", "fn main() {}\n")
+        .write("cli/src/bin/cli-bin.rs", "fn main() {}\n");
+    let detection = detect(
+        &workspace,
+        vec![fixture("cargo-build.plugin.json")],
+        json!({}),
+    );
+    let targets = |id: &str| -> Vec<(String, String)> {
+        instance(&detection, id)["model"]["targets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|target| {
+                (
+                    target["name"].as_str().unwrap().to_string(),
+                    target["tags"][0].as_str().unwrap().to_string(),
+                )
+            })
+            .collect()
+    };
+    let demo = targets("cargo:demo");
+    assert!(
+        demo.contains(&("demo".to_string(), "application".to_string())),
+        "{demo:?}"
+    );
+    assert!(
+        demo.contains(&("checks".to_string(), "test".to_string())),
+        "{demo:?}"
+    );
+    assert!(
+        demo.contains(&("sample".to_string(), "example".to_string())),
+        "{demo:?}"
+    );
+    // An explicit binary suppresses the implicit main target.
+    let applications: Vec<String> = targets("cargo:cli")
+        .into_iter()
+        .filter(|(_, tag)| tag == "application")
+        .map(|(name, _)| name)
+        .collect();
+    assert_eq!(applications, ["cli-bin"]);
+}
+
 /// Each declaration's nesting rule decides how marker directories become
 /// instances, and the higher-priority plugin answers for a shared ID.
 #[test]

@@ -39,7 +39,7 @@ struct BuildOutputView: View {
             }
             OutputTextView(
                 output: feature.output,
-                searchRoots: feature.workspaceURL.map { [$0] } ?? [],
+                searchRoots: feature.outputDirectory.map { [$0] } ?? [],
                 fileExists: { model.fileExists(at: $0) },
                 emptyMessage: "Run a build task to see output."
             ) { url, line, column in

@@ -466,6 +466,39 @@ fn apply_rules<'d, R: RuleMatch>(
     }
 }
 
+/// Target rules group a fallback by its tags: an implicit target is skipped
+/// when an explicit rule for the same kind already produced one, so an
+/// explicit `[[test]]` or `[[example]]` does not hide `src/main.rs`.
+fn apply_target_rules(
+    builder: &mut ModelBuilder<'_>,
+    project: usize,
+    base: &str,
+    rules: &[TargetRule],
+    document: &Value,
+    node: &Node<'_>,
+) {
+    let mut produced: BTreeSet<String> = BTreeSet::new();
+    for fallback in [false, true] {
+        for rule in rules.iter().filter(|rule| rule.fallback() == fallback) {
+            if fallback && rule.tags.iter().any(|tag| produced.contains(tag)) {
+                continue;
+            }
+            let nodes = match rule.each.as_ref() {
+                Some(each) => select::nodes(each, document, node),
+                None => vec![node.clone()],
+            };
+            for element in nodes {
+                if select::all_hold(rule.filter(), document, &element)
+                    && map_target(builder, project, base, rule, document, &element)
+                    && !fallback
+                {
+                    produced.extend(rule.tags.iter().cloned());
+                }
+            }
+        }
+    }
+}
+
 fn properties(
     specs: &BTreeMap<String, FieldSpec>,
     document: &Value,
@@ -536,9 +569,7 @@ fn map_project(
     ) else {
         return false;
     };
-    apply_rules(&rule.targets, document, node, |target, element| {
-        map_target(builder, project, &path, target, document, element)
-    });
+    apply_target_rules(builder, project, &path, &rule.targets, document, node);
     apply_rules(
         &rule.content_roots,
         document,

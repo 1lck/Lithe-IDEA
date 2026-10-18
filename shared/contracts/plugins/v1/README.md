@@ -618,7 +618,10 @@ element), `$/a/b` (from the document root), `*` (each item). A field is a
 selector, `{ "from", "transform": "lastSegment" }`, or a literal
 `{ "value": "src" }`. Target `tags` are a literal list, and a project's
 parent is the deepest project containing it. Paths are relative to the root
-or absolute inside the workspace; anything else is dropped.
+or absolute inside the workspace; anything else is dropped. A target `fallback` is
+skipped only when a non-fallback target rule with an overlapping tag already
+produced a target, so an explicit binary suppresses an implicit `src/main.rs`
+target while explicit test or example targets do not.
 
 Whatever a map cannot express is the plugin's own work: other file formats,
 tasks read from the tool, explicit parent links, tags computed from values,

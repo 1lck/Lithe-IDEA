@@ -87,6 +87,9 @@ package final class BuildSystemService: ObservableObject {
     @Published package private(set) var hasActiveWork = false
     @Published package private(set) var runningTitle: String?
     @Published package private(set) var output = ""
+    /// Directory the command that wrote the output ran in, so relative source
+    /// paths in the text are resolved against the instance root.
+    @Published package private(set) var outputDirectory: URL?
     @Published package private(set) var diagnostics: [BuildDiagnostic] = []
     @Published package private(set) var testResults: BuildTestResults?
     package private(set) var workspaceURL: URL?
@@ -183,6 +186,7 @@ package final class BuildSystemService: ObservableObject {
         redetectTask?.cancel(); redetectTask = nil
         self.workspaceURL = workspaceURL?.standardizedFileURL
         entries = []
+        outputDirectory = nil
         modelRevisions = [:]
         dependencyRevisions = [:]
         fileRevision = 0
@@ -847,6 +851,8 @@ package final class BuildSystemService: ObservableObject {
         capturesStandardOutput: Bool,
         timeout: Duration?
     ) async throws -> BuildCommandRequest {
+        let directory = workspaceURL.appendingPathComponent(entry.instance.root).standardizedFileURL
+        if outputDirectory != directory { outputDirectory = directory }
         let planner = planner
         let target = entry.target
         let invocation = try planner.invocationPlan(target, root: entry.instance.root)
