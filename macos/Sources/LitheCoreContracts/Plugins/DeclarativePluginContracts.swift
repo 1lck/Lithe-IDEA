@@ -312,8 +312,15 @@ public struct DeclarativeUIContributions: Equatable, Codable, Sendable {
         public let title: String
         public let placement: String
         public let order: Int
-        public let text: String
+        /// Core accepts exactly one of `text` and `web`.
+        public let text: String?
+        /// `ui` 2: a package HTML page shown inside the host-owned window shell.
+        public let web: Web?
         public let icon: PluginUIIcon?
+    }
+    public struct Web: Equatable, Codable, Sendable {
+        /// Package-relative `.html` path that Core already checked for traversal.
+        public let entry: String
     }
     public struct Command: Equatable, Codable, Sendable {
         public let id: String
@@ -332,7 +339,7 @@ public struct DeclarativeUIContributions: Equatable, Codable, Sendable {
                 id: window.id, kind: .toolWindow, title: window.title,
                 placement: window.placement == "left" ? .leftSidebar : (window.placement == "right" ? .rightSidebar : .activityBar),
                 order: window.order, actionID: window.id + ".toggle", rendererID: window.id,
-                text: window.text, uiIcon: window.icon
+                text: window.text, uiIcon: window.icon, webEntry: window.web?.entry
             )
         } + commands.flatMap { command in
             command.placements.map { placement in
@@ -431,11 +438,17 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
             ))
         }
         if !buildSystems.isEmpty {
-            modules.append(PluginModuleDeclaration(manifest: LanguageExtensionModuleManifests.buildSystems(
-                pluginID: decoded.id,
-                displayName: decoded.displayName,
-                enabledByDefault: enabledByDefault
-            )))
+            // One tool window per build system, enabled with the plugin.
+            modules.append(PluginModuleDeclaration(
+                manifest: LanguageExtensionModuleManifests.buildSystems(
+                    pluginID: decoded.id,
+                    displayName: decoded.displayName,
+                    enabledByDefault: enabledByDefault
+                ),
+                contributions: buildSystems.enumerated().flatMap { index, buildSystem in
+                    buildSystem.contributions(pluginID: decoded.id, order: index)
+                }
+            ))
         }
         if let ui = decoded.ui {
             modules.append(PluginModuleDeclaration(
@@ -664,6 +677,7 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 let targetTags: [String]
                 let requiresUserArguments: Bool
                 let description: String?
+                let category: [String]
 
                 init(from decoder: Decoder) throws {
                     let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -676,11 +690,19 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                     requiresUserArguments = try values.decodeIfPresent(Bool.self, forKey: .requiresUserArguments)
                         ?? false
                     description = try values.decodeIfPresent(String.self, forKey: .description)
+                    category = try values.decodeIfPresent([String].self, forKey: .category) ?? []
                 }
 
                 private enum CodingKeys: String, CodingKey {
                     case id, displayName, group, scopes, fromModel, targetTags, requiresUserArguments, description
+                    case category
                 }
+            }
+            /// Only where the window offers the option; Core resolves the rest.
+            struct Option: Decodable {
+                let id: String
+                let presentation: String?
+                let icon: PluginUIIcon?
             }
             struct Test: Decodable {
                 let scopes: [BuildScope]
@@ -689,6 +711,8 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
 
             let id: String
             let displayName: String
+            let icon: PluginUIIcon?
+            let options: [Option]
             let model: Source?
             let tasks: [Task]
             let test: Test?
@@ -698,6 +722,8 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 let values = try decoder.container(keyedBy: CodingKeys.self)
                 id = try values.decode(String.self, forKey: .id)
                 displayName = try values.decode(String.self, forKey: .displayName)
+                icon = try values.decodeIfPresent(PluginUIIcon.self, forKey: .icon)
+                options = try values.decodeIfPresent([Option].self, forKey: .options) ?? []
                 model = try values.decodeIfPresent(Source.self, forKey: .model)
                 tasks = try values.decodeIfPresent([Task].self, forKey: .tasks) ?? []
                 test = try values.decodeIfPresent(Test.self, forKey: .test)
@@ -705,19 +731,28 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
             }
 
             private enum CodingKeys: String, CodingKey {
-                case id, displayName, model, tasks, test, dependencies
+                case id, displayName, icon, options, model, tasks, test, dependencies
             }
 
             func declaration() -> DeclarativeBuildSystem {
                 DeclarativeBuildSystem(
                     id: id,
                     displayName: displayName,
+                    icon: icon,
                     modelSource: model.flatMap { DeclarativeBuildSystem.ModelSource(rawValue: $0.source) },
+                    options: options.map {
+                        .init(
+                            id: $0.id,
+                            presentation: $0.presentation.flatMap(DeclarativeBuildSystem.OptionPresentation.init),
+                            icon: $0.icon
+                        )
+                    },
                     tasks: tasks.map {
                         .init(
                             id: $0.id, displayName: $0.displayName, group: $0.group, scopes: $0.scopes,
                             fromModel: $0.fromModel, targetTags: $0.targetTags,
-                            requiresUserArguments: $0.requiresUserArguments, description: $0.description
+                            requiresUserArguments: $0.requiresUserArguments, description: $0.description,
+                            category: $0.category
                         )
                     },
                     testScopes: test?.scopes ?? [],

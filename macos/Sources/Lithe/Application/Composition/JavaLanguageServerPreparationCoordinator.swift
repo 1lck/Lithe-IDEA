@@ -10,6 +10,14 @@ final class JavaLanguageServerPreparationCoordinator {
     typealias FailureHandler = @MainActor (JavaLanguageServerPreparationFailure) -> Void
     typealias StartedHandler = @MainActor (UUID) -> Void
 
+    private var mavenConfigurationTask: Task<Void, Never>?
+    private var mavenConfigurationID: UUID?
+    private var mavenRecoveryRoot: URL?
+
+    deinit {
+        mavenConfigurationTask?.cancel()
+    }
+
     func schedule(
         for owner: JavaLanguageServerPreparationOwner,
         operation: @escaping @MainActor () async -> Void
@@ -32,6 +40,7 @@ final class JavaLanguageServerPreparationCoordinator {
         runtimePreparation: @escaping @MainActor () async
             -> ProjectRuntimeService.JavaLanguageServerRuntimePreparation,
         sessionsProvider: @escaping SessionsProvider,
+        languageImportPreparation: @escaping @MainActor () async throws -> Void,
         ownsPreparation: @escaping OwnershipCheck,
         onStarted: @escaping StartedHandler,
         onFailure: @escaping FailureHandler
@@ -72,6 +81,11 @@ final class JavaLanguageServerPreparationCoordinator {
                         detail: executableURL.path
                     )
                 }
+                // Runtime and plugin preparation can suspend after the first
+                // import wait. Rejoin the current detection immediately before
+                // the synchronous provider reads its configuration.
+                try await languageImportPreparation()
+                guard !Task.isCancelled, ownsPreparation() else { return }
                 let startedOperationID = try sessions.startLanguageServer(
                     providerID: "java",
                     rootURL: workspaceURL,
@@ -79,8 +93,10 @@ final class JavaLanguageServerPreparationCoordinator {
                 )
                 guard ownsPreparation() else { return }
                 onStarted(startedOperationID)
+            } catch is CancellationError {
+                return
             } catch {
-                guard ownsPreparation() else { return }
+                guard !Task.isCancelled, ownsPreparation() else { return }
                 let sessionFailure = (error as? LanguageServerSessionStartError)?.failure
                 onFailure(
                     sessionFailure?.isTimedOut == true
@@ -89,6 +105,73 @@ final class JavaLanguageServerPreparationCoordinator {
                 )
             }
         }
+    }
+
+    /// Serializes plugin Maven updates with restart recovery. A successor must
+    /// join cancelled recovery before touching its session: cancellation may
+    /// still be stopping the session that the previous reload created.
+    @discardableResult
+    func synchronizeMavenConfiguration(
+        sessions: LanguageToolingSessionManager,
+        workspaceURL: URL,
+        languageImportPreparation: @escaping @MainActor () async throws -> Void,
+        ownsWorkspace: @escaping OwnershipCheck
+    ) -> Task<Void, Never> {
+        let replacesRecovery = mavenRecoveryRoot == workspaceURL
+        let previous = mavenConfigurationTask
+        previous?.cancel()
+        let id = UUID()
+        mavenConfigurationID = id
+        let task = Task { @MainActor [weak self, weak sessions] in
+            defer { self?.finishMavenConfiguration(id: id) }
+            await previous?.value
+            guard let sessions, !Task.isCancelled,
+                  self?.mavenConfigurationID == id, ownsWorkspace() else { return }
+            do {
+                try await languageImportPreparation()
+                guard !Task.isCancelled, self?.mavenConfigurationID == id, ownsWorkspace() else { return }
+                switch sessions.updateJavaMavenConfiguration(rootURL: workspaceURL, reloadProjects: false) {
+                case .updated:
+                    return
+                case .noSession:
+                    // Cancelling the previous reload stops only its replacement
+                    // session. Its successor still owes this root a restart.
+                    guard replacesRecovery else { return }
+                case .failed(let failure):
+                    self?.mavenRecoveryRoot = workspaceURL
+                    sessions.recordLanguageServerLog(
+                        providerID: "java", level: .warning,
+                        message: "Build-system Maven import update needs recovery", detail: failure.userMessage
+                    )
+                }
+                try await sessions.reloadJavaWorkspace(rootURL: workspaceURL)
+            } catch is CancellationError {
+                return
+            } catch {
+                guard !Task.isCancelled, self?.mavenConfigurationID == id, ownsWorkspace() else { return }
+                sessions.recordLanguageServerLog(
+                    providerID: "java", level: .warning,
+                    message: "Build-system Maven import recovery failed", detail: error.localizedDescription
+                )
+            }
+        }
+        mavenConfigurationTask = task
+        return task
+    }
+
+    func cancelMavenConfigurationSynchronization() {
+        mavenConfigurationID = nil
+        mavenRecoveryRoot = nil
+        // Retain the handle until it finishes so a new workspace or selection
+        // can join cleanup before starting another recovery.
+        mavenConfigurationTask?.cancel()
+    }
+
+    private func finishMavenConfiguration(id: UUID) {
+        guard mavenConfigurationID == id else { return }
+        mavenConfigurationID = nil
+        mavenConfigurationTask = nil
+        mavenRecoveryRoot = nil
     }
 
     func notifyWorkspaceFileChanges(

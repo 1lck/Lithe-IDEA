@@ -187,6 +187,87 @@ struct LanguageIntelligenceModuleTests {
     }
 
     @Test
+    func pluginImportReachesJavaStartupAndMavenHotUpdateWithoutLegacyFallback() throws {
+        let root = URL(fileURLWithPath: "/workspace/import", isDirectory: true)
+        let descriptor = try #require(LanguageProviderCatalog.compatibilityFallback.provider(for: root.appendingPathComponent("Main.java")))
+        let session = WorkspaceStateLanguageServerSession()
+        let manager = LanguageToolingSessionManager(runtimes: [WorkspaceStateLanguageProviderRuntime(descriptor: descriptor, session: session)])
+        defer { manager.stopAllLanguageServers() }
+        let first = MavenLaunchContext(reactorPath: ".", profiles: ["first"], settingsPath: "/settings.xml", skipTests: false, mavenExecutablePath: nil, javaHomePath: nil)
+        let next = MavenLaunchContext(reactorPath: ".", profiles: ["next"], settingsPath: "/settings.xml", skipTests: false, mavenExecutablePath: nil, javaHomePath: nil)
+        var context = first
+        let gradle = JavaGradleImportConfiguration(wrapperPresent: true, offline: true, userHome: "/gradle-cache")
+        manager.configureMavenContextProvider { _, _ in Issue.record("Plugin import must take precedence"); return nil }
+        manager.configureJavaLanguageImportProvider { _, requestedRoot in
+            #expect(requestedRoot == root)
+            return JavaLanguageImportConfiguration(mavenContext: context, javaGradle: gradle)
+        }
+        try manager.startLanguageServer(providerID: "java", rootURL: root)
+        #expect(session.startedMavenContext == first)
+        #expect(session.startedGradle == gradle)
+        context = next
+        session.mavenUpdateResult = .success(.init(settingsChanged: false, projectsReloaded: false, profilesUpdating: true))
+        _ = manager.updateJavaMavenConfiguration(rootURL: root, reloadProjects: false)
+        #expect(session.mavenUpdates.last?.context == next)
+        #expect(session.startCallCount == 1)
+    }
+
+    @Test
+    func removingPluginMavenImportClearsOnlySessionsThatHadMavenInputs() throws {
+        let root = URL(fileURLWithPath: "/workspace/removed-maven-import", isDirectory: true)
+        let descriptor = try #require(LanguageProviderCatalog.compatibilityFallback.provider(for: root.appendingPathComponent("Main.java")))
+        let session = WorkspaceStateLanguageServerSession()
+        let manager = LanguageToolingSessionManager(runtimes: [WorkspaceStateLanguageProviderRuntime(descriptor: descriptor, session: session)])
+        defer { manager.stopAllLanguageServers() }
+        let gradle = JavaGradleImportConfiguration(wrapperPresent: true, offline: false, userHome: nil)
+        let maven = MavenLaunchContext(
+            reactorPath: "nested", profiles: ["plugin"], settingsPath: "/settings.xml",
+            localRepositoryPath: "/repository", skipTests: true, mavenExecutablePath: "/maven/bin/mvn", javaHomePath: "/jdk"
+        )
+        var configuration = JavaLanguageImportConfiguration(javaGradle: gradle)
+        manager.configureJavaLanguageImportProvider { _, _ in configuration }
+        try manager.startLanguageServer(providerID: "java", rootURL: root)
+        #expect(session.startedMavenContext == nil)
+        #expect(manager.updateJavaMavenConfiguration(rootURL: root, reloadProjects: false) == .noSession)
+        #expect(session.mavenUpdates.isEmpty)
+
+        // A later Maven-enabled start has Core's Maven inputs. Removing its
+        // plugin must send an empty context, including clearing machine paths.
+        manager.stopLanguageServer(providerID: "java")
+        configuration = .init(mavenContext: maven, javaGradle: gradle)
+        try manager.startLanguageServer(providerID: "java", rootURL: root)
+        configuration = .init(javaGradle: gradle)
+        let update = LanguageServerMavenConfigurationUpdate(settingsChanged: true, projectsReloaded: false, profilesUpdating: true)
+        session.mavenUpdateResult = .success(update)
+        #expect(manager.updateJavaMavenConfiguration(rootURL: root, reloadProjects: false) == .updated(update))
+        #expect(session.mavenUpdates.last?.context == MavenLaunchContext(
+            reactorPath: "nested", profiles: [], settingsPath: nil, localRepositoryPath: nil,
+            skipTests: false, mavenExecutablePath: nil, javaHomePath: nil
+        ))
+        #expect(session.startCallCount == 2)
+
+        // Session ownership ends at stop: reopening as Gradle cannot inherit
+        // the previous session's eligibility for Maven clear updates.
+        manager.stopLanguageServer(providerID: "java")
+        try manager.startLanguageServer(providerID: "java", rootURL: root)
+        #expect(session.startedMavenContext == nil)
+        #expect(manager.updateJavaMavenConfiguration(rootURL: root, reloadProjects: false) == .noSession)
+        #expect(session.mavenUpdates.count == 1)
+    }
+
+    @Test
+    func pendingPluginImportCannotStartJavaWithLegacyContext() throws {
+        let root = URL(fileURLWithPath: "/workspace/pending-import", isDirectory: true)
+        let descriptor = try #require(LanguageProviderCatalog.compatibilityFallback.provider(for: root.appendingPathComponent("Main.java")))
+        let session = WorkspaceStateLanguageServerSession()
+        let manager = LanguageToolingSessionManager(runtimes: [WorkspaceStateLanguageProviderRuntime(descriptor: descriptor, session: session)])
+        defer { manager.stopAllLanguageServers() }
+        manager.configureJavaLanguageImportProvider { _, _ in throw CancellationError() }
+        #expect(throws: CancellationError.self) { try manager.startLanguageServer(providerID: "java", rootURL: root) }
+        #expect(session.startCallCount == 0)
+    }
+
+    @Test
     func mavenSettingsReachOnlyARunningJavaSessionOfTheSameWorkspace() throws {
         let root = URL(fileURLWithPath: "/workspace/java-settings", isDirectory: true)
         let descriptor = try #require(LanguageProviderCatalog.compatibilityFallback.provider(
@@ -1497,6 +1578,7 @@ private final class WorkspaceStateLanguageServerSession: LanguageServerSession {
     var onServerInfoChange: ((LanguageServerInfo?) -> Void)?
     private(set) var startedFingerprint: String?
     private(set) var startedMavenContext: MavenLaunchContext?
+    private(set) var startedGradle: JavaGradleImportConfiguration?
     private(set) var stopCallCount = 0
     private(set) var startCallCount = 0
     var startError: Error?
@@ -1536,6 +1618,14 @@ private final class WorkspaceStateLanguageServerSession: LanguageServerSession {
         isRunning = true
         let waiterIDs = Array(startWaiters.keys)
         waiterIDs.forEach { finishStartWaiter($0, result: .success(())) }
+    }
+
+    func start(
+        rootURL: URL, workspaceFingerprint: String?, mavenContext: MavenLaunchContext?,
+        javaGradle: JavaGradleImportConfiguration?
+    ) throws {
+        startedGradle = javaGradle
+        try start(rootURL: rootURL, workspaceFingerprint: workspaceFingerprint, mavenContext: mavenContext)
     }
 
     func publish(_ state: LanguageServerSessionState) {

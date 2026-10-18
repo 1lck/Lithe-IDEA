@@ -246,8 +246,8 @@ Core 侧已经具备的部分：fixture `maven-build.plugin.json`（插件 ID �
 
 | 现有功能 | 现在在哪 | 归属 | 迁移做法 |
 | --- | --- | --- | --- |
-| Maven 工具窗口 | macOS `MavenView`；Windows `maven-pane`、`maven-run-pane` | 通用宿主 | 由通用 Build 工具窗口渲染；Maven 是第一个用户，迁移期间行为不变 |
-| `toggle-maven` 命令与快捷键 | macOS `LitheCommandCatalog` | 通用宿主 | 保留为别名，指向 Build 工具窗口里的 Maven 实例，用户的快捷键不会失效 |
+| Maven 工具窗口 | macOS `BuildSystemToolWindowView`；Windows `maven-pane`、`maven-run-pane` | 通用宿主 | macOS 已改为每个构建系统各有一个窗口，由同一视图按声明渲染；内置 `MavenView` 已删除，Windows 迁移待完成 |
+| `toggle-maven` 命令与快捷键 | macOS `LitheCommandCatalog` | 通用宿主 | 2026-10-18 用户决定删除旧命令，不保留别名；每个构建系统按声明推导自己的切换命令，见已实现 Note 第 11 节 |
 
 Maven 在 P4 内部的迁移顺序：
 
@@ -348,7 +348,7 @@ Core 契约部分的验收已在已实现的 Note 里完成。剩下的工作按
 - `macos/Sources/LitheExecutionModule/Services/MavenService.swift`
 - `macos/Sources/LitheExecutionModule/Services/StandardLanguageTestProvider.swift`
 - `macos/Sources/LitheCoreContracts/Execution/MavenContracts.swift`
-- `macos/Sources/Lithe/Views/Run/MavenView.swift`
+- `macos/Sources/Lithe/Views/Run/BuildSystemToolWindowView.swift`
 - `windows/tauri/src/features/maven/`
 - `windows/tauri/src/features/run/`
 - `windows/tauri/src-tauri/src/maven.rs`
