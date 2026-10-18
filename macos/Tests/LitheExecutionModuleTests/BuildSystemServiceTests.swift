@@ -380,7 +380,8 @@ struct BuildSystemServiceTests {
     func modelLoadStoresTheEffectiveOptionValues() async throws {
         let planner = FakeBuildPlanner()
         planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "command")])
-        planner.loadedOptionsResolution = try Self.filteredOptions()
+        planner.dynamicOptions = true
+        planner.modelOptionValues = ["features": ["cli"]]
         planner.modelOutput = .stdout
         let runner = FakeBuildRunner()
         runner.script = .init(
@@ -478,6 +479,110 @@ struct BuildSystemServiceTests {
         #expect(harness.service.testResults == nil)
     }
 
+    // MARK: Multi-instance options and streamed output ownership
+
+    /// Options are stored per workspace and build system, but a model value
+    /// belongs to one instance. One instance must not delete a value another
+    /// instance still accepts.
+    @Test
+    func multiInstanceOptionValuesSurviveForInstancesThatStillAcceptThem() async throws {
+        let planner = FakeBuildPlanner()
+        planner.dynamicOptions = true
+        planner.detection = BuildDetection(instances: [
+            try Self.nestedInstance(id: "fixture:a", root: "a", features: ["cli"]),
+            try Self.nestedInstance(id: "fixture:b", root: "b", features: [])
+        ])
+        let harness = Harness(planner: planner)
+        defer { harness.service.stop() }
+        harness.optionsStore.values["fixture"] = [
+            "features": .array([.string("cli"), .string("removed")])
+        ]
+
+        harness.service.reset(workspaceURL: Self.workspace)
+        #expect(await harness.waitForEntries { $0.count == 2 })
+        // `removed` is accepted by no instance; `cli` stays because `a` does.
+        #expect(harness.optionsStore.values["fixture"]?["features"] == .array([.string("cli")]))
+        let a = try #require(harness.service.entry("fixture:a"))
+        let b = try #require(harness.service.entry("fixture:b"))
+        #expect(a.options.first { $0.id == "features" }?.value == .array([.string("cli")]))
+        #expect(b.options.first { $0.id == "features" }?.value == .array([]))
+
+        // Each plan filters the shared value against its own model.
+        harness.service.runTask("fixture:a", request: BuildTaskRequest(task: "build"), title: "A")
+        #expect(await harness.waitForRunState { $0 == .succeeded })
+        #expect(planner.taskPlanContexts.last?.options["features"] == .array([.string("cli")]))
+        harness.service.runTask("fixture:b", request: BuildTaskRequest(task: "build"), title: "B")
+        #expect(await harness.waitForRunState { $0 == .succeeded })
+        #expect(planner.taskPlanContexts.last?.options["features"] == .array([]))
+    }
+
+    /// Output still draining from a cancelled command must not appear in the
+    /// run that replaced it.
+    @Test
+    func lateCommandOutputDoesNotCrossIntoAReplacementRun() async throws {
+        let planner = FakeBuildPlanner()
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "static")])
+        let runner = ReplacedOutputRunner()
+        let harness = Harness(planner: planner, runner: runner)
+        defer { harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        #expect(await harness.waitForEntries { !$0.isEmpty })
+
+        harness.service.runTask(Self.instanceID, request: BuildTaskRequest(task: "build"), title: "First")
+        #expect(await runner.earlyWritten.waitUntilOpen())
+        #expect(await harness.waitForOutput { $0.contains("early") })
+
+        harness.service.runTask(Self.instanceID, request: BuildTaskRequest(task: "build"), title: "Second")
+        #expect(await harness.waitForRunState { $0 == .succeeded })
+        #expect(await harness.waitForOutput { $0.contains("second") })
+
+        runner.releaseLate.open()
+        // The cancelled command now drains its tail; it must not be shown.
+        #expect(await harness.waitsForLateOutput("late") == false)
+        #expect(harness.service.output.contains("second"))
+    }
+
+    /// Output still draining from a cancelled command must not appear after a
+    /// workspace switch either.
+    @Test
+    func lateCommandOutputDoesNotCrossIntoAnotherWorkspace() async throws {
+        let planner = FakeBuildPlanner()
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "static")])
+        let runner = ReplacedOutputRunner()
+        let harness = Harness(planner: planner, runner: runner)
+        defer { harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        #expect(await harness.waitForEntries { !$0.isEmpty })
+
+        harness.service.runTask(Self.instanceID, request: BuildTaskRequest(task: "build"), title: "First")
+        #expect(await runner.earlyWritten.waitUntilOpen())
+        harness.service.reset(workspaceURL: URL(fileURLWithPath: "/workspace/other"))
+        #expect(await harness.waitForEntries { !$0.isEmpty })
+
+        runner.releaseLate.open()
+        #expect(await harness.waitsForLateOutput("late") == false)
+    }
+
+    /// The model command's stderr/output goes through the same ownership check.
+    @Test
+    func lateModelCommandOutputDoesNotCrossIntoAnotherWorkspace() async throws {
+        let planner = FakeBuildPlanner()
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "command")])
+        let runner = ReplacedOutputRunner()
+        let harness = Harness(planner: planner, runner: runner)
+        defer { harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        #expect(await harness.waitForEntries { $0.first?.modelState == .notLoaded })
+
+        harness.service.loadModel(Self.instanceID)
+        #expect(await runner.earlyWritten.waitUntilOpen())
+        harness.service.reset(workspaceURL: URL(fileURLWithPath: "/workspace/other"))
+        #expect(await harness.waitForEntries { !$0.isEmpty })
+
+        runner.releaseLate.open()
+        #expect(await harness.waitsForLateOutput("late") == false)
+    }
+
     // MARK: Fixtures
 
     private static let instanceID = "fixture:app"
@@ -492,6 +597,23 @@ struct BuildSystemServiceTests {
 
     private static func instance(modelSource: String, model: String? = nil) throws -> BuildSystemInstance {
         try decode(BuildSystemInstance.self, instanceJSON(modelSource: modelSource, model: model))
+    }
+
+    private static func nestedInstance(
+        id: String,
+        root: String,
+        features: [String]
+    ) throws -> BuildSystemInstance {
+        let featureList = features.map { "\"\($0)\"" }.joined(separator: ", ")
+        let model = """
+        {"projects": [{"id": "\(id)", "path": ".", "name": "\(id)"}],
+         "optionValues": {"features": [\(featureList)]}}
+        """
+        return try decode(BuildSystemInstance.self, """
+        {"id": "\(id)", "pluginID": "dev.example", "buildSystemID": "fixture",
+         "displayName": "\(id)", "root": "\(root)", "modelSource": "static",
+         "optionFingerprint": "o", "model": \(model)}
+        """)
     }
 
     private static func filteredOptions() throws -> BuildOptionsResolution {
@@ -588,6 +710,18 @@ private final class Harness {
     func waitsForStaleTestResults(_ results: BuildTestResults?) async -> Bool {
         let gate = BuildTestGate()
         let observation = service.$testResults.sink { if $0 == results { gate.open() } }
+        defer { observation.cancel() }
+        return await gate.waitUntilOpen(timeout: .milliseconds(500))
+    }
+
+    func waitForOutput(_ predicate: @escaping (String) -> Bool) async -> Bool {
+        await wait(for: service.$output, predicate)
+    }
+
+    /// Bounded wait for output a correct service never appends.
+    func waitsForLateOutput(_ text: String) async -> Bool {
+        let gate = BuildTestGate()
+        let observation = service.$output.sink { if $0.contains(text) { gate.open() } }
         defer { observation.cancel() }
         return await gate.waitUntilOpen(timeout: .milliseconds(500))
     }
@@ -702,6 +836,8 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
         var testPlanDeclaresResults = false
         var optionsResolution: BuildOptionsResolution?
         var loadedOptionsResolution: BuildOptionsResolution?
+        var dynamicOptions = false
+        var modelOptionValues: [String: [String]]?
         var fingerprint = "initial"
         var decodedModelOutputs: [BuildCommandOutput] = []
         var diagnosticOutputs: [String] = []
@@ -730,6 +866,16 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
     var loadedOptionsResolution: BuildOptionsResolution? {
         get { access { $0.loadedOptionsResolution } }
         set { access { $0.loadedOptionsResolution = newValue } }
+    }
+    /// Filters a stored `features` multi-select against the instance's model
+    /// values, like Core's `choicesFromModel` resolution.
+    var dynamicOptions: Bool {
+        get { access { $0.dynamicOptions } }
+        set { access { $0.dynamicOptions = newValue } }
+    }
+    var modelOptionValues: [String: [String]]? {
+        get { access { $0.modelOptionValues } }
+        set { access { $0.modelOptionValues = newValue } }
     }
     var diagnosticsGate: GatedBuildDecode? {
         get { access { $0.diagnosticsGate } }
@@ -774,6 +920,24 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
         options: [String: ToolingJSONValue],
         modelValues: [String: [String]]?
     ) throws -> BuildOptionsResolution {
+        if access({ $0.dynamicOptions }) {
+            let stored = options["features"].flatMap { value -> [String]? in
+                guard case .array(let items) = value else { return nil }
+                return items.compactMap { item in
+                    guard case .string(let text) = item else { return nil }
+                    return text
+                }
+            } ?? []
+            let kept = modelValues.map { values in
+                stored.filter((values["features"] ?? []).contains)
+            } ?? stored
+            let dropped = kept.count != stored.count
+            return try decode(BuildOptionsResolution.self, """
+            {"options": [{"id": "features", "displayName": "Features", "kind": "multiSelect",
+             "value": [\(kept.map { "\"\($0)\"" }.joined(separator: ", "))], "source": "user"}],
+             "dropped": \(dropped ? "[\"features\"]" : "[]"), "fingerprint": "f"}
+            """)
+        }
         if modelValues != nil, let resolution = access({ $0.loadedOptionsResolution }) {
             return resolution
         }
@@ -826,7 +990,11 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
         } else {
             name = "loaded"
         }
-        return BuildModel(projects: [BuildModel.Project(id: "loaded", path: "app", name: name)])
+        let optionValues = access { $0.modelOptionValues } ?? [:]
+        return BuildModel(
+            projects: [BuildModel.Project(id: "loaded", path: "app", name: name)],
+            optionValues: optionValues
+        )
     }
 
     func decodeTestResults(_ target: BuildSystemTarget, request: BuildTestResultsRequest) throws -> BuildTestResults {
@@ -1005,6 +1173,34 @@ private final class ControlledBuildLoadRunner: BuildCommandRunning, @unchecked S
 
 private enum ControlledLoadError: Error {
     case unexpectedCommand, releaseTimedOut
+}
+
+/// Emits one chunk, then waits so the test can replace the owner before the
+/// command drains its remaining output.
+private final class ReplacedOutputRunner: BuildCommandRunning, @unchecked Sendable {
+    let earlyWritten = BuildTestGate()
+    let releaseLate = BuildTestGate()
+    private let lock = NSLock()
+    private var calls = 0
+
+    func run(
+        _ request: BuildCommandRequest,
+        onOutput: @escaping @Sendable (String) -> Void
+    ) async throws -> BuildCommandResult {
+        let call = lock.withLock {
+            calls += 1
+            return calls
+        }
+        if call == 1 {
+            onOutput("early\n")
+            earlyWritten.open()
+            _ = await releaseLate.waitUntilOpen(ignoringCancellation: true)
+            onOutput("late\n")
+            return BuildCommandResult(termination: .exited(0))
+        }
+        onOutput("second\n")
+        return BuildCommandResult(termination: .exited(0))
+    }
 }
 
 private final class FakeBuildRunner: BuildCommandRunning, @unchecked Sendable {

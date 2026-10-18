@@ -121,6 +121,14 @@ package final class BuildSystemService: ObservableObject {
         let generation: Int
     }
 
+    /// Who may append a command's streamed output: the workspace generation
+    /// plus the run or load task that started it.
+    private enum CommandOwner: Sendable {
+        case run(RunIdentity)
+        case modelLoad(generation: Int, entryID: String, id: UUID)
+        case dependencyLoad(generation: Int, taskKey: String, id: UUID)
+    }
+
     private var modelTasks: [String: LoadTask] = [:] {
         didSet { refreshActivity() }
     }
@@ -284,7 +292,11 @@ package final class BuildSystemService: ObservableObject {
         let id = UUID()
         let task = Task { [weak self] in
             guard let self else { return }
-            let result = await self.performModelLoad(entry, workspaceURL: workspaceURL)
+            let result = await self.performModelLoad(
+                entry,
+                workspaceURL: workspaceURL,
+                owner: .modelLoad(generation: generation, entryID: entryID, id: id)
+            )
             guard self.generation == generation, self.modelTasks[entryID]?.id == id,
                   !Task.isCancelled else { return }
             self.modelTasks[entryID] = nil
@@ -316,7 +328,11 @@ package final class BuildSystemService: ObservableObject {
         let sync: BuildSyncState?
     }
 
-    private func performModelLoad(_ entry: BuildSystemEntry, workspaceURL: URL) async -> Result<LoadedModel, Error> {
+    private func performModelLoad(
+        _ entry: BuildSystemEntry,
+        workspaceURL: URL,
+        owner: CommandOwner
+    ) async -> Result<LoadedModel, Error> {
         do {
             let context = try planContext(entry, workspaceURL: workspaceURL)
             let outputFile = try context.workspaceStateDirectory.map { try stateLocator.allocateOutputFile(in: $0) }
@@ -330,7 +346,8 @@ package final class BuildSystemService: ObservableObject {
                 workspaceURL: workspaceURL,
                 outputFile: outputFile,
                 title: title,
-                timeout: Self.modelTimeout
+                timeout: Self.modelTimeout,
+                owner: owner
             )
             let planner = planner
             let target = entry.target
@@ -363,7 +380,9 @@ package final class BuildSystemService: ObservableObject {
         startRun(entryID, title: title) { service, run in
             let context = try service.planContext(entry, workspaceURL: workspaceURL)
             let plan = try service.planner.taskPlan(entry.target, context: context, request: request)
-            let collected = try await service.runStreamedCommand(plan, entry: entry, workspaceURL: workspaceURL)
+            let collected = try await service.runStreamedCommand(
+                plan, entry: entry, workspaceURL: workspaceURL, owner: .run(run)
+            )
             let diagnostics = await service.decodeDiagnostics(entry, workspaceURL: workspaceURL, output: collected.text)
             // The decode runs after the command; a stop, replacement, or
             // workspace switch in between must not publish into the new state.
@@ -379,7 +398,9 @@ package final class BuildSystemService: ObservableObject {
             let context = try service.planContext(entry, workspaceURL: workspaceURL)
             let plan = try service.planner.testPlan(entry.target, context: context, request: request)
             let started = Date()
-            let collected = try await service.runStreamedCommand(plan.process, entry: entry, workspaceURL: workspaceURL)
+            let collected = try await service.runStreamedCommand(
+                plan.process, entry: entry, workspaceURL: workspaceURL, owner: .run(run)
+            )
             let diagnostics = await service.decodeDiagnostics(entry, workspaceURL: workspaceURL, output: collected.text)
             guard service.isCurrent(run) else { throw CancellationError() }
             service.diagnostics = diagnostics
@@ -473,7 +494,9 @@ package final class BuildSystemService: ObservableObject {
             } catch is CancellationError {
                 state = .cancelled
             } catch {
-                self.appendOutput(error.localizedDescription + "\n")
+                if self.runID == id {
+                    self.appendOutput(error.localizedDescription + "\n")
+                }
                 state = .failed(error.localizedDescription)
             }
             guard self.runID == id else { return }
@@ -488,6 +511,20 @@ package final class BuildSystemService: ObservableObject {
     /// run ID, same workspace generation, and not cancelled.
     private func isCurrent(_ run: RunIdentity) -> Bool {
         runID == run.id && generation == run.generation && !Task.isCancelled
+    }
+
+    /// Whether the command's owner still exists. A cancelled command may keep
+    /// draining its pipe after the run stopped or the workspace changed; its
+    /// tail must not appear in the new Build Output.
+    private func canAppend(_ owner: CommandOwner) -> Bool {
+        switch owner {
+        case .run(let run):
+            return isCurrent(run)
+        case .modelLoad(let generation, let entryID, let id):
+            return generation == self.generation && modelTasks[entryID]?.id == id
+        case .dependencyLoad(let generation, let taskKey, let id):
+            return generation == self.generation && dependencyTasks[taskKey]?.id == id
+        }
     }
 
     private func decodeDiagnostics(
@@ -518,7 +555,12 @@ package final class BuildSystemService: ObservableObject {
         let id = UUID()
         let task = Task { [weak self] in
             guard let self else { return }
-            let result = await self.performDependencyLoad(entry, project: project, workspaceURL: workspaceURL)
+            let result = await self.performDependencyLoad(
+                entry,
+                project: project,
+                workspaceURL: workspaceURL,
+                owner: .dependencyLoad(generation: generation, taskKey: taskKey, id: id)
+            )
             guard self.generation == generation, self.dependencyTasks[taskKey]?.id == id,
                   !Task.isCancelled else { return }
             self.dependencyTasks[taskKey] = nil
@@ -536,7 +578,8 @@ package final class BuildSystemService: ObservableObject {
     private func performDependencyLoad(
         _ entry: BuildSystemEntry,
         project: BuildModel.Project?,
-        workspaceURL: URL
+        workspaceURL: URL,
+        owner: CommandOwner
     ) async -> Result<BuildDependencyTree, Error> {
         do {
             let context = try planContext(entry, workspaceURL: workspaceURL)
@@ -556,7 +599,8 @@ package final class BuildSystemService: ObservableObject {
                 workspaceURL: workspaceURL,
                 outputFile: outputFile,
                 title: String(localized: "Loading dependencies of \(name)"),
-                timeout: Self.modelTimeout
+                timeout: Self.modelTimeout,
+                owner: owner
             )
             let planner = planner
             let target = entry.target
@@ -589,7 +633,8 @@ package final class BuildSystemService: ObservableObject {
 
     private func refreshOptions(buildSystemID: String) {
         guard let workspaceURL else { return }
-        var stored = optionsStore.options(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+        let stored = optionsStore.options(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+        var resolutions: [BuildOptionsResolution] = []
         for index in entries.indices where entries[index].instance.buildSystemID == buildSystemID {
             guard let resolution = try? planner.resolveOptions(
                 entries[index].target,
@@ -597,19 +642,57 @@ package final class BuildSystemService: ObservableObject {
                 modelValues: entries[index].model?.optionValues
             ) else { continue }
             entries[index].options = resolution.options
-            // Core dropped values it no longer accepts; store what is in
-            // effect so the user's other choices survive.
-            if !resolution.dropped.isEmpty {
-                for id in resolution.dropped {
-                    if let option = resolution.options.first(where: { $0.id == id }), option.source == "user" {
-                        stored[id] = option.value
-                    } else {
-                        stored.removeValue(forKey: id)
-                    }
+            resolutions.append(resolution)
+        }
+        // Options are stored per workspace and build system, but a model
+        // value is valid for one instance. Keep a value as long as any
+        // instance still accepts it; each plan filters it against its own
+        // model, so one instance cannot delete another's selection.
+        let merged = Self.mergedOptionValues(stored: stored, resolutions: resolutions)
+        if merged != stored {
+            optionsStore.setOptions(merged, workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+        }
+    }
+
+    /// Stored values reduced to the ones at least one instance still accepts.
+    /// Multi-select entries no instance accepts are removed; a scalar stays
+    /// when any instance accepts it.
+    nonisolated private static func mergedOptionValues(
+        stored: [String: ToolingJSONValue],
+        resolutions: [BuildOptionsResolution]
+    ) -> [String: ToolingJSONValue] {
+        guard !resolutions.isEmpty else { return stored }
+        var declared: Set<String> = []
+        var multiSelect: Set<String> = []
+        var accepted: [String: [ToolingJSONValue]] = [:]
+        for resolution in resolutions {
+            for option in resolution.options {
+                declared.insert(option.id)
+                if option.kind == .multiSelect { multiSelect.insert(option.id) }
+                guard option.source == "user" else { continue }
+                if option.kind == .multiSelect, case .array(let items) = option.value {
+                    accepted[option.id, default: []].append(contentsOf: items)
+                } else {
+                    accepted[option.id, default: []].append(option.value)
                 }
-                optionsStore.setOptions(stored, workspaceURL: workspaceURL, buildSystemID: buildSystemID)
             }
         }
+        var merged: [String: ToolingJSONValue] = [:]
+        for (id, value) in stored {
+            guard declared.contains(id) else { continue }
+            let values = accepted[id] ?? []
+            if multiSelect.contains(id) {
+                guard case .array(let items) = value else { continue }
+                var kept: [ToolingJSONValue] = []
+                for item in items where values.contains(item) && !kept.contains(item) {
+                    kept.append(item)
+                }
+                if !kept.isEmpty { merged[id] = .array(kept) }
+            } else if values.contains(value) {
+                merged[id] = value
+            }
+        }
+        return merged
     }
 
     /// Stores the effective values Core reported after detection, so a value
@@ -696,14 +779,15 @@ package final class BuildSystemService: ObservableObject {
     private func runStreamedCommand(
         _ plan: BuildProcessPlan,
         entry: BuildSystemEntry,
-        workspaceURL: URL
+        workspaceURL: URL,
+        owner: CommandOwner
     ) async throws -> CollectedOutput {
         let request = try await commandRequest(
             plan, entry: entry, workspaceURL: workspaceURL, capturesStandardOutput: false, timeout: nil
         )
-        appendOutput(Self.commandLine(request))
+        if canAppend(owner) { appendOutput(Self.commandLine(request)) }
         let collector = OutputCollector(limit: Self.decodedOutputLimit)
-        let result = try await run(request) { [weak self] chunk in
+        let result = try await run(request, owner: owner) { [weak self] chunk in
             collector.append(chunk)
             self?.appendOutput(chunk)
         }
@@ -721,16 +805,19 @@ package final class BuildSystemService: ObservableObject {
         workspaceURL: URL,
         outputFile: URL?,
         title: String,
-        timeout: Duration
+        timeout: Duration,
+        owner: CommandOwner
     ) async throws -> BuildCommandOutput {
         let capturesStandardOutput = plan.output != .outputFile
         let request = try await commandRequest(
             plan, entry: entry, workspaceURL: workspaceURL,
             capturesStandardOutput: capturesStandardOutput, timeout: timeout
         )
-        appendOutput("\n▶ " + title + "\n" + Self.commandLine(request))
+        if canAppend(owner) {
+            appendOutput("\n▶ " + title + "\n" + Self.commandLine(request))
+        }
         let tail = OutputCollector(limit: 64 * 1024, keepsTail: true)
-        let result = try await run(request) { [weak self] chunk in
+        let result = try await run(request, owner: owner) { [weak self] chunk in
             tail.append(chunk)
             self?.appendOutput(chunk)
         }
@@ -759,11 +846,16 @@ package final class BuildSystemService: ObservableObject {
     /// Runs one command, delivering its output on the main actor in order.
     private func run(
         _ request: BuildCommandRequest,
+        owner: CommandOwner,
         sink: @escaping @MainActor (String) -> Void
     ) async throws -> BuildCommandResult {
         let (stream, continuation) = AsyncStream.makeStream(of: String.self)
         let consumer = Task { @MainActor in
-            for await chunk in stream { sink(chunk) }
+            for await chunk in stream {
+                // A cancelled command may flush output after its run ended.
+                guard canAppend(owner) else { continue }
+                sink(chunk)
+            }
         }
         do {
             let result = try await runner.run(request) { continuation.yield($0) }
