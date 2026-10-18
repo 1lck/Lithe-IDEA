@@ -143,6 +143,16 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::McpParseConfiguration => {
+            match crate::mcp::parse_configuration(parsed.payload) {
+                Ok(data) => CoreResponse::success(id, data),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::McpPlanWrite => match crate::mcp::plan_write(parsed.payload) {
+            Ok(data) => CoreResponse::success(id, data),
+            Err(error) => CoreResponse::failure(id, error),
+        },
         CoreCommand::PluginsDeclarativeValidate => plugin_response(
             id,
             parsed.payload,
@@ -2193,6 +2203,9 @@ fn execute(request: &str) -> CoreResponse {
                     ),
                 ),
             }
+        }
+        CoreCommand::GitExecutable => {
+            CoreResponse::success(id, git::configuration::locate_executable())
         }
         CoreCommand::GitExecutionInspect | CoreCommand::GitExecutionConfigure => {
             match git::configuration::dispatch(

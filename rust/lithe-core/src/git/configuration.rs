@@ -150,6 +150,46 @@ fn entries(bytes: &[u8]) -> Result<Vec<Entry>, CoreError> {
     Ok(result)
 }
 
+/// Canonicalizes remote booleans with Git's parser, as Fetch does, for both
+/// tag pruning and the `skipFetchAll` remote filter.
+/// Raw selected-file values remain separate for optimistic editing.
+fn normalize_remote_booleans(root: &str, entries: &mut [Entry]) -> Result<(), CoreError> {
+    for entry in entries.iter_mut().filter(|entry| {
+        entry.effective
+            && (entry.key == "fetch.prunetags"
+                || (entry.key.starts_with("remote.")
+                    && (entry.key.ends_with(".prunetags")
+                        || entry.key.ends_with(".skipfetchall"))))
+    }) {
+        let output = capture_git_with_options(
+            root,
+            &[
+                "config".into(),
+                "--type=bool".into(),
+                "--get".into(),
+                entry.key.clone(),
+            ],
+            None,
+            true,
+        )?;
+        // Invalid values must remain inspectable and editable. They do not
+        // enable the all-tags refspec in the inherited-policy presentation.
+        if output.exit_code == 0 {
+            match output.stdout.as_slice() {
+                b"true\n" | b"true\r\n" => entry.value = "true".into(),
+                b"false\n" | b"false\r\n" => entry.value = "false".into(),
+                _ => {
+                    return Err(CoreError::new(
+                        ErrorCode::ParseFailed,
+                        "Git returned an invalid remote boolean",
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 fn scoped_values(root: &str, scope: &str, key: &str) -> Result<Vec<String>, CoreError> {
     let flag = if scope == "local" {
         "--local"
@@ -293,6 +333,26 @@ pub(crate) fn dispatch(payload: Value, save: bool) -> Result<Value, CoreError> {
     inspect(&root, &request.scope)
 }
 
+/// Resolves the host-selected or PATH Git and probes its version.
+///
+/// Executable resolution is independent of a repository, so the settings page
+/// can echo the effective Git before a project is open. The version probe is
+/// best effort: a binary that starts but cannot report a version still stays
+/// selected.
+pub(crate) fn locate_executable() -> Value {
+    let selected = execution_policy::current().executable;
+    let resolved = lithe_git_host::configuration::executable(selected.as_deref());
+    let version = resolved.as_ref().and_then(|path| {
+        lithe_git_host::configuration::version(path.as_os_str(), || false)
+            .ok()
+            .map(|version| version.trim().to_owned())
+    });
+    json!({
+        "executable": resolved.map(|path| path.to_string_lossy().into_owned()),
+        "version": version,
+    })
+}
+
 fn inspect(root: &str, scope: &str) -> Result<Value, CoreError> {
     let (_, version) = read(root, &["--version"])?;
     let (_, output) = read(
@@ -305,7 +365,8 @@ fn inspect(root: &str, scope: &str) -> Result<Value, CoreError> {
             "--list",
         ],
     )?;
-    let entries = entries(&output)?;
+    let mut entries = entries(&output)?;
+    normalize_remote_booleans(root, &mut entries)?;
     let mut fields = Vec::new();
     for (key, choices) in EDITABLE {
         if scope == "global" && key.starts_with("lithe.") {
@@ -340,6 +401,22 @@ fn inspect(root: &str, scope: &str) -> Result<Value, CoreError> {
 mod tests {
     use super::*;
     #[test]
+    fn locating_git_rejects_a_missing_selected_executable_without_a_repository() {
+        // The settings page must distinguish "no runnable Git" from a blank
+        // field; a bogus override is the same deterministic failure everywhere.
+        let missing =
+            std::env::temp_dir().join(format!("lithe-missing-git-{}", std::process::id()));
+        let options = execution_policy::GitExecutionOptions {
+            executable: Some(missing.to_string_lossy().into_owned()),
+            ..Default::default()
+        };
+        let _scope = execution_policy::Scope::begin(Some(options)).expect("valid policy");
+        let result = locate_executable();
+        assert!(result["executable"].is_null());
+        assert!(result["version"].is_null());
+    }
+
+    #[test]
     fn remote_url_rejects_invalid_requests_before_accessing_a_repository() {
         for remote in ["", "origin\nother", "origin\0"] {
             let error = remote_url(json!({ "root": "/fixture", "remote": remote })).unwrap_err();
@@ -371,5 +448,152 @@ mod tests {
         assert!(!serde_json::to_string(&helpers)
             .unwrap()
             .contains("unlabelled-fixture-secret"));
+    }
+}
+
+#[cfg(test)]
+mod inherited_tag_tests {
+    use serde_json::{json, Value};
+    use std::fs;
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+    struct Repository(PathBuf);
+
+    impl Repository {
+        fn request(&self, command: &str, mut payload: Value) -> Value {
+            payload["root"] = json!(self.0);
+            // Core owns subprocess deadlines; the fixture never waits on an
+            // unbounded native child, including repository initialization.
+            serde_json::from_str(&crate::execute_json(
+                &json!({
+                    "timeoutMilliseconds": 5000,
+                    "command": command,
+                    "payload": payload,
+                })
+                .to_string(),
+            ))
+            .unwrap()
+        }
+    }
+
+    impl Drop for Repository {
+        fn drop(&mut self) {
+            if let Err(error) = fs::remove_dir_all(&self.0) {
+                eprintln!("Could not clean tag boolean repository: {error}");
+            }
+        }
+    }
+
+    // Real Git integration protects the inspection-to-presentation contract.
+    #[test]
+    fn inspection_normalizes_inherited_tag_booleans_without_changing_edit_values() {
+        let repo = Repository(std::env::temp_dir().join(format!(
+            "lithe-tag-booleans-{}-{}",
+            std::process::id(),
+            SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        )));
+        fs::create_dir_all(&repo.0).unwrap();
+        let initialized = repo.request(
+            "git.command",
+            json!({ "arguments": ["init", "--template=", "-q", "-b", "main"] }),
+        );
+        assert_eq!(initialized["ok"], true, "{initialized}");
+        assert_eq!(initialized["data"]["exitCode"], 0, "{initialized}");
+
+        // Exercise Git's parser rather than duplicating its accepted spellings.
+        // Valueless and empty assignments are deliberately distinct booleans.
+        let cases = [
+            ("yes", "pruneTags = yes", "true"),
+            ("on", "pruneTags = on", "true"),
+            ("one", "pruneTags = 1", "true"),
+            ("mixed", "pruneTags = TrUe", "true"),
+            ("valueless", "pruneTags", "true"),
+            ("no", "pruneTags = no", "false"),
+            ("off", "pruneTags = off", "false"),
+            ("zero", "pruneTags = 0", "false"),
+            ("false", "pruneTags = FaLsE", "false"),
+            ("empty", "pruneTags =", "false"),
+            ("invalid", "pruneTags = invalid", "invalid"),
+        ];
+        let path = repo.0.join(".git/config");
+        let mut config = fs::read_to_string(&path).unwrap();
+        config.push_str("\n[fetch]\npruneTags = yes\n");
+        for (name, configuration, _) in cases {
+            config.push_str(&format!("\n[remote \"{name}\"]\n{configuration}\n"));
+        }
+        fs::write(path, config).unwrap();
+
+        let response = repo.request("git.executionInspect", json!({}));
+        assert_eq!(response["ok"], true, "{response}");
+        let entries = response["data"]["entries"].as_array().unwrap();
+        for (name, _, expected) in cases {
+            let key = format!("remote.{name}.prunetags");
+            let entry = entries
+                .iter()
+                .find(|entry| entry["key"] == key && entry["effective"] == true)
+                .unwrap();
+            assert_eq!(entry["value"], expected, "{key}");
+            assert_eq!(entry["scope"], "local", "{key}");
+            assert!(entry["origin"].as_str().unwrap().ends_with(".git/config"));
+        }
+        let fetch = entries
+            .iter()
+            .find(|entry| entry["key"] == "fetch.prunetags" && entry["effective"] == true)
+            .unwrap();
+        assert_eq!(fetch["value"], "true");
+        let field = response["data"]["fields"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|field| field["key"] == "fetch.prunetags")
+            .unwrap();
+        assert_eq!(field["configuredValues"], json!(["yes"]));
+    }
+
+    #[test]
+    fn inspection_normalizes_skip_fetch_all_booleans() {
+        let repo = Repository(std::env::temp_dir().join(format!(
+            "lithe-skip-fetch-booleans-{}-{}",
+            std::process::id(),
+            SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        )));
+        fs::create_dir_all(&repo.0).unwrap();
+        let initialized = repo.request(
+            "git.command",
+            json!({ "arguments": ["init", "--template=", "-q", "-b", "main"] }),
+        );
+        assert_eq!(initialized["ok"], true, "{initialized}");
+        assert_eq!(initialized["data"]["exitCode"], 0, "{initialized}");
+
+        let path = repo.0.join(".git/config");
+        let mut config = fs::read_to_string(&path).unwrap();
+        config.push_str(
+            "\n[remote \"yes\"]\nurl = /tmp/yes\nskipFetchAll = yes\n"
+        );
+        config.push_str(
+            "\n[remote \"valueless\"]\nurl = /tmp/valueless\nskipFetchAll\n"
+        );
+        config.push_str(
+            "\n[remote \"empty\"]\nurl = /tmp/empty\nskipFetchAll =\n"
+        );
+        config.push_str(
+            "\n[remote \"no\"]\nurl = /tmp/no\nskipFetchAll = no\n"
+        );
+        fs::write(path, config).unwrap();
+
+        let response = repo.request("git.executionInspect", json!({}));
+        assert_eq!(response["ok"], true, "{response}");
+        let entries = response["data"]["entries"].as_array().unwrap();
+        for (name, expected) in [("yes", "true"), ("valueless", "true"), ("empty", "false"), ("no", "false")] {
+            let key = format!("remote.{name}.skipfetchall");
+            let entry = entries
+                .iter()
+                .find(|entry| entry["key"] == key && entry["effective"] == true)
+                .unwrap();
+            assert_eq!(entry["value"], expected, "{key}");
+        }
     }
 }

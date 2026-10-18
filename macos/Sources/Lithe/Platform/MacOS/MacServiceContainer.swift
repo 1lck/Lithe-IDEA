@@ -694,6 +694,7 @@ final class MacServiceContainer {
             agentProviderConfigurationParser: MacAgentProviderConfigurationParser(core: rustCore),
             aiConfigurationSources: aiConfigurationSources,
             recentProjectsStore: RecentProjectsStore(store: store),
+            recentProjectBranchReader: MacRecentProjectBranchReader(storage: fileStorage),
             workspaceSessionStore: WorkspaceSessionStore(store: store),
             directoryMarkStore: directoryMarkStore,
             workbenchLayoutStore: WorkbenchLayoutStore(store: store),
@@ -706,6 +707,9 @@ final class MacServiceContainer {
         )
         services.ideCapabilityRegistry = ideCapabilityRegistry
         services.ideHostTransport = MacIdeHostTransport(core: rustCore, storage: fileStorage)
+        services.mcpConfigurationStore = MacAgentMcpConfigurationStore(
+            core: rustCore, storage: fileStorage
+        )
         services.processExitCoordinator = ProcessExitCoordinator(
             core: RustProcessLifecycleDecider(core: rustCore),
             presenter: MacProcessExitConfirmationPresenter.shared
