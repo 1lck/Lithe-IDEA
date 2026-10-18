@@ -20,9 +20,25 @@ extension AppModel {
     /// later changes arrive through `handleBuildSystemFileChanges`.
     func loadBuildSystems(_ access: ExecutionFeatureAccess) {
         guard let feature = access.buildSystems,
-              let workspaceURL = workspaceURL?.standardizedFileURL,
-              feature.workspaceURL != workspaceURL else { return }
-        feature.reset(workspaceURL: workspaceURL)
+              let identity = currentWorkspaceIdentity else { return }
+        feature.onLanguageImportChanged = { [weak self, weak feature] root in
+            guard let self, let feature, self.isCurrentWorkspace(identity),
+                  root == identity.url, self.buildSystemsFeatureIfActive === feature else { return }
+            self.synchronizeBuildLanguageImport(at: root)
+        }
+        if feature.workspaceURL != identity.url { feature.reset(workspaceURL: identity.url) }
+    }
+
+    /// Keep the existing Java session on the same Core-resolved Maven options
+    /// the migrated native tool window passes to build plans.
+    private func synchronizeBuildLanguageImport(at rootURL: URL) {
+        guard let sessions = languageToolingSessionsIfActive else { return }
+        if case .failed(let failure) = sessions.updateJavaMavenConfiguration(rootURL: rootURL, reloadProjects: false) {
+            sessions.recordLanguageServerLog(
+                providerID: "java", level: .warning,
+                message: "Build-system Maven import update failed", detail: failure.userMessage
+            )
+        }
     }
 
     func handleBuildSystemFileChanges(_ changes: [WorkspaceFileChange]) {

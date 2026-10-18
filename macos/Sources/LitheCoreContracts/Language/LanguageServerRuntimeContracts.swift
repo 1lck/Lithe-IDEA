@@ -324,6 +324,30 @@ package struct LanguageServerRuntimeEvent: Equatable, Sendable {
     }
 }
 
+/// Core-normalized Buildship options, fixed for one Java session's lifetime.
+package struct JavaGradleImportConfiguration: Codable, Equatable, Sendable {
+    package let wrapperPresent: Bool
+    package let offline: Bool?
+    package let userHome: String?
+
+    package init(wrapperPresent: Bool, offline: Bool? = nil, userHome: String? = nil) {
+        self.wrapperPresent = wrapperPresent
+        self.offline = offline
+        self.userHome = userHome
+    }
+}
+
+/// Maven and Gradle can coexist in a workspace; each keeps its own import input.
+package struct JavaLanguageImportConfiguration: Equatable, Sendable {
+    package let mavenContext: MavenLaunchContext?
+    package let javaGradle: JavaGradleImportConfiguration?
+
+    package init(mavenContext: MavenLaunchContext? = nil, javaGradle: JavaGradleImportConfiguration? = nil) {
+        self.mavenContext = mavenContext
+        self.javaGradle = javaGradle
+    }
+}
+
 package protocol LanguageServerRuntimeCore: Sendable {
     func startLanguageServer(
         providerID: String,

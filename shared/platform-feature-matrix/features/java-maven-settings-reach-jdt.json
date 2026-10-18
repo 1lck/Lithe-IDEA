@@ -7,6 +7,10 @@
     "evidence": [
       "macos/Sources/LitheLanguageIntelligenceModule/Services/LanguageToolingSessionManager.swift",
       "macos/Sources/LitheExecutionModule/Services/MavenService.swift",
+      "macos/Sources/LitheExecutionModule/Services/BuildSystemService.swift",
+      "macos/Sources/Lithe/Models/AppModel/AppModel+BuildSystems.swift",
+      "macos/Sources/Lithe/Models/AppModel/AppModel+JavaIndex.swift",
+      "macos/Tests/LitheExecutionModuleTests/BuildSystemServiceTests.swift",
       "macos/Sources/Lithe/Models/Java/MavenResolutionProblems.swift",
       "rust/lithe-core/src/lsp/languages/jdt_maven_settings.rs"
     ],
@@ -26,5 +30,5 @@
     "verificationStatus": "pending"
   },
   "owner": "Java / Maven",
-  "verification": "macOS：内置 Maven 工具窗口已由构建插件窗口取代，pom.xml 依赖解析问题暂不在构建窗口中列出（编辑器诊断仍显示）；JDT 的 Maven 配置同步仍由 MavenService 完成。插件选项到 JDT 的通用桥尚未在窗口迁移中接入；主会话需集成 Core 的 languageImport 声明和 build.languageImport，并将返回的 mavenContext / javaGradle 转交语言服务，不能按插件名字特判。集成后的 macOS 与现有 Windows 路径均需验收：打开依赖尚未下载的 Maven 项目，在 Java 导入过程中修改 settings.xml、本地仓库或镜像并保存，确认第三方 import 在导入完成后解析成功；修改 settings.xml 内容（路径不变）后重新加载，确认语言服务不重启而依赖重新解析；故意写错依赖版本，检查编辑器诊断和跳转，Windows 另检查原 Maven 问题列表；初始化期间设置不变时重新加载，就绪后仍执行一次强制更新；旧 profile 请求失败或超时期间切换 profile，确认最终应用最新选择；保存与重新加载交错时，已发送的 settings 副本保持可读。本次未执行真实 Java 导入或 Windows 验收，保持 pending。"
+  "verification": "macOS：内置 Maven 工具窗口已由构建插件窗口取代，pom.xml 依赖解析问题暂不在构建窗口中列出（编辑器诊断仍显示）；新窗口通过 Core 的 languageImport 声明和 build.languageImport 将插件 Profiles、settings 文件和本地仓库生效值优先交给现有 Java 配置提供者；检测、选项修改和模型加载完成后由单一发布回调热更新 JDT，插件停用后回退旧 MavenService 配置或显式清空原插件值，工作区切换拒绝迟到结果。兼容桥不按插件名字特判；Java 首次启动的异步准备门和完整 Gradle 接线属于后续集成层。定向回归覆盖生效选项与构建计划一致、配置重发和停用清理；macOS 与现有 Windows 路径仍需真实验收：打开依赖尚未下载的 Maven 项目，在 Java 导入过程中修改 settings.xml、本地仓库或镜像并保存，确认第三方 import 在导入完成后解析成功；修改 settings.xml 内容（路径不变）后重新加载，确认语言服务不重启而依赖重新解析；故意写错依赖版本，检查编辑器诊断和跳转，Windows 另检查原 Maven 问题列表；初始化期间设置不变时重新加载，就绪后仍执行一次强制更新；旧 profile 请求失败或超时期间切换 profile，确认最终应用最新选择；保存与重新加载交错时，已发送的 settings 副本保持可读。本次未执行真实 Java 导入或 Windows 验收，保持 pending。"
 }

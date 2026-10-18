@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import LitheCoreContracts
 import LitheLanguageIntelligenceModule
 import LitheModuleAPI
 
@@ -53,7 +54,16 @@ extension AppModel {
                   self?.workspaceURL?.standardizedFileURL == rootURL.standardizedFileURL else {
                 return nil
             }
-            return self?.mavenFeatureIfActive?.launchContext
+            if let context = self?.buildSystemsFeatureIfActive?.languageImport?.mavenContext { return context }
+            if let context = self?.mavenFeatureIfActive?.launchContext { return context }
+            guard self?.buildSystemsFeatureIfActive?.languageImport != nil,
+                  self?.buildSystemsFeatureIfActive?.hasPublishedMavenLanguageImport == true else { return nil }
+            // Removing the last plugin import must clear the previous session's
+            // Profiles and machine paths too, even without a legacy reactor.
+            return MavenLaunchContext(
+                reactorPath: ".", profiles: [], settingsPath: nil, skipTests: false,
+                mavenExecutablePath: nil, javaHomePath: nil
+            )
         }
         capability.tools.onCandidatesChanged = { [weak self] providerID in
             guard let self,

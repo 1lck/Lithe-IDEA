@@ -182,6 +182,38 @@ struct RustBuildSystemOperationsTests {
         #expect(changed.fingerprint != first.fingerprint)
     }
 
+    @Test
+    func languageImportMapsPluginOptionIDsWithoutBuildSystemNameAssumptions() throws {
+        let workspace = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: workspace) }
+        var manifest = try #require(JSONSerialization.jsonObject(with: Self.fixtureData("maven-build")) as? [String: Any])
+        var systems = try #require(manifest["buildSystems"] as? [[String: Any]])
+        systems[0]["languageImport"] = ["kind": "maven", "options": [
+            "profiles": "profiles", "settingsFile": "settingsFile", "localRepository": "localRepository"
+        ]]
+        manifest["buildSystems"] = systems
+        let target = BuildSystemTarget(manifest: try JSONSerialization.data(withJSONObject: manifest), buildSystemID: "maven")
+        let value = try operations.languageImport(
+            target, workspaceURL: workspace, root: ".",
+            options: ["profiles": .array([.string("dev")]), "settingsFile": .string("/fixture/settings.xml"),
+                      "localRepository": .string("/fixture/repository")],
+            executableURL: URL(fileURLWithPath: "/fixture/tool/bin/mvn")
+        )
+        guard case .maven(let context) = value else {
+            Issue.record("Expected the declared language import")
+            return
+        }
+        #expect(context.profiles == ["dev"])
+        #expect(context.settingsPath == "/fixture/settings.xml")
+        #expect(context.localRepositoryPath == "/fixture/repository")
+        #expect(context.mavenExecutablePath == "/fixture/tool/bin/mvn")
+        #expect(!context.skipTests)
+        #expect(try operations.languageImport(
+            Self.target("cargo-build", "cargo"), workspaceURL: workspace, root: ".", options: [:], executableURL: nil
+        ) == nil)
+    }
+
     // MARK: Fixtures
 
     private static func fixtureData(_ name: String) throws -> Data {

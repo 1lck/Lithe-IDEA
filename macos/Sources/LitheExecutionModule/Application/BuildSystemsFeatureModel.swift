@@ -31,6 +31,12 @@ package final class BuildSystemsFeatureModel: ObservableObject {
     package var hasActiveWork: Bool { service.hasActiveWork }
     package var hasBuildSystemPlugins: Bool { service.hasBuildSystemPlugins }
     package var workspaceURL: URL? { service.workspaceURL }
+    package var languageImport: JavaLanguageImportConfiguration? { service.languageImport }
+    package var hasPublishedMavenLanguageImport: Bool { service.hasPublishedMavenLanguageImport }
+    package var onLanguageImportChanged: ((URL) -> Void)? {
+        get { service.onLanguageImportChanged }
+        set { service.onLanguageImportChanged = newValue }
+    }
 
     package func entry(_ id: String) -> BuildSystemEntry? { service.entry(id) }
     package func reset(workspaceURL: URL?) { service.reset(workspaceURL: workspaceURL) }
@@ -48,6 +54,9 @@ package final class BuildSystemsFeatureModel: ObservableObject {
     }
     package func setOption(_ entryID: String, optionID: String, value: ToolingJSONValue?) {
         service.setOption(entryID, optionID: optionID, value: value)
+    }
+    package func setInstanceOption(_ entryID: String, optionID: String, value: ToolingJSONValue?) {
+        service.setInstanceOption(entryID, optionID: optionID, value: value)
     }
     package func pluginsChanged() { service.pluginsChanged() }
     package func stopRun() { service.stopRun() }
