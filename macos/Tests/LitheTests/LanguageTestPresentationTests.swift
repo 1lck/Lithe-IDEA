@@ -165,20 +165,43 @@ struct LanguageTestPresentationTests {
     }
 
     @Test
+    func reportOnlyRowsRemainSelectableAndKeepTheirExecutableIdentifiers() throws {
+        let source = URL(fileURLWithPath: "/fixture/Tests.java")
+        let discovered = [LanguageTestItem(id: "file", providerID: "java", label: "Tests.java",
+            kind: .file, fileURL: source, testIdentifier: nil, depth: 0)]
+        let outcomes = [MavenTestCaseOutcome(className: "demo.Tests", method: "passes()", status: "passed")]
+        let rows = LanguageTestsView.presentedItems(discovered: discovered, outcomes: outcomes, providerID: "java")
+        #expect(rows.count == 2)
+        for row in rows {
+            let selected = try #require(LanguageTestsView.presentedItems(discovered: discovered,
+                outcomes: outcomes, providerID: "java").first { $0.id == row.id })
+            #expect(selected.kind == .testCase)
+            #expect(selected.testIdentifier == (row.depth == 1 ? "demo.Tests" : "demo.Tests#passes"))
+            #expect(selected.fileURL == nil, "A report does not establish semantic source ownership for Debug")
+        }
+        #expect(LanguageTestsView.presentedItems(discovered: discovered, outcomes: [], providerID: "java") == discovered)
+        let semantic = LanguageTestItem(id: "jdt-method", providerID: "java", label: "passes()",
+            kind: .testCase, fileURL: source, testIdentifier: "demo.Tests#passes()", depth: 2)
+        #expect(LanguageTestsView.presentedItems(discovered: [semantic], outcomes: outcomes, providerID: "java") == [semantic])
+    }
+
+    @Test
     func activeTestTargetFormatsMethodAndClassNamesCorrectly() {
         #expect(ActiveTestTarget.formattedName(for: "demo.CalculatorTest#addsPositiveNumbers()") == "CalculatorTest.addsPositiveNumbers")
         #expect(ActiveTestTarget.formattedName(for: "demo.CalculatorTest#intentionalFailureForPreview()") == "CalculatorTest.intentionalFailureForPreview")
         #expect(ActiveTestTarget.formattedName(for: "demo.CalculatorTest") == "CalculatorTest")
     }
 
-    @Test
-    func resolvedFileTestNameKeepsTheFullScopeAndDebugToolbarBinding() {
-        let scope = LanguageTestScope.file(URL(fileURLWithPath: "/fixture/Tests.java"))
+    @Test(arguments: [false, true])
+    func resolvedTestNameKeepsTheFullScopeAndDebugToolbarBinding(method: Bool) {
+        let source = URL(fileURLWithPath: "/fixture/Tests.java")
+        let scope: LanguageTestScope = method ? .testCase(identifier: "demo.Tests#logsIn()", fileURL: source) : .file(source)
         var target = ActiveTestTarget(providerID: "java", scope: scope)
-        target.resolvedName = "ActualTestClass"
+        let launchName = method ? "logsIn()" : "ActualTestClass"
+        target.resolvedName = launchName
         #expect(target.scope == scope)
         #expect(DebugToolbarPresentation.mainToolbarControl(state: .paused,
-            debugTarget: "ActualTestClass", selectedTarget: target.name) == .resume)
+            debugTarget: launchName, selectedTarget: target.name) == .resume)
     }
 
     private func testItem(_ id: String, selector: String? = nil, depth: Int) -> LanguageTestItem {

@@ -86,6 +86,7 @@ struct LanguageTestsView: View {
         }
         .onChange(of: service.results) { _ in
             updateResultsAndDurations()
+            selectDefaultItemIfNeeded()
         }
         .onChange(of: service.output) { _ in
             updateResultsAndDurations()
@@ -181,7 +182,7 @@ struct LanguageTestsView: View {
                 }
                 .litheToolbarIconButton()
                 .help("Debug selected test")
-                .disabled(service.isRunning)
+                .disabled(service.isRunning || item.fileURL == nil)
             }
 
             Button(action: model.refreshTests) {
@@ -220,8 +221,8 @@ struct LanguageTestsView: View {
 
     private var selectedItem: LanguageTestItem? {
         guard let selectedItemID else { return nil }
-        return service.itemsByProviderID.values
-            .flatMap { $0 }
+        return testProviderDescriptors
+            .flatMap { presentedItems(for: $0.id) }
             .first { $0.id == selectedItemID }
     }
 
@@ -239,22 +240,22 @@ struct LanguageTestsView: View {
         .litheWorkbenchSurface(LitheTheme.editor)
     }
 
+    private func presentedItems(for providerID: String) -> [LanguageTestItem] {
+        Self.presentedItems(discovered: service.itemsByProviderID[providerID] ?? [],
+            outcomes: service.results?.testCases ?? service.testOutcomes, providerID: providerID)
+    }
+
+    /// Selection and rendering consume the same nodes, including report-only results.
+    static func presentedItems(discovered: [LanguageTestItem], outcomes: [MavenTestCaseOutcome], providerID: String) -> [LanguageTestItem] {
+        let statuses = resultStatuses(outcomes)
+        let reported = discovered.filter { $0.kind == .testCase && statuses[resultKey($0)] != nil }
+        if !reported.isEmpty { return reported }
+        return outcomes.isEmpty ? discovered : synthesizeResultItems(from: outcomes, providerID: providerID)
+    }
+
     private func providerSection(_ descriptor: LanguageProviderDescriptor) -> some View {
-        let discovered = service.itemsByProviderID[descriptor.id] ?? []
-        let reported = discovered.filter { $0.kind == .testCase && resultStatuses[Self.resultKey($0)] != nil }
-        let outcomes = service.results?.testCases ?? service.testOutcomes
-        let items: [LanguageTestItem]
-        let isResultTree: Bool
-        if !reported.isEmpty {
-            items = reported
-            isResultTree = true
-        } else if !outcomes.isEmpty {
-            items = Self.synthesizeResultItems(from: outcomes, providerID: descriptor.id)
-            isResultTree = true
-        } else {
-            items = discovered
-            isResultTree = false
-        }
+        let items = presentedItems(for: descriptor.id)
+        let isResultTree = !items.isEmpty && items.allSatisfy { $0.kind == .testCase }
 
         let isCollapsed = collapsedProviderIDs.contains(descriptor.id)
         let parentIDs = Set(zip(items, items.dropFirst()).compactMap { current, next in
@@ -414,7 +415,6 @@ struct LanguageTestsView: View {
         for fullClassName in classOrder {
             let shortClassName = fullClassName.split(separator: ".").last.map(String.init) ?? fullClassName
             let methods = classGroups[fullClassName] ?? []
-
             let classNode = LanguageTestItem(
                 id: "testCase:\(providerID):\(fullClassName)",
                 providerID: providerID,
@@ -861,7 +861,7 @@ struct LanguageTestsView: View {
     }
 
     private func selectDefaultItemIfNeeded() {
-        let allItems = service.itemsByProviderID.values.flatMap { $0 }
+        let allItems = testProviderDescriptors.flatMap { presentedItems(for: $0.id) }
         guard !allItems.isEmpty else {
             selectedItemID = nil
             return

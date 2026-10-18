@@ -28,7 +28,7 @@ enum WorkbenchModuleUIComposition {
             .init(id: "workbench.run-start-or-restart", perform: { model in
                 if let control = mainToolbarDebugControl(for: model) {
                     model.genericDebugFeatureIfActive?.execute(control == .resume ? .continueExecution : .pause)
-                } else if model.runFeatureIfActive?.isSelectedConfigurationRunning == true { model.restartSelectedRun() }
+                } else if model.activeTestTarget == nil, model.runFeatureIfActive?.isSelectedConfigurationRunning == true { model.restartSelectedRun() }
                 else { model.runSelectedConfiguration() }
             }, state: { model in
                 let controlsDebug = mainToolbarDebugControl(for: model) != nil

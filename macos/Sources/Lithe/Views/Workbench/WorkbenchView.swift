@@ -956,30 +956,31 @@ struct WorkbenchView: View {
 
     private var runLaunchButton: some View {
         let control = WorkbenchModuleUIComposition.mainToolbarDebugControl(for: model)
+        let isRunningConfiguration = model.activeTestTarget == nil && model.runFeatureIfActive?.isSelectedConfigurationRunning == true
         return Button {
             moduleUIRegistry.performAction(id: "workbench.run-start-or-restart", model: model)
         } label: {
             LitheIDEAIcon(
                 resourcePath: control.map { DebugToolbarPresentation.ideaAssetPath(for: $0) }
-                    ?? (model.runFeatureIfActive?.isSelectedConfigurationRunning == true
+                    ?? (isRunningConfiguration
                     ? "expui/run/rerun_stroke.svg"
                     : "expui/run/run_stroke.svg"),
                 size: 16,
-                fallbackSystemImage: model.runFeatureIfActive?.isSelectedConfigurationRunning == true
+                fallbackSystemImage: isRunningConfiguration
                     ? "arrow.clockwise"
                     : "play.fill",
                 preservesOriginalColors: control != nil
             )
-                .foregroundStyle(model.runFeatureIfActive?.isSelectedConfigurationRunning == true
+                .foregroundStyle(isRunningConfiguration
                                  ? LitheTheme.MainToolbar.runningIcon : LitheTheme.MainToolbar.runIcon)
         }
         .buttonStyle(LitheMainToolbarButtonStyle(
             insets: LitheTheme.MainToolbar.runInsets,
-            executionBackground: control == nil && model.runFeatureIfActive?.isSelectedConfigurationRunning == true
+            executionBackground: control == nil && isRunningConfiguration
                 ? LitheTheme.MainToolbar.runningBackground : nil
         ))
-        .help(control == .resume ? "Resume" : control == .pause ? "Pause" : model.runFeatureIfActive?.isSelectedConfigurationRunning == true ? "Rerun selected configuration" : "Run selected configuration")
-        .accessibilityLabel(control == .resume ? "Resume" : control == .pause ? "Pause" : model.runFeatureIfActive?.isSelectedConfigurationRunning == true ? "Rerun selected configuration" : "Run selected configuration")
+        .help(control == .resume ? "Resume" : control == .pause ? "Pause" : isRunningConfiguration ? "Rerun selected configuration" : "Run selected configuration")
+        .accessibilityLabel(control == .resume ? "Resume" : control == .pause ? "Pause" : isRunningConfiguration ? "Rerun selected configuration" : "Run selected configuration")
         .accessibilityIdentifier("run-selected-run-configuration")
     }
 
