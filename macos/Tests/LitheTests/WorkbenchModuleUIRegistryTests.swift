@@ -2,6 +2,7 @@ import Foundation
 import SwiftUI
 import Testing
 @testable import Lithe
+import LitheCoreContracts
 import LitheModuleAPI
 
 @MainActor
@@ -87,19 +88,27 @@ struct WorkbenchModuleUIRegistryTests {
         }
     }
 
-    @Test func mavenNavigationIsDockedAndBuildOutputStaysInTheActivityBar() throws {
-        let contributions = BuiltInModuleCatalog.contributions(for: .execution)
-        let navigation = try #require(contributions.first { $0.id == "execution.maven" })
-        let output = try #require(contributions.first { $0.id == "execution.maven.output" })
-        let registry = WorkbenchModuleUIComposition.builtIn
+    @Test func buildSystemWindowIsDockedAndBuildOutputStaysInTheActivityBar() throws {
+        let build = DeclarativeBuildSystem(id: "make", displayName: "Make", modelSource: nil, tasks: [], testScopes: [], dependencyScopes: [])
+        let owner = ModuleID.buildSystemsExtension("org.example.make")
+        let declaration = PluginModuleDeclaration(
+            manifest: .init(id: owner, displayName: "Make", scope: .workspace),
+            contributions: build.contributions(pluginID: "org.example.make", order: 0)
+        )
+        let registration = WorkbenchModuleUIRegistry.buildSystemRegistration(declaration)
+        let registry = try WorkbenchModuleUIRegistry(registrations: [registration])
+        let window = try #require(declaration.contributions.first { $0.kind == .toolWindow })
+        let command = try #require(declaration.contributions.first { $0.kind == .command })
+        let output = try #require(BuiltInModuleCatalog.contributions(for: .execution).first { $0.id == "execution.build.output" })
 
-        #expect(navigation.placement == .rightSidebar)
+        #expect(window.placement == .rightSidebar)
+        #expect(window.title == "Make")
+        #expect(command.placement == .commandPalette)
+        #expect(command.actionID != window.actionID)
         #expect(output.placement == .activityBar)
-        #expect(navigation.actionID != output.actionID)
-        #expect(registry.renderer(for: navigation)?.rightSidebarBehavior == .docked)
-        #expect(registry.renderer(for: navigation)?.ideaAssetPath == "maven/expui/toolwindow/maven@20x20.svg")
-        #expect(registry.renderer(for: output) != nil)
-        try registry.validate(contributions: contributions)
+        #expect(registry.renderer(for: window)?.rightSidebarBehavior == .docked)
+        try registry.validate(contributions: declaration.contributions)
+        try WorkbenchModuleUIComposition.builtIn.validate(contributions: [output])
     }
 
     @Test func agentConversationIsDockedInTheRightSidebar() throws {
@@ -127,7 +136,7 @@ struct WorkbenchModuleUIRegistryTests {
         #expect(workbench.isSidebarVisible)
         #expect(workbench.activeToolWindow == .terminal)
         #expect(workbench.activeRightToolWindow == .database)
-        workbench.setVisibility(.maven, isVisible: true)
+        workbench.setVisibility(.agent, isVisible: true)
         #expect(!workbench.isVisible(.database))
         #expect(workbench.isVisible(.terminal))
     }

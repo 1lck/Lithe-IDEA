@@ -10,7 +10,7 @@ Rust Core 负责校验声明、识别工程、展开每一条命令行，并把�
 
 映射（`map`）只从解码后的文档里挑值。挑值以外的逻辑由插件自己处理：读 JSON、YAML 清单，从工具读任务，计算父子关系，这些都交给插件自带的脚本输出规范格式（第 6 节）。声明和规范格式都表达不了的工具（Gradle Tooling API 等），由插件自带的 Provider 进程回答。Provider 就是语言服务器那种进程：共用启动字段、校验和启动计划，只多回答 `lithe/build/model`、`lithe/build/dependencies`，回复仍由 Core 解码（第 9 节）。
 
-目前落地的是 Core、共享契约和 macOS 宿主（第 10 节）。macOS 有了通用 Build 工具窗口，并向 Core 声明 `buildSystems: [1]`；Windows 宿主还没有接入，两端都还不会向 Provider 发请求。API 3 的清单按能力分版本，声明式构建系统使用 `buildSystems`，两种写法的 Provider 都额外使用 `buildProviders: 1`，macOS 尚不声明它；插件市场只在宿主声明支持对应能力时才列出 API 3 的版本，见[声明式插件按能力分版本](2026-10-17-plugin-capability-versions.md)。宿主接入和 Maven 迁移的计划见[构建系统 Provider 提案](../../proposed/architecture/2026-10-17-build-system-provider-api.md)。
+目前落地的是 Core、共享契约和 macOS 宿主（第 10 节）。macOS 为每个启用的构建系统各开一个工具窗口，并向 Core 声明 `buildSystems: [1]`；Windows 宿主还没有接入，两端都还不会向 Provider 发请求。API 3 的清单按能力分版本，声明式构建系统使用 `buildSystems`，两种写法的 Provider 都额外使用 `buildProviders: 1`，macOS 尚不声明它；插件市场只在宿主声明支持对应能力时才列出 API 3 的版本，见[声明式插件按能力分版本](2026-10-17-plugin-capability-versions.md)。宿主接入和 Maven 迁移的计划见[构建系统 Provider 提案](../../proposed/architecture/2026-10-17-build-system-provider-api.md)。
 
 ## 问题
 
@@ -154,7 +154,7 @@ Lithe 的插件逻辑跑在插件自己的进程里。声明和规范格式解�
 
 ### 10. macOS 宿主适配层
 
-macOS 宿主接受级别 3，并在 `PluginManifest.hostCapabilities` 里声明 `buildSystems: [1]`，插件市场因此在 macOS 列出构建插件。启用的插件声明了构建系统时，右侧出现 Build 工具窗口（实例 → 工程 → 任务、测试、目标、依赖，加上选项），任务和测试的输出、诊断和测试结果显示在 Build Output 里。
+macOS 宿主接受级别 3，并在 `PluginManifest.hostCapabilities` 里声明 `buildSystems: [1]`，插件市场因此在 macOS 列出构建插件。工作区识别出某个构建系统的实例时，右侧出现这个构建系统自己的工具窗口（第 11 节），任务和测试的输出、诊断和测试结果显示在共用的 Build Output 里。
 
 代码按“谁负责什么”分四层，任何一层都不认识具体的构建系统：
 
@@ -163,7 +163,7 @@ macOS 宿主接受级别 3，并在 `PluginManifest.hostCapabilities` 里声明 
 | Core 调用 | `macos/Sources/Lithe/Core/Rust/RustBuildSystemOperations.swift` | 把 13 个 `build.*` 命令包成 `BuildSystemPlanning`；契约类型在 `LitheCoreContracts/Execution/BuildSystemContracts.swift` |
 | 平台适配器（Platform Adapter，封装 macOS 系统调用的类） | `macos/Sources/Lithe/Platform/MacOS/Build/` | `MacBuildToolResolver` 按 Core 的候选顺序找可执行文件、探测版本、给宿主管理的运行时设置环境；`MacBuildCommandRunner` 在独立进程组里启动命令，登记进程账本，负责取消、期限和输出上限；`MacBuildOptionsStore` 保存选项；`MacBuildSystemStateLocator` 在插件状态目录下分配 `${workspaceStateDir}` 和 `${outputFile}` |
 | 编排 | `macos/Sources/LitheExecutionModule/Services/BuildSystemService.swift` | 识别、加载模型、任务、测试、依赖、选项和过期提示，只负责按顺序调用上面两层 |
-| 界面 | `macos/Sources/Lithe/Views/Run/BuildSystemsView.swift`、`BuildOutputView.swift` | 工具窗口和输出区 |
+| 界面 | `macos/Sources/Lithe/Views/Workbench/BuildSystemToolWindowRegistration.swift`、`macos/Sources/Lithe/Views/Run/BuildSystemToolWindowView.swift`、`BuildOutputView.swift` | 按声明注册的工具窗口、窗口内容和输出区 |
 
 几条宿主规则和它们的原因：
 
@@ -185,7 +185,7 @@ macOS 宿主接受级别 3，并在 `PluginManifest.hostCapabilities` 里声明 
 
 ### 11. 展示字段：每个构建系统一个窗口，照抄 Maven 窗口
 
-2026-10-18 用户决定，内置 Maven 窗口不再由宿主写死，改为随插件出现：每个启用的构建系统各有一个工具窗口。外壳（停靠、标题、活动栏、顺序、显隐、布局、生命周期）沿用现有工具窗口贡献的注入方式，只是从写死的 `execution.maven` 改为按插件声明注册。窗口内容照抄现有 `MavenView` 的结构，包括工具栏开关、Profiles 勾选树、分组任务和依赖，不重新设计。Gradle 用同一个视图，任务分组模仿 IDEA 的 `Tasks › build`。插件也可以改用自己的网页，那是可选项，见[插件自带网页界面](../../proposed/architecture/2026-10-18-plugin-web-content-in-host-windows.md)。
+2026-10-18 用户决定，内置 Maven 窗口不再由宿主写死，改为随插件出现：每个启用的构建系统各有一个工具窗口。外壳（停靠、标题、活动栏、顺序、显隐、布局、生命周期）沿用现有工具窗口贡献的注入方式，只是从写死的 `execution.maven` 改为按插件声明注册。窗口内容照抄现有 `MavenView` 的结构，包括工具栏开关、Profiles 勾选树、分组任务和依赖，不重新设计。Gradle 用同一个 SwiftUI 原生视图，任务分组模仿 IDEA 的 `Tasks › build`。插件界面优先原生实现；不禁止需要时采用网页，但网页只是独立可选能力，不是 Maven、Gradle 的界面方案或交付前提，见[插件自带网页界面](../../proposed/architecture/2026-10-18-plugin-web-content-in-host-windows.md)。
 
 照抄的视图不能认 Maven 这个名字，所以清单加了三个只管展示的字段，Core 校验它们，但它们不进入任何计划：
 
@@ -199,7 +199,18 @@ macOS 宿主接受级别 3，并在 `PluginManifest.hostCapabilities` 里声明 
 
 不要这样做：在视图里写 `if buildSystemID == "maven" { showProfiles() }`，或者用 `properties.group` 这类约定键私下决定分组。
 
-当前状态：macOS 仍在共享 Build 窗口列出全部构建系统，并忽略这些字段。每个构建系统一个窗口，以及移除 `MavenView`、`MavenBuildOutputView`、`execution.maven*` 贡献和 `toggle-maven`，由宿主界面工作完成。`MavenService` 还承担着 JDT 的 Profile 同步、模块运行/调试和 `lithe_maven_*` Agent 工具；JDT 的部分改走第 12 节的 `build.languageImport`，宿主接入后才能删除。
+宿主怎样落地（2026-10-18）：
+
+- **窗口从声明推导，不由插件写 ID。** `DeclarativeBuildSystem.contributions(pluginID:order:)` 为每个构建系统生成一个右侧工具窗口和一条命令面板命令，ID 是 `<pluginID>.build-systems:<buildSystemID>`。插件声明的 UI ID 不允许含 `:`，所以不会和插件自己的窗口冲突；标题是 `displayName`，图标是 `icon`。贡献的 `visibility` 带上插件 ID 和构建系统 ID，`buildSystemRegistration` 只读这两个键，不认识任何具体名字。
+- **出现与消失。** 窗口和命令只在工作区识别出该构建系统的实例时显示；停用插件后 `pluginsChanged()` 移除实例，窗口随之消失。窗口的切换动作在有工作区时就可用，这样保存过的布局能在识别完成前恢复；布局沿用工具窗口的通用持久化。恢复和打开都先激活贡献所属的插件模块，再激活负责识别的 execution 模块，不能只激活后者而跳过插件生命周期。激活期间命令面板项显示 pending 并禁用，活动栏按钮仍允许取消。命令面板标题是“切换 %@”，只本地化动词，构建系统名称原样显示。
+- **共享 Build 窗口删除，不保留为兜底。** 每个构建系统都有窗口以后，共享窗口只会把同一棵树再列一遍；没有声明展示字段的构建系统也能在自己的窗口里按 `group` 分组显示，不需要兜底。识别问题（`issues`）以横幅显示在每个构建系统窗口顶部。Build Output 仍然共用。
+- **窗口内容。** 工具栏依次是运行/停止所选任务、需要参数的任务（`requiresUserArguments`）、刷新、`toolbar` 选项开关、全部折叠和其余选项的下拉面板。树的顶部是 `tree` 选项的勾选节点（`allowCustom` 时可以添加值，用户改过时可以恢复默认），然后是实例：实例根上只有一个根工程时直接显示这个工程，否则显示实例节点并在下面列出根工程。每个节点下依次是按 `category` 分级的任务（没有 `category` 时按 `group` 归类）、运行测试、目标、依赖和子工程。实例根上的任务、测试和依赖在声明允许时优先使用 `workspace` 作用范围，这样根构建覆盖所有工程；只接受 `project` 的任务仍携带根工程，只接受 `target` 的参数任务保留目标与标签约束。工具栏和节点菜单共用同一套作用范围选择，不能先把根工程丢掉再交给 Core。依赖在第一次展开时加载。
+- **视图状态不能跨模型沿用。** 模型、实例列表或工作区变化后清除所选任务和未提交的参数弹窗，避免运行旧模型中的请求。任务分组节点按每级标题的 UTF-8 长度编码身份；标题即使含有分隔符，也不能和另一条分组路径共用折叠状态。
+- **已删除。** `MavenView`、`MavenBuildOutputView`、`MavenDependencyLocalization`、`BuildSystemsView`，`execution.maven`、`execution.maven.output`、`execution.build` 贡献，`toggle-maven` 命令和对应的 `ToolWindow` 常量。旧布局里的这些 ID 和其他未知贡献一样被忽略；`ToolWindow.restoredID` 改为显式映射旧名字，不再依赖 `allCases` 的顺序。
+
+还留着的 Maven 宿主代码：`MavenService`（以及 `MavenFeatureModel`）仍负责 JDT 的 Maven 配置同步（Profile、settings、本地仓库）、模块运行/调试的启动上下文，以及 `lithe_maven_*` Agent 工具。Agent 执行的 Maven 目标不再有专门的输出窗口，Agent 通过 `lithe_operation_output` 读取输出。`MavenResolutionProblems`（JDT 报告的 `pom.xml` 问题）仍供编辑器诊断使用，但不再显示在构建窗口里。通用构建窗口读取的依赖也尚未成为 Java 依赖侧栏的补充来源。
+
+当前窗口迁移尚未接入插件选项到 JDT 的通用桥。并行的 Core 实现已定义 `buildSystems[].languageImport`，用清单映射选项，再由 `build.languageImport` 返回 `mavenContext` / `javaGradle`；该接口由主会话负责集成，本树的 Swift 桥尚未转发它。宿主接入时只转发这些结果，不能按插件 ID 或构建系统名字反推参数。完成配置同步迁移后，还要迁移运行/调试和 Agent 工具，才具备删除 `MavenService` 的条件。
 
 ### 12. 语言服务器导入：`languageImport`
 
@@ -296,6 +307,8 @@ Gradle 的 `offline` 和 `userHome` 是用户自己选的值，不是猜测，�
 - `declarative_plugins::build_providers_require_their_own_host_capability` 与 `marketplace_plugins::build_provider_versions_require_host_support_before_download` 验证 Provider 能力与声明式构建分开，安装审查的共享 fixture 同时覆盖自有进程和共享写法。
 - `./scripts/verify-shared-contracts.sh`：schema 与 fixture 一致；`build-plans.json` 的用例名唯一、操作合法、拒绝码都有文档、不含机器路径；`command-plans.json` 的每个用例只给出 `languageID`、`buildSystemID` 之一。
 - `./scripts/verify-rust-core-comments.sh`：`build/` 模块的注释规范。
+- `./scripts/test-macos.sh --filter 'BuildSystemToolWindowTests'`：本地 Maven、Gradle fixture 副本经真实 Core 校验后读出 `icon`、`presentation`、选项图标和 `category`；模型任务自带的 `category`；每个构建系统推导出的窗口和命令（ID、标题、停靠、命令与窗口分开的动作），以及注册表校验通过。补充回归覆盖窗口所属模块激活、命令 pending 状态、独立窗口停靠与显隐恢复、旧 Maven 贡献及命令移除、参数任务根工程与目标作用范围。临时插件包中的窗口与选项明暗 SVG 加载后，目录清单和每个文件的字节必须完全不变。
+- 窗口测试通过 `write-stable-tests` 的 macOS 计时入口执行，并设置 `LITHE_TEST_WINDOW_MODE=isolated`；逐测试时长记录在 `.artifacts/test-stability/` 的 HTML 与 JUnit 中。隔离测试不替代明暗主题、真实焦点、真实 Maven/Gradle 工作流和 Windows 验收；这些未执行项保持功能矩阵 pending。
 - `./scripts/test-macos.sh --filter 'RustBuildSystemOperationsTests|BuildSystemServiceTests'`：Swift 一侧对真实 Rust Core 调用 `build.*`（cargo、go、maven fixture 的识别、选项 `dropped`、调用计划、版本探测、任务和测试 argv、命令模型解码、诊断与同步指纹）；`BuildSystemService` 用假的 Core、运行器和存储验证识别问题列表、stdout 捕获与输出文件清理、失败退出码、输出顺序与诊断、停止、选项改存生效值、指纹变化后的重新加载提示，以及停用插件后停止命令并移除实例。
 - `build_runtime_versions` 与 `MacBuildToolResolverTests` 验证 Java 8 探测参数、错误输出捕获和最低版本校验；`BuildSystemServiceTests` 使用可控制取消与退出顺序的运行器，覆盖模型/依赖的重复加载、停止、重置和停用插件，以及旧取消先完成、旧成功最后完成两种顺序。
 - `build_systems` 额外覆盖嵌套实例根的目标、任务与内容根边界，以及非法选择器内容根后的 fallback；同时覆盖默认参数变化后的安装重新确认、动态 feature 删除后的检测与运行指纹一致，以及静态模型、Maven POM、JUnit 报告、诊断和测试结果与同步文件的符号链接边界；`reported_output_paths_reject_escaping_symlinks` 同时验证工作区内部链接仍被保留；`BuildOutputSourcePathTests` 验证 Build Output 导航前的真实路径校验，包括诊断列表与输出正文里的绝对路径和符号链接。`taskPlansOnlyReceiveOptionValuesTheModelStillAccepts` 与 `modelLoadStoresTheEffectiveOptionValues` 验证选项在检测和模型加载后被换成生效值，并进入下一个任务计划；`decodedDiagnosticsDoNotCrossIntoAReplacementRun` 和 `decodedTestResultsDoNotCrossIntoAnotherWorkspace` 验证迟到的解码结果不会写进替换运行或新工作区；`lateCommandOutputDoesNotCrossIntoAReplacementRun`、`lateCommandOutputDoesNotCrossIntoAnotherWorkspace` 和 `lateModelCommandOutputDoesNotCrossIntoAnotherWorkspace` 验证取消后仍在排空的命令行输出不会进入新运行或新工作区；`multiInstanceOptionValuesSurviveForInstancesThatStillAcceptThem` 验证同一构建系统的多个实例各自保留仍有效的选项。`explicitlyClearedMultiSelectKeepsItsEmptyValue` 验证用户清空多选后默认值不会回来；`cargo_implicit_main_survives_test_and_example_targets` 验证显式 test/example 目标不会抑制隐式主程序、显式 bin 仍会抑制；`outputLinksResolveRelativeToTheInstanceRoot` 和 `outputRootsCoverEveryCommandThatWroteOutput` 验证输出正文按写入它的实例根解析；`OutputTextViewLinkTests` 验证同名相对路径不会打开另一个工程；`fileChangeDuringDependencyLoadMarksTheResultStale` 验证依赖加载期间构建文件变化会拒绝旧结果；`optionChangeDuringModelLoadMarksTheModelStale` 验证加载期间改选项会把结果标记为过期；`pluginTakeoverDropsThePreviousPluginsModel` 验证插件接管同一实例 ID 后不沿用旧插件的模型和依赖；`fileChangeDuringModelLoadMarksTheModelStale` 验证加载期间构建文件变化会保留过期标记；`workspaceTestsWithoutAModelAreRefused`、`staleModelCannotCollectWorkspaceReports`（带旧模型的非空工程列表）和 `modelLessPluginCanRunWorkspaceTests` 验证只有需要子工程报告的工作区测试才要求模型，且模型过期时同样拒绝；`subprojectFileChangeDuringFirstModelLoadMarksTheModelStale` 验证首次加载期间子工程文件变化会保留过期标记；`optionChangeDuringDependencyLoadMarksTheResultStale` 验证依赖加载期间改选项会拒绝旧结果；`explicitlyClearedTextOptionKeepsItsEmptyValue` 与 `resolve_options_describe_explicit_empty_text_values` 验证空文本选项的往返；`projectLocalRuntimeCandidateResolvesWithoutProbing` 验证项目内运行时不会被探测。；`detectionDoesNotOverwriteAModelLoadedWhileItRan`、`detectionKeepsANewModelAndADependencyLoadedWhileItRan` 和 `redetectionPublishesANewStaticModel` 验证检测与模型/依赖加载并行时既不会用旧快照覆盖已发布结果，也不会丢弃正常重新检测得到的新模型。
@@ -310,7 +323,8 @@ Gradle 的 `offline` 和 `userHome` 是用户自己选的值，不是猜测，�
 - `macos/Sources/Lithe/Platform/MacOS/Build/`
 - `macos/Sources/LitheExecutionModule/Services/BuildSystemService.swift`
 - `macos/Sources/LitheExecutionModule/Application/BuildOutputSourcePath.swift`
-- `macos/Sources/Lithe/Views/Run/BuildSystemsView.swift`
+- `macos/Sources/Lithe/Views/Workbench/BuildSystemToolWindowRegistration.swift`
+- `macos/Sources/Lithe/Views/Run/BuildSystemToolWindowView.swift`
 - `macos/Sources/Lithe/Views/Run/BuildOutputView.swift`
 - `rust/lithe-core/src/runtime/dispatcher.rs`
 - `rust/lithe-core/src/tests/build_systems.rs`

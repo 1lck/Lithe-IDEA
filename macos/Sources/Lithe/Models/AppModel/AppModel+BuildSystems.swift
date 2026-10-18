@@ -1,6 +1,5 @@
 import Foundation
 import LitheExecutionModule
-import LitheModuleAPI
 
 // Note: 构建系统插件契约见 .agents/notes/implemented/architecture/2026-10-17-build-system-plugin-contract.md
 
@@ -8,23 +7,13 @@ import LitheModuleAPI
 extension AppModel {
     var buildSystemsFeatureIfActive: BuildSystemsFeatureModel? { executionCapability?.buildSystemsFeature }
 
-    /// True when an enabled plugin declares build systems. The Build tool
-    /// window is offered only then.
-    var hasBuildSystemPlugins: Bool {
-        services.pluginCatalog.manifests.contains { manifest in
-            let id = ModuleID.buildSystemsExtension(manifest.id.rawValue)
-            guard services.pluginCatalog.modules[id] != nil,
-                  let snapshot = try? services.moduleRuntime.snapshot(for: id) else { return false }
-            return snapshot.state != .disabled && !snapshot.isQuarantined && !snapshot.isSuppressedBySafeMode
-        }
-    }
-
-    func toggleBuildSystems() {
-        guard toggleToolWindow(.buildSystems) else { return }
-        Task { [weak self] in
-            guard let self, let access = await activateExecutionModule() else { return }
-            loadBuildSystems(access)
-        }
+    /// True when the open workspace has an instance of the build system. Its
+    /// tool window and toggle command are offered only then; disabling the
+    /// plugin removes the instances through `pluginsChanged()`.
+    func hasDetectedBuildSystem(pluginID: String, buildSystemID: String) -> Bool {
+        workspaceURL != nil && buildSystemsFeatureIfActive?.entries.contains {
+            $0.instance.pluginID == pluginID && $0.instance.buildSystemID == buildSystemID
+        } == true
     }
 
     /// Detects the current workspace's build systems once per workspace;

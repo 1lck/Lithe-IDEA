@@ -3334,6 +3334,15 @@
 
 /* Plugin build systems */
 "Build" = "构建";
+"Run selected task" = "运行所选任务";
+"Reload %@ projects" = "重新加载 %@ 项目";
+"%@ options" = "%@ 选项";
+"%@ build files changed" = "%@ 构建文件已更改";
+"Add to %@" = "添加到 %@";
+"Toggle %@" = "切换 %@";
+"Verification" = "验证";
+"Documentation" = "文档";
+"Other" = "其他";
 "Hide Build tool window" = "隐藏构建工具窗口";
 "Hide Build Output tool window" = "隐藏构建输出工具窗口";
 "Detect build systems again" = "重新检测构建系统";

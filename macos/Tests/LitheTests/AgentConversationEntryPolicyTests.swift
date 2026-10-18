@@ -61,12 +61,11 @@ struct AgentConversationEntryPolicyTests {
         let enabled = execution + BuiltInModuleCatalog.contributions(for: .agentConversation)
         let entries = AgentConversationEntryPolicy.rightSidebarContributions(from: enabled)
         #expect(entries.filter { $0.id == "agent.conversation" }.count == 1)
-        #expect(entries.contains { $0.id == "execution.maven" })
-        #expect(!entries.contains { $0.id == "execution.maven.output" })
+        #expect(!entries.contains { $0.id == "execution.build.output" })
         #expect(entries.allSatisfy { $0.placement == .rightSidebar })
         let disabled = AgentConversationEntryPolicy.rightSidebarContributions(from: [])
         #expect(disabled.map(\.id) == ["agent.conversation"])
-        #expect(!AgentConversationEntryPolicy.contributions(from: []).contains { $0.id == "execution.maven" })
+        #expect(!AgentConversationEntryPolicy.contributions(from: []).contains { $0.id == "execution.build.output" })
         try WorkbenchModuleUIComposition.builtIn.validate(contributions: entries)
     }
 }

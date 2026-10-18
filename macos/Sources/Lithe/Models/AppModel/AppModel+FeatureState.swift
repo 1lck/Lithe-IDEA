@@ -26,9 +26,8 @@ extension AppModel {
             || activeDocument?.url.pathExtension.lowercased() == "java"
     }
 
-    /// Maven is an optional build-system feature. Keeping this capability in
-    /// the generic workspace projection lets the UI hide the Java-only tool
-    /// window for Go, Python, Node, Rust, Gradle-only, and plain projects.
+    /// A Maven project counts as Java for the Java environment banner. Build
+    /// tool windows come from build-system plugins, not from this check.
     var hasMavenProject: Bool {
         projectFiles.contains { $0.lastPathComponent.lowercased() == "pom.xml" }
     }
@@ -513,7 +512,7 @@ extension AppModel {
         case "close-project", "search-everywhere", "search-in-project",
              "replace-in-project", "project-local-history", "run", "debug",
              "stop-run", "stop-debug", "toggle-terminal", "toggle-problems",
-             "toggle-maven", "toggle-git-log", "toggle-run", "toggle-tests",
+             "toggle-git-log", "toggle-run", "toggle-tests",
              "toggle-debug", "view-breakpoints", "spring-endpoints", "rebuild-java-index":
             workspaceURL != nil
         default:
