@@ -191,6 +191,7 @@ extension AppModel {
     }
 
     func cancelJavaWorkspaceWorkflows() {
+        javaLanguageServerPreparationCoordinator.cancelMavenConfigurationSynchronization()
         cancelJavaLanguageServerPreparation()
         cancelJavaTestWorkflows()
     }

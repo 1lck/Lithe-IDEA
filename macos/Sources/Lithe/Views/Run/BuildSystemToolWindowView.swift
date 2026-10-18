@@ -25,6 +25,7 @@ struct BuildSystemToolWindowView: View {
     @State private var selection: Selection?
     @State private var argumentsPrompt: ArgumentsPrompt?
     @State private var isOptionsPresented = false
+    @State private var optionEntryID: String?
     @State private var customValueOptionID: String?
     @State private var customValue = ""
 
@@ -36,6 +37,30 @@ struct BuildSystemToolWindowView: View {
                 }
             }
             navigationToolbar
+            if entries.count > 1, let optionEntry {
+                LitheMenu {
+                    for entry in entries {
+                        LitheContextMenuItem.action(
+                            Self.optionRootTitle(entry), localizesTitle: false,
+                            checked: entry.id == optionEntry.id, leadingCheckmark: true,
+                            initiallySelected: entry.id == optionEntry.id
+                        ) {
+                            optionEntryID = entry.id
+                            customValueOptionID = nil
+                            isOptionsPresented = false
+                        }
+                    }
+                } label: {
+                    HStack {
+                        Text(verbatim: Self.optionRootTitle(optionEntry)).lineLimit(1)
+                        Spacer(minLength: 4)
+                        treeIcon("expui/general/chevronDown.svg")
+                    }
+                }
+                .litheToolbarIconButton(isIconOnly: false)
+                .accessibilityLabel(Text("Project options"))
+                .padding(.horizontal, LitheTheme.Tree.horizontalInset)
+            }
             ForEach(feature.issues, id: \.self) { issue in
                 LitheBanner(status: .warning, layout: .editor) {
                     Text(verbatim: issue).lineLimit(3).textSelection(.enabled)
@@ -54,9 +79,9 @@ struct BuildSystemToolWindowView: View {
         .workbenchHoverTooltipScope()
         .onAppear(perform: expandNewRoots)
         .onChange(of: rootNodeIDs) { _ in expandNewRoots() }
-        .onChange(of: entries.map(\.model)) { _ in clearSelection() }
-        .onChange(of: entries.map(\.id)) { _ in clearSelection() }
-        .onChange(of: feature.workspaceURL) { _ in clearSelection() }
+        .onChange(of: entries.map(\.model)) { _ in clearSelection(); resetOptionEditor() }
+        .onChange(of: entries.map(\.id)) { _ in clearSelection(); resetOptionEditor() }
+        .onChange(of: feature.workspaceURL) { _ in clearSelection(); optionEntryID = nil; resetOptionEditor() }
         .sheet(item: $argumentsPrompt) { prompt in
             BuildArgumentsSheet(prompt: prompt) { arguments in
                 argumentsPrompt = nil
@@ -72,11 +97,26 @@ struct BuildSystemToolWindowView: View {
         feature.entries.filter { $0.instance.pluginID == pluginID && $0.instance.buildSystemID == buildSystemID }
     }
 
-    /// Options are stored per build system, so the first instance's resolved
-    /// values stand for all of them.
-    private var resolvedOptions: [BuildResolvedOption] { entries.first?.options ?? [] }
+    /// Storage is shared, but model choices and effective values belong to
+    /// one instance. The root selector keeps every instance's options reachable.
+    private var optionEntry: BuildSystemEntry? { Self.optionEntry(in: entries, selectedID: optionEntryID) }
+    private var resolvedOptions: [BuildResolvedOption] { optionEntry?.options ?? [] }
 
-    private var declaration: DeclarativeBuildSystem? { entries.first?.declaration }
+    private var declaration: DeclarativeBuildSystem? { optionEntry?.declaration }
+
+    static func optionEntry(in entries: [BuildSystemEntry], selectedID: String?) -> BuildSystemEntry? {
+        entries.first { $0.id == selectedID } ?? entries.first
+    }
+
+    static func optionRootTitle(_ entry: BuildSystemEntry) -> String {
+        entry.instance.root.isEmpty || entry.instance.root == "." ? entry.instance.displayName : entry.instance.root
+    }
+
+    private func resetOptionEditor() {
+        customValueOptionID = nil
+        isOptionsPresented = false
+        if !entries.contains(where: { $0.id == optionEntryID }) { optionEntryID = nil }
+    }
 
     // MARK: Toolbar
 
@@ -201,7 +241,12 @@ struct BuildSystemToolWindowView: View {
                 .font(LitheTheme.uiFont(size: 13, weight: .semibold))
                 .padding(.bottom, 4)
             ForEach(listedOptions) { option in
-                BuildOptionRow(option: option, indent: 0) { setOption(option.id, value: $0) }
+                let ownerID = optionEntry?.id
+                BuildOptionRow(option: option, indent: 0) { value in
+                    guard optionEntry?.id == ownerID else { return }
+                    setOption(option.id, value: value)
+                }
+                .id((ownerID ?? "") + ":" + option.id)
             }
         }
         .padding(14)
@@ -209,8 +254,8 @@ struct BuildSystemToolWindowView: View {
     }
 
     private func setOption(_ optionID: String, value: ToolingJSONValue?) {
-        guard let entry = entries.first else { return }
-        feature.setOption(entry.id, optionID: optionID, value: value)
+        guard let entry = optionEntry else { return }
+        feature.setInstanceOption(entry.id, optionID: optionID, value: value)
     }
 
     private func refresh() {
@@ -297,7 +342,7 @@ struct BuildSystemToolWindowView: View {
                         customValue = ""
                         customValueOptionID = option.id
                     } label: {
-                        Image(systemName: "plus").frame(width: 18, height: 20)
+                        treeIcon("expui/general/add.svg").frame(width: 18, height: 20)
                     }
                     .buttonStyle(.litheNoPress)
                     .help(String(format: String(localized: "Add to %@"), option.displayName))
@@ -342,7 +387,9 @@ struct BuildSystemToolWindowView: View {
     }
 
     private func customValuePanel(_ option: BuildResolvedOption, selected: [String]) -> some View {
+        let ownerID = optionEntry?.id
         let add = {
+            guard optionEntry?.id == ownerID else { return }
             let value = customValue.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !value.isEmpty else { return }
             customValueOptionID = nil
@@ -1049,12 +1096,53 @@ enum BuildArgumentSplitter {
     }
 }
 
+/// Shared edit semantics for native option menus and text inputs. Custom
+/// values remain ordinary Core inputs and clearing text remains an override.
+enum BuildOptionEditing {
+    static func selectedValues(_ option: BuildResolvedOption) -> [String] {
+        switch option.value {
+        case .string(let value): return [value]
+        case .array(let values):
+            return values.compactMap { if case .string(let value) = $0 { value } else { nil } }
+        default: return []
+        }
+    }
+
+    static func choices(_ option: BuildResolvedOption) -> [BuildResolvedOption.Choice] {
+        var choices = option.choices
+        guard option.allowCustom else { return choices }
+        for value in selectedValues(option) where !choices.contains(where: { $0.value == value }) {
+            choices.append(.init(value: value, title: nil, fromModel: false))
+        }
+        return choices
+    }
+
+    static func selecting(_ value: String, in option: BuildResolvedOption) -> ToolingJSONValue {
+        guard option.kind == .multiSelect else { return .string(value) }
+        let selected = selectedValues(option)
+        let next = selected.contains(value) ? selected.filter { $0 != value } : selected + [value]
+        return .array(next.map(ToolingJSONValue.string))
+    }
+
+    static func customValue(_ text: String, in option: BuildResolvedOption) -> ToolingJSONValue? {
+        let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard option.allowCustom, !value.isEmpty else { return nil }
+        if option.kind == .singleSelect { return .string(value) }
+        guard option.kind == .multiSelect else { return nil }
+        let selected = selectedValues(option)
+        return .array((selected.contains(value) ? selected : selected + [value]).map(ToolingJSONValue.string))
+    }
+
+}
+
 /// One option on one line; the effective value is what Core resolved.
-private struct BuildOptionRow: View {
+struct BuildOptionRow: View {
     let option: BuildResolvedOption
     let indent: CGFloat
     let onChange: (ToolingJSONValue?) -> Void
     @State private var text = ""
+    @State private var customText = ""
+    @State private var isCustomPresented = false
 
     var body: some View {
         HStack(spacing: 6) {
@@ -1090,46 +1178,35 @@ private struct BuildOptionRow: View {
             .labelsHidden()
             .toggleStyle(.switch)
             .controlSize(.mini)
-        case .singleSelect?:
-            let current = Self.text(option.value)
-            LitheMenu {
-                for choice in option.choices {
-                    LitheContextMenuItem.action(
-                        choice.title ?? choice.value,
-                        localizesTitle: false,
-                        checked: choice.value == current,
-                        leadingCheckmark: true,
-                        initiallySelected: choice.value == current
-                    ) { onChange(.string(choice.value)) }
+        case .singleSelect?, .multiSelect?:
+            let current = option.kind == .multiSelect ? selected.joined(separator: ", ") : Self.text(option.value)
+            HStack(spacing: 2) {
+                LitheMenu {
+                    Self.choiceItems(option: option, onChange: onChange)
+                } label: {
+                    menuLabel(current.isEmpty ? String(localized: "None") : current)
                 }
-            } label: {
-                menuLabel(current.isEmpty ? String(localized: "None") : current)
-            }
-            .litheToolbarIconButton(isIconOnly: false)
-            .fixedSize()
-            .accessibilityLabel(Text(verbatim: option.displayName))
-        case .multiSelect?:
-            LitheMenu {
-                for choice in option.choices {
-                    LitheContextMenuItem.action(
-                        choice.title ?? choice.value,
-                        localizesTitle: false,
-                        checked: selected.contains(choice.value),
-                        leadingCheckmark: true
-                    ) { onChange(.array(toggled(choice.value).map(ToolingJSONValue.string))) }
+                .litheToolbarIconButton(isIconOnly: false)
+                .fixedSize()
+                .accessibilityLabel(Text(verbatim: option.displayName))
+                if option.allowCustom {
+                    Button {
+                        customText = ""
+                        isCustomPresented = true
+                    } label: {
+                        LitheIDEAIcon(resourcePath: "expui/general/add.svg", size: 16, preservesOriginalColors: true)
+                    }
+                    .litheIconButton()
+                    .help(String(format: String(localized: "Add to %@"), option.displayName))
+                    .litheDropdown(isPresented: $isCustomPresented) { customValuePanel }
                 }
-            } label: {
-                menuLabel(selected.isEmpty ? String(localized: "None") : selected.joined(separator: ", "))
             }
-            .litheToolbarIconButton(isIconOnly: false)
-            .fixedSize()
-            .accessibilityLabel(Text(verbatim: option.displayName))
         case .text?, .file?, .directory?:
             TextField("", text: $text)
                 .textFieldStyle(.roundedBorder)
                 .controlSize(.small)
                 .frame(maxWidth: 180)
-                .onSubmit { onChange(text.isEmpty ? nil : .string(text)) }
+                .onSubmit { onChange(.string(text)) }
         case nil:
             EmptyView()
         }
@@ -1143,13 +1220,42 @@ private struct BuildOptionRow: View {
         .padding(.horizontal, 4)
     }
 
-    private var selected: [String] {
-        guard case .array(let values) = option.value else { return [] }
-        return values.compactMap { if case .string(let value) = $0 { value } else { nil } }
+    static func choiceItems(option: BuildResolvedOption, onChange: @escaping (ToolingJSONValue?) -> Void) -> [LitheContextMenuItem] {
+        let selected = BuildOptionEditing.selectedValues(option)
+        return BuildOptionEditing.choices(option).map { choice in
+            .action(
+                choice.title ?? choice.value, localizesTitle: false,
+                checked: selected.contains(choice.value), leadingCheckmark: true,
+                initiallySelected: option.kind == .singleSelect && selected.contains(choice.value)
+            ) { onChange(BuildOptionEditing.selecting(choice.value, in: option)) }
+        }
     }
 
-    private func toggled(_ value: String) -> [String] {
-        selected.contains(value) ? selected.filter { $0 != value } : selected + [value]
+    private var selected: [String] { BuildOptionEditing.selectedValues(option) }
+
+    private var customValuePanel: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(String(format: String(localized: "Add to %@"), option.displayName))
+                .font(LitheTheme.uiFont(size: 13, weight: .semibold))
+            TextField("", text: $customText)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 220)
+                .onSubmit(submitCustomValue)
+            HStack {
+                Spacer()
+                Button("Cancel") { isCustomPresented = false }
+                Button("Add", action: submitCustomValue)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(BuildOptionEditing.customValue(customText, in: option) == nil)
+            }
+        }
+        .padding(14)
+    }
+
+    private func submitCustomValue() {
+        guard let value = BuildOptionEditing.customValue(customText, in: option) else { return }
+        onChange(value)
+        isCustomPresented = false
     }
 
     private static func text(_ value: ToolingJSONValue) -> String {

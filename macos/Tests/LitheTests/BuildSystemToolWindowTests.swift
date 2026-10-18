@@ -1,6 +1,9 @@
+import AppKit
 import Foundation
+import SwiftUI
 import LitheApplicationKernel
 import LitheCoreContracts
+import LitheExecutionModule
 import LitheModuleAPI
 import Testing
 @testable import Lithe
@@ -211,6 +214,125 @@ struct BuildSystemToolWindowTests {
         #expect(icons.option(option) != nil)
         #expect(try FileManager.default.contentsOfDirectory(atPath: root.path).sorted() == before)
         for (name, bytes) in files { #expect(try Data(contentsOf: root.appendingPathComponent(name)) == bytes) }
+    }
+
+    @Test @MainActor
+    func optionRootSelectionPreservesEachInstancesChoicesAndEffectiveValue() throws {
+        let descriptor = try Self.descriptor("maven-build")
+        let declaration = try #require(descriptor.buildSystems.first)
+        let source = BuildSystemPluginSource(
+            pluginID: descriptor.id.rawValue, manifest: descriptor.normalizedManifest,
+            packageURL: URL(fileURLWithPath: "/fixture/plugin"), buildSystems: descriptor.buildSystems
+        )
+        func entry(_ root: String, feature: String) throws -> BuildSystemEntry {
+            BuildSystemEntry(
+                instance: BuildSystemInstance(
+                    id: "fixture:" + root, pluginID: source.pluginID, buildSystemID: declaration.id,
+                    displayName: "Fixture", root: root, markers: [], modelSource: .static,
+                    optionFingerprint: "fixture", model: nil, modelError: nil
+                ), declaration: declaration, source: source,
+                options: [try Self.option(kind: "multiSelect", value: [feature], choices: [feature], allowCustom: false)]
+            )
+        }
+        let entries = [try entry("a", feature: "cli"), try entry("b", feature: "gui")]
+        let first = try #require(BuildSystemToolWindowView.optionEntry(in: entries, selectedID: nil))
+        let second = try #require(BuildSystemToolWindowView.optionEntry(in: entries, selectedID: "fixture:b"))
+        #expect(first.options.first?.choices.map(\.value) == ["cli"])
+        #expect(first.options.first?.value == .array([.string("cli")]))
+        #expect(second.options.first?.choices.map(\.value) == ["gui"])
+        #expect(second.options.first?.value == .array([.string("gui")]))
+        #expect(BuildSystemToolWindowView.optionEntry(in: [entries[0]], selectedID: "fixture:b") == entries[0])
+        #expect(BuildSystemToolWindowView.optionRootTitle(try entry(".", feature: "cli")) == "Fixture")
+    }
+
+    @Test @MainActor
+    func customSingleAndMultiSelectUseTheNativeMenuActions() throws {
+        let single = try Self.option(kind: "singleSelect", value: "custom", choices: ["known"])
+        var submitted: ToolingJSONValue?
+        let singleItems = BuildOptionRow.choiceItems(option: single) { submitted = $0 }
+        #expect(singleItems.map(\.title) == ["known", "custom"])
+        #expect(singleItems.last?.isChecked == true)
+        singleItems[0].action()
+        #expect(submitted == .string("known"))
+        #expect(BuildOptionEditing.customValue(" replacement ", in: single) == .string("replacement"))
+
+        let multi = try Self.option(kind: "multiSelect", value: ["known", "custom"], choices: ["known"])
+        let multiItems = BuildOptionRow.choiceItems(option: multi) { submitted = $0 }
+        #expect(multiItems.map(\.title) == ["known", "custom"])
+        #expect(multiItems.allSatisfy { $0.isChecked })
+        multiItems[1].action()
+        #expect(submitted == .array([.string("known")]))
+        #expect(BuildOptionEditing.customValue("added", in: multi) == .array([.string("known"), .string("custom"), .string("added")]))
+        #expect(BuildOptionEditing.customValue("custom", in: multi) == multi.value)
+        #expect(BuildOptionEditing.customValue("  ", in: multi) == nil)
+        let fixed = try Self.option(kind: "multiSelect", value: [], choices: ["known"], allowCustom: false)
+        #expect(BuildOptionEditing.customValue("added", in: fixed) == nil)
+    }
+
+    @Test @MainActor
+    func textFileAndDirectorySubmitEmptyString() throws {
+        for kind in ["text", "file", "directory"] {
+            let option = try Self.option(kind: kind, value: "default", choices: [])
+            var changes: [ToolingJSONValue?] = []
+            let host = NSHostingView(rootView: BuildOptionRow(option: option, indent: 0) { changes.append($0) })
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 360, height: 36),
+                                  styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.contentView = host
+            defer { window.makeFirstResponder(nil); window.contentView = nil; window.close() }
+            host.layoutSubtreeIfNeeded()
+            let field = try #require(Self.descendants(host, of: NSTextField.self).first { $0.isEditable })
+            #expect(window.makeFirstResponder(field))
+            let editor = try #require(field.currentEditor() as? NSTextView)
+            editor.string = ""
+            field.stringValue = ""
+            NotificationCenter.default.post(name: NSControl.textDidChangeNotification, object: field)
+            // Drive SwiftUI's actual native field action. The former nil-on-
+            // empty onSubmit fails here even though service round-trip tests pass.
+            #expect(field.sendAction(field.action, to: field.target))
+            #expect(changes.count == 1)
+            #expect(changes.first! == .string(""))
+        }
+    }
+
+    @Test @MainActor
+    func nativeOptionRowsRenderInBothAppearances() throws {
+        for scheme in [ColorScheme.dark, .light] {
+            let options = [
+                try Self.option(kind: "singleSelect", value: "custom", choices: ["known"]),
+                try Self.option(kind: "multiSelect", value: ["known", "custom"], choices: ["known"]),
+                try Self.option(kind: "file", value: "", choices: [])
+            ]
+            let host = NSHostingView(rootView: VStack(spacing: 4) {
+                ForEach(Array(options.enumerated()), id: \.offset) { _, option in
+                    BuildOptionRow(option: option, indent: 0) { _ in }
+                }
+            }.padding(14).background(LitheTheme.sidebar).environment(\.colorScheme, scheme))
+            host.frame = NSRect(x: 0, y: 0, width: 360, height: 140)
+            host.layoutSubtreeIfNeeded()
+            #expect(host.fittingSize.width > 0 && host.fittingSize.height > 0)
+            if let directory = ProcessInfo.processInfo.environment["LITHE_BUILD_CAPTURE_DIR"] {
+                try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
+                let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+                host.cacheDisplay(in: host.bounds, to: bitmap)
+                try #require(bitmap.representation(using: .png, properties: [:])).write(to:
+                    URL(fileURLWithPath: directory).appendingPathComponent("build-options-\(scheme == .dark ? "dark" : "light").png"))
+            }
+        }
+    }
+
+    @MainActor
+    private static func descendants<T: NSView>(_ view: NSView, of type: T.Type) -> [T] {
+        (view as? T).map { [$0] } ?? view.subviews.flatMap { descendants($0, of: type) }
+    }
+
+    private static func option(kind: String, value: Any, choices: [String], allowCustom: Bool = true) throws -> BuildResolvedOption {
+        let data = try JSONSerialization.data(withJSONObject: [
+            "id": "values", "displayName": "Values", "kind": kind, "value": value,
+            "source": "user", "allowCustom": allowCustom,
+            "choices": choices.map { ["value": $0, "fromModel": true] as [String: Any] }
+        ])
+        return try JSONDecoder().decode(BuildResolvedOption.self, from: data)
     }
 
     private static func descriptor(_ name: String) throws -> DeclarativePluginDescriptor {

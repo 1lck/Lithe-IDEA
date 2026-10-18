@@ -524,6 +524,10 @@ package struct BuildResolvedOption: Equatable, Identifiable, Sendable, Decodable
         package let title: String?
         package let fromModel: Bool
 
+        package init(value: String, title: String? = nil, fromModel: Bool = false) {
+            self.value = value; self.title = title; self.fromModel = fromModel
+        }
+
         package init(from decoder: Decoder) throws {
             let values = try decoder.container(keyedBy: CodingKeys.self)
             value = try values.decode(String.self, forKey: .value)

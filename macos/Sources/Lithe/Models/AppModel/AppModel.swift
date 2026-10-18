@@ -662,7 +662,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         await ideCapabilities.shutdown()
         shortcutSessionCoordinator?.shutdown()
         documentLanguageCoordinator?.stop()
-        cancelJavaTestWorkflows()
+        cancelJavaWorkspaceWorkflows()
         languageToolingSessionsIfActive?.stopAll()
         executionModuleCoordinator.stopTests(languageTestServiceIfActive)
         stopTerminalSessions()
