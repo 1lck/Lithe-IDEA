@@ -277,12 +277,15 @@ export const getWorkingTreePathDiff = async (
     if (!diff) return null;
     // The rollback channel needs the raw patch bytes for lossy files; the
     // display adapter strips CR and EOF markers. Attach writePatch the same
-    // way getFullContextFileDiff does, gated by the attribute safety check.
+    // way getFullContextFileDiff does, gated by the attribute safety check
+    // and a snapshot consistency verification.
     if (diff.has_lossy_line_endings) {
       const safety = await checkHunkRollbackAttributes(resolved.repoPath, resolved.filePath);
       if (safety.byteSafe) {
         const raw = await fetchRawWorktreePatch(resolved.repoPath, resolved.filePath);
-        if (raw) return fullContext ? markFullContext({ ...diff, writePatch: raw }) : { ...diff, writePatch: raw };
+        if (raw && writePatchMatchesDisplay(raw, diff)) {
+          return fullContext ? markFullContext({ ...diff, writePatch: raw }) : { ...diff, writePatch: raw };
+        }
       }
     }
     return fullContext ? markFullContext(diff) : diff;
@@ -323,12 +326,15 @@ export const getFullContextFileDiff = async (
     // The rollback channel needs the raw patch bytes (CR, EOF markers) that
     // the display adapter strips. Only the unstaged read (index → worktree)
     // is the correct rollback basis, so only that direction carries it, and
-    // only when Git's effective attributes prove the bytes can round-trip.
+    // only when Git's effective attributes prove the bytes can round-trip
+    // and the display and raw reads describe the same snapshot.
     if (!staged && diff.has_lossy_line_endings) {
       const safety = await checkHunkRollbackAttributes(resolved.repoPath, resolved.filePath);
       if (safety.byteSafe) {
         const raw = await fetchRawWorktreePatch(resolved.repoPath, resolved.filePath);
-        if (raw) return markFullContext({ ...diff, writePatch: raw });
+        if (raw && writePatchMatchesDisplay(raw, diff)) {
+          return markFullContext({ ...diff, writePatch: raw });
+        }
       }
     }
     return markFullContext(diff);
@@ -357,6 +363,29 @@ const fetchRawWorktreePatch = async (
   } catch {
     return null;
   }
+};
+
+/**
+ * Verifies that a raw writePatch and a display diff describe the same
+ * worktree snapshot. The display read strips CR; the raw read preserves it.
+ * Comparing the stripped changed lines catches any edit that landed between
+ * the two reads — mixing snapshots would let a rollback discard content the
+ * user never saw.
+ */
+const writePatchMatchesDisplay = (rawPatch: string, display: GitDiff): boolean => {
+  const rawChanged: string[] = [];
+  for (const line of rawPatch.split("\n")) {
+    if (line.startsWith("+") && !line.startsWith("+++")) {
+      rawChanged.push(line.slice(1).replace(/\r$/, ""));
+    } else if (line.startsWith("-") && !line.startsWith("---")) {
+      rawChanged.push(line.slice(1).replace(/\r$/, ""));
+    }
+  }
+  const displayChanged = display.lines
+    .filter(line => line.line_type === "added" || line.line_type === "removed")
+    .map(line => line.content.replace(/\r$/, ""));
+  return rawChanged.length === displayChanged.length
+    && rawChanged.every((line, index) => line === displayChanged[index]);
 };
 
 export const getUntrackedFileDiff = async (
