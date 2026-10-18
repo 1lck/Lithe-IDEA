@@ -238,6 +238,11 @@ fn execute(request: &str) -> CoreResponse {
             parsed.payload,
             crate::build::build_sync_fingerprint_command,
         ),
+        CoreCommand::BuildLanguageImport => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::build_language_import_command,
+        ),
         CoreCommand::PluginsMarketplaceValidateIndex => plugin_response(
             id,
             parsed.payload,

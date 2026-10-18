@@ -1,0 +1,1051 @@
+{
+  "format": "litheBuildModel",
+  "version": 1,
+  "projects": [
+    {
+      "path": "${workspace}",
+      "name": "multi",
+      "properties": {
+        "path": ":",
+        "taskPrefix": ":",
+        "group": "demo",
+        "version": "1.0.0"
+      }
+    },
+    {
+      "path": "${workspace}/app",
+      "name": "app",
+      "parent": "${workspace}",
+      "properties": {
+        "path": ":app",
+        "taskPrefix": ":app:",
+        "group": "demo",
+        "version": "1.0.0"
+      }
+    },
+    {
+      "path": "${workspace}/core",
+      "name": "core",
+      "parent": "${workspace}",
+      "properties": {
+        "path": ":core",
+        "taskPrefix": ":core:",
+        "group": "demo",
+        "version": "1.0.0"
+      }
+    }
+  ],
+  "tasks": [
+    {
+      "project": "${workspace}",
+      "name": "artifactTransforms",
+      "template": "gradle-task",
+      "description": "Displays the Artifact Transforms that can be executed in root project 'multi'.",
+      "category": [
+        "Tasks",
+        "help"
+      ],
+      "properties": {
+        "path": "artifactTransforms"
+      }
+    },
+    {
+      "project": "${workspace}",
+      "name": "buildEnvironment",
+      "template": "gradle-task",
+      "description": "Displays all buildscript dependencies declared in root project 'multi'.",
+      "category": [
+        "Tasks",
+        "help"
+      ],
+      "properties": {
+        "path": "buildEnvironment"
+      }
+    },
+    {
+      "project": "${workspace}",
+      "name": "dependencies",
+      "template": "gradle-task",
+      "description": "Displays all dependencies declared in root project 'multi'.",
+      "category": [
+        "Tasks",
+        "help"
+      ],
+      "properties": {
+        "path": "dependencies"
+      }
+    },
+    {
+      "project": "${workspace}",
+      "name": "dependencyInsight",
+      "template": "gradle-task",
+      "description": "Displays the insight into a specific dependency in root project 'multi'.",
+      "category": [
+        "Tasks",
+        "help"
+      ],
+      "properties": {
+        "path": "dependencyInsight"
+      }
+    },
+    {
+      "project": "${workspace}",
+      "name": "help",
+      "template": "gradle-task",
+      "description": "Displays a help message.",
+      "category": [
+        "Tasks",
+        "help"
+      ],
+      "properties": {
+        "path": "help"
+      }
+    },
+    {
+      "project": "${workspace}",
+      "name": "init",
+      "template": "gradle-task",
+      "description": "Initializes a new Gradle build.",
+      "category": [
+        "Tasks",
+        "Build Setup"
+      ],
+      "properties": {
+        "path": "init"
+      }
+    },
+    {
+      "project": "${workspace}",
+      "name": "javaToolchains",
+      "template": "gradle-task",
+      "description": "Displays the detected java toolchains.",
+      "category": [
+        "Tasks",
+        "help"
+      ],
+      "properties": {
+        "path": "javaToolchains"
+      }
+    },
+    {
+      "project": "${workspace}",
+      "name": "outgoingVariants",
+      "template": "gradle-task",
+      "description": "Displays the outgoing variants of root project 'multi'.",
+      "category": [
+        "Tasks",
+        "help"
+      ],
+      "properties": {
+        "path": "outgoingVariants"
+      }
+    },
+    {
+      "project": "${workspace}",
+      "name": "prepareKotlinBuildScriptModel",
+      "template": "gradle-task",
+      "category": [
+        "Tasks",
+        "other"
+      ],
+      "properties": {
+        "path": "prepareKotlinBuildScriptModel"
+      }
+    },
+    {
+      "project": "${workspace}",
+      "name": "projects",
+      "template": "gradle-task",
+      "description": "Displays the sub-projects of root project 'multi'.",
+      "category": [
+        "Tasks",
+        "help"
+      ],
+      "properties": {
+        "path": "projects"
+      }
+    },
+    {
+      "project": "${workspace}",
+      "name": "properties",
+      "template": "gradle-task",
+      "description": "Displays the properties of root project 'multi'.",
+      "category": [
+        "Tasks",
+        "help"
+      ],
+      "properties": {
+        "path": "properties"
+      }
+    },
+    {
+      "project": "${workspace}",
+      "name": "resolvableConfigurations",
+      "template": "gradle-task",
+      "description": "Displays the configurations that can be resolved in root project 'multi'.",
+      "category": [
+        "Tasks",
+        "help"
+      ],
+      "properties": {
+        "path": "resolvableConfigurations"
+      }
+    },
+    {
+      "project": "${workspace}",
+      "name": "tasks",
+      "template": "gradle-task",
+      "description": "Displays the tasks runnable from root project 'multi' (some of the displayed tasks may belong to subprojects).",
+      "category": [
+        "Tasks",
+        "help"
+      ],
+      "properties": {
+        "path": "tasks"
+      }
+    },
+    {
+      "project": "${workspace}",
+      "name": "updateDaemonJvm",
+      "template": "gradle-task",
+      "description": "Generates or updates the Gradle Daemon JVM criteria.",
+      "category": [
+        "Tasks",
+        "Build Setup"
+      ],
+      "properties": {
+        "path": "updateDaemonJvm"
+      }
+    },
+    {
+      "project": "${workspace}",
+      "name": "wrapper",
+      "template": "gradle-task",
+      "description": "Generates Gradle wrapper files.",
+      "category": [
+        "Tasks",
+        "Build Setup"
+      ],
+      "properties": {
+        "path": "wrapper"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "artifactTransforms",
+      "template": "gradle-task",
+      "description": "Displays the Artifact Transforms that can be executed in project ':app'.",
+      "category": [
+        "Tasks",
+        "help"
+      ],
+      "properties": {
+        "path": ":app:artifactTransforms"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "assemble",
+      "template": "gradle-task",
+      "description": "Assembles the outputs of this project.",
+      "category": [
+        "Tasks",
+        "build"
+      ],
+      "properties": {
+        "path": ":app:assemble"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "assembleDist",
+      "template": "gradle-task",
+      "description": "Assembles the main distributions",
+      "category": [
+        "Tasks",
+        "distribution"
+      ],
+      "properties": {
+        "path": ":app:assembleDist"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "build",
+      "template": "gradle-task",
+      "description": "Assembles and tests this project.",
+      "category": [
+        "Tasks",
+        "build"
+      ],
+      "properties": {
+        "path": ":app:build"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "buildDependents",
+      "template": "gradle-task",
+      "description": "Assembles and tests this project and all projects that depend on it.",
+      "category": [
+        "Tasks",
+        "build"
+      ],
+      "properties": {
+        "path": ":app:buildDependents"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "buildEnvironment",
+      "template": "gradle-task",
+      "description": "Displays all buildscript dependencies declared in project ':app'.",
+      "category": [
+        "Tasks",
+        "help"
+      ],
+      "properties": {
+        "path": ":app:buildEnvironment"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "buildNeeded",
+      "template": "gradle-task",
+      "description": "Assembles and tests this project and all projects it depends on.",
+      "category": [
+        "Tasks",
+        "build"
+      ],
+      "properties": {
+        "path": ":app:buildNeeded"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "check",
+      "template": "gradle-task",
+      "description": "Runs all checks.",
+      "category": [
+        "Tasks",
+        "verification"
+      ],
+      "properties": {
+        "path": ":app:check"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "classes",
+      "template": "gradle-task",
+      "description": "Assembles main classes.",
+      "category": [
+        "Tasks",
+        "build"
+      ],
+      "properties": {
+        "path": ":app:classes"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "clean",
+      "template": "gradle-task",
+      "description": "Deletes the build directory.",
+      "category": [
+        "Tasks",
+        "build"
+      ],
+      "properties": {
+        "path": ":app:clean"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "compileJava",
+      "template": "gradle-task",
+      "description": "Compiles main Java source.",
+      "category": [
+        "Tasks",
+        "other"
+      ],
+      "properties": {
+        "path": ":app:compileJava"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "compileTestJava",
+      "template": "gradle-task",
+      "description": "Compiles test Java source.",
+      "category": [
+        "Tasks",
+        "other"
+      ],
+      "properties": {
+        "path": ":app:compileTestJava"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "dependencies",
+      "template": "gradle-task",
+      "description": "Displays all dependencies declared in project ':app'.",
+      "category": [
+        "Tasks",
+        "help"
+      ],
+      "properties": {
+        "path": ":app:dependencies"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "dependencyInsight",
+      "template": "gradle-task",
+      "description": "Displays the insight into a specific dependency in project ':app'.",
+      "category": [
+        "Tasks",
+        "help"
+      ],
+      "properties": {
+        "path": ":app:dependencyInsight"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "distTar",
+      "template": "gradle-task",
+      "description": "Bundles the project as a distribution.",
+      "category": [
+        "Tasks",
+        "distribution"
+      ],
+      "properties": {
+        "path": ":app:distTar"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "distZip",
+      "template": "gradle-task",
+      "description": "Bundles the project as a distribution.",
+      "category": [
+        "Tasks",
+        "distribution"
+      ],
+      "properties": {
+        "path": ":app:distZip"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "help",
+      "template": "gradle-task",
+      "description": "Displays a help message.",
+      "category": [
+        "Tasks",
+        "help"
+      ],
+      "properties": {
+        "path": ":app:help"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "installDist",
+      "template": "gradle-task",
+      "description": "Installs the project as a distribution as-is.",
+      "category": [
+        "Tasks",
+        "distribution"
+      ],
+      "properties": {
+        "path": ":app:installDist"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "jar",
+      "template": "gradle-task",
+      "description": "Assembles a jar archive containing the classes of the 'main' feature.",
+      "category": [
+        "Tasks",
+        "build"
+      ],
+      "properties": {
+        "path": ":app:jar"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "javaToolchains",
+      "template": "gradle-task",
+      "description": "Displays the detected java toolchains.",
+      "category": [
+        "Tasks",
+        "help"
+      ],
+      "properties": {
+        "path": ":app:javaToolchains"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "javadoc",
+      "template": "gradle-task",
+      "description": "Generates Javadoc API documentation for the 'main' feature.",
+      "category": [
+        "Tasks",
+        "documentation"
+      ],
+      "properties": {
+        "path": ":app:javadoc"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "outgoingVariants",
+      "template": "gradle-task",
+      "description": "Displays the outgoing variants of project ':app'.",
+      "category": [
+        "Tasks",
+        "help"
+      ],
+      "properties": {
+        "path": ":app:outgoingVariants"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "processResources",
+      "template": "gradle-task",
+      "description": "Processes main resources.",
+      "category": [
+        "Tasks",
+        "other"
+      ],
+      "properties": {
+        "path": ":app:processResources"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "processTestResources",
+      "template": "gradle-task",
+      "description": "Processes test resources.",
+      "category": [
+        "Tasks",
+        "other"
+      ],
+      "properties": {
+        "path": ":app:processTestResources"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "projects",
+      "template": "gradle-task",
+      "description": "Displays the sub-projects of project ':app'.",
+      "category": [
+        "Tasks",
+        "help"
+      ],
+      "properties": {
+        "path": ":app:projects"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "properties",
+      "template": "gradle-task",
+      "description": "Displays the properties of project ':app'.",
+      "category": [
+        "Tasks",
+        "help"
+      ],
+      "properties": {
+        "path": ":app:properties"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "resolvableConfigurations",
+      "template": "gradle-task",
+      "description": "Displays the configurations that can be resolved in project ':app'.",
+      "category": [
+        "Tasks",
+        "help"
+      ],
+      "properties": {
+        "path": ":app:resolvableConfigurations"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "run",
+      "template": "gradle-task",
+      "description": "Runs this project as a JVM application",
+      "category": [
+        "Tasks",
+        "application"
+      ],
+      "execution": "application",
+      "properties": {
+        "path": ":app:run"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "startScripts",
+      "template": "gradle-task",
+      "description": "Creates OS specific scripts to run the project as a JVM application.",
+      "category": [
+        "Tasks",
+        "other"
+      ],
+      "properties": {
+        "path": ":app:startScripts"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "tasks",
+      "template": "gradle-task",
+      "description": "Displays the tasks runnable from project ':app'.",
+      "category": [
+        "Tasks",
+        "help"
+      ],
+      "properties": {
+        "path": ":app:tasks"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "test",
+      "template": "gradle-task",
+      "description": "Runs the test suite.",
+      "category": [
+        "Tasks",
+        "verification"
+      ],
+      "properties": {
+        "path": ":app:test"
+      }
+    },
+    {
+      "project": "${workspace}/app",
+      "name": "testClasses",
+      "template": "gradle-task",
+      "description": "Assembles test classes.",
+      "category": [
+        "Tasks",
+        "build"
+      ],
+      "properties": {
+        "path": ":app:testClasses"
+      }
+    },
+    {
+      "project": "${workspace}/core",
+      "name": "artifactTransforms",
+      "template": "gradle-task",
+      "description": "Displays the Artifact Transforms that can be executed in project ':core'.",
+      "category": [
+        "Tasks",
+        "help"
+      ],
+      "properties": {
+        "path": ":core:artifactTransforms"
+      }
+    },
+    {
+      "project": "${workspace}/core",
+      "name": "assemble",
+      "template": "gradle-task",
+      "description": "Assembles the outputs of this project.",
+      "category": [
+        "Tasks",
+        "build"
+      ],
+      "properties": {
+        "path": ":core:assemble"
+      }
+    },
+    {
+      "project": "${workspace}/core",
+      "name": "build",
+      "template": "gradle-task",
+      "description": "Assembles and tests this project.",
+      "category": [
+        "Tasks",
+        "build"
+      ],
+      "properties": {
+        "path": ":core:build"
+      }
+    },
+    {
+      "project": "${workspace}/core",
+      "name": "buildDependents",
+      "template": "gradle-task",
+      "description": "Assembles and tests this project and all projects that depend on it.",
+      "category": [
+        "Tasks",
+        "build"
+      ],
+      "properties": {
+        "path": ":core:buildDependents"
+      }
+    },
+    {
+      "project": "${workspace}/core",
+      "name": "buildEnvironment",
+      "template": "gradle-task",
+      "description": "Displays all buildscript dependencies declared in project ':core'.",
+      "category": [
+        "Tasks",
+        "help"
+      ],
+      "properties": {
+        "path": ":core:buildEnvironment"
+      }
+    },
+    {
+      "project": "${workspace}/core",
+      "name": "buildNeeded",
+      "template": "gradle-task",
+      "description": "Assembles and tests this project and all projects it depends on.",
+      "category": [
+        "Tasks",
+        "build"
+      ],
+      "properties": {
+        "path": ":core:buildNeeded"
+      }
+    },
+    {
+      "project": "${workspace}/core",
+      "name": "check",
+      "template": "gradle-task",
+      "description": "Runs all checks.",
+      "category": [
+        "Tasks",
+        "verification"
+      ],
+      "properties": {
+        "path": ":core:check"
+      }
+    },
+    {
+      "project": "${workspace}/core",
+      "name": "classes",
+      "template": "gradle-task",
+      "description": "Assembles main classes.",
+      "category": [
+        "Tasks",
+        "build"
+      ],
+      "properties": {
+        "path": ":core:classes"
+      }
+    },
+    {
+      "project": "${workspace}/core",
+      "name": "clean",
+      "template": "gradle-task",
+      "description": "Deletes the build directory.",
+      "category": [
+        "Tasks",
+        "build"
+      ],
+      "properties": {
+        "path": ":core:clean"
+      }
+    },
+    {
+      "project": "${workspace}/core",
+      "name": "compileJava",
+      "template": "gradle-task",
+      "description": "Compiles main Java source.",
+      "category": [
+        "Tasks",
+        "other"
+      ],
+      "properties": {
+        "path": ":core:compileJava"
+      }
+    },
+    {
+      "project": "${workspace}/core",
+      "name": "compileTestJava",
+      "template": "gradle-task",
+      "description": "Compiles test Java source.",
+      "category": [
+        "Tasks",
+        "other"
+      ],
+      "properties": {
+        "path": ":core:compileTestJava"
+      }
+    },
+    {
+      "project": "${workspace}/core",
+      "name": "dependencies",
+      "template": "gradle-task",
+      "description": "Displays all dependencies declared in project ':core'.",
+      "category": [
+        "Tasks",
+        "help"
+      ],
+      "properties": {
+        "path": ":core:dependencies"
+      }
+    },
+    {
+      "project": "${workspace}/core",
+      "name": "dependencyInsight",
+      "template": "gradle-task",
+      "description": "Displays the insight into a specific dependency in project ':core'.",
+      "category": [
+        "Tasks",
+        "help"
+      ],
+      "properties": {
+        "path": ":core:dependencyInsight"
+      }
+    },
+    {
+      "project": "${workspace}/core",
+      "name": "help",
+      "template": "gradle-task",
+      "description": "Displays a help message.",
+      "category": [
+        "Tasks",
+        "help"
+      ],
+      "properties": {
+        "path": ":core:help"
+      }
+    },
+    {
+      "project": "${workspace}/core",
+      "name": "jar",
+      "template": "gradle-task",
+      "description": "Assembles a jar archive containing the classes of the 'main' feature.",
+      "category": [
+        "Tasks",
+        "build"
+      ],
+      "properties": {
+        "path": ":core:jar"
+      }
+    },
+    {
+      "project": "${workspace}/core",
+      "name": "javaToolchains",
+      "template": "gradle-task",
+      "description": "Displays the detected java toolchains.",
+      "category": [
+        "Tasks",
+        "help"
+      ],
+      "properties": {
+        "path": ":core:javaToolchains"
+      }
+    },
+    {
+      "project": "${workspace}/core",
+      "name": "javadoc",
+      "template": "gradle-task",
+      "description": "Generates Javadoc API documentation for the 'main' feature.",
+      "category": [
+        "Tasks",
+        "documentation"
+      ],
+      "properties": {
+        "path": ":core:javadoc"
+      }
+    },
+    {
+      "project": "${workspace}/core",
+      "name": "outgoingVariants",
+      "template": "gradle-task",
+      "description": "Displays the outgoing variants of project ':core'.",
+      "category": [
+        "Tasks",
+        "help"
+      ],
+      "properties": {
+        "path": ":core:outgoingVariants"
+      }
+    },
+    {
+      "project": "${workspace}/core",
+      "name": "processResources",
+      "template": "gradle-task",
+      "description": "Processes main resources.",
+      "category": [
+        "Tasks",
+        "other"
+      ],
+      "properties": {
+        "path": ":core:processResources"
+      }
+    },
+    {
+      "project": "${workspace}/core",
+      "name": "processTestResources",
+      "template": "gradle-task",
+      "description": "Processes test resources.",
+      "category": [
+        "Tasks",
+        "other"
+      ],
+      "properties": {
+        "path": ":core:processTestResources"
+      }
+    },
+    {
+      "project": "${workspace}/core",
+      "name": "projects",
+      "template": "gradle-task",
+      "description": "Displays the sub-projects of project ':core'.",
+      "category": [
+        "Tasks",
+        "help"
+      ],
+      "properties": {
+        "path": ":core:projects"
+      }
+    },
+    {
+      "project": "${workspace}/core",
+      "name": "properties",
+      "template": "gradle-task",
+      "description": "Displays the properties of project ':core'.",
+      "category": [
+        "Tasks",
+        "help"
+      ],
+      "properties": {
+        "path": ":core:properties"
+      }
+    },
+    {
+      "project": "${workspace}/core",
+      "name": "resolvableConfigurations",
+      "template": "gradle-task",
+      "description": "Displays the configurations that can be resolved in project ':core'.",
+      "category": [
+        "Tasks",
+        "help"
+      ],
+      "properties": {
+        "path": ":core:resolvableConfigurations"
+      }
+    },
+    {
+      "project": "${workspace}/core",
+      "name": "tasks",
+      "template": "gradle-task",
+      "description": "Displays the tasks runnable from project ':core'.",
+      "category": [
+        "Tasks",
+        "help"
+      ],
+      "properties": {
+        "path": ":core:tasks"
+      }
+    },
+    {
+      "project": "${workspace}/core",
+      "name": "test",
+      "template": "gradle-task",
+      "description": "Runs the test suite.",
+      "category": [
+        "Tasks",
+        "verification"
+      ],
+      "properties": {
+        "path": ":core:test"
+      }
+    },
+    {
+      "project": "${workspace}/core",
+      "name": "testClasses",
+      "template": "gradle-task",
+      "description": "Assembles test classes.",
+      "category": [
+        "Tasks",
+        "build"
+      ],
+      "properties": {
+        "path": ":core:testClasses"
+      }
+    }
+  ],
+  "contentRoots": [
+    {
+      "project": "${workspace}/app",
+      "path": "${workspace}/app/src/main/java",
+      "kind": "source"
+    },
+    {
+      "project": "${workspace}/app",
+      "path": "${workspace}/app/src/main/resources",
+      "kind": "resource"
+    },
+    {
+      "project": "${workspace}/app",
+      "path": "${workspace}/app/build/generated/sources/annotationProcessor/java/main",
+      "kind": "generatedSource"
+    },
+    {
+      "project": "${workspace}/app",
+      "path": "${workspace}/app/src/test/java",
+      "kind": "testSource"
+    },
+    {
+      "project": "${workspace}/app",
+      "path": "${workspace}/app/src/test/resources",
+      "kind": "testResource"
+    },
+    {
+      "project": "${workspace}/app",
+      "path": "${workspace}/app/build/generated/sources/annotationProcessor/java/test",
+      "kind": "generatedTestSource"
+    },
+    {
+      "project": "${workspace}/core",
+      "path": "${workspace}/core/src/main/java",
+      "kind": "source"
+    },
+    {
+      "project": "${workspace}/core",
+      "path": "${workspace}/core/src/main/resources",
+      "kind": "resource"
+    },
+    {
+      "project": "${workspace}/core",
+      "path": "${workspace}/core/build/generated/sources/annotationProcessor/java/main",
+      "kind": "generatedSource"
+    },
+    {
+      "project": "${workspace}/core",
+      "path": "${workspace}/core/src/test/java",
+      "kind": "testSource"
+    },
+    {
+      "project": "${workspace}/core",
+      "path": "${workspace}/core/src/test/resources",
+      "kind": "testResource"
+    },
+    {
+      "project": "${workspace}/core",
+      "path": "${workspace}/core/build/generated/sources/annotationProcessor/java/test",
+      "kind": "generatedTestSource"
+    }
+  ]
+}

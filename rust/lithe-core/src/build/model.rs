@@ -8,8 +8,8 @@
 
 use super::decode::{self, Workspace};
 use super::manifest::{
-    BuildExecution, BuildSystemDeclaration, ContentRootKind, ContentRootRule, ModelMap,
-    ProjectRule, RuleMatch, TargetRule, TaskGroup,
+    category_labels, BuildExecution, BuildSystemDeclaration, ContentRootKind, ContentRootRule,
+    ModelMap, ProjectRule, RuleMatch, TargetRule, TaskGroup,
 };
 use super::select::{self, FieldSpec, Node};
 use crate::plugins::declarative::{is_identifier, Validation};
@@ -84,6 +84,10 @@ pub(crate) struct ModelTask {
     /// The `fromModel` task declaration whose arguments run this task.
     pub(crate) template: String,
     pub(crate) group: TaskGroup,
+    /// Headings the host files the task under, outermost first; the
+    /// template's category when the model names none.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub(crate) category: Vec<String>,
     pub(crate) execution: BuildExecution,
     pub(crate) properties: BTreeMap<String, String>,
 }
@@ -251,6 +255,7 @@ impl<'a> ModelBuilder<'a> {
         template: &str,
         display_name: Option<String>,
         description: Option<String>,
+        category: Vec<String>,
         execution: Option<BuildExecution>,
         properties: BTreeMap<String, String>,
     ) {
@@ -287,6 +292,11 @@ impl<'a> ModelBuilder<'a> {
             description: description.and_then(|value| model_text(&value, MAX_PROPERTY_VALUE)),
             template: template.to_string(),
             group: declaration.group,
+            // A heading the tool reports badly drops the whole path, not the
+            // task: the template's category still files it somewhere sensible.
+            category: category_labels(&category)
+                .filter(|labels| !labels.is_empty())
+                .unwrap_or_else(|| declaration.category.clone()),
             execution: execution.unwrap_or(declaration.execution),
             properties,
         });
@@ -695,6 +705,8 @@ struct CanonicalTask {
     #[serde(default)]
     description: Option<String>,
     #[serde(default)]
+    category: Vec<String>,
+    #[serde(default)]
     execution: Option<BuildExecution>,
     #[serde(default)]
     properties: BTreeMap<String, Value>,
@@ -801,6 +813,7 @@ pub(crate) fn map_canonical(builder: &mut ModelBuilder<'_>, document: Value) -> 
             &task.template,
             task.display_name.clone(),
             task.description.clone(),
+            task.category.clone(),
             task.execution,
             canonical_properties(&task.properties),
         );

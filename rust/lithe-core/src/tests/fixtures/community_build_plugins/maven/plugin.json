@@ -1,0 +1,305 @@
+{
+  "schemaVersion": 2,
+  "id": "io.github.lithe-idea.maven-build",
+  "displayName": "Maven",
+  "version": "0.1.0",
+  "pluginAPIVersion": 3,
+  "requires": { "buildSystems": 1 },
+  "vendor": {
+    "id": "io.github.lithe-idea",
+    "displayName": "Lithe Community",
+    "signatureRequirement": "none"
+  },
+  "permissions": ["process.build"],
+  "activationEvents": ["onBuildSystem:maven"],
+  "languages": [],
+  "buildSystems": [
+    {
+      "id": "maven",
+      "displayName": "Maven",
+      "icon": { "path": "icons/maven.svg" },
+      "detection": {
+        "markers": ["pom.xml"],
+        "nesting": "outermost"
+      },
+      "invocation": {
+        "executables": [
+          {
+            "kind": "projectFile",
+            "path": "mvnw",
+            "requires": [".mvn/wrapper/maven-wrapper.properties"],
+            "platforms": ["macos", "linux"]
+          },
+          {
+            "kind": "projectFile",
+            "path": "mvnw.cmd",
+            "requires": [".mvn/wrapper/maven-wrapper.properties"],
+            "platforms": ["windows"]
+          },
+          { "kind": "environment", "variable": "MAVEN_HOME", "path": "bin/mvn", "platforms": ["macos", "linux"] },
+          { "kind": "environment", "variable": "MAVEN_HOME", "path": "bin/mvn.cmd", "platforms": ["windows"] },
+          { "kind": "command", "command": "mvn" }
+        ],
+        "environmentInputs": ["MAVEN_HOME"],
+        "runtimeDependencies": [{ "id": "java", "minimumVersion": "8" }],
+        "globalArguments": [
+          "-B",
+          "-ntp",
+          "${optionArguments:profiles}",
+          "${optionArguments:settingsFile}",
+          "${optionArguments:localRepository}",
+          "${optionArguments:offline}"
+        ],
+        "version": { "arguments": ["--version"], "pattern": "Apache Maven (\\d+\\.\\d+\\.\\d+)" },
+        "minimumVersion": "3.6.3"
+      },
+      "options": [
+        {
+          "id": "profiles",
+          "displayName": "Profiles",
+          "kind": "multiSelect",
+          "choicesFromModel": true,
+          "allowCustom": true,
+          "presentation": "tree",
+          "arguments": ["-P", "${value}"]
+        },
+        { "id": "settingsFile", "displayName": "Settings File", "kind": "file", "arguments": ["-s", "${value}"] },
+        {
+          "id": "localRepository",
+          "displayName": "Local Repository",
+          "kind": "directory",
+          "arguments": ["-Dmaven.repo.local=${value}"]
+        },
+        {
+          "id": "offline",
+          "displayName": "Offline",
+          "kind": "boolean",
+          "presentation": "toolbar",
+          "icon": { "path": "icons/offline.svg" },
+          "arguments": ["-o"]
+        },
+        {
+          "id": "skipTests",
+          "displayName": "Skip Tests",
+          "kind": "boolean",
+          "presentation": "toolbar",
+          "icon": { "path": "icons/skipTests.svg" },
+          "arguments": ["-DskipTests"]
+        }
+      ],
+      "model": {
+        "source": "command",
+        "arguments": [
+          "-Dmaven.ext.class.path=${pluginDir}/lib/lithe-maven-extension.jar",
+          "-Dlithe.modelOutput=${outputFile}",
+          "pre-clean"
+        ],
+        "output": "outputFile",
+        "decoder": "litheBuildModel",
+        "executesProjectCode": true,
+        "mayUseNetwork": true
+      },
+      "tasks": [
+        {
+          "id": "clean",
+          "displayName": "clean",
+          "group": "lifecycle",
+          "category": ["Lifecycle"],
+          "scopes": ["workspace", "project"],
+          "arguments": [
+            { "value": "-pl", "when": "nestedProjectSelected" },
+            { "value": "${project.path}", "when": "nestedProjectSelected" },
+            "clean"
+          ]
+        },
+        {
+          "id": "validate",
+          "displayName": "validate",
+          "group": "lifecycle",
+          "category": ["Lifecycle"],
+          "scopes": ["workspace", "project"],
+          "arguments": [
+            { "value": "-pl", "when": "nestedProjectSelected" },
+            { "value": "${project.path}", "when": "nestedProjectSelected" },
+            "validate"
+          ]
+        },
+        {
+          "id": "compile",
+          "displayName": "compile",
+          "group": "lifecycle",
+          "category": ["Lifecycle"],
+          "scopes": ["workspace", "project"],
+          "arguments": [
+            { "value": "-pl", "when": "nestedProjectSelected" },
+            { "value": "${project.path}", "when": "nestedProjectSelected" },
+            "compile"
+          ]
+        },
+        {
+          "id": "test",
+          "displayName": "test",
+          "group": "lifecycle",
+          "category": ["Lifecycle"],
+          "scopes": ["workspace", "project"],
+          "arguments": [
+            { "value": "-pl", "when": "nestedProjectSelected" },
+            { "value": "${project.path}", "when": "nestedProjectSelected" },
+            "${optionArguments:skipTests}",
+            "test"
+          ]
+        },
+        {
+          "id": "package",
+          "displayName": "package",
+          "group": "lifecycle",
+          "category": ["Lifecycle"],
+          "scopes": ["workspace", "project"],
+          "arguments": [
+            { "value": "-pl", "when": "nestedProjectSelected" },
+            { "value": "${project.path}", "when": "nestedProjectSelected" },
+            "${optionArguments:skipTests}",
+            "package"
+          ]
+        },
+        {
+          "id": "verify",
+          "displayName": "verify",
+          "group": "lifecycle",
+          "category": ["Lifecycle"],
+          "scopes": ["workspace", "project"],
+          "arguments": [
+            { "value": "-pl", "when": "nestedProjectSelected" },
+            { "value": "${project.path}", "when": "nestedProjectSelected" },
+            "${optionArguments:skipTests}",
+            "verify"
+          ]
+        },
+        {
+          "id": "install",
+          "displayName": "install",
+          "group": "lifecycle",
+          "category": ["Lifecycle"],
+          "scopes": ["workspace", "project"],
+          "arguments": [
+            { "value": "-pl", "when": "nestedProjectSelected" },
+            { "value": "${project.path}", "when": "nestedProjectSelected" },
+            "${optionArguments:skipTests}",
+            "install"
+          ]
+        },
+        {
+          "id": "site",
+          "displayName": "site",
+          "group": "lifecycle",
+          "category": ["Lifecycle"],
+          "scopes": ["workspace", "project"],
+          "arguments": [
+            { "value": "-pl", "when": "nestedProjectSelected" },
+            { "value": "${project.path}", "when": "nestedProjectSelected" },
+            "site"
+          ]
+        },
+        {
+          "id": "deploy",
+          "displayName": "deploy",
+          "group": "lifecycle",
+          "category": ["Lifecycle"],
+          "scopes": ["workspace", "project"],
+          "arguments": [
+            { "value": "-pl", "when": "nestedProjectSelected" },
+            { "value": "${project.path}", "when": "nestedProjectSelected" },
+            "${optionArguments:skipTests}",
+            "deploy"
+          ]
+        },
+        {
+          "id": "plugin-goal",
+          "displayName": "Plugin Goal",
+          "group": "build",
+          "category": ["Plugins"],
+          "fromModel": true,
+          "arguments": [
+            { "value": "-pl", "when": "nestedProjectSelected" },
+            { "value": "${project.path}", "when": "nestedProjectSelected" },
+            "${optionArguments:skipTests}",
+            "${task.property:goal}"
+          ]
+        },
+        {
+          "id": "goal",
+          "displayName": "Run Maven Goal…",
+          "group": "other",
+          "scopes": ["workspace", "project"],
+          "requiresUserArguments": true,
+          "arguments": [
+            { "value": "-pl", "when": "nestedProjectSelected" },
+            { "value": "${project.path}", "when": "nestedProjectSelected" },
+            "${optionArguments:skipTests}",
+            "${userArguments}"
+          ]
+        }
+      ],
+      "test": {
+        "scopes": ["workspace", "project"],
+        "filters": ["suite", "case"],
+        "arguments": [
+          { "value": "-pl", "when": "nestedProjectSelected" },
+          { "value": "${project.path}", "when": "nestedProjectSelected" },
+          { "value": "-am", "when": ["nestedProjectSelected", "suiteSelected"] },
+          { "value": "-Dtest=${test.suite}", "when": ["suiteSelected", "noCaseSelected"] },
+          { "value": "-Dtest=${test.suite}#${test.case}", "when": ["suiteSelected", "caseSelected"] },
+          { "value": "-Dsurefire.failIfNoSpecifiedTests=false", "when": "suiteSelected" },
+          "test"
+        ],
+        "results": {
+          "decoder": "junitXml",
+          "reports": ["target/surefire-reports/TEST-*.xml", "target/failsafe-reports/TEST-*.xml"]
+        }
+      },
+      "diagnostics": {
+        "decoder": "lineMatcher",
+        "patterns": [
+          {
+            "regex": "^\\[(ERROR|WARNING)\\] (.+?\\.(?:java|kt|groovy|scala)):\\[(\\d+),(\\d+)\\] (.+)$",
+            "file": 2,
+            "line": 3,
+            "column": 4,
+            "message": 5,
+            "severity": 1,
+            "severities": { "ERROR": "error", "WARNING": "warning" }
+          },
+          {
+            "regex": "^\\[(ERROR|WARNING)\\] file://(.+?\\.kts?):(\\d+):(\\d+) (.+)$",
+            "file": 2,
+            "line": 3,
+            "column": 4,
+            "message": 5,
+            "severity": 1,
+            "severities": { "ERROR": "error", "WARNING": "warning" }
+          }
+        ]
+      },
+      "dependencies": {
+        "source": "command",
+        "scopes": ["workspace", "project"],
+        "arguments": [
+          "-Dmaven.ext.class.path=${pluginDir}/lib/lithe-maven-extension.jar",
+          "-Dlithe.dependenciesOutput=${outputFile}",
+          { "value": "-Dlithe.dependenciesProject=${project.path}", "when": "projectSelected" },
+          "pre-clean"
+        ],
+        "output": "outputFile",
+        "decoder": "litheDependencies",
+        "executesProjectCode": true,
+        "mayUseNetwork": true
+      },
+      "sync": { "watch": [".mvn/extensions.xml", ".mvn/maven.config", "pom.xml"] },
+      "layout": { "excluded": ["target"] },
+      "languageImport": {
+        "kind": "maven",
+        "options": { "profiles": "profiles", "settingsFile": "settingsFile", "localRepository": "localRepository" }
+      }
+    }
+  ]
+}

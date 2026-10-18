@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 2,
+  "id": "dev.lithe.fixture.web-panel",
+  "displayName": "Web Panel",
+  "version": "1.0.0",
+  "pluginAPIVersion": 3,
+  "requires": {
+    "ui": 2
+  },
+  "vendor": {
+    "id": "org.example",
+    "displayName": "Example",
+    "signatureRequirement": "publisherPackage"
+  },
+  "permissions": [
+    "ui.contribute",
+    "ui.web"
+  ],
+  "activationEvents": [
+    "onView:dev.lithe.fixture.web-panel.window",
+    "onView:dev.lithe.fixture.web-panel.notes",
+    "onCommand:dev.lithe.fixture.web-panel.open"
+  ],
+  "languages": [],
+  "ui": {
+    "toolWindows": [
+      {
+        "id": "dev.lithe.fixture.web-panel.window",
+        "title": "Web Panel",
+        "placement": "right",
+        "order": 300,
+        "web": {
+          "entry": "ui/index.html"
+        },
+        "icon": {
+          "path": "icons/panel.svg"
+        }
+      },
+      {
+        "id": "dev.lithe.fixture.web-panel.notes",
+        "title": "Panel Notes",
+        "placement": "bottom",
+        "text": "A plugin may mix text and web windows."
+      }
+    ],
+    "commands": [
+      {
+        "id": "dev.lithe.fixture.web-panel.open",
+        "title": "Open Web Panel",
+        "toolWindowID": "dev.lithe.fixture.web-panel.window",
+        "placements": [
+          "commandPalette"
+        ]
+      }
+    ]
+  }
+}
