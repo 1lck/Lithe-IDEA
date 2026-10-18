@@ -376,8 +376,15 @@ struct ProjectRuntimeSettingsView: View {
         let configured = feature.settings.mavenLocalRepositoryPath.trimmingCharacters(in: .whitespacesAndNewlines)
         if !configured.isEmpty { return configured }
         for settings in mavenSettingsCandidates {
-            if let repository = Self.localRepository(inSettingsAt: settings) {
+            switch Self.localRepository(inSettingsAt: settings) {
+            case .resolved(let repository):
                 return repository
+            case .unresolved:
+                // A configured value that cannot be interpolated must not fall
+                // back to a guessed default; leave the field unknown instead.
+                return nil
+            case .absent:
+                continue
             }
         }
         return FileManager.default.homeDirectoryForCurrentUser
@@ -418,19 +425,42 @@ struct ProjectRuntimeSettingsView: View {
         return paths
     }
 
-    private static func localRepository(inSettingsAt path: String) -> String? {
-        guard let data = FileManager.default.contents(atPath: path) else { return nil }
+    /// Distinguishes a missing element from one that is configured but cannot
+    /// be interpolated, so the caller never reports the default as the value.
+    private static func localRepository(
+        inSettingsAt path: String
+    ) -> MavenLocalRepositoryValue {
+        guard let data = FileManager.default.contents(atPath: path) else { return .absent }
         let parser = XMLParser(data: data)
         let reader = MavenLocalRepositoryReader()
         parser.delegate = reader
         parser.shouldResolveExternalEntities = false
-        guard parser.parse(), var value = reader.value, !value.isEmpty else { return nil }
-        value = value.replacingOccurrences(of: "${user.home}", with: NSHomeDirectory())
+        guard parser.parse(), reader.found else { return .absent }
+        guard let raw = reader.value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty else { return .absent }
+        guard let resolved = resolveMavenPath(raw) else { return .unresolved }
+        return .resolved(resolved)
+    }
+
+    /// Maven interpolates `${user.home}` and `${env.NAME}` plus a leading `~`.
+    /// Any other expression or a relative result cannot be reported as the
+    /// actual repository.
+    private static func resolveMavenPath(_ raw: String) -> String? {
+        var value = raw.replacingOccurrences(of: "${user.home}", with: NSHomeDirectory())
+        // Bound the expansion so a self-referential environment value cannot
+        // keep the loop running.
+        for _ in 0..<16 {
+            guard let start = value.range(of: "${env.") else { break }
+            guard let end = value[start.upperBound...].firstIndex(of: "}") else { return nil }
+            let name = String(value[start.upperBound..<end])
+            guard let environment = ProcessInfo.processInfo.environment[name],
+                  !environment.isEmpty else { return nil }
+            value.replaceSubrange(start.lowerBound...end, with: environment)
+        }
         if value.hasPrefix("~") {
             value = NSHomeDirectory() + String(value.dropFirst())
         }
-        // Unresolved property expressions and relative paths cannot be
-        // reported as the actual repository; leave the field unknown instead.
+        guard !value.contains("${") else { return nil }
         return value.hasPrefix("/") ? value : nil
     }
 
@@ -675,9 +705,16 @@ struct ProjectRuntimeSettingsView: View {
     }
 }
 
+private enum MavenLocalRepositoryValue {
+    case absent
+    case resolved(String)
+    case unresolved
+}
+
 /// Reads only `<localRepository>` from a Maven settings file.
 private final class MavenLocalRepositoryReader: NSObject, XMLParserDelegate {
     var value: String?
+    var found = false
     private var isReading = false
     private var text = ""
 
@@ -689,6 +726,7 @@ private final class MavenLocalRepositoryReader: NSObject, XMLParserDelegate {
         attributes attributeDict: [String: String] = [:]
     ) {
         if elementName == "localRepository" {
+            found = true
             isReading = true
             text = ""
         }
