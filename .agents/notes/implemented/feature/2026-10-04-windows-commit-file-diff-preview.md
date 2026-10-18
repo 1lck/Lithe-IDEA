@@ -65,6 +65,10 @@ Commit 的工作区所有者 `useCommitDiffReview` / `createCommitDiffReview` �
 解析器为显示去掉 CRLF 的 CR 或 EOF（文件结尾）缺少换行标记时，必须保留有损标识。
 这类补丁不能再作为精确的块包含事实，也不能重建可写 hunk；新旧 Diff 都退回整文件包含入口。
 例如磁盘是没有末尾换行的 `B`，不能提交重建的 `B\n` 后把它显示为完全包含；整文件暂存由 Git 保存实际字节。
+2026-10-17 起回退获得字节保真通道：有损标识仍阻止暂存/取消暂存的块操作（展示投影不可重建写入补丁），
+但回退可经由独立的 `writePatch`（index→工作区原始补丁文本，含 CR 与 EOF 标记）走 U0 切片 + `git apply --reverse --unidiff-zero`。
+通道仅在 Git 实际生效属性（filter、working-tree-encoding）证明字节可往返时开放，由 `getFullContextFileDiff` 的未暂存方向填充。
+`--unidiff-zero` 仅在 host 确认补丁来自原始切片时传递，不影响常规有上下文的回退安全检查。
 暂存修改跨越当前可见块边界时禁用该块写入，避免顺手撤掉不在当前块内的暂存内容。
 
 文件行勾选来自实际 `file.staged`，有剩余磁盘修改时显示部分包含；点击部分包含的文件框可包含其余修改。
