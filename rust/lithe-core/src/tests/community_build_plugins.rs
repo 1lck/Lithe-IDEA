@@ -85,7 +85,7 @@ impl Workspace {
     /// Writes a captured document with `${workspace}` replaced by this root,
     /// as the plugin would have written it here.
     fn capture(&self, relative: &str, captured: &str) -> String {
-        self.write(relative, &captured.replace("${workspace}", &self.root()));
+        self.write(relative, &capture_for_workspace(captured, &self.root()));
         self.path(relative)
     }
 }
@@ -93,6 +93,41 @@ impl Workspace {
 impl Drop for Workspace {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+fn capture_for_workspace(captured: &str, workspace_root: &str) -> String {
+    let encoded_root =
+        serde_json::to_string(workspace_root).expect("workspace root is a JSON string");
+    // Placeholders are inside JSON strings, so insert the escaped contents
+    // without the serializer's surrounding quotes, including on Windows.
+    captured.replace("${workspace}", &encoded_root[1..encoded_root.len() - 1])
+}
+
+#[test]
+fn community_captured_documents_escape_workspace_paths() {
+    let captured = r#"{
+        "root": "${workspace}",
+        "nested": [{ "path": "${workspace}/core" }],
+        "unchanged": "already \"quoted\""
+    }"#;
+    for workspace_root in [
+        r"C:\Users\fixture\project",
+        r"C:\temp\new\target",
+        r"\\server\share\project",
+        "C:\\fixture\\\"quoted\"\tworkspace\n",
+    ] {
+        let document: Value =
+            serde_json::from_str(&capture_for_workspace(captured, workspace_root))
+                .expect("substituted capture remains valid JSON");
+        assert_eq!(
+            document,
+            json!({
+                "root": workspace_root,
+                "nested": [{ "path": format!("{workspace_root}/core") }],
+                "unchanged": "already \"quoted\"",
+            }),
+        );
     }
 }
 
