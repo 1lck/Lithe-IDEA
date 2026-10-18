@@ -638,7 +638,7 @@ protocol and explicit consent for HTTP.
 Lithe never installs Node.js or npm; the agents' own command-line tools are installed only through `agent.installCli` on an explicit user action. `agent.status`
 detects Node.js and npm through the login shell's `PATH` and lists every
 supported agent with its pinned version, installed version, provider protocol,
-and blocking issues. Adapters that drive the agent's own CLI (Codex, Claude Code) report the
+and blocking issues. Each adapter also reports optional `updateAvailable`: true only when the verified catalog version is strictly newer than the installed version under SemVer precedence, false for equal or newer local versions, and absent for missing or unparseable versions. Build metadata does not affect precedence. This target remains Lithe's verified catalog version, not an unverified latest registry version. Hosts must not derive updates from version-string inequality. Adapters that drive the agent's own CLI (Codex, Claude Code) report the
 CLI found on that `PATH` with its minimum version; they are installed with
 `--omit=optional`, so their bundled CLI copy is not downloaded, and are launched
 with the user's CLI through the adapter's variable (`CODEX_PATH`,
@@ -647,7 +647,7 @@ too old CLI is an issue for the user to resolve, never installed by Lithe.
 For every catalog CLI, `cli.installation.updateAvailable` is `true` only when the verified
 installation owner reports a newer release, `false` when no newer release is found
 (npm's published version or Homebrew's local index), and absent when the check is
-unavailable. It does not change `canUpdate`, which only describes whether Lithe can
+unavailable. Optional `cli.installation.availableVersion` retains the actual target returned by that same query: npm's published version or the matched Homebrew entry's `current_version`. Hosts display the detected current version and confirmed target together, including in the collapsed CLI row. If Homebrew confirms an outdated package without supplying its target version, hosts show an unknown target rather than inferring one from the installed version. Empty Homebrew outdated results do not provide a latest version. Failed read-only probes include optional `cli.installation.updateCheckError` with a bounded diagnostic reason; unavailable native protocols remain unknown without pretending to have checked the latest version. It does not change `canUpdate`, which only describes whether Lithe can
 safely invoke that owner. npm checks query the verified update target, including
 its explicit `@latest` tag; Homebrew checks query the verified owning package and
 do not refresh the local index automatically. Native installers without a
@@ -689,12 +689,9 @@ only when `canUpdate` is true. The hint is never executable input. Absent fields
 remain backward compatible with older hosts. Windows installer/shim ownership
 has not been verified; unrecognized installations use the manual path.
 The minimum CLI version is a compatibility requirement, not a latest-version
-check. For all compatible CLIs, macOS offers Update only when `canUpdate` and
+check. For all CLIs, macOS offers Update only when `canUpdate` and
 `updateAvailable` are both true, including when the preflight row is collapsed.
-A false or absent `updateAvailable` hides that action. Too-old CLIs retain the
-upgrade repair action when `canUpdate` is true, regardless of `updateAvailable`;
-manual guidance remains available when a version check is unknown or an owner
-cannot be updated safely.
+A false or absent `updateAvailable` hides that action, even for a CLI below the adapter's minimum version; compatibility warnings and manual guidance remain visible. Hosts show loading and completion on every refresh, retain old detection data on failure with the failure reason, and hide stale update actions until a subsequent successful check.
 After a successful update, users reconnect the Agent to start the updated CLI
 and obtain its model catalog; existing conversations are not interrupted automatically.
 

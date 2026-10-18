@@ -1909,3 +1909,29 @@
 "Turn usage" = "Turn usage";
 "Copy reply" = "Copy reply";
 "Copy table" = "Copy table";
+
+"Checking…" = "Checking…";
+
+"Check complete." = "Check complete.";
+
+"Check complete. Some CLI update results are unavailable; see Preflight." = "Check complete. Some CLI update results are unavailable; see Preflight.";
+
+"Check failed." = "Check failed.";
+
+"Could not compare the local adapter with the verified version." = "Could not compare the local adapter with the verified version.";
+
+"A newer verified adapter version is available." = "A newer verified adapter version is available.";
+
+"The local adapter is at or above the verified version." = "The local adapter is at or above the verified version.";
+
+"Current version" = "Current version";
+
+"Minimum version" = "Minimum version";
+
+"Update to" = "Update to";
+
+"Could not confirm" = "Could not confirm";
+
+"Current version: %@ · Verified target: %@" = "Current version: %@ · Verified target: %@";
+
+"Update to: %@" = "Update to: %@";

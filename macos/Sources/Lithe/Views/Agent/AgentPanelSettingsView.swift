@@ -53,6 +53,7 @@ private struct AgentsManagementPage: View {
             statisticsRow
         }
         agentPicker
+        checkFeedback
         switch selectedEntry {
         case .agent(let id):
             if let status = feature.status, let agent = agents.first(where: { $0.id == id }) {
@@ -106,9 +107,39 @@ private struct AgentsManagementPage: View {
                               fallbackSystemImage: "arrow.clockwise", preservesOriginalColors: true)
             }
             .litheToolbarIconButton()
-            .disabled(feature.phase == .checking)
+            .disabled(feature.phase == .checking || feature.busyAgentID != nil)
             .help("Check Again")
-            if feature.status == nil { ProgressView().controlSize(.mini) }
+        }
+    }
+
+    @ViewBuilder
+    private var checkFeedback: some View {
+        switch feature.phase {
+        case .idle:
+            EmptyView()
+        case .checking:
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.mini)
+                Text("Checking…")
+            }
+            .font(LitheTheme.smallFont)
+            .accessibilityIdentifier("agent-check-progress")
+        case .ready:
+            let incomplete = feature.status?.agents.contains {
+                $0.cli?.detected != nil && $0.cli?.installation?.updateAvailable == nil
+            } == true
+            Text(incomplete ? LocalizedStringKey("Check complete. Some CLI update results are unavailable; see Preflight.") : LocalizedStringKey("Check complete."))
+                .font(LitheTheme.smallFont)
+                .foregroundStyle(incomplete ? LitheTheme.warning : LitheTheme.secondaryText)
+                .accessibilityIdentifier("agent-check-result")
+        case .failed(let reason):
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Check failed.")
+                Text(verbatim: reason).textSelection(.enabled)
+            }
+            .font(LitheTheme.smallFont)
+            .foregroundStyle(LitheTheme.error)
+            .accessibilityIdentifier("agent-check-error")
         }
     }
 
@@ -183,16 +214,20 @@ private struct AgentDetailView: View {
         LitheSettingsSection("Version status") {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(String(format: AgentLocalization.string("Pinned: %@ · Local: %@", locale: locale),
-                                agent.version, agent.installedVersion ?? AgentLocalization.string("Not installed", locale: locale)))
+                    Text(String(format: AgentLocalization.string("Current version: %@ · Verified target: %@", locale: locale),
+                                agent.installedVersion ?? AgentLocalization.string("Not installed", locale: locale), agent.version))
                         .font(LitheTheme.uiFont(size: 12, design: .monospaced))
+                    if agent.needsUpdate {
+                        Text(String(format: AgentLocalization.string("Update to: %@", locale: locale), agent.version))
+                            .font(LitheTheme.uiFont(size: 12, design: .monospaced))
+                    }
                     Text(versionHint)
                         .font(LitheTheme.smallFont)
                         .foregroundStyle(LitheTheme.secondaryText)
                 }
                 Spacer()
                 if !isBusy {
-                    if !agent.isInstalled || agent.needsUpdate {
+                    if !agent.isInstalled || (feature.phase == .ready && agent.needsUpdate) {
                         Button(agent.isInstalled ? "Update" : "Install") { feature.install(agent.id) }
                             .buttonStyle(LithePrimaryButtonStyle(backgroundColor: LitheTheme.settingsPrimaryAction, restingOpacity: 1))
                             .controlSize(.small)
@@ -217,9 +252,12 @@ private struct AgentDetailView: View {
                 ? AgentLocalization.string("Not installed. Install it to start using this Agent.", locale: locale)
                 : AgentLocalization.string("Install Node.js and npm before installing the adapter.", locale: locale)
         }
+        if agent.updateAvailable == nil {
+            return AgentLocalization.string("Could not compare the local adapter with the verified version.", locale: locale)
+        }
         return agent.needsUpdate
-            ? AgentLocalization.string("An update is available.", locale: locale)
-            : AgentLocalization.string("Up to date.", locale: locale)
+            ? AgentLocalization.string("A newer verified adapter version is available.", locale: locale)
+            : AgentLocalization.string("The local adapter is at or above the verified version.", locale: locale)
     }
 
     private var preflightCard: some View {
@@ -267,7 +305,7 @@ private struct AgentDetailView: View {
                 }
                 .buttonStyle(.litheNoPress)
                 .accessibilityIdentifier("agent-preflight-\(agent.id)-\(check.id)")
-                if check.id == "cli", let fix = check.fix, !isBusy {
+                if check.id == "cli", let fix = check.fix, !isBusy, feature.phase == .ready {
                     fixButton(fix)
                 }
             }
@@ -287,7 +325,7 @@ private struct AgentDetailView: View {
                         }
                     }
                     Spacer(minLength: 0)
-                    if check.id != "cli", let fix = check.fix, !isBusy {
+                    if check.id != "cli", let fix = check.fix, !isBusy, feature.phase == .ready {
                         fixButton(fix)
                     }
                 }
