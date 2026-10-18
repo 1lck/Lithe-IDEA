@@ -3254,3 +3254,17 @@
 "Turn usage" = "本轮用量";
 "Copy reply" = "复制回复";
 "Copy table" = "复制表格";
+
+"Subagent" = "子代理";
+
+"Subagents" = "子代理";
+
+"No subagents yet" = "暂无子代理";
+
+"Subagent task" = "子代理任务";
+
+"Subagent output" = "子代理输出";
+
+"No subagent output yet" = "尚未收到子代理输出";
+
+"Disconnected" = "已断开";

@@ -33,6 +33,8 @@ public struct AgentConversationMessage: Identifiable, Equatable, Sendable {
     public var delivery: Delivery?
     public var toolStatus: ToolStatus?
     public var toolDetails = AgentToolDetails()
+    /// Child output is retained with its owner, separate from the parent's reply.
+    public var subagentSessionID: String?
 
     public init(id: String = UUID().uuidString, role: Role, text: String, toolStatus: ToolStatus? = nil) {
         self.id = id
@@ -70,6 +72,19 @@ public struct AgentConversation: Equatable, Sendable {
     var hasReportedContextUsage = false
     /// Latest complete plan from the agent; history replay restores it.
     public var plan: AgentPlan?
+    /// Native child sessions announced by this root and its descendants, in order.
+    public var subagents: [AgentSubagent] = []
+    /// Keep child tool evidence in the ordered timeline for file review, without
+    /// presenting child replies or reasoning as the main Agent's own output.
+    public var transcriptMessages: [AgentConversationMessage] {
+        messages.filter { $0.subagentSessionID == nil || $0.role == .tool }
+    }
+
+    mutating func disconnectSubagents() {
+        for index in subagents.indices where subagents[index].state == .running {
+            subagents[index].state = .disconnected
+        }
+    }
     /// Slash commands the agent currently advertises for this session.
     public var availableCommands: [AgentCommand] = []
     /// Only local review acknowledgements; the Agent's transcript is unchanged.
@@ -139,6 +154,7 @@ public struct AgentConversation: Equatable, Sendable {
     public init() {}
 
     mutating func finishTurn(at instant: ContinuousClock.Instant, usage: AgentTurnUsage? = nil) {
+        disconnectSubagents()
         isQuiet = false
         if let retryTurnID { previousRetryTurnID = retryTurnID }
         retryTurnID = nil

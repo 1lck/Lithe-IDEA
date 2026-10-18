@@ -583,7 +583,7 @@ private struct AgentConnectionView: View {
     }
 
     private var copyConversationAction: (() -> Void)? {
-        guard let messages = feature.selectedConversation?.messages, !messages.isEmpty else { return nil }
+        guard let messages = feature.selectedConversation?.transcriptMessages, !messages.isEmpty else { return nil }
         let title = conversationTitle
         return { AgentPasteboard.copy(AgentTranscriptExport.markdown(title: title, messages: messages, locale: locale)) }
     }
@@ -699,7 +699,7 @@ private struct AgentConnectionView: View {
         let conversation = feature.selectedConversation
         let sessionID = feature.selectedSessionID
         return AgentActivitySummaryBar(messages: conversation?.messages ?? [], sessionID: sessionID,
-            plan: conversation?.plan, reviewed: conversation?.reviewedFileChanges ?? [:],
+            plan: conversation?.plan, subagents: conversation?.subagents ?? [], reviewed: conversation?.reviewedFileChanges ?? [:],
             isResponding: conversation?.isResponding == true, isReviewing: feature.fileReviewSessionID != nil,
             reviewError: feature.fileReviewErrorSessionID == sessionID ? feature.fileReviewError : nil,
             onOpenFile: onOpenFile,
