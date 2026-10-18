@@ -393,11 +393,15 @@ final class McpServerLibraryFeatureModel: ObservableObject {
                     return false
                 }
                 guard ledgerOwns(name: originalName, sourceHash: expected, in: source.file) else {
-                    // A ledger record with this name but another version means
-                    // the entry changed (or was removed) after this draft was
-                    // captured; refresh is the accurate remedy, not ownership.
-                    let changedSinceDraft = ledgerEntries(for: source.file)
-                        .contains { $0.name == originalName }
+                    // A newer complete version, or a record this draft saw as
+                    // owned that is now gone, means the entry changed after
+                    // this draft was captured; refresh is the accurate remedy.
+                    // A legacy record without a sourceHash cannot be refreshed
+                    // into ownership, so it keeps the take-ownership message.
+                    let changedSinceDraft = source.isOwnedByLithe
+                        || ledgerEntries(for: source.file).contains {
+                            $0.name == originalName && $0.sourceHash != nil
+                        }
                     error = (changedSinceDraft
                         ? McpLibraryError.externallyModified(originalName)
                         : McpLibraryError.notOwned(originalName)

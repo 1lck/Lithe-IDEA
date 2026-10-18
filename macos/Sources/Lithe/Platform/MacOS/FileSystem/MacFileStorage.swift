@@ -130,13 +130,13 @@ struct MacFileStorage: FileStorage {
         do {
             matches = try snapshotMatches(at: temporary, expected: expected)
         } catch {
-            try undoExchangeIfPublished(
+            try? resolveMismatch(
                 data, &removeTemporary, temporary: temporary, target: url
             )
             throw CocoaError(.fileWriteUnknown)
         }
         guard matches else {
-            try undoExchangeIfPublished(
+            try resolveMismatch(
                 data, &removeTemporary, temporary: temporary, target: url
             )
             return false
@@ -168,24 +168,43 @@ struct MacFileStorage: FileStorage {
         }
     }
 
-    /// Rolls the exchange back only while the destination still holds the bytes
-    /// this call published. Another process can save again between the exchange
-    /// and the rollback; swapping back then would overwrite that newer save.
-    private func undoExchangeIfPublished(
-        _ published: Data, _ removeTemporary: inout Bool, temporary: URL, target: URL
-    ) throws {
-        guard destinationHolds(published, at: target) else { return }
-        try undoExchange(&removeTemporary, temporary: temporary, target: target)
+    private enum DestinationState {
+        /// Still contains exactly the bytes this call published.
+        case published
+        /// A regular file with other bytes: a newer external save wins.
+        case superseded
+        /// Missing, special or unreadable: the displaced copy must be kept.
+        case unknown
     }
 
-    private func destinationHolds(_ data: Data, at url: URL) -> Bool {
+    private func destinationState(published: Data, at url: URL) -> DestinationState {
         guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
-              attributes[.type] as? FileAttributeType == .typeRegular,
-              (attributes[.size] as? NSNumber)?.intValue == data.count,
-              let current = try? Data(contentsOf: url) else {
-            return false
+              attributes[.type] as? FileAttributeType == .typeRegular else {
+            return .unknown
         }
-        return current == data
+        guard (attributes[.size] as? NSNumber)?.intValue == published.count else {
+            return .superseded
+        }
+        guard let current = try? Data(contentsOf: url) else { return .unknown }
+        return current == published ? .published : .superseded
+    }
+
+    /// Rolls back only while the destination still holds this call's bytes.
+    /// A regular newer save makes the displaced copy obsolete; for a missing,
+    /// special or unreadable destination the displaced bytes are the only
+    /// remaining copy, so they are kept and the write fails closed.
+    private func resolveMismatch(
+        _ published: Data, _ removeTemporary: inout Bool, temporary: URL, target: URL
+    ) throws {
+        switch destinationState(published: published, at: target) {
+        case .published:
+            try undoExchange(&removeTemporary, temporary: temporary, target: target)
+        case .superseded:
+            break
+        case .unknown:
+            removeTemporary = false
+            throw CocoaError(.fileWriteUnknown)
+        }
     }
 
     /// Moves the destination aside atomically, then verifies what was moved.
@@ -242,6 +261,11 @@ struct MacFileStorage: FileStorage {
             return true
         } catch let error as CocoaError where error.code == .fileWriteFileExists {
             return false
+        } catch {
+            // Exclusive create can leave a partially written file on some
+            // failures; never let it become the Agent's configuration.
+            try? FileManager.default.removeItem(at: url)
+            throw error
         }
     }
 

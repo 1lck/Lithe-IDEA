@@ -313,6 +313,93 @@ struct McpServerLibraryTests {
     }
 
     @Test
+    func legacyLedgerStillAsksForOwnershipWhenClosingAnAgent() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        try fixture.seedClaude("{\"mcpServers\": {}}")
+        try fixture.seedCodex("[mcp_servers.alpha]\ncommand = \"/bin/echo\"\nstartup_timeout_sec = 20\n")
+        let feature = fixture.feature()
+        feature.refresh()
+        let row = try #require(feature.rows.first { $0.name == "alpha" })
+        var draft = feature.draft(for: row)
+        // An older ledger has no complete source version, so refreshing cannot
+        // turn it into ownership; the user must take ownership explicitly.
+        let legacy = [
+            "codex|global|": [McpOwnedEntry(
+                name: row.name, definitionHash: row.definition.definitionHash
+            )]
+        ]
+        fixture.ledger.set(
+            try JSONEncoder().encode(legacy), forKey: "settings.mcpServerRegistrations"
+        )
+        draft.enabledAgents = [.claudeCode]
+        #expect(feature.save(draft) == false)
+        #expect(feature.error?.contains("Take ownership") == true)
+        #expect(try fixture.codexText().contains("alpha"))
+    }
+
+    @Test
+    func lostLedgerRecordDoesNotAuthorizeADraftRemoval() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        try fixture.seedClaude("{\"mcpServers\": {}}")
+        let feature = fixture.feature()
+        feature.refresh()
+        var created = feature.makeDraft()
+        created.name = "alpha"
+        created.command = "/bin/echo"
+        created.enabledAgents = [.claudeCode]
+        #expect(feature.save(created))
+        let captured = try #require(feature.rows.first { $0.name == "alpha" })
+        var stale = feature.draft(for: captured)
+
+        // The shared ledger loses the record while the file stays intact. An
+        // OR-style guard would let the draft remove the entry via Core, so
+        // this pins the captured-version precondition in Swift.
+        fixture.ledger.set(
+            try JSONEncoder().encode([String: [McpOwnedEntry]]()),
+            forKey: "settings.mcpServerRegistrations"
+        )
+        stale.enabledAgents = [.codex]
+        #expect(feature.save(stale) == false)
+        #expect(feature.error?.contains("Refresh") == true)
+        #expect(try fixture.claudeText().contains("alpha"))
+        #expect(!FileManager.default.fileExists(atPath: fixture.codexURL.path))
+    }
+
+    @Test
+    func removedEntryTellsTheStaleEditorToRefresh() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        try fixture.seedClaude("{\"mcpServers\": {}}")
+        let first = fixture.feature()
+        first.refresh()
+        var created = first.makeDraft()
+        created.name = "alpha"
+        created.command = "/bin/echo"
+        created.enabledAgents = [.claudeCode]
+        #expect(first.save(created))
+        let captured = try #require(first.rows.first { $0.name == "alpha" })
+        var stale = first.draft(for: captured)
+
+        // Another window deletes the entry and its ledger record.
+        let second = fixture.feature()
+        second.refresh()
+        #expect(second.delete(try #require(second.rows.first { $0.name == "alpha" })))
+        #expect(try fixture.claudeText().contains("alpha") == false)
+
+        stale.enabledAgents = [.codex]
+        #expect(first.save(stale) == false)
+        #expect(first.error?.contains("Refresh") == true)
+        #expect(!FileManager.default.fileExists(atPath: fixture.codexURL.path))
+        let remainingLedger = try JSONDecoder().decode(
+            [String: [McpOwnedEntry]].self,
+            from: try #require(fixture.ledger.data(forKey: "settings.mcpServerRegistrations"))
+        )
+        #expect(remainingLedger.isEmpty)
+    }
+
+    @Test
     func editsAnExternallyCreatedEntryWhileTheDisplayedDefinitionIsCurrent() throws {
         let fixture = try Fixture()
         defer { fixture.cleanUp() }

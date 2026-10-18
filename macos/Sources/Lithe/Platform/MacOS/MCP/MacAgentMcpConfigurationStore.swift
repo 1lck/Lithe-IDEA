@@ -133,13 +133,21 @@ final class MacAgentMcpConfigurationStore: McpConfigurationStore {
             throw error
         } catch {
             // A failed exchange can leave the prepared file (created with the
-            // default mode) at the destination; restore the original mode
-            // before reporting so a secret-bearing config is not left 0644.
-            applyPermissions(permissions, to: target)
+            // default mode) at the destination; restore the original mode so a
+            // secret-bearing config is not left 0644.
+            restorePermissions(permissions, to: target, ifHolding: data)
             throw McpConfigurationError.notWritable(file.url.path)
         }
         applyPermissions(permissions, to: target)
         return McpWriteReceipt(backupURL: backupURL)
+    }
+
+    /// Only rewrites the mode while the failed publish left this call's bytes
+    /// at the destination; an external file keeps the mode its writer chose.
+    private func restorePermissions(_ permissions: Int, to target: URL, ifHolding data: Data) {
+        guard let current = try? storage.readData(from: target, options: []),
+              current == data else { return }
+        applyPermissions(permissions, to: target)
     }
 
     private func applyPermissions(_ permissions: Int, to target: URL) {

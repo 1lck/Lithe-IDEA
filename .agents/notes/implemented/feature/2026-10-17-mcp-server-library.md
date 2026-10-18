@@ -44,7 +44,7 @@
 - 资源库保存和 Lithe 项目注册共用批量提交：先计算全部文件的计划并校验磁盘快照，再逐文件写入，全部成功后才更新所有权账本。即使外部 Agent 在预检之后、两次写入之间改了后续文件，后续写入的 `changedOnDisk` 也会触发对已写文件的逆序恢复；原先不存在的文件会删除，原先存在的文件会恢复原快照。不能在每次单文件成功后立即写账本，否则会留下半套注册。
 - 恢复前也校验文件仍等于本次批量写入的内容；如果外部程序又改了已写文件，就保留该外部修改，继续尝试恢复其他文件，并明确报告未恢复路径，由用户刷新检查。删除本批次新建的文件时同样不能先比较再直接 `removeItem`：`MacFileStorage.removeData` 先把目标原子移开，再核对其内容是否仍是本批次输出，不匹配就把文件放回并保留外部写入。备份保留原始内容和尝试写入的内容；这是一种失败后恢复机制，不承诺跨文件的操作系统原子可见性或进程崩溃后的自动恢复。
 - 每个被改写的文件都会先备份到 `Application Support/MCP Backups/<时间戳>/`，备份失败则中止写入。
-- 快照预检和备份之后还有一次平台条件替换，最终发布不在 Swift 应用层直接覆盖文件：`MacFileStorage.replaceData` 把新内容写到目标同目录的临时文件，已有文件用原子交换（`renamex_np` 的 `RENAME_SWAP`）发布，并检查被换出的旧字节是否仍等于计划快照；不等且目标仍持有本次写入时换回并返回 `changedOnDisk`，若目标已被更新的外部保存替换则保留该外部保存；换回失败时保留装着外部字节的临时文件而不是删除它。不支持 `RENAME_SWAP`/`RENAME_EXCL` 标志的卷退化为比较后原子写或独占创建，残余窗口比交换方案更大但保存仍可用。写入失败（包括发布回滚失败）时把捕获到的原权限重新套回目标，避免含 token 的配置以默认权限残留。新文件用 `RENAME_EXCL` 发布，目标在预检后出现时拒绝创建。不要把最终写入退回为「比较后无条件 rename」：比较和 rename 之间仍可能落进其他程序的保存，把它静默覆盖。
+- 快照预检和备份之后还有一次平台条件替换，最终发布不在 Swift 应用层直接覆盖文件：`MacFileStorage.replaceData` 把新内容写到目标同目录的临时文件，已有文件用原子交换（`renamex_np` 的 `RENAME_SWAP`）发布，并检查被换出的旧字节是否仍等于计划快照；不等且目标仍持有本次写入时换回并返回 `changedOnDisk`，若目标已被更新的外部保存替换则保留该外部保存；目标缺失、非常规或读取失败时同样不删除被换出的字节，换回失败时保留装着外部字节的临时文件，并让写入失败而不是静默覆盖。不支持 `RENAME_SWAP`/`RENAME_EXCL` 标志的卷退化为比较后原子写或独占创建，残余窗口比交换方案更大但保存仍可用。写入失败（包括发布回滚失败）时把捕获到的原权限重新套回目标，避免含 token 的配置以默认权限残留。新文件用 `RENAME_EXCL` 发布，目标在预检后出现时拒绝创建。不要把最终写入退回为「比较后无条件 rename」：比较和 rename 之间仍可能落进其他程序的保存，把它静默覆盖。
 
 ### Lithe 自己的项目级注册
 
@@ -101,10 +101,10 @@ Windows 的 Agent 配置路径和 Tauri 侧文件访问模型不同，同步实�
 
 - `cargo test --manifest-path rust/Cargo.toml -p lithe-core mcp::`（覆盖删除首项/中间项/末项、同行相邻项、值跨多行且下一个键同行的布局、单行与混合换行布局，JSON 输出重新解析，重复 JSON 键拒绝编辑；Codex 更新保留 `bearer_token_env_var`、`startup_timeout_sec`、未知键、建模键与值的注释、未变化的 args 数组内注释和非字符串 env 值，变量列表清空时也保留非字符串值；内联 `mcp_servers` 表可删除、可编辑；拒绝重复变量键；哈希忽略当前传输不写入的 command/args/env/url/headers 且与重解析一致；重命名保留专属字段）
 - `./scripts/test-macos.sh --filter McpServerLibraryTests`（覆盖计划后磁盘变化拒绝写入、文件在计划后出现拒绝创建、linked worktree 公共排除文件、关闭会话后仍能清理项目注册、项目切换后清理两个项目的注册、Git 排除失败不回滚账本、注销冲突写入错误横幅、重复变量键校验、重命名外部条目、按 Agent 开启时忽略传输不写入的字段、切换传输方式丢弃隐藏字段后仍保持所有权、重命名保留 Codex 字段、自然排序条目的所有权、两个窗口合并账本）
-- `./scripts/test-macos.sh --filter "McpWriteProtectionTests|FileStorageReplacementTests"`（备份完成后外部保存被保留并返回 `changedOnDisk`，预检后出现的新文件不被覆盖；`MacFileStorage.replaceData` 拒绝过期快照、按匹配快照原子发布、拒绝覆盖已存在文件；`removeData` 只删除匹配快照的文件；失败/成功路径都不遗留临时文件）
+- `./scripts/test-macos.sh --filter "McpWriteProtectionTests|FileStorageReplacementTests|McpFeatureBatchFailureTests"`（备份完成后外部保存被保留并返回 `changedOnDisk`，预检后出现的新文件不被覆盖；`MacFileStorage.replaceData` 拒绝过期快照、按匹配快照原子发布、拒绝覆盖已存在文件；`removeData` 只删除匹配快照的文件；失败/成功路径都不遗留临时文件）
 - `./scripts/test-macos.sh --filter "McpBatchTransactionTests|McpServerSummaryTests|McpExcludePreservationTests"`（用第二次写入前的同步故障注入覆盖已有文件恢复、新文件删除、回滚保留外部修改与路径提示、失败保存和注册不发布账本；摘要不含 args 或 URL 凭据；exclude 原始非 UTF-8 字节保留、LF/CRLF 幂等及已有文件读取失败保护）
 - `./scripts/test-macos.sh --filter "McpArgumentRoundTripTests|McpSymlinkConfigurationTests"`（Codex 与 Claude 只改 env 时保留空参数、空白参数和嵌入换行；修改参数文本保留空行；相对及绝对符号链接可读取、生成计划、保存和备份，后续写入失败恢复链接目标，目标外部修改不覆盖，错误展示原路径并保留大小上限）
-- `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter "McpServerLibraryTests|McpSymlinkConfigurationTests|McpWriteProtectionTests|FileStorageReplacementTests"`（双窗口顺序保存，分别覆盖旧编辑器未刷新和刷新后可见字段恰好等于新版本的情况；认证或超时字段外部变化后阻止旧草稿保存、重命名、关闭开关、删除与关闭项目清理；双 Agent 合并条目使用各自的来源版本；旧账本重新接管前拒绝自动删除；同一编辑器内接管后关闭对应 Agent 可以保存；重复注册不接管外部新增的超时配置，保留原账本）
+- `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter "McpServerLibraryTests|McpSymlinkConfigurationTests|McpWriteProtectionTests|FileStorageReplacementTests|McpFeatureBatchFailureTests"`（双窗口顺序保存，分别覆盖旧编辑器未刷新和刷新后可见字段恰好等于新版本的情况；认证或超时字段外部变化后阻止旧草稿保存、重命名、关闭开关、删除与关闭项目清理；双 Agent 合并条目使用各自的来源版本；旧账本重新接管前拒绝自动删除；同一编辑器内接管后关闭对应 Agent 可以保存；重复注册不接管外部新增的超时配置，保留原账本）
 - `./scripts/test-macos.sh --filter IdeCapabilitiesTests`
 - `./scripts/verify-service-boundaries.sh`
 - `./scripts/verify-agent-notes.sh`
