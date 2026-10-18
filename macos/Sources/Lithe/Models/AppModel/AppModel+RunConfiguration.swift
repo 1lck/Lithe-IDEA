@@ -99,7 +99,7 @@ extension AppModel {
         if let target = activeTestTarget {
             runTest(
                 providerID: target.providerID,
-                scope: .testCase(identifier: target.identifier, fileURL: target.fileURL)
+                scope: target.scope
             )
             return
         }

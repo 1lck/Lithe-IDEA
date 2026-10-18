@@ -290,7 +290,7 @@ struct LanguageTestsView: View {
         let isCollapsed = collapsedTestIDs.contains(item.id)
         let selected = selectedItemID == item.id
         let status = resultStatuses[Self.resultKey(item)]
-        let duration = testDurations[Self.resultKey(item)] ?? testDurations[item.label]
+        let duration = testDurations[Self.resultKey(item)]
         return HStack(spacing: LitheTheme.Tree.iconTextGap) {
             if hasChildren {
                 Button {
@@ -374,31 +374,10 @@ struct LanguageTestsView: View {
             }
         }
 
-        // Summary duration line: Time elapsed: 0.017 s (without "-- in")
-        var summaryDuration: String? = nil
-        if let summaryRegex = try? NSRegularExpression(
-            pattern: #"Time elapsed:\s*([0-9]+(?:\.[0-9]+)?)\s*s(?!\s*--?\s*in)"#
-        ) {
-            let matches = summaryRegex.matches(in: output, range: NSRange(output.startIndex..., in: output))
-            if let lastMatch = matches.last,
-               let timeRange = Range(lastMatch.range(at: 1), in: output),
-               let sec = Double(output[timeRange]) {
-                summaryDuration = formatDuration(seconds: sec)
-            }
-        }
-
-        // Map method outcomes
-        if let summary = summaryDuration {
-            for outcome in outcomes {
-                let method = outcome.method.split(separator: "(", maxSplits: 1).first.map(String.init) ?? outcome.method
-                let fullKey = outcome.className + "#" + method
-                if durations[fullKey] == nil {
-                    durations[fullKey] = summary
-                }
-                if durations[method] == nil {
-                    durations[method] = summary
-                }
-            }
+        for outcome in outcomes {
+            guard let milliseconds = outcome.durationMillis, milliseconds >= 0 else { continue }
+            let method = outcome.method.split(separator: "(", maxSplits: 1).first.map(String.init) ?? outcome.method
+            durations[outcome.className + "#" + method] = formatDuration(seconds: Double(milliseconds) / 1000)
         }
 
         return durations

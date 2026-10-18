@@ -116,16 +116,35 @@ struct LanguageTestPresentationTests {
         Checking 2 + 3
         [INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.582 s -- in demo.CalculatorTest
         [INFO] Results:
-        [INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.017 s
+        [INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 9.999 s
         """
         let outcomes = [
-            MavenTestCaseOutcome(className: "demo.CalculatorTest", method: "addsPositiveNumbers()", status: "passed")
+            MavenTestCaseOutcome(className: "demo.CalculatorTest", method: "addsPositiveNumbers()", status: "passed", durationMillis: 17)
         ]
         let durations = LanguageTestsView.parseDurations(from: output, outcomes: outcomes)
         #expect(durations["demo.CalculatorTest"] == "582 ms")
         #expect(durations["CalculatorTest"] == "582 ms")
         #expect(durations["demo.CalculatorTest#addsPositiveNumbers"] == "17 ms")
-        #expect(durations["addsPositiveNumbers"] == "17 ms")
+        #expect(durations["addsPositiveNumbers"] == nil, "Method names from different classes must not share a duration")
+    }
+
+    @Test
+    func methodDurationsComeFromReportsAndNeverFromASuiteSummary() throws {
+        struct Fixture: Decodable { let expected: [MavenTestCaseOutcome] }
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let fixture = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf:
+            root.appendingPathComponent("shared/fixtures/maven/testcase-durations-v1.json")))
+        let durations = LanguageTestsView.parseDurations(from: "Time elapsed: 9.999 s", outcomes: fixture.expected)
+        #expect(durations["demo.DurationTest#fast"] == "10 ms")
+        #expect(durations["demo.DurationTest#slow"] == "125 ms")
+        #expect(durations["demo.DurationTest#repeat"] == "50 ms")
+        #expect(durations["demo.DurationTest#zero"] == "0 ms")
+        for method in ["missing", "partial", "invalid", "negative", "overflow"] {
+            #expect(durations["demo.DurationTest#" + method] == nil)
+        }
+        let unknown = MavenTestCaseOutcome(className: "demo.OtherTest", method: "fast", status: "passed")
+        #expect(LanguageTestsView.parseDurations(from: "Time elapsed: 9.999 s", outcomes: [unknown]).isEmpty)
     }
 
     @Test
@@ -150,6 +169,16 @@ struct LanguageTestPresentationTests {
         #expect(ActiveTestTarget.formattedName(for: "demo.CalculatorTest#addsPositiveNumbers()") == "CalculatorTest.addsPositiveNumbers")
         #expect(ActiveTestTarget.formattedName(for: "demo.CalculatorTest#intentionalFailureForPreview()") == "CalculatorTest.intentionalFailureForPreview")
         #expect(ActiveTestTarget.formattedName(for: "demo.CalculatorTest") == "CalculatorTest")
+    }
+
+    @Test
+    func resolvedFileTestNameKeepsTheFullScopeAndDebugToolbarBinding() {
+        let scope = LanguageTestScope.file(URL(fileURLWithPath: "/fixture/Tests.java"))
+        var target = ActiveTestTarget(providerID: "java", scope: scope)
+        target.resolvedName = "ActualTestClass"
+        #expect(target.scope == scope)
+        #expect(DebugToolbarPresentation.mainToolbarControl(state: .paused,
+            debugTarget: "ActualTestClass", selectedTarget: target.name) == .resume)
     }
 
     private func testItem(_ id: String, selector: String? = nil, depth: Int) -> LanguageTestItem {

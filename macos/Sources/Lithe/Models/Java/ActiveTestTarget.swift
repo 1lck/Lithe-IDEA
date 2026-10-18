@@ -1,20 +1,20 @@
 import Foundation
 import LitheCoreContracts
 
-/// Represents an active or recently executed test target (class or method),
-/// displayed in the main workbench toolbar run configuration picker with
-/// its test name and JUnit icon.
+/// The selected test scope, preserved when rerunning from the main toolbar.
 struct ActiveTestTarget: Equatable, Sendable {
-    let name: String
     let providerID: String
-    let identifier: String
-    let fileURL: URL?
+    let scope: LanguageTestScope
+    /// Upstream launch title, when debug preparation resolves a file to an actual test class.
+    var resolvedName: String? = nil
 
-    init(name: String, providerID: String, identifier: String, fileURL: URL? = nil) {
-        self.name = name
-        self.providerID = providerID
-        self.identifier = identifier
-        self.fileURL = fileURL
+    var name: String {
+        if let resolvedName { return resolvedName }
+        return switch scope {
+        case .workspace: String(localized: "Workspace")
+        case .file(let url): url.lastPathComponent
+        case .testCase(let identifier, _): Self.formattedName(for: identifier)
+        }
     }
 
     /// Formats identifiers like `demo.CalculatorTest#intentionalFailureForPreview()`

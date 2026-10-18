@@ -77,10 +77,7 @@ extension AppModel {
 
     func runTest(providerID: String, scope: LanguageTestScope) {
         guard let workspaceURL else { return }
-        if case .testCase(let identifier, let fileURL) = scope {
-            let formatted = ActiveTestTarget.formattedName(for: identifier)
-            activeTestTarget = ActiveTestTarget(name: formatted, providerID: providerID, identifier: identifier, fileURL: fileURL)
-        }
+        activeTestTarget = ActiveTestTarget(providerID: providerID, scope: scope)
         showToolWindow(.tests)
         Task { [weak self] in
             guard let self, let execution = await activateExecutionModule() else { return }
@@ -102,10 +99,7 @@ extension AppModel {
 
     func debugTest(providerID: String, scope: LanguageTestScope) {
         guard let workspaceURL else { return }
-        if case .testCase(let identifier, let fileURL) = scope {
-            let formatted = ActiveTestTarget.formattedName(for: identifier)
-            activeTestTarget = ActiveTestTarget(name: formatted, providerID: providerID, identifier: identifier, fileURL: fileURL)
-        }
+        activeTestTarget = ActiveTestTarget(providerID: providerID, scope: scope)
         switch javaTestWorkflowState.resolveDebugRequest(providerID: providerID, scope: scope) {
         case .rejected(let message):
             showNotification(message)
@@ -119,6 +113,7 @@ extension AppModel {
         request: JavaTestDebugRequest,
         workspaceURL: URL
     ) {
+        let selectedTarget = activeTestTarget
         featureGraph.javaTestDebugWorkflow.start(
             request: request,
             state: javaTestWorkflowState,
@@ -151,6 +146,9 @@ extension AppModel {
                 guard let self,
                       let genericDebugFeature = self.genericDebugFeatureIfActive else {
                     return false
+                }
+                if self.activeTestTarget == selectedTarget {
+                    self.activeTestTarget?.resolvedName = prepared.configuration.name
                 }
                 return genericDebugFeature.start(
                     fileURL: prepared.target.fileURL,

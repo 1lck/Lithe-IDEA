@@ -923,8 +923,11 @@ the run wrote and returns `testCases`, otherwise an empty list:
 
 ```json
 { "className": "com.example.CalculatorTest", "method": "additionIsCorrect",
-  "status": "failed", "message": "expected <4> but was <5>", "invocations": 1 }
+  "status": "failed", "message": "expected <4> but was <5>", "invocations": 1,
+  "durationMillis": 23 }
 ```
+
+Optional `durationMillis` comes only from each XML testcase's `time` seconds attribute. Repeated/parameterized invocations sum their times in whole milliseconds; if any invocation has a missing, negative, non-finite, unrepresentable time or the sum overflows the host integer range, the field is omitted. A reported zero is valid. Hosts hide missing method durations and must not substitute a console/suite summary or another class's method time. `build.decodeTestResults` preserves the same duration in its canonical testcase result.
 
 Reports are searched in the module's configured Surefire/Failsafe
 `reportsDirectory` values plus `<build directory>/surefire-reports` and
