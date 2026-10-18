@@ -161,11 +161,12 @@ describe("Nushell quoting", () => {
     );
   });
 
-  // With both characters present no Nushell form keeps the path literal; the raw
-  // path is emitted rather than an escape Nushell would read differently.
-  test("leaves a name with both a backtick and a quote as written", () => {
-    const path = "C:\\work\\a`it's.txt";
-    expect(formatPathsForTerminal([path], { shell: "nu" })).toBe(path);
+  // Regression: an unrepresentable name must not fall back to bare text. An
+  // unquoted `;` in a file name would then be read as a command separator, so the
+  // path is dropped instead of risking execution.
+  test("drops a name Nushell cannot represent literally instead of leaving it bare", () => {
+    const path = "C:\\work\\a; ^whoami; #'`.txt";
+    expect(formatPathsForTerminal([path], { shell: "nu" })).toBe("");
   });
 });
 

@@ -62,22 +62,23 @@ const POWERSHELL_SINGLE_QUOTES = /['\u2018\u2019\u201A\u201B]/g;
  * environment variable. Windows forbids `"` in file names, so no escaping is
  * needed inside the quotes.
  */
-function quotePathForShell(path: string, family: TerminalShellFamily): string {
+function quotePathForShell(path: string, family: TerminalShellFamily): string | null {
   if (family === "powershell") {
     // Doubling is PowerShell's escape inside a single-quoted string and keeps the
     // literal value intact for every delimiter character above.
     return `'${path.replace(POWERSHELL_SINGLE_QUOTES, (quote) => quote + quote)}'`;
   }
   if (family === "nushell") {
-    // A single-quoted Nushell string has no escape for `'`, so doubling would not
+    // A Nushell single-quoted string has no escape for `'`, so doubling would not
     // round-trip. Its raw string keeps quotes, `$` and backslashes literal, which
-    // covers every shape a Windows path can contain.
+    // covers the shapes a Windows path can contain.
     if (!path.includes("`")) return `\`${path}\``;
-    // A backtick cannot appear in a raw string. Single quotes still work when the
-    // name has no quote of its own; with both present no Nushell form keeps the
-    // path literal, so the raw path is left as written instead of emitting an
-    // escape Nushell would read differently.
-    return path.includes("'") ? path : `'${path}'`;
+    if (!path.includes("'")) return `'${path}'`;
+    // A backtick cannot appear in a raw string and a quote cannot appear in a
+    // single-quoted string, so this path has no literal form in Nushell. Report
+    // it instead of emitting the bare path: an unquoted `;` or `|` in a file name
+    // would then run as a command separator.
+    return null;
   }
   if (family === "posix") {
     // Close the quote, escape the apostrophe outside it, then reopen.
@@ -94,6 +95,9 @@ function quotePathForShell(path: string, family: TerminalShellFamily): string {
  * distribution's namespace first — Windows drives become `/mnt/<drive>` and a
  * `wsl://<distro>` workspace path keeps only its Linux part. Without that the
  * shell treats the path as a relative filename and opens nothing.
+ *
+ * A path with no literal form in the target shell is dropped rather than emitted
+ * unquoted; inserting a bare path could run a file name as a command.
  */
 export function quoteTerminalPaths(
   paths: readonly string[],
@@ -106,6 +110,7 @@ export function quoteTerminalPaths(
   return paths
     .map((path) => (distro ? (pathToWslPath(path, distro) ?? path) : path))
     .map((path) => quotePathForShell(path, family))
+    .filter((quoted): quoted is string => quoted !== null)
     .join(" ");
 }
 
