@@ -179,6 +179,13 @@ Git 图形的离屏帧采样保留完整 1,000 行历史，但每次只绘制 40
 重复绘制 220 次当作单帧采样：这会把画面之外的工作混进测试总耗时，在共享
 runner 上可能出现断言都通过、计时工具仍因超过十秒而失败的情况。
 
+真实进程生命周期测试把解释器启动与进程内事件分开计时。
+`MacRetainedProcessLifecycleTests` 在托管 macOS Runner 上等待 Python 首次就绪时
+触发了进程内 gate 默认的 2 秒期限；它尚未进入 fork 和保留后代的验证场景。
+这类原生启动使用独立的 5 秒就绪期限，并在失败时报告 PID 和运行状态；fork、
+持久化观察和退出信号仍保持原有短期限，单测试仍受 15 秒计时上限约束。
+正确做法是等待明确的就绪事件，不通过固定睡眠同步，也不修改产品进程行为。
+
 CI 缓存 Cargo fingerprints、build script outputs 和依赖 outputs，不缓存
 最终可执行文件。缓存覆盖 `rust/target/macos` 的 Rust Core 和 `rust/target`
 的数据库辅助 crate；缓存键必须包含运行器架构、编译器、Xcode/SDK/macOS
