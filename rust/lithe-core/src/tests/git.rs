@@ -5856,3 +5856,43 @@ fn git_line_history_merge_ranges_survive_back_and_forth_renames() {
 
     fs::remove_dir_all(&root).expect("line-history repository should be removable");
 }
+
+#[test]
+fn git_line_history_merge_rename_edit_keeps_previous_path_and_ranges() {
+    let root = line_history_repository("line-history-merge-rename-edit");
+    let run = |arguments: &[&str]| {
+        Command::new("git")
+            .args(arguments)
+            .current_dir(&root)
+            .output()
+            .expect("git should be available")
+    };
+    write_numbered_lines(&root.join("a.txt"), 1, 6);
+    line_history_commit(&root, "initial");
+    // The branch renames the file and edits one line in the same commit; the
+    // merge carries both onto the first-parent chain.
+    assert!(run(&["checkout", "-qb", "side"]).status.success());
+    assert!(run(&["mv", "a.txt", "b.txt"]).status.success());
+    replace_whole_line(&root, "b.txt", 4, "line 04 side");
+    line_history_commit(&root, "rename and reword");
+    assert!(run(&["checkout", "-q", "master"]).status.success());
+    assert!(run(&["merge", "-q", "--no-ff", "side", "-m", "merge side"])
+        .status
+        .success());
+
+    let content = fs::read_to_string(root.join("b.txt")).expect("doc readable");
+    let response = line_history_query(&root, "b.txt", &content, 4, 4);
+    assert_eq!(response["ok"], true, "{response:?}");
+    let commits = response["data"]["commits"].as_array().expect("commits");
+    let merge = commits
+        .iter()
+        .find(|entry| entry["kind"] == "merge-first-parent")
+        .unwrap_or_else(|| panic!("merge entry missing: {response:?}"));
+    assert_eq!(merge["pathAtCommit"], "b.txt", "{response:?}");
+    assert_eq!(merge["previousPath"], "a.txt", "{response:?}");
+    let ranges = merge["relevantRanges"].as_array().expect("ranges");
+    assert!(!ranges.is_empty(), "{response:?}");
+    assert_eq!(ranges[0]["newStart"], 4, "{response:?}");
+
+    fs::remove_dir_all(&root).expect("line-history repository should be removable");
+}

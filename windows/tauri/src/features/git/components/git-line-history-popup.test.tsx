@@ -185,6 +185,50 @@ describe("GitLineHistoryPopup", () => {
     });
   });
 
+  test("rename-with-edit entries open the single-file preview with positioning", async () => {
+    const { host, root } = mountPopup();
+    await flush();
+    const renamedEntry = {
+      ...sampleHistory.commits[0],
+      kind: "commit" as const,
+      pathAtCommit: "renamed.txt",
+      previousPath: "original.txt",
+    };
+    await act(async () => {
+      resolveQuery?.({
+        history: { ...sampleHistory, commits: [renamedEntry] },
+        repoPath: "C:/repo",
+        filePath: "doc.txt",
+      });
+    });
+    await flush();
+
+    const entry = host.querySelector<HTMLButtonElement>("[data-line-history-entry]");
+    // The scoped diff answers with the renamed file so the preview can pick
+    // its target; stacked one-shot mocks cover the discovery then the diff.
+    invoke.mockImplementationOnce(async () => "C:/repo");
+    invoke.mockImplementationOnce(async () => [
+      { file_path: "renamed.txt", new_path: "renamed.txt", lines: [] },
+    ]);
+    entry!.click();
+    await flush();
+    const scoped = invoke.mock.calls.find((call) => call[0] === "git.diff");
+    expect(scoped).toBeTruthy();
+    const args = scoped?.[1] as Record<string, unknown>;
+    // Both rename sides ride the request so git keeps the pairing, and the
+    // current path lands the preview.
+    expect(args.pathspecs).toEqual(["original.txt", "renamed.txt"]);
+    expect(openBuffer).toHaveBeenCalledTimes(1);
+    const diffData = openBuffer.mock.calls[0][7] as Record<string, unknown>;
+    expect(diffData.commitFilePreview).toBe(true);
+    expect(diffData.initialRevealRange).toEqual({ startLine: 3, endLine: 3 });
+
+    await act(async () => {
+      root.unmount();
+      host.remove();
+    });
+  });
+
   test("offers a whole-commit entry that opens the unscoped stack", async () => {
     const { host, root } = mountPopup();
     await flush();

@@ -57,7 +57,9 @@ export const openCommitDiffBuffer = async ({
 }: OpenCommitDiffBufferOptions): Promise<string | null> => {
   // Scoped opens reuse the Git Log single-file preview so the reveal range is
   // actually consumed; the generic stack would ignore positioning entirely.
-  if (pathspecs?.length === 1 || compareReference) {
+  // Rename entries carry two pathspecs (previous + current); the target file
+  // for the preview is the current one, which is the last entry.
+  if (pathspecs?.length === 1 || pathspecs?.length === 2 || compareReference) {
     const diffs = await loadScopedCommitDiff(
       repoPath,
       commitHash,
@@ -71,7 +73,10 @@ export const openCommitDiffBuffer = async ({
       repoPath,
       commitHash,
       diffs,
-      filePath: pathspecs?.[0] ?? diffs[0]?.new_path ?? diffs[0]?.file_path ?? "",
+      filePath: pathspecs?.[pathspecs.length - 1]
+        ?? diffs[0]?.new_path
+        ?? diffs[0]?.file_path
+        ?? "",
       label: commitHash.substring(0, 7),
     });
     if (!preview) {

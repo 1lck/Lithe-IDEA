@@ -865,6 +865,14 @@ export function MonacoEditor({
       }
     });
   }, [lineHistoryMenu, rootFolderPath, filePath]);
+  // Tab switching caches and hides the editor instead of unmounting it, so
+  // the body portal would outlive the visible surface. Deactivating closes
+  // the popup, which also cancels its in-flight query.
+  useEffect(() => {
+    if (lineHistoryMenu && !isActiveSurface) {
+      setLineHistoryMenu(null);
+    }
+  }, [lineHistoryMenu, isActiveSurface]);
   const [contextMenuPosition, setContextMenuPosition] = useState<{
     x: number;
     y: number;

@@ -3520,7 +3520,7 @@ fn line_history_merge_ranges(
     base_path: &str,
     compare_base: &str,
     hash: &str,
-) -> Result<Option<(Vec<GitLineHistoryRange>, String)>, CoreError> {
+) -> Result<Option<(Vec<GitLineHistoryRange>, String, Option<String>)>, CoreError> {
     let mut lines: std::collections::BTreeSet<usize> = std::collections::BTreeSet::new();
     for (start, end) in base_intervals {
         for line in *start..=*end {
@@ -3625,8 +3625,12 @@ fn line_history_merge_ranges(
         }
     }
     if lines.is_empty() {
-        return Ok(Some((Vec::new(), path)));
+        return Ok(Some((Vec::new(), path, None)));
     }
+    // The supplement diff runs without a pathspec, exactly like the replay:
+    // restricting it to the walked path would clip a rename committed by the
+    // merge itself into a synthetic whole-file addition and lose the
+    // before-content along with precise ranges.
     let diff = readonly_command(GitCommandRequest {
         root: root.to_string(),
         arguments: vec![
@@ -3634,10 +3638,9 @@ fn line_history_merge_ranges(
             "--unified=0".to_string(),
             "--no-ext-diff".to_string(),
             "--no-textconv".to_string(),
+            "--find-renames".to_string(),
             compare_base.to_string(),
             hash.to_string(),
-            "--".to_string(),
-            path.clone(),
         ],
         input: None,
     })?;
@@ -3645,21 +3648,39 @@ fn line_history_merge_ranges(
         return Ok(None);
     }
     let mut ranges = Vec::new();
-    for (old_start, old_count, new_start, new_count) in parse_line_history_hunks(&diff.output) {
-        let new_end = line_history_endpoint(new_start, new_count);
-        let intersects = lines
-            .iter()
-            .any(|line| *line >= new_start && *line <= new_end);
-        if intersects {
-            ranges.push(GitLineHistoryRange {
-                old_start,
-                old_end: line_history_endpoint(old_start, old_count),
-                new_start,
-                new_end,
-            });
+    let mut previous_path: Option<String> = None;
+    let mut segment_matches = false;
+    for line in diff.output.lines() {
+        if let Some(rest) = line.strip_prefix("diff --git a/") {
+            if let Some((old, new)) = rest.split_once(" b/") {
+                segment_matches = new == path;
+                if segment_matches && old != path {
+                    previous_path = Some(old.to_string());
+                }
+            }
+            continue;
+        }
+        if !segment_matches {
+            continue;
+        }
+        if let Some((old_start, old_count, new_start, new_count)) =
+            parse_line_history_hunk_header(line)
+        {
+            let new_end = line_history_endpoint(new_start, new_count);
+            let intersects = lines
+                .iter()
+                .any(|line| *line >= new_start && *line <= new_end);
+            if intersects {
+                ranges.push(GitLineHistoryRange {
+                    old_start,
+                    old_end: line_history_endpoint(old_start, old_count),
+                    new_start,
+                    new_end,
+                });
+            }
         }
     }
-    Ok(Some((ranges, path)))
+    Ok(Some((ranges, path, previous_path)))
 }
 
 /// Traces which commits touched one one-based line range of an editor
@@ -3919,7 +3940,7 @@ pub fn line_history(request: GitLineHistoryRequest) -> Result<GitLineHistoryResp
             // chain from the pinned base to the merge's parent, translating
             // the base intervals and path through every touched commit's diff;
             // text matching could not disambiguate duplicate or blank lines.
-            if let Some((supplement, resolved_path)) = line_history_merge_ranges(
+            if let Some((supplement, resolved_path, renamed_from)) = line_history_merge_ranges(
                 &request.root,
                 &base_commit,
                 &intervals,
@@ -3929,8 +3950,12 @@ pub fn line_history(request: GitLineHistoryRequest) -> Result<GitLineHistoryResp
             )? {
                 ranges = supplement;
                 if resolved_path != path_at_commit {
-                    previous_path = None;
                     path_at_commit = resolved_path;
+                    previous_path = renamed_from;
+                } else if previous_path.is_none() {
+                    // The rename happened inside the merge itself; -L already
+                    // reported the new path, but the pairing is still news.
+                    previous_path = renamed_from;
                 }
             }
         }
