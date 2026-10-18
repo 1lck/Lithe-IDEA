@@ -5910,6 +5910,12 @@ pub enum PushTargetChoiceRequest {
     Upstream,
 }
 
+/// Rejects a push whose confirmed destination cannot be resolved. The message is
+/// actionable without exposing repository internals.
+fn invalid_push_destination(message: &str) -> CoreError {
+    CoreError::new(ErrorCode::InvalidRequest, message)
+}
+
 fn push(
     root: &str,
     reference: Option<&str>,
@@ -5958,23 +5964,24 @@ fn push(
     let (target, should_set_upstream) = if target.target_kind == PushTargetKind::Divergent {
         match push_target {
             Some(PushTargetChoiceRequest::Upstream) => {
-                let Some((_, upstream_branch)) = target
-                    .upstream
-                    .as_ref()
-                    .and_then(|upstream| upstream.rsplit_once('/'))
-                else {
-                    return Err(CoreError::new(
-                        ErrorCode::InvalidRequest,
-                        "The configured upstream could not be resolved",
-                    ));
-                };
+                // Reuse the shared remote/branch splitter: an upstream short name is
+                // `remote/branch`, and either side may itself contain slashes, so the
+                // last segment is not reliably the branch name.
+                let upstream_full_name = target.upstream.clone().ok_or_else(|| {
+                    invalid_push_destination("The configured upstream could not be resolved")
+                })?;
+                let (_, upstream_branch) = mutations::remote_branch_components(
+                    root,
+                    &format!("refs/remotes/{upstream_full_name}"),
+                )
+                .map_err(|error| invalid_push_destination(&error.message))?;
                 let target_reference =
                     format!("refs/remotes/{}/{}", target.remote, upstream_branch);
                 let comparison_reference =
                     reference_exists(root, &target_reference)?.then_some(target_reference);
                 (
                     PushTarget {
-                        remote_branch: upstream_branch.to_string(),
+                        remote_branch: upstream_branch,
                         creates_remote_branch: comparison_reference.is_none(),
                         comparison_reference,
                         ..target

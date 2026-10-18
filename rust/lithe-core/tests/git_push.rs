@@ -935,6 +935,89 @@ fn confirmed_upstream_push_keeps_the_divergent_destination() {
     );
 }
 
+/// Issue #1272: the confirmed upstream destination must be resolved with the same
+/// remote/branch splitter the rest of the push path uses. An upstream short name is
+/// `remote/branch` and either side may contain slashes, so taking the last segment
+/// resolves a slashed branch name to the wrong remote branch.
+#[test]
+fn confirmed_upstream_push_resolves_a_slashed_branch_name() {
+    let fixture = GitFixture::new();
+    let (repository, remote) = initialize_repository(&fixture);
+    require_git(&repository, &["remote", "rename", "origin", "team/origin"]);
+    // Publish a remote branch whose own name contains slashes.
+    require_git(
+        &repository,
+        &["push", "-q", "team/origin", "main:refs/heads/team/release"],
+    );
+    require_git(&repository, &["fetch", "-q", "team/origin"]);
+    require_git(
+        &repository,
+        &[
+            "switch",
+            "-q",
+            "-c",
+            "feature/topic",
+            "team/origin/team/release",
+        ],
+    );
+    require_git(
+        &repository,
+        &[
+            "branch",
+            "-q",
+            "--set-upstream-to=team/origin/team/release",
+            "feature/topic",
+        ],
+    );
+    fs::write(repository.join("topic.txt"), "topic\n").expect("fixture should be writable");
+    require_git(&repository, &["add", "topic.txt"]);
+    require_git(&repository, &["commit", "-q", "-m", "topic work"]);
+    let local_head = String::from_utf8_lossy(&git(&repository, &["rev-parse", "HEAD"]).stdout)
+        .trim()
+        .to_string();
+
+    let preview = core("git.pushPreview", &repository, json!({}));
+    assert_eq!(preview["data"]["upstream"], "team/origin/team/release");
+    assert_eq!(preview["data"]["targetKind"], "divergent");
+
+    let pushed = core(
+        "git.write",
+        &repository,
+        json!({ "operation": "push", "pushTarget": "upstream" }),
+    );
+    assert_eq!(pushed["ok"], true, "response: {pushed}");
+    assert_eq!(pushed["data"]["exitCode"], 0, "response: {pushed}");
+
+    let confirmed_remote_branch =
+        String::from_utf8_lossy(&git(&remote, &["rev-parse", "refs/heads/team/release"]).stdout)
+            .trim()
+            .to_string();
+    assert_eq!(
+        confirmed_remote_branch, local_head,
+        "the confirmed upstream branch receives the commit: {pushed}"
+    );
+    let misresolved =
+        String::from_utf8_lossy(&git(&remote, &["rev-parse", "refs/heads/release"]).stdout)
+            .trim()
+            .to_string();
+    assert_ne!(
+        misresolved, local_head,
+        "a mis-resolved destination branch must not receive the commit: {pushed}"
+    );
+    assert_eq!(
+        String::from_utf8_lossy(
+            &git(
+                &repository,
+                &["config", "--get", "branch.feature/topic.merge"]
+            )
+            .stdout
+        )
+        .trim(),
+        "refs/heads/team/release",
+        "an intentional divergent upstream is preserved"
+    );
+}
+
 /// Issue #1272 asks whether new worktrees carry the same implicit-tracking risk.
 /// The worktree path already freezes tracking explicitly: a remote start tracks
 /// that remote branch, and an explicit commit start does not track anything.

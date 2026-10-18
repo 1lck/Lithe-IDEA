@@ -654,3 +654,84 @@ fn git_workspace_commit_push_carries_the_confirmed_target() {
         "the confirmed publish destination receives the new commit"
     );
 }
+
+/// Issue #1272: the same confirmed-destination path must resolve a slashed remote
+/// branch correctly. The workspace push step carries the choice into the same Core
+/// push used by the push dialog.
+#[test]
+fn git_workspace_commit_push_keeps_a_slashed_confirmed_upstream() {
+    let repo = repository("workspace-commit-slashed-upstream");
+    let remote = Repository(temporary_root("workspace-commit-slashed-remote"));
+    fs::create_dir_all(&remote.0).unwrap();
+    git(&remote.0, &["init", "--bare", "-q"]);
+    fs::write(repo.0.join("base.txt"), "base").unwrap();
+    git(&repo.0, &["add", "."]);
+    git(&repo.0, &["commit", "-qm", "base"]);
+    git(&repo.0, &["branch", "-M", "main"]);
+    git(
+        &repo.0,
+        &["remote", "add", "origin", remote.0.to_str().unwrap()],
+    );
+    git(
+        &repo.0,
+        &["push", "-qu", "origin", "main:refs/heads/team/release"],
+    );
+    git(&repo.0, &["push", "-qu", "origin", "main"]);
+    git(&repo.0, &["fetch", "-qu", "origin"]);
+    let release_before = git(&remote.0, &["rev-parse", "refs/heads/team/release"]);
+
+    git(
+        &repo.0,
+        &["switch", "-q", "-c", "feature/topic", "origin/team/release"],
+    );
+    git(
+        &repo.0,
+        &[
+            "branch",
+            "-q",
+            "--set-upstream-to=origin/team/release",
+            "feature/topic",
+        ],
+    );
+    staged_file(&repo.0, "topic.txt", "topic");
+
+    let repositories = json!([{"id":".","root":repo.0}]);
+    let prepared = request(
+        &repo.0,
+        "git.workspaceCommitPrepare",
+        json!({
+            "repositories":repositories, "message":"topic work", "push":true,
+            "includeParentReferences":false, "pushTarget":"upstream"
+        }),
+    );
+    assert_eq!(prepared["ok"], true, "{prepared}");
+
+    let mut session = prepared["data"]["session"].clone();
+    for _ in 0..4 {
+        if session["finished"] == true {
+            break;
+        }
+        session = next_workspace(&repo.0, session);
+    }
+    assert_eq!(session["succeeded"], true, "{session}");
+
+    assert_eq!(
+        git(&remote.0, &["rev-parse", "refs/heads/team/release"]).trim(),
+        git(&repo.0, &["rev-parse", "HEAD"]).trim(),
+        "the confirmed slashed upstream branch receives the new commit"
+    );
+    assert_ne!(
+        git(&remote.0, &["rev-parse", "refs/heads/team/release"]).trim(),
+        release_before.trim(),
+        "the confirmed upstream branch was updated rather than skipped"
+    );
+    let misresolved = request(
+        &remote.0,
+        "git.command",
+        json!({"arguments":["rev-parse", "--verify", "--quiet", "refs/heads/release"]}),
+    );
+    assert_ne!(
+        misresolved["data"]["exitCode"], 0,
+        "a mis-resolved destination branch must not be created: {misresolved}"
+    );
+}
