@@ -37,7 +37,7 @@ Mac mini Runner，因为离线时没有回退、fork 代码跑在长期存活的
 提交，或者为了同步 `preview` 更新分支，所有 lane 都会重新完整运行，而结果大概率
 不变。`scripts/plan-ci-lane-reuse.mjs` 在 macOS CI、插件 CI 和 Windows CI 的分类 job
 中逐个 lane 判断：找到这个 PR 之前真正执行过该 lane 的最近一次运行，job 已通过或
-仍在运行，并且 PR 自己在此之后的改动（按现有分类规则）不影响这个 lane，就复用
+已经在 GitHub 托管 Runner 上实际运行，并且 PR 自己在此之后的改动（按现有分类规则）不影响这个 lane，就复用
 那次结果。只看 PR 自己的改动：用“每个文件的 PR 版本”比较两个修订，从 base 同步
 进来的改动不算；但只要 base 在两次运行之间带来了 CI 基础设施的改动（workflow、
 action、分类和 runner 脚本、测试基础设施、`Package.swift`/`Package.resolved`、所有
@@ -46,7 +46,10 @@ Cargo 清单与锁文件（包括成员 crate，只改 feature 时锁文件可�
 分隔的原始形式读取，分类脚本同样如此，否则 Git 会给中文等路径加引号转义，导致
 路径匹配失败、把真实改动当成没有变化。这里同时检查作者合入的 base 改动和 GitHub 合并
 提交在 base 前进后自动带上的改动（用 API 取得之前那次运行开始时的 base 头）。
-失败或被取消的结果从不复用。
+失败或被取消的结果从不复用。尚未取得 Runner 的排队任务，以及自建 Runner 上未完成
+的任务也不复用：GitHub 在创建 job 时固定 Runner 标签，移除自建 Runner 不会让旧任务
+自动转移到托管机器。正确做法是让本轮重新创建托管 job，并取消无人复用的旧运行；
+不要让新 gate 继续等待已撤销的机器。已经通过的旧结果仍可按改动范围复用。
 
 GitHub 只能取消整个 workflow 运行，不能取消单个 job，所以 PR 运行不再按分支自动
 互相取消：规划步骤取消没有任何 lane 复用的旧运行，被复用、仍在运行的旧运行保留
