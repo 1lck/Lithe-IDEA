@@ -233,7 +233,8 @@ enum WorkbenchModuleUIComposition {
                             openProjectInCurrentWindow: { [weak model] in model?.openProject($0, placement: .thisWindow) },
                             openProjectInNewWindow: { [weak model] in model?.openProject($0, placement: .newWindow) },
                             temporaryDirectory: { [storage = model.services.fileStorage] in storage.temporaryDirectory() }
-                        )
+                        ),
+                        presentationCache: model.gitLogPresentationCache
                     ))
                 },
                 contentIdentity: { WorkbenchModuleUIRegistry.Renderer.featureIdentity($0.gitFeatureIfActive) }

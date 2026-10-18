@@ -96,6 +96,49 @@ struct GitGraphPresentation: Sendable {
     )
 }
 
+/// The project owns one latest presentation; hiding a panel does not discard it.
+/// Version tokens reject data from another repository, filter or display mode.
+@MainActor
+final class GitLogPresentationCache {
+    struct Identity: Equatable {
+        var historyVersion: Int
+        var repositoryVersion: Int
+        var referencesVersion: Int
+        var filterVersion: Int
+        var filtering: Bool
+        var showLongEdges: Bool
+        var highlightsCurrentBranch: Bool
+    }
+
+    struct ReferenceRows {
+        let identity: GitReferenceRowsIdentity
+        let local: [GitReferenceRow]
+        let remote: [GitReferenceRow]
+        let tags: [GitReferenceRow]
+        let repositories: [GitRepositoryReferenceRows]
+    }
+
+    private var referenceRowsEntry: ReferenceRows?
+
+    func referenceRows(for identity: GitReferenceRowsIdentity) -> ReferenceRows? {
+        referenceRowsEntry.flatMap { $0.identity == identity ? $0 : nil }
+    }
+
+    func store(_ rows: ReferenceRows) {
+        referenceRowsEntry = rows
+    }
+
+    private var entry: (identity: Identity, presentation: GitGraphPresentation)?
+
+    func value(for identity: Identity) -> GitGraphPresentation? {
+        entry.flatMap { $0.identity == identity ? $0.presentation : nil }
+    }
+
+    func store(_ presentation: GitGraphPresentation, for identity: Identity) {
+        entry = (identity, presentation)
+    }
+}
+
 struct GitGraphView: View {
     @Environment(\.displayScale) private var displayScale
     @Environment(\.locale) private var locale
@@ -546,7 +589,7 @@ final class GitGraphScrollDocumentView: NSView {
             let element = GitGraphAccessibilityRow()
             element.setAccessibilityParent(self)
             element.setAccessibilityRole(.button)
-            element.setAccessibilityLabel("\(row.commit.subject), \(row.commit.authorName), \(GitLogDatePresentation.string(row.commit.date, locale: locale))")
+            element.setAccessibilityLabel("\(row.commit.subject), \(row.commit.authorName), \(commitRowsView.dateString(row.commit.date))")
             element.setAccessibilitySelected(commitRowsView.isSelected(row.commit.hash))
             element.setAccessibilityFrameInParentSpace(CGRect(x: 0, y: CGFloat(index) * rowHeight, width: bounds.width, height: rowHeight))
             element.onPress = { [weak self] in self?.commitRowsView.select(rowIndex: index) }
@@ -661,6 +704,18 @@ final class GitGraphCommitRowsNSView: NSView, NSViewToolTipOwner {
         needsDisplay = true
     }
 
+    private func dateComponents(_ value: String) -> (text: String, period: String?) {
+        if let cached = dateTextCache[value] { return cached }
+        let result = GitLogDatePresentation.components(value, locale: locale)
+        dateTextCache[value] = result
+        return result
+    }
+
+    func dateString(_ value: String) -> String {
+        let parts = dateComponents(value)
+        return parts.text + (parts.period.map { " " + $0 } ?? "")
+    }
+
     func updateActions(_ actions: GitGraphRowActions, locale: Locale = .current) {
         if self.locale != locale {
             dateTextCache.removeAll(keepingCapacity: true)
@@ -762,8 +817,7 @@ final class GitGraphCommitRowsNSView: NSView, NSViewToolTipOwner {
                 font: style.meta,
                 color: foreground
             )
-            let date = dateTextCache[row.commit.date] ?? GitLogDatePresentation.components(row.commit.date, locale: locale)
-            dateTextCache[row.commit.date] = date
+            let date = dateComponents(row.commit.date)
             let periodWidth = date.period == nil ? 0 : style.meridiemWidth + 4
             drawText(date.text,
                 in: CGRect(x: max(0, rect.maxX - dateWidth - 8), y: rect.minY, width: dateWidth - periodWidth, height: rowHeight),
