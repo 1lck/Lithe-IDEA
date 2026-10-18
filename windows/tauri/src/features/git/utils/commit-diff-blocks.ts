@@ -108,61 +108,32 @@ export function planCommitDiffBlocks(worktree: GitDiff, staged: GitDiff): Commit
     const revertedIndex = [...indexed.after.slice(0, start), ...before, ...indexed.after.slice(end)];
     const rollbackBase = [...visible.after.slice(0, change.rightStart), ...indexLines,
       ...visible.after.slice(change.rightEnd)];
-    // Find the full range of unstaged lines within this block: every line
-    // where index differs from worktree. This maps HEAD display coordinates
-    // to index/worktree coordinates (P1) and handles partially staged blocks
-    // (P2) and pure additions with empty old side (P4).
-    let unstagedIndexStart = -1;
-    let unstagedIndexEnd = -1;
-    let unstagedWorktreeStart = -1;
-    let unstagedWorktreeEnd = -1;
-    if (end === start) {
-      // Pure addition: no index-side lines exist; the insertion boundary is
-      // the position between index lines where the worktree lines appear.
-      unstagedIndexStart = start;
-      unstagedIndexEnd = start;
-      unstagedWorktreeStart = change.rightStart;
-      unstagedWorktreeEnd = change.rightEnd;
-    } else {
-      for (let i = 0; i < end - start; i++) {
-        const indexLine = indexed.after[start + i];
-        const worktreeLine = visible.after[change.rightStart + i];
-        if (indexLine !== worktreeLine) {
-          if (unstagedIndexStart === -1) {
-            unstagedIndexStart = start + i;
-            unstagedWorktreeStart = change.rightStart + i;
-          }
-          unstagedIndexEnd = start + i;
-          unstagedWorktreeEnd = change.rightStart + i;
-        }
-      }
-    }
+    // Byte-faithful rollback passes the block's full index-side and
+    // worktree-side spans directly to the range builder — no line-by-line
+    // comparison needed. The builder collects all raw-patch changed lines
+    // within these spans. Zero-based slice indices convert to one-based
+    // inclusive: [start, end) → [start+1, end]; for the new side,
+    // rightEnd (not +1) yields an empty range for pure deletions.
     const block: CommitDiffBlock = {
       id: commitDiffChangeID(visible.plan, change), checked, indeterminate,
       canToggle: !overlapsBoundary && !worktree.has_lossy_line_endings,
-      // Rollback restores this block to the index, preserving included content.
-      // With writePatch the hunk carries original bytes (CR, EOF markers).
       canRollback: !overlapsBoundary && !checked,
       leftStart: change.leftStart, rightStart: change.rightStart,
       stage: gitGutterChangeHunk(worktree.file_path, indexed.after, edit(start, indexLines, after)),
       unstage: gitGutterChangeHunk(worktree.file_path, revertedIndex, edit(start, before, indexLines)),
-      // Byte-faithful rollback passes the full unstaged range and builds
-      // directly from the raw patch's changed lines within that range —
-      // no contiguity requirement, so a block's changes can be isolated
-      // even when adjacent to another block's changes in the raw patch.
-      rollback: worktree.writePatch && unstagedIndexStart >= 0
+      rollback: worktree.writePatch
         ? (buildFaithfulHunkFromRange(
             worktree,
-            unstagedIndexStart + 1,
-            unstagedWorktreeStart + 1,
-            unstagedIndexEnd + 1,
-            unstagedWorktreeEnd + 1,
+            start + 1,
+            change.rightStart + 1,
+            end,
+            change.rightEnd,
           ) ?? buildByteFaithfulHunk(
             worktree,
-            unstagedIndexStart + 1,
-            unstagedWorktreeStart + 1,
-            unstagedIndexEnd + 1,
-            unstagedWorktreeEnd + 1,
+            start + 1,
+            change.rightStart + 1,
+            end,
+            change.rightEnd,
           ) ?? undefined)
         : (!worktree.has_lossy_line_endings
           ? gitGutterChangeHunk(worktree.file_path, rollbackBase, edit(change.rightStart, indexLines, after))

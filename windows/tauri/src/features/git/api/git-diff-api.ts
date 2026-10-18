@@ -274,6 +274,17 @@ export const getWorkingTreePathDiff = async (
           ...(fullContext ? { contextLines: FULL_FILE_CONTEXT_LINES } : {}),
         }),
     );
+    if (!diff) return null;
+    // The rollback channel needs the raw patch bytes for lossy files; the
+    // display adapter strips CR and EOF markers. Attach writePatch the same
+    // way getFullContextFileDiff does, gated by the attribute safety check.
+    if (diff.has_lossy_line_endings) {
+      const safety = await checkHunkRollbackAttributes(resolved.repoPath, resolved.filePath);
+      if (safety.byteSafe) {
+        const raw = await fetchRawWorktreePatch(resolved.repoPath, resolved.filePath);
+        if (raw) return fullContext ? markFullContext({ ...diff, writePatch: raw }) : { ...diff, writePatch: raw };
+      }
+    }
     return fullContext ? markFullContext(diff) : diff;
   } catch (error) {
     if (!isNotGitRepositoryError(error) && !isNoDiffFoundError(error)) {

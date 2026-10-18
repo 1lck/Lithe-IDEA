@@ -257,17 +257,18 @@ export function buildFaithfulHunkFromRange(
     return oldOk && newOk;
   });
   if (inRange.length === 0) return null;
-  // Preserve original ordering for grouping and EOF attachment.
-  const ordered = lines.filter((line) => inRange.includes(line));
-  // Attach trailing EOF markers belonging to the last changed line.
-  for (let i = 0; i < lines.length; i++) {
-    if (lines[i].isEofMarker && i > 0) {
-      const prev = lines[i - 1];
-      if (ordered.includes(prev) && !ordered.includes(lines[i])) {
-        ordered.push(lines[i]);
-      }
+  // Preserve original ordering: include EOF markers adjacent to their
+  //所属 changed line in the raw patch, never appended after other lines.
+  // An old-side no-newline marker must stay after its `-` line, not after
+  // a following `+` line, or reverse-application restores the wrong side.
+  const ordered = lines.filter((line) => {
+    if (inRange.includes(line)) return true;
+    if (line.isEofMarker) {
+      const idx = lines.indexOf(line);
+      return idx > 0 && inRange.includes(lines[idx - 1]);
     }
-  }
+    return false;
+  });
   const filePath = diff.new_path || diff.file_path;
 
   // Group into contiguous runs (adjacent in the original patch, no context
