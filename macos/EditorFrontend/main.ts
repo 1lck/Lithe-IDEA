@@ -47,7 +47,9 @@ EditorOptions.layoutInfo.compute = function (env, options, value) {
     ...env.fontInfo, fontWeight: "normal", fontSize: Math.max(1, env.fontInfo.fontSize - 1),
   }));
   const digits = Math.max(1, env.lineNumbersDigitCount);
-  const width = Math.max(16, digits * font.maxDigitWidth);
+  // IDEA New UI EditorGutterLayout: 4pt empty annotation + 14pt breakpoint slot + 4pt pre-number gap = 22pt leading margin.
+  const gutterLeadingMargin = 22;
+  const width = gutterLeadingMargin + Math.max(16, digits * font.maxDigitWidth);
   return computeEditorLayout.call(this, {
     ...env, fontInfo: { ...env.fontInfo, maxDigitWidth: width / digits },
   }, options, value);

@@ -707,7 +707,7 @@ async function verify() {
           const style = getComputedStyle(number);
           context.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
           const digitWidth = Math.max(...[..."0123456789"].map(digit => context.measureText(digit).width));
-          const expected = Math.round(Math.max(16, String(count).length * digitWidth));
+          const expected = Math.round(22 + Math.max(16, String(count).length * digitWidth));
           assert(Math.abs(editor.getLayoutInfo().lineNumbersWidth - expected) <= 1,
             `number column did not follow measured font: ${count} lines, ${fontSize}pt`);
           assert(editor.getLayoutInfo().lineNumbersLeft === 0, "number column retained an extra left glyph margin");
