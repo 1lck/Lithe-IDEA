@@ -65,6 +65,9 @@ struct AgentComposerView: View {
     }
     private var currentDraft: String { draftText?.wrappedValue ?? completion.draft }
     private var hasContent: Bool { !currentDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty }
+    private var showsStopAction: Bool {
+        hasPendingContinuation || (isResponding && (!hasContent || isCancelling))
+    }
     private var displayAgentName: String? { selectedAgent?.name ?? fallbackAgentName }
     private var commandSuggestions: [AgentCommand]? {
         completion.suggestions(in: commands)
@@ -189,24 +192,16 @@ struct AgentComposerView: View {
             }
             Spacer(minLength: 0)
             contextButton
-            if isResponding || hasPendingContinuation {
-                Button(action: onCancel) {
-                    LitheIDEAIcon(resourcePath: "expui/run/stop.svg", size: LitheTheme.Metrics.toolbarIconSize,
-                                  fallbackSystemImage: "stop.fill", preservesOriginalColors: true)
-                }
-                .litheToolbarIconButton()
-                .disabled(isCancelling)
-                .help(isCancelling ? "Stopping…" : "Stop")
-                .accessibilityLabel("Stop")
-            }
-            Button(action: send) {
-                LitheIDEAIcon(resourcePath: "collaboration/sendOutline.svg", size: LitheTheme.Metrics.toolbarIconSize,
-                              fallbackSystemImage: "paperplane", preservesOriginalColors: true)
+            Button(action: showsStopAction ? onCancel : send) {
+                LitheIDEAIcon(resourcePath: showsStopAction ? "expui/run/stop.svg" : "collaboration/sendOutline.svg",
+                              size: LitheTheme.Metrics.toolbarIconSize,
+                              fallbackSystemImage: showsStopAction ? "stop.fill" : "paperplane", preservesOriginalColors: true)
             }
             .litheToolbarIconButton()
-            .disabled(isCancelling || isSendingSupplement || hasPendingContinuation || !hasContent || isBlocked || isPreparingSession || isConfiguring || (isResponding && !canSteer))
-            .help(isSendingSupplement ? "Sending…" : "Send")
-            .accessibilityLabel("Send")
+            .disabled(showsStopAction ? isCancelling : (isCancelling || isSendingSupplement || hasPendingContinuation || !hasContent || isBlocked || isPreparingSession || isConfiguring || (isResponding && !canSteer)))
+            .help(showsStopAction ? (isCancelling ? "Stopping…" : "Stop") : (isSendingSupplement ? "Sending…" : "Send"))
+            .accessibilityLabel(showsStopAction ? "Stop" : "Send")
+            .accessibilityIdentifier("agent-composer-primary-action")
         }
         .padding(.horizontal, AgentComposerMetrics.toolbarHorizontalInset)
         .frame(height: AgentComposerMetrics.toolbarHeight - 2)
