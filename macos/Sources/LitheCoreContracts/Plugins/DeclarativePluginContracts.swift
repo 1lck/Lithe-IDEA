@@ -312,8 +312,15 @@ public struct DeclarativeUIContributions: Equatable, Codable, Sendable {
         public let title: String
         public let placement: String
         public let order: Int
-        public let text: String
+        /// Core accepts exactly one of `text` and `web`.
+        public let text: String?
+        /// `ui` 2: a package HTML page shown inside the host-owned window shell.
+        public let web: Web?
         public let icon: PluginUIIcon?
+    }
+    public struct Web: Equatable, Codable, Sendable {
+        /// Package-relative `.html` path that Core already checked for traversal.
+        public let entry: String
     }
     public struct Command: Equatable, Codable, Sendable {
         public let id: String
@@ -332,7 +339,7 @@ public struct DeclarativeUIContributions: Equatable, Codable, Sendable {
                 id: window.id, kind: .toolWindow, title: window.title,
                 placement: window.placement == "left" ? .leftSidebar : (window.placement == "right" ? .rightSidebar : .activityBar),
                 order: window.order, actionID: window.id + ".toggle", rendererID: window.id,
-                text: window.text, uiIcon: window.icon
+                text: window.text, uiIcon: window.icon, webEntry: window.web?.entry
             )
         } + commands.flatMap { command in
             command.placements.map { placement in

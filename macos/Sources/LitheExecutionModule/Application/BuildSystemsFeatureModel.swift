@@ -28,6 +28,8 @@ package final class BuildSystemsFeatureModel: ObservableObject {
     package var diagnostics: [BuildDiagnostic] { service.diagnostics }
     package var testResults: BuildTestResults? { service.testResults }
     package var isRunning: Bool { service.isRunning }
+    package var currentRunID: UUID? { service.currentRunID }
+    package var runEnded: AnyPublisher<BuildRunEnd, Never> { service.runEnded.eraseToAnyPublisher() }
     package var hasActiveWork: Bool { service.hasActiveWork }
     package var hasBuildSystemPlugins: Bool { service.hasBuildSystemPlugins }
     package var workspaceURL: URL? { service.workspaceURL }
@@ -45,10 +47,12 @@ package final class BuildSystemsFeatureModel: ObservableObject {
     package func detect() { service.detect() }
     package func workspaceFilesChanged(_ urls: [URL]) { service.workspaceFilesChanged(urls) }
     package func loadModel(_ entryID: String) { service.loadModel(entryID) }
-    package func runTask(_ entryID: String, request: BuildTaskRequest, title: String) {
+    @discardableResult
+    package func runTask(_ entryID: String, request: BuildTaskRequest, title: String) -> UUID? {
         service.runTask(entryID, request: request, title: title)
     }
-    package func runTests(_ entryID: String, request: BuildTestRequest, title: String) {
+    @discardableResult
+    package func runTests(_ entryID: String, request: BuildTestRequest, title: String) -> UUID? {
         service.runTests(entryID, request: request, title: title)
     }
     package func loadDependencies(_ entryID: String, project: BuildModel.Project?) {
