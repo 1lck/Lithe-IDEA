@@ -16,6 +16,7 @@ import { useFileSystemStore } from "@/features/file-system/stores/file-system.st
 import { useTranslation } from "@/i18n/locale-provider";
 import { joinPath } from "@/utils/path-helpers";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import { isWorktreeWritePatchCurrent } from "@/features/git/api/git-diff-api";
 import { discardHunk, stageHunk, unstageHunk } from "../../api/git-status-api";
 import {
   createMonacoDiffHunkActions,
@@ -88,7 +89,9 @@ export default function MonacoGitDiff({
   const review = useRef<ReturnType<typeof mountDiffReview> | null>(null);
   const hunkActions = useRef<ReturnType<typeof createMonacoDiffHunkActions> | null>(null);
   const [error, setError] = useState<string>();
-  const [actionFailed, setActionFailed] = useState(false);
+  // `stale` is a refused zero-context discard: the file changed after this
+  // diff was read, and the watcher replaces the diff (clearing the notice).
+  const [actionError, setActionError] = useState<"failed" | "stale" | null>(null);
   const [height, setHeight] = useState(MIN_REVIEW_HEIGHT);
   const blockWidgets = useRef<ReturnType<typeof mountMonacoCommitBlockControls> | null>(null);
   const latestBlockControls = useRef(blockControls);
@@ -145,9 +148,9 @@ export default function MonacoGitDiff({
     const instance = mountDiffReview(container.current!, (hunkID, action) => {
       const owner = hunkActions.current;
       if (closed || updating.current || !owner) return;
-      setActionFailed(false);
+      setActionError(null);
       void owner.apply(hunkID, action).then((result) => {
-        if (!closed && hunkActions.current === owner && result === "failed") setActionFailed(true);
+        if (!closed && hunkActions.current === owner && (result === "failed" || result === "stale")) setActionError(result);
       });
     });
     review.current = instance;
@@ -334,9 +337,12 @@ export default function MonacoGitDiff({
 
   useEffect(() => {
     const owner = createMonacoDiffHunkActions(diff, repoPath ? { repoPath, isStaged, canDiscard } : undefined,
-      { stage: stageHunk, unstage: unstageHunk, discard: discardHunk });
+      { stage: stageHunk, unstage: unstageHunk, discard: discardHunk,
+        // Zero-context hunks are sliced from `writePatch`; confirm that raw
+        // patch, not the display diff, is still current before writing.
+        validate: () => isWorktreeWritePatchCurrent(repoPath, sourcePath, diff.writePatch) });
     hunkActions.current = owner;
-    setActionFailed(false);
+    setActionError(null);
     return () => {
       owner.dispose();
       if (hunkActions.current === owner) hunkActions.current = null;
@@ -419,7 +425,7 @@ export default function MonacoGitDiff({
 
   return <div className="relative min-h-0 w-full overflow-hidden bg-background" style={{ height: embedded ? height : "100%" }}>
     <div ref={container} className="absolute inset-0" title="Ctrl/Cmd-click to open source" />
-    {actionFailed && <div role="alert" className="absolute bottom-0 inset-x-0 bg-background p-2 text-destructive">{t("git.operationFailed")}</div>}
+    {actionError && <div role="alert" className="absolute bottom-0 inset-x-0 bg-background p-2 text-destructive">{t(actionError === "stale" ? "git.diff.hunkStale" : "git.operationFailed")}</div>}
     {error && <div role="alert" className="absolute inset-0 bg-background p-4 text-destructive">{error}</div>}
   </div>;
 }

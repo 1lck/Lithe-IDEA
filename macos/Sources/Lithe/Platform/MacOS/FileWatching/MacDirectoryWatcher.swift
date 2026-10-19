@@ -101,6 +101,11 @@ final class MacDirectoryWatcher: DirectoryChangeSource, @unchecked Sendable {
             kFSEventStreamEventFlagItemRemoved |
                 kFSEventStreamEventFlagItemRenamed
         )
+        let structuralMutationMask = FSEventStreamEventFlags(
+            kFSEventStreamEventFlagItemCreated |
+                kFSEventStreamEventFlagItemRemoved |
+                kFSEventStreamEventFlagItemRenamed
+        )
 
 
         for flags in eventFlags {
@@ -127,8 +132,22 @@ final class MacDirectoryWatcher: DirectoryChangeSource, @unchecked Sendable {
         guard !batch.requiresFullRescan else { return batch }
 
         var workspacePaths = Set<String>()
-        for path in paths {
+        var revalidatesIgnoredDirectory = false
+        for (path, flags) in zip(paths, eventFlags) {
             let url = URL(fileURLWithPath: path).standardizedFileURL
+            if configuration.ignoredDirectoryRoot(containing: url) != nil {
+                // Ordinary churn below an excluded linked worktree stays
+                // dropped. Recreating, removing, renaming, or changing the
+                // `.git` marker of the worktree itself can end the exclusion,
+                // and only a scan can re-run those rules.
+                if configuration.revalidatesIgnoredDirectory(
+                    url,
+                    isStructuralChange: flags & structuralMutationMask != 0
+                ) {
+                    revalidatesIgnoredDirectory = true
+                }
+                continue
+            }
             if configuration.isIgnored(url) {
                 continue
             }
@@ -148,6 +167,10 @@ final class MacDirectoryWatcher: DirectoryChangeSource, @unchecked Sendable {
                !visibilityRules.isHiddenPath(url, relativeTo: configuration.workspaceRoot) {
                 workspacePaths.insert(url.path)
             }
+        }
+        if revalidatesIgnoredDirectory {
+            batch.requiresFullRescan = true
+            batch.gitStateMayHaveChanged = true
         }
         batch.workspacePaths = workspacePaths.sorted()
         return batch

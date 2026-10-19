@@ -1,6 +1,7 @@
 import type { ReviewRow } from "@lithe/editor/diff-review";
 import type { GitDiff, GitDiffLine, GitHunk } from "../types/git.types";
 import { parseDiffHunkRange } from "./git-diff-helpers";
+import { buildByteFaithfulHunk, buildFaithfulHunkFromRange } from "./lossy-rollback-patch";
 
 /** Context kept around each change when a full-file patch is split back into
  * stageable hunks. Matches Git's default `--unified=3`. */
@@ -112,6 +113,35 @@ export function monacoDiffHunk(diff: GitDiff, hunkID: string): GitHunk | null {
   if (derived) {
     const hunk = derived.find(candidate => candidate.id === hunkID);
     if (!hunk) return null;
+    // When the diff carries a byte-faithful writePatch, slice the target
+    // hunk from the raw patch so the host receives original bytes; fall
+    // back to display lines for non-lossy diffs.
+    if (diff.writePatch) {
+      const changed = diff.lines
+        .slice(hunk.start, hunk.end)
+        .filter(line => line.line_type === "added" || line.line_type === "removed");
+      if (changed.length > 0) {
+        // Collect the full range of old-side and new-side line numbers from
+        // all changed lines in this hunk; slice each contiguous run and
+        // concatenate into one patch covering the entire selection.
+        const oldNumbers = changed
+          .map(line => line.old_line_number)
+          .filter((n): n is number => n !== undefined && n !== null);
+        const newNumbers = changed
+          .map(line => line.new_line_number)
+          .filter((n): n is number => n !== undefined && n !== null);
+        const oldStart = oldNumbers.length > 0 ? Math.min(...oldNumbers) : Math.min(...newNumbers);
+        const newStart = newNumbers.length > 0 ? Math.min(...newNumbers) : oldStart;
+        const oldEnd = oldNumbers.length > 0 ? Math.max(...oldNumbers) : newStart;
+        const newEnd = newNumbers.length > 0 ? Math.max(...newNumbers) : oldEnd;
+        // Try the contiguous-run slicer first (handles single-run cases
+        // correctly); when its result doesn't cover the full target range
+        // (separated changes), fall through to the range-based builder.
+        const faithful = buildByteFaithfulHunk(diff, oldStart, newStart, oldEnd, newEnd)
+          ?? buildFaithfulHunkFromRange(diff, oldStart, newStart, oldEnd, newEnd);
+        if (faithful) return faithful;
+      }
+    }
     return {
       file_path: diff.file_path,
       lines: [

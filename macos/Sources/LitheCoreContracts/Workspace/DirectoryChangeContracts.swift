@@ -24,10 +24,13 @@ package struct DirectoryWatchConfiguration: Equatable, Sendable {
 
     /// Whether a change cannot affect this workspace's tree or Git status.
     ///
-    /// Besides `ignoredDirectories`, this covers the private state of other
-    /// linked worktrees under `<common>/worktrees/<id>`: agent tools update
-    /// those indexes on every Git command, but only this workspace's own Git
-    /// directory and the shared refs change what it shows.
+    /// Besides `ignoredDirectories`, this covers the high-frequency private
+    /// state of other linked worktrees under `<common>/worktrees/<id>`: every
+    /// Git command in those worktrees rewrites their index, reflogs, and
+    /// submodule scratch state, but only the shared refs and this workspace's
+    /// own Git directory change what it shows. Their semantic metadata (such as
+    /// `HEAD`, `locked`, or registration files) is not ignored, so the
+    /// Worktrees panel still refreshes.
     package func isIgnored(_ url: URL) -> Bool {
         let normalized = Self.normalize(url)
         if ignoredDirectories.contains(where: { Self.contains($0, normalized) }) {
@@ -41,7 +44,45 @@ package struct DirectoryWatchConfiguration: Equatable, Sendable {
            Self.contains(gitDirectory, normalized) {
             return false
         }
-        return true
+        guard let relativePath = Self.relativePath(of: normalized, below: linkedWorktrees) else {
+            return false
+        }
+        // `<id>` alone is the registration directory itself; only entry names
+        // one level below it are high-frequency private state.
+        let components = relativePath.split(separator: "/").map(String.init)
+        guard components.count >= 2 else { return false }
+        return Self.highChurnLinkedWorktreeEntries.contains(components[1])
+    }
+
+    /// Entries under another linked worktree's Git directory that every Git
+    /// command rewrites there. Changes to them cannot alter this workspace's
+    /// tree, status, or worktree list.
+    private static let highChurnLinkedWorktreeEntries: Set<String> = [
+        "index",
+        "index.lock",
+        "ORIG_HEAD",
+        "logs",
+        "modules",
+    ]
+
+    /// The excluded workspace directory that owns `url`, if any.
+    package func ignoredDirectoryRoot(containing url: URL) -> URL? {
+        let normalized = Self.normalize(url)
+        return ignoredDirectories.first { Self.contains($0, normalized) }
+    }
+
+    /// Whether an event can change whether an excluded linked worktree is still
+    /// excluded.
+    ///
+    /// Its ordinary descendants stay ignored, but the directory itself being
+    /// created, removed, or renamed, or its `.git` marker changing, may mean
+    /// the path is now ordinary workspace content. Only a scan can re-run the
+    /// linked-worktree rules and rebuild `ignoredDirectories`.
+    package func revalidatesIgnoredDirectory(_ url: URL, isStructuralChange: Bool) -> Bool {
+        guard let root = ignoredDirectoryRoot(containing: url) else { return false }
+        let normalized = Self.normalize(url)
+        if normalized.path == root.path { return isStructuralChange }
+        return normalized.path == root.path + "/.git"
     }
 
     package var physicalRoots: [URL] {
@@ -98,6 +139,11 @@ package struct DirectoryWatchConfiguration: Equatable, Sendable {
 
     private static func contains(_ parent: URL, _ child: URL) -> Bool {
         child.path == parent.path || child.path.hasPrefix(parent.path + "/")
+    }
+
+    private static func relativePath(of url: URL, below parent: URL) -> String? {
+        guard url.path.hasPrefix(parent.path + "/") else { return nil }
+        return String(url.path.dropFirst(parent.path.count + 1))
     }
 }
 

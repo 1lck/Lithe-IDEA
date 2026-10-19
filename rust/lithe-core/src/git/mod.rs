@@ -705,6 +705,10 @@ pub struct GitApplyRequest {
     pub patch: String,
     /// Patch target or validation mode, including `stage`, `unstage`, and `worktree`.
     pub mode: String,
+    /// True when the patch carries zero context lines from the byte-faithful
+    /// raw-slicing channel; only then may git apply bypass the context check.
+    #[serde(default)]
+    pub unidiff_zero: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -2175,12 +2179,17 @@ fn worktree_snapshot_diff(
 fn structured_diff_from_output(output: GitProcessOutput) -> GitDiffResponse {
     // Diff is a machine-readable stdout protocol. Git diagnostics on stderr
     // must never become synthetic file lines in the parsed patch.
-    let patch = String::from_utf8_lossy(&output.stdout).to_string();
+    let decoded = String::from_utf8_lossy(&output.stdout);
+    // A Cow::Owned means invalid UTF-8 bytes were replaced with U+FFFD; the
+    // patch cannot be used as byte-faithful write material.
+    let has_decoding_loss = matches!(decoded, std::borrow::Cow::Owned(_));
+    let patch = decoded.to_string();
     let document = parse_diff(&patch);
     GitDiffResponse {
         patch,
         rows: document.0,
         hunks: document.1,
+        has_decoding_loss,
     }
 }
 
@@ -2200,11 +2209,20 @@ pub fn apply(request: GitApplyRequest) -> Result<GitCommandResponse, CoreError> 
             "--reverse".to_string(),
             "--whitespace=nowarn".to_string(),
         ],
-        "discard" => vec![
-            "apply".to_string(),
-            "--reverse".to_string(),
-            "--whitespace=nowarn".to_string(),
-        ],
+        "discard" => {
+            let mut args = vec![
+                "apply".to_string(),
+                "--reverse".to_string(),
+                "--whitespace=nowarn".to_string(),
+            ];
+            // Only the byte-faithful channel produces zero-context hunks;
+            // applying the flag universally would weaken the context safety
+            // check for every well-formed discard patch too.
+            if request.unidiff_zero {
+                args.push("--unidiff-zero".to_string());
+            }
+            args
+        }
         // Reconstruct a saved index snapshot and its worktree in one step.
         // `--cached` alone would leave the worktree at HEAD, which makes a
         // subsequent unstaged patch fail for files with both staged and
@@ -8111,6 +8129,27 @@ mod tests {
     #[test]
     fn background_git_processes_do_not_create_windows_console() {
         assert_eq!(super::git_process_creation_flags(), 0x08000000);
+    }
+
+    // A Latin-1 `é` (0xE9) decodes to U+FFFD; writing that patch back would
+    // replace the original byte with EF BF BD, so the response must say so.
+    #[test]
+    fn structured_diff_reports_lossy_utf8_decoding() {
+        let lossy = structured_diff_from_output(GitProcessOutput {
+            stdout: b"diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-caf\xe9\r\n+cafe\r\n".to_vec(),
+            stderr: Vec::new(),
+            exit_code: 1,
+        });
+        assert!(lossy.has_decoding_loss);
+        assert!(lossy.patch.contains('\u{FFFD}'));
+
+        let faithful = structured_diff_from_output(GitProcessOutput {
+            stdout: "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-café\r\n+cafe\r\n".as_bytes().to_vec(),
+            stderr: Vec::new(),
+            exit_code: 1,
+        });
+        assert!(!faithful.has_decoding_loss);
+        assert!(faithful.patch.contains("café\r\n"));
     }
 
     #[test]

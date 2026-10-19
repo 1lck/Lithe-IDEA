@@ -1244,7 +1244,11 @@ package final class WorkspaceFeatureModel: ObservableObject {
             await applyIncrementalTree(root: root, files: files, reloadsTree: reloadsTree)
             reloadedProjectServices = true
         case .requiresSnapshot:
+            let generation = workspaceGeneration
             await refreshCurrentSnapshot()
+            // An unavailable snapshot must not swallow the batch's Git refresh.
+            guard self.workspaceURL == workspaceURL, workspaceGeneration == generation else { return }
+            if pendingGitRefresh { await drainGitRefreshes() }
             return
         }
         await updateSearchIndex(
@@ -1326,6 +1330,8 @@ package final class WorkspaceFeatureModel: ObservableObject {
         applying changedURLs: [URL],
         at workspaceURL: URL
     ) -> IncrementalTreeResult {
+        // A previous snapshot may have failed; watcher events must be able to
+        // recover the tree instead of leaving the workspace empty indefinitely.
         guard var root = rootNode else { return .requiresSnapshot }
         var files = projectFiles
         var didChange = false
@@ -1339,13 +1345,27 @@ package final class WorkspaceFeatureModel: ObservableObject {
         }
         for url in changedURLs where !isWorkspaceDependencyMetadata(url, workspaceURL: workspaceURL) {
             if fileOperations.fileExists(at: url) {
-                if fileOperations.isDirectory(at: url) {
+                let isDirectory = fileOperations.isDirectory(at: url)
+                if case let .displayed(node, isExact) = root.placement(of: url) {
+                    // A coalesced delete/recreate can replace a file with a
+                    // directory, or split a compact package with a file.
+                    if isExact {
+                        guard node.isDirectory == isDirectory else { return .requiresSnapshot }
+                    } else if !isDirectory {
+                        return .requiresSnapshot
+                    }
+                }
+                if isDirectory {
+                    // The inventory also detects a file replaced below a row
+                    // whose children have not been loaded yet.
+                    if isKnownProjectFile(url) { return .requiresSnapshot }
                     // A listed directory's own event carries no child changes:
                     // file-level FSEvents report each child separately.
                     if isKnownProjectDirectory(url) { continue }
                     if visibilityRules.isHidden(url, relativeTo: workspaceURL, isDirectory: true) { continue }
                     return .requiresSnapshot
                 }
+                if isKnownProjectDirectory(url) { return .requiresSnapshot }
                 guard !isKnownProjectFile(url),
                       !visibilityRules.isHidden(url, relativeTo: workspaceURL, isDirectory: false)
                 else { continue }
@@ -1362,6 +1382,8 @@ package final class WorkspaceFeatureModel: ObservableObject {
                 if case .displayed = root.placement(of: url) { reloadsTree = true }
                 didChange = true
             }
+            // A path that exists in neither the tree nor on disk is not a tree
+            // change; the Git refresh at the end of the batch still covers it.
         }
         return didChange ? .updated(root: root, files: files, reloadsTree: reloadsTree) : .unchanged
     }
