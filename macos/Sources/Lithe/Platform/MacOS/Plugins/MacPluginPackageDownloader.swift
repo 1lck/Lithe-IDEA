@@ -149,6 +149,9 @@ final class MacPluginPackageDownloader: MacPluginPackageDownloading {
     static let maximumArchiveBytes: Int64 = Limits.standard.archiveBytes
     private static let extractionTimeout: TimeInterval = 5 * 60
     private static let maximumZIPPathComponents = 64
+    /// Caps retained normalized path text independently of payload size. Also
+    /// respect a smaller archive budget, so metadata cannot exceed that budget.
+    private static let maximumZIPPathBytes = 16 * 1_048_576
     private static let extractionPollInterval: TimeInterval = 0.05
     /// How often the extracted tree is measured while `ditto` runs.
     private static let extractionMeasureInterval: TimeInterval = 0.25
@@ -344,6 +347,20 @@ final class MacPluginPackageDownloader: MacPluginPackageDownloading {
         var paths = Set<String>()
         var filePaths = Set<String>()
         var parentPaths = Set<String>()
+        var objectCount = 0
+        var pathBytes: Int64 = 0
+        let pathByteLimit = min(limits.archiveBytes, Int64(Self.maximumZIPPathBytes))
+        func reservePath(_ path: String) throws {
+            guard objectCount < limits.entries else {
+                throw MacPluginPackageDownloadError.extractionLimitExceeded("more than \(limits.entries) files")
+            }
+            let bytes = Int64(path.utf8.count)
+            guard bytes <= pathByteLimit - pathBytes else {
+                throw MacPluginPackageDownloadError.extractionLimitExceeded("more than \(pathByteLimit) path bytes")
+            }
+            objectCount += 1
+            pathBytes += bytes
+        }
         var localEntries: [(offset: UInt64, end: UInt64, descriptor: Bool)] = []
         for _ in 0..<entryCount {
             try Task.checkCancellation()
@@ -379,7 +396,7 @@ final class MacPluginPackageDownloader: MacPluginPackageDownloading {
             // APFS commonly ignores case and normalizes Unicode. A duplicate
             // must not silently replace a manifest or turn a file into a parent.
             let key = path.precomposedStringWithCanonicalMapping.lowercased()
-            guard paths.insert(key).inserted else {
+            guard !paths.contains(key) else {
                 throw MacPluginPackageDownloadError.invalidArchive
             }
             let components = key.split(separator: "/")
@@ -390,12 +407,25 @@ final class MacPluginPackageDownloader: MacPluginPackageDownloading {
             for component in components.dropLast() {
                 parent = parent.isEmpty ? String(component) : parent + "/" + component
                 guard !filePaths.contains(parent) else { throw MacPluginPackageDownloadError.invalidArchive }
-                parentPaths.insert(parent)
+                if !parentPaths.contains(parent) {
+                    try reservePath(parent)
+                    parentPaths.insert(parent)
+                }
             }
-            if name.last != 0x2f {
+            // The filesystem creates omitted parents too. Count every unique
+            // file/directory once, including explicit empty directories, before
+            // retaining its path or allowing extraction to start.
+            if name.last == 0x2f {
+                if !parentPaths.contains(key) {
+                    try reservePath(key)
+                    parentPaths.insert(key)
+                }
+            } else {
                 guard !parentPaths.contains(key) else { throw MacPluginPackageDownloadError.invalidArchive }
+                try reservePath(key)
                 filePaths.insert(key)
             }
+            paths.insert(key)
             let mode = zipUInt32(header, 38) >> 16
             let type = mode & 0xF000
             guard type == 0 || type == 0x8000 || type == 0x4000,

@@ -230,14 +230,16 @@ try {
     // neither missing source nor missing target should ever be touched or created.
     const missingSource = path.join(testRoot, "unopened-disk-source");
     const missingTarget = path.join(testRoot, "unopened-disk-target");
-    const refused = run(process.execPath, [
-      reuseScript, "--source", missingSource, "--target", missingTarget,
-      "--resource", "jdtls", "--resource", resource.id,
-    ]);
-    assert.notEqual(refused.status, 0);
-    assert.match(diagnostics(refused), /plugin-disk-install-state is isolated.*lithe-plugin-disk-.*cannot be reused/);
-    await assert.rejects(fs.access(missingSource), { code: "ENOENT" });
-    await assert.rejects(fs.access(missingTarget), { code: "ENOENT" });
+    for (const id of [resource.id, "plugin-marketplace-state"]) {
+      const refused = run(process.execPath, [
+        reuseScript, "--source", missingSource, "--target", missingTarget,
+        "--resource", "jdtls", "--resource", id,
+      ]);
+      assert.notEqual(refused.status, 0);
+      assert.match(diagnostics(refused), new RegExp(`${id} is isolated.*cannot be reused`));
+      await assert.rejects(fs.access(missingSource), { code: "ENOENT" });
+      await assert.rejects(fs.access(missingTarget), { code: "ENOENT" });
+    }
   });
   await testFailedBackupPreservesDestination();
   await fs.mkdir(path.join(sourceRoot, "third_party", "jdtls"), { recursive: true });

@@ -242,6 +242,17 @@ final class MacPluginManager: PluginManaging {
     /// without that confirmation, and an update keeps the user's choice.
     private func enableFirstInstallation(of manifest: PluginManifest) {
         guard installedPlugins[manifest.id] == nil, !registeredPluginIDs.contains(manifest.id) else { return }
+        // Language module IDs are shared across plugin IDs. A package rejected
+        // for an ownership collision at restart must not first enable its owner.
+        // Reserve disabled/removed packages too, and keep the running graph's
+        // old modules reserved until restart even if their package was replaced.
+        let existingManifests = BuiltInPluginCatalog.manifests
+            + BundledLanguagePluginCatalog.manifests
+            + managedBuiltInPlugins
+            + installedPlugins.values.map(\.manifest)
+        let ownedModuleIDs = Set(existingManifests.flatMap(\.modules).map(\.manifest.id))
+            .union(moduleRuntime.snapshots().map(\.manifest.id))
+        guard manifest.modules.allSatisfy({ !ownedModuleIDs.contains($0.manifest.id) }) else { return }
         for declaration in manifest.modules
         where configurationStore.enabledState(for: declaration.manifest.id) == nil {
             configurationStore.setEnabledState(true, for: declaration.manifest.id)

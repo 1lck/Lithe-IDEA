@@ -288,6 +288,78 @@ struct PluginDiskInstallationTests {
         #expect(manager.snapshots.first { $0.id == Self.pluginID }?.isEnabled == false)
     }
 
+    /// Rejected packages must not persist enablement into another plugin's
+    /// language-derived module IDs, including when the owner has no preference.
+    @Test(arguments: [false, true], [nil, false, true] as [Bool?])
+    func firstInstallationDoesNotChangeAnotherPluginsModulePreferences(
+        bundledOwner: Bool, enabledPreference: Bool?
+    ) async throws {
+        let fixture = Fixture("module-owner-collision")
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let configuration = MacModuleConfigurationStore(store: DiskInstallationKeyValueStore())
+        let owner: PluginManifest
+        if bundledOwner {
+            owner = try #require(BundledLanguagePluginCatalog.manifests.first {
+                $0.id == PluginID("dev.lithe.plugin.python-support")
+            })
+        } else {
+            let prepared = try await fixture.service.prepareDiskInstall(at: fixture.writePackage(
+                "existing", id: PluginID("io.example.a-existing-tools")
+            ))
+            defer { fixture.service.discard(prepared) }
+            owner = try fixture.store.installPackage(
+                from: prepared.packageURL, origin: .community, disk: prepared.provenance
+            ).manifest
+        }
+        #expect(owner.modules.allSatisfy { $0.manifest.defaultState == .disabled })
+        for declaration in owner.modules {
+            if let enabledPreference {
+                configuration.setEnabledState(enabledPreference, for: declaration.manifest.id)
+            }
+        }
+        let startup = MacPluginStartupLoader(packageStore: fixture.store, validateUI: { _ in })
+            .load(recoveryStore: configuration)
+        let manager = MacPluginManager(
+            packageStore: fixture.store,
+            moduleRuntime: ModuleRuntime(configurationStore: configuration, recoveryStore: configuration),
+            configurationStore: configuration, settings: InMemoryPluginSettings(), launchMode: .normal,
+            startup: startup, allowsLocalDevelopmentPackages: false
+        )
+        let source = try fixture.writePackage("conflicting")
+        if bundledOwner {
+            let manifestURL = source.appendingPathComponent("plugin.json")
+            let json = try String(contentsOf: manifestURL, encoding: .utf8)
+                .replacingOccurrences(of: "php", with: "python")
+            try Data(json.utf8).write(to: manifestURL)
+        }
+        let candidate = try await fixture.service.prepareDiskInstall(at: source)
+        defer { fixture.service.discard(candidate) }
+        try manager.installDiskPackage(at: candidate.packageURL, provenance: candidate.provenance)
+        #expect(owner.modules.allSatisfy {
+            configuration.enabledState(for: $0.manifest.id) == enabledPreference
+        })
+
+        let restarted = MacPluginStartupLoader(packageStore: fixture.store, validateUI: { _ in })
+            .load(recoveryStore: configuration)
+        #expect(!restarted.registeredPlugins.contains { $0.manifest.id == Self.pluginID })
+        #expect(restarted.issues.contains { $0.pluginID == Self.pluginID })
+        if !bundledOwner {
+            #expect(restarted.registeredPlugins.contains { $0.manifest.id == owner.id })
+        }
+        let runtime = ModuleRuntime(configurationStore: configuration, recoveryStore: configuration)
+        for declaration in owner.modules {
+            try runtime.register(ModuleFactory(manifest: declaration.manifest) {
+                throw CocoaError(.featureUnsupported)
+            })
+        }
+        #expect(runtime.snapshots().allSatisfy {
+            $0.state == (enabledPreference == true ? .inactive : .disabled)
+        })
+        #expect(owner.modules.allSatisfy {
+            configuration.enabledState(for: $0.manifest.id) == enabledPreference
+        })
+    }
+
     /// Cover disk review -> manager -> Store -> process-wide lifecycle without
     /// view notifications, including pages retained by hidden tool windows.
     @Test(arguments: [false, true])
