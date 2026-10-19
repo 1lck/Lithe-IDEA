@@ -72,6 +72,9 @@ pub struct WorkspaceNode {
 pub struct WorkspaceSnapshotResponse {
     pub root: WorkspaceNode,
     pub files: Vec<String>,
+    /// Linked worktrees checked out inside their own repository. They are left
+    /// out of `root` and `files`; hosts use them to ignore watcher events.
+    pub nested_worktrees: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

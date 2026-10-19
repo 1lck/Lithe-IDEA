@@ -129,6 +129,9 @@ final class MacDirectoryWatcher: DirectoryChangeSource, @unchecked Sendable {
         var workspacePaths = Set<String>()
         for path in paths {
             let url = URL(fileURLWithPath: path).standardizedFileURL
+            if configuration.isIgnored(url) {
+                continue
+            }
             if configuration.isGitContextPointer(url) {
                 batch.gitStateMayHaveChanged = true
                 batch.watchRootsChanged = true

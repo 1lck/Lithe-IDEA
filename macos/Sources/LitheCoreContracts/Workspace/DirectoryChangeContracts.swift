@@ -6,12 +6,42 @@ package struct DirectoryWatchConfiguration: Equatable, Sendable {
     package let repositoryRoot: URL?
     package let gitDirectory: URL?
     package let gitCommonDirectory: URL?
+    /// Workspace directories whose events are dropped, such as linked worktrees
+    /// checked out inside the workspace's own repository.
+    package let ignoredDirectories: [URL]
 
-    package init(workspaceRoot: URL, gitContext: GitWatchContext?) {
+    package init(
+        workspaceRoot: URL,
+        gitContext: GitWatchContext?,
+        ignoredDirectories: [URL] = []
+    ) {
         self.workspaceRoot = Self.normalize(workspaceRoot)
         repositoryRoot = gitContext.map { Self.normalize($0.repositoryRoot) }
         gitDirectory = gitContext.map { Self.normalize($0.gitDirectory) }
         gitCommonDirectory = gitContext.map { Self.normalize($0.gitCommonDirectory) }
+        self.ignoredDirectories = ignoredDirectories.map(Self.normalize).sorted { $0.path < $1.path }
+    }
+
+    /// Whether a change cannot affect this workspace's tree or Git status.
+    ///
+    /// Besides `ignoredDirectories`, this covers the private state of other
+    /// linked worktrees under `<common>/worktrees/<id>`: agent tools update
+    /// those indexes on every Git command, but only this workspace's own Git
+    /// directory and the shared refs change what it shows.
+    package func isIgnored(_ url: URL) -> Bool {
+        let normalized = Self.normalize(url)
+        if ignoredDirectories.contains(where: { Self.contains($0, normalized) }) {
+            return true
+        }
+        guard let gitCommonDirectory else { return false }
+        let linkedWorktrees = gitCommonDirectory.appendingPathComponent("worktrees", isDirectory: true)
+        guard Self.contains(linkedWorktrees, normalized) else { return false }
+        // A linked workspace keeps its own state under `worktrees/<self>`.
+        if let gitDirectory, gitDirectory != gitCommonDirectory,
+           Self.contains(gitDirectory, normalized) {
+            return false
+        }
+        return true
     }
 
     package var physicalRoots: [URL] {

@@ -69,14 +69,29 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let children: [WorkspaceNodePayload]?
     }
 
+    /// The payload's flat `files` list is not decoded: the macOS file list is
+    /// read back from the tree so both hold the same URL instances instead of
+    /// one URL per file each.
     struct WorkspaceSnapshotPayload: Decodable, Sendable {
         let root: WorkspaceNodePayload
-        let files: [String]
+        let nestedWorktrees: [String]
+
+        private enum CodingKeys: String, CodingKey {
+            case root, nestedWorktrees
+        }
+
+        init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            root = try container.decode(WorkspaceNodePayload.self, forKey: .root)
+            nestedWorktrees = try container.decodeIfPresent([String].self, forKey: .nestedWorktrees) ?? []
+        }
 
         func makeSnapshot(at rootURL: URL) -> WorkspaceSnapshot {
-            WorkspaceSnapshot(
-                root: root.makeFileNode(at: rootURL),
-                files: files.map { rootURL.appendingPathComponent($0) }
+            let tree = root.makeFileNode(at: rootURL)
+            return WorkspaceSnapshot(
+                root: tree,
+                files: tree.fileURLs,
+                nestedWorktrees: nestedWorktrees.map { rootURL.appendingPathComponent($0, isDirectory: true) }
             )
         }
     }

@@ -1042,7 +1042,8 @@ package final class WorkspaceFeatureModel: ObservableObject {
               self.workspaceGeneration == generation else { return }
         let configuration = DirectoryWatchConfiguration(
             workspaceRoot: workspaceURL,
-            gitContext: context
+            gitContext: context,
+            ignoredDirectories: appliedSnapshot?.nestedWorktrees ?? []
         )
         guard forceRebuild || configuration != watchConfiguration || directoryWatcher == nil else {
             return
@@ -1197,17 +1198,22 @@ package final class WorkspaceFeatureModel: ObservableObject {
         }
         let changedURLs = paths
             .map { URL(fileURLWithPath: $0).standardizedFileURL }
-            .filter(isWorkspaceURL)
+            .filter { isWorkspaceURL($0) && watchConfiguration?.isIgnored($0) != true }
             .reduce(into: [URL]()) { values, url in
                 if !values.contains(url) { values.append(url) }
             }
             .sorted { $0.path < $1.path }
+        guard !changedURLs.isEmpty else {
+            // Events queued before the watcher learned a path is ignored still
+            // owe any Git refresh they requested.
+            if pendingGitRefresh { await drainGitRefreshes() }
+            return
+        }
         let conflictDetected = processExternalChanges?(changedURLs) ?? false
         if conflictDetected { notify?("External edits conflict with unsaved changes") }
 
-        let knownPaths = Set(projectFiles.map { $0.standardizedFileURL.path })
         let fileChanges = changedURLs.compactMap { url -> WorkspaceFileChange? in
-            let wasKnown = knownPaths.contains(url.path)
+            let wasKnown = isKnownProjectFile(url)
             if fileOperations.fileExists(at: url) {
                 return WorkspaceFileChange(
                     fileURL: url,
@@ -1220,15 +1226,14 @@ package final class WorkspaceFeatureModel: ObservableObject {
             notifyWorkspaceFileChanges?(fileChanges)
         }
 
-        let requiresWorkspaceSnapshot = changedURLs.contains { url in
-            guard !isWorkspaceDependencyMetadata(url, workspaceURL: workspaceURL) else {
-                return false
-            }
-            let wasKnownFile = projectFiles.contains { $0.standardizedFileURL.path == url.path }
-            guard fileOperations.fileExists(at: url) else { return wasKnownFile }
-            return fileOperations.isDirectory(at: url) || !wasKnownFile
-        }
-        if requiresWorkspaceSnapshot {
+        var reloadedProjectServices = false
+        switch incrementalTree(applying: changedURLs, at: workspaceURL) {
+        case .unchanged:
+            break
+        case .updated(let root):
+            await applyIncrementalTree(root)
+            reloadedProjectServices = true
+        case .requiresSnapshot:
             await refreshCurrentSnapshot()
             return
         }
@@ -1252,7 +1257,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
                 || name == "build.gradle.kts"
             return isLitheConfiguration || isBuildManagementFile
         }
-        if requiresProjectServiceReload { await reloadProjectServices?() }
+        if requiresProjectServiceReload, !reloadedProjectServices { await reloadProjectServices?() }
         await requestGitRefreshNow()
     }
 
@@ -1271,6 +1276,66 @@ package final class WorkspaceFeatureModel: ObservableObject {
     ) async {
         guard !changedPaths.isEmpty else { return }
         await updateSearchIndex?(workspaceURL, changedPaths, rules)
+    }
+
+    private enum IncrementalTreeResult {
+        case unchanged
+        case updated(FileNode)
+        case requiresSnapshot
+    }
+
+    private func isKnownProjectFile(_ url: URL) -> Bool {
+        rootNode?.node(exactlyAt: url).map { !$0.isDirectory } ?? false
+    }
+
+    /// Applies file creations and deletions to the current tree in place.
+    ///
+    /// Agent tools create and delete files continuously; rescanning the whole
+    /// workspace for each batch re-reads every directory and rebuilds every
+    /// node. Directory changes and anything the tree cannot place without the
+    /// scan's layout rules still request a snapshot.
+    private func incrementalTree(
+        applying changedURLs: [URL],
+        at workspaceURL: URL
+    ) -> IncrementalTreeResult {
+        guard var root = rootNode else { return .requiresSnapshot }
+        var didChange = false
+        for url in changedURLs where !isWorkspaceDependencyMetadata(url, workspaceURL: workspaceURL) {
+            let existingNode = root.displayedNode(for: url)
+            if fileOperations.fileExists(at: url) {
+                // A listed directory's own event carries no child changes:
+                // file-level FSEvents report each child separately.
+                guard existingNode == nil else { continue }
+                if fileOperations.isDirectory(at: url) { return .requiresSnapshot }
+                guard !visibilityRules.isHidden(url, relativeTo: workspaceURL, isDirectory: false) else {
+                    continue
+                }
+                guard let inserted = root.inserting(file: url) else { return .requiresSnapshot }
+                root = inserted
+                didChange = true
+            } else if let existingNode {
+                guard !existingNode.isDirectory, let removed = root.removing(file: url) else {
+                    return .requiresSnapshot
+                }
+                root = removed
+                didChange = true
+            }
+        }
+        return didChange ? .updated(root) : .unchanged
+    }
+
+    /// Publishes a spliced tree as a new snapshot so project services see the
+    /// same inventory a rescan would have produced.
+    private func applyIncrementalTree(_ root: FileNode) async {
+        let snapshot = WorkspaceSnapshot(
+            root: root,
+            files: root.fileURLs,
+            nestedWorktrees: appliedSnapshot?.nestedWorktrees ?? []
+        )
+        rootNode = snapshot.root
+        projectFiles = snapshot.files
+        appliedSnapshot = snapshot
+        await onSnapshotLoaded?(snapshot, false)
     }
 
     private func isWorkspaceURL(_ url: URL) -> Bool {
