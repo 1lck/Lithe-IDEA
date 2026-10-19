@@ -446,6 +446,7 @@ Windows 已可用。本功能不新增下载、缓存或运行时资源路径，
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'AgentConversationFeatureModelTests|AgentConversationPresentationTests'`：使用共享重试 fixture 验证无标题通知、静默等待不猜状态、输出恢复、工具/权限/取消优先级、后台会话隔离、迟到通知和失败/断连清理；注入可推进的单调时钟验证排队、后台会话、取消确认、失败和断连；共享 fixture 校验用量、零值与缺失值，统计行的分组边界与历史回放不伪造。真实 Agent 的 token 口径和连续计时仍需人工验收，不能以合成数据截图代替供应商运行验证。
 
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter AgentBrandIconResourceTests`：临时安装包布局覆盖 Codex/Claude 图标加载、资源包和图标缺失时安全回退、缓存隔离，比较读取前后的文件清单与内容，确认不改写发行资源；原生输入框 Menu 的像素验证同时覆盖 Claude/Codex 和深浅主题，确保橙色/灰色标志实际可见，染色不改变共用模板。
+- 输入框的图标裁图与边距回归按辅助功能标识定位真实控件，不依赖按钮顺序或固定横向偏移；添加附件等操作后仍检查同一产品边界。原生辅助功能树只能在布局后读取，因此使用两秒单调时钟期限并在退出时恢复增强辅助功能设置，不用睡眠等待。macOS unit CI 启用已有截图开关，将受控夹具的输入区、Effort 和紧凑摘要深浅主题及窄宽布局随测试报告上传；截图属于当前 revision 的验证证据，不能复用为其他工作树的构建输入，也不能代替真实供应商工作流验收。
 - 订阅新增测试覆盖旧配置兼容、显式登录、已有账号、认证通知顺序、登录取消和超时、账号变更、额度真实窗口/缺失值/多 bucket、仅查询不发送 prompt，以及临时失败保留旧值。Linux 已运行 Agent Host 的逐测试计时套件；macOS Swift 编译、真实账号登录及深浅主题/窄宽布局仍须在目标环境验证，不将代码存在等同于运行验证。
 - 真实账号验收：先用 API Key 对话，空闲切换 Codex 订阅，确认请求使用本机账号；未登录时确认打开面板不会启动浏览器，点击登录与取消正确；上下文右侧额度每分钟更新，断网后灰显，换账号后旧值清除，关闭项目不残留探测进程。Claude 不出现订阅入口。Windows 已有共享协议和连接桥，但面板 UI、供应商切换和额度展示待接入，连接桥还需要在 Windows 上做一次真实适配器的端到端验收。
 

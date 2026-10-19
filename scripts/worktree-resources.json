@@ -280,6 +280,16 @@
       ],
       "identity": "One test run and exact worker PID plus process start identity, target JDK and unique recording UUID; mutable JFR output has no build identity stamp.",
       "reason": "The macOS native performance adapter creates the directory in platform temporary storage. JDK jcmd/JFR writes at most 64 MiB over 120 seconds. Closing/replacing the run or disposing the feature stops that exact named recording and deletes its directory. Never copy at any worktree reuse stage; no app bundle, plugin package, signatures or Sparkle source bytes are changed."
+    },
+    {
+      "id": "agent-ui-test-evidence",
+      "reusable": false,
+      "locations": [
+        ".artifacts/test-stability/*.png",
+        ".artifacts/<test-report>/screenshots/*.png"
+      ],
+      "identity": "One first-party native test run at an exact source revision, platform, theme, viewport and fixture parameters. No reusable build identity stamp or installed runtime ownership.",
+      "reason": "Native fixture views produce these sanitized review/diagnostic screenshots inside the owning worktree report directory. CI uploads them with test-stability-macos and applies artifact retention; local reports remain until removed by the developer. They never capture the user desktop, enter a package, modify a signed bundle or participate in any worktree copy stage."
     }
   ]
 }

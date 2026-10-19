@@ -161,6 +161,16 @@ try {
     assert.match(diagnostics(refused), /platform-feature-matrix.*cannot be reused/);
   });
 
+  await test("Agent fixture screenshots cannot be copied as reusable resources", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const resource = registry.excludedResources.find(item => item.id === "agent-ui-test-evidence");
+    assert.equal(resource?.reusable, false);
+    assert.ok(resource.locations.includes(".artifacts/test-stability/*.png"));
+    const rejected = reuse(["--resource", "agent-ui-test-evidence"]);
+    assert.notEqual(rejected.status, 0);
+    assert.match(diagnostics(rejected), /agent-ui-test-evidence.*cannot be reused/);
+  });
+
   await test("user-owned CLI installations are excluded from worktree copying", { timeout: 15000 }, () => {
     const listed = run(process.execPath, [reuseScript, "--list"]);
     assertSucceeded(listed);
