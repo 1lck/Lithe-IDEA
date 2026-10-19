@@ -4570,6 +4570,7 @@ const catalogs = {
     "git.gutter.deleted": "Deleted lines - click to review the change",
     "git.diff.unstage": "Unstage",
     "git.diff.rollbackHunk": "Rollback Change Block",
+    "git.diff.hunkStale": "The file changed after this diff was loaded, so the block was not rolled back. Try again after the diff refreshes.",
     "git.diff.rollbackHunkConfirm":
       'Roll back this change block in "{path}"? Its unstaged edits will be discarded. This cannot be undone.',
     "git.diff.uncommitted": "Uncommitted Changes",
@@ -8984,6 +8985,7 @@ const catalogs = {
     "git.gutter.deleted": "删除的行 - 点击查看此更改",
     "git.diff.unstage": "取消暂存",
     "git.diff.rollbackHunk": "回滚修改块",
+    "git.diff.hunkStale": "此 Diff 加载后文件已发生变化，未回滚该修改块。请在 Diff 刷新后重试。",
     "git.diff.rollbackHunkConfirm": "回滚 “{path}” 中的这个修改块吗？该块未暂存的修改将被丢弃，此操作无法撤销。",
     "git.diff.uncommitted": "未提交的更改",
     "git.diff.commitPreviewTitle": "提交: {file}",

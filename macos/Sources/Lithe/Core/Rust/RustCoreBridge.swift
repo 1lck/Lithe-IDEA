@@ -69,28 +69,32 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let children: [WorkspaceNodePayload]?
     }
 
-    /// The payload's flat `files` list is not decoded: the macOS file list is
-    /// read back from the tree so both hold the same URL instances instead of
-    /// one URL per file each.
     struct WorkspaceSnapshotPayload: Decodable, Sendable {
         let root: WorkspaceNodePayload
+        let files: [String]
         let nestedWorktrees: [String]
 
         private enum CodingKeys: String, CodingKey {
-            case root, nestedWorktrees
+            case root, files, nestedWorktrees
         }
 
         init(from decoder: any Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             root = try container.decode(WorkspaceNodePayload.self, forKey: .root)
+            files = try container.decode([String].self, forKey: .files)
             nestedWorktrees = try container.decodeIfPresent([String].self, forKey: .nestedWorktrees) ?? []
         }
 
         func makeSnapshot(at rootURL: URL) -> WorkspaceSnapshot {
-            let tree = root.makeFileNode(at: rootURL)
+            // The file list keeps Core's order and reuses the tree's URL
+            // objects. A large workspace has six-figure file counts, and a
+            // second URL per file roughly doubles the snapshot's resident size.
+            var fileURLs: [String: URL] = [:]
+            fileURLs.reserveCapacity(files.count)
+            let rootNode = root.makeFileNode(at: rootURL, fileURLs: &fileURLs)
             return WorkspaceSnapshot(
-                root: tree,
-                files: tree.fileURLs,
+                root: rootNode,
+                files: files.map { fileURLs[$0] ?? rootURL.appendingPathComponent($0) },
                 nestedWorktrees: nestedWorktrees.map { rootURL.appendingPathComponent($0, isDirectory: true) }
             )
         }
@@ -4096,18 +4100,20 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
 }
 
 private extension RustCoreBridge.WorkspaceNodePayload {
-    func makeFileNode(at rootURL: URL) -> FileNode {
-        makeFileNode(at: rootURL, insideSourceRoot: false)
+    /// Also records each file's URL by its payload path.
+    func makeFileNode(at rootURL: URL, fileURLs: inout [String: URL]) -> FileNode {
+        makeFileNode(at: rootURL, insideSourceRoot: false, fileURLs: &fileURLs)
     }
 
     /// 把只含单个子目录的中间包压缩成一行（IDEA 的 Compact Middle Packages）。
     /// 规则对齐 TreeViewUtil.isEmptyMiddlePackage：唯一的子节点是目录、且当前
     /// 目录下没有文件时才压缩。只在源码根之下压缩，src/main/java 之外的目录树
     /// 保持原样，否则普通项目里任意的单层目录也会被合并，反而更难看懂。
-    private func makeFileNode(at rootURL: URL, insideSourceRoot: Bool) -> FileNode {
+    private func makeFileNode(at rootURL: URL, insideSourceRoot: Bool, fileURLs: inout [String: URL]) -> FileNode {
         let url = path.isEmpty ? rootURL : rootURL.appendingPathComponent(path)
 
         guard isDirectory else {
+            fileURLs[path] = url
             return FileNode(url: url, isDirectory: false, children: nil)
         }
 
@@ -4134,7 +4140,7 @@ private extension RustCoreBridge.WorkspaceNodePayload {
             url: nodeURL,
             isDirectory: true,
             children: node.children?.map {
-                $0.makeFileNode(at: rootURL, insideSourceRoot: childrenInsideSourceRoot)
+                $0.makeFileNode(at: rootURL, insideSourceRoot: childrenInsideSourceRoot, fileURLs: &fileURLs)
             },
             collapsedAncestorPaths: collapsed,
             isInsideSourceRoot: insideSourceRoot

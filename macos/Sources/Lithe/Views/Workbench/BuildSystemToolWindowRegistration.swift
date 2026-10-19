@@ -25,8 +25,7 @@ extension WorkbenchModuleUIRegistry {
                 window: WorkbenchContributionIcon.Asset(window.uiIcon, resources: iconResources[window.id]),
                 resources: iconResources
             )
-            // Detection runs in the execution module; the window shows once
-            // the workspace has an instance of this build system.
+            // Detection runs in the execution module when the window opens.
             let activate: @MainActor (AppModel) async -> Bool = { model in
                 do {
                     _ = try await model.services.moduleRuntime.activate(owner)
@@ -46,23 +45,24 @@ extension WorkbenchModuleUIRegistry {
                     isPending: model.contributionActivationTasks[window.id] != nil
                 )
             }))
-            // The palette command toggles the same window, and is offered
-            // only where the window can appear.
+            // The palette command toggles the same window. Both are offered
+            // in every open workspace while the plugin is enabled; the window
+            // explains when no instance of the build system was detected.
             for command in declaration.contributions where command.kind == .command
                 && command.visibility["toolWindowID"] == window.id {
                 guard let commandActionID = command.actionID, commandActionID != actionID else { continue }
                 actions.append(Action(id: commandActionID, perform: toggle, state: { model in
-                    let detected = model.hasDetectedBuildSystem(pluginID: pluginID, buildSystemID: buildSystemID)
+                    let available = model.workspaceURL != nil
                     let pending = model.contributionActivationTasks[window.id] != nil
                     return ActionState(
-                        isVisible: detected, isEnabled: detected && !pending,
+                        isVisible: available, isEnabled: available && !pending,
                         isChecked: model.workbenchFeature.isVisible(tool), isPending: pending
                     )
                 }))
             }
             renderers.append(Renderer(
                 id: rendererID, ideaAssetPath: "expui/toolwindows/toolWindowComponents@20x20.svg",
-                isVisible: { $0.hasDetectedBuildSystem(pluginID: pluginID, buildSystemID: buildSystemID) },
+                isVisible: { $0.workspaceURL != nil },
                 isSelected: { $0.workbenchFeature.isVisible(tool) },
                 content: { model in
                     guard let feature = model.buildSystemsFeatureIfActive else {

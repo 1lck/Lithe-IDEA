@@ -1570,6 +1570,10 @@ available, `left`/`right` text, a `kind` (`context`, `changed`, `addition`,
 clients must fall back to `left`. Hunk entries contain their header and the
 patch text needed for partial apply; rows are not duplicated per hunk, so
 clients group `rows` by `hunkID` instead.
+The response also carries `hasDecodingLoss`: true when Git's output was not
+valid UTF-8 and Core replaced bytes with U+FFFD while decoding `patch`. Such a
+patch still renders, but it is not the file's bytes; clients must not write it
+back, for example as byte-faithful rollback material.
 New reference-tree workflows use `gitReference`; Core validates its full
 identity before constructing the diff invocation. When `targetGitReference` is
 present, Core validates both complete identities and constructs the two-ref

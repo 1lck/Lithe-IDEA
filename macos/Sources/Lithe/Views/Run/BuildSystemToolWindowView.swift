@@ -300,7 +300,7 @@ struct BuildSystemToolWindowView: View {
                 ProgressView().controlSize(.small)
                 Text("Detecting build systems…")
             } else {
-                Text("No build system was detected in this workspace.")
+                Text(String(format: String(localized: "No %@ project was detected in this workspace."), title))
                     .multilineTextAlignment(.center)
             }
         }
