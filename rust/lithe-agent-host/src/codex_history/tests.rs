@@ -17,7 +17,7 @@ fn launch(env: Vec<(String, String)>, subscription_cli: Option<PathBuf>) -> Reso
 }
 
 fn thread(id: &str, cwd: &str) -> Value {
-    json!({"id": id, "cwd": cwd, "name": null, "preview": format!("Preview {id}"), "updatedAt": 1789893000})
+    json!({"id": id, "cwd": cwd, "name": null, "preview": format!("Preview {id}"), "updatedAt": 1789993000, "recencyAt": 1789893000})
 }
 
 /// Answer each `thread/list` request with `page(index, params)`, then report
@@ -95,13 +95,61 @@ fn updated_at_seconds_become_utc_timestamps() {
     assert_eq!(iso8601(1789893000).as_deref(), Some("2026-09-20T08:30:00Z"));
     assert_eq!(iso8601(4133980799).as_deref(), Some("2100-12-31T23:59:59Z"));
     assert_eq!(iso8601(-1), None);
+    assert_eq!(iso8601(i64::MAX), None);
+}
+
+#[test]
+fn viewing_history_preserves_activity_but_a_new_turn_advances_it() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/agent/history-activity-v1.json"
+    ))
+    .unwrap();
+    for stage in ["initial", "afterViewing", "afterMessage"] {
+        let (threads, _) = parse_page(&fixture[stage]["upstream"], WORKSPACE).unwrap();
+        let sessions: Vec<_> = threads
+            .into_iter()
+            .map(|thread| AgentSessionSummary {
+                session_id: thread.id,
+                title: thread.title,
+                updated_at: thread.updated_at,
+            })
+            .collect();
+        assert_eq!(
+            serde_json::to_value(sessions).unwrap(),
+            fixture[stage]["event"]["sessions"]
+        );
+    }
+    assert_eq!(
+        fixture["initial"]["event"],
+        fixture["afterViewing"]["event"]
+    );
+    assert_ne!(
+        fixture["initial"]["event"],
+        fixture["afterMessage"]["event"]
+    );
+}
+
+#[test]
+fn missing_or_invalid_activity_never_falls_back_to_metadata_time() {
+    for activity in [
+        Value::Null,
+        json!("1789893000"),
+        json!(-1),
+        json!(true),
+        json!(i64::MAX),
+    ] {
+        let mut row = thread("unknown", WORKSPACE);
+        row["recencyAt"] = activity;
+        let (threads, _) = parse_page(&json!({"data": [row]}), WORKSPACE).unwrap();
+        assert_eq!(threads[0].updated_at, None);
+    }
 }
 
 #[test]
 fn pages_keep_only_this_workspace_and_prefer_the_user_title() {
     let page = json!({
         "data": [
-            {"id": "named", "cwd": "/fixture/workspace/", "name": "Renamed", "preview": "First prompt", "updatedAt": 1789893000},
+            {"id": "named", "cwd": "/fixture/workspace/", "name": "Renamed", "preview": "First prompt", "updatedAt": 1789993000, "recencyAt": 1789893000},
             {"id": "preview", "cwd": WORKSPACE, "name": " ", "preview": "First prompt"},
             {"id": "elsewhere", "cwd": "/fixture/other", "name": "Other"},
             {"id": "no-cwd", "name": "Unknown"},
@@ -113,12 +161,12 @@ fn pages_keep_only_this_workspace_and_prefer_the_user_title() {
     assert_eq!(
         threads,
         vec![
-            ArchivedThread {
+            HistoryThread {
                 id: "named".into(),
                 title: Some("Renamed".into()),
                 updated_at: Some("2026-09-20T08:30:00Z".into()),
             },
-            ArchivedThread {
+            HistoryThread {
                 id: "preview".into(),
                 title: Some("First prompt".into()),
                 updated_at: None,
@@ -147,7 +195,7 @@ async fn listing_follows_cursors_past_foreign_pages_without_duplicates() {
     });
     let (result, received) = tokio::time::timeout(Duration::from_secs(5), async {
         tokio::join!(
-            list_pages(&mut writer, &mut reader, "openai", WORKSPACE),
+            list_pages(&mut writer, &mut reader, "openai", WORKSPACE, true),
             peer
         )
     })
@@ -158,6 +206,8 @@ async fn listing_follows_cursors_past_foreign_pages_without_duplicates() {
     let ids: Vec<_> = threads.iter().map(|thread| thread.id.as_str()).collect();
     assert_eq!(ids, ["a", "b"]);
     assert_eq!(received[0]["archived"], true);
+    assert_eq!(received[0]["sortKey"], "recency_at");
+    assert_eq!(received[0]["useStateDbOnly"], true);
     assert_eq!(received[0]["cursor"], Value::Null);
     assert_eq!(received[0]["modelProviders"], json!(["openai"]));
     assert_eq!(received[0]["sourceKinds"], json!(SOURCE_KINDS));
@@ -176,7 +226,7 @@ async fn listing_reports_when_the_page_bound_truncated_it() {
     );
     let (result, received) = tokio::time::timeout(Duration::from_secs(5), async {
         tokio::join!(
-            list_pages(&mut writer, &mut reader, "custom-gateway", WORKSPACE),
+            list_pages(&mut writer, &mut reader, "custom-gateway", WORKSPACE, true),
             peer
         )
     })
@@ -225,6 +275,61 @@ impl Drop for TempDirectory {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.0);
     }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn active_and_archived_listing_only_read_official_activity_metadata() {
+    let directory = TempDirectory::new("activity");
+    let mut row = thread("saved", directory.0.to_str().unwrap());
+    row["updatedAt"] = json!(1789993000);
+    let reply = format!("\"result\":{}", json!({"data": [row], "nextCursor": null}));
+    let history = CodexHistory {
+        executable: fake_app_server(&directory.0, &reply),
+        cwd: directory.0.clone(),
+        model_provider: SUBSCRIPTION_PROVIDER,
+    };
+    let workspace = workspace_context::WorkspaceContext::new(&directory.0).unwrap();
+    tokio::time::timeout(Duration::from_secs(10), async {
+        let active = history.list_active(&workspace).await.unwrap();
+        let archived = history.list_archived(&workspace).await.unwrap();
+        assert_eq!(active, archived.sessions);
+        assert_eq!(
+            active[0].updated_at.as_deref(),
+            Some("2026-09-20T08:30:00Z")
+        );
+    })
+    .await
+    .expect("bounded official history reads");
+    let requests: Vec<Value> = std::fs::read_to_string(directory.0.join("requests.log"))
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    let methods: Vec<_> = requests
+        .iter()
+        .map(|request| request["method"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        methods,
+        [
+            "initialize",
+            "initialized",
+            "thread/list",
+            "initialize",
+            "initialized",
+            "thread/list"
+        ]
+    );
+    let lists: Vec<_> = requests
+        .iter()
+        .filter(|request| request["method"] == "thread/list")
+        .collect();
+    assert_eq!(lists[0]["params"]["archived"], false);
+    assert_eq!(lists[1]["params"]["archived"], true);
+    assert!(lists
+        .iter()
+        .all(|request| request["params"]["useStateDbOnly"] == true));
 }
 
 #[cfg(unix)]

@@ -1,7 +1,7 @@
-//! Codex archived history through a short-lived official App Server.
+//! Codex history and conversation activity through a short-lived official App Server.
 //!
 //! The pinned codex-acp lists only unarchived threads and offers neither an
-//! archive filter nor an unarchive request. Like the quota probe, Lithe starts
+//! archive filter nor a conversation-activity timestamp. Like the quota probe, Lithe starts
 //! the user's Codex CLI as `codex app-server` for one bounded exchange: listing
 //! is read-only, and `thread/unarchive` runs only on an explicit user request.
 //! Codex owns the history files; Lithe never reads them and caches nothing.
@@ -20,10 +20,10 @@ const SOURCE_KINDS: [&str; 5] = ["cli", "vscode", "exec", "appServer", "unknown"
 const SUBSCRIPTION_PROVIDER: &str = "openai";
 const GATEWAY_PROVIDER: &str = "custom-gateway";
 
-/// Archived threads for the workspace. `complete` is false when the page bound
-/// stopped the listing, so the UI never presents a truncated list as whole.
+/// Threads for the workspace. `complete` is false when the page bound
+/// stopped the listing, allowing the archived-history UI to disclose truncation.
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) struct ArchivedSessions {
+pub(crate) struct ListedSessions {
     pub sessions: Vec<AgentSessionSummary>,
     pub complete: bool,
 }
@@ -57,17 +57,34 @@ impl CodexHistory {
         })
     }
 
+    pub(crate) async fn list_active(
+        &self,
+        workspace: &workspace_context::WorkspaceContext,
+    ) -> Result<Vec<AgentSessionSummary>, String> {
+        self.list(workspace, false)
+            .await
+            .map(|listed| listed.sessions)
+    }
+
     pub(crate) async fn list_archived(
         &self,
         workspace: &workspace_context::WorkspaceContext,
-    ) -> Result<ArchivedSessions, String> {
+    ) -> Result<ListedSessions, String> {
+        self.list(workspace, true).await
+    }
+
+    async fn list(
+        &self,
+        workspace: &workspace_context::WorkspaceContext,
+        archived: bool,
+    ) -> Result<ListedSessions, String> {
         let workspace_path = normalize_path(&self.cwd.to_string_lossy());
         let provider = self.model_provider;
         self.exchange(|mut input, mut output| async move {
-            list_pages(&mut input, &mut output, provider, &workspace_path).await
+            list_pages(&mut input, &mut output, provider, &workspace_path, archived).await
         })
         .await
-        .map(|(threads, complete)| ArchivedSessions {
+        .map(|(threads, complete)| ListedSessions {
             sessions: threads
                 .into_iter()
                 .map(|thread| AgentSessionSummary {
@@ -80,7 +97,14 @@ impl CodexHistory {
                 .collect(),
             complete,
         })
-        .map_err(|_| "Codex archived history could not be read.".to_owned())
+        .map_err(|_| {
+            if archived {
+                "Codex archived history could not be read."
+            } else {
+                "Codex history could not be read."
+            }
+            .to_owned()
+        })
     }
 
     pub(crate) async fn unarchive(&self, session_id: String) -> Result<(), String> {
@@ -163,7 +187,7 @@ async fn initialize(
 }
 
 #[derive(Debug, PartialEq, Eq)]
-struct ArchivedThread {
+struct HistoryThread {
     id: String,
     title: Option<String>,
     updated_at: Option<String>,
@@ -177,7 +201,8 @@ async fn list_pages(
     output: &mut (impl AsyncBufRead + Unpin),
     model_provider: &str,
     workspace: &str,
-) -> Result<(Vec<ArchivedThread>, bool), &'static str> {
+    archived: bool,
+) -> Result<(Vec<HistoryThread>, bool), &'static str> {
     let mut threads = Vec::new();
     let mut seen = std::collections::HashSet::new();
     let mut cursor: Option<String> = None;
@@ -188,7 +213,10 @@ async fn list_pages(
             2 + page as u64,
             "thread/list",
             json!({
-                "archived": true,
+                "archived": archived,
+                "sortKey": "recency_at",
+                // Read-only listing must not repair metadata from rollout file modification times.
+                "useStateDbOnly": true,
                 "cursor": cursor,
                 // Bounded pages keep each reply under the probe's size limit.
                 "limit": PAGE_SIZE,
@@ -215,7 +243,7 @@ async fn list_pages(
 fn parse_page(
     result: &Value,
     workspace: &str,
-) -> Result<(Vec<ArchivedThread>, Option<String>), &'static str> {
+) -> Result<(Vec<HistoryThread>, Option<String>), &'static str> {
     let data = result["data"].as_array().ok_or("unparsable")?;
     let threads = data
         .iter()
@@ -231,10 +259,12 @@ fn parse_page(
                 .filter_map(Value::as_str)
                 .find(|title| !title.trim().is_empty())
                 .map(str::to_owned);
-            Some(ArchivedThread {
+            Some(HistoryThread {
                 id: id.to_owned(),
                 title,
-                updated_at: thread["updatedAt"].as_i64().and_then(iso8601),
+                // Resume/settings can touch updatedAt without a new conversation turn.
+                // Missing activity is unknown; never substitute metadata time or the local clock.
+                updated_at: thread["recencyAt"].as_i64().and_then(iso8601),
             })
         })
         .collect();
@@ -291,7 +321,9 @@ fn normalize_path(value: &str) -> String {
 
 /// Unix seconds as `YYYY-MM-DDTHH:MM:SSZ`, the form the platforms already parse.
 fn iso8601(seconds: i64) -> Option<String> {
-    if seconds < 0 {
+    // The platform parser expects a four-digit ISO year, through 9999-12-31.
+    const MAX_ISO8601_SECONDS: i64 = 253_402_300_799;
+    if !(0..=MAX_ISO8601_SECONDS).contains(&seconds) {
         return None;
     }
     let days = seconds / 86_400;

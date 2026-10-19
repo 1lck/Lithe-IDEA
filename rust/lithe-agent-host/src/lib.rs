@@ -438,7 +438,8 @@ pub enum AgentCommand {
 pub struct AgentSessionSummary {
     pub session_id: String,
     pub title: Option<String>,
-    /// ISO 8601 timestamp reported by the agent, if any.
+    /// ISO 8601 history timestamp, if known. Codex uses conversation activity,
+    /// never the metadata update caused by merely resuming a session.
     pub updated_at: Option<String>,
 }
 
@@ -1614,8 +1615,13 @@ where
                         let emit = emit.clone();
                         let cwd = cwd.clone();
                         let workspace = workspace.clone();
+                        let history = history.clone();
                         tasks.spawn(async move {
-                            emit(match list_sessions(&connection, cwd, &workspace).await {
+                            let result = match history {
+                                Some(history) => history.list_active(&workspace).await,
+                                None => list_sessions(&connection, cwd, &workspace).await,
+                            };
+                            emit(match result {
                                 Ok(sessions) => AgentEvent::Sessions { token, sessions },
                                 Err(message) => failed(Some(token), None, message),
                             });

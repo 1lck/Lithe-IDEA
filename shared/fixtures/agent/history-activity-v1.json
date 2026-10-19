@@ -1,0 +1,152 @@
+{
+  "initial": {
+    "upstream": {
+      "data": [
+        {
+          "id": "session-a",
+          "cwd": "/fixture/workspace",
+          "name": "Earlier conversation",
+          "preview": "First prompt",
+          "updatedAt": 1789893000,
+          "recencyAt": 1789893000
+        },
+        {
+          "id": "session-b",
+          "cwd": "/fixture/workspace",
+          "name": "Later conversation",
+          "preview": "Second prompt",
+          "updatedAt": 1789896600,
+          "recencyAt": 1789896600
+        },
+        {
+          "id": "unknown-activity",
+          "cwd": "/fixture/workspace",
+          "name": "Unknown activity",
+          "updatedAt": 1789900200
+        }
+      ],
+      "nextCursor": null
+    },
+    "event": {
+      "kind": "sessions",
+      "token": "history-activity",
+      "sessions": [
+        {
+          "sessionId": "session-a",
+          "title": "Earlier conversation",
+          "updatedAt": "2026-09-20T08:30:00Z"
+        },
+        {
+          "sessionId": "session-b",
+          "title": "Later conversation",
+          "updatedAt": "2026-09-20T09:30:00Z"
+        },
+        {
+          "sessionId": "unknown-activity",
+          "title": "Unknown activity",
+          "updatedAt": null
+        }
+      ]
+    }
+  },
+  "afterViewing": {
+    "upstream": {
+      "data": [
+        {
+          "id": "session-a",
+          "cwd": "/fixture/workspace",
+          "name": "Earlier conversation",
+          "preview": "First prompt",
+          "updatedAt": 1789903800,
+          "recencyAt": 1789893000
+        },
+        {
+          "id": "session-b",
+          "cwd": "/fixture/workspace",
+          "name": "Later conversation",
+          "preview": "Second prompt",
+          "updatedAt": 1789896600,
+          "recencyAt": 1789896600
+        },
+        {
+          "id": "unknown-activity",
+          "cwd": "/fixture/workspace",
+          "name": "Unknown activity",
+          "updatedAt": 1789900200
+        }
+      ],
+      "nextCursor": null
+    },
+    "event": {
+      "kind": "sessions",
+      "token": "history-activity",
+      "sessions": [
+        {
+          "sessionId": "session-a",
+          "title": "Earlier conversation",
+          "updatedAt": "2026-09-20T08:30:00Z"
+        },
+        {
+          "sessionId": "session-b",
+          "title": "Later conversation",
+          "updatedAt": "2026-09-20T09:30:00Z"
+        },
+        {
+          "sessionId": "unknown-activity",
+          "title": "Unknown activity",
+          "updatedAt": null
+        }
+      ]
+    }
+  },
+  "afterMessage": {
+    "upstream": {
+      "data": [
+        {
+          "id": "session-a",
+          "cwd": "/fixture/workspace",
+          "name": "Earlier conversation",
+          "preview": "First prompt",
+          "updatedAt": 1789907400,
+          "recencyAt": 1789907400
+        },
+        {
+          "id": "session-b",
+          "cwd": "/fixture/workspace",
+          "name": "Later conversation",
+          "preview": "Second prompt",
+          "updatedAt": 1789896600,
+          "recencyAt": 1789896600
+        },
+        {
+          "id": "unknown-activity",
+          "cwd": "/fixture/workspace",
+          "name": "Unknown activity",
+          "updatedAt": 1789900200
+        }
+      ],
+      "nextCursor": null
+    },
+    "event": {
+      "kind": "sessions",
+      "token": "history-activity",
+      "sessions": [
+        {
+          "sessionId": "session-a",
+          "title": "Earlier conversation",
+          "updatedAt": "2026-09-20T12:30:00Z"
+        },
+        {
+          "sessionId": "session-b",
+          "title": "Later conversation",
+          "updatedAt": "2026-09-20T09:30:00Z"
+        },
+        {
+          "sessionId": "unknown-activity",
+          "title": "Unknown activity",
+          "updatedAt": null
+        }
+      ]
+    }
+  }
+}

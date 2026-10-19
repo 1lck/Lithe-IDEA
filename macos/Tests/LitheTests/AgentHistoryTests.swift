@@ -9,6 +9,48 @@ import LitheCoreContracts
 @MainActor
 struct AgentHistoryTests {
     @Test
+    func viewingAndAnnotatingHistoryPreserveActivityUntilANewTurn() async throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let data = try Data(contentsOf: root.appendingPathComponent("shared/fixtures/agent/history-activity-v1.json"))
+        let cases = try #require(JSONSerialization.jsonObject(with: data) as? [String: [String: Any]])
+        try await HistoryFixture().run { fixture in
+            @MainActor func refresh(_ stage: String) throws {
+                fixture.feature.refreshSessions()
+                var event = try #require(cases[stage]?["event"] as? [String: Any])
+                event["token"] = fixture.transport.connection.commands.last?["token"]
+                try fixture.emit(event)
+            }
+            @MainActor func rows() -> [AgentSessionSummary] {
+                AgentHistoryPresentation.managementSessions(fixture.feature.sessions,
+                    openSessionIDs: fixture.feature.openSessionIDs, conversations: fixture.feature.conversations,
+                    metadata: fixture.history.metadata, query: "", filter: .all)
+            }
+            try refresh("initial")
+            let originalDates = fixture.feature.sessions.map(\.updatedAt)
+            #expect(rows().map(\.id) == ["session-b", "session-a", "unknown-activity"])
+
+            fixture.feature.selectSession("session-a")
+            let load = try #require(fixture.transport.connection.commands.last)
+            #expect(load["kind"] as? String == "loadSession")
+            try fixture.emit(["kind": "sessionLoaded", "sessionId": "session-a", "token": load["token"] as Any])
+            #expect(fixture.history.rename("session-a", title: "Browsed conversation"))
+            #expect(fixture.history.setFavorite(["session-a"], true))
+            try refresh("afterViewing")
+            #expect(fixture.feature.sessions.map(\.updatedAt) == originalDates)
+            #expect(rows().map(\.id) == ["session-b", "session-a", "unknown-activity"])
+            #expect(fixture.transport.connection.commands.allSatisfy { $0["kind"] as? String != "prompt" })
+
+            // Only new upstream conversation activity advances the displayed time and ordering.
+            try refresh("afterMessage")
+            #expect(rows().map(\.id) == ["session-a", "session-b", "unknown-activity"])
+            #expect(rows().first?.updatedAt == "2026-09-20T12:30:00Z")
+            #expect(rows().last?.updatedAt == nil)
+        }
+    }
+
+    @Test
     func missingGeneratedTitlesKeepHistoryPromptAndExportFallbacks() async throws {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
