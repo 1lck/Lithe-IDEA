@@ -133,40 +133,28 @@ describe("formatPathsForTerminal", () => {
   });
 });
 
-// Nushell's single-quoted strings have no escape for `'`, so the raw string form
-// (backtick) is used instead: it keeps quotes, `$` and Windows backslashes
-// literal. A backtick in the name cannot appear in a raw string, so the fallback
-// only keeps a form that still round-trips.
+// Nushell single-quoted strings have no escape for `'`, and its backtick form is
+// a quoted identifier rather than a string literal, so a name containing `'` has
+// no literal representation and is dropped instead of being emitted bare.
 describe("Nushell quoting", () => {
-  test("uses the raw string form so backslashes and $() stay literal", () => {
-    expect(formatPathsForTerminal(["C:\\work\\a.txt"], { shell: "nu" })).toBe(
-      "`C:\\work\\a.txt`",
-    );
+  test("single-quotes a path so backslashes and $() stay literal", () => {
+    expect(formatPathsForTerminal(["C:\\work\\a.txt"], { shell: "nu" })).toBe("'C:\\work\\a.txt'");
     expect(formatPathsForTerminal(["C:\\work\\report$(whoami).txt"], { shell: "nu" })).toBe(
-      "`C:\\work\\report$(whoami).txt`",
+      "'C:\\work\\report$(whoami).txt'",
     );
   });
 
-  // Regression: doubling `'` does not round-trip in Nushell, so the raw string must
-  // carry the apostrophe unchanged.
-  test("keeps an apostrophe literal instead of doubling it", () => {
-    expect(formatPathsForTerminal(["C:\\work\\it's.txt"], { shell: "nu" })).toBe(
-      "`C:\\work\\it's.txt`",
-    );
+  // A backtick is an identifier delimiter in Nushell, not a raw-string quote, so
+  // it must not be used to wrap a path.
+  test("does not wrap a path in backticks", () => {
+    const text = formatPathsForTerminal(["C:\\work\\a`b.txt"], { shell: "nu" });
+    expect(text).toBe("'C:\\work\\a`b.txt'");
+    expect(text.startsWith("`")).toBe(false);
   });
 
-  test("falls back to single quotes when the name contains a backtick", () => {
-    expect(formatPathsForTerminal(["C:\\work\\a`b.txt"], { shell: "nu" })).toBe(
-      "'C:\\work\\a`b.txt'",
-    );
-  });
-
-  // Regression: an unrepresentable name must not fall back to bare text. An
-  // unquoted `;` in a file name would then be read as a command separator, so the
-  // path is dropped instead of risking execution.
-  test("drops a name Nushell cannot represent literally instead of leaving it bare", () => {
-    const path = "C:\\work\\a; ^whoami; #'`.txt";
-    expect(formatPathsForTerminal([path], { shell: "nu" })).toBe("");
+  test("drops a name containing a single quote because Nushell cannot escape it", () => {
+    expect(formatPathsForTerminal(["C:\\work\\it's.txt"], { shell: "nu" })).toBe("");
+    expect(formatPathsForTerminal(["C:\\work\\a`it's.txt"], { shell: "nu" })).toBe("");
   });
 });
 

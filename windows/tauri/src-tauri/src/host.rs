@@ -123,7 +123,7 @@ pub fn clipboard_set(
     state: tauri::State<'_, FileClipboard>,
     entries: Vec<ClipboardEntry>,
     operation: ClipboardOperation,
-) -> Result<(), String> {
+) -> Result<FileClipboardState, String> {
     if entries.is_empty() {
         return Err("File clipboard requires at least one entry".into());
     }
@@ -146,8 +146,12 @@ pub fn clipboard_set(
         .0
         .lock()
         .map_err(|_| "File clipboard lock was poisoned")? = Some(clipboard.clone());
-    app.emit("file-clipboard-changed", clipboard)
-        .map_err(|error| error.to_string())
+    app.emit("file-clipboard-changed", &clipboard)
+        .map_err(|error| error.to_string())?;
+    // Return the recorded state so the calling window does not have to wait for
+    // the broadcast (or depend on a listener being registered yet) to learn the
+    // entries and the counter that belong together.
+    Ok(clipboard)
 }
 
 #[tauri::command]

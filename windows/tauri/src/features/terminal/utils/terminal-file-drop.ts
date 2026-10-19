@@ -69,16 +69,17 @@ function quotePathForShell(path: string, family: TerminalShellFamily): string | 
     return `'${path.replace(POWERSHELL_SINGLE_QUOTES, (quote) => quote + quote)}'`;
   }
   if (family === "nushell") {
-    // A Nushell single-quoted string has no escape for `'`, so doubling would not
-    // round-trip. Its raw string keeps quotes, `$` and backslashes literal, which
-    // covers the shapes a Windows path can contain.
-    if (!path.includes("`")) return `\`${path}\``;
-    if (!path.includes("'")) return `'${path}'`;
-    // A backtick cannot appear in a raw string and a quote cannot appear in a
-    // single-quoted string, so this path has no literal form in Nushell. Report
-    // it instead of emitting the bare path: an unquoted `;` or `|` in a file name
-    // would then run as a command separator.
-    return null;
+    // Nushell has no escape inside a single-quoted string, and its backtick form
+    // is a quoted *identifier*, not a string literal — wrapping a path in
+    // backticks would change its meaning rather than protect it. So a single-
+    // quoted path is the only literal form available, and a name containing `'`
+    // has none.
+    if (path.includes("'")) {
+      // Emitting anything else here would either alter the path or leave it
+      // unquoted, where a `;` in a file name would run as a command separator.
+      return null;
+    }
+    return `'${path}'`;
   }
   if (family === "posix") {
     // Close the quote, escape the apostrophe outside it, then reopen.

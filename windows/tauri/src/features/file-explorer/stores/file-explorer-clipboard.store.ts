@@ -35,20 +35,34 @@ const useFileClipboardStoreBase = create<FileClipboardStore>()((set) => ({
   clipboard: null,
   actions: {
     copy: async (entries: ClipboardEntry[]) => {
-      // The backend records the counter in the state it broadcasts, so this
-      // window and every other one read it from the same source.
-      const state = await invoke<FileClipboardState>("clipboard_set", {
-        entries,
-        operation: "copy",
-      });
-      set({ clipboard: state });
+      // Record locally first: the entries must survive regardless of how the
+      // backend call behaves, because the terminal reads them from this store.
+      set({ clipboard: { entries, operation: "copy" } });
+      // Then adopt the state the backend recorded, which carries the clipboard
+      // counter so every window compares against the copy that produced these
+      // entries. The attempt is best-effort on purpose — a failed or unexpected
+      // reply must not erase what the user just copied.
+      try {
+        const state = await invoke<FileClipboardState | undefined>("clipboard_set", {
+          entries,
+          operation: "copy",
+        });
+        if (state?.entries.length) set({ clipboard: state });
+      } catch (error) {
+        console.error("File clipboard copy could not be synchronized:", error);
+      }
     },
     cut: async (entries: ClipboardEntry[]) => {
-      const state = await invoke<FileClipboardState>("clipboard_set", {
-        entries,
-        operation: "cut",
-      });
-      set({ clipboard: state });
+      set({ clipboard: { entries, operation: "cut" } });
+      try {
+        const state = await invoke<FileClipboardState | undefined>("clipboard_set", {
+          entries,
+          operation: "cut",
+        });
+        if (state?.entries.length) set({ clipboard: state });
+      } catch (error) {
+        console.error("File clipboard cut could not be synchronized:", error);
+      }
     },
     paste: async (targetDirectory: string) => {
       const result = await invoke<PastedEntry[]>("clipboard_paste", {
