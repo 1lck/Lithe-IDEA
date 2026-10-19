@@ -1329,6 +1329,8 @@ struct WorkbenchView: View {
     }
 
     private func dockStripe(_ position: DockPosition) -> some View {
+        let projectID = model.id
+        let windowScope = projectWindowScope
         let tools = model.workbenchFeature.tools(in: position).filter(isToolEntryVisible)
         let hidesSource = toolWindowDrag.source.map { tools.contains($0) } ?? false
         return ScrollView(.vertical, showsIndicators: false) {
@@ -1355,6 +1357,9 @@ struct WorkbenchView: View {
                             .modifier(LitheToolWindowDragButtonStyle())
                             .environment(\.colorScheme, colorScheme)).nsImage
                     }, click: { openTool(tool) }, commit: { moveTool($0, target: $1) }, isEnabled: isToolAvailable(tool),
+                       isCurrentProject: { [weak projectSessions] in
+                           projectSessions?.activeSessionID(in: windowScope) == projectID
+                       },
                        openInEditor: renderer?.openInEditor.map { open in { open(model) } }))
                     .accessibilityHidden(toolWindowDrag.source == tool)
                     .litheContextMenu {
