@@ -1295,14 +1295,9 @@ package final class WorkspaceFeatureModel: ObservableObject {
     }
 
     private func isKnownProjectFile(_ url: URL) -> Bool {
-        switch rootNode?.placement(of: url) {
-        case .displayed(let node, isExact: true)?:
-            return !node.isDirectory
-        case .belowUnloaded?:
-            return projectFiles.contains(url)
-        default:
-            return false
-        }
+        // Directory listings and watcher events can observe different disk
+        // revisions. Membership belongs to the inventory, not the visible tree.
+        projectFiles.contains { $0.standardizedFileURL == url.standardizedFileURL }
     }
 
     /// Whether the inventory already accounts for a directory, so an event on
@@ -1374,28 +1369,44 @@ package final class WorkspaceFeatureModel: ObservableObject {
     /// Publishes an updated inventory as a new snapshot so project services
     /// see the same files a rescan would have produced.
     private func applyIncrementalTree(root: FileNode, files: [URL], reloadsTree: Bool) async {
-        var root = root
-        if reloadsTree, let workspaceURL {
-            let operations = self.operations
-            let rules = visibilityRules
-            let loaded = Self.loadedDirectoryPaths(in: root)
-            let generation = workspaceGeneration
-            let base = FileNode(url: root.url, isDirectory: true, children: nil)
-            let relisted = await Task.detached(priority: .userInitiated) {
-                Self.listingTree(base, reloading: loaded, at: workspaceURL, operations: operations, rules: rules)
-            }.value
-            guard workspaceGeneration == generation, self.workspaceURL == workspaceURL else { return }
-            if let relisted { root = relisted }
-        }
+        let generation = workspaceGeneration
         let snapshot = WorkspaceSnapshot(
             root: root,
             files: files,
             nestedWorktrees: appliedSnapshot?.nestedWorktrees ?? []
         )
+        // Commit the inventory before yielding. A later watcher batch must merge
+        // into these files even when compact-package rows still need relisting.
         rootNode = root
         projectFiles = files
         appliedSnapshot = snapshot
         await onSnapshotLoaded?(snapshot, false)
+
+        guard reloadsTree, let workspaceURL else { return }
+        let operations = self.operations
+        let rules = visibilityRules
+        while workspaceGeneration == generation, self.workspaceURL == workspaceURL,
+              let currentRoot = rootNode, let currentSnapshot = appliedSnapshot {
+            let loaded = Self.loadedDirectoryPaths(in: currentRoot)
+            let base = FileNode(url: currentRoot.url, isDirectory: true, children: nil)
+            let relisted = await Task.detached(priority: .userInitiated) {
+                Self.listingTree(base, reloading: loaded, at: workspaceURL, operations: operations, rules: rules)
+            }.value
+            guard workspaceGeneration == generation, self.workspaceURL == workspaceURL else { return }
+            // Cancelling the debounce task does not undo its committed events.
+            // If another batch or expansion advanced the tree, relist that state
+            // instead of losing this batch's compact-package layout change.
+            guard appliedSnapshot?.id == currentSnapshot.id, rootNode == currentRoot else { continue }
+            guard let relisted else { return }
+            rootNode = relisted
+            appliedSnapshot = WorkspaceSnapshot(
+                root: relisted,
+                files: projectFiles,
+                nestedWorktrees: currentSnapshot.nestedWorktrees,
+                id: currentSnapshot.id
+            )
+            return
+        }
     }
 
     // MARK: - On-demand tree loading

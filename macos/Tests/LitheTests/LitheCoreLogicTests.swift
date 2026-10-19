@@ -5287,56 +5287,52 @@ struct EditorDocumentTests {
 
     @Test
     @MainActor
-    func gitOperationFreezeBatchesWatcherRefreshUntilTheOuterOperationEnds() async {
+    func gitOperationFreezeBatchesWatcherRefreshUntilTheOuterOperationEnds() async throws {
+        let workspace = URL(fileURLWithPath: "/in-memory/frozen-workspace")
+        let file = workspace.appendingPathComponent("Sources/App.swift")
         let watcherFactory = TestDirectoryWatcherFactory()
-        let model = WorkspaceFeatureModel(
-            operations: EmptyWorkspaceOperations(),
-            fileOperations: EmptyWorkspaceFileOperations(),
-            fileStorage: InMemoryFileStorage(),
-            gitWatchContextProvider: SequencedGitWatchContextProvider([nil]),
-            directoryWatcherFactory: watcherFactory,
-            workspaceSessionStore: WorkspaceSessionStore(store: EmptyKeyValueStore())
-        )
+        let delayStarted = TestGate()
+        let releaseDelay = TestGate()
+        let delayFinished = TestGate()
         var refreshCount = 0
-        model.configure(
-            documentsProvider: { [] },
-            activeDocumentProvider: { nil },
-            selectedSidebarProvider: { "project" },
-            setSelectedSidebar: { _ in },
-            restoreSession: { _, _ in },
-            openFile: { _ in },
-            notify: { _ in },
-            recordHistory: { _, _ in },
-            relocateHistory: { _, _ in },
-            relocateOpenDocuments: { _, _ in },
-            closeDocuments: { _ in },
-            processExternalChanges: { _ in false },
-            reloadProjectServices: {},
+        let model = makeWorkspaceObservationUnitModel(
+            operations: SequencedWorkspaceOperations(snapshotAvailability: [true], files: [file]),
+            fileOperations: ExistingWorkspaceFileOperations(paths: [file.path]),
+            provider: SequencedGitWatchContextProvider([nil]),
+            watcherFactory: watcherFactory,
             refreshGit: { refreshCount += 1 },
-            updateHistoryVisibilityRules: { _ in },
-            onSnapshotLoaded: { _, _, _ in }
+            observationDelay: { _ in
+                delayStarted.open()
+                defer { delayFinished.open() }
+                guard await releaseDelay.waitUntilOpen() else { throw CancellationError() }
+                try Task.checkCancellation()
+            }
         )
-
-        let workspace = URL(fileURLWithPath: "/tmp/frozen-workspace")
-        model.beginWorkspace(at: workspace, visibilityRules: .default)
-        model.startWatchingCurrent()
-        guard let source = watcherFactory.source else {
-            Issue.record("The directory watcher was not created")
-            return
+        defer {
+            releaseDelay.open()
+            model.reset()
         }
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        _ = await model.rebuild(at: workspace, rules: .default, isCurrent: { true })
+        let refreshesAfterLoad = refreshCount
+        let source = try #require(watcherFactory.source)
 
+        // Reach the owned debounce boundary before freezing. A yield alone
+        // cannot prove that the watcher's MainActor callback has queued paths.
+        source.emit([file.path])
+        #expect(await delayStarted.waitUntilOpen())
         model.beginGitOperationFreeze()
         model.beginGitOperationFreeze()
-        source.emit([workspace.appendingPathComponent("Sources/App.swift").path])
-        await Task.yield()
+        releaseDelay.open()
+        #expect(await delayFinished.waitUntilOpen())
         await model.endGitOperationFreeze()
 
         #expect(model.gitOperationFreezeDepth == 1)
-        #expect(refreshCount == 0)
+        #expect(refreshCount == refreshesAfterLoad)
 
         await model.endGitOperationFreeze()
         #expect(model.gitOperationFreezeDepth == 0)
-        #expect(refreshCount == 1)
+        #expect(refreshCount == refreshesAfterLoad + 1)
     }
 
     @Test
