@@ -1,0 +1,26 @@
+{
+  "id": "agent-file-context-actions",
+  "area": "AI",
+  "group": "Agent 对话",
+  "capability": "从编辑器文件标签或项目树右键把文件添加到当前或指定 Agent 会话草稿；明确 Codex/Claude 目标、支持多文件去重、新建会话与按会话保留输入，不自动发送",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "macos/Sources/Lithe/Views/Agent/AgentFileAttachmentMenu.swift",
+      "macos/Sources/Lithe/Views/Editor/EditorAreaView.swift",
+      "macos/Sources/Lithe/Views/Workspace/ProjectSidebarView.swift",
+      "macos/Sources/Lithe/Models/AppModel/AppModel+AgentConversation.swift",
+      "macos/Sources/LitheAgentConversationModule/Application/AgentFileAttachmentDestination.swift",
+      "macos/Sources/LitheAgentConversationModule/Application/AgentConnectionModel.swift",
+      "macos/Tests/LitheTests/AgentFileAttachmentTests.swift"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "missing",
+    "verificationStatus": "pending",
+    "evidence": ["shared/contracts/application-boundary.md"]
+  },
+  "owner": "Agent",
+  "verification": "macOS：深浅主题下右键非活动文件标签，确认添加的是被右键的文件；项目树单文件和多选文件使用同一入口，目录不递归展开。当前会话入口明确 Agent，其他会话按已配置 Codex/Claude 分组，显示标题、短 ID 与当前勾选，支持新建会话。分别切换两个 Agent 与同 Agent 的两个会话，确认草稿文字及附件互不串用、重复添加去重、超过32个或非法批次原子拒绝、未配置时引导设置。首次启动、会话创建和历史加载失败后附件保留；已有回复不中断，只有手动发送才提交；添加后显示目标会话并聚焦输入框，编辑区/工具窗口位置保持。菜单打开后换项目、删除文件、取消 Agent 配置或移除会话，不得错误转发。脏文件只提醒保存，不自动保存或复制。Swift 原生宿主与受控 transport 回归不代替真实 Codex/Claude 完整工作流，Windows待实现。"
+}

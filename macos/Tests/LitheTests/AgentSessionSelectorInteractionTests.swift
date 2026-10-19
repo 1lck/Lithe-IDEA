@@ -15,11 +15,7 @@ struct AgentSessionSelectorInteractionTests {
         defer { window.makeFirstResponder(nil); window.contentView = nil; window.close() }
         let parent = try await openModelMenu(in: host, window: window)
         let content = try #require(parent.contentView)
-        let field = try #require(textFields(in: content).first)
-        #expect(parent.makeFirstResponder(field))
-        let editor = try #require(field.currentEditor() as? NSTextView)
-        editor.insertText("Target", replacementRange: NSRange(location: NSNotFound, length: 0))
-        try #require(await waitUntil(updating: content) { field.stringValue == "Target" }, "Model search must accept native editing")
+        #expect(textFields(in: content).allSatisfy { !$0.isEditable }, "The model menu has no search input")
         let anchor = try #require(anchors(in: content).first)
         try clickCenter(anchor, window: parent)
         try #require(await waitUntil(updating: content) { popup(in: parent) != nil }, "The setting child must open")
@@ -30,7 +26,6 @@ struct AgentSessionSelectorInteractionTests {
         state.options[0].choices.append(.init(id: "another", name: "Another Target"))
         try #require(await waitUntil(updating: host) { parent.frame.height > parentHeight },
                      "The parent must render the unrelated model update before checking its child")
-        #expect(field.stringValue == "Target")
         #expect(child.isVisible)
         switch change {
         case "choices": state.options[1].choices.removeLast()
@@ -39,7 +34,6 @@ struct AgentSessionSelectorInteractionTests {
         }
         try #require(await waitUntil(updating: host) { !child.isVisible }, "An updated option must close its obsolete child snapshot")
         #expect(parent.isVisible && popup(in: window) === parent)
-        #expect(field.stringValue == "Target", "Only the setting anchor may be rebuilt")
         #expect(state.selected == nil)
 
         try #require(await waitUntil(updating: content) { anchors(in: content).count == 1 }, "The replacement setting anchor must be laid out")
@@ -67,7 +61,7 @@ struct AgentSessionSelectorInteractionTests {
     }
 
     @Test(arguments: [ColorScheme.dark, .light])
-    func modelSearchCommitsIMEBeforeSubmittingTheFilteredChoice(scheme: ColorScheme) async throws {
+    func modelMenuSelectsFromTheCompleteCatalogWithoutASearchField(scheme: ColorScheme) async throws {
         let state = SelectorState()
         state.options[0].choices[1].name = "你 Target"
         let host = NSHostingView(rootView: SelectorHarness(state: state).environment(\.colorScheme, scheme))
@@ -75,20 +69,18 @@ struct AgentSessionSelectorInteractionTests {
         defer { window.makeFirstResponder(nil); window.contentView = nil; window.close() }
         let parent = try await openModelMenu(in: host, window: window)
         let content = try #require(parent.contentView)
-        let field = try #require(textFields(in: content).first)
-        #expect(parent.makeFirstResponder(field))
-        let editor = try #require(field.currentEditor() as? NSTextView)
-        editor.setMarkedText("ni", selectedRange: NSRange(location: 2, length: 0),
-                             replacementRange: NSRange(location: NSNotFound, length: 0))
-        #expect(editor.hasMarkedText())
-        #expect(parent.isVisible && state.selected == nil, "Composing must not submit or dismiss the model menu")
-        editor.insertText("你", replacementRange: NSRange(location: NSNotFound, length: 0))
-        #expect(!editor.hasMarkedText())
-        try #require(await waitUntil(updating: content) { field.stringValue == "你" }, "The committed search must reach the model filter")
-        // Commit is distinct from submission; Return then selects the first filtered model.
+        #expect(textFields(in: content).allSatisfy { !$0.isEditable }, "Opening the menu must not create a search field")
+        let document = try #require(scrollView(in: content)?.documentView)
+        #expect(abs(document.bounds.height - 2 * LitheDropdownMetrics.rowHeight) < 1,
+                "The complete upstream catalog must appear immediately")
         #expect(state.selected == nil)
-        try sendKey(36, to: parent)
-        try #require(await waitUntil(updating: host) { state.selected?.1 == "target" }, "Search submission must select the filtered upstream model")
+        let point = NSPoint(x: document.bounds.midX, y: 1.5 * LitheDropdownMetrics.rowHeight)
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            parent.sendEvent(try #require(NSEvent.mouseEvent(with: type, location: document.convert(point, to: nil),
+                modifierFlags: [], timestamp: 0, windowNumber: parent.windowNumber, context: nil,
+                eventNumber: 1, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0)))
+        }
+        try #require(await waitUntil(updating: host) { state.selected?.1 == "target" }, "The chosen row must preserve its upstream model ID")
         #expect(state.selected?.0 == "model")
         #expect(await waitUntil(updating: host) { popup(in: window) == nil })
     }

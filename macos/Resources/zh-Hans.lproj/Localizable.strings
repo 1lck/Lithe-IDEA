@@ -1376,6 +1376,9 @@
 "Pending plugin changes: %lld" = "待确认的插件修改：%lld";
 "Uninstall" = "卸载";
 "Reinstall" = "重新安装";
+"Restart required" = "需要重启 Lithe";
+"Restart to Activate" = "重启后生效";
+"Version %@ is installed. Restart Lithe to load it." = "已安装版本 %@，重启 Lithe 后生效。";
 "Removed. Restart Lithe to finish." = "已移除，重启 Lithe 后完成。";
 "Removed. Restore it to use it again." = "已移除，恢复后可再次使用。";
 "Uninstall PHP Support?" = "卸载 PHP 支持？";
@@ -2439,8 +2442,7 @@
 "Update log" = "更新日志";
 
 /* Agent session selectors */
-"Search models" = "搜索模型";
-"No matching models" = "没有匹配的模型";
+"No models available" = "暂无可用模型";
 "Thinking level" = "思考强度";
 "Speed" = "速度";
 "Fast" = "快速";
@@ -2928,6 +2930,16 @@
 "Installed from %@" = "安装自 %@";
 "Community plugin maintained by a third party. Report plugin problems in its own repository." = "社区插件由第三方维护，插件问题请到它自己的仓库反馈。";
 "Install Plugin from Disk" = "从磁盘安装插件";
+"Choose Plugin Package" = "选择插件包";
+"Installed from Disk" = "从磁盘安装";
+"Community plugin installed from disk. Its publisher and repository have not been verified." = "从磁盘安装的社区插件，尚未验证发布者与源码仓库。";
+"Local Package" = "本地插件包";
+"Full Program Declaration" = "完整程序声明";
+"Builds %@ projects" = "构建 %@ 项目";
+"Tasks: %@" = "任务：%@";
+"Archive SHA-256" = "归档 SHA-256";
+"Content SHA-256" = "内容 SHA-256";
+"Selected from disk. The publisher and repository have not been verified." = "从本地磁盘选择，尚未验证发布者与源码仓库。";
 "Check: %@" = "检查：%@";
 "All tests: %@" = "全部测试：%@";
 "One file: %@" = "单个文件：%@";
@@ -2978,14 +2990,12 @@
 "Non-streaming responses" = "非流式响应";
 "%@ (%@ failed)" = "%@（失败 %@）";
 "Turn on Model call statistics in Agent settings and reconnect to see model calls, time to first token and output speed." = "在 Agent 设置中开启“模型调用统计”并重新连接后，可查看模型调用次数、首 token 延迟和输出速度。";
-"Model calls are observed by the local proxy. Tool time is measured by Lithe and includes permission waits." = "模型调用由本机代理观测；工具用时由 Lithe 本地计时，包含等待授权的时间。";
 "Token usage" = "Token 用量";
 "Cache hit" = "缓存命中";
 "Uncached input" = "未缓存输入";
 "Cache read" = "缓存读取";
 "Cache write" = "缓存写入";
 "Reasoning" = "推理";
-"Counts returned by the model provider for every request in this session." = "本会话所有模型请求由服务商返回的计数。";
 "Latest turn as reported by the Agent; its accounting scope depends on the Agent. Turn on Model call statistics for session totals." = "最近一轮由 Agent 上报的计数，统计口径由 Agent 决定；开启“模型调用统计”后显示整个会话的合计。";
 "System prompt" = "系统提示词";
 "Tool definitions" = "工具定义";
@@ -3149,10 +3159,6 @@
 "Session" = "会话";
 "Context tokens" = "上下文 Token";
 "Turn on Model call statistics in Agent settings and reconnect to see the MCP tools sent with each request." = "在 Agent 设置中开启模型调用统计并重新连接后，可查看每次请求携带的 MCP 工具。";
-"This conversation has not edited any files." = "本对话尚未编辑任何文件。";
-"Agent edits" = "Agent 编辑";
-"Edited files" = "已编辑文件";
-"Changed files" = "变更文件";
 "Used %@" = "已使用 %@";
 "Tools sent" = "发送的工具";
 "MCP tools sent" = "发送的 MCP 工具";
@@ -3334,12 +3340,21 @@
 
 /* Plugin build systems */
 "Build" = "构建";
+"Run selected task" = "运行所选任务";
+"Reload %@ projects" = "重新加载 %@ 项目";
+"%@ options" = "%@ 选项";
+"%@ build files changed" = "%@ 构建文件已更改";
+"Add to %@" = "添加到 %@";
+"Toggle %@" = "切换 %@";
+"Verification" = "验证";
+"Documentation" = "文档";
+"Other" = "其他";
 "Hide Build tool window" = "隐藏构建工具窗口";
 "Hide Build Output tool window" = "隐藏构建输出工具窗口";
 "Detect build systems again" = "重新检测构建系统";
 "Stop build task" = "停止构建任务";
 "Detecting build systems…" = "正在检测构建系统…";
-"No build system was detected in this workspace." = "此工作区未检测到构建系统。";
+"No %@ project was detected in this workspace." = "此工作区未检测到 %@ 工程。";
 "Build files changed. Reload the model to pick up the changes." = "构建文件已更改，请重新加载模型以应用更改。";
 "Build files changed." = "构建文件已更改。";
 "Load the project model" = "加载项目模型";
@@ -3376,3 +3391,66 @@
 "%@ did not report a version; %@ or newer is required." = "%1$@ 没有报告版本，需要 %2$@ 或更高版本。";
 "%@ is not available." = "%@ 不可用。";
 "No JDK is configured for this project." = "此项目没有配置 JDK。";
+
+"Check complete." = "检查完成。";
+
+"Check complete. Some CLI update results are unavailable; see Preflight." = "检查完成。部分 CLI 的更新状态无法确认，请查看预检信息。";
+
+"Check failed." = "检查失败。";
+
+"Could not compare the local adapter with the verified version." = "无法比较本地适配器与已核验版本。";
+
+"A newer verified adapter version is available." = "有更高的已核验适配器版本可用。";
+
+"The local adapter is at or above the verified version." = "本地适配器版本等于或高于已核验版本。";
+
+"Minimum version" = "最低版本";
+
+"Update to" = "可更新至";
+
+"Could not confirm" = "无法确认";
+
+"Current version: %@ · Verified target: %@" = "当前版本：%@ · 已核验目标：%@";
+
+"Update to: %@" = "可更新至：%@";
+
+/* Plugin web tool windows */
+"Show its own page in a tool window" = "在工具窗口中显示插件自带的页面";
+"Load the %@ model" = "加载 %@ 的模型";
+"Load the dependencies of %@" = "加载 %@ 的依赖";
+"Allow “%@” to run build tools?" = "允许“%@”运行构建工具吗？";
+"The plugin’s page asks to run them in %@." = "插件页面请求在 %@ 中运行它们。";
+"Lithe asks again after the plugin is disabled, updated, or Lithe restarts." = "插件被停用、更新或 Lithe 重启后会再次询问。";
+"Arguments from the page:" = "页面提供的参数：";
+"Allow" = "允许";
+"Don’t Allow" = "不允许";
+"Restart Lithe to load the updated page." = "重启 Lithe 以加载更新后的页面。";
+
+"Subagent" = "子代理";
+
+"Subagents" = "子代理";
+
+"No subagents yet" = "暂无子代理";
+
+"Subagent task" = "子代理任务";
+
+"Subagent output" = "子代理输出";
+
+"No subagent output yet" = "尚未收到子代理输出";
+
+"Disconnected" = "已断开";
+/* File context actions */
+"Add to Current Conversation · %@" = "添加到当前会话 · %@";
+"Add to Another Conversation" = "添加到其他会话";
+"New Conversation" = "新建会话";
+"Set Up Agent File Attachments…" = "设置 Agent 文件附件…";
+"Choose existing files to add to a conversation." = "请选择仍存在的文件添加到会话。";
+"Files added. Save your editor changes before sending so the Agent can read them." = "文件已添加。请在发送前保存编辑内容，以便 Agent 读取最新文件。";
+"This conversation is no longer available. Choose another conversation." = "此会话已不可用，请选择其他会话。";
+"This Agent is no longer configured. Open Agent settings to configure it." = "此 Agent 已取消配置，请打开 Agent 设置重新配置。";
+
+/* Agent activity summaries */
+"Current: %@" = "当前：%@";
+"All tasks completed" = "所有任务已完成";
+"Modified files: %lld" = "修改了 %lld 个文件";
+"Review changes" = "查看文件修改";

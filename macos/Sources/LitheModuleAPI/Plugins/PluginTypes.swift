@@ -496,7 +496,7 @@ public struct PluginManifest: Equatable, Codable, Sendable {
         "languages": [1],
         "serverProcess": [1],
         "settings": [1],
-        "ui": [1]
+        "ui": [1, 2]
     ]
 
     public let schemaVersion: Int
@@ -542,9 +542,26 @@ public enum PluginInstallationOrigin: String, Codable, Sendable {
     /// An unsigned package installed from disk by a development build. Release
     /// builds reject this origin instead of loading its code.
     case localDevelopment
-    /// A community package installed from a third-party marketplace source
-    /// after the user confirmed its permissions and programs.
+    /// A community package installed from a repository or local disk after
+    /// the user confirmed its permissions and programs.
     case community
+}
+
+/// A user-selected local package, without any claim of repository verification.
+/// The content digest binds the approval to the installed files; directories
+/// have no archive checksum. This record is never a marketplace update source.
+public struct PluginDiskProvenance: Equatable, Codable, Sendable {
+    public let fileName: String
+    public let archiveSHA256: String?
+    public let contentDigest: String
+    public let approvedPrograms: [String]
+
+    public init(fileName: String, archiveSHA256: String?, contentDigest: String, approvedPrograms: [String]) {
+        self.fileName = fileName
+        self.archiveSHA256 = archiveSHA256
+        self.contentDigest = contentDigest
+        self.approvedPrograms = approvedPrograms
+    }
 }
 
 /// Where a marketplace installation came from and what the user approved.
@@ -603,6 +620,10 @@ public struct PluginInstallationRecord: Equatable, Codable, Sendable {
     /// written before the marketplace existed decode as `nil`.
     public let marketplace: PluginMarketplaceProvenance?
     public let previousMarketplace: PluginMarketplaceProvenance?
+    /// Local disk approvals are separate from repository provenance. Missing
+    /// fields in records from earlier versions decode as nil.
+    public let disk: PluginDiskProvenance?
+    public let previousDisk: PluginDiskProvenance?
 
     public init(
         pluginID: PluginID,
@@ -612,7 +633,9 @@ public struct PluginInstallationRecord: Equatable, Codable, Sendable {
         previousOrigin: PluginInstallationOrigin? = nil,
         status: PluginInstallationStatus = .installed,
         marketplace: PluginMarketplaceProvenance? = nil,
-        previousMarketplace: PluginMarketplaceProvenance? = nil
+        previousMarketplace: PluginMarketplaceProvenance? = nil,
+        disk: PluginDiskProvenance? = nil,
+        previousDisk: PluginDiskProvenance? = nil
     ) {
         self.pluginID = pluginID
         self.activeVersion = activeVersion
@@ -622,6 +645,8 @@ public struct PluginInstallationRecord: Equatable, Codable, Sendable {
         self.status = status
         self.marketplace = marketplace
         self.previousMarketplace = previousMarketplace
+        self.disk = disk
+        self.previousDisk = previousDisk
     }
 
     /// The same record with another status; every other field is preserved.
@@ -634,7 +659,9 @@ public struct PluginInstallationRecord: Equatable, Codable, Sendable {
             previousOrigin: previousOrigin,
             status: status,
             marketplace: marketplace,
-            previousMarketplace: previousMarketplace
+            previousMarketplace: previousMarketplace,
+            disk: disk,
+            previousDisk: previousDisk
         )
     }
 }

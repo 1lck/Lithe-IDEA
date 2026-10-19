@@ -9,8 +9,8 @@ import LitheTestDesktopIsolation
 @Suite("Editor tab order")
 @MainActor
 struct EditorTabOrderFeatureModelTests {
-    @Test(arguments: [CGFloat(320), 900, 1400])
-    func editorChatCentersItsContentWhileToolWindowKeepsAvailableWidth(width: CGFloat) async throws {
+    @Test(arguments: [CGFloat(320), 900, 1400], [ColorScheme.dark, .light])
+    func editorChatCentersItsContentWhileToolWindowKeepsAvailableWidth(width: CGFloat, scheme: ColorScheme) async throws {
         let store = EditorTabOrderTestStore()
         let settings = AppSettings(store: store)
         settings.preferredConversationAgentID = "codex-acp"
@@ -18,24 +18,19 @@ struct EditorTabOrderFeatureModelTests {
             store: store, settings: settings, moduleLaunchMode: .safeMode).services)
         do {
             for editor in [true, false] {
-                let host = NSHostingView(rootView: AgentConversationView(model: model, isEditor: editor))
+                let host = NSHostingView(rootView: AgentConversationView(model: model, isEditor: editor)
+                    .environment(\.colorScheme, scheme))
                 let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 400),
                                       styleMask: [.borderless], backing: .buffered, defer: false)
                 window.isReleasedWhenClosed = false
+                window.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
                 window.contentView = host
                 defer { window.contentView = nil; window.close() }
                 host.layoutSubtreeIfNeeded()
-                func anchors(_ view: NSView) -> [LitheDropdownAnchorView] {
-                    if let anchor = view as? LitheDropdownAnchorView { return [anchor] }
-                    return view.subviews.flatMap(anchors)
-                }
-                let footer = try #require(anchors(host).min {
-                    $0.convert($0.bounds, to: nil).midY < $1.convert($1.bounds, to: nil).midY
-                })
-                let frame = footer.convert(footer.bounds, to: host)
+                let frame = try await AgentNativeControlTestSupport.frame(of: "agent-composer-attach-files", in: host)
                 let column = editor ? width * AgentPanelStyle.editorContentWidthFraction : width
-                // The trigger is inset within the command strip. Check the
-                // composer's outer edge rather than treating that inset as drift.
+                // The attachment action is the toolbar's leading control. Other
+                // dropdowns can move without changing the composer's outer edge.
                 let composerLeadingEdge = frame.minX - AgentComposerMetrics.toolbarHorizontalInset
                 #expect(abs(composerLeadingEdge - ((width - column) / 2 + AgentComposerMetrics.horizontalInset)) < 1,
                         "Footer frame \(frame), editor \(editor), column \(column)")
@@ -44,7 +39,7 @@ struct EditorTabOrderFeatureModelTests {
                     let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
                     host.cacheDisplay(in: host.bounds, to: bitmap)
                     try #require(bitmap.representation(using: .png, properties: [:])).write(to:
-                        URL(fileURLWithPath: folder).appendingPathComponent("chat-\(editor)-\(Int(width)).png"))
+                        URL(fileURLWithPath: folder).appendingPathComponent("chat-\(editor)-\(Int(width))-\(scheme).png"))
                 }
             }
         } catch { await model.shutdownProjectSession(); throw error }

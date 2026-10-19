@@ -123,6 +123,8 @@ export interface MavenTestCase {
   status: "passed" | "failed" | "error" | "skipped";
   message?: string | null;
   invocations: number;
+  /** Sum of valid invocation times; absent if any invocation has no trustworthy time. */
+  durationMillis?: number | null;
 }
 
 export interface MavenTestResults {

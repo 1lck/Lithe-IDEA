@@ -45,25 +45,33 @@ fn status_reports_every_catalog_agent_in_the_fixture_shape() {
         keys.sort();
         keys
     };
-    assert_eq!(keys(&agents[0]), keys(&expected["agents"][0]));
+    let mut agent = agents[0].clone();
+    let mut expected_agent = expected["agents"][0].clone();
+    for value in [&mut agent, &mut expected_agent] {
+        if let Some(available) = value.as_object_mut().unwrap().remove("updateAvailable") {
+            assert!(available.is_boolean(), "{available}");
+        }
+    }
+    assert_eq!(keys(&agent), keys(&expected_agent));
     assert_eq!(keys(&agents[0]["cli"]), keys(&expected["agents"][0]["cli"]));
     let mut installation = agents[0]["cli"]["installation"].clone();
     let mut expected_installation = expected["agents"][0]["cli"]["installation"].clone();
-    // Unknown update availability is omitted; installed tools and registry
-    // access on the runner must not make this optional field mandatory.
-    if let Some(available) = installation
-        .as_object_mut()
-        .unwrap()
-        .remove("updateAvailable")
-    {
-        assert!(available.is_boolean(), "{available}");
+    // Optional query results depend on installed tools and registry access.
+    // Validate their types when present without requiring runner-specific availability.
+    for value in [&mut installation, &mut expected_installation] {
+        for field in ["updateAvailable", "availableVersion", "updateCheckError"] {
+            if let Some(result) = value.as_object_mut().unwrap().remove(field) {
+                assert!(
+                    if field == "updateAvailable" {
+                        result.is_boolean()
+                    } else {
+                        result.is_string()
+                    },
+                    "{field}: {result}"
+                );
+            }
+        }
     }
-    assert!(expected_installation
-        .as_object_mut()
-        .unwrap()
-        .remove("updateAvailable")
-        .unwrap()
-        .is_boolean());
     assert_eq!(keys(&installation), keys(&expected_installation));
     assert_eq!(
         keys(&response["data"]["environment"]),

@@ -20,6 +20,16 @@ repository-relative identities. Sources are:
 - `commits`: the resolved `baseRevision` tree to the resolved `targetRevision`
   tree. Both revisions are required; they need not be adjacent or on one branch.
 
+An `unstaged` export may opt into `includeUntracked: true` (default false).
+Core copies the real index, snapshots its tree as the baseline, and stages the
+selected working files only in that disposable copy. The resulting single patch
+includes tracked edits and untracked additions relative to the index. A file
+removed from the index but retained or recreated on disk is an addition even if
+it still exists in HEAD. This is the working layer used by Windows Shelf;
+combining a HEAD-based `workingTree` patch with an `unstaged` patch loses this
+distinction. The option is rejected for other sources. Omission preserves every
+existing source's behavior, including macOS consumers.
+
 For file selection, pass `metadataOnly: true` to enumerate the same source's
 sorted counts and rename paths using Git's NUL-delimited statistics. The result
 has `patch: ""` and `byteLength: 0`; its files remain available even if an actual

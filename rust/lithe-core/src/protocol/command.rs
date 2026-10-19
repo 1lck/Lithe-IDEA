@@ -88,6 +88,8 @@ pub enum CoreCommand {
     BuildDecodeDependencies,
     /// Digests the files a build model depends on (`build.syncFingerprint`).
     BuildSyncFingerprint,
+    /// Maps build options to the Java language server's project import (`build.languageImport`).
+    BuildLanguageImport,
     /// Validates and filters a marketplace index (`plugins.marketplace.validateIndex`).
     PluginsMarketplaceValidateIndex,
     /// Resolves a user-entered marketplace source URL (`plugins.marketplace.resolveSource`).
@@ -377,6 +379,8 @@ pub enum CoreCommand {
     GitOperationState,
     /// Returns normalized line attribution (`git.blame`).
     GitBlame,
+    /// Traces which commits touched a snapshot line range (`git.lineHistory`).
+    GitLineHistory,
     /// Parses a GitHub repository identity from a Git remote URL (`github.parseRemote`).
     GitHubParseRemote,
     /// Builds a platform-executable GitHub HTTP request (`github.requestPlan`).
@@ -426,6 +430,7 @@ impl CoreCommand {
             "build.decodeDiagnostics" => Some(Self::BuildDecodeDiagnostics),
             "build.decodeDependencies" => Some(Self::BuildDecodeDependencies),
             "build.syncFingerprint" => Some(Self::BuildSyncFingerprint),
+            "build.languageImport" => Some(Self::BuildLanguageImport),
             "plugins.marketplace.validateIndex" => Some(Self::PluginsMarketplaceValidateIndex),
             "plugins.marketplace.resolveSource" => Some(Self::PluginsMarketplaceResolveSource),
             "plugins.marketplace.installReview" => Some(Self::PluginsMarketplaceInstallReview),
@@ -569,6 +574,7 @@ impl CoreCommand {
             "git.conflictMarkers" => Some(Self::GitConflictMarkers),
             "git.operationState" => Some(Self::GitOperationState),
             "git.blame" => Some(Self::GitBlame),
+            "git.lineHistory" => Some(Self::GitLineHistory),
             "github.parseRemote" => Some(Self::GitHubParseRemote),
             "github.requestPlan" => Some(Self::GitHubRequestPlan),
             "github.normalizeResponse" => Some(Self::GitHubNormalizeResponse),

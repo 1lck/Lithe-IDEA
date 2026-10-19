@@ -1,7 +1,7 @@
 # Plugin contract v1: declarative plugins
 
 A declarative plugin currently describes language support or first-stage UI contributions as data. The host reads
-`plugin.json`, validates it, verifies the package signature, and launches the
+`plugin.json`, validates it, checks the applicable signature or community approval, and launches the
 declared external processes itself. The host never loads plugin code into its
 own process, so a package does not depend on the host's binary layout and does
 not need to be rebuilt for each Lithe release.
@@ -314,7 +314,7 @@ hosts. Level 3 versions each section on its own. A level 3 manifest lists in
 | `serverProcess` | The launch fields of language servers and of build providers with a process of their own: `launch`, `arguments`, `validationArguments`, `runtimeDependencies`, `initializationOptions` | `1` |
 | `executionProviders` | `executionProviders[]` | `1` |
 | `settings` | `settings[]` | `1` |
-| `ui` | `ui` | `1` |
+| `ui` | `ui` | `1`, `2` (adds [web content](#web-content-ui-2)) |
 | `buildSystems` | Declarative build detection, models, and command plans | `1` |
 | `buildProviders` | `buildSystems[].provider`, including own-process and shared language-server providers | `1` |
 
@@ -396,6 +396,8 @@ Rules for publishing across levels and capability versions:
 | `process.run` | any provider declares `run` |
 | `process.test` | any provider declares `test` |
 | `process.build` | `buildSystems` is not empty |
+| `ui.contribute` | `ui` is declared |
+| `ui.web` | a tool window shows [web content](#web-content-ui-2) |
 
 | Activation event | Meaning |
 | --- | --- |
@@ -415,15 +417,23 @@ plugin only permits activation; nothing starts until its event occurs.
   local development package; release builds refuse it.
 - `sameTeamAsHost`: only honored for a package shipped inside the host's own
   signed installation, whose code signature already seals it.
-- `none`: a community package without a Lithe signature. A host installs it
-  only from a third-party marketplace source, after the archive matched the
-  index checksum and the user confirmed the install review (see Marketplace).
-  IDs in the official namespace (`dev.lithe`, `dev.lithe.*`) may not use it
-  (`plugin.manifest.invalid`). Hosts that predate this value refuse such
-  packages as invalid manifests, which is the intended behavior.
+- `none`: a community package without a required Lithe signature. A host may
+  install it from a third-party marketplace source after matching the archive
+  against the index checksum, or from a user-selected local ZIP or unpacked
+  directory after taking a private snapshot. Both paths require the user to
+  confirm the install review. IDs in the official namespace (`dev.lithe`,
+  `dev.lithe.*`) may not use it (`plugin.manifest.invalid`). Hosts that predate
+  this value refuse such packages as invalid manifests, which is intended.
+  A signature document, when present, must still be verified; community trust
+  cannot silently ignore an invalid signature.
 
 A host pins the signature requirement of its official plugin IDs so a package
-cannot downgrade itself.
+cannot downgrade itself. Selecting a file from disk never overrides that pin,
+namespace restrictions, publisher-key checks, or the installation seal required
+by `sameTeamAsHost`. On macOS only DEBUG permits an unsigned publisher package
+as `localDevelopment`; release builds refuse that origin. Community `none`
+packages use their own approval path in both build configurations and must not
+be reclassified as development packages.
 
 ## Marketplace
 
@@ -505,11 +515,16 @@ index. Otherwise it returns `{ "status": "ok", "index": { "plugins", "rejected" 
 
 - **Official**: an entry is official only when it comes from the official
   source and its package passes the Lithe publisher signature.
-- **Community**: entries from third-party sources. Hosts install in this
-  order: verify the archive SHA-256 against the index
-  (`plugin.archive.checksumMismatch`), validate the declaration, run
-  `plugins.marketplace.installReview`, show the review, and install only after
-  the user confirms.
+- **Community marketplace**: entries from third-party sources. Hosts install
+  in this order: verify the archive SHA-256 against the index
+  (`plugin.archive.checksumMismatch`), validate the declaration and package,
+  run `plugins.marketplace.installReview`, show the review, and install only
+  after the user confirms. The index checksum proves a match to that index's
+  bytes, not an authenticated publisher identity.
+- **Community local disk**: a user-selected ZIP or unpacked directory has no
+  marketplace index or authenticated repository. The host first copies a
+  private snapshot, then validates and reviews that snapshot with the same
+  Core command. A local checksum must never be shown as a repository match.
 
 `plugins.marketplace.installReview` accepts
 `{ "manifest": object, "expectedID"?, "expectedVersion"?, "approvedPrograms"?: [object], "hostCapabilities"?: object }`
@@ -533,10 +548,93 @@ the plugin, sorted by `kind`, language, and tool:
 Each entry carries everything that decides what actually runs, so an update
 that keeps the same executable but changes its arguments, argument templates,
 or validation probe is a new program; language-server and build-provider
-entries also carry `initializationOptions` when declared. Hosts record the approved `programs`
-with the installation. An update passes them as `approvedPrograms`; a
-non-empty `newPrograms` requires the user to confirm again. When several sources list the same ID, the user chooses the
-source at install time and later updates come only from that source.
+entries also carry `initializationOptions` when declared. Hosts show all
+`permissions` and the complete `programs`, and persist each approved program
+as canonical JSON without dropping fields. A display may use readable labels
+but must retain all canonical content, including a full JSON fallback for
+program kinds it cannot describe completely. On macOS, recognized kinds keep
+their readable summary and offer a native “Full Program Declaration” disclosure
+with the complete canonical JSON; unknown kinds already render that JSON and
+do not need a duplicate disclosure.
+
+Local disk community installation requires explicit confirmation on every first
+install, update, reinstall, and same-version replacement, including unchanged
+programs and permissions. An empty `newPrograms` never waives disk confirmation.
+Marketplace installation retains its existing policy: first install, missing
+previous approval, or nonempty `newPrograms` requires confirmation; a marketplace
+update with no new programs may reuse its recorded approval. A host may pass
+previous `approvedPrograms` to highlight differences, but a confirmation always
+shows the complete current review. Core's review remains a pure description and
+comparison, not an approval grant.
+When several marketplace sources list the same ID, the user chooses the source
+at install time and later updates come only from that source. Local disk
+provenance is never a marketplace source or an automatic update subscription.
+
+### Local disk snapshots and installation provenance (macOS)
+
+The macOS disk entry accepts a ZIP or an unpacked package directory. It does
+not run code from the selection. `MacPluginDiskPackageImporter` copies into a
+fresh private directory (mode `0700`) before declaration validation, trust
+checks, review, or installation. It refuses aliases, symbolic links, special
+files, ambiguous manifests, and detected source changes during copying, and
+applies archive/extracted-size and entry-count limits to the snapshot. Directory
+copy depth is limited to 64, and its temporary root must stay outside the
+selected source. Before extraction, ZIP preflight checks central and local
+header paths/types and rejects duplicate or colliding paths.
+
+`MacServiceContainer` injects `fileStorage.temporaryDirectory()`. Within that
+platform-owned writable root the importer creates
+`lithe-plugin-disk-<UUID>/archive.zip` for a ZIP and `package/` for copied or
+extracted files. `archiveSHA256` is computed from the copied ZIP, not by reading
+the original after review; an unpacked directory has no archive and this field
+is absent/`nil`. The content digest covers the package files. Neither digest
+authenticates a publisher or remote repository.
+
+Disk digesting, Rust review, and candidate validation run on a native worker,
+with a worker-owned Store decoder and immutable validation policy. The UI actor
+remains available to close the page or cancel. Cancellation is checked between
+review stages and before publishing the prepared candidate; snapshot cleanup
+waits for the worker to finish reading it.
+
+`PluginDiskProvenance` is host-owned local installation data, separate from
+`PluginMarketplaceProvenance`; it is not a new field in `plugin.json` or the
+marketplace index schema. A disk record contains the selected `fileName`,
+optional `archiveSHA256`, `contentDigest`, and complete canonical
+`approvedPrograms`. Marketplace provenance instead retains its source ID/name,
+repository, index archive checksum, content digest, and approved programs.
+Each community version must have exactly one of these provenance records;
+missing or conflicting provenance is rejected.
+
+The store rechecks the content digest of the installation staging copy before
+publishing it, on every installed-package scan, and before rollback. Changed,
+added, or removed package files reject that candidate or version. Active and
+previous versions retain their own origin and provenance (`disk` /
+`previousDisk`, `marketplace` / `previousMarketplace`); rollback verifies the
+restored version against its own approval. Replacing the active version with
+the same version retains the existing previous-version history; it does not
+create a second rollback slot for the overwritten same-version bytes. A
+marketplace entry with the same ID must not automatically offer updates or
+reinstall a disk-managed installation.
+
+The importer owns partial-copy cleanup on failure or cancellation. After
+preparation the service owns the snapshot until review cancellation or install
+success/failure and discards it in all these cases. Closing the plugin page
+cancels its disk import and ends the installation session: pending snapshots
+are discarded immediately and late prepared results are discarded rather than
+installed. The package store owns its separate Application Support staging,
+version directories, and installation records. None of these snapshots, staging files, installed versions, or approval
+records are reusable worktree build resources: a content hash does not transfer
+user consent or provide a version/platform/architecture/toolchain identity stamp.
+They are excluded as `plugin-disk-install-state`. No runtime write targets the
+signed app bundle or Windows installation resources, so these paths do not
+change code signatures or Sparkle differential-update baselines.
+
+Windows currently shares the schemas and Rust validation only; it has no
+implementation of this declarative ZIP/directory snapshot and approval flow.
+Its existing worker-package import is a separate format. The feature matrix
+therefore keeps Windows `partial` and macOS runtime verification `pending`;
+static checks and Node resource tests alone do not verify the UI confirmation,
+complete program rendering, cleanup, or bundle hashes in a real workflow.
 
 ## API level 3: build systems
 
@@ -574,6 +672,36 @@ declaration are relative, use `/`, and stay inside their base directory
 | `dependencies` | A command (with `scopes`) whose output Core decodes, as a flat list through a `map` or as a tree from `litheDependencies`; `provider` (with `scopes`, `workspace` and `project` only); or `hostIntegration`. |
 | `sync` | Files whose change makes the model stale, relative to the root and to each project. |
 | `layout` | `excluded` directories relative to each project, added to every project as `excluded` content roots. |
+| `languageImport` | The project import Lithe's Java language server performs for this build system: `kind` `maven` or `gradle`, and `options` mapping its settings to the plugin's own option IDs. `maven` has `profiles` (`multiSelect`), `settingsFile` (`file`) and `localRepository` (`directory`); `gradle` has `offline` (`boolean`) and `gradleUserHome` (`directory`). `build.languageImport` turns the user's values into the `mavenContext` or `javaGradle` input of `lsp.startServer`; settings without an option keep the language server's defaults. |
+
+### Presentation
+
+Each enabled build system gets a tool window of its own, titled with its
+`displayName`; `icon` (a [UI icon](#ui-icons-macos-host)) is its activity-bar
+icon. As for every tool window, the host owns the shell: dock, order,
+visibility, layout, and lifecycle. The host draws the window body from the
+model, and three optional fields tell it where an entry goes. None of them
+changes a plan.
+
+- `options[].presentation: "toolbar"` puts a boolean option on the window's
+  toolbar as a toggle, for offline mode or skipping tests; it needs an
+  `icon`. `"tree"` shows a multiSelect option as a checklist node at the top
+  of the tree (Maven profiles). Without `presentation` the option appears only
+  in the option list. An icon on an option that is not `toolbar` is
+  `plugin.manifest.invalid`.
+- `tasks[].category` lists 1–4 headings, outermost first, that file the task
+  in its project (`["Lifecycle"]`). Without it the host files the task by
+  `group`. On a `fromModel` template it is the default for the tasks the
+  model lists.
+- A model task in a `litheBuildModel` document can carry its own `category`,
+  an array of strings. Core trims the headings. A category that is deeper
+  than four headings or has an empty heading falls back to the template's, so
+  a tool that reports a bad heading still has its task filed.
+
+The macOS host gives each detected build system its own tool window and uses
+these presentation fields. The host-drawn windows share Build Output, docking,
+layout restoration, activation, and lifecycle with other workbench contributions.
+Windows has not integrated build-system windows yet.
 
 ### Templates
 
@@ -637,7 +765,7 @@ Canonical formats let a plugin's own script print the shape Core expects:
 
 | Format | Shape |
 | --- | --- |
-| `litheBuildModel` | `{ "format": "litheBuildModel", "version": 1, "projects", "targets", "tasks", "contentRoots", "optionValues" }` with the model's field names |
+| `litheBuildModel` | `{ "format": "litheBuildModel", "version": 1, "projects", "targets", "tasks", "contentRoots", "optionValues" }` with the model's field names; `tasks[].category` is an array of headings |
 | `litheTestResults` | `{ "format": "litheTestResults", "version": 1, "tests": [{ "suite", "case", "status", "message"?, "durationMillis"?, "path"?, "line"? }] }` |
 | `litheDependencies` | `{ "format": "litheDependencies", "version": 1, "dependencies": [{ "name", "group"?, "version"?, "scope"?, "properties"?, "children" }] }` |
 | `litheDiagnostics` | output lines `{ "lithe": "diagnostic", "path", "line", "column"?, "severity"?, "message" }` |
@@ -765,6 +893,9 @@ command payload is a Core `invalid_request` failure instead.
 | `plugin.launch.missing` | Host | The packaged language server is missing or not executable |
 | `plugin.runtime.missing` | Host | A declared runtime (for example Node.js) cannot be found, or is older than its `minimumVersion`, when the server starts |
 | `plugin.legacyNative.updateRequired` | Host | An installed schema-1 native package must be replaced by its declarative version |
+| `plugin.web.unknownMethod` | Host | A plugin page called a bridge method the host does not implement |
+| `plugin.web.invalidRequest` | Host | A bridge call has malformed parameters |
+| `plugin.web.forbidden` | Host | A bridge call names an instance, run, or path outside the page's plugin or workspace, or the page is closed |
 
 Host-facing plugin states are `notInstalled`, `installed` (enabled or
 disabled), `running`, `restartRequired`, `updateRequired`, and `failed`.
@@ -796,6 +927,8 @@ nonempty UI catalog. See `fixtures/hello-lithe.plugin.json` and the UI cases in
   fields are rejected with `plugin.manifest.invalid`.
 - Titles are at most 256 UTF-8 bytes and window text at most 65536 UTF-8 bytes.
   Text is displayed literally; it is never evaluated as HTML or a script.
+  A window shows exactly one of `text` and, from `ui` 2 on,
+  [`web`](#web-content-ui-2).
 - Declare `onView:<window-id>` and `onCommand:<command-id>` for every window and
   command, plus `ui.contribute`. The existing permission and activation error
   codes apply. IDs and presentation order are normalized deterministically.
@@ -816,14 +949,89 @@ packages without language or UI contributions remain unchanged for v2 compatibil
 The macOS host supports mouse docking through the existing shared dock state;
 that presentation behavior does not grant additional plugin execution capabilities.
 
+### Web content (`ui` 2)
+
+A plugin does not have to bring a UI: build systems get a host-drawn window
+(see [Presentation](#presentation)), and text windows need no code. A plugin
+that wants its own UI can show its own page in a tool window instead of
+`text`:
+
+```json
+"requires": { "ui": 2 },
+"permissions": ["ui.contribute", "ui.web"],
+"ui": { "toolWindows": [{ "id": "…", "title": "…", "placement": "right", "web": { "entry": "ui/index.html" } }] }
+```
+
+- `web` needs `pluginAPIVersion` 3, `requires.ui: 2`, and the `ui.web`
+  permission, which the install review lists like every permission.
+  `requires.ui: 2` without a web window is `plugin.manifest.invalid`, so a
+  text-only plugin stays installable on hosts that run only `ui` 1.
+- `entry` is a package-relative `.html` path. `fixtures/web-panel.plugin.json`
+  is the example; the web cases of `fixtures/invalid-manifests.json` are the
+  rejections.
+
+The window shell stays the host's: dock, title, activity-bar entry, order,
+visibility, layout, and lifecycle are declared or managed exactly as for a
+text window. The page fills the body only and cannot open, place, size, or
+title a window.
+
+Hosts load a page under these rules:
+
+- Only files of the installed package are served, read-only, from an origin
+  private to the plugin. The host's content security policy refuses network
+  connections, remote resources, frames, inline scripts, and `eval`.
+  Navigation away from the package, popups, and downloads are blocked.
+- Web storage is not persistent. A page keeps its state through the bridge.
+- The host creates the page when the window is first shown. It may destroy
+  the page whenever the window is hidden, and does destroy it when the plugin
+  is disabled, updated, or uninstalled. A page restores itself from its
+  state.
+- The root element carries `data-theme` (`light` or `dark`) and the host's
+  `--lithe-*` CSS colour and font variables, updated with the theme.
+
+Before the page's scripts run, the host defines `window.lithe` (bridge
+version 1): `lithe.context` (`pluginID`, `windowID`, `platform`, `locale`,
+`theme`), `lithe.request(method, params)`, which returns a promise of the
+result or rejects with `{ code, message }`, and `lithe.on(event, listener)`,
+which returns an unsubscribe function. A page reaches only its own plugin's
+build systems and the open workspace. Requests that run anything go through
+the same workspace trust and consent prompts as the host's own controls, and
+their output appears in the host's Build output window.
+
+| Method | Parameters | Result |
+| --- | --- | --- |
+| `build.instances` | none | `{ instances: [{ id, buildSystemID, root, state, model?, options, error? }] }`: this plugin's detected instances, `model` as `build.decodeModel` returns it, `options` the stored values |
+| `build.refresh` | `{ instance }` | `{}`; reloads the model |
+| `build.runTask` | `{ instance, task, project?, target?, modelTask?, userArguments? }`, the selection of `build.taskPlan` | `{ run }` |
+| `build.runTests` | `{ instance, project?, target?, suite?, case? }`, the selection of `build.testPlan` | `{ run }` |
+| `build.cancel` | `{ run }` | `{}` |
+| `build.dependencies` | `{ instance, project? }` | the tree `build.decodeDependencies` returns |
+| `build.setOptions` | `{ instance, values }` | `{ options }`, checked by `build.resolveOptions` and stored like values set in the host's option list |
+| `workspace.openFile` | `{ path, line?, column? }`, a path inside the workspace | `{}` |
+| `ui.getState`, `ui.setState` | none, `{ state }` | `{ state }`, `{}`; JSON of at most 64 KiB per window and workspace |
+
+| Event | Payload |
+| --- | --- |
+| `build.instancesChanged` | `{ instances }`, as `build.instances` returns them |
+| `build.runChanged` | `{ run, instance, state, exitCode? }`, `state` one of `running`, `succeeded`, `failed`, `cancelled` |
+| `ui.themeChanged` | `{ theme }` |
+
+Bridge errors are `plugin.web.unknownMethod`, `plugin.web.invalidRequest`,
+and `plugin.web.forbidden`. Build requests also report the `build.*` codes.
+macOS implements web content with WKWebView and advertises `ui: [1, 2]`.
+Windows has no WebView2 host yet and still advertises `ui: [1]`, so Core refuses
+`ui` 2 plugins there with `plugin.api.unsupported`.
+
 ### Future public extension direction (not implemented in API level 2)
 
-- Third-party UI uses a separately versioned JSON component tree (Tree/List/Form/
-  Input/Button, data sources and events) rendered by native platform adapters.
-  Plugin UI does not use HTML, Webviews or third-party frontend frameworks.
-  Built-in or trusted native modules may register Native View/Renderer Factories
-  under the same host window management. This does not restore arbitrary dynamic
-  third-party Swift Bundle loading; ABI, signing and isolation need separate design.
+- Plugins may bring their own UI as [web content](#web-content-ui-2) inside
+  host-owned windows. A separately versioned JSON component tree
+  (Tree/List/Form/Input/Button, data sources and events) rendered by native
+  platform adapters remains the direction for plugins that want native
+  controls without writing a page. Built-in or trusted native modules may
+  register Native View/Renderer Factories under the same host window
+  management. This does not restore arbitrary dynamic third-party Swift
+  Bundle loading; ABI, signing and isolation need separate design.
 - Actions declare handlers and availability/context conditions independently of
   Tool Windows. Commands, menus/context menus, toolbars, status bars and settings
   contributions must not require dummy windows. Opening a window is one action kind.

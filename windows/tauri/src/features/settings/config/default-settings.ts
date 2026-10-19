@@ -197,7 +197,7 @@ export const defaultSettings: Settings = {
   showGitignoredFilesInFileTree: true,
   hiddenFilePatterns: [...DEFAULT_HIDDEN_FILE_PATTERNS],
   hiddenDirectoryPatterns: [...DEFAULT_HIDDEN_DIRECTORY_PATTERNS],
-  gitChangesFolderView: true,
+  gitChangesFolderView: false,
   confirmBeforeDiscard: true,
   autoRefreshGitStatus: true,
   showUntrackedFiles: true,

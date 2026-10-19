@@ -29,13 +29,14 @@
 | `serverProcess` | 语言服务器和自有进程 Provider 共用的启动字段（`launch`、`arguments`、`validationArguments`、`runtimeDependencies`、`initializationOptions`） |
 | `executionProviders` | `executionProviders[]` |
 | `settings` | `settings[]` |
-| `ui` | `ui` |
+| `ui` | `ui`；版本 `2` 增加工具窗口里的网页内容 |
 | `buildSystems` | 声明式构建识别、模型和命令计划 |
 | `buildProviders` | 任一 `buildSystems[].provider`，包括自有进程和共享语言服务器两种写法 |
 
 规则：
 
-- 每个能力现在只有版本 `1`，含义等于该段在级别 2 下的含义。所以把级别 2 的清单改成级别 3，只需要加上 `requires`，其它字段不动。
+- 每个能力的版本 `1` 含义等于该段在级别 2 下的含义。所以把级别 2 的清单改成级别 3，只需要加上 `requires`，其它字段不动。
+- 第一个新增版本是 `ui` 2，它增加了 `ui.toolWindows[].web`（插件自带的网页，见[插件自带网页界面](2026-10-18-plugin-web-content-in-host-windows.md)）。只有文本窗口却声明 `ui` 2 会被拒绝：版本只增不改，多声明一个用不到的版本，只会让插件在只支持 `ui` 1 的宿主上无端消失。macOS 自网页宿主实现起发送 `ui: [1, 2]`；Windows 在实现之前继续只发送 `ui: [1]`。
 - `requires` 在级别 3 必填，在级别 1、2 禁止出现。
 - Core 在解码任何一段之前先检查 `requires`。不认识的能力或版本报 `plugin.api.unsupported`，`field` 是 `requires.<能力>`。即使清单里同时有一段 Core 不认识，也先报缺哪个能力，而不是报未知字段。
 - `requires` 必须恰好列出清单用到的能力。少列，宿主可能装上运行不了的插件；多列，插件会在本来能运行的宿主上被隐藏。两种情况都是 `plugin.manifest.invalid`，报错信息会点名缺了哪个、多了哪个。

@@ -82,13 +82,20 @@ struct LitheCoreLogicTests {
 
     @Test
     @MainActor
-    func closingAWorkspaceWindowClosesTheProjectInsteadOfTheWindow() {
+    func closingAWorkspaceWindowResetsItsProjectsAndKeepsTheWelcomeWindow() async {
         let sessions = TestProjectWindowSessions(hasActiveProject: true)
-        let coordinator = LitheWindowCoordinator(projectSessions: sessions)
-        let window = NSWindow()
+        let coordinator = LitheWindowCoordinator(
+            projectSessions: sessions, confirmUnsavedDocuments: { _ in true }
+        )
+        let window = CloseCommandTestWindow()
+        coordinator.attach(to: window, layout: .workspace)
 
         #expect(!coordinator.windowShouldClose(window))
-        #expect(sessions.closeActiveProjectCallCount == 1)
+        #expect(await sessions.projectWindowCleanupFinished.waitUntilOpen())
+        #expect(sessions.resetForProjectWindowCloseCallCount == 1)
+        #expect(sessions.requestCloseActiveSessionCallCount == 0)
+        #expect(!sessions.hasActiveProject)
+        #expect(window.performCloseCallCount == 0)
     }
 
     @Test
@@ -159,10 +166,15 @@ struct LitheCoreLogicTests {
     func commandWCancelDoesNotResetSessionsOrLeakIntoTheNextWindowClose() async {
         let confirmationFinished = TestGate()
         defer { confirmationFinished.open() }
+        var confirmationCount = 0
         let sessions = TestProjectWindowSessions(hasActiveProject: true)
         let coordinator = LitheWindowCoordinator(
             projectSessions: sessions,
-            confirmUnsavedDocuments: { _ in confirmationFinished.open(); return false }
+            confirmUnsavedDocuments: { _ in
+                confirmationCount += 1
+                confirmationFinished.open()
+                return confirmationCount > 1
+            }
         )
         let window = CloseCommandTestWindow()
         coordinator.attach(to: window, layout: .workspace)
@@ -170,13 +182,15 @@ struct LitheCoreLogicTests {
         coordinator.performCloseCommand()
         #expect(await confirmationFinished.waitUntilOpen())
 
-        #expect(await confirmationFinished.waitUntilOpen())
         #expect(window.performCloseCallCount == 1)
         #expect(!window.delegateAllowedClose)
         #expect(sessions.resetForProjectWindowCloseCallCount == 0)
 
         #expect(!coordinator.windowShouldClose(window))
-        #expect(sessions.requestCloseActiveSessionCallCount == 1)
+        #expect(await sessions.projectWindowCleanupFinished.waitUntilOpen())
+        #expect(sessions.requestCloseActiveSessionCallCount == 0)
+        #expect(sessions.resetForProjectWindowCloseCallCount == 1)
+        #expect(window.performCloseCallCount == 1)
     }
 
     @Test
@@ -210,13 +224,56 @@ struct LitheCoreLogicTests {
 
     @Test
     @MainActor
-    func ordinaryWindowCloseStillClosesOnlyTheActiveSession() {
+    func ordinaryWindowCloseWaitsForCleanupAndIgnoresDuplicateClicks() async {
+        let cleanupStarted = TestGate()
+        let releaseCleanup = TestGate()
         let sessions = TestProjectWindowSessions(hasActiveProject: true)
-        let coordinator = LitheWindowCoordinator(projectSessions: sessions)
+        sessions.projectWindowCleanupStarted = cleanupStarted
+        sessions.projectWindowCleanupRelease = releaseCleanup
+        let coordinator = LitheWindowCoordinator(
+            projectSessions: sessions, confirmUnsavedDocuments: { _ in true }
+        )
+        let window = CloseCommandTestWindow()
+        coordinator.attach(to: window, layout: .workspace)
+        defer { releaseCleanup.open() }
 
-        #expect(!coordinator.windowShouldClose(NSWindow()))
-        #expect(sessions.requestCloseActiveSessionCallCount == 1)
+        #expect(!coordinator.windowShouldClose(window))
+        #expect(await cleanupStarted.waitUntilOpen())
+        #expect(sessions.hasActiveProject)
+        #expect(!coordinator.windowShouldClose(window))
+        #expect(sessions.resetForProjectWindowCloseCallCount == 1)
+        releaseCleanup.open()
+        #expect(await sessions.projectWindowCleanupFinished.waitUntilOpen())
+        #expect(!sessions.hasActiveProject)
+        #expect(window.performCloseCallCount == 0)
+    }
+
+    @Test(arguments: [false, true])
+    @MainActor
+    func ordinaryWindowCloseCancelOrSaveFailureKeepsProjects(saveFailure: Bool) async {
+        let confirmationFinished = TestGate()
+        let sessions = TestProjectWindowSessions(hasActiveProject: true)
+        sessions.hasUnsavedDocuments = true
+        sessions.saveAllDocumentsResult = false
+        let coordinator = LitheWindowCoordinator(
+            projectSessions: sessions,
+            confirmUnsavedDocuments: { owner in
+                defer { confirmationFinished.open() }
+                #expect(owner.hasUnsavedDocuments)
+                if saveFailure { return await owner.saveAllDocuments() }
+                return false
+            }
+        )
+        let window = CloseCommandTestWindow()
+        coordinator.attach(to: window, layout: .workspace)
+
+        #expect(!coordinator.windowShouldClose(window))
+        #expect(await confirmationFinished.waitUntilOpen())
+        #expect(sessions.hasActiveProject)
         #expect(sessions.resetForProjectWindowCloseCallCount == 0)
+        #expect(sessions.requestCloseActiveSessionCallCount == 0)
+        #expect(sessions.saveAllDocumentsCallCount == (saveFailure ? 1 : 0))
+        #expect(window.performCloseCallCount == 0)
     }
 
     @Test
@@ -483,6 +540,7 @@ struct LitheCoreLogicTests {
         let dedicatedSessionID = manager.activeSessionID(in: .dedicated(dedicatedWindowID))
 
         #expect(manager.primaryOpenProjects.count == 2)
+        #expect(manager.shouldDismissPrimaryWindowWhenClosingActiveSession)
         await manager.resetForProjectWindowClose()
 
         #expect(manager.primaryOpenProjects.isEmpty)
@@ -3563,6 +3621,30 @@ struct LitheCoreLogicTests {
     }
 
     @Test
+    func workspaceSnapshotFilesMatchTheTreeFilesInCoreOrder() throws {
+        let json = """
+        {"root":{"path":"","name":"w","isDirectory":true,"children":[
+          {"path":"src","name":"src","isDirectory":true,"children":[
+            {"path":"src/b.txt","name":"b.txt","isDirectory":false},
+            {"path":"src/a.txt","name":"a.txt","isDirectory":false}]},
+          {"path":"README.md","name":"README.md","isDirectory":false}]},
+         "files":["README.md","src/a.txt","src/b.txt","missing.txt"]}
+        """
+        let payload = try JSONDecoder().decode(RustCoreBridge.WorkspaceSnapshotPayload.self, from: Data(json.utf8))
+        let root = URL(fileURLWithPath: "/tmp/lithe-workspace-files")
+        let snapshot = payload.makeSnapshot(at: root)
+
+        func leaves(_ node: FileNode) -> [URL] {
+            node.isDirectory ? (node.children ?? []).flatMap(leaves) : [node.url]
+        }
+        // Core's file order is kept; a path absent from the tree still resolves.
+        #expect(snapshot.files.map(\.path) == ["README.md", "src/a.txt", "src/b.txt", "missing.txt"].map {
+            root.appendingPathComponent($0).path
+        })
+        #expect(Set(leaves(snapshot.root)) == Set(snapshot.files.dropLast()))
+    }
+
+    @Test
     func gitCommitFileTreePreservesHierarchyAndCompactsSingleChildPaths() {
         let tree = GitCommitFileTreeNode.build(
             from: [
@@ -3709,6 +3791,7 @@ private final class TestProjectWindowSessions: ProjectWindowSessionHandling {
     var saveAllDocumentsResult = true
     var projectWindowCleanupStarted: TestGate?
     var projectWindowCleanupRelease: TestGate?
+    let projectWindowCleanupFinished = TestGate()
     private(set) var closeActiveProjectCallCount = 0
     private(set) var closeActiveWorkbenchItemCallCount = 0
     private(set) var requestCloseActiveSessionCallCount = 0
@@ -3746,6 +3829,8 @@ private final class TestProjectWindowSessions: ProjectWindowSessionHandling {
         if let projectWindowCleanupRelease {
             _ = await projectWindowCleanupRelease.waitUntilOpen()
         }
+        hasActiveProject = false
+        projectWindowCleanupFinished.open()
     }
 
     func noteWindowBecameKey() {
@@ -5110,6 +5195,43 @@ struct EditorDocumentTests {
     }
 
     @Test
+    func fallbackSnapshotOmitsLinkedWorktreesNestedInTheirRepositoryButKeepsSubmodules() throws {
+        let fileManager = FileManager.default
+        let workspace = fileManager.temporaryDirectory
+            .appendingPathComponent("lithe-nested-worktree-fallback-\(UUID().uuidString)")
+        defer { try? fileManager.removeItem(at: workspace) }
+        func write(_ relativePath: String, _ text: String) throws {
+            let url = workspace.appendingPathComponent(relativePath)
+            try fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data(text.utf8).write(to: url)
+        }
+        try write("src/App.java", "class App {}")
+        try write(".git/worktrees/agent/HEAD", "ref: refs/heads/agent\n")
+        try write(
+            ".claude/worktrees/agent/.git",
+            "gitdir: \(workspace.appendingPathComponent(".git/worktrees/agent").path)\n"
+        )
+        try write(".claude/worktrees/agent/src/App.java", "class App {}")
+        try write(".git/modules/lib/HEAD", "ref: refs/heads/main\n")
+        try write("vendor/lib/.git", "gitdir: ../../.git/modules/lib\n")
+        try write("vendor/lib/Lib.java", "class Lib {}")
+
+        let snapshot = try #require(
+            FileSystemWorkspaceSnapshotBuilder().snapshot(at: workspace, visibilityRules: .default)
+        )
+
+        // Listing a temporary directory reports `/private/var` children for a
+        // `/var` root, so compare paths below the workspace's own name.
+        let marker = "/" + workspace.lastPathComponent + "/"
+        func relative(_ url: URL) -> String { url.path.components(separatedBy: marker).last ?? url.path }
+        let files = snapshot.files.map(relative)
+        #expect(files.contains("src/App.java"))
+        #expect(files.contains("vendor/lib/Lib.java"))
+        #expect(!files.contains { $0.hasPrefix(".claude/worktrees/") })
+        #expect(snapshot.nestedWorktrees.map(relative) == [".claude/worktrees/agent"])
+    }
+
+    @Test
     func hiddenFilePatternsAreOptInAndLeaveFilesOnDisk() throws {
         let fileManager = FileManager.default
         let workspace = fileManager.temporaryDirectory
@@ -5316,6 +5438,66 @@ struct EditorDocumentTests {
     }
 
     @Test
+    func macDirectoryWatcherKeepsSiblingWorktreeMetadataInTheGitRefreshAndRevalidatesExclusions() {
+        let repository = URL(fileURLWithPath: "/in-memory/lithe-classification-worktrees/repository")
+        let commonDirectory = repository.appendingPathComponent(".git")
+        let linkedWorktreeDirectory = commonDirectory.appendingPathComponent("worktrees/feature")
+        let nestedWorktree = repository.appendingPathComponent(".claude/worktrees/agent")
+        let configuration = DirectoryWatchConfiguration(
+            workspaceRoot: repository.appendingPathComponent("feature"),
+            gitContext: GitWatchContext(
+                repositoryRoot: repository.appendingPathComponent("feature"),
+                gitDirectory: linkedWorktreeDirectory,
+                gitCommonDirectory: commonDirectory
+            ),
+            ignoredDirectories: [nestedWorktree]
+        )
+        let watcher = MacDirectoryWatcher(configuration: configuration) { _ in }
+
+        // High-frequency private state of a sibling worktree stays silent.
+        let silent = watcher.classify(
+            paths: [
+                commonDirectory.appendingPathComponent("worktrees/agent/index").path,
+                commonDirectory.appendingPathComponent("worktrees/agent/logs/HEAD").path,
+                nestedWorktree.appendingPathComponent("src/App.java").path,
+            ],
+            eventFlags: Array(repeating: FSEventStreamEventFlags(0), count: 3)
+        )
+        #expect(silent.isEmpty)
+
+        // Its semantic metadata still refreshes Git without rescanning the tree.
+        for relativePath in ["worktrees/agent/locked", "worktrees/agent/HEAD", "worktrees/agent"] {
+            let batch = watcher.classify(
+                paths: [commonDirectory.appendingPathComponent(relativePath).path],
+                eventFlags: [FSEventStreamEventFlags(0)]
+            )
+            #expect(batch.workspacePaths.isEmpty)
+            #expect(batch.gitStateMayHaveChanged)
+            #expect(!batch.requiresFullRescan)
+        }
+
+        // Removing or renaming the excluded worktree, or changing its `.git`
+        // marker, can end the exclusion and must re-run the scan rules.
+        let removedWorktree = watcher.classify(
+            paths: [nestedWorktree.path],
+            eventFlags: [FSEventStreamEventFlags(kFSEventStreamEventFlagItemRemoved)]
+        )
+        #expect(removedWorktree.requiresFullRescan)
+        #expect(removedWorktree.gitStateMayHaveChanged)
+        let markerChanged = watcher.classify(
+            paths: [nestedWorktree.appendingPathComponent(".git").path],
+            eventFlags: [FSEventStreamEventFlags(0)]
+        )
+        #expect(markerChanged.requiresFullRescan)
+        #expect(markerChanged.gitStateMayHaveChanged)
+        let contentChanged = watcher.classify(
+            paths: [nestedWorktree.path],
+            eventFlags: [FSEventStreamEventFlags(kFSEventStreamEventFlagItemModified)]
+        )
+        #expect(contentChanged.isEmpty)
+    }
+
+    @Test
     @MainActor
     func gitRefreshBurstCoalescesAndARequestDuringRefreshRunsAgain() async {
         let watcherFactory = TestDirectoryWatcherFactory()
@@ -5400,6 +5582,306 @@ struct EditorDocumentTests {
             WorkspaceFileChange(fileURL: source, kind: .changed),
         ])
         #expect(projectReloadCount == 1)
+    }
+
+    @Test
+    @MainActor
+    func externalFileCreationAndDeletionUpdateTheTreeWithoutRescanning() async throws {
+        let workspace = URL(fileURLWithPath: "/in-memory/lithe-incremental-tree")
+        let main = workspace.appendingPathComponent("src/Main.java")
+        let removed = workspace.appendingPathComponent("src/Old.java")
+        let created = workspace.appendingPathComponent("src/App.java")
+        let operations = SequencedWorkspaceOperations(snapshotAvailability: [true], files: [main, removed])
+        let watcherFactory = TestDirectoryWatcherFactory()
+        var projectedChanges: [WorkspaceFileChange] = []
+        var gitRefreshCount = 0
+        let model = makeWorkspaceObservationUnitModel(
+            operations: operations,
+            fileOperations: ExistingWorkspaceFileOperations(paths: [main.path, created.path]),
+            provider: SequencedGitWatchContextProvider([nil]),
+            watcherFactory: watcherFactory,
+            refreshGit: { gitRefreshCount += 1 },
+            notifyWorkspaceFileChanges: { projectedChanges.append(contentsOf: $0) },
+            observationDelay: { _ in }
+        )
+        defer { model.reset() }
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        _ = await model.rebuild(at: workspace, rules: .default, isCurrent: { true })
+        let refreshesAfterLoad = gitRefreshCount
+        let watcher = try #require(watcherFactory.source)
+
+        watcher.emit([created.path, removed.path])
+
+        #expect(await waitForWorkspaceObservation(timeout: .seconds(15)) {
+            gitRefreshCount > refreshesAfterLoad
+        }, "The external change did not finish")
+        #expect(operations.snapshotCount == 1)
+        #expect(model.projectFiles == [created, main])
+        #expect(model.appliedSnapshot?.files == [created, main])
+        #expect(projectedChanges == [
+            WorkspaceFileChange(fileURL: created, kind: .created),
+            WorkspaceFileChange(fileURL: removed, kind: .deleted),
+        ])
+    }
+
+    @Test
+    @MainActor
+    func externalFileInUnlistedDirectoryRescansTheWorkspace() async throws {
+        let workspace = URL(fileURLWithPath: "/in-memory/lithe-incremental-rescan")
+        let main = workspace.appendingPathComponent("src/Main.java")
+        let created = workspace.appendingPathComponent("generated/Output.java")
+        let operations = SequencedWorkspaceOperations(snapshotAvailability: [true], files: [main])
+        let watcherFactory = TestDirectoryWatcherFactory()
+        let model = makeWorkspaceObservationUnitModel(
+            operations: operations,
+            fileOperations: ExistingWorkspaceFileOperations(paths: [main.path, created.path]),
+            provider: SequencedGitWatchContextProvider([nil]),
+            watcherFactory: watcherFactory,
+            refreshGit: {},
+            observationDelay: { _ in }
+        )
+        defer { model.reset() }
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        _ = await model.rebuild(at: workspace, rules: .default, isCurrent: { true })
+        let watcher = try #require(watcherFactory.source)
+
+        watcher.emit([created.path])
+
+        #expect(await waitForWorkspaceObservation(timeout: .seconds(15)) {
+            operations.snapshotCount == 2 && !model.isRefreshingWorkspace
+        }, "The workspace was not rescanned")
+    }
+
+    @Test
+    @MainActor
+    func fileReplacedByDirectoryRescansInsteadOfKeepingTheStaleFileRow() async throws {
+        let workspace = URL(fileURLWithPath: "/in-memory/lithe-incremental-type-change")
+        let main = workspace.appendingPathComponent("src/Main.java")
+        let replaced = workspace.appendingPathComponent("src/Entry.java")
+        let operations = SequencedWorkspaceOperations(snapshotAvailability: [true], files: [main, replaced])
+        let watcherFactory = TestDirectoryWatcherFactory()
+        let model = makeWorkspaceObservationUnitModel(
+            operations: operations,
+            fileOperations: ExistingWorkspaceFileOperations(
+                paths: [main.path],
+                directories: [replaced.path]
+            ),
+            provider: SequencedGitWatchContextProvider([nil]),
+            watcherFactory: watcherFactory,
+            refreshGit: {},
+            observationDelay: { _ in }
+        )
+        defer { model.reset() }
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        _ = await model.rebuild(at: workspace, rules: .default, isCurrent: { true })
+        let watcher = try #require(watcherFactory.source)
+
+        watcher.emit([replaced.path])
+
+        #expect(await waitForWorkspaceObservation(timeout: .seconds(15)) {
+            operations.snapshotCount == 2 && !model.isRefreshingWorkspace
+        }, "A file replaced by a directory did not rescan the workspace")
+    }
+
+    @Test
+    @MainActor
+    func directoryReplacedByFileRescansInsteadOfKeepingTheStaleDirectoryRow() async throws {
+        let workspace = URL(fileURLWithPath: "/in-memory/lithe-incremental-directory-type-change")
+        let source = workspace.appendingPathComponent("src")
+        let main = source.appendingPathComponent("Main.java")
+        let operations = SequencedWorkspaceOperations(snapshotAvailability: [true], files: [main])
+        let watcherFactory = TestDirectoryWatcherFactory()
+        let model = makeWorkspaceObservationUnitModel(
+            operations: operations,
+            fileOperations: ExistingWorkspaceFileOperations(paths: [source.path], directories: []),
+            provider: SequencedGitWatchContextProvider([nil]),
+            watcherFactory: watcherFactory,
+            refreshGit: {},
+            observationDelay: { _ in }
+        )
+        defer { model.reset() }
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        _ = await model.rebuild(at: workspace, rules: .default, isCurrent: { true })
+        let watcher = try #require(watcherFactory.source)
+
+        watcher.emit([source.path])
+
+        #expect(await waitForWorkspaceObservation(timeout: .seconds(15)) {
+            operations.snapshotCount == 2 && !model.isRefreshingWorkspace
+        }, "A directory replaced by a file did not rescan the workspace")
+    }
+
+    @Test
+    @MainActor
+    func externalDeletionOfAPathTheTreeNeverHadOnlyRefreshesGit() async throws {
+        let workspace = URL(fileURLWithPath: "/in-memory/lithe-incremental-unknown-deletion")
+        let main = workspace.appendingPathComponent("src/Main.java")
+        let ghost = workspace.appendingPathComponent("src/Ghost.java")
+        let operations = SequencedWorkspaceOperations(snapshotAvailability: [true], files: [main])
+        let watcherFactory = TestDirectoryWatcherFactory()
+        var gitRefreshCount = 0
+        let model = makeWorkspaceObservationUnitModel(
+            operations: operations,
+            fileOperations: ExistingWorkspaceFileOperations(paths: [main.path]),
+            provider: SequencedGitWatchContextProvider([nil]),
+            watcherFactory: watcherFactory,
+            refreshGit: { gitRefreshCount += 1 },
+            observationDelay: { _ in }
+        )
+        defer { model.reset() }
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        _ = await model.rebuild(at: workspace, rules: .default, isCurrent: { true })
+        let refreshesAfterLoad = gitRefreshCount
+        let watcher = try #require(watcherFactory.source)
+
+        watcher.emit([ghost.path])
+
+        #expect(await waitForWorkspaceObservation(timeout: .seconds(15)) {
+            gitRefreshCount > refreshesAfterLoad
+        }, "The external change did not refresh Git")
+        #expect(operations.snapshotCount == 1)
+    }
+
+    @Test
+    @MainActor
+    func nestedWorktreeEventsAreIgnoredByTheWorkspace() async throws {
+        let workspace = URL(fileURLWithPath: "/in-memory/lithe-nested-worktree-events")
+        let main = workspace.appendingPathComponent("src/Main.java")
+        let nestedWorktree = workspace.appendingPathComponent(".claude/worktrees/agent", isDirectory: true)
+        let nestedFile = nestedWorktree.appendingPathComponent("src/Main.java")
+        let operations = SequencedWorkspaceOperations(
+            snapshotAvailability: [true],
+            files: [main],
+            nestedWorktrees: [nestedWorktree]
+        )
+        let watcherFactory = TestDirectoryWatcherFactory()
+        var processedPaths: [URL] = []
+        var gitRefreshCount = 0
+        let model = makeWorkspaceObservationUnitModel(
+            operations: operations,
+            fileOperations: ExistingWorkspaceFileOperations(paths: [main.path, nestedFile.path]),
+            provider: SequencedGitWatchContextProvider([nil]),
+            watcherFactory: watcherFactory,
+            refreshGit: { gitRefreshCount += 1 },
+            processExternalChanges: { paths in
+                processedPaths.append(contentsOf: paths)
+                return false
+            },
+            observationDelay: { _ in }
+        )
+        defer { model.reset() }
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        _ = await model.rebuild(at: workspace, rules: .default, isCurrent: { true })
+        #expect(watcherFactory.configurations.last?.ignoredDirectories.map(\.path) == [nestedWorktree.path])
+        let refreshesAfterLoad = gitRefreshCount
+        let watcher = try #require(watcherFactory.source)
+
+        // The real watcher drops these paths itself; the model also ignores
+        // events that were queued before it learned about the worktree.
+        watcher.emit([nestedFile.path, main.path])
+
+        #expect(await waitForWorkspaceObservation(timeout: .seconds(15)) {
+            gitRefreshCount > refreshesAfterLoad
+        }, "The external change did not finish")
+        #expect(processedPaths == [main])
+        #expect(operations.snapshotCount == 1)
+    }
+
+    @Test
+    @MainActor
+    func removedNestedWorktreeRescansSoThePathCanJoinTheWorkspaceAgain() async throws {
+        let workspace = URL(fileURLWithPath: "/in-memory/lithe-nested-worktree-revalidation")
+        let main = workspace.appendingPathComponent("src/Main.java")
+        let nestedWorktree = workspace.appendingPathComponent(".claude/worktrees/agent", isDirectory: true)
+        let operations = SequencedWorkspaceOperations(
+            snapshotAvailability: [true],
+            files: [main],
+            nestedWorktrees: [nestedWorktree]
+        )
+        let watcherFactory = TestDirectoryWatcherFactory()
+        let model = makeWorkspaceObservationUnitModel(
+            operations: operations,
+            fileOperations: ExistingWorkspaceFileOperations(paths: [main.path]),
+            provider: SequencedGitWatchContextProvider([nil]),
+            watcherFactory: watcherFactory,
+            refreshGit: {},
+            observationDelay: { _ in }
+        )
+        defer { model.reset() }
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        _ = await model.rebuild(at: workspace, rules: .default, isCurrent: { true })
+        let configuration = try #require(watcherFactory.configurations.last)
+        #expect(configuration.ignoredDirectories.map(\.path) == [nestedWorktree.path])
+        let watcher = try #require(watcherFactory.source)
+
+        // The real watcher turns removal of an excluded worktree into a full
+        // rescan request, because only a scan can decide whether the path is
+        // ordinary workspace content now. Reuse its classification here.
+        let realWatcher = MacDirectoryWatcher(configuration: configuration) { _ in }
+        let removal = realWatcher.classify(
+            paths: [nestedWorktree.path],
+            eventFlags: [FSEventStreamEventFlags(kFSEventStreamEventFlagItemRemoved)]
+        )
+        #expect(removal.requiresFullRescan)
+        #expect(removal.gitStateMayHaveChanged)
+        watcher.emit(removal)
+
+        #expect(await waitForWorkspaceObservation(timeout: .seconds(15)) {
+            operations.snapshotCount == 2 && !model.isRefreshingWorkspace
+        }, "Removing an excluded worktree did not rescan the workspace")
+    }
+
+    @Test
+    @MainActor
+    func reusedNestedWorktreePathRejoinsTheWorkspaceAfterTheRevalidationRescan() async throws {
+        let workspace = URL(fileURLWithPath: "/in-memory/lithe-nested-worktree-reuse")
+        let main = workspace.appendingPathComponent("src/Main.java")
+        let nestedWorktree = workspace.appendingPathComponent(".claude/worktrees/agent", isDirectory: true)
+        let reusedFile = nestedWorktree.appendingPathComponent("src/Reused.java")
+        let operations = SequencedWorkspaceOperations(
+            snapshotAvailability: [true],
+            files: [main],
+            nestedWorktrees: [nestedWorktree]
+        )
+        let watcherFactory = TestDirectoryWatcherFactory()
+        var processedPaths: [URL] = []
+        let model = makeWorkspaceObservationUnitModel(
+            operations: operations,
+            fileOperations: ExistingWorkspaceFileOperations(paths: [main.path, reusedFile.path]),
+            provider: SequencedGitWatchContextProvider([nil]),
+            watcherFactory: watcherFactory,
+            refreshGit: {},
+            processExternalChanges: { paths in
+                processedPaths.append(contentsOf: paths)
+                return false
+            },
+            observationDelay: { _ in }
+        )
+        defer { model.reset() }
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        _ = await model.rebuild(at: workspace, rules: .default, isCurrent: { true })
+        let configuration = try #require(watcherFactory.configurations.last)
+        let watcher = try #require(watcherFactory.source)
+
+        // The worktree is gone and its path is ordinary content again; only the
+        // scan can drop the stale exclusion.
+        operations.updateNestedWorktrees([])
+        let realWatcher = MacDirectoryWatcher(configuration: configuration) { _ in }
+        watcher.emit(realWatcher.classify(
+            paths: [nestedWorktree.path],
+            eventFlags: [FSEventStreamEventFlags(kFSEventStreamEventFlagItemRemoved)]
+        ))
+        #expect(await waitForWorkspaceObservation(timeout: .seconds(15)) {
+            operations.snapshotCount == 2 && !model.isRefreshingWorkspace
+                && watcherFactory.configurations.last?.ignoredDirectories.isEmpty == true
+        }, "The revalidation event did not update the workspace and watcher configuration")
+        #expect(watcherFactory.configurations.last?.ignoredDirectories.isEmpty == true)
+
+        let refreshedWatcher = try #require(watcherFactory.source)
+        refreshedWatcher.emit([reusedFile.path])
+        #expect(await waitForWorkspaceObservation(timeout: .seconds(15)) {
+            processedPaths.contains(reusedFile)
+        }, "A file below the reused path stayed excluded")
     }
 
     @Test
@@ -6454,6 +6936,113 @@ struct EditorDocumentTests {
     }
 
     @Test
+    func fileNodePathLookupFollowsCompactRowsAndSplicesFiles() throws {
+        let root = URL(fileURLWithPath: "/in-memory/lithe-path-lookup")
+        let source = root.appendingPathComponent("src")
+        let package = source.appendingPathComponent("com/acme")
+        let main = package.appendingPathComponent("Main.java")
+        let readme = root.appendingPathComponent("README.md")
+        let packageRow = FileNode(
+            url: package,
+            isDirectory: true,
+            children: [FileNode(url: main, isDirectory: false, children: nil)],
+            collapsedAncestorPaths: [source.appendingPathComponent("com").path],
+            isInsideSourceRoot: true
+        )
+        let tree = FileNode(
+            url: root,
+            isDirectory: true,
+            children: [
+                FileNode(url: source, isDirectory: true, children: [packageRow]),
+                FileNode(url: readme, isDirectory: false, children: nil),
+            ]
+        )
+
+        #expect(tree.displayedNode(for: source.appendingPathComponent("com"))?.url == package)
+        #expect(tree.node(exactlyAt: source.appendingPathComponent("com")) == nil)
+        #expect(tree.node(exactlyAt: package) == packageRow)
+        #expect(tree.node(exactlyAt: root.appendingPathComponent("src/./com/acme/Main.java"))?.url == main)
+        #expect(tree.displayedNode(for: root.appendingPathComponent("missing")) == nil)
+        #expect(tree.displayedNode(for: URL(fileURLWithPath: "/in-memory/elsewhere")) == nil)
+        #expect(tree.fileURLs == [main, readme])
+
+        let app = package.appendingPathComponent("App.java")
+        let license = root.appendingPathComponent("LICENSE")
+        let inserted = try #require(tree.inserting(file: app)?.inserting(file: license))
+        #expect(inserted.fileURLs == [app, main, license, readme])
+        #expect(inserted.inserting(file: app)?.fileURLs == inserted.fileURLs)
+        // A file in a collapsed middle package would split the compact row.
+        #expect(tree.inserting(file: source.appendingPathComponent("com/New.java")) == nil)
+        #expect(tree.inserting(file: root.appendingPathComponent("new/New.java")) == nil)
+
+        #expect(inserted.removing(file: readme)?.fileURLs == [app, main, license])
+        #expect(tree.removing(file: package) == nil)
+        #expect(tree.removing(file: root.appendingPathComponent("missing.txt")) == nil)
+        let subpackage = FileNode(url: package.appendingPathComponent("api"), isDirectory: true, children: [])
+        let mixedPackage = FileNode(
+            url: root,
+            isDirectory: true,
+            children: [FileNode(
+                url: package,
+                isDirectory: true,
+                children: [subpackage, FileNode(url: main, isDirectory: false, children: nil)],
+                isInsideSourceRoot: true
+            )]
+        )
+        // Removing the last file would let the package compact into `api`.
+        #expect(mixedPackage.removing(file: main) == nil)
+    }
+
+    @Test
+    func directoryWatchConfigurationIgnoresNestedWorktreesAndOtherWorktreeState() {
+        let repository = URL(fileURLWithPath: "/in-memory/lithe-watch-ignore/repository")
+        let commonDirectory = repository.appendingPathComponent(".git")
+        let nestedWorktree = repository.appendingPathComponent(".claude/worktrees/agent")
+        let main = DirectoryWatchConfiguration(
+            workspaceRoot: repository,
+            gitContext: GitWatchContext(
+                repositoryRoot: repository,
+                gitDirectory: commonDirectory,
+                gitCommonDirectory: commonDirectory
+            ),
+            ignoredDirectories: [nestedWorktree]
+        )
+
+        #expect(main.isIgnored(nestedWorktree.appendingPathComponent("src/App.java")))
+        #expect(main.isIgnored(commonDirectory.appendingPathComponent("worktrees/agent/index")))
+        #expect(main.isIgnored(commonDirectory.appendingPathComponent("worktrees/agent/index.lock")))
+        #expect(main.isIgnored(commonDirectory.appendingPathComponent("worktrees/agent/logs/HEAD")))
+        // Shared semantic state must keep refreshing Git: the Worktrees panel
+        // shows whether a sibling worktree is locked and which commit it is on.
+        #expect(!main.isIgnored(commonDirectory.appendingPathComponent("worktrees/agent/HEAD")))
+        #expect(!main.isIgnored(commonDirectory.appendingPathComponent("worktrees/agent/locked")))
+        #expect(!main.isIgnored(commonDirectory.appendingPathComponent("worktrees/agent")))
+        #expect(!main.isIgnored(commonDirectory.appendingPathComponent("index")))
+        #expect(!main.isIgnored(commonDirectory.appendingPathComponent("refs/heads/agent")))
+        #expect(!main.isIgnored(repository.appendingPathComponent(".claude/settings.json")))
+
+        // Only a structural change or the `.git` marker can end the exclusion;
+        // ordinary work inside the worktree cannot.
+        #expect(main.revalidatesIgnoredDirectory(nestedWorktree, isStructuralChange: true))
+        #expect(!main.revalidatesIgnoredDirectory(nestedWorktree, isStructuralChange: false))
+        #expect(main.revalidatesIgnoredDirectory(nestedWorktree.appendingPathComponent(".git"), isStructuralChange: false))
+        #expect(!main.revalidatesIgnoredDirectory(nestedWorktree.appendingPathComponent("src/App.java"), isStructuralChange: true))
+        #expect(!main.revalidatesIgnoredDirectory(repository.appendingPathComponent(".claude/settings.json"), isStructuralChange: true))
+
+        let linkedGitDirectory = commonDirectory.appendingPathComponent("worktrees/feature")
+        let linked = DirectoryWatchConfiguration(
+            workspaceRoot: URL(fileURLWithPath: "/in-memory/lithe-watch-ignore/feature"),
+            gitContext: GitWatchContext(
+                repositoryRoot: URL(fileURLWithPath: "/in-memory/lithe-watch-ignore/feature"),
+                gitDirectory: linkedGitDirectory,
+                gitCommonDirectory: commonDirectory
+            )
+        )
+        #expect(!linked.isIgnored(linkedGitDirectory.appendingPathComponent("index")))
+        #expect(linked.isIgnored(commonDirectory.appendingPathComponent("worktrees/agent/index")))
+    }
+
+    @Test
     func projectTreeLocatorMatchesStandardizedPathsAndExpandsParents() {
         let root = URL(fileURLWithPath: "/tmp/lithe-tree-locator-tests")
         let sourcesDirectory = root.appendingPathComponent("Sources")
@@ -6473,7 +7062,7 @@ struct EditorDocumentTests {
         )
 
         let equivalentFile = root.appendingPathComponent("Sources/Nested/../Feature/Example.swift")
-        #expect(ProjectTreeLocator.matchingURL(for: equivalentFile, among: [fileURL]) == fileURL)
+        #expect(ProjectTreeLocator.matchingURL(for: equivalentFile, in: tree) == fileURL)
         #expect(
             ProjectTreeLocator.expandedDirectoryPaths(for: fileURL, rootURL: root)
                 == Set([
@@ -6485,7 +7074,7 @@ struct EditorDocumentTests {
         #expect(
             ProjectTreeLocator.matchingURL(
                 for: root.deletingLastPathComponent().appendingPathComponent("Outside.swift"),
-                among: [fileURL]
+                in: tree
             ) == nil
         )
         #expect(ProjectTreeLocator.matchingURL(for: featureDirectory, in: tree) == featureDirectory)
@@ -7213,25 +7802,38 @@ private final class SequencedWorkspaceOperations: WorkspaceOperations, @unchecke
     private let lock = NSLock()
     private var snapshotAvailability: [Bool]
     private let files: [URL]
+    private var nestedWorktrees: [URL]
+    private var storedSnapshotCount = 0
 
-    init(snapshotAvailability: [Bool], files: [URL] = []) {
+    init(snapshotAvailability: [Bool], files: [URL] = [], nestedWorktrees: [URL] = []) {
         self.snapshotAvailability = snapshotAvailability
         self.files = files
+        self.nestedWorktrees = nestedWorktrees
+    }
+
+    var snapshotCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedSnapshotCount
+    }
+
+    /// Replaces the worktrees the next scan reports, so a test can remove one
+    /// and reuse its path as ordinary workspace content.
+    func updateNestedWorktrees(_ worktrees: [URL]) {
+        lock.lock()
+        defer { lock.unlock() }
+        nestedWorktrees = worktrees
     }
 
     func snapshot(at rootURL: URL, visibilityRules: FileVisibilityRules) -> WorkspaceSnapshot? {
         lock.lock()
+        storedSnapshotCount += 1
         let isAvailable = snapshotAvailability.isEmpty ? true : snapshotAvailability.removeFirst()
+        let nestedWorktrees = self.nestedWorktrees
         lock.unlock()
         guard isAvailable else { return nil }
-        return WorkspaceSnapshot(
-            root: FileNode(
-                url: rootURL,
-                isDirectory: true,
-                children: files.map { FileNode(url: $0, isDirectory: false, children: nil) }
-            ),
-            files: files
-        )
+        let root = makeWorkspaceTree(root: rootURL, files: files)
+        return WorkspaceSnapshot(root: root, files: root.fileURLs, nestedWorktrees: nestedWorktrees)
     }
 
     func search(
@@ -7264,13 +7866,18 @@ private final class SequencedWorkspaceOperations: WorkspaceOperations, @unchecke
 
 private struct ExistingWorkspaceFileOperations: WorkspaceFileOperations {
     let paths: Set<String>
+    let directories: Set<String>
 
-    init(paths: [String]) {
+    init(paths: [String], directories: [String] = []) {
         self.paths = Set(paths)
+        self.directories = Set(directories)
     }
 
-    func fileExists(at url: URL) -> Bool { paths.contains(url.standardizedFileURL.path) }
-    func isDirectory(at url: URL) -> Bool { false }
+    func fileExists(at url: URL) -> Bool {
+        let path = url.standardizedFileURL.path
+        return paths.contains(path) || directories.contains(path)
+    }
+    func isDirectory(at url: URL) -> Bool { directories.contains(url.standardizedFileURL.path) }
     func createFile(at url: URL) throws {}
     func createDirectory(at url: URL, withIntermediateDirectories: Bool) throws {}
     func copyItem(at sourceURL: URL, to destinationURL: URL) throws {}
@@ -7881,4 +8488,23 @@ private final class RecordingBatchProjectFileOperations: WorkspaceFileOperations
     func removeItem(at url: URL) throws {}
     func writeText(_ text: String, to url: URL) throws {}
     func readText(from url: URL) throws -> String { "" }
+}
+
+/// Builds the nested directory tree a workspace scan produces for `files`.
+private func makeWorkspaceTree(root: URL, files: [URL]) -> FileNode {
+    let rootPath = root.standardizedFileURL.path
+    let relativePaths = files.map { String($0.standardizedFileURL.path.dropFirst(rootPath.count + 1)) }
+    func node(_ url: URL, prefix: String) -> FileNode {
+        let below = relativePaths.filter { prefix.isEmpty || $0.hasPrefix(prefix + "/") }
+            .map { prefix.isEmpty ? $0 : String($0.dropFirst(prefix.count + 1)) }
+        let directoryNames = Set(below.compactMap { path in
+            path.split(separator: "/").count > 1 ? path.split(separator: "/").first.map(String.init) : nil
+        }).sorted { $0.lowercased() < $1.lowercased() }
+        let fileNames = below.filter { !$0.contains("/") }.sorted { $0.lowercased() < $1.lowercased() }
+        let children = directoryNames.map { name in
+            node(url.appendingPathComponent(name), prefix: prefix.isEmpty ? name : prefix + "/" + name)
+        } + fileNames.map { FileNode(url: url.appendingPathComponent($0), isDirectory: false, children: nil) }
+        return FileNode(url: url, isDirectory: true, children: children)
+    }
+    return node(root, prefix: "")
 }

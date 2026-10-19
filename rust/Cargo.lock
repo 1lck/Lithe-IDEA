@@ -2005,6 +2005,7 @@ dependencies = [
  "kill_tree",
  "libc",
  "reqwest",
+ "semver",
  "serde",
  "serde_json",
  "tokio",

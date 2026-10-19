@@ -3,7 +3,7 @@ import { act, useMemo } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { installHappyDom } from "@/test-utils/happy-dom";
-import { GitGraphRow } from "../components/log/git-graph-row";
+import { GitGraphCanvas, gitGraphWidth } from "../components/log/git-graph-row";
 import { layoutGitGraph } from "../utils/git-graph-layout";
 import { useGitGraphPaint } from "./use-git-graph-paint";
 
@@ -29,14 +29,18 @@ function Harness() {
         author: "fixture",
         message: "tip",
         date: "unknown",
-        decorations: "HEAD -> main",
+        decorations: "",
       },
     ]);
   }, []);
   return (
     <div>
       <output>{paint.rowHeight}</output>
-      <GitGraphRow row={layout.rows[0]} showDecorations={false} paint={paint} />
+      <GitGraphCanvas
+        rows={layout.rows}
+        paint={paint}
+        graphWidth={gitGraphWidth(layout.rows, paint, layout.recommendedLaneCount)}
+      />
     </div>
   );
 }

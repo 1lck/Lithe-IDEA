@@ -20,6 +20,7 @@ mod decode;
 mod detect;
 mod integrations;
 mod invocation;
+mod language_import;
 mod manifest;
 mod model;
 mod options;

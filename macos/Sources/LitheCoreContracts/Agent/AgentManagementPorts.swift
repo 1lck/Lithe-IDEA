@@ -56,11 +56,17 @@ public struct AgentCliInstallation: Decodable, Equatable, Sendable {
     public let updateHint: String
     /// Nil when a newer release could not be confirmed.
     public let updateAvailable: Bool?
-    public init(source: Source, canUpdate: Bool, updateHint: String, updateAvailable: Bool? = nil) {
+    public let updateCheckError: String?
+    /// Target version returned by the owning package manager; never inferred from the local version.
+    public let availableVersion: String?
+    public init(source: Source, canUpdate: Bool, updateHint: String, updateAvailable: Bool? = nil,
+                updateCheckError: String? = nil, availableVersion: String? = nil) {
         self.source = source
         self.canUpdate = canUpdate
         self.updateHint = updateHint
         self.updateAvailable = updateAvailable
+        self.updateCheckError = updateCheckError
+        self.availableVersion = availableVersion
     }
 }
 
@@ -85,7 +91,7 @@ public struct AgentCatalogStatus: Decodable, Equatable, Identifiable, Sendable {
     public init(
         id: String, name: String, description: String, package: String, version: String,
         installedVersion: String?, protocol: String, minimumNodeMajor: Int, verified: Bool,
-        cli: AgentCliStatus? = nil, issues: [String]
+        cli: AgentCliStatus? = nil, issues: [String], updateAvailable: Bool? = nil
     ) {
         self.id = id
         self.name = name
@@ -98,10 +104,13 @@ public struct AgentCatalogStatus: Decodable, Equatable, Identifiable, Sendable {
         self.verified = verified
         self.cli = cli
         self.issues = issues
+        self.updateAvailable = updateAvailable
     }
 
     public var isInstalled: Bool { installedVersion != nil }
-    public var needsUpdate: Bool { installedVersion.map { $0 != version } ?? false }
+    /// Core confirms a strictly newer verified adapter target; absent results never offer updates.
+    public let updateAvailable: Bool?
+    public var needsUpdate: Bool { isInstalled && updateAvailable == true }
 }
 
 /// Result of `agent.status`, fixed by `shared/fixtures/agent/agent-management-v1.json`.

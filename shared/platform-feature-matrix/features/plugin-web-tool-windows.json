@@ -1,0 +1,44 @@
+{
+  "id": "plugin-web-tool-windows",
+  "area": "插件",
+  "group": "插件界面",
+  "capability": "插件可以在宿主管理的工具窗口里显示自己包内的 HTML 页面（ui 2、ui.web 权限）：只读取已安装包内的文件，CSP 禁止联网、内联脚本和 eval，网页存储不持久；页面通过 window.lithe 桥接只能操作本插件的构建系统和当前工作区，启动构建工具前由宿主确认，输出进入 Build Output，页面只可取消本次实际启动的运行；任务与测试在确认后最终启动前拒绝已有运行，保留宿主或其他页面的运行及 Build Output，包含等待确认期间新启动的运行；选择必须唯一命中模型，目标以经过校验的完整 tags 集合区分同名同目录的 binary/example，最终执行参数从模型重建，拒绝歧义和伪造标签；模型保留 Core 的声明运行项和任务类别；异步激活、检测和依赖请求复核工作区并受本地期限约束；直接关闭原生项目窗口时，在会话首次异步退出前同步销毁隐藏页面并撤销进程许可，即使设置窗口继续持有项目模型，待处理和后续桥接请求也被拒绝，不能重新激活执行模块；插件禁用、更新或卸载时同进程所有项目窗口（含隐藏页）都被销毁，新项目窗口继承阻断状态，包变更后的旧管理器重新启用不能在重启前重建页面",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Application/Features/PluginWebBridge.swift",
+      "macos/Sources/Lithe/Application/Features/PluginWebPages.swift",
+      "macos/Sources/Lithe/Application/Features/PluginWebPageLifecycle.swift",
+      "macos/Sources/Lithe/Platform/MacOS/Plugins/Web/MacPluginWebContent.swift",
+      "macos/Sources/Lithe/Platform/MacOS/Plugins/Web/MacPluginWebPage.swift",
+      "macos/Sources/Lithe/Platform/MacOS/Plugins/Web/MacPluginWebSurface.swift",
+      "macos/Sources/Lithe/Platform/MacOS/Plugins/Web/MacPluginWebStateStore.swift",
+      "macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginManager.swift",
+      "macos/Sources/LitheExecutionModule/Services/BuildSystemService.swift",
+      "macos/Sources/LitheCoreContracts/Execution/BuildSystemContracts.swift",
+      "macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginPackageStore.swift",
+      "macos/Tests/LitheTests/PluginPackageStoreTests.swift",
+      "macos/Tests/LitheTests/PluginManagerTests.swift",
+      "macos/Tests/LitheTests/PluginDiskInstallationTests.swift",
+      "macos/Tests/LitheExecutionModuleTests/BuildSystemServiceTests.swift",
+      "scripts/worktree-resources.json",
+      "scripts/test-reuse-worktree-resources.mjs",
+      "macos/Sources/Lithe/Models/AppModel/AppModel+PluginWeb.swift",
+      "macos/Sources/Lithe/Models/AppModel/AppModel.swift",
+      "macos/Sources/Lithe/Models/Workspace/ProjectSessionManager.swift",
+      "macos/Sources/Lithe/Views/Workbench/DeclarativeToolWindowView.swift",
+      "macos/Tests/LitheTests/PluginWebBridgeTests.swift",
+      "shared/contracts/plugins/v1/fixtures/web-panel.plugin.json"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "shared/contracts/plugins/v1/README.md"
+    ],
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable"
+  },
+  "owner": "Plugin Platform",
+  "verification": "自动回归：LITHE_TEST_WINDOW_MODE=isolated ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'PluginWeb|PluginManagerTests|PluginDiskInstallationTests|BuildSystemServiceTests'，检查包内脚本、CSP、主题事件、nonPersistent 数据存储和包文件字节不变；验证错误方法/参数、跨插件/工作区/符号链接逃逸、激活中工作区切换、等待期限、关闭后释放、真实 resetDedicatedWindowSession 在设置窗口仍强持项目模型且网页隐藏时同步关闭页面并清空登记表（TestGate 挂起检测和模块退出，待处理/退出中/退出后请求均返回 plugin.web.forbidden，桥接激活次数不增且退出后 Execution 未重新激活；新回归编译和运行待 CI 验证）、拒绝启动时不认领其他运行、任务与测试两入口遇 busy 均不取消现有运行或清空输出（含 TestGate 控制等待确认期间出现新运行）、同名 demo application/example 依完整 tags 唯一选中且最终参数来自模型、真实 Cargo 模型经桥接选中 example 后通过 Core targetTags 校验并生成 run --example demo、缺少区分信息或伪造/错误类型 tags 被拒绝、停用后旧视图无法重建且工作区关闭不撤销停用、安装和回滚校验失败保留旧页面、社区磁盘同版本替换及升级经真实审查和管理器入口在修改资源及安装记录前同步关闭双项目隐藏页面，拒绝已批准的进程许可并阻止后注册窗口及重新启用在重启前重建（PluginDiskInstallationTests/diskReplacementClosesEveryProjectPageBeforeMutation；篡改快照校验失败保留旧页面）、替换前关闭页面、模型任务类别及声明运行项完整转发、双项目页面与同意记录同步失效、后注册窗口继承阻断、包变更后旧管理器启用不能解锁、弱引用不保留关闭窗口。node scripts/test-reuse-worktree-resources.mjs 拒绝网页状态跨工作树复用。产品界面验收仍 pending。macOS：在开发版里用“从磁盘安装插件”安装 web-panel 夹具（plugin.json 旁放 ui/index.html 和 icons/panel.svg），重启后打开右侧 Web Panel 窗口，确认页面显示、根元素带 data-theme 和 --lithe-* 变量，切换浅色/深色后 ui.themeChanged 到达；页面里的内联脚本和 fetch 外网被 CSP 拦截。在页面控制台调用 lithe.request('ui.setState', {state:{a:1}})，隐藏再显示窗口后 ui.getState 仍返回该值；调用未知方法得到 plugin.web.unknownMethod，openFile 传 ../ 得到 plugin.web.forbidden。在设置 › 插件里停用该插件，窗口消失；重新启用后窗口回到原来的停靠位置并重新加载页面。打开过网页窗口后运行 scripts/verify-runtime-bundle-immutability.sh 通过。Windows：WebView2 宿主尚未实现，继续只声明 ui 1。"
+}

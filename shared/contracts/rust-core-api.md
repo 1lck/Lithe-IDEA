@@ -337,6 +337,14 @@ fresh interval. Registration stays ordered under the permission/turn locks;
 waiting and responding run in an SDK-owned task so inbound updates, additional
 permission requests and connection EOF are not blocked. Cancel, terminal prompt
 response and connection shutdown settle every pending request with `cancelled`.
+Child permissions retain both the original requester and the owning root turn.
+Registration holds the ownership lock through insertion into the permission map;
+lock order is ownership, pending permissions, then running turns. A terminal
+child or ancestor settles only that subtree's pending requests with `cancelled`,
+rejects later requests from that subtree, and leaves root and sibling permissions
+and the root prompt running. Settled requests release quiet-period accounting.
+The existing child lifecycle update also removes those prompts from the UI queue
+and refreshes its attention and tool-wait interval; no new wire event is needed.
 Initialization, session/configuration requests, pre-work failure recovery and
 cancellation acknowledgment retain their own bounded deadlines. Tool execution
 and model-request budgets belong to the upstream Agent. This policy does not
@@ -407,6 +415,31 @@ value. Counters are Agent-owned: consumers must not infer a per-turn aggregate,
 session delta or billing amount, because the adapters' accounting scopes differ.
 They must not derive these counters from context occupancy or subscription quota.
 `acp-events-v1.json` covers completion both with and without usage.
+
+The launch JSON's optional `observeSubagents` (default `false`) negotiates the
+pinned adapters' AIR v1 `nativeSubagentSessions` capability. macOS enables it;
+consumers without child-session UI omit it. Native execution and history remain
+upstream-owned. `update` preserves the immediate parent `sessionId` and the
+adapter's `subagent_spawned` payload (`subagentSessionId`, `name`, `task`,
+`capabilities`), or `subagent_state_update` payload (`subagentSessionId`, `state`).
+Ordinary child updates use the child's `sessionId`. Cycles, cross-parent
+reattachment and reuse of a known root ID are rejected. A root history reload
+clears its old child associations before upstream replay announces them again.
+The host's bounded notification shim adds these two adapter variants to the
+pinned SDK; all ordinary updates still use SDK validation. The newer SDK's
+experimental `subagent_update` draft is not wire-compatible with these adapters.
+
+Child permissions retain their original request `sessionId`, while the outer
+`permission.sessionId` identifies the owning root turn. Root cancellation,
+completion or shutdown settles all child permission waits through the existing
+permission lifecycle. Terminal children and their descendants cannot request
+new permissions. Child output and lifecycle count as actual root progress;
+child model failures never trigger a whole-root replay. Child messages and
+thoughts are scoped separately from the root reply; tool IDs are scoped by
+child session, preserving file-review evidence. Only an explicit `completed`
+state counts as success. Failed, cancelled and disconnected children do not;
+a terminal parent leaves any unreported descendant outcome disconnected.
+`acp-events-v1.json` includes nested ownership, output, tools and completion.
 
 The launch JSON's optional `observeModelCalls` (default `false`) asks the host to
 start a loopback proxy for API-key gateways or Codex subscription inference and hand the Agent
@@ -638,7 +671,7 @@ protocol and explicit consent for HTTP.
 Lithe never installs Node.js or npm; the agents' own command-line tools are installed only through `agent.installCli` on an explicit user action. `agent.status`
 detects Node.js and npm through the login shell's `PATH` and lists every
 supported agent with its pinned version, installed version, provider protocol,
-and blocking issues. Adapters that drive the agent's own CLI (Codex, Claude Code) report the
+and blocking issues. Each adapter also reports optional `updateAvailable`: true only when the verified catalog version is strictly newer than the installed version under SemVer precedence, false for equal or newer local versions, and absent for missing or unparseable versions. Build metadata does not affect precedence. This target remains Lithe's verified catalog version, not an unverified latest registry version. Hosts must not derive updates from version-string inequality. Adapters that drive the agent's own CLI (Codex, Claude Code) report the
 CLI found on that `PATH` with its minimum version; they are installed with
 `--omit=optional`, so their bundled CLI copy is not downloaded, and are launched
 with the user's CLI through the adapter's variable (`CODEX_PATH`,
@@ -647,7 +680,7 @@ too old CLI is an issue for the user to resolve, never installed by Lithe.
 For every catalog CLI, `cli.installation.updateAvailable` is `true` only when the verified
 installation owner reports a newer release, `false` when no newer release is found
 (npm's published version or Homebrew's local index), and absent when the check is
-unavailable. It does not change `canUpdate`, which only describes whether Lithe can
+unavailable. Optional `cli.installation.availableVersion` retains the actual target returned by that same query: npm's published version or the matched Homebrew entry's `current_version`. Hosts display the detected current version and confirmed target together, including in the collapsed CLI row. If Homebrew confirms an outdated package without supplying its target version, hosts show an unknown target rather than inferring one from the installed version. Empty Homebrew outdated results do not provide a latest version. Failed read-only probes include optional `cli.installation.updateCheckError` with a bounded diagnostic reason; unavailable native protocols remain unknown without pretending to have checked the latest version. It does not change `canUpdate`, which only describes whether Lithe can
 safely invoke that owner. npm checks query the verified update target, including
 its explicit `@latest` tag; Homebrew checks query the verified owning package and
 do not refresh the local index automatically. Native installers without a
@@ -689,12 +722,9 @@ only when `canUpdate` is true. The hint is never executable input. Absent fields
 remain backward compatible with older hosts. Windows installer/shim ownership
 has not been verified; unrecognized installations use the manual path.
 The minimum CLI version is a compatibility requirement, not a latest-version
-check. For all compatible CLIs, macOS offers Update only when `canUpdate` and
+check. For all CLIs, macOS offers Update only when `canUpdate` and
 `updateAvailable` are both true, including when the preflight row is collapsed.
-A false or absent `updateAvailable` hides that action. Too-old CLIs retain the
-upgrade repair action when `canUpdate` is true, regardless of `updateAvailable`;
-manual guidance remains available when a version check is unknown or an owner
-cannot be updated safely.
+A false or absent `updateAvailable` hides that action, even for a CLI below the adapter's minimum version; compatibility warnings and manual guidance remain visible. Hosts show loading and completion on every refresh, retain old detection data on failure with the failure reason, and hide stale update actions until a subsequent successful check.
 After a successful update, users reconnect the Agent to start the updated CLI
 and obtain its model catalog; existing conversations are not interrupted automatically.
 
@@ -726,7 +756,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `community.discourse.search` | Search normalized topics and sanitized posts |
 | `editor.lineEdit` | Apply a deterministic line-level text transform and return the replacement plus selection to restore |
 | `editor.lineCommentToken` | Resolve the line comment token for a file extension or language id |
-| `workspace.snapshot` | Enumerate visible workspace nodes and relative file paths |
+| `workspace.snapshot` | Enumerate visible workspace nodes and relative file paths; `nestedWorktrees` lists linked worktrees checked out inside their own repository, which are left out of the tree, files, and search index |
 | `workspace.repositories` | Discover deterministic Git repository roots for an opened workspace |
 | `workspace.search` | Search visible file names and UTF-8 text files |
 | `workspace.searchEverywhere` | Search visible file names, Java types/methods, and UTF-8 text files |
@@ -847,6 +877,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `git.conflictMarkers` | Return staged text files that still contain conflict markers |
 | `git.operationState` | Report an interrupted merge, rebase, cherry-pick, or revert and its conflicted paths |
 | `git.blame` | Return structured line blame metadata |
+| `git.lineHistory` | Trace which commits touched a one-based snapshot line range of one file |
 | `github.parseRemote` | Parse a canonical GitHub HTTPS or SSH remote into owner/name |
 | `github.requestPlan` | Validate one GitHub operation and produce a trusted platform HTTP request plan |
 | `github.normalizeResponse` | Normalize raw GitHub JSON and HTTP status into deterministic data or a stable error |
@@ -871,6 +902,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `build.decodeDiagnostics` | Decode build output into workspace file diagnostics |
 | `build.decodeDependencies` | Decode dependency output or a provider result into one project's bounded tree |
 | `build.syncFingerprint` | Digest the files a build model depends on, to tell whether it is stale |
+| `build.languageImport` | Map a build system's options to the Java language server's Maven or Gradle project import |
 | `plugins.marketplace.validateIndex` | Validate a marketplace index and report each plugin's availability for one platform |
 | `plugins.marketplace.resolveSource` | Resolve a user-entered marketplace source to the index URL to fetch |
 | `plugins.marketplace.installReview` | List a package's permissions and programs, and those not yet approved |
@@ -926,8 +958,11 @@ the run wrote and returns `testCases`, otherwise an empty list:
 
 ```json
 { "className": "com.example.CalculatorTest", "method": "additionIsCorrect",
-  "status": "failed", "message": "expected <4> but was <5>", "invocations": 1 }
+  "status": "failed", "message": "expected <4> but was <5>", "invocations": 1,
+  "durationMillis": 23 }
 ```
+
+Optional `durationMillis` comes only from each XML testcase's `time` seconds attribute. Repeated/parameterized invocations sum their times in whole milliseconds; if any invocation has a missing, negative, non-finite, unrepresentable time or the sum overflows the host integer range, the field is omitted. A reported zero is valid. Hosts hide missing method durations and must not substitute a console/suite summary or another class's method time. `build.decodeTestResults` preserves the same duration in its canonical testcase result.
 
 Reports are searched in the module's configured Surefire/Failsafe
 `reportsDirectory` values plus `<build directory>/surefire-reports` and
@@ -1568,6 +1603,10 @@ available, `left`/`right` text, a `kind` (`context`, `changed`, `addition`,
 clients must fall back to `left`. Hunk entries contain their header and the
 patch text needed for partial apply; rows are not duplicated per hunk, so
 clients group `rows` by `hunkID` instead.
+The response also carries `hasDecodingLoss`: true when Git's output was not
+valid UTF-8 and Core replaced bytes with U+FFFD while decoding `patch`. Such a
+patch still renders, but it is not the file's bytes; clients must not write it
+back, for example as byte-faithful rollback material.
 New reference-tree workflows use `gitReference`; Core validates its full
 identity before constructing the diff invocation. When `targetGitReference` is
 present, Core validates both complete identities and constructs the two-ref
@@ -1641,6 +1680,23 @@ body on demand with `git.commit`. See
 `shared/fixtures/git/commit-lookup-response-v1.json`.
 `git.blame` accepts `root` and a workspace-relative `path`; its line numbers
 are one-based and author timestamps are Unix seconds.
+
+`git.lineHistory` accepts `root`, a workspace-relative `path`, the editor
+snapshot `content`, a one-based inclusive `startLine`/`endLine` range
+addressing that snapshot, and an optional `limit` (default 50, capped at 200;
+snapshots above 8 MiB are rejected). The snapshot is mapped onto the pinned
+`baseCommit` through an isolated platform-temp comparison, so unsaved edits
+stay answerable; the response echoes `baseCommit`, lists `unmappedLines`
+(`kind` `new` for provably inserted lines, `unreliable` for rewritten ones),
+and returns `commits` newest first with `hash`, `kind` (`commit` or
+`merge-first-parent`), `authorName`, `authorTime` (Unix seconds), `subject`,
+`pathAtCommit`, optional `previousPath` on renames, `compareBase` (the parent
+the metadata diff was taken against; empty for the root commit whose base is
+the empty tree), and `relevantRanges` hunks intersecting the traced lines.
+Queries walk the first-parent chain only: branch-internal commits of a merge
+are not listed separately, pure renames are not listed as content changes,
+and `truncated` reports entries beyond the limit. Pure-deletion sides report
+the boundary position as both start and end.
 
 `workspace.search` accepts `maxResults` for a total result cap. Callers that
 need separate buckets may also provide `maxFileResults` and
@@ -1850,6 +1906,13 @@ Terminal operation events are exactly one of `operationCompleted` with a typed
 result or `operationFailed` with the adapter command and safe message. Other
 ordered events are `stateChanged`, `initialized`, `output`, `stopped`,
 `continued`, `terminated`, and `breakpoint`. Source coordinates are one-based.
+Source breakpoint confirmations include optional `requestedLine` alongside the
+adapter-resolved `line`. Core retains their association by adapter breakpoint ID,
+so later location-free `breakpoint` events preserve both the requested anchor and
+resolved location. Responses to superseded per-file sets are discarded. Platforms
+persist the requested anchor and may display the resolved line; placement alone
+does not imply that bytecode was bound or that execution will suspend there.
+The correlation fixture is `shared/fixtures/debug/breakpoint-binding-v1.json`.
 The compatibility flow is captured in
 `shared/fixtures/debug/dap-session-v1.json`; exception normalization cases are
 captured in `shared/fixtures/debug/exception-info-v1.json`.
@@ -1911,7 +1974,7 @@ by its original path with a session warning instead of failing startup.
 Copies remain readable until JDT workspace cache eviction or index rebuilding;
 notification delivery is not an acknowledgement that the server read them.
 
-Gradle callers may also provide `javaGradle = { wrapperPresent }`, where
+Gradle callers may also provide `javaGradle = { wrapperPresent, offline?, userHome? }`, where
 `wrapperPresent` reports whether the root ships
 `gradle/wrapper/gradle-wrapper.properties`. When present, Core states
 `java.import.gradle.enabled` in `settings.java` and, if that descriptor exists,
@@ -1919,9 +1982,13 @@ Gradle callers may also provide `javaGradle = { wrapperPresent }`, where
 so the section declares the import behavior Lithe relies on instead of changing
 it; Buildship itself decides which distribution to use, honoring the wrapper only
 when the project ships that descriptor. Settings that require reading the build
-script or network state (`java.home`, `version`, `offline.enabled`) are never
-sent. A workspace whose root declares no Gradle build file sends no `javaGradle`
-and therefore receives no `java.import` settings.
+script (`java.home`, `version`) are never guessed. `offline` and `userHome`
+are the user's own build options, as `build.languageImport` maps them from the
+plugin that declares the Gradle build system; Core sends
+`java.import.gradle.offline.enabled` and `java.import.gradle.user.home` only
+when they are set, and the session keeps them until it restarts. A workspace
+whose root declares no Gradle build file sends no `javaGradle` and therefore
+receives no `java.import` settings.
 
 `lsp.updateMavenConfiguration` accepts `{ sessionId, mavenContext,
 reloadProjects? }` for a running Java session started with a `mavenContext`,
@@ -2801,6 +2868,7 @@ and the directories are absolute host paths used only as substitution text.
 | `build.decodeDiagnostics` | `{ workspaceRoot, root, output }` | `diagnostics`: `[{ path, line, column?, severity, message }]`, deduplicated, inside the workspace only |
 | `build.decodeDependencies` | `{ workspaceRoot, root, project?, output?, outputFile?, result? }` | `dependencies`: `{ project, dependencies: [{ name, group?, version?, scope?, properties?, children }], truncated }` |
 | `build.syncFingerprint` | `{ workspaceRoot, root, projects, options? }` | `sync`: `{ fingerprint, watch }` |
+| `build.languageImport` | `{ workspaceRoot, root, options?, executablePath? }` | `languageImport`: `null` without a `languageImport` declaration; `{ kind: "maven", mavenContext: { version, reactorPath, profiles, settingsPath?, localRepositoryPath?, mavenExecutablePath? } }` for `lsp.startServer.mavenContext` and `lsp.updateMavenConfiguration`; or `{ kind: "gradle", javaGradle: { wrapperPresent, offline, userHome? } }` for `lsp.startServer.javaGradle`, where `wrapperPresent` reports `gradle/wrapper/gradle-wrapper.properties` under `root` |
 
 `outputFile` is an absolute host-allocated path the host creates fresh for
 each run and removes afterwards; a command whose declaration writes to a
@@ -2817,6 +2885,13 @@ holds the golden plans and decoded outputs.
 mode it returns candidate file counts and rename identities with empty `patch`
 and zero `byteLength`, independently of patch text encoding and exchange size.
 See [Patch exchange](git-patch-exchange.md) and its metadata fixture.
+
+For Shelf capture, `git.patchExport` also accepts `includeUntracked: true` only
+with `source: "unstaged"`. It snapshots the real index and exports the selected
+working files, including untracked additions, relative to that index. The real
+index remains unchanged. The default false retains tracked-only unstaged export;
+`workingTree` remains HEAD-based. See the same contract and its
+`unstagedWithUntrackedRequest` fixture.
 
 `git.rebaseControl` requires `expectedHead` when `amendMessage` is present.
 Missing or stale HEAD rejects the amendment before writing; plain Continue,
@@ -3090,3 +3165,21 @@ Core-planned direct JDT JDWP launches) so DevTools cannot restart the classloade
 HotSwap. Attach to independently launched JVMs does not change their options.
 The Windows host maps `redefineClasses` to this operation and `cancelOperation`
 to `debug.cancelOperation` with a `timedOut` reason for its bounded result wait.
+
+### Saved changes: directional patches and immutable stashes
+
+`git.patchPreview` and `git.patchApply` accept optional `reverse` (default `false`).
+The preview token binds direction, patch bytes, target, index, HEAD and working files;
+changing direction requires a new preview. Preview checks use disposable index copies
+and preserve the real index bytes. Applying to `indexAndWorktree` may refresh its
+stat cache after reviewed-state validation. Git remains responsible for applicability;
+there is no partial-reject or automatic whitespace repair mode.
+See `shared/fixtures/git/patch-exchange-v1.json`.
+
+`git.stashes` adds `oid`, the full immutable object identity, alongside the positional
+`reference`. `git.diff` accepts `stashReference` to read a stash including its untracked
+files. Stash write operations also accept the full object identity in `reference`;
+Core resolves its current stash position under the existing writer lease and rejects
+an identity that is no longer present. Legacy positional references remain accepted.
+See `shared/fixtures/git/saved-stash-v1.json`. Native Shelf persistence is platform-owned;
+raw patch bytes are kept separately for index and working-tree versions.

@@ -57,7 +57,17 @@ tests, packaging, plugin tests, Windows frontend, Windows Rust, real JDT):
   count, unless they touch CI infrastructure (workflows, actions, the
   classifier and runner scripts, test infrastructure, `Package.swift`,
   `Package.resolved`, every Cargo manifest and lock file including member
-  crates, Rust toolchain files); then every lane runs.
+  crates, Rust toolchain files) that the planned workflow reads; then every
+  lane of that workflow runs.
+- Infrastructure is scoped per workflow. Workflow files and local actions count
+  only for the workflow that references them, directly or through a composite
+  action. Windows crates, toolchain and frontend manifests and Windows scripts
+  count only for Windows CI. macOS Swift packages and build scripts count for
+  macOS CI and the plugin CI, which builds through the same actions and
+  `scripts/test-macos.sh`. Rust workspace manifests under `rust/`, the
+  classifier and planner, and the root Bun workspace count for every workflow.
+  The step summary lists the infrastructure paths that caused a rerun and those
+  ignored because they only reach other workflows.
 - A file counts as changed when its content or its mode differs, so an
   executable bit change alone reruns the lanes the file affects. Paths are read
   raw (NUL-separated), so Chinese and other escaped file names are compared
@@ -77,7 +87,17 @@ tests, packaging, plugin tests, Windows frontend, Windows Rust, real JDT):
 The **Lane reuse** section of the classify job summary lists each lane's
 decision and links to a reused job.
 A reused lane appears as skipped in the new run; its result is the linked
-job, which the gate checks.
+job, which the gate checks. If the current workflow is cancelled, its gate is
+skipped too, rather than adding a failure for the cancelled upstream jobs.
+Cancellation is not a passing validation: the replacement run still checks all
+selected lanes. An active run fails its gate when classification, a selected
+job, or a reused source fails; a cancelled reused source also fails the gate.
+
+The real-JDT lane runs on Windows and is selected by shared Java/JDT engine
+changes, bundled JDK/JDT resources, preparation scripts, and Windows Java
+consumers. Swift Java adapters and tests are covered by the Swift lane; a
+macOS path containing `Java` alone does not select Windows real-JDT. Shared Core
+and contract changes still select the relevant cross-platform checks.
 
 ### What runs after a pull request merges
 
@@ -463,13 +483,39 @@ Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono
 - 插件市场运行时状态：拉取的索引缓存 `<app-cache>/Lithe/PluginMarketplace/<source-id>/index.json`、
   用户的插件仓库列表 `<app-support>/Lithe/PluginMarketplace/sources.json`，以及下载与解压
   插件归档的临时目录 `<system-temp>/lithe-plugin-transfer-*`、`<system-temp>/lithe-plugin-download-*`。
-  索引由 Rust Core 校验，归档按索引 SHA-256 校验，但这些都是每个用户、每次运行的状态，
+  索引由 Rust Core 校验，归档按索引 SHA-256 校验。市场和磁盘 ZIP 在解压前把唯一文件、
+  显式目录及隐式父目录统一计入条目上限；规范化路径的累计 UTF-8 字节上限取归档字节预算与
+  16 MiB 的较小值，避免中央目录中少量深层文件放大预检内存。通过预检不产生可复用身份。
+  这些都是每个用户、每次运行的状态，
   不是工作树构建产物，没有版本、平台、架构或工具链 identity stamp；
   `excludedResources.plugin-marketplace-state` 由复用脚本直接拒绝。官方索引只从 Git 跟踪的
   `Plugins/marketplace/index.json` 在打包阶段复制为只读的 `Contents/Resources/PluginMarketplace/index.json`，
   运行时刷新只写 Caches，不改写 app bundle，也不影响签名和 Sparkle delta。
   官方插件归档由 `.github/workflows/release-official-plugins.yml` 按插件独立 tag 发布，
   不进入 app 构建或工作树缓存。
+
+- 本地社区插件磁盘安装：`MacServiceContainer` 把 `fileStorage.temporaryDirectory()`
+  注入 `MacPluginDiskPackageImporter`，每次选择 ZIP 或解包目录后，先在该平台可写根下创建
+  私有的 `lithe-plugin-disk-<UUID>/`（权限 `0700`）。ZIP 的 `archive.zip` 和复制/解压后的
+  `package/` 只属于这次安装，原始输入保持只读；审查与安装针对快照，不重新从原始路径取包。
+  ZIP 摘要取自复制后的 `archive.zip`；目录没有归档摘要。内容 digest 与完整 canonical
+  `approvedPrograms` 绑定用户批准的字节，不能当作远端仓库/发布者认证，也没有可复用的
+  版本、平台、架构或工具链 identity stamp。
+  `excludedResources.plugin-disk-install-state` 同时排除快照、
+  `<app-support>/Lithe/Plugins/.staging/<transaction>/`、用户级版本目录和 `installation.json`
+  中当前/上一版本的磁盘审批；任何复制阶段都不共享、不打包、不软链接。复用脚本在解析
+  工作树及进入 validator 前拒绝该 ID，不能新增“摘要相同即可复用”的校验路由。
+  importer 负责复制失败和取消的清理；准备成功后 service 负责审查取消、安装成功/失败时
+  discard 本次快照；关闭插件页会结束安装 session 并清理已有及迟到的快照。
+  store 负责安装暂存和持久版本生命周期，并在 staging、扫描、回滚时
+  重验摘要。`PluginDiskProvenance` 与 marketplace provenance 分开，市场同 ID 条目不能
+  自动接管本地包的更新来源。本地磁盘社区首次安装、更新和同版本替换每次确认完整权限/程序，
+  官方固定 ID、命名空间及签名要求与 DEBUG 开发包例外不变。
+  验证运行 `node scripts/test-reuse-worktree-resources.mjs`，确认排除项不在 `--list` 且
+  混合复制请求在任何工作树访问前失败；运行 `./scripts/verify-runtime-bundle-immutability.sh`
+  检查两端发行资源路径。macOS 产品验收另比较典型安装/取消/失败工作流前后的发行 bundle
+  文件清单和哈希；运行时只写平台临时目录及 Application Support，不改变代码签名或
+  Sparkle delta。Windows 尚未实现此声明式磁盘安装流程，不能把边界说明视为实现证据。
 
 - Sparkle 差分基线的单次发布临时目录：
   `<system-temp>/<sparkle-run>/archives/.baseline-<attempt>/` 保存每次 `gh`
@@ -516,6 +562,14 @@ Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono
 - `.build` 中的 SwiftPM 构建状态；
 - `rust/target/` 中与当前源码、编译器或构建参数绑定的构建输出；
 - LSP workspace `-data`、运行时数据库、测试报告和其他会被进程修改的状态。
+- Agent 原生界面截图：macOS unit lane 通过已有的 `LITHE_AGENT_ACTIVITY_SCREENSHOTS`、
+  `LITHE_AGENT_SELECTOR_SCREENSHOTS` 与 `LITHE_AGENT_EDITOR_LAYOUT_SCREENSHOTS` 将夹具截图
+  写入 `.artifacts/test-stability/`，随 `test-stability-macos` 报告上传，覆盖输入区、
+  模型/Effort、任务/子代理/文件摘要及窄宽布局和主题。只用受控测试数据，不捕获用户桌面。
+  截图身份取决于源码 revision、平台、主题、视口和夹具参数，没有构建 identity stamp，
+  不允许任何阶段跨 worktree 复用。`excludedResources.agent-ui-test-evidence` 通过已有
+  排除路由拒绝；截图归测试与 CI artifact 保留策略所有，不打包、不写发行 bundle，
+  不影响代码签名或 Sparkle delta。
 - 平台缓存中 JDT `-data/.lithe/maven/` 的 settings 副本：按工作区隔离，可能含凭据，
   在缓存过期或重建索引时清理；文件内容哈希不是版本、平台、架构或工具链构建
   identity stamp，任何复制阶段都禁止共享。资源清单 `jdt-maven-settings` 显式排除，
@@ -543,6 +597,14 @@ Java Support（`dev.lithe.plugin.java-support`）是唯一随 Lithe.app 发行�
   JDT LS 的工作区索引和 Equinox 配置区仍在 `<cache>/Lithe/language-servers/`（`jdtls/`、`jdtls-configuration/`），
   由 `jdt` 宿主集成在启动时发现没有未卸载的插件声明它后删除。两者都是单次安装的
   可变状态，任何阶段都不得复制或跨 worktree 共享。
+
+插件网页的宿主持久状态通过平台存储 adapter 写到
+`<app-support>/Lithe/PluginState/<plugin-id>/web-state/<window-id>/<workspace-digest>.json`，
+每个窗口和工作区最多 64 KiB。它属于当前安装中的插件，卸载时随 `PluginState` 清理；
+包内网页、脚本和 app bundle 始终只读，因此不改变签名或 Sparkle delta 的源基线。
+这类用户 JSON 没有版本、平台、架构或工具链 identity stamp，工作区摘要只是存储键，
+任何复制阶段都不得复用或共享。`excludedResources.plugin-web-state` 通过复用脚本的
+排除路由直接拒绝，由 `scripts/test-reuse-worktree-resources.mjs` 验证，不能给它增加缓存校验器。
 
 如果后续新增可复用资源，必须同步更新注册表、校验器、脚本测试和本节说明。
 生成资源只有在构建流程写入可验证的源码、配置、平台、架构和工具链 identity

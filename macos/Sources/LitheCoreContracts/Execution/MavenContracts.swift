@@ -250,13 +250,15 @@ package struct MavenTestCaseOutcome: Codable, Equatable, Sendable {
     package let status: String
     package let message: String?
     package let invocations: Int
+    package let durationMillis: Int?
 
-    package init(className: String, method: String, status: String, message: String? = nil, invocations: Int = 1) {
+    package init(className: String, method: String, status: String, message: String? = nil, invocations: Int = 1, durationMillis: Int? = nil) {
         self.className = className
         self.method = method
         self.status = status
         self.message = message
         self.invocations = invocations
+        self.durationMillis = durationMillis
     }
 }
 
@@ -363,6 +365,19 @@ package struct MavenLaunchContext: Codable, Equatable, Sendable {
     package let skipTests: Bool
     package let mavenExecutablePath: String?
     package let javaHomePath: String?
+
+    /// Language-import contexts omit execution-only choices such as Skip Tests.
+    package init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        version = try values.decode(Int.self, forKey: .version)
+        reactorPath = try values.decode(String.self, forKey: .reactorPath)
+        profiles = try values.decode([String].self, forKey: .profiles)
+        settingsPath = try values.decodeIfPresent(String.self, forKey: .settingsPath)
+        localRepositoryPath = try values.decodeIfPresent(String.self, forKey: .localRepositoryPath)
+        skipTests = try values.decodeIfPresent(Bool.self, forKey: .skipTests) ?? false
+        mavenExecutablePath = try values.decodeIfPresent(String.self, forKey: .mavenExecutablePath)
+        javaHomePath = try values.decodeIfPresent(String.self, forKey: .javaHomePath)
+    }
 
     package init(
         version: Int = currentVersion,

@@ -433,6 +433,51 @@ fn detection_applies_nesting_priority_and_rejections() {
 /// Maven's model comes from the host integration during detection, with the
 /// reactor's modules as projects and its profiles as option values.
 #[test]
+fn maven_method_durations_survive_report_aggregation_and_build_decoding() {
+    let timing: Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../shared/fixtures/maven/testcase-durations-v1.json"
+    )))
+    .unwrap();
+    let workspace = TemporaryWorkspace::new("maven-method-durations");
+    workspace.write("pom.xml", "<project><modelVersion>4.0.0</modelVersion><groupId>demo</groupId><artifactId>timing</artifactId><version>1</version></project>")
+        .write("target/surefire-reports/TEST-demo.DurationTest.xml", timing["xml"].as_str().unwrap());
+    let results = crate::project::test_results(
+        serde_json::from_value(json!({
+            "root": workspace.root(), "output": "", "reports": {"notBeforeMillis": 0}
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        serde_json::to_value(&results.test_cases).unwrap(),
+        timing["expected"]
+    );
+    let decoded = call(
+        "decodeTestResults",
+        fixture("maven-build.plugin.json"),
+        "maven",
+        json!({
+            "workspaceRoot": workspace.root(), "root": ".", "project": ".", "output": "", "notBeforeMillis": 0
+        }),
+    );
+    assert_eq!(decoded["status"], "ok", "{decoded}");
+    let methods = decoded["results"]["tests"].as_array().unwrap();
+    assert_eq!(methods.len(), timing["expected"].as_array().unwrap().len());
+    for expected in timing["expected"].as_array().unwrap() {
+        let actual = methods
+            .iter()
+            .find(|case| case["case"] == expected["method"])
+            .unwrap();
+        assert_eq!(
+            actual["durationMillis"], expected["durationMillis"],
+            "{actual}"
+        );
+        assert_eq!(actual["invocations"], expected["invocations"]);
+    }
+}
+
+#[test]
 fn maven_reactor_detects_through_the_host_integration() {
     let workspace = TemporaryWorkspace::new("build-maven-detect");
     workspace
@@ -1451,4 +1496,99 @@ fn provider_models_are_not_read_during_detection() {
     let mix = instance(&detection, "mix:.");
     assert_eq!(mix["modelSource"], "provider");
     assert!(mix.get("model").is_none(), "{mix}");
+}
+
+/// Categories and option placements only tell the host where to show an
+/// entry: a model task takes its own category when it is well formed and its
+/// template's otherwise, and neither changes what runs.
+#[test]
+fn task_categories_and_option_placements_are_display_only() {
+    let workspace = TemporaryWorkspace::new("build-task-category");
+    let mut gradle = fixture("gradle-build.plugin.json");
+    let build_system = &mut gradle["buildSystems"][0];
+    build_system["icon"] = json!({ "path": "icons/gradle.svg" });
+    build_system["tasks"][0]["category"] = json!(["Tasks", "other"]);
+    let offline = build_system["options"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|option| option["id"] == "offline")
+        .unwrap();
+    offline["presentation"] = json!("toolbar");
+    offline["icon"] = json!({ "path": "icons/offline.svg" });
+    let validated = validate(gradle.clone());
+    assert_eq!(validated["status"], "ok", "{validated}");
+    let normalized = &validated["plugin"]["buildSystems"][0];
+    assert_eq!(normalized["icon"]["path"], "icons/gradle.svg");
+    let offline = normalized["options"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|option| option["id"] == "offline")
+        .unwrap();
+    assert_eq!(offline["presentation"], "toolbar");
+
+    // A malformed category falls back to the template rather than dropping
+    // the task.
+    workspace.write("settings.gradle", "").write(
+        "state/model.json",
+        &json!({
+            "format": "litheBuildModel",
+            "version": 1,
+            "projects": [{ "name": "root" }],
+            "tasks": [
+                { "name": "run", "template": "gradle-task", "category": ["Tasks", "application"], "properties": { "path": ":run" } },
+                { "name": "jar", "template": "gradle-task", "properties": { "path": ":jar" } },
+                { "name": "deep", "template": "gradle-task", "category": ["a", "b", "c", "d", "e"], "properties": { "path": ":deep" } },
+                { "name": "blank", "template": "gradle-task", "category": ["Tasks", " "], "properties": { "path": ":blank" } }
+            ]
+        })
+        .to_string(),
+    );
+    let model = call(
+        "decodeModel",
+        gradle.clone(),
+        "gradle",
+        json!({
+            "workspaceRoot": workspace.root(),
+            "root": ".",
+            "outputFile": workspace.0.join("state/model.json").to_string_lossy(),
+        }),
+    );
+    assert_eq!(model["status"], "ok", "{model}");
+    let categories: Vec<(String, Value)> = model["model"]["tasks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|task| {
+            (
+                task["name"].as_str().unwrap().to_string(),
+                task["category"].clone(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        categories,
+        [
+            ("blank".to_string(), json!(["Tasks", "other"])),
+            ("deep".to_string(), json!(["Tasks", "other"])),
+            ("jar".to_string(), json!(["Tasks", "other"])),
+            ("run".to_string(), json!(["Tasks", "application"])),
+        ],
+        "{model}"
+    );
+    let plan = call(
+        "taskPlan",
+        gradle,
+        "gradle",
+        json!({
+            "workspaceRoot": workspace.root(),
+            "root": ".",
+            "task": "gradle-task",
+            "project": { "path": ".", "name": "root" },
+            "modelTask": { "name": "run", "properties": { "path": ":run" } },
+        }),
+    );
+    assert_eq!(plan["status"], "ok", "{plan}");
+    assert!(plan.to_string().contains("\":run\""), "{plan}");
 }

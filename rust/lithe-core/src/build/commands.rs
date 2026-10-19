@@ -8,6 +8,7 @@
 
 use super::detect::{self, DetectRequest};
 use super::invocation::{self, InvocationRequest, VersionCheckRequest};
+use super::language_import::{self, LanguageImportRequest};
 use super::manifest::BuildSystemDeclaration;
 use super::options;
 use super::outputs::{
@@ -221,6 +222,19 @@ pub(crate) fn build_sync_fingerprint_command(payload: Value) -> Result<Value, Co
         "sync",
         |build_system, request: &SyncFingerprintRequest| {
             outputs::sync_fingerprint(build_system, request)
+        },
+    )
+}
+
+/// `build.languageImport`: the Java language server's import settings for
+/// an instance, from the user's options; `null` without a declaration.
+pub(crate) fn build_language_import_command(payload: Value) -> Result<Value, CoreError> {
+    with_build_system(
+        payload,
+        "build.languageImport",
+        "languageImport",
+        |build_system, request: &LanguageImportRequest| {
+            language_import::language_import(build_system, request)
         },
     )
 }

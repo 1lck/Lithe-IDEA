@@ -10,12 +10,13 @@ use crate::git::{
     self, GitApplyRequest, GitBlameRequest, GitCheckoutPreflightRequest, GitCommandRequest,
     GitCommitFilesRequest, GitCommitRequest, GitComparisonRequest, GitConflictMarkerRequest,
     GitDiffRequest, GitHistoryCursorCloseRequest, GitHistoryPageRequest, GitHistoryRequest,
-    GitHistoryRewritePreviewRequest, GitIntegrationPreflightRequest, GitOperationStateRequest,
-    GitPullPreflightRequest, GitPullRequestContextRequest, GitPushPreviewRequest,
-    GitRebaseControlRequest, GitRebasePreviewRequest, GitRebaseSessionRequest,
-    GitRebaseStartRequest, GitReferencesRequest, GitRepositoryRootRequest, GitStashesRequest,
-    GitStatusRequest, GitWatchContextRequest, GitWorktreesRequest, GitWriteRequest,
-    PatchApplyRequest, PatchExportRequest, PatchPreviewRequest, WorkspaceRepositoriesRequest,
+    GitHistoryRewritePreviewRequest, GitIntegrationPreflightRequest, GitLineHistoryRequest,
+    GitOperationStateRequest, GitPullPreflightRequest, GitPullRequestContextRequest,
+    GitPushPreviewRequest, GitRebaseControlRequest, GitRebasePreviewRequest,
+    GitRebaseSessionRequest, GitRebaseStartRequest, GitReferencesRequest, GitRepositoryRootRequest,
+    GitStashesRequest, GitStatusRequest, GitWatchContextRequest, GitWorktreesRequest,
+    GitWriteRequest, PatchApplyRequest, PatchExportRequest, PatchPreviewRequest,
+    WorkspaceRepositoriesRequest,
 };
 use crate::github::{NormalizeResponseRequest, ParseRemoteRequest, RequestPlanRequest};
 use crate::languages::{
@@ -237,6 +238,11 @@ fn execute(request: &str) -> CoreResponse {
             id,
             parsed.payload,
             crate::build::build_sync_fingerprint_command,
+        ),
+        CoreCommand::BuildLanguageImport => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::build_language_import_command,
         ),
         CoreCommand::PluginsMarketplaceValidateIndex => plugin_response(
             id,
@@ -2527,6 +2533,24 @@ fn execute(request: &str) -> CoreResponse {
             ),
             Err(error) => CoreResponse::failure(id, error),
         },
+        CoreCommand::GitLineHistory => {
+            match serde_json::from_value::<GitLineHistoryRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid Git line history request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(git::line_history)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Git line history response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::GitHubParseRemote => {
             match serde_json::from_value::<ParseRemoteRequest>(parsed.payload)
                 .map_err(|error| {

@@ -29,7 +29,7 @@ Issue #1316 的截图里，通用、Git 和 Agent 管理页在几乎每个控件
 - Agent 预检把版本、路径和安装来源拆成结构化 `Detail`，用带分隔线的内嵌小表展示；`message` 保留为纯文本诊断源，测试和错误文案不受影响。状态从裸 `PASS` 文本改成带图标的胶囊徽标。
 - MCP 页面改成“标题/状态徽标 + 状态卡 + 项目权限 + Agent 配置”的短序列，安全说明收进 header 的 ⓘ；启用/关闭与复制配置在状态卡完成，配置 JSON 放在独立代码块里。
 - 运行配置编辑对话框沿用同一套语言：标题栏用运行时图标和类型/生效来源胶囊取代“配置”区里的纯文本行；保存范围、项目环境继承、覆盖说明和环境变量格式都收进 ⓘ；分区标题、分段控件、复选框和输入框复用设置页共享控件，底部按钮使用共享主/次按钮样式。项目环境改为可点击的整行入口，运行目录输入框和选择按钮保持一行。
-- `LitheInfoTip` 的悬停计时器改成引用类型，悬停进入/离开不再触发页面重新求值；下拉弹层只在 `isPresented` 时安装锚点，避免设置页上几十个常驻 `NSViewRepresentable` 增加布局开销。
+- `LitheInfoTip` 的悬停计时器改成引用类型，悬停进入/离开不再触发页面重新求值；下拉弹层只在 `isPresented` 时安装锚点，避免设置页上几十个常驻 `NSViewRepresentable` 增加布局开销。 延迟创建的锚点首次更新可能尚未进入窗口，不能仅在 `updateNSView` 中尝试显示，否则图标变蓝但说明缺失；共享 `LitheDropdownPopover` 在锚点进入窗口后检查当前打开状态并重新请求显示，移除时仍取消待显示请求并关闭弹层。
 
 ### 正确做法
 
@@ -70,6 +70,8 @@ Issue 举的是通用、Git 和 Agent 管理三个页面，但同类常驻说明
 - 后续新增设置时，纯说明应直接放进 `info`，不要重新引入常驻小字；错误和状态文案仍要常驻。
 
 ## 验证
+
+- `./scripts/test-macos.sh --filter ContextMenuCoverageTests`：深浅主题下，已请求打开的弹层先在窗口外创建，再挂载锚点，必须自动显示；移除锚点必须关闭。
 
 - `./scripts/test-macos.sh --filter GitSettingsPresentationTests` 与 `cargo test --manifest-path rust/Cargo.toml -p lithe-core git::configuration::`（Git 布尔等价写法、无值/空值、原始编辑值不变、远程覆盖以及 prune/all/none/reachable 回显）
 - `./scripts/test-macos.sh --filter SettingsSearchVocabularyTests`

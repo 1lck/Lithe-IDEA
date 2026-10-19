@@ -1581,7 +1581,7 @@ struct DebugBreakpointManagerView: View {
             Button {
                 model.openSourceLocation(
                     url: breakpoint.fileURL,
-                    line: breakpoint.line,
+                    line: breakpoint.resolvedLine ?? breakpoint.line,
                     column: breakpoint.column ?? 1
                 )
                 onNavigate?()

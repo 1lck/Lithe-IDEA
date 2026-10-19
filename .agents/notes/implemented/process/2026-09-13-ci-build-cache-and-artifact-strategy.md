@@ -37,16 +37,49 @@ Mac mini Runner，因为离线时没有回退、fork 代码跑在长期存活的
 提交，或者为了同步 `preview` 更新分支，所有 lane 都会重新完整运行，而结果大概率
 不变。`scripts/plan-ci-lane-reuse.mjs` 在 macOS CI、插件 CI 和 Windows CI 的分类 job
 中逐个 lane 判断：找到这个 PR 之前真正执行过该 lane 的最近一次运行，job 已通过或
-仍在运行，并且 PR 自己在此之后的改动（按现有分类规则）不影响这个 lane，就复用
+已经在 GitHub 托管 Runner 上排队或运行，并且 PR 自己在此之后的改动（按现有分类规则）不影响这个 lane，就复用
 那次结果。只看 PR 自己的改动：用“每个文件的 PR 版本”比较两个修订，从 base 同步
-进来的改动不算；但只要 base 在两次运行之间带来了 CI 基础设施的改动（workflow、
-action、分类和 runner 脚本、测试基础设施、`Package.swift`/`Package.resolved`、所有
-Cargo 清单与锁文件（包括成员 crate，只改 feature 时锁文件可能不变）、Rust 工具链
-文件），全部 lane 重跑。文件身份包含内容和 mode，只改执行位也算变化；路径用 NUL
+进来的改动不算；但只要 base 在两次运行之间带来了**本 workflow 会读取的** CI 基础设施
+改动（workflow、action、分类和 runner 脚本、测试基础设施、`Package.swift`/`Package.resolved`、
+所有 Cargo 清单与锁文件（包括成员 crate，只改 feature 时锁文件可能不变）、Rust 工具链
+文件），本 workflow 的全部 lane 重跑。
+
+基础设施按 workflow 划分影响范围（`CI_INFRA_RULES`）。观察到的问题是：#1313 合入
+`preview` 时只改了 `ci-windows.yml` 和 `windows/tauri/src-tauri/Cargo.toml`，同步了
+`preview` 的 #1325 自身没有任何文件变化，却把 macOS 的 Swift、Rust Core、arm64 打包
+和插件 lane 全部重跑了一遍。正确做法是：
+- `.github/` 下的 workflow 和本地 action 按引用关系判断：只影响 workflow 自己的文件，
+  以及它直接或经由 composite action 间接引用的本地 action、reusable workflow。引用
+  关系在规划时从 base 和 head 两个修订读取，不手写清单，新增 action 不用改规则。
+  release、取消旧运行等不被引用的 workflow 改动不让任何 PR lane 重跑。
+- `windows/` 下的 Cargo 清单与锁文件、Rust 工具链和前端 `package.json`、
+  `scripts/*windows*`、`test-stability-windows.ps1` 只影响 Windows CI。Windows 产品通过
+  path 依赖链接 Rust Core，所以 `rust/` 下的 Cargo 改动仍影响全部 workflow。
+- `Package.swift`/`Package.resolved`/`.swift-version`、`test-macos.sh`、Rust Core 构建与
+  验证脚本、`test-stability-macos.sh` 同时影响 macOS CI 和插件 CI，因为插件 workflow
+  也通过 macOS 工具链 action 和 `test-macos.sh` 构建。
+- `frontend/editor/package.json` 与分类规则一致，影响 macOS 和 Windows。分类脚本、规划
+  与校验脚本、根目录 Bun workspace、其余测试基础设施仍影响全部 workflow。
+
+不要把规则改成“所有基础设施改动都全量重跑”来图省事：同步 `preview` 是最常见的
+后续 push，粗粒度规则会让每次合入都把最慢的 macOS 打包 lane 重跑一遍。新增路径
+拿不准影响范围时，归到全部 workflow，宁可多跑也不能漏跑。规划步骤的 summary 会列出
+触发重跑的基础设施路径，以及只影响其他 workflow 而被忽略的路径，便于核对判断。
+
+文件身份包含内容和 mode，只改执行位也算变化；路径用 NUL
 分隔的原始形式读取，分类脚本同样如此，否则 Git 会给中文等路径加引号转义，导致
 路径匹配失败、把真实改动当成没有变化。这里同时检查作者合入的 base 改动和 GitHub 合并
 提交在 base 前进后自动带上的改动（用 API 取得之前那次运行开始时的 base 头）。
-失败或被取消的结果从不复用。
+失败或被取消的结果从不复用。请求自建 Runner 的排队任务及其运行中未完成的任务
+也不复用：GitHub 在创建 job 时固定 Runner 标签，移除自建 Runner 不会让旧任务
+自动转移到托管机器。正确做法是让本轮重新创建托管 job，并取消无人复用的旧运行；
+不要让新 gate 继续等待已撤销的机器。已经通过的旧结果仍可按改动范围复用。官方
+托管的排队任务继续复用，避免同一旧运行因其他 lane 被保留时又创建重复构建。
+
+真实 JDT 集成 lane 在 Windows 上验证共享 Java 引擎，按共享 Rust Java/JDT、JDK/JDT
+资源、准备脚本和 Windows Java 消费方选择。macOS 的 Swift Java 适配器及测试由
+Swift lane 编译验证，不因路径中含有 `Java` 就申请 Windows runner。共享 Core 或
+契约改动仍按各自规则选择跨平台验证；不能用“没有修改 `windows/`”跳过这些检查。
 
 GitHub 只能取消整个 workflow 运行，不能取消单个 job，所以 PR 运行不再按分支自动
 互相取消：规划步骤取消没有任何 lane 复用的旧运行，被复用、仍在运行的旧运行保留
@@ -58,6 +91,19 @@ GitHub 只能取消整个 workflow 运行，不能取消单个 job，所以 PR �
 （同步 `preview` 时会把别人的改动算进来，正是要避免的全量重跑）。接受的风险：
 复用的结果没有测过“PR + 新的 base”这个组合，由合并后的 universal 打包
 兜底。
+
+关闭或合并 PR 时，清理工作流按来源仓库、来源分支和关闭时间查找所有历史运行，
+不能只查最后一次提交：后续 gate 可能仍在复用更早提交的 job，且关闭后 GitHub 的
+运行元数据可能不再包含该 PR。保留关闭后创建的运行、其他来源仓库和非 PR 事件；
+历史运行若仍关联另一个 PR，也不取消。清理使用 GitHub 的强制取消接口，避免旧版
+`always()` 步骤继续占用托管 Runner。取消失败只有在运行已结束时才视为正常竞争，
+权限或 API 故障必须使清理检查失败，不能伪装成清理成功。
+
+四个汇总 gate 在当前 workflow 被取消时跳过，避免上游 `cancelled` 被成功断言再次
+标成 failure。取消不算验证通过；替代运行仍必须完成所有选中的 lane。当前 workflow
+未取消时，即使分类或测试失败，gate 也必须执行并失败；外部复用来源失败、取消、
+不可读取或超时，同样不能放行。不要把 gate 改成只在 `success()` 时执行，也不要在
+shell 中把取消结果转换为成功，否则真正失败会消失。
 
 合并之后只运行 PR 观察不到的部分。PR 是合入 `preview` 的门槛，完整验证在 PR
 上完成；合并后的 push 只在改动涉及打包内容时构建 universal 包。这是 x86_64
@@ -156,6 +202,13 @@ Git 图形的离屏帧采样保留完整 1,000 行历史，但每次只绘制 40
 正确做法：模拟滚动窗口的一帧，把可见区域作为绘制输入。不要把全部历史
 重复绘制 220 次当作单帧采样：这会把画面之外的工作混进测试总耗时，在共享
 runner 上可能出现断言都通过、计时工具仍因超过十秒而失败的情况。
+
+真实进程生命周期测试把解释器启动与进程内事件分开计时。
+`MacRetainedProcessLifecycleTests` 在托管 macOS Runner 上等待 Python 首次就绪时
+触发了进程内 gate 默认的 2 秒期限；它尚未进入 fork 和保留后代的验证场景。
+这类原生启动使用独立的 5 秒就绪期限，并在失败时报告 PID 和运行状态；fork、
+持久化观察和退出信号仍保持原有短期限，单测试仍受 15 秒计时上限约束。
+正确做法是等待明确的就绪事件，不通过固定睡眠同步，也不修改产品进程行为。
 
 CI 缓存 Cargo fingerprints、build script outputs 和依赖 outputs，不缓存
 最终可执行文件。缓存覆盖 `rust/target/macos` 的 Rust Core 和 `rust/target`
@@ -310,7 +363,9 @@ Swift 测试已经编译完整 Lithe 目标。再生成两个 DMG 会在普通�
 ## 验证
 
 - `actionlint .github/workflows/ci-macos.yml .github/workflows/ci-windows.yml .github/workflows/ci-database.yml .github/workflows/ci-plugins.yml`
-- `./scripts/test-classify-ci-changes.sh`：包含 Draft PR 关闭 runner lane、保留 Linux lane 的用例。
+- `./scripts/test-classify-ci-changes.sh`：包含 Draft PR 关闭 runner lane、保留 Linux lane，以及 macOS Java 不触发 real-JDT、共享引擎和 Windows Java 仍触发的正反例。
+- `node --test scripts/ci-workflow-gates.test.mjs scripts/plan-ci-lane-reuse.test.mjs scripts/verify-reused-ci-jobs.test.mjs`：从实际工作流执行 gate shell，验证取消条件、分类/测试失败、lane 覆盖及复用来源的失败传播。
+- `node --test scripts/cancel-closed-pr-runs.test.mjs`：用离线 GitHub CLI 替身执行关闭清理，验证分页历史运行、来源隔离、关闭时间、取消竞争和 API 失败传播。
 - `./scripts/test-classify-ci-changes.sh` 覆盖 `save-macos-cargo-build-cache` 改动触发全部 macOS lane。
 - `actionlint .github/workflows/ci-macos.yml .github/workflows/release-preview-macos.yml`
 - `./scripts/test-macos.sh`

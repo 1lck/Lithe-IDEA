@@ -63,6 +63,9 @@ package final class LanguageToolingSessionManager: ObservableObject,
     private let runtimeFactory: (any LanguageProviderRuntimeFactory)?
     private var languageServers: [String: any LanguageServerSession] = [:]
     private var languageServerRoots: [String: URL] = [:]
+    /// Core can clear Maven settings only for a session launched with Maven
+    /// inputs. Keep this with the session so a pure Gradle start stays nil.
+    private var languageServerMavenContexts: [String: MavenLaunchContext] = [:]
     private var languageServerWorkspaceFingerprints: [String: String] = [:]
     private var languageServerSessionIdentities: [String: ObjectIdentifier] = [:]
     private var diagnosticsByProviderID: [String: [URL: [LanguageServerDiagnostic]]] = [:]
@@ -73,6 +76,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
     private let workspaceStateResetter: ((LanguageProviderDescriptor, URL, String?) throws -> Void)?
     private let workspaceStateCleaner: ((LanguageProviderDescriptor, URL, String?) throws -> Int)?
     private var mavenContextProvider: (LanguageProviderDescriptor, URL) -> MavenLaunchContext? = { _, _ in nil }
+    private var javaLanguageImportProvider: ((LanguageProviderDescriptor, URL) throws -> JavaLanguageImportConfiguration)?
 
     package init(
         catalog: LanguageProviderCatalog = .compatibilityFallback,
@@ -203,6 +207,23 @@ package final class LanguageToolingSessionManager: ObservableObject,
         _ provider: @escaping (LanguageProviderDescriptor, URL) -> MavenLaunchContext?
     ) {
         mavenContextProvider = provider
+    }
+
+    /// The host must prepare plugin imports before any entry point can start
+    /// Java. Throwing here prevents a synchronous document/run path from using
+    /// a previous workspace's context while that preparation is pending.
+    package func configureJavaLanguageImportProvider(
+        _ provider: @escaping (LanguageProviderDescriptor, URL) throws -> JavaLanguageImportConfiguration
+    ) {
+        javaLanguageImportProvider = provider
+    }
+
+    private func javaLanguageImport(
+        _ descriptor: LanguageProviderDescriptor, rootURL: URL
+    ) throws -> JavaLanguageImportConfiguration {
+        guard descriptor.id == "java" else { return JavaLanguageImportConfiguration() }
+        if let javaLanguageImportProvider { return try javaLanguageImportProvider(descriptor, rootURL) }
+        return JavaLanguageImportConfiguration(mavenContext: mavenContextProvider(descriptor, rootURL))
     }
 
     package func retryMavenProfiles(providerID: String) {
@@ -445,12 +466,30 @@ package final class LanguageToolingSessionManager: ObservableObject,
               let session = languageServers["java"],
               session.isRunning,
               languageServerRoots["java"] == root,
-              let descriptor = catalog.descriptors.first(where: { $0.id == "java" }),
-              let context = mavenContextProvider(descriptor, root) else {
+              let descriptor = catalog.descriptors.first(where: { $0.id == "java" }) else {
             return .noSession
         }
+        let context: MavenLaunchContext
+        do {
+            if let configured = try javaLanguageImport(descriptor, rootURL: root).mavenContext {
+                context = configured
+            } else if let previous = languageServerMavenContexts["java"] {
+                // Removing the build plugin must clear its old Profiles,
+                // settings and repository instead of leaving them in JDT LS.
+                context = MavenLaunchContext(
+                    reactorPath: previous.reactorPath, profiles: [], settingsPath: nil,
+                    localRepositoryPath: nil, skipTests: false, mavenExecutablePath: nil, javaHomePath: nil
+                )
+            } else {
+                return .noSession
+            }
+        } catch {
+            return .failed(LanguageServerRuntimeFailure(code: "languageImportUnavailable", message: error.localizedDescription))
+        }
         switch session.updateMavenConfiguration(context, reloadProjects: reloadProjects) {
-        case .success(let update): return .updated(update)
+        case .success(let update):
+            languageServerMavenContexts["java"] = context
+            return .updated(update)
         case .failure(let failure): return .failed(failure)
         }
     }
@@ -1088,6 +1127,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
         languageServerSessionIdentities[providerID] = nil
         languageServers.removeValue(forKey: providerID)?.stop()
         languageServerRoots[providerID] = nil
+        languageServerMavenContexts[providerID] = nil
         languageServerWorkspaceFingerprints[providerID] = nil
         languageServerFeatures[providerID] = nil
         languageServerInfos[providerID] = nil
@@ -1115,6 +1155,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
         languageServerInfos = [:]
         languageServers = [:]
         languageServerRoots = [:]
+        languageServerMavenContexts = [:]
         languageServerWorkspaceFingerprints = [:]
         languageServerSessionIdentities = [:]
         languageServerFeatureProviders = [:]
@@ -1642,10 +1683,13 @@ package final class LanguageToolingSessionManager: ObservableObject,
         )
 
         do {
+            let importConfiguration = try javaLanguageImport(descriptor, rootURL: rootURL)
+            languageServerMavenContexts[descriptor.id] = importConfiguration.mavenContext
             try created.start(
                 rootURL: rootURL,
                 workspaceFingerprint: workspaceFingerprint,
-                mavenContext: mavenContextProvider(descriptor, rootURL)
+                mavenContext: importConfiguration.mavenContext,
+                javaGradle: importConfiguration.javaGradle
             )
         } catch {
             if languageServerSessionIdentities[descriptor.id] == sessionIdentity {
@@ -1697,6 +1741,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
         languageServerSessionIdentities[providerID] = nil
         let session = languageServers.removeValue(forKey: providerID)
         languageServerRoots[providerID] = nil
+        languageServerMavenContexts[providerID] = nil
         languageServerWorkspaceFingerprints[providerID] = nil
         languageServerFeatures[providerID] = nil
         languageServerInfos[providerID] = nil

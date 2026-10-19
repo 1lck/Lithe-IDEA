@@ -5,6 +5,8 @@
 export const GIT_GRAPH_ROW_HEIGHT = 26;
 const GRAPH_BASELINE_ROW_HEIGHT = 22;
 const GRAPH_MAX_RECOMMENDED_LANES = 6;
+const GRAPH_NODE_RADIUS = 4;
+const GRAPH_HEAD_RADIUS_DELTA = 2;
 
 export interface GraphPoint {
   x: number;
@@ -37,8 +39,16 @@ export function gitGraphPaintMetrics(rowHeight = GIT_GRAPH_ROW_HEIGHT, backingSc
   const laneSpacing = align((16 * rowHeight) / GRAPH_BASELINE_ROW_HEIGHT, true);
   const laneCenter = align((8 * rowHeight) / GRAPH_BASELINE_ROW_HEIGHT);
   const lineWidth = Math.max(pixel, align((1.5 * rowHeight) / GRAPH_BASELINE_ROW_HEIGHT, true));
-  const nodeDiameter = align((8 * rowHeight) / GRAPH_BASELINE_ROW_HEIGHT, true);
+  const nodeDiameter = align((2 * GRAPH_NODE_RADIUS * rowHeight) / GRAPH_BASELINE_ROW_HEIGHT, true);
   const nodeRadius = align(nodeDiameter / 2);
+  // HeadNodePainter: expand the radius by two baseline units, then inset
+  // twice by the aligned delta for the background ring and filled center.
+  const headNodeDiameter = align(
+    (2 * (GRAPH_NODE_RADIUS + GRAPH_HEAD_RADIUS_DELTA) * rowHeight) / GRAPH_BASELINE_ROW_HEIGHT,
+    true,
+  );
+  const headRingWidth = align((GRAPH_HEAD_RADIUS_DELTA * rowHeight) / GRAPH_BASELINE_ROW_HEIGHT);
+  const headInnerDiameter = headNodeDiameter - 4 * headRingWidth;
   const line = (element: GraphPaintElement): { start: GraphPoint; end: GraphPoint } => {
     const gap = element.isTerminal ? nodeRadius / 2 + 1 : 0;
     const endY =
@@ -63,12 +73,23 @@ export function gitGraphPaintMetrics(rowHeight = GIT_GRAPH_ROW_HEIGHT, backingSc
     lineWidth,
     nodeDiameter,
     nodeRadius,
+    headNodeDiameter,
+    headRingWidth,
+    headInnerDiameter,
     line,
     nodeRect: (lane: number) => ({
-      x: laneCenter + lane * laneSpacing - nodeRadius,
+      // Use the actual diameter for placement so the ellipse center remains
+      // exactly on the lane center even when the aligned radius is fractional.
+      x: laneCenter + lane * laneSpacing - nodeDiameter / 2,
       y: rowCenter - nodeRadius,
       width: nodeDiameter,
       height: nodeDiameter,
+    }),
+    headNodeRect: (lane: number) => ({
+      x: laneCenter + lane * laneSpacing - headNodeDiameter / 2,
+      y: rowCenter - headNodeDiameter / 2,
+      width: headNodeDiameter,
+      height: headNodeDiameter,
     }),
     arrowArms: (element: GraphPaintElement) => {
       const { start, end } = line(element);

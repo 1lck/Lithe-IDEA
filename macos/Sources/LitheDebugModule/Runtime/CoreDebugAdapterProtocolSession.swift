@@ -584,7 +584,8 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
                 line: breakpoint.line,
                 column: breakpoint.column,
                 functionName: breakpoint.functionName,
-                dataID: breakpoint.dataID
+                dataID: breakpoint.dataID,
+                requestedLine: breakpoint.requestedLine
             )))
         case "runInTerminalRequested":
             guard let requestID = event.requestID,

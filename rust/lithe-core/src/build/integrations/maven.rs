@@ -258,7 +258,7 @@ pub(super) fn test_results(
             case: case.method,
             status: status(&case.status),
             message: case.message,
-            duration_millis: None,
+            duration_millis: case.duration_millis,
             path: None,
             line: None,
             invocations: case.invocations.max(1),
