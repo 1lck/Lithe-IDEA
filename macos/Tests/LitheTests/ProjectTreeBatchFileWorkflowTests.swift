@@ -25,7 +25,9 @@ struct ProjectTreeBatchFileWorkflowTests {
         #expect(try fixture.text("dest/a.txt") == "existing")
         #expect(try fixture.text("dest/a copy.txt") == "alpha")
         #expect(try fixture.text("dest/b.txt") == "beta")
-        #expect(await awaitChange(on: model) { fixture.treeContains(model, "dest/a copy.txt") })
+        #expect(model.projectFiles.contains(fixture.url("dest/a copy.txt")))
+        await model.loadExpandedProjectDirectories([fixture.root.path, fixture.url("dest").path])
+        #expect(fixture.treeContains(model, "dest/a copy.txt"))
 
         // Duplicate keeps each copy next to its own source.
         await model.duplicateProjectItems([fixture.url("a.txt"), fixture.url("dest/b.txt")])
@@ -61,7 +63,9 @@ struct ProjectTreeBatchFileWorkflowTests {
         let model = fixture.makeAppModel(platformUI: BatchFileClipboardUI())
         defer { model.workspaceFeature.reset() }
         model.openProjectDirectly(fixture.root)
-        #expect(await awaitChange(on: model) { fixture.treeContains(model, "dest/a.txt") })
+        #expect(await awaitChange(on: model) { model.projectFiles.contains(fixture.url("dest/a.txt")) })
+        await model.loadExpandedProjectDirectories([fixture.root.path, fixture.url("dest").path])
+        #expect(fixture.treeContains(model, "dest/a.txt"))
         model.openFile(fixture.url("dest/a.txt"))
         #expect(await awaitChange(on: model) { model.openDocuments.contains { $0.url == fixture.url("dest/a.txt") } })
         let document = try #require(model.openDocuments.first { $0.url == fixture.url("dest/a.txt") })
@@ -77,7 +81,11 @@ struct ProjectTreeBatchFileWorkflowTests {
         #expect(document.text == "existing")
         #expect(model.projectDirectoryMarks["bucket/dest"] == .resources)
         #expect(model.projectDirectoryMarks["dest"] == nil)
-        #expect(await awaitChange(on: model) { fixture.treeContains(model, "bucket/dest/a.txt") })
+        #expect(model.projectFiles.contains(fixture.url("bucket/dest/a.txt")))
+        await model.loadExpandedProjectDirectories([
+            fixture.root.path, fixture.url("bucket").path, fixture.url("bucket/dest").path,
+        ])
+        #expect(fixture.treeContains(model, "bucket/dest/a.txt"))
     }
 
     @Test
