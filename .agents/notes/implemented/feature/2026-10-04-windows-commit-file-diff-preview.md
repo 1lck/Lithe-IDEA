@@ -69,6 +69,14 @@ Commit 的工作区所有者 `useCommitDiffReview` / `createCommitDiffReview` �
 但回退可经由独立的 `writePatch`（index→工作区原始补丁文本，含 CR 与 EOF 标记）走 U0 切片 + `git apply --reverse --unidiff-zero`。
 通道仅在 Git 实际生效属性（filter、working-tree-encoding）证明字节可往返时开放，由 `getFullContextFileDiff` 的未暂存方向填充。
 `--unidiff-zero` 仅在 host 确认补丁来自原始切片时传递，不影响常规有上下文的回退安全检查。
+零上下文补丁没有上下文可供 Git 拒绝错位的修改，所以写入前必须用 `isWorktreeWritePatchCurrent`
+以固定上下文重读原始补丁并与 `writePatch` 逐字节比较；不一致、读取失败或缺少校验时一律拒绝写入，
+界面提示文件已变化（`stale`），等 watcher 推来新 Diff。不要拿显示用 Diff 做校验：#1330 的第一版按
+3 行上下文重读、与 Commit 面板的全文上下文 Diff 比较，行数必然不同，所有块回退都被拒绝；显示投影还会
+丢掉只改 CR 的变化。普通带上下文的块不走这道校验，继续由 `git apply` 的上下文检查保护。
+Core 解码 Git 输出时发生 UTF-8 替换会返回 `hasDecodingLoss`，此时不附加 `writePatch`，避免把 U+FFFD
+写回文件。读取原始补丁必须用 `invoke(..., { rawCoreResult: true })`：`git.diff` 的兼容 adapter 会为
+显示重新解析补丁，剥掉的正是本通道要保留的 CR 与 EOF 字节。
 暂存修改跨越当前可见块边界时禁用该块写入，避免顺手撤掉不在当前块内的暂存内容。
 
 文件行勾选来自实际 `file.staged`，有剩余磁盘修改时显示部分包含；点击部分包含的文件框可包含其余修改。
