@@ -2439,8 +2439,7 @@
 "Update log" = "更新日志";
 
 /* Agent session selectors */
-"Search models" = "搜索模型";
-"No matching models" = "没有匹配的模型";
+"No models available" = "暂无可用模型";
 "Thinking level" = "思考强度";
 "Speed" = "速度";
 "Fast" = "快速";

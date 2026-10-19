@@ -1169,8 +1169,7 @@
 "Update log" = "Update log";
 
 /* Agent session selectors */
-"Search models" = "Search models";
-"No matching models" = "No matching models";
+"No models available" = "No models available";
 "Thinking level" = "Thinking level";
 "Responding…" = "Responding…";
 "Plan %lld/%lld" = "Plan %lld/%lld";

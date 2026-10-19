@@ -762,23 +762,6 @@ struct AgentConversationPresentationTests {
     }
 
     @Test
-    func modelSearchUsesUpstreamNamesIDsAndGroupsWithoutChangingSelection() throws {
-        let option = try #require(AgentSessionConfigOption.parse([[
-            "id": "model", "name": "Model", "category": "model", "type": "select", "currentValue": "model-b",
-            "options": [["name": "Provider", "options": [["value": "model-a", "name": "Alpha"],
-                ["value": "model-b", "name": "Béta"]]]]
-        ]]).first)
-        let filter = { AgentSessionSelectorPresentation.filteredChoices(option, query: $0).map(\.id) }
-        #expect(filter("  ") == ["model-a", "model-b"])
-        #expect(filter("alpha") == ["model-a"])
-        #expect(filter("MODEL-B") == ["model-b"])
-        #expect(filter("beta") == ["model-b"])
-        #expect(filter("Provider") == ["model-a", "model-b"])
-        #expect(filter("absent") == [])
-        #expect(option.currentValue == "model-b")
-    }
-
-    @Test
     func unknownSessionSelectorsKeepUpstreamLabelsAndChoiceDescriptions() throws {
         let option = try #require(AgentSessionConfigOption.parse([[
             "id": "custom-mode", "name": "Custom control", "category": "custom", "type": "select", "currentValue": "custom-choice",

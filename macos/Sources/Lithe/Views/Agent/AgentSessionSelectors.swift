@@ -6,16 +6,8 @@ private enum AgentSelectorLayout {
     static let minimumModelPanelWidth: CGFloat = 300
 }
 
-/// Search and presentation only; the Agent still owns IDs, choices and confirmed values.
+/// Presentation only; the Agent still owns IDs, choices and confirmed values.
 enum AgentSessionSelectorPresentation {
-    static func filteredChoices(_ option: AgentSessionConfigOption, query: String) -> [AgentSessionConfigOption.Choice] {
-        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return option.choices }
-        return option.choices.filter {
-            [$0.name, $0.id, $0.group ?? ""].contains { $0.localizedStandardContains(query) }
-        }
-    }
-
     static func title(_ option: AgentSessionConfigOption, locale: Locale = .current) -> String {
         if option.category == "thought_level" { return AgentLocalization.string("Thinking level", locale: locale) }
         if option.id == "fast-mode" { return AgentLocalization.string("Speed", locale: locale) }
@@ -71,7 +63,7 @@ enum AgentSessionSelectorPresentation {
     }
 }
 
-/// CC GUI-style bottom toolbar with separate approval and searchable model panels.
+/// CC GUI-style bottom toolbar with separate approval and model panels.
 struct AgentSessionSelectors: View {
     @Environment(\.locale) private var locale
     let options: [AgentSessionConfigOption]
@@ -198,9 +190,7 @@ struct AgentModelPopover: View {
     let agentName: String?
     let onSelect: (String, String) -> Void
     @Environment(\.locale) private var locale
-    @State private var query = ""
-    @FocusState private var searchFocused: Bool
-    private var choices: [AgentSessionConfigOption.Choice] { AgentSessionSelectorPresentation.filteredChoices(option, query: query) }
+    private var choices: [AgentSessionConfigOption.Choice] { option.choices }
 
     private var reasoning: [AgentSessionConfigOption] { settings.filter { $0.category == "thought_level" } }
     private var otherSettings: [AgentSessionConfigOption] { settings.filter { $0.category != "thought_level" } }
@@ -225,20 +215,16 @@ struct AgentModelPopover: View {
         modelPanel
         .foregroundStyle(LitheTheme.primaryText)
         .background(LitheTheme.settingsPopupBackground)
-        .onAppear { searchFocused = true }
     }
 
     private var modelPanel: some View {
         VStack(spacing: 0) {
-            LitheSettingsSearchField("Search models", text: $query, focus: $searchFocused)
-                .padding(LitheDropdownMetrics.popupPadding)
-                .onSubmit { if let choice = choices.first { onSelect(option.id, choice.id) } }
             Text("Model").font(LitheTheme.settingsStrongFont)
                 .frame(maxWidth: .infinity, minHeight: LitheDropdownMetrics.rowHeight)
                 ScrollView {
                     LazyVStack(spacing: 0) {
                         if choices.isEmpty {
-                            Text("No matching models")
+                            Text("No models available")
                                 .font(LitheTheme.settingsFont).foregroundStyle(LitheTheme.secondaryText)
                                 .frame(maxWidth: .infinity, minHeight: 36)
                         }
@@ -310,7 +296,7 @@ private struct AgentModelSettingRow: View {
         .id(menuRevision)
         .onChange(of: option) { _ in
             // Action menus retain an opening snapshot. Detach only this anchor
-            // when upstream changes it; keep the model panel and search alive.
+            // when upstream changes it; keep the model panel alive.
             menuRevision = UUID()
         }
         .accessibilityIdentifier("agent-model-setting-\(option.id)")

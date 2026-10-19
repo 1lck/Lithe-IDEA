@@ -238,10 +238,10 @@ struct AgentSessionSelectorLayoutTests {
         }
     }
 
-    @Test
-    func compactModelPanelSearchesAndKeepsReasoningInline() async throws {
+    @Test(arguments: [false, true])
+    func compactModelPanelShowsCatalogWithoutSearchAndKeepsReasoningInline(isEmpty: Bool) async throws {
         let model = AgentSessionConfigOption(id: "model", name: "Model", category: "model", currentValue: "sol",
-            choices: [.init(id: "sol", name: "6.1 Sol"), .init(id: "astra", name: "6 Astra")])
+            choices: isEmpty ? [] : [.init(id: "sol", name: "6.1 Sol"), .init(id: "astra", name: "6 Astra")])
         let effort = AgentSessionConfigOption(id: "effort", name: "Reasoning", category: "thought_level", currentValue: "medium",
             choices: [.init(id: "medium", name: "Medium"), .init(id: "high", name: "High")])
         for scheme in [ColorScheme.dark, .light] {
@@ -255,36 +255,22 @@ struct AgentSessionSelectorLayoutTests {
             #expect(dropdownAnchors(in: host).isEmpty, "Reasoning choices are inline rather than a nested menu")
             let scroll = try #require(scrollView(in: host))
             let document = try #require(scroll.documentView)
-            try click(NSPoint(x: 70, y: LitheDropdownMetrics.rowHeight * 1.5), in: document, window: window)
-            #expect(await waitUntil(updating: host) { selected?.0 == "model" && selected?.1 == "astra" })
-            func field(in view: NSView) -> NSTextField? {
-                if let field = view as? NSTextField, field.isEditable { return field }
-                return view.subviews.lazy.compactMap { field(in: $0) }.first
+            #expect(editableFields(in: host).isEmpty, "The model panel must not contain a search field")
+            #expect(abs(document.bounds.height - (isEmpty ? 36 : 2 * LitheDropdownMetrics.rowHeight)) < 1,
+                    "Only the complete model catalog or its empty state belongs to the scroll area")
+            if !isEmpty {
+                try click(NSPoint(x: 70, y: LitheDropdownMetrics.rowHeight * 1.5), in: document, window: window)
+                #expect(await waitUntil(updating: host) { selected?.0 == "model" && selected?.1 == "astra" })
             }
-            let search = try #require(field(in: host))
-            #expect(search.font?.pointSize == 13)
-            #expect(window.makeFirstResponder(search))
-            let editor = try #require(search.currentEditor() as? NSTextView)
-            editor.insertText("Astra", replacementRange: NSRange(location: NSNotFound, length: 0))
-            #expect(await waitUntil(updating: host) {
-                host.layoutSubtreeIfNeeded()
-                return abs(document.bounds.height - LitheDropdownMetrics.rowHeight) < 1
-            }, "Only model rows belong to the scroll area; effort remains a single footer row")
-            editor.selectAll(nil)
-            editor.insertText("missing", replacementRange: NSRange(location: NSNotFound, length: 0))
-            #expect(await waitUntil(updating: host) {
-                host.layoutSubtreeIfNeeded()
-                return abs(document.bounds.height - 36) < 1
-            }, "No matching models does not hide reasoning")
             let effortY = host.isFlipped ? host.bounds.maxY - 21 : host.bounds.minY + 21
             try click(NSPoint(x: host.bounds.maxX - 34, y: effortY), in: host, window: window)
             #expect(await waitUntil(updating: host) { selected?.0 == "effort" && selected?.1 == "high" })
-            try capture(host, name: "model-compact-search-\(scheme)")
+            try capture(host, name: "model-compact-no-search-\(scheme)-\(isEmpty)")
         }
     }
 
     @Test
-    func effortKeepsTheSamePanelAndSearchThroughPendingRejectedAndConfirmedChanges() async throws {
+    func effortKeepsTheSamePanelThroughPendingRejectedAndConfirmedChanges() async throws {
         for scheme in [ColorScheme.dark, .light] {
             let fixture = AgentEffortPanelFixture()
             let host = NSHostingView(rootView: AgentEffortPanelFixtureView(fixture: fixture)
@@ -297,16 +283,25 @@ struct AgentSessionSelectorLayoutTests {
             try #require(await waitUntil(updating: host) { popup(in: window) != nil })
             let panel = try #require(popup(in: window))
             let content = try #require(panel.contentView)
-            func searchField(in view: NSView) -> NSTextField? {
-                if let field = view as? NSTextField, field.isEditable { return field }
-                return view.subviews.lazy.compactMap { searchField(in: $0) }.first
-            }
-            let search = try #require(searchField(in: content))
-            #expect(panel.makeFirstResponder(search))
-            let editor = try #require(search.currentEditor() as? NSTextView)
-            editor.insertText("Astra", replacementRange: NSRange(location: NSNotFound, length: 0))
+            #expect(editableFields(in: content).isEmpty)
             let document = try #require(scrollView(in: content)?.documentView)
-            try #require(await waitUntil(updating: content) { abs(document.bounds.height - LitheDropdownMetrics.rowHeight) < 1 })
+            try #require(await waitUntil(updating: content) { abs(document.bounds.height - 2 * LitheDropdownMetrics.rowHeight) < 1 })
+            // Observe the constant Effort label's rendered opacity inside the
+            // popup. Its separate hosting transaction can lag the fixture update;
+            // exclude the value and track so selection/focus cannot satisfy this.
+            func effortLabelPixels() -> Data? {
+                let y = content.isFlipped ? content.bounds.maxY - 21 : content.bounds.minY + 21
+                let rect = NSRect(x: LitheDropdownMetrics.popupPadding + LitheDropdownMetrics.itemHorizontalPadding,
+                                  y: y - 8, width: 30, height: 16)
+                guard let bitmap = content.bitmapImageRepForCachingDisplay(in: rect) else { return nil }
+                content.cacheDisplay(in: rect, to: bitmap)
+                return bitmap.representation(using: .png, properties: [:])
+            }
+            let enabledLabel = try #require(effortLabelPixels())
+            func effortEnabled(_ enabled: Bool) -> Bool {
+                guard let current = effortLabelPixels() else { return false }
+                return (current == enabledLabel) == enabled
+            }
             func selectEffort(_ index: Int) throws {
                 let right = content.bounds.maxX - LitheDropdownMetrics.popupPadding - LitheDropdownMetrics.itemHorizontalPadding
                 let slot = AgentReasoningEffortControl.trackWidth(for: fixture.options[1]) / 6
@@ -314,36 +309,35 @@ struct AgentSessionSelectorLayoutTests {
                 try click(NSPoint(x: right - slot * (5.5 - CGFloat(index)), y: y), in: content, window: panel)
             }
             try selectEffort(5)
-            try #require(await waitUntil(updating: content) { fixture.requests == ["ultra"] && !search.isEnabled })
+            try #require(await waitUntil(updating: content) { fixture.requests == ["ultra"] && effortEnabled(false) })
             #expect(popup(in: window) === panel, "Configuration pending must disable the existing panel without closing it")
-            #expect(search.stringValue == "Astra")
             try selectEffort(0)
             layoutFrame(content)
             #expect(fixture.requests == ["ultra"], "Repeated clicks while waiting cannot send another configuration request")
 
-            // A rejection keeps the authoritative Medium value and the user's search.
+            // A rejection keeps the authoritative Medium value in the same panel.
             fixture.isDisabled = false
-            try #require(await waitUntil(updating: content) { search.isEnabled })
+            try #require(await waitUntil(updating: content) { effortEnabled(true) })
             try selectEffort(1)
             layoutFrame(content)
             #expect(fixture.requests == ["ultra"], "The rejected value must not replace confirmed Medium")
             try selectEffort(2)
-            try #require(await waitUntil(updating: content) { fixture.requests == ["ultra", "high"] && !search.isEnabled })
+            try #require(await waitUntil(updating: content) { fixture.requests == ["ultra", "high"] && effortEnabled(false) })
             fixture.confirm("high")
-            try #require(await waitUntil(updating: content) { search.isEnabled })
-            #expect(popup(in: window) === panel && search.stringValue == "Astra")
+            try #require(await waitUntil(updating: content) { effortEnabled(true) })
+            #expect(popup(in: window) === panel)
             try selectEffort(2)
             layoutFrame(content)
             #expect(fixture.requests == ["ultra", "high"], "Confirmed High must update the control inside the same panel")
             try selectEffort(5)
-            try #require(await waitUntil(updating: content) { fixture.requests == ["ultra", "high", "ultra"] && !search.isEnabled })
+            try #require(await waitUntil(updating: content) { fixture.requests == ["ultra", "high", "ultra"] && effortEnabled(false) })
             fixture.confirm("ultra")
-            try #require(await waitUntil(updating: content) { search.isEnabled })
+            try #require(await waitUntil(updating: content) { effortEnabled(true) })
             try capture(content, name: "effort-panel-stays-open-\(scheme)")
             if scheme == .dark {
                 try sendKey(53, to: panel)
             } else {
-                try click(NSPoint(x: 70, y: LitheDropdownMetrics.rowHeight / 2), in: document, window: panel)
+                try click(NSPoint(x: 70, y: LitheDropdownMetrics.rowHeight * 1.5), in: document, window: panel)
                 #expect(await waitUntil(updating: host) { fixture.requests.last == "astra" })
             }
             #expect(await waitUntil(updating: host) { popup(in: window) == nil }, "Escape and choosing a model still close the panel")
@@ -702,6 +696,11 @@ struct AgentSessionSelectorLayoutTests {
         window.orderFront(nil)
         host.layoutSubtreeIfNeeded()
         return window
+    }
+
+    private func editableFields(in view: NSView) -> [NSTextField] {
+        if let field = view as? NSTextField, field.isEditable { return [field] }
+        return view.subviews.flatMap { editableFields(in: $0) }
     }
 
     private func scrollView(in view: NSView) -> NSScrollView? {
