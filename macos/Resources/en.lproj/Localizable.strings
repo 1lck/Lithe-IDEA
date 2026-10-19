@@ -36,6 +36,10 @@
 "Pending plugin changes: %lld" = "Pending plugin changes: %lld";
 "Uninstall" = "Uninstall";
 "Reinstall" = "Reinstall";
+"Restart required" = "Restart required";
+"Restart to Activate" = "Restart to Activate";
+"No %@ project was detected in this workspace." = "No %@ project was detected in this workspace.";
+"Version %@ is installed. Restart Lithe to load it." = "Version %@ is installed. Restart Lithe to load it.";
 "Removed. Restart Lithe to finish." = "Removed. Restart Lithe to finish.";
 "Removed. Restore it to use it again." = "Removed. Restore it to use it again.";
 "Uninstall PHP Support?" = "Uninstall PHP Support?";
@@ -1605,6 +1609,19 @@
 "Show Entry" = "Show Entry";
 
 "Command Palette Actions" = "Command Palette Actions";
+
+/* Local plugin package approval. */
+"Install Plugin from Disk" = "Install Plugin from Disk";
+"Choose Plugin Package" = "Choose Plugin Package";
+"Installed from Disk" = "Installed from Disk";
+"Community plugin installed from disk. Its publisher and repository have not been verified." = "Community plugin installed from disk. Its publisher and repository have not been verified.";
+"Local Package" = "Local Package";
+"Full Program Declaration" = "Full Program Declaration";
+"Builds %@ projects" = "Builds %@ projects";
+"Tasks: %@" = "Tasks: %@";
+"Archive SHA-256" = "Archive SHA-256";
+"Content SHA-256" = "Content SHA-256";
+"Selected from disk. The publisher and repository have not been verified." = "Selected from disk. The publisher and repository have not been verified.";
 /* Main toolbar settings menu. */
 "Plugins…" = "Plugins…";
 "Theme…" = "Theme…";
@@ -1909,6 +1926,32 @@
 "Turn usage" = "Turn usage";
 "Copy reply" = "Copy reply";
 "Copy table" = "Copy table";
+
+"Checking…" = "Checking…";
+
+"Check complete." = "Check complete.";
+
+"Check complete. Some CLI update results are unavailable; see Preflight." = "Check complete. Some CLI update results are unavailable; see Preflight.";
+
+"Check failed." = "Check failed.";
+
+"Could not compare the local adapter with the verified version." = "Could not compare the local adapter with the verified version.";
+
+"A newer verified adapter version is available." = "A newer verified adapter version is available.";
+
+"The local adapter is at or above the verified version." = "The local adapter is at or above the verified version.";
+
+"Current version" = "Current version";
+
+"Minimum version" = "Minimum version";
+
+"Update to" = "Update to";
+
+"Could not confirm" = "Could not confirm";
+
+"Current version: %@ · Verified target: %@" = "Current version: %@ · Verified target: %@";
+
+"Update to: %@" = "Update to: %@";
 
 /* Plugin web tool windows */
 "Show its own page in a tool window" = "Show its own page in a tool window";

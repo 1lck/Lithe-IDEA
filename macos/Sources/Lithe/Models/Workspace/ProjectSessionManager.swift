@@ -333,7 +333,7 @@ final class ProjectSessionManager: ObservableObject {
     /// Primary window: dismiss instead of showing welcome when other project
     /// windows still hold open workspaces.
     var shouldDismissPrimaryWindowWhenClosingActiveSession: Bool {
-        primaryOpenProjects.count <= 1 && openProjects.contains(where: { isDedicatedWindowSession($0.id) })
+        openProjects.contains(where: { isDedicatedWindowSession($0.id) })
     }
 
     /// Legacy name kept for existing window handlers. Only resets primary-window

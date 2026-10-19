@@ -26,9 +26,16 @@ enum WorkbenchModuleUIComposition {
     static var applicationActions: [WorkbenchModuleUIRegistry.Action] {
         [
             .init(id: "workbench.run-start-or-restart", perform: { model in
-                if model.runFeatureIfActive?.isSelectedConfigurationRunning == true { model.restartSelectedRun() }
+                if let control = mainToolbarDebugControl(for: model) {
+                    model.genericDebugFeatureIfActive?.execute(control == .resume ? .continueExecution : .pause)
+                } else if model.activeTestTarget == nil, model.runFeatureIfActive?.isSelectedConfigurationRunning == true { model.restartSelectedRun() }
                 else { model.runSelectedConfiguration() }
-            }, state: { toolbarState(for: .execution, model: $0) }),
+            }, state: { model in
+                let controlsDebug = mainToolbarDebugControl(for: model) != nil
+                var state = toolbarState(for: controlsDebug ? .debug : .execution, model: model)
+                if controlsDebug { state.isEnabled = state.isEnabled && model.genericDebugFeatureIfActive?.isExecutionRequestPending != true }
+                return state
+            }),
             .init(id: "workbench.debug-start-or-restart", perform: { $0.startOrRestartDebugging() },
                   state: { toolbarState(for: .debug, model: $0) }),
             .init(id: "workbench.stop-execution", perform: { model in
@@ -52,6 +59,13 @@ enum WorkbenchModuleUIComposition {
     private static func toolbarState(for owner: ModuleID, model: AppModel) -> WorkbenchModuleUIRegistry.ActionState {
         .init(isVisible: model.workspaceURL != nil,
               isEnabled: model.workspaceURL != nil && model.services.moduleRuntime.availableContributions()[owner] != nil)
+    }
+
+    static func mainToolbarDebugControl(for model: AppModel) -> DebugToolbarActionID? {
+        // ponytail: summaries expose launch titles, not configuration IDs; switch to IDs when the debug launch contract carries them.
+        DebugToolbarPresentation.mainToolbarControl(state: model.genericDebugFeatureIfActive?.state,
+            debugTarget: model.genericDebugFeatureIfActive?.targetTitle,
+            selectedTarget: model.activeTestTarget?.name ?? model.runFeatureIfActive?.selectedConfiguration?.name)
     }
 
     static var registrations: [WorkbenchModuleUIRegistry.Registration] {

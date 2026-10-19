@@ -20,8 +20,12 @@ import { useTranslation } from "@/i18n/locale-provider";
 import { extractDroppedFilePaths } from "@/features/file-system/utils/file-system-dropped-paths";
 import {
   TERMINAL_FILE_DROP_EVENT,
+  TERMINAL_PATH_INSERT_EVENT,
   type TerminalFileDropDetail,
+  type TerminalPathInsertDetail,
 } from "@/features/file-system/utils/file-system-drop-controller";
+import { clipboardEntryPaths } from "@/features/file-explorer/lib/clipboard-entry-paths";
+import { formatPathsForTerminal } from "@/features/terminal/utils/terminal-file-drop";
 import { showConfirmDialog } from "@/ui/dialog";
 import {
   ContextMenu,
@@ -31,8 +35,12 @@ import {
   ContextMenuTrigger,
 } from "@/ui/context-menu";
 import { ClipboardIcon, CopyIcon } from "@/ui/icons";
-import { readClipboardText, writeClipboardText } from "@/utils/clipboard";
+import { writeClipboardText } from "@/utils/clipboard";
 import { currentPlatform } from "@/utils/platform";
+import {
+  readCopiedFilePathsText,
+  readTerminalPasteText,
+} from "@/features/terminal/utils/file-clipboard-paste";
 import {
   createTerminalAddons,
   injectLinkStyles,
@@ -100,6 +108,21 @@ export const XtermTerminal = ({
   const session = useTerminalStore((state) => state.sessions.get(sessionId));
   const connectionId = session?.connectionId;
   const hadExistingConnectionOnMountRef = useRef(Boolean(session?.connectionId));
+
+  // Path insertion quotes per shell family, so every entry point must agree on
+  // which shell owns this session. The prop is authoritative once initialization
+  // has stored it; reading the session covers a remount that lost the prop.
+  const resolveShell = useCallback(
+    () => shell || getSession(sessionId)?.shell,
+    [getSession, sessionId, shell],
+  );
+
+  // Remote workspaces store frontend `remote://` URIs, so path insertion only
+  // converts them when the terminal is connected to that same host.
+  const resolveRemoteConnectionId = useCallback(
+    () => remoteConnectionId || getSession(sessionId)?.remoteConnectionId,
+    [getSession, remoteConnectionId, sessionId],
+  );
 
   const terminalThemeId = useSettingsStore((state) => state.settings.theme);
   const terminalFontFamily = useSettingsStore((state) => state.settings.terminalFontFamily);
@@ -175,14 +198,14 @@ export const XtermTerminal = ({
 
   const insertDroppedPaths = useCallback(
     (paths: string[]) => {
-      const text = formatDroppedPathsForTerminal(paths);
+      const text = formatDroppedPathsForTerminal(paths, resolveShell(), resolveRemoteConnectionId());
       if (!text) return false;
 
       writeBuffered(text);
       requestAnimationFrame(() => xtermRef.current?.focus());
       return true;
     },
-    [writeBuffered],
+    [resolveRemoteConnectionId, resolveShell, writeBuffered],
   );
 
   const handleTerminalFileDrop = useCallback(
@@ -204,9 +227,29 @@ export const XtermTerminal = ({
       insertDroppedPaths(detail?.paths ?? []);
     };
 
+    // In-app drops carry absolute explorer paths. Quoting depends on the shell
+    // that owns this session, so it happens here rather than in the explorer.
+    const handlePathInsert = (event: Event) => {
+      const detail = (event as CustomEvent<TerminalPathInsertDetail>).detail;
+      const paths = clipboardEntryPaths((detail?.paths ?? []).map((path) => ({ path })));
+      const text = formatPathsForTerminal(paths, {
+        shell: resolveShell(),
+        remoteConnectionId: resolveRemoteConnectionId(),
+        trailingSpace: true,
+      });
+      if (!text) return;
+
+      writeBuffered(text);
+      requestAnimationFrame(() => xtermRef.current?.focus());
+    };
+
     container.addEventListener(TERMINAL_FILE_DROP_EVENT, handleNativeFileDrop);
-    return () => container.removeEventListener(TERMINAL_FILE_DROP_EVENT, handleNativeFileDrop);
-  }, [insertDroppedPaths]);
+    container.addEventListener(TERMINAL_PATH_INSERT_EVENT, handlePathInsert);
+    return () => {
+      container.removeEventListener(TERMINAL_FILE_DROP_EVENT, handleNativeFileDrop);
+      container.removeEventListener(TERMINAL_PATH_INSERT_EVENT, handlePathInsert);
+    };
+  }, [insertDroppedPaths, resolveRemoteConnectionId, resolveShell, writeBuffered]);
 
   const handleTerminalDragOver = useCallback((event: DragEvent<HTMLDivElement>) => {
     if (!Array.from(event.dataTransfer.types).includes("Files")) return;
@@ -240,11 +283,11 @@ export const XtermTerminal = ({
     (terminal: Terminal) => {
       if (!currentConnectionIdRef.current) return;
 
-      void readClipboardText()
+      void readTerminalPasteText(resolveShell(), resolveRemoteConnectionId())
         .then((text) => pasteIntoTerminal(terminal, text))
         .catch((error) => console.error("Failed to paste into terminal:", error));
     },
-    [currentConnectionIdRef, pasteIntoTerminal],
+    [currentConnectionIdRef, pasteIntoTerminal, resolveRemoteConnectionId, resolveShell],
   );
 
   const initializeTerminal = useCallback(async () => {
@@ -423,6 +466,13 @@ export const XtermTerminal = ({
           connectionId: activeConnectionId,
           currentDirectory: targetDirectory,
           remoteConnectionId: activeRemoteConnectionId,
+          // Persist the shell that actually launched: the path-insert entry points
+          // quote differently per shell, and a remounted or reopened session has
+          // no prop to fall back on.
+          shell:
+            shell ||
+            existingSession?.shell ||
+            (wslInfo ? getWslShellId(wslInfo.distro) : undefined),
         });
       }
 
@@ -911,6 +961,23 @@ export const XtermTerminal = ({
               <ClipboardIcon />
               {t("terminal.paste")}
               <ContextMenuShortcut>Ctrl+Shift+V</ContextMenuShortcut>
+            </ContextMenuItem>
+            <ContextMenuItem
+              disabled={!connectionId}
+              aria-label={t("terminal.pasteCopiedFilePaths")}
+              onClick={() => {
+                void readCopiedFilePathsText(resolveShell(), resolveRemoteConnectionId())
+                  .then((text) => {
+                    if (text) writeBuffered(text);
+                    requestAnimationFrame(() => xtermRef.current?.focus());
+                  })
+                  .catch((error) =>
+                    console.error("Failed to paste copied file paths:", error),
+                  );
+              }}
+            >
+              <ClipboardIcon />
+              {t("terminal.pasteCopiedFilePaths")}
             </ContextMenuItem>
           </ContextMenuContent>
         </ContextMenu>

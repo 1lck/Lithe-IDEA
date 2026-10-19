@@ -38,6 +38,12 @@ pub struct CliInstallation {
     /// Whether the owning package manager confirmed a newer CLI release.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub update_available: Option<bool>,
+    /// Bounded read-only probe failure; absence of a protocol is not a failed probe.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub update_check_error: Option<String>,
+    /// Target version returned by the same read-only package-manager query.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub available_version: Option<String>,
 }
 
 /// An owned executable and arguments, never an interpolated shell command.
@@ -63,6 +69,8 @@ impl UpdatePlan {
                 can_update: false,
                 update_hint: hint.into(),
                 update_available: None,
+                update_check_error: None,
+                available_version: None,
             },
             command: None,
         }
@@ -81,6 +89,8 @@ impl UpdatePlan {
                 can_update: true,
                 update_hint: hint,
                 update_available: None,
+                update_check_error: None,
+                available_version: None,
             },
             command: Some(UpdateCommand {
                 program: program.into(),
@@ -91,6 +101,13 @@ impl UpdatePlan {
     }
 }
 
+/// A confirmed availability result and its package-manager target, when provided.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct UpdateCheck {
+    pub available: bool,
+    pub version: Option<String>,
+}
+
 /// Ask the verified owner whether it can actually upgrade this CLI. A failed
 /// read-only check is unknown, never evidence of a newer release.
 pub(crate) fn update_available(
@@ -98,16 +115,26 @@ pub(crate) fn update_available(
     installed: &str,
     path: Option<&OsStr>,
     cancel: &dyn Fn() -> bool,
-) -> Option<bool> {
-    let command = plan.command.as_ref()?;
+) -> Result<Option<UpdateCheck>, ManagementError> {
+    let Some(command) = plan.command.as_ref() else {
+        return Ok(None);
+    };
     // Query the same package/channel the verified updater will use. New catalog
     // agents reuse this path without a command-name allowlist.
     let package = match plan.installation.source {
-        CliSource::Npm => command.arguments.last()?.as_str(),
-        CliSource::Homebrew => command.arguments.get(2)?.as_str(),
+        CliSource::Npm => command
+            .arguments
+            .last()
+            .map(String::as_str)
+            .ok_or_else(|| ManagementError::Failed("Missing npm update target".into()))?,
+        CliSource::Homebrew => command
+            .arguments
+            .get(2)
+            .map(String::as_str)
+            .ok_or_else(|| ManagementError::Failed("Missing Homebrew update target".into()))?,
         // Native installers have no shared read-only version protocol. Do not
         // run an updater as a probe or substitute another channel's version.
-        _ => return None,
+        _ => return Ok(None),
     };
     let args: Vec<&str> = match plan.installation.source {
         CliSource::Npm => vec![
@@ -120,11 +147,15 @@ pub(crate) fn update_available(
         ],
         CliSource::Homebrew => vec![
             "outdated",
-            command.arguments.get(1)?.as_str(),
+            command
+                .arguments
+                .get(1)
+                .map(String::as_str)
+                .ok_or_else(|| ManagementError::Failed("Missing Homebrew package kind".into()))?,
             "--json=v2",
             package,
         ],
-        _ => return None,
+        _ => return Ok(None),
     };
     let mut probe = Command::new(&command.program);
     probe.args(args);
@@ -134,13 +165,36 @@ pub(crate) fn update_available(
     if plan.installation.source == CliSource::Homebrew {
         probe.env("HOMEBREW_NO_AUTO_UPDATE", "1");
     }
-    let (success, output, _diagnostics) =
+    let (success, output, diagnostics) =
         environment::run_bounded_status_separated(&mut probe, Duration::from_secs(5), cancel)
-            .ok()?;
-    let available = parse_update_available(&plan.installation.source, package, installed, &output)?;
-    // Homebrew exits nonzero when a named package is outdated. Only a valid
-    // positive result explains that exit; other failures remain unknown.
-    (success || (plan.installation.source == CliSource::Homebrew && available)).then_some(available)
+            .map_err(|error| match error {
+                RunError::Cancelled => ManagementError::Cancelled,
+                RunError::TimedOut => ManagementError::Failed("The update check timed out".into()),
+                RunError::Start(message) => ManagementError::Failed(message),
+            })?;
+    let available = parse_update_available(&plan.installation.source, package, installed, &output);
+    // Homebrew exits nonzero when a named package is outdated; require a valid positive result.
+    if !success
+        && !(plan.installation.source == CliSource::Homebrew
+            && available.as_ref().is_some_and(|check| check.available))
+    {
+        let reason = if diagnostics.trim().is_empty() {
+            output.trim()
+        } else {
+            diagnostics.trim()
+        };
+        let reason = if reason.is_empty() {
+            "The package manager exited unsuccessfully without diagnostics."
+        } else {
+            reason
+        };
+        return Err(ManagementError::Failed(format!(
+            "Update check failed: {reason}"
+        )));
+    }
+    available.map(Some).ok_or_else(|| {
+        ManagementError::Failed("The package manager returned an invalid version response".into())
+    })
 }
 
 fn parse_update_available(
@@ -148,7 +202,7 @@ fn parse_update_available(
     package: &str,
     installed: &str,
     output: &str,
-) -> Option<bool> {
+) -> Option<UpdateCheck> {
     match source {
         CliSource::Npm => {
             let value: serde_json::Value = serde_json::from_str(output.trim()).ok()?;
@@ -159,28 +213,30 @@ fn parse_update_available(
                 }
                 _ => return None,
             };
-            let components: Vec<_> = latest.split('.').collect();
-            if components.len() != 3 || components.iter().any(|part| part.parse::<u64>().is_err()) {
-                return None;
-            }
-            // The existing numeric comparison ignores pre-release suffixes;
-            // an installed prerelease of the same numeric version is older.
-            Some(
-                !environment::version_at_least(installed, latest)
-                    || (installed.contains('-')
-                        && !latest.contains('-')
-                        && environment::version_at_least(latest, installed)),
-            )
+            Some(UpdateCheck {
+                available: environment::newer_version_available(installed, latest)?,
+                version: Some(latest.to_owned()),
+            })
         }
         CliSource::Homebrew => {
             let value: serde_json::Value = serde_json::from_str(output).ok()?;
-            let names = value["casks"]
+            let packages = value["casks"]
                 .as_array()?
                 .iter()
-                .chain(value["formulae"].as_array()?)
-                .map(|package| package["name"].as_str())
-                .collect::<Option<Vec<_>>>()?;
-            Some(names.contains(&package))
+                .chain(value["formulae"].as_array()?);
+            let mut target = None;
+            for entry in packages {
+                if entry["name"].as_str()? == package {
+                    target = Some(entry);
+                }
+            }
+            Some(UpdateCheck {
+                available: target.is_some(),
+                version: target
+                    .and_then(|entry| entry["current_version"].as_str())
+                    .filter(|v| !v.trim().is_empty())
+                    .map(str::to_owned),
+            })
         }
         _ => None,
     }
@@ -419,16 +475,71 @@ mod update_tests {
     use super::*;
 
     #[test]
+    fn update_targets_are_retained_for_every_package_and_manager() {
+        for package in ["codex", "claude-code@latest", "future-agent"] {
+            let npm =
+                parse_update_available(&CliSource::Npm, package, "2.0.0", r#""3.0.0""#).unwrap();
+            assert_eq!(
+                npm,
+                UpdateCheck {
+                    available: true,
+                    version: Some("3.0.0".into())
+                }
+            );
+            let current =
+                parse_update_available(&CliSource::Npm, package, "4.0.0", r#""3.0.0""#).unwrap();
+            assert!(!current.available);
+            assert_eq!(current.version.as_deref(), Some("3.0.0"));
+            for kind in ["casks", "formulae"] {
+                let mut output = serde_json::json!({"casks": [], "formulae": []});
+                output[kind] = serde_json::json!([
+                    {"name": "unrelated", "current_version": "99.0.0"},
+                    {"name": package, "current_version": "3.0.0"}
+                ]);
+                let check = parse_update_available(
+                    &CliSource::Homebrew,
+                    package,
+                    "2.0.0",
+                    &output.to_string(),
+                )
+                .unwrap();
+                assert_eq!(
+                    check,
+                    UpdateCheck {
+                        available: true,
+                        version: Some("3.0.0".into())
+                    }
+                );
+                output[kind][1]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("current_version");
+                let unknown = parse_update_available(
+                    &CliSource::Homebrew,
+                    package,
+                    "2.0.0",
+                    &output.to_string(),
+                )
+                .unwrap();
+                assert!(unknown.available);
+                assert_eq!(unknown.version, None);
+            }
+        }
+    }
+
+    #[test]
     fn confirmed_updates_only_when_the_owner_reports_one() {
         for output in [r#""0.160.0""#, r#"["0.160.0"]"#] {
             assert_eq!(
-                parse_update_available(&CliSource::Npm, "@openai/codex@latest", "0.159.3", output),
+                parse_update_available(&CliSource::Npm, "@openai/codex@latest", "0.159.3", output)
+                    .map(|check| check.available),
                 Some(true)
             );
         }
         for output in ["[]", r#"["0.159.3","0.160.0"]"#, "[42]", r#"["invalid"]"#] {
             assert_eq!(
-                parse_update_available(&CliSource::Npm, "@openai/codex@latest", "0.159.3", output),
+                parse_update_available(&CliSource::Npm, "@openai/codex@latest", "0.159.3", output)
+                    .map(|check| check.available),
                 None
             );
         }
@@ -438,7 +549,8 @@ mod update_tests {
                 "@openai/codex@latest",
                 "0.159.3",
                 "\"0.159.3\""
-            ),
+            )
+            .map(|check| check.available),
             Some(false)
         );
         assert_eq!(
@@ -447,7 +559,8 @@ mod update_tests {
                 "@openai/codex@latest",
                 "0.159.3",
                 "\"0.160.0\""
-            ),
+            )
+            .map(|check| check.available),
             Some(true)
         );
         assert_eq!(
@@ -456,7 +569,8 @@ mod update_tests {
                 "@openai/codex@latest",
                 "0.159.3-beta.1",
                 "\"0.159.3\""
-            ),
+            )
+            .map(|check| check.available),
             Some(true)
         );
         assert_eq!(
@@ -465,11 +579,13 @@ mod update_tests {
                 "@openai/codex@latest",
                 "0.159.3",
                 "network error"
-            ),
+            )
+            .map(|check| check.available),
             None
         );
         assert_eq!(
-            parse_update_available(&CliSource::Npm, "@openai/codex@latest", "0.159.3", "\"\""),
+            parse_update_available(&CliSource::Npm, "@openai/codex@latest", "0.159.3", "\"\"")
+                .map(|check| check.available),
             None
         );
         assert_eq!(
@@ -478,7 +594,8 @@ mod update_tests {
                 "codex",
                 "0.159.3",
                 r#"{"casks":[],"formulae":[]}"#
-            ),
+            )
+            .map(|check| check.available),
             Some(false)
         );
         assert_eq!(
@@ -487,7 +604,8 @@ mod update_tests {
                 "codex",
                 "0.159.3",
                 r#"{"casks":[{"name":"codex"}],"formulae":[]}"#
-            ),
+            )
+            .map(|check| check.available),
             Some(true)
         );
         assert_eq!(
@@ -496,11 +614,13 @@ mod update_tests {
                 "codex",
                 "0.159.3",
                 r#"{"casks":[],"formulae":[{"name":"codex"}]}"#
-            ),
+            )
+            .map(|check| check.available),
             Some(true)
         );
         assert_eq!(
-            parse_update_available(&CliSource::Homebrew, "codex", "0.159.3", "error"),
+            parse_update_available(&CliSource::Homebrew, "codex", "0.159.3", "error")
+                .map(|check| check.available),
             None
         );
     }

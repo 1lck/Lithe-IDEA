@@ -507,6 +507,9 @@ struct ProjectTreeSelectionTests {
         #expect(collapsed.map(\.depth) == [0, 1])
         let expanded = ProjectTreeSelection.visibleRows(in: root, expandedPaths: ["/p", "/p/src/com/acme"])
         #expect(expanded.map(\.depth) == [0, 1, 2])
+        // Rows keep no subtree, so a row view cannot keep an old snapshot's tree alive.
+        #expect(expanded.allSatisfy { $0.node.children == nil })
+        #expect(expanded.map(\.node.isDirectory) == [true, true, false])
     }
 
     @Test

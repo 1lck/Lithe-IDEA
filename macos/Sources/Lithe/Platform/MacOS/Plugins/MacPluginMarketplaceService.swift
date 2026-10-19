@@ -24,6 +24,8 @@ final class MacPluginMarketplaceService: PluginMarketplaceServicing {
     private let evaluator: any PluginMarketplaceEvaluating
     private let packageStore: MacPluginPackageStore
     private let downloader: any MacPluginPackageDownloading
+    private let diskImporter: any MacPluginDiskPackageImporting
+    private let allowsLocalDevelopmentPackages: Bool
     private let transport: any MacPluginMarketplaceTransport
     private let sourcesURL: URL
     private let cacheRootURL: URL
@@ -40,11 +42,15 @@ final class MacPluginMarketplaceService: PluginMarketplaceServicing {
         cacheDirectory: URL,
         bundledOfficialIndexURL: URL?,
         platform: String = MacPluginMarketplaceService.currentPlatform,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        diskImporter: any MacPluginDiskPackageImporting = MacPluginDiskPackageImporter(),
+        allowsLocalDevelopmentPackages: Bool = MacOfficialPluginSignatureVerifier.allowsLocalDevelopmentPackagesByDefault
     ) {
         self.evaluator = evaluator
         self.packageStore = packageStore
         self.downloader = downloader
+        self.diskImporter = diskImporter
+        self.allowsLocalDevelopmentPackages = allowsLocalDevelopmentPackages
         self.transport = transport
         sourcesURL = applicationSupportDirectory
             .appendingPathComponent("Lithe/PluginMarketplace/sources.json", isDirectory: false)
@@ -212,6 +218,115 @@ final class MacPluginMarketplaceService: PluginMarketplaceServicing {
     }
 
     func discard(_ prepared: PreparedPluginPackage) {
+        guard let directory = preparedDirectories.removeValue(forKey: prepared.id) else { return }
+        try? fileManager.removeItem(at: directory)
+    }
+
+    func prepareDiskInstall(at url: URL) async throws -> PreparedDiskPluginPackage {
+        let imported = try await diskImporter.importPackage(at: url)
+        do {
+            try Task.checkCancellation()
+            let prepared = try await Self.reviewDiskPackage(
+                imported,
+                makeStore: packageStore.makePreparationStoreFactory(),
+                evaluator: evaluator,
+                allowsLocalDevelopmentPackages: allowsLocalDevelopmentPackages
+            )
+            try Task.checkCancellation()
+            preparedDirectories[prepared.id] = imported.temporaryDirectory
+            return prepared
+        } catch {
+            try? fileManager.removeItem(at: imported.temporaryDirectory)
+            throw error
+        }
+    }
+
+    /// Hashing and native package validation must leave the UI actor available
+    /// for closing the page. The worker owns its Store; cancellation waits for
+    /// that worker before removing the snapshot it is reading.
+    private nonisolated static func reviewDiskPackage(
+        _ imported: MacImportedPluginPackage,
+        makeStore: @escaping @Sendable () -> MacPluginPackageStore,
+        evaluator: any PluginMarketplaceEvaluating,
+        allowsLocalDevelopmentPackages: Bool
+    ) async throws -> PreparedDiskPluginPackage {
+        let cancellation = DiskReviewCancellation()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                DispatchQueue.global(qos: .utility).async {
+                    continuation.resume(with: Result {
+                        try cancellation.check()
+                        let packageStore = makeStore()
+                        let fileManager = FileManager()
+                        // Establish the approved bytes before reading review
+                        // metadata; candidate verification rechecks them below.
+                        let contentDigest = try PluginPackageSignature.contentDigest(
+                            packageAt: imported.packageURL, fileManager: fileManager
+                        )
+                        try cancellation.check()
+                        let descriptor = try packageStore.inspectPackage(at: imported.packageURL)
+                        let manifest = descriptor.pluginManifest
+                        let origin: PluginInstallationOrigin
+                        if manifest.vendor.signatureRequirement == .unsigned {
+                            origin = .community
+                        } else if allowsLocalDevelopmentPackages,
+                                  MacOfficialPluginSignatureVerifier.isUnsignedDevelopmentPackage(
+                                    at: imported.packageURL, manifest: manifest
+                                  ) {
+                            origin = .localDevelopment
+                        } else {
+                            origin = .marketplace
+                        }
+                        let review = try evaluator.installReview(
+                            manifest: Data(contentsOf: imported.packageURL.appendingPathComponent("plugin.json")),
+                            expectedID: descriptor.id.rawValue,
+                            expectedVersion: manifest.version.description,
+                            approvedPrograms: nil
+                        )
+                        try cancellation.check()
+                        let provenance = PluginDiskProvenance(
+                            fileName: imported.fileName,
+                            archiveSHA256: imported.archiveSHA256,
+                            contentDigest: contentDigest,
+                            approvedPrograms: try review.programs.map { try $0.canonicalJSON() }
+                        )
+                        _ = try packageStore.verifyCandidatePackage(
+                            at: imported.packageURL, origin: origin, marketplace: nil,
+                            disk: origin == .community ? provenance : nil
+                        )
+                        try cancellation.check()
+                        return PreparedDiskPluginPackage(
+                            id: UUID(), pluginID: descriptor.id,
+                            displayName: manifest.displayName, author: manifest.vendor.displayName,
+                            packageURL: imported.packageURL, temporaryDirectory: imported.temporaryDirectory,
+                            review: review, provenance: provenance, origin: origin
+                        )
+                    })
+                }
+            }
+        } onCancel: {
+            cancellation.cancel()
+        }
+    }
+
+    private final class DiskReviewCancellation: @unchecked Sendable {
+        private let lock = NSLock()
+        private var isCancelled = false
+
+        func cancel() {
+            lock.lock()
+            defer { lock.unlock() }
+            isCancelled = true
+        }
+
+        func check() throws {
+            lock.lock()
+            defer { lock.unlock() }
+            if isCancelled { throw CancellationError() }
+        }
+    }
+
+    func discard(_ prepared: PreparedDiskPluginPackage) {
         guard let directory = preparedDirectories.removeValue(forKey: prepared.id) else { return }
         try? fileManager.removeItem(at: directory)
     }

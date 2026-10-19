@@ -30,6 +30,8 @@ interface Props {
   startAtFirstDifference: boolean;
   startAtLastDifference?: boolean;
   focusOnInitialDifference?: boolean;
+  /** One-based modified-side lines to land on; wins over the first/last landing. */
+  revealRange?: { startLine: number; endLine: number };
   blockControls?: CommitDiffBlockControls;
   onNavigationChange: (state: DiffNavigationState) => void;
   onSplitLayout: (width: number) => void;
@@ -41,7 +43,7 @@ export default function IndependentCommitDiff(props: Props) {
   const surface = useRef<ReturnType<typeof mountIndependentCommitDiff> | null>(null);
   const latest = useRef(props);
   latest.current = props;
-  const pendingFirst = useRef(props.startAtFirstDifference);
+  const pendingFirst = useRef(props.startAtFirstDifference || Boolean(props.revealRange));
   const landingDiff = useRef(props.diff);
   const [error, setError] = useState<string>();
   const rows = useMemo(() => monacoDiffRows(props.diff, { hideHunkHeaders: true }), [props.diff]);
@@ -72,10 +74,29 @@ export default function IndependentCommitDiff(props: Props) {
     if (pendingFirst.current) {
       pendingFirst.current = false;
       const changes = instance.plan.changes;
-      if (changes.length) instance.reveal(
-        changes[latest.current.startAtLastDifference ? changes.length - 1 : 0],
-        latest.current.focusOnInitialDifference !== false,
-      );
+      if (changes.length) {
+        // change.rightStart/rightEnd index projection rows, not file lines;
+        // translate the reveal range through the rows' newLine numbers before
+        // matching, or distant blocks would never anchor the landing.
+        const reveal = latest.current.revealRange;
+        let landed: (typeof changes)[number] | undefined;
+        if (reveal) {
+          const rows = instance.plan.right;
+          for (let index = 0; index < rows.length; index++) {
+            const line = rows[index]?.newLine;
+            if (line !== null && line !== undefined && line >= reveal.startLine && line <= reveal.endLine) {
+              landed = changes.find(
+                (change) => index >= change.rightStart && index < change.rightEnd,
+              );
+              if (landed) break;
+            }
+          }
+        }
+        instance.reveal(
+          landed ?? changes[latest.current.startAtLastDifference ? changes.length - 1 : 0],
+          latest.current.focusOnInitialDifference !== false,
+        );
+      }
     }
     const side = instance.focused,
       view = instance.views[side],

@@ -70,6 +70,20 @@ struct PreparedPluginPackage: Equatable, Sendable, Identifiable {
     let origin: PluginInstallationOrigin
 }
 
+/// A private snapshot of a user-selected package. Repository provenance is
+/// deliberately absent; the local digest is rechecked when it is installed.
+struct PreparedDiskPluginPackage: Equatable, Sendable, Identifiable {
+    let id: UUID
+    let pluginID: PluginID
+    let displayName: String
+    let author: String
+    let packageURL: URL
+    let temporaryDirectory: URL
+    let review: PluginInstallReview
+    let provenance: PluginDiskProvenance
+    let origin: PluginInstallationOrigin
+}
+
 /// Marketplace I/O: source persistence, index fetching and caching, archive
 /// download and verification. Platform adapters implement it; the feature
 /// model owns every user-visible state transition.
@@ -94,6 +108,8 @@ protocol PluginMarketplaceServicing: AnyObject {
         approvedPrograms: [PluginProgram]?
     ) async throws -> PreparedPluginPackage
     func discard(_ prepared: PreparedPluginPackage)
+    func prepareDiskInstall(at url: URL) async throws -> PreparedDiskPluginPackage
+    func discard(_ prepared: PreparedDiskPluginPackage)
 }
 
 /// One source's listing of a plugin.
@@ -126,12 +142,48 @@ struct PluginMarketplaceListing: Equatable, Identifiable {
 
 /// A pending decision about a community package's permissions and programs.
 struct PluginInstallConfirmation: Equatable, Identifiable {
-    let prepared: PreparedPluginPackage
-    let entry: PluginMarketplaceEntry
-    let sourceName: String
+    enum Package: Equatable {
+        case marketplace(PreparedPluginPackage, PluginMarketplaceEntry, sourceName: String)
+        case disk(PreparedDiskPluginPackage)
+    }
+
+    let package: Package
     let isUpdate: Bool
 
-    var id: UUID { prepared.id }
+    var id: UUID {
+        switch package {
+        case .marketplace(let prepared, _, _): prepared.id
+        case .disk(let prepared): prepared.id
+        }
+    }
+
+    var pluginID: PluginID {
+        switch package {
+        case .marketplace(let prepared, _, _): prepared.pluginID
+        case .disk(let prepared): prepared.pluginID
+        }
+    }
+
+    var review: PluginInstallReview {
+        switch package {
+        case .marketplace(let prepared, _, _): prepared.review
+        case .disk(let prepared): prepared.review
+        }
+    }
+
+    var displayName: String {
+        switch package {
+        case .marketplace(_, let entry, _): entry.name
+        case .disk(let prepared): prepared.displayName
+        }
+    }
+
+    var author: String {
+        switch package {
+        case .marketplace(_, let entry, _): entry.author
+        case .disk(let prepared): prepared.author
+        }
+    }
 }
 
 /// State of Settings › Plugins › Marketplace and the plugin repository list.
@@ -158,7 +210,9 @@ final class PluginMarketplaceFeatureModel: ObservableObject {
     /// Plugins with a download, verification, or installation in progress.
     @Published private(set) var busyPluginIDs: Set<PluginID> = []
     @Published private(set) var errors: [PluginID: String] = [:]
-    @Published var pendingConfirmation: PluginInstallConfirmation?
+    @Published private(set) var pendingConfirmation: PluginInstallConfirmation?
+    @Published private(set) var isPreparingDiskInstall = false
+    @Published private(set) var diskInstallError: String?
     /// The source chosen in the detail pane for plugins listed by several.
     @Published var selectedSourceIDs: [PluginID: String] = [:]
 
@@ -167,6 +221,9 @@ final class PluginMarketplaceFeatureModel: ObservableObject {
     private var indexes: [String: PluginMarketplaceIndex] = [:]
     private var didRefreshThisSession = false
     private var didLoad = false
+    /// Late imports may finish after the settings page has closed; they must
+    /// release their snapshot instead of reopening an approval or installing.
+    private var installationSession = UUID()
 
     init(service: any PluginMarketplaceServicing, pluginManager: any PluginManaging) {
         self.service = service
@@ -364,6 +421,7 @@ final class PluginMarketplaceFeatureModel: ObservableObject {
     /// installed before the marketplace existed belong to the official source.
     func installedSourceID(for pluginID: PluginID) -> String? {
         guard let snapshot = pluginManager.snapshots.first(where: { $0.id == pluginID }) else { return nil }
+        guard snapshot.disk == nil else { return nil }
         if let provenance = snapshot.marketplace {
             return provenance.sourceID
         }
@@ -371,6 +429,22 @@ final class PluginMarketplaceFeatureModel: ObservableObject {
             return PluginMarketplaceSource.officialID
         }
         return nil
+    }
+
+    /// An installed or updated plugin is only loaded when Lithe starts, so the
+    /// marketplace says so instead of looking finished.
+    func requiresRestart(_ pluginID: PluginID) -> Bool {
+        pluginManager.snapshots.first(where: { $0.id == pluginID })?.requiresRestart == true
+    }
+
+    /// Whether the marketplace offers Uninstall for an installed plugin. Same
+    /// rule as the Installed tab: built-in feature groups and required plugins
+    /// stay, while community and official plugin packages can be removed.
+    func canUninstall(_ pluginID: PluginID) -> Bool {
+        guard let snapshot = pluginManager.snapshots.first(where: { $0.id == pluginID }),
+              snapshot.installationStatus != .removed,
+              !snapshot.isRequired else { return false }
+        return snapshot.origin != .bundled || OfficialPluginCatalog.entry(for: pluginID) != nil
     }
 
     // MARK: Installation
@@ -386,6 +460,7 @@ final class PluginMarketplaceFeatureModel: ObservableObject {
         errors[pluginID] = nil
         defer { busyPluginIDs.remove(pluginID) }
 
+        let session = installationSession
         let installed = pluginManager.snapshots.first { $0.id == pluginID }
         let approved = installed?.marketplace.map { provenance in
             provenance.approvedPrograms.compactMap { try? PluginProgram(canonicalJSON: $0) }
@@ -397,17 +472,17 @@ final class PluginMarketplaceFeatureModel: ObservableObject {
                 source: offer.source,
                 approvedPrograms: approved
             )
+            guard session == installationSession, !Task.isCancelled else {
+                service.discard(prepared)
+                return
+            }
             let isUpdate = installed != nil
             let needsConfirmation = prepared.origin == .community
                 && (!isUpdate || approved == nil || !prepared.review.newPrograms.isEmpty)
             if needsConfirmation {
-                if let pendingConfirmation {
-                    service.discard(pendingConfirmation.prepared)
-                }
+                cancelPendingInstallation()
                 pendingConfirmation = PluginInstallConfirmation(
-                    prepared: prepared,
-                    entry: offer.entry,
-                    sourceName: offer.source.name,
+                    package: .marketplace(prepared, offer.entry, sourceName: offer.source.name),
                     isUpdate: isUpdate
                 )
                 return
@@ -418,20 +493,80 @@ final class PluginMarketplaceFeatureModel: ObservableObject {
         }
     }
 
-    func confirmPendingInstallation() {
-        guard let confirmation = pendingConfirmation else { return }
+    /// Local community packages always ask, even for the same version and
+    /// previously approved programs: no repository authenticated these bytes.
+    func installFromDisk(at url: URL) async {
+        guard !isPreparingDiskInstall else { return }
+        isPreparingDiskInstall = true
+        diskInstallError = nil
+        let session = installationSession
+        defer { isPreparingDiskInstall = false }
+        do {
+            let prepared = try await service.prepareDiskInstall(at: url)
+            if session != installationSession || Task.isCancelled {
+                service.discard(prepared)
+                return
+            }
+            guard !busyPluginIDs.contains(prepared.pluginID) else {
+                service.discard(prepared)
+                throw PluginMarketplaceFeatureError.installationInProgress
+            }
+            if prepared.origin == .community {
+                cancelPendingInstallation()
+                pendingConfirmation = PluginInstallConfirmation(
+                    package: .disk(prepared),
+                    isUpdate: pluginManager.snapshots.contains { $0.id == prepared.pluginID }
+                )
+            } else {
+                try commit(prepared)
+            }
+        } catch is CancellationError {
+            return
+        } catch {
+            diskInstallError = error.localizedDescription
+        }
+    }
+
+    func confirmPendingInstallation(id: UUID? = nil) {
+        guard let confirmation = pendingConfirmation,
+              id == nil || id == confirmation.id else { return }
         pendingConfirmation = nil
         do {
-            try commit(confirmation.prepared)
+            switch confirmation.package {
+            case .marketplace(let prepared, _, _): try commit(prepared)
+            case .disk(let prepared): try commit(prepared)
+            }
         } catch {
-            errors[confirmation.prepared.pluginID] = error.localizedDescription
+            switch confirmation.package {
+            case .marketplace: errors[confirmation.pluginID] = error.localizedDescription
+            case .disk: diskInstallError = error.localizedDescription
+            }
         }
+    }
+
+    /// Ends the page's installation session, including reviews still in flight.
+    func endInstallationSession() {
+        installationSession = UUID()
+        cancelPendingInstallation()
     }
 
     func cancelPendingInstallation() {
         guard let confirmation = pendingConfirmation else { return }
         pendingConfirmation = nil
-        service.discard(confirmation.prepared)
+        switch confirmation.package {
+        case .marketplace(let prepared, _, _): service.discard(prepared)
+        case .disk(let prepared): service.discard(prepared)
+        }
+    }
+
+    private func commit(_ prepared: PreparedDiskPluginPackage) throws {
+        defer { service.discard(prepared) }
+        if prepared.origin == .community {
+            try pluginManager.installDiskPackage(at: prepared.packageURL, provenance: prepared.provenance)
+        } else {
+            try pluginManager.installPackage(at: prepared.packageURL)
+        }
+        objectWillChange.send()
     }
 
     private func commit(_ prepared: PreparedPluginPackage) throws {
@@ -472,6 +607,7 @@ enum PluginMarketplaceFeatureError: Error, Equatable, LocalizedError {
     case sourceAlreadyAdded(String)
     case officialSourceCannotBeRemoved
     case notListed(String)
+    case installationInProgress
 
     var errorDescription: String? {
         switch self {
@@ -479,6 +615,8 @@ enum PluginMarketplaceFeatureError: Error, Equatable, LocalizedError {
             "The plugin repository \(name) has already been added."
         case .officialSourceCannotBeRemoved:
             "The official Lithe plugin repository cannot be removed. Disable it instead."
+        case .installationInProgress:
+            "This plugin already has an installation in progress. Try again after it finishes."
         case .notListed(let id):
             "Plugin \(id) is not listed by the plugin repository it was installed from. Refresh the repository and try again."
         }

@@ -656,7 +656,8 @@ final class MacServiceContainer {
             // Read-only input shipped with the app; fetched indexes go to
             // the cache directory above, never into the bundle.
             bundledOfficialIndexURL: Bundle.main.resourceURL?
-                .appendingPathComponent("PluginMarketplace/index.json", isDirectory: false)
+                .appendingPathComponent("PluginMarketplace/index.json", isDirectory: false),
+            diskImporter: MacPluginDiskPackageImporter(temporaryDirectory: fileStorage.temporaryDirectory())
         )
         let pluginCatalog: ValidatedPluginCatalog
         do {

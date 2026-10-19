@@ -1376,6 +1376,9 @@
 "Pending plugin changes: %lld" = "待确认的插件修改：%lld";
 "Uninstall" = "卸载";
 "Reinstall" = "重新安装";
+"Restart required" = "需要重启 Lithe";
+"Restart to Activate" = "重启后生效";
+"Version %@ is installed. Restart Lithe to load it." = "已安装版本 %@，重启 Lithe 后生效。";
 "Removed. Restart Lithe to finish." = "已移除，重启 Lithe 后完成。";
 "Removed. Restore it to use it again." = "已移除，恢复后可再次使用。";
 "Uninstall PHP Support?" = "卸载 PHP 支持？";
@@ -2928,6 +2931,16 @@
 "Installed from %@" = "安装自 %@";
 "Community plugin maintained by a third party. Report plugin problems in its own repository." = "社区插件由第三方维护，插件问题请到它自己的仓库反馈。";
 "Install Plugin from Disk" = "从磁盘安装插件";
+"Choose Plugin Package" = "选择插件包";
+"Installed from Disk" = "从磁盘安装";
+"Community plugin installed from disk. Its publisher and repository have not been verified." = "从磁盘安装的社区插件，尚未验证发布者与源码仓库。";
+"Local Package" = "本地插件包";
+"Full Program Declaration" = "完整程序声明";
+"Builds %@ projects" = "构建 %@ 项目";
+"Tasks: %@" = "任务：%@";
+"Archive SHA-256" = "归档 SHA-256";
+"Content SHA-256" = "内容 SHA-256";
+"Selected from disk. The publisher and repository have not been verified." = "从本地磁盘选择，尚未验证发布者与源码仓库。";
 "Check: %@" = "检查：%@";
 "All tests: %@" = "全部测试：%@";
 "One file: %@" = "单个文件：%@";
@@ -3348,7 +3361,7 @@
 "Detect build systems again" = "重新检测构建系统";
 "Stop build task" = "停止构建任务";
 "Detecting build systems…" = "正在检测构建系统…";
-"No build system was detected in this workspace." = "此工作区未检测到构建系统。";
+"No %@ project was detected in this workspace." = "此工作区未检测到 %@ 工程。";
 "Build files changed. Reload the model to pick up the changes." = "构建文件已更改，请重新加载模型以应用更改。";
 "Build files changed." = "构建文件已更改。";
 "Load the project model" = "加载项目模型";
@@ -3385,6 +3398,28 @@
 "%@ did not report a version; %@ or newer is required." = "%1$@ 没有报告版本，需要 %2$@ 或更高版本。";
 "%@ is not available." = "%@ 不可用。";
 "No JDK is configured for this project." = "此项目没有配置 JDK。";
+
+"Check complete." = "检查完成。";
+
+"Check complete. Some CLI update results are unavailable; see Preflight." = "检查完成。部分 CLI 的更新状态无法确认，请查看预检信息。";
+
+"Check failed." = "检查失败。";
+
+"Could not compare the local adapter with the verified version." = "无法比较本地适配器与已核验版本。";
+
+"A newer verified adapter version is available." = "有更高的已核验适配器版本可用。";
+
+"The local adapter is at or above the verified version." = "本地适配器版本等于或高于已核验版本。";
+
+"Minimum version" = "最低版本";
+
+"Update to" = "可更新至";
+
+"Could not confirm" = "无法确认";
+
+"Current version: %@ · Verified target: %@" = "当前版本：%@ · 已核验目标：%@";
+
+"Update to: %@" = "可更新至：%@";
 
 /* Plugin web tool windows */
 "Show its own page in a tool window" = "在工具窗口中显示插件自带的页面";

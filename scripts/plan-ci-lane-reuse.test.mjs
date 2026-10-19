@@ -5,7 +5,7 @@ import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { isCiInfrastructure, parseClassification, planLaneReuse, planOutputs } from './plan-ci-lane-reuse.mjs';
+import { infrastructureAffects, isCiInfrastructure, parseClassification, planLaneReuse, planOutputs, workflowReferences } from './plan-ci-lane-reuse.mjs';
 
 const classifier = fileURLToPath(new URL('./classify-ci-changes.sh', import.meta.url));
 
@@ -248,6 +248,68 @@ test('a base change to CI infrastructure reruns every lane, even without a merge
   assert.deepEqual(result.reuse, {});
 });
 
+// Regression for #1325: a Windows-only workflow and crate change merged into
+// preview reran the macOS Swift, Rust Core and arm64 package lanes although
+// the pull request's own files had not changed.
+test('a base change to another workflow\'s CI infrastructure keeps reuse', async (t) => {
+  const f = fixtureRepository(t);
+  f.write('macos/Sources/Lithe/App.swift', 'struct App { let a = 1 }');
+  f.write('rust/lithe-core/src/lib.rs', 'pub fn value() -> u8 { 2 }');
+  const first = f.commit('swift and rust');
+  f.git('checkout', '-q', 'preview');
+  f.write('.github/workflows/ci-windows.yml', 'name: Windows CI changed');
+  f.write('windows/tauri/src-tauri/Cargo.toml', '[package]\nname = "lithe"');
+  f.write('.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1', 'exit 0');
+  const newBase = f.commit('windows ci change');
+  f.git('checkout', '-q', 'feature');
+  f.git('-c', 'user.email=ci@example.invalid', '-c', 'user.name=CI', 'merge', '-q', '--no-edit', 'preview');
+  const merged = f.git('rev-parse', 'HEAD');
+  const github = fakeGitHub({ runs: [run(10, first, 'completed', '2026-10-17T01:00:00Z')], jobs: { 10: fullMacJobs(100) }, baseTips: [{ at: '2026-10-17T00:00:00Z', sha: f.base }, { at: '2026-10-17T02:00:00Z', sha: newBase }] });
+  const result = await plan(f, { head: merged, base: newBase, github });
+  assert.deepEqual(result.run, { swift: false, rust: false, release: false });
+  assert.deepEqual([...result.infrastructure.rerun], []);
+  assert.deepEqual([...result.infrastructure.ignored].sort(), [
+    '.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1',
+    '.github/workflows/ci-windows.yml',
+    'windows/tauri/src-tauri/Cargo.toml',
+  ]);
+});
+
+test('a base change to a local action reruns only the workflows that use it', async (t) => {
+  const f = fixtureRepository(t);
+  f.write('.github/workflows/ci-macos.yml', 'jobs:\n  a:\n    steps:\n      - uses: ./.github/actions/setup-macos-toolchain');
+  f.write('.github/actions/setup-macos-toolchain/action.yml', 'runs:\n  steps:\n    - uses: "./.github/actions/nested-cache"');
+  f.write('.github/actions/nested-cache/action.yml', 'runs: {}');
+  f.write('.github/actions/windows-only/action.yml', 'runs: {}');
+  f.git('add', '-A');
+  f.git('-c', 'user.email=ci@example.invalid', '-c', 'user.name=CI', 'commit', '-q', '--amend', '--no-edit');
+  const start = f.git('rev-parse', 'HEAD');
+  f.git('branch', '-f', 'preview', start);
+  f.write('macos/Sources/Lithe/App.swift', 'struct App { let a = 1 }');
+  const first = f.commit('swift');
+  const github = (newBase) => fakeGitHub({ runs: [run(10, first, 'completed', '2026-10-17T01:00:00Z')], jobs: { 10: fullMacJobs(100) }, baseTips: [{ at: '2026-10-17T00:00:00Z', sha: start }, { at: '2026-10-17T02:00:00Z', sha: newBase }] });
+  const baseChange = (path, text) => {
+    f.git('checkout', '-q', 'preview');
+    f.write(path, text);
+    const sha = f.commit(`change ${path}`);
+    f.git('checkout', '-q', 'feature');
+    return sha;
+  };
+
+  const unused = baseChange('.github/actions/windows-only/action.yml', 'runs: { changed: true }');
+  const kept = await plan(f, { head: first, base: unused, github: github(unused) });
+  assert.equal(kept.run.swift, false);
+  assert.deepEqual([...kept.infrastructure.ignored], ['.github/actions/windows-only/action.yml']);
+
+  // Reached only through the composite action, so the reference walk must be transitive.
+  const nested = baseChange('.github/actions/nested-cache/action.yml', 'runs: { changed: true }');
+  const rerun = await plan(f, { head: first, base: nested, github: github(nested) });
+  assert.equal(rerun.run.swift, true);
+  assert.deepEqual(rerun.reuse, {});
+  assert.match(rerun.reason, /changed CI infrastructure this workflow reads/);
+  assert.ok(rerun.infrastructure.rerun.has('.github/actions/nested-cache/action.yml'));
+});
+
 test('a failed or cancelled earlier result is never reused', async (t) => {
   const f = fixtureRepository(t);
   f.write('macos/Sources/Lithe/App.swift', 'struct App { let a = 1 }');
@@ -299,4 +361,57 @@ test('CI infrastructure paths are recognised', () => {
   for (const path of ['macos/Sources/Lithe/App.swift', 'README.md', 'rust/lithe-core/src/lib.rs']) {
     assert.equal(isCiInfrastructure(path), false, path);
   }
+});
+
+test('CI infrastructure reaches only the workflows that read it', () => {
+  const references = {
+    files: new Set(['.github/workflows/ci-macos.yml']),
+    directories: new Set(['.github/actions/setup-macos-toolchain']),
+  };
+  const reached = (path) => ['macos', 'plugins', 'windows'].filter((workflow) => infrastructureAffects(path, workflow, references));
+  const shared = ['macos', 'plugins', 'windows'];
+  const expectations = {
+    // Shared Rust workspace: the Windows product links Rust Core by path.
+    'rust/Cargo.lock': shared,
+    'rust/lithe-core/Cargo.toml': shared,
+    'scripts/classify-ci-changes.sh': shared,
+    'scripts/plan-ci-lane-reuse.mjs': shared,
+    'package.json': shared,
+    '.agents/skills/write-stable-tests/scripts/verify-test-stability.sh': shared,
+    // macOS build infrastructure also drives the plugin workflow.
+    'Package.swift': ['macos', 'plugins'],
+    'scripts/test-macos.sh': ['macos', 'plugins'],
+    'scripts/build-rust-core.sh': ['macos', 'plugins'],
+    '.agents/skills/write-stable-tests/scripts/test-stability-macos.sh': ['macos', 'plugins'],
+    'frontend/editor/package.json': ['macos', 'windows'],
+    // Windows-only infrastructure.
+    'windows/tauri/src-tauri/Cargo.toml': ['windows'],
+    'windows/tauri/src-tauri/Cargo.lock': ['windows'],
+    'windows/tauri/crates/project/Cargo.toml': ['windows'],
+    'windows/tauri/rust-toolchain.toml': ['windows'],
+    'windows/tauri/package.json': ['windows'],
+    'scripts/install-windows-frontend-dependencies.ps1': ['windows'],
+    '.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1': ['windows'],
+    // `.github/` paths follow the given references, whichever workflow asks.
+    '.github/workflows/ci-macos.yml': shared,
+    '.github/actions/setup-macos-toolchain/action.yml': shared,
+    '.github/workflows/release-macos.yml': [],
+    '.github/actions/save-macos-cargo-build-cache/action.yml': [],
+    // Not infrastructure: classified as the pull request's own changes instead.
+    'macos/Sources/Lithe/App.swift': [],
+  };
+  for (const [path, workflows] of Object.entries(expectations)) assert.deepEqual(reached(path), workflows, path);
+});
+
+test('workflow references follow local actions and reusable workflows at both revisions', (t) => {
+  const f = fixtureRepository(t);
+  f.write('.github/workflows/ci-windows.yml', 'jobs:\n  a:\n    uses: ./.github/workflows/shared.yml\n  b:\n    steps:\n      - uses: ./.github/actions/cache@v1');
+  f.write('.github/workflows/shared.yml', 'steps:\n  - uses: ./.github/actions/toolchain/');
+  f.write('.github/actions/cache/action.yml', 'runs: {}');
+  f.write('.github/actions/toolchain/action.yaml', 'runs:\n  steps:\n    - uses: ./.github/actions/cache');
+  const head = f.commit('references');
+  const git = { attempt: (args) => { try { return execFileSync('git', args, { cwd: f.root, encoding: 'utf8', timeout: 10000, stdio: ['ignore', 'pipe', 'ignore'] }).trim(); } catch { return null; } } };
+  const references = workflowReferences(git, [f.base, head], 'ci-windows.yml');
+  assert.deepEqual([...references.files].sort(), ['.github/workflows/ci-windows.yml', '.github/workflows/shared.yml']);
+  assert.deepEqual([...references.directories].sort(), ['.github/actions/cache', '.github/actions/toolchain']);
 });
