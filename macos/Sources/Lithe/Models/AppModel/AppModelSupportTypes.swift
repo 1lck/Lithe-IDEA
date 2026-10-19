@@ -227,29 +227,10 @@ struct ProjectTreeRevealRequest: Equatable {
 }
 
 enum ProjectTreeLocator {
-    static func matchingURL(for url: URL, among projectFiles: [URL]) -> URL? {
-        let standardizedPath = url.standardizedFileURL.path
-        return projectFiles.first(where: {
-            $0.standardizedFileURL.path == standardizedPath
-        })
-    }
-
+    /// URL of the tree row that displays `url`, following the path rather than
+    /// visiting every node.
     static func matchingURL(for url: URL, in node: FileNode) -> URL? {
-        let standardizedPath = url.standardizedFileURL.path
-        if node.url.standardizedFileURL.path == standardizedPath {
-            return node.url
-        }
-        if node.collapsedAncestorPaths.contains(where: {
-            URL(fileURLWithPath: $0).standardizedFileURL.path == standardizedPath
-        }) {
-            return node.url
-        }
-        for child in node.children ?? [] {
-            if let match = matchingURL(for: url, in: child) {
-                return match
-            }
-        }
-        return nil
+        node.displayedNode(for: url)?.url
     }
 
     static func expandedDirectoryPaths(

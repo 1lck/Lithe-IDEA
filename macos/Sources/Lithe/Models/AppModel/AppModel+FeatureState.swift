@@ -50,11 +50,7 @@ extension AppModel {
     }
 
     func projectTreeURL(for url: URL) -> URL? {
-        guard url.isFileURL else { return nil }
-        if let matchingFile = ProjectTreeLocator.matchingURL(for: url, among: projectFiles) {
-            return matchingFile
-        }
-        guard let rootNode else { return nil }
+        guard url.isFileURL, let rootNode else { return nil }
         return ProjectTreeLocator.matchingURL(for: url, in: rootNode)
     }
 
