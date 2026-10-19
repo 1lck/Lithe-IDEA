@@ -24,8 +24,9 @@ use crate::languages::{
     JavaSourceDefinitionRequest, JavaStructureRequest, MybatisIndexRequest, SpringIndexRequest,
 };
 use crate::project::{
-    self, DocumentLifecycleRequest, FileReadRequest, FileWriteRequest, ReplacementPreviewRequest,
-    SearchIndexRequest, SearchIndexUpdateRequest, SearchRequest, WorkspaceSnapshotRequest,
+    self, DirectoryListingRequest, DocumentLifecycleRequest, FileReadRequest, FileWriteRequest,
+    ReplacementPreviewRequest, SearchIndexRequest, SearchIndexUpdateRequest, SearchRequest,
+    WorkspaceSnapshotRequest,
 };
 use crate::project::{
     HistoryContentRequest, HistoryDeleteRequest, HistoryEntriesRequest, HistoryRecordRequest,
@@ -400,6 +401,24 @@ fn execute(request: &str) -> CoreResponse {
                 Ok(data) => CoreResponse::success(
                     id,
                     serde_json::to_value(data).expect("snapshot should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::WorkspaceListDirectories => {
+            match serde_json::from_value::<DirectoryListingRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid directory listing request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(project::list_directories)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("directory listing should encode"),
                 ),
                 Err(error) => CoreResponse::failure(id, error),
             }

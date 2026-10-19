@@ -75,6 +75,26 @@ package protocol WorkspaceOperations: Sendable {
     func invalidateSearchIndex(at rootURL: URL, visibilityRules: FileVisibilityRules)
     func readFile(at rootURL: URL, relativePath: String) -> String?
     func writeFile(_ text: String, at rootURL: URL, relativePath: String) -> Bool
+    /// Child rows of each loaded-on-demand directory row, keyed by the row's
+    /// standardized path. Rows that no longer exist are left out; nil means no
+    /// listing is available, and the rows stay unloaded.
+    func childRows(
+        of rows: [FileNode],
+        at rootURL: URL,
+        visibilityRules: FileVisibilityRules
+    ) -> [String: [FileNode]]?
+}
+
+extension WorkspaceOperations {
+    /// Operations whose snapshots already carry the whole tree never leave a
+    /// directory unloaded, so they have nothing to list.
+    package func childRows(
+        of rows: [FileNode],
+        at rootURL: URL,
+        visibilityRules: FileVisibilityRules
+    ) -> [String: [FileNode]]? {
+        nil
+    }
 }
 
 /// User-selected semantic role for a directory in the project tree.
