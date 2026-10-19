@@ -720,6 +720,10 @@ public final class AgentConnectionModel: ObservableObject {
                   conversations[sessionID]?.isCancelling != true,
                   let requestID = event["requestId"] as? String,
                   let request = event["request"] as? [String: Any] else { return }
+            if let source = request["sessionId"] as? String, let owner = subagentOwners[source] {
+                guard owner == sessionID,
+                      conversations[sessionID]?.subagents.contains(where: { $0.id == source && $0.state == .running }) == true else { return }
+            }
             let prompt = permissionPrompt(requestID, request, sessionID: sessionID)
             markResponseProgress(.waiting, in: sessionID)
             conversations[sessionID, default: AgentConversation()].enqueuePermission(prompt)
@@ -1105,8 +1109,11 @@ public final class AgentConnectionModel: ObservableObject {
                     conversation.messages[message].toolStatus = .interrupted
                 }
             }
+            conversation.pendingPermissions.removeAll { $0.subagentSessionID.map(ended.contains) == true }
+            conversation.refreshTurnClock(at: now())
         }
         conversations[root] = conversation
+        updateAttention()
         return true
     }
 
@@ -1170,6 +1177,7 @@ public final class AgentConnectionModel: ObservableObject {
             title: name.map { "\($0): \(toolTitle)" } ?? toolTitle,
             choices: options
         )
+        prompt.subagentSessionID = child
         if let tool {
             if let id = tool["toolCallId"] as? String,
                let known = conversations[sessionID]?.messages.first(where: { $0.id == Self.toolMessageID(id, subagentSessionID: child) }) {

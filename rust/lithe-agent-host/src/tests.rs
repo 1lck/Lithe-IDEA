@@ -168,6 +168,106 @@ async fn native_subagents_keep_child_permissions_owned_by_the_root_turn() {
     assert_eq!(harness.stop().await, Ok(()));
 }
 
+#[tokio::test(flavor = "current_thread", start_paused = true)]
+async fn terminal_subagents_cancel_only_their_pending_permissions_and_release_quiet_tracking() {
+    for state in ["completed", "failed", "cancelled", "disconnected"] {
+        let mut harness =
+            Harness::start_observing_subagents(false, gateway(), std::env::temp_dir(), true);
+        harness.agent.handshake().await;
+        assert!(matches!(harness.event().await, AgentEvent::Ready { .. }));
+        harness.open_session("session-1").await;
+        harness.send(json!({"kind":"prompt","sessionId":"session-1","text":"Inspect the sample"}));
+        let prompt = harness.agent.expect("session/prompt").await;
+        for (parent, child) in [
+            ("session-1", "child-1"),
+            ("child-1", "child-2"),
+            ("session-1", "sibling"),
+        ] {
+            harness.agent.write(json!({"jsonrpc":"2.0","method":"session/update","params":{
+                "sessionId":parent,"update":{"sessionUpdate":"subagent_spawned","subagentSessionId":child,
+                    "name":"Explore","task":"Inspect the sample","capabilities":{}}
+            }})).await;
+            assert!(matches!(harness.event().await, AgentEvent::Update { .. }));
+        }
+        let mut requests = Vec::new();
+        for source in ["child-1", "child-2", "session-1", "sibling"] {
+            let mut request = fixture()["events"]["permission"]["request"].clone();
+            request["sessionId"] = json!(source);
+            harness.agent.write(json!({"jsonrpc":"2.0","id":source,"method":"session/request_permission","params":request})).await;
+            let AgentEvent::Permission {
+                session_id,
+                request_id,
+                ..
+            } = harness.event().await
+            else {
+                panic!("each live source must enter the root permission queue");
+            };
+            assert_eq!(session_id, "session-1");
+            requests.push(request_id);
+        }
+        // End an ancestor while the root prompt stays outstanding. Both its
+        // own and its descendant's requests must settle without user input.
+        harness
+            .agent
+            .write(json!({"jsonrpc":"2.0","method":"session/update","params":{
+                "sessionId":"session-1","update":{"sessionUpdate":"subagent_state_update",
+                    "subagentSessionId":"child-1","state":state}
+            }}))
+            .await;
+        assert!(matches!(harness.event().await, AgentEvent::Update { .. }));
+        let mut cancelled = std::collections::BTreeSet::new();
+        for _ in 0..2 {
+            let response = harness.agent.next().await;
+            assert_eq!(response["result"]["outcome"]["outcome"], "cancelled");
+            cancelled.insert(response["id"].as_str().unwrap().to_owned());
+        }
+        assert_eq!(
+            cancelled,
+            ["child-1".to_owned(), "child-2".to_owned()].into()
+        );
+        assert_eq!(harness.permissions.lock().unwrap().len(), 2);
+        for id in &requests[..2] {
+            assert!(
+                answer_permission(&harness.permissions, id, Some("allow_once".into())).is_err()
+            );
+        }
+        let mut late = fixture()["events"]["permission"]["request"].clone();
+        late["sessionId"] = json!("child-2");
+        harness.agent.write(json!({"jsonrpc":"2.0","id":"late-child","method":"session/request_permission","params":late})).await;
+        let response = harness.agent.next().await;
+        assert_eq!(response["id"], "late-child");
+        assert_eq!(response["result"]["outcome"]["outcome"], "cancelled");
+        tokio::time::advance(Duration::from_secs(60 * 60)).await;
+        assert!(
+            harness.events.try_recv().is_err(),
+            "root and sibling permissions still suppress quiet notices"
+        );
+        for (id, source) in requests[2..].iter().zip(["session-1", "sibling"]) {
+            answer_permission(&harness.permissions, id, Some("allow_once".into())).unwrap();
+            let response = harness.agent.next().await;
+            assert_eq!(response["id"], source);
+            assert_eq!(response["result"]["outcome"]["optionId"], "allow_once");
+        }
+        tokio::time::advance(prompt_retry::quiet_notice_delay()).await;
+        assert!(
+            matches!(
+                harness.event().await,
+                AgentEvent::TurnActivity { quiet: true, .. }
+            ),
+            "cancelled child waits must release the root's pending-permission count"
+        );
+        harness
+            .agent
+            .reply(&prompt, json!({"stopReason":"end_turn"}))
+            .await;
+        assert!(matches!(
+            harness.event().await,
+            AgentEvent::TurnFinished { .. }
+        ));
+        assert_eq!(harness.stop().await, Ok(()));
+    }
+}
+
 #[tokio::test(flavor = "current_thread")]
 async fn steering_injects_into_the_running_prompt_and_keeps_its_completion() {
     let mut harness = Harness::start();

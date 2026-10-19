@@ -337,6 +337,14 @@ fresh interval. Registration stays ordered under the permission/turn locks;
 waiting and responding run in an SDK-owned task so inbound updates, additional
 permission requests and connection EOF are not blocked. Cancel, terminal prompt
 response and connection shutdown settle every pending request with `cancelled`.
+Child permissions retain both the original requester and the owning root turn.
+Registration holds the ownership lock through insertion into the permission map;
+lock order is ownership, pending permissions, then running turns. A terminal
+child or ancestor settles only that subtree's pending requests with `cancelled`,
+rejects later requests from that subtree, and leaves root and sibling permissions
+and the root prompt running. Settled requests release quiet-period accounting.
+The existing child lifecycle update also removes those prompts from the UI queue
+and refreshes its attention and tool-wait interval; no new wire event is needed.
 Initialization, session/configuration requests, pre-work failure recovery and
 cancellation acknowledgment retain their own bounded deadlines. Tool execution
 and model-request budgets belong to the upstream Agent. This policy does not

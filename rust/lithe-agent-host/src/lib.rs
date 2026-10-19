@@ -578,7 +578,10 @@ pub enum AgentEvent {
 type Emit = Arc<dyn Fn(AgentEvent) + Send + Sync + 'static>;
 
 struct PendingPermission {
+    /// Root turn used by cancellation and quiet-period accounting.
     session_id: String,
+    /// Original ACP requester, retained to cancel only an ended child subtree.
+    source_session_id: String,
     reply: oneshot::Sender<Option<String>>,
 }
 
@@ -774,6 +777,26 @@ fn reject_pending_permissions(permissions: &PendingPermissions, session_id: Opti
         let ids: Vec<String> = pending
             .iter()
             .filter(|(_, entry)| session_id.is_none_or(|id| entry.session_id == id))
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in ids {
+            if let Some(entry) = pending.remove(&id) {
+                let _ = entry.reply.send(None);
+            }
+        }
+    }
+}
+
+/// The caller holds the ownership lock also used during permission registration,
+/// so a terminal child cannot acquire a new pending request after this sweep.
+fn reject_ended_subagent_permissions(
+    permissions: &PendingPermissions,
+    sessions: &subagents::Sessions,
+) {
+    if let Ok(mut pending) = permissions.lock() {
+        let ids: Vec<_> = pending
+            .iter()
+            .filter(|(_, entry)| !sessions.is_live(&entry.source_session_id))
             .map(|(id, _)| id.clone())
             .collect();
         for id in ids {
@@ -1237,6 +1260,7 @@ where
     let subagent_sessions = Arc::new(Mutex::new(subagents::Sessions::default()));
     let update_subagents = subagent_sessions.clone();
     let permission_subagents = subagent_sessions.clone();
+    let update_permissions = permissions.clone();
     let requests = emit.clone();
     let permission_turns = turns.clone();
     let cancel_permissions = permissions.clone();
@@ -1263,6 +1287,9 @@ where
                         let mut sessions = update_subagents.lock().map_err(|_| internal("Subagent ownership is unavailable"))?;
                         if !sessions.observe(&session_id, &update) {
                             return Err(internal("The Agent reported invalid subagent ownership"));
+                        }
+                        if update["sessionUpdate"] == "subagent_state_update" {
+                            reject_ended_subagent_permissions(&update_permissions, &sessions);
                         }
                         sessions.is_live(&session_id).then(|| sessions.root(&session_id)).flatten()
                     };
@@ -1302,10 +1329,11 @@ where
         .on_receive_request(
             async move |request: RequestPermissionRequest, responder, connection| {
                 let source_session_id = request.session_id.0.to_string();
-                let session_id = {
-                    let sessions = permission_subagents.lock().map_err(|_| internal("Subagent ownership is unavailable"))?;
-                    sessions.is_live(&source_session_id).then(|| sessions.root(&source_session_id)).flatten()
-                };
+                // Lock order is ownership -> pending requests -> running turns.
+                // Keep ownership through registration so terminal notifications
+                // cannot miss a requester checked just before it ended.
+                let sessions = permission_subagents.lock().map_err(|_| internal("Subagent ownership is unavailable"))?;
+                let session_id = sessions.is_live(&source_session_id).then(|| sessions.root(&source_session_id)).flatten();
                 let Some(session_id) = session_id else {
                     return responder.respond(RequestPermissionResponse::new(RequestPermissionOutcome::Cancelled));
                 };
@@ -1329,6 +1357,7 @@ where
                                 request_id.clone(),
                                 PendingPermission {
                                     session_id: session_id.clone(),
+                                    source_session_id,
                                     reply,
                                 },
                             );
@@ -1337,6 +1366,7 @@ where
                     }
                     Err(_) => None,
                 };
+                drop(sessions);
                 let Some(activity) = activity else {
                     return responder.respond(RequestPermissionResponse::new(
                         RequestPermissionOutcome::Cancelled,

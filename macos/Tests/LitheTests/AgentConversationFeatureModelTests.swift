@@ -133,6 +133,55 @@ struct AgentConversationFeatureModelTests {
         }
     }
 
+    @Test(arguments: ["completed", "failed", "cancelled", "disconnected"])
+    func terminalChildrenRemoveOnlyTheirPermissionSubtreeAndKeepTheRootRunning(state: String) async throws {
+        try await withStatisticsFeature { feature, connection, clock in
+            feature.prepareConversation()
+            try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any]))
+            try feature.send("Inspect the sample")
+            try feature.receive(event("subagentSpawned"))
+            try feature.receive(event("nestedSubagentSpawned"))
+            try feature.receive(event("subagentSpawned", ["update": ["sessionUpdate": "subagent_spawned",
+                "subagentSessionId": "sibling", "name": "Other", "task": "Keep working"]]))
+            var attention: [Bool] = []
+            feature.onAttentionChanged = { attention.append($0) }
+            clock.advance(2)
+            for source in ["child-1", "child-2", "session-1", "sibling"] {
+                try feature.receive(event("permission", ["requestId": source, "request": [
+                    "sessionId": source, "toolCall": ["toolCallId": source, "title": "Read sample"],
+                    "options": [["optionId": "allow_once", "name": "Allow once", "kind": "allow_once"]]
+                ]]))
+            }
+            #expect(feature.selectedConversation?.pendingPermissions.first?.subagentSessionID == "child-1")
+            clock.advance(3)
+            try feature.receive(event("subagentStateUpdate", ["update": ["sessionUpdate": "subagent_state_update",
+                "subagentSessionId": "child-1", "state": state]]))
+            #expect(feature.selectedConversation?.pendingPermissions.map(\.id) == ["session-1", "sibling"])
+            #expect(feature.selectedConversation?.isResponding == true)
+            #expect(feature.selectedConversation?.isCancelling == false)
+            #expect(feature.hasPendingPermission)
+            let commands = connection.commands.count
+            try feature.receive(event("permission", ["requestId": "late", "request": ["sessionId": "child-2"]]))
+            #expect(feature.selectedConversation?.pendingPermissions.map(\.id) == ["session-1", "sibling"])
+            #expect(connection.commands.count == commands, "Host already settled child requests; UI must not answer them again")
+            clock.advance(1)
+            feature.answerPermission(optionID: "allow_once")
+            #expect(connection.commands.last?["requestId"] as? String == "session-1")
+            #expect(feature.selectedConversation?.permission?.id == "sibling")
+            try feature.receive(event("subagentStateUpdate", ["update": ["sessionUpdate": "subagent_state_update",
+                "subagentSessionId": "sibling", "state": "cancelled"]]))
+            #expect(feature.selectedConversation?.pendingPermissions.isEmpty == true)
+            #expect(!feature.hasPendingPermission)
+            #expect(attention == [true, false])
+            #expect(feature.selectedConversation?.responseStatus == .waiting)
+            clock.advance(4)
+            try feature.receive(event("turnFinished"))
+            let turn = try #require(feature.selectedConversation?.completedTurns.last)
+            #expect(turn.duration == 10)
+            #expect(turn.toolDuration == 4, "Ended permissions must close their wait interval before the root finishes")
+        }
+    }
+
     @Test
     func delayedAutoFallbackNoticeAfterSelectingPlanDoesNotPolluteTheReply() async throws {
         try await withNoticeFeature { feature, connection, options in

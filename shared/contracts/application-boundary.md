@@ -82,6 +82,11 @@ The Host enables the native Codex checklist through process-local
 It does not edit CLI settings or switch collaboration mode. Plan creation and
 updates remain Agent-owned.
 
+Native child permissions preserve their requester separately from the root turn.
+An ended child or ancestor cancels only that subtree's pending permissions;
+presentation consumes the same lifecycle update to remove its prompts and refresh
+attention/timing. Root and sibling permissions and the root prompt stay active.
+
 Agent activity presentation uses the selected session's reported plan, native
 subagents and file diffs. Compact summaries may omit empty categories; ordinary
 tools do not create placeholder tasks or child sessions. File-summary line totals

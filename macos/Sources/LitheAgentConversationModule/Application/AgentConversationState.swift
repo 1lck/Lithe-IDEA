@@ -54,6 +54,8 @@ public struct AgentPermissionPrompt: Identifiable, Equatable, Sendable {
     public let id: String
     public let title: String
     public let choices: [AgentPermissionChoice]
+    /// Original child requester; root permissions have no child owner.
+    public var subagentSessionID: String?
     public var details = AgentToolDetails()
 }
 
