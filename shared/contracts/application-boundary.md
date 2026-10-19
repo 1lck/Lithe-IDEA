@@ -77,9 +77,12 @@ presented by Lithe and from generated live/history-list titles, without rewritin
 upstream history or filtering model replies. Titles left empty by this filtering
 are missing values, so presentation retains its existing title fallbacks.
 
-Agent activity presentation uses the selected session's reported plan, pending
-tools and file diffs. Review acknowledgements are local to the exact reported
-version; later edits remain reviewable and start after the acknowledged prefix.
+Agent activity presentation uses the selected session's reported plan, native
+subagents and file diffs. Compact summaries may omit empty categories; ordinary
+tools do not create placeholder tasks or child sessions. File-summary line totals
+require complete reported counts for all included, completed changes; missing or
+overflowing counts remain unknown rather than becoming partial or estimated totals.
+Review acknowledgements are local to the exact reported version; later edits remain reviewable and start after the acknowledged prefix.
 The same open session retains its acknowledgements through disconnects and history
 reloads; closing its tab releases them. Replay must still match the exact version
 or prefix, so changed upstream evidence is never hidden by a stale acknowledgement.

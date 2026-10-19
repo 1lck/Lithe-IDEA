@@ -3,7 +3,8 @@ import LitheAgentConversationModule
 
 /// Fixed chrome stays compact; only the measured writing area grows with the draft.
 enum AgentComposerMetrics {
-    static let activityHeight: CGFloat = 34
+    static let activityRowHeight = LitheDropdownMetrics.rowHeight
+    static let activityVerticalInset: CGFloat = 2
     static let activitySpacing: CGFloat = 4
     static let toolbarHeight: CGFloat = 30
     static let fileHeight: CGFloat = 34

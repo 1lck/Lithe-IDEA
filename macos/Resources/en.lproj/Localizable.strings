@@ -1944,3 +1944,9 @@
 "Files added. Save your editor changes before sending so the Agent can read them." = "Files added. Save your editor changes before sending so the Agent can read them.";
 "This conversation is no longer available. Choose another conversation." = "This conversation is no longer available. Choose another conversation.";
 "This Agent is no longer configured. Open Agent settings to configure it." = "This Agent is no longer configured. Open Agent settings to configure it.";
+
+/* Agent activity summaries */
+"Current: %@" = "Current: %@";
+"All tasks completed" = "All tasks completed";
+"Modified files: %lld" = "Modified files: %lld";
+"Review changes" = "Review changes";

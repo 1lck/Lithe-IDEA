@@ -3413,3 +3413,9 @@
 "Files added. Save your editor changes before sending so the Agent can read them." = "文件已添加。请在发送前保存编辑内容，以便 Agent 读取最新文件。";
 "This conversation is no longer available. Choose another conversation." = "此会话已不可用，请选择其他会话。";
 "This Agent is no longer configured. Open Agent settings to configure it." = "此 Agent 已取消配置，请打开 Agent 设置重新配置。";
+
+/* Agent activity summaries */
+"Current: %@" = "当前：%@";
+"All tasks completed" = "所有任务已完成";
+"Modified files: %lld" = "修改了 %lld 个文件";
+"Review changes" = "查看文件修改";

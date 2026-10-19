@@ -613,13 +613,15 @@ private struct AgentConnectionView: View {
     }
 
     private var conversationComposer: some View {
-        VStack(spacing: AgentComposerMetrics.activitySpacing) {
-            activity.id(feature.selectedSessionID)
+        let summary = activity
+        return VStack(spacing: 0) {
+            summary.id(feature.selectedSessionID)
                 .padding(.horizontal, AgentComposerMetrics.horizontalInset)
+                .padding(.bottom, summary.contentHeight == 0 ? 0 : AgentComposerMetrics.activitySpacing)
             composer
         }
         .transformPreference(AgentComposerMinimumHeightKey.self) {
-            $0 += AgentComposerMetrics.activityHeight + AgentComposerMetrics.activitySpacing
+            $0 += summary.composerHeight
         }
     }
 
