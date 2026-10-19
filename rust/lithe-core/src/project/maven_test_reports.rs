@@ -19,7 +19,7 @@ use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::UNIX_EPOCH;
+use std::time::{Duration, UNIX_EPOCH};
 
 /// Largest single report Core reads; larger files are skipped, not truncated.
 const MAX_REPORT_BYTES: u64 = 32 * 1024 * 1024;
@@ -79,12 +79,15 @@ impl Outcome {
 struct ReportedCase {
     class_name: String,
     method: String,
+    duration_millis: Option<u64>,
     outcome: Outcome,
     message: Option<String>,
 }
 
 /// Aggregated outcome for one method across its invocations.
 struct AggregatedCase {
+    /// None after any invocation lacks a trustworthy time or the total overflows the host integer range.
+    duration_millis: Option<u64>,
     outcome: Outcome,
     message: Option<String>,
     invocations: usize,
@@ -162,8 +165,14 @@ pub(crate) fn read_test_cases(
                 outcome: case.outcome,
                 message: None,
                 invocations: 0,
+                duration_millis: Some(0),
             });
             entry.invocations += 1;
+            entry.duration_millis = entry
+                .duration_millis
+                .zip(case.duration_millis)
+                .and_then(|(sum, duration)| sum.checked_add(duration))
+                .filter(|duration| *duration <= i64::MAX as u64);
             if case.outcome >= entry.outcome {
                 // The first message of the most severe outcome explains the marker.
                 if case.outcome > entry.outcome || entry.message.is_none() {
@@ -184,6 +193,7 @@ pub(crate) fn read_test_cases(
                 .then_some(case.message)
                 .flatten(),
             invocations: case.invocations,
+            duration_millis: case.duration_millis,
         })
         .collect())
 }
@@ -307,6 +317,11 @@ fn reported_case(element: &BytesStart<'_>, suite_name: Option<&str>) -> Option<R
     Some(ReportedCase {
         class_name,
         method,
+        duration_millis: attribute(element, b"time")
+            .and_then(|time| time.trim().parse::<f64>().ok())
+            .and_then(|seconds| Duration::try_from_secs_f64(seconds).ok())
+            .and_then(|duration| u64::try_from(duration.as_millis()).ok())
+            .filter(|duration| *duration <= i64::MAX as u64),
         outcome: Outcome::Passed,
         message: None,
     })

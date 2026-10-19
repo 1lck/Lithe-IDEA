@@ -109,6 +109,127 @@ struct LanguageTestPresentationTests {
         }
     }
 
+    @Test
+    func parseDurationsExtractsClassAndMethodDurations() {
+        let output = """
+        [INFO] Running demo.CalculatorTest
+        Checking 2 + 3
+        [INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.582 s -- in demo.CalculatorTest
+        [INFO] Results:
+        [INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 9.999 s
+        """
+        let outcomes = [
+            MavenTestCaseOutcome(className: "demo.CalculatorTest", method: "addsPositiveNumbers()", status: "passed", durationMillis: 17)
+        ]
+        let durations = LanguageTestsView.parseDurations(from: output, outcomes: outcomes)
+        #expect(durations["demo.CalculatorTest"] == "582 ms")
+        #expect(durations["CalculatorTest"] == "582 ms")
+        #expect(durations["demo.CalculatorTest#addsPositiveNumbers"] == "17 ms")
+        #expect(durations["addsPositiveNumbers"] == nil, "Method names from different classes must not share a duration")
+    }
+
+    @Test
+    func methodDurationsComeFromReportsAndNeverFromASuiteSummary() throws {
+        struct Fixture: Decodable { let expected: [MavenTestCaseOutcome] }
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let fixture = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf:
+            root.appendingPathComponent("shared/fixtures/maven/testcase-durations-v1.json")))
+        let durations = LanguageTestsView.parseDurations(from: "Time elapsed: 9.999 s", outcomes: fixture.expected)
+        #expect(durations["demo.DurationTest#fast"] == "10 ms")
+        #expect(durations["demo.DurationTest#slow"] == "125 ms")
+        #expect(durations["demo.DurationTest#repeat"] == "50 ms")
+        #expect(durations["demo.DurationTest#zero"] == "0 ms")
+        for method in ["missing", "partial", "invalid", "negative", "overflow"] {
+            #expect(durations["demo.DurationTest#" + method] == nil)
+        }
+        let unknown = MavenTestCaseOutcome(className: "demo.OtherTest", method: "fast", status: "passed")
+        #expect(LanguageTestsView.parseDurations(from: "Time elapsed: 9.999 s", outcomes: [unknown]).isEmpty)
+    }
+
+    @Test
+    func synthesizeResultItemsGeneratesClassAndMethodNodes() {
+        let outcomes = [
+            MavenTestCaseOutcome(className: "demo.CalculatorTest", method: "addsPositiveNumbers()", status: "passed"),
+            MavenTestCaseOutcome(className: "demo.CalculatorTest", method: "handlesZero()", status: "passed")
+        ]
+        let items = LanguageTestsView.synthesizeResultItems(from: outcomes, providerID: "java")
+        #expect(items.count == 3)
+        #expect(items[0].label == "CalculatorTest")
+        #expect(items[0].depth == 1)
+        #expect(items[0].kind == .testCase)
+        #expect(items[1].label == "addsPositiveNumbers")
+        #expect(items[1].depth == 2)
+        #expect(items[2].label == "handlesZero")
+        #expect(items[2].depth == 2)
+    }
+
+    @Test
+    func reportOnlyRowsRemainSelectableAndKeepTheirExecutableIdentifiers() throws {
+        let source = URL(fileURLWithPath: "/fixture/Tests.java")
+        let discovered = [LanguageTestItem(id: "file", providerID: "java", label: "Tests.java",
+            kind: .file, fileURL: source, testIdentifier: nil, depth: 0)]
+        let outcomes = [MavenTestCaseOutcome(className: "demo.Tests", method: "passes()", status: "passed")]
+        let results = MavenTestResults(testsRun: 1, failures: 0, errors: 0, skipped: 0, passed: 1,
+            success: true, failureDetails: [], testCases: outcomes)
+        let rows = LanguageTestsView.presentedItems(discovered: discovered, results: results, resultProviderID: "java", providerID: "java")
+        #expect(rows.count == 2)
+        for row in rows {
+            let selected = try #require(LanguageTestsView.presentedItems(discovered: discovered,
+                results: results, resultProviderID: "java", providerID: "java").first { $0.id == row.id })
+            #expect(selected.kind == .testCase)
+            #expect(selected.testIdentifier == (row.depth == 1 ? "demo.Tests" : "demo.Tests#passes"))
+            #expect(selected.fileURL == nil, "A report does not establish semantic source ownership for Debug")
+        }
+        #expect(LanguageTestsView.presentedItems(discovered: discovered, results: nil, resultProviderID: "java", providerID: "java") == discovered)
+        let semantic = LanguageTestItem(id: "jdt-method", providerID: "java", label: "passes()",
+            kind: .testCase, fileURL: source, testIdentifier: "demo.Tests#passes()", depth: 2)
+        #expect(LanguageTestsView.presentedItems(discovered: [semantic], results: results, resultProviderID: "java", providerID: "java") == [semantic])
+    }
+
+    @Test
+    func currentResultsBelongOnlyToTheirProviderAndDisappearWhenCleared() {
+        let outcomes = [MavenTestCaseOutcome(className: "demo.Tests", method: "passes", status: "passed")]
+        let results = MavenTestResults(testsRun: 1, failures: 0, errors: 0, skipped: 0, passed: 1,
+            success: true, failureDetails: [], testCases: outcomes)
+        for provider in ["java", "node", "python"] {
+            let discovered = [LanguageTestItem(id: "workspace-" + provider, providerID: provider,
+                label: provider, kind: .workspace, fileURL: nil, testIdentifier: nil, depth: 0),
+                LanguageTestItem(id: "file-" + provider, providerID: provider, label: "Unrun file",
+                    kind: .file, fileURL: URL(fileURLWithPath: "/fixture/Unrun"), testIdentifier: nil, depth: 1),
+                LanguageTestItem(id: "unrun-" + provider, providerID: provider, label: "Unrun test",
+                    kind: .testCase, fileURL: nil, testIdentifier: "demo.Unrun#check", depth: 2)]
+            let rows = LanguageTestsView.presentedItems(discovered: discovered, results: results,
+                resultProviderID: "java", providerID: provider)
+            #expect(provider == "java" ? rows.count == 2 : rows == discovered)
+            #expect(rows.allSatisfy { $0.providerID == provider })
+            // Clear retains the plan; Close clears both. Neither may reuse editor history.
+            for owner in ["java", nil] as [String?] {
+                #expect(LanguageTestsView.presentedItems(discovered: discovered, results: nil,
+                    resultProviderID: owner, providerID: provider) == discovered)
+            }
+        }
+    }
+
+    @Test
+    func activeTestTargetFormatsMethodAndClassNamesCorrectly() {
+        #expect(ActiveTestTarget.formattedName(for: "demo.CalculatorTest#addsPositiveNumbers()") == "CalculatorTest.addsPositiveNumbers")
+        #expect(ActiveTestTarget.formattedName(for: "demo.CalculatorTest#intentionalFailureForPreview()") == "CalculatorTest.intentionalFailureForPreview")
+        #expect(ActiveTestTarget.formattedName(for: "demo.CalculatorTest") == "CalculatorTest")
+    }
+
+    @Test(arguments: [false, true])
+    func resolvedTestNameKeepsTheFullScopeAndDebugToolbarBinding(method: Bool) {
+        let source = URL(fileURLWithPath: "/fixture/Tests.java")
+        let scope: LanguageTestScope = method ? .testCase(identifier: "demo.Tests#logsIn()", fileURL: source) : .file(source)
+        var target = ActiveTestTarget(providerID: "java", scope: scope)
+        let launchName = method ? "logsIn()" : "ActualTestClass"
+        target.resolvedName = launchName
+        #expect(target.scope == scope)
+        #expect(DebugToolbarPresentation.mainToolbarControl(state: .paused,
+            debugTarget: launchName, selectedTarget: target.name) == .resume)
+    }
+
     private func testItem(_ id: String, selector: String? = nil, depth: Int) -> LanguageTestItem {
         LanguageTestItem(id: id, providerID: "java", label: id, kind: .testCase,
                          fileURL: nil, testIdentifier: selector, depth: depth)

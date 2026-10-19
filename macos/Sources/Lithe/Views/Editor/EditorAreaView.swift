@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import LitheCoreContracts
 import LitheGitModule
 import LitheTerminalModule
 
@@ -11,6 +12,27 @@ enum EditorDocumentIconResolver {
         resolvedKind: LitheIconKind?
     ) -> LitheIconKind {
         resolvedKind ?? LitheIcons.kind(for: url, isDirectory: false)
+    }
+
+    static func overlayResourcePath(for url: URL, hasTests: Bool, hasMain: Bool) -> String? {
+        guard url.pathExtension.lowercased() == "java" else { return nil }
+        if hasTests { return "expui/nodes/junitTestMark.svg" }
+        return hasMain ? "expui/nodes/runnableMark.svg" : nil
+    }
+
+}
+
+private struct EditorDocumentTabStyle: ViewModifier {
+    @ObservedObject var document: EditorDocument
+    @Environment(\.colorScheme) private var colorScheme
+    let project: MavenProject?
+    let isSelected: Bool
+    let isActive: Bool
+
+    func body(content: Content) -> some View {
+        content.modifier(LitheToolWindowTabStyle(isSelected: isSelected, isActive: isActive,
+            fileColor: EditorDocument.isTestSourceFile(document.url, project: project, hasTests: document.hasJavaTests)
+                ? LitheToolWindowTabStyle.testSourceColor(for: colorScheme) : nil))
     }
 }
 
@@ -36,6 +58,13 @@ private struct EditorDocumentTabIcon: View {
             kind: EditorDocumentIconResolver.kind(for: document.url, resolvedKind: resolvedKind),
             size: size
         )
+        .overlay {
+            if let resource = EditorDocumentIconResolver.overlayResourcePath(
+                for: document.url, hasTests: document.hasJavaTests, hasMain: document.hasRunnableJavaMain
+            ) {
+                LitheIDEAIcon(resourcePath: resource, size: size, preservesOriginalColors: true)
+            }
+        }
         .onChange(of: resolvedKind) { kind in
             onResolvedKind?(EditorDocumentIconResolver.kind(for: document.url, resolvedKind: kind))
         }
@@ -751,7 +780,8 @@ struct EditorAreaView: View {
             .allowsHitTesting(isActive || hoveredTabItem == .document(document.id))
             .padding(.trailing, 4)
         }
-        .modifier(LitheToolWindowTabStyle(isSelected: isActive, isActive: editorGroupIsActive))
+        .modifier(EditorDocumentTabStyle(document: document, project: model.mavenFeatureIfActive?.project,
+            isSelected: isActive, isActive: editorGroupIsActive))
         .padding(.horizontal, 4)
         .padding(.vertical, 4)
     }
@@ -1373,18 +1403,13 @@ struct EditorAreaView: View {
             .overlay(alignment: .top) {
                 if paneItem == activeItem { FindBarOverlay() }
             }
-            .overlay(alignment: .topTrailing) {
-                EditorSoftWrapToggle()
-                    .padding(.top, 8)
-                    .padding(.trailing, 10)
-            }
     }
 
     private func codeEditor(
         _ document: EditorDocument,
         markdownScrollPosition: Binding<MarkdownScrollPosition>? = nil
     ) -> some View {
-        MonacoWorkbenchEditor(document: document, sessionGroupID: groupID, markdownScrollPosition: markdownScrollPosition)
+        MonacoWorkbenchEditor(document: document, sessionGroupID: groupID, markdownScrollPosition: markdownScrollPosition, showsSoftWrapToggle: true)
         .clipped()
     }
 

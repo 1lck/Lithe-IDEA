@@ -380,6 +380,9 @@ pub struct MavenTestCaseResponse {
     pub message: Option<String>,
     /// Number of `<testcase>` entries aggregated into this method.
     pub invocations: usize,
+    /// Sum of reported invocation times in milliseconds; absent if any time is missing or invalid.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duration_millis: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize)]

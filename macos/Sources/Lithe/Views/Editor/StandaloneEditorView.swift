@@ -104,16 +104,11 @@ struct StandaloneEditorView: View {
     }
 
     private func editor(_ document: EditorDocument) -> some View {
-        MonacoWorkbenchEditor(document: document)
+        MonacoWorkbenchEditor(document: document, showsSoftWrapToggle: true)
             .overlay(alignment: .top) {
                 if model.isFindBarVisible {
                     FindBarView()
                 }
-            }
-            .overlay(alignment: .topTrailing) {
-                EditorSoftWrapToggle()
-                    .padding(.top, 8)
-                    .padding(.trailing, 10)
             }
     }
 

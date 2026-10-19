@@ -239,6 +239,12 @@ pub fn version_at_least(version: &str, minimum: &str) -> bool {
     true
 }
 
+/// Confirm strict SemVer precedence; malformed versions remain unknown and build metadata is ignored.
+pub(crate) fn newer_version_available(installed: &str, target: &str) -> Option<bool> {
+    let parse = |value: &str| semver::Version::parse(value.trim().trim_start_matches('v')).ok();
+    Some(parse(target)?.cmp_precedence(&parse(installed)?).is_gt())
+}
+
 /// Major version of `22.3.1` or `v22.3.1`.
 pub fn parse_major(version: &str) -> Option<u32> {
     version

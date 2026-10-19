@@ -78,6 +78,7 @@ extension AppModel {
 
     func runTest(providerID: String, scope: LanguageTestScope) {
         guard let workspaceURL else { return }
+        activeTestTarget = ActiveTestTarget(providerID: providerID, scope: scope)
         showToolWindow(.tests)
         Task { [weak self] in
             guard let self, let execution = await activateExecutionModule() else { return }
@@ -99,6 +100,7 @@ extension AppModel {
 
     func debugTest(providerID: String, scope: LanguageTestScope) {
         guard let workspaceURL else { return }
+        activeTestTarget = ActiveTestTarget(providerID: providerID, scope: scope)
         switch javaTestWorkflowState.resolveDebugRequest(providerID: providerID, scope: scope) {
         case .rejected(let message):
             showNotification(message)
@@ -113,6 +115,7 @@ extension AppModel {
         workspaceURL: URL
     ) {
         guard let identity = currentWorkspaceIdentity, identity.url == workspaceURL.standardizedFileURL else { return }
+        let selectedTarget = activeTestTarget
         featureGraph.javaTestDebugWorkflow.start(
             request: request,
             state: javaTestWorkflowState,
@@ -145,6 +148,9 @@ extension AppModel {
                 guard let self, self.isCurrentWorkspace(identity), !Task.isCancelled,
                       let genericDebugFeature = self.genericDebugFeatureIfActive else {
                     return false
+                }
+                if self.activeTestTarget == selectedTarget {
+                    self.activeTestTarget?.resolvedName = prepared.configuration.name
                 }
                 return genericDebugFeature.start(
                     fileURL: prepared.target.fileURL,

@@ -250,13 +250,15 @@ package struct MavenTestCaseOutcome: Codable, Equatable, Sendable {
     package let status: String
     package let message: String?
     package let invocations: Int
+    package let durationMillis: Int?
 
-    package init(className: String, method: String, status: String, message: String? = nil, invocations: Int = 1) {
+    package init(className: String, method: String, status: String, message: String? = nil, invocations: Int = 1, durationMillis: Int? = nil) {
         self.className = className
         self.method = method
         self.status = status
         self.message = message
         self.invocations = invocations
+        self.durationMillis = durationMillis
     }
 }
 
