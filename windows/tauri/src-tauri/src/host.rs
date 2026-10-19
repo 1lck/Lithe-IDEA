@@ -54,6 +54,14 @@ pub enum ClipboardOperation {
 pub struct FileClipboardState {
     entries: Vec<ClipboardEntry>,
     operation: ClipboardOperation,
+    /// Clipboard change counter captured when this copy happened.
+    ///
+    /// It travels with the entries so a window that receives them through
+    /// `file-clipboard-changed` compares against the copy that produced *these*
+    /// entries, not against a sequence left over from its own earlier copy.
+    /// `None` means the platform could not report a counter.
+    #[serde(default)]
+    source_sequence: Option<u32>,
 }
 
 #[derive(Default)]
@@ -115,7 +123,7 @@ pub fn clipboard_set(
     state: tauri::State<'_, FileClipboard>,
     entries: Vec<ClipboardEntry>,
     operation: ClipboardOperation,
-) -> Result<(), String> {
+) -> Result<FileClipboardState, String> {
     if entries.is_empty() {
         return Err("File clipboard requires at least one entry".into());
     }
@@ -127,13 +135,23 @@ pub fn clipboard_set(
             ));
         }
     }
-    let clipboard = FileClipboardState { entries, operation };
+    // Capture the counter here so it describes this copy and can be broadcast
+    // with the entries to every window.
+    let clipboard = FileClipboardState {
+        entries,
+        operation,
+        source_sequence: Some(clipboard_change_counter()),
+    };
     *state
         .0
         .lock()
         .map_err(|_| "File clipboard lock was poisoned")? = Some(clipboard.clone());
-    app.emit("file-clipboard-changed", clipboard)
-        .map_err(|error| error.to_string())
+    app.emit("file-clipboard-changed", &clipboard)
+        .map_err(|error| error.to_string())?;
+    // Return the recorded state so the calling window does not have to wait for
+    // the broadcast (or depend on a listener being registered yet) to learn the
+    // entries and the counter that belong together.
+    Ok(clipboard)
 }
 
 #[tauri::command]
@@ -158,6 +176,33 @@ pub fn clipboard_clear(
         .map_err(|_| "File clipboard lock was poisoned")? = None;
     app.emit("file-clipboard-cleared", ())
         .map_err(|error| error.to_string())
+}
+
+/// Reads Windows' clipboard change counter for the calling session.
+///
+/// Returns 0 on platforms without one; callers treat 0 as "unknown".
+#[cfg(windows)]
+fn clipboard_change_counter() -> u32 {
+    // SAFETY: the function takes no arguments, has no failure mode, and only
+    // reads a counter that Windows maintains for the calling session.
+    unsafe { windows_sys::Win32::System::DataExchange::GetClipboardSequenceNumber() }
+}
+
+#[cfg(not(windows))]
+fn clipboard_change_counter() -> u32 {
+    0
+}
+
+/// Returns Windows' clipboard change counter.
+///
+/// The counter increments on every clipboard write by any process, so comparing
+/// two readings tells the caller whether the clipboard changed in between —
+/// something clipboard *content* cannot express, because copying the same text
+/// again leaves the content identical. The terminal uses it to decide whether a
+/// copied file is still the user's most recent clipboard action.
+#[tauri::command]
+pub fn clipboard_sequence_number() -> u32 {
+    clipboard_change_counter()
 }
 
 #[tauri::command]
