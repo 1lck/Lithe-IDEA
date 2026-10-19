@@ -159,6 +159,8 @@ test("Commit hook must not reattach a later faithful patch to an old display rej
   const statusApi = await import("@/features/git/api/git-status-api");
   const { useCommitDiffReview } = await import("@/features/git/hooks/use-commit-diff-review");
   const { createSingleFileWorkingTreeDiff } = await import("@/features/git/utils/working-tree-multi-diff");
+  const { LocaleProvider } = await import("@/i18n/locale-provider");
+  const settingsStore = await import("@/features/settings/stores/settings.store");
   const restoreDom = installHappyDom();
   const actGlobal = globalThis as any;
   const priorAct = actGlobal.IS_REACT_ACT_ENVIRONMENT;
@@ -188,9 +190,15 @@ test("Commit hook must not reattach a later faithful patch to an old display rej
     }));
     let review: ReturnType<typeof useCommitDiffReview>;
     function Harness() { review = useCommitDiffReview("review-buffer", fileKey, target); return null; }
+    // The merged hook localizes its rollback dialog; render inside the
+    // provider and keep the direct-discards path this test exercises.
+    const settings = settingsStore.useSettingsStore.getState();
+    spies.push(spyOn(settingsStore.useSettingsStore, "getState").mockReturnValue({
+      ...settings, settings: { ...settings.settings, confirmBeforeDiscard: false },
+    }));
     const unseen = "a\r\nUNSEEN-LATER-EDIT\r\nc\r\n";
     afterDisplayRead = () => writeFileSync(f.file, unseen);
-    await act(async () => root.render(createElement(Harness)));
+    await act(async () => root.render(createElement(LocaleProvider, { language: "en-US", children: createElement(Harness) })));
     expect(review!.snapshot?.diff.lines.some(line => line.content === "DISPLAYED")).toBe(true);
     let result: unknown = "disabled";
     const selected = review!.blocks.find(block => block.canRollback);

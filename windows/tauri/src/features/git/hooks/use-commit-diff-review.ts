@@ -221,10 +221,13 @@ export function useCommitDiffReview(bufferId: string | null, fileKey: string,
       // The confirmed rollback only applies to the owner and snapshot it was
       // opened against; a refreshed or switched target (new owner, snapshot,
       // file, or repository) requires operating again on what is now shown.
-      // Surface the same stale error the service publishes so the user sees
-      // why the click had no effect instead of a silent no-op.
-      if (owner.current !== ownerAtConfirm
-        || (owner.current?.currentState().snapshot ?? null) !== snapshotAtConfirm) {
+      // A different owner means the review moved to another file or
+      // repository: drop the confirmation silently, because publishing the
+      // stale notice here would blame the newly shown target. Only the same
+      // owner with a refreshed snapshot is a stale target the user can still
+      // see, so only that case surfaces the error.
+      if (owner.current !== ownerAtConfirm) return "stale";
+      if ((owner.current?.currentState().snapshot ?? null) !== snapshotAtConfirm) {
         setState(previous => ({ ...previous, error: "stale" }));
         return "stale";
       }

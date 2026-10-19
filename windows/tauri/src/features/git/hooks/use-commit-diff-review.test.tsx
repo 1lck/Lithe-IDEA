@@ -166,6 +166,44 @@ test("a confirmed rollback does not survive a snapshot refresh during the dialog
   expect(result).toBe("stale");
   expect(confirm).toHaveBeenCalledTimes(1);
   expect(rollback).not.toHaveBeenCalled();
+  // The refused rollback is still about the file on screen, so the stale
+  // notice must be visible on it.
+  expect(review.error).toBe("stale");
+});
+
+test("a confirmation from the previous owner does not publish stale error onto the new file", async () => {
+  const settings = useSettingsStore.getState();
+  let releaseDialog: ((value: boolean) => void) | undefined;
+  const confirm = spyOn(dialog, "showConfirmDialog").mockImplementation(
+    () => new Promise<boolean>((resolve) => { releaseDialog = resolve; }),
+  );
+  const rollback = spyOn(statusApi, "discardHunk");
+  spies.push(confirm, rollback, spyOn(useSettingsStore, "getState").mockReturnValue({
+    ...settings, settings: { ...settings.settings, confirmBeforeDiscard: true },
+  }));
+  const nextKey = "unstaged:next.txt";
+  const nextTarget = { ...target, filePath: "next.txt" };
+  await act(async () => { root.render(<LocaleProvider language="en-US"><Harness followFile /></LocaleProvider>); });
+  const pending = review.rollback(review.blocks[0].id);
+  await act(async () => { await Promise.resolve(); });
+  // The panel switches to another file while the dialog is still open.
+  status.mockImplementation(async () => ({ branch: "main", ahead: 0, behind: 0,
+    files: [{ path: "file.txt", status: "modified", staged: false, worktree: true },
+      { path: "next.txt", status: "modified", staged: false, worktree: true }] }));
+  current = { ...current,
+    workingTreeTargets: { ...current.workingTreeTargets, [nextKey]: nextTarget },
+    workingTreeFileOrder: [{ fileKey, target }, { fileKey: nextKey, target: nextTarget }],
+    initiallySelectedFileKey: nextKey };
+  await act(async () => { root.render(<LocaleProvider language="en-US"><Harness followFile /></LocaleProvider>); });
+  releaseDialog?.(true);
+  let result: unknown;
+  await act(async () => { result = await pending; });
+  expect(result).toBe("stale");
+  expect(confirm).toHaveBeenCalledTimes(1);
+  expect(rollback).not.toHaveBeenCalled();
+  // The switched-to file had nothing to do with the refused confirmation;
+  // its notice state must stay clean instead of inheriting the stale error.
+  expect(review.error).toBeUndefined();
 });
 
 test("repeat clicks while the confirmation is open stay on one dialog", async () => {
