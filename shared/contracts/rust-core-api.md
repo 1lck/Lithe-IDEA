@@ -337,6 +337,14 @@ fresh interval. Registration stays ordered under the permission/turn locks;
 waiting and responding run in an SDK-owned task so inbound updates, additional
 permission requests and connection EOF are not blocked. Cancel, terminal prompt
 response and connection shutdown settle every pending request with `cancelled`.
+Child permissions retain both the original requester and the owning root turn.
+Registration holds the ownership lock through insertion into the permission map;
+lock order is ownership, pending permissions, then running turns. A terminal
+child or ancestor settles only that subtree's pending requests with `cancelled`,
+rejects later requests from that subtree, and leaves root and sibling permissions
+and the root prompt running. Settled requests release quiet-period accounting.
+The existing child lifecycle update also removes those prompts from the UI queue
+and refreshes its attention and tool-wait interval; no new wire event is needed.
 Initialization, session/configuration requests, pre-work failure recovery and
 cancellation acknowledgment retain their own bounded deadlines. Tool execution
 and model-request budgets belong to the upstream Agent. This policy does not
@@ -407,6 +415,31 @@ value. Counters are Agent-owned: consumers must not infer a per-turn aggregate,
 session delta or billing amount, because the adapters' accounting scopes differ.
 They must not derive these counters from context occupancy or subscription quota.
 `acp-events-v1.json` covers completion both with and without usage.
+
+The launch JSON's optional `observeSubagents` (default `false`) negotiates the
+pinned adapters' AIR v1 `nativeSubagentSessions` capability. macOS enables it;
+consumers without child-session UI omit it. Native execution and history remain
+upstream-owned. `update` preserves the immediate parent `sessionId` and the
+adapter's `subagent_spawned` payload (`subagentSessionId`, `name`, `task`,
+`capabilities`), or `subagent_state_update` payload (`subagentSessionId`, `state`).
+Ordinary child updates use the child's `sessionId`. Cycles, cross-parent
+reattachment and reuse of a known root ID are rejected. A root history reload
+clears its old child associations before upstream replay announces them again.
+The host's bounded notification shim adds these two adapter variants to the
+pinned SDK; all ordinary updates still use SDK validation. The newer SDK's
+experimental `subagent_update` draft is not wire-compatible with these adapters.
+
+Child permissions retain their original request `sessionId`, while the outer
+`permission.sessionId` identifies the owning root turn. Root cancellation,
+completion or shutdown settles all child permission waits through the existing
+permission lifecycle. Terminal children and their descendants cannot request
+new permissions. Child output and lifecycle count as actual root progress;
+child model failures never trigger a whole-root replay. Child messages and
+thoughts are scoped separately from the root reply; tool IDs are scoped by
+child session, preserving file-review evidence. Only an explicit `completed`
+state counts as success. Failed, cancelled and disconnected children do not;
+a terminal parent leaves any unreported descendant outcome disconnected.
+`acp-events-v1.json` includes nested ownership, output, tools and completion.
 
 The launch JSON's optional `observeModelCalls` (default `false`) asks the host to
 start a loopback proxy for API-key gateways or Codex subscription inference and hand the Agent

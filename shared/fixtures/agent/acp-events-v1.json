@@ -29,6 +29,73 @@
     "denyPermission": { "kind": "permission", "requestId": "permission-1", "optionId": null }
   },
   "events": {
+    "subagentSpawned": {
+      "kind": "update",
+      "sessionId": "session-1",
+      "update": {
+        "sessionUpdate": "subagent_spawned",
+        "subagentSessionId": "child-1",
+        "name": "Explore",
+        "task": "Inspect the sample project",
+        "capabilities": {}
+      }
+    },
+    "nestedSubagentSpawned": {
+      "kind": "update",
+      "sessionId": "child-1",
+      "update": {
+        "sessionUpdate": "subagent_spawned",
+        "subagentSessionId": "child-2",
+        "name": "Verify",
+        "task": "Verify the sample tests",
+        "capabilities": {}
+      }
+    },
+    "subagentMessageChunk": {
+      "kind": "update",
+      "sessionId": "child-1",
+      "update": {
+        "sessionUpdate": "agent_message_chunk",
+        "content": {
+          "type": "text",
+          "text": "The sample project contains a README."
+        }
+      }
+    },
+    "subagentThoughtChunk": {
+      "kind": "update",
+      "sessionId": "child-1",
+      "update": {
+        "sessionUpdate": "agent_thought_chunk",
+        "content": {
+          "type": "text",
+          "text": "Inspecting the sample project files."
+        }
+      }
+    },
+    "subagentToolCall": {
+      "kind": "update",
+      "sessionId": "child-1",
+      "update": {
+        "sessionUpdate": "tool_call",
+        "toolCallId": "tool-1",
+        "title": "Read README.md",
+        "kind": "read",
+        "status": "in_progress",
+        "rawInput": {
+          "path": "README.md"
+        }
+      }
+    },
+    "subagentStateUpdate": {
+      "kind": "update",
+      "sessionId": "session-1",
+      "update": {
+        "sessionUpdate": "subagent_state_update",
+        "subagentSessionId": "child-1",
+        "state": "completed"
+      }
+    },
     "authenticationRequired": {"kind": "authenticationRequired"},
     "authenticating": {"kind": "authenticating"},
     "account": {"kind": "account", "account": {"email": "person@example.test", "plan": "plus"}},

@@ -2442,8 +2442,7 @@
 "Update log" = "更新日志";
 
 /* Agent session selectors */
-"Search models" = "搜索模型";
-"No matching models" = "没有匹配的模型";
+"No models available" = "暂无可用模型";
 "Thinking level" = "思考强度";
 "Speed" = "速度";
 "Fast" = "快速";
@@ -2991,14 +2990,12 @@
 "Non-streaming responses" = "非流式响应";
 "%@ (%@ failed)" = "%@（失败 %@）";
 "Turn on Model call statistics in Agent settings and reconnect to see model calls, time to first token and output speed." = "在 Agent 设置中开启“模型调用统计”并重新连接后，可查看模型调用次数、首 token 延迟和输出速度。";
-"Model calls are observed by the local proxy. Tool time is measured by Lithe and includes permission waits." = "模型调用由本机代理观测；工具用时由 Lithe 本地计时，包含等待授权的时间。";
 "Token usage" = "Token 用量";
 "Cache hit" = "缓存命中";
 "Uncached input" = "未缓存输入";
 "Cache read" = "缓存读取";
 "Cache write" = "缓存写入";
 "Reasoning" = "推理";
-"Counts returned by the model provider for every request in this session." = "本会话所有模型请求由服务商返回的计数。";
 "Latest turn as reported by the Agent; its accounting scope depends on the Agent. Turn on Model call statistics for session totals." = "最近一轮由 Agent 上报的计数，统计口径由 Agent 决定；开启“模型调用统计”后显示整个会话的合计。";
 "System prompt" = "系统提示词";
 "Tool definitions" = "工具定义";
@@ -3162,10 +3159,6 @@
 "Session" = "会话";
 "Context tokens" = "上下文 Token";
 "Turn on Model call statistics in Agent settings and reconnect to see the MCP tools sent with each request." = "在 Agent 设置中开启模型调用统计并重新连接后，可查看每次请求携带的 MCP 工具。";
-"This conversation has not edited any files." = "本对话尚未编辑任何文件。";
-"Agent edits" = "Agent 编辑";
-"Edited files" = "已编辑文件";
-"Changed files" = "变更文件";
 "Used %@" = "已使用 %@";
 "Tools sent" = "发送的工具";
 "MCP tools sent" = "发送的 MCP 工具";
@@ -3432,3 +3425,32 @@
 "Allow" = "允许";
 "Don’t Allow" = "不允许";
 "Restart Lithe to load the updated page." = "重启 Lithe 以加载更新后的页面。";
+
+"Subagent" = "子代理";
+
+"Subagents" = "子代理";
+
+"No subagents yet" = "暂无子代理";
+
+"Subagent task" = "子代理任务";
+
+"Subagent output" = "子代理输出";
+
+"No subagent output yet" = "尚未收到子代理输出";
+
+"Disconnected" = "已断开";
+/* File context actions */
+"Add to Current Conversation · %@" = "添加到当前会话 · %@";
+"Add to Another Conversation" = "添加到其他会话";
+"New Conversation" = "新建会话";
+"Set Up Agent File Attachments…" = "设置 Agent 文件附件…";
+"Choose existing files to add to a conversation." = "请选择仍存在的文件添加到会话。";
+"Files added. Save your editor changes before sending so the Agent can read them." = "文件已添加。请在发送前保存编辑内容，以便 Agent 读取最新文件。";
+"This conversation is no longer available. Choose another conversation." = "此会话已不可用，请选择其他会话。";
+"This Agent is no longer configured. Open Agent settings to configure it." = "此 Agent 已取消配置，请打开 Agent 设置重新配置。";
+
+/* Agent activity summaries */
+"Current: %@" = "当前：%@";
+"All tasks completed" = "所有任务已完成";
+"Modified files: %lld" = "修改了 %lld 个文件";
+"Review changes" = "查看文件修改";

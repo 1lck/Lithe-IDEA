@@ -374,7 +374,7 @@ struct AgentConversationPresentationTests {
     }
 
     @Test
-    func commandSuggestionsKeepAWritingLineAtDefaultAndMinimumComposerHeights() throws {
+    func commandSuggestionsKeepTwoWritingLinesAtDefaultAndMinimumComposerHeights() throws {
         let commands = (0..<200).map {
             AgentCommand(name: "command-\($0)", description: "An upstream command with a long description", hint: nil)
         }
@@ -390,12 +390,10 @@ struct AgentConversationPresentationTests {
                         } composer: {
                             AgentComposerContent(files: files, commands: Array(commands.prefix(count)), highlightedIndex: 0,
                                                  onSelect: { _ in }, onRemoveFile: { _ in }, onFocus: {}) {
-                                Color.clear.frame(height: AgentComposerMetrics.contextHeight - 2)
-                            } editor: {
                                 TextField("Message the Agent", text: .constant("/"), axis: .vertical)
-                                    .textFieldStyle(.plain).font(.system(size: 13)).lineLimit(1...)
+                                    .textFieldStyle(.plain).font(LitheTheme.uiFont).lineLimit(AgentComposerMetrics.minimumWritingLines...)
                                     .background(AgentDraftFrameProbe { editor = $0 })
-                                    .padding(.horizontal, 8).padding(.vertical, 7)
+                                    .padding(.horizontal, 8).padding(.vertical, AgentComposerMetrics.writingVerticalInset)
                                     .frame(maxWidth: .infinity, alignment: .topLeading)
                             } toolbar: {
                                 Color.clear.frame(height: AgentComposerMetrics.toolbarHeight - 2)
@@ -418,11 +416,11 @@ struct AgentConversationPresentationTests {
                         #expect(frame.height > 0, "The actual text field must survive \(count) commands and \(files.count) attachments")
                         #expect(pane.insetBy(dx: -0.5, dy: -0.5).contains(frame), "The writing line must stay inside the sized pane")
                         if files.isEmpty, count == 0 {
-                            let inputHeight = pane.height - AgentComposerMetrics.bottomInset - (AgentComposerMetrics.contextHeight - 2)
-                            #expect(abs(inputHeight - 60) < 0.5, "A single writing line and toolbar stay compact across panel sizes")
+                            let inputHeight = pane.height - AgentComposerMetrics.bottomInset
+                            #expect(abs(inputHeight - 78) < 0.5, "Two writing lines and one toolbar stay compact without a top strip")
                         }
                         let writingScroll = try #require(enclosingScroll(of: input))
-                        #expect(writingScroll.bounds.height >= AgentComposerMetrics.writingLineHeight - 0.5)
+                        #expect(writingScroll.bounds.height >= AgentComposerMetrics.minimumWritingHeight - 0.5)
                         if count > 0 {
                             let list = try #require(commandScroll(in: host, excluding: input))
                             let listFrame = host.convert(list.bounds, from: list)
@@ -764,23 +762,6 @@ struct AgentConversationPresentationTests {
     }
 
     @Test
-    func modelSearchUsesUpstreamNamesIDsAndGroupsWithoutChangingSelection() throws {
-        let option = try #require(AgentSessionConfigOption.parse([[
-            "id": "model", "name": "Model", "category": "model", "type": "select", "currentValue": "model-b",
-            "options": [["name": "Provider", "options": [["value": "model-a", "name": "Alpha"],
-                ["value": "model-b", "name": "Béta"]]]]
-        ]]).first)
-        let filter = { AgentSessionSelectorPresentation.filteredChoices(option, query: $0).map(\.id) }
-        #expect(filter("  ") == ["model-a", "model-b"])
-        #expect(filter("alpha") == ["model-a"])
-        #expect(filter("MODEL-B") == ["model-b"])
-        #expect(filter("beta") == ["model-b"])
-        #expect(filter("Provider") == ["model-a", "model-b"])
-        #expect(filter("absent") == [])
-        #expect(option.currentValue == "model-b")
-    }
-
-    @Test
     func unknownSessionSelectorsKeepUpstreamLabelsAndChoiceDescriptions() throws {
         let option = try #require(AgentSessionConfigOption.parse([[
             "id": "custom-mode", "name": "Custom control", "category": "custom", "type": "select", "currentValue": "custom-choice",
@@ -861,7 +842,9 @@ struct AgentConversationPresentationTests {
             if let scroll = view as? NSScrollView, scroll.hasVerticalScroller { return scroll }
             return view.subviews.lazy.compactMap { verticalScroll(in: $0) }.first
         }
+        var stage = 0
         func layout(until condition: () -> Bool) async throws {
+            stage += 1
             let deadline = ContinuousClock.now.advanced(by: .seconds(2))
             repeat {
                 await withCheckedContinuation { gate in
@@ -874,19 +857,21 @@ struct AgentConversationPresentationTests {
                 }
                 if condition() { return }
             } while ContinuousClock.now < deadline
-            try #require(condition(), "Native composer failed to reach its expected content size")
+            try #require(condition(), "Native composer stage \(stage) failed: writing=\(verticalScroll(in: host)?.bounds.height ?? -1), composer=\(composer?.bounds.height ?? -1)")
         }
-        try await layout { composer != nil && verticalScroll(in: host)?.bounds.height == 32 }
+        try await layout { composer != nil && abs((verticalScroll(in: host)?.bounds.height ?? 0) - 50) < 0.5 }
         let pane = try #require(composer)
         let scroll = try #require(verticalScroll(in: host))
         let emptyHeight = pane.bounds.height
-        #expect(emptyHeight < 140, "Empty production composer must start with one writing line")
+        #expect(emptyHeight < 140, "Empty production composer must reserve two writing lines")
         #expect(abs(pane.bounds.width - (editorLayout ? 880 : 1100)) < 1)
 
         draft.text = "First line\nSecond line\nThird line\nFourth line"
-        try await layout { scroll.bounds.height > 60 && pane.bounds.height > emptyHeight + 25 }
+        try await layout { scroll.bounds.height > 60 && pane.bounds.height > emptyHeight + 15 }
         let fourLineHeight = scroll.bounds.height
         #expect(fourLineHeight < 120, "Four lines should use their natural height")
+        #expect(abs((pane.bounds.height - emptyHeight) - (fourLineHeight - 50)) < 1,
+                "The composer must grow by the additional writing height above its two-line baseline")
 
         draft.text = (0..<80).map { "Line \($0): 输入越多，书写区会增高。" }.joined(separator: "\n")
         try await layout { scroll.bounds.height > fourLineHeight && (scroll.documentView?.bounds.height ?? 0) > 700 }
@@ -899,20 +884,20 @@ struct AgentConversationPresentationTests {
 
         draft.files = [try AgentFileReference(url: URL(fileURLWithPath: "/example/project/README.md"))]
         draft.text = ""
-        try await layout { abs(scroll.bounds.height - 32) < 0.5 && pane.bounds.height > emptyHeight + 25 }
+        try await layout { abs(scroll.bounds.height - 50) < 0.5 && pane.bounds.height > emptyHeight + 25 }
         #expect(abs(pane.bounds.height - emptyHeight - 34) < 1)
         draft.files = []
         try await layout { abs(pane.bounds.height - emptyHeight) < 0.5 }
 
-        draft.text = String(repeating: "输入内容应按当前窗口宽度换行。 Draft grows with its content. ", count: 4)
-        try await layout { scroll.bounds.height > 32 }
+        draft.text = String(repeating: "输入内容应按当前窗口宽度换行。 Draft grows with its content. ", count: 8)
+        try await layout { scroll.bounds.height > 50 }
         let wideHeight = scroll.bounds.height
         window.setContentSize(NSSize(width: 320, height: 400))
         try await layout { scroll.bounds.height > wideHeight + 15 && pane.bounds.width < 321 }
         #expect(abs(pane.bounds.width - (editorLayout ? 256 : 320)) < 1)
         #expect(pane.bounds.height + AgentComposerMetrics.splitTopInset <= 400 * 0.6 + 1)
         draft.text = ""
-        try await layout { abs(scroll.bounds.height - 32) < 0.5 && abs(pane.bounds.height - emptyHeight) < 1 }
+        try await layout { abs(scroll.bounds.height - 50) < 0.5 && abs(pane.bounds.height - emptyHeight) < 1 }
     }
 
     private func enclosingScroll(of view: NSView) -> NSScrollView? {
@@ -930,12 +915,14 @@ struct AgentConversationPresentationTests {
 private final class AgentGrowingComposerDraft: ObservableObject {
     @Published var text = ""
     @Published var files: [AgentFileReference] = []
+    @Published var fileMentionRevision: UUID?
 }
 
 private struct AgentGrowingComposerFixture: View {
     @ObservedObject var draft: AgentGrowingComposerDraft
     let editorLayout: Bool
     let onComposer: (NSView) -> Void
+    var findFiles: ((String) async -> [AgentFileMention])? = nil
 
     var body: some View {
         AgentConversationLayout {
@@ -943,6 +930,7 @@ private struct AgentGrowingComposerFixture: View {
         } composer: {
             AgentComposerView(agents: [], selectedAgent: nil, isResponding: false, isBlocked: false,
                 onSend: { _, _ in }, onCancel: {}, onSelectAgent: { _ in }, onOpenSettings: {}, onError: { _ in },
+                findFiles: findFiles, fileMentionRevision: draft.fileMentionRevision,
                 draftText: $draft.text, draftFiles: $draft.files)
                 .background(AgentDraftFrameProbe(onCreate: onComposer))
                 .modifier(AgentEditorColumn(isEditor: editorLayout))
@@ -964,6 +952,87 @@ private struct AgentDraftFrameProbe: NSViewRepresentable {
 }
 
 extension AgentConversationPresentationTests {
+    @Test(arguments: ["@", "＠"], [ColorScheme.dark, .light])
+    func bareFileMentionOpensTheProductionComposerList(trigger: String, scheme: ColorScheme) async throws {
+        let draft = AgentGrowingComposerDraft()
+        let file = AgentFileMention(path: "Sources/示例.swift", url: URL(fileURLWithPath: "/example/project/Sources/示例.swift"))
+        var inventory: [AgentFileMention] = []
+        var queries: [String] = []
+        let host = NSHostingView(rootView: AgentGrowingComposerFixture(draft: draft, editorLayout: false,
+            onComposer: { _ in }, findFiles: { query in queries.append(query); return inventory })
+            .environment(\.colorScheme, scheme))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 400),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        defer { window.contentView = nil; window.close() }
+
+        func input(in view: NSView) -> NSTextField? {
+            (view as? NSTextField) ?? view.subviews.lazy.compactMap { input(in: $0) }.first
+        }
+        func list() -> NSScrollView? {
+            guard let field = input(in: host) else { return nil }
+            return commandScroll(in: host, excluding: field)
+        }
+        func layout(until condition: () -> Bool) async throws {
+            let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+            repeat {
+                await withCheckedContinuation { gate in
+                    DispatchQueue.main.async {
+                        CFRunLoopRunInMode(CFRunLoopMode.defaultMode, 0, true)
+                        host.needsLayout = true
+                        host.layoutSubtreeIfNeeded()
+                        gate.resume()
+                    }
+                }
+                if condition() { return }
+            } while ContinuousClock.now < deadline
+            try #require(condition(), "The production composer did not update its file candidates")
+        }
+        // Exercise the real binding and task before the initial workspace scan finishes.
+        draft.text = trigger
+        try await layout { !queries.isEmpty }
+        #expect(queries == [""], "Typing @ must request the workspace inventory without a keyword")
+        inventory = [file]
+        draft.fileMentionRevision = UUID()
+        try await layout { list()?.bounds.height ?? 0 >= 26 }
+        #expect(queries == ["", ""], "Loaded files must appear without deleting and retyping @")
+        let suggestions = try #require(list(), "The production composer must display file candidates for a bare @")
+        #expect(suggestions.bounds.height >= 26)
+        #expect(draft.text == trigger && draft.files.isEmpty, "Opening candidates must not attach or send a file")
+
+        if let folder = ProcessInfo.processInfo.environment["LITHE_AGENT_FILE_MENTION_SCREENSHOTS"] {
+            let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+            host.cacheDisplay(in: host.bounds, to: bitmap)
+            try #require(bitmap.representation(using: .png, properties: [:])).write(to:
+                URL(fileURLWithPath: folder).appendingPathComponent("bare-\(trigger == "@" ? "ascii" : "fullwidth")-\(scheme).png"))
+        }
+    }
+
+    @Test(arguments: ["@", "＠", "review @"])
+    func bareFileMentionSupportsSelectionDismissalAndKeywordReplacement(draft: String) {
+        let first = AgentCommand.fileMention(AgentFileMention(path: "README.md", url: URL(fileURLWithPath: "/example/project/README.md")))
+        let second = AgentCommand.fileMention(AgentFileMention(path: "Sources/示例.swift", url: URL(fileURLWithPath: "/example/project/Sources/示例.swift")))
+        var completion = AgentCommandCompletion()
+        completion.draft = draft
+        completion.setFileMentions([first, second], for: "")
+        #expect(completion.suggestions(in: []) == [first, second])
+        #expect(completion.handle(.down, commands: [], isResponding: false) == .handled)
+        #expect(completion.handle(.tab, commands: [], isResponding: false) == .attach(second))
+        #expect(completion.draft == String(draft.dropLast()))
+        #expect(completion.suggestions(in: []) == nil)
+
+        completion.draft = draft
+        completion.setFileMentions([first, second], for: "")
+        #expect(completion.handle(.escape, commands: [], isResponding: true) == .handled)
+        #expect(completion.suggestions(in: []) == nil)
+        completion.draft += "Read"
+        #expect(completion.suggestions(in: []) == nil, "Default candidates cannot be selected for a newer keyword")
+        completion.setFileMentions([first], for: "Read")
+        #expect(completion.handle(.submit, commands: [], isResponding: false) == .attach(first))
+        #expect(completion.draft == String(draft.dropLast()))
+    }
+
     @Test
     func chineseInputTriggersOpenCommandsAndSkills() {
         let commands = [AgentCommand(name: "review", description: "Review"),
