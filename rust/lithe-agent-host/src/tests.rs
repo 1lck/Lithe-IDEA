@@ -3254,6 +3254,41 @@ fn catalog_agents_resolve_to_their_install_and_key_delivery() {
 }
 
 #[test]
+fn windows_batch_shims_are_only_forwarded_to_adapters_that_shell_out() {
+    let claude = catalog::find("claude-acp").unwrap().cli.as_ref().unwrap();
+    let codex = catalog::find("codex-acp").unwrap().cli.as_ref().unwrap();
+    let tool = |path: &str| environment::DetectedTool {
+        version: "2.1.303".into(),
+        path: path.into(),
+    };
+    let shim = tool("C:/tools/claude.cmd");
+
+    let claude_shim = cli_path_env(claude, &shim);
+    if cfg!(windows) {
+        assert_eq!(claude_shim, None);
+    } else {
+        assert_eq!(
+            claude_shim,
+            Some((
+                "CLAUDE_CODE_EXECUTABLE".into(),
+                "C:/tools/claude.cmd".into()
+            ))
+        );
+    }
+    assert_eq!(
+        cli_path_env(codex, &shim),
+        Some(("CODEX_PATH".into(), "C:/tools/claude.cmd".into()))
+    );
+    assert_eq!(
+        cli_path_env(claude, &tool("C:/tools/claude.exe")),
+        Some((
+            "CLAUDE_CODE_EXECUTABLE".into(),
+            "C:/tools/claude.exe".into()
+        ))
+    );
+}
+
+#[test]
 fn invalid_settings_are_reported_without_starting_a_process() {
     let launch = |command: &str, key: &str, url: &str, protocol: ProviderProtocol| {
         custom_launch(
