@@ -6654,6 +6654,43 @@ struct EditorDocumentTests {
 
     @Test
     @MainActor
+    func closingSearchPreservesAnotherOwnersPendingPreview() async throws {
+        let workspace = URL(fileURLWithPath: "/tmp/lithe-owner-preview-tests")
+        let file = workspace.appendingPathComponent("A.swift")
+        let operations = BlockingWorkspaceOperations()
+        defer { operations.releaseA() }
+        let model = DocumentFeatureModel(operations: operations,
+            documentLifecycleDecider: PreviewExternalChangeLifecycleDecider(),
+            fileOperations: EmptyWorkspaceFileOperations(), fileStorage: InMemoryFileStorage(),
+            binaryFileViewerRegistry: BinaryFileViewerRegistry())
+        defer { model.reset() }
+        model.configure(workspaceURLProvider: { workspace }, autoSaveEnabledProvider: { false },
+            autoSaveDelayProvider: { 0 }, notify: { _ in }, onDocumentOpened: { _ in },
+            onDocumentChanged: { _ in }, onDocumentClosed: { _ in }, onRecordSave: { _, _ in },
+            onRecordDiscard: { _ in }, onRecordExternalChanges: { _ in }, onDocumentCollectionChanged: {}, onProjectCloseReady: {})
+        let search = Task { @MainActor in await model.previewDocument(at: file, owner: .searchEverywhere) }
+        defer { search.cancel() }
+        #expect(await operations.waitUntilReadingA())
+        let started = TestGate()
+        let problems = Task { @MainActor in
+            started.open()
+            return await model.previewDocument(at: file, owner: .problems)
+        }
+        defer { problems.cancel() }
+        #expect(await started.waitUntilOpen())
+        model.discardPreviewDocuments(owner: .searchEverywhere)
+        operations.releaseA()
+        #expect(await search.value == nil)
+        let document = try #require(await problems.value)
+        #expect(document.text == "A")
+        #expect(operations.readACount == 1)
+        #expect(model.editorDocuments.contains { $0 === document })
+        model.discardPreviewDocuments(owner: .problems)
+        #expect(model.editorDocuments.isEmpty)
+    }
+
+    @Test
+    @MainActor
     func externalBinaryReplacementInvalidatesOpenTabIcon() async throws {
         let workspace = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)

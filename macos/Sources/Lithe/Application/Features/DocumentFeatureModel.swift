@@ -62,7 +62,9 @@ final class DocumentFeatureModel: ObservableObject {
         didSet { pendingCloseConfirmationID = pendingCloseDocument.map { _ in UUID() } }
     }
     private(set) var pendingCloseConfirmationID: UUID?
-    private var previewDiscardID: UUID?
+    enum PreviewOwner: Hashable { case unscoped, problems, projectReplacement, searchEverywhere }
+    private var previewOwners: [String: [PreviewOwner: UUID]] = [:]
+    private var previewDiscardIDs: [String: UUID] = [:]
     private var groupCloseTask: Task<Void, Never>?
     private var groupCloseID: UUID?
     private var pendingClosePreparation: EditorClosingPreparation?
@@ -126,18 +128,32 @@ final class DocumentFeatureModel: ObservableObject {
     }
 
     /// Clean previews stay outside the tab collection until opened or edited.
-    func previewDocument(at url: URL) async -> EditorDocument? {
-        previewDiscardID = nil
+    func previewDocument(at url: URL, owner: PreviewOwner = .unscoped) async -> EditorDocument? {
+        let path = url.standardizedFileURL.path
+        if let document = openDocuments.first(where: { $0.url.standardizedFileURL.path == path }) { return document }
+        let requestID = UUID()
+        previewOwners[path, default: [:]][owner] = requestID
+        previewDiscardIDs[path] = nil
         await openFileAsync(url, isReadOnly: false, displayPath: nil, activateWhenReady: false, asPreview: true)
-        guard !Task.isCancelled else { return nil }
-        return openDocuments.first { $0.url.standardizedFileURL == url.standardizedFileURL }
-            ?? previewDocuments[url.standardizedFileURL.path]
+        if Task.isCancelled {
+            if previewOwners[path]?[owner] == requestID { releasePreview(at: path, owner: owner) }
+            return nil
+        }
+        if let document = openDocuments.first(where: { $0.url.standardizedFileURL.path == path }) { return document }
+        guard previewOwners[path]?[owner] != nil else { return nil }
+        guard let document = previewDocuments[path] else {
+            if previewOwners[path]?[owner] == requestID { releasePreview(at: path, owner: owner) }
+            return nil
+        }
+        return document
     }
 
     func promotePreviewDocument(_ document: EditorDocument) {
         let path = document.url.standardizedFileURL.path
         guard previewDocuments[path] === document else { return }
         openDocuments.append(document)
+        previewOwners[path] = nil
+        previewDiscardIDs[path] = nil
         previewDocuments[path] = nil
         processExternalChanges([document.url])
         onDocumentCollectionChanged?()
@@ -149,29 +165,36 @@ final class DocumentFeatureModel: ObservableObject {
         openDocuments + previewDocuments.values.sorted { $0.url.path < $1.url.path }
     }
 
-    func discardPreviewDocuments() {
+    func discardPreviewDocuments(owner: PreviewOwner = .unscoped) {
+        for path in Array(previewOwners.keys) { releasePreview(at: path, owner: owner) }
+    }
+
+    private func releasePreview(at path: String, owner: PreviewOwner) {
+        guard previewOwners[path]?.removeValue(forKey: owner) != nil,
+              previewOwners[path]?.isEmpty == true else { return }
+        previewOwners[path] = nil
+        if pendingFileOpenRequests[path]?.isPreview == true { pendingFileOpenRequests[path] = nil }
+        guard let document = previewDocuments[path] else { return }
         let discardID = UUID()
-        previewDiscardID = discardID
-        pendingFileOpenRequests = pendingFileOpenRequests.filter { !$0.value.isPreview }
-        for document in Array(previewDocuments.values) {
-            document.withSynchronizedEditor { [weak self, weak document] result in
-                guard let self, let document, self.previewDiscardID == discardID,
-                      self.previewDocuments[document.url.standardizedFileURL.path] === document else { return }
-                switch result {
-                case .success:
-                    if document.isDirty { self.promotePreviewDocument(document) }
-                    else {
-                        self.objectWillChange.send()
-                        self.externalChangeTasks.removeValue(forKey: document.id)?.cancel()
-                        self.externalChangeIDs.removeValue(forKey: document.id)
-                        self.previewDocuments[document.url.standardizedFileURL.path] = nil
-                        self.onDocumentCollectionChanged?()
-                    }
-                case .failure(let error):
-                    // A failed drain may hide unsent input; keep the document reachable.
-                    self.promotePreviewDocument(document)
-                    self.notify?(error.localizedDescription)
+        previewDiscardIDs[path] = discardID
+        document.withSynchronizedEditor { [weak self, weak document] result in
+            guard let self, let document, self.previewDiscardIDs[path] == discardID,
+                  self.previewOwners[path] == nil, self.previewDocuments[path] === document else { return }
+            self.previewDiscardIDs[path] = nil
+            switch result {
+            case .success:
+                if document.isDirty { self.promotePreviewDocument(document) }
+                else {
+                    self.objectWillChange.send()
+                    self.externalChangeTasks.removeValue(forKey: document.id)?.cancel()
+                    self.externalChangeIDs.removeValue(forKey: document.id)
+                    self.previewDocuments[path] = nil
+                    self.onDocumentCollectionChanged?()
                 }
+            case .failure(let error):
+                // A failed drain may hide unsent input; keep the document reachable.
+                self.promotePreviewDocument(document)
+                self.notify?(error.localizedDescription)
             }
         }
     }
@@ -276,7 +299,8 @@ final class DocumentFeatureModel: ObservableObject {
     func reset() {
         cancelEncodingChange()
         cancelPendingClose()
-        previewDiscardID = nil
+        previewOwners.removeAll()
+        previewDiscardIDs.removeAll()
         persistenceGeneration = UUID()
         for task in externalChangeTasks.values { task.cancel() }
         externalChangeTasks.removeAll()

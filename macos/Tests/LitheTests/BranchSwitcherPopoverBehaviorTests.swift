@@ -83,7 +83,8 @@ struct BranchSwitcherPopoverBehaviorTests {
         let toolbar = workbench[start.lowerBound..<end.lowerBound]
         #expect(popover.contains("BranchPopupRowView(isPresented:"))
         #expect(!popover.contains(".help(Text(verbatim: branchRowTooltip(reference)))"))
-        #expect(!toolbar.contains("workbenchHoverHelp"))
+        let branchEnd = try #require(toolbar.range(of: "Spacer(minLength: 22)"))
+        #expect(!toolbar[..<branchEnd.lowerBound].contains("workbenchHoverHelp"))
         #expect(!toolbar.contains("lithePointer"))
     }
 

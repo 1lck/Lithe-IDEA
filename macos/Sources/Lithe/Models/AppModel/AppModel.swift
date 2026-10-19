@@ -261,7 +261,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         runtime: services.moduleRuntime,
         store: moduleCapabilityStore,
         workspace: { [weak self] in self?.workspaceURL },
-        visibilityRules: { [weak self] in self?.settings.fileVisibilityRules ?? .default },
+        visibilityRules: { [weak self] in self?.settings.searchVisibilityRules ?? .default },
         onChange: { [weak self] in self?.scheduleObjectWillChangeRelay() },
         onError: { [weak self] in self?.showNotification($0) }
     )

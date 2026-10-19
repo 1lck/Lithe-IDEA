@@ -160,7 +160,7 @@ pub(crate) fn update_cached_file(root: &Path, path: &Path) {
 /// remove an arbitrary number of descendants.
 pub(crate) fn update_paths(
     root: &Path,
-    rules: &VisibilityRules,
+    _rules: &VisibilityRules,
     paths: &[String],
 ) -> UpdateOutcome {
     let entries = {
@@ -169,9 +169,8 @@ pub(crate) fn update_paths(
         };
         indexes
             .iter()
-            .filter(|(cache_key, _)| {
-                cache_key.root == root && (cache_key.names_only || **cache_key == key(root, rules))
-            })
+            // Search-only exclusions create rule variants; keep all warm variants current.
+            .filter(|(cache_key, _)| cache_key.root == root)
             .map(|(key, index)| (key.clone(), Arc::clone(index)))
             .collect::<Vec<_>>()
     };

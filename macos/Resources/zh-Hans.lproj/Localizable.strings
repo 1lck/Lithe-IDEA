@@ -3460,3 +3460,6 @@
 "All tasks completed" = "所有任务已完成";
 "Modified files: %lld" = "修改了 %lld 个文件";
 "Review changes" = "查看文件修改";
+
+"Search exclusions" = "搜索排除规则";
+"One pattern per line. Use `*.log` for log files, `**/.*/` for dot folders, `.*` for dot files, or `cache/` for a root folder. Applies to search and replace only; project files stay visible." = "每行一个表达式：`*.log` 排除日志文件，`**/.*/` 排除点开头的目录，`.*` 排除点文件，`cache/` 排除根目录下的文件夹。仅影响搜索和替换，不隐藏项目文件。";

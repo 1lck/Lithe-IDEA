@@ -1999,3 +1999,6 @@
 "All tasks completed" = "All tasks completed";
 "Modified files: %lld" = "Modified files: %lld";
 "Review changes" = "Review changes";
+
+"Search exclusions" = "Search exclusions";
+"One pattern per line. Use `*.log` for log files, `**/.*/` for dot folders, `.*` for dot files, or `cache/` for a root folder. Applies to search and replace only; project files stay visible." = "One pattern per line. Use `*.log` for log files, `**/.*/` for dot folders, `.*` for dot files, or `cache/` for a root folder. Applies to search and replace only; project files stay visible.";

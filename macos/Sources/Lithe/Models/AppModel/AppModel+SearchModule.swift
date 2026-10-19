@@ -37,9 +37,7 @@ extension AppModel {
         guard isSearchEverywhereVisible else { return }
         searchSessionFeature.endSearchEverywhere()
         searchFeatureIfActive?.clearSearchEverywhere()
-        if !searchSessionFeature.isProjectReplaceVisible {
-            documentFeature.discardPreviewDocuments()
-        }
+        documentFeature.discardPreviewDocuments(owner: .searchEverywhere)
     }
 
     func searchEverywhere(

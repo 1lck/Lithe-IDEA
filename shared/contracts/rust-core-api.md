@@ -1703,6 +1703,13 @@ need separate buckets may also provide `maxFileResults` and
 `maxContentResults`; each category is capped independently and the total cap
 still applies.
 
+macOS search-only exclusion settings reuse `hiddenFilePatterns` on search and
+replacement requests; they do not alter workspace tree visibility. The existing
+case-insensitive `*`/`?` matcher applies to a basename or root-relative path (`*`
+can span `/`). The UI expands trailing `/` to `/*` and adds the root form for
+leading `**/`. Empty user exclusions preserve the normal visibility rules.
+Watcher updates refresh all cached rule variants of the same workspace root.
+
 `workspace.searchEverywhere` uses the same query options and visibility fields,
 and additionally accepts `maxSymbolResults` and optional
 `includeGeneratedFileNames` (default `false`). Ordinary name queries match

@@ -37,7 +37,7 @@ final class SearchWorkflowCoordinator {
                 at: root,
                 query: query,
                 options: options,
-                visibilityRules: settings.fileVisibilityRules.searchRules,
+                visibilityRules: settings.searchVisibilityRules.searchRules,
                 isCurrent: { [weak session, workspace] in
                     session?.query == query && workspace() == root
                 }
@@ -55,7 +55,7 @@ final class SearchWorkflowCoordinator {
             return await feature.findFiles(
                 at: root,
                 query: query,
-                visibilityRules: settings.fileVisibilityRules.searchRules
+                visibilityRules: settings.searchVisibilityRules.searchRules
             )
         } catch {
             notify(error.localizedDescription)
@@ -71,7 +71,7 @@ final class SearchWorkflowCoordinator {
                 at: root,
                 query: query,
                 options: options,
-                visibilityRules: settings.fileVisibilityRules.searchRules,
+                visibilityRules: settings.searchVisibilityRules.searchRules,
                 isCurrent: { [weak session, workspace] in
                     session?.isSearchEverywhereVisible == true && workspace() == root
                 }

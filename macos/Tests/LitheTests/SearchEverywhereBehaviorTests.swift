@@ -8,7 +8,7 @@ import LitheGitModule
 @MainActor
 @Suite("Search Everywhere matching and preview", .serialized)
 struct SearchEverywhereBehaviorTests {
-    @Test(arguments: ["clean", "dirty", "replacement"])
+    @Test(arguments: ["clean", "dirty", "replacement", "problems", "problemsOnly"])
     func dismissingSearchReleasesOnlyUnownedCleanPreviewDocuments(ending: String) async throws {
         let suite = "lithe-search-preview-cleanup-" + UUID().uuidString
         let defaults = try #require(UserDefaults(suiteName: suite))
@@ -30,10 +30,15 @@ struct SearchEverywhereBehaviorTests {
             onDocumentCollectionChanged: {}, onProjectCloseReady: {})
         try await WorkbenchTestScope.withCleanup({ await model.shutdownProjectSession() }) { scope in
             var loaded: EditorDocument?
-            try await scope.run("load search preview") { loaded = await model.documentFeature.previewDocument(at: file) }
+            try await scope.run("load search preview") { loaded = await model.documentFeature.previewDocument(at: file, owner: ending == "problemsOnly" ? .problems : .searchEverywhere) }
             let document = try #require(loaded)
             #expect(model.documentFeature.openDocuments.isEmpty)
             if ending == "dirty" { document.applyLiveEditorText("unsaved") }
+            if ending == "replacement" || ending == "problems" {
+                let shared = await model.documentFeature.previewDocument(at: file,
+                    owner: ending == "replacement" ? .projectReplacement : .problems)
+                #expect(shared === document)
+            }
             model.searchSessionFeature.isProjectReplaceVisible = ending == "replacement"
             model.searchSessionFeature.beginSearchEverywhere(query: "name")
             model.dismissSearchEverywhere()
@@ -42,6 +47,14 @@ struct SearchEverywhereBehaviorTests {
             if ending == "dirty" {
                 #expect(model.documentFeature.openDocuments.contains { $0 === document })
                 #expect(document.text == "unsaved")
+            }
+            if ending == "replacement" || ending.hasPrefix("problems") {
+                try "external update".write(to: file, atomically: true, encoding: .utf8)
+                try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 200)], ofItemAtPath: file.path)
+                try await scope.run("refresh retained preview") { await model.documentFeature.reconcileExternalChanges([file]) }
+                #expect(document.text == "external update")
+                model.documentFeature.discardPreviewDocuments(owner: ending == "replacement" ? .projectReplacement : .problems)
+                #expect(!model.documentFeature.editorDocuments.contains { $0 === document })
             }
             if ending == "clean" {
                 var otherPreview: EditorDocument?
@@ -54,6 +67,58 @@ struct SearchEverywhereBehaviorTests {
                 model.documentFeature.discardPreviewDocuments()
             }
         }
+    }
+
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["LITHE_RUN_GIT_EXECUTION_INTEGRATION"] == "1"))
+    func searchUsesSelectedGitWithoutAnInteractiveConsoleOperation() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-search-git-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let initResult = try await TestProcess.run(executableURL: URL(fileURLWithPath: "/usr/bin/git"),
+            arguments: ["init", "--template=", "-q"], currentDirectoryURL: root)
+        try #require(initResult.terminationStatus == 0)
+        try "*.log\n".write(to: root.appendingPathComponent(".gitignore"), atomically: true, encoding: .utf8)
+        try "".write(to: root.appendingPathComponent("Name.log"), atomically: true, encoding: .utf8)
+        let executable = root.appendingPathComponent("selected-git")
+        try "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$0.calls\"\nexec /usr/bin/git \"$@\"\n"
+            .write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        let preferences = GitExecutionPreferences()
+        var options = GitExecutionOptions()
+        options.executable = executable.path
+        preferences.update(options)
+        let journal = GitExecutionJournal()
+        let core = RustCoreBridge(gitPreferences: preferences, gitExecutionJournal: journal)
+        let response = try #require(core.searchEverywhere(at: root, query: "name", caseSensitive: false,
+            wholeWords: false, regularExpression: false, maxContentResults: 0, maxSymbolResults: 0))
+        #expect(response.matches.first { $0.path == "Name.log" }?.isIgnored == true)
+        let calls = try String(contentsOfFile: executable.path + ".calls", encoding: .utf8)
+        #expect(calls.contains("check-ignore"))
+        #expect(journal.snapshot.isEmpty && journal.runningOperationIDs.isEmpty)
+    }
+
+    @Test
+    func searchExclusionsPersistWithoutHidingProjectFiles() throws {
+        let suite = "lithe-search-exclusions-" + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = MacUserDefaultsStore(defaults: defaults)
+        let settings = AppSettings(store: store)
+        #expect(settings.searchExcludedPathPatterns.isEmpty)
+        settings.searchExcludedPathPatterns = ["*.log", "**/.*/", ".*", "cache/"]
+        let restored = AppSettings(store: store)
+        #expect(restored.searchExcludedPathPatterns == settings.searchExcludedPathPatterns)
+        let root = URL(fileURLWithPath: "/fixture")
+        for path in ["Name.log", "src/Name.log", ".hidden/Name.swift", "src/.hidden/Name.swift", "src/.env", "cache/Name.swift"] {
+            let url = root.appendingPathComponent(path)
+            #expect(settings.searchVisibilityRules.isHidden(url, relativeTo: root, isDirectory: false), "\(path)")
+            #expect(!settings.fileVisibilityRules.isHidden(url, relativeTo: root, isDirectory: false), "\(path)")
+        }
+        #expect(!settings.searchVisibilityRules.isHidden(root.appendingPathComponent("src/Name.swift"), relativeTo: root, isDirectory: false))
+        settings.searchExcludedPathPatterns = []
+        #expect(AppSettings(store: store).searchExcludedPathPatterns.isEmpty)
+        #expect(settings.searchVisibilityRules == settings.fileVisibilityRules)
+        #expect(SettingsSearchVocabulary.matches(query: "Search exclusions", category: .general))
     }
 
     @Test

@@ -4,6 +4,83 @@ use serde_json::Value;
 use std::fs;
 
 #[test]
+fn search_exclusions_filter_names_content_and_replacement_and_keep_cache_variants_fresh() {
+    let root = temporary_root("search-exclusions");
+    struct Cleanup(std::path::PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
+    for path in [
+        "Name.log",
+        "src/Name.log",
+        ".cache/Name.swift",
+        "src/.cache/Name.swift",
+        "src/Name.swift",
+    ] {
+        let file = root.join(path);
+        fs::create_dir_all(file.parent().unwrap()).unwrap();
+        fs::write(file, "Name before").unwrap();
+    }
+    let query = |command: &str, excluded: bool, text: &str| -> Value {
+        let patterns = if excluded {
+            vec!["*.log", "**/.*/*", ".*/*"]
+        } else {
+            vec![]
+        };
+        let response: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "command": command, "payload": {"root": root, "query": text,
+                    "replacement": "changed", "maxResults": 100, "maxSymbolResults": 0,
+                    "includeGeneratedFileNames": true, "hiddenFilePatterns": patterns}
+            })
+            .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(response["ok"], true, "{response}");
+        response["data"].clone()
+    };
+    for command in [
+        "workspace.search",
+        "workspace.searchEverywhere",
+        "workspace.replacePreview",
+    ] {
+        let data = query(command, true, "Name");
+        let items = data[if command == "workspace.replacePreview" {
+            "files"
+        } else {
+            "matches"
+        }]
+        .as_array()
+        .unwrap();
+        assert!(!items.is_empty(), "{command}");
+        assert!(
+            items.iter().all(|item| item["path"] == "src/Name.swift"),
+            "{data}"
+        );
+    }
+    assert!(!query("workspace.search", false, "before")["matches"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+    fs::write(root.join("src/Name.swift"), "Name after").unwrap();
+    crate::project::files::update_search_index(
+        serde_json::from_value(serde_json::json!({
+            "root": root, "paths": ["src/Name.swift"]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    for excluded in [false, true] {
+        let data = query("workspace.search", excluded, "after");
+        assert_eq!(data["matches"].as_array().unwrap().len(), 1, "{data}");
+        assert_eq!(data["matches"][0]["path"], "src/Name.swift");
+    }
+}
+
+#[test]
 fn search_everywhere_uses_git_ignore_rules_for_filename_foreground() {
     let root = temporary_root("everywhere-ignore-status");
     struct Cleanup(std::path::PathBuf);
@@ -31,13 +108,19 @@ fn search_everywhere_uses_git_ignore_rules_for_filename_foreground() {
     fs::write(root.join(".git/info/exclude"), "name-local.dat\n").unwrap();
     let paths = [
         ".build/Name.swift",
-        "name ignore\nspace.tmp",
+        "name ignore space.tmp",
         "name-tracked.tmp",
         "name-keep.tmp",
         "name-local.dat",
         "name-normal.swift",
     ];
-    for path in paths {
+    #[cfg(unix)]
+    let paths = {
+        let mut paths = paths.to_vec();
+        paths.push("name ignore\nspace.tmp");
+        paths
+    };
+    for path in &paths {
         fs::write(root.join(path), "").unwrap();
     }
     git(&["add", "-f", "name-tracked.tmp"]);
@@ -56,10 +139,9 @@ fn search_everywhere_uses_git_ignore_rules_for_filename_foreground() {
     let matches = response["data"]["matches"].as_array().unwrap();
     for path in paths {
         let item = matches.iter().find(|item| item["path"] == path).unwrap();
-        let ignored = matches!(
-            path,
-            ".build/Name.swift" | "name ignore\nspace.tmp" | "name-local.dat"
-        );
+        let ignored = path == ".build/Name.swift"
+            || path.starts_with("name ignore")
+            || path == "name-local.dat";
         assert_eq!(item["isIgnored"], ignored, "{path}");
     }
 }

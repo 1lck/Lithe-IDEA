@@ -14,7 +14,7 @@ enum ProjectReplacementComposition {
             },
             overrides: { [weak model] root in model?.openDocumentTextOverrides(rootURL: root) ?? [:] },
             visibilityRules: { [weak model] in
-                model?.settings.fileVisibilityRules.searchRules
+                model?.settings.searchVisibilityRules.searchRules
                     ?? SearchVisibilityRules(hiddenDirectoryNames: [], hiddenFilePatterns: [])
             },
             recordHistory: { [weak model] text, url in

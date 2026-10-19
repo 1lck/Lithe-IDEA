@@ -34,6 +34,7 @@ final class AppSettings: ObservableObject {
         static let terminalShellPathOverride = "settings.terminalShellPathOverride"
         static let hiddenDirectories = "settings.hiddenDirectories"
         static let hiddenFilePatterns = "settings.hiddenFilePatterns"
+        static let searchExcludedPathPatterns = "settings.searchExcludedPathPatterns"
         static let gitExecutable = "settings.gitExecutable"
         static let gitUseCredentialHelper = "settings.gitUseCredentialHelper"
         static let gitFetchOptions = "settings.gitFetchOptions"
@@ -119,6 +120,9 @@ final class AppSettings: ObservableObject {
             defaults.set(hiddenFilePatterns, forKey: Key.hiddenFilePatterns)
             notifyFileVisibilityRulesObservers()
         }
+    }
+    @Published var searchExcludedPathPatterns: [String] {
+        didSet { defaults.set(searchExcludedPathPatterns, forKey: Key.searchExcludedPathPatterns) }
     }
     let gitExecutionPreferences = GitExecutionPreferences()
     @Published var gitExecutable: String {
@@ -232,6 +236,7 @@ final class AppSettings: ObservableObject {
             ?? FileVisibilityRules.default.hiddenDirectoryNames
         hiddenFilePatterns = defaults.stringArray(forKey: Key.hiddenFilePatterns)
             ?? FileVisibilityRules.default.hiddenFilePatterns
+        searchExcludedPathPatterns = defaults.stringArray(forKey: Key.searchExcludedPathPatterns) ?? []
         gitExecutable = defaults.string(forKey: Key.gitExecutable) ?? ""
         gitUseCredentialHelper = defaults.object(forKey: Key.gitUseCredentialHelper) as? Bool ?? true
         var savedFetchOptions = defaults.data(forKey: Key.gitFetchOptions)
@@ -358,6 +363,18 @@ final class AppSettings: ObservableObject {
         return id
     }
 
+    /// Search-only globs never change project-tree or file-watcher visibility.
+    var searchVisibilityRules: FileVisibilityRules {
+        let patterns = searchExcludedPathPatterns.flatMap { value -> [String] in
+            let pattern = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !pattern.isEmpty else { return [] }
+            let glob = pattern.hasSuffix("/") ? pattern + "*" : pattern
+            return glob.hasPrefix("**/") ? [glob, String(glob.dropFirst(3))] : [glob]
+        }
+        return FileVisibilityRules(hiddenDirectoryNames: hiddenDirectoryNames,
+            hiddenFilePatterns: hiddenFilePatterns + patterns)
+    }
+
     var fileVisibilityRules: FileVisibilityRules {
         FileVisibilityRules(
             hiddenDirectoryNames: hiddenDirectoryNames,
@@ -400,6 +417,7 @@ final class AppSettings: ObservableObject {
         terminalShellPathOverride = ""
         hiddenDirectoryNames = FileVisibilityRules.default.hiddenDirectoryNames
         hiddenFilePatterns = FileVisibilityRules.default.hiddenFilePatterns
+        searchExcludedPathPatterns = []
         gitFetchOptions = GitFetchOptions()
         gitExecutable = ""
         gitUseCredentialHelper = true

@@ -3954,7 +3954,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 timeoutMilliseconds: nil,
                 command: command,
                 payload: payload,
-                gitExecution: observesGit ? gitOptions : nil
+                gitExecution: (observesGit || command == "workspace.searchEverywhere") ? gitOptions : nil
             )
         ),
         let request = String(data: requestData, encoding: .utf8),
