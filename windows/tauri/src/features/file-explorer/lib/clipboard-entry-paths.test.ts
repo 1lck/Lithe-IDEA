@@ -71,6 +71,25 @@ describe("shouldPasteFileClipboardPaths", () => {
     ).toBe(false);
   });
 
+  // The backend reports 0 when the platform has no change counter, so 0 must be
+  // treated as "unknown": two zero readings are not evidence that nothing changed.
+  test("treats a zero counter as unknown and defers to the clipboard text", () => {
+    expect(
+      shouldPasteFileClipboardPaths({
+        entryCount: 1,
+        sourceSequence: 0,
+        currentSequence: 0,
+      }),
+    ).toBe(false);
+    expect(
+      shouldPasteFileClipboardPaths({
+        entryCount: 1,
+        sourceSequence: 0,
+        currentSequence: 42,
+      }),
+    ).toBe(false);
+  });
+
   test("defers when either reading is unavailable", () => {
     expect(
       shouldPasteFileClipboardPaths({

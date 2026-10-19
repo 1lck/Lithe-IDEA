@@ -24,8 +24,8 @@ export function clipboardEntryPaths(entries: readonly { path: string }[]): strin
  * text identical but the counter different, and only the counter can tell them
  * apart.
  *
- * A missing counter means the platform cannot answer, so the caller keeps the
- * previous behavior and pastes the clipboard text.
+ * A zero or missing counter means the platform cannot answer, so the caller keeps
+ * the previous behavior and pastes the clipboard text.
  */
 export function shouldPasteFileClipboardPaths({
   entryCount,
@@ -37,6 +37,10 @@ export function shouldPasteFileClipboardPaths({
   currentSequence: number | null;
 }): boolean {
   if (entryCount === 0) return false;
-  if (sourceSequence === null || currentSequence === null) return false;
+  // The backend reports 0 when the platform has no change counter, so 0 means
+  // "unknown" rather than a valid reading. Without a real counter the recency of
+  // the copy cannot be judged, and guessing would let stale paths win over text
+  // the user copied last.
+  if (!sourceSequence || !currentSequence) return false;
   return currentSequence === sourceSequence;
 }
