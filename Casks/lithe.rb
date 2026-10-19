@@ -20,9 +20,8 @@ cask "lithe" do
   app "Lithe.app"
 
   # This project tap intentionally clears quarantine after the verified download.
-  postflight do
-    system_command "/usr/bin/xattr",
-                   args: ["-dr", "com.apple.quarantine", "#{appdir}/Lithe.app"]
+  postflight_steps do
+    run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{appdir}}/Lithe.app"]
   end
 
   uninstall quit: "app.lithe.desktop"
