@@ -48,6 +48,21 @@ final class SearchWorkflowCoordinator {
         }
     }
 
+    func findFiles(query: String) async -> [URL] {
+        guard let root = workspace() else { return [] }
+        do {
+            let feature = try await activate()
+            return await feature.findFiles(
+                at: root,
+                query: query,
+                visibilityRules: settings.fileVisibilityRules.searchRules
+            )
+        } catch {
+            notify(error.localizedDescription)
+            return []
+        }
+    }
+
     func searchEverywhere(query: String, options: ProjectSearchOptions) async {
         guard let root = workspace() else { return }
         do {

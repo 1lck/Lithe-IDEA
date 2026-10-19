@@ -15,7 +15,7 @@ extension AppModel {
                       self.isCurrentWorkspace(identity),
                       feature.moduleSessions.contains(where: { $0.executionID == session.executionID && $0.isRunning })
                 else { throw CancellationError() }
-                let sessions = try await self.languageSessionsForWorkspaceMaintenance()
+                let sessions = try await self.languageSessionsForWorkspaceMaintenance(for: identity)
                 guard self.isCurrentWorkspace(identity) else { throw CancellationError() }
                 try await sessions.buildJavaServiceUpdate(target: target, fileURL: source, rootURL: identity.url)
             }
@@ -137,6 +137,7 @@ extension AppModel {
         )
         guard let execution = await activateExecutionModule() else { return }
         guard isCurrentWorkspace(identity) else { return }
+        loadBuildSystems(execution)
         execution.tests.discover(workspaceURL: target, files: files)
         await execution.projectDevelopment.loadProject(
             at: target,
@@ -416,7 +417,7 @@ extension AppModel {
                 message: "The Java source for \(configuration.name) could not be resolved."
             )
         }
-        let sessions = try await languageSessionsForWorkspaceMaintenance()
+        let sessions = try await languageSessionsForWorkspaceMaintenance(for: identity)
         guard isCurrentWorkspace(identity), !Task.isCancelled else {
             throw CancellationError()
         }

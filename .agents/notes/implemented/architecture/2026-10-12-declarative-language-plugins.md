@@ -23,7 +23,7 @@
 ### 1. 契约放在 shared，执行放在 Rust Core
 
 - `shared/contracts/plugins/v1/` 定义 `plugin.json`（`schemaVersion: 2`）的字段、权限、激活事件、命令模板变量、错误码和状态语义，并提供合法样例、非法样例（附期望错误码）和命令展开的标准答案。schema 1 是已退役的 macOS 原生清单。
-- 兼容性只看 `pluginAPIVersion`（声明式插件 API 级别，当前为 1），不再用写死的 `BuiltInPluginCatalog.hostVersion = 0.3.0` 冒充宿主版本。
+- 兼容性只看 `pluginAPIVersion`（声明式插件 API 级别），不再用写死的 `BuiltInPluginCatalog.hostVersion = 0.3.0` 冒充宿主版本。级别 3 起清单还按能力分版本，见[声明式插件按能力分版本](2026-10-17-plugin-capability-versions.md)。
 - 校验和模板展开是两端共享的确定性逻辑，按仓库规则放进 Rust Core，通过 `plugins.declarative.validate`、`runPlan`、`discoverTests`、`testPlan` 四个命令暴露。命令是纯函数：宿主每次把清单和请求传进去，Core 不读包、不读工作区。清单内容问题以 `{status: "rejected", error: {code}}` 返回稳定的 `plugin.*` 错误码；只有请求格式错误才是 Core 失败。
 - Windows 现有扩展清单暂未改造，契约 README 给出字段对照；Windows 接入时必须通过同一组 fixture。
 
@@ -81,7 +81,7 @@ gopls 把 `fmt.Println` 的定义指向 `GOROOT/src/fmt/print.go`，Intelephense
 
 插件与宿主二进制解耦，可以独立发布和拆仓库；同一份声明可供两端使用；启用、禁用不再需要重启；崩溃后不再误隔离插件。宿主侧原来散落的 PHP 特判（工具目录、包校验器、LSP 中心提示）改为由声明驱动。
 
-代价：声明只能表达契约里定义的能力，需要新能力（新模板变量、新运行时依赖、新权限）时必须升级 `pluginAPIVersion` 并同时更新 Rust 实现、schema、fixture 和两端宿主；旧原生 PHP 用户需要手动点一次重新安装；本机真实 PHPUnit 集成测试依赖 PHP 与 Composer，未安装时只能运行 Intelephense 那一半。
+代价：声明只能表达契约里定义的能力，需要新能力（新模板变量、新运行时依赖、新权限）时，级别 1、2 必须升级 `pluginAPIVersion`，级别 3 起只升级对应能力的版本，两种情况都要同时更新 Rust 实现、schema、fixture 和两端宿主；旧原生 PHP 用户需要手动点一次重新安装；本机真实 PHPUnit 集成测试依赖 PHP 与 Composer，未安装时只能运行 Intelephense 那一半。
 
 ## 验证
 

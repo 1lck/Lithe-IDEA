@@ -336,13 +336,3 @@ jobs:
           gh release upload $env:RELEASE_TAG @assets `
             --repo $env:GITHUB_REPOSITORY --clobber
           if ($LASTEXITCODE -ne 0) { throw "Could not upload Windows release assets" }
-
-  sync-atomgit:
-    name: Sync Windows release to AtomGit
-    needs: [release, publish]
-    if: github.event_name != 'workflow_dispatch' || inputs.publish
-    uses: ./.github/workflows/sync-atomgit-release.yml
-    with:
-      tag: ${{ needs.release.outputs.tag }}
-    secrets:
-      ATOMGIT_TOKEN: ${{ secrets.ATOMGIT_TOKEN }}

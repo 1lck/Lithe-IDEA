@@ -79,6 +79,11 @@ function Invoke-TimedRustTests {
                 "tests::git::git_write_deletes_a_local_commit_",
                 "tests::git::git_write_edits_a_local_commit_message_",
                 "tests::git::git_write_updates_a_noncurrent_branch_without_switching_head",
+                "tests::git_patch_exchange::patch_exchange_detects_index_flags_and_hidden_destination_edits",
+                "tests::git_patch_exchange::patch_exchange_rejects_stale_preview_and_forward_conflicts_without_writing",
+                "tests::git_patch_exchange::patch_exchange_roundtrips_renames_deletes_and_platform_file_modes",
+                "tests::git_patch_exchange::patch_exchange_snapshot_roundtrip_preserves_index_and_binary_files",
+                "tests::git_patch_exchange::patch_exchange_distinguishes_sources_and_commit_direction",
                 "tests::git_patch_exchange::patch_metadata_can_list_an_oversized_export_before_selecting_a_small_subset"
             )) {
                 $arguments += @("--test-budget", "${prefix}=30000")
@@ -86,6 +91,12 @@ function Invoke-TimedRustTests {
             # This six-commit conflict/skip/squash case reached the 30s cutoff
             # on a hosted Windows runner without an assertion failure.
             $arguments += @("--test-budget", "tests::git_history_rewrite::native_rebase_skip_omits_conflicted_message_from_later_squash=45000")
+            # Four preview/apply cycles preserve staged, working, untracked and
+            # binary bytes; this real-Git roundtrip measured 52.7s on Windows.
+            $arguments += @("--test-budget", "tests::git_patch_exchange::patch_exchange_reverse_roundtrip_preserves_both_versions_and_untracked_bytes=60000")
+            # These retained-path Shelf cases also perform four preview/apply cycles.
+            $arguments += @("--test-budget", "tests::git_patch_exchange::shelf_roundtrip_preserves_staged_deletions_with_retained_paths=60000")
+            $arguments += @("--test-budget", "tests::git_patch_exchange::shelf_roundtrip_preserves_staged_rename_with_recreated_source=60000")
         }
         return $arguments
     }

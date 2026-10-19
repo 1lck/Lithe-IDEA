@@ -197,6 +197,18 @@ Lithe 使用 `BranchPopupRowView` 包装原有 SwiftUI 行，保留共享 `Lithe
 可能超出自身边界；只检查可见区会把同一窗口内多行同时判为悬停。
 回归检查固定窗口鼠标位置、移动原生滚动区，确认 hover 随当前行转移，
 已打开动作菜单的行仍保留高亮，不添加全局滚轮监听或每行滚动观察器。
+固定行的宽高由外层布局分配，标签直接留在父级 SwiftUI 树中，透明的
+`BranchPopupRowTracker` 只承担原生鼠标、点击及无障碍交互，不再给每行嵌套
+`NSHostingView`。仅关闭内部宿主的自动尺寸约束不足以修复 #1277：窗口失焦时，
+悬停展开仍可能在布局过程中更新宿主，反复请求约束计算。PR #1298 已替代该候选方案：
+状态未变化时跳过刷新；`updateNSView` 和 `updateTrackingAreas` 引起的悬停展开更新
+合并到布局结束后执行，脱离窗口时取消，换窗后重新安排；真实鼠标事件仍立即响应。
+Stash/Shelf 复用同一边界，独立展开宿主继续测量完整名称。
+`layoutReentrantUpdatesDeferHoveredExpansionRendering`、
+`trackingAreaRebuildsDuringLayoutDeferHoverRendering` 和
+`pendingRefreshFollowsTheRowAcrossWindows` 检查布局重入、跟踪区域重建和换窗行为。
+#1298 作者报告 macOS 27.2 前后台切换与滚动实测通过；本地其他系统上的定向回归
+不能替代该环境的验收，也不能把旧固有尺寸检查表述为崩溃已经消除。
 原先附加 `.help` 的做法只提供独立文字提示，不能复现这种原位展开，因此移除。
 `BranchSwitcherPopoverBehaviorTests` 检查深浅选中底色、尺寸、无须展开的行、
 动作和禁用行为；悬停必须实际创建可见子窗口，检查完整内容、原行位置、
@@ -221,18 +233,20 @@ Lithe 使用 `BranchPopupRowView` 包装原有 SwiftUI 行，保留共享 `Lithe
 
 ### 分支弹窗尺寸
 
-只有顶部的分支弹窗在右边缘提供拖动调整宽度的入口。共享呈现器只为传入
-宽度绑定的自定义弹窗安装已有 `SplitHandleInteractionView` 原生分隔条命中组件，
-普通菜单不安装；其他调用点不传宽度绑定。右侧 10pt 命中区使用水平调整光标。
-命中区与 `NSHostingView` 放在同一个原生容器中，由这个容器统一拥有宽度。
-不能只设置 AppKit `NSPanel` 的 resizable 标志，因为无边框窗口不会因此提供
-可用的边缘拖动入口；还必须避免宿主的理想宽度把窗口改回默认值。
+只有顶部的分支弹窗传入尺寸绑定。共享呈现器为它安装透明的原生边缘命中层，
+普通菜单不安装；内容中央继续把事件交给搜索框、分支行与滚动区。
+对照 Community `c7f91397daa3a961b4e78bc634fe467a0a7d9ade` 的
+`GitBranchesPopupBase.kt` → `WizardPopup.java` → `AbstractPopup.java` →
+`WindowResizeListenerEx.kt` / `WindowMouseListenerSupport.kt`：分支弹窗可移动、可调整尺寸，
+macOS 四边命中区为 8pt，角落沿相邻边扩展至 16pt；角落优先，中央不命中。
+同一个方向判断决定光标与拖动，避免出现能显示光标却不能调整的边缘。
+宽度单独启用时只处理左右边，不拦截上下边。
 
 弹窗是独立窗口，不能嵌入工作台内部的 `LitheSplitPaneView` 分隔布局。
 复用原生命中组件的屏幕坐标和 `LitheDragUpdateScheduler` 事件合并，
 拖动只调整原生窗口框架，不向工作台逐帧发布宽度。
-默认及最小宽度沿用 375pt，最大宽度受窗口右侧的屏幕可用区域限制。初始高度由内容决定；
-右侧两个角增加宽高联动拖动，最小高度取 Community `GitBranchesPopupBase` 的 312pt，
+默认及最小宽度沿用 375pt，最大宽度受拖动方向的屏幕可用区域限制。初始高度由内容决定；
+四角支持宽高联动拖动，最小高度取 Community `GitBranchesPopupBase` 的 312pt，
 最大高度受对应方向的屏幕边界限制。搜索框固定在顶部；其下的操作项、分隔线和分支列表共用一个滚动区，
 不能只让 Recent／Local 等分支分组滚动。缩小弹窗后操作项也能滚出视口，
 各行高度不变，保留原默认弹窗高度。
@@ -245,25 +259,28 @@ Lithe 使用 `BranchPopupRowView` 包装原有 SwiftUI 行，保留共享 `Lithe
 明确的高度约束，避免宿主在下一轮布局恢复理想高度。
 不能只修改窗口 frame 而忽略约束，否则看似执行了缩放，显示时又被改回。
 
-右侧两个角复用 `ProjectReplaceCornerHandleView` 的稳定屏幕坐标和清理逻辑。
-依据同一 Community revision 的 `platform/platform-impl/src/com/intellij/ui/WindowMouseListenerSupport.kt`
-与 `WindowResizeListener.java`，右上角使用 `NE_RESIZE_CURSOR`（东北—西南），
-右下角使用 `SE_RESIZE_CURSOR`（西北—东南）；macOS 15 起只在分支弹窗覆盖为
-原生 `NSCursor.frameResize`，较旧系统复用现有斜向光标，其他控件的光标不变。
-分支角落跟踪使用 `activeAlways`，不依赖非激活弹窗先获得键盘焦点；
-弹窗启用鼠标移动事件，在事件分发后按原生命中区设置调整光标，防止子视图
-覆盖它。回归通过真实窗口发送鼠标移动事件，要求第一次点击之前光标就正确。
-10pt 角落命中区盖在右边缘上，仅分支弹窗显式启用；两轴用同一次合并更新改变
-原生窗口，左侧固定，右上角拖动固定底边，右下角拖动固定顶边。
-松开后同步被拖动的原生锚点：向下打开时更新右上角移动后的顶边，
-向上打开时更新右下角移动后的底边，内容刷新不能把它拉回拖动前的位置。
+四边和四角共用 `ProjectReplaceCornerHandleView` 的屏幕坐标拖动与清理逻辑，
+由 `LitheDropdownResizeHandle` 限制边缘命中；不建立覆盖内容中央的光标矩形或跟踪区。
+JBR `46a54ec335a03d317fb2298b84a823e8ecfaceef` 的 `CCursorManager.m`
+将东西、南北方向映射到 AppKit 水平、垂直双向箭头；Lithe 使用相同的公开 AppKit 光标。
+对角线直接使用同一 JBR 映射的 `NSCursor.javaResizeNE/NW/SE/SW()`。
+这些方法由 macOS SDK 的公开系统框架 `JavaRuntimeSupport/JRSCursor.h` 声明，
+通过 `import JavaRuntimeSupport` 和产品目标的 `.linkedFramework("JavaRuntimeSupport")` 显式链接使用，无需运行 Java、复制系统图片或动态调用 selector。
+先前将它们当作私有接口并以 SF Symbols 近似是不准确的；只导入 AppKit 时类别尚未加载，
+不能据此判断接口不存在。此类别声明不会触发 Swift 编译产物自动链接该框架，
+只加 import 会造成 unrecognized selector；必须保留 Package.swift 的显式框架链接，
+并在真实测试可执行文件中设置光标。保留系统原始图案、尺寸和热点，不用 `frameResize` 或通用斜箭头替代。
+四角原生鼠标事件测试逐一比较对应系统光标的 TIFF 图像、逻辑尺寸及热点。
+弹窗在鼠标事件分发后设置边缘光标；回到内容区时释放调整光标，保留输入框的 I-beam。
+拖动某条边时只改变对应轴，并固定相反边；角落同时改变两轴。
+松开后同步原生锚点的水平与垂直位移，内容刷新不能把弹窗拉回拖动前的位置。
 连续拖动以 `display: false` 修改原生窗口，把重绘交给 AppKit 下次绘制周期；
 不能每个鼠标事件都同步刷新窗口。初次打开、普通菜单和持久化流程不受影响。
 松开才更新宽高绑定并通过 `WorkbenchLayoutStore` 保存到当前项目的布局。
 新增可选字段兼容旧布局，不改变侧栏和 Maven 面板尺寸的保存方式。
 其他项目使用自己的宽高；屏幕变窄时只限制显示尺寸，不在打开弹窗时覆盖保存值。
 `ContextMenuCoverageTests` 经真实窗口发送按下、拖动、松开事件，检查原生命中、
-两个角的原生光标、相反边固定、尺寸限制、松开回调及刷新保宽，
+四角的方向光标、相反边固定、尺寸限制、松开回调及刷新保宽，
 用连续 20 次原生拖动事件确认只合并交付一次且拖动中不保存，
 并确认普通弹窗没有拖动命中区。该计时不代表复杂工作区的帧流畅度验收。
 该检查必须启用原生约束引擎并强制布局；先前同步宿主未启用它，曾误报通过。

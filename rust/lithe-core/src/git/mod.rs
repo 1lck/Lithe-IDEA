@@ -665,6 +665,9 @@ pub struct GitPushPreviewRequest {
 /// Request for a structured diff suitable for side-by-side rendering.
 pub struct GitDiffRequest {
     pub root: String,
+    /// Inspect a saved stash, including its untracked parent, independently of the worktree.
+    #[serde(default)]
+    pub stash_reference: Option<String>,
     pub pathspecs: Vec<String>,
     #[serde(default)]
     pub reference: Option<String>,
@@ -1507,7 +1510,21 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
             return resolve_operation(&root, &request.operation)
         }
         "stashApply" | "stashDrop" => {
-            let reference = validated_stash_reference(request.reference.as_deref())?;
+            let requested = validated_stash_reference(request.reference.as_deref())?;
+            // Resolve immutable selections under the repository write lease. Older
+            // callers may still supply a positional stash reference.
+            let reference = if matches!(requested.len(), 40 | 64)
+                && requested.bytes().all(|byte| byte.is_ascii_hexdigit())
+            {
+                stash_reference_for_oid(&root, &requested)?.ok_or_else(|| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "The selected stash no longer exists",
+                    )
+                })?
+            } else {
+                requested
+            };
             if request.operation == "stashApply" {
                 return apply_stash(&root, &reference);
             }
@@ -1517,7 +1534,21 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
             arguments = vec!["stash".into(), action.into(), reference];
         }
         "stashPop" => {
-            let reference = validated_stash_reference(request.reference.as_deref())?;
+            let requested = validated_stash_reference(request.reference.as_deref())?;
+            // Resolve immutable selections under the repository write lease. Older
+            // callers may still supply a positional stash reference.
+            let reference = if matches!(requested.len(), 40 | 64)
+                && requested.bytes().all(|byte| byte.is_ascii_hexdigit())
+            {
+                stash_reference_for_oid(&root, &requested)?.ok_or_else(|| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "The selected stash no longer exists",
+                    )
+                })?
+            } else {
+                requested
+            };
             return pop_stash(&root, &reference);
         }
         _ => {
@@ -1867,6 +1898,28 @@ pub fn diff(request: GitDiffRequest) -> Result<GitDiffResponse, CoreError> {
     }
 
     let root = validate_root(&request.root)?;
+    if let Some(reference) = request.stash_reference.as_deref() {
+        let oid = resolve_commit_revision(&root, &validated_stash_reference(Some(reference))?)?;
+        let arguments = vec![
+            "stash".into(),
+            "show".into(),
+            "--include-untracked".into(),
+            "--format=".into(),
+            "--binary".into(),
+            "--full-index".into(),
+            "--no-ext-diff".into(),
+            format!("--unified={}", request.context_lines),
+            oid,
+        ];
+        let output = capture_git_with_options(&root, &arguments, None, true)?;
+        if output.exit_code != 0 {
+            return Err(
+                CoreError::new(ErrorCode::ProcessFailed, "Could not inspect saved stash")
+                    .with_details(String::from_utf8_lossy(&output.stderr).to_string()),
+            );
+        }
+        return Ok(structured_diff_from_output(output));
+    }
     if request.worktree_snapshot {
         if request.reference.is_some()
             || request.empty_tree_base
@@ -3239,7 +3292,7 @@ pub fn stashes(request: GitStashesRequest) -> Result<GitStashesResponse, CoreErr
             "stash".to_string(),
             "list".to_string(),
             "--date=iso".to_string(),
-            "--pretty=format:%gd%x1f%gs%x1f%ad".to_string(),
+            "--pretty=format:%gd%x1f%gs%x1f%ad%x1f%H".to_string(),
         ],
         input: None,
     })?;
@@ -7027,6 +7080,12 @@ fn parse_stash(line: &str) -> Option<GitStashResponse> {
         .to_string();
     Some(GitStashResponse {
         reference: reference.to_string(),
+        oid: columns
+            .get(3)
+            .copied()
+            .unwrap_or_default()
+            .trim()
+            .to_string(),
         message,
         branch,
         date: columns[2].trim().to_string(),

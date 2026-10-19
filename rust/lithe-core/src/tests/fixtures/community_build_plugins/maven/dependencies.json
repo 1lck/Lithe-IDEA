@@ -1,0 +1,69 @@
+{
+  "format": "litheDependencies",
+  "version": 1,
+  "dependencies": [
+    {
+      "name": "reactor",
+      "group": "demo",
+      "version": "1.0.0-SNAPSHOT",
+      "properties": {
+        "kind": "project",
+        "packaging": "pom"
+      },
+      "children": []
+    },
+    {
+      "name": "core",
+      "group": "demo",
+      "version": "1.0.0-SNAPSHOT",
+      "properties": {
+        "kind": "project",
+        "packaging": "jar"
+      },
+      "children": [
+        {
+          "name": "junit",
+          "group": "junit",
+          "version": "4.13.2",
+          "scope": "test",
+          "properties": {
+            "type": "jar"
+          },
+          "children": [
+            {
+              "name": "hamcrest-core",
+              "group": "org.hamcrest",
+              "version": "1.3",
+              "scope": "test",
+              "properties": {
+                "type": "jar"
+              },
+              "children": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "app",
+      "group": "demo",
+      "version": "1.0.0-SNAPSHOT",
+      "properties": {
+        "kind": "project",
+        "packaging": "jar"
+      },
+      "children": [
+        {
+          "name": "core",
+          "group": "demo",
+          "version": "1.0.0-SNAPSHOT",
+          "scope": "compile",
+          "properties": {
+            "type": "jar"
+          },
+          "children": []
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,36 @@
+{
+  "id": "java-gradle-project-import",
+  "area": "Java",
+  "group": "Java/Gradle",
+  "capability": "在 Gradle 工作区显式声明 Buildship 导入开关，并把 Gradle 工程结构纳入 Windows 工作区指纹。声明的开关与 JDT LS 默认值相同，导入结果不变；实际行为变化是 settings.gradle 或 wrapper 描述文件变化时换用新的 JDT 数据目录",
+  "macos": {
+    "evidence": [
+      "rust/lithe-core/src/lsp/languages/jdt.rs",
+      "rust/lithe-core/src/lsp/interface/engine.rs",
+      "macos/Sources/Lithe/Platform/MacOS/Plugins/HostIntegrations/Jdt/MacJdtHostIntegration.swift",
+      "macos/Sources/Lithe/Models/AppModel/AppModel+BuildSystems.swift",
+      "macos/Sources/LitheExecutionModule/Services/BuildSystemService.swift",
+      "macos/Sources/Lithe/Core/Rust/RustLanguageServerRuntimeAdapter.swift",
+      "macos/Tests/LitheLanguageIntelligenceModuleTests/LanguageIntelligenceModuleTests.swift"
+    ],
+    "implementationStatus": "partial",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "rust/lithe-core/src/lsp/languages/jdt.rs",
+      "rust/lithe-core/src/lsp/interface/engine.rs",
+      "windows/tauri/src-tauri/src/lsp.rs",
+      "windows/tauri/src-tauri/src/lsp/jdt_workspace.rs",
+      "windows/tauri/src/features/editor/lsp/java-lsp-host-api.ts",
+      "windows/tauri/src/features/editor/lsp/resolve-editor-lsp-launch.ts",
+      "windows/tauri/src/features/editor/lsp/resolve-editor-lsp-launch.test.ts",
+      "windows/tauri/src/platform/lsp-core-adapter.ts",
+      "windows/tauri/src/platform/lsp-core-adapter.test.ts"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Java / Gradle",
+  "verification": "单元测试覆盖配置形状与透传：rust/lithe-core 断言存在 Gradle 上下文时初始化选项携带 java.import.gradle、无 wrapper 描述文件时省略 wrapper 字段、无 Gradle 上下文时不下发 java.import、按 section 查询返回对应取值、叶子合并保留调用方已声明的 offline 与 version；windows/tauri 的 lsp 测试断言工作区指纹识别 settings.gradle 与 gradle/wrapper/gradle-wrapper.properties 且忽略 gradle.properties，仅有 gradlew 脚本时不认为存在 wrapper，纯 Maven 工作区不产生 Gradle 上下文；TS 测试断言有上下文时原样转发、无上下文时为 null。待实机验证：在 Windows 打开一个带 wrapper 描述文件的 Gradle 工程，确认 JDT LS 经 Buildship 导入工程、依赖解析完成，源码可跳转、补全与语义高亮到 Gradle 依赖中的类型；改动 settings.gradle 的模块结构后重开工程，确认指纹变化触发重新导入；改写 gradle.properties 后重开，确认不触发冷导入。macOS 已通过构建插件的 languageImport 声明消费 Core 归一化的 wrapperPresent/offline/userHome，启动前等待配置并类型化转交 javaGradle，不按插件 ID 或 buildSystemID 特判；选项变化在下次会话启动生效，没有插件输入时仍按 Buildship 默认值导入。macOS 工作区指纹尚未纳入额外 Gradle 结构文件，故保持 partial；需在带该声明的插件启用/停用、改选项和关闭再重开项目时验证导入行为，真实 JDT 验收尚未运行。"
+}

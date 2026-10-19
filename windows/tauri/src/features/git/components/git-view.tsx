@@ -1,3 +1,4 @@
+import { GitSavedChanges } from "./stash/git-saved-changes";
 import { isChangelistStorageEvent } from "../api/git-changelist-storage";
 import { GitChangelistBar } from "./git-changelist-bar";
 import {
@@ -6,7 +7,10 @@ import {
   workspaceChangelists,
 } from "../stores/git-changelists.store";
 import { useWorkspaceCommitStore } from "../stores/git-workspace-commit.store";
-import { commitDiffWritePending, subscribeCommitDiffWrites } from "../runtime/commit-diff-write-state";
+import {
+  commitDiffWritePending,
+  subscribeCommitDiffWrites,
+} from "../runtime/commit-diff-write-state";
 import { changelistCommitScope, fileChangelist } from "../utils/git-changelists";
 import { workspaceCommitBindings } from "../utils/git-workspace-commit-bindings";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -33,6 +37,7 @@ import {
 import { useTranslation } from "@/i18n/locale-provider";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { Button } from "@/ui/button";
+import Select from "@/ui/select";
 import { CommandEmpty, CommandItemBadge, CommandItemRow, CommandList } from "@/ui/command";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from "@/ui/empty";
 import { Spinner } from "@/ui/spinner";
@@ -58,6 +63,7 @@ import { getRemotes } from "../api/git-remotes-api";
 import { applyStash, dropStash, popStash } from "../api/git-stash-api";
 import { initRepository } from "../api/git-status-api";
 import { useGitCommitAreaResize } from "../hooks/use-git-commit-area-resize";
+import { useGitSavedChangesOperations } from "../hooks/use-git-saved-changes-operations";
 import { useGitDataController } from "../hooks/use-git-data-controller";
 import { useGitDiffActions } from "../hooks/use-git-diff-actions";
 import { useGitPullWorkflow } from "../hooks/use-git-pull-workflow";
@@ -100,6 +106,8 @@ type GitPaletteAction =
 
 const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
   const { t } = useTranslation();
+  const [commitTab, setCommitTab] = useState<"commit" | "stash">("commit");
+  const [includeParentReferences, setIncludeParentReferences] = useState(true);
   const gitStatus = useGitStore((state) => state.gitStatus);
   const isLoadingGitData = useGitStore((state) => state.isLoadingGitData);
   const isRefreshing = useGitStore((state) => state.isRefreshing);
@@ -244,15 +252,26 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
   );
   const workflow = useWorkspaceCommitStore((state) => state.workflow);
   const batch = useSyncExternalStore(workflow.subscribe, workflow.getState, workflow.getState);
-  const diffWritePending = useSyncExternalStore(subscribeCommitDiffWrites, commitDiffWritePending, commitDiffWritePending);
-  const changelistsBusy =
-    isStaging || diffWritePending ||
+  const diffWritePending = useSyncExternalStore(
+    subscribeCommitDiffWrites,
+    commitDiffWritePending,
+    commitDiffWritePending,
+  );
+  const {
+    busy: savedChangesBusy,
+    workspaceBusy: savedChangesWorkspaceBusy,
+    startOperation: startSavedChangesOperation,
+  } = useGitSavedChangesOperations(activeRepoPath);
+  const commitWorkflowBusy =
+    isStaging ||
+    diffWritePending ||
     batch.busy ||
     Boolean(batch.review) ||
     Boolean(batch.session && !batch.session.succeeded);
+  const changelistsBusy = commitWorkflowBusy || savedChangesWorkspaceBusy;
   const commitSelectedFiles = useMemo(
     () =>
-      (changelistsUnavailable ? [] : gitStatus?.files ?? []).filter(
+      (changelistsUnavailable ? [] : (gitStatus?.files ?? [])).filter(
         (file) =>
           file.staged &&
           fileChangelist(changelists, file, activeRepoPath ?? undefined) === changelists.activeId,
@@ -650,7 +669,40 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
     return (
       <>
         <SidebarPanel>
-          <SidebarTitleBar title={t("workbench.commit")}>
+          <SidebarTitleBar
+            title={
+              <div className="flex min-w-0 flex-1 items-center gap-2" role="tablist">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={commitTab === "commit"}
+                  className={
+                    commitTab === "commit"
+                      ? "border-b-2 border-primary py-1"
+                      : "py-1 text-subtle-foreground"
+                  }
+                  disabled={savedChangesBusy}
+                  onClick={() => setCommitTab("commit")}
+                >
+                  {t("workbench.commit")}
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={commitTab === "stash"}
+                  className={
+                    commitTab === "stash"
+                      ? "border-b-2 border-primary py-1"
+                      : "py-1 text-subtle-foreground"
+                  }
+                  disabled={savedChangesBusy}
+                  onClick={() => setCommitTab("stash")}
+                >
+                  {t("git.saved.tab")}
+                </button>
+              </div>
+            }
+          >
             {renderActionsButton()}
           </SidebarTitleBar>
           {repoPath ? (
@@ -682,9 +734,7 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
     return (
       <>
         <SidebarPanel>
-          <SidebarTitleBar title={t("workbench.commit")}>
-            {renderActionsButton()}
-          </SidebarTitleBar>
+          <SidebarTitleBar title={t("workbench.commit")}>{renderActionsButton()}</SidebarTitleBar>
           <Spinner label={t("git.loadingGitStatus")} showLabel compact className="m-auto" />
         </SidebarPanel>
         {renderGitActionsMenu({ hasGitRepo: false, onRefresh: handleManualRefresh })}
@@ -714,9 +764,7 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
     return (
       <>
         <SidebarPanel>
-          <SidebarTitleBar title={t("workbench.commit")}>
-            {renderActionsButton()}
-          </SidebarTitleBar>
+          <SidebarTitleBar title={t("workbench.commit")}>{renderActionsButton()}</SidebarTitleBar>
           <GitRepositoryEmptyState
             root={activeRepoPath}
             context="changes"
@@ -733,23 +781,96 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
 
   return (
     <>
-      <SidebarPanel className="font-sans ui-text-sm select-none">
-        <SidebarTitleBar title={t("workbench.commit")}>
-          {renderRefreshButton()}
+      <SidebarPanel className="git-commit-tool-window font-sans ui-text-sm select-none">
+        <SidebarTitleBar
+          className="h-[41px] border-b border-border pl-2 pr-2.5 [&>h2]:pl-0"
+          title={
+            <div className="flex min-w-0 items-center gap-2" role="tablist">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={commitTab === "commit"}
+                className="git-commit-tab"
+                disabled={savedChangesBusy}
+                onClick={() => setCommitTab("commit")}
+              >
+                {t("workbench.commit")}
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={commitTab === "stash"}
+                className="git-commit-tab"
+                disabled={savedChangesBusy}
+                onClick={() => setCommitTab("stash")}
+              >
+                Stash
+              </button>
+            </div>
+          }
+        >
           {renderActionsButton()}
         </SidebarTitleBar>
         {showLoadError && loadError}
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden isolate">
+        {commitTab === "stash" && activeRepoPath ? (
+          <GitSavedChanges
+            root={activeRepoPath}
+            disabled={commitWorkflowBusy}
+            operationBusy={savedChangesBusy}
+            onOperationStart={() => startSavedChangesOperation(activeRepoPath)}
+            onRefresh={handleManualRefresh}
+          />
+        ) : null}
+        <div
+          className={
+            commitTab === "commit"
+              ? "flex min-h-0 flex-1 flex-col overflow-hidden isolate"
+              : "hidden"
+          }
+        >
           <div ref={changesAreaRef} className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
             <GitOperationBanner repoPath={activeRepoPath} />
-            <GitChangelistBar
-              workspace={changelistWorkspace}
-              disabled={changelistsBusy || changelistsUnavailable}
-            />
             <GitStatusPanel
+              header={
+                <GitChangelistBar
+                  workspace={changelistWorkspace}
+                  disabled={changelistsBusy || changelistsUnavailable}
+                  includeParentReferences={includeParentReferences}
+                  onIncludeParentReferencesChange={setIncludeParentReferences}
+                />
+              }
+              toolbarLeading={renderRefreshButton()}
+              toolbarTrailing={
+                <div className="flex min-w-0 items-center justify-end gap-1">
+                  {repositoryPaths.length > 1 && (
+                    <Select
+                      size="xs"
+                      variant="ghost"
+                      value={activeRepoPath ?? ""}
+                      onChange={(path) =>
+                        useRepositoryStore.getState().actions.selectRepository(path)
+                      }
+                      options={repositoryPaths.map((path) => ({
+                        value: path,
+                        label: path.split(/[\\/]/).pop() ?? path,
+                      }))}
+                      aria-label={t("git.selectRepository")}
+                      className="min-w-0 flex-1"
+                      triggerClassName="!w-full !px-1"
+                    />
+                  )}
+                  <span
+                    className="min-w-0 truncate text-subtle-foreground"
+                    style={{ fontSize: "calc(var(--ui-text-sm) - 2.5px)" }}
+                    title={gitStatus.branch}
+                  >
+                    {gitStatus.branch}
+                  </span>
+                </div>
+              }
               changelists={changelists}
               changelistsDisabled={changelistsBusy}
-              stagingDisabled={changelistsUnavailable}
+              stagingDisabled={changelistsUnavailable || changelistsBusy}
               onMoveToChangelist={(files, id) => {
                 if (!changelistsBusy)
                   useGitChangelistsStore
@@ -767,6 +888,7 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
                 updateSourceControlSession({ collapsedSections: [...sections].sort() })
               }
               onFileSelect={handleGitFileClick}
+              onPreviewFile={handleViewFileDiff}
               onOpenPath={handleOpenGitPath}
               onViewDiff={(scope) => void handleViewWorkingTreeDiff(scope)}
               onViewFilesDiff={(filePaths) => void handleViewWorkingTreeDiff("all", filePaths)}
@@ -789,7 +911,7 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
           <SidebarFooter
             ref={commitAreaRef}
             style={commitAreaResize.commitAreaStyle}
-            className="mx-0 mb-0 rounded-none border-0 border-t border-border"
+            className="mx-0 mb-0 rounded-none border-0 border-t border-border pb-0"
           >
             <div
               role="separator"
@@ -804,6 +926,7 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
             />
 
             <GitCommitPanel
+              includeParentReferences={includeParentReferences}
               pathScope={pathScope}
               commitScopeError={
                 changelistsUnavailable
@@ -813,7 +936,7 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
                     : undefined
               }
               selectedFiles={commitSelectedFiles}
-              isStaging={isStaging || diffWritePending}
+              isStaging={isStaging || diffWritePending || savedChangesWorkspaceBusy}
               workspacePath={repoPath ?? activeRepoPath ?? ""}
               repositoryPaths={
                 repositoryPaths.length ? repositoryPaths : activeRepoPath ? [activeRepoPath] : []
@@ -824,11 +947,6 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
               }
               currentBranch={gitStatus.branch}
               repoPath={activeRepoPath}
-              ahead={gitStatus.ahead}
-              behind={gitStatus.behind}
-              onPull={handlePull}
-              isPulling={pullWorkflow.isPulling}
-              isPullLocked={pullWorkflow.isPullLocked}
               focusRequest={commitFocusRequest}
             />
           </SidebarFooter>

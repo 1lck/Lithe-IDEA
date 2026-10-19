@@ -272,16 +272,6 @@ See [Repository ownership and sharing boundaries](./.agents/notes/implemented/ar
 <table>
   <tr>
     <td width="112" align="center">
-      <a href="https://pateway.ai/?ch=68i69k">
-        <img src="./docs/assets/sponsors/patewayai-logo.png" width="112" alt="PatewayAI">
-      </a>
-    </td>
-    <td>
-      <a href="https://pateway.ai/?ch=68i69k"><strong>PatewayAI</strong></a> provides official-source API relay for Claude, GPT, and leading Chinese models, with transparent billing and enterprise-level services. Sign up for trial credits and take part in periodic free-credit campaigns. Thank you to PatewayAI for supporting Lithe!
-    </td>
-  </tr>
-  <tr>
-    <td width="112" align="center">
       <a href="https://www.packyapi.ai/register?aff=dWNN">
         <img src="./docs/assets/sponsors/packycode.png" width="112" alt="PackyCode">
       </a>
@@ -297,7 +287,7 @@ See [Repository ownership and sharing boundaries](./.agents/notes/implemented/ar
       </a>
     </td>
     <td>
-      <a href="https://torchai.ai/sign-up?aff=FdkE"><strong>TorchAI</strong></a> provides large language model relay services for developers who need convenient API access across coding, content, and automation scenarios. Its support helps sustain Lithe's development and exploration of practical AI-powered tools. Thank you to TorchAI for supporting this project!
+      <a href="https://torchai.ai/sign-up?aff=FdkE"><strong>TorchAI</strong></a> provides convenient large language model relay access for coding, content, and automation. Thank you to TorchAI for supporting Lithe!
     </td>
   </tr>
   <tr>
@@ -307,7 +297,7 @@ See [Repository ownership and sharing boundaries](./.agents/notes/implemented/ar
       </a>
     </td>
     <td>
-      <a href="https://www.ccsub.net/register?ref=FKVAWH6E"><strong>CCSub</strong></a> provides access to Claude, GPT, Gemini, and DeepSeek through one API key, with support for Claude Code, Codex, Cursor, and other AI coding tools. New users receive $5 in trial credit. Thank you to CCSub for supporting Lithe!
+      <a href="https://www.ccsub.net/register?ref=FKVAWH6E"><strong>CCSub</strong></a> provides Claude, GPT, Gemini, and DeepSeek access through one API key, with support for major AI coding tools. New users receive $5 in trial credit.
     </td>
   </tr>
   <tr>
@@ -317,7 +307,7 @@ See [Repository ownership and sharing boundaries](./.agents/notes/implemented/ar
       </a>
     </td>
     <td>
-      <a href="https://dash.clidex.dev"><strong>Clidex</strong></a> builds AI infrastructure for creators, with API access for native AI command-line tools at just 0.8% of official API pricing. Bring AI into your daily development workflow with Clidex. Thank you to Clidex for supporting Lithe and its continued development!
+      <a href="https://dash.clidex.dev"><strong>Clidex</strong></a> provides AI infrastructure and API access for native AI command-line tools at just 0.8% of official pricing. Thank you to Clidex for supporting Lithe!
     </td>
   </tr>
   <tr>
@@ -327,7 +317,7 @@ See [Repository ownership and sharing boundaries](./.agents/notes/implemented/ar
       </a>
     </td>
     <td>
-      <a href="https://www.atlascloud.ai/zh"><strong>Atlas Cloud</strong></a> provides AI model relay services with access to <strong>over 400 models</strong>. Its broad model selection gives developers more options to explore, compare, and choose models for their applications through one platform. Thank you to Atlas Cloud for supporting Lithe and the continued improvement of its AI-assisted development experience!
+      <a href="https://www.atlascloud.ai/zh"><strong>Atlas Cloud</strong></a> provides AI model relay services with access to <strong>over 400 models</strong>, giving developers more options through one platform. Thank you to Atlas Cloud for supporting Lithe!
     </td>
   </tr>
   <tr>
@@ -337,7 +327,7 @@ See [Repository ownership and sharing boundaries](./.agents/notes/implemented/ar
       </a>
     </td>
     <td>
-      <a href="https://codezsy.com/register?aff=fDyA"><strong>CodeZ</strong></a> focuses on stable relay access to GPT-family models, offering developers a straightforward way to integrate model APIs into their tools and projects. Its sponsorship contributes to the ongoing development and maintenance of Lithe. Thank you to CodeZ for supporting this project!
+      <a href="https://codezsy.com/register?aff=fDyA"><strong>CodeZ</strong></a> provides stable relay access to GPT-family models for integrating model APIs into tools and projects. Thank you to CodeZ for supporting Lithe!
     </td>
   </tr>
   <tr>
@@ -347,7 +337,7 @@ See [Repository ownership and sharing boundaries](./.agents/notes/implemented/ar
       </a>
     </td>
     <td>
-      <a href="https://app.rainyun.com/apps/rcs/392785/detail?view=info"><strong>RainYun</strong></a> offers cloud servers for deploying applications, hosting websites, and running development and test environments. Thank you to RainYun for supporting Lithe and its continued development!
+      <a href="https://app.rainyun.com/apps/rcs/392785/detail?view=info"><strong>RainYun</strong></a> offers cloud servers for application deployment, website hosting, and development environments. Thank you to RainYun for supporting Lithe!
     </td>
   </tr>
 </table>
@@ -375,7 +365,7 @@ If Lithe is useful to you, you are welcome to buy the project a cup of coffee. E
 
 <p align="center">
   <a href="https://linux.do/">
-    <img src="./docs/assets/special-thanks/linux-do.png" width="78%" alt="LINUX DO">
+    <img src="./docs/assets/special-thanks/linux-do.png" width="42%" alt="LINUX DO">
   </a>
 </p>
 
@@ -398,5 +388,5 @@ Lithe is licensed under the [Apache License 2.0](./LICENSE).
 ## Star History
 
 <a href="https://www.star-history.com/#1lck/Lithe-IDEA&Date">
-  <img alt="Star History Chart" src="https://raw.githubusercontent.com/1lck/Lithe-IDEA/chart-assets/star-history-light.svg" />
+  <img alt="Star History Chart" src="https://raw.githubusercontent.com/1lck/Lithe-IDEA/chart-assets/star-history-light.svg" width="100%" />
 </a>

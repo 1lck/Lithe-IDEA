@@ -56,7 +56,7 @@ private enum WorkbenchTopBarMetrics {
     static let projectAvatarCenterX = leadingInset + projectAvatarLeadingInset + projectAvatarSize / 2
 }
 
-private enum WorkbenchFrameGradient {
+enum WorkbenchFrameGradient {
     static let coordinateSpace = "workbenchFrame"
     static let width: CGFloat = 600
     static let height: CGFloat = 300
@@ -75,7 +75,7 @@ private struct WorkbenchToolbarGlowKey: EnvironmentKey {
     static let defaultValue = LitheTheme.titlebar
 }
 
-private extension EnvironmentValues {
+extension EnvironmentValues {
     var workbenchToolbarGlow: Color {
         get { self[WorkbenchToolbarGlowKey.self] }
         set { self[WorkbenchToolbarGlowKey.self] = newValue }
@@ -211,6 +211,7 @@ struct WorkbenchView: View {
     @Environment(\.projectWindowScope) private var projectWindowScope
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @StateObject private var toolWindowDrag = ToolWindowDragState()
+    @StateObject private var toolContentStore = WorkbenchToolContentStore()
     @State private var sidebarWidth: CGFloat = 320
     @State private var rightSidebarWidth: CGFloat = 380
     @State private var mavenPaneWidth = CGFloat(WorkbenchLayout.defaultMavenPaneWidth)
@@ -244,6 +245,7 @@ struct WorkbenchView: View {
             HStack(spacing: 0) {
                 activityBar
                 workspaceArea
+                    .workbenchToolContentLayers(store: toolContentStore) { toolWindowDropOverlay }
                     .padding(.trailing, WorkbenchLayoutMetrics.workspaceTrailingInset)
             }
             .frame(maxHeight: .infinity)
@@ -1317,7 +1319,7 @@ struct WorkbenchView: View {
 
     private func openTool(_ tool: WorkbenchFeatureModel.ToolWindow) {
         if let entry = contribution(for: tool) {
-            if entry.text == nil && model.workbenchFeature.isVisible(tool) {
+            if !entry.hasDeclarativeContent && model.workbenchFeature.isVisible(tool) {
                 model.workbenchFeature.setVisibility(tool, isVisible: false)
             } else { moduleUIRegistry.perform(entry, model: model) }
         }
@@ -1437,7 +1439,18 @@ struct WorkbenchView: View {
         if tool == .references { LanguageReferencesView() }
         else if tool == .spring { SpringEndpointsView() }
         else if let tool, let entry = contribution(for: tool), let renderer = moduleUIRegistry.renderer(for: entry) {
-            ModuleToolContent(rendererID: renderer.id, contentIdentity: renderer.contentIdentity(model), content: renderer.content(model)).equatable()
+            let content = ModuleToolContent(rendererID: renderer.id,
+                contentIdentity: renderer.contentIdentity(model), content: renderer.content(model)).equatable()
+            if tool == .gitLog || tool == .terminal {
+                RetainedWorkbenchToolPane(store: toolContentStore, tool: tool, content: content
+                    .environmentObject(model).environmentObject(settings).environmentObject(projectSessions)
+                    .environment(\.projectWindowScope, projectWindowScope),
+                    contentIdentity: renderer.contentIdentity(model),
+                    onActivate: tool == .terminal ? { model.activeToolTerminalSession?.focus() } : nil,
+                    showsFrameGradient: usesIDEAFrameExperiment)
+            } else {
+                content
+            }
         }
     }
 
@@ -1555,7 +1568,6 @@ struct WorkbenchView: View {
             rightTool: { dockContent(on: .right) }
         )
         .background(ToolWindowWorkspaceAnchor(drag: toolWindowDrag, sideWidths: [.left: sidebarWidth, .right: mavenPaneWidth]))
-        .overlay { toolWindowDropOverlay.allowsHitTesting(false) }
     }
 
     @ViewBuilder
@@ -2138,14 +2150,16 @@ extension View {
         background: Color,
         surrounding: Color,
         roundsCorners: Bool = true,
-        showsFrameGradient: Bool = false
+        showsFrameGradient: Bool = false,
+        frameInWorkbench: CGRect? = nil
     ) -> some View {
         modifier(
             WorkbenchPaneChromeModifier(
                 background: background,
                 surrounding: surrounding,
                 roundsCorners: roundsCorners,
-                showsFrameGradient: showsFrameGradient
+                showsFrameGradient: showsFrameGradient,
+                frameInWorkbench: frameInWorkbench
             )
         )
     }
@@ -2156,6 +2170,7 @@ private struct WorkbenchPaneChromeModifier: ViewModifier {
     let surrounding: Color
     let roundsCorners: Bool
     let showsFrameGradient: Bool
+    let frameInWorkbench: CGRect?
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.workbenchToolbarGlow) private var toolbarGlow
 
@@ -2174,7 +2189,7 @@ private struct WorkbenchPaneChromeModifier: ViewModifier {
                     GeometryReader { proxy in
                         let radius = WorkbenchWorkspaceMetrics.paneCornerRadius
                         let half = radius / 2
-                        let paneFrame = proxy.frame(in: .named(WorkbenchFrameGradient.coordinateSpace))
+                        let paneFrame = frameInWorkbench ?? proxy.frame(in: .named(WorkbenchFrameGradient.coordinateSpace))
                         ZStack {
                             notch(.topLeading, offset: paneFrame.origin).position(x: half, y: half)
                             notch(.topTrailing, offset: CGPoint(x: paneFrame.maxX - radius, y: paneFrame.minY))

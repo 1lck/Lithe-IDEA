@@ -57,8 +57,10 @@ public struct AgentCommand: Identifiable, Equatable, Sendable {
     public var id: String { name }
     /// Codex lists skills as `$name` commands; they are mentioned as `$name`, not `/$name`.
     public var isSkill: Bool { name.hasPrefix("$") }
+    /// A workspace file offered for an `@` mention; selecting it attaches the file.
+    public var isFileMention: Bool { name.hasPrefix("@") }
     /// Text the composer inserts to invoke the command.
-    public var invocation: String { isSkill ? name : "/" + name }
+    public var invocation: String { isSkill || isFileMention ? name : "/" + name }
 
     public init(name: String, description: String, hint: String? = nil) {
         self.name = name
@@ -82,11 +84,35 @@ public struct AgentCommand: Identifiable, Equatable, Sendable {
         }
     }
 
+    /// A completion row for a workspace file; the description is its folder.
+    public static func fileMention(_ file: AgentFileMention) -> Self {
+        let folder = (file.path as NSString).deletingLastPathComponent
+        return Self(name: "@" + file.path, description: folder)
+    }
+
+    /// Chinese input methods type `¥`/`￥` on the `$` key and `、` on the `/` key.
+    static func trigger(_ character: Character) -> Character? {
+        switch character {
+        case "/", "、": "/"
+        case "$", "¥", "￥": "$"
+        default: nil
+        }
+    }
+
+    /// The file query after an `@` that starts the draft's last word, or nil when
+    /// the draft does not end in a mention. `user@host` is not a mention.
+    public static func mentionQuery(in draft: String) -> String? {
+        guard let last = draft.last, !last.isWhitespace,
+              let word = draft.split(whereSeparator: \.isWhitespace).last,
+              word.first == "@" || word.first == "＠" else { return nil }
+        return String(word.dropFirst())
+    }
+
     /// Commands matching the token being typed, or nil when the draft is not a
     /// command prefix. `/` lists every command; `$` lists only skills, and only
     /// when the agent advertises some, so a literal `$` is not intercepted.
     public static func suggestions(for draft: String, in commands: [Self]) -> [Self]? {
-        guard let trigger = draft.first, trigger == "/" || trigger == "$" else { return nil }
+        guard let first = draft.first, let trigger = trigger(first) else { return nil }
         let candidates = trigger == "$" ? commands.filter(\.isSkill) : commands
         guard !candidates.isEmpty else { return nil }
         let query = draft.dropFirst().lowercased()
@@ -97,5 +123,17 @@ public struct AgentCommand: Identifiable, Equatable, Sendable {
         let prefixed = candidates.filter { key($0).hasPrefix(query) }
         let contained = candidates.filter { !key($0).hasPrefix(query) && key($0).contains(query) }
         return prefixed + contained
+    }
+}
+
+/// A workspace file found for an `@` mention in the composer.
+public struct AgentFileMention: Equatable, Sendable {
+    /// Workspace-relative path with `/` separators.
+    public let path: String
+    public let url: URL
+
+    public init(path: String, url: URL) {
+        self.path = path
+        self.url = url
     }
 }

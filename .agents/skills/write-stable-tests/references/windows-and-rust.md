@@ -62,7 +62,22 @@ suite deadline and Core's nested 20-second request deadline remain in force.
 The `tests::git_patch_exchange::patch_metadata_can_list_an_oversized_export_before_selecting_a_small_subset`
 case also gets 30 seconds because it writes and inspects a real file larger
 than the 32 MiB patch limit; Windows CI terminated it at 16.1 seconds under
-the default 15-second limit. Core rebase requests use a nested 20-second
+the default 15-second limit. The `tests::git_patch_exchange::` cases for hidden
+destination edits, stale previews, rename/delete/file-mode roundtrips, and
+index/binary snapshot roundtrips each get 30 seconds: their real-Git setup and
+multiple preview/apply operations measured 19 to 24 seconds on Windows and
+reached the default 15-second watchdog again without a concurrent build.
+`patch_exchange_reverse_roundtrip_preserves_both_versions_and_untracked_bytes`
+gets 60 seconds after measuring 52.7 seconds across four preview/apply cycles.
+The retained-path Shelf roundtrips (`shelf_roundtrip_preserves_staged_deletions_with_retained_paths`
+and `shelf_roundtrip_preserves_staged_rename_with_recreated_source`) use the same
+60-second allowance for four preview/apply cycles; the deletion and rename
+cases measured 51.8 and 54.9 seconds on Windows. `patch_exchange_distinguishes_sources_and_commit_direction`
+gets 30 seconds after its real-Git source exports passed assertions but took
+15.1 seconds under the default 15-second process budget.
+Each patch request still has its own 15-second deadline, and the enclosing
+suite deadline remains unchanged. Both SharedRust and the real-JDT lane use
+these narrowly scoped budgets. Core rebase requests use a nested 20-second
 deadline. The workspace commit submodule publication test also gets 30 seconds
 because it creates two local remotes and runs multiple real Git pushes. Other
 multi-repository coverage includes

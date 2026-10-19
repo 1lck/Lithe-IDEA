@@ -484,7 +484,20 @@ public struct PluginManifest: Equatable, Codable, Sendable {
     /// Declarative plugin API levels this host supports. Rust Core enforces
     /// the same list (`SUPPORTED_PLUGIN_API_VERSIONS`) when it validates a
     /// manifest; the Lithe application version plays no part.
-    public static let supportedDeclarativeAPIVersions: Set<Int> = [1, 2]
+    public static let supportedDeclarativeAPIVersions: Set<Int> = [1, 2, 3]
+    /// Capability versions of API level 3 this host runs, sent to Rust Core
+    /// as `hostCapabilities`. Core then refuses, and the marketplace hides, a
+    /// level 3 plugin that requires anything else. Validating a capability is
+    /// not running it, so an entry is added only with its host support.
+    public static let hostCapabilities: [String: [Int]] = [
+        "buildSystems": [1],
+        "executionProviders": [1],
+        "languageServers": [1],
+        "languages": [1],
+        "serverProcess": [1],
+        "settings": [1],
+        "ui": [1, 2]
+    ]
 
     public let schemaVersion: Int
     public let id: PluginID

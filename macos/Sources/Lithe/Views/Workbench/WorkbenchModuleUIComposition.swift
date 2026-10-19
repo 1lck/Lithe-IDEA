@@ -61,10 +61,15 @@ enum WorkbenchModuleUIComposition {
     }
 
     static func registry(for catalog: ValidatedPluginCatalog, iconResources: [String: PluginUIIconResources] = [:]) throws -> WorkbenchModuleUIRegistry {
-        let declarations = catalog.manifests.filter { $0.entrypoint.kind == .declarative }
-            .flatMap(\.modules).filter { !$0.contributions.isEmpty }
+        let plugins = catalog.manifests.filter { $0.entrypoint.kind == .declarative }
+        let declarations = plugins.flatMap(\.modules).filter { !$0.contributions.isEmpty }
+        // Build-system windows are derived from the declaration, not
+        // declared by the plugin, and share one host view.
+        let buildSystemModules = Set(plugins.map { ModuleID.buildSystemsExtension($0.id.rawValue) })
         var registry = try WorkbenchModuleUIRegistry(registrations: registrations + declarations.map {
-            WorkbenchModuleUIRegistry.declarativeRegistration($0, iconResources: iconResources)
+            buildSystemModules.contains($0.manifest.id)
+                ? WorkbenchModuleUIRegistry.buildSystemRegistration($0, iconResources: iconResources)
+                : WorkbenchModuleUIRegistry.declarativeRegistration($0, iconResources: iconResources)
         })
         registry.registerIcons(declarations.flatMap(\.contributions), resources: iconResources)
         return registry
@@ -233,7 +238,8 @@ enum WorkbenchModuleUIComposition {
                             openProjectInCurrentWindow: { [weak model] in model?.openProject($0, placement: .thisWindow) },
                             openProjectInNewWindow: { [weak model] in model?.openProject($0, placement: .newWindow) },
                             temporaryDirectory: { [storage = model.services.fileStorage] in storage.temporaryDirectory() }
-                        )
+                        ),
+                        presentationCache: model.gitLogPresentationCache
                     ))
                 },
                 contentIdentity: { WorkbenchModuleUIRegistry.Renderer.featureIdentity($0.gitFeatureIfActive) }
@@ -270,43 +276,27 @@ enum WorkbenchModuleUIComposition {
     private static let executionRegistration = WorkbenchModuleUIRegistry.Registration(
         contributions: ExecutionModule.moduleContributions,
         actions: [
-            .init(id: "execution.maven.toggle", perform: { $0.toggleMaven() }, activateOwner: { await $0.activateExecutionModule() != nil }),
-            .init(id: "execution.maven.output.toggle", perform: { $0.workbenchFeature.toggleVisibility(.mavenOutput) }, activateOwner: { await $0.activateExecutionModule() != nil }),
             .init(id: "execution.run.toggle", perform: { $0.toggleRun() }, activateOwner: { await $0.activateExecutionModule() != nil }),
-            .init(id: "execution.tests.toggle", perform: { $0.toggleTests() }, activateOwner: { await $0.activateExecutionModule() != nil })
+            .init(id: "execution.tests.toggle", perform: { $0.toggleTests() }, activateOwner: { await $0.activateExecutionModule() != nil }),
+            .init(id: "execution.build.output.toggle", perform: { $0.workbenchFeature.toggleVisibility(.buildOutput) }, activateOwner: { await $0.activateExecutionModule() != nil })
         ],
         renderers: [
             .init(
-                id: "execution.maven",
-                ideaAssetPath: "maven/expui/toolwindow/maven@20x20.svg",
-                isVisible: { $0.hasMavenProject },
-                isSelected: { $0.workbenchFeature.isVisible(.maven) },
-                content: { model in
-                    guard let feature = model.mavenFeatureIfActive else {
-                        return AnyView(WorkbenchModuleUIRegistry.moduleLoadingView)
-                    }
-                    return AnyView(MavenView(feature: feature))
-                },
-                contentIdentity: { WorkbenchModuleUIRegistry.Renderer.featureIdentity($0.mavenFeatureIfActive) },
-                rightSidebarBehavior: .docked
-            ),
-            .init(
-                id: "execution.maven.output",
+                id: "execution.build.output",
                 ideaAssetPath: "expui/toolwindows/run@20x20.svg",
                 isVisible: { model in
-                    guard let feature = model.mavenFeatureIfActive else { return false }
-                    return model.workbenchFeature.isVisible(.mavenOutput)
-                        || feature.isRunning || !feature.output.isEmpty || feature.lastExitCode != nil
-                        || feature.taskState == .cancelled
+                    guard let feature = model.buildSystemsFeatureIfActive else { return false }
+                    return model.workbenchFeature.isVisible(.buildOutput)
+                        || feature.runState != .idle || !feature.output.isEmpty
                 },
-                isSelected: { $0.workbenchFeature.isVisible(.mavenOutput) },
+                isSelected: { $0.workbenchFeature.isVisible(.buildOutput) },
                 content: { model in
-                    guard let feature = model.mavenFeatureIfActive else {
+                    guard let feature = model.buildSystemsFeatureIfActive else {
                         return AnyView(WorkbenchModuleUIRegistry.moduleLoadingView)
                     }
-                    return AnyView(MavenBuildOutputView(feature: feature))
+                    return AnyView(BuildOutputView(feature: feature))
                 },
-                contentIdentity: { WorkbenchModuleUIRegistry.Renderer.featureIdentity($0.mavenFeatureIfActive) }
+                contentIdentity: { WorkbenchModuleUIRegistry.Renderer.featureIdentity($0.buildSystemsFeatureIfActive) }
             ),
             .init(
                 id: "execution.run",

@@ -40,10 +40,9 @@ export const WORKFLOW_LANES = Object.freeze({
 // pull request that picks them up from the base reruns everything.
 export const CI_INFRA_PATTERNS = Object.freeze([
   /^\.github\/(workflows|actions)\//,
-  /^\.github\/actionlint\.yaml$/,
   /^scripts\/(test-)?classify-ci-changes\.sh$/,
-  /^scripts\/(select-macos-ci-runners|plan-ci-lane-reuse|verify-reused-ci-jobs)(\.test)?\.mjs$/,
-  /^scripts\/(reuse-macos-runner-build-state|macos-swift-build-options|test-macos|build-rust-core|prepare-macos-dependencies|validate-macos-dependency-caches|verify-rust-core[a-z-]*)\.sh$/,
+  /^scripts\/(plan-ci-lane-reuse|verify-reused-ci-jobs)(\.test)?\.mjs$/,
+  /^scripts\/(test-macos|build-rust-core|prepare-macos-dependencies|validate-macos-dependency-caches|verify-rust-core[a-z-]*)\.sh$/,
   /^scripts\/[^/]*windows[^/]*\.(ps1|mjs|ts)$/i,
   /^\.agents\/skills\/write-stable-tests\/scripts\//,
   /^(Package\.swift|Package\.resolved|\.swift-version|package\.json|bun\.lock|bunfig\.toml)$/,
@@ -232,7 +231,12 @@ export async function planLaneReuse({ env, outputs, repoRoot, fetchImpl = fetch,
         // looking for the run that actually executed it.
         if (!job || job.conclusion === 'skipped') continue;
         executed = true;
-        const usable = job.status !== 'completed' || job.conclusion === 'success';
+        // Jobs assigned to the retired self-hosted pool cannot migrate to
+        // hosted runners. Keep hosted queues reusable: other lanes can still
+        // need that run, so replacing its queued jobs would duplicate builds.
+        const usable = job.conclusion === 'success'
+          || (job.status !== 'completed'
+            && !(job.labels ?? []).some((label) => label.toLowerCase() === 'self-hosted'));
         if (usable) {
           const affected = await affectedSince(run);
           if (affected !== 'all' && !affected.has(definition.lane)) {

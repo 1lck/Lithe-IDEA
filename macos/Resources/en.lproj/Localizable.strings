@@ -1,4 +1,5 @@
 /* English is the default UI language. */
+"Some MCP configuration files could not be restored: %@. Refresh and check these files before retrying." = "Some MCP configuration files could not be restored: %@. Refresh and check these files before retrying.";
 "Workbench background" = "Workbench background";
 "Built-in backgrounds" = "Built-in backgrounds";
 "Change workbench background" = "Change workbench background";
@@ -172,6 +173,9 @@
 "Settings" = "Settings";
 "Basic Information" = "Basic Information";
 "Path" = "Path";
+"Not found" = "Not found";
+"Version" = "Version";
+"Installation" = "Installation";
 "Paths" = "Paths";
 "Branch" = "Branch";
 "HEAD" = "HEAD";
@@ -511,6 +515,10 @@
 "Initialize Git Repository…" = "Initialize Git Repository…";
 "Open a project to use Git" = "Open a project to use Git";
 "Effective value: %@" = "Effective value: %@";
+"Effective Git: from PATH" = "Effective Git: from PATH";
+"Effective Git: %@" = "Effective Git: %@";
+"Effective Git: %@ · %@" = "Effective Git: %@ · %@";
+"Lithe could not find a runnable Git." = "Lithe could not find a runnable Git.";
 "Git setup is unavailable." = "Git setup is unavailable.";
 "Initialize a repository before saving repository-specific identity" = "Initialize a repository before saving repository-specific identity";
 "Enter a nonempty Git identity without control characters or angle brackets" = "Enter a nonempty Git identity without control characters or angle brackets";
@@ -957,6 +965,8 @@
 "Shell is not available at this path" = "Shell is not available at this path";
 "Git behavior and configuration" = "Git behavior and configuration";
 "Git executable" = "Git executable";
+"Choose how Lithe locates Git and handles credentials." = "Choose how Lithe locates Git and handles credentials.";
+"Set the defaults used by ordinary Fetch in every project. Credentials use your existing Git helper and SSH configuration." = "Set the defaults used by ordinary Fetch in every project. Credentials use your existing Git helper and SSH configuration.";
 "Use Git from PATH" = "Use Git from PATH";
 "Use credential helper" = "Use credential helper";
 "Git can request credentials in Lithe. Passwords are not saved by Lithe; the selected Git helper controls credential storage." = "Git can request credentials in Lithe. Passwords are not saved by Lithe; the selected Git helper controls credential storage.";
@@ -987,6 +997,8 @@
 "Use Git setting" = "Use Git setting";
 "Follow Git setting" = "Follow Git setting";
 "Follow Git tag rules" = "Follow Git tag rules";
+"Fetch tags that point to fetched commits" = "Fetch tags that point to fetched commits";
+"Follows each remote's tag setting" = "Follows each remote's tag setting";
 "Remove stale branches" = "Remove stale branches";
 "Keep stale branches" = "Keep stale branches";
 "Remove stale tags" = "Remove stale tags";
@@ -1355,7 +1367,77 @@
 "Enabled plugins can also use this project grant." = "Enabled plugins can also use this project grant.";
 
 "MCP Configuration" = "MCP Configuration";
+"Let connected agents inspect and control this project." = "Let connected agents inspect and control this project.";
+"Authorize this project to expose environment, Maven, run configurations and output to connected agents. Output may contain sensitive project data. Access ends when this project or Lithe closes. Enabled plugins can also use this project grant." = "Authorize this project to expose environment, Maven, run configurations and output to connected agents. Output may contain sensitive project data. Access ends when this project or Lithe closes. Enabled plugins can also use this project grant.";
+"Project access" = "Project access";
+"Connected agents can change the project JDK, Maven and run configuration settings." = "Connected agents can change the project JDK, Maven and run configuration settings.";
+"Connected agents can run, build, reload and stop the project. Commands execute project code, so enable this only for projects you trust." = "Connected agents can run, build, reload and stop the project. Commands execute project code, so enable this only for projects you trust.";
+"MCP is enabled for this project." = "MCP is enabled for this project.";
+"MCP is off for this project." = "MCP is off for this project.";
+"Connected agents can use the configuration below while this project is open." = "Connected agents can use the configuration below while this project is open.";
+"Turn on MCP to generate a configuration for agents." = "Turn on MCP to generate a configuration for agents.";
+"Agent configuration" = "Agent configuration";
+"Paste this into your MCP client configuration." = "Paste this into your MCP client configuration.";
 "Open a project to configure MCP access for agents." = "Open a project to configure MCP access for agents.";
+
+"MCP servers" = "MCP servers";
+"Manage the servers Codex and Claude Code can start." = "Manage the servers Codex and Claude Code can start.";
+"Lithe reads the servers registered in your Codex and Claude Code configuration. Saving writes only the changed entry, keeps backups in Application Support, and never overwrites an entry created outside Lithe. Agents read MCP configuration when a session starts, so restart a session to apply changes." = "Lithe reads the servers registered in your Codex and Claude Code configuration. Saving writes only the changed entry, keeps backups in Application Support, and never overwrites an entry created outside Lithe. Agents read MCP configuration when a session starts, so restart a session to apply changes.";
+"Server library" = "Server library";
+"Add server" = "Add server";
+"No MCP servers registered" = "No MCP servers registered";
+"Add one here, or register a server with Codex or Claude Code and refresh." = "Add one here, or register a server with Codex or Claude Code and refresh.";
+"Previous configuration backed up to" = "Previous configuration backed up to";
+"Project" = "Project";
+"Conflict" = "Conflict";
+"Another global entry uses this name with a different definition." = "Another global entry uses this name with a different definition.";
+"No command" = "No command";
+"This entry belongs to the open project and is managed by Lithe IDE access." = "This entry belongs to the open project and is managed by Lithe IDE access.";
+"Registered with %@" = "Registered with %@";
+"Add to %@" = "Add to %@";
+"%@ enabled" = "%@ enabled";
+"%@ disabled" = "%@ disabled";
+"All servers" = "All servers";
+"Server" = "Server";
+"Name" = "Name";
+"Transport" = "Transport";
+"Arguments" = "Arguments";
+"One argument per line. Arguments keep spaces without quoting." = "One argument per line. Arguments keep spaces without quoting.";
+"URL" = "URL";
+"Environment variables" = "Environment variables";
+"Headers" = "Headers";
+"Add header" = "Add header";
+"Add variable" = "Add variable";
+"Header" = "Header";
+"Available to Agents" = "Available to Agents";
+"Each Agent keeps its own configuration file. Turning an Agent off removes only the entry Lithe wrote; an entry created outside Lithe is never removed without taking ownership first." = "Each Agent keeps its own configuration file. Turning an Agent off removes only the entry Lithe wrote; an entry created outside Lithe is never removed without taking ownership first.";
+"Created outside Lithe." = "Created outside Lithe.";
+"Take ownership" = "Take ownership";
+"Saving writes to" = "Saving writes to";
+"No Agent is selected." = "No Agent is selected.";
+"Values are masked here but stored as plain text in the Agent's configuration file." = "Values are masked here but stored as plain text in the Agent's configuration file.";
+"Lithe IDE access" = "Lithe IDE access";
+"Authorize this project to expose environment, Maven, run configurations and output to connected agents. Output may contain sensitive project data. Access ends when this project or Lithe closes, and the project-level server registration is removed. Enabled plugins can also use this project grant." = "Authorize this project to expose environment, Maven, run configurations and output to connected agents. Output may contain sensitive project data. Access ends when this project or Lithe closes, and the project-level server registration is removed. Enabled plugins can also use this project grant.";
+"No project is open" = "No project is open";
+"Open a project to let connected agents inspect and control it." = "Open a project to let connected agents inspect and control it.";
+"Registered for this project in %@." = "Registered for this project in %@.";
+"No project-level MCP entry was written." = "No project-level MCP entry was written.";
+"no Agent" = "no Agent";
+"MCP configuration management is unavailable." = "MCP configuration management is unavailable.";
+"This Agent has no global MCP configuration file." = "This Agent has no global MCP configuration file.";
+"“%@” was created outside Lithe. Take ownership before changing it." = "“%@” was created outside Lithe. Take ownership before changing it.";
+"“%@” changed outside Lithe. Refresh and try again." = "“%@” changed outside Lithe. Refresh and try again.";
+"Could not read %@: %@" = "Could not read %@: %@";
+"Could not write %@. The previous contents were kept in %@." = "Could not write %@. The previous contents were kept in %@.";
+"Enter a server name." = "Enter a server name.";
+"Use letters, digits, dots, dashes or underscores. The name must start with a letter or digit." = "Use letters, digits, dots, dashes or underscores. The name must start with a letter or digit.";
+"Choose at least one Agent." = "Choose at least one Agent.";
+"Environment variable and header names must be unique." = "Environment variable and header names must be unique.";
+"Enter the command that starts this server." = "Enter the command that starts this server.";
+"Enter a complete server URL." = "Enter a complete server URL.";
+"Could not register Lithe MCP in %@: %@" = "Could not register Lithe MCP in %@: %@";
+"Lithe MCP was registered, but .codex/config.toml could not be added to Git’s local exclude list: %@" = "Lithe MCP was registered, but .codex/config.toml could not be added to Git’s local exclude list: %@";
+"Could not remove Lithe MCP from %@: %@" = "Could not remove Lithe MCP from %@: %@";
 
 "%lld more notifications" = "%lld more notifications";
 "1 more notification" = "1 more notification";
@@ -1549,6 +1631,7 @@
 "Chat History" = "Chat History";
 "New Chat" = "New Chat";
 "Type your task or / for commands" = "Type your task or / for commands";
+"Type your task, / for commands or @ for files" = "Type your task, / for commands or @ for files";
 
 "Conversation history is unavailable" = "Conversation history is unavailable";
 
@@ -1712,18 +1795,20 @@
 "Close Terminal" = "Close Terminal";
 "A task %@ started before Lithe last closed unexpectedly is still running" = "A task %@ started before Lithe last closed unexpectedly is still running";
 "%@ started a task that is still running" = "%@ started a task that is still running";
-"Workspace: %@" = "Workspace: %@";
 "Directory: %@" = "Directory: %@";
 "Project: %@" = "Project: %@";
-"Running for %@" = "Running for %@";
 "running for %@" = "running for %@";
-"Includes %lld processes" = "Includes %lld processes";
 "%lld processes" = "%lld processes";
 "ports %@" = "ports %@";
 "%lld of %lld" = "%lld of %lld";
 "Agents may run deployments, migrations or long builds. Ending one halfway can leave data or services inconsistent. Keep it if you are not sure what it does." = "Agents may run deployments, migrations or long builds. Ending one halfway can leave data or services inconsistent. Keep it if you are not sure what it does.";
 "Keep Running" = "Keep Running";
 "End This Task" = "End This Task";
+"Workspace" = "Workspace";
+"Directory" = "Directory";
+"Running Time" = "Running Time";
+"Command" = "Command";
+"Copy Original Command" = "Copy Original Command";
 "Lithe closed unexpectedly last time and left programs running" = "Lithe closed unexpectedly last time and left programs running";
 "These programs were started in Lithe before it closed unexpectedly. Checked items are ended now; unchecked items keep running and are not tracked anymore." = "These programs were started in Lithe before it closed unexpectedly. Checked items are ended now; unchecked items keep running and are not tracked anymore.";
 "Background services started in Lithe are still running" = "Background services started in Lithe are still running";
@@ -1819,3 +1904,21 @@
 "Use a model ID supported by your provider." = "Use a model ID supported by your provider.";
 "Enter a model ID supported by your provider." = "Enter a model ID supported by your provider.";
 "The API key is stored separately from settings. Your local CLI configuration is not changed." = "The API key is stored separately from settings. Your local CLI configuration is not changed.";
+"Elapsed" = "Elapsed";
+"This turn" = "This turn";
+"Turn usage" = "Turn usage";
+"Copy reply" = "Copy reply";
+"Copy table" = "Copy table";
+
+/* Plugin web tool windows */
+"Show its own page in a tool window" = "Show its own page in a tool window";
+"Load the %@ model" = "Load the %@ model";
+"Load the dependencies of %@" = "Load the dependencies of %@";
+"Tests" = "Tests";
+"Allow “%@” to run build tools?" = "Allow “%@” to run build tools?";
+"The plugin’s page asks to run them in %@." = "The plugin’s page asks to run them in %@.";
+"Lithe asks again after the plugin is disabled, updated, or Lithe restarts." = "Lithe asks again after the plugin is disabled, updated, or Lithe restarts.";
+"Arguments from the page:" = "Arguments from the page:";
+"Allow" = "Allow";
+"Don’t Allow" = "Don’t Allow";
+"Restart Lithe to load the updated page." = "Restart Lithe to load the updated page.";

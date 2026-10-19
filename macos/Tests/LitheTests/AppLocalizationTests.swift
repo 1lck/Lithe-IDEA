@@ -214,6 +214,19 @@ struct AppLocalizationTests {
     }
 
     @Test
+    func simplifiedChineseResourcesCoverBuildSystemToolWindows() throws {
+        let translations = try simplifiedChineseTranslations()
+
+        for key in ["Run selected task", "Stop build task", "Reload %@ projects", "%@ options",
+                    "%@ build files changed", "Add to %@", "Toggle %@", "Load Project Model", "Run Tests",
+                    "Lifecycle", "Build", "Test", "Run", "Verification", "Documentation", "Other",
+                    "Dependencies", "Loading dependencies…", "No dependencies", "Use the default value"] {
+            #expect(translations[key] != nil, "Missing translation: \(key)")
+        }
+        #expect(translations["Toggle %@"] == "切换 %@")
+    }
+
+    @Test
     func simplifiedChineseResourcesCoverJavaLanguageServiceFeedback() throws {
         let translations = try simplifiedChineseTranslations()
 

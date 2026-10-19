@@ -128,6 +128,27 @@ pub(crate) struct JdtMavenConfiguration {
     pub source_paths: Vec<String>,
 }
 
+/// Gradle import settings Lithe owns in JDT LS's `settings.java`.
+#[derive(Debug, Clone, Default, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct JdtGradleConfiguration {
+    /// The workspace root ships the wrapper descriptor Buildship reads
+    /// (`gradle/wrapper/gradle-wrapper.properties`).
+    ///
+    /// Telling Buildship a wrapper exists only restates its own default: the
+    /// distribution still comes from that descriptor. The wrapper is a property
+    /// of the workspace root and does not change for the lifetime of a session.
+    pub wrapper_present: bool,
+    /// The user turned on the build system's offline option, so Buildship
+    /// resolves from its caches as the user's own Gradle runs do.
+    #[serde(default)]
+    pub offline: bool,
+    /// The Gradle user home the user chose for the build system; `None`
+    /// keeps Buildship's default.
+    #[serde(default)]
+    pub user_home: Option<String>,
+}
+
 /// A JDK JDT LS may bind a project to, keyed by its execution environment.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub(crate) struct JdtJavaRuntime {
@@ -142,6 +163,8 @@ pub(crate) struct JdtJavaRuntime {
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct JdtSettings<'a> {
     pub maven: Option<&'a JdtMavenConfiguration>,
+    /// Gradle import settings, present only for Gradle workspaces.
+    pub gradle: Option<&'a JdtGradleConfiguration>,
     /// JDKs installed on this machine, at most one per execution environment.
     pub java_runtimes: &'a [JdtJavaRuntime],
 }
@@ -444,6 +467,36 @@ fn merge_java_settings(options: &mut Map<String, Value>, provider_settings: Valu
         return;
     };
     for (key, value) in provider_java {
+        // `java.import.gradle` is the only `import` leaf Lithe owns. The options
+        // Lithe deliberately never guesses (`java.home`, `version`,
+        // `offline.enabled`, ...) have to survive, so the owned leaves merge
+        // into the declared `import` object instead of replacing it.
+        if key == "import" {
+            if let Some(gradle) = value.get("gradle").and_then(Value::as_object) {
+                let import = java
+                    .entry("import".to_string())
+                    .or_insert_with(|| json!({}));
+                if !import.is_object() {
+                    *import = json!({});
+                }
+                let import = import
+                    .as_object_mut()
+                    .expect("the import value was normalized to an object");
+                let declared_gradle = import
+                    .entry("gradle".to_string())
+                    .or_insert_with(|| json!({}));
+                if !declared_gradle.is_object() {
+                    *declared_gradle = json!({});
+                }
+                let declared_gradle = declared_gradle
+                    .as_object_mut()
+                    .expect("the gradle value was normalized to an object");
+                for (gradle_key, gradle_value) in gradle {
+                    declared_gradle.insert(gradle_key.clone(), gradle_value.clone());
+                }
+                continue;
+            }
+        }
         java.insert(key, value);
     }
 }
@@ -1009,6 +1062,7 @@ fn without_wrapper_owned_arguments(arguments: &[String]) -> Vec<String> {
 
 fn java_settings(settings: JdtSettings<'_>) -> Value {
     let maven_configuration = settings.maven;
+    let gradle_configuration = settings.gradle;
     let mut java = json!({
         "java": {
             "eclipse": {
@@ -1037,6 +1091,9 @@ fn java_settings(settings: JdtSettings<'_>) -> Value {
     });
     if let Some(section) = maven_settings_section(maven_configuration) {
         java["java"]["configuration"]["maven"] = section;
+    }
+    if let Some(section) = gradle_settings_section(gradle_configuration) {
+        java["java"]["import"]["gradle"] = section;
     }
     if let Some(configuration) = maven_configuration {
         java["java"]["project"]["sourcePaths"] = json!(configuration.source_paths);
@@ -1074,8 +1131,36 @@ fn maven_settings_section(maven_configuration: Option<&JdtMavenConfiguration>) -
     (!section.is_empty()).then_some(Value::Object(section))
 }
 
+/// Builds the `java.import.gradle` section for the resolved context.
+///
+/// Both leaves state JDT LS's own defaults — `enabled` and `wrapper.enabled` are
+/// `true` upstream — so the section declares the import behavior Lithe relies on
+/// instead of changing today's import result. `wrapper.enabled` is sent only when
+/// the root ships the descriptor Buildship reads, so Lithe never claims a wrapper
+/// the workspace does not have. Settings that require reading the build script
+/// (`java.home`, `version`, ...) are deliberately never sent: guessing them
+/// would override the project's own declaration. `offline.enabled` and
+/// `user.home` are sent only when the user chose them for the build system,
+/// so the import uses what the user's Gradle runs use.
+fn gradle_settings_section(gradle_configuration: Option<&JdtGradleConfiguration>) -> Option<Value> {
+    let configuration = gradle_configuration?;
+    let mut section = Map::new();
+    section.insert("enabled".to_string(), json!(true));
+    if configuration.wrapper_present {
+        section.insert("wrapper".to_string(), json!({ "enabled": true }));
+    }
+    if configuration.offline {
+        section.insert("offline".to_string(), json!({ "enabled": true }));
+    }
+    if let Some(home) = &configuration.user_home {
+        section.insert("user".to_string(), json!({ "home": home }));
+    }
+    Some(Value::Object(section))
+}
+
 fn java_configuration_for_section(section: Option<&str>, settings: JdtSettings<'_>) -> Value {
     let maven_configuration = settings.maven;
+    let gradle_configuration = settings.gradle;
     match section {
         Some("java") => java_settings(settings)["java"].clone(),
         Some("java.inlayHints") => json!({
@@ -1101,6 +1186,33 @@ fn java_configuration_for_section(section: Option<&str>, settings: JdtSettings<'
         Some("java.configuration.maven.globalSettings") => maven_configuration
             .and_then(|value| value.global_settings_path.as_ref())
             .map_or(Value::Null, |path| json!(path)),
+        Some("java.import") => gradle_settings_section(gradle_configuration)
+            .map(|section| json!({ "gradle": section }))
+            .unwrap_or(Value::Null),
+        Some("java.import.gradle") => {
+            gradle_settings_section(gradle_configuration).unwrap_or(Value::Null)
+        }
+        Some("java.import.gradle.enabled") => {
+            gradle_configuration.map_or(Value::Null, |_| json!(true))
+        }
+        Some("java.import.gradle.wrapper") => gradle_configuration
+            .filter(|value| value.wrapper_present)
+            .map_or(Value::Null, |_| json!({ "enabled": true })),
+        Some("java.import.gradle.wrapper.enabled") => gradle_configuration
+            .filter(|value| value.wrapper_present)
+            .map_or(Value::Null, |_| json!(true)),
+        Some("java.import.gradle.offline") => gradle_configuration
+            .filter(|value| value.offline)
+            .map_or(Value::Null, |_| json!({ "enabled": true })),
+        Some("java.import.gradle.offline.enabled") => gradle_configuration
+            .filter(|value| value.offline)
+            .map_or(Value::Null, |_| json!(true)),
+        Some("java.import.gradle.user") => gradle_configuration
+            .and_then(|value| value.user_home.as_ref())
+            .map_or(Value::Null, |home| json!({ "home": home })),
+        Some("java.import.gradle.user.home") => gradle_configuration
+            .and_then(|value| value.user_home.as_ref())
+            .map_or(Value::Null, |home| json!(home)),
         Some("java.project") => maven_configuration
             .map(|value| json!({ "sourcePaths": value.source_paths }))
             .unwrap_or(Value::Null),
@@ -1310,6 +1422,7 @@ mod tests {
         }];
         let settings = JdtSettings {
             maven: None,
+            gradle: None,
             java_runtimes: &runtimes,
         };
         let expected = json!([{ "name": "JavaSE-25", "path": "C:/Program Files/Java/jdk-25" }]);
@@ -1347,6 +1460,15 @@ mod tests {
     fn maven_settings(configuration: &JdtMavenConfiguration) -> JdtSettings<'_> {
         JdtSettings {
             maven: Some(configuration),
+            gradle: None,
+            java_runtimes: &[],
+        }
+    }
+
+    fn gradle_settings(configuration: &JdtGradleConfiguration) -> JdtSettings<'_> {
+        JdtSettings {
+            maven: None,
+            gradle: Some(configuration),
             java_runtimes: &[],
         }
     }
@@ -1860,6 +1982,189 @@ mod tests {
         assert!(options["settings"]["java"]["configuration"]
             .get("maven")
             .is_none());
+    }
+
+    #[test]
+    fn java_initialization_options_carry_gradle_settings_before_the_first_import() {
+        // Buildship imports the Gradle project while JDT LS handles `initialize`,
+        // so the import settings have to be present there and not only through
+        // the later `didChangeConfiguration` notification.
+        let configuration = JdtGradleConfiguration {
+            wrapper_present: true,
+            ..Default::default()
+        };
+
+        let options = adapt_initialization_options(
+            "java",
+            Some(json!({
+                "workspace": { "custom": true },
+                "settings": { "java": { "custom": true } }
+            })),
+            &[],
+            gradle_settings(&configuration),
+        )
+        .unwrap();
+
+        assert_eq!(
+            options["settings"]["java"]["import"]["gradle"]["enabled"],
+            true
+        );
+        assert_eq!(
+            options["settings"]["java"]["import"]["gradle"]["wrapper"]["enabled"],
+            true
+        );
+        // Catalog values outside the provider-owned keys survive the overlay.
+        assert_eq!(options["settings"]["java"]["custom"], true);
+        assert_eq!(options["workspace"]["custom"], true);
+    }
+
+    #[test]
+    fn gradle_import_settings_omit_the_wrapper_when_none_is_shipped() {
+        let configuration = JdtGradleConfiguration {
+            wrapper_present: false,
+            ..Default::default()
+        };
+
+        let options =
+            adapt_initialization_options("java", None, &[], gradle_settings(&configuration))
+                .unwrap();
+        let gradle = &options["settings"]["java"]["import"]["gradle"];
+
+        assert_eq!(gradle["enabled"], true);
+        // Pointing Buildship at a wrapper the workspace does not ship would be
+        // worse than leaving its own default in place.
+        assert!(gradle.get("wrapper").is_none());
+    }
+
+    #[test]
+    fn gradle_import_settings_keep_the_gradle_options_lithe_never_sends() {
+        // Without the user's own build options Lithe only states `enabled`
+        // and, when a wrapper is shipped, `wrapper.enabled`. Options that
+        // require reading the build script are never sent, so a declared
+        // `import.gradle` subtree has to survive the overlay instead of being
+        // replaced by those two leaves.
+        let configuration = JdtGradleConfiguration {
+            wrapper_present: true,
+            ..Default::default()
+        };
+
+        let options = adapt_initialization_options(
+            "java",
+            Some(json!({
+                "settings": {
+                    "java": {
+                        "import": {
+                            "gradle": {
+                                "offline": { "enabled": true },
+                                "version": "8.10"
+                            }
+                        }
+                    }
+                }
+            })),
+            &[],
+            gradle_settings(&configuration),
+        )
+        .unwrap();
+
+        let gradle = &options["settings"]["java"]["import"]["gradle"];
+        assert_eq!(gradle["enabled"], true);
+        assert_eq!(gradle["wrapper"]["enabled"], true);
+        assert_eq!(gradle["offline"]["enabled"], true);
+        assert_eq!(gradle["version"], "8.10");
+    }
+
+    #[test]
+    fn gradle_import_settings_carry_the_user_chosen_build_options() {
+        let configuration = JdtGradleConfiguration {
+            wrapper_present: false,
+            offline: true,
+            user_home: Some("/caches/gradle".to_string()),
+        };
+
+        let options =
+            adapt_initialization_options("java", None, &[], gradle_settings(&configuration))
+                .unwrap();
+        let gradle = &options["settings"]["java"]["import"]["gradle"];
+        assert_eq!(gradle["offline"]["enabled"], true);
+        assert_eq!(gradle["user"]["home"], "/caches/gradle");
+
+        let items = [
+            "java.import.gradle.offline.enabled",
+            "java.import.gradle.user.home",
+        ]
+        .map(|section| WorkspaceConfigurationItem {
+            scope_uri: None,
+            section: Some(section.to_string()),
+        });
+        let values =
+            workspace_configuration("java", &items, gradle_settings(&configuration)).unwrap();
+        assert_eq!(values, [json!(true), json!("/caches/gradle")]);
+
+        // Without the user's choice Buildship keeps its own defaults.
+        let defaults = JdtGradleConfiguration::default();
+        let options =
+            adapt_initialization_options("java", None, &[], gradle_settings(&defaults)).unwrap();
+        let gradle = &options["settings"]["java"]["import"]["gradle"];
+        assert!(gradle.get("offline").is_none() && gradle.get("user").is_none());
+    }
+
+    #[test]
+    fn java_initialization_options_omit_gradle_import_without_a_gradle_context() {
+        let options =
+            adapt_initialization_options("java", None, &[], JdtSettings::default()).unwrap();
+
+        assert!(options["settings"]["java"].get("import").is_none());
+    }
+
+    #[test]
+    fn java_workspace_configuration_answers_gradle_sections() {
+        let configuration = JdtGradleConfiguration {
+            wrapper_present: true,
+            ..Default::default()
+        };
+        let items = [
+            "java.import",
+            "java.import.gradle",
+            "java.import.gradle.enabled",
+            "java.import.gradle.wrapper",
+            "java.import.gradle.wrapper.enabled",
+        ]
+        .map(|section| WorkspaceConfigurationItem {
+            scope_uri: Some("file:///workspace/project".to_string()),
+            section: Some(section.to_string()),
+        });
+        let values =
+            workspace_configuration("java", &items, gradle_settings(&configuration)).unwrap();
+
+        assert_eq!(values[0]["gradle"]["enabled"], true);
+        assert_eq!(values[0]["gradle"]["wrapper"]["enabled"], true);
+        assert_eq!(values[1]["enabled"], true);
+        assert_eq!(values[1]["wrapper"]["enabled"], true);
+        assert_eq!(values[2], true);
+        assert_eq!(values[3]["enabled"], true);
+        assert_eq!(values[4], true);
+    }
+
+    #[test]
+    fn java_workspace_configuration_omits_gradle_wrapper_without_a_wrapper() {
+        let configuration = JdtGradleConfiguration {
+            wrapper_present: false,
+            ..Default::default()
+        };
+        let items = [
+            "java.import.gradle.wrapper",
+            "java.import.gradle.wrapper.enabled",
+        ]
+        .map(|section| WorkspaceConfigurationItem {
+            scope_uri: None,
+            section: Some(section.to_string()),
+        });
+        let values =
+            workspace_configuration("java", &items, gradle_settings(&configuration)).unwrap();
+
+        assert_eq!(values[0], Value::Null);
+        assert_eq!(values[1], Value::Null);
     }
 
     #[test]
