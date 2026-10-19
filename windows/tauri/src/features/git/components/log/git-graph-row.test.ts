@@ -185,10 +185,13 @@ describe("git graph decoration labels", () => {
     const svg = renderToStaticMarkup(
       createElement(GitGraphCanvas, {
         rows: layout.rows,
+        rowOffset: 29,
         paint,
         graphWidth: gitGraphWidth(layout.rows, paint),
       }),
     );
+    expect(svg).toContain('style="top:754px"');
+    expect(svg).toContain('height="52"');
     const ellipses = svg.match(/<ellipse [^>]+>/g) ?? [];
     expect(ellipses[0]).toContain('fill="none"');
     expect(ellipses[0]).toContain('stroke="currentColor"');

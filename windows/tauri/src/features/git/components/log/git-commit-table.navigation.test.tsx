@@ -278,3 +278,74 @@ test("an explicit branch-head reveal still scrolls when its commit is already se
   expect(scrolled).toEqual([0]);
   expect(selected).toHaveBeenCalledTimes(1);
 });
+
+test("a four-row viewport bounds graph nodes and paths across 5,000 commits without breaking boundary edges", async () => {
+  const history = Array.from({ length: 5_000 }, (_, index) =>
+    commit(String(index), index < 4_999 ? [String(index + 1)] : []),
+  );
+  await mount(history);
+  const canvas = () => container.querySelector<SVGSVGElement>("[data-git-graph-canvas]")!;
+  const edges = () => [...canvas().querySelectorAll("[data-git-graph-edges] > path")]
+    .map((path) => path.getAttribute("d"));
+  expect(container.querySelectorAll("[data-git-commit-hash]")).toHaveLength(4);
+  expect(canvas().querySelectorAll("ellipse")).toHaveLength(5);
+  expect(edges()).toHaveLength(5);
+  expect(canvas().getAttribute("height")).toBe("130");
+  expect(canvas().parentElement?.style.height).toBe("130000px");
+
+  await act(async () => moveViewport?.(2_500));
+  expect(container.querySelectorAll("[data-git-commit-hash]")).toHaveLength(4);
+  expect(container.querySelector('[data-git-commit-hash="0"]')).toBeNull();
+  expect(canvas().querySelectorAll("ellipse")).toHaveLength(6);
+  expect(edges()).toHaveLength(7);
+  expect(canvas().style.top).toBe("64974px");
+  expect(canvas().getAttribute("height")).toBe("156");
+  // Adjacent context rows complete both boundary connections on the same SVG.
+  expect(edges()).toContain("M 9 13 L 9 26 L 9 39");
+  expect(edges()).toContain("M 9 117 L 9 130 L 9 143");
+
+  await act(async () => moveViewport?.(4_996));
+  expect(canvas().querySelectorAll("ellipse")).toHaveLength(5);
+  expect(edges()).toHaveLength(5);
+  expect(canvas().style.top).toBe("129870px");
+  expect(canvas().getAttribute("height")).toBe("130");
+
+  await act(async () => moveViewport?.(0));
+  expect(canvas().querySelectorAll("ellipse")).toHaveLength(5);
+  expect(canvas().style.top).toBe("0px");
+  expect(selected).not.toHaveBeenCalled();
+});
+
+test("an empty virtual range paints no graph and recovers when rows mount", async () => {
+  windowSize = 0;
+  await mount();
+  expect(container.querySelector("[data-git-graph-canvas]")).toBeNull();
+  expect(container.querySelectorAll("[data-git-commit-hash]")).toHaveLength(0);
+  windowSize = 4;
+  await act(async () => moveViewport?.(1));
+  expect(container.querySelectorAll("[data-git-commit-hash]")).toHaveLength(4);
+  expect(container.querySelectorAll("[data-git-graph-canvas] ellipse")).toHaveLength(6);
+});
+
+test("scrolling a one-row viewport preserves shifted fork paths through both neighboring rows", async () => {
+  const parents = [["1"], ["3", "2"], ["3", "5"], ["5", "4"], ["5"], []];
+  const history = parents.map((parentHashes, index) => ({
+    ...commit(String(index), parentHashes),
+    decorations: index === 0 ? "HEAD -> main" : index === 1 ? "feature" : "",
+  }));
+  windowSize = 1;
+  await mount(history);
+  const edges = () => [...container.querySelectorAll("[data-git-graph-edges] > path")]
+    .map((path) => path.getAttribute("d"));
+
+  await act(async () => moveViewport?.(4));
+  expect(container.querySelectorAll("[data-git-commit-hash]")).toHaveLength(1);
+  expect(container.querySelectorAll("[data-git-graph-canvas] ellipse")).toHaveLength(3);
+  expect(container.querySelector<SVGSVGElement>("[data-git-graph-canvas]")!.style.top).toBe("78px");
+  expect(edges()).toContain("M 26 13 L 34.5 26 L 43 39");
+  expect(edges()).toContain("M 43 39 L 26 52 L 9 65");
+
+  await act(async () => moveViewport?.(3));
+  expect(edges()).toContain("M 26 39 L 34.5 52 L 43 65");
+  expect(selected).not.toHaveBeenCalled();
+});

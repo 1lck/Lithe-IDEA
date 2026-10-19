@@ -82,14 +82,17 @@ export const GitGraphRow = memo(function GitGraphRow({
 /** Draw the graph on one surface so row virtualization and CSS backgrounds cannot split edges. */
 export const GitGraphCanvas = memo(function GitGraphCanvas({
   rows,
+  rowOffset = 0,
   paint,
   graphWidth,
 }: {
   rows: readonly GraphRow[];
+  rowOffset?: number;
   paint: GitGraphPaintMetrics;
   graphWidth: number;
 }) {
   const headEdgesClipId = useId();
+  if (rows.length === 0) return null;
   const height = rows.length * paint.rowHeight;
   const clipMargin = paint.rowHeight;
   const headCutouts = rows.flatMap((row, rowIndex) => {
@@ -108,9 +111,10 @@ export const GitGraphCanvas = memo(function GitGraphCanvas({
       width={graphWidth}
       height={height}
       viewBox={`0 0 ${graphWidth} ${height}`}
+      style={{ top: rowOffset * paint.rowHeight }}
     >
       <g data-git-graph-edges="true" clipPath={headCutouts.length ? `url(#${headEdgesClipId})` : undefined}>
-        {buildGraphPaths(rows, paint).map((path) => (
+        {buildGraphPaths(rows, paint, rowOffset).map((path) => (
           <path
             key={path.id}
             d={path.d}
@@ -180,7 +184,11 @@ type GraphPath = {
   dash?: ReturnType<GitGraphPaintMetrics["dash"]>;
 };
 
-function buildGraphPaths(rows: readonly GraphRow[], paint: GitGraphPaintMetrics): GraphPath[] {
+function buildGraphPaths(
+  rows: readonly GraphRow[],
+  paint: GitGraphPaintMetrics,
+  rowOffset: number,
+): GraphPath[] {
   const segments = new Map<
     string,
     { rowIndex: number; segment: GraphRow["printElements"][number] }[]
@@ -235,7 +243,7 @@ function buildGraphPaths(rows: readonly GraphRow[], paint: GitGraphPaintMetrics)
       }
       consumed.add(key);
       paths.push({
-        id: `${edgeId}:${rowIndex}:${segment.direction}`,
+        id: `${edgeId}:${rowIndex + rowOffset}:${segment.direction}`,
         d: points.join(" "),
         colorIndex: segment.colorIndex,
         dash: segment.isDotted && !segment.hasArrow && !next?.hasArrow ? paint.dash(segment) : undefined,
