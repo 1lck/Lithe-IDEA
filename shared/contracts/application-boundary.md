@@ -77,6 +77,11 @@ presented by Lithe and from generated live/history-list titles, without rewritin
 upstream history or filtering model replies. Titles left empty by this filtering
 are missing values, so presentation retains its existing title fallbacks.
 
+The Host enables the native Codex checklist through process-local
+`tools.update_plan.enabled` configuration for both API and subscription launches.
+It does not edit CLI settings or switch collaboration mode. Plan creation and
+updates remain Agent-owned.
+
 Agent activity presentation uses the selected session's reported plan, native
 subagents and file diffs. Compact summaries may omit empty categories; ordinary
 tools do not create placeholder tasks or child sessions. File-summary line totals

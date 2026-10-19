@@ -322,21 +322,19 @@ fn resolve_with(
             ));
         }
     }
-    if let Some(model) = provider
+    let model = provider
         .model
         .as_deref()
         .map(str::trim)
-        .filter(|model| !model.is_empty())
-    {
-        match agent.model_delivery {
-            ModelDelivery::CodexConfig => env.push((
-                "CODEX_CONFIG".to_owned(),
-                serde_json::json!({ "model": model }).to_string(),
-            )),
-            // A process-wide Claude pin also overrides every restored session.
-            // New-session defaults instead travel through session_routing.
-            ModelDelivery::ClaudeSessionOptions => {}
-        }
+        .filter(|model| !model.is_empty());
+    match agent.model_delivery {
+        ModelDelivery::CodexConfig => env.push((
+            "CODEX_CONFIG".to_owned(),
+            codex_session_config(model).to_string(),
+        )),
+        // A process-wide Claude pin also overrides every restored session.
+        // New-session defaults instead travel through session_routing.
+        ModelDelivery::ClaudeSessionOptions => {}
     }
     Ok(ResolvedLaunch {
         command: install::installed_command(&data_directory, agent),
@@ -347,6 +345,18 @@ fn resolve_with(
         secret: provider.api_key,
         subscription_cli: None,
     })
+}
+
+/// Enable Codex's native checklist for Lithe-owned conversations. Codex defaults
+/// it off; the adapter forwards its plan events only when the tool is available.
+/// This process-local override neither changes collaboration mode nor writes the
+/// user's CLI settings. Subscription and API launches must use the same default.
+fn codex_session_config(model: Option<&str>) -> serde_json::Value {
+    let mut config = serde_json::json!({ "tools": { "update_plan": { "enabled": true } } });
+    if let Some(model) = model {
+        config["model"] = serde_json::json!(model);
+    }
+    config
 }
 
 /// Commands accepted by an open connection, as UTF-8 JSON from the platform.

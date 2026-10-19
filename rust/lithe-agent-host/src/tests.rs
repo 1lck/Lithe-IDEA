@@ -3010,6 +3010,8 @@ fn catalog_agents_resolve_to_their_install_and_key_delivery() {
         "https://chatgpt.com/backend-api/"
     );
     assert!(config.get("model").is_none());
+    assert_eq!(config["tools"]["update_plan"]["enabled"], true);
+    assert!(config.get("collaboration_mode").is_none());
 
     // Statistics changes only this process's inference route; native account,
     // quota and model ownership survive without installing a second provider.
@@ -3035,9 +3037,14 @@ fn catalog_agents_resolve_to_their_install_and_key_delivery() {
     assert!(codex.command.ends_with("node_modules/.bin/codex-acp") || cfg!(windows));
     // The adapter drives the user's own Codex; the key never enters the environment.
     assert_eq!(
-        codex.env,
-        [("CODEX_PATH".to_owned(), "/opt/example/bin/codex".to_owned())]
+        codex.env[0],
+        ("CODEX_PATH".to_owned(), "/opt/example/bin/codex".to_owned())
     );
+    let config: Value = serde_json::from_str(&codex.env[1].1).unwrap();
+    assert_eq!(codex.env[1].0, "CODEX_CONFIG");
+    assert_eq!(config["tools"]["update_plan"]["enabled"], true);
+    assert!(config.get("model").is_none());
+    assert!(config.get("collaboration_mode").is_none());
     assert_eq!(
         codex.gateway.unwrap().base_url,
         "https://gateway.example.com/v1"
@@ -3050,15 +3057,13 @@ fn catalog_agents_resolve_to_their_install_and_key_delivery() {
         },
     ))
     .unwrap();
+    let config: Value = serde_json::from_str(&with_model.env[1].1).unwrap();
+    assert_eq!(with_model.env.len(), 2);
+    assert_eq!(with_model.env[0], codex.env[0]);
+    assert_eq!(with_model.env[1].0, "CODEX_CONFIG");
     assert_eq!(
-        with_model.env,
-        [
-            ("CODEX_PATH".to_owned(), "/opt/example/bin/codex".to_owned()),
-            (
-                "CODEX_CONFIG".to_owned(),
-                r#"{"model":"gpt-5.5"}"#.to_owned()
-            ),
-        ]
+        config,
+        json!({"model":"gpt-5.5","tools":{"update_plan":{"enabled":true}}})
     );
     let missing_cli = resolve_with(launch("codex-acp", provider()), &|_| None)
         .err()
