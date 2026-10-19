@@ -23,3 +23,7 @@ Reference presentation and current-branch highlighting follow Community
 c7f91397daa3a961b4e78bc634fe467a0a7d9ade: GitRefManager, SimpleRefGroup,
 LabelPainter, VcsLogUiUtil.shortenTextToFit, LabelIcon, TagPainter,
 CurrentBranchHighlighter, and ManyIslandsDark/ManyIslandsLight theme colors.
+
+Windows HEAD node ring and filled center follow Community
+33384d9bca79517f5d82ff75eac1d689e04a4544: HeadNodePainter and PaintParameters
+under platform/vcs-log/impl/src/com/intellij/vcs/log/paint/.

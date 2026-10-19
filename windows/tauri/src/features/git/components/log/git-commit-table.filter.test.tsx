@@ -97,7 +97,9 @@ for (const scope of ["text", "author", "branch"] as const) {
       );
     });
     expect(container.querySelectorAll("[data-git-commit-index]")).toHaveLength(2);
-    expect(container.querySelectorAll("svg path[stroke-dasharray]")).toHaveLength(2);
+    const projectedEdges = container.querySelectorAll("[data-git-graph-edges] path[stroke-dasharray]");
+    expect(projectedEdges).toHaveLength(1);
+    expect(projectedEdges[0].getAttribute("d")).toBe("M 9 13 L 9 26 L 9 39");
     await act(async () => useGitLogPreferencesStore.getState().actions.setFilterQuery(""));
     expect(container.querySelectorAll("[data-git-commit-index]")).toHaveLength(3);
     expect(container.querySelectorAll("svg path[stroke-dasharray]")).toHaveLength(0);
