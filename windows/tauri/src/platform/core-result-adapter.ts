@@ -273,6 +273,7 @@ export function adaptCoreResult<T>(
           ? data.stashes.map((stash: JsonRecord, index: number) => ({
               index: Number(String(stash.reference ?? "").match(/\d+/)?.[0] ?? index),
               message: stash.message,
+              oid: stash.oid,
               date: stash.date,
             }))
           : []

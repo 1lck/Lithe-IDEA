@@ -1,5 +1,5 @@
 export const changelistsEnglish = {
-  "git.changelists.default": "Default",
+  "git.changelists.default": "Default ChangeList",
   "git.changelists.active": "Active changelist",
   "git.changelists.activeSuffix": " (active)",
   "git.changelists.new": "New changelist",
@@ -19,7 +19,7 @@ export const changelistsEnglish = {
     "Saved changelists could not be read. Staging and committing are disabled to protect excluded files.",
 } as const;
 export const changelistsChinese: Record<keyof typeof changelistsEnglish, string> = {
-  "git.changelists.default": "默认",
+  "git.changelists.default": "默认更改列表",
   "git.changelists.active": "活动变更列表",
   "git.changelists.activeSuffix": "（活动）",
   "git.changelists.new": "新建变更列表",

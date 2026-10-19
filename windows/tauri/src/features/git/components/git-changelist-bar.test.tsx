@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
-import { act } from "react";
+import { act, useState } from "react";
 import type { Root } from "react-dom/client";
 import { createMemoryStateStorage } from "@/utils/zustand-storage";
 import { installHappyDom } from "@/test-utils/happy-dom";
@@ -141,7 +141,12 @@ test("the toolbar creates, selects, renames and confirms deletion of a local lis
   await act(async () =>
     root.render(
       <LocaleProvider language="en-US">
-        <GitChangelistBar workspace={workspace} disabled={false} />
+        <GitChangelistBar
+          workspace={workspace}
+          disabled={false}
+          includeParentReferences={true}
+          onIncludeParentReferencesChange={() => {}}
+        />
       </LocaleProvider>,
     ),
   );
@@ -170,4 +175,38 @@ test("the toolbar creates, selects, renames and confirms deletion of a local lis
     "default",
   );
   expect(workspaceChangelists(useGitChangelistsStore.getState(), workspace).lists).toHaveLength(1);
+});
+
+test("parent-reference option is controlled by the shared owner and respects workflow locking", async () => {
+  function Harness({ disabled }: { disabled: boolean }) {
+    const [include, setInclude] = useState(true);
+    return (
+      <GitChangelistBar
+        workspace={workspace}
+        disabled={disabled}
+        includeParentReferences={include}
+        onIncludeParentReferencesChange={setInclude}
+      />
+    );
+  }
+  await act(async () =>
+    root.render(
+      <LocaleProvider language="en-US">
+        <Harness disabled={false} />
+      </LocaleProvider>,
+    ),
+  );
+  const checkbox = () => container.querySelector<HTMLElement>('[role="checkbox"]')!;
+  expect(checkbox().getAttribute("aria-checked")).toBe("true");
+  await act(async () => (checkbox().closest("label") as HTMLElement).click());
+  expect(checkbox().getAttribute("aria-checked")).toBe("false");
+  await act(async () =>
+    root.render(
+      <LocaleProvider language="en-US">
+        <Harness disabled={true} />
+      </LocaleProvider>,
+    ),
+  );
+  await act(async () => (checkbox().closest("label") as HTMLElement).click());
+  expect(checkbox().getAttribute("aria-checked")).toBe("false");
 });

@@ -19,6 +19,7 @@ let currentMessage = "";
 let selectedFiles: GitFile[] = [];
 let scope: WorkspaceCommitPathScope | undefined;
 let scopeError: string | undefined;
+let includeParentReferences = true;
 
 beforeEach(() => {
   registry.resetForTests();
@@ -32,6 +33,7 @@ beforeEach(() => {
   currentMessage = "";
   scope = undefined;
   scopeError = undefined;
+  includeParentReferences = true;
 });
 
 afterEach(async () => {
@@ -75,6 +77,7 @@ const rerender = () => {
     <LocaleProvider language="en-US">
       <GitCommitPanel
         pathScope={scope}
+        includeParentReferences={includeParentReferences}
         commitScopeError={scopeError}
         selectedFiles={selectedFiles}
         workspacePath="C:/workspace/A"
@@ -98,46 +101,22 @@ const buttonByText = (text: string) =>
   Array.from(container.querySelectorAll("button")).find((button) => button.textContent === text);
 const commitButton = () => buttonByText("Commit");
 
-test("the legend counts untracked as added and renames as modified, like IntelliJ", async () => {
-  const file = (path: string, status: GitFile["status"]): GitFile => ({
-    ...stagedFile,
-    path,
-    repositoryRelativePath: path,
-    status,
-  });
-  await renderPanel({
-    files: [
-      file("a.ts", "added"),
-      file("b.ts", "untracked"),
-      file("c.ts", "modified"),
-      file("d.ts", "renamed"),
-      file("e.ts", "deleted"),
-    ],
-  });
-  const legend = container.querySelector('[data-testid="git-commit-legend"]');
-  expect(Array.from(legend?.children ?? []).map((chunk) => chunk.textContent)).toEqual([
-    "1+1 added",
-    "2 modified",
-    "1 deleted",
-  ]);
-});
-
-test("the legend is hidden when no file is selected", async () => {
-  await renderPanel({ files: [] });
-  expect(container.querySelector('[data-testid="git-commit-legend"]')).toBeNull();
-});
-
-test("a commit starts a regular commit, never an amend", async () => {
+test("commit starts regular and passes the user's Amend choice to review", async () => {
   await renderPanel({ message: "Plain commit" });
   const workflow = useWorkspaceCommitStore.getStore("A").getState().workflow;
   const prepare = spyOn(workflow, "prepare").mockResolvedValue(undefined);
   try {
+    expect(container.textContent).toContain("1 staged");
     await act(async () => commitButton()!.click());
-    expect(prepare).toHaveBeenCalledTimes(1);
-    const request = prepare.mock.calls[0][0];
-    expect(request.amend).toBe(false);
-    expect(request.message).toBe("Plain commit");
-    expect(container.querySelector('[aria-label="Amend"]')).toBeNull();
+    expect(prepare.mock.calls[0][0].amend).toBe(false);
+    await act(async () =>
+      (
+        container.querySelector('[aria-label="Amend last commit"]')!.closest("label") as HTMLElement
+      ).click(),
+    );
+    await act(async () => commitButton()!.click());
+    expect(prepare.mock.calls[1][0].amend).toBe(true);
+    expect(prepare.mock.calls[1][0].message).toBe("Plain commit");
   } finally {
     prepare.mockRestore();
   }
@@ -155,18 +134,32 @@ test("a pending block selection cannot race the Commit button", async () => {
     expect(commitDiffWritePending()).toBe(false);
     await act(async () => commitButton()!.click());
     expect(prepare).toHaveBeenCalledTimes(1);
-  } finally { release(); prepare.mockRestore(); }
+  } finally {
+    release();
+    prepare.mockRestore();
+  }
 });
 
-test("Commit stays enabled and explains what is missing, like IntelliJ", async () => {
+test("empty commit buttons are disabled and the shortcut explains missing input", async () => {
   const workflow = useWorkspaceCommitStore.getStore("A").getState().workflow;
   const prepare = spyOn(workflow, "prepare").mockResolvedValue(undefined);
   try {
     await renderPanel({ files: [] });
-    expect(commitButton()?.disabled).toBe(false);
-    expect(buttonByText("Commit and Push...")?.disabled).toBe(false);
+    expect(commitButton()?.disabled).toBe(true);
+    expect(buttonByText("Commit and Push...")?.disabled).toBe(true);
 
-    await act(async () => commitButton()!.click());
+    await act(async () => {
+      const textarea = container.querySelector("textarea")!;
+      textarea.focus();
+      textarea.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          ctrlKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
     const hint = () => container.querySelector('[data-testid="git-commit-hint"]')?.textContent;
     expect(hint()).toBe("Select files to commit and specify commit message");
     expect(prepare).not.toHaveBeenCalled();
@@ -181,7 +174,18 @@ test("Commit stays enabled and explains what is missing, like IntelliJ", async (
 
 test("Commit with files but no message asks for a commit message", async () => {
   await renderPanel();
-  await act(async () => commitButton()!.click());
+  await act(async () => {
+    const textarea = container.querySelector("textarea")!;
+    textarea.focus();
+    textarea.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "Enter",
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  });
   expect(container.querySelector('[data-testid="git-commit-hint"]')?.textContent).toBe(
     "Specify commit message",
   );
@@ -198,11 +202,14 @@ test("the commit button and shortcut cannot bypass another changelist's staged f
     expect(commitButton()?.disabled).toBe(true);
     expect(container.textContent).toContain(scopeError);
     await act(async () =>
-      container
-        .querySelector("textarea")!
-        .dispatchEvent(
-          new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true, bubbles: true }),
-        ),
+      container.querySelector("textarea")!.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          ctrlKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      ),
     );
     expect(prepare).not.toHaveBeenCalled();
   } finally {
@@ -215,9 +222,13 @@ test("commit captures the active list scope for native revalidation", async () =
   const prepare = spyOn(workflow, "prepare").mockResolvedValue(undefined);
   try {
     scope = { include: false, paths: { ".": ["application.yaml"] } };
+    includeParentReferences = false;
     await renderPanel({ message: "Feature" });
     await act(async () => commitButton()!.click());
     expect(prepare.mock.calls[0]?.[0].pathScope).toEqual(scope);
+    expect(prepare.mock.calls[0]?.[0].includeParentReferences).toBe(false);
+    // Parent-reference choice belongs to the ChangeList bar, outside the editor.
+    expect(container.textContent).not.toContain("Update parent repository references");
   } finally {
     prepare.mockRestore();
   }

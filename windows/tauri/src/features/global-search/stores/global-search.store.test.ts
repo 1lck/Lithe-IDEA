@@ -30,6 +30,19 @@ const response: SearchFilesResponse = {
 };
 
 describe("global search session store", () => {
+  test("changing folder scope invalidates pending results and stays in its workspace", () => {
+    const first = useGlobalSearchStore.getStore("folder-scope-a");
+    const second = useGlobalSearchStore.getStore("folder-scope-b");
+    const generation = first.getState().actions.beginSearch();
+    first.getState().actions.completeSearch("old", response);
+    first.getState().actions.setScopePaths(["C:/workspace/src", "C:/workspace/src"]);
+    first.getState().actions.setReplaceVisible(true);
+    expect(first.getState().actions.isCurrentRequest(generation)).toBe(false);
+    expect(first.getState().results).toEqual([]);
+    expect(first.getState().scopePaths).toEqual(["C:/workspace/src"]);
+    expect(second.getState().scopePaths).toEqual([]);
+    expect(second.getState().replaceVisible).toBe(false);
+  });
   test("retains a completed search snapshot after its view unmounts", () => {
     const store = useGlobalSearchStore.getStore("search-retention");
     store.getState().actions.setQuery("retained");

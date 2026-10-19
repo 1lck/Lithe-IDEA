@@ -63,6 +63,7 @@ import {
 import {
   findMavenModuleJavaPath,
   findMavenModuleRunConfiguration,
+  mavenModulePomPath,
 } from "../utils/maven-module-operations";
 import { mavenDependencySubtitle } from "../utils/maven-dependency-subtitle";
 
@@ -369,12 +370,7 @@ export default function MavenPane({ onClose }: MavenPaneProps) {
 
   const openModulePom = (modulePath: string) => {
     if (!root || !project) return;
-    const path = joinPath(
-      root,
-      project.relativePath === "." ? "" : project.relativePath,
-      modulePath === "." ? "" : modulePath,
-      "pom.xml",
-    );
+    const path = mavenModulePomPath(root, project.relativePath, modulePath);
     void handleFileSelect(path, false, undefined, undefined, undefined, false);
   };
 

@@ -2824,6 +2824,13 @@ mode it returns candidate file counts and rename identities with empty `patch`
 and zero `byteLength`, independently of patch text encoding and exchange size.
 See [Patch exchange](git-patch-exchange.md) and its metadata fixture.
 
+For Shelf capture, `git.patchExport` also accepts `includeUntracked: true` only
+with `source: "unstaged"`. It snapshots the real index and exports the selected
+working files, including untracked additions, relative to that index. The real
+index remains unchanged. The default false retains tracked-only unstaged export;
+`workingTree` remains HEAD-based. See the same contract and its
+`unstagedWithUntrackedRequest` fixture.
+
 `git.rebaseControl` requires `expectedHead` when `amendMessage` is present.
 Missing or stale HEAD rejects the amendment before writing; plain Continue,
 Skip and Abort do not require this field. Both products must send the HEAD
@@ -3096,3 +3103,21 @@ Core-planned direct JDT JDWP launches) so DevTools cannot restart the classloade
 HotSwap. Attach to independently launched JVMs does not change their options.
 The Windows host maps `redefineClasses` to this operation and `cancelOperation`
 to `debug.cancelOperation` with a `timedOut` reason for its bounded result wait.
+
+### Saved changes: directional patches and immutable stashes
+
+`git.patchPreview` and `git.patchApply` accept optional `reverse` (default `false`).
+The preview token binds direction, patch bytes, target, index, HEAD and working files;
+changing direction requires a new preview. Preview checks use disposable index copies
+and preserve the real index bytes. Applying to `indexAndWorktree` may refresh its
+stat cache after reviewed-state validation. Git remains responsible for applicability;
+there is no partial-reject or automatic whitespace repair mode.
+See `shared/fixtures/git/patch-exchange-v1.json`.
+
+`git.stashes` adds `oid`, the full immutable object identity, alongside the positional
+`reference`. `git.diff` accepts `stashReference` to read a stash including its untracked
+files. Stash write operations also accept the full object identity in `reference`;
+Core resolves its current stash position under the existing writer lease and rejects
+an identity that is no longer present. Legacy positional references remain accepted.
+See `shared/fixtures/git/saved-stash-v1.json`. Native Shelf persistence is platform-owned;
+raw patch bytes are kept separately for index and working-tree versions.

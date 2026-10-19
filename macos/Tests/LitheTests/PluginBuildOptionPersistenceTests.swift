@@ -158,7 +158,10 @@ struct PluginBuildOptionPersistenceTests {
         systems[0]["languageImport"] = ["kind": "maven", "options": ["profiles": "features"]]
         manifest["buildSystems"] = systems
         let descriptor = try DeclarativePluginTestSupport.operations.validate(manifest: JSONSerialization.data(withJSONObject: manifest))
-        return BuildSystemPluginSource(pluginID: descriptor.id.rawValue, manifest: descriptor.normalizedManifest, packageURL: nil, buildSystems: descriptor.buildSystems)
+        return BuildSystemPluginSource(
+            pluginID: descriptor.id.rawValue, manifest: descriptor.normalizedManifest,
+            packageURL: fixture.deletingLastPathComponent(), buildSystems: descriptor.buildSystems
+        )
     }
 }
 

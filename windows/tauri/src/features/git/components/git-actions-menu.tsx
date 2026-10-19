@@ -6,7 +6,7 @@ import {
   GitBranchIcon as GitBranch,
   FolderOpenIcon as FolderOpen,
   GitPullRequestIcon as GitPullRequest,
-  ArrowClockwiseIcon as RefreshCw,
+  RefreshIcon as RefreshCw,
   ArrowCounterClockwiseIcon as RotateCcw,
   HardDrivesIcon as Server,
   GearSixIcon as Settings,

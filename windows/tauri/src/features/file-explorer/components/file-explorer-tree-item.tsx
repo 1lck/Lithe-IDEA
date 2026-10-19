@@ -1,3 +1,4 @@
+import type { DirectoryMark } from "../stores/directory-marks";
 import type React from "react";
 import { memo } from "react";
 import type { FileIconSemanticKind } from "@/extensions/icon-themes/file-icon-semantics";
@@ -52,6 +53,7 @@ interface FileExplorerTreeItemProps {
   isActive: boolean;
   isRoot: boolean;
   semanticKind?: FileIconSemanticKind;
+  directoryMark?: DirectoryMark;
   isCut: boolean;
   isDragOver: boolean;
   isDragging: boolean;
@@ -99,6 +101,7 @@ function FileExplorerTreeItemComponent({
   isActive,
   isRoot,
   semanticKind,
+  directoryMark,
   isCut,
   isDragOver,
   isDragging,
@@ -201,6 +204,7 @@ function FileExplorerTreeItemComponent({
 
   return (
     <SidebarTreeRow
+      variant="idea"
       id={rowId}
       active={isActive}
       depth={depth}
@@ -219,13 +223,16 @@ function FileExplorerTreeItemComponent({
       title={
         file.isSymlink && file.symlinkTarget
           ? t("files.symlinkTo", { target: file.symlinkTarget })
-          : undefined
+          : directoryMark
+            ? t(`project.mark.${directoryMark}`)
+            : undefined
       }
       className={cn(
         "min-w-max",
         isDragOver && "border-2! border-dashed! border-primary! bg-primary! bg-opacity-20!",
         isDragging && "cursor-move",
-        file.ignored && "opacity-50",
+        (file.ignored || directoryMark === "excluded") && "opacity-50",
+        directoryMark === "module" && "font-semibold",
         isCut && "italic opacity-40",
       )}
       leading={
@@ -270,6 +277,7 @@ export const FileExplorerTreeItem = memo(
     prev.isActive === next.isActive &&
     prev.isRoot === next.isRoot &&
     prev.semanticKind === next.semanticKind &&
+    prev.directoryMark === next.directoryMark &&
     prev.isCut === next.isCut &&
     prev.isDragOver === next.isDragOver &&
     prev.isDragging === next.isDragging &&

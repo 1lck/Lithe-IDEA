@@ -2,6 +2,14 @@
   "description": "Lithe icon export name -> IntelliJ platform icon asset (relative to intellij-community platform/icons/src). Managed by scripts/generate-idea-icons.ts. Icons absent from this list keep their lucide fallback. colorPolicy defaults to 'fixed' (IDEA colors as-is); 'fallback' entries document why an IDEA asset was not used.",
   "icons": [
     {
+      "icon": "CommitMagicIcon",
+      "source": "expui/diff/magicResolveToolbar.svg"
+    },
+    {
+      "icon": "RevertIcon",
+      "source": "expui/vcs/revert.svg"
+    },
+    {
       "icon": "AiLoadingIcon",
       "source": null,
       "note": "no confident IntelliJ platform asset; lucide fallback"
