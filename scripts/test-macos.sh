@@ -3,7 +3,6 @@ set -euo pipefail
 
 ROOT_DIR="${0:A:h:h}"
 cd "$ROOT_DIR"
-source "$ROOT_DIR/scripts/macos-swift-build-options.sh"
 
 # Note: .agents/notes/implemented/testing/2026-10-09-macos-test-desktop-isolation.md
 # Keep native tests running while suppressing their WindowServer presentation.
@@ -25,7 +24,6 @@ fi
 
 SWIFT_ARGS=(
     test --disable-sandbox
-    "${LITHE_SWIFT_BUILD_ARGS[@]}"
     -Xswiftc -Xfrontend
     -Xswiftc -disable-round-trip-debug-types
     -Xcc -include

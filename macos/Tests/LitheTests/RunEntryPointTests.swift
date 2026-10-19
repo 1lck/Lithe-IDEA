@@ -11,6 +11,42 @@ import Testing
 @MainActor
 struct RunEntryPointTests {
     @Test
+    func debugSelectedTestValidatesItsSourceInsteadOfLaunchingTheUnderlyingMain() throws {
+        let workspace = try JavaWorkspaceFixture()
+        defer { workspace.remove() }
+        let model = makeAppModel(workspaceOperations: SequencedWorkspaceOperations.neverScans())
+        defer { model.closeProject() }
+        model.openProjectDirectly(workspace.root)
+        model.activeTestTarget = ActiveTestTarget(providerID: "java", scope: .testCase(identifier: "demo.ExampleTest#check()", fileURL: nil))
+        model.startDebugging()
+        #expect(model.notifications.contains { $0.message == "The selected Java test has no source file" })
+        #expect(model.genericDebugFeatureIfActive?.isSessionActive != true)
+    }
+
+    @Test(arguments: [false, true])
+    func toolbarRerunsTheNewScopeAfterLeavingASingleTest(fileScope: Bool) async throws {
+        let workspace = try JavaWorkspaceFixture()
+        defer { workspace.remove() }
+        let model = makeAppModel(workspaceOperations: SequencedWorkspaceOperations.neverScans())
+        defer { model.closeProject() }
+        model.openProjectDirectly(workspace.root)
+        // An unregistered provider rejects execution without launching external tools.
+        let provider = "scope-regression"
+        model.runTest(providerID: provider, scope: .testCase(identifier: "demo.ExampleTest#check()", fileURL: workspace.sourceURL))
+        let scope: LanguageTestScope = fileScope ? .file(workspace.sourceURL) : .workspace
+        model.runTest(providerID: provider, scope: scope)
+        WorkbenchModuleUIComposition.builtIn.performAction(id: "workbench.run-start-or-restart", model: model)
+        #expect(model.activeTestTarget?.scope == scope)
+        #expect(model.activeTestTarget?.name == (fileScope ? workspace.sourceURL.lastPathComponent : String(localized: "Workspace")))
+        let execution = try #require(await model.activateExecutionModule())
+        #expect(await awaitChange(on: execution.tests) { execution.tests.errorMessage != nil })
+        model.startDebugging()
+        #expect(model.activeTestTarget?.scope == scope, "Debug must receive the same scope instead of the stale single test")
+        #expect(model.genericDebugFeatureIfActive?.isSessionActive != true)
+        await model.shutdownProjectSession()
+    }
+
+    @Test
     func provisionalSnapshotStaysUnavailableAcrossRefreshesUntilReleased() throws {
         let workspace = try JavaWorkspaceFixture()
         defer { workspace.remove() }

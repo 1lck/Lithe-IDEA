@@ -23,7 +23,7 @@
 ### 1. 契约放在 shared，执行放在 Rust Core
 
 - `shared/contracts/plugins/v1/` 定义 `plugin.json`（`schemaVersion: 2`）的字段、权限、激活事件、命令模板变量、错误码和状态语义，并提供合法样例、非法样例（附期望错误码）和命令展开的标准答案。schema 1 是已退役的 macOS 原生清单。
-- 兼容性只看 `pluginAPIVersion`（声明式插件 API 级别，当前为 1），不再用写死的 `BuiltInPluginCatalog.hostVersion = 0.3.0` 冒充宿主版本。
+- 兼容性只看 `pluginAPIVersion`（声明式插件 API 级别），不再用写死的 `BuiltInPluginCatalog.hostVersion = 0.3.0` 冒充宿主版本。级别 3 起清单还按能力分版本，见[声明式插件按能力分版本](2026-10-17-plugin-capability-versions.md)。
 - 校验和模板展开是两端共享的确定性逻辑，按仓库规则放进 Rust Core，通过 `plugins.declarative.validate`、`runPlan`、`discoverTests`、`testPlan` 四个命令暴露。命令是纯函数：宿主每次把清单和请求传进去，Core 不读包、不读工作区。清单内容问题以 `{status: "rejected", error: {code}}` 返回稳定的 `plugin.*` 错误码；只有请求格式错误才是 Core 失败。
 - Windows 现有扩展清单暂未改造，契约 README 给出字段对照；Windows 接入时必须通过同一组 fixture。
 
@@ -31,12 +31,22 @@
 
 1. `MacPluginPackageStore` 读取 `plugin.json`。schema 1 且入口为 `nativeBundle` 的包直接报 `legacyNativePackage`，绝不加载其代码。
 2. 调用 `RustDeclarativePluginOperations.validate` 得到规范化声明，再在 Swift 侧合成 `PluginManifest`（入口类型 `.declarative`，模块由宿主按语言生成，模块 ID 与旧原生插件相同）。
-3. 信任检查：宿主内置的 `OfficialPluginCatalog` 固定官方插件的签名要求，防止包自行降级；`publisherPackage` 必须通过 `PluginPackageSignature` 的整包 Ed25519 签名，debug 构建允许从磁盘安装未签名的 `localDevelopment` 包；`sameTeamAsHost` 只认放在宿主 app bundle 内的包（由应用自身的代码签名封住）。因为没有原生代码，不再做 `SecStaticCode` 检查。
+3. 信任检查：宿主内置的 `OfficialPluginCatalog` 固定官方 ID 的签名要求，防止包自行降级；`publisherPackage` 必须通过 `PluginPackageSignature` 的整包 Ed25519 签名，只有 DEBUG 构建允许从磁盘安装本应要求 publisher 签名但未签名的 `localDevelopment` 包，release 拒绝；`sameTeamAsHost` 只认放在宿主 app bundle 内的包（由应用自身的代码签名封住）。`signatureRequirement: "none"` 的社区包可以由市场或磁盘确认流程安装，但不能冒用 `dev.lithe`、`dev.lithe.*` 或固定官方 ID；社区来源不能绕过现存签名文档的校验。因为没有宿主加载的原生代码，不再做 `SecStaticCode` 检查。
 4. 每个 `packaged` 语言服务器入口必须是包内的普通可执行文件，不能是符号链接。
 5. `MacPluginStartupLoader` 只做静态校验（与内置清单的所有权冲突、模块依赖图），不加载代码。被接受的包无论是否启用都注册宿主模块，启用状态只决定能否激活，所以启用、禁用即时生效，不需要重启；只有启动后才安装的包需要重启才能进入模块图。包的 UI 贡献能否绑定到宿主动作和渲染器，由组合根（`MacServiceContainer`）通过 `validateUI` 注入的检查决定，加载器本身不依赖 Views 层。
 6. `MacServiceContainer.declarativePluginFactories` 用声明配置通用的 `BundledLanguageServerModule` 和 `BundledLanguageExecutionModule`。运行/测试计划由 `DeclarativeLanguageExecutionCapability` 交给 Rust Core 展开；进程仍由模块的资源范围持有，禁用时一并停止。
 7. `packaged` 语言服务器固定为**本插件**已安装版本目录里的完整路径（`LanguageServerExtensionConfiguration.executableURL`），它就是唯一候选，不按文件名在 PATH 或其他插件里查找，升级前保存的自定义可执行路径也不会排到它前面或在它缺失时顶替：两个插件都打包 `bin/language-server` 时也不会互相启动对方的服务器，文件缺失时直接报不可用而不是换成同名工具；`systemCommand`（如 gopls）走普通工具发现。`runtimeDependencies` 声明的运行时（v1 支持 `node`、`go`）由宿主发现，导出为 `LITHE_<TOOL>_PATH`，并把所在目录放到语言服务器 `PATH` 最前面：Intelephense 的启动脚本读 `LITHE_NODE_PATH`，gopls 则自己调用 `go`。从 Dock 打开的应用不继承 shell 的 `PATH`（没有 `/opt/homebrew/bin`），不声明 `go` 时 gopls 能启动但每个请求都报 `no views`。项目目录里的同名工具永远不会被选中，因为语言服务器在打开文件时自动启动，不能执行仓库自带的程序。`launch.kind` 为 `runtime` 的服务器（如 `node`、`java`）即使没有写 `runtimeDependencies`，也会把自己启动用的那个运行时同样导出（`LITHE_<TOOL>_PATH`，所在目录放到 `PATH` 最前面），用的是宿主已选中的那个可执行文件，而不是 `PATH` 上排在前面的同名旧版本，这样服务器按命令名调用的辅助脚本（`/usr/bin/env node`）与它同一个运行时。宿主集成（如 `jdt`）自己管理环境，不套用这条。
 8. 带 `validationArguments` 的语言服务器（如 `gopls version`）只有探测通过的候选才会被使用。插件在启动后才启用时，它的语言服务器错过了启动时的探测，所以 `AppModel` 在注册后发现尚未探测，会先探测再启动，而不是先报“找不到 gopls”再靠重试恢复。
+
+### 磁盘安装沿用声明与审批边界
+
+磁盘输入也交给 Rust 的 `plugins.marketplace.installReview` 生成权限和完整程序清单，不在 Swift 再写一套审查语义。macOS 先由 `MacPluginDiskPackageImporter` 读取 ZIP 或解包目录，复制到私有快照后才做包校验与审查；本地磁盘社区包每次首次安装、升级或同版本替换都要确认全部权限和完整 `programs`，即使 `newPrograms` 为空也不能免确认。市场更新保持已有的差异审批规则，无新程序时可沿用审批。审查与持久化必须保留 canonical program 的全部字段（包括参数、模板、验证探测、初始化选项及构建声明），不能只按命令名表示批准。
+
+磁盘来源 `PluginDiskProvenance` 与市场来源 `PluginMarketplaceProvenance` 分开保存。ZIP 的可选归档摘要取自快照 `archive.zip`，解包目录没有归档摘要；两者都保存内容 digest 与完整 `approvedPrograms`，不声称经过远端仓库或发布者认证。store 在安装 staging、扫描和回滚时复验内容，当前/上一版本各自保留 origin 和来源记录；同版本替换沿用原有上一版本，而不是把被覆盖的同版本存成回滚副本。市场同 ID 条目不能自动成为磁盘包的更新或重装来源。
+
+快照目录为 `<file-storage-temp>/lithe-plugin-disk-<UUID>/`，由 `MacServiceContainer` 注入的 `fileStorage.temporaryDirectory()` 决定根目录。importer 持有复制阶段，失败/取消清理；成功准备后 service 持有，取消审批或安装成功/失败都 discard。插件页关闭时结束安装 session，清理已有及迟到返回的快照，避免关闭页面后继续安装。安装暂存与持久版本在平台 Application Support；快照、审批记录和安装状态不跨 worktree 复用（`plugin-disk-install-state`），其内容摘要不是构建身份标记。运行时不写发行 bundle 或 Windows 安装目录，不影响代码签名与 Sparkle delta。完整取舍与复验流程见[插件市场与插件仓库源](../feature/2026-10-12-plugin-marketplace.md)。Windows 目前仅共享 Core 校验和契约，尚未实现这条声明式磁盘安装链。
+
+正确做法：先对平台临时目录里的私有快照审查，安装时重验 staging，并按恢复版本的来源校验回滚。不要这样做：审查原目录后重新读取原目录安装、给目录伪造 ZIP 摘要，或把本地摘要当作官方签名。
 
 ### 3. 去掉原生加载与过严的隔离
 
@@ -76,12 +86,13 @@ gopls 把 `fmt.Println` 的定义指向 `GOROOT/src/fmt/print.go`，Intelephense
 3. 在 Swift 里实现模板展开、只把 fixture 放进 shared：改动更小，但仓库规则要求两端共用的确定性逻辑放 Rust Core，否则 Windows 接入时会出现第二份实现。用户选择直接放 Rust Core。
 4. 继续加载已安装的旧原生 PHP 包并提示更新：更新前还能用，但新宿主已删除 PHP 的 Swift 模块，旧包有运行时崩溃风险，因此选择不加载、提示重装。
 5. 引入完整的第三方插件进程协议（例如 Worker/扩展宿主）：本次只需要语言声明和命令模板，已有通用模块足够；将来需要插件自定义逻辑时再单独设计。
+6. 让磁盘安装绕过 Rust 审查，或复用市场 provenance：会产生第二套权限语义，且把本地字节误当作有仓库校验来源；改为共用 installReview、保存独立来源，付出私有快照复制和每次显式确认的成本。
 
 ## 后果
 
 插件与宿主二进制解耦，可以独立发布和拆仓库；同一份声明可供两端使用；启用、禁用不再需要重启；崩溃后不再误隔离插件。宿主侧原来散落的 PHP 特判（工具目录、包校验器、LSP 中心提示）改为由声明驱动。
 
-代价：声明只能表达契约里定义的能力，需要新能力（新模板变量、新运行时依赖、新权限）时必须升级 `pluginAPIVersion` 并同时更新 Rust 实现、schema、fixture 和两端宿主；旧原生 PHP 用户需要手动点一次重新安装；本机真实 PHPUnit 集成测试依赖 PHP 与 Composer，未安装时只能运行 Intelephense 那一半。
+代价：声明只能表达契约里定义的能力，需要新能力（新模板变量、新运行时依赖、新权限）时，级别 1、2 必须升级 `pluginAPIVersion`，级别 3 起只升级对应能力的版本，两种情况都要同时更新 Rust 实现、schema、fixture 和两端宿主；旧原生 PHP 用户需要手动点一次重新安装；本机真实 PHPUnit 集成测试依赖 PHP 与 Composer，未安装时只能运行 Intelephense 那一半。
 
 ## 验证
 
@@ -90,7 +101,8 @@ gopls 把 `fmt.Println` 的定义指向 `GOROOT/src/fmt/print.go`，Intelephense
 - `./scripts/verify-official-plugins.sh`：组装官方包并用 `LitheOfficialPluginVerifier` 检查信任策略、打包入口和"包内无 Mach-O"。
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'Plugin|LanguageExtensionProcessLifecycleTests|LanguageServerToolServiceTests|LanguageNavigationCoordinatorTests|ExternalNavigationTests'`：包校验、旧包过渡、签名、启停与进程清理、打包入口固定、跨工作区跳转边界。
 - `LITHE_RUN_PHP_INTEGRATION=1 ./scripts/test-macos.sh --filter RealPhpIntegrationTests`：真实 Intelephense 与 PHPUnit。
-- `./scripts/verify-runtime-bundle-immutability.sh`：启动与插件工作流不改写安装目录。
+- `node scripts/test-reuse-worktree-resources.mjs`：磁盘快照、安装状态和审批记录禁止跨工作树复制。
+- `./scripts/verify-runtime-bundle-immutability.sh`：静态检查两端发行资源写入边界；磁盘安装、取消、失败、扫描与回滚的产品验收还需比较前后 bundle 文件清单/哈希，不能用静态通过替代真实验证。磁盘每次确认与两入口完整程序展示的行为验收见插件市场 Note；功能矩阵继续保持 `pending`。
 
 ## 适用范围
 

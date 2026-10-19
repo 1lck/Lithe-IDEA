@@ -331,3 +331,29 @@ Community revision 233ba81d5f6ec3f90ebd3be3159f425ecc3073ff
 the link color and only marks a link's destination; it is the GitHub service
 mark that Community ships for its GitHub integration, not a JetBrains product
 logo or a third-party plugin icon.
+
+The editor gutter expui/actions/runAll.svg and runAll_dark.svg are original
+Community idea/262.9437.185 platform/icons/src/expui/actions assets, also shipped
+in IntelliJ IDEA 2026.2.1 build 262.9437.185. Their Apache 2.0 notices are preserved.
+
+The editor tab expui/nodes/junitTestMark.svg and junitTestMark_dark.svg are original
+Community idea/262.9437.185 platform/icons/src/expui/nodes resources, also shipped
+in IntelliJ IDEA 2026.2.1 build 262.9437.185. Their Apache 2.0 notices are preserved.
+
+The editor gutter test status icons expui/gutter/runSuccess{,_dark}.svg and
+expui/gutter/runError{,_dark}.svg are original Community platform/icons/src/expui/gutter
+assets (Apache License 2.0, Copyright 2000-2023 JetBrains s.r.o. and contributors).
+PlatformIconMappings maps legacy runConfigurations/testState/green2.svg to runSuccess.svg,
+and red2.svg to runError.svg.
+
+Editor breakpoint icons use unmodified 14x14 New UI SVGs from Community
+idea/262.9437.185 (b75ab523e6adbe1d26112219729eacbcfd24daa0):
+platform/icons/src/expui/breakpoints/{breakpoint,breakpointDisabled,breakpointMuted,
+breakpointMutedDisabled,breakpointInvalid,breakpointValid,breakpointUnsuspendent,
+breakpointUnsuspendentDisabled,breakpointUnsuspendentValid}{,_dark}.svg.
+Copyright 2000-2026 JetBrains s.r.o. and contributors; Apache License 2.0.
+
+Editor intention bulbs use unmodified expui/codeInsight/intentionBulb{,_dark}.svg
+from Community idea/262.9437.185 (b75ab523e6adbe1d26112219729eacbcfd24daa0).
+IntentionHintComponent.LightBulbUtil assigns the original IntentionBulb resource.
+Copyright 2000-2023 JetBrains s.r.o. and contributors; Apache License 2.0.

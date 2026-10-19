@@ -106,6 +106,7 @@ export const useContentSearch = () => {
     indexedFiles,
     scannedFiles,
     includeQuery,
+    scopePaths,
     excludeQuery,
     searchOptions,
     resultsSearchKey,
@@ -125,6 +126,7 @@ export const useContentSearch = () => {
       [
         nativeRootPaths.join("\n") || rootFolderPath || "",
         debouncedQuery,
+        JSON.stringify(scopePaths),
         debouncedIncludeQuery,
         debouncedExcludeQuery,
         Number(searchOptions.caseSensitive),
@@ -136,6 +138,7 @@ export const useContentSearch = () => {
       debouncedIncludeQuery,
       debouncedQuery,
       nativeRootPaths,
+      scopePaths,
       rootFolderPath,
       searchOptions.caseSensitive,
       searchOptions.useRegex,
@@ -186,7 +189,16 @@ export const useContentSearch = () => {
         if (!searchActions.isCurrentRequest(currentRequestId)) return null;
 
         return searchProviderFilesContent({
-          files,
+          files: scopePaths.length
+            ? files.filter((file) =>
+                scopePaths.some(
+                  (path) =>
+                    file.path === path ||
+                    file.path.startsWith(`${path}/`) ||
+                    file.path.startsWith(`${path}\\`),
+                ),
+              )
+            : files,
           query: debouncedQuery,
           rootFolderPath: searchRootPath,
           options: searchOptions,
@@ -200,7 +212,7 @@ export const useContentSearch = () => {
       }
 
       return searchFilesContent({
-        root_paths: nativeRootPaths,
+        root_paths: scopePaths.length ? scopePaths : nativeRootPaths,
         query: debouncedQuery,
         case_sensitive: searchOptions.caseSensitive,
         whole_word: searchOptions.wholeWord,
@@ -217,6 +229,7 @@ export const useContentSearch = () => {
       debouncedQuery,
       getProviderFiles,
       nativeRootPaths,
+      scopePaths,
       rootFolderPath,
       searchActions,
       searchKey,

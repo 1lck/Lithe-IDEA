@@ -46,11 +46,6 @@ extension AppModel {
         set { workbenchFeature.setVisibility(.problems, isVisible: newValue) }
     }
 
-    var isMavenVisible: Bool {
-        get { workbenchFeature.isVisible(.maven) }
-        set { workbenchFeature.setVisibility(.maven, isVisible: newValue) }
-    }
-
     var isSpringVisible: Bool {
         get { workbenchFeature.isVisible(.spring) }
         set { workbenchFeature.setVisibility(.spring, isVisible: newValue) }
@@ -74,7 +69,9 @@ extension AppModel {
             case .search: _ = await activateSearchModule()
             case .database, .databaseServices: _ = await databaseModuleCoordinator.activate()
             case .agent: activateAgentConversation()
-            case .maven, .mavenOutput, .run, .tests: _ = await activateExecutionModule()
+            case .run, .tests: _ = await activateExecutionModule()
+            case .buildOutput:
+                if let access = await activateExecutionModule() { loadBuildSystems(access) }
             case .debug: _ = await activateDebugModule()
             default: break
             }

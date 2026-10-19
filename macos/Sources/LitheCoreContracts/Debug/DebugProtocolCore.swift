@@ -124,13 +124,14 @@ public struct DebugCoreBreakpoint: Decodable, Equatable, Sendable {
     public let functionName: String?
     public let dataID: String?
     public let sourcePath: String?
+    public let requestedLine: Int?
     public let line: Int?
     public let column: Int?
 
     private enum CodingKeys: String, CodingKey {
         case id, verified, message, functionName
         case dataID = "dataId"
-        case sourcePath, line, column
+        case sourcePath, requestedLine, line, column
     }
 }
 

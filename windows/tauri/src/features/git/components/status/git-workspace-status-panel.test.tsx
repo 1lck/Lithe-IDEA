@@ -15,6 +15,7 @@ import { installHappyDom } from "@/test-utils/happy-dom";
 import { LocaleProvider } from "@/i18n/locale-provider";
 import GitStatusPanel from "./git-status-panel";
 import type { GitFile } from "../../types/git.types";
+import { useSettingsStore } from "@/features/settings/stores/settings.store";
 
 let restoreDom: () => void;
 let root: Root;
@@ -26,14 +27,22 @@ let previousAct: boolean | undefined;
 let previousGetAnimations: PropertyDescriptor | undefined;
 let previousBuffers: Pick<ReturnType<typeof useBufferStore.getState>, "buffers" | "activeBufferId">;
 let scrollRequests: Array<{ index: number; align?: string }>;
+let previousFolderView: boolean;
 beforeEach(() => {
   restoreDom = installHappyDom();
   // Base UI measures scroll geometry after animations. This DOM fixture has
   // no animations; provide the browser API that happy-dom does not implement.
   previousGetAnimations = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "getAnimations");
-  Object.defineProperty(HTMLElement.prototype, "getAnimations", { configurable: true, value: () => [] });
+  Object.defineProperty(HTMLElement.prototype, "getAnimations", {
+    configurable: true,
+    value: () => [],
+  });
   previousAct = actGlobal.IS_REACT_ACT_ENVIRONMENT;
   actGlobal.IS_REACT_ACT_ENVIRONMENT = true;
+  previousFolderView = useSettingsStore.getState().settings.gitChangesFolderView;
+  useSettingsStore.setState((state) => ({
+    settings: { ...state.settings, gitChangesFolderView: true },
+  }));
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -49,7 +58,9 @@ beforeEach(() => {
     getVirtualItems: () =>
       Array.from({ length: options.count }, (_, index) => ({ index, size: 32, start: index * 32 })),
     getTotalSize: () => options.count * 32,
-    scrollToIndex: (index: number, options?: { align?: string }) => { scrollRequests.push({ index, ...options }); },
+    scrollToIndex: (index: number, options?: { align?: string }) => {
+      scrollRequests.push({ index, ...options });
+    },
   })) as unknown as typeof virtual.useVirtualizer);
 });
 afterEach(async () => {
@@ -59,6 +70,9 @@ afterEach(async () => {
     staging.mockRestore();
     virtualizer.mockRestore();
     useBufferStore.setState(previousBuffers);
+    useSettingsStore.setState((state) => ({
+      settings: { ...state.settings, gitChangesFolderView: previousFolderView },
+    }));
     container.remove();
     if (previousGetAnimations) {
       Object.defineProperty(HTMLElement.prototype, "getAnimations", previousGetAnimations);
@@ -68,7 +82,15 @@ afterEach(async () => {
     else actGlobal.IS_REACT_ACT_ENVIRONMENT = previousAct;
   }
 });
-const render = async (files: GitFile[], changelists?: LocalChangelists) => {
+const render = async (
+  files: GitFile[],
+  changelists?: LocalChangelists,
+  options: {
+    onFileSelect?: (path: string, staged: boolean) => void;
+    onPreviewFile?: (path: string, staged: boolean) => void;
+    stagingDisabled?: boolean;
+  } = {},
+) => {
   await act(async () =>
     root.render(
       <LocaleProvider language="en-US">
@@ -82,6 +104,7 @@ const render = async (files: GitFile[], changelists?: LocalChangelists) => {
           collapsedSections={new Set()}
           onCollapsedSectionsChange={() => {}}
           onStagingRefresh={async () => {}}
+          {...options}
         />
       </LocaleProvider>,
     ),
@@ -97,20 +120,45 @@ const file = (repository: string, name = "hello.ts"): GitFile => ({
 });
 
 const preview = async (file: GitFile, options: { history?: boolean; loading?: boolean } = {}) => {
-  const target = { repoPath: file.repositoryPath!, filePath: file.repositoryRelativePath!, untracked: false };
-  const data = createSingleFileWorkingTreeDiff({ repoPath: target.repoPath, target,
-    fileKey: `unstaged:${file.path}`, diff: null, commitPreview: true });
-  await act(async () => useBufferStore.setState({ activeBufferId: "commit-preview", buffers: [
-    createPaneContent("commit-preview", { type: "diff", path: "diff://preview", name: "Commit",
-      content: "", diffData: { ...data, commitHash: options.history ? "revision" : "working-tree",
-        isLoading: options.loading ?? false } }),
-  ] }));
+  const target = {
+    repoPath: file.repositoryPath!,
+    filePath: file.repositoryRelativePath!,
+    untracked: false,
+  };
+  const data = createSingleFileWorkingTreeDiff({
+    repoPath: target.repoPath,
+    target,
+    fileKey: `unstaged:${file.path}`,
+    diff: null,
+    commitPreview: true,
+  });
+  await act(async () =>
+    useBufferStore.setState({
+      activeBufferId: "commit-preview",
+      buffers: [
+        createPaneContent("commit-preview", {
+          type: "diff",
+          path: "diff://preview",
+          name: "Commit",
+          content: "",
+          diffData: {
+            ...data,
+            commitHash: options.history ? "revision" : "working-tree",
+            isLoading: options.loading ?? false,
+          },
+        }),
+      ],
+    }),
+  );
 };
-const selectedNames = () => [...container.querySelectorAll('[role="treeitem"][aria-selected="true"]')]
-  .map(row => row.textContent);
+const selectedNames = () =>
+  [...container.querySelectorAll('[role="treeitem"][aria-selected="true"]')].map(
+    (row) => row.textContent,
+  );
 
 test("Commit selection and virtual scrolling follow both directions without changing inclusion or stealing focus", async () => {
-  const first = file("A", "a.ts"), next = file("B", "b.ts");
+  const first = file("A", "a.ts"),
+    next = file("B", "b.ts");
   await render([first, next]);
   const editor = document.createElement("textarea");
   container.append(editor);
@@ -121,8 +169,13 @@ test("Commit selection and virtual scrolling follow both directions without chan
   await preview(next);
   expect(selectedNames()).toHaveLength(1);
   expect(selectedNames()[0]).toContain("b.ts");
-  const row = container.querySelector('[aria-label="Include b.ts in commit"]')!.closest('[data-git-status-row-index]')!;
-  expect(scrollRequests[scrollRequests.length - 1]).toEqual({ index: Number(row.getAttribute("data-git-status-row-index")), align: "auto" });
+  const row = container
+    .querySelector('[aria-label="Include b.ts in commit"]')!
+    .closest("[data-git-status-row-index]")!;
+  expect(scrollRequests[scrollRequests.length - 1]).toEqual({
+    index: Number(row.getAttribute("data-git-status-row-index")),
+    align: "auto",
+  });
   const scrollCount = scrollRequests.length;
   // Refreshing the same comparison must not repeatedly pull the list back into view.
   await preview(next);
@@ -134,17 +187,34 @@ test("Commit selection and virtual scrolling follow both directions without chan
 });
 
 test("preview selection reveals collapsed repository, section and compact folders, ignoring foreign history and loading", async () => {
-  const selected = file("B", "b.ts"), other = file("A", "a.ts");
-  const section = "C:/workspace/B:default:tracked";
+  const selected = file("B", "b.ts"),
+    other = file("A", "a.ts");
+  const section = "C:/workspace/B:default:changelist";
   function Harness() {
-    const [collapsedSections, setSections] = useState(new Set(["repository:C:/workspace/B", section]));
+    const [collapsedSections, setSections] = useState(
+      new Set(["repository:C:/workspace/B", section]),
+    );
     const [collapsedFolders, setFolders] = useState(new Set([`${section}:src`]));
-    return <GitStatusPanel files={[other, selected]} repositoryCount={2} repoPath="C:/workspace/A"
-      collapsedSections={collapsedSections} onCollapsedSectionsChange={setSections}
-      collapsedFolders={collapsedFolders} onCollapsedFoldersChange={setFolders}
-      onStagingRefresh={async () => {}} />;
+    return (
+      <GitStatusPanel
+        files={[other, selected]}
+        repositoryCount={2}
+        repoPath="C:/workspace/A"
+        collapsedSections={collapsedSections}
+        onCollapsedSectionsChange={setSections}
+        collapsedFolders={collapsedFolders}
+        onCollapsedFoldersChange={setFolders}
+        onStagingRefresh={async () => {}}
+      />
+    );
   }
-  await act(async () => root.render(<LocaleProvider language="en-US"><Harness /></LocaleProvider>));
+  await act(async () =>
+    root.render(
+      <LocaleProvider language="en-US">
+        <Harness />
+      </LocaleProvider>,
+    ),
+  );
   await preview(selected, { history: true });
   expect(selectedNames()).toHaveLength(0);
   await preview(selected, { loading: true });
@@ -160,8 +230,12 @@ test("preview selection reveals collapsed repository, section and compact folder
 
 test("file checkboxes stage in their owner repository, independently of the active root", async () => {
   await render([file("A", "a.ts"), file("B", "b.ts")]);
-  expect(container.textContent).toContain("C:/workspace/A");
-  expect(container.textContent).toContain("C:/workspace/B");
+  expect(container.querySelector('[role=treeitem][title="C:/workspace/A"]')?.textContent).toBe(
+    "A1",
+  );
+  expect(container.querySelector('[role=treeitem][title="C:/workspace/B"]')?.textContent).toBe(
+    "B1",
+  );
   const checkbox = container.querySelector<HTMLElement>('[aria-label="Include b.ts in commit"]');
   expect(checkbox).not.toBeNull();
   await act(async () => checkbox!.click());
@@ -170,34 +244,71 @@ test("file checkboxes stage in their owner repository, independently of the acti
 
 test("keeps the repository header with one changed root and excludes dirty-only submodule pointers", async () => {
   await render([file("B"), { ...file("B", "child"), canToggleStaging: false }]);
-  expect(container.textContent).toContain("C:/workspace/B");
+  expect(container.querySelector('[role=treeitem][title="C:/workspace/B"]')?.textContent).toBe(
+    "B2",
+  );
   const dirty = container.querySelector<HTMLElement>('[aria-label="Include child in commit"]');
   expect(dirty?.hasAttribute("disabled") || dirty?.getAttribute("aria-disabled") === "true").toBe(
     true,
   );
   const headerCheckbox = container.querySelector<HTMLElement>(
-    '[aria-label="Include folder C:/workspace/B in commit"]',
+    '[aria-label="Include folder B in commit"]',
   );
   expect(headerCheckbox).not.toBeNull();
   await act(async () => headerCheckbox!.click());
   expect(staging).toHaveBeenCalledWith("C:/workspace/B", ["src/hello.ts"], true);
 });
 
-test("groups files under IntelliJ's Changes and Unversioned Files nodes", async () => {
+test("toolbar preview opens the complete first change independently of the row-click action", async () => {
+  const first = { ...file("A", "first.ts"), staged: true, worktree: true };
+  const rowClicks: string[] = [];
+  const previews: Array<{ path: string; staged: boolean }> = [];
+  await render([first, file("B", "next.ts")], undefined, {
+    onFileSelect: (path) => rowClicks.push(path),
+    onPreviewFile: (path, staged) => previews.push({ path, staged }),
+  });
+  const previewButton = container.querySelector<HTMLButtonElement>(
+    '[aria-label="Preview first change"]',
+  );
+  expect(previewButton?.disabled).toBe(false);
+  await act(async () => previewButton!.click());
+  expect(previews).toEqual([{ path: first.path, staged: false }]);
+  expect(rowClicks).toEqual([]);
+  expect(staging).not.toHaveBeenCalled();
+});
+
+test("commit review locks file and repository inclusion and bulk staging", async () => {
+  await render([file("A", "locked.ts")], undefined, { stagingDisabled: true });
+  for (const label of [
+    "Include locked.ts in commit",
+    "Include folder A in commit",
+    "Stage all changes",
+  ]) {
+    const control = container.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`);
+    expect(control).not.toBeNull();
+    expect(control!.disabled || control!.getAttribute("aria-disabled") === "true").toBe(true);
+    await act(async () => control!.click());
+  }
+  expect(staging).not.toHaveBeenCalled();
+});
+
+test("one ChangeList contains both tracked and unversioned files, matching Swift grouping", async () => {
   await render([file("A", "tracked.ts"), { ...file("A", "new.ts"), status: "untracked" }]);
-  const changes = container.querySelector('[data-git-status-section="tracked"]');
-  const unversioned = container.querySelector('[data-git-status-section="untracked"]');
-  expect(changes?.textContent).toContain("Changes");
-  expect(changes?.textContent).toContain("1 file");
-  expect(unversioned?.textContent).toContain("Unversioned Files");
-  expect(container.textContent).not.toContain("Tracked");
-  expect(container.textContent).not.toContain("Untracked");
+  const groups = container.querySelectorAll('[data-git-status-section="changelist"]');
+  expect(groups).toHaveLength(1);
+  expect(groups[0]?.textContent).toContain("Default ChangeList");
+  expect(groups[0]?.textContent).toContain("2 files");
+  const include = container.querySelector<HTMLElement>(
+    '[aria-label="Include folder Default ChangeList in commit"]',
+  );
+  await act(async () => include!.click());
+  expect(staging).toHaveBeenCalledWith("C:/workspace/A", ["src/new.ts", "src/tracked.ts"], true);
 });
 
 test("a group node checkbox includes all of its files and shows a mixed state", async () => {
   await render([file("A", "one.ts"), { ...file("A", "two.ts"), staged: true }]);
   const groupCheckbox = container.querySelector<HTMLElement>(
-    '[aria-label="Include folder Changes in commit"]',
+    '[aria-label="Include folder Default ChangeList in commit"]',
   );
   expect(groupCheckbox?.hasAttribute("data-indeterminate")).toBe(true);
   await act(async () => groupCheckbox!.click());

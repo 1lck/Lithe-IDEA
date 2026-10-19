@@ -1,3 +1,4 @@
+import { migrateDirectoryMarks } from "@/features/file-explorer/stores/directory-marks";
 import { loadFileContent } from "../controllers/workspace-session-restore";
 import { invoke } from "@/platform/tauri-core";
 import { LspOperationLog } from "@/platform/lsp-session-lifecycle";
@@ -546,8 +547,12 @@ const initializeLocalWorkspaceInBackground = (
           return;
         }
 
-        const [{ getRelativePath, pathStartsWithRoot }, { resolveJavaWorkspacePolicy },
-          { getJavaWorkspaceLanguageServerOwner }, { loadMavenProjectForWorkspace }] = await Promise.all([
+        const [
+          { getRelativePath, pathStartsWithRoot },
+          { resolveJavaWorkspacePolicy },
+          { getJavaWorkspaceLanguageServerOwner },
+          { loadMavenProjectForWorkspace },
+        ] = await Promise.all([
           import("@/utils/path-helpers"),
           import("@/platform/java-workspace-policy"),
           import("@/features/editor/lsp/java-workspace-language-server"),
@@ -574,10 +579,7 @@ const initializeLocalWorkspaceInBackground = (
         }
 
         operation.succeeded({ representativeJavaPath: policy.representativeJavaPath });
-        await getJavaWorkspaceLanguageServerOwner().prewarm(
-          { workspaceId, root: path },
-          javaFile,
-        );
+        await getJavaWorkspaceLanguageServerOwner().prewarm({ workspaceId, root: path }, javaFile);
       } catch (error) {
         operation.failed(error);
       }
@@ -1540,7 +1542,11 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
         }
       },
 
-      handleOpenWslProject: async (distro: string, linuxPath: string, options?: { mode?: ProjectOpenMode }) => {
+      handleOpenWslProject: async (
+        distro: string,
+        linuxPath: string,
+        options?: { mode?: ProjectOpenMode },
+      ) => {
         const normalizedLinuxPath = linuxPath || "/";
         const path = buildWslPath(distro, normalizedLinuxPath);
         const name = getWslProjectName(distro, normalizedLinuxPath);
@@ -1919,12 +1925,7 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
               false,
               true,
             );
-            recordLocalFileAccess(
-              path,
-              fileName,
-              workspaceRootPath,
-              getWorkspaceFolderPaths(get),
-            );
+            recordLocalFileAccess(path, fileName, workspaceRootPath, getWorkspaceFolderPaths(get));
             fileOpenBenchmark.finish(path, "binary-content-buffer-opened");
             return;
           }
@@ -2255,10 +2256,7 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
 
         // Check all directory parts AND the final filename
         if (parts.some(hasIllegalCharacters) || hasIllegalCharacters(finalFileName)) {
-          await showAlertDialog(
-            t("files.invalidFileNameCharacters"),
-            t("files.newFile"),
-          );
+          await showAlertDialog(t("files.invalidFileNameCharacters"), t("files.newFile"));
           return;
         }
 
@@ -2465,6 +2463,13 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
         // Invalidate git diff cache for moved files
         const { rootFolderPath } = get();
         if (rootFolderPath) {
+          try {
+            migrateDirectoryMarks(rootFolderPath, oldPath, newPath);
+          } catch (error) {
+            toast.error(getCurrentTranslator()("project.markFailed"), {
+              description: String(error),
+            });
+          }
           gitDiffCache.invalidate(rootFolderPath, oldPath);
           gitDiffCache.invalidate(rootFolderPath, newPath);
         }
@@ -2715,6 +2720,13 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
         // Invalidate git diff cache for deleted file
         const { rootFolderPath } = get();
         if (rootFolderPath) {
+          try {
+            migrateDirectoryMarks(rootFolderPath, path);
+          } catch (error) {
+            toast.error(getCurrentTranslator()("project.markFailed"), {
+              description: String(error),
+            });
+          }
           gitDiffCache.invalidate(rootFolderPath, path);
         }
 
@@ -2882,6 +2894,7 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
       },
 
       handleRenamePath: async (path: string, newName?: string) => {
+        const marksRoot = get().rootFolderPath;
         if (newName) {
           const remoteInfo = parseRemotePath(path);
           const wslInfo = parseWslPath(path);
@@ -2917,6 +2930,15 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
               await renameFile(path, targetPath);
             }
 
+            if (marksRoot) {
+              try {
+                migrateDirectoryMarks(marksRoot, path, targetPath);
+              } catch (error) {
+                toast.error(getCurrentTranslator()("project.markFailed"), {
+                  description: String(error),
+                });
+              }
+            }
             set((state) => {
               state.files = updateFileInTree(state.files, path, (item) => ({
                 ...item,

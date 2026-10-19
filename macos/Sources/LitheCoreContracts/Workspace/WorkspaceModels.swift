@@ -39,9 +39,14 @@ package struct WorkspaceSnapshot: Sendable {
     package let id: UUID
     package let root: FileNode
     package let files: [URL]
-    package init(root: FileNode, files: [URL], id: UUID = UUID()) {
+    /// Linked worktrees checked out inside their own repository. The scan
+    /// leaves them out of `root` and `files`, and watcher events below them are
+    /// ignored instead of triggering refreshes.
+    package let nestedWorktrees: [URL]
+    package init(root: FileNode, files: [URL], nestedWorktrees: [URL] = [], id: UUID = UUID()) {
         self.id = id
         self.root = root
         self.files = files
+        self.nestedWorktrees = nestedWorktrees
     }
 }

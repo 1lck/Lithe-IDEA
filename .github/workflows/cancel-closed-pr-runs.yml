@@ -7,7 +7,7 @@ name: Cancel CI of closed pull requests
 
 on:
   # pull_request_target receives a write token for fork pull requests as well.
-  # This workflow checks out no code and reads only the event's head SHA.
+  # This workflow checks out no code and uses only pull request metadata.
   pull_request_target:
     types: [closed]
 
@@ -22,16 +22,34 @@ jobs:
       - name: Cancel runs still active for the closed pull request
         env:
           GH_TOKEN: ${{ github.token }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          CLOSED_AT: ${{ github.event.pull_request.closed_at }}
         run: |
           set -euo pipefail
+          # Reused jobs may belong to older heads. Closed PRs disappear from
+          # run.pull_requests, so match the source and bound it by closure time.
           for status in queued in_progress waiting pending requested; do
-            gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$HEAD_SHA&status=$status&per_page=100" \
-              --jq '.workflow_runs[] | select(.event == "pull_request") | .id'
+            gh api --paginate --method GET "repos/$GITHUB_REPOSITORY/actions/runs" \
+              -f branch="$HEAD_REF" -f status="$status" -f per_page=100 |
+              jq --arg repository "$HEAD_REPOSITORY" --arg branch "$HEAD_REF" \
+                --arg closed "$CLOSED_AT" --argjson number "$PR_NUMBER" '
+                .workflow_runs[]
+                | select(.event == "pull_request")
+                | select(.head_repository.full_name == $repository and .head_branch == $branch)
+                | select(.created_at <= $closed)
+                | select(all(.pull_requests[]?; .number == $number))
+                | .id'
           done | sort -u | while read -r run; do
-            if gh run cancel "$run" -R "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            # A retired run's always() steps can ignore ordinary cancellation.
+            # GitHub owns cleanup of the ephemeral hosted runner after stopping it.
+            if gh api --method POST "repos/$GITHUB_REPOSITORY/actions/runs/$run/force-cancel" > /dev/null 2>&1; then
               echo "Cancelled run $run"
-            else
+            elif [[ "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run" --jq '.status')" == completed ]]; then
               echo "Run $run finished before it could be cancelled"
+            else
+              echo "::error::Could not cancel active run $run" >&2
+              exit 1
             fi
           done

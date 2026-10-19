@@ -14,4 +14,5 @@ struct ExecutionFeatureAccess {
     let runFeature: RunFeatureModel
     let tests: LanguageTestService
     let projectDevelopment: ProjectDevelopmentFeatureModel
+    let buildSystems: BuildSystemsFeatureModel?
 }

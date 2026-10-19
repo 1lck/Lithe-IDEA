@@ -15,6 +15,28 @@ test("uses the macOS 26px baseline with physical FLOOR/ODD metrics", () => {
   expect(gitGraphRowHeight(24, 6, 1)).toBe(38);
 });
 
+test("HEAD uses IDEA's outer circle, background inset and center at each display density", () => {
+  // HeadNodePainter, 26px rows: the two aligned insets leave a visible gap
+  // between the outer ring and center; neither uses ordinary edge thickness.
+  for (const [scale, outer, ring, inner] of [
+    [1, 13, 2, 5],
+    [1.25, 13.6, 1.6, 7.2],
+    [1.5, 14, 2, 6],
+    [2, 13.5, 2, 5.5],
+    [3, 41 / 3, 7 / 3, 13 / 3],
+  ]) {
+    const paint = gitGraphPaintMetrics(26, scale);
+    expect(paint.headNodeDiameter).toBeCloseTo(outer, 8);
+    expect(paint.headRingWidth).toBeCloseTo(ring, 8);
+    expect(paint.headInnerDiameter).toBeCloseTo(inner, 8);
+    const node = paint.headNodeRect(2);
+    expect(node.x + node.width / 2).toBeCloseTo(paint.laneCenter + 2 * paint.laneSpacing, 8);
+    expect(node.y + node.height / 2).toBeCloseTo(paint.rowCenter, 8);
+  }
+  const largeFont = gitGraphPaintMetrics(38);
+  expect([largeFont.headNodeDiameter, largeFont.headRingWidth, largeFont.headInnerDiameter]).toEqual([19, 3, 7]);
+});
+
 test("title baseline follows the recommended graph width and caps only that baseline at six", () => {
   const paint = gitGraphPaintMetrics();
   expect(paint.titleOffset(0, [], 3)).toBe(60);
@@ -47,7 +69,7 @@ for (const scale of [1, 1.25, 1.5, 2, 3]) {
     expect(Math.round(paint.lineWidth * scale) % 2).toBe(1);
     expect(Math.round(paint.nodeDiameter * scale) % 2).toBe(1);
     const node = paint.nodeRect(2);
-    expect(node.x * scale).toBeCloseTo(Math.round(node.x * scale), 8);
+    expect(node.x + node.width / 2).toBe(paint.laneCenter + 2 * paint.laneSpacing);
     expect(node.y * scale).toBeCloseTo(Math.round(node.y * scale), 8);
   });
 }

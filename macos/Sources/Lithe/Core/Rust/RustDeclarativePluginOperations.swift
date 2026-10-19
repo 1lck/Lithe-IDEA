@@ -1,5 +1,6 @@
 import Foundation
 import LitheCoreContracts
+import LitheModuleAPI
 
 /// Typed `plugins.declarative.*` operations. Rust Core owns manifest
 /// validation and template expansion for both products; this adapter only
@@ -11,7 +12,10 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
     func validate(manifest: Data) throws -> DeclarativePluginDescriptor {
         let outcome: Outcome<ValidatedPlugin> = try execute(
             "plugins.declarative.validate",
-            payload: ValidatePayload(manifest: try Self.json(manifest))
+            payload: ValidatePayload(
+                manifest: try Self.json(manifest),
+                hostCapabilities: PluginManifest.hostCapabilities
+            )
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
@@ -194,6 +198,7 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
 
     private struct ValidatePayload: Encodable {
         let manifest: ToolingJSONValue
+        let hostCapabilities: [String: [Int]]
     }
 
     private struct PlanPayload<Request: Encodable>: Encodable {

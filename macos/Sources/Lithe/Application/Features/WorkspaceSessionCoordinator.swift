@@ -33,6 +33,7 @@ final class WorkspaceSessionCoordinator: ObservableObject {
     private(set) var pendingCloseRequest: CloseRequest?
 
     private let recentProjectsStore: RecentProjectsStore
+    private let recentProjectBranchReader: any RecentProjectBranchReading
     private weak var platformUI: (any PlatformUI)?
     private let workspaceFeature: WorkspaceFeatureModel?
     private var securityScopedWorkspaceURL: URL?
@@ -42,9 +43,11 @@ final class WorkspaceSessionCoordinator: ObservableObject {
     init(
         recentProjectsStore: RecentProjectsStore,
         platformUI: any PlatformUI,
+        recentProjectBranchReader: any RecentProjectBranchReading = UnavailableRecentProjectBranchReader(),
         workspaceFeature: WorkspaceFeatureModel? = nil
     ) {
         self.recentProjectsStore = recentProjectsStore
+        self.recentProjectBranchReader = recentProjectBranchReader
         self.platformUI = platformUI
         self.workspaceFeature = workspaceFeature
         recentProjects = recentProjectsStore.load()
@@ -167,7 +170,11 @@ final class WorkspaceSessionCoordinator: ObservableObject {
     }
 
     func recordRecentProject(_ url: URL) {
-        recentProjects = recentProjectsStore.record(url, in: recentProjects)
+        recentProjects = recentProjectsStore.record(
+            url,
+            branch: recentProjectBranchReader.branch(forProjectAt: url),
+            in: recentProjects
+        )
     }
 
     func removeRecentProject(_ project: RecentProject) {

@@ -2,7 +2,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import {
   CheckIcon as Check,
   PlusIcon as Plus,
-  ArrowClockwiseIcon as RefreshCw,
+  RefreshIcon as RefreshCw,
   TrashIcon as Trash2,
 } from "@/ui/icons";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";

@@ -66,6 +66,7 @@ struct RootView: View {
     @EnvironmentObject private var projectWindowLauncher: ProjectWindowLauncher
     @EnvironmentObject private var updateChecker: UpdateChecker
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.locale) private var locale
     @State private var didStartAutomaticUpdateCheck = false
 
     init(scope: ProjectWindowScope = .primary) {
@@ -92,13 +93,28 @@ struct RootView: View {
         )
         .background(LitheTheme.window)
         .tint(LitheTheme.accent)
-        .sheet(item: scopedPendingProjectOpen) { request in
-            OpenProjectLocationDialog(request: request) { placement, doNotAskAgain in
-                projectSessions.resolvePendingOpen(
-                    request,
-                    placement: placement,
-                    doNotAskAgain: doNotAskAgain
-                )
+        .background {
+            if let request = scopedPendingProjectOpen.wrappedValue {
+                LitheCenteredPopup(isPresented: Binding(
+                    get: { scopedPendingProjectOpen.wrappedValue?.id == request.id },
+                    set: { if !$0 && scopedPendingProjectOpen.wrappedValue?.id == request.id {
+                        projectSessions.cancelPendingOpen()
+                    } }
+                ), dialogTitle: String(localized: "Open Project", locale: locale)) {
+                    OpenProjectLocationDialog(request: request, onResolve: { placement, doNotAskAgain in
+                        projectSessions.resolvePendingOpen(
+                            request,
+                            placement: placement,
+                            doNotAskAgain: doNotAskAgain
+                        )
+                    }, onCancel: {
+                        guard scopedPendingProjectOpen.wrappedValue?.id == request.id else { return }
+                        projectSessions.cancelPendingOpen()
+                    })
+                    .id(request.id)
+                }
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
             }
         }
         .alert(item: $updateChecker.notice) { notice in
@@ -496,6 +512,10 @@ final class LitheWindowCoordinator: NSObject, NSWindowDelegate {
                 closeWindowAfterProjectCleanup(sender)
                 return false
             }
+            if projectSessions.hasActiveProject {
+                closeWindowAfterProjectCleanup(sender, dismissWindow: false)
+                return false
+            }
             return projectSessions.requestCloseActiveSession()
         }
         return true
@@ -510,7 +530,7 @@ final class LitheWindowCoordinator: NSObject, NSWindowDelegate {
         window.performClose(nil)
     }
 
-    private func closeWindowAfterProjectCleanup(_ sender: NSWindow) {
+    private func closeWindowAfterProjectCleanup(_ sender: NSWindow, dismissWindow: Bool = true) {
         guard nativeWindowCloseTask == nil else { return }
         let projectSessions = projectSessions
         let confirmUnsavedDocuments = confirmUnsavedDocuments
@@ -531,6 +551,9 @@ final class LitheWindowCoordinator: NSObject, NSWindowDelegate {
             await projectSessions.resetForProjectWindowClose()
             guard let self else { return }
             defer { self.nativeWindowCloseTask = nil }
+            // The primary workbench's red close button returns all its projects
+            // to welcome; Cmd+W and dedicated windows keep native dismissal.
+            guard dismissWindow else { return }
             guard !self.isDetached,
                   let sender,
                   self.window === sender else { return }

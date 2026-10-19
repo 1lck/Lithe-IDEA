@@ -1,6 +1,8 @@
 import { PlusIcon, PencilSimpleIcon, TrashIcon } from "@/ui/icons";
 import { useState } from "react";
 import { useTranslation } from "@/i18n/locale-provider";
+import { Checkbox } from "@/ui/checkbox";
+import { IDEA_CHECKBOX_CLASS_NAME } from "../utils/idea-control-styles";
 import { Button } from "@/ui/button";
 import Input from "@/ui/input";
 import Select from "@/ui/select";
@@ -18,9 +20,13 @@ import { DEFAULT_CHANGELIST } from "../utils/git-changelists";
 export function GitChangelistBar({
   workspace,
   disabled,
+  includeParentReferences,
+  onIncludeParentReferencesChange,
 }: {
   workspace: string;
   disabled: boolean;
+  includeParentReferences: boolean;
+  onIncludeParentReferencesChange: (include: boolean) => void;
 }) {
   const { t } = useTranslation();
   const state = useGitChangelistsStore((store) => workspaceChangelists(store, workspace));
@@ -46,12 +52,15 @@ export function GitChangelistBar({
     else setError(true);
   };
   return (
-    <div className="shrink-0 border-b border-border p-2 space-y-1">
+    <div className="shrink-0 p-2 space-y-1.5">
       <div className="flex items-center gap-1">
         <Select
           size="xs"
+          variant="default"
           className="min-w-0 flex-1"
+          triggerClassName="h-7 rounded-[4px] border border-control-border bg-checkbox-background"
           aria-label={t("git.changelists.active")}
+          title={t("git.changelists.scope", { name: title(active) })}
           value={state.activeId}
           disabled={disabled || unavailable}
           options={state.lists.map((list) => ({ value: list.id, label: title(list) }))}
@@ -97,11 +106,20 @@ export function GitChangelistBar({
           <TrashIcon />
         </Button>
       </div>
-      <p className="ui-text-xs text-subtle-foreground" role={unavailable ? "alert" : undefined}>
-        {unavailable
-          ? t("git.changelists.unavailable")
-          : t("git.changelists.scope", { name: title(active) })}
-      </p>
+      <label className="flex items-center gap-1.5 ui-text-xs">
+        <Checkbox
+          className={IDEA_CHECKBOX_CLASS_NAME}
+          checked={includeParentReferences}
+          onCheckedChange={onIncludeParentReferencesChange}
+          disabled={disabled}
+        />
+        {t("git.workspaceCommit.parents")}
+      </label>
+      {unavailable && (
+        <p className="ui-text-xs text-subtle-foreground" role="alert">
+          {t("git.changelists.unavailable")}
+        </p>
+      )}
       <Dialog
         open={editing !== null}
         onOpenChange={(open) => {

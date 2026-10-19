@@ -870,6 +870,12 @@ package protocol LanguageServerSession: AnyObject {
         workspaceFingerprint: String?,
         mavenContext: MavenLaunchContext?
     ) throws
+    func start(
+        rootURL: URL,
+        workspaceFingerprint: String?,
+        mavenContext: MavenLaunchContext?,
+        javaGradle: JavaGradleImportConfiguration?
+    ) throws
     func retryMavenProfiles()
     /// Hands a changed Maven context to the running server. A failure means the
     /// session cannot take it and should be restarted.
@@ -1006,6 +1012,18 @@ package extension LanguageServerSession {
         mavenContext _: MavenLaunchContext?
     ) throws {
         try start(rootURL: rootURL, workspaceFingerprint: workspaceFingerprint)
+    }
+
+    func start(
+        rootURL: URL,
+        workspaceFingerprint: String?,
+        mavenContext: MavenLaunchContext?,
+        javaGradle: JavaGradleImportConfiguration?
+    ) throws {
+        guard javaGradle == nil else {
+            throw LanguageServerRuntimeFailure(code: "unsupported", message: "This language session cannot apply Gradle import settings.")
+        }
+        try start(rootURL: rootURL, workspaceFingerprint: workspaceFingerprint, mavenContext: mavenContext)
     }
 }
 

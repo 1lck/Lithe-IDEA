@@ -687,6 +687,9 @@ pub struct DebugBreakpoint {
     /// Adapter-owned identity for a data-breakpoint verification result.
     pub data_id: Option<String>,
     pub source_path: Option<String>,
+    /// Original client line, retained when an adapter resolves a different location.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub requested_line: Option<i64>,
     pub line: Option<i64>,
     pub column: Option<i64>,
 }

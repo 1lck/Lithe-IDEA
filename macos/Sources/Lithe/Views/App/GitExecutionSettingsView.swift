@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import LitheGitModule
 
@@ -10,29 +11,40 @@ struct GitExecutionSettingsView: View {
 
     var body: some View {
         GitSettingsCard {
-            GitSettingsHeader(icon: "arrow.triangle.branch", title: "Git execution", subtitle: "Choose how Lithe locates Git and handles credentials.")
+            GitSettingsHeader(icon: "arrow.triangle.branch", title: "Git execution", info: "Choose how Lithe locates Git and handles credentials.")
 
             GitSettingsRow("Git executable") {
-                HStack(spacing: 8) {
-                    TextField("Use Git from PATH", text: $executable)
-                        .litheSettingsTextField()
-                        .frame(maxWidth: .infinity)
-                    Button("Save") { settings.gitExecutable = executable.trimmingCharacters(in: .whitespacesAndNewlines) }
+                VStack(alignment: .leading, spacing: 7) {
+                    HStack(spacing: 8) {
+                        TextField("Use Git from PATH", text: $executable)
+                            .litheSettingsTextField()
+                            .frame(maxWidth: .infinity)
+                        Button("Save") {
+                            settings.gitExecutable = executable.trimmingCharacters(in: .whitespacesAndNewlines)
+                        }
                         .buttonStyle(LithePrimaryButtonStyle(backgroundColor: LitheTheme.settingsPrimaryAction, restingOpacity: 1))
-                        .disabled(executable == settings.gitExecutable)
-                    Button("Use Git from PATH") { executable = ""; settings.gitExecutable = "" }
-                        .buttonStyle(LitheSecondaryButtonStyle())
+                        .disabled(executable.trimmingCharacters(in: .whitespacesAndNewlines) == settings.gitExecutable)
+                        Button("Use Git from PATH") { executable = ""; settings.gitExecutable = "" }
+                            .buttonStyle(LitheSecondaryButtonStyle())
+                    }
+                    // Echo the executable Git will actually run; the field is
+                    // empty while the override is unset, which otherwise hides
+                    // whether Lithe found Git at all.
+                    if let feature {
+                        GitEffectiveExecutableLine(editor: feature.executionSettings)
+                    } else {
+                        Text("Effective Git: from PATH")
+                            .font(LitheTheme.uiFont(size: 11))
+                            .foregroundStyle(LitheTheme.secondaryText)
+                    }
                 }
             }
 
-            VStack(alignment: .leading, spacing: 7) {
-                GitSettingsRow("Credentials") {
-                    Toggle("Use credential helper", isOn: $settings.gitUseCredentialHelper)
-                }
-                Text("Git can request credentials in Lithe. Passwords are not saved by Lithe; the selected Git helper controls credential storage.")
-                    .font(LitheTheme.smallFont).foregroundStyle(LitheTheme.secondaryText)
-                    .padding(.leading, 150)
-                    .fixedSize(horizontal: false, vertical: true)
+            GitSettingsRow(
+                "Credentials",
+                info: "Git can request credentials in Lithe. Passwords are not saved by Lithe; the selected Git helper controls credential storage."
+            ) {
+                Toggle("Use credential helper", isOn: $settings.gitUseCredentialHelper)
             }
 
             DisclosureGroup(isExpanded: $showsAdvanced) {
@@ -47,7 +59,17 @@ struct GitExecutionSettingsView: View {
                     .font(LitheTheme.uiFont(size: 12.5, weight: .semibold))
             }
         }
-        .task(id: model.workspaceURL) { executable = settings.gitExecutable; feature = await model.activateGitModule() }
+        .task(id: model.workspaceURL) {
+            executable = settings.gitExecutable
+            let activated = await model.activateGitModule()
+            feature = activated
+            await activated?.executionSettings.loadExecutable()
+        }
+        .task(id: settings.gitExecutable) {
+            // The override changes which binary is effective; echo it again
+            // without waiting for the advanced pane to reload.
+            await feature?.executionSettings.loadExecutable()
+        }
     }
 }
 
@@ -65,34 +87,74 @@ struct GitSettingsCard<Content: View>: View {
 struct GitSettingsHeader: View {
     let icon: String
     let title: LocalizedStringKey
-    let subtitle: LocalizedStringKey
+    let info: LocalizedStringKey
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
+        HStack(spacing: 4) {
             Label(title, systemImage: icon)
                 .font(LitheTheme.uiFont(size: 14, weight: .semibold))
-            Text(subtitle).font(LitheTheme.smallFont).foregroundStyle(LitheTheme.secondaryText)
+            LitheInfoTip(info)
         }
     }
 }
 
 struct GitSettingsRow<Content: View>: View {
     let title: LocalizedStringKey
+    let info: LocalizedStringKey?
     @ViewBuilder let content: Content
 
-    init(_ title: LocalizedStringKey, @ViewBuilder content: () -> Content) {
+    init(_ title: LocalizedStringKey, info: LocalizedStringKey? = nil, @ViewBuilder content: () -> Content) {
         self.title = title
+        self.info = info
         self.content = content()
     }
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
-            Text(title)
-                .frame(width: 138, alignment: .leading)
+            HStack(spacing: 4) {
+                Text(title)
+                if let info {
+                    LitheInfoTip(info)
+                }
+            }
+            .frame(width: 150, alignment: .leading)
             content
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(minHeight: 30)
+    }
+}
+
+/// Shows which Git binary and version Lithe will run. The editable field is
+/// empty while the override is unset, so without this line the effective
+/// executable would stay invisible.
+private struct GitEffectiveExecutableLine: View {
+    @ObservedObject var editor: GitExecutionSettingsFeatureModel
+
+    var body: some View {
+        Group {
+            if let resolution = editor.executableResolution {
+                if let executable = resolution.executable {
+                    if let version = resolution.version {
+                        Text("Effective Git: \(executable) · \(version)")
+                    } else {
+                        Text("Effective Git: \(executable)")
+                    }
+                } else {
+                    Text("Lithe could not find a runnable Git.")
+                }
+            } else {
+                Text("Effective Git: from PATH")
+            }
+        }
+        .foregroundStyle(color)
+        .font(LitheTheme.uiFont(size: 11))
+        .textSelection(.enabled)
+    }
+
+    private var color: Color {
+        guard let resolution = editor.executableResolution else { return LitheTheme.secondaryText }
+        return resolution.executable == nil ? LitheTheme.warning : LitheTheme.secondaryText
     }
 }
 
@@ -109,7 +171,7 @@ private struct GitExecutionConfigurationPane: View {
         VStack(alignment: .leading, spacing: 14) {
             GitPaneSectionHeader(
                 title: "Where should this apply?",
-                subtitle: "Choose whether this setting belongs to the open repository or to Git everywhere."
+                info: "Choose whether this setting belongs to the open repository or to Git everywhere."
             )
             GitSettingsRow("Configuration scope") {
                 LitheSettingsSegmentedControl(
@@ -129,7 +191,7 @@ private struct GitExecutionConfigurationPane: View {
 
                 GitPaneSectionHeader(
                     title: "Git configuration",
-                    subtitle: "Choose a behavior on the right. Lithe shows the value Git is using and the value a reset would restore."
+                    info: "Choose a behavior on the right. Lithe shows the value Git is using and the value a reset would restore."
                 )
                 HStack(spacing: 10) {
                     Image(systemName: "slider.horizontal.3")
@@ -141,10 +203,10 @@ private struct GitExecutionConfigurationPane: View {
                         .toggleStyle(.switch)
                 }
                 .foregroundStyle(LitheTheme.secondaryText)
-                configurationGroup("Update", subtitle: "How Pull and Update Project combine your local and remote commits.", icon: "arrow.triangle.2.circlepath", fields: snapshot.fields.filter(isUpdateField), entries: snapshot.entries, fetchOptions: snapshot.fetchOptions)
-                configurationGroup("Fetch", subtitle: "What Fetch removes or downloads before you start working.", icon: "arrow.down.circle", fields: snapshot.fields.filter(isFetchField), entries: snapshot.entries, fetchOptions: snapshot.fetchOptions)
-                configurationGroup("Push", subtitle: "Where Push goes when you do not choose a target explicitly.", icon: "arrow.up.circle", fields: snapshot.fields.filter(isPushField), entries: snapshot.entries, fetchOptions: snapshot.fetchOptions)
-                configurationGroup("Credentials", subtitle: "How Git matches and stores credentials for remote operations.", icon: "key", fields: snapshot.fields.filter(isCredentialField), entries: snapshot.entries, fetchOptions: snapshot.fetchOptions)
+                configurationGroup("Update", info: "How Pull and Update Project combine your local and remote commits.", icon: "arrow.triangle.2.circlepath", fields: snapshot.fields.filter(isUpdateField), entries: snapshot.entries, fetchOptions: snapshot.fetchOptions)
+                configurationGroup("Fetch", info: "What Fetch removes or downloads before you start working.", icon: "arrow.down.circle", fields: snapshot.fields.filter(isFetchField), entries: snapshot.entries, fetchOptions: snapshot.fetchOptions)
+                configurationGroup("Push", info: "Where Push goes when you do not choose a target explicitly.", icon: "arrow.up.circle", fields: snapshot.fields.filter(isPushField), entries: snapshot.entries, fetchOptions: snapshot.fetchOptions)
+                configurationGroup("Credentials", info: "How Git matches and stores credentials for remote operations.", icon: "key", fields: snapshot.fields.filter(isCredentialField), entries: snapshot.entries, fetchOptions: snapshot.fetchOptions)
             }
             if let key = editor.savedKey { Text("Git configuration saved: \(key)").foregroundStyle(LitheTheme.accent) }
             if let error = editor.errorMessage { Text(verbatim: error).foregroundStyle(LitheTheme.error).textSelection(.enabled) }
@@ -185,7 +247,7 @@ private struct GitExecutionConfigurationPane: View {
     }
 
     @ViewBuilder
-    private func configurationGroup(_ title: LocalizedStringKey, subtitle: LocalizedStringKey, icon: String, fields: [GitConfigurationField], entries: [GitConfigurationEntry], fetchOptions: GitFetchOptions?) -> some View {
+    private func configurationGroup(_ title: LocalizedStringKey, info: LocalizedStringKey, icon: String, fields: [GitConfigurationField], entries: [GitConfigurationEntry], fetchOptions: GitFetchOptions?) -> some View {
         if !fields.isEmpty {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(alignment: .top, spacing: 9) {
@@ -193,11 +255,9 @@ private struct GitExecutionConfigurationPane: View {
                         .font(LitheTheme.uiFont(size: 13, weight: .semibold))
                         .foregroundStyle(LitheTheme.accent)
                         .frame(width: 18)
-                    VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 4) {
                         Text(title).font(LitheTheme.uiFont(size: 13, weight: .semibold))
-                        Text(subtitle)
-                            .font(LitheTheme.uiFont(size: 10.5))
-                            .foregroundStyle(LitheTheme.secondaryText)
+                        LitheInfoTip(info)
                     }
                     Spacer(minLength: 12)
                 }
@@ -209,8 +269,8 @@ private struct GitExecutionConfigurationPane: View {
                             field: field,
                             effectiveEntry: entries.last { $0.key == field.key && $0.effective },
                             inheritedEntry: inheritedEntry(for: field.key, selectedScope: scope, entries: entries),
-                            effectiveValueOverride: effectiveValueOverride(for: field.key, entries: entries),
-                            effectiveSourceOverride: effectiveSourceOverride(for: field.key, entries: entries),
+                            effectiveValueOverride: effectiveValueOverride(for: field.key, fetchOptions: fetchOptions, entries: entries),
+                            effectiveSourceOverride: effectiveSourceOverride(for: field.key, fetchOptions: fetchOptions, entries: entries),
                             fallbackEffectiveValue: fallbackEffectiveValue(for: field.key, fetchOptions: fetchOptions, entries: entries),
                             fallbackEffectiveSource: fallbackEffectiveSource(for: field.key, fetchOptions: fetchOptions, entries: entries),
                             resetFallbackValue: fallbackEffectiveValue(for: field.key, fetchOptions: applicationFetchDefaults, entries: entries),
@@ -259,24 +319,45 @@ private struct GitExecutionConfigurationPane: View {
             }
             return "Git default"
         }
+        if key == "lithe.fetch.tags", let fetchOptions, fetchOptions.tags == .inherit {
+            return inheritedTagSource(behavior: GitConfigurationFallback.inheritedTagBehavior(
+                remote: fetchOptions.remote, prune: fetchOptions.prune, entries: entries))
+        }
         return key.hasPrefix("lithe.") ? "Lithe application default" : "Git default"
     }
 
-    private func effectiveValueOverride(for key: String, entries: [GitConfigurationEntry]) -> String? {
-        guard key == "lithe.fetch.submodules",
-              let appEntry = entries.last(where: { $0.key == key && $0.effective }),
+    private func effectiveValueOverride(for key: String, fetchOptions: GitFetchOptions?, entries: [GitConfigurationEntry]) -> String? {
+        guard let appEntry = entries.last(where: { $0.key == key && $0.effective }),
               appEntry.value == "inherit" else { return nil }
-        return entries.last(where: { $0.key == "fetch.recursesubmodules" && $0.effective })?.value ?? "false"
+        if key == "lithe.fetch.submodules" {
+            return entries.last(where: { $0.key == "fetch.recursesubmodules" && $0.effective })?.value ?? "false"
+        }
+        if key == "lithe.fetch.tags", let fetchOptions {
+            return GitConfigurationFallback.inheritedTagBehavior(
+                remote: fetchOptions.remote, prune: fetchOptions.prune, entries: entries).value
+        }
+        return nil
     }
 
-    private func effectiveSourceOverride(for key: String, entries: [GitConfigurationEntry]) -> LocalizedStringKey? {
-        guard key == "lithe.fetch.submodules",
-              let appEntry = entries.last(where: { $0.key == key && $0.effective }),
+    private func effectiveSourceOverride(for key: String, fetchOptions: GitFetchOptions?, entries: [GitConfigurationEntry]) -> LocalizedStringKey? {
+        guard let appEntry = entries.last(where: { $0.key == key && $0.effective }),
               appEntry.value == "inherit" else { return nil }
-        if let gitEntry = entries.last(where: { $0.key == "fetch.recursesubmodules" && $0.effective }) {
-            return LocalizedStringKey(sourceScope(gitEntry.scope))
+        if key == "lithe.fetch.submodules" {
+            if let gitEntry = entries.last(where: { $0.key == "fetch.recursesubmodules" && $0.effective }) {
+                return LocalizedStringKey(sourceScope(gitEntry.scope))
+            }
+            return "Git default"
         }
-        return "Git default"
+        if key == "lithe.fetch.tags", let fetchOptions {
+            return inheritedTagSource(behavior: GitConfigurationFallback.inheritedTagBehavior(
+                remote: fetchOptions.remote, prune: fetchOptions.prune, entries: entries))
+        }
+        return nil
+    }
+
+    private func inheritedTagSource(behavior: GitConfigurationFallback.InheritedTagBehavior) -> LocalizedStringKey {
+        guard let source = behavior.source else { return "Git default" }
+        return LocalizedStringKey(sourceScope(source.scope))
     }
 
     private func sourceScope(_ scope: String) -> String {
@@ -312,15 +393,13 @@ struct GitRemoteURLRequest: Equatable {
 
 private struct GitPaneSectionHeader: View {
     let title: LocalizedStringKey
-    let subtitle: LocalizedStringKey
+    let info: LocalizedStringKey
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
+        HStack(spacing: 4) {
             Text(title).font(LitheTheme.uiFont(size: 13, weight: .semibold))
-            Text(subtitle)
-                .font(LitheTheme.smallFont)
-                .foregroundStyle(LitheTheme.secondaryText)
-                .fixedSize(horizontal: false, vertical: true)
+            LitheInfoTip(info)
+            Spacer(minLength: 0)
         }
     }
 }
@@ -442,85 +521,125 @@ private struct GitEditableConfigurationRow: View {
     let resetFallbackSource: LocalizedStringKey
     let showsTechnicalDetails: Bool
     let onSave: (String?) -> Void
+    @Environment(\.locale) private var locale
     @State private var selection = ""
 
     var body: some View {
-        HStack(alignment: .top, spacing: 18) {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 7) {
-                    Text(title)
-                        .font(LitheTheme.uiFont(size: 12.5, weight: .medium))
-                        .foregroundStyle(LitheTheme.primaryText)
-                    if !field.configuredValues.isEmpty {
-                        Text("Override")
-                            .font(LitheTheme.uiFont(size: 9.5, weight: .semibold))
-                            .foregroundStyle(LitheTheme.accent)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 2)
-                            .background(LitheTheme.accent.opacity(0.12))
-                            .clipShape(Capsule())
-                    }
+        VStack(alignment: .leading, spacing: 4) {
+            ViewThatFits(in: .horizontal) {
+                // The common case is one row: name, the value Git currently
+                // uses, the choice and its two actions. Keeping them on one
+                // line avoids the tall two-column card the settings page used
+                // to build even for a short value.
+                HStack(alignment: .center, spacing: 10) {
+                    titleLine
+                    effectiveValueLine
+                        .fixedSize(horizontal: true, vertical: false)
+                    Spacer(minLength: 12)
+                    actions
+                        .fixedSize(horizontal: true, vertical: false)
                 }
-                Text(description)
-                    .font(LitheTheme.uiFont(size: 10.5))
-                    .foregroundStyle(LitheTheme.secondaryText)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-                effectiveValueLine
-                if !field.configuredValues.isEmpty {
-                    // Reset targets the nearest lower-priority configured scope,
-                    // even when that value is also the current effective entry.
-                    if let inheritedEntry {
-                        inheritedValueLine(label: "If reset, use", value: inheritedEntry.value, source: LocalizedStringKey(sourceScope(inheritedEntry.scope)), origin: inheritedEntry.origin)
-                    } else if let resetFallbackValue {
-                        inheritedValueLine(label: "If reset, use", value: resetFallbackValue, source: resetFallbackSource, origin: nil)
+
+                // Narrow windows keep the actions beside the name and move the
+                // current value underneath; the value may truncate but the
+                // controls stay whole.
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(alignment: .center, spacing: 10) {
+                        titleLine
+                        Spacer(minLength: 12)
+                        actions
+                            .fixedSize(horizontal: true, vertical: false)
                     }
-                }
-                if showsTechnicalDetails {
-                    Text(verbatim: "Git key: \(field.key)")
-                        .font(LitheTheme.uiFont(size: 9.5, design: .monospaced))
-                        .foregroundStyle(LitheTheme.tertiaryText)
-                        .textSelection(.enabled)
+                    effectiveValueLine
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            VStack(alignment: .trailing, spacing: 7) {
-                LitheSettingsSelect(
-                    selection: $selection,
-                    options: [""] + field.choices,
-                    width: 220,
-                    accessibilityLabel: "Value",
-                    title: { choice in
-                        choice.isEmpty ? "Inherit" : choiceKey(choice)
-                    }
-                )
-
-                HStack(spacing: 7) {
-                    Button("Reset") {
-                        if field.configuredValues.isEmpty {
-                            selection = ""
-                        } else {
-                            onSave(nil)
-                        }
-                    }
-                    .buttonStyle(LitheSecondaryButtonStyle(horizontalPadding: 12, height: 28, fontSize: 12))
-                    .disabled(!canReset)
-                    .help("Reset this setting to its inherited value")
-
-                    Button("Apply") {
-                        onSave(selection.isEmpty ? nil : selection)
-                    }
-                    .buttonStyle(LithePrimaryButtonStyle(restingOpacity: isDirty ? 0.92 : 0.38))
-                    .disabled(!isDirty)
+            if !field.configuredValues.isEmpty {
+                // Reset targets the nearest lower-priority configured scope,
+                // even when that value is also the current effective entry.
+                if let inheritedEntry {
+                    inheritedValueLine(label: "If reset, use", value: inheritedEntry.value, source: LocalizedStringKey(sourceScope(inheritedEntry.scope)), origin: inheritedEntry.origin)
+                } else if let resetFallbackValue {
+                    inheritedValueLine(label: "If reset, use", value: resetFallbackValue, source: resetFallbackSource, origin: nil)
                 }
             }
-            .frame(width: 220, alignment: .trailing)
+            if showsTechnicalDetails {
+                Text(verbatim: "Git key: \(field.key)")
+                    .font(LitheTheme.uiFont(size: 9.5, design: .monospaced))
+                    .foregroundStyle(LitheTheme.tertiaryText)
+                    .textSelection(.enabled)
+            }
         }
-        .padding(.vertical, 10)
+        .padding(.vertical, 7)
         .task(id: "\(field.key)|\(field.configuredValues)") {
             selection = field.configuredValues.first ?? ""
         }
+    }
+
+    private var titleLine: some View {
+        HStack(spacing: 7) {
+            Text(title)
+                .font(LitheTheme.uiFont(size: 12.5, weight: .medium))
+                .foregroundStyle(LitheTheme.primaryText)
+                .lineLimit(1)
+            LitheInfoTip(description)
+            if !field.configuredValues.isEmpty {
+                Text("Override")
+                    .font(LitheTheme.uiFont(size: 9.5, weight: .semibold))
+                    .foregroundStyle(LitheTheme.accent)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 2)
+                    .background(LitheTheme.accent.opacity(0.12))
+                    .clipShape(Capsule())
+            }
+        }
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private var actions: some View {
+        HStack(spacing: 7) {
+            LitheSettingsSelect(
+                selection: $selection,
+                options: [""] + field.choices,
+                width: selectWidth,
+                accessibilityLabel: "Value",
+                title: { choice in
+                    choice.isEmpty ? "Inherit" : choiceKey(choice)
+                },
+                expandsToFitOptions: true
+            )
+
+            Button("Reset") {
+                if field.configuredValues.isEmpty {
+                    selection = ""
+                } else {
+                    onSave(nil)
+                }
+            }
+            .buttonStyle(LitheSecondaryButtonStyle(horizontalPadding: 12, height: 28, fontSize: 12))
+            .disabled(!canReset)
+            .help("Reset this setting to its inherited value")
+
+            Button("Apply") {
+                onSave(selection.isEmpty ? nil : selection)
+            }
+            .buttonStyle(LithePrimaryButtonStyle(restingOpacity: isDirty ? 0.92 : 0.38))
+            .disabled(!isDirty)
+        }
+    }
+
+    /// Size the trigger to the widest choice this setting can show, so short
+    /// values such as “Remove stale branches” do not sit in a mostly empty
+    /// 220 pt box. Long menus still expand to their text in the popup.
+    private var selectWidth: CGFloat {
+        let font = LitheTheme.uiNSFont(size: LitheDropdownMetrics.fontSize)
+        let widest = ([""] + field.choices).reduce(CGFloat.zero) { widest, choice in
+            let title = choice.isEmpty
+                ? String(localized: "Inherit", locale: locale)
+                : String(localized: String.LocalizationValue(choiceKey(choice)), locale: locale)
+            return max(widest, ceil((title as NSString).size(withAttributes: [.font: font]).width))
+        }
+        // Horizontal padding, the gap before the chevron and the chevron itself.
+        return min(max(150, widest + 40), 240)
     }
 
     private var title: LocalizedStringKey {
@@ -628,6 +747,8 @@ private struct GitEditableConfigurationRow: View {
         case ("credential.usehttppath", "true"): return "Match host and URL path"
         case ("credential.usehttppath", "false"): return "Match host only"
         case ("lithe.fetch.tags", "inherit"): return "Follow Git tag rules"
+        case ("lithe.fetch.tags", "reachable"): return "Fetch tags that point to fetched commits"
+        case ("lithe.fetch.tags", "remoteDependent"): return "Follows each remote's tag setting"
         case ("lithe.fetch.tags", "all"): return "Fetch all"
         case ("lithe.fetch.tags", "none"): return "Do not fetch"
         case ("lithe.fetch.tags", "prune"): return "Sync and remove missing tags"

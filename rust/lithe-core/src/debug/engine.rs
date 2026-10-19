@@ -22,6 +22,10 @@ struct DebugSession {
     read_buffer: Vec<u8>,
     pending_requests: BTreeMap<i64, PendingRequest>,
     breakpoints: BTreeMap<String, Vec<SourceBreakpoint>>,
+    /// Rejects replies to superseded per-file breakpoint sets.
+    breakpoint_generations: BTreeMap<String, u64>,
+    /// Adapter IDs correlate location-free events with the original source request.
+    resolved_source_breakpoints: BTreeMap<i64, DebugBreakpoint>,
     exception_breakpoints: Vec<ExceptionBreakpoint>,
     did_configure_exception_breakpoints: bool,
     function_breakpoints: Vec<FunctionBreakpoint>,
@@ -47,6 +51,7 @@ enum PendingRequest {
     SetBreakpoints {
         source_path: String,
         requested: Vec<SourceBreakpoint>,
+        generation: u64,
     },
     SetExceptionBreakpoints,
     SetFunctionBreakpoints {
@@ -99,6 +104,8 @@ pub(crate) fn create_session(
         read_buffer: Vec::new(),
         pending_requests: BTreeMap::new(),
         breakpoints: BTreeMap::new(),
+        breakpoint_generations: BTreeMap::new(),
+        resolved_source_breakpoints: BTreeMap::new(),
         exception_breakpoints: Vec::new(),
         did_configure_exception_breakpoints: false,
         function_breakpoints: Vec::new(),
@@ -195,6 +202,9 @@ pub(crate) fn set_breakpoints(
     });
     request.breakpoints.dedup();
     with_session(&request.session_id, |session| {
+        session
+            .resolved_source_breakpoints
+            .retain(|_, point| point.source_path.as_deref() != Some(request.source_path.as_str()));
         session
             .breakpoints
             .insert(request.source_path.clone(), request.breakpoints);
@@ -809,6 +819,12 @@ impl DebugSession {
     }
 
     fn send_breakpoints(&mut self, source_path: &str) -> Result<(), CoreError> {
+        let generation = self
+            .breakpoint_generations
+            .entry(source_path.to_string())
+            .or_default();
+        *generation += 1;
+        let generation = *generation;
         let requested = self
             .breakpoints
             .get(source_path)
@@ -849,6 +865,7 @@ impl DebugSession {
             PendingRequest::SetBreakpoints {
                 source_path: source_path.to_string(),
                 requested: active,
+                generation,
             },
         )
     }
@@ -1084,7 +1101,12 @@ impl DebugSession {
             PendingRequest::SetBreakpoints {
                 source_path,
                 requested,
-            } => self.emit_breakpoint_results(&body, &source_path, &requested),
+                generation,
+            } => {
+                if self.breakpoint_generations.get(&source_path) == Some(&generation) {
+                    self.emit_breakpoint_results(&body, &source_path, &requested);
+                }
+            }
             PendingRequest::SetExceptionBreakpoints => {}
             PendingRequest::SetFunctionBreakpoints { requested } => {
                 self.emit_function_breakpoint_results(&body, &requested)
@@ -1258,9 +1280,18 @@ impl DebugSession {
             }
             "breakpoint" => {
                 if let Some(value) = body.get("breakpoint") {
-                    self.emit(DebugEventBody::Breakpoint {
-                        breakpoint: parse_breakpoint(value, None, None, 0),
-                    });
+                    let mut breakpoint = parse_breakpoint(value, None, None, 0);
+                    if let Some(previous) = self.resolved_source_breakpoints.get(&breakpoint.id) {
+                        breakpoint.requested_line = previous.requested_line;
+                        breakpoint.source_path = breakpoint
+                            .source_path
+                            .or_else(|| previous.source_path.clone());
+                        breakpoint.line = breakpoint.line.or(previous.line);
+                        breakpoint.column = breakpoint.column.or(previous.column);
+                        self.resolved_source_breakpoints
+                            .insert(breakpoint.id, breakpoint.clone());
+                    }
+                    self.emit(DebugEventBody::Breakpoint { breakpoint });
                 }
             }
             _ => {}
@@ -1332,9 +1363,14 @@ impl DebugSession {
             .unwrap_or_default();
         for (index, value) in values.iter().enumerate() {
             let fallback = requested.get(index).map(|breakpoint| breakpoint.line);
-            self.emit(DebugEventBody::Breakpoint {
-                breakpoint: parse_breakpoint(value, None, Some(source_path), fallback.unwrap_or(0)),
-            });
+            let mut breakpoint =
+                parse_breakpoint(value, None, Some(source_path), fallback.unwrap_or(0));
+            breakpoint.requested_line = fallback;
+            if value.get("id").and_then(Value::as_i64).is_some() {
+                self.resolved_source_breakpoints
+                    .insert(breakpoint.id, breakpoint.clone());
+            }
+            self.emit(DebugEventBody::Breakpoint { breakpoint });
         }
     }
 
@@ -1936,6 +1972,7 @@ fn parse_breakpoint(
         message: string_field(value, "message"),
         function_name: function_name.map(str::to_string),
         data_id: None,
+        requested_line: None,
         source_path: value
             .get("source")
             .and_then(|source| source.get("path"))
@@ -3051,6 +3088,97 @@ mod tests {
             session_id: session_id.to_string(),
         })
         .unwrap();
+    }
+
+    #[test]
+    fn source_breakpoint_binding_preserves_requested_identity_and_rejects_stale_replies() {
+        let fixture: Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../shared/fixtures/debug/breakpoint-binding-v1.json"
+        )))
+        .unwrap();
+        let session_id = "source-breakpoint-binding";
+        let source = fixture["sourcePath"].as_str().unwrap();
+        create_session(CreateSessionRequest {
+            session_id: session_id.to_string(),
+            adapter_id: "java".to_string(),
+            root_path: "/workspace".to_string(),
+            supports_run_in_terminal_request: false,
+        })
+        .unwrap();
+        // This reducer owns no processes; always destroy its registry entry below.
+        receive_messages(
+            session_id,
+            vec![response_message(1, "initialize", json!({}))],
+        );
+        receive_messages(
+            session_id,
+            vec![json!({"type":"event", "event":"initialized"})],
+        );
+        let set = || {
+            set_breakpoints(SetBreakpointsRequest {
+                session_id: session_id.to_string(),
+                source_path: source.to_string(),
+                breakpoints: vec![SourceBreakpoint {
+                    line: fixture["requestedLine"].as_i64().unwrap(),
+                    column: None,
+                    enabled: true,
+                    condition: None,
+                    hit_condition: None,
+                    log_message: None,
+                }],
+            })
+            .unwrap()
+        };
+        let sequence = |update: DebugSessionUpdate| {
+            decode_frame(&update.outbound_frames[0])["seq"]
+                .as_i64()
+                .unwrap()
+        };
+        let old_sequence = sequence(set());
+        let latest_sequence = sequence(set());
+        let stale = receive_messages(
+            session_id,
+            vec![response_message(
+                old_sequence,
+                "setBreakpoints",
+                json!({"breakpoints":[{"id":40,"verified":true,"line":8}]}),
+            )],
+        );
+        assert!(!stale
+            .events
+            .iter()
+            .any(|e| matches!(e.body, DebugEventBody::Breakpoint { .. })));
+        receive_messages(
+            session_id,
+            vec![response_message(
+                latest_sequence,
+                "setBreakpoints",
+                json!({"breakpoints":[fixture["response"].clone()]}),
+            )],
+        );
+        let changed = receive_messages(
+            session_id,
+            vec![json!({"type":"event", "event":"breakpoint",
+            "body":{"reason":"changed", "breakpoint":fixture["changed"]}})],
+        );
+        let result = changed
+            .events
+            .iter()
+            .find_map(|event| match &event.body {
+                DebugEventBody::Breakpoint { breakpoint } => {
+                    Some(serde_json::to_value(breakpoint).unwrap())
+                }
+                _ => None,
+            })
+            .unwrap();
+        destroy_session(SessionRequest {
+            session_id: session_id.to_string(),
+        })
+        .unwrap();
+        for key in ["requestedLine", "line", "sourcePath", "verified"] {
+            assert_eq!(result[key], fixture["expected"][key], "{key}");
+        }
     }
 
     #[test]

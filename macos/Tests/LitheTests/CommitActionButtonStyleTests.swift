@@ -6,6 +6,19 @@ import Testing
 @MainActor
 @Suite("Commit action button chrome", .serialized)
 struct CommitActionButtonStyleTests {
+    @Test(arguments: [CGFloat(10), CGFloat(120)])
+    func welcomeButtonsKeepMinimumAndContentWidthsWithoutDialogInsets(contentWidth: CGFloat) throws {
+        // Welcome buttons use the shared chrome without the dialog's outer inset.
+        let renderer = ImageRenderer(content: Button {} label: {
+            Color.clear.frame(width: contentWidth, height: 12)
+        }
+        .buttonStyle(LitheActionButtonStyle(borderInset: 0)))
+        renderer.scale = 2
+        let image = try #require(renderer.cgImage)
+        #expect(image.width == Int(max(72, contentWidth + 28) * 2))
+        #expect(image.height == 56)
+    }
+
     @Test(arguments: [ColorScheme.dark, .light], [
         (primary: false, enabled: false), (primary: false, enabled: true),
         (primary: true, enabled: false), (primary: true, enabled: true)

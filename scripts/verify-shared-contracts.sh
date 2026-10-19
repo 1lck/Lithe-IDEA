@@ -178,10 +178,28 @@ done
   plans.each do |item|
     abort "plan case #{item.fetch("name")} uses an unknown plugin" unless fixture_names.include?(item.fetch("plugin"))
     abort "plan case #{item.fetch("name")} uses an unknown operation" unless %w[runPlan discoverTests testPlan languageServerLaunchPlan].include?(item.fetch("operation"))
+    abort "plan case #{item.fetch("name")} must name exactly one of languageID and buildSystemID" unless item.key?("languageID") ^ item.key?("buildSystemID")
     expected = item.fetch("expected")
     if expected.fetch("status") == "rejected"
       abort "plan case #{item.fetch("name")} uses an undocumented code" unless documented.include?(expected.fetch("code"))
     end
+  end
+  build_operations = %w[
+    invocationPlan checkToolVersion resolveOptions modelPlan taskPlan testPlan dependencyPlan
+    decodeModel decodeTestResults decodeDiagnostics decodeDependencies syncFingerprint
+  ]
+  build_plans = JSON.parse(File.read(File.join(root, "fixtures", "build-plans.json")))
+  abort "build plan fixture schema must be 1" unless build_plans.fetch("schemaVersion") == 1
+  build_names = build_plans.fetch("cases").map { |item| item.fetch("name") }
+  abort "build plan case names must be unique" unless build_names.uniq.length == build_names.length
+  build_plans.fetch("cases").each do |item|
+    abort "build plan case #{item.fetch("name")} uses an unknown plugin" unless fixture_names.include?(item.fetch("plugin"))
+    abort "build plan case #{item.fetch("name")} uses an unknown operation" unless build_operations.include?(item.fetch("operation"))
+    expected = item.fetch("expected")
+    if expected.fetch("status") == "rejected"
+      abort "build plan case #{item.fetch("name")} uses an undocumented code" unless documented.include?(expected.fetch("error").fetch("code"))
+    end
+    abort "build plan case #{item.fetch("name")} contains a machine path" if JSON.generate(item).match?(%r{/(?:Users|home|var/folders|private/var)/|[A-Za-z]:\\\\})
   end
   index_schema = JSON.parse(File.read(File.join(root, "plugin-index.schema.json")))
   abort "plugin index schema ID mismatch" unless index_schema.fetch("$id").end_with?("/plugins/v1/plugin-index.schema.json")

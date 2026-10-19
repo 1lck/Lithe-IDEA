@@ -45,7 +45,7 @@ import {
   isContiguousGitHistorySelection,
   selectedCommitsInHistoryOrder,
 } from "../../utils/git-history-selection";
-import { GitGraphRow } from "./git-graph-row";
+import { GitGraphCanvas, GitGraphRow, gitGraphWidth } from "./git-graph-row";
 import { GitLogColumnResizeHandle } from "./git-log-column-resize-handle";
 import { GitLogDateCell } from "./git-log-date-cell";
 import { isGitHeadCommit } from "../../utils/git-history-message";
@@ -151,6 +151,10 @@ export function GitCommitTable({
     [commits, repositoryCommits, references, query, scope, showLongGraphEdges],
   );
   const visibleRows = graphLayout.rows;
+  const graphWidth = useMemo(
+    () => gitGraphWidth(visibleRows, paint, graphLayout.recommendedLaneCount),
+    [graphLayout.recommendedLaneCount, paint, visibleRows],
+  );
   const visibleCommitHashes = useMemo(
     () => visibleRows.map((row) => row.commit.hash),
     [visibleRows],
@@ -192,6 +196,16 @@ export function GitCommitTable({
     estimateSize: () => paint.rowHeight,
     overscan: 14,
   });
+  const virtualRows = virtualizer.getVirtualItems();
+  // Include adjacent rows so both halves of each boundary edge share one path.
+  const graphStart = virtualRows.length ? Math.max(0, virtualRows[0].index - 1) : 0;
+  const graphEnd = virtualRows.length
+    ? Math.min(visibleRows.length, virtualRows[virtualRows.length - 1].index + 2)
+    : 0;
+  const graphRows = useMemo(
+    () => visibleRows.slice(graphStart, graphEnd),
+    [visibleRows, graphStart, graphEnd],
+  );
   const { columnStyle, activeColumn, startResize } = useGitLogColumnResize(scrollRef);
   const referenceMetrics = useGitGraphReferenceMetrics(scrollRef, columnStyle, paint.rowHeight);
   const currentBranchHashes = useMemo(() => shouldHighlightCurrentGitBranch(selectedReference)
@@ -473,7 +487,8 @@ export function GitCommitTable({
                 minWidth: "var(--git-log-row-min-width)",
               }}
             >
-              {virtualizer.getVirtualItems().map((virtualRow) => {
+              <GitGraphCanvas rows={graphRows} rowOffset={graphStart} paint={paint} graphWidth={graphWidth} />
+              {virtualRows.map((virtualRow) => {
                 const row = visibleRows[virtualRow.index];
                 const isSelected = selectedCommitHashes.has(row.commit.hash);
                 const contextSelection = selectedCommitsInHistoryOrder(

@@ -151,6 +151,23 @@ test("a command without a progress channel keeps the dispatcher payload unchange
   });
 });
 
+test("a raw Core result bypasses the compatibility adapter but keeps Git provenance", async () => {
+  // The diff adapter strips CR and end-of-file markers from `git.diff`; the
+  // byte-faithful rollback channel must read the patch exactly as Core sent it.
+  const core = { patch: "@@ -1 +1 @@\n-a\r\n+b\r\n\\ No newline at end of file\n", exitCode: 0, hasDecodingLoss: false };
+  tauriInvoke.mockImplementationOnce((async () => core) as never);
+  const raw = await invoke("git.diff", { root: "C:/fixture/project", pathspecs: ["a.txt"] }, { rawCoreResult: true });
+  expect(raw).toBe(core);
+  const calls = tauriInvoke.mock.calls as unknown as [string, { gitEvents?: unknown }, unknown][];
+  expect(calls[0]![1].gitEvents).toBeDefined();
+  // The option is local metadata, never forwarded as native invoke options.
+  expect(calls[0]![2]).toBeUndefined();
+
+  tauriInvoke.mockImplementationOnce((async () => core) as never);
+  const adapted = await invoke<unknown>("git.diff", { root: "C:/fixture/project", pathspecs: ["a.txt"] });
+  expect(Array.isArray(adapted)).toBe(true);
+});
+
 test("native headers survive Git provenance forwarding", async () => {
   const headers = { "X-Fixture": "console" };
   await invoke("git_status", { repoPath: "C:/fixture/project", operationId: "headers-fixture" }, {

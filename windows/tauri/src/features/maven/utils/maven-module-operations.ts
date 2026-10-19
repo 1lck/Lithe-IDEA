@@ -1,4 +1,18 @@
 import { CURRENT_FILE_ID, type RunConfiguration } from "@/features/run/types/run.types";
+import { joinPath } from "@/utils/path-helpers";
+
+export function mavenModulePomPath(
+  workspaceRoot: string,
+  projectRelativePath: string,
+  moduleRelativePath: string,
+): string {
+  return joinPath(
+    workspaceRoot,
+    projectRelativePath === "." ? "" : projectRelativePath,
+    moduleRelativePath === "." ? "" : moduleRelativePath,
+    "pom.xml",
+  );
+}
 
 export type MavenModuleExecutionMode = "run" | "debug";
 

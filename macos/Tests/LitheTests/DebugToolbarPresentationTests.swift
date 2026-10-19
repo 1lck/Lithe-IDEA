@@ -8,6 +8,20 @@ import LitheCoreContracts
 @Suite("IDEA-aligned Debug toolbar presentation")
 struct DebugToolbarPresentationTests {
     @Test
+    func mainToolbarUsesPauseAndResumeOnlyForTheSelectedDebugTarget() {
+        for state in [DebugAdapterState.idle, .initializing, .ready, .launching, .running, .paused, .terminated, .failed] {
+            let control = DebugToolbarPresentation.mainToolbarControl(state: state,
+                debugTarget: "CalculatorTest.addsPositiveNumbers", selectedTarget: "CalculatorTest.addsPositiveNumbers")
+            #expect(control == (state == .paused ? .resume : state == .running ? .pause : nil))
+            #expect(DebugToolbarPresentation.mainToolbarControl(state: state,
+                debugTarget: "CalculatorTest.addsPositiveNumbers", selectedTarget: "RunDemo") == nil)
+        }
+        #expect(DebugToolbarPresentation.mainToolbarControl(state: .paused, debugTarget: nil, selectedTarget: nil) == nil)
+        #expect(DebugToolbarPresentation.ideaAssetPath(for: .resume) == "expui/run/resume.svg")
+        #expect(DebugToolbarPresentation.ideaAssetPath(for: .pause) == "expui/run/pause.svg")
+    }
+
+    @Test
     func sourceNameToggleRemovesOnlyAnExactDuplicateClassSuffix() {
         let source = URL(fileURLWithPath: "/demo/UserService.java")
         let frame = DebugStackFrame(id: 1, name: "findUser:42, UserService", sourceURL: source, line: 42, column: 1)

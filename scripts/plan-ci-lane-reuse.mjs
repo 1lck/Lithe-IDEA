@@ -5,7 +5,9 @@
 // A lane is reused when it already passed (or is still running) on an earlier
 // revision and none of the pull request's own changes since then can affect
 // it. Changes that only arrived from the base branch are ignored unless they
-// touch CI infrastructure, in which case every lane runs again. Earlier runs
+// touch CI infrastructure this workflow reads, in which case every lane of
+// this workflow runs again; infrastructure of other workflows only (such as a
+// Windows workflow edit seen by macOS CI) keeps reuse intact. Earlier runs
 // that no lane reuses are cancelled, because GitHub cannot cancel single jobs.
 // Any planning error runs every selected lane, so a check is never skipped
 // because of the planner itself.
@@ -36,27 +38,82 @@ export const WORKFLOW_LANES = Object.freeze({
   ],
 });
 
-// Base-branch changes to these paths can change how every lane behaves, so a
-// pull request that picks them up from the base reruns everything.
-export const CI_INFRA_PATTERNS = Object.freeze([
-  /^\.github\/(workflows|actions)\//,
-  /^\.github\/actionlint\.yaml$/,
-  /^scripts\/(test-)?classify-ci-changes\.sh$/,
-  /^scripts\/(select-macos-ci-runners|plan-ci-lane-reuse|verify-reused-ci-jobs)(\.test)?\.mjs$/,
-  /^scripts\/(reuse-macos-runner-build-state|macos-swift-build-options|test-macos|build-rust-core|prepare-macos-dependencies|validate-macos-dependency-caches|verify-rust-core[a-z-]*)\.sh$/,
-  /^scripts\/[^/]*windows[^/]*\.(ps1|mjs|ts)$/i,
-  /^\.agents\/skills\/write-stable-tests\/scripts\//,
-  /^(Package\.swift|Package\.resolved|\.swift-version|package\.json|bun\.lock|bunfig\.toml)$/,
-  // Every Cargo manifest, not only the workspace roots: a member crate's
+const ALL_WORKFLOWS = Object.freeze(Object.keys(WORKFLOW_LANES));
+// The plugin workflow builds through the macOS toolchain actions and
+// `scripts/test-macos.sh`, so macOS build infrastructure reaches it too.
+const MACOS_FAMILY = Object.freeze(['macos', 'plugins']);
+// Workflow files and local actions are scoped by what the planned workflow
+// actually references; see `workflowReferences`.
+const REFERENCED = 'referenced';
+
+// Base-branch changes to these paths can change how lanes behave. A pull
+// request that picks one up from the base reruns every lane of the workflows
+// the matching rule names; other workflows keep reusing their results. The
+// first matching rule wins, so narrower rules come before broader ones.
+export const CI_INFRA_RULES = Object.freeze([
+  { pattern: /^\.github\/(workflows|actions)\//, workflows: REFERENCED },
+  { pattern: /^\.agents\/skills\/write-stable-tests\/scripts\/test-stability-windows\.ps1$/, workflows: ['windows'] },
+  { pattern: /^\.agents\/skills\/write-stable-tests\/scripts\/test-stability-macos\.sh$/, workflows: MACOS_FAMILY },
+  { pattern: /^\.agents\/skills\/write-stable-tests\/scripts\//, workflows: ALL_WORKFLOWS },
+  { pattern: /^scripts\/(test-)?classify-ci-changes\.sh$/, workflows: ALL_WORKFLOWS },
+  { pattern: /^scripts\/(plan-ci-lane-reuse|verify-reused-ci-jobs)(\.test)?\.mjs$/, workflows: ALL_WORKFLOWS },
+  { pattern: /^scripts\/(test-macos|build-rust-core|prepare-macos-dependencies|validate-macos-dependency-caches|verify-rust-core[a-z-]*)\.sh$/, workflows: MACOS_FAMILY },
+  { pattern: /^scripts\/[^/]*windows[^/]*\.(ps1|mjs|ts)$/i, workflows: ['windows'] },
+  { pattern: /^(Package\.swift|Package\.resolved|\.swift-version)$/, workflows: MACOS_FAMILY },
+  { pattern: /^(package\.json|bun\.lock|bunfig\.toml)$/, workflows: ALL_WORKFLOWS },
+  // The shared Monaco editor feeds the macOS package and the Windows frontend,
+  // matching the classifier's routing of `frontend/editor/*`.
+  { pattern: /^frontend\/editor\/package\.json$/, workflows: ['macos', 'windows'] },
+  // The Windows product links Rust Core through path dependencies, but nothing
+  // outside `windows/` reads the Windows crates, toolchain or frontend manifest.
+  { pattern: /^windows\/(.*\/)?(Cargo\.(toml|lock)|rust-toolchain(\.toml)?|package\.json)$/, workflows: ['windows'] },
+  // Every other Cargo manifest, not only the workspace roots: a member crate's
   // features or dependencies change the build without touching the lock file.
-  /(^|\/)Cargo\.(toml|lock)$/,
-  /(^|\/)rust-toolchain(\.toml)?$/,
-  /^rust\/\.cargo\//,
-  /^windows\/tauri\/package\.json$/,
-  /^frontend\/editor\/package\.json$/,
+  { pattern: /(^|\/)Cargo\.(toml|lock)$/, workflows: ALL_WORKFLOWS },
+  { pattern: /(^|\/)rust-toolchain(\.toml)?$/, workflows: ALL_WORKFLOWS },
+  { pattern: /^rust\/\.cargo\//, workflows: ALL_WORKFLOWS },
 ]);
 
-export const isCiInfrastructure = (path) => CI_INFRA_PATTERNS.some((pattern) => pattern.test(path));
+const infrastructureRule = (path) => CI_INFRA_RULES.find((rule) => rule.pattern.test(path));
+
+export const isCiInfrastructure = (path) => Boolean(infrastructureRule(path));
+
+// Whether a CI infrastructure path can change the planned workflow's lanes.
+// `references` lists the `.github/` files and action directories that workflow
+// reads; a path no rule matches is not infrastructure at all.
+export function infrastructureAffects(path, workflow, references) {
+  const rule = infrastructureRule(path);
+  if (!rule) return false;
+  if (rule.workflows !== REFERENCED) return rule.workflows.includes(workflow);
+  return references.files.has(path) || [...references.directories].some((directory) => path.startsWith(`${directory}/`));
+}
+
+const LOCAL_REFERENCE = /\.\/(\.github\/(?:actions|workflows)\/[^\s"'@#]+)/g;
+
+// The planned workflow file plus every local action and reusable workflow it
+// reaches, directly or through a composite action, at the given revisions.
+// Both the base and the head count: a pull_request run executes their merge.
+export function workflowReferences(git, revisions, workflowFile) {
+  const files = new Set();
+  const directories = new Set();
+  const pending = [`.github/workflows/${workflowFile}`];
+  const read = (path) => revisions.map((revision) => git.attempt(['show', `${revision}:${path}`]) ?? '').join('\n');
+  while (pending.length) {
+    const target = pending.pop().replace(/\/+$/, '');
+    let text;
+    if (/\.ya?ml$/.test(target) && target.startsWith('.github/workflows/')) {
+      if (files.has(target)) continue;
+      files.add(target);
+      text = read(target);
+    } else {
+      if (directories.has(target)) continue;
+      directories.add(target);
+      text = read(`${target}/action.yml`) + read(`${target}/action.yaml`);
+    }
+    for (const match of text.matchAll(LOCAL_REFERENCE)) pending.push(match[1]);
+  }
+  return { files, directories };
+}
 
 export function parseClassification(text) {
   const outputs = {};
@@ -171,7 +228,15 @@ export async function planLaneReuse({ env, outputs, repoRoot, fetchImpl = fetch,
   const workflow = env.LITHE_CI_WORKFLOW;
   if (!WORKFLOW_LANES[workflow]) throw new Error(`Unknown CI workflow: ${workflow}`);
   const lanes = selectedLanes(workflow, outputs);
-  const plan = { run: Object.fromEntries(lanes.map((lane) => [lane, true])), reuse: {}, cancelled: [], reason: '' };
+  // `infrastructure` records base-branch CI changes per decision: `rerun`
+  // reached this workflow, `ignored` only reaches other workflows.
+  const plan = {
+    run: Object.fromEntries(lanes.map((lane) => [lane, true])),
+    reuse: {},
+    cancelled: [],
+    reason: '',
+    infrastructure: { rerun: new Set(), ignored: new Set() },
+  };
   if (env.GITHUB_EVENT_NAME !== 'pull_request' || outputs.ci_scope !== 'pull_request' || lanes.length === 0) {
     plan.reason = 'every selected lane runs (not a pull request run, or nothing selected)';
     return plan;
@@ -206,6 +271,7 @@ export async function planLaneReuse({ env, outputs, repoRoot, fetchImpl = fetch,
       const sha = commits?.[0]?.sha;
       return sha && git.ensureCommit(sha) ? sha : null;
     };
+    let references;
     const affectedByRun = new Map();
     const affectedSince = async (run) => {
       const previous = run.head_sha;
@@ -216,7 +282,12 @@ export async function planLaneReuse({ env, outputs, repoRoot, fetchImpl = fetch,
           affected = 'all';
         } else {
           const comparison = compareRevisions(git, base, previous, current, previousBase);
-          affected = comparison.infrastructure.length > 0
+          references ??= workflowReferences(git, [base, current], env.LITHE_CI_WORKFLOW_FILE);
+          const relevant = comparison.infrastructure.filter((path) => infrastructureAffects(path, workflow, references));
+          for (const path of comparison.infrastructure) {
+            (relevant.includes(path) ? plan.infrastructure.rerun : plan.infrastructure.ignored).add(path);
+          }
+          affected = relevant.length > 0
             ? 'all'
             : new Set(selectedLanes(workflow, classifyPaths({ repoRoot, previous, current, paths: comparison.changed })));
         }
@@ -232,7 +303,12 @@ export async function planLaneReuse({ env, outputs, repoRoot, fetchImpl = fetch,
         // looking for the run that actually executed it.
         if (!job || job.conclusion === 'skipped') continue;
         executed = true;
-        const usable = job.status !== 'completed' || job.conclusion === 'success';
+        // Jobs assigned to the retired self-hosted pool cannot migrate to
+        // hosted runners. Keep hosted queues reusable: other lanes can still
+        // need that run, so replacing its queued jobs would duplicate builds.
+        const usable = job.conclusion === 'success'
+          || (job.status !== 'completed'
+            && !(job.labels ?? []).some((label) => label.toLowerCase() === 'self-hosted'));
         if (usable) {
           const affected = await affectedSince(run);
           if (affected !== 'all' && !affected.has(definition.lane)) {
@@ -255,11 +331,13 @@ export async function planLaneReuse({ env, outputs, repoRoot, fetchImpl = fetch,
       }
     }
     if (Object.keys(plan.reuse).length) plan.reason = 'unaffected lanes reuse earlier results';
+    else if (plan.infrastructure.rerun.size) plan.reason = 'every selected lane runs (the base branch changed CI infrastructure this workflow reads)';
     else if (executed) plan.reason = 'every selected lane runs (earlier results failed, were cancelled, or are affected by new changes)';
     else plan.reason = 'every selected lane runs (no earlier run of this pull request executed them)';
   } catch (error) {
     plan.run = Object.fromEntries(lanes.map((lane) => [lane, true]));
     plan.reuse = {};
+    plan.infrastructure = { rerun: new Set(), ignored: new Set() };
     plan.reason = `every selected lane runs (planning failed: ${error.message})`;
   }
   return plan;
@@ -277,7 +355,12 @@ function summary(workflow, plan) {
     return `| ${lane} | ${plan.run[lane] ? 'run' : 'not selected'} |`;
   });
   const cancelled = plan.cancelled.length ? `\n\nCancelled obsolete runs: ${plan.cancelled.join(', ')}` : '';
-  return `### Lane reuse\n\n${plan.reason}\n\n| Lane | Decision |\n| --- | --- |\n${rows.join('\n')}${cancelled}\n`;
+  const paths = (set) => [...set].sort().map((path) => `\`${path}\``).join(', ');
+  const infrastructure = [
+    plan.infrastructure?.rerun.size ? `\n\nBase CI infrastructure changes read by this workflow: ${paths(plan.infrastructure.rerun)}` : '',
+    plan.infrastructure?.ignored.size ? `\n\nBase CI infrastructure changes for other workflows only (ignored): ${paths(plan.infrastructure.ignored)}` : '',
+  ].join('');
+  return `### Lane reuse\n\n${plan.reason}\n\n| Lane | Decision |\n| --- | --- |\n${rows.join('\n')}${cancelled}${infrastructure}\n`;
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {

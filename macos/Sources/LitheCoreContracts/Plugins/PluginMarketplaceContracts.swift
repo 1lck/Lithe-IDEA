@@ -241,6 +241,7 @@ public struct PluginProgram: Equatable, Hashable, Sendable {
         case runtime
         case run
         case test
+        case buildSystem
         case unknown
     }
 
@@ -254,7 +255,9 @@ public struct PluginProgram: Equatable, Hashable, Sendable {
         json = try JSONDecoder().decode(ToolingJSONValue.self, from: Data(canonicalJSON.utf8))
     }
 
-    public var kind: Kind { Kind(rawValue: string("kind") ?? "") ?? .unknown }
+    public var kind: Kind { Kind(rawValue: rawKind ?? "") ?? .unknown }
+    /// Declared kind, including kinds this host does not describe yet.
+    public var rawKind: String? { string("kind") }
     public var languageID: String? { string("languageID") }
     public var path: String? { string("path") }
     public var tool: String? { string("tool") }
@@ -269,6 +272,47 @@ public struct PluginProgram: Equatable, Hashable, Sendable {
         if case .string(let command)? = executable["command"] { return command }
         if case .string(let toolchain)? = executable["toolchain"] { return toolchain }
         return nil
+    }
+
+    /// Build system ID of a `buildSystem` program.
+    public var buildSystemID: String? { string("buildSystemID") }
+
+    /// Executables a `buildSystem` program may resolve, in resolution
+    /// order: project wrappers, `$VARIABLE/path` homes, then commands.
+    public var buildExecutables: [String] {
+        guard case .object(let fields) = json,
+              case .object(let invocation)? = fields["invocation"],
+              case .array(let executables)? = invocation["executables"] else {
+            return []
+        }
+        var seen = Set<String>()
+        return executables.compactMap { value -> String? in
+            guard case .object(let executable) = value else { return nil }
+            func field(_ key: String) -> String? {
+                if case .string(let string)? = executable[key] { string } else { nil }
+            }
+            let description: String?
+            switch field("kind") {
+            case "projectFile": description = field("path").map { "./\($0)" }
+            case "environment":
+                description = field("path").map { path in
+                    field("variable").map { "$\($0)/\(path)" } ?? path
+                }
+            case "command": description = field("command")
+            default: description = field("command") ?? field("path")
+            }
+            guard let description, seen.insert(description).inserted else { return nil }
+            return description
+        }
+    }
+
+    /// Task IDs of a `buildSystem` program.
+    public var buildTaskIDs: [String] {
+        guard case .object(let fields) = json, case .array(let tasks)? = fields["tasks"] else { return [] }
+        return tasks.compactMap { value in
+            guard case .object(let task) = value, case .string(let id)? = task["id"] else { return nil }
+            return id
+        }
     }
 
     /// Fixed arguments of the language server's validation probe.
@@ -334,7 +378,7 @@ public struct PluginInstallReview: Equatable, Sendable {
 }
 
 /// Typed `plugins.marketplace.*` operations owned by Rust Core.
-public protocol PluginMarketplaceEvaluating {
+public protocol PluginMarketplaceEvaluating: Sendable {
     func validateIndex(
         _ index: Data,
         sourceKind: PluginMarketplaceSourceKind,
