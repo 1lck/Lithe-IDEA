@@ -45,7 +45,7 @@ import {
   isContiguousGitHistorySelection,
   selectedCommitsInHistoryOrder,
 } from "../../utils/git-history-selection";
-import { GitGraphRow } from "./git-graph-row";
+import { GitGraphCanvas, GitGraphRow, gitGraphWidth } from "./git-graph-row";
 import { GitLogColumnResizeHandle } from "./git-log-column-resize-handle";
 import { GitLogDateCell } from "./git-log-date-cell";
 import { isGitHeadCommit } from "../../utils/git-history-message";
@@ -151,6 +151,10 @@ export function GitCommitTable({
     [commits, repositoryCommits, references, query, scope, showLongGraphEdges],
   );
   const visibleRows = graphLayout.rows;
+  const graphWidth = useMemo(
+    () => gitGraphWidth(visibleRows, paint, graphLayout.recommendedLaneCount),
+    [graphLayout.recommendedLaneCount, paint, visibleRows],
+  );
   const visibleCommitHashes = useMemo(
     () => visibleRows.map((row) => row.commit.hash),
     [visibleRows],
@@ -473,6 +477,7 @@ export function GitCommitTable({
                 minWidth: "var(--git-log-row-min-width)",
               }}
             >
+              <GitGraphCanvas rows={visibleRows} paint={paint} graphWidth={graphWidth} />
               {virtualizer.getVirtualItems().map((virtualRow) => {
                 const row = visibleRows[virtualRow.index];
                 const isSelected = selectedCommitHashes.has(row.commit.hash);

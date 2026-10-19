@@ -2,6 +2,19 @@
   color: var(--git-graph-light);
 }
 
+.git-graph-canvas {
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  left: 0;
+  display: block;
+  overflow: visible;
+}
+
+.git-graph-row-spacer {
+  flex: 0 0 auto;
+}
+
 .dark .git-graph-tone,
 :root[data-theme-type="dark"] .git-graph-tone {
   color: var(--git-graph-dark);

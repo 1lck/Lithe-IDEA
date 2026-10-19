@@ -9,7 +9,7 @@
 
 macOS 和 Windows 的 Git 提交图现在使用同一套 IntelliJ 风格的永久图规则：先按引用优先级确定图头，再为每个图头分配稳定的图片段和颜色，最后根据提交顺序投影到屏幕泳道。这样本地分支新增提交时，不会因为沿用父分支的第一条泳道而和父分支混成同一种颜色；两个端的分支优先级、颜色身份和合并拓扑也保持一致。
 
-Windows 使用 SVG 行渲染，图头排序、永久布局、紧凑长边及绘制尺寸与 macOS 的 IntelliJ 基准一致。颜色使用完整有符号身份生成明暗主题 RGB，节点为实心、连线为直线，尺寸按字号和显示器缩放调整。今后修改提交图时，必须同时以 macOS 的实现和 IntelliJ 固定基准为准，不要重新引入泳道着色或六色取模。
+Windows 使用 SVG 绘制，图头排序、永久布局、紧凑长边及普通节点尺寸与 macOS 的 IntelliJ 基准一致。颜色使用完整有符号身份生成明暗主题 RGB，普通节点为实心，HEAD 使用外圈和中心实点；连线为直线，尺寸按字号和显示器缩放调整。今后修改提交图时，必须同时以 macOS 的实现和 IntelliJ 固定基准为准，不要重新引入泳道着色或六色取模。
 
 Windows 的日志筛选也基于完整已加载历史生成可见图。隐藏中间提交后，用虚线连接仍可见的祖先，而不是直接删除已绘制的行；清空筛选恢复原图。
 
@@ -51,7 +51,24 @@ macOS 已经按 IntelliJ 的永久图规则处理了这个问题，但 Windows �
 身份、虚线样式与颜色。相邻两行在共同边界中点衔接，经过其他可见提交的
 虚线不能被画成实线；清空筛选恢复完整图，继续使用同一绘制入口。
 
-### 未筛选图的跨行与合流绘制
+### HEAD 外圈与中心实点
+
+HEAD 的独立外观核对 Community `33384d9bca79517f5d82ff75eac1d689e04a4544`
+的 `platform/vcs-log/impl/src/com/intellij/vcs/log/paint/HeadNodePainter.kt`
+和同目录 `PaintParameters.java`；这不改变永久图算法与颜色的既有基准。
+外半径以普通节点的 4 个基准单位加 2 计算，直径向下对齐奇数物理像素；
+再按对齐后的 2 个单位连续缩进两次，得到留白圆与中心实点。
+例如 26px 行高、100% 缩放时三层直径为 13、9、5px，外圈厚度为 2px，
+不能把 HEAD 当作普通 9px 节点加一条连线宽度的描边。
+
+Windows 保留整张图的连续 SVG 表面，沿用每条边完整的身份，仅移除最后的
+方向后缀来拼接上下半边；按冒号第一段分组会把同一行的多个分叉串成一条边。
+HEAD 圆心与车道中心一致，外圈以内的边通过矢量裁剪隐藏，中心点单独填色。
+留白透出真实行底色，选中、悬停和主题变化无需在图层复制一套背景状态；
+不要使用透明填充的单层空心圆，否则垂直线与分叉会穿过圆内留白。
+普通节点、箭头命中、逐行标题起点和现有虚拟滚动保持各自原有几何入口。
+
+### 连续图层与逐行打印元素
 
 Windows 不再根据泳道颜色数组推断进入提交的连线。移植 macOS 和 IDEA
 `PrintElementGeneratorImpl` 的上下半边规则后，每条边独立保存当前列、相邻
@@ -231,6 +248,7 @@ ResizeObserver（浏览器按帧合并的尺寸观察器）服务已挂载行，
 - Windows 筛选回归计时：`./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend -FrontendTestPath src/features/git/utils/git-graph-layout.test.ts,src/features/git/components/log/git-graph-row.test.ts,src/features/git/components/log/git-commit-table.filter.test.tsx`。覆盖隐藏链、合并与直接边优先、缺失父节点传播和分页、5,000 条隐藏边界，以及真实提交表筛选/清空后的 SVG 虚线。
 - 未筛选图读取 `macos/Tests/LitheTests/Fixtures/GitGraph/issue410-history.tsv` 与真实 IDEA 生成的 `issue410-idea.txt`，比较 200 条提交的节点列、上下半边位置、终止及方向标记和完整有符号颜色 ID，不从 Windows 算法生成预期。SVG 回归验证换列边界实际坐标和合流两条入边的独立颜色。
 - 外观对照读取真实上游 `idea-theme-colors.txt`，覆盖明暗主题、负数及溢出颜色；几何回归覆盖 1x/1.25x/1.5x/2x/3x 的上下半边端点、奇数物理像素、终止留白和方向箭头。`use-git-graph-paint.test.tsx` 验证 DPI/字号变化后的实际 SVG、普通调整不重复监听、卸载清理及历史布局不重建。
+- HEAD 回归在 `git-graph-geometry.test.ts` 固定五种 DPI 的外径、圈宽与实点尺寸；`git-graph-row.test.ts` 检查真实 SVG 的同心结构、边裁剪和普通节点不受影响。浏览器需核对圈内没有穿线，明暗主题的普通、当前分支、悬停和焦点／失焦选中背景自然透出；浏览器结果不代替 WebView2 原生截图验收。
 - 外观回归计时使用同一 Windows Frontend harness，加入 `src/features/git/utils/git-graph-colors.test.ts`、`src/features/git/utils/git-graph-geometry.test.ts` 和 `src/features/git/hooks/use-git-graph-paint.test.tsx`。浏览器验证使用真实行组件和测量 hook，检查明暗主题、五种 DPI 和用户字号；平台调用在独立页面中替代，不视为原生产品验收。
 - 仓库上下文读取现有 `issue410-context-idea.txt` 和 `issue410-date-idea.txt`，比较真实 IDEA 的 200 条拓扑页与 300 条日期页，不用 Windows 输出生成预期。API 测试复用 `shared/fixtures/git/history-page-date-request-v1.json`，确认首批与后续页都传相同顺序。
 - 上述两份 IDEA 输出的 `Width` 也参与建议宽度回归；几何与真实行组件检查单线、建议基线六列上限、斜边中点、超过六列的密集行与后续简单行、筛选重算和标签呈现。浏览器用真实表格与虚拟滚动核对文字按行避让图形；目标 WebView2 设备验收仍单独记录。

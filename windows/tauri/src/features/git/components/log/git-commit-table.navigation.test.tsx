@@ -197,8 +197,12 @@ test("focus waits for an explicitly delayed virtual-row mount and survives refer
 test("the real toolbar expands and collapses long edges without changing selection", async () => {
   windowSize = 40;
   await mount();
+  // The shared canvas paints both adjacent edges through row 20's center.
+  // Expanding the long edge adds its incoming and outgoing paths there.
   const pathsInMiddle = () =>
-    container.querySelector('[data-git-commit-hash="20"]')!.querySelectorAll("svg path").length;
+    [...container.querySelectorAll("[data-git-graph-edges] > path")].filter((path) =>
+      /[ML] [-\d.]+ 533(?: |$)/.test(path.getAttribute("d") ?? ""),
+    ).length;
   expect(pathsInMiddle()).toBe(2);
   await click(container.querySelector('button[aria-label="Show long graph edges"]')!);
   expect(pathsInMiddle()).toBe(4);
