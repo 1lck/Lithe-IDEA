@@ -7,6 +7,7 @@ protocol PlatformUI: AnyObject {
     func activateApplication()
     func chooseDirectory(title: String, prompt: String) -> URL?
     func chooseFile(title: String, prompt: String) -> URL?
+    func choosePluginPackage(title: String, prompt: String) -> URL?
     func revealInFileBrowser(_ url: URL)
     func open(_ url: URL)
     func openHTMLInBrowser(_ url: URL) async throws
@@ -19,6 +20,10 @@ protocol PlatformUI: AnyObject {
 }
 
 extension PlatformUI {
+    func choosePluginPackage(title: String, prompt: String) -> URL? {
+        chooseDirectory(title: title, prompt: prompt)
+    }
+
     func openHTMLInBrowser(_ url: URL) async throws {
         throw CocoaError(.featureUnsupported)
     }

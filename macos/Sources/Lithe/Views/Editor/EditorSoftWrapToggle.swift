@@ -1,45 +1,31 @@
+import AppKit
 import SwiftUI
 
-/// 主编辑器右上角的软换行开关：样式对齐 Git Console 的换行切换，
-/// 状态经 AppSettings 持久化；超大文件（行数阈值见 `LitheTextViewportLayout`）
-/// 时按钮禁用，布局层兜底保持不换行。
-struct EditorSoftWrapToggle: View {
-    @EnvironmentObject private var settings: AppSettings
-    @EnvironmentObject private var chrome: EditorChromeModel
+/// Native settings and shared toolbar metrics for the WebKit-owned soft-wrap button.
+/// Keeping the hit target inside WebKit prevents competing native/text cursor owners.
+struct EditorSoftWrapToggleConfiguration: Equatable {
+    let visible: Bool
+    let enabled: Bool
+    let selected: Bool
+    let hover: String
+    let pressed: String
 
-    var body: some View {
-        // 查找栏是覆盖在编辑器顶部的悬浮弹层，窄面板（分屏、展开侧边
-        // 工具窗口）下会占满可用宽度。此时隐藏本开关，避免盖住查找栏
-        // 关闭按钮的点击区域。
-        if !chrome.isFindBarVisible {
-            softWrapButton
-        }
+    init(visible: Bool, enabled: Bool, selected: Bool) {
+        self.visible = visible
+        self.enabled = enabled
+        self.selected = selected
+        let style = LitheIconButtonStyle()
+        hover = MonacoWorkbenchThemeConfiguration.cssColor(NSColor(style.hoverBackground))
+        pressed = MonacoWorkbenchThemeConfiguration.cssColor(NSColor(style.pressedBackground))
     }
 
-    private var softWrapButton: some View {
-        Button {
-            settings.editorSoftWrapEnabled.toggle()
-        } label: {
-            ZStack(alignment: .bottomTrailing) {
-                Image(systemName: "text.justify.leading")
-                    .font(LitheTheme.uiFont(size: 12, weight: .regular))
-                Image(systemName: "arrow.turn.down.left")
-                    .font(LitheTheme.uiFont(size: 6.5, weight: .semibold))
-                    .offset(x: 2, y: 1)
-            }
-        }
-        .litheIconButton()
-        .foregroundStyle(settings.editorSoftWrapEnabled ? LitheTheme.accent : LitheTheme.secondaryText)
-        .disabled(!chrome.isSoftWrapAvailable)
-        .help(helpText)
-        .accessibilityLabel(Text("Soft Wraps"))
-        .accessibilityValue(Text(settings.editorSoftWrapEnabled ? "On" : "Off"))
-    }
-
-    private var helpText: LocalizedStringKey {
-        if !chrome.isSoftWrapAvailable {
-            return "Soft wrap is unavailable for very large files"
-        }
-        return settings.editorSoftWrapEnabled ? "Disable soft wraps" : "Use soft wraps"
+    var bridgePayload: [String: Any] {
+        let style = LitheIconButtonStyle()
+        let title = !enabled ? String(localized: "Soft wrap is unavailable for very large files")
+            : selected ? String(localized: "Disable soft wraps") : String(localized: "Use soft wraps")
+        return ["visible": visible, "enabled": enabled, "selected": selected,
+                "label": String(localized: "Soft Wraps"), "title": title,
+                "size": LitheTheme.Metrics.toolbarIconButtonSize, "radius": style.cornerRadius,
+                "disabledOpacity": style.disabledOpacity, "hover": hover, "pressed": pressed]
     }
 }

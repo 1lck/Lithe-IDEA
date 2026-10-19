@@ -10,7 +10,6 @@ set -euo pipefail
 # .agents/notes/implemented/architecture/2026-10-12-declarative-language-plugins.md.
 
 ROOT_DIR="${0:A:h:h}"
-source "$ROOT_DIR/scripts/macos-swift-build-options.sh"
 CONFIGURATION="debug"
 TRIPLE=""
 OUTPUT_DIR=""
@@ -134,7 +133,6 @@ for plugin_source in "$ROOT_DIR"/Plugins/mac/Official/*(/N); do
     if [[ "$publisher_signed" == true ]]; then
         if [[ -z "$signer_binary" ]]; then
             swift build \
-                "${LITHE_SWIFT_BUILD_ARGS[@]}" \
                 "${SWIFT_LAYOUT_ARGS[@]}" \
                 --product LithePluginPackageSigner >&2
             signer_binary="$SWIFT_BIN_PATH/LithePluginPackageSigner"

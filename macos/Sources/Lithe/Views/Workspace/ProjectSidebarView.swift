@@ -387,6 +387,11 @@ private final class ProjectTreeActions: @unchecked Sendable {
         self.model = model
     }
 
+    @MainActor
+    func agentAttachmentMenuItems(_ urls: [URL]) -> [LitheContextMenuItem] {
+        AgentFileAttachmentMenu.items(model: model, urls: urls)
+    }
+
     // Button and context-menu closures are not MainActor-isolated under the
     // Swift 6 test/release check. Keep these methods synchronous and hop.
     nonisolated func openFile(_ url: URL) {
@@ -739,7 +744,9 @@ private struct FileNodeRow: View {
 
     private var batchMenuItems: [LitheContextMenuItem] {
         let urls = selectedItemURLs
-        return clipboardMenuItems + [.separator] + projectSearchMenuItems + [
+        let attachments = actions.agentAttachmentMenuItems(urls)
+        return clipboardMenuItems + [.separator] + projectSearchMenuItems
+            + (attachments.isEmpty ? [] : [.separator] + attachments) + [
             .separator,
             .action("Duplicate", isEnabled: !urls.isEmpty) { actions.duplicateFiles(urls) },
             .action("Move to Trash", systemImage: "trash", role: .destructive, isEnabled: !urls.isEmpty) {
@@ -902,6 +909,8 @@ private struct FileNodeRow: View {
                 actions.openFile(node.url)
             }
         ] + [.separator] + projectSearchMenuItems
+        let attachments = actions.agentAttachmentMenuItems([node.url])
+        if !attachments.isEmpty { items += [.separator] + attachments }
 
         if let change = gitStatus.change(for: node.url) {
             items += [

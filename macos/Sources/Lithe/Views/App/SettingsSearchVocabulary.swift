@@ -46,7 +46,7 @@ enum SettingsSearchVocabulary {
         case .plugins:
             ["Plugins", "Installed", "Marketplace", "Language support"]
         case .mcp:
-            ["MCP Configuration", "MCP", "Agent", "AI tool connections (MCP)", "Copy agent configuration", "Permissions"]
+            ["MCP Configuration", "MCP", "MCP servers", "Server library", "Add server", "Codex", "Claude Code", "Agent", "AI tool connections (MCP)", "Copy agent configuration", "Permissions", "Environment variables", "Lithe IDE access"]
         }
     }
 

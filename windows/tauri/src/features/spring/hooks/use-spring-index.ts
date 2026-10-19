@@ -1,5 +1,6 @@
 import { getLspWorkspaceSessionSnapshot } from "@/platform/lsp-core-adapter";
 import { useLspStore } from "@/features/editor/lsp/stores/lsp.store";
+import { cancelCoreOperation } from "@/core/lithe-core-client";
 import { exists } from "@tauri-apps/plugin-fs";
 import { homeDir, join } from "@tauri-apps/api/path";
 import { useEffect } from "react";
@@ -37,6 +38,7 @@ export interface SpringIndexDependencies {
   resolveMetadataRepository: typeof resolveMavenMetadataRepository;
   scheduleReload: (reload: () => void) => () => void;
   subscribeDependencyReady?: (root: string, reload: () => void) => () => void;
+  cancelRequest?: (requestId: string) => void;
 }
 
 function isDependencyReady(phase: string | undefined): boolean {
@@ -63,6 +65,9 @@ const defaultDependencies: SpringIndexDependencies = {
   subscribeDependencyReady: subscribeSpringDependencyReady,
   requestIndex: requestSpringIndex,
   resolveMetadataRepository: resolveMavenMetadataRepository,
+  cancelRequest: (requestId) => {
+    void cancelCoreOperation(requestId);
+  },
   scheduleReload: (reload) => {
     const timer = setTimeout(reload, RELOAD_DELAY_MS);
     return () => clearTimeout(timer);
@@ -88,8 +93,11 @@ export function useSpringIndex(dependencies: SpringIndexDependencies = defaultDe
     let cancelReload: (() => void) | undefined;
     let metadataRepository: Promise<string | undefined> | undefined;
     let refreshDependencies = false;
+    let pendingLoad: { refreshDependencyMetadata: boolean } | null = null;
+    let inFlight = false;
+    let activeRequestId: string | undefined;
 
-    const load = async (refreshDependencyMetadata: boolean) => {
+    const performLoad = async (refreshDependencyMetadata: boolean) => {
       const generation = store.actions.beginLoad(rootFolderPath);
       if (!isSupportedSpringRoot(rootFolderPath)) {
         store.actions.failLoad(
@@ -122,25 +130,58 @@ export function useSpringIndex(dependencies: SpringIndexDependencies = defaultDe
         }
         const repository = await metadataRepository;
         if (cancelled) return;
-        const index =
-          paths.length === 0
-            ? EMPTY_SPRING_INDEX
-            : await dependencies.requestIndex({
-                root: rootFolderPath,
-                paths,
-                metadataRepositories: repository ? [repository] : [],
-                textOverrides,
-                refreshDependencyMetadata,
-              });
+        let index = EMPTY_SPRING_INDEX;
+        if (paths.length !== 0) {
+          const requestId = crypto.randomUUID();
+          activeRequestId = requestId;
+          try {
+            index = await dependencies.requestIndex({
+              requestId,
+              root: rootFolderPath,
+              paths,
+              metadataRepositories: repository ? [repository] : [],
+              textOverrides,
+              refreshDependencyMetadata,
+            });
+          } finally {
+            if (activeRequestId === requestId) activeRequestId = undefined;
+          }
+        }
         if (cancelled) return;
         store.actions.completeLoad(generation, rootFolderPath, index);
       } catch (error) {
-        if (!cancelled) {
-          const failure = classifySpringIndexError(error, rootFolderPath);
-          console.warn("Spring index failed:", failure.category);
-          store.actions.failLoad(generation, failure);
-        }
+        // Cleanup sets `cancelled` before it cancels the native request, so the
+        // owner's own cancellation stops here. Any other cancellation is a
+        // failure; returning would leave the phase stuck at `loading`.
+        if (cancelled) return;
+        const failure = classifySpringIndexError(error, rootFolderPath);
+        console.warn("Spring index failed:", failure.category);
+        store.actions.failLoad(generation, failure);
       }
+    };
+
+    // A full workspace scan can outlast the edit debounce. Keep at most one
+    // request in flight and fold every trigger that arrives meanwhile into a
+    // single follow-up, so a typing burst cannot start parallel full scans.
+    const drainLoads = async () => {
+      inFlight = true;
+      try {
+        while (!cancelled && pendingLoad) {
+          const next = pendingLoad;
+          pendingLoad = null;
+          await performLoad(next.refreshDependencyMetadata);
+        }
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    const load = (refreshDependencyMetadata: boolean) => {
+      pendingLoad = {
+        refreshDependencyMetadata:
+          (pendingLoad?.refreshDependencyMetadata ?? false) || refreshDependencyMetadata,
+      };
+      if (!inFlight && !cancelled) void drainLoads();
     };
 
     const scheduleReload = () => {
@@ -149,7 +190,7 @@ export function useSpringIndex(dependencies: SpringIndexDependencies = defaultDe
         cancelReload = undefined;
         const refresh = refreshDependencies;
         refreshDependencies = false;
-        void load(refresh);
+        load(refresh);
       });
     };
 
@@ -186,6 +227,11 @@ export function useSpringIndex(dependencies: SpringIndexDependencies = defaultDe
 
     return () => {
       cancelled = true;
+      pendingLoad = null;
+      if (activeRequestId) {
+        dependencies.cancelRequest?.(activeRequestId);
+        activeRequestId = undefined;
+      }
       unsubscribeBuffers();
       unsubscribeDependencies?.();
       window.removeEventListener("file-external-change", handleExternalChange);

@@ -59,6 +59,7 @@ fn custom_launch(command: &str, provider: ProviderCredentials) -> AgentLaunch {
         provider: Some(provider),
         authentication: AgentAuthentication::ApiKey,
         observe_model_calls: false,
+        observe_subagents: false,
         process_scope: None,
     }
 }
@@ -117,6 +118,153 @@ impl MockAgent {
         .await;
         let authenticate = self.expect("authenticate").await;
         self.reply(&authenticate, json!({})).await;
+    }
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn native_subagents_keep_child_permissions_owned_by_the_root_turn() {
+    let mut harness = Harness::start_observing_subagents(false, gateway(), std::env::temp_dir(), true);
+    let initialize = harness.agent.expect("initialize").await;
+    assert!(initialize["params"]["clientCapabilities"]["_meta"]["jetbrains"]["air"]["capabilities"].as_array().unwrap().contains(&json!("nativeSubagentSessions")));
+    harness.agent.reply(&initialize, json!({"protocolVersion":1,"agentCapabilities":{},"authMethods":[{"id":"gateway","name":"Gateway"}]})).await;
+    let auth = harness.agent.expect("authenticate").await;
+    harness.agent.reply(&auth, json!({})).await;
+    assert!(matches!(harness.event().await, AgentEvent::Ready { .. }));
+    harness.open_session("session-1").await;
+    harness.send(json!({"kind":"prompt","sessionId":"session-1","text":"Inspect the sample"}));
+    let prompt = harness.agent.expect("session/prompt").await;
+    let fixture = fixture();
+    for name in ["subagentSpawned", "nestedSubagentSpawned", "subagentToolCall", "subagentMessageChunk"] {
+        let event = &fixture["events"][name];
+        harness.agent.write(json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":event["sessionId"],"update":event["update"]}})).await;
+        assert_eq!(serde_json::to_value(harness.event().await).unwrap(), *event);
+    }
+    let mut request = fixture["events"]["permission"]["request"].clone();
+    request["sessionId"] = json!("child-2");
+    harness.agent.write(json!({"jsonrpc":"2.0","id":"child-permission","method":"session/request_permission","params":request})).await;
+    let AgentEvent::Permission { session_id, request_id, request: received } = harness.event().await else { panic!("child permission must reach the owning turn") };
+    assert_eq!(session_id, "session-1");
+    assert_eq!(received["sessionId"], "child-2");
+    answer_permission(&harness.permissions, &request_id, Some("allow_once".into())).unwrap();
+    let response = harness.agent.next().await;
+    assert_eq!(response["id"], "child-permission");
+    assert_eq!(response["result"]["outcome"]["optionId"], "allow_once");
+
+    // Parent cancellation must settle the child's next permission without a timer.
+    harness.agent.write(json!({"jsonrpc":"2.0","id":"pending-child","method":"session/request_permission","params":request})).await;
+    assert!(matches!(harness.event().await, AgentEvent::Permission { session_id, .. } if session_id == "session-1"));
+    harness.send(json!({"kind":"cancel","sessionId":"session-1"}));
+    let mut cancelled_permission = false;
+    let mut cancelled_turn = false;
+    for _ in 0..2 {
+        let message = harness.agent.next().await;
+        cancelled_permission |= message["id"] == "pending-child" && message["result"]["outcome"]["outcome"] == "cancelled";
+        cancelled_turn |= message["method"] == "session/cancel" && message["params"]["sessionId"] == "session-1";
+    }
+    assert!(cancelled_permission && cancelled_turn);
+    assert!(matches!(harness.event().await, AgentEvent::TurnCancelling { session_id } if session_id == "session-1"));
+    harness.agent.reply(&prompt, json!({"stopReason":"cancelled"})).await;
+    assert!(matches!(harness.event().await, AgentEvent::TurnFinished { .. }));
+    assert_eq!(harness.stop().await, Ok(()));
+}
+
+#[tokio::test(flavor = "current_thread", start_paused = true)]
+async fn terminal_subagents_cancel_only_their_pending_permissions_and_release_quiet_tracking() {
+    for state in ["completed", "failed", "cancelled", "disconnected"] {
+        let mut harness =
+            Harness::start_observing_subagents(false, gateway(), std::env::temp_dir(), true);
+        harness.agent.handshake().await;
+        assert!(matches!(harness.event().await, AgentEvent::Ready { .. }));
+        harness.open_session("session-1").await;
+        harness.send(json!({"kind":"prompt","sessionId":"session-1","text":"Inspect the sample"}));
+        let prompt = harness.agent.expect("session/prompt").await;
+        for (parent, child) in [
+            ("session-1", "child-1"),
+            ("child-1", "child-2"),
+            ("session-1", "sibling"),
+        ] {
+            harness.agent.write(json!({"jsonrpc":"2.0","method":"session/update","params":{
+                "sessionId":parent,"update":{"sessionUpdate":"subagent_spawned","subagentSessionId":child,
+                    "name":"Explore","task":"Inspect the sample","capabilities":{}}
+            }})).await;
+            assert!(matches!(harness.event().await, AgentEvent::Update { .. }));
+        }
+        let mut requests = Vec::new();
+        for source in ["child-1", "child-2", "session-1", "sibling"] {
+            let mut request = fixture()["events"]["permission"]["request"].clone();
+            request["sessionId"] = json!(source);
+            harness.agent.write(json!({"jsonrpc":"2.0","id":source,"method":"session/request_permission","params":request})).await;
+            let AgentEvent::Permission {
+                session_id,
+                request_id,
+                ..
+            } = harness.event().await
+            else {
+                panic!("each live source must enter the root permission queue");
+            };
+            assert_eq!(session_id, "session-1");
+            requests.push(request_id);
+        }
+        // End an ancestor while the root prompt stays outstanding. Both its
+        // own and its descendant's requests must settle without user input.
+        harness
+            .agent
+            .write(json!({"jsonrpc":"2.0","method":"session/update","params":{
+                "sessionId":"session-1","update":{"sessionUpdate":"subagent_state_update",
+                    "subagentSessionId":"child-1","state":state}
+            }}))
+            .await;
+        assert!(matches!(harness.event().await, AgentEvent::Update { .. }));
+        let mut cancelled = std::collections::BTreeSet::new();
+        for _ in 0..2 {
+            let response = harness.agent.next().await;
+            assert_eq!(response["result"]["outcome"]["outcome"], "cancelled");
+            cancelled.insert(response["id"].as_str().unwrap().to_owned());
+        }
+        assert_eq!(
+            cancelled,
+            ["child-1".to_owned(), "child-2".to_owned()].into()
+        );
+        assert_eq!(harness.permissions.lock().unwrap().len(), 2);
+        for id in &requests[..2] {
+            assert!(
+                answer_permission(&harness.permissions, id, Some("allow_once".into())).is_err()
+            );
+        }
+        let mut late = fixture()["events"]["permission"]["request"].clone();
+        late["sessionId"] = json!("child-2");
+        harness.agent.write(json!({"jsonrpc":"2.0","id":"late-child","method":"session/request_permission","params":late})).await;
+        let response = harness.agent.next().await;
+        assert_eq!(response["id"], "late-child");
+        assert_eq!(response["result"]["outcome"]["outcome"], "cancelled");
+        tokio::time::advance(Duration::from_secs(60 * 60)).await;
+        assert!(
+            harness.events.try_recv().is_err(),
+            "root and sibling permissions still suppress quiet notices"
+        );
+        for (id, source) in requests[2..].iter().zip(["session-1", "sibling"]) {
+            answer_permission(&harness.permissions, id, Some("allow_once".into())).unwrap();
+            let response = harness.agent.next().await;
+            assert_eq!(response["id"], source);
+            assert_eq!(response["result"]["outcome"]["optionId"], "allow_once");
+        }
+        tokio::time::advance(prompt_retry::quiet_notice_delay()).await;
+        assert!(
+            matches!(
+                harness.event().await,
+                AgentEvent::TurnActivity { quiet: true, .. }
+            ),
+            "cancelled child waits must release the root's pending-permission count"
+        );
+        harness
+            .agent
+            .reply(&prompt, json!({"stopReason":"end_turn"}))
+            .await;
+        assert!(matches!(
+            harness.event().await,
+            AgentEvent::TurnFinished { .. }
+        ));
+        assert_eq!(harness.stop().await, Ok(()));
     }
 }
 
@@ -444,6 +592,10 @@ impl Harness {
     }
 
     fn start_in_workspace(subscription: bool, route: Option<GatewaySignIn>, cwd: PathBuf) -> Self {
+        Self::start_observing_subagents(subscription, route, cwd, false)
+    }
+
+    fn start_observing_subagents(subscription: bool, route: Option<GatewaySignIn>, cwd: PathBuf, observe_subagents: bool) -> Self {
         let (client, peer) = tokio::io::duplex(64 * 1024);
         let (client_reader, client_writer) = tokio::io::split(client);
         let (peer_reader, peer_writer) = tokio::io::split(peer);
@@ -457,6 +609,7 @@ impl Harness {
             subscription.then(|| PathBuf::from("/fixture/codex")),
             None,
             None,
+            observe_subagents,
             receiver,
             TurnActivity {
                 permissions: permissions.clone(),
@@ -801,6 +954,43 @@ fn management_status_matches_the_shared_fixture() {
         serde_json::to_value(status).unwrap(),
         fixture["responses"]["status"]
     );
+    for agent in catalog::CATALOG {
+        fake_install(&data, agent.id);
+        for (installed, expected) in [
+            ("0.0.0".to_string(), Some(true)),
+            (agent.version.to_string(), Some(false)),
+            ("9999.0.0".to_string(), Some(false)),
+            (format!("{}-beta.1", agent.version), Some(true)),
+            (format!("{}+local", agent.version), Some(false)),
+            ("unreadable".to_string(), None),
+        ] {
+            std::fs::write(
+                data.join("agents").join(agent.id).join("lithe-agent.json"),
+                serde_json::to_vec(&json!({"id": agent.id, "version": installed})).unwrap(),
+            )
+            .unwrap();
+            let status = install::status_with(
+                &data,
+                environment::RuntimeEnvironment {
+                    node: None,
+                    npm: None,
+                    used_login_shell: true,
+                },
+                &|_| None,
+                &|_| None,
+            );
+            let actual = status
+                .agents
+                .iter()
+                .find(|status| status.id == agent.id)
+                .unwrap();
+            assert_eq!(
+                actual.update_available, expected,
+                "{} {installed}",
+                agent.id
+            );
+        }
+    }
     let _ = std::fs::remove_dir_all(&data);
 }
 
@@ -2906,6 +3096,7 @@ fn catalog_agents_resolve_to_their_install_and_key_delivery() {
         provider: Some(provider),
         authentication: AgentAuthentication::ApiKey,
         observe_model_calls: false,
+        observe_subagents: false,
         process_scope: None,
     };
     let anthropic = ProviderCredentials {
@@ -2956,6 +3147,8 @@ fn catalog_agents_resolve_to_their_install_and_key_delivery() {
         "https://chatgpt.com/backend-api/"
     );
     assert!(config.get("model").is_none());
+    assert_eq!(config["tools"]["update_plan"]["enabled"], true);
+    assert!(config.get("collaboration_mode").is_none());
 
     // Statistics changes only this process's inference route; native account,
     // quota and model ownership survive without installing a second provider.
@@ -2981,9 +3174,14 @@ fn catalog_agents_resolve_to_their_install_and_key_delivery() {
     assert!(codex.command.ends_with("node_modules/.bin/codex-acp") || cfg!(windows));
     // The adapter drives the user's own Codex; the key never enters the environment.
     assert_eq!(
-        codex.env,
-        [("CODEX_PATH".to_owned(), "/opt/example/bin/codex".to_owned())]
+        codex.env[0],
+        ("CODEX_PATH".to_owned(), "/opt/example/bin/codex".to_owned())
     );
+    let config: Value = serde_json::from_str(&codex.env[1].1).unwrap();
+    assert_eq!(codex.env[1].0, "CODEX_CONFIG");
+    assert_eq!(config["tools"]["update_plan"]["enabled"], true);
+    assert!(config.get("model").is_none());
+    assert!(config.get("collaboration_mode").is_none());
     assert_eq!(
         codex.gateway.unwrap().base_url,
         "https://gateway.example.com/v1"
@@ -2996,15 +3194,13 @@ fn catalog_agents_resolve_to_their_install_and_key_delivery() {
         },
     ))
     .unwrap();
+    let config: Value = serde_json::from_str(&with_model.env[1].1).unwrap();
+    assert_eq!(with_model.env.len(), 2);
+    assert_eq!(with_model.env[0], codex.env[0]);
+    assert_eq!(with_model.env[1].0, "CODEX_CONFIG");
     assert_eq!(
-        with_model.env,
-        [
-            ("CODEX_PATH".to_owned(), "/opt/example/bin/codex".to_owned()),
-            (
-                "CODEX_CONFIG".to_owned(),
-                r#"{"model":"gpt-5.5"}"#.to_owned()
-            ),
-        ]
+        config,
+        json!({"model":"gpt-5.5","tools":{"update_plan":{"enabled":true}}})
     );
     let missing_cli = resolve_with(launch("codex-acp", provider()), &|_| None)
         .err()

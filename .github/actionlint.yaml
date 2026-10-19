@@ -1,5 +1,0 @@
-self-hosted-runner:
-  labels:
-    - lithe-mac-mini
-    - lithe-mac-mini-debug
-    - lithe-mac-mini-release

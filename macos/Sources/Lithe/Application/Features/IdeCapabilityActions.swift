@@ -19,6 +19,16 @@ protocol IdeCapabilityActions: AnyObject {
     func startAPIConfiguration(_ configuration: RunConfiguration) async
     func registerIdeCapabilities(_ feature: IdeCapabilitiesFeatureModel)
     func unregisterIdeCapabilities()
-    func showMavenOutput()
+    /// Writes Lithe's helper into the open project's Agent MCP configuration.
+    func registerLitheMcpServer(_ server: McpServerDefinition)
+    /// Removes project-level Lithe entries Lithe still owns.
+    func unregisterLitheMcpServer()
     func copyIdeConfiguration(_ text: String)
+}
+
+extension IdeCapabilityActions {
+    /// Fixtures and compositions without Agent configuration management skip
+    /// project registration instead of failing the grant.
+    func registerLitheMcpServer(_ server: McpServerDefinition) {}
+    func unregisterLitheMcpServer() {}
 }

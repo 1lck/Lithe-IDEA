@@ -44,6 +44,9 @@ struct OutputTextView: View {
     @Environment(\.workbenchHasBackgroundImage) private var hasBackgroundImage
     let output: String
     let searchRoots: [URL]
+    /// Build Output attributes lines to several commands; a relative path
+    /// matching more than one root gets no link rather than a guess.
+    var resolvesRelativePathsUniquely = false
     let fileExists: (URL) -> Bool
     let emptyMessage: String
     /// Wraps lines to the pane width; off keeps each line on one row with
@@ -95,7 +98,7 @@ struct OutputTextView: View {
             consoleToolbarRequest: consoleToolbarRequest,
             onConsoleOccurrencesChange: { hasConsoleOccurrences = $0 },
             render: { source, roots, exists, dark, theme, size in
-                let rendered = NSMutableAttributedString(attributedString: Self.renderOutput(source, searchRoots: roots, fileExists: exists, isDark: dark, theme: theme, fontSize: size, usesIDEAConsoleStyle: usesIDEAConsoleStyle))
+                let rendered = NSMutableAttributedString(attributedString: Self.renderOutput(source, searchRoots: roots, resolvesRelativePathsUniquely: resolvesRelativePathsUniquely, fileExists: exists, isDark: dark, theme: theme, fontSize: size, usesIDEAConsoleStyle: usesIDEAConsoleStyle))
                 decorateOutput?(rendered, dark)
                 return rendered
             },
@@ -151,6 +154,7 @@ struct OutputTextView: View {
     static func renderOutput(
         _ source: String,
         searchRoots: [URL],
+        resolvesRelativePathsUniquely: Bool = false,
         fileExists: @escaping (URL) -> Bool,
         isDark: Bool,
         theme: AppColorTheme,
@@ -171,7 +175,12 @@ struct OutputTextView: View {
         if !usesIDEAConsoleStyle {
             dimTimestamps(in: &result, text: parsed.cleanText, theme: theme, isDark: isDark)
         }
-        for location in matchLocations(in: parsed.cleanText, searchRoots: searchRoots, fileExists: fileExists) {
+        for location in matchLocations(
+            in: parsed.cleanText,
+            searchRoots: searchRoots,
+            resolvesRelativePathsUniquely: resolvesRelativePathsUniquely,
+            fileExists: fileExists
+        ) {
             let range = NSRange(location.range, in: parsed.cleanText)
             result.addAttribute(
                 .link,
@@ -242,7 +251,12 @@ struct OutputTextView: View {
         pattern: #"\bat\s+([\w.$]+(?:\$[\w$]+)?)\.([\w$<>]+)\(([\w$]+\.java):(\d+)\)"#
     )
 
-    private static func matchLocations(in text: String, searchRoots: [URL], fileExists: @escaping (URL) -> Bool) -> [OutputLocation] {
+    private static func matchLocations(
+        in text: String,
+        searchRoots: [URL],
+        resolvesRelativePathsUniquely: Bool,
+        fileExists: @escaping (URL) -> Bool
+    ) -> [OutputLocation] {
         guard !searchRoots.isEmpty else { return [] }
         var locations: [OutputLocation] = []
 
@@ -254,7 +268,12 @@ struct OutputTextView: View {
                let path = capture(match, at: 2, in: line),
                let lineNumber = capture(match, at: 3, in: line).flatMap(Int.init) {
                 let column = capture(match, at: 4, in: line).flatMap(Int.init)
-                guard let url = resolvePath(path, searchRoots: searchRoots, fileExists: fileExists) else { return }
+                guard let url = resolvePath(
+                    path,
+                    searchRoots: searchRoots,
+                    requiresUniqueMatch: resolvesRelativePathsUniquely,
+                    fileExists: fileExists
+                ) else { return }
                 let kind: OutputLocation.Kind = capture(match, at: 1, in: line) == "ERROR" ? .error : .warning
                 locations.append(OutputLocation(
                     range: lineRange,
@@ -269,7 +288,12 @@ struct OutputTextView: View {
             if let match = stackExpression.firstMatch(in: line, range: lineNSRange),
                let className = capture(match, at: 1, in: line),
                let lineNumber = capture(match, at: 4, in: line).flatMap(Int.init),
-               let url = resolveClassFile(className, searchRoots: searchRoots, fileExists: fileExists),
+               let url = resolveClassFile(
+                   className,
+                   searchRoots: searchRoots,
+                   requiresUniqueMatch: resolvesRelativePathsUniquely,
+                   fileExists: fileExists
+               ),
                let fileRange = Range(match.range(at: 3), in: line),
                let lineNumberRange = Range(match.range(at: 4), in: line) {
                 // 仅把 `Foo.java:42` 部分设为可点击链接(覆盖文件名与行号)
@@ -293,30 +317,51 @@ struct OutputTextView: View {
         return String(line[swiftRange])
     }
 
-    private static func resolvePath(_ path: String, searchRoots: [URL], fileExists: (URL) -> Bool) -> URL? {
+    /// Resolves a relative location against the roots of the commands that
+    /// wrote this output. A path that exists under several roots is ambiguous,
+    /// so it gets no link instead of opening another project's file.
+    static func resolvePath(
+        _ path: String,
+        searchRoots: [URL],
+        requiresUniqueMatch: Bool = false,
+        fileExists: (URL) -> Bool
+    ) -> URL? {
         if path.hasPrefix("/") {
             let url = URL(fileURLWithPath: path).standardizedFileURL
             return fileExists(url) ? url : nil
         }
+        var matches: [URL] = []
         for root in searchRoots {
             let url = root.appendingPathComponent(path).standardizedFileURL
-            if fileExists(url) { return url }
+            if fileExists(url) {
+                if !requiresUniqueMatch { return url }
+                if !matches.contains(where: { $0.path == url.path }) { matches.append(url) }
+            }
         }
-        return nil
+        return requiresUniqueMatch && matches.count == 1 ? matches[0] : nil
     }
 
     /// 根据 Java 类全名(如 com.example.Foo)推断 Maven 源码路径并定位存在的文件。
-    private static func resolveClassFile(_ className: String, searchRoots: [URL], fileExists: (URL) -> Bool) -> URL? {
+    static func resolveClassFile(
+        _ className: String,
+        searchRoots: [URL],
+        requiresUniqueMatch: Bool = false,
+        fileExists: (URL) -> Bool
+    ) -> URL? {
         let outerClassName = className.split(separator: "$", maxSplits: 1).first.map(String.init) ?? className
         let relativePath = outerClassName.replacingOccurrences(of: ".", with: "/") + ".java"
         let candidates = ["src/main/java/", "src/test/java/"].map { $0 + relativePath }
+        var matches: [URL] = []
         for root in searchRoots {
             for candidate in candidates {
                 let url = root.appendingPathComponent(candidate).standardizedFileURL
-                if fileExists(url) { return url }
+                if fileExists(url) {
+                    if !requiresUniqueMatch { return url }
+                    if !matches.contains(where: { $0.path == url.path }) { matches.append(url) }
+                }
             }
         }
-        return nil
+        return requiresUniqueMatch && matches.count == 1 ? matches[0] : nil
     }
 
     // MARK: - 链接编码

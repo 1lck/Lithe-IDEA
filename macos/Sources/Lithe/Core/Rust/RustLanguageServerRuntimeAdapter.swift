@@ -39,6 +39,23 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
     }
 
     func startLanguageServer(
+        providerID: String, executableURL: URL, arguments: [String], environment: [String: String],
+        rootURL: URL, workingDirectoryURL: URL, initializationOptions: ToolingJSONValue?,
+        runtimeExecutableURL: URL?, jdtlsLaunchResources: JDTLSLaunchResources?, cacheDirectoryURL: URL?,
+        workspaceFingerprint: String?, mavenContext: MavenLaunchContext?,
+        initializeTimeout: TimeInterval, requestTimeout: TimeInterval, shutdownTimeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure> {
+        startLanguageServer(
+            providerID: providerID, executableURL: executableURL, arguments: arguments, environment: environment,
+            rootURL: rootURL, workingDirectoryURL: workingDirectoryURL, initializationOptions: initializationOptions,
+            runtimeExecutableURL: runtimeExecutableURL, jdtlsLaunchResources: jdtlsLaunchResources,
+            cacheDirectoryURL: cacheDirectoryURL, workspaceFingerprint: workspaceFingerprint,
+            mavenContext: mavenContext, javaGradle: nil, initializeTimeout: initializeTimeout,
+            requestTimeout: requestTimeout, shutdownTimeout: shutdownTimeout
+        )
+    }
+
+    func startLanguageServer(
         providerID: String,
         executableURL: URL,
         arguments: [String],
@@ -51,6 +68,7 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
         cacheDirectoryURL: URL?,
         workspaceFingerprint: String?,
         mavenContext: MavenLaunchContext?,
+        javaGradle: JavaGradleImportConfiguration?,
         initializeTimeout: TimeInterval,
         requestTimeout: TimeInterval,
         shutdownTimeout: TimeInterval
@@ -68,6 +86,7 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
             cacheDirectoryURL: cacheDirectoryURL,
             workspaceFingerprint: workspaceFingerprint,
             mavenContext: mavenContext,
+            javaGradle: javaGradle,
             initializeTimeout: initializeTimeout,
             requestTimeout: requestTimeout,
             shutdownTimeout: shutdownTimeout

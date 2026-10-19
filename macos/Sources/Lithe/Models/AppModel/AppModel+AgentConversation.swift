@@ -4,6 +4,46 @@ import LitheCoreContracts
 import LitheModuleAPI
 
 extension AppModel {
+    /// The menu captures its workspace, Agent and session before any async module
+    /// startup. A project switch must never redirect the user's file elsewhere.
+    func attachFilesToAgent(_ urls: [URL], agentID: String, destination: AgentFileAttachmentDestination,
+                            workspace: WorkspaceIdentity) async {
+        guard isCurrentWorkspace(workspace) else { return }
+        guard isAgentConversationEnabled, configuredAgentOptions.contains(where: { $0.id == agentID }) else {
+            showAgentSettings()
+            return
+        }
+        do {
+            _ = try AgentFileReference.adding(urls, to: [])
+            guard !urls.isEmpty, urls.allSatisfy({ services.fileStorage.metadata(for: $0)?.isRegularFile == true }) else {
+                showNotification(String(localized: "Choose existing files to add to a conversation."))
+                return
+            }
+            if agentConversationFeatureIfActive == nil {
+                await awaitModuleRuntimeShutdown()
+                guard isCurrentWorkspace(workspace) else { return }
+                _ = try await services.moduleRuntime.activateCapability(.agentConversation)
+            }
+            guard isCurrentWorkspace(workspace), isAgentConversationEnabled,
+                  let feature = agentConversationFeatureIfActive else { return }
+            feature.bindWorkspace(workspace.url)
+            feature.setAgents(configuredAgentOptions)
+            try feature.attachFiles(urls, agentID: agentID, to: destination)
+            selectedAgentConversationID = agentID
+            connectAgentConversation()
+            if agentChatsInEditor { showAgentChatsInEditor() }
+            else { workbenchFeature.setVisibility(.agent, isVisible: true) }
+            objectWillChange.send()
+            if openDocuments.contains(where: { document in
+                document.isDirty && urls.contains { $0.standardizedFileURL == document.url.standardizedFileURL }
+            }) {
+                showNotification(String(localized: "Files added. Save your editor changes before sending so the Agent can read them."))
+            }
+        } catch {
+            showNotification(String(localized: String.LocalizationValue(error.localizedDescription)))
+        }
+    }
+
     var agentChatsInEditor: Bool { editorTabOrderFeature.contains(.agentConversation) }
     var isAgentEditorSelected: Bool { agentChatsInEditor && editorTabOrderFeature.focusedItem == .agentConversation }
 
@@ -40,15 +80,17 @@ extension AppModel {
         }
     }
 
-    /// Workspace files for an `@` mention in the Agent composer, as relative paths.
+    /// A bare `@` offers the loaded workspace inventory; keywords use file search.
     func agentFileMentions(matching query: String) async -> [AgentFileMention] {
         guard let root = workspaceURL?.standardizedFileURL else { return [] }
         let rootComponents = root.pathComponents
-        return await searchWorkflow.findFiles(query: query).prefix(20).compactMap { url in
+        let files = query.isEmpty ? projectFiles : await searchWorkflow.findFiles(query: query)
+        guard workspaceURL?.standardizedFileURL == root, !Task.isCancelled else { return [] }
+        return Array(files.lazy.compactMap { url -> AgentFileMention? in
             let components = url.standardizedFileURL.pathComponents
             guard components.starts(with: rootComponents), components.count > rootComponents.count else { return nil }
             return AgentFileMention(path: components.dropFirst(rootComponents.count).joined(separator: "/"), url: url)
-        }
+        }.prefix(20))
     }
 
     /// Stores a pasted image so it can be attached like any local file. Agents

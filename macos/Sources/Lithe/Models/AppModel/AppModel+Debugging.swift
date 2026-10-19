@@ -21,7 +21,7 @@ extension AppModel {
             await feature.applyJavaServiceUpdate { target, source, root in
                 guard self.isCurrentWorkspace(identity), await self.saveAllDocuments(),
                       self.isCurrentWorkspace(identity) else { throw CancellationError() }
-                let sessions = try await self.languageSessionsForWorkspaceMaintenance()
+                let sessions = try await self.languageSessionsForWorkspaceMaintenance(for: identity)
                 guard self.isCurrentWorkspace(identity), feature.activeSessionID == updateSessionID,
                       feature.isSessionActive else { throw CancellationError() }
                 try await sessions.buildJavaServiceUpdate(target: target, fileURL: source, rootURL: root)
@@ -39,7 +39,7 @@ extension AppModel {
                       self.isCurrentWorkspace(identity), feature.activeSessionID == sessionID else {
                     throw CancellationError()
                 }
-                let sessions = try await self.languageSessionsForWorkspaceMaintenance()
+                let sessions = try await self.languageSessionsForWorkspaceMaintenance(for: identity)
                 let preparation = try await sessions.prepareJavaRunLaunchTarget(fileURL: source, rootURL: root)
                 switch preparation {
                 case .ready(let target): return target
@@ -70,10 +70,19 @@ extension AppModel {
     }
 
     func startDebugging() {
+        if let target = activeTestTarget {
+            debugTest(providerID: target.providerID,
+                scope: target.scope)
+            return
+        }
         Task { [weak self] in await self?.startDebuggingAfterActivation() }
     }
 
     func startOrRestartDebugging() {
+        if let target = activeTestTarget, target.name != genericDebugFeatureIfActive?.targetTitle {
+            startDebugging()
+            return
+        }
         guard let feature = genericDebugFeatureIfActive,
               feature.isSessionActive else {
             startDebugging()
@@ -290,17 +299,10 @@ extension AppModel {
     }
 
     func toggleDebugBreakpoint(fileURL: URL, line: Int) {
-        if languageProviderCatalog.provider(for: fileURL)?.id == "java",
-           let document = openDocuments.first(where: {
-               $0.url.standardizedFileURL == fileURL.standardizedFileURL
-           }),
-           !DebugBreakpointLocationValidator.isExecutableJavaLine(
-               source: document.text,
-               line: line
-           ) {
-            showNotification("This line cannot hold a Java breakpoint")
-            return
-        }
+        guard let document = openDocuments.first(where: {
+            $0.url.standardizedFileURL == fileURL.standardizedFileURL
+        }), !document.isReadOnly,
+        DebugBreakpointLocationValidator.canSetSourceBreakpoint(source: document.text, line: line) else { return }
         if languageProviderCatalog.provider(for: fileURL)?
             .capabilities.contains(.debugAdapter) == true {
             Task { [weak self] in
@@ -337,7 +339,7 @@ extension AppModel {
         let normalizedURL = fileURL.standardizedFileURL
         debugBreakpointPresentation.pendingEditor = genericDebugFeatureIfActive?.breakpoints
             .filter {
-                $0.fileURL.standardizedFileURL == normalizedURL && $0.line == line
+                $0.fileURL.standardizedFileURL == normalizedURL && ($0.resolvedLine ?? $0.line) == line
             }
             .min { ($0.column ?? 0) < ($1.column ?? 0) }
     }
@@ -451,7 +453,7 @@ extension AppModel {
                 portChecker: debugPortAvailabilityChecker,
                 resolveJavaTarget: { [weak self] in
                     guard let self else { return nil }
-                    let sessions = try await self.languageSessionsForWorkspaceMaintenance()
+                    let sessions = try await self.languageSessionsForWorkspaceMaintenance(for: identity)
                     let preparation = try await sessions.prepareJavaRunLaunchTarget(
                         fileURL: fileURL,
                         rootURL: workspaceURL

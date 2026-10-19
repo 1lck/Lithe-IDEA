@@ -1,6 +1,9 @@
 //! Incremental workspace search indexing with exact final-content matching.
 
-use crate::project::files::{java_symbols, read_searchable_text, relative_path, VisibilityRules};
+use crate::project::files::{
+    is_inside_nested_linked_worktree, java_symbols, read_searchable_text, relative_path,
+    visible_children, VisibilityRules,
+};
 use crate::protocol::{CoreError, ErrorCode, SearchMatch};
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
@@ -117,6 +120,9 @@ pub(crate) fn update_cached_file(root: &Path, path: &Path) {
         return;
     };
     let relative = relative_path(&absolute, root);
+    if is_inside_nested_linked_worktree(root, &relative) {
+        return;
+    }
     let metadata = fs::symlink_metadata(&absolute).ok();
     for (cache_key, index) in entries {
         let rules = VisibilityRules {
@@ -156,6 +162,11 @@ pub(crate) fn update_paths(
             continue;
         };
         let relative = relative_path(&absolute, root);
+        // Scans never index nested linked worktrees, so their churn neither
+        // adds entries nor forces a rebuild.
+        if is_inside_nested_linked_worktree(root, &relative) {
+            continue;
+        }
         let metadata = fs::symlink_metadata(&absolute).ok();
         if metadata.as_ref().is_some_and(|value| value.is_dir()) {
             return UpdateOutcome::RequiresRebuild;
@@ -365,39 +376,7 @@ fn collect_files(
     files: &mut Vec<PathBuf>,
 ) -> Result<(), CoreError> {
     crate::protocol::cancellation::check()?;
-    let mut children = fs::read_dir(path)
-        .map_err(CoreError::from)?
-        .filter_map(Result::ok)
-        .filter_map(|entry| {
-            let child_path = entry.path();
-            let metadata = fs::symlink_metadata(&child_path).ok()?;
-            if metadata.file_type().is_symlink() {
-                return None;
-            }
-            let relative = relative_path(&child_path, root);
-            if rules.is_hidden(&relative, metadata.is_dir()) {
-                return None;
-            }
-            Some((child_path, metadata.is_dir()))
-        })
-        .collect::<Vec<_>>();
-    children.sort_by(|left, right| {
-        right.1.cmp(&left.1).then_with(|| {
-            left.0
-                .file_name()
-                .and_then(|value| value.to_str())
-                .unwrap_or_default()
-                .to_lowercase()
-                .cmp(
-                    &right
-                        .0
-                        .file_name()
-                        .and_then(|value| value.to_str())
-                        .unwrap_or_default()
-                        .to_lowercase(),
-                )
-        })
-    });
+    let children = visible_children(path, root, rules)?.children;
     for (child, is_directory) in children {
         if is_directory {
             collect_files(root, &child, rules, files)?;

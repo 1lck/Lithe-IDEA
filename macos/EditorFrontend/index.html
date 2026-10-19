@@ -9,5 +9,7 @@
 @font-face{font-family:"JetBrains Mono";src:url("fonts/JetBrainsMono-Italic.ttf") format("truetype");font-weight:400;font-style:italic;font-display:block}
 @font-face{font-family:"JetBrains Mono";src:url("fonts/JetBrainsMono-BoldItalic.ttf") format("truetype");font-weight:700;font-style:italic;font-display:block}
 html,body,.monaco-editor{font-family:"JetBrains Mono",monospace;--monaco-monospace-font:"JetBrains Mono",monospace}
+/* IDEA EditorGutterComponentImpl: plain editor font, default size delta -1. */
+.monaco-editor .margin-view-overlays .line-numbers{font-size:max(1px,calc(1em - 1px));font-weight:400}
 html,body,#editor{height:100%;margin:0;overflow:hidden}#error{position:fixed;bottom:0;background:#8b2525;color:white;font:13px "JetBrains Mono",monospace;padding:8px;z-index:1000;display:none}</style>
 <div id="editor"></div><div id="error"></div><script src="workbench.js"></script></html>

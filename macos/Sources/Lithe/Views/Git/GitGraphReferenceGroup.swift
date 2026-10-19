@@ -12,8 +12,24 @@ struct GitGraphReferenceGroup: Equatable, Sendable {
     let iconKinds: [GitGraphReferenceKind]
     let tooltip: String
 
+    /// One reference lookup index per presentation, shared by all commit groups.
+    struct ReferenceIndex: Sendable {
+        let current: String?
+        let locals: [String: GitReference]
+
+        init(_ references: [GitReference]) {
+            current = references.first { $0.kind == .local && $0.isCurrent }?.shortName
+            locals = Dictionary(references.filter { $0.kind == .local }.map { ($0.shortName, $0) },
+                                uniquingKeysWith: { first, _ in first })
+        }
+    }
+
     init(labels: [GitGraphLabel], references: [GitReference] = []) {
-        let current = references.first { $0.kind == .local && $0.isCurrent }?.shortName
+        self.init(labels: labels, index: ReferenceIndex(references))
+    }
+
+    init(labels: [GitGraphLabel], index: ReferenceIndex) {
+        let current = index.current
         func rank(_ label: GitGraphLabel) -> Int {
             switch label.kind {
             case .head: 0
@@ -29,11 +45,15 @@ struct GitGraphReferenceGroup: Equatable, Sendable {
         }
         let locals = sorted.filter { $0.kind == .branch }
         let remotes = sorted.filter { $0.kind == .remote }
+        let remoteByName = Dictionary(remotes.map { ($0.title, $0) }, uniquingKeysWith: { first, _ in first })
+        // Keep the first naturally sorted remote for the existing same-name fallback.
+        let remoteByBranch = Dictionary(remotes.map {
+            (String($0.title.split(separator: "/", maxSplits: 1).last ?? ""), $0)
+        }, uniquingKeysWith: { first, _ in first })
         var tracked: [(local: GitGraphLabel, remote: GitGraphLabel, name: String)] = []
         for local in locals {
-            let upstream = references.first { $0.kind == .local && $0.shortName == local.title }?.upstreamShortName
-            if let remote = remotes.first(where: { $0.title == upstream })
-                ?? remotes.first(where: { $0.title.split(separator: "/", maxSplits: 1).last.map(String.init) == local.title }) {
+            let upstream = index.locals[local.title]?.upstreamShortName
+            if let remote = upstream.flatMap({ remoteByName[$0] }) ?? remoteByBranch[local.title] {
                 let remoteName = remote.title.split(separator: "/", maxSplits: 1).first.map(String.init) ?? ""
                 tracked.append((local, remote, remoteName + " & " + local.title))
             }

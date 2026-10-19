@@ -1,3 +1,4 @@
+import { collapseSelectedTreePaths } from "@/features/sidebar/utils/tree-selection";
 import { createStore } from "zustand/vanilla";
 import type {
   FileSearchResult,
@@ -15,6 +16,8 @@ const DEFAULT_SEARCH_OPTIONS: ContentSearchOptions = {
 
 interface GlobalSearchSessionSnapshot {
   query: string;
+  scopePaths: string[];
+  replaceVisible: boolean;
   results: FileSearchResult[];
   error: string | null;
   searchWarning: string | null;
@@ -35,6 +38,8 @@ interface GlobalSearchSessionState extends GlobalSearchSessionSnapshot {
   requestGeneration: number;
   actions: {
     setQuery: (query: string) => void;
+    setScopePaths: (paths: string[]) => void;
+    setReplaceVisible: (visible: boolean) => void;
     setIncludeQuery: (query: string) => void;
     setExcludeQuery: (query: string) => void;
     setSearchOption: <Key extends keyof ContentSearchOptions>(
@@ -60,6 +65,8 @@ const getSearchWarning = (response: SearchFilesResponse) =>
 export const createGlobalSearchStore = () =>
   createStore<GlobalSearchSessionState>()((set, get) => ({
     query: "",
+    scopePaths: [],
+    replaceVisible: false,
     results: [],
     error: null,
     searchWarning: null,
@@ -77,6 +84,25 @@ export const createGlobalSearchStore = () =>
     requestGeneration: 0,
     actions: {
       setQuery: (query) => set({ query }),
+      setScopePaths: (scopePaths) =>
+        set((state) => ({
+          scopePaths: collapseSelectedTreePaths(
+            scopePaths.map((path) => ({ path, is_dir: true })),
+          ).map((entry) => entry.path),
+          requestGeneration: state.requestGeneration + 1,
+          results: [],
+          resultsSearchKey: null,
+          error: null,
+          searchWarning: null,
+          nextFileOffset: 0,
+          hasMoreResults: false,
+          searchedFiles: 0,
+          searchableFiles: 0,
+          isIndexing: false,
+          indexedFiles: 0,
+          scannedFiles: 0,
+        })),
+      setReplaceVisible: (replaceVisible) => set({ replaceVisible }),
       setIncludeQuery: (includeQuery) => set({ includeQuery }),
       setExcludeQuery: (excludeQuery) => set({ excludeQuery }),
       setSearchOption: (key, value) =>

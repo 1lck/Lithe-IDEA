@@ -33,11 +33,19 @@ private struct PluginManagementPage: View {
     @ObservedObject var feature: PluginMarketplaceFeatureModel
     @AppStorage("lithe.settings.pluginTab") private var tab = Tab.installed
     @State private var showsRepositories = false
+    @State private var diskInstallTask: Task<Void, Never>?
 
     var body: some View {
         VStack(spacing: 0) {
             header
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
+            if let error = feature.diskInstallError {
+                Label(error, systemImage: "exclamationmark.triangle.fill")
+                    .font(LitheTheme.smallFont)
+                    .foregroundStyle(LitheTheme.warning)
+                    .textSelection(.enabled)
+                    .padding(12)
+            }
             switch tab {
             case .marketplace:
                 PluginMarketplaceView(feature: feature)
@@ -48,6 +56,11 @@ private struct PluginManagementPage: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(LitheTheme.settingsSurface)
         .onAppear { feature.loadIfNeeded() }
+        .onDisappear {
+            diskInstallTask?.cancel()
+            diskInstallTask = nil
+            feature.endInstallationSession()
+        }
         // Sheets do not inherit the app's interface language on macOS.
         .sheet(isPresented: $showsRepositories) {
             PluginRepositoriesSheet(feature: feature) { showsRepositories = false }
@@ -60,7 +73,7 @@ private struct PluginManagementPage: View {
             PluginInstallConfirmationSheet(
                 confirmation: confirmation,
                 confirm: {
-                    feature.confirmPendingInstallation()
+                    feature.confirmPendingInstallation(id: confirmation.id)
                     model.objectWillChange.send()
                 },
                 cancel: { feature.cancelPendingInstallation() }
@@ -82,7 +95,9 @@ private struct PluginManagementPage: View {
                     Task { await feature.refreshAll() }
                 }
                 LitheContextMenuItem.separator
-                LitheContextMenuItem.action("Install Plugin from Disk…") { model.installPluginPackageFromDisk() }
+                LitheContextMenuItem.action("Install Plugin from Disk…", isEnabled: !feature.isPreparingDiskInstall) {
+                    diskInstallTask = Task { await model.installPluginPackageFromDisk() }
+                }
             } label: {
                 LitheIDEAIcon(resourcePath: "expui/general/settings.svg", size: 16, fallbackSystemImage: "gearshape")
                     .frame(width: 26, height: 26)
@@ -422,6 +437,14 @@ private struct InstalledPluginsView: View {
                     .font(LitheTheme.smallFont)
                     .foregroundStyle(LitheTheme.secondaryText)
                 }
+                if let disk = plugin.disk {
+                    Label(LocalizedStringKey("Installed from Disk"), systemImage: "externaldrive")
+                        .font(LitheTheme.smallFont)
+                    Text(verbatim: disk.fileName)
+                        .font(LitheTheme.smallFont)
+                        .foregroundStyle(LitheTheme.secondaryText)
+                        .textSelection(.enabled)
+                }
                 if let repository = plugin.marketplace?.repository, let url = URL(string: repository) {
                     Link(destination: url) {
                         Label(LocalizedStringKey("Source Repository"), systemImage: "arrow.up.right.square")
@@ -430,7 +453,9 @@ private struct InstalledPluginsView: View {
                 }
                 if plugin.origin == .community {
                     Label(
-                        LocalizedStringKey("Community plugin maintained by a third party. Report plugin problems in its own repository."),
+                        LocalizedStringKey(plugin.disk == nil
+                            ? "Community plugin maintained by a third party. Report plugin problems in its own repository."
+                            : "Community plugin installed from disk. Its publisher and repository have not been verified."),
                         systemImage: "person.2"
                     )
                     .font(LitheTheme.smallFont)

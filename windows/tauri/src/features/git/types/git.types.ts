@@ -133,6 +133,12 @@ export interface GitDiff {
   old_blob_base64?: string;
   new_blob_base64?: string;
   raw_patch?: string;
+  /**
+   * Original index-to-worktree patch bytes from the dedicated full-context
+   * read, preserved for byte-faithful hunk rollback. Never populated by the
+   * generic adapter for all diffs — only by the rollback channel.
+   */
+  writePatch?: string;
   /** Display normalization lost EOF/CRLF bytes; only whole-file writes are safe. */
   has_lossy_line_endings?: boolean;
   additions?: number;
@@ -156,6 +162,12 @@ export interface GitDiffStat {
 export interface GitHunk {
   file_path: string;
   lines: GitDiffLine[];
+  /**
+   * Complete pre-built patch text with original bytes (CR, EOF markers) from
+   * the index-to-worktree read. When present, the host applies this verbatim
+   * through Core's git.apply instead of reconstructing from display lines.
+   */
+  rawPatch?: string;
 }
 
 export interface GitRemote {
@@ -191,6 +203,8 @@ export type GitPullResult =
   | { status: "duplicate" };
 
 export interface GitStash {
+  /** Immutable identity supplied by Core; positional legacy callers remain supported. */
+  oid?: string;
   index: number;
   message: string;
   date: string;
@@ -232,6 +246,40 @@ export interface GitBlameLine {
   email: string;
   time: number;
   commit: string;
+}
+
+// git.lineHistory speaks the shared Core contract directly, so its fields use
+// the core's camelCase serialization instead of the legacy blame shapes above.
+
+export interface GitLineHistoryRange {
+  oldStart: number;
+  oldEnd: number;
+  newStart: number;
+  newEnd: number;
+}
+
+export interface GitLineHistoryCommit {
+  hash: string;
+  kind: "commit" | "merge-first-parent";
+  authorName: string;
+  authorTime: number;
+  subject: string;
+  pathAtCommit: string;
+  previousPath?: string | null;
+  compareBase: string;
+  relevantRanges: GitLineHistoryRange[];
+}
+
+export interface GitLineHistoryUnmappedLine {
+  line: number;
+  kind: "new" | "unreliable";
+}
+
+export interface GitLineHistory {
+  baseCommit: string;
+  unmappedLines: GitLineHistoryUnmappedLine[];
+  commits: GitLineHistoryCommit[];
+  truncated: boolean;
 }
 
 export type GitOperationKind = "merge" | "rebase" | "cherryPick" | "revert";

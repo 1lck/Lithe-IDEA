@@ -73,7 +73,11 @@ export const GitFileItem = ({
       onContextMenu={onContextMenu}
       reserveDisclosureSpace={reserveDisclosureSpace}
       label={<span className={getWorkingTreeStatusColorClassName(file.status)}>{fileName}</span>}
-      description={showDirectory ? directory : undefined}
+      description={
+        showDirectory && directory ? (
+          <span className="git-status-parent-path">{directory}</span>
+        ) : undefined
+      }
       leading={
         showFileIcon ? (
           <ThemedFileIcon
@@ -89,7 +93,9 @@ export const GitFileItem = ({
           className={IDEA_CHECKBOX_CLASS_NAME}
           checked={checked}
           indeterminate={checked && file.worktree === true}
-          onCheckedChange={included => onCheckedChange(checked && file.worktree ? true : included)}
+          onCheckedChange={(included) =>
+            onCheckedChange(checked && file.worktree ? true : included)
+          }
           disabled={disabled}
           aria-label={
             checked

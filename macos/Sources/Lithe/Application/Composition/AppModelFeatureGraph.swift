@@ -61,6 +61,7 @@ final class AppModelFeatureGraph {
         workspaceSession = WorkspaceSessionCoordinator(
             recentProjectsStore: services.recentProjectsStore,
             platformUI: services.platformUI,
+            recentProjectBranchReader: services.recentProjectBranchReader,
             workspaceFeature: workspace
         )
         workbenchBackground = WorkbenchBackgroundFeatureModel(

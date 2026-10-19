@@ -1,3 +1,10 @@
+import { DIRECTORY_MARKS, type DirectoryMark } from "../stores/directory-marks";
+import {
+  canOpenProjectLocalHistory,
+  openLocalHistoryForPath,
+  openProjectLocalHistory,
+} from "@/features/local-history/utils/open-local-history";
+import { useGlobalSearchStore } from "@/features/global-search/stores/global-search.store";
 import { openNewEntry } from "../stores/new-entry.store";
 import {
   CaretDoubleUpIcon as CaretDoubleUp,
@@ -39,7 +46,6 @@ import {
   ENV_TEMPLATE_TARGETS,
   isEnvFileName,
 } from "@/features/file-explorer/lib/env-template";
-import { openLocalHistoryForPath } from "@/features/local-history/utils/open-local-history";
 import { useFileClipboardStore } from "@/features/file-explorer/stores/file-explorer-clipboard.store";
 import { useFileTreeStore } from "@/features/file-explorer/stores/file-explorer-tree.store";
 import { pasteIntoExplorerDirectory } from "@/features/file-explorer/lib/paste-into-explorer-directory";
@@ -80,6 +86,9 @@ import { getBaseName, getDirName, getRelativePath, joinPath } from "@/utils/path
 
 interface UseFileExplorerContextMenuOptions {
   rootFolderPath?: string;
+  selectedEntries?: Array<{ path: string; is_dir: boolean }>;
+  selectedPaths?: ReadonlySet<string>;
+  markDirectory?: (path: string, mark: DirectoryMark) => void;
   onFileSelect: (path: string, isDir: boolean) => void | string | Promise<void | string>;
   onCreateNewFileInDirectory?: (
     directoryPath: string,
@@ -96,7 +105,11 @@ interface UseFileExplorerContextMenuOptions {
   onRemoveFolderFromWorkspace?: (path: string) => void;
   isWorkspaceRootPath?: (path: string) => boolean;
   canRemoveWorkspaceRootPath?: (path: string) => boolean;
-  onDeleteRequested: (candidate: { path: string; isDir: boolean }) => void;
+  onDeleteRequested: (candidate: {
+    path: string;
+    isDir: boolean;
+    entries?: Array<{ path: string; is_dir: boolean }>;
+  }) => void;
   onStartInlineEditing: (path: string, isFolder: boolean) => void;
   onOpenAllFilesInDirectory: (directoryPath: string) => Promise<void>;
 }
@@ -121,8 +134,6 @@ interface ExplorerGitFileContext extends ExplorerGitFileMenuState {
   absolutePath: string;
 }
 
-const menuIconSpacer = <span aria-hidden="true" />;
-
 function formatFileSize(sizeHeader: string | null, unknownLabel: string): string {
   const bytes = Number(sizeHeader);
   if (!Number.isFinite(bytes) || bytes < 0) return unknownLabel;
@@ -141,6 +152,9 @@ function formatFileSize(sizeHeader: string | null, unknownLabel: string): string
 
 export function useFileExplorerContextMenu({
   rootFolderPath,
+  selectedEntries = [],
+  selectedPaths,
+  markDirectory,
   onFileSelect,
   onCreateNewFileInDirectory,
   onCreateNewFolderInDirectory,
@@ -491,6 +505,71 @@ export function useFileExplorerContextMenu({
   const contextMenuItems = useMemo<MenuItem[]>(() => {
     if (!contextMenu) return [];
 
+    const isSelected =
+      selectedPaths?.has(contextMenu.path) ??
+      selectedEntries.some((entry) => entry.path === contextMenu.path);
+    const targets =
+      isSelected && selectedEntries.length > 0
+        ? selectedEntries
+        : [{ path: contextMenu.path, is_dir: contextMenu.isDir }];
+    const mutableTargets = targets.filter((entry) => !isWorkspaceRootPath?.(entry.path));
+    const findInFolder = (replace = false) => {
+      const actions = useGlobalSearchStore.getState().actions;
+      actions.setScopePaths(
+        targets.map((entry) => (entry.is_dir ? entry.path : getDirName(entry.path))),
+      );
+      actions.setReplaceVisible(replace);
+      useBufferStore.getState().actions.openGlobalSearchBuffer();
+      activateMainEditorPane();
+    };
+    if (targets.length > 1)
+      return [
+        {
+          id: "copy",
+          label: t("files.copy"),
+          icon: <Copy />,
+          onClick: () => clipboardActions.copy(mutableTargets),
+        },
+        {
+          id: "cut",
+          label: t("files.cut"),
+          icon: <Scissors />,
+          onClick: () => clipboardActions.cut(mutableTargets),
+        },
+        {
+          id: "duplicate",
+          label: t("files.duplicate"),
+          icon: <Copy />,
+          onClick: () => {
+            void (async () => {
+              for (const entry of mutableTargets) await onDuplicatePath?.(entry.path);
+            })().catch((error) => toast.error(String(error)));
+          },
+        },
+        {
+          id: "find",
+          label: t("files.findInFolder"),
+          icon: <Search />,
+          onClick: () => findInFolder(),
+        },
+        {
+          id: "replace",
+          label: t("project.replaceInFolder"),
+          icon: <Search />,
+          onClick: () => findInFolder(true),
+        },
+        {
+          id: "delete",
+          label: t("files.delete"),
+          icon: <Trash />,
+          disabled: !mutableTargets.length,
+          onClick: () => {
+            const first = mutableTargets[0];
+            if (first)
+              onDeleteRequested({ path: first.path, isDir: first.is_dir, entries: mutableTargets });
+          },
+        },
+      ];
     const items: MenuItem[] = [];
 
     const directory = contextMenu.isDir ? contextMenu.path : getDirName(contextMenu.path);
@@ -772,6 +851,39 @@ export function useFileExplorerContextMenu({
       );
     }
 
+    if (contextMenu.isDir) {
+      if (markDirectory)
+        items.push({
+          id: "mark-directory",
+          label: t("project.markAs"),
+          icon: <FolderOpen />,
+          onClick: () => {},
+          children: DIRECTORY_MARKS.map((mark) => ({
+            id: `mark-${mark}`,
+            label: t(`project.mark.${mark}`),
+            onClick: () => {
+              try {
+                markDirectory(contextMenu.path, mark);
+              } catch (error) {
+                toast.error(t("project.markFailed"), { description: String(error) });
+              }
+            },
+          })),
+        });
+      items.push({
+        id: "replace-in-folder",
+        label: t("project.replaceInFolder"),
+        icon: <Search />,
+        onClick: () => findInFolder(true),
+      });
+      if (contextMenu.path === rootFolderPath && canOpenProjectLocalHistory(contextMenu.path))
+        items.push({
+          id: "project-history",
+          label: t("project.localHistory"),
+          icon: <ClockCounterClockwise />,
+          onClick: () => openProjectLocalHistory(contextMenu.path),
+        });
+    }
     const shouldShowFileManagementItems =
       !contextMenu.isDir || !isWorkspaceRootPath?.(contextMenu.path);
 
@@ -892,6 +1004,9 @@ export function useFileExplorerContextMenu({
 
     return items;
   }, [
+    selectedEntries,
+    selectedPaths,
+    markDirectory,
     availableRepoPaths,
     canRemoveWorkspaceRootPath,
     clipboardActions,

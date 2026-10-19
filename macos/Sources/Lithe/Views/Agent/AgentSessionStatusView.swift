@@ -142,9 +142,7 @@ struct AgentSessionSummaryCard: View {
                 }
             }
         } footnote: {
-            if statistics.modelCalls != nil {
-                Text("Model calls are observed by the local proxy. Tool time is measured by Lithe and includes permission waits.")
-            } else {
+            if statistics.modelCalls == nil {
                 Text("Turn on Model call statistics in Agent settings and reconnect to see model calls, time to first token and output speed.")
             }
         }
@@ -202,9 +200,7 @@ struct AgentTokenUsageCard: View {
             if tokens.callsMissingUsage > 0 {
                 Text(String(format: AgentLocalization.string("%lld requests returned no usage, so these totals are a lower bound.", locale: locale),
                             tokens.callsMissingUsage))
-            } else if tokens.source == .modelCalls {
-                Text("Counts returned by the model provider for every request in this session.")
-            } else {
+            } else if tokens.source == .latestAgentTurn {
                 Text("Latest turn as reported by the Agent; its accounting scope depends on the Agent. Turn on Model call statistics for session totals.")
             }
         }

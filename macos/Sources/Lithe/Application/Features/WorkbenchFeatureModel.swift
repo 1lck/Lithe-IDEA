@@ -38,19 +38,28 @@ final class WorkbenchFeatureModel: ObservableObject {
         static let databaseServices = Self(rawValue: "database.services")
         static let references = Self(rawValue: "language.references")
         static let problems = Self(rawValue: "language.problems")
-        static let maven = Self(rawValue: "execution.maven")
-        static let mavenOutput = Self(rawValue: "execution.maven.output")
         static let spring = Self(rawValue: "language.spring")
         static let run = Self(rawValue: "execution.run")
         static let tests = Self(rawValue: "execution.tests")
         static let debug = Self(rawValue: "debug.session")
+        static let buildOutput = Self(rawValue: "execution.build.output")
         static let allCases: [Self] = [.project, .changes, .pullRequests, .search, .database,
-            .gitLog, .terminal, .agent, .databaseServices, .references, .problems, .maven, .mavenOutput, .spring, .run, .tests, .debug]
+            .gitLog, .terminal, .agent, .databaseServices, .references, .problems, .spring, .run, .tests, .debug,
+            .buildOutput]
         // Docking layouts written before contribution registration used enum case names.
+        // Their windows may since have been removed, so the mapping names the
+        // old IDs instead of following `allCases`; an ID with no window left
+        // is dropped like any unknown contribution.
         static func restoredID(_ id: String) -> String {
-            let legacy = ["project", "changes", "pullRequests", "search", "database", "gitLog", "terminal", "agent",
-                "databaseServices", "references", "problems", "maven", "mavenOutput", "spring", "run", "tests", "debug"]
-            return zip(legacy, allCases).first { $0.0 == id }?.1.rawValue ?? id
+            let legacy = [
+                "project": "workspace.project", "changes": "git.changes", "pullRequests": "github.pull-requests",
+                "search": "search.workspace", "database": "database.workspace", "gitLog": "git.log",
+                "terminal": "terminal.sessions", "agent": "agent.conversation", "databaseServices": "database.services",
+                "references": "language.references", "problems": "language.problems", "maven": "execution.maven",
+                "mavenOutput": "execution.maven.output", "spring": "language.spring", "run": "execution.run",
+                "tests": "execution.tests", "debug": "debug.session"
+            ]
+            return legacy[id] ?? id
         }
     }
 
@@ -110,12 +119,13 @@ final class WorkbenchFeatureModel: ObservableObject {
         sidebarSelectionHandler = handler
     }
 
-    /// Tool windows docked beside the editor instead of below it. Maven's
-    /// navigation tree and the Agent conversation both need the editor to stay
-    /// visible while they are open.
+    /// Tool windows docked beside the editor instead of below it. The Agent
+    /// conversation and the database tree need the editor to stay visible
+    /// while they are open. Contributed windows, such as a build system's,
+    /// dock where their placement says.
     static func isRightDocked(_ toolWindow: ToolWindow) -> Bool {
         switch toolWindow {
-        case .maven, .agent, .database: true
+        case .agent, .database: true
         default: false
         }
     }
