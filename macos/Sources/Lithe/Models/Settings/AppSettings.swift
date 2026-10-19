@@ -122,7 +122,10 @@ final class AppSettings: ObservableObject {
         }
     }
     @Published var searchExcludedPathPatterns: [String] {
-        didSet { defaults.set(searchExcludedPathPatterns, forKey: Key.searchExcludedPathPatterns) }
+        didSet {
+            defaults.set(searchExcludedPathPatterns, forKey: Key.searchExcludedPathPatterns)
+            if oldValue != searchExcludedPathPatterns { searchExclusionsDidChange.send() }
+        }
     }
     let gitExecutionPreferences = GitExecutionPreferences()
     @Published var gitExecutable: String {
@@ -363,13 +366,15 @@ final class AppSettings: ObservableObject {
         return id
     }
 
+    private let searchExclusionsDidChange = PassthroughSubject<Void, Never>()
+    var searchExclusionsChanges: AnyPublisher<Void, Never> { searchExclusionsDidChange.eraseToAnyPublisher() }
+
     /// Search-only globs never change project-tree or file-watcher visibility.
     var searchVisibilityRules: FileVisibilityRules {
         let patterns = searchExcludedPathPatterns.flatMap { value -> [String] in
             let pattern = value.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !pattern.isEmpty else { return [] }
-            let glob = pattern.hasSuffix("/") ? pattern + "*" : pattern
-            return glob.hasPrefix("**/") ? [glob, String(glob.dropFirst(3))] : [glob]
+            return pattern.hasPrefix("**/") ? [pattern, String(pattern.dropFirst(3))] : [pattern]
         }
         return FileVisibilityRules(hiddenDirectoryNames: hiddenDirectoryNames,
             hiddenFilePatterns: hiddenFilePatterns + patterns)

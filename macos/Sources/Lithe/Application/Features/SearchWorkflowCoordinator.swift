@@ -55,7 +55,7 @@ final class SearchWorkflowCoordinator {
             return await feature.findFiles(
                 at: root,
                 query: query,
-                visibilityRules: settings.searchVisibilityRules.searchRules
+                visibilityRules: settings.fileVisibilityRules.searchRules
             )
         } catch {
             notify(error.localizedDescription)

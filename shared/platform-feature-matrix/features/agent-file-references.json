@@ -15,7 +15,9 @@
       "macos/Sources/Lithe/Views/Agent/AgentCommandCompletion.swift",
       "macos/Sources/Lithe/Models/AppModel/AppModel+AgentConversation.swift",
       "macos/Tests/LitheTests/AgentConversationPresentationTests.swift",
-      "macos/Tests/LitheTests/AgentComposerPasteTests.swift"
+      "macos/Tests/LitheTests/AgentComposerPasteTests.swift",
+      "macos/Sources/Lithe/Application/Features/SearchWorkflowCoordinator.swift",
+      "macos/Tests/LitheTests/SearchEverywhereBehaviorTests.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -29,5 +31,5 @@
     "verificationStatus": "pending"
   },
   "owner": "Agent",
-  "verification": "macOS：从 Finder、项目树拖入临时文件（多文件、中文/空格名）到输入区与上下文栏，检查高亮和可移除标签、去重、数量限制、会话切换和发送失败保留草稿；用隔离项目验证文字+文件与纯文件发送、历史加载后引用正确送到原会话、Agent 读取与权限流程。在 Finder 复制文件后于输入框 ⌘V 应附加文件，截图后 ⌘V 应生成带缩略图的图片附件（保存在 Caches/AgentPastedImages，一周后清理，不写 app bundle），复制普通文字时 ⌘V 照常粘贴，Caps Lock 开启时附件 ⌘V 同样生效；切到另一窗口或同窗口其他输入框后，附件粘贴不得进入原 Agent 草稿；在深色和浅色主题下单独输入 @ 或全角 ＠ 应立即列出已加载工作区的文件候选（最多 20 项，不重新扫描）；扫描结束前输入 @，文件清单就绪后应自动出现候选，无需重输；继续输入关键字应筛选文件，旧查询不得覆盖新候选；方向键切换、回车/Tab 选中后移除 @ 查询并附加该文件，Esc 只关闭候选且保留草稿。图片按文件引用处理，无多模态上传。Windows 原生拖放和 Claude 端到端待验证。"
+  "verification": "macOS：从 Finder、项目树拖入临时文件（多文件、中文/空格名）到输入区与上下文栏，检查高亮和可移除标签、去重、数量限制、会话切换和发送失败保留草稿；用隔离项目验证文字+文件与纯文件发送、历史加载后引用正确送到原会话、Agent 读取与权限流程。在 Finder 复制文件后于输入框 ⌘V 应附加文件，截图后 ⌘V 应生成带缩略图的图片附件（保存在 Caches/AgentPastedImages，一周后清理，不写 app bundle），复制普通文字时 ⌘V 照常粘贴，Caps Lock 开启时附件 ⌘V 同样生效；切到另一窗口或同窗口其他输入框后，附件粘贴不得进入原 Agent 草稿；在深色和浅色主题下单独输入 @ 或全角 ＠ 应立即列出已加载工作区的文件候选（最多 20 项，不重新扫描）；扫描结束前输入 @，文件清单就绪后应自动出现候选，无需重输；继续输入关键字应筛选文件，旧查询不得覆盖新候选；方向键切换、回车/Tab 选中后移除 @ 查询并附加该文件，Esc 只关闭候选且保留草稿。图片按文件引用处理，无多模态上传。Windows 原生拖放和 Claude 端到端待验证。 macOS 裸 @ 与 @Name 共享项目文件可见性，均不显示 .build/node_modules 生成文件，不受 Search exclusions（例如 *.log）影响；全局搜索仍可单独包含生成目录名称。"
 }

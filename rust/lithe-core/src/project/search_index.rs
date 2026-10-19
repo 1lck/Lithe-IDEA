@@ -96,6 +96,10 @@ pub(crate) fn get_or_build(root: &Path, rules: &VisibilityRules) -> Result<Share
     let index = Arc::new(RwLock::new(WorkspaceSearchIndex::build(
         root, rules, false,
     )?));
+    // ponytail: one rule variant per root/kind bounds memory; alternating clients rebuild.
+    // Upgrade to a measured, bounded multi-client cache only if that rebuild cost matters.
+    indexes
+        .retain(|existing, _| existing.root != root || existing.names_only != cache_key.names_only);
     indexes.insert(cache_key, Arc::clone(&index));
     Ok(index)
 }
@@ -111,6 +115,10 @@ pub(crate) fn get_names(root: &Path, rules: &VisibilityRules) -> Result<SharedIn
         return Ok(Arc::clone(index));
     }
     let index = Arc::new(RwLock::new(WorkspaceSearchIndex::build(root, rules, true)?));
+    // ponytail: one rule variant per root/kind bounds memory; alternating clients rebuild.
+    // Upgrade to a measured, bounded multi-client cache only if that rebuild cost matters.
+    indexes
+        .retain(|existing, _| existing.root != root || existing.names_only != cache_key.names_only);
     indexes.insert(cache_key, Arc::clone(&index));
     Ok(index)
 }
@@ -474,5 +482,166 @@ pub(crate) fn make_symbol_match(indexed: &IndexedSymbol, path: String) -> Search
         name_match_ranges: Vec::new(),
         matching_degree: None,
         is_ignored: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn directory_exclusions_prune_enumeration_and_incremental_updates() {
+        let root = crate::tests::support::temporary_root("search-directory-pruning");
+        fs::create_dir_all(&root).unwrap();
+        let root = root.canonicalize().unwrap();
+        struct Cleanup(PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                super::invalidate_root(&self.0);
+                super::super::files::DIRECTORY_VISITS.with_borrow_mut(|visits| *visits = None);
+                let _ = fs::remove_dir_all(&self.0);
+            }
+        }
+        let _cleanup = Cleanup(root.clone());
+        for path in [
+            "cache/deep/Name.txt",
+            ".cache/deep/Name.txt",
+            "src/.cache/deep/Name.txt",
+            "src/Name.log",
+            "src/Name.txt",
+        ] {
+            let file = root.join(path);
+            fs::create_dir_all(file.parent().unwrap()).unwrap();
+            fs::write(file, "Name before").unwrap();
+        }
+        let rules = VisibilityRules {
+            hidden_directories: vec![],
+            hidden_file_patterns: vec![
+                "cache/".into(),
+                "**/.*/".into(),
+                ".*/".into(),
+                "*.log".into(),
+            ],
+        };
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../shared/fixtures/search/exclusions.json"
+        ))
+        .unwrap();
+        for case in fixture["cases"].as_array().unwrap() {
+            assert_eq!(
+                rules.is_hidden(
+                    case["path"].as_str().unwrap(),
+                    case["isDirectory"].as_bool().unwrap()
+                ),
+                case["hidden"].as_bool().unwrap(),
+                "{case}"
+            );
+        }
+        super::super::files::DIRECTORY_VISITS.with_borrow_mut(|visits| *visits = Some(Vec::new()));
+        let content = get_or_build(&root, &rules).unwrap();
+        let names = get_names(&root, &rules).unwrap();
+        super::super::files::DIRECTORY_VISITS.with_borrow(|visits| {
+            let visits = visits.as_ref().unwrap();
+            assert!(visits.contains(&root));
+            assert!(visits.contains(&root.join("src")));
+            assert!(
+                visits
+                    .iter()
+                    .all(|path| !path.starts_with(root.join("cache"))
+                        && !path.starts_with(root.join(".cache"))
+                        && !path.starts_with(root.join("src/.cache"))),
+                "{visits:?}"
+            );
+        });
+        assert_eq!(content.read().unwrap().stats().file_count, 1);
+        assert_eq!(names.read().unwrap().stats().file_count, 1);
+        assert!(matches!(
+            update_paths(
+                &root,
+                &rules,
+                &[
+                    "cache/deep/Name.txt".into(),
+                    "src/.cache/deep/Name.txt".into()
+                ]
+            ),
+            UpdateOutcome::Updated
+        ));
+        assert_eq!(content.read().unwrap().stats().file_count, 1);
+        assert_eq!(names.read().unwrap().stats().file_count, 1);
+    }
+
+    #[test]
+    fn changing_exclusions_releases_old_indexes_and_bounds_resident_variants() {
+        let root = crate::tests::support::temporary_root("search-cache-exclusions");
+        fs::create_dir_all(&root).unwrap();
+        let root = root.canonicalize().unwrap();
+        struct Cleanup(PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                super::invalidate_root(&self.0);
+                let _ = fs::remove_dir_all(&self.0);
+            }
+        }
+        let _cleanup = Cleanup(root.clone());
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("Name.txt"), "before").unwrap();
+        let mut old = Vec::new();
+        for index in 0..32 {
+            let rules = VisibilityRules {
+                hidden_directories: vec![],
+                hidden_file_patterns: vec![format!("exclude-{index}/")],
+            };
+            let content = get_or_build(&root, &rules).unwrap();
+            let names = get_names(&root, &rules).unwrap();
+            assert!(
+                old.iter()
+                    .all(|weak: &std::sync::Weak<RwLock<WorkspaceSearchIndex>>| weak
+                        .upgrade()
+                        .is_none()),
+                "old index allocations remain resident"
+            );
+            assert_eq!(
+                cache()
+                    .lock()
+                    .unwrap()
+                    .keys()
+                    .filter(|key| key.root == root)
+                    .count(),
+                2
+            );
+            fs::write(root.join("Name.txt"), format!("after-{index}")).unwrap();
+            assert!(matches!(
+                update_paths(&root, &rules, &["Name.txt".into()]),
+                UpdateOutcome::Updated
+            ));
+            for current in [&content, &names] {
+                assert_eq!(current.read().unwrap().stats().file_count, 1);
+            }
+            let updated = content.read().unwrap();
+            assert_eq!(
+                updated
+                    .candidate_ids(&format!("after-{index}"), false)
+                    .len(),
+                1
+            );
+            assert!(updated.candidate_ids("before", false).is_empty());
+            drop(updated);
+            old = vec![Arc::downgrade(&content), Arc::downgrade(&names)];
+            // The same command the settings observer uses must remove both kinds.
+            if index % 2 == 0 {
+                invalidate_root(&root);
+                assert_eq!(
+                    cache()
+                        .lock()
+                        .unwrap()
+                        .keys()
+                        .filter(|key| key.root == root)
+                        .count(),
+                    0
+                );
+            }
+        }
+        invalidate_root(&root);
+        assert!(old.iter().all(|weak| weak.upgrade().is_none()));
     }
 }

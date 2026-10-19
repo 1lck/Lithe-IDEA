@@ -1707,9 +1707,17 @@ still applies.
 macOS search-only exclusion settings reuse `hiddenFilePatterns` on search and
 replacement requests; they do not alter workspace tree visibility. The existing
 case-insensitive `*`/`?` matcher applies to a basename or root-relative path (`*`
-can span `/`). The UI expands trailing `/` to `/*` and adds the root form for
-leading `**/`. Empty user exclusions preserve the normal visibility rules.
-Watcher updates refresh all cached rule variants of the same workspace root.
+can span `/`). A trailing `/` explicitly marks a root-relative directory glob:
+match it before descending into a directory and against ancestors of directly
+reported file updates. The UI adds the root form for leading `**/`; ordinary
+file globs retain their file-only semantics. Empty user exclusions preserve the
+normal visibility rules. Search settings changes invalidate only the search
+cache, not the workspace tree. Each root retains at most one content and one
+names-only rule variant; superseded allocations are released when active
+requests finish. Watcher updates refresh the retained variants.
+Agent file completion uses project visibility and leaves generated names disabled;
+only the Search Everywhere UI explicitly enables them. Directory-versus-file
+matching examples are shared in `shared/fixtures/search/exclusions.json`.
 
 `workspace.searchEverywhere` uses the same query options and visibility fields,
 and additionally accepts `maxSymbolResults` and optional

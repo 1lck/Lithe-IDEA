@@ -201,8 +201,8 @@ struct WelcomeView: View {
                         if let branch = project.branch {
                             HStack(spacing: 5) {
                                 LitheIDEAIcon(
-                                    resourcePath: "vcs/branch.svg",
-                                    size: 11,
+                                    resourcePath: "expui/general/vcs.svg",
+                                    size: 16,
                                     fallbackSystemImage: "arrow.triangle.branch"
                                 )
                                 Text(branch)

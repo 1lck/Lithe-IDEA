@@ -79,6 +79,24 @@ struct SearchModuleTests {
         #expect(operations.completedOperations == ["warm", "invalidate"])
     }
 
+    @Test
+    func exclusionInvalidationCannotBeSkippedByAnImmediateWatcherUpdate() async throws {
+        let operations = BlockingIndexOperations()
+        defer { operations.finishWarmIndex(); operations.finishInvalidation() }
+        let feature = SearchFeatureModel(operations: operations)
+        defer { feature.reset() }
+        let root = URL(fileURLWithPath: "/test-workspace")
+        let rules = SearchVisibilityRules(hiddenDirectoryNames: [], hiddenFilePatterns: ["cache/"])
+        feature.warmIndex(at: root, visibilityRules: rules)
+        try #require(await operations.waitForWarmIndexStart())
+        feature.invalidateIndex(at: root, visibilityRules: rules)
+        // Stay on the main actor: the following update cancels the queued invalidation before it can start.
+        operations.finishWarmIndex()
+        operations.finishInvalidation()
+        await feature.updateIndex(at: root, changedPaths: ["Name.txt"], visibilityRules: rules)
+        #expect(operations.completedOperations == ["warm", "invalidate", "update"])
+    }
+
     private func waitUntil(
         timeout: Duration = .seconds(2),
         condition: @MainActor () -> Bool
@@ -117,7 +135,7 @@ private final class EmptyWorkspaceModule: LitheModule {
 
 private struct TestSearchOperations: SearchOperations {
     func search(at rootURL: URL, query: String, options: ProjectSearchOptions, visibilityRules: SearchVisibilityRules) -> [FileSearchResult]? { [] }
-    func searchEverywhere(at rootURL: URL, query: String, options: ProjectSearchOptions, visibilityRules: SearchVisibilityRules) -> SearchEverywhereResults? { SearchEverywhereResults() }
+    func searchEverywhere(at rootURL: URL, query: String, options: ProjectSearchOptions, visibilityRules: SearchVisibilityRules, includeGeneratedFileNames: Bool) -> SearchEverywhereResults? { SearchEverywhereResults() }
     func previewReplacement(at rootURL: URL, query: String, replacement: String, options: ProjectSearchOptions, paths: [String], textOverrides: [String: String], visibilityRules: SearchVisibilityRules) -> [ProjectReplacementFile]? { [] }
     func readFile(at rootURL: URL, relativePath: String) -> String? { nil }
     func writeFile(_ text: String, at rootURL: URL, relativePath: String) -> Bool { false }
@@ -153,6 +171,10 @@ private final class BlockingIndexOperations: SearchOperations, @unchecked Sendab
         await invalidationStarted.waitUntilSignaled()
     }
 
+    func updateSearchIndex(at rootURL: URL, changedPaths: [String], visibilityRules: SearchVisibilityRules) {
+        withLock { completions.append("update") }
+    }
+
     func finishWarmIndex() {
         warmIndexGate.signal()
     }
@@ -162,7 +184,7 @@ private final class BlockingIndexOperations: SearchOperations, @unchecked Sendab
     }
 
     func search(at rootURL: URL, query: String, options: ProjectSearchOptions, visibilityRules: SearchVisibilityRules) -> [FileSearchResult]? { [] }
-    func searchEverywhere(at rootURL: URL, query: String, options: ProjectSearchOptions, visibilityRules: SearchVisibilityRules) -> SearchEverywhereResults? { SearchEverywhereResults() }
+    func searchEverywhere(at rootURL: URL, query: String, options: ProjectSearchOptions, visibilityRules: SearchVisibilityRules, includeGeneratedFileNames: Bool) -> SearchEverywhereResults? { SearchEverywhereResults() }
     func previewReplacement(at rootURL: URL, query: String, replacement: String, options: ProjectSearchOptions, paths: [String], textOverrides: [String: String], visibilityRules: SearchVisibilityRules) -> [ProjectReplacementFile]? { [] }
     func readFile(at rootURL: URL, relativePath: String) -> String? { nil }
     func writeFile(_ text: String, at rootURL: URL, relativePath: String) -> Bool { false }

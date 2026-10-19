@@ -25,7 +25,8 @@ public protocol SearchOperations: Sendable {
         at rootURL: URL,
         query: String,
         options: ProjectSearchOptions,
-        visibilityRules: SearchVisibilityRules
+        visibilityRules: SearchVisibilityRules,
+        includeGeneratedFileNames: Bool
     ) -> SearchEverywhereResults?
 
     func previewReplacement(

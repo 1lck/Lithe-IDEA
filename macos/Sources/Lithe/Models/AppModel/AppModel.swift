@@ -146,6 +146,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     private var moduleSessionCoordinator: ModuleSessionCoordinator?
     private var featureObservationBinder: AppModelObservationBinder?
     private var fileVisibilityRulesObserverID: UUID?
+    private var searchExclusionsObservation: AnyCancellable?
     private var requestProjectOpen: ((URL) -> Void)?
     private var requestProjectOpenAtPlacement: ((URL, ProjectOpenPlacement) -> Void)?
     private var didCloseProject: (() -> Void)?
@@ -550,6 +551,10 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
             guard let self else { return }
             self.workspaceFeature.updateVisibilityRules(self.settings.fileVisibilityRules)
         }
+        searchExclusionsObservation = settings.searchExclusionsChanges.sink { [weak self] in
+            guard let self, let root = self.workspaceURL else { return }
+            self.searchFeatureIfActive?.invalidateIndex(at: root, visibilityRules: self.settings.searchVisibilityRules.searchRules)
+        }
         detectedAIConfigurations = loadAIConfigurations()
         let activeProviderHasAPIKey = settings.activeCommitMessageProvider
             .flatMap { services.credentialResolver.readAPIKey(for: $0) }
@@ -675,6 +680,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
             settings.removeFileVisibilityRulesObserver(fileVisibilityRulesObserverID)
             self.fileVisibilityRulesObserverID = nil
         }
+        searchExclusionsObservation = nil
         await shutdownModuleRuntime()
         moduleSessionCoordinator?.stopObserving()
     }

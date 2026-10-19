@@ -4,6 +4,20 @@ import Testing
 
 struct RecentProjectBranchMetadataTests {
     @Test
+    func welcomeBranchUsesTheMappedIdeaVcsIconAtItsNativeSize() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let source = try String(contentsOf: root.appendingPathComponent("macos/Sources/Lithe/Views/App/WelcomeView.swift"), encoding: .utf8)
+        #expect(source.contains("resourcePath: \"expui/general/vcs.svg\",\n                                    size: 16"))
+        #expect(!source.contains("resourcePath: \"vcs/branch.svg\""))
+        for name in ["vcs.svg", "vcs_dark.svg"] {
+            let icon = try String(contentsOf: root.appendingPathComponent("macos/Resources/IDEAIcons/expui/general/" + name), encoding: .utf8)
+            #expect(icon.contains("viewBox=\"0 0 16 16\""))
+            #expect(icon.contains("<circle") && !icon.contains("<rect"))
+        }
+    }
+
+    @Test
     func readsTheCheckedOutBranchFromHEADWithoutGit() throws {
         let workspace = try makeWorkspace()
         defer { try? FileManager.default.removeItem(at: workspace) }

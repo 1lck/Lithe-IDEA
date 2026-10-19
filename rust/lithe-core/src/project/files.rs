@@ -748,6 +748,17 @@ impl VisibilityRules {
         }) {
             return true;
         }
+        let directory_count = components.len().saturating_sub(usize::from(!is_directory));
+        for glob in self
+            .hidden_file_patterns
+            .iter()
+            .filter_map(|pattern| pattern.strip_suffix('/'))
+        {
+            if (1..=directory_count).any(|count| glob_matches(glob, &components[..count].join("/")))
+            {
+                return true;
+            }
+        }
         if is_directory {
             return false;
         }
@@ -848,6 +859,12 @@ pub(crate) struct VisibleDirectory {
     pub(crate) nested_worktrees: Vec<PathBuf>,
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Scoped enumeration trace for pruning regressions; absent in production builds.
+    pub(crate) static DIRECTORY_VISITS: std::cell::RefCell<Option<Vec<PathBuf>>> = const { std::cell::RefCell::new(None) };
+}
+
 /// Lists the children that workspace scans descend into. Snapshot and search
 /// share this so the tree, the file list, and the index always agree.
 pub(crate) fn visible_children(
@@ -855,6 +872,12 @@ pub(crate) fn visible_children(
     root: &Path,
     rules: &VisibilityRules,
 ) -> Result<VisibleDirectory, CoreError> {
+    #[cfg(test)]
+    DIRECTORY_VISITS.with_borrow_mut(|visits| {
+        if let Some(visits) = visits {
+            visits.push(path.to_path_buf());
+        }
+    });
     let mut nested_worktrees = Vec::new();
     let mut children = fs::read_dir(path)
         .map_err(CoreError::from)?

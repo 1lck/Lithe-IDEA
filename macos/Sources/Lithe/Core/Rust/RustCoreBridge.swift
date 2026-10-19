@@ -2448,7 +2448,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         maxSymbolResults: Int? = 50,
         fileMask: String = "",
         hiddenDirectoryNames: [String] = [],
-        hiddenFilePatterns: [String] = []
+        hiddenFilePatterns: [String] = [],
+        includeGeneratedFileNames: Bool = false
     ) -> SearchResponsePayload? {
         execute(
             command: "workspace.searchEverywhere",
@@ -2465,7 +2466,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 fileMask: fileMask,
                 hiddenDirectoryNames: hiddenDirectoryNames,
                 hiddenFilePatterns: hiddenFilePatterns,
-                includeGeneratedFileNames: true
+                includeGeneratedFileNames: includeGeneratedFileNames
             )
         )
     }

@@ -1,7 +1,9 @@
 import AppKit
+import Combine
 import SwiftUI
 import Testing
 import LitheSearchModule
+import LitheAgentConversationModule
 import LitheGitModule
 @testable import Lithe
 
@@ -119,6 +121,78 @@ struct SearchEverywhereBehaviorTests {
         #expect(AppSettings(store: store).searchExcludedPathPatterns.isEmpty)
         #expect(settings.searchVisibilityRules == settings.fileVisibilityRules)
         #expect(SettingsSearchVocabulary.matches(query: "Search exclusions", category: .general))
+    }
+
+    @Test
+    func directoryExclusionsFollowTheSharedPruningContract() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let fixture = try #require(JSONSerialization.jsonObject(with: Data(contentsOf:
+            root.appendingPathComponent("shared/fixtures/search/exclusions.json"))) as? [String: Any])
+        let patterns = try #require(fixture["hiddenFilePatterns"] as? [String])
+        let rules = FileVisibilityRules(hiddenDirectoryNames: [], hiddenFilePatterns: patterns)
+        let workspace = URL(fileURLWithPath: "/fixture")
+        for item in try #require(fixture["cases"] as? [[String: Any]]) {
+            let path = try #require(item["path"] as? String)
+            let directory = try #require(item["isDirectory"] as? Bool)
+            let hidden = try #require(item["hidden"] as? Bool)
+            #expect(rules.isHidden(workspace.appendingPathComponent(path), relativeTo: workspace, isDirectory: directory) == hidden, "\(path)")
+        }
+    }
+
+    @Test
+    func agentMentionsKeepProjectVisibilityAndExclusionsOnlyInvalidateSearch() async throws {
+        let suite = "lithe-agent-search-scope-" + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = MacUserDefaultsStore(defaults: defaults), settings = AppSettings(store: store)
+        settings.searchExcludedPathPatterns = ["*.log"]
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(suite)
+        for path in ["Name.txt", "Name.log", ".build/NameGenerated.txt", "node_modules/NameDependency.txt"] {
+            let file = root.appendingPathComponent(path)
+            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try "name".write(to: file, atomically: true, encoding: .utf8)
+        }
+        defer { try? FileManager.default.removeItem(at: root) }
+        let container = MacServiceContainer(store: store, settings: settings, moduleLaunchMode: .safeMode)
+        defer { container.moduleLifecycleCoordinator.stop() }
+        let model = AppModel(settings: settings, services: container.services)
+        let feature = SearchFeatureModel(operations: RustWorkspaceOperations(core: RustCoreBridge()))
+        let loaded = TestGate()
+        let observation = model.workspaceFeature.$projectFiles.sink { files in
+            if files.contains(where: { $0.lastPathComponent == "Name.log" }) { loaded.open() }
+        }
+        defer { observation.cancel(); feature.reset() }
+        try await WorkbenchTestScope.withCleanup({ await model.shutdownProjectSession() }) { scope in
+            model.openProjectDirectly(root)
+            try #require(await loaded.waitUntilOpen())
+            model.cacheModuleCapability(SearchModuleCapability(feature: feature), id: .searchWorkspace, moduleID: .search)
+            var bare: [AgentFileMention] = [], named: [AgentFileMention] = []
+            try await scope.run("bare and named agent mentions", timeout: .seconds(5)) {
+                bare = await model.agentFileMentions(matching: "")
+                named = await model.agentFileMentions(matching: "Name")
+            }
+            #expect(Set(bare.map(\.path)) == ["Name.txt", "Name.log"])
+            #expect(Set(named.map(\.path)) == Set(bare.map(\.path)))
+            model.searchSessionFeature.beginSearchEverywhere(query: "Name")
+            try await scope.run("global generated-name search", timeout: .seconds(5)) { await model.searchEverywhere(query: "Name") }
+            let paths = feature.searchEverywhereResults.fileMatches.map { $0.url.lastPathComponent }
+            #expect(paths.contains("NameGenerated.txt") && paths.contains("NameDependency.txt"))
+            #expect(!paths.contains("Name.log"))
+            model.dismissSearchEverywhere()
+            let snapshotID = model.workspaceSnapshotID
+            let invalidated = TestGate()
+            let observedFeature = SearchFeatureModel(operations: PreviewSelectionOperations(onInvalidate: { invalidated.open() }))
+            defer { observedFeature.reset() }
+            model.cacheModuleCapability(SearchModuleCapability(feature: observedFeature), id: .searchWorkspace, moduleID: .search)
+            settings.searchExcludedPathPatterns = ["cache/", "*.log"]
+            #expect(await invalidated.waitUntilOpen(), "Settings did not invalidate the active search cache")
+            try await scope.run("join search invalidation") {
+                _ = await observedFeature.findFiles(at: root, query: "Name", visibilityRules: settings.fileVisibilityRules.searchRules)
+            }
+            #expect(model.workspaceSnapshotID == snapshotID, "Search exclusions must not rebuild the project tree")
+            #expect(Set(model.projectFiles.map(\.lastPathComponent)) == ["Name.txt", "Name.log"])
+        }
     }
 
     @Test
@@ -523,8 +597,10 @@ struct SearchEverywhereBehaviorTests {
 }
 
 private struct PreviewSelectionOperations: SearchOperations {
+    var onInvalidate: @Sendable () -> Void = {}
+    func invalidateSearchIndex(at rootURL: URL, visibilityRules: SearchVisibilityRules) { onInvalidate() }
     func search(at rootURL: URL, query: String, options: ProjectSearchOptions, visibilityRules: SearchVisibilityRules) -> [FileSearchResult]? { [] }
-    func searchEverywhere(at rootURL: URL, query: String, options: ProjectSearchOptions, visibilityRules: SearchVisibilityRules) -> SearchEverywhereResults? {
+    func searchEverywhere(at rootURL: URL, query: String, options: ProjectSearchOptions, visibilityRules: SearchVisibilityRules, includeGeneratedFileNames: Bool) -> SearchEverywhereResults? {
         .init(fileMatches: (0..<40).map { index in
             FileSearchResult(url: rootURL.appendingPathComponent(String(format: "name%02d.swift", index)),
                 line: nil, preview: "", kind: .file, matchingDegree: 100)

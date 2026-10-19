@@ -96,7 +96,8 @@ struct RustWorkspaceOperations: WorkspaceOperations, Sendable {
         at rootURL: URL,
         query: String,
         options: ProjectSearchOptions,
-        visibilityRules: FileVisibilityRules
+        visibilityRules: FileVisibilityRules,
+        includeGeneratedFileNames: Bool = false
     ) -> SearchEverywhereResults? {
         core.searchEverywhere(
             at: rootURL,
@@ -110,7 +111,8 @@ struct RustWorkspaceOperations: WorkspaceOperations, Sendable {
             maxSymbolResults: SearchEverywhereResults.providerLimit,
             fileMask: options.fileMask,
             hiddenDirectoryNames: visibilityRules.hiddenDirectoryNames,
-            hiddenFilePatterns: visibilityRules.hiddenFilePatterns
+            hiddenFilePatterns: visibilityRules.hiddenFilePatterns,
+            includeGeneratedFileNames: includeGeneratedFileNames
         )?.makeEverywhereResults(at: rootURL)
     }
 
@@ -211,9 +213,10 @@ extension RustWorkspaceOperations: SearchOperations {
         at rootURL: URL,
         query: String,
         options: ProjectSearchOptions,
-        visibilityRules: SearchVisibilityRules
+        visibilityRules: SearchVisibilityRules,
+        includeGeneratedFileNames: Bool = false
     ) -> SearchEverywhereResults? {
-        searchEverywhere(at: rootURL, query: query, options: options, visibilityRules: FileVisibilityRules(searchRules: visibilityRules))
+        searchEverywhere(at: rootURL, query: query, options: options, visibilityRules: FileVisibilityRules(searchRules: visibilityRules), includeGeneratedFileNames: includeGeneratedFileNames)
     }
 
     func previewReplacement(
