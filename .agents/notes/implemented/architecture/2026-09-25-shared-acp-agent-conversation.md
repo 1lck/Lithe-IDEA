@@ -317,6 +317,8 @@ npm 的进度选项只面向终端，HTTP 日志通常在请求完成后才输�
 
 “任务”只显示 Agent 通过 ACP 上报的执行计划：非空计划显示已完成数/总数和每条真实状态；没有计划时隐藏任务摘要，计划被清空时同时关闭其旧弹层。比如三步计划完成一步显示 `1/3`；只有五次 `List files`、`cat` 等工具调用时不能显示五个待办。工具证据继续保留在对话记录中，不推断未上报的计划。
 
+任务文字在完成后仍使用正常文字颜色，不加删除线；已完成由绿色勾选表示，待执行用空心圆，执行中保留进度图标。这样保留步骤的可读性，状态由图标及可访问状态标签表达，不靠划掉文字区分。
+
 Codex 的任务清单工具需要显式开启。已核对上游 `rust-v0.156.1` 与 `rust-v0.160.0` 的 [`UpdatePlanToolConfig`](https://github.com/openai/codex/blob/rust-v0.160.0/codex-rs/core/config.schema.json)：`tools.update_plan.enabled` 默认是 false；适配器能转发 `turn/plan/updated` 并不代表模型已获得该工具。Host 在 API Key 和官方订阅两条启动路径使用同一进程级 `CODEX_CONFIG` 开启此项，保留各自路由及可选默认模型；不写用户的 `config.toml`，不改变协作模式、权限或模型目录。只有模型实际调用工具并上报 ACP plan 后才显示进度，普通文字计划不作替代。不能通过切换到规划协作模式修复待办，因为上游 [`PlanHandler`](https://github.com/openai/codex/blob/rust-v0.160.0/codex-rs/core/src/tools/handlers/plan.rs) 在该模式中禁止执行待办工具。代价是 Lithe 会话显式启用原生任务清单，模型仍可为简单请求不创建计划；收益是计划事实与生命周期继续由 Codex 拥有，不增加一套解析器或任务存储。
 
 “子代理”取代原先列运行工具的“运行中”，参考 [CC GUI 的子代理面板](https://github.com/zhukunpenglinyutong/jetbrains-cc-gui/tree/7bcd6c3803ec44944cef90f5bff0aa666cab99a2/webview/src/components/StatusPanel)。面板显示原生子代理的名称、任务、运行或终止状态，以及已完成数/总数；点击展开上游实际传回的推理、工具和回复，点击详情不会关闭弹层。普通工具调用和异步派发成功都不能证明产生或完成了子代理。失败、取消、断开不计为成功；父代理结束时尚无终态的后代标为“已断开”，不伪造完成。

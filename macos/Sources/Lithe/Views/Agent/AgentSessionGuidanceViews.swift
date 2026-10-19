@@ -173,8 +173,7 @@ struct AgentPlanView: View {
                 .foregroundStyle(color(entry.status))
             Text(entry.content)
                 .font(LitheTheme.uiFont(size: 11.5))
-                .foregroundStyle(entry.status == .completed ? LitheTheme.tertiaryText : LitheTheme.primaryText)
-                .strikethrough(entry.status == .completed, color: LitheTheme.tertiaryText)
+                .foregroundStyle(LitheTheme.primaryText)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
