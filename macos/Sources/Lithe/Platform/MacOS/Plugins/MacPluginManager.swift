@@ -156,7 +156,8 @@ final class MacPluginManager: PluginManaging {
             deferActivationUntilRestart: true,
             replaceExisting: true,
             origin: .community,
-            disk: provenance
+            disk: provenance,
+            beforeReplacingPackage: beforePackageReplacement
         )
         enableFirstInstallation(of: installed.manifest)
         restartRequiredPluginIDs.insert(installed.manifest.id)

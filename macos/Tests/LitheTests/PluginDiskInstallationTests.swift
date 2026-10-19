@@ -288,6 +288,114 @@ struct PluginDiskInstallationTests {
         #expect(manager.snapshots.first { $0.id == Self.pluginID }?.isEnabled == false)
     }
 
+    /// Cover disk review -> manager -> Store -> process-wide lifecycle without
+    /// view notifications, including pages retained by hidden tool windows.
+    @Test(arguments: [false, true])
+    func diskReplacementClosesEveryProjectPageBeforeMutation(sameVersion: Bool) async throws {
+        let fixture = Fixture(sameVersion ? "page-replacement" : "page-upgrade")
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        func webPackage(_ name: String, version: PluginVersion, content: String) throws -> URL {
+            let data = try Data(contentsOf: DeclarativePluginTestSupport.repositoryRoot
+                .appendingPathComponent("shared/contracts/plugins/v1/fixtures/web-panel.plugin.json"))
+            let json = String(decoding: data, as: UTF8.self)
+                .replacingOccurrences(of: "dev.lithe.fixture.web-panel", with: Self.pluginID.rawValue)
+            var manifest = try #require(JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any])
+            manifest["version"] = version.description
+            manifest["vendor"] = ["id": "io.example", "displayName": "Example", "signatureRequirement": "none"]
+            let package = try DeclarativePluginTestSupport.writePackage(
+                at: fixture.root.appendingPathComponent(name), manifest: manifest
+            )
+            try FileManager.default.createDirectory(at: package.appendingPathComponent("ui"), withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: package.appendingPathComponent("icons"), withIntermediateDirectories: true)
+            try Data(content.utf8).write(to: package.appendingPathComponent("ui/index.html"))
+            try Data(#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"/>"#.utf8)
+                .write(to: package.appendingPathComponent("icons/panel.svg"))
+            return package
+        }
+        let original = try await fixture.service.prepareDiskInstall(
+            at: webPackage("original", version: Self.versionOne, content: "<p>original</p>")
+        )
+        defer { fixture.service.discard(original) }
+        let installed = try fixture.store.installPackage(
+            from: original.packageURL, origin: .community, disk: original.provenance
+        )
+        let entry = installed.packageURL.appendingPathComponent("ui/index.html")
+        let record = fixture.installedDirectory.appendingPathComponent("\(Self.pluginID)/installation.json")
+        let originalBytes = try Data(contentsOf: entry)
+        let originalRecord = try Data(contentsOf: record)
+        let window = PluginWebWindow(
+            pluginID: Self.pluginID.rawValue, pluginName: "Fixture", windowID: "\(Self.pluginID).window",
+            entry: "ui/index.html", packageURL: installed.packageURL, buildSystemIDs: [], isInspectable: false
+        )
+        let lifecycle = PluginWebPageLifecycle()
+        var prompts = 0
+        let projects = (0..<2).map { _ in
+            PluginWebPages(windows: [window]) { _ in prompts += 1; return true }
+        }
+        defer { projects.forEach { $0.closeAll() } }
+        let pages = try projects.map { registry in
+            lifecycle.register(registry)
+            return try #require(registry.page(for: window.windowID) { _ in DiskInstallationPage() })
+        }
+        let consents = (0..<2).map { index in
+            PluginWebProcessConsent(
+                pluginID: Self.pluginID.rawValue, pluginName: "Fixture",
+                workspaceURL: fixture.root.appendingPathComponent("workspace-\(index)"), action: "Build", userArguments: []
+            )
+        }
+        for (registry, consent) in Swift.zip(projects, consents) {
+            #expect(await registry.confirmProcessStart(consent))
+        }
+        #expect(prompts == 2)
+        let configuration = MacModuleConfigurationStore(store: DiskInstallationKeyValueStore())
+        var mutations: [PluginID] = []
+        let manager = MacPluginManager(
+            packageStore: fixture.store,
+            moduleRuntime: ModuleRuntime(configurationStore: configuration, recoveryStore: configuration),
+            configurationStore: configuration, settings: InMemoryPluginSettings(), launchMode: .normal,
+            startup: MacPluginStartupResult(installedPlugins: [installed], registeredPlugins: [installed], issues: []),
+            allowsLocalDevelopmentPackages: false,
+            beforePackageReplacement: { id in
+                // Invalidation must precede replacing resources or the installation record.
+                #expect((try? Data(contentsOf: entry)) == originalBytes)
+                #expect((try? Data(contentsOf: record)) == originalRecord)
+                mutations.append(id)
+                lifecycle.packageWillChange(id.rawValue)
+            }
+        )
+        let replacement = try await fixture.service.prepareDiskInstall(at: webPackage(
+            "replacement", version: sameVersion ? Self.versionOne : Self.versionTwo, content: "<p>replacement</p>"
+        ))
+        defer { fixture.service.discard(replacement) }
+        let replacementEntry = replacement.packageURL.appendingPathComponent("ui/index.html")
+        let reviewedBytes = try Data(contentsOf: replacementEntry)
+        try Data("unapproved".utf8).write(to: replacementEntry)
+        #expect(throws: PluginPackageStoreError.communityContentChanged(Self.pluginID)) {
+            try manager.installDiskPackage(at: replacement.packageURL, provenance: replacement.provenance)
+        }
+        #expect(mutations.isEmpty)
+        #expect(pages.allSatisfy { !$0.isClosed })
+        try reviewedBytes.write(to: replacementEntry)
+
+        try manager.installDiskPackage(at: replacement.packageURL, provenance: replacement.provenance)
+        #expect(mutations == [Self.pluginID])
+        #expect(pages.allSatisfy { $0.isClosed })
+        #expect(manager.snapshots.first { $0.id == Self.pluginID }?.requiresRestart == true)
+        let later = PluginWebPages(windows: [window])
+        defer { later.closeAll() }
+        lifecycle.register(later)
+        lifecycle.disable(Self.pluginID.rawValue)
+        lifecycle.enable(Self.pluginID.rawValue)
+        for registry in projects + [later] {
+            #expect(registry.openWindowIDs.isEmpty)
+            #expect(registry.page(for: window.windowID) { _ in DiskInstallationPage() } == nil)
+        }
+        for (registry, consent) in Swift.zip(projects, consents) {
+            #expect(await registry.confirmProcessStart(consent) == false)
+        }
+        #expect(prompts == 2)
+    }
+
     @Test(arguments: [false, true])
     func changedSnapshotCannotReplaceOrDamageAnInstalledVersion(sameVersion: Bool) async throws {
         let fixture = Fixture(sameVersion ? "reject-replacement" : "reject-update")
@@ -615,6 +723,12 @@ private final class GatedDiskReviewEvaluator: PluginMarketplaceEvaluating {
         case usedMainThread
         case workerDeadline
     }
+}
+
+@MainActor
+private final class DiskInstallationPage: PluginWebPageHandle {
+    private(set) var isClosed = false
+    func close() { isClosed = true }
 }
 
 private final class DiskInstallationKeyValueStore: KeyValueStore, @unchecked Sendable {
