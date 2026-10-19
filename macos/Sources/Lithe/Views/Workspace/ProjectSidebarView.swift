@@ -133,6 +133,11 @@ struct ProjectSidebarView: View {
                         }
                         .scrollContentBackground(.hidden)
                         .litheScrollViewChrome(usesCompactScrollers: true)
+                        // Directories are listed when first expanded; this also
+                        // covers rows a rescan or reveal left expanded but unloaded.
+                        .task(id: root.unloadedRows(expandedPaths: expandedDirectoryPaths).map(\.url.path)) {
+                            await model.loadExpandedProjectDirectories(expandedDirectoryPaths)
+                        }
                         .task(
                             id: ProjectTreeTaskID(
                                 rootPath: root.url.standardizedFileURL.path,
@@ -155,9 +160,12 @@ struct ProjectSidebarView: View {
                                         includeItem: request.isDirectory
                                     )
                                 )
+                                await model.loadExpandedProjectDirectories(expandedDirectoryPaths)
                                 await Task.yield()
+                                // Listing can fold the target into a compact package row.
+                                let rowURL = model.projectTreeURL(for: request.fileURL) ?? request.fileURL
                                 proxy.scrollTo(
-                                    request.fileURL.standardizedFileURL.path,
+                                    rowURL.standardizedFileURL.path,
                                     anchor: .center
                                 )
                             }
