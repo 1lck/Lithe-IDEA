@@ -72,17 +72,30 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     struct WorkspaceSnapshotPayload: Decodable, Sendable {
         let root: WorkspaceNodePayload
         let files: [String]
+        let nestedWorktrees: [String]
+
+        private enum CodingKeys: String, CodingKey {
+            case root, files, nestedWorktrees
+        }
+
+        init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            root = try container.decode(WorkspaceNodePayload.self, forKey: .root)
+            files = try container.decode([String].self, forKey: .files)
+            nestedWorktrees = try container.decodeIfPresent([String].self, forKey: .nestedWorktrees) ?? []
+        }
 
         func makeSnapshot(at rootURL: URL) -> WorkspaceSnapshot {
-            // The file list reuses the tree's URL objects. A large workspace
-            // has six-figure file counts, and a second URL per file roughly
-            // doubles the snapshot's resident size.
+            // The file list keeps Core's order and reuses the tree's URL
+            // objects. A large workspace has six-figure file counts, and a
+            // second URL per file roughly doubles the snapshot's resident size.
             var fileURLs: [String: URL] = [:]
             fileURLs.reserveCapacity(files.count)
             let rootNode = root.makeFileNode(at: rootURL, fileURLs: &fileURLs)
             return WorkspaceSnapshot(
                 root: rootNode,
-                files: files.map { fileURLs[$0] ?? rootURL.appendingPathComponent($0) }
+                files: files.map { fileURLs[$0] ?? rootURL.appendingPathComponent($0) },
+                nestedWorktrees: nestedWorktrees.map { rootURL.appendingPathComponent($0, isDirectory: true) }
             )
         }
     }
