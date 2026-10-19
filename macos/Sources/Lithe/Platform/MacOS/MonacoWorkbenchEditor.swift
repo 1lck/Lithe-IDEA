@@ -43,7 +43,7 @@ struct MonacoWorkbenchThemeConfiguration: Equatable {
             "selection": Self.cssColor(palette.selection),
             "lineHighlight": Self.cssColor(palette.currentLine),
             "lineNumber": Self.cssColor(palette.lineNumber),
-            "activeLineNumber": Self.cssColor(palette.text),
+            "activeLineNumber": Self.cssColor(palette.activeLineNumber),
             "guide": Self.cssColor(palette.guide),
             "activeGuide": Self.cssColor(palette.activeGuide),
             "link": Self.cssColor(palette.link)
@@ -54,7 +54,7 @@ struct MonacoWorkbenchThemeConfiguration: Equatable {
         ["id": id, "dark": dark, "colors": colors]
     }
 
-    private static func cssColor(_ color: NSColor) -> String {
+    static func cssColor(_ color: NSColor) -> String {
         let resolved = color.usingColorSpace(.sRGB) ?? color
         func byte(_ component: CGFloat) -> Int {
             Int((min(max(component, 0), 1) * 255).rounded())
@@ -95,9 +95,10 @@ struct MonacoWorkbenchEditor: View {
     var sessionGroupID: UUID? = nil
     var preview: MonacoPreviewConfiguration? = nil
     var markdownScrollPosition: Binding<MarkdownScrollPosition>? = nil
+    var showsSoftWrapToggle = false
 
     var body: some View {
-        MonacoWorkbenchContent(document: document, secondaryDocument: secondaryDocument, sessionGroupID: sessionGroupID, preview: preview, markdownScrollPosition: markdownScrollPosition, model: model)
+        MonacoWorkbenchContent(document: document, secondaryDocument: secondaryDocument, sessionGroupID: sessionGroupID, preview: preview, markdownScrollPosition: markdownScrollPosition, showsSoftWrapToggle: showsSoftWrapToggle, model: model)
             .id(sessionGroupID == nil && preview?.presentationID == nil ? nil : document.id)
     }
 }
@@ -107,18 +108,21 @@ private struct MonacoWorkbenchContent: View {
     @ObservedObject private var background: WorkbenchBackgroundFeatureModel
     @EnvironmentObject private var settings: AppSettings
     @EnvironmentObject private var diagnostics: EditorDiagnosticsStore
+    @EnvironmentObject private var chrome: EditorChromeModel
     @Environment(\.colorScheme) private var colorScheme
     @StateObject private var session: MonacoWorkbenchSession
     let document: EditorDocument
     let secondaryDocument: EditorDocument?
     let preview: MonacoPreviewConfiguration?
     let markdownScrollPosition: Binding<MarkdownScrollPosition>?
+    let showsSoftWrapToggle: Bool
 
-    init(document: EditorDocument, secondaryDocument: EditorDocument?, sessionGroupID: UUID?, preview: MonacoPreviewConfiguration?, markdownScrollPosition: Binding<MarkdownScrollPosition>?, model: AppModel) {
+    init(document: EditorDocument, secondaryDocument: EditorDocument?, sessionGroupID: UUID?, preview: MonacoPreviewConfiguration?, markdownScrollPosition: Binding<MarkdownScrollPosition>?, showsSoftWrapToggle: Bool, model: AppModel) {
         self.document = document
         self.secondaryDocument = secondaryDocument
         self.preview = preview
         self.markdownScrollPosition = markdownScrollPosition
+        self.showsSoftWrapToggle = showsSoftWrapToggle
         self.model = model
         _background = ObservedObject(wrappedValue: model.workbenchBackgroundFeature)
         _session = StateObject(wrappedValue: MonacoWorkbenchSession.forModel(model.id,
@@ -140,7 +144,10 @@ private struct MonacoWorkbenchContent: View {
                     wrap: settings.editorSoftWrapEnabled,
                     minimap: settings.editorMinimapEnabled,
                     markers: diagnostics.diagnostics(for: document.url),
-                    secondaryMarkers: secondaryDocument.map { diagnostics.diagnostics(for: $0.url) } ?? [])
+                    secondaryMarkers: secondaryDocument.map { diagnostics.diagnostics(for: $0.url) } ?? [],
+                    softWrapControl: EditorSoftWrapToggleConfiguration(
+                        visible: showsSoftWrapToggle && !chrome.isFindBarVisible,
+                        enabled: showsSoftWrapToggle && chrome.isSoftWrapAvailable, selected: settings.editorSoftWrapEnabled))
             } else {
                 Text("Editor resources are missing. Rebuild or reinstall Lithe.")
                     .foregroundStyle(.secondary)
@@ -168,6 +175,7 @@ private struct MonacoWorkbenchSurface: NSViewRepresentable {
     let minimap: Bool
     let markers: [EditorDiagnostic]
     let secondaryMarkers: [EditorDiagnostic]
+    let softWrapControl: EditorSoftWrapToggleConfiguration
 
     final class Coordinator {
         let ownerID = UUID()
@@ -180,7 +188,7 @@ private struct MonacoWorkbenchSurface: NSViewRepresentable {
         coordinator.session.detachView(ownerID: coordinator.ownerID)
     }
     func updateNSView(_ view: NSView, context: Context) {
-        session.update(ownerID: context.coordinator.ownerID, document: document, secondaryDocument: secondaryDocument, preview: preview, markdownScrollPosition: markdownScrollPosition, model: model, fontSize: fontSize, fontFamily: fontFamily, theme: theme, wrap: wrap, minimap: minimap, markers: markers, secondaryMarkers: secondaryMarkers)
+        session.update(ownerID: context.coordinator.ownerID, document: document, secondaryDocument: secondaryDocument, preview: preview, markdownScrollPosition: markdownScrollPosition, model: model, fontSize: fontSize, fontFamily: fontFamily, theme: theme, wrap: wrap, minimap: minimap, markers: markers, secondaryMarkers: secondaryMarkers, softWrapControl: softWrapControl)
     }
 }
 
@@ -229,6 +237,9 @@ private final class MonacoWorkbenchMessages: NSObject, WKScriptMessageHandlerWit
 
 @MainActor
 final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDelegate {
+    /// View-local Monaco geometry; never republished through the workbench model.
+    @Published private(set) var minimapTrailingInset: CGFloat?
+
     private struct SessionReference { weak var value: MonacoWorkbenchSession? }
     private struct SessionKey: Hashable { let modelID: UUID; let documentID: UUID?; let previewID: UUID? }
     private static var sessions: [SessionKey: SessionReference] = [:]
@@ -300,8 +311,10 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
     private let navigation = MonacoNavigationCoordinator()
     private var lastSemanticState = ""
     private var lastConfiguration: MonacoWorkbenchDisplayConfiguration?
+    private var lastSoftWrapControl: EditorSoftWrapToggleConfiguration?
     private var lastLiveIDs: Set<String> = []
     private var debugSubscription: AnyCancellable?
+    private var debugAvailabilitySubscription: AnyCancellable?
     private var codeVisionSubscription: AnyCancellable?
     private var lastCodeVisionEnabled: Bool?
     private var debugFeatureIdentity: ObjectIdentifier?
@@ -410,10 +423,11 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
         selectMount()
     }
 
-    func update(ownerID: UUID, document: EditorDocument, secondaryDocument: EditorDocument?, preview: MonacoPreviewConfiguration?, markdownScrollPosition: Binding<MarkdownScrollPosition>?, model: AppModel, fontSize: Double, fontFamily: String, theme: MonacoWorkbenchThemeConfiguration, wrap: Bool, minimap: Bool, markers: [EditorDiagnostic], secondaryMarkers: [EditorDiagnostic]) {
+    func update(ownerID: UUID, document: EditorDocument, secondaryDocument: EditorDocument?, preview: MonacoPreviewConfiguration?, markdownScrollPosition: Binding<MarkdownScrollPosition>?, model: AppModel, fontSize: Double, fontFamily: String, theme: MonacoWorkbenchThemeConfiguration, wrap: Bool, minimap: Bool, markers: [EditorDiagnostic], secondaryMarkers: [EditorDiagnostic], softWrapControl: EditorSoftWrapToggleConfiguration? = nil) {
         guard mounts[ownerID] != nil else { return }
         self.model = model
         observeFind(model: model)
+        observeDebugState(model: model)
         if !isReadOnlyPreview { navigation.observe(
             model.$editorNavigationTarget.receive(on: DispatchQueue.main).eraseToAnyPublisher(),
             isReady: { [weak self] in self?.ready == true },
@@ -436,6 +450,10 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
                 self.call("window.lithe.restoreMain()")
             }
             self.synchronizeFind()
+            if let softWrapControl, self.lastSoftWrapControl != softWrapControl {
+                self.lastSoftWrapControl = softWrapControl
+                self.call("window.lithe.softWrapControl(payload)", arguments: ["payload": softWrapControl.bridgePayload])
+            }
             if let preview, self.lastPreview != preview || self.previewDocumentID != document.id.uuidString {
                 self.lastPreview = preview
                 self.previewDocumentID = document.id.uuidString
@@ -615,6 +633,16 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
     }
 
     private func observeDebugState(model: AppModel) {
+        if debugAvailabilitySubscription == nil {
+            // First breakpoint activation can leave every SwiftUI view input unchanged.
+            // Follow the host relay directly, then subscribe after its capability is cached.
+            debugAvailabilitySubscription = model.objectWillChange
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self, weak model] _ in
+                    guard let self, let model else { return }
+                    self.observeDebugState(model: model)
+                }
+        }
         let identity = model.genericDebugFeatureIfActive.map(ObjectIdentifier.init)
         guard debugFeatureIdentity != identity else { return }
         debugFeatureIdentity = identity
@@ -738,7 +766,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
         for (id, document) in documents {
             guard !unconfirmedModels.contains(id) else { continue }
             let url = document.url.standardizedFileURL
-            let grouped = Dictionary(grouping: (feature?.breakpoints ?? []).filter { $0.fileURL.standardizedFileURL == url }, by: \.line)
+            let grouped = Dictionary(grouping: (feature?.breakpoints ?? []).filter { $0.fileURL.standardizedFileURL == url }, by: { $0.resolvedLine ?? $0.line })
             let points: [[String: Any]] = grouped.keys.sorted().map { line in
                 let values = grouped[line] ?? []
                 var point: [String: Any] = ["line": line, "enabled": values.contains { $0.enabled },
@@ -748,7 +776,9 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
                 return point
             }
             var state: [String: Any] = ["breakpoints": points, "muted": feature?.areBreakpointsMuted ?? false]
+            state["canToggleBreakpoints"] = !isReadOnly(document) && model.languageProviderCatalog.provider(for: url)?.capabilities.contains(.debugAdapter) == true
             state["revision"] = revisions[id] ?? 0
+            state["sessionActive"] = feature.map { ![.idle, .terminated, .failed].contains($0.state) } ?? false
             state["paused"] = feature?.state == .paused
             state["canRunToCursor"] = feature?.state == .paused && feature?.capabilities.supportsGotoTargetsRequest == true
             if feature?.state == .paused, let frame = feature?.selectedFrame, frame.sourceURL?.standardizedFileURL == url {
@@ -1007,6 +1037,19 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
             }
             ready = true; latestUpdate?(); reply(["ok": true], nil); return
         }
+        if type == "toggleSoftWrap" {
+            guard ready, !failed, let model, lastSoftWrapControl?.visible == true,
+                  lastSoftWrapControl?.enabled == true else { reply(["cancelled": true], nil); return }
+            model.settings.editorSoftWrapEnabled.toggle()
+            reply(["ok": true], nil); return
+        }
+        if type == "editorLayout" {
+            guard let inset = body["minimapTrailingInset"] as? Double, inset.isFinite, inset >= 0 else {
+                reply(nil, "Invalid editor layout"); return
+            }
+            if minimapTrailingInset != CGFloat(inset) { minimapTrailingInset = CGFloat(inset) }
+            reply(["ok": true], nil); return
+        }
         if type == "performance" {
             if LithePerformanceBaseline.isEnabled,
                let metrics = body["metrics"] as? [String: Any],
@@ -1094,6 +1137,10 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
                       self.javaRunMarkerRequests[id] == requestID else {
                     reply(["cancelled": true], nil); return
                 }
+                let hasTests = markers.contains { $0.kind == .testClass || $0.kind == .testMethod }
+                if document.hasJavaTests != hasTests { document.hasJavaTests = hasTests }
+                let hasMain = markers.contains { $0.kind == .main }
+                if document.hasRunnableJavaMain != hasMain { document.hasRunnableJavaMain = hasMain }
                 self.javaRunMarkerLists[id] = (context, revision, url, markers)
                 reply(["canDebug": true, "markers": markers.map { marker in
                     ["id": marker.id, "line": marker.line + 1, "endLine": marker.endLine + 1,

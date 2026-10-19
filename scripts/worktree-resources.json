@@ -137,6 +137,15 @@
       "reason": "Do not reuse plugin-owned language tools across worktrees; plugin lifecycle owns installation, replacement and cleanup."
     },
     {
+      "id": "plugin-web-state",
+      "reusable": false,
+      "locations": [
+        "<app-support>/Lithe/PluginState/<plugin-id>/web-state/<window-id>/<workspace-digest>.json"
+      ],
+      "identity": "Mutable UI state of one plugin window and workspace in one installed distribution; workspace digests are storage keys, not version/platform/architecture/toolchain build identity stamps",
+      "reason": "ui.setState persists at most 64 KiB outside read-only plugin packages and app bundles through the platform storage adapter. State belongs to the installed plugin and is removed with its PluginState directory on uninstall. No copy stage is permitted: never copy, share, or validate this per-user state as a reusable worktree resource; hiding or recreating a page reads the owning installation's state."
+    },
+    {
       "id": "plugin-marketplace-state",
       "reusable": false,
       "locations": [
@@ -146,7 +155,21 @@
         "<system-temp>/lithe-plugin-download-<uuid>"
       ],
       "identity": "Fetched marketplace indexes, the user's plugin repository list, and downloaded or extracted plugin archives are per-user runtime state verified by Rust Core index validation and the index SHA-256; the official index ships read-only from Git-tracked Plugins/marketplace/index.json and has no worktree build stamp",
-      "reason": "Marketplace caches, repository lists and plugin downloads belong to the running app and its user, never to a worktree build. Do not copy, symlink or bundle them; each run fetches and verifies its own copy. The bundled index is copied from Git at packaging time only."
+      "reason": "Marketplace caches, repository lists and plugin downloads belong to the running app and its user, never to a worktree build. ZIP preflight budgets include unique implicit parent directories and cumulative normalized UTF-8 path bytes before extraction; passing these checks does not create a reusable build identity. Do not copy, symlink or bundle them; each run fetches and verifies its own copy. The bundled index is copied from Git at packaging time only."
+    },
+    {
+      "id": "plugin-disk-install-state",
+      "reusable": false,
+      "locations": [
+        "<file-storage-temp>/lithe-plugin-disk-<UUID>/",
+        "<file-storage-temp>/lithe-plugin-disk-<UUID>/archive.zip",
+        "<file-storage-temp>/lithe-plugin-disk-<UUID>/package/",
+        "<app-support>/Lithe/Plugins/.staging/<transaction>/",
+        "<app-support>/Lithe/Plugins/<plugin-id>/versions/<version>/",
+        "<app-support>/Lithe/Plugins/<plugin-id>/installation.json"
+      ],
+      "identity": "One user-selected macOS ZIP or unpacked directory and one import UUID. MacServiceContainer injects fileStorage.temporaryDirectory(); the importer copies a private snapshot before review. ZIP SHA-256 is computed from that snapshot, directories have no archive checksum, and neither authenticates a remote publisher or repository. Content digest and complete canonical approvedPrograms bind the approval to the installed bytes, not to a reusable version/platform/architecture/toolchain stamp.",
+      "reason": "Never copy, symlink, bundle or share local disk snapshots, installation staging, installed versions or active/previous approval records at any worktree reuse stage; content hashes do not transfer user approval or establish marketplace provenance. The importer removes failed/cancelled partial snapshots; ZIP preflight bounds unique explicit entries plus implicit parent directories and cumulative normalized UTF-8 path bytes before extraction, without making snapshots reusable. The service then owns discard on review cancellation, install success or failure. The package store owns install staging cleanup and persistent version/record lifecycle, revalidates staged, scanned and rollback bytes, and keeps PluginDiskProvenance separate from marketplace provenance. All writable roots come from platform storage outside distribution resources; installed bundles stay read-only with no code-signature or Sparkle delta impact. This is a macOS runtime boundary, not a claim of Windows implementation."
     },
     {
       "id": "phpunit-fixture",

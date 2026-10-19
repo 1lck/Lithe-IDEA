@@ -8,18 +8,39 @@ struct LitheToolWindowTabStyle: ViewModifier {
     @State private var isHovered = false
     let isSelected: Bool
     let isActive: Bool
+    var fileColor: Color? = nil
 
     func body(content: Content) -> some View {
         content
             .frame(height: 28)
-            .background(isSelected ? (isHovered && !tabIsActive ? hoverBackground : selectedTabBackground)
-                                   : isHovered ? hoverBackground : .clear)
+            .background {
+                if let fileColor {
+                    // IslandsTabPainter: colored editor tabs retain the editor surface and border.
+                    if isSelected {
+                        LitheTheme.editor
+                        RoundedRectangle(cornerRadius: 3.5)
+                            .fill(fileColor.opacity(tabIsActive ? 1 : 0.4))
+                            .padding(3)
+                    } else {
+                        fileColor.opacity(0.4)
+                        if isHovered { hoverBackground }
+                    }
+                } else {
+                    isSelected ? (isHovered && !tabIsActive ? hoverBackground : selectedTabBackground)
+                               : isHovered ? hoverBackground : .clear
+                }
+            }
             .overlay {
                 RoundedRectangle(cornerRadius: 6)
                     .strokeBorder(isSelected ? selectedTabBorder : .clear, lineWidth: 1)
             }
             .clipShape(RoundedRectangle(cornerRadius: 6))
             .onHover { isHovered = $0 }
+    }
+
+    static func testSourceColor(for scheme: ColorScheme) -> Color {
+        scheme == .dark ? Color(red: 28/255, green: 38/255, blue: 28/255)
+                        : Color(red: 237/255, green: 250/255, blue: 239/255)
     }
 
     private var selectedTabBackground: Color {

@@ -8,7 +8,7 @@ CI 缓存的是经过版本和依赖约束的中间构建结果，不缓存最�
 PR 先通过编译和测试获得快速反馈；macOS 仅在包敏感改动时生成测试包，
 Windows PR 不再生成安装包。Windows 安装包由 preview 和稳定版发布工作流
 负责，避免发布产物阻塞日常代码验证。组织使用 GitHub Free 计划，全组织同时
-最多运行 5 个 GitHub 托管 macOS job，另有自建 Mac mini 的三个槽位。每次推送占用的 macOS runner 数量本身就是
+最多运行 5 个 GitHub 托管 macOS job。每次推送占用的 macOS runner 数量本身就是
 需要控制的成本：同一份 Swift 测试编译只做一次，PR 只打 arm64 包，Draft PR
 不占 macOS/Windows runner。
 
@@ -27,36 +27,59 @@ macOS CI 与发布工作流统一使用 Xcode 26.6，编译器
 某台开发机升级了 Xcode 27 而改变，否则仍在 macOS 15 上工作的开发者会被迫
 升级开发环境。
 
-日常 CI 的 Swift 测试、Rust Core 测试、应用打包验证和插件测试可以运行在
-带有 `lithe-mac-mini` 标签的自托管执行器上，包括 fork 提交到本仓库的 PR。
-同一台 M4/16 GB Mac mini 注册三个独立 runner，各自占用独立工作目录，
-提供三个任务槽位；三并发已由维护者实测。发布流程（正式版、AutoBuild、
-官方插件发布）需要签名证书和发布密钥，始终保留 GitHub 托管执行器。
-
-GitHub 在创建 job 时固定 `runs-on`，job 排队后不能改投另一个池，
-`runs-on` 数组也只能表示“同时具备所有标签”。因此每个 CI 工作流的 Linux
-分类 job 运行 `scripts/select-macos-ci-runners.mjs`：用只读的
-`actions: read` 权限列出本仓库正在运行和排队的 job，按标签统计两边占用，
-再为本次选中的 lane 依次分配池。PR 优先占用空闲的 Mac mini（同样的任务
-更快），Mac mini 满了再用空闲的托管槽位；两边都满时进入相对容量更短的
-队列。push 到 `preview` 和手动运行只用 Mac mini，即使它忙也排队等待，
-避免合并后的复验占用 PR 正在等待的托管槽位。API 读取失败或没有令牌时
-退回固定分配（Rust Core、打包在 Mac mini，Swift、插件在托管池），不阻塞 CI。
+日常 CI 的 Swift 测试、Rust Core 测试、应用打包验证和插件测试都运行在 GitHub 托管的
+`macos-26` 上，包括 fork 提交到本仓库的 PR；发布流程（正式版、AutoBuild、官方插件
+发布）需要签名证书和发布密钥，同样使用托管 Runner。2026-10-16 至 10-18 曾试用自建
+Mac mini Runner，因为离线时没有回退、fork 代码跑在长期存活的机器上而撤销，经过见
+[已否决的 Note](../../rejected/process/2026-10-18-self-hosted-mac-mini-ci-runners.md)。
 
 同一个 PR 的后续 push 按 lane 复用之前的结果。观察到的问题是：作者补一个很小的
 提交，或者为了同步 `preview` 更新分支，所有 lane 都会重新完整运行，而结果大概率
 不变。`scripts/plan-ci-lane-reuse.mjs` 在 macOS CI、插件 CI 和 Windows CI 的分类 job
 中逐个 lane 判断：找到这个 PR 之前真正执行过该 lane 的最近一次运行，job 已通过或
-仍在运行，并且 PR 自己在此之后的改动（按现有分类规则）不影响这个 lane，就复用
+已经在 GitHub 托管 Runner 上排队或运行，并且 PR 自己在此之后的改动（按现有分类规则）不影响这个 lane，就复用
 那次结果。只看 PR 自己的改动：用“每个文件的 PR 版本”比较两个修订，从 base 同步
-进来的改动不算；但只要 base 在两次运行之间带来了 CI 基础设施的改动（workflow、
-action、分类和 runner 脚本、测试基础设施、`Package.swift`/`Package.resolved`、所有
-Cargo 清单与锁文件（包括成员 crate，只改 feature 时锁文件可能不变）、Rust 工具链
-文件），全部 lane 重跑。文件身份包含内容和 mode，只改执行位也算变化；路径用 NUL
+进来的改动不算；但只要 base 在两次运行之间带来了**本 workflow 会读取的** CI 基础设施
+改动（workflow、action、分类和 runner 脚本、测试基础设施、`Package.swift`/`Package.resolved`、
+所有 Cargo 清单与锁文件（包括成员 crate，只改 feature 时锁文件可能不变）、Rust 工具链
+文件），本 workflow 的全部 lane 重跑。
+
+基础设施按 workflow 划分影响范围（`CI_INFRA_RULES`）。观察到的问题是：#1313 合入
+`preview` 时只改了 `ci-windows.yml` 和 `windows/tauri/src-tauri/Cargo.toml`，同步了
+`preview` 的 #1325 自身没有任何文件变化，却把 macOS 的 Swift、Rust Core、arm64 打包
+和插件 lane 全部重跑了一遍。正确做法是：
+- `.github/` 下的 workflow 和本地 action 按引用关系判断：只影响 workflow 自己的文件，
+  以及它直接或经由 composite action 间接引用的本地 action、reusable workflow。引用
+  关系在规划时从 base 和 head 两个修订读取，不手写清单，新增 action 不用改规则。
+  release、取消旧运行等不被引用的 workflow 改动不让任何 PR lane 重跑。
+- `windows/` 下的 Cargo 清单与锁文件、Rust 工具链和前端 `package.json`、
+  `scripts/*windows*`、`test-stability-windows.ps1` 只影响 Windows CI。Windows 产品通过
+  path 依赖链接 Rust Core，所以 `rust/` 下的 Cargo 改动仍影响全部 workflow。
+- `Package.swift`/`Package.resolved`/`.swift-version`、`test-macos.sh`、Rust Core 构建与
+  验证脚本、`test-stability-macos.sh` 同时影响 macOS CI 和插件 CI，因为插件 workflow
+  也通过 macOS 工具链 action 和 `test-macos.sh` 构建。
+- `frontend/editor/package.json` 与分类规则一致，影响 macOS 和 Windows。分类脚本、规划
+  与校验脚本、根目录 Bun workspace、其余测试基础设施仍影响全部 workflow。
+
+不要把规则改成“所有基础设施改动都全量重跑”来图省事：同步 `preview` 是最常见的
+后续 push，粗粒度规则会让每次合入都把最慢的 macOS 打包 lane 重跑一遍。新增路径
+拿不准影响范围时，归到全部 workflow，宁可多跑也不能漏跑。规划步骤的 summary 会列出
+触发重跑的基础设施路径，以及只影响其他 workflow 而被忽略的路径，便于核对判断。
+
+文件身份包含内容和 mode，只改执行位也算变化；路径用 NUL
 分隔的原始形式读取，分类脚本同样如此，否则 Git 会给中文等路径加引号转义，导致
 路径匹配失败、把真实改动当成没有变化。这里同时检查作者合入的 base 改动和 GitHub 合并
 提交在 base 前进后自动带上的改动（用 API 取得之前那次运行开始时的 base 头）。
-失败或被取消的结果从不复用。
+失败或被取消的结果从不复用。请求自建 Runner 的排队任务及其运行中未完成的任务
+也不复用：GitHub 在创建 job 时固定 Runner 标签，移除自建 Runner 不会让旧任务
+自动转移到托管机器。正确做法是让本轮重新创建托管 job，并取消无人复用的旧运行；
+不要让新 gate 继续等待已撤销的机器。已经通过的旧结果仍可按改动范围复用。官方
+托管的排队任务继续复用，避免同一旧运行因其他 lane 被保留时又创建重复构建。
+
+真实 JDT 集成 lane 在 Windows 上验证共享 Java 引擎，按共享 Rust Java/JDT、JDK/JDT
+资源、准备脚本和 Windows Java 消费方选择。macOS 的 Swift Java 适配器及测试由
+Swift lane 编译验证，不因路径中含有 `Java` 就申请 Windows runner。共享 Core 或
+契约改动仍按各自规则选择跨平台验证；不能用“没有修改 `windows/`”跳过这些检查。
 
 GitHub 只能取消整个 workflow 运行，不能取消单个 job，所以 PR 运行不再按分支自动
 互相取消：规划步骤取消没有任何 lane 复用的旧运行，被复用、仍在运行的旧运行保留
@@ -68,6 +91,19 @@ GitHub 只能取消整个 workflow 运行，不能取消单个 job，所以 PR �
 （同步 `preview` 时会把别人的改动算进来，正是要避免的全量重跑）。接受的风险：
 复用的结果没有测过“PR + 新的 base”这个组合，由合并后的 universal 打包
 兜底。
+
+关闭或合并 PR 时，清理工作流按来源仓库、来源分支和关闭时间查找所有历史运行，
+不能只查最后一次提交：后续 gate 可能仍在复用更早提交的 job，且关闭后 GitHub 的
+运行元数据可能不再包含该 PR。保留关闭后创建的运行、其他来源仓库和非 PR 事件；
+历史运行若仍关联另一个 PR，也不取消。清理使用 GitHub 的强制取消接口，避免旧版
+`always()` 步骤继续占用托管 Runner。取消失败只有在运行已结束时才视为正常竞争，
+权限或 API 故障必须使清理检查失败，不能伪装成清理成功。
+
+四个汇总 gate 在当前 workflow 被取消时跳过，避免上游 `cancelled` 被成功断言再次
+标成 failure。取消不算验证通过；替代运行仍必须完成所有选中的 lane。当前 workflow
+未取消时，即使分类或测试失败，gate 也必须执行并失败；外部复用来源失败、取消、
+不可读取或超时，同样不能放行。不要把 gate 改成只在 `success()` 时执行，也不要在
+shell 中把取消结果转换为成功，否则真正失败会消失。
 
 合并之后只运行 PR 观察不到的部分。PR 是合入 `preview` 的门槛，完整验证在 PR
 上完成；合并后的 push 只在改动涉及打包内容时构建 universal 包。这是 x86_64
@@ -81,76 +117,10 @@ GitHub 只能取消整个 workflow 运行，不能取消单个 job，所以 PR �
 代价是 Windows 的 GitHub 缓存只由 PR 刷新，`Cargo.lock` 变化后的几个 PR 会从
 较旧的前缀命中开始编译。
 
-自托管 runner 同时装有带更新 macOS SDK 的 Command Line Tools。首次在 Mac mini 上
-构建 universal 包时，链接 x86_64 时解析到了 `CommandLineTools/SDKs/MacOSX27.0.sdk`，
-Xcode 26.6 的链接器无法读取其中的 `libSystem.B.tbd`。`setup-macos-toolchain` 因此在
-自托管 runner 上把 `SDKROOT` 固定为所选 Xcode 自带的 SDK，并拒绝解析到 Xcode
-之外的 SDK。
-
-Swift 测试 lane 和其他 lane 一样可以分到 Mac mini。首轮在 Mac mini 上运行时，
-`DesktopIsolationTests` 因 WindowServer 两秒内没有登记原生窗口而失败。逐项排查后
-确认原因是 macOS 27：在 Mac mini（macOS 27.0.1）上 `CGWindowListCopyWindowInfo`
-整体返回 NULL，连 `.optionAll` 也一样；同一段代码在 macOS 26.3.1 上没有录屏权限
-也能返回窗口。排查中给三个 runner 自带的 `externals/node<N>/bin/node`（macOS 把
-测试进程归属到它）授予了录屏权限，并关闭了远程软件断开时的锁屏，两项都确认
-生效（`kTCCServiceScreenCapture` 为允许，`IOConsoleLocked = No`），但都不改变
-结果。这个接口自 macOS 15 起被弃用，产品代码没有使用它。
-
-处理方式是只拆出无法执行的那一项检查，而不是整体跳过或固定托管池：原测试拆成
-两条，可见性和像素绘制始终运行；读取 WindowServer 透明度的那条用
-`.enabled(if:)` 在窗口列表不可用时跳过，测试报告里写明原因（#1278）。为了不让
-隔离逻辑的改动失去这项检查，分类脚本在 `macos/Tests/LitheTestDesktopIsolation*`
-变化时输出 `swift_hosted`，选择器通过 `LITHE_HOSTED_ONLY_LANES` 把这次运行的
-Swift lane 留在托管的 macOS 26 runner 上。被否方案：Swift lane 一律固定托管池
-（托管池满时它是 PR 最慢的一环，10/16 排队 16 分钟）；在 Mac mini 上整体跳过这条
-测试（会连同仍然可验证的排列和绘制一起丢掉）。苹果提供可读取透明度的替代接口
-后，恢复在 macOS 27 上的完整检查。同一轮还暴露出编辑器字体
-目录把声明了等宽但拉丁字符不等宽的字体（兰亭黑 `Lantinghei TC`）列为等宽，
-那是产品缺陷，单独修复。
-
-这个选择是一次性的近似判断：只统计本仓库的 job，看不到组织内其他仓库对
-托管池的占用；多个 PR 同时进入分类时也可能看到同一个空槽位。它解决的是
-“一边排队、另一边空闲”的常见情况，而不是精确调度。被否方案：用管理员
-令牌查询 runner 在线状态（fork PR 拿不到密钥，PR 工作流也不应持有管理
-权限）；排队超时后取消重投（浪费已排队时间，实现复杂）。
-
-三个 runner 共用物理资源，不等于三台机器。自建任务通过
-`prepare-macos-ci-runner` 安装 Node 24，检查系统工具并记录整机资源快照；
-设置 `CARGO_BUILD_JOBS=2` 与 `LITHE_SWIFT_BUILD_JOBS=2`，SwiftPM 入口统一
-加载 `scripts/macos-swift-build-options.sh`，本地和官方任务未设置变量时保持原并发。
-这限制编译器调度，不限制所有测试子进程，也不放宽原有测试期限。
-自建 Xcode 由管理员预先选择，CI 只校验固定版本并设置 job 内的
-`DEVELOPER_DIR`，不让三个任务并发修改机器级 Xcode 选择。
-
-正确做法：三个 runner 都带同一标签、分别使用自己的 checkout、构建输出和
-临时目录。不要这样做：把 `.build`、`rust/target` 或整个 `.artifacts` 链接为
-跨 runner 的共享目录来省磁盘，这会把并发 PR 的可变状态混在一起。
-
-每个 runner 在自己的工作目录内保留增量编译结果。自托管 job 的
-`actions/checkout` 使用 `clean: false`，随后 `prepare-macos-ci-runner` 调用
-`scripts/reuse-macos-runner-build-state.sh`：`git clean -ffdx` 删除所有未跟踪
-文件（否则上一个 PR 留下的 Swift 源文件会被 SwiftPM 的目录扫描编进去），只排除
-`.build`、`rust/target` 和四个依赖下载目录。Xcode、Swift 或 CPU 架构变化时
-丢弃编译输出；编译状态超过 40 GB 或磁盘剩余不足 25 GB 时也整体丢弃重建。
-首轮观察到，三个 runner 随机接任务时，打包（release 编译）和插件测试
-（debug 测试编译）经常轮流落到同一台机器，保留的状态几乎用不上。因此 runner
-再按编译配置分组：两台带 `lithe-mac-mini-debug`（Swift、插件、Rust Core 测试共用
-debug 测试编译和 debug Rust Core），一台带 `lithe-mac-mini-release`（打包）。
-选择器优先把 lane 分到自己的组，该组满了先借另一组的空闲 runner，再溢出到
-托管池；只带共享标签的旧 job 可能占用任意一台，所以整池容量仍然约束总数。
-同一时刻一个 runner 只跑一个 job，状态不跨 runner、不跨 worktree，因此不违反
-“可变构建状态不得共享”的规则；它只是让同一个工作目录不再每次从零编译。
-自托管 job 跳过 GitHub cache 的恢复与保存：本地目录已经保留了这些内容，
-而 Mac mini 的系统版本与托管 runner 不同，它保存的 Cargo 编译缓存键托管
-runner 永远不会命中。保留下来的依赖目录仍经过
-`validate-macos-dependency-caches.sh` 的同一套校验，不合格就清空回退。
-
-保留 `pull_request` 事件、只读仓库权限及原有审批策略，不改为
-`pull_request_target`，不向 fork 提供发布密钥。保留构建状态意味着 fork PR
-的编译输出会留在 runner 上被后续 job 增量使用；`.build` 与 `rust/target`
-只包含编译产物，后续 job 重新编译改动的源码，但这不是对恶意代码的隔离边界。
-如果需要接受不受信任的 fork 代码，应改为每个 job 前清空构建状态，或为 fork
-保留托管池。
+`DesktopIsolationTests` 里读取 WindowServer 透明度的那条检查，在系统窗口列表不可用时
+用 `.enabled(if:)` 按原因跳过，可见性和像素绘制检查始终运行（#1278）。这条拆分来自
+macOS 27 上 `CGWindowListCopyWindowInfo` 整体返回 NULL 的排查，产品代码并不使用这个
+已弃用的接口；苹果提供可读取透明度的替代接口后，应恢复完整检查。
 
 Swift 测试 job 同时承担 Rust Core 的 Swift 链接验证：
 `scripts/verify-rust-core-swift-bridge.sh --skip-build` 复用该 job 已编译的
@@ -232,6 +202,13 @@ Git 图形的离屏帧采样保留完整 1,000 行历史，但每次只绘制 40
 正确做法：模拟滚动窗口的一帧，把可见区域作为绘制输入。不要把全部历史
 重复绘制 220 次当作单帧采样：这会把画面之外的工作混进测试总耗时，在共享
 runner 上可能出现断言都通过、计时工具仍因超过十秒而失败的情况。
+
+真实进程生命周期测试把解释器启动与进程内事件分开计时。
+`MacRetainedProcessLifecycleTests` 在托管 macOS Runner 上等待 Python 首次就绪时
+触发了进程内 gate 默认的 2 秒期限；它尚未进入 fork 和保留后代的验证场景。
+这类原生启动使用独立的 5 秒就绪期限，并在失败时报告 PID 和运行状态；fork、
+持久化观察和退出信号仍保持原有短期限，单测试仍受 15 秒计时上限约束。
+正确做法是等待明确的就绪事件，不通过固定睡眠同步，也不修改产品进程行为。
 
 CI 缓存 Cargo fingerprints、build script outputs 和依赖 outputs，不缓存
 最终可执行文件。缓存覆盖 `rust/target/macos` 的 Rust Core 和 `rust/target`
@@ -385,14 +362,10 @@ Swift 测试已经编译完整 Lithe 目标。再生成两个 DMG 会在普通�
 
 ## 验证
 
-- `node --test scripts/macos-swift-build-options.test.mjs`：覆盖默认并发、有效预算及无效输入。
-- `node --test scripts/select-macos-ci-runners.test.mjs`：覆盖空闲优先、满载溢出、push 只用
-  Mac mini、跳过当前 run 以及 API 失败时的固定分配。
-- `node --test scripts/reuse-macos-runner-build-state.test.mjs`：覆盖保留编译输出、清除其他
-  未跟踪文件、工具链变化丢弃编译输出及参数校验。
-
 - `actionlint .github/workflows/ci-macos.yml .github/workflows/ci-windows.yml .github/workflows/ci-database.yml .github/workflows/ci-plugins.yml`
-- `./scripts/test-classify-ci-changes.sh`：包含 Draft PR 关闭 runner lane、保留 Linux lane 的用例。
+- `./scripts/test-classify-ci-changes.sh`：包含 Draft PR 关闭 runner lane、保留 Linux lane，以及 macOS Java 不触发 real-JDT、共享引擎和 Windows Java 仍触发的正反例。
+- `node --test scripts/ci-workflow-gates.test.mjs scripts/plan-ci-lane-reuse.test.mjs scripts/verify-reused-ci-jobs.test.mjs`：从实际工作流执行 gate shell，验证取消条件、分类/测试失败、lane 覆盖及复用来源的失败传播。
+- `node --test scripts/cancel-closed-pr-runs.test.mjs`：用离线 GitHub CLI 替身执行关闭清理，验证分页历史运行、来源隔离、关闭时间、取消竞争和 API 失败传播。
 - `./scripts/test-classify-ci-changes.sh` 覆盖 `save-macos-cargo-build-cache` 改动触发全部 macOS lane。
 - `actionlint .github/workflows/ci-macos.yml .github/workflows/release-preview-macos.yml`
 - `./scripts/test-macos.sh`

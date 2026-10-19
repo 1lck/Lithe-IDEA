@@ -156,9 +156,15 @@ struct PluginPackageStoreTests {
         let secondSource = try makePackage(root: root, name: "second", version: versionTwo)
 
         _ = try store.installPackage(from: firstSource)
+        var invalidated: [PluginID] = []
         #expect(throws: TestPluginSignatureError.rejected) {
-            _ = try store.installPackage(from: secondSource)
+            _ = try store.installPackage(from: secondSource, beforeReplacingPackage: { invalidated.append($0) })
         }
+        #expect(invalidated.isEmpty)
+        #expect(throws: PluginPackageStoreError.rollbackUnavailable(PluginID("dev.example.plugin"))) {
+            _ = try store.rollback(PluginID("dev.example.plugin"), beforeReplacingPackage: { invalidated.append($0) })
+        }
+        #expect(invalidated.isEmpty)
 
         let installed = try #require(try store.installedPlugins().first)
         #expect(installed.manifest.version == versionOne)
@@ -177,12 +183,22 @@ struct PluginPackageStoreTests {
         #expect(throws: PluginPackageStoreError.versionAlreadyInstalled(version)) {
             _ = try store.installPackage(from: replacement)
         }
+        var invalidated: [PluginID] = []
+        let current = try #require(try store.installedPlugins().first)
+        let oldManifestURL = current.packageURL.appendingPathComponent("plugin.json")
+        let oldManifest = try Data(contentsOf: oldManifestURL)
         let reinstalled = try store.installPackage(
             from: replacement,
             deferActivationUntilRestart: true,
-            replaceExisting: true
+            replaceExisting: true,
+            beforeReplacingPackage: { id in
+                invalidated.append(id)
+                // The callback must precede the move of the active package.
+                #expect((try? Data(contentsOf: oldManifestURL)) == oldManifest)
+            }
         )
 
+        #expect(invalidated == [PluginID("dev.example.plugin")])
         #expect(reinstalled.installation.activeVersion == version)
         #expect(reinstalled.installation.previousVersion == nil)
         #expect(reinstalled.installation.status == .updateStaged)

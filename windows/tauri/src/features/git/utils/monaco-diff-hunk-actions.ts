@@ -28,7 +28,7 @@ export function workingTreeStagingContext(
 
 type HunkOperation = (repoPath: string, hunk: GitHunk) => Promise<boolean>;
 export type HunkActionID = "stage" | "unstage" | "discard";
-type ActionResult = "applied" | "failed" | "ignored" | "cancelled";
+type ActionResult = "applied" | "failed" | "ignored" | "cancelled" | "stale";
 
 export interface MonacoDiffHunkOperations {
   stage: HunkOperation;
@@ -38,6 +38,12 @@ export interface MonacoDiffHunkOperations {
   /** Asks the user to confirm a discard when the setting is enabled; the
    * component supplies the dialog and pending gate. */
   confirmDiscard?: (path: string) => Promise<boolean>;
+  /** Pre-write staleness probe for zero-context hunks (`rawPatch`): resolves
+   * false when the patch the hunk was sliced from no longer matches the
+   * repository. `git apply --unidiff-zero` has no surrounding context to
+   * reject a relocated change, so the surface verifies currency itself.
+   * Ordinary hunks keep their context lines and rely on git apply. */
+  validate?: (hunk: GitHunk) => Promise<boolean>;
 }
 
 /** Discard rewrites working-tree content. New and deleted files have no
@@ -54,19 +60,26 @@ export function createMonacoDiffHunkActions(
   context: DiffStagingContext | undefined,
   operations: MonacoDiffHunkOperations,
 ) {
-  const writable = Boolean(context?.repoPath) && !diff.is_truncated && !diff.has_lossy_line_endings;
-  const action: "stage" | "unstage" | null = writable && context
+  const writable = Boolean(context?.repoPath) && !diff.is_truncated;
+  // Stage/unstage keep the lossy protection unconditionally: their write
+  // hunks come from display lines which lack original bytes.
+  const toggleAction: "stage" | "unstage" | null = writable && !diff.has_lossy_line_endings && context
     ? context.isStaged ? "unstage" : "stage" : null;
+  // Discard rides the byte-faithful channel: monacoDiffHunk slices from
+  // writePatch when available, so lossy files can discard with original
+  // bytes. Without writePatch, lossy files keep the protective fallback.
   const discardEnabled = writable && !!context && !context.isStaged && context.canDiscard === true
-    && !!operations.discard && canDiscardDiff(diff);
-  const actions: readonly HunkActionID[] = action
-    ? discardEnabled ? [action, "discard"] : [action] : [];
+    && !!operations.discard && canDiscardDiff(diff)
+    && (!diff.has_lossy_line_endings || Boolean(diff.writePatch));
+  const actions: readonly HunkActionID[] = toggleAction
+    ? discardEnabled ? [toggleAction, "discard"] : [toggleAction]
+    : discardEnabled ? ["discard"] : [];
   let disposed = false;
   let pending = false;
   let applied = false;
 
   return {
-    action,
+    action: toggleAction,
     actions,
     async apply(hunkID: string, requestedAction: string): Promise<ActionResult> {
       if (disposed || pending || applied || !context
@@ -85,6 +98,14 @@ export function createMonacoDiffHunkActions(
           // owning effect disposes this instance, so never apply afterwards.
           if (disposed) return "ignored";
           if (!confirmed) return "cancelled";
+        }
+        // A zero-context discard has no git-apply context check, so it writes
+        // only after the probe confirms its source patch is still current. A
+        // failed or missing probe refuses rather than risk the wrong lines.
+        if (requested === "discard" && hunk.rawPatch) {
+          const current = operations.validate ? await operations.validate(hunk) : false;
+          if (disposed) return "ignored";
+          if (!current) return "stale";
         }
         const operation = requested === "discard" ? operations.discard! : operations[requested];
         const success = await operation(context.repoPath, hunk);

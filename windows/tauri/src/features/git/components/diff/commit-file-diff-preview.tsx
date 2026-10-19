@@ -196,6 +196,7 @@ function CommitFileDiffPage({ multiDiff, index,
             showWhitespace={showWhitespace} highlightWords={highlightWords}
             startAtFirstDifference={!review || initialDiff.current === diff} onNavigationChange={onNavigationChange}
             startAtLastDifference={multiDiff.initialDifference === "last"}
+            revealRange={multiDiff.initialRevealRange}
             focusOnInitialDifference={!multiDiff.preserveFocus}
             blockControls={blockControls}
             onSplitLayout={onSplitLayout} />
@@ -209,6 +210,7 @@ function CommitFileDiffPage({ multiDiff, index,
             onNavigationChange={onNavigationChange}
             startAtFirstDifference={!review || initialDiff.current === diff}
             startAtLastDifference={multiDiff.initialDifference === "last"}
+            revealRange={multiDiff.initialRevealRange}
             focusOnInitialDifference={!multiDiff.preserveFocus}
             highlightWords={highlightWords}
             repositoryPreview

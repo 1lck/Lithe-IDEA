@@ -74,9 +74,15 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let files: [String]
 
         func makeSnapshot(at rootURL: URL) -> WorkspaceSnapshot {
-            WorkspaceSnapshot(
-                root: root.makeFileNode(at: rootURL),
-                files: files.map { rootURL.appendingPathComponent($0) }
+            // The file list reuses the tree's URL objects. A large workspace
+            // has six-figure file counts, and a second URL per file roughly
+            // doubles the snapshot's resident size.
+            var fileURLs: [String: URL] = [:]
+            fileURLs.reserveCapacity(files.count)
+            let rootNode = root.makeFileNode(at: rootURL, fileURLs: &fileURLs)
+            return WorkspaceSnapshot(
+                root: rootNode,
+                files: files.map { fileURLs[$0] ?? rootURL.appendingPathComponent($0) }
             )
         }
     }
@@ -1799,6 +1805,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let cacheDirectory: String?
         let workspaceFingerprint: String?
         let mavenContext: MavenLaunchContext?
+        let javaGradle: JavaGradleImportConfiguration?
         let javaRuntimes: [LspJavaRuntimeRequest]
         let initializeTimeoutMilliseconds: Int
         let requestTimeoutMilliseconds: Int
@@ -3462,6 +3469,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         cacheDirectoryURL: URL? = nil,
         workspaceFingerprint: String? = nil,
         mavenContext: MavenLaunchContext? = nil,
+        javaGradle: JavaGradleImportConfiguration? = nil,
         initializeTimeout: TimeInterval = 30,
         requestTimeout: TimeInterval = 30,
         shutdownTimeout: TimeInterval = 2
@@ -3489,6 +3497,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 cacheDirectory: cacheDirectoryURL?.standardizedFileURL.path,
                 workspaceFingerprint: workspaceFingerprint,
                 mavenContext: mavenContext,
+                javaGradle: javaGradle,
                 javaRuntimes: (jdtlsLaunchResources?.javaRuntimes ?? []).map {
                     LspJavaRuntimeRequest(homePath: $0.homePath, version: $0.version)
                 },
@@ -4078,18 +4087,20 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
 }
 
 private extension RustCoreBridge.WorkspaceNodePayload {
-    func makeFileNode(at rootURL: URL) -> FileNode {
-        makeFileNode(at: rootURL, insideSourceRoot: false)
+    /// Also records each file's URL by its payload path.
+    func makeFileNode(at rootURL: URL, fileURLs: inout [String: URL]) -> FileNode {
+        makeFileNode(at: rootURL, insideSourceRoot: false, fileURLs: &fileURLs)
     }
 
     /// 把只含单个子目录的中间包压缩成一行（IDEA 的 Compact Middle Packages）。
     /// 规则对齐 TreeViewUtil.isEmptyMiddlePackage：唯一的子节点是目录、且当前
     /// 目录下没有文件时才压缩。只在源码根之下压缩，src/main/java 之外的目录树
     /// 保持原样，否则普通项目里任意的单层目录也会被合并，反而更难看懂。
-    private func makeFileNode(at rootURL: URL, insideSourceRoot: Bool) -> FileNode {
+    private func makeFileNode(at rootURL: URL, insideSourceRoot: Bool, fileURLs: inout [String: URL]) -> FileNode {
         let url = path.isEmpty ? rootURL : rootURL.appendingPathComponent(path)
 
         guard isDirectory else {
+            fileURLs[path] = url
             return FileNode(url: url, isDirectory: false, children: nil)
         }
 
@@ -4116,7 +4127,7 @@ private extension RustCoreBridge.WorkspaceNodePayload {
             url: nodeURL,
             isDirectory: true,
             children: node.children?.map {
-                $0.makeFileNode(at: rootURL, insideSourceRoot: childrenInsideSourceRoot)
+                $0.makeFileNode(at: rootURL, insideSourceRoot: childrenInsideSourceRoot, fileURLs: &fileURLs)
             },
             collapsedAncestorPaths: collapsed,
             isInsideSourceRoot: insideSourceRoot

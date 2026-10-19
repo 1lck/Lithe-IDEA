@@ -20,6 +20,15 @@ enum DebugToolbarActionID: String, CaseIterable, Identifiable {
 }
 
 enum DebugToolbarPresentation {
+    static func mainToolbarControl(state: DebugAdapterState?, debugTarget: String?, selectedTarget: String?) -> DebugToolbarActionID? {
+        guard let debugTarget, debugTarget == selectedTarget else { return nil }
+        switch state {
+        case .paused: return .resume
+        case .running: return .pause
+        default: return nil
+        }
+    }
+
     static func stackFrameLabel(_ frame: DebugStackFrame, showsSourceName: Bool) -> String {
         guard showsSourceName, let source = frame.sourceURL, source.pathExtension.lowercased() == "java" else {
             return frame.name

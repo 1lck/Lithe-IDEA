@@ -97,6 +97,16 @@ export function useCommitDiffReview(bufferId: string | null, fileKey: string,
           file.staged ? getFullContextFileDiff(repoPath, filePath, true) : Promise.resolve(null),
         ]);
         if (!diff || (file.staged && !indexed)) throw new Error("Git diff unavailable");
+        // The rollback channel needs the index→worktree raw patch for lossy
+        // files; the display diff (HEAD→worktree) cannot carry it. Read it
+        // alongside so the block computation receives writePatch.
+        if (!stagedView && diff.has_lossy_line_endings) {
+          const faithful = await getFullContextFileDiff(repoPath, filePath, false);
+          if (faithful?.writePatch) {
+            return { diff: { ...diff, writePatch: faithful.writePatch },
+              staged: indexed ?? { ...diff, lines: [] }, file };
+          }
+        }
         return { diff, staged: indexed ?? { ...diff, lines: [] }, file };
       },
       stage: hunk => current() ? stageHunk(repoPath, hunk) : Promise.resolve(false),

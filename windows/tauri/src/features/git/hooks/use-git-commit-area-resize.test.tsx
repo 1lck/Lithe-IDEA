@@ -206,11 +206,11 @@ test("arrow keys after the window shrank start from the visible height", async (
 // Drive layout notifications explicitly: no real browser timing or polling.
 test("pane resizing and wrapped controls cap rendering without changing the saved height", async () => {
   await act(async () => useGitCommitPanelPreferencesStore.setState({ commitMessageHeight: 400 }));
-  paneHeight = 500;
+  paneHeight = GIT_CHANGES_MIN_HEIGHT + 404;
   editorHeight = 400;
   observers.forEach((measure) => measure());
   expect(commitArea().style.getPropertyValue("--git-commit-message-max-height")).toBe("324px");
-  paneHeight = 300;
+  paneHeight = GIT_CHANGES_MIN_HEIGHT + 204;
   chromeHeight = 104;
   observers.forEach((measure) => measure());
   expect(commitArea().style.getPropertyValue("--git-commit-message-max-height")).toBe("100px");
@@ -219,7 +219,7 @@ test("pane resizing and wrapped controls cap rendering without changing the save
   paneHeight = 0;
   observers.forEach((measure) => measure());
   expect(commitArea().style.getPropertyValue("--git-commit-message-max-height")).toBe("100px");
-  paneHeight = 600;
+  paneHeight = GIT_CHANGES_MIN_HEIGHT + 504;
   observers.forEach((measure) => measure());
   expect(commitArea().style.getPropertyValue("--git-commit-message-max-height")).toBe("400px");
   await act(async () => root.render(null));
@@ -228,7 +228,7 @@ test("pane resizing and wrapped controls cap rendering without changing the save
 
 test("dragging a pane-capped editor starts at its rendered height", async () => {
   await act(async () => useGitCommitPanelPreferencesStore.setState({ commitMessageHeight: 400 }));
-  paneHeight = 276;
+  paneHeight = GIT_CHANGES_MIN_HEIGHT + 180;
   editorHeight = 100;
   observers.forEach((measure) => measure());
   await drag(500, 520);

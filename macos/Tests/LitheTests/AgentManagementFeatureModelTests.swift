@@ -24,6 +24,30 @@ struct AgentManagementFeatureModelTests {
     }
 
     @Test
+    func repeatedChecksPublishLoadingFailureAndRetryWithoutDroppingPreviousResults() async throws {
+        let service = TestAgentManagementService()
+        let feature = AgentManagementFeatureModel(service: service, dataDirectory: URL(fileURLWithPath: "/tmp/lithe-agents"))
+        await feature.refresh()
+        let previous = feature.status
+        await service.holdStatus()
+        let refresh = Task { await feature.refresh() }
+        defer { refresh.cancel(); Task { await service.releaseStatus() } }
+        #expect(await awaitChange(on: feature) { feature.phase == .checking })
+        #expect(feature.status == previous, "The loading state must also appear for a repeated check")
+        await feature.refresh()
+        await service.failStatus("Connection refused")
+        await service.releaseStatus()
+        await refresh.value
+        #expect(feature.phase == .failed("Connection refused"))
+        #expect(feature.status == previous)
+        #expect(await service.statusCalls == 2, "Checking again while busy must not launch another request")
+        await service.failStatus(nil)
+        await feature.refresh()
+        #expect(feature.phase == .ready)
+        #expect(await service.statusCalls == 3)
+    }
+
+    @Test
     func installRunsOneOperationAndRefreshesAfterward() async throws {
         let service = TestAgentManagementService()
         let feature = AgentManagementFeatureModel(service: service, dataDirectory: URL(fileURLWithPath: "/tmp/lithe-agents"))
@@ -176,7 +200,15 @@ private actor TestAgentManagementService: AgentManagementService {
         var errorDescription: String? { message }
     }
 
-    func failStatus(_ message: String) { statusFailure = message }
+    func failStatus(_ message: String?) { statusFailure = message }
+    private var statusGate: CheckedContinuation<Void, Never>?
+    private var holdsStatus = false
+    func holdStatus() { holdsStatus = true }
+    func releaseStatus() {
+        holdsStatus = false
+        statusGate?.resume()
+        statusGate = nil
+    }
     func failInstall(_ message: String) { installFailure = message }
     func holdInstall() { holdsInstall = true }
 
@@ -212,6 +244,7 @@ private actor TestAgentManagementService: AgentManagementService {
 
     func status(dataDirectory: URL) async throws -> AgentManagementStatus {
         statusCalls += 1
+        if holdsStatus { await withCheckedContinuation { statusGate = $0 } }
         if let statusFailure { throw Failure(message: statusFailure) }
         return AgentManagementStatus(
             environment: AgentRuntimeEnvironment(

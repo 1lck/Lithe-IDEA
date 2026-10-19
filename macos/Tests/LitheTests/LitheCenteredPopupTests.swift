@@ -7,6 +7,49 @@ import LitheCoreContracts
 @Suite("Centered product popup", .serialized)
 struct LitheCenteredPopupTests {
     @MainActor
+    @Test(arguments: [ColorScheme.dark, .light], ["en", "zh-Hans"])
+    func projectOpenDialogUsesSharedTitledPopup(scheme: ColorScheme, language: String) async throws {
+        MacBundledFontRegistry.registerFonts()
+        let parent = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 800, height: 600),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        parent.isReleasedWhenClosed = false
+        parent.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
+        let presenter = LitheCenteredPopupPresenter()
+        defer { presenter.close(); parent.close() }
+        var dismissals = 0
+        let locale = Locale(identifier: language)
+        let title = String(localized: "Open Project", locale: locale)
+        let request = PendingProjectOpen(
+            url: URL(fileURLWithPath: "/workspace/Lithe-Git-Terminal-Stress-vxw526dr"), sourceSessionID: UUID()
+        )
+        let host = NSHostingController(rootView: OpenProjectLocationDialog(
+            request: request, onResolve: { _, _ in }, onCancel: {}
+        ).environment(\.colorScheme, scheme).environment(\.locale, locale))
+        presenter.show(contentController: host, parent: parent, dialogTitle: title) { dismissals += 1 }
+        let panel = try #require(host.view.window)
+        // SwiftUI settles the hosting view after attachment; capture the laid-out window.
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(1))
+        while host.view.bounds.width == 0, clock.now < deadline { await Task.yield() }
+        #expect(panel.styleMask.contains(.titled))
+        #expect(panel.title == title)
+        #expect(parent.sheets.isEmpty)
+        #expect(host.view.bounds.width == 470)
+        // Capture the real native titlebar and SwiftUI controls, including localized wrapping.
+        if let directory = ProcessInfo.processInfo.environment["LITHE_POPUP_CAPTURE_DIR"] {
+            let frame = try #require(panel.contentView?.superview)
+            frame.layoutSubtreeIfNeeded()
+            let bitmap = try #require(frame.bitmapImageRepForCachingDisplay(in: frame.bounds))
+            frame.cacheDisplay(in: frame.bounds, to: bitmap)
+            try #require(bitmap.representation(using: .png, properties: [:])).write(to:
+                URL(fileURLWithPath: directory).appendingPathComponent("open-project-\(language)-\(scheme == .dark ? "dark" : "light").png"))
+        }
+        panel.performClose(nil)
+        #expect(!panel.isVisible)
+        #expect(dismissals == 1)
+    }
+
+    @MainActor
     @Test(arguments: [ColorScheme.dark, .light])
     func commitDialogUsesTitledWindowAndExplicitDismissal(scheme: ColorScheme) async throws {
         MacBundledFontRegistry.registerFonts()

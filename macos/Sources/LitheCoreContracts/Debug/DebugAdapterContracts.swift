@@ -298,6 +298,7 @@ public struct DebugBreakpoint: Identifiable, Equatable, Sendable {
     public let functionName: String?
     public let dataID: String?
     public let sourceURL: URL?
+    public let requestedLine: Int?
     public let line: Int?
     public let column: Int?
 
@@ -309,7 +310,8 @@ public struct DebugBreakpoint: Identifiable, Equatable, Sendable {
         line: Int?,
         column: Int?,
         functionName: String? = nil,
-        dataID: String? = nil
+        dataID: String? = nil,
+        requestedLine: Int? = nil
     ) {
         self.id = id
         self.verified = verified
@@ -317,6 +319,7 @@ public struct DebugBreakpoint: Identifiable, Equatable, Sendable {
         self.functionName = functionName
         self.dataID = dataID
         self.sourceURL = sourceURL
+        self.requestedLine = requestedLine
         self.line = line
         self.column = column
     }

@@ -69,6 +69,7 @@ function coreData<T>(response: CoreResponse<T>): T {
 }
 
 export async function requestSpringIndex(args: {
+  requestId?: string;
   root: string;
   paths: string[];
   metadataRepositories?: string[];
@@ -76,7 +77,7 @@ export async function requestSpringIndex(args: {
   refreshDependencyMetadata: boolean;
 }, execute = executeCore): Promise<SpringIndex> {
   const response = await execute<CoreSpringIndex>({
-    id: crypto.randomUUID(),
+    id: args.requestId ?? crypto.randomUUID(),
     timeoutMilliseconds: args.refreshDependencyMetadata ? 60_000 : 30_000,
     command: "spring.index",
     payload: {

@@ -1,4 +1,5 @@
 import AppKit
+import JavaRuntimeSupport
 import CoreText
 import Testing
 import SwiftUI
@@ -265,6 +266,44 @@ struct ContextMenuCoverageTests {
         while !queuePassedNotification, clock.now < deadline { await Task.yield() }
         #expect(queuePassedNotification, "Main queue did not reach the cancellation sentinel")
         #expect(callbacks == 0)
+    }
+
+    @Test(arguments: [ColorScheme.light, .dark])
+    func newlyInsertedOpenDropdownPresentsAfterAnchorAttaches(scheme: ColorScheme) async throws {
+        // Info tips insert their anchor only after hover/click requests presentation.
+        var isPresented = true
+        let host = NSHostingView(rootView: LitheDropdownPopover(
+            isPresented: Binding(get: { isPresented }, set: { isPresented = $0 })
+        ) { Text("Setting explanation").frame(width: 320, height: 60) }
+            .frame(width: 18, height: 18).environment(\.colorScheme, scheme))
+        host.layoutSubtreeIfNeeded()
+        func anchor(in view: NSView) -> LitheDropdownAnchorView? {
+            if let anchor = view as? LitheDropdownAnchorView { return anchor }
+            return view.subviews.lazy.compactMap { anchor(in: $0) }.first
+        }
+        let clock = ContinuousClock()
+        let creationDeadline = clock.now.advanced(by: .seconds(1))
+        while anchor(in: host) == nil, clock.now < creationDeadline { await Task.yield() }
+        let detachedAnchor = try #require(anchor(in: host))
+        #expect(detachedAnchor.window == nil)
+        let window = NSWindow(contentRect: NSRect(x: 100, y: 400, width: 100, height: 100),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+        // Attach the native anchor without a second SwiftUI update masking the lifecycle gap.
+        window.contentView = detachedAnchor
+        let deadline = clock.now.advanced(by: .seconds(1))
+        while window.childWindows?.first == nil, clock.now < deadline { await Task.yield() }
+        let popup = try #require(window.childWindows?.first,
+                                 "An initially open anchor must present when attached, without another state change")
+        #expect(popup.isVisible)
+        #expect(popup.appearance?.name == (scheme == .dark ? .darkAqua : .aqua))
+        window.contentView = nil
+        #expect(!popup.isVisible)
+        #expect(!isPresented)
     }
 
     @Test(arguments: [ColorScheme.light, .dark])
@@ -545,7 +584,7 @@ struct ContextMenuCoverageTests {
                        appearance: NSAppearance(named: .darkAqua)) { dismissals += 1 }
         let window = try #require(controller.view.window)
         #expect(window.styleMask.contains(.borderless))
-        #expect(controller.view.subviews.compactMap { $0 as? SplitHandleInteractionView }.isEmpty)
+        #expect(controller.view.subviews.compactMap { $0 as? LitheDropdownResizeHandle }.isEmpty)
         #expect(!window.isOpaque)
         #expect(window.backgroundColor == .clear)
         #expect(window.frame.width == 300)
@@ -606,15 +645,17 @@ struct ContextMenuCoverageTests {
         // live app; a synchronous test host otherwise leaves it inactive.
         container.widthAnchor.constraint(greaterThanOrEqualToConstant: 375).isActive = true
         window.layoutIfNeeded()
-        let handle = try #require(container.subviews.compactMap { $0 as? SplitHandleInteractionView }.first)
+        let handle = try #require(container.subviews.compactMap { $0 as? LitheDropdownResizeHandle }.first)
+        handle.select(CGSize(width: 1, height: 0))
         #expect(handle.resizeCursor === NSCursor.resizeLeftRight)
-        let start = handle.convert(NSPoint(x: handle.bounds.midX, y: handle.bounds.midY), to: nil)
+        let hit = NSPoint(x: handle.bounds.maxX - 4, y: handle.bounds.midY)
+        let start = handle.convert(hit, to: nil)
         func event(_ type: NSEvent.EventType, translation: CGFloat = 0) throws -> NSEvent {
             try #require(NSEvent.mouseEvent(with: type, location: NSPoint(x: start.x + translation, y: start.y),
                 modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil,
                 eventNumber: 0, clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1))
         }
-        #expect(container.hitTest(handle.convert(NSPoint(x: handle.bounds.midX, y: handle.bounds.midY), to: container)) === handle)
+        #expect(container.hitTest(handle.convert(hit, to: container)) === handle)
         window.layoutIfNeeded()
         #expect(window.frame.width == 480)
         #expect(window.contentMinSize.width == 375)
@@ -636,14 +677,14 @@ struct ContextMenuCoverageTests {
         #expect(window.frame.width == expectedWidth)
         #expect(screen.contains(window.frame))
         presenter.dismiss()
-        #expect(controller.view.subviews.compactMap { $0 as? SplitHandleInteractionView }.isEmpty)
+        #expect(controller.view.subviews.compactMap { $0 as? LitheDropdownResizeHandle }.isEmpty)
         presenter.show(contentController: controller, at: anchor,
                        appearance: nil, resizableWidth: widths.last, minimumWidth: 375) {}
         #expect(controller.view.window?.frame.width == expectedWidth)
         #expect(widths == [expectedWidth])
     }
 
-    @Test(arguments: [ProjectReplacePanelGeometry.Corner.topTrailing, .bottomTrailing], [false, true])
+    @Test(arguments: [ProjectReplacePanelGeometry.Corner.topLeading, .topTrailing, .bottomLeading, .bottomTrailing], [false, true])
     func branchCornerResizesBothAxesAndRestoresSize(position: ProjectReplacePanelGeometry.Corner, opensAbove: Bool) throws {
         let scheduler = LitheDragUpdateScheduler(delivery: .manual)
         let presenter = LitheContextMenuPresenter(resizeScheduler: scheduler)
@@ -658,7 +699,7 @@ struct ContextMenuCoverageTests {
         ))
         var commits: [CGSize] = []
         func show(width: CGFloat, height: CGFloat?) {
-            presenter.show(contentController: controller, at: NSPoint(x: screen.minX, y: opensAbove ? screen.minY + 120 : screen.maxY - 120),
+            presenter.show(contentController: controller, at: NSPoint(x: screen.midX - 240, y: opensAbove ? screen.minY + 120 : screen.maxY - 120),
                 appearance: nil, opensUpward: opensAbove, resizableWidth: width, minimumWidth: 375,
                 resizableHeight: height, minimumHeight: BranchSwitcherPopover.Metrics.minimumHeight,
                 onSizeChanged: { commits.append($0) }) {}
@@ -669,28 +710,39 @@ struct ContextMenuCoverageTests {
         container.widthAnchor.constraint(greaterThanOrEqualToConstant: 375).isActive = true
         window.layoutIfNeeded()
         let initial = window.frame
-        let corner = try #require(container.subviews.compactMap { $0 as? ProjectReplaceCornerHandleView }.first { $0.corner == position })
-        #expect(container.subviews.compactMap { $0 as? ProjectReplaceCornerHandleView }.count == 2)
-        #expect(corner.corner == position)
-        if #available(macOS 15.0, *) {
-            #expect(corner.resizeCursor === NSCursor.frameResize(position: position.isTop ? .topRight : .bottomRight, directions: .all))
+        let corner = try #require(container.subviews.compactMap { $0 as? LitheDropdownResizeHandle }.first)
+        func hit() -> NSPoint {
+            NSPoint(x: position.isLeading ? 4 : corner.bounds.maxX - 4,
+                    y: position.isTop ? corner.bounds.maxY - 4 : 4)
         }
+        let direction = try #require(corner.direction(at: hit()))
+        #expect(direction == CGSize(width: position.isLeading ? -1 : 1, height: position.isTop ? 1 : -1))
+        corner.select(direction)
+        let expectedCursor: NSCursor?
+        switch position {
+        case .topLeading: expectedCursor = NSCursor.javaResizeNW()
+        case .topTrailing: expectedCursor = NSCursor.javaResizeNE()
+        case .bottomLeading: expectedCursor = NSCursor.javaResizeSW()
+        case .bottomTrailing: expectedCursor = NSCursor.javaResizeSE()
+        }
+        let systemCursor = try #require(expectedCursor)
+        #expect(corner.resizeCursor.hotSpot == systemCursor.hotSpot)
+        #expect(corner.resizeCursor.image.size == systemCursor.image.size)
+        #expect(corner.resizeCursor.image.tiffRepresentation == systemCursor.image.tiffRepresentation)
         #expect(corner.resizeCursor !== NSCursor.arrow)
-        corner.updateTrackingAreas()
-        #expect(corner.trackingAreas.contains { $0.options.contains(.activeAlways) })
         let oldCursor = NSCursor.current
         defer { oldCursor.set() }
         NSCursor.arrow.set()
         window.sendEvent(try #require(NSEvent.mouseEvent(with: .mouseMoved,
-            location: corner.convert(NSPoint(x: corner.bounds.midX, y: corner.bounds.midY), to: nil),
+            location: corner.convert(hit(), to: nil),
             modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil,
             eventNumber: 0, clickCount: 0, pressure: 0)))
         #expect(NSCursor.current === corner.resizeCursor, "Hover must set the cursor before the first click")
-        let point = corner.convert(NSPoint(x: corner.bounds.midX, y: corner.bounds.midY), to: container)
+        let point = corner.convert(hit(), to: container)
         #expect(container.hitTest(point) === corner)
         func drag(_ delta: CGSize) throws {
             let startFrame = window.frame
-            let start = window.convertPoint(toScreen: corner.convert(NSPoint(x: corner.bounds.midX, y: corner.bounds.midY), to: nil))
+            let start = window.convertPoint(toScreen: corner.convert(hit(), to: nil))
             for type in [NSEvent.EventType.leftMouseDown, .leftMouseDragged, .leftMouseUp] {
                 let steps = type == .leftMouseDragged ? 20 : 1
                 let deliveries = scheduler.deliveredCount
@@ -709,16 +761,18 @@ struct ContextMenuCoverageTests {
                     #expect(scheduler.deliveredCount == deliveries + 1)
                     window.layoutIfNeeded()
                     #expect(window.frame.size == CGSize(
-                        width: min(max(startFrame.width + delta.width, 375), screen.maxX - startFrame.minX),
+                        width: min(max(startFrame.width + (position.isLeading ? -delta.width : delta.width), 375),
+                                   position.isLeading ? startFrame.maxX - screen.minX : screen.maxX - startFrame.minX),
                         height: min(max(startFrame.height + (position.isTop ? -delta.height : delta.height), 312),
                                     position.isTop ? screen.maxY - startFrame.minY : startFrame.maxY - screen.minY)))
                 }
             }
             window.layoutIfNeeded()
         }
-        try drag(CGSize(width: 100, height: position.isTop ? -100 : 100))
-        let expected = CGSize(width: min(initial.width + 100, screen.width), height: min(initial.height + 100, position.isTop ? screen.maxY - initial.minY : initial.maxY - screen.minY))
+        try drag(CGSize(width: position.isLeading ? -100 : 100, height: position.isTop ? -100 : 100))
+        let expected = CGSize(width: min(initial.width + 100, position.isLeading ? initial.maxX - screen.minX : screen.maxX - initial.minX), height: min(initial.height + 100, position.isTop ? screen.maxY - initial.minY : initial.maxY - screen.minY))
         #expect(window.frame.size == expected)
+        #expect(position.isLeading ? window.frame.maxX == initial.maxX : window.frame.minX == initial.minX)
         #expect(position.isTop ? window.frame.minY == initial.minY : window.frame.maxY == initial.maxY)
         #expect(controller.view.frame.size == expected)
         #expect(commits == [expected])
@@ -727,10 +781,10 @@ struct ContextMenuCoverageTests {
         window.layoutIfNeeded()
         #expect(window.frame == releasedFrame, "Content refresh must preserve the released corner position")
         commits.removeAll()
-        try drag(CGSize(width: -10000, height: position.isTop ? 10000 : -10000))
+        try drag(CGSize(width: position.isLeading ? 10000 : -10000, height: position.isTop ? 10000 : -10000))
         #expect(window.frame.size == CGSize(width: 375, height: 312))
         commits.removeAll()
-        try drag(CGSize(width: 10000, height: position.isTop ? -10000 : 10000))
+        try drag(CGSize(width: position.isLeading ? -10000 : 10000, height: position.isTop ? -10000 : 10000))
         #expect(screen.contains(window.frame))
         let saved = try #require(commits.last)
         presenter.dismiss()
@@ -738,6 +792,73 @@ struct ContextMenuCoverageTests {
         show(width: saved.width, height: saved.height)
         controller.view.window?.layoutIfNeeded()
         #expect(controller.view.window?.frame.size == saved)
+    }
+
+    @Test(arguments: [NSRectEdge.minX, .maxX, .minY, .maxY])
+    func branchEdgesResizeOnlyTheirAxisAndRestoreCursor(edge: NSRectEdge) throws {
+        let presenter = LitheContextMenuPresenter()
+        defer { presenter.dismiss() }
+        let screen = try #require(NSScreen.main).visibleFrame
+        let controller = LitheDropdownHostingController(rootView: AnyView(
+            Text("Branches").frame(minWidth: 375, maxWidth: .infinity, minHeight: 312, maxHeight: .infinity)))
+        var commits: [CGSize] = []
+        presenter.show(contentController: controller, at: NSPoint(x: screen.midX - 240, y: screen.midY + 200),
+                       appearance: nil, resizableWidth: 480, minimumWidth: 375,
+                       resizableHeight: 400, minimumHeight: 312, onSizeChanged: { commits.append($0) }) {}
+        let window = try #require(controller.view.window)
+        let container = try #require(window.contentView)
+        let handle = try #require(container.subviews.compactMap { $0 as? LitheDropdownResizeHandle }.first)
+        window.layoutIfNeeded()
+        let initial = window.frame
+        let point = NSPoint(x: edge == .minX ? 4 : edge == .maxX ? 476 : 240,
+                            y: edge == .minY ? 4 : edge == .maxY ? 396 : 200)
+        #expect(container.hitTest(point) === handle)
+        #expect(container.hitTest(NSPoint(x: 240, y: 200)) !== handle)
+        let start = window.convertPoint(toScreen: point)
+        let delta = NSPoint(x: edge == .minX ? -20 : edge == .maxX ? 20 : 0,
+                            y: edge == .minY ? -20 : edge == .maxY ? 20 : 0)
+        let oldCursor = NSCursor.current
+        defer { oldCursor.set() }
+        func send(_ type: NSEvent.EventType, screenPoint: NSPoint) throws {
+            window.sendEvent(try #require(NSEvent.mouseEvent(with: type, location: window.convertPoint(fromScreen: screenPoint),
+                modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil,
+                eventNumber: 0, clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1)))
+        }
+        try send(.mouseMoved, screenPoint: start)
+        #expect(NSCursor.current === (delta.x == 0 ? NSCursor.resizeUpDown : NSCursor.resizeLeftRight))
+        try send(.leftMouseDown, screenPoint: start)
+        try send(.leftMouseDragged, screenPoint: NSPoint(x: start.x + delta.x, y: start.y + delta.y))
+        #expect(commits.isEmpty)
+        try send(.leftMouseUp, screenPoint: NSPoint(x: start.x + delta.x, y: start.y + delta.y))
+        window.layoutIfNeeded()
+        #expect(window.frame.size == CGSize(width: initial.width + abs(delta.x), height: initial.height + abs(delta.y)))
+        #expect(edge == .minX ? window.frame.maxX == initial.maxX : window.frame.minX == initial.minX)
+        #expect(edge == .minY ? window.frame.maxY == initial.maxY : window.frame.minY == initial.minY)
+        #expect(commits == [window.frame.size])
+        let released = window.frame
+        presenter.resize(contentController: controller)
+        window.layoutIfNeeded()
+        #expect(window.frame == released)
+        try send(.mouseMoved, screenPoint: NSPoint(x: window.frame.midX, y: window.frame.midY))
+        #expect(NSCursor.current === NSCursor.arrow)
+    }
+
+    @Test
+    func branchResizeUsesCommunityBorderAndLeavesContentInteractive() {
+        let handle = LitheDropdownResizeHandle(frame: NSRect(x: 0, y: 0, width: 480, height: 400))
+        #expect(handle.direction(at: NSPoint(x: 8, y: 16)) == nil)
+        #expect(handle.direction(at: NSPoint(x: 7, y: 16)) == CGSize(width: -1, height: 0))
+        #expect(handle.direction(at: NSPoint(x: 7, y: 15)) == CGSize(width: -1, height: -1))
+        #expect(handle.direction(at: NSPoint(x: 15, y: 7)) == CGSize(width: -1, height: -1))
+        #expect(handle.direction(at: NSPoint(x: 16, y: 7)) == CGSize(width: 0, height: -1))
+        #expect(handle.direction(at: NSPoint(x: 240, y: 399)) == CGSize(width: 0, height: 1))
+        #expect(handle.direction(at: NSPoint(x: 479, y: 200)) == CGSize(width: 1, height: 0))
+        #expect(handle.hitTest(NSPoint(x: 240, y: 200)) == nil)
+        #expect(handle.direction(at: NSPoint(x: -1, y: 10)) == nil)
+        handle.select(CGSize(width: 0, height: 1))
+        #expect(handle.resizeCursor === NSCursor.resizeUpDown)
+        handle.resizesHeight = false
+        #expect(handle.direction(at: NSPoint(x: 240, y: 399)) == nil)
     }
 
     @Test

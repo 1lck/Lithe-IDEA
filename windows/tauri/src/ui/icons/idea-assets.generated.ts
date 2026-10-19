@@ -57,6 +57,8 @@ import clockCounterClockwiseLight from "./idea/expui/general/history.svg?url";
 import clockCounterClockwiseDark from "./idea/expui/general/history_dark.svg?url";
 import columnsLight from "./idea/expui/general/splitVertically.svg?url";
 import columnsDark from "./idea/expui/general/splitVertically_dark.svg?url";
+import commitMagicLight from "./idea/expui/diff/magicResolveToolbar.svg?url";
+import commitMagicDark from "./idea/expui/diff/magicResolveToolbar_dark.svg?url";
 import copyLight from "./idea/expui/general/copy.svg?url";
 import copyDark from "./idea/expui/general/copy_dark.svg?url";
 import copySimpleLight from "./idea/expui/general/copy.svg?url";
@@ -179,6 +181,8 @@ import questionLight from "./idea/expui/general/questionDialog.svg?url";
 import questionDark from "./idea/expui/general/questionDialog_dark.svg?url";
 import refreshLight from "./idea/expui/general/refresh.svg?url";
 import refreshDark from "./idea/expui/general/refresh_dark.svg?url";
+import revertLight from "./idea/expui/vcs/revert.svg?url";
+import revertDark from "./idea/expui/vcs/revert_dark.svg?url";
 import rowsLight from "./idea/expui/general/splitHorizontally.svg?url";
 import rowsDark from "./idea/expui/general/splitHorizontally_dark.svg?url";
 import runToolWindowLight from "./idea/expui/toolwindows/run.svg?url";
@@ -260,6 +264,7 @@ export const ideaIconAssets: Record<string, IdeaIconAsset> = {
   ChevronUpIcon: { light: chevronUpLight, dark: chevronUpDark },
   ClockCounterClockwiseIcon: { light: clockCounterClockwiseLight, dark: clockCounterClockwiseDark },
   ColumnsIcon: { light: columnsLight, dark: columnsDark },
+  CommitMagicIcon: { light: commitMagicLight, dark: commitMagicDark },
   CopyIcon: { light: copyLight, dark: copyDark },
   CopySimpleIcon: { light: copySimpleLight, dark: copySimpleDark },
   DatabaseIcon: { light: databaseLight, dark: databaseDark },
@@ -315,6 +320,7 @@ export const ideaIconAssets: Record<string, IdeaIconAsset> = {
   PushPinIcon: { light: pushPinLight, dark: pushPinDark },
   QuestionIcon: { light: questionLight, dark: questionDark },
   RefreshIcon: { light: refreshLight, dark: refreshDark },
+  RevertIcon: { light: revertLight, dark: revertDark },
   RowsIcon: { light: rowsLight, dark: rowsDark },
   RunToolWindowIcon: { light: runToolWindowLight, dark: runToolWindowDark, large: { light: runToolWindowLargeLight, dark: runToolWindowLargeDark } },
   ScissorsIcon: { light: scissorsLight, dark: scissorsDark },

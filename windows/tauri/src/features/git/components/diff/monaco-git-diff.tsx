@@ -16,6 +16,7 @@ import { useFileSystemStore } from "@/features/file-system/stores/file-system.st
 import { useTranslation } from "@/i18n/locale-provider";
 import { joinPath } from "@/utils/path-helpers";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import { isWorktreeWritePatchCurrent } from "@/features/git/api/git-diff-api";
 import { showConfirmDialog } from "@/ui/dialog";
 import { discardHunk, stageHunk, unstageHunk } from "../../api/git-status-api";
 import {
@@ -53,6 +54,8 @@ interface Props {
   startAtFirstDifference?: boolean;
   startAtLastDifference?: boolean;
   focusOnInitialDifference?: boolean;
+  /** One-based modified-side lines to land on; wins over the first/last landing. */
+  revealRange?: { startLine: number; endLine: number };
   highlightWords?: boolean;
   repositoryPreview?: boolean;
   onSplitLayout?: (originalWidth: number) => void;
@@ -76,6 +79,7 @@ export default function MonacoGitDiff({
   startAtFirstDifference = false,
   startAtLastDifference = false,
   focusOnInitialDifference = true,
+  revealRange,
   highlightWords = true,
   repositoryPreview = false,
   onSplitLayout,
@@ -107,7 +111,9 @@ export default function MonacoGitDiff({
     }
   });
   const [error, setError] = useState<string>();
-  const [actionFailed, setActionFailed] = useState(false);
+  // `stale` is a refused zero-context discard: the file changed after this
+  // diff was read, and the watcher replaces the diff (clearing the notice).
+  const [actionError, setActionError] = useState<"failed" | "stale" | null>(null);
   const [height, setHeight] = useState(MIN_REVIEW_HEIGHT);
   const blockWidgets = useRef<ReturnType<typeof mountMonacoCommitBlockControls> | null>(null);
   const latestBlockControls = useRef(blockControls);
@@ -129,11 +135,13 @@ export default function MonacoGitDiff({
   const sourcePath = diff.new_path || diff.file_path || diff.old_path || "";
   const latest = useRef({ rows, sourcePath, sourceRepoPath, isDeleted: diff.is_deleted });
   const updating = useRef(false);
-  const firstDifferencePending = useRef(startAtFirstDifference);
+  const firstDifferencePending = useRef(startAtFirstDifference || Boolean(revealRange));
   const initialDifferenceFocusRef = useRef(focusOnInitialDifference);
   initialDifferenceFocusRef.current = focusOnInitialDifference;
   const lastDifferenceLanding = useRef(startAtLastDifference);
   lastDifferenceLanding.current = startAtLastDifference;
+  const revealRangeLanding = useRef(revealRange);
+  revealRangeLanding.current = revealRange;
   const landingDiff = useRef(diff);
   const navigationListener = useRef(onNavigationChange);
   navigationListener.current = onNavigationChange;
@@ -162,9 +170,9 @@ export default function MonacoGitDiff({
     const instance = mountDiffReview(container.current!, (hunkID, action) => {
       const owner = hunkActions.current;
       if (closed || updating.current || !owner) return;
-      setActionFailed(false);
+      setActionError(null);
       void owner.apply(hunkID, action).then((result) => {
-        if (!closed && hunkActions.current === owner && result === "failed") setActionFailed(true);
+        if (!closed && hunkActions.current === owner && (result === "failed" || result === "stale")) setActionError(result);
       });
     });
     review.current = instance;
@@ -227,7 +235,36 @@ export default function MonacoGitDiff({
           // Consume once after Monaco finishes; later cursor/model updates keep their position.
           firstDifferencePending.current = false;
           if (changes.length) {
-            const change = changes[lastDifferenceLanding.current ? changes.length - 1 : 0];
+            const reveal = revealRangeLanding.current;
+            // The reveal range speaks source line numbers while Monaco changes
+            // speak model line numbers; translate through the projection rows
+            // (row order is model order, newLine carries the source number).
+            let landed: monaco.editor.ILineChange | undefined;
+            if (reveal) {
+              // The modified-side model only contains rows with a right side;
+              // removed rows are left-only and must not consume model lines.
+              const modelLines = new Set<number>();
+              let modelLine = 0;
+              for (const row of latest.current.rows) {
+                if (row.right !== null && row.right !== undefined) {
+                  modelLine += 1;
+                  if (
+                    row.newLine !== null &&
+                    row.newLine >= reveal.startLine &&
+                    row.newLine <= reveal.endLine
+                  ) {
+                    modelLines.add(modelLine);
+                  }
+                }
+              }
+              landed = changes.find((candidate) => {
+                for (let line = candidate.modifiedStartLineNumber; line <= candidate.modifiedEndLineNumber; line++) {
+                  if (modelLines.has(line)) return true;
+                }
+                return false;
+              });
+            }
+            const change = landed ?? changes[lastDifferenceLanding.current ? changes.length - 1 : 0];
             const lineNumber = differenceStartLine(change, editors[1].getModel()?.getLineCount() ?? 1);
             editors[1].setPosition({ lineNumber, column: 1 });
             editors[1].revealPositionInCenter({ lineNumber, column: 1 });
@@ -322,9 +359,12 @@ export default function MonacoGitDiff({
 
   useEffect(() => {
     const owner = createMonacoDiffHunkActions(diff, repoPath ? { repoPath, isStaged, canDiscard } : undefined,
-      { stage: stageHunk, unstage: unstageHunk, discard: discardHunk, confirmDiscard: confirmDiscardRef.current });
+      { stage: stageHunk, unstage: unstageHunk, discard: discardHunk, confirmDiscard: confirmDiscardRef.current,
+        // Zero-context hunks are sliced from `writePatch`; confirm that raw
+        // patch, not the display diff, is still current before writing.
+        validate: () => isWorktreeWritePatchCurrent(repoPath, sourcePath, diff.writePatch) });
     hunkActions.current = owner;
-    setActionFailed(false);
+    setActionError(null);
     return () => {
       owner.dispose();
       if (hunkActions.current === owner) hunkActions.current = null;
@@ -407,7 +447,7 @@ export default function MonacoGitDiff({
 
   return <div className="relative min-h-0 w-full overflow-hidden bg-background" style={{ height: embedded ? height : "100%" }}>
     <div ref={container} className="absolute inset-0" title="Ctrl/Cmd-click to open source" />
-    {actionFailed && <div role="alert" className="absolute bottom-0 inset-x-0 bg-background p-2 text-destructive">{t("git.operationFailed")}</div>}
+    {actionError && <div role="alert" className="absolute bottom-0 inset-x-0 bg-background p-2 text-destructive">{t(actionError === "stale" ? "git.diff.hunkStale" : "git.operationFailed")}</div>}
     {error && <div role="alert" className="absolute inset-0 bg-background p-4 text-destructive">{error}</div>}
   </div>;
 }

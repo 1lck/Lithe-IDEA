@@ -35,7 +35,7 @@ impl PatchRepository {
         payload["root"] = json!(self.0);
         let request = json!({
             "id": format!("{}-{command}", self.1.file_name().unwrap().to_string_lossy()),
-            "timeoutMilliseconds": 5000, "command": command, "payload": payload,
+            "timeoutMilliseconds": if command.starts_with("git.patch") { 15000 } else { 5000 }, "command": command, "payload": payload,
         });
         serde_json::from_str(&execute_json(&request.to_string())).unwrap()
     }
@@ -56,6 +56,205 @@ impl PatchRepository {
     fn export(&self, source: &str) -> Value {
         self.data("git.patchExport", json!({"source": source, "paths": []}))
     }
+
+    fn export_shelf_working_layer(&self) -> Value {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../../shared/fixtures/git/patch-exchange-v1.json"
+        ))
+        .unwrap();
+        self.data(
+            "git.patchExport",
+            fixture["unstagedWithUntrackedRequest"].clone(),
+        )
+    }
+
+    fn apply_patch(&self, patch: &str, target: &str, reverse: bool) {
+        let index_before = fs::read(self.0.join(".git/index")).unwrap();
+        let preview = self.data(
+            "git.patchPreview",
+            json!({"patch": patch, "target": target, "reverse": reverse}),
+        );
+        assert_eq!(preview["applicable"], true, "{preview}");
+        assert_eq!(fs::read(self.0.join(".git/index")).unwrap(), index_before);
+        let applied = self.data(
+            "git.patchApply",
+            json!({"patch": patch, "target": target, "reverse": reverse, "expectedState": preview["expectedState"]}),
+        );
+        assert_eq!(applied["exitCode"], 0, "{applied}");
+    }
+}
+
+#[test]
+fn patch_exchange_reverse_roundtrip_preserves_both_versions_and_untracked_bytes() {
+    let repository = PatchRepository::new("shelf-reverse");
+    repository.write("text.txt", b"first\nstaged\n");
+    repository.git(&["add", "text.txt"]);
+    repository.write("text.txt", b"first\nworking\n");
+    repository.write("新增 space.txt", "内容\r\n没有末尾换行".as_bytes());
+    repository.write("binary.bin", &[0, 128, 255, 0]);
+    let staged = repository.export("staged")["patch"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let working = repository.export_shelf_working_layer()["patch"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let mut checked_direction = false;
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/git/patch-exchange-v1.json"
+    ))
+    .unwrap();
+    let mut apply = |patch: &str, target: &str, reverse: bool| {
+        let index_before = fs::read(repository.0.join(".git/index")).unwrap();
+        let mut payload = fixture[if reverse {
+            "reversePreviewRequest"
+        } else {
+            "previewRequest"
+        }]
+        .clone();
+        payload["patch"] = json!(patch);
+        payload["target"] = json!(target);
+        let preview = repository.data("git.patchPreview", payload);
+        assert_eq!(preview["applicable"], true, "{preview}");
+        assert_eq!(
+            fs::read(repository.0.join(".git/index")).unwrap(),
+            index_before,
+            "Preview must preserve exact index bytes"
+        );
+        if !checked_direction {
+            checked_direction = true;
+            let wrong_direction = repository.call("git.patchApply", json!({"patch":patch,"target":target,"reverse":!reverse,"expectedState":preview["expectedState"]}));
+            assert_eq!(wrong_direction["ok"], false, "{wrong_direction}");
+        }
+        let applied = repository.data("git.patchApply", json!({"patch":patch,"target":target,"reverse":reverse,"expectedState":preview["expectedState"]}));
+        assert_eq!(applied["exitCode"], 0, "{applied}");
+    };
+    apply(&working, "worktree", true);
+    apply(&staged, "indexAndWorktree", true);
+    assert_eq!(
+        fs::read(repository.0.join("text.txt")).unwrap(),
+        b"first\nbase\n"
+    );
+    assert!(!repository.0.join("binary.bin").exists());
+    assert!(repository.git(&["status", "--porcelain"]).is_empty());
+    apply(&staged, "indexAndWorktree", false);
+    apply(&working, "worktree", false);
+    assert_eq!(repository.git(&["show", ":text.txt"]), "first\nstaged\n");
+    assert_eq!(
+        fs::read(repository.0.join("text.txt")).unwrap(),
+        b"first\nworking\n"
+    );
+    assert_eq!(
+        fs::read(repository.0.join("新增 space.txt")).unwrap(),
+        "内容\r\n没有末尾换行".as_bytes()
+    );
+    assert_eq!(
+        fs::read(repository.0.join("binary.bin")).unwrap(),
+        &[0, 128, 255, 0]
+    );
+}
+
+#[test]
+fn shelf_roundtrip_preserves_staged_deletions_with_retained_paths() {
+    let repository = PatchRepository::new("shelf-retained-deletions");
+    repository.write("unchanged.txt", b"unchanged\n");
+    repository.git(&["add", "unchanged.txt"]);
+    repository.git(&["commit", "-qm", "second path"]);
+    repository.git(&["rm", "--cached", "--", "text.txt", "unchanged.txt"]);
+    repository.write("text.txt", b"retained edited file\n");
+    let status_before = repository.git(&["status", "--porcelain"]);
+    let index_before = fs::read(repository.0.join(".git/index")).unwrap();
+    let staged = repository.export("staged");
+    let working = repository.export_shelf_working_layer();
+    assert_eq!(
+        fs::read(repository.0.join(".git/index")).unwrap(),
+        index_before
+    );
+    assert_eq!(working["files"].as_array().unwrap().len(), 2);
+    assert!(working["patch"].as_str().unwrap().contains("new file mode"));
+    let staged = staged["patch"].as_str().unwrap();
+    let working = working["patch"].as_str().unwrap();
+    repository.apply_patch(working, "worktree", true);
+    repository.apply_patch(staged, "indexAndWorktree", true);
+    assert!(repository.git(&["status", "--porcelain"]).is_empty());
+    assert_eq!(
+        fs::read(repository.0.join("text.txt")).unwrap(),
+        b"first\nbase\n"
+    );
+    repository.apply_patch(staged, "indexAndWorktree", false);
+    repository.apply_patch(working, "worktree", false);
+    assert_eq!(repository.git(&["status", "--porcelain"]), status_before);
+    assert!(repository.git(&["ls-files"]).is_empty());
+    assert_eq!(
+        fs::read(repository.0.join("text.txt")).unwrap(),
+        b"retained edited file\n"
+    );
+    assert_eq!(
+        fs::read(repository.0.join("unchanged.txt")).unwrap(),
+        b"unchanged\n"
+    );
+}
+
+#[test]
+fn shelf_roundtrip_preserves_staged_rename_with_recreated_source() {
+    let repository = PatchRepository::new("shelf-recreated-rename");
+    repository.git(&["mv", "text.txt", "renamed.txt"]);
+    repository.write("text.txt", b"first\nbase\n");
+    repository.write("renamed.txt", b"first\nworking after rename\n");
+    let status_before = repository.git(&["status", "--porcelain"]);
+    let index_before = fs::read(repository.0.join(".git/index")).unwrap();
+    let staged = repository.export("staged");
+    let working = repository.export_shelf_working_layer();
+    assert_eq!(
+        fs::read(repository.0.join(".git/index")).unwrap(),
+        index_before
+    );
+    assert_eq!(working["files"].as_array().unwrap().len(), 2);
+    let staged = staged["patch"].as_str().unwrap();
+    let working = working["patch"].as_str().unwrap();
+    repository.apply_patch(working, "worktree", true);
+    repository.apply_patch(staged, "indexAndWorktree", true);
+    assert!(repository.git(&["status", "--porcelain"]).is_empty());
+    assert!(!repository.0.join("renamed.txt").exists());
+    repository.apply_patch(staged, "indexAndWorktree", false);
+    repository.apply_patch(working, "worktree", false);
+    assert_eq!(repository.git(&["status", "--porcelain"]), status_before);
+    assert_eq!(repository.git(&["show", ":renamed.txt"]), "first\nbase\n");
+    assert_eq!(
+        fs::read(repository.0.join("text.txt")).unwrap(),
+        b"first\nbase\n"
+    );
+    assert_eq!(
+        fs::read(repository.0.join("renamed.txt")).unwrap(),
+        b"first\nworking after rename\n"
+    );
+}
+
+#[test]
+fn saved_stash_diff_and_drop_follow_immutable_identity_after_positions_change() {
+    let repository = PatchRepository::new("saved-stash-identity");
+    repository.write("text.txt", b"first\nsaved\n");
+    repository.write("untracked.txt", b"saved untracked\n");
+    repository.git(&["stash", "push", "-u", "-m", "first"]);
+    let entries = repository.data("git.stashes", json!({}));
+    let oid = entries["stashes"][0]["oid"].as_str().unwrap();
+    assert_eq!(oid.len(), 40);
+    repository.write("text.txt", b"first\nnewer\n");
+    repository.git(&["stash", "push", "-m", "newer"]);
+    let diff = repository.data("git.diff", json!({"pathspecs":["."], "stashReference":oid}));
+    let patch = diff["patch"].as_str().unwrap();
+    assert!(patch.contains("+saved"), "{patch}");
+    assert!(patch.contains("+saved untracked"), "{patch}");
+    assert!(!patch.contains("+newer"));
+    let dropped = repository.data(
+        "git.write",
+        json!({"operation":"stashDrop", "reference":oid}),
+    );
+    assert_eq!(dropped["exitCode"], 0, "{dropped}");
+    let remaining = repository.data("git.stashes", json!({}));
+    assert_eq!(remaining["stashes"].as_array().unwrap().len(), 1);
+    assert_eq!(remaining["stashes"][0]["message"], "newer");
 }
 
 impl Drop for PatchRepository {

@@ -1,0 +1,36 @@
+{
+  "id": "mcp-server-library",
+  "area": "AI",
+  "group": "IDE MCP",
+  "capability": "在设置页统一发现、合并、编辑并删除 Codex 与 Claude Code 已注册的 MCP 服务器，按 Agent 独立启用；项目授权开启时自动写入 Lithe MCP，关闭时按账本清理",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "macos/Sources/Lithe/Application/Features/McpServerLibraryFeatureModel.swift",
+      "macos/Sources/Lithe/Core/Ports/McpConfigurationStore.swift",
+      "macos/Sources/Lithe/Platform/MacOS/MCP/MacAgentMcpConfigurationStore.swift",
+      "macos/Sources/Lithe/Views/App/McpServerLibraryView.swift",
+      "macos/Tests/LitheTests/McpServerLibraryTests.swift",
+      "macos/Tests/LitheTests/McpBatchTransactionTests.swift",
+      "macos/Tests/LitheTests/McpServerSummaryTests.swift",
+      "macos/Tests/LitheTests/McpExcludePreservationTests.swift",
+      "rust/lithe-core/src/mcp/mod.rs",
+      "rust/lithe-core/src/mcp/plan.rs",
+      "rust/lithe-core/src/mcp/tests.rs",
+      "macos/Tests/LitheTests/McpArgumentRoundTripTests.swift",
+      "macos/Tests/LitheTests/McpSymlinkConfigurationTests.swift",
+      "macos/Tests/LitheTests/McpWriteProtectionTests.swift"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "platform-specific",
+    "verificationStatus": "not-applicable",
+    "evidence": [
+      "windows/tauri/src/features/host-api/mcp-settings.tsx"
+    ]
+  },
+  "owner": "Agent",
+  "notes": "macOS 新增 MCP 服务器资源库：Core 解析 Claude JSON 与 Codex TOML 并生成保格式修改计划，macOS 适配器负责路径、备份和原子写，应用模型以“名称 + 定义哈希”合并列表，以覆盖未知字段的完整来源哈希维护所有权账本。草稿保存保留打开编辑器时各 Agent 的来源版本并作为独立 expectedHash 前置条件，刷新列表和共享账本更新都不能授权旧草稿覆盖新版本；自动删除和项目清理检测认证、超时等未建模字段的外部改动，旧账本需显式重新接管。只替换或删除 Lithe 写过的条目，外部创建的条目需要显式接管所有权。项目授权开启时把随包分发的 lithe-mcp 写入当前项目的 Claude projects.<path>.mcpServers 和 .codex/config.toml；新建的 Codex 项目配置追加到 .git/info/exclude。保存与项目注册采用批量失败恢复，整批成功后再更新所有权账本；恢复时保留外部新修改并提示未恢复路径；聚合首次写入与恢复阶段的失败时一并带出保留副本路径。列表摘要隐藏所有命令参数，并移除 URL userinfo、查询和 fragment；Git exclude 保留非 UTF-8 原始字节，已有文件读取失败则停止追加。首版不自动启动服务器做健康检查，env/header 值只在 UI 中遮蔽。Windows 尚未实现该资源库，暂标记为平台专属。 参数显示文本未改动时保留原始 argv 数组，修改时保留空行与纯空白行；配置读写及回滚共用符号链接目标解析，保留原链接和用户路径诊断。保存与回滚删除采用同目录临时文件和原子交换/移开的条件操作：备份或预检之后落地的外部保存会被保留并返回冲突，换回后会核对被换出的版本，换回失败或换出更新外部保存时保留临时文件并在错误中报告保留路径；不支持交换标志的卷返回不支持错误而不退回无条件覆盖；临时文件从创建起为 0600。",
+  "verification": "运行 cargo test -p lithe-core mcp:: 与 ./scripts/test-macos.sh --filter \"McpServerLibraryTests|McpBatchTransactionTests|McpServerSummaryTests|McpExcludePreservationTests|McpArgumentRoundTripTests|McpSymlinkConfigurationTests\"，注入两次写入之间的外部修改，确认先前文件恢复、账本不变、回滚时保留外部修改并提示路径；验证 args 与 URL 凭据不在摘要中，以及非 UTF-8 exclude 规则保留、读取失败保护和幂等；覆盖双窗口按顺序保存后旧草稿被拒绝（包括刷新列表、可见字段恰好等于新版本）、各 Agent 使用自己的完整来源哈希、未建模认证或超时变化阻止删除/重命名/项目清理、旧账本显式重新接管，以及双 Agent 合并、门禁冲突、接管所有权、保格式编辑、项目注册与外部修改保留。实机打开设置 → MCP：无项目时资源库仍列出 Codex/Claude 已有服务器；编辑 env 并保存后检查原文件注释与未知键未丢、备份生成；按 Agent 关闭外部条目被拒绝，接管后可移除。打开项目并启用 MCP，确认 ~/.claude.json 项目条目与 <项目>/.codex/config.toml 写入、.git/info/exclude 包含 .codex/config.toml；禁用后清理，外部改过的条目保留并提示。运行 ./scripts/test-macos.sh --filter \"McpWriteProtectionTests|FileStorageReplacementTests|McpFeatureBatchFailureTests\" 验证备份后外部保存保留、条件删除、非普通文件目标拒绝、发布失败后批量恢复且不发布账本；回滚保留更新保存的路径、临时文件从创建起为 0600、不支持交换的卷 fail closed。 运行前后对比安装目录文件清单与哈希，确认运行时未写入发行目录。 覆盖仅改 env 时空参数、纯空白与嵌入换行的无损往返；两个 Agent 的相对/绝对符号链接读取、生成计划、备份、保存、故障回滚、外部目标修改保护及大小/UTF-8 校验。"
+}

@@ -13,11 +13,9 @@ struct AgentPanelSettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 4) {
                 Text("Agents").font(LitheTheme.uiFont(size: 16, weight: .semibold))
-                Text("Install ACP adapters, check the runtime, and manage local or custom providers.")
-                    .font(LitheTheme.uiFont(size: 12))
-                    .foregroundStyle(LitheTheme.secondaryText)
+                LitheInfoTip("Install ACP adapters, check the runtime, and manage local or custom providers.")
             }
             AgentsManagementPage(model: model, settings: settings, feature: feature)
         }
@@ -55,6 +53,7 @@ private struct AgentsManagementPage: View {
             statisticsRow
         }
         agentPicker
+        checkFeedback
         switch selectedEntry {
         case .agent(let id):
             if let status = feature.status, let agent = agents.first(where: { $0.id == id }) {
@@ -72,21 +71,19 @@ private struct AgentsManagementPage: View {
     }
 
     private var featureRow: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        HStack(spacing: 6) {
             LitheSettingsCheckbox(isOn: Binding(
                 get: { model.isAgentConversationEnabled },
                 set: { enabled in Task { await model.setAgentConversationEnabled(enabled) } }
             ), title: "Enable Agent conversation")
-            AgentSettingsHint("Turning this off stops every Agent process.")
-                .padding(.leading, 24)
+            LitheInfoTip("Turning this off stops every Agent process.")
         }
     }
 
     private var statisticsRow: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        HStack(alignment: .top, spacing: 6) {
             LitheSettingsCheckbox(isOn: $settings.agentModelCallStatistics, title: "Model call statistics")
-            AgentSettingsHint("Routes API-key and Codex subscription requests through a local proxy on this Mac to show model calls, time to first token, output speed and context composition. Requests and credentials are forwarded unchanged and never stored. Applies after reconnecting.")
-                .padding(.leading, 24)
+            LitheInfoTip("Routes API-key and Codex subscription requests through a local proxy on this Mac to show model calls, time to first token, output speed and context composition. Requests and credentials are forwarded unchanged and never stored. Applies after reconnecting.")
         }
     }
 
@@ -110,9 +107,39 @@ private struct AgentsManagementPage: View {
                               fallbackSystemImage: "arrow.clockwise", preservesOriginalColors: true)
             }
             .litheToolbarIconButton()
-            .disabled(feature.phase == .checking)
+            .disabled(feature.phase == .checking || feature.busyAgentID != nil)
             .help("Check Again")
-            if feature.status == nil { ProgressView().controlSize(.mini) }
+        }
+    }
+
+    @ViewBuilder
+    private var checkFeedback: some View {
+        switch feature.phase {
+        case .idle:
+            EmptyView()
+        case .checking:
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.mini)
+                Text("Checking…")
+            }
+            .font(LitheTheme.smallFont)
+            .accessibilityIdentifier("agent-check-progress")
+        case .ready:
+            let incomplete = feature.status?.agents.contains {
+                $0.cli?.detected != nil && $0.cli?.installation?.updateAvailable == nil
+            } == true
+            Text(incomplete ? LocalizedStringKey("Check complete. Some CLI update results are unavailable; see Preflight.") : LocalizedStringKey("Check complete."))
+                .font(LitheTheme.smallFont)
+                .foregroundStyle(incomplete ? LitheTheme.warning : LitheTheme.secondaryText)
+                .accessibilityIdentifier("agent-check-result")
+        case .failed(let reason):
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Check failed.")
+                Text(verbatim: reason).textSelection(.enabled)
+            }
+            .font(LitheTheme.smallFont)
+            .foregroundStyle(LitheTheme.error)
+            .accessibilityIdentifier("agent-check-error")
         }
     }
 
@@ -161,26 +188,25 @@ private struct AgentDetailView: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                Image(systemName: "cpu")
-                    .font(LitheTheme.uiFont(size: 14, weight: .medium))
-                    .foregroundStyle(LitheTheme.accent)
-                Text(agent.name).font(LitheTheme.uiFont(size: 14, weight: .semibold))
-                AgentBadge(text: "ACP adapter", color: LitheTheme.secondaryText)
-                    .help("Lithe installs the ACP adapter package, not the vendor CLI. The two are independent and share the CLI's configuration.")
-                if !agent.verified {
-                    AgentBadge(text: "Preview", color: LitheTheme.warning)
-                        .help("Lithe has not yet completed a real conversation with this adapter version.")
-                }
-                Spacer()
+        HStack(spacing: 8) {
+            Image(systemName: "cpu")
+                .font(LitheTheme.uiFont(size: 14, weight: .medium))
+                .foregroundStyle(LitheTheme.accent)
+            Text(agent.name).font(LitheTheme.uiFont(size: 14, weight: .semibold))
+            AgentBadge(text: "ACP adapter", color: LitheTheme.secondaryText)
+                .help("Lithe installs the ACP adapter package, not the vendor CLI. The two are independent and share the CLI's configuration.")
+            if !agent.verified {
+                AgentBadge(text: "Preview", color: LitheTheme.warning)
+                    .help("Lithe has not yet completed a real conversation with this adapter version.")
             }
             if let cli = agent.cli {
-                Text(String(format: AgentLocalization.string("Runs the %@ installed on this Mac through the %@ adapter.", locale: locale), cli.name, agent.package))
-                    .font(LitheTheme.smallFont)
-                    .foregroundStyle(LitheTheme.secondaryText)
-                    .fixedSize(horizontal: false, vertical: true)
+                LitheInfoTip(LocalizedStringKey(String(
+                    format: AgentLocalization.string("Runs the %@ installed on this Mac through the %@ adapter.", locale: locale),
+                    cli.name,
+                    agent.package
+                )))
             }
+            Spacer()
         }
     }
 
@@ -188,16 +214,20 @@ private struct AgentDetailView: View {
         LitheSettingsSection("Version status") {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(String(format: AgentLocalization.string("Pinned: %@ · Local: %@", locale: locale),
-                                agent.version, agent.installedVersion ?? AgentLocalization.string("Not installed", locale: locale)))
+                    Text(String(format: AgentLocalization.string("Current version: %@ · Verified target: %@", locale: locale),
+                                agent.installedVersion ?? AgentLocalization.string("Not installed", locale: locale), agent.version))
                         .font(LitheTheme.uiFont(size: 12, design: .monospaced))
+                    if agent.needsUpdate {
+                        Text(String(format: AgentLocalization.string("Update to: %@", locale: locale), agent.version))
+                            .font(LitheTheme.uiFont(size: 12, design: .monospaced))
+                    }
                     Text(versionHint)
                         .font(LitheTheme.smallFont)
                         .foregroundStyle(LitheTheme.secondaryText)
                 }
                 Spacer()
                 if !isBusy {
-                    if !agent.isInstalled || agent.needsUpdate {
+                    if !agent.isInstalled || (feature.phase == .ready && agent.needsUpdate) {
                         Button(agent.isInstalled ? "Update" : "Install") { feature.install(agent.id) }
                             .buttonStyle(LithePrimaryButtonStyle(backgroundColor: LitheTheme.settingsPrimaryAction, restingOpacity: 1))
                             .controlSize(.small)
@@ -222,9 +252,12 @@ private struct AgentDetailView: View {
                 ? AgentLocalization.string("Not installed. Install it to start using this Agent.", locale: locale)
                 : AgentLocalization.string("Install Node.js and npm before installing the adapter.", locale: locale)
         }
+        if agent.updateAvailable == nil {
+            return AgentLocalization.string("Could not compare the local adapter with the verified version.", locale: locale)
+        }
         return agent.needsUpdate
-            ? AgentLocalization.string("An update is available.", locale: locale)
-            : AgentLocalization.string("Up to date.", locale: locale)
+            ? AgentLocalization.string("A newer verified adapter version is available.", locale: locale)
+            : AgentLocalization.string("The local adapter is at or above the verified version.", locale: locale)
     }
 
     private var preflightCard: some View {
@@ -272,21 +305,27 @@ private struct AgentDetailView: View {
                 }
                 .buttonStyle(.litheNoPress)
                 .accessibilityIdentifier("agent-preflight-\(agent.id)-\(check.id)")
-                if check.id == "cli", let fix = check.fix, !isBusy {
+                if check.id == "cli", let fix = check.fix, !isBusy, feature.phase == .ready {
                     fixButton(fix)
                 }
             }
             if isExpanded {
                 HStack(alignment: .top, spacing: 8) {
-                    Text(check.message)
-                        .font(LitheTheme.uiFont(size: 11, design: check.status == .pass ? .monospaced : .default))
-                        .foregroundStyle(LitheTheme.secondaryText)
-                        .textSelection(.enabled)
-                        .lineLimit(check.id == "cli" ? nil : 3)
-                        .truncationMode(.middle)
-                        .fixedSize(horizontal: false, vertical: true)
+                    VStack(alignment: .leading, spacing: 7) {
+                        if !check.details.isEmpty {
+                            detailPanel(check.details)
+                        }
+                        if let text = check.details.isEmpty ? check.message : check.guidance,
+                           !text.isEmpty {
+                            Text(text)
+                                .font(LitheTheme.uiFont(size: 11))
+                                .foregroundStyle(LitheTheme.secondaryText)
+                                .textSelection(.enabled)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
                     Spacer(minLength: 0)
-                    if check.id != "cli", let fix = check.fix, !isBusy {
+                    if check.id != "cli", let fix = check.fix, !isBusy, feature.phase == .ready {
                         fixButton(fix)
                     }
                 }
@@ -294,6 +333,44 @@ private struct AgentDetailView: View {
             }
         }
         .padding(.vertical, 6)
+    }
+
+    /// Version, path and install source are facts, not a sentence: draw them as
+    /// a small inset table so long paths keep their label and can be selected.
+    private func detailPanel(_ details: [AgentPreflightCheck.Detail]) -> some View {
+        VStack(spacing: 0) {
+            ForEach(Array(details.enumerated()), id: \.element.id) { index, detail in
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(verbatim: detail.label)
+                        .font(LitheTheme.uiFont(size: 10.5, weight: .medium))
+                        .foregroundStyle(LitheTheme.tertiaryText)
+                        .frame(width: 76, alignment: .leading)
+                    Text(verbatim: detail.value)
+                        .font(LitheTheme.uiFont(size: 11, design: .monospaced))
+                        .foregroundStyle(LitheTheme.primaryText)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+                        .help(Text(verbatim: detail.value))
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 9)
+                .padding(.vertical, 5)
+
+                if index < details.count - 1 {
+                    Rectangle()
+                        .fill(LitheTheme.divider.opacity(0.7))
+                        .frame(height: 1)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(LitheTheme.settingsTextFieldBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .strokeBorder(LitheTheme.settingsControlBorder.opacity(0.8), lineWidth: 1)
+        }
     }
 
     @ViewBuilder
@@ -334,14 +411,22 @@ private struct AgentStatusBadge: View {
     let status: AgentPreflightCheck.Status
 
     var body: some View {
-        let (text, color): (String, Color) = switch status {
-        case .pass: ("PASS", LitheTheme.success)
-        case .warn: ("WARN", LitheTheme.warning)
-        case .fail: ("FAIL", LitheTheme.error)
+        let (text, color, symbol): (String, Color, String) = switch status {
+        case .pass: ("PASS", LitheTheme.success, "checkmark.circle.fill")
+        case .warn: ("WARN", LitheTheme.warning, "exclamationmark.triangle.fill")
+        case .fail: ("FAIL", LitheTheme.error, "xmark.octagon.fill")
         }
-        Text(text)
-            .font(LitheTheme.uiFont(size: 9.5, weight: .bold))
-            .foregroundStyle(color)
+        HStack(spacing: 4) {
+            Image(systemName: symbol)
+                .font(LitheTheme.uiFont(size: 9, weight: .bold))
+            Text(text)
+                .font(LitheTheme.uiFont(size: 9.5, weight: .bold))
+        }
+        .foregroundStyle(color)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2.5)
+        .background(color.opacity(0.10))
+        .clipShape(Capsule())
     }
 }
 
@@ -371,9 +456,9 @@ private struct CustomAgentDetailView: View {
                 .foregroundStyle(LitheTheme.accent)
             Text("Custom Agent").font(LitheTheme.uiFont(size: 14, weight: .semibold))
             AgentBadge(text: "Custom", color: LitheTheme.secondaryText)
+            LitheInfoTip("Run another ACP Agent you installed yourself. It must support signing in with a custom API key gateway.")
             Spacer()
         }
-        AgentSettingsHint("Run another ACP Agent you installed yourself. It must support signing in with a custom API key gateway.")
         LitheSettingsSection("Launch") {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Agent executable")

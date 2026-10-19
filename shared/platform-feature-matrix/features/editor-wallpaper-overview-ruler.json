@@ -9,7 +9,10 @@
     "evidence": [
       "frontend/editor/src/theme.ts",
       "macos/Sources/Lithe/Platform/MacOS/MonacoWorkbenchEditor.swift",
-      "macos/Experiments/Monaco/workbench.integration.ts"
+      "macos/Experiments/Monaco/workbench.integration.ts",
+      "macos/Sources/Lithe/Views/Editor/EditorSoftWrapToggle.swift",
+      "macos/Sources/Lithe/Theme/LitheTheme.swift",
+      "macos/Tests/LitheTests/MonacoWorkbenchThemeTests.swift"
     ]
   },
   "windows": {
@@ -20,5 +23,5 @@
     ]
   },
   "owner": "Editor",
-  "verification": "在 macOS 选择工作台背景并打开文本文件，分别关闭和打开右侧 Agent 面板，确认编辑器最右侧概览标尺不出现黑色竖条；关闭背景图后确认普通主题底色保持不变。运行真实 WebKit 工作台主题集成测试。Windows 不使用 macOS 原生工作台壁纸。"
+  "verification": "在 macOS 选择工作台背景并打开文本文件，分别关闭和打开右侧 Agent 面板，确认编辑器最右侧概览标尺不出现黑色竖条；关闭背景图后确认普通主题底色保持不变。运行真实 WebKit 工作台主题集成测试。Windows 不使用 macOS 原生工作台壁纸。 普通主题与壁纸模式都不显示缩略图阴影和概览标尺边框形成的两条竖线；缩略图导航、滚动条及标尺上的诊断标记仍可用，主编辑器与分屏切换一致。WebKit 回归核对标尺左边缘像素和阴影 token 透明。 软换行按钮位于缩略图左侧，使用统一 22pt 工具栏按钮与 16pt 原始 IDEA 图标；调整编辑器宽度和开关缩略图后位置跟随 Monaco 实际布局，主编辑器及独立文件窗口一致。 Lithe 深色编辑器、空编辑区和工具窗口背景使用 IDEA Islands Dark 精确 #191A1C；核对打开文件前后背景一致，浅色及其他主题不变。 macOS 软换行按钮的完整命中区悬停显示默认箭头，从代码区移入及移回后光标分别为箭头和文本光标，禁用状态仍显示箭头，点击继续切换换行；完整应用交互验收待进行。"
 }

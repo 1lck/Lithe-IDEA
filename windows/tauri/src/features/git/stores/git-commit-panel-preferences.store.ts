@@ -4,8 +4,9 @@ import { createSelectors } from "@/utils/zustand-selectors";
 import { createSafeJSONStorage } from "@/utils/zustand-storage";
 
 /** Commit message editor height bounds in CSS pixels. */
-export const COMMIT_MESSAGE_MIN_HEIGHT = 48;
-export const COMMIT_MESSAGE_DEFAULT_HEIGHT = 72;
+export const COMMIT_MESSAGE_MIN_HEIGHT = 50;
+// CommitAreaView allocates a compact 124pt footer with a 50pt message editor.
+export const COMMIT_MESSAGE_DEFAULT_HEIGHT = 50;
 export const COMMIT_MESSAGE_MAX_HEIGHT = 640;
 
 export function clampCommitMessageHeight(height: number): number {

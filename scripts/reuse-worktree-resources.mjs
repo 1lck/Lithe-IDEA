@@ -378,6 +378,12 @@ async function main() {
       // Identical bytes do not establish transferable execution ownership.
       // Includes test-jfr-recordings: worker-owned profiling output has no transferable build identity.
       // Includes plugin-ui-icons: signed runtime packages are never build-cache inputs.
+      // Includes plugin-web-state: per-window/workspace user JSON has no build identity or copy stage.
+      // Includes plugin-disk-install-state: fileStorage temporary snapshots, install staging
+      // and active/previous approvals are runtime-owned. Reject before resolving worktrees
+      // or calling validatorArguments; a content digest is neither a build stamp nor consent.
+      // ZIP entry/path budgets also apply to implicit parents before extraction;
+      // passing runtime preflight never admits marketplace or disk snapshots to a copy stage.
       // Per-launch Codex helpers also own memory-only context replay tickets and
       // loopback capabilities; they stay on this exclusion route, never a copy stage.
       if (excludedResources.some((resource) => resource.id === identifier)) {

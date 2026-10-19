@@ -324,6 +324,30 @@ package struct LanguageServerRuntimeEvent: Equatable, Sendable {
     }
 }
 
+/// Core-normalized Buildship options, fixed for one Java session's lifetime.
+package struct JavaGradleImportConfiguration: Codable, Equatable, Sendable {
+    package let wrapperPresent: Bool
+    package let offline: Bool?
+    package let userHome: String?
+
+    package init(wrapperPresent: Bool, offline: Bool? = nil, userHome: String? = nil) {
+        self.wrapperPresent = wrapperPresent
+        self.offline = offline
+        self.userHome = userHome
+    }
+}
+
+/// Maven and Gradle can coexist in a workspace; each keeps its own import input.
+package struct JavaLanguageImportConfiguration: Equatable, Sendable {
+    package let mavenContext: MavenLaunchContext?
+    package let javaGradle: JavaGradleImportConfiguration?
+
+    package init(mavenContext: MavenLaunchContext? = nil, javaGradle: JavaGradleImportConfiguration? = nil) {
+        self.mavenContext = mavenContext
+        self.javaGradle = javaGradle
+    }
+}
+
 package protocol LanguageServerRuntimeCore: Sendable {
     func startLanguageServer(
         providerID: String,
@@ -354,6 +378,25 @@ package protocol LanguageServerRuntimeCore: Sendable {
         cacheDirectoryURL: URL?,
         workspaceFingerprint: String?,
         mavenContext: MavenLaunchContext?,
+        initializeTimeout: TimeInterval,
+        requestTimeout: TimeInterval,
+        shutdownTimeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure>
+
+    func startLanguageServer(
+        providerID: String,
+        executableURL: URL,
+        arguments: [String],
+        environment: [String: String],
+        rootURL: URL,
+        workingDirectoryURL: URL,
+        initializationOptions: ToolingJSONValue?,
+        runtimeExecutableURL: URL?,
+        jdtlsLaunchResources: JDTLSLaunchResources?,
+        cacheDirectoryURL: URL?,
+        workspaceFingerprint: String?,
+        mavenContext: MavenLaunchContext?,
+        javaGradle: JavaGradleImportConfiguration?,
         initializeTimeout: TimeInterval,
         requestTimeout: TimeInterval,
         shutdownTimeout: TimeInterval
@@ -410,6 +453,25 @@ package protocol LanguageServerRuntimeCore: Sendable {
 }
 
 package extension LanguageServerRuntimeCore {
+    func startLanguageServer(
+        providerID: String, executableURL: URL, arguments: [String], environment: [String: String],
+        rootURL: URL, workingDirectoryURL: URL, initializationOptions: ToolingJSONValue?,
+        runtimeExecutableURL: URL?, jdtlsLaunchResources: JDTLSLaunchResources?, cacheDirectoryURL: URL?,
+        workspaceFingerprint: String?, mavenContext: MavenLaunchContext?, javaGradle: JavaGradleImportConfiguration?,
+        initializeTimeout: TimeInterval, requestTimeout: TimeInterval, shutdownTimeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure> {
+        guard javaGradle == nil else {
+            return .failure(LanguageServerRuntimeFailure(code: "unsupported", message: "This language runtime cannot apply Gradle import settings."))
+        }
+        return startLanguageServer(
+            providerID: providerID, executableURL: executableURL, arguments: arguments, environment: environment,
+            rootURL: rootURL, workingDirectoryURL: workingDirectoryURL, initializationOptions: initializationOptions,
+            runtimeExecutableURL: runtimeExecutableURL, jdtlsLaunchResources: jdtlsLaunchResources,
+            cacheDirectoryURL: cacheDirectoryURL, workspaceFingerprint: workspaceFingerprint, mavenContext: mavenContext,
+            initializeTimeout: initializeTimeout, requestTimeout: requestTimeout, shutdownTimeout: shutdownTimeout
+        )
+    }
+
     func retryMavenProfiles(sessionID _: String) -> Result<Void, LanguageServerRuntimeFailure> { .success(()) }
 
     /// Runtimes without in-place Maven updates report that they cannot take

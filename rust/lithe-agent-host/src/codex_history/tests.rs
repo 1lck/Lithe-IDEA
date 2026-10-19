@@ -36,16 +36,16 @@ async fn serve_pages(
         assert_eq!(request["method"], "thread/list");
         received.push(request["params"].clone());
         writer
-            .write_all(format!("{}\n", json!({"id": request["id"], "result": page(index)})).as_bytes())
+            .write_all(
+                format!("{}\n", json!({"id": request["id"], "result": page(index)})).as_bytes(),
+            )
             .await
             .unwrap();
     }
     received
 }
 
-fn client(
-    client: DuplexStream,
-) -> (WriteHalf<DuplexStream>, BufReader<ReadHalf<DuplexStream>>) {
+fn client(client: DuplexStream) -> (WriteHalf<DuplexStream>, BufReader<ReadHalf<DuplexStream>>) {
     let (reader, writer) = tokio::io::split(client);
     (writer, BufReader::new(reader))
 }
@@ -82,7 +82,10 @@ fn workspace_paths_compare_like_codex_acp() {
     assert_ne!(normalize_path("/W/Project"), normalize_path("/w/project"));
     assert_eq!(normalize_path("C:\\Work\\Project\\"), "c:/work/project");
     assert_eq!(normalize_path("c:/work/project"), "c:/work/project");
-    assert_eq!(normalize_path("\\\\Server\\Share\\Repo"), "//server/share/repo");
+    assert_eq!(
+        normalize_path("\\\\Server\\Share\\Repo"),
+        "//server/share/repo"
+    );
 }
 
 #[test]
@@ -123,7 +126,12 @@ fn pages_keep_only_this_workspace_and_prefer_the_user_title() {
         ]
     );
     assert_eq!(next.as_deref(), Some("page-2"));
-    assert_eq!(parse_page(&json!({"data": [], "nextCursor": ""}), WORKSPACE).unwrap().1, None);
+    assert_eq!(
+        parse_page(&json!({"data": [], "nextCursor": ""}), WORKSPACE)
+            .unwrap()
+            .1,
+        None
+    );
     assert!(parse_page(&json!({}), WORKSPACE).is_err());
 }
 
@@ -138,7 +146,10 @@ async fn listing_follows_cursors_past_foreign_pages_without_duplicates() {
         _ => json!({"data": [thread("a", WORKSPACE), thread("b", WORKSPACE)], "nextCursor": null}),
     });
     let (result, received) = tokio::time::timeout(Duration::from_secs(5), async {
-        tokio::join!(list_pages(&mut writer, &mut reader, "openai", WORKSPACE), peer)
+        tokio::join!(
+            list_pages(&mut writer, &mut reader, "openai", WORKSPACE),
+            peer
+        )
     })
     .await
     .expect("bounded in-memory listing");
@@ -158,11 +169,16 @@ async fn listing_follows_cursors_past_foreign_pages_without_duplicates() {
 async fn listing_reports_when_the_page_bound_truncated_it() {
     let (local, server) = tokio::io::duplex(64 * 1024);
     let (mut writer, mut reader) = client(local);
-    let peer = serve_pages(server, MAX_SESSION_LIST_PAGES, |index| {
-        json!({"data": [thread(&format!("t{index}"), WORKSPACE)], "nextCursor": format!("c{index}")})
-    });
+    let peer = serve_pages(
+        server,
+        MAX_SESSION_LIST_PAGES,
+        |index| json!({"data": [thread(&format!("t{index}"), WORKSPACE)], "nextCursor": format!("c{index}")}),
+    );
     let (result, received) = tokio::time::timeout(Duration::from_secs(5), async {
-        tokio::join!(list_pages(&mut writer, &mut reader, "custom-gateway", WORKSPACE), peer)
+        tokio::join!(
+            list_pages(&mut writer, &mut reader, "custom-gateway", WORKSPACE),
+            peer
+        )
     })
     .await
     .expect("bounded in-memory listing");
@@ -196,10 +212,8 @@ struct TempDirectory(PathBuf);
 #[cfg(unix)]
 impl TempDirectory {
     fn new(name: &str) -> Self {
-        let path = std::env::temp_dir().join(format!(
-            "lithe-codex-history-{name}-{}",
-            std::process::id()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("lithe-codex-history-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&path);
         std::fs::create_dir_all(&path).unwrap();
         Self(path)
@@ -222,16 +236,22 @@ async fn unarchive_sends_only_the_selected_thread_to_the_users_cli() {
         cwd: directory.0.clone(),
         model_provider: SUBSCRIPTION_PROVIDER,
     };
-    tokio::time::timeout(Duration::from_secs(10), history.unarchive("thread-1".into()))
-        .await
-        .expect("bounded app-server exchange")
-        .unwrap();
+    tokio::time::timeout(
+        Duration::from_secs(10),
+        history.unarchive("thread-1".into()),
+    )
+    .await
+    .expect("bounded app-server exchange")
+    .unwrap();
     let requests: Vec<Value> = std::fs::read_to_string(directory.0.join("requests.log"))
         .unwrap()
         .lines()
         .map(|line| serde_json::from_str(line).unwrap())
         .collect();
-    let methods: Vec<_> = requests.iter().map(|request| request["method"].as_str().unwrap()).collect();
+    let methods: Vec<_> = requests
+        .iter()
+        .map(|request| request["method"].as_str().unwrap())
+        .collect();
     assert_eq!(methods, ["initialize", "initialized", "thread/unarchive"]);
     assert_eq!(requests[2]["params"], json!({"threadId": "thread-1"}));
 }
@@ -241,13 +261,19 @@ async fn unarchive_sends_only_the_selected_thread_to_the_users_cli() {
 async fn upstream_errors_never_reach_the_ui() {
     let directory = TempDirectory::new("error");
     let history = CodexHistory {
-        executable: fake_app_server(&directory.0, "\"error\":{\"message\":\"/Users/secret/.codex failed\"}"),
+        executable: fake_app_server(
+            &directory.0,
+            "\"error\":{\"message\":\"/Users/secret/.codex failed\"}",
+        ),
         cwd: directory.0.clone(),
         model_provider: GATEWAY_PROVIDER,
     };
-    let error = tokio::time::timeout(Duration::from_secs(10), history.unarchive("thread-1".into()))
-        .await
-        .expect("bounded app-server exchange")
-        .unwrap_err();
+    let error = tokio::time::timeout(
+        Duration::from_secs(10),
+        history.unarchive("thread-1".into()),
+    )
+    .await
+    .expect("bounded app-server exchange")
+    .unwrap_err();
     assert_eq!(error, "Codex could not restore this archived conversation.");
 }

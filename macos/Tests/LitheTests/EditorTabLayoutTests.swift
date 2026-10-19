@@ -1,12 +1,41 @@
 import AppKit
 import CoreGraphics
 import Foundation
+import LitheCoreContracts
 import Testing
 import UniformTypeIdentifiers
 @testable import Lithe
 
 @Suite("Editor tab layout", .serialized)
 struct EditorTabLayoutTests {
+    @Test
+    func javaTabTestMarkTakesPriorityAndClearsForOrdinaryOrRenamedFiles() {
+        let java = URL(fileURLWithPath: "/workspace/CalculatorTest.java")
+        #expect(EditorDocumentIconResolver.overlayResourcePath(for: java, hasTests: true, hasMain: false)
+            == "expui/nodes/junitTestMark.svg")
+        #expect(EditorDocumentIconResolver.overlayResourcePath(for: java, hasTests: true, hasMain: true)
+            == "expui/nodes/junitTestMark.svg")
+        #expect(EditorDocumentIconResolver.overlayResourcePath(for: java, hasTests: false, hasMain: true)
+            == "expui/nodes/runnableMark.svg")
+        #expect(EditorDocumentIconResolver.overlayResourcePath(for: java, hasTests: false, hasMain: false) == nil)
+        #expect(EditorDocumentIconResolver.overlayResourcePath(
+            for: java.deletingPathExtension().appendingPathExtension("txt"), hasTests: true, hasMain: true
+        ) == nil)
+    }
+
+    @MainActor
+    @Test
+    func testTabScopeUsesImportedRootsIncludingHelpersAndCustomDirectories() {
+        let root = URL(fileURLWithPath: "/workspace")
+        let project = MavenProject(rootURL: root, pomURL: root.appendingPathComponent("pom.xml"),
+            groupID: nil, artifactID: "example", version: nil, packaging: "jar", modules: [], profiles: [], hasWrapper: false,
+            sourceRoots: [.init(path: "checks/java", kind: .testJava), .init(path: "src/main/java", kind: .mainJava)])
+        #expect(EditorDocument.isTestSourceFile(root.appendingPathComponent("checks/java/Helper.java"), project: project, hasTests: false))
+        #expect(!EditorDocument.isTestSourceFile(root.appendingPathComponent("checks/java-copy/Helper.java"), project: project, hasTests: false))
+        #expect(!EditorDocument.isTestSourceFile(root.appendingPathComponent("src/main/java/SomeTest.java"), project: project, hasTests: true))
+        #expect(EditorDocument.isTestSourceFile(root.appendingPathComponent("Single.java"), project: nil, hasTests: true))
+    }
+
     @Test
     func javaTabsPreferTheSemanticIconResolvedForTheProjectTree() {
         let url = URL(fileURLWithPath: "/workspace/UploadService.java")
