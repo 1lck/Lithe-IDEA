@@ -2097,12 +2097,17 @@ fn worktree_snapshot_diff(
 fn structured_diff_from_output(output: GitProcessOutput) -> GitDiffResponse {
     // Diff is a machine-readable stdout protocol. Git diagnostics on stderr
     // must never become synthetic file lines in the parsed patch.
-    let patch = String::from_utf8_lossy(&output.stdout).to_string();
+    let decoded = String::from_utf8_lossy(&output.stdout);
+    // A Cow::Owned means invalid UTF-8 bytes were replaced with U+FFFD; the
+    // patch cannot be used as byte-faithful write material.
+    let has_decoding_loss = matches!(decoded, std::borrow::Cow::Owned(_));
+    let patch = decoded.to_string();
     let document = parse_diff(&patch);
     GitDiffResponse {
         patch,
         rows: document.0,
         hunks: document.1,
+        has_decoding_loss,
     }
 }
 

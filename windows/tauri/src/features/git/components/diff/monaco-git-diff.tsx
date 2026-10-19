@@ -16,6 +16,7 @@ import { useFileSystemStore } from "@/features/file-system/stores/file-system.st
 import { useTranslation } from "@/i18n/locale-provider";
 import { joinPath } from "@/utils/path-helpers";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import { getWorkingTreePathDiff } from "@/features/git/api/git-diff-api";
 import { discardHunk, stageHunk, unstageHunk } from "../../api/git-status-api";
 import {
   createMonacoDiffHunkActions,
@@ -300,7 +301,21 @@ export default function MonacoGitDiff({
 
   useEffect(() => {
     const owner = createMonacoDiffHunkActions(diff, repoPath ? { repoPath, isStaged, canDiscard } : undefined,
-      { stage: stageHunk, unstage: unstageHunk, discard: discardHunk });
+      { stage: stageHunk, unstage: unstageHunk, discard: discardHunk,
+        // Pre-write staleness probe: re-read the diff for this file and
+        // verify it still matches the diff these actions were built from.
+        // The simple identity check catches file changes that arrived after
+        // this effect ran but before the watcher replaced the diff prop.
+        validate: async () => {
+          if (!repoPath) return true;
+          try {
+            const fresh = await getWorkingTreePathDiff(repoPath, sourcePath, false, undefined, false);
+            if (!fresh) return false;
+            return fresh.lines.length === diff.lines.length
+              && fresh.lines.every((line, i) => line.content === diff.lines[i]?.content
+                && line.line_type === diff.lines[i]?.line_type);
+          } catch { return true; }
+        } });
     hunkActions.current = owner;
     setActionFailed(false);
     return () => {

@@ -880,6 +880,10 @@ pub struct GitDiffResponse {
     pub patch: String,
     pub rows: Vec<GitDiffRowResponse>,
     pub hunks: Vec<GitDiffHunkResponse>,
+    /// True when stdout contained invalid UTF-8 replaced by U+FFFD; the
+    /// patch bytes are not a faithful representation of the file content.
+    #[serde(default)]
+    pub has_decoding_loss: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]

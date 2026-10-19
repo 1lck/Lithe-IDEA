@@ -3,7 +3,7 @@ import type { GitDiff, GitHunk } from "../types/git.types";
 import { parseDiffHunkRange } from "./git-diff-helpers";
 import { gitGutterChangeHunk, type GitGutterChange } from "./git-gutter-changes";
 import { monacoDiffRows } from "./monaco-diff-rows";
-import { buildByteFaithfulHunk, buildFaithfulHunkFromRange } from "./lossy-rollback-patch";
+import { buildByteFaithfulHunk, buildFaithfulHunkFromRange, parseRawPatchLines } from "./lossy-rollback-patch";
 import { planIndependentCommitDiff, type IndependentChange } from "./independent-commit-diff";
 
 export interface CommitDiffBlock {
@@ -103,7 +103,22 @@ export function planCommitDiffBlocks(worktree: GitDiff, staged: GitDiff): Commit
     const before = visible.before.slice(change.leftStart, change.leftEnd);
     const after = visible.after.slice(change.rightStart, change.rightEnd);
     const indexLines = indexed.after.slice(start, end);
-    const checked = equal(indexLines, after);
+    // Display-stripped text comparison loses EOF/CRLF information; for lossy
+    // diffs a pure newline-only change would falsely read as already staged.
+    // When the writePatch is available, its changed lines within this block's
+    // span are the authoritative answer: no changes means fully included.
+    let checked = equal(indexLines, after);
+    if (checked && worktree.has_lossy_line_endings && worktree.writePatch) {
+      const rawChanged = parseRawPatchLines(worktree.writePatch).some(line => {
+        if (line.isEofMarker || (line.prefix !== "+" && line.prefix !== "-")) return false;
+        const oldOk = line.oldLine !== null && line.oldLine >= start + 1 && line.oldLine <= end;
+        const newOk = line.newLine !== null
+          && line.newLine >= change.rightStart + 1 && line.newLine <= change.rightEnd;
+        return oldOk || newOk;
+      });
+      // Raw patch still reports changes inside this block: not fully included.
+      if (rawChanged) checked = false;
+    }
     const indeterminate = !checked && !equal(indexLines, before);
     const revertedIndex = [...indexed.after.slice(0, start), ...before, ...indexed.after.slice(end)];
     const rollbackBase = [...visible.after.slice(0, change.rightStart), ...indexLines,

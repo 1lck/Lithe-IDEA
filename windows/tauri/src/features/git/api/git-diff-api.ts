@@ -354,12 +354,21 @@ const fetchRawWorktreePatch = async (
   filePath: string,
 ): Promise<string | null> => {
   try {
-    const response = await tauriInvoke<{ patch: string; exitCode: number }>("git.diff", {
+    const response = await tauriInvoke<{
+      patch: string;
+      exitCode: number;
+      hasDecodingLoss?: boolean;
+    }>("git.diff", {
       root: repoPath,
       pathspecs: [filePath],
       contextLines: 3,
     });
-    return typeof response?.patch === "string" ? response.patch : null;
+    if (typeof response?.patch !== "string") return null;
+    // Core replaced invalid UTF-8 with U+FFFD; writing this back would
+    // permanently corrupt the file. Also detect the replacement character
+    // directly as a belt-and-suspenders check for older core builds.
+    if (response.hasDecodingLoss || response.patch.includes("�")) return null;
+    return response.patch;
   } catch {
     return null;
   }
