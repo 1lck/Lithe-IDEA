@@ -8,6 +8,7 @@ import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace
 import { installHappyDom } from "@/test-utils/happy-dom";
 import { useSpringStore } from "../stores/spring.store";
 import { EMPTY_SPRING_INDEX, type SpringIndex } from "../types/spring.types";
+import { SpringIndexRequestError } from "../utils/spring-index-error";
 import {
   subscribeSpringDependencyReady,
   useSpringIndex,
@@ -357,4 +358,57 @@ test("ready events from another or retired workspace do not refresh the active S
   expect(
     requestIndex.mock.calls[requestIndex.mock.calls.length - 1]![0].refreshDependencyMetadata,
   ).toBe(true);
+});
+
+test("a typing burst keeps one index in flight and coalesces later triggers", async () => {
+  const first = deferred<SpringIndex>();
+  const second = deferred<SpringIndex>();
+  requestIndex.mockImplementationOnce(() => first.promise);
+  requestIndex.mockImplementationOnce(() => second.promise);
+  await mount();
+  expect(requestIndex).toHaveBeenCalledTimes(1);
+
+  for (const _ of [0, 1]) {
+    await act(async () => {
+      externalChange(`${ROOT_A}/application.properties`, "reloaded");
+    });
+    await act(async () => {
+      scheduled.slice(-1)[0]!.reload();
+    });
+  }
+  expect(requestIndex).toHaveBeenCalledTimes(1);
+
+  await act(async () => {
+    first.resolve(index(ROOT_A));
+  });
+  expect(requestIndex).toHaveBeenCalledTimes(2);
+
+  await act(async () => {
+    second.resolve(index(ROOT_A));
+  });
+  expect(useSpringStore.getStore(WORKSPACE_A).getState().phase).toBe("ready");
+});
+
+test("unmount cancels the in-flight native index request", async () => {
+  const cancelRequest = mock(() => {});
+  dependencies.cancelRequest = cancelRequest;
+  requestIndex.mockImplementationOnce(() => new Promise<SpringIndex>(() => {}));
+  await mount();
+  const requestId = requestIndex.mock.calls[0][0].requestId;
+  expect(requestId).toBeTruthy();
+
+  await act(async () => {
+    root.render(null);
+  });
+  expect(cancelRequest).toHaveBeenCalledWith(requestId);
+});
+
+test("a request cancelled by its owner does not surface as an index failure", async () => {
+  requestIndex.mockImplementationOnce(async () => {
+    throw new SpringIndexRequestError("cancelled", "Operation was cancelled");
+  });
+  await mount();
+  const state = useSpringStore.getStore(WORKSPACE_A).getState();
+  expect(state.phase).not.toBe("failed");
+  expect(state.error).toBeNull();
 });
