@@ -26,6 +26,7 @@ import {
 } from "@/features/file-system/utils/file-system-drop-controller";
 import { clipboardEntryPaths } from "@/features/file-explorer/lib/clipboard-entry-paths";
 import { formatPathsForTerminal } from "@/features/terminal/utils/terminal-file-drop";
+import { resolveAutomountRootForShell } from "@/features/wsl/utils/wsl-automount-root";
 import { showConfirmDialog } from "@/ui/dialog";
 import {
   ContextMenu,
@@ -198,11 +199,20 @@ export const XtermTerminal = ({
 
   const insertDroppedPaths = useCallback(
     (paths: string[]) => {
-      const text = formatDroppedPathsForTerminal(paths, resolveShell(), resolveRemoteConnectionId());
-      if (!text) return false;
+      // Resolving the mount root reads the distribution's wsl.conf, so it is async;
+      // the insertion happens once that settles.
+      void resolveAutomountRootForShell(resolveShell()).then((automountRoot) => {
+        const text = formatDroppedPathsForTerminal(
+          paths,
+          resolveShell(),
+          resolveRemoteConnectionId(),
+          automountRoot,
+        );
+        if (!text) return;
 
-      writeBuffered(text);
-      requestAnimationFrame(() => xtermRef.current?.focus());
+        writeBuffered(text);
+        requestAnimationFrame(() => xtermRef.current?.focus());
+      });
       return true;
     },
     [resolveRemoteConnectionId, resolveShell, writeBuffered],
@@ -232,15 +242,18 @@ export const XtermTerminal = ({
     const handlePathInsert = (event: Event) => {
       const detail = (event as CustomEvent<TerminalPathInsertDetail>).detail;
       const paths = clipboardEntryPaths((detail?.paths ?? []).map((path) => ({ path })));
-      const text = formatPathsForTerminal(paths, {
-        shell: resolveShell(),
-        remoteConnectionId: resolveRemoteConnectionId(),
-        trailingSpace: true,
-      });
-      if (!text) return;
+      void resolveAutomountRootForShell(resolveShell()).then((automountRoot) => {
+        const text = formatPathsForTerminal(paths, {
+          shell: resolveShell(),
+          remoteConnectionId: resolveRemoteConnectionId(),
+          automountRoot,
+          trailingSpace: true,
+        });
+        if (!text) return;
 
-      writeBuffered(text);
-      requestAnimationFrame(() => xtermRef.current?.focus());
+        writeBuffered(text);
+        requestAnimationFrame(() => xtermRef.current?.focus());
+      });
     };
 
     container.addEventListener(TERMINAL_FILE_DROP_EVENT, handleNativeFileDrop);
@@ -283,7 +296,9 @@ export const XtermTerminal = ({
     (terminal: Terminal) => {
       if (!currentConnectionIdRef.current) return;
 
-      void readTerminalPasteText(resolveShell(), resolveRemoteConnectionId())
+      void resolveAutomountRootForShell(resolveShell()).then((automountRoot) =>
+        readTerminalPasteText(resolveShell(), resolveRemoteConnectionId(), automountRoot),
+      )
         .then((text) => pasteIntoTerminal(terminal, text))
         .catch((error) => console.error("Failed to paste into terminal:", error));
     },
@@ -970,7 +985,10 @@ export const XtermTerminal = ({
               disabled={!connectionId}
               aria-label={t("terminal.pasteCopiedFilePaths")}
               onClick={() => {
-                void readCopiedFilePathsText(resolveShell(), resolveRemoteConnectionId())
+                void resolveAutomountRootForShell(resolveShell())
+                  .then((automountRoot) =>
+                    readCopiedFilePathsText(resolveShell(), resolveRemoteConnectionId(), automountRoot),
+                  )
                   .then((text) => {
                     if (text) writeBuffered(text);
                     requestAnimationFrame(() => xtermRef.current?.focus());

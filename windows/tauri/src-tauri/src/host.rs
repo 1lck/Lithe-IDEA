@@ -394,8 +394,9 @@ pub async fn create_app_window(app: AppHandle, request: Option<Value>) -> Result
 #[cfg(test)]
 mod tests {
     use super::{
-        cli_payloads, copy_path, create_app_window, read_bounded, read_local_file_bounded,
-        unique_destination, WINDOW_TASKBAR_ICON,
+        cli_payloads, copy_path, create_app_window, parse_wsl_automount_root, read_bounded,
+        read_local_file_bounded, unique_destination, WINDOW_TASKBAR_ICON,
+        WSL_DEFAULT_AUTOMOUNT_ROOT,
     };
     use std::fs;
     use std::future::Future;
@@ -581,6 +582,52 @@ mod tests {
         assert!(visible_width >= 26, "visible width: {visible_width}");
         assert!(visible_height >= 26, "visible height: {visible_height}");
     }
+
+    // WSL reads this file to decide where Windows drives appear, so getting the
+    // parse wrong sends a paste to a path that cannot exist. Every unreadable or
+    // partial shape must land on the documented default rather than on a guess.
+    #[test]
+    fn wsl_automount_root_defaults_when_the_file_says_nothing() {
+        assert_eq!(
+            parse_wsl_automount_root(""),
+            WSL_DEFAULT_AUTOMOUNT_ROOT.to_string()
+        );
+        assert_eq!(
+            parse_wsl_automount_root("[boot]\nsystemd=true\n"),
+            WSL_DEFAULT_AUTOMOUNT_ROOT.to_string()
+        );
+    }
+
+    #[test]
+    fn wsl_automount_root_reads_the_automount_section() {
+        let contents = "[automount]\nroot = /mnt/\nenabled = true\n";
+        assert_eq!(parse_wsl_automount_root(contents), "/mnt");
+    }
+
+    // `root = /` mounts drives directly under the filesystem root, so `C:\` becomes
+    // `/c`. Returning an empty prefix is what lets the caller build that path.
+    #[test]
+    fn wsl_automount_root_supports_the_filesystem_root() {
+        assert_eq!(parse_wsl_automount_root("[automount]\nroot = /\n"), "");
+        assert_eq!(parse_wsl_automount_root("[automount]\nroot=/\n"), "");
+    }
+
+    #[test]
+    fn wsl_automount_root_accepts_quotes_case_and_comments() {
+        let contents = "# comment\n[AutoMount]\nROOT = \"/custom/mount/\"\n";
+        assert_eq!(parse_wsl_automount_root(contents), "/custom/mount");
+    }
+
+    // A `root` under another section must not be picked up.
+    #[test]
+    fn wsl_automount_root_ignores_root_outside_the_automount_section() {
+        let contents = "[network]\nroot = /wrong\n[automount]\nroot = /right\n";
+        assert_eq!(parse_wsl_automount_root(contents), "/right");
+        assert_eq!(
+            parse_wsl_automount_root("[network]\nroot = /wrong\n"),
+            WSL_DEFAULT_AUTOMOUNT_ROOT.to_string()
+        );
+    }
 }
 
 #[tauri::command]
@@ -765,4 +812,88 @@ pub async fn open_html_in_browser(path: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || crate::html_browser::open(&path))
         .await
         .map_err(|_| "The browser launch task failed.".to_string())?
+}
+
+/// Default mount prefix WSL uses for Windows drives when `wsl.conf` says nothing.
+pub const WSL_DEFAULT_AUTOMOUNT_ROOT: &str = "/mnt";
+
+/// Extract `[automount] root` from the contents of a `wsl.conf` file.
+///
+/// WSL reads this INI file to decide where Windows drives appear, so a
+/// distribution with `root = /` exposes `C:\` as `/c` instead of `/mnt/c`.
+/// Anything unreadable or malformed falls back to the documented default, which
+/// keeps the caller on the common case rather than on a guess.
+pub fn parse_wsl_automount_root(contents: &str) -> String {
+    let mut in_automount = false;
+    for raw_line in contents.lines() {
+        let line = raw_line.trim();
+        if line.is_empty() || line.starts_with('#') || line.starts_with(';') {
+            continue;
+        }
+        if line.starts_with('[') {
+            // A new section ends the only one that carries the key.
+            in_automount = line
+                .trim_start_matches('[')
+                .trim_end_matches(']')
+                .trim()
+                .eq_ignore_ascii_case("automount");
+            continue;
+        }
+        if !in_automount {
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        if !key.trim().eq_ignore_ascii_case("root") {
+            continue;
+        }
+        let value = value.trim().trim_matches('"').trim_matches('\'').trim();
+        if value.is_empty() {
+            continue;
+        }
+        // Normalize to a single trailing slash so callers can join segments
+        // without producing `//c`.
+        let normalized = value.trim_end_matches('/');
+        return if normalized.is_empty() {
+            // `root = /` mounts drives directly under the filesystem root.
+            String::new()
+        } else {
+            normalized.to_string()
+        };
+    }
+    WSL_DEFAULT_AUTOMOUNT_ROOT.to_string()
+}
+
+/// Candidate UNC prefixes under which a registered distribution exposes its
+/// filesystem to Windows.
+const WSL_UNC_PREFIXES: [&str; 2] = ["\\\\wsl.localhost\\", "\\\\wsl$\\"];
+
+/// Read the automount root the target distribution actually uses.
+///
+/// The value lives in the distribution's own `/etc/wsl.conf`, which Windows can
+/// reach through the `wsl$` share without starting a shell or a subprocess.
+/// Every failure path returns the default root: the caller is inserting a path
+/// into a terminal, and a wrong prefix is no worse than a missing one while a
+/// hard error would block a paste that could otherwise work.
+#[tauri::command]
+pub fn wsl_automount_root(distro: String) -> String {
+    // A distribution name reaches a filesystem path here, so reject anything
+    // that could escape the share instead of joining it blindly.
+    if distro.is_empty()
+        || distro.contains(['\\', '/', ':'])
+        || distro.contains("..")
+        || distro.chars().any(char::is_control)
+    {
+        return WSL_DEFAULT_AUTOMOUNT_ROOT.to_string();
+    }
+
+    for prefix in WSL_UNC_PREFIXES {
+        let candidate = format!("{prefix}{distro}\\etc\\wsl.conf");
+        let Ok(contents) = std::fs::read_to_string(&candidate) else {
+            continue;
+        };
+        return parse_wsl_automount_root(&contents);
+    }
+    WSL_DEFAULT_AUTOMOUNT_ROOT.to_string()
 }

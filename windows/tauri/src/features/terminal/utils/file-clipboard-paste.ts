@@ -21,6 +21,7 @@ import { quoteTerminalPaths } from "./terminal-file-drop";
 async function fileClipboardPasteText(
   shell: string | null,
   remoteConnectionId: string | null,
+  automountRoot: string | null,
   allowStale: boolean,
 ): Promise<string | null> {
   const { clipboard } = useFileClipboardStore.getState();
@@ -49,7 +50,7 @@ async function fileClipboardPasteText(
 
   const paths = clipboardEntryPaths(entries);
   if (paths.length === 0) return null;
-  return quoteTerminalPaths(paths, shell, { remoteConnectionId });
+  return quoteTerminalPaths(paths, shell, { remoteConnectionId, automountRoot });
 }
 
 /**
@@ -59,10 +60,12 @@ async function fileClipboardPasteText(
 export async function readTerminalPasteText(
   shell?: string | null,
   remoteConnectionId?: string | null,
+  automountRoot?: string | null,
 ): Promise<string> {
   const filePaths = await fileClipboardPasteText(
     shell ?? null,
     remoteConnectionId ?? null,
+    automountRoot ?? null,
     false,
   );
   if (filePaths !== null) return filePaths;
@@ -77,6 +80,12 @@ export async function readTerminalPasteText(
 export async function readCopiedFilePathsText(
   shell?: string | null,
   remoteConnectionId?: string | null,
+  automountRoot?: string | null,
 ): Promise<string | null> {
-  return fileClipboardPasteText(shell ?? null, remoteConnectionId ?? null, true);
+  return fileClipboardPasteText(
+    shell ?? null,
+    remoteConnectionId ?? null,
+    automountRoot ?? null,
+    true,
+  );
 }
