@@ -57,7 +57,17 @@ tests, packaging, plugin tests, Windows frontend, Windows Rust, real JDT):
   count, unless they touch CI infrastructure (workflows, actions, the
   classifier and runner scripts, test infrastructure, `Package.swift`,
   `Package.resolved`, every Cargo manifest and lock file including member
-  crates, Rust toolchain files); then every lane runs.
+  crates, Rust toolchain files) that the planned workflow reads; then every
+  lane of that workflow runs.
+- Infrastructure is scoped per workflow. Workflow files and local actions count
+  only for the workflow that references them, directly or through a composite
+  action. Windows crates, toolchain and frontend manifests and Windows scripts
+  count only for Windows CI. macOS Swift packages and build scripts count for
+  macOS CI and the plugin CI, which builds through the same actions and
+  `scripts/test-macos.sh`. Rust workspace manifests under `rust/`, the
+  classifier and planner, and the root Bun workspace count for every workflow.
+  The step summary lists the infrastructure paths that caused a rerun and those
+  ignored because they only reach other workflows.
 - A file counts as changed when its content or its mode differs, so an
   executable bit change alone reruns the lanes the file affects. Paths are read
   raw (NUL-separated), so Chinese and other escaped file names are compared
