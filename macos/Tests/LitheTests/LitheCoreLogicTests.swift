@@ -5873,7 +5873,8 @@ struct EditorDocumentTests {
         ))
         #expect(await waitForWorkspaceObservation(timeout: .seconds(15)) {
             operations.snapshotCount == 2 && !model.isRefreshingWorkspace
-        }, "The revalidation event did not rescan the workspace")
+                && watcherFactory.configurations.last?.ignoredDirectories.isEmpty == true
+        }, "The revalidation event did not update the workspace and watcher configuration")
         #expect(watcherFactory.configurations.last?.ignoredDirectories.isEmpty == true)
 
         let refreshedWatcher = try #require(watcherFactory.source)

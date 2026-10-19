@@ -1234,7 +1234,11 @@ package final class WorkspaceFeatureModel: ObservableObject {
             await applyIncrementalTree(root)
             reloadedProjectServices = true
         case .requiresSnapshot:
+            let generation = workspaceGeneration
             await refreshCurrentSnapshot()
+            // An unavailable snapshot must not swallow the batch's Git refresh.
+            guard self.workspaceURL == workspaceURL, workspaceGeneration == generation else { return }
+            if pendingGitRefresh { await drainGitRefreshes() }
             return
         }
         await updateSearchIndex(
@@ -1298,9 +1302,9 @@ package final class WorkspaceFeatureModel: ObservableObject {
         applying changedURLs: [URL],
         at workspaceURL: URL
     ) -> IncrementalTreeResult {
-        // No snapshot has been published yet, so there is no older tree to
-        // splice into. The initial load reads the whole tree anyway.
-        guard var root = rootNode else { return .unchanged }
+        // A previous snapshot may have failed; watcher events must be able to
+        // recover the tree instead of leaving the workspace empty indefinitely.
+        guard var root = rootNode else { return .requiresSnapshot }
         var didChange = false
         for url in changedURLs where !isWorkspaceDependencyMetadata(url, workspaceURL: workspaceURL) {
             // `displayedNode` also matches a compact middle-package row that
