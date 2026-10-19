@@ -39,10 +39,34 @@ Mac mini Runner，因为离线时没有回退、fork 代码跑在长期存活的
 中逐个 lane 判断：找到这个 PR 之前真正执行过该 lane 的最近一次运行，job 已通过或
 已经在 GitHub 托管 Runner 上排队或运行，并且 PR 自己在此之后的改动（按现有分类规则）不影响这个 lane，就复用
 那次结果。只看 PR 自己的改动：用“每个文件的 PR 版本”比较两个修订，从 base 同步
-进来的改动不算；但只要 base 在两次运行之间带来了 CI 基础设施的改动（workflow、
-action、分类和 runner 脚本、测试基础设施、`Package.swift`/`Package.resolved`、所有
-Cargo 清单与锁文件（包括成员 crate，只改 feature 时锁文件可能不变）、Rust 工具链
-文件），全部 lane 重跑。文件身份包含内容和 mode，只改执行位也算变化；路径用 NUL
+进来的改动不算；但只要 base 在两次运行之间带来了**本 workflow 会读取的** CI 基础设施
+改动（workflow、action、分类和 runner 脚本、测试基础设施、`Package.swift`/`Package.resolved`、
+所有 Cargo 清单与锁文件（包括成员 crate，只改 feature 时锁文件可能不变）、Rust 工具链
+文件），本 workflow 的全部 lane 重跑。
+
+基础设施按 workflow 划分影响范围（`CI_INFRA_RULES`）。观察到的问题是：#1313 合入
+`preview` 时只改了 `ci-windows.yml` 和 `windows/tauri/src-tauri/Cargo.toml`，同步了
+`preview` 的 #1325 自身没有任何文件变化，却把 macOS 的 Swift、Rust Core、arm64 打包
+和插件 lane 全部重跑了一遍。正确做法是：
+- `.github/` 下的 workflow 和本地 action 按引用关系判断：只影响 workflow 自己的文件，
+  以及它直接或经由 composite action 间接引用的本地 action、reusable workflow。引用
+  关系在规划时从 base 和 head 两个修订读取，不手写清单，新增 action 不用改规则。
+  release、取消旧运行等不被引用的 workflow 改动不让任何 PR lane 重跑。
+- `windows/` 下的 Cargo 清单与锁文件、Rust 工具链和前端 `package.json`、
+  `scripts/*windows*`、`test-stability-windows.ps1` 只影响 Windows CI。Windows 产品通过
+  path 依赖链接 Rust Core，所以 `rust/` 下的 Cargo 改动仍影响全部 workflow。
+- `Package.swift`/`Package.resolved`/`.swift-version`、`test-macos.sh`、Rust Core 构建与
+  验证脚本、`test-stability-macos.sh` 同时影响 macOS CI 和插件 CI，因为插件 workflow
+  也通过 macOS 工具链 action 和 `test-macos.sh` 构建。
+- `frontend/editor/package.json` 与分类规则一致，影响 macOS 和 Windows。分类脚本、规划
+  与校验脚本、根目录 Bun workspace、其余测试基础设施仍影响全部 workflow。
+
+不要把规则改成“所有基础设施改动都全量重跑”来图省事：同步 `preview` 是最常见的
+后续 push，粗粒度规则会让每次合入都把最慢的 macOS 打包 lane 重跑一遍。新增路径
+拿不准影响范围时，归到全部 workflow，宁可多跑也不能漏跑。规划步骤的 summary 会列出
+触发重跑的基础设施路径，以及只影响其他 workflow 而被忽略的路径，便于核对判断。
+
+文件身份包含内容和 mode，只改执行位也算变化；路径用 NUL
 分隔的原始形式读取，分类脚本同样如此，否则 Git 会给中文等路径加引号转义，导致
 路径匹配失败、把真实改动当成没有变化。这里同时检查作者合入的 base 改动和 GitHub 合并
 提交在 base 前进后自动带上的改动（用 API 取得之前那次运行开始时的 base 头）。

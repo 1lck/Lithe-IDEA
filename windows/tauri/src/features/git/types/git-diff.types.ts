@@ -145,6 +145,8 @@ export interface MultiFileDiff {
   initiallySelectedFileKey?: string;
   /** Backward file navigation lands at the last change after the comparison is ready. */
   initialDifference?: "first" | "last";
+  /** One-based modified-side lines to land on; wins over initialDifference. */
+  initialRevealRange?: { startLine: number; endLine: number };
   /** Passive Git Log previews reveal the first change without taking keyboard focus. */
   preserveFocus?: boolean;
   /** Hides the changed-files navigator, e.g. for a single-file commit preview. */

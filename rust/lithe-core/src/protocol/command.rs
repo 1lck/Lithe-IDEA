@@ -379,6 +379,8 @@ pub enum CoreCommand {
     GitOperationState,
     /// Returns normalized line attribution (`git.blame`).
     GitBlame,
+    /// Traces which commits touched a snapshot line range (`git.lineHistory`).
+    GitLineHistory,
     /// Parses a GitHub repository identity from a Git remote URL (`github.parseRemote`).
     GitHubParseRemote,
     /// Builds a platform-executable GitHub HTTP request (`github.requestPlan`).
@@ -572,6 +574,7 @@ impl CoreCommand {
             "git.conflictMarkers" => Some(Self::GitConflictMarkers),
             "git.operationState" => Some(Self::GitOperationState),
             "git.blame" => Some(Self::GitBlame),
+            "git.lineHistory" => Some(Self::GitLineHistory),
             "github.parseRemote" => Some(Self::GitHubParseRemote),
             "github.requestPlan" => Some(Self::GitHubRequestPlan),
             "github.normalizeResponse" => Some(Self::GitHubNormalizeResponse),

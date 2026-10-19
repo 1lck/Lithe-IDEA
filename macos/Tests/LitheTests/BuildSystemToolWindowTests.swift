@@ -84,6 +84,38 @@ struct BuildSystemToolWindowTests {
     }
 
     @Test @MainActor
+    func enabledBuildSystemWindowShowsInAWorkspaceWithoutAnInstance() throws {
+        let descriptor = try Self.descriptor("gradle-build")
+        let module = try #require(descriptor.pluginManifest.modules.first {
+            $0.manifest.id == .buildSystemsExtension(descriptor.id.rawValue)
+        })
+        let window = try #require(module.contributions.first { $0.kind == .toolWindow })
+        let command = try #require(module.contributions.first { $0.kind == .command })
+        let registration = WorkbenchModuleUIRegistry.buildSystemRegistration(module)
+        let renderer = try #require(registration.renderers.first { $0.id == window.rendererID })
+        let toggle = try #require(registration.actions.first { $0.id == command.actionID })
+
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lithe-build-window-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = BuildSystemWindowTestStore()
+        let settings = AppSettings(store: store)
+        let services = MacServiceContainer(store: store, settings: settings, moduleLaunchMode: .safeMode).services
+        let model = AppModel(settings: settings, services: services)
+
+        // Without a workspace there is nothing to build.
+        #expect(!renderer.isVisible(model))
+        #expect(!toggle.state(model).isVisible)
+
+        // An empty folder has no Gradle marker; the window still shows so
+        // the user can see the plugin is active.
+        model.openProjectDirectly(root)
+        #expect(renderer.isVisible(model))
+        #expect(toggle.state(model).isVisible)
+    }
+
+    @Test @MainActor
     func tasksWithoutACategoryAreFiledByGroup() {
         #expect(BuildSystemToolWindowView.groupTitle(.lifecycle) == String(localized: "Lifecycle"))
         #expect(BuildSystemToolWindowView.groupTitle(.other) == String(localized: "Other"))
@@ -341,4 +373,14 @@ struct BuildSystemToolWindowTests {
         ))
         return try DeclarativePluginTestSupport.operations.validate(manifest: Data(contentsOf: url))
     }
+}
+
+private final class BuildSystemWindowTestStore: KeyValueStore, @unchecked Sendable {
+    private var values: [String: Any] = [:]
+
+    func data(forKey key: String) -> Data? { values[key] as? Data }
+    func object(forKey key: String) -> Any? { values[key] }
+    func string(forKey key: String) -> String? { values[key] as? String }
+    func stringArray(forKey key: String) -> [String]? { values[key] as? [String] }
+    func set(_ value: Any?, forKey key: String) { values[key] = value }
 }

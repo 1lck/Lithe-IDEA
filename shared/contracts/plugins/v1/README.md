@@ -1,7 +1,7 @@
 # Plugin contract v1: declarative plugins
 
 A declarative plugin currently describes language support or first-stage UI contributions as data. The host reads
-`plugin.json`, validates it, verifies the package signature, and launches the
+`plugin.json`, validates it, checks the applicable signature or community approval, and launches the
 declared external processes itself. The host never loads plugin code into its
 own process, so a package does not depend on the host's binary layout and does
 not need to be rebuilt for each Lithe release.
@@ -417,15 +417,23 @@ plugin only permits activation; nothing starts until its event occurs.
   local development package; release builds refuse it.
 - `sameTeamAsHost`: only honored for a package shipped inside the host's own
   signed installation, whose code signature already seals it.
-- `none`: a community package without a Lithe signature. A host installs it
-  only from a third-party marketplace source, after the archive matched the
-  index checksum and the user confirmed the install review (see Marketplace).
-  IDs in the official namespace (`dev.lithe`, `dev.lithe.*`) may not use it
-  (`plugin.manifest.invalid`). Hosts that predate this value refuse such
-  packages as invalid manifests, which is the intended behavior.
+- `none`: a community package without a required Lithe signature. A host may
+  install it from a third-party marketplace source after matching the archive
+  against the index checksum, or from a user-selected local ZIP or unpacked
+  directory after taking a private snapshot. Both paths require the user to
+  confirm the install review. IDs in the official namespace (`dev.lithe`,
+  `dev.lithe.*`) may not use it (`plugin.manifest.invalid`). Hosts that predate
+  this value refuse such packages as invalid manifests, which is intended.
+  A signature document, when present, must still be verified; community trust
+  cannot silently ignore an invalid signature.
 
 A host pins the signature requirement of its official plugin IDs so a package
-cannot downgrade itself.
+cannot downgrade itself. Selecting a file from disk never overrides that pin,
+namespace restrictions, publisher-key checks, or the installation seal required
+by `sameTeamAsHost`. On macOS only DEBUG permits an unsigned publisher package
+as `localDevelopment`; release builds refuse that origin. Community `none`
+packages use their own approval path in both build configurations and must not
+be reclassified as development packages.
 
 ## Marketplace
 
@@ -507,11 +515,16 @@ index. Otherwise it returns `{ "status": "ok", "index": { "plugins", "rejected" 
 
 - **Official**: an entry is official only when it comes from the official
   source and its package passes the Lithe publisher signature.
-- **Community**: entries from third-party sources. Hosts install in this
-  order: verify the archive SHA-256 against the index
-  (`plugin.archive.checksumMismatch`), validate the declaration, run
-  `plugins.marketplace.installReview`, show the review, and install only after
-  the user confirms.
+- **Community marketplace**: entries from third-party sources. Hosts install
+  in this order: verify the archive SHA-256 against the index
+  (`plugin.archive.checksumMismatch`), validate the declaration and package,
+  run `plugins.marketplace.installReview`, show the review, and install only
+  after the user confirms. The index checksum proves a match to that index's
+  bytes, not an authenticated publisher identity.
+- **Community local disk**: a user-selected ZIP or unpacked directory has no
+  marketplace index or authenticated repository. The host first copies a
+  private snapshot, then validates and reviews that snapshot with the same
+  Core command. A local checksum must never be shown as a repository match.
 
 `plugins.marketplace.installReview` accepts
 `{ "manifest": object, "expectedID"?, "expectedVersion"?, "approvedPrograms"?: [object], "hostCapabilities"?: object }`
@@ -535,10 +548,93 @@ the plugin, sorted by `kind`, language, and tool:
 Each entry carries everything that decides what actually runs, so an update
 that keeps the same executable but changes its arguments, argument templates,
 or validation probe is a new program; language-server and build-provider
-entries also carry `initializationOptions` when declared. Hosts record the approved `programs`
-with the installation. An update passes them as `approvedPrograms`; a
-non-empty `newPrograms` requires the user to confirm again. When several sources list the same ID, the user chooses the
-source at install time and later updates come only from that source.
+entries also carry `initializationOptions` when declared. Hosts show all
+`permissions` and the complete `programs`, and persist each approved program
+as canonical JSON without dropping fields. A display may use readable labels
+but must retain all canonical content, including a full JSON fallback for
+program kinds it cannot describe completely. On macOS, recognized kinds keep
+their readable summary and offer a native “Full Program Declaration” disclosure
+with the complete canonical JSON; unknown kinds already render that JSON and
+do not need a duplicate disclosure.
+
+Local disk community installation requires explicit confirmation on every first
+install, update, reinstall, and same-version replacement, including unchanged
+programs and permissions. An empty `newPrograms` never waives disk confirmation.
+Marketplace installation retains its existing policy: first install, missing
+previous approval, or nonempty `newPrograms` requires confirmation; a marketplace
+update with no new programs may reuse its recorded approval. A host may pass
+previous `approvedPrograms` to highlight differences, but a confirmation always
+shows the complete current review. Core's review remains a pure description and
+comparison, not an approval grant.
+When several marketplace sources list the same ID, the user chooses the source
+at install time and later updates come only from that source. Local disk
+provenance is never a marketplace source or an automatic update subscription.
+
+### Local disk snapshots and installation provenance (macOS)
+
+The macOS disk entry accepts a ZIP or an unpacked package directory. It does
+not run code from the selection. `MacPluginDiskPackageImporter` copies into a
+fresh private directory (mode `0700`) before declaration validation, trust
+checks, review, or installation. It refuses aliases, symbolic links, special
+files, ambiguous manifests, and detected source changes during copying, and
+applies archive/extracted-size and entry-count limits to the snapshot. Directory
+copy depth is limited to 64, and its temporary root must stay outside the
+selected source. Before extraction, ZIP preflight checks central and local
+header paths/types and rejects duplicate or colliding paths.
+
+`MacServiceContainer` injects `fileStorage.temporaryDirectory()`. Within that
+platform-owned writable root the importer creates
+`lithe-plugin-disk-<UUID>/archive.zip` for a ZIP and `package/` for copied or
+extracted files. `archiveSHA256` is computed from the copied ZIP, not by reading
+the original after review; an unpacked directory has no archive and this field
+is absent/`nil`. The content digest covers the package files. Neither digest
+authenticates a publisher or remote repository.
+
+Disk digesting, Rust review, and candidate validation run on a native worker,
+with a worker-owned Store decoder and immutable validation policy. The UI actor
+remains available to close the page or cancel. Cancellation is checked between
+review stages and before publishing the prepared candidate; snapshot cleanup
+waits for the worker to finish reading it.
+
+`PluginDiskProvenance` is host-owned local installation data, separate from
+`PluginMarketplaceProvenance`; it is not a new field in `plugin.json` or the
+marketplace index schema. A disk record contains the selected `fileName`,
+optional `archiveSHA256`, `contentDigest`, and complete canonical
+`approvedPrograms`. Marketplace provenance instead retains its source ID/name,
+repository, index archive checksum, content digest, and approved programs.
+Each community version must have exactly one of these provenance records;
+missing or conflicting provenance is rejected.
+
+The store rechecks the content digest of the installation staging copy before
+publishing it, on every installed-package scan, and before rollback. Changed,
+added, or removed package files reject that candidate or version. Active and
+previous versions retain their own origin and provenance (`disk` /
+`previousDisk`, `marketplace` / `previousMarketplace`); rollback verifies the
+restored version against its own approval. Replacing the active version with
+the same version retains the existing previous-version history; it does not
+create a second rollback slot for the overwritten same-version bytes. A
+marketplace entry with the same ID must not automatically offer updates or
+reinstall a disk-managed installation.
+
+The importer owns partial-copy cleanup on failure or cancellation. After
+preparation the service owns the snapshot until review cancellation or install
+success/failure and discards it in all these cases. Closing the plugin page
+cancels its disk import and ends the installation session: pending snapshots
+are discarded immediately and late prepared results are discarded rather than
+installed. The package store owns its separate Application Support staging,
+version directories, and installation records. None of these snapshots, staging files, installed versions, or approval
+records are reusable worktree build resources: a content hash does not transfer
+user consent or provide a version/platform/architecture/toolchain identity stamp.
+They are excluded as `plugin-disk-install-state`. No runtime write targets the
+signed app bundle or Windows installation resources, so these paths do not
+change code signatures or Sparkle differential-update baselines.
+
+Windows currently shares the schemas and Rust validation only; it has no
+implementation of this declarative ZIP/directory snapshot and approval flow.
+Its existing worker-package import is a separate format. The feature matrix
+therefore keeps Windows `partial` and macOS runtime verification `pending`;
+static checks and Node resource tests alone do not verify the UI confirmation,
+complete program rendering, cleanup, or bundle hashes in a real workflow.
 
 ## API level 3: build systems
 

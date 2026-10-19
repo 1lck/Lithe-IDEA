@@ -31,7 +31,7 @@ struct PluginMarketplaceFeatureModelTests {
         #expect(manager.installed.isEmpty)
         feature.cancelPendingInstallation()
         #expect(feature.pendingConfirmation == nil)
-        #expect(service.discarded == [confirmation.prepared.id])
+        #expect(service.discarded == [confirmation.id])
         #expect(manager.installed.isEmpty)
     }
 
@@ -100,6 +100,42 @@ struct PluginMarketplaceFeatureModelTests {
         let official = try #require(listing.offers.first { $0.source.isOfficial })
         #expect(feature.installState(for: official) == .installedFromOtherSource(sourceName: "example/plugins"))
         #expect(feature.offer(for: listing)?.source.id == Self.community.id)
+    }
+
+    /// The marketplace detail offers Uninstall under the Installed tab's rule:
+    /// installed plugin packages only, never required or built-in ones.
+    @Test
+    func uninstallIsOfferedOnlyForRemovablePluginPackages() throws {
+        let (feature, _, manager) = try makeModel()
+        let pluginID = PluginID("io.example.zig-support")
+        #expect(!feature.canUninstall(pluginID))
+
+        manager.snapshots = [try installedSnapshot(version: "1.0.0", approved: [])]
+        #expect(feature.canUninstall(pluginID))
+
+        manager.snapshots = [try installedSnapshot(version: "1.0.0", approved: [], isRequired: true)]
+        #expect(!feature.canUninstall(pluginID))
+
+        manager.snapshots = [try installedSnapshot(version: "1.0.0", approved: [], status: .removed)]
+        #expect(!feature.canUninstall(pluginID))
+
+        manager.snapshots = [try installedSnapshot(version: "1.0.0", approved: [], origin: .bundled)]
+        #expect(!feature.canUninstall(pluginID))
+    }
+
+    /// A freshly installed plugin is only loaded at the next launch, so the
+    /// marketplace must not present it as ready.
+    @Test
+    func installedPluginWaitingForRestartIsReported() throws {
+        let (feature, _, manager) = try makeModel()
+        let pluginID = PluginID("io.example.zig-support")
+        #expect(!feature.requiresRestart(pluginID))
+
+        manager.snapshots = [try installedSnapshot(version: "1.0.0", approved: [], requiresRestart: true)]
+        #expect(feature.requiresRestart(pluginID))
+
+        manager.snapshots = [try installedSnapshot(version: "1.0.0", approved: [])]
+        #expect(!feature.requiresRestart(pluginID))
     }
 
     @Test
@@ -191,6 +227,109 @@ struct PluginMarketplaceFeatureModelTests {
         #expect(feature.visibleListings(query: "zig", sourceID: nil, sortOrder: .name).count == 1)
     }
 
+    @Test
+    func diskInstallAlwaysWaitsForApprovalAndCancelDiscardsTheSnapshot() async throws {
+        let (feature, service, manager) = try makeModel()
+        manager.snapshots = [try installedSnapshot(version: "1.0.0", approved: service.programs)]
+
+        await feature.installFromDisk(at: URL(fileURLWithPath: "/fixture/local.zip"))
+
+        let confirmation = try #require(feature.pendingConfirmation)
+        guard case .disk(let prepared) = confirmation.package else {
+            Issue.record("expected a disk approval")
+            return
+        }
+        #expect(confirmation.isUpdate)
+        #expect(confirmation.review.programs == service.programs)
+        #expect(prepared.provenance.fileName == "local.zip")
+        #expect(manager.diskInstalls.isEmpty)
+        feature.cancelPendingInstallation()
+        #expect(feature.pendingConfirmation == nil)
+        #expect(service.discarded == [confirmation.id])
+        #expect(manager.diskInstalls.isEmpty)
+    }
+
+    @Test
+    func confirmedDiskInstallUsesOnlyLocalProvenanceAndCleansTheSnapshot() async throws {
+        let (feature, service, manager) = try makeModel()
+        await feature.installFromDisk(at: URL(fileURLWithPath: "/fixture/local.zip"))
+        let confirmation = try #require(feature.pendingConfirmation)
+
+        feature.confirmPendingInstallation()
+
+        let install = try #require(manager.diskInstalls.first)
+        #expect(install.approvedPrograms == service.programs.map { try! $0.canonicalJSON() })
+        #expect(manager.installed.isEmpty)
+        #expect(service.discarded == [confirmation.id])
+        #expect(feature.pendingConfirmation == nil)
+    }
+
+    @Test
+    func failedDiskCommitDiscardsTheSnapshotAndShowsTheError() async throws {
+        let (feature, service, manager) = try makeModel()
+        manager.diskInstallError = CocoaError(.fileWriteNoPermission)
+        await feature.installFromDisk(at: URL(fileURLWithPath: "/fixture/local.zip"))
+        let confirmation = try #require(feature.pendingConfirmation)
+
+        feature.confirmPendingInstallation()
+
+        #expect(feature.diskInstallError == manager.diskInstallError?.localizedDescription)
+        #expect(feature.pendingConfirmation == nil)
+        #expect(service.discarded == [confirmation.id])
+        #expect(manager.diskInstalls.isEmpty)
+    }
+
+    @Test
+    func marketplaceDoesNotClaimALocallyInstalledPlugin() throws {
+        let (feature, _, manager) = try makeModel()
+        var snapshot = try installedSnapshot(version: "0.9.0", approved: [])
+        snapshot.disk = PluginDiskProvenance(
+            fileName: "local.zip", archiveSHA256: nil,
+            contentDigest: String(repeating: "5", count: 64), approvedPrograms: []
+        )
+        manager.snapshots = [snapshot]
+        let offer = try communityOffer(feature)
+
+        #expect(feature.installedSourceID(for: snapshot.id) == nil)
+        #expect(feature.availableUpdate(for: snapshot.id) == nil)
+        #expect(feature.installState(for: offer) == .managedOutsideMarketplace(version: "0.9.0"))
+    }
+
+    @Test
+    func aNewApprovalDiscardsThePreviousSnapshot() async throws {
+        let (feature, service, _) = try makeModel()
+        await feature.installFromDisk(at: URL(fileURLWithPath: "/fixture/first.zip"))
+        let first = try #require(feature.pendingConfirmation)
+        await feature.install(try communityOffer(feature))
+        let second = try #require(feature.pendingConfirmation)
+
+        #expect(first.id != second.id)
+        #expect(service.discarded == [first.id])
+        feature.confirmPendingInstallation(id: first.id)
+        #expect(feature.pendingConfirmation?.id == second.id)
+        feature.cancelPendingInstallation()
+        #expect(service.discarded == [first.id, second.id])
+    }
+
+    @Test
+    func closingThePageDiscardsPendingAndLateDiskReviews() async throws {
+        let (feature, service, manager) = try makeModel()
+        await feature.installFromDisk(at: URL(fileURLWithPath: "/fixture/first.zip"))
+        let first = try #require(feature.pendingConfirmation)
+        feature.endInstallationSession()
+        #expect(service.discarded == [first.id])
+        #expect(feature.pendingConfirmation == nil)
+
+        // Deterministically close the page while the service owns preparation,
+        // before its result returns to the feature.
+        service.onDiskPreparation = { feature.endInstallationSession() }
+        await feature.installFromDisk(at: URL(fileURLWithPath: "/fixture/late.zip"))
+        #expect(feature.pendingConfirmation == nil)
+        #expect(service.discarded.count == 2)
+        #expect(manager.diskInstalls.isEmpty)
+        #expect(!feature.isPreparingDiskInstall)
+    }
+
     // MARK: Doubles
 
     private func makeModel(
@@ -228,7 +367,11 @@ struct PluginMarketplaceFeatureModelTests {
     private func installedSnapshot(
         version: String,
         approved: [PluginProgram],
-        sourceID: String = Self.community.id
+        sourceID: String = Self.community.id,
+        origin: PluginInstallationOrigin = .community,
+        status: PluginInstallationStatus = .installed,
+        isRequired: Bool = false,
+        requiresRestart: Bool = false
     ) throws -> PluginManagementSnapshot {
         let manifest = try DeclarativePluginTestSupport.descriptor(
             DeclarativePluginTestSupport.manifestObject(
@@ -239,14 +382,14 @@ struct PluginMarketplaceFeatureModelTests {
         ).pluginManifest
         return PluginManagementSnapshot(
             manifest: manifest,
-            origin: .community,
-            installationStatus: .installed,
+            origin: origin,
+            installationStatus: status,
             isEnabled: true,
-            isRequired: false,
+            isRequired: isRequired,
             isRunning: false,
             isQuarantined: false,
             isSuppressedBySafeMode: false,
-            requiresRestart: false,
+            requiresRestart: requiresRestart,
             canRollback: false,
             statusMessage: "Enabled",
             marketplace: PluginMarketplaceProvenance(
@@ -295,6 +438,7 @@ private final class FakeMarketplaceService: PluginMarketplaceServicing {
     var sources: [PluginMarketplaceSource]
     var indexes: [String: PluginMarketplaceIndex]
     var refreshError: Error?
+    var onDiskPreparation: (() -> Void)?
     var resolution = PluginMarketplaceSourceResolution(indexURL: "https://example.com/i.json", repository: nil, displayName: "example.com")
     var origin: PluginInstallationOrigin = .community
     let programs = [PluginProgram(json: .object([
@@ -363,7 +507,31 @@ private final class FakeMarketplaceService: PluginMarketplaceServicing {
         )
     }
 
+    func prepareDiskInstall(at url: URL) async throws -> PreparedDiskPluginPackage {
+        onDiskPreparation?()
+        let directory = URL(fileURLWithPath: "/nonexistent/\(UUID().uuidString)")
+        return PreparedDiskPluginPackage(
+            id: UUID(), pluginID: PluginID("io.example.zig-support"),
+            displayName: "Zig Support", author: "Example",
+            packageURL: directory, temporaryDirectory: directory,
+            review: PluginInstallReview(
+                pluginID: "io.example.zig-support", version: "1.0.0",
+                permissions: ["languageServer.launch"], programs: programs, newPrograms: programs
+            ),
+            provenance: PluginDiskProvenance(
+                fileName: url.lastPathComponent, archiveSHA256: nil,
+                contentDigest: String(repeating: "5", count: 64),
+                approvedPrograms: try programs.map { try $0.canonicalJSON() }
+            ),
+            origin: origin
+        )
+    }
+
     func discard(_ prepared: PreparedPluginPackage) {
+        discarded.append(prepared.id)
+    }
+
+    func discard(_ prepared: PreparedDiskPluginPackage) {
         discarded.append(prepared.id)
     }
 }
@@ -378,6 +546,8 @@ private final class FakePluginManager: PluginManaging {
     var snapshots: [PluginManagementSnapshot] = []
     var issues: [PluginManagementIssue] = []
     private(set) var installed: [Install] = []
+    private(set) var diskInstalls: [PluginDiskProvenance] = []
+    var diskInstallError: Error?
 
     func setEnabled(_ enabled: Bool, for pluginID: PluginID) async throws {}
     func setSetting(_ value: ToolingJSONValue?, id settingID: String, for pluginID: PluginID) throws {}
@@ -388,6 +558,11 @@ private final class FakePluginManager: PluginManaging {
         provenance: PluginMarketplaceProvenance
     ) throws {
         installed.append(Install(origin: origin, provenance: provenance))
+    }
+
+    func installDiskPackage(at packageURL: URL, provenance: PluginDiskProvenance) throws {
+        if let diskInstallError { throw diskInstallError }
+        diskInstalls.append(provenance)
     }
 
     func installPackage(at packageURL: URL) throws {}

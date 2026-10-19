@@ -36,6 +36,70 @@ function deferred() {
   return { promise, resolve };
 }
 
+// A full-context review of a CRLF file whose display lines lost their CR:
+// discard is sliced from the raw writePatch into a zero-context hunk (`rawPatch`).
+const lossyDiff: GitDiff = {
+  file_path: "f.txt", is_new: false, is_deleted: false, is_renamed: false, has_lossy_line_endings: true,
+  is_full_context: true,
+  lines: [
+    { line_type: "header", content: "@@ -1,3 +1,3 @@" },
+    { line_type: "context", content: "a", old_line_number: 1, new_line_number: 1 },
+    { line_type: "removed", content: "b", old_line_number: 2 },
+    { line_type: "added", content: "B", new_line_number: 2 },
+    { line_type: "context", content: "c", old_line_number: 3, new_line_number: 3 },
+  ],
+  writePatch: "diff --git a/f.txt b/f.txt\n--- a/f.txt\n+++ b/f.txt\n@@ -1,3 +1,3 @@\n a\r\n-b\r\n+B\r\n c\r\n",
+};
+
+describe("zero-context discard probe", () => {
+  const discardHeader = (target: GitDiff) => {
+    const rows = monacoDiffRows(target);
+    return (rows.find(row => row.actionAnchor) ?? rows.find(row => row.hunkID))!.hunkID!;
+  };
+
+  // Regression: ordinary hunks keep their context lines for git apply; probing
+  // them re-read a differently shaped diff and refused every rollback.
+  test("an ordinary context hunk discards without running the probe", async () => {
+    const api = { ...rollbackOperations(), validate: mock(async () => false) };
+    const owner = createMonacoDiffHunkActions(diff, discardContext, api);
+    expect(await owner.apply(discardHeader(diff), "discard")).toBe("applied");
+    expect(api.validate).not.toHaveBeenCalled();
+    expect(api.discard.mock.calls[0]![1].rawPatch).toBeUndefined();
+  });
+
+  test("a confirmed zero-context hunk is written with its raw patch", async () => {
+    const api = { ...rollbackOperations(), validate: mock(async (_hunk: GitHunk) => true) };
+    const owner = createMonacoDiffHunkActions(lossyDiff, discardContext, api);
+    expect(await owner.apply(discardHeader(lossyDiff), "discard")).toBe("applied");
+    const written = api.discard.mock.calls[0]![1];
+    expect(written.rawPatch).toContain("-b\r\n+B\r\n");
+    expect(api.validate.mock.calls[0]![0]).toBe(written);
+  });
+
+  for (const [name, validate, expected] of [
+    ["a failed probe", async () => false, "stale"],
+    ["a missing probe", undefined, "stale"],
+    ["a throwing probe", async () => { throw new Error("git unavailable"); }, "failed"],
+  ] as const) {
+    test(`${name} refuses the zero-context write`, async () => {
+      const api = { ...rollbackOperations(), ...(validate ? { validate } : {}) };
+      const owner = createMonacoDiffHunkActions(lossyDiff, discardContext, api);
+      expect(await owner.apply(discardHeader(lossyDiff), "discard")).toBe(expected);
+      expect(api.discard).not.toHaveBeenCalled();
+    });
+  }
+
+  test("a stale refusal does not lock the owner against a retry", async () => {
+    let current = false;
+    const api = { ...rollbackOperations(), validate: mock(async () => current) };
+    const owner = createMonacoDiffHunkActions(lossyDiff, discardContext, api);
+    expect(await owner.apply(discardHeader(lossyDiff), "discard")).toBe("stale");
+    current = true;
+    expect(await owner.apply(discardHeader(lossyDiff), "discard")).toBe("applied");
+    expect(api.discard).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("Windows Monaco diff hunk actions", () => {
   test("only enables identified working-tree sections in their owning repository", () => {
     const review = { commitHash: "working-tree", repoPath: context.repoPath };
