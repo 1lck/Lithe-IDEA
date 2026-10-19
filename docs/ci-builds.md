@@ -562,6 +562,14 @@ Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono
 - `.build` 中的 SwiftPM 构建状态；
 - `rust/target/` 中与当前源码、编译器或构建参数绑定的构建输出；
 - LSP workspace `-data`、运行时数据库、测试报告和其他会被进程修改的状态。
+- Agent 原生界面截图：macOS unit lane 通过已有的 `LITHE_AGENT_ACTIVITY_SCREENSHOTS`、
+  `LITHE_AGENT_SELECTOR_SCREENSHOTS` 与 `LITHE_AGENT_EDITOR_LAYOUT_SCREENSHOTS` 将夹具截图
+  写入 `.artifacts/test-stability/`，随 `test-stability-macos` 报告上传，覆盖输入区、
+  模型/Effort、任务/子代理/文件摘要及窄宽布局和主题。只用受控测试数据，不捕获用户桌面。
+  截图身份取决于源码 revision、平台、主题、视口和夹具参数，没有构建 identity stamp，
+  不允许任何阶段跨 worktree 复用。`excludedResources.agent-ui-test-evidence` 通过已有
+  排除路由拒绝；截图归测试与 CI artifact 保留策略所有，不打包、不写发行 bundle，
+  不影响代码签名或 Sparkle delta。
 - 平台缓存中 JDT `-data/.lithe/maven/` 的 settings 副本：按工作区隔离，可能含凭据，
   在缓存过期或重建索引时清理；文件内容哈希不是版本、平台、架构或工具链构建
   identity stamp，任何复制阶段都禁止共享。资源清单 `jdt-maven-settings` 显式排除，
