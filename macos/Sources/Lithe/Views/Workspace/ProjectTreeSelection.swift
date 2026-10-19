@@ -87,9 +87,23 @@ struct ProjectTreeSelection: Equatable {
     }
 
     struct VisibleRow: Identifiable {
+        /// The row's node without its subtree. Row views can outlive a
+        /// snapshot, and a full node would keep that snapshot's whole tree
+        /// (every URL of a large workspace) alive.
         let node: FileNode
         let depth: Int
         var id: String { node.url.path }
+
+        init(node: FileNode, depth: Int) {
+            self.node = FileNode(
+                url: node.url,
+                isDirectory: node.isDirectory,
+                children: nil,
+                collapsedAncestorPaths: node.collapsedAncestorPaths,
+                isInsideSourceRoot: node.isInsideSourceRoot
+            )
+            self.depth = depth
+        }
     }
 
     static func visibleRows(in root: FileNode, expandedPaths: Set<String>) -> [VisibleRow] {

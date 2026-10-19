@@ -17,6 +17,21 @@ export const normalizePath = (path: string): string => {
   return normalized;
 };
 
+/** Filesystem paths that use the native Windows case-insensitive comparison. */
+export const isCaseInsensitivePath = (path: string): boolean => {
+  const normalized = normalizePath(path);
+  return (
+    /^[A-Za-z]:\//.test(normalized) ||
+    (normalized.startsWith("//") && !/^\/\/wsl(?:\$|\.localhost)\//i.test(normalized))
+  );
+};
+
+/** Stable path identity for tree and workspace-local state. */
+export const getPathIdentity = (path: string): string => {
+  const normalized = stripTrailingPathSeparators(normalizePath(path));
+  return isCaseInsensitivePath(normalized) ? normalized.toLowerCase() : normalized;
+};
+
 export const stripTrailingPathSeparators = (path: string): string => {
   if (path === "/" || path === "\\") return path;
   if (/^[A-Za-z]:[\\/]$/.test(path)) return path;
@@ -74,14 +89,8 @@ export const getDirName = (path: string): string => {
 };
 
 export const pathStartsWithRoot = (fullPath: string, rootPath: string): boolean => {
-  const normalizedFullPath = normalizePath(stripTrailingPathSeparators(fullPath));
-  const normalizedRootPath = normalizePath(stripTrailingPathSeparators(rootPath));
-  const fullPathForCompare = /^[A-Za-z]:\//.test(normalizedFullPath)
-    ? normalizedFullPath.toLowerCase()
-    : normalizedFullPath;
-  const rootPathForCompare = /^[A-Za-z]:\//.test(normalizedRootPath)
-    ? normalizedRootPath.toLowerCase()
-    : normalizedRootPath;
+  const fullPathForCompare = getPathIdentity(fullPath);
+  const rootPathForCompare = getPathIdentity(rootPath);
 
   const rootPrefix = rootPathForCompare.endsWith("/")
     ? rootPathForCompare

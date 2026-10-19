@@ -1,3 +1,4 @@
+import { useGlobalSearchStore } from "../stores/global-search.store";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import type {
@@ -58,7 +59,9 @@ const GlobalSearchBuffer = ({ compact = false }: GlobalSearchBufferProps) => {
   const replaceInputRef = useRef<HTMLInputElement>(null);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const pendingFileNavigatorPathRef = useRef<string | null>(null);
-  const [isReplaceVisible, setIsReplaceVisible] = useState(false);
+  const isReplaceVisible = useGlobalSearchStore((state) => state.replaceVisible);
+  const setIsReplaceVisible = useGlobalSearchStore((state) => state.actions.setReplaceVisible);
+  const scopePaths = useGlobalSearchStore((state) => state.scopePaths);
   const [replaceQuery, setReplaceQuery] = useState("");
   const [visibleMatchLimit, setVisibleMatchLimit] = useState(CONTENT_SEARCH_INITIAL_RENDER_LIMIT);
   const [fileNavigatorViewMode, setFileNavigatorViewMode] = useState<FileNavigatorViewMode>("tree");
@@ -545,6 +548,19 @@ const GlobalSearchBuffer = ({ compact = false }: GlobalSearchBufferProps) => {
         onExcludeQueryChange={setExcludeQuery}
       />
 
+      {scopePaths.length > 0 && (
+        <div className="flex items-center gap-2 border-b border-border px-3 py-1 ui-text-sm">
+          <span className="min-w-0 flex-1 truncate" title={scopePaths.join(", ")}>
+            {t("project.searchScope", { path: scopePaths.join(", ") })}
+          </span>
+          <button
+            type="button"
+            onClick={() => useGlobalSearchStore.getState().actions.setScopePaths([])}
+          >
+            {t("project.clearScope")}
+          </button>
+        </div>
+      )}
       <div className="relative min-h-0 flex-1 overflow-hidden bg-background">
         {hasResults && !showInitialBusy ? (
           <GlobalSearchResults

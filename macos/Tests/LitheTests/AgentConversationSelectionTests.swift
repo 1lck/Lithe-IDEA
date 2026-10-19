@@ -96,7 +96,12 @@ struct AgentConversationSelectionTests {
     }
 
     @Test(arguments: [ColorScheme.dark, .light], [280.0, 480.0])
-    func supplementarySendAndStopRemainIndependentInNarrowAndWidePanels(scheme: ColorScheme, width: Double) async throws {
+    func composerUsesOneSendOrStopActionInNarrowAndWidePanels(scheme: ColorScheme, width: Double) async throws {
+        let application = NSApplication.shared
+        let attribute = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
+        let previousAccessibility = (application.accessibilityAttributeValue(attribute) as? Bool) ?? false
+        application.accessibilitySetValue(true, forAttribute: attribute)
+        defer { application.accessibilitySetValue(previousAccessibility, forAttribute: attribute) }
         let transport = SelectionTransport()
         let panel = AgentConversationFeatureModel(transport: transport)
         panel.setAgents([.init(id: "codex-acp", name: "Codex")])
@@ -105,7 +110,6 @@ struct AgentConversationSelectionTests {
             let native = try #require(transport.connections.last)
             feature.receive(try json(["kind": "ready", "agentName": "Codex", "canSteer": true, "canLoadSessions": true]))
             try feature.send("检查当前项目")
-            feature.draftText = "先只检查登录模块"
             let host = NSHostingView(rootView: AgentConfiguredConversationView(
                 feature: panel, setupError: nil, onSelectAgent: panel.selectAgent,
                 onConnect: {}, onOpenSettings: {}, onHide: {}, onCopySessionID: { _ in }, onOpenFile: { _ in })
@@ -115,7 +119,29 @@ struct AgentConversationSelectionTests {
                                   styleMask: [.borderless], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
             window.contentView = host
+            window.makeKeyAndOrderFront(nil)
             defer { window.contentView = nil; window.close() }
+            func buttons(in element: Any) -> [AnyObject] {
+                let accessible = element as AnyObject
+                return (accessible.accessibilityRole?() == .button ? [accessible] : [])
+                    + (accessible.accessibilityChildren?() ?? []).flatMap { buttons(in: $0) }
+            }
+            func awaitAction(_ key: String.LocalizationValue) async -> Bool {
+                let label = AgentLocalization.string(key, locale: Locale(identifier: "zh-Hans"))
+                let clock = ContinuousClock()
+                let deadline = clock.now.advanced(by: .seconds(2))
+                repeat {
+                    host.layoutSubtreeIfNeeded()
+                    let actions = buttons(in: host).filter {
+                        $0.accessibilityIdentifier?() == "agent-composer-primary-action"
+                    }
+                    if actions.count == 1, actions.first?.accessibilityLabel?() == label { return true }
+                    await withCheckedContinuation { continuation in
+                        DispatchQueue.main.async { continuation.resume() }
+                    }
+                } while clock.now < deadline
+                return false
+            }
             func capture(_ stage: String) throws {
                 host.layoutSubtreeIfNeeded()
                 guard let folder = ProcessInfo.processInfo.environment["LITHE_AGENT_STEERING_SCREENSHOTS"] else { return }
@@ -125,9 +151,17 @@ struct AgentConversationSelectionTests {
                 try data.write(to: URL(fileURLWithPath: folder)
                     .appendingPathComponent("steering-\(scheme == .dark ? "dark" : "light")-\(Int(width))-\(stage).png"))
             }
+            try #require(await awaitAction("Stop"))
+            try capture("running")
+            feature.draftText = " \n "
+            try #require(await awaitAction("Stop"), "Whitespace is still an empty draft")
+            feature.draftFiles = [try AgentFileReference(url: URL(fileURLWithPath: "/example/project/README.md"))]
+            try #require(await awaitAction("Send"), "An attachment alone switches the action to Send")
+            feature.draftFiles = []
+            feature.draftText = "先只检查登录模块"
+            try #require(await awaitAction("Send"))
             try capture("before")
-            // The context strip now sits above the editor; Send and Stop stay
-            // in the bottom toolbar, independent of the strip's height.
+            // The single primary action occupies the same hit target in both states.
             let toolbarCenter = AgentComposerMetrics.bottomInset + (AgentComposerMetrics.toolbarHeight - 2) / 2
             let sendX = width - AgentComposerMetrics.horizontalInset - AgentComposerMetrics.toolbarHorizontalInset - 11
             try clickNativeView(host, at: NSPoint(x: sendX, y: 640 - toolbarCenter))
@@ -135,17 +169,22 @@ struct AgentConversationSelectionTests {
             let token = try #require(native.commands.last?["token"] as? String)
             #expect(native.commands.last?["text"] as? String == "先只检查登录模块")
             #expect(feature.selectedConversation?.messages.last?.delivery == .sending)
+            try #require(await awaitAction("Stop"), "Sending clears the draft and restores Stop while delivery is pending")
+            #expect(feature.draftText.isEmpty && feature.draftFiles.isEmpty)
             try capture("sending")
             feature.receive(try json(["kind": "steeringResult", "sessionId": "codex-acp", "token": token, "outcome": "injected"]))
             #expect(feature.selectedConversation?.messages.last?.delivery == .received)
             #expect(feature.selectedConversation?.isResponding == true)
             try capture("received")
-            // The adjacent Stop action retains its own native hit target after Send.
-            try clickNativeView(host, at: NSPoint(x: sendX - 26, y: 640 - toolbarCenter))
+            try #require(await awaitAction("Stop"))
+            try clickNativeView(host, at: NSPoint(x: sendX, y: 640 - toolbarCenter))
             try #require(await awaitChange(on: feature) { native.commands.last?["kind"] as? String == "cancel" })
             #expect(feature.selectedConversation?.isCancelling == true)
+            feature.draftText = "继续检查"
+            try #require(await awaitAction("Stop"), "Stopping takes priority over newly typed input")
             try capture("stopping")
             feature.receive(try json(["kind": "turnFinished", "sessionId": "codex-acp", "stopReason": "cancelled"]))
+            try #require(await awaitAction("Send"), "Completion returns the same action to Send")
         } catch { await panel.stop(); throw error }
         await panel.stop()
         #expect(transport.connections.allSatisfy { $0.closeCount == 1 })

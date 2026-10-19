@@ -48,7 +48,7 @@ struct TerminalSurfaceView: View {
                 .action("Clear", systemImage: "eraser", action: session.clear),
                 .action("Restart", systemImage: "arrow.clockwise", action: {
                     session.restart()
-                    session.focus()
+                    requestInputFocus()
                 }),
                 .action("Close Terminal", systemImage: "xmark", action: {
                     model.requestCloseTerminalSession(session)
@@ -61,7 +61,8 @@ struct TerminalSurfaceView: View {
     }
 
     private func requestInputFocus() {
-        guard session.isRunning else { return }
+        guard session.isRunning, let nativeView = session.nativeView as? NSView,
+              nativeView.window != nil, !nativeView.isHiddenOrHasHiddenAncestor else { return }
         focusRequestID &+= 1
         session.focus()
     }
@@ -92,6 +93,7 @@ private struct TerminalNativeSurface: NSViewRepresentable {
         context.coordinator.lastFocusRequestID = focusRequestID
         DispatchQueue.main.async {
             guard nativeView.superview === hostView,
+                  !nativeView.isHiddenOrHasHiddenAncestor,
                   let window = nativeView.window,
                   window.firstResponder !== nativeView else { return }
             window.makeFirstResponder(nativeView)

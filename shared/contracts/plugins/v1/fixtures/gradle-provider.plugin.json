@@ -1,0 +1,122 @@
+{
+  "schemaVersion": 2,
+  "id": "dev.lithe.fixture.gradle-provider",
+  "displayName": "Gradle Provider Fixture",
+  "version": "0.1.0",
+  "pluginAPIVersion": 3,
+  "requires": { "buildProviders": 1, "buildSystems": 1, "serverProcess": 1, "settings": 1 },
+  "vendor": {
+    "id": "org.example",
+    "displayName": "Example",
+    "signatureRequirement": "publisherPackage"
+  },
+  "permissions": [
+    "languageServer.launch",
+    "process.build"
+  ],
+  "activationEvents": [
+    "onBuildSystem:gradle"
+  ],
+  "languages": [],
+  "settings": [
+    {
+      "id": "providerHeapMB",
+      "type": "integer",
+      "title": "Provider memory",
+      "description": "Upper bound of the Gradle provider's heap.",
+      "default": 1024,
+      "minimum": 256,
+      "maximum": 8192,
+      "unit": "MB"
+    }
+  ],
+  "buildSystems": [
+    {
+      "id": "gradle",
+      "displayName": "Gradle",
+      "detection": {
+        "markers": ["build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"],
+        "nesting": "outermost",
+        "priority": 60
+      },
+      "invocation": {
+        "executables": [
+          {
+            "kind": "projectFile",
+            "path": "gradlew",
+            "requires": ["gradle/wrapper/gradle-wrapper.properties"],
+            "platforms": ["macos", "linux"]
+          },
+          {
+            "kind": "projectFile",
+            "path": "gradlew.bat",
+            "requires": ["gradle/wrapper/gradle-wrapper.properties"],
+            "platforms": ["windows"]
+          },
+          { "kind": "command", "command": "gradle" }
+        ],
+        "runtimeDependencies": [
+          { "id": "java", "minimumVersion": "17" }
+        ],
+        "globalArguments": ["--console=plain", "${optionArguments}"]
+      },
+      "provider": {
+        "launch": {
+          "kind": "runtime",
+          "tool": "java",
+          "minimumVersion": "17",
+          "runtimeArguments": ["-Xmx${setting:providerHeapMB}m"],
+          "entry": "provider/gradle-tooling-provider.jar"
+        },
+        "arguments": ["--stdio", "--cache", "${workspaceStateDir}/tooling"],
+        "initializationOptions": {
+          "initScript": "${pluginDir}/provider/lithe-model.init.gradle"
+        },
+        "executesProjectCode": true,
+        "mayUseNetwork": true
+      },
+      "options": [
+        { "id": "offline", "displayName": "Offline", "kind": "boolean", "arguments": ["--offline"] }
+      ],
+      "model": { "source": "provider" },
+      "tasks": [
+        {
+          "id": "gradle-task",
+          "displayName": "Gradle Task",
+          "group": "other",
+          "fromModel": true,
+          "arguments": ["${task.property:path}", "${userArguments}"]
+        },
+        {
+          "id": "build",
+          "displayName": "Build",
+          "group": "build",
+          "scopes": ["workspace", "project"],
+          "arguments": [
+            { "value": "${project.property:taskPrefix}build", "when": "projectSelected" },
+            { "value": "build", "when": "noProjectSelected" }
+          ]
+        }
+      ],
+      "run": [
+        {
+          "id": "task",
+          "fromTasks": { "templates": ["gradle-task"], "executions": ["application", "service"] },
+          "workingDirectory": "root"
+        }
+      ],
+      "dependencies": { "source": "provider", "scopes": ["workspace", "project"] },
+      "sync": {
+        "watch": [
+          "build.gradle",
+          "build.gradle.kts",
+          "gradle.properties",
+          "gradle/libs.versions.toml",
+          "settings.gradle",
+          "settings.gradle.kts"
+        ]
+      },
+      "layout": { "excluded": [".gradle", "build"] }
+    }
+  ]
+}

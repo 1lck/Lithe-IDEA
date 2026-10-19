@@ -11,11 +11,13 @@ public struct GenericDebugBreakpoint: Identifiable, Equatable, Sendable {
     public let logMessage: String?
     public var verified: Bool
     public var message: String?
+    /// Adapter-resolved display position; persistence retains the requested line.
+    public var resolvedLine: Int? = nil
 
     public var id: String {
         fileURL.standardizedFileURL.path + ":" + String(line) + ":" + String(column ?? 0)
     }
-    public var title: String { fileURL.lastPathComponent + ":" + String(line) }
+    public var title: String { fileURL.lastPathComponent + ":" + String(resolvedLine ?? line) }
     public var isLogpoint: Bool { logMessage?.isEmpty == false }
 }
 
@@ -679,6 +681,11 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         selectedFrameID = nil
         stoppedFrame = nil
         selectedFrame = nil
+        for index in breakpoints.indices where sessionsProviderID(for: breakpoints[index].fileURL) == providerID {
+            breakpoints[index].verified = false
+            breakpoints[index].message = nil
+            breakpoints[index].resolvedLine = nil
+        }
         do {
             try synchronizeRequestedBreakpoints(for: providerID)
             if !dataBreakpoints.isEmpty {
@@ -865,7 +872,13 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         guard line > 0 else { return }
         let normalizedURL = fileURL.standardizedFileURL
         var values = requestedBreakpointsByFile[normalizedURL] ?? [:]
-        if values[line] != nil {
+        // Multiple requested anchors may resolve to the same displayed marker.
+        let anchors = breakpoints.filter {
+            $0.fileURL.standardizedFileURL == normalizedURL && ($0.resolvedLine ?? $0.line) == line
+        }.map(\.line)
+        if !anchors.isEmpty {
+            for anchor in anchors { values[anchor] = nil }
+        } else if values[line] != nil {
             values[line] = nil
         } else {
             values[line] = DebugSourceBreakpoint(line: line)
@@ -2001,8 +2014,9 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             }
             guard let sourceURL = resolved.sourceURL, let line = resolved.line else { return }
             if let index = breakpoints.firstIndex(where: {
-                $0.fileURL.standardizedFileURL == sourceURL.standardizedFileURL && $0.line == line
+                $0.fileURL.standardizedFileURL == sourceURL.standardizedFileURL && $0.line == (resolved.requestedLine ?? line)
             }) {
+                breakpoints[index].resolvedLine = line
                 breakpoints[index].verified = resolved.verified
                 breakpoints[index].message = resolved.message
             }
@@ -2177,7 +2191,8 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
                         hitCondition: configuration.hitCondition,
                         logMessage: configuration.logMessage,
                         verified: previous[id]?.verified ?? false,
-                        message: previous[id]?.message
+                        message: previous[id]?.message,
+                        resolvedLine: previous[id]?.resolvedLine
                     )
                 }
             }

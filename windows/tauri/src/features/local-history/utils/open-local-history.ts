@@ -8,13 +8,16 @@ import { toast } from "sonner";
 const getCurrentTranslator = () =>
   createTranslator(useSettingsStore.getState().settings.displayLanguage);
 
-export function openLocalHistoryForPath(path: string | null | undefined): void {
+export function openLocalHistoryForPath(
+  path: string | null | undefined,
+  selectedEntryId?: string,
+): void {
   if (!path || path.includes("://")) {
     toast.warning(getCurrentTranslator()("localHistory.selectLocalFileFirst"));
     return;
   }
 
-  useLocalHistoryStore.getState().actions.setTargetPath(path);
+  useLocalHistoryStore.getState().actions.setTargetPath(path, false, selectedEntryId);
   useUIState.getState().openCommandPaletteView("local-history");
 }
 
@@ -30,4 +33,17 @@ export function openLocalHistoryForActiveFile(): void {
   }
 
   openLocalHistoryForPath(activeBuffer.path);
+}
+
+export function canOpenProjectLocalHistory(path: string | null | undefined): path is string {
+  return Boolean(path && !path.includes("://"));
+}
+
+export function openProjectLocalHistory(workspaceRoot: string): void {
+  if (!canOpenProjectLocalHistory(workspaceRoot)) {
+    toast.warning(getCurrentTranslator()("localHistory.localWorkspaceOnly"));
+    return;
+  }
+  useLocalHistoryStore.getState().actions.setTargetPath(workspaceRoot, true);
+  useUIState.getState().openCommandPaletteView("local-history");
 }

@@ -66,6 +66,7 @@ extension AppModel {
     }
 
     private func performJavaMain(_ mainClass: String, action: JavaRunMarkerAction, in fileURL: URL) async {
+        activeTestTarget = nil
         guard let workspaceURL,
               let runFeature = await activateExecutionModule()?.runFeature else { return }
         let rootPath = workspaceURL.standardizedFileURL.path

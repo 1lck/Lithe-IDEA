@@ -83,6 +83,68 @@ struct ToolWindowDockingTests {
         #expect(abs(panel.redComponent - gap.redComponent) > 0.02)
     }
 
+    @Test(arguments: [ColorScheme.dark, .light], [
+        (WorkbenchFeatureModel.ToolWindow.gitLog, DockGroup.primary), (.gitLog, .secondary),
+        (.terminal, .primary), (.terminal, .secondary)
+    ])
+    func dropPreviewStaysAboveRetainedPane(scheme: ColorScheme,
+                                          target: (WorkbenchFeatureModel.ToolWindow, DockGroup)) async throws {
+        let (tool, group) = target
+        let state = DockPreviewState()
+        let store = WorkbenchToolContentStore()
+        let host = NSHostingView(rootView: DockPreviewFixture(state: state, store: store, tool: tool, group: group)
+            .environment(\.colorScheme, scheme))
+        host.sizingOptions = []
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 500, height: 360),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        defer { window.contentView = nil; window.close() }
+        func snapshot() throws -> NSBitmapImageRep {
+            host.layoutSubtreeIfNeeded()
+            let image = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+            host.cacheDisplay(in: host.bounds, to: image)
+            return image
+        }
+        func pixels(_ image: NSBitmapImageRep, in rect: CGRect) throws -> [NSColor] {
+            let scale = CGFloat(image.pixelsWide) / host.bounds.width
+            return try (Int(rect.minY * scale)..<Int(rect.maxY * scale)).flatMap { y in
+                try (Int(rect.minX * scale)..<Int(rect.maxX * scale)).map { x in
+                    try #require(image.colorAt(x: x, y: y)?.usingColorSpace(.sRGB))
+                }
+            }
+        }
+        let targetX: CGFloat = group == .primary ? 30 : 230
+        let tint = CGRect(x: targetX + 12, y: 52, width: 8, height: 8)
+        let label = CGRect(x: targetX + 10, y: 150, width: 180, height: 40)
+        let outside = CGRect(x: group == .primary ? 242 : 42, y: 52, width: 8, height: 8)
+        // Reference: the same feedback over the original SwiftUI pane, with no native overlay.
+        let plain = try snapshot()
+        state.preview = true
+        let reference = try snapshot()
+        #expect(try !pixels(reference, in: tint).elementsEqual(pixels(plain, in: tint)))
+        #expect(try !pixels(reference, in: label).elementsEqual(pixels(plain, in: label)))
+        state.retained = true
+        _ = try snapshot()
+        await Task.yield()
+        let actual = try snapshot()
+        #expect(try pixels(actual, in: tint).elementsEqual(pixels(reference, in: tint)),
+                "Drop area highlight must be above the opaque retained pane")
+        #expect(try pixels(actual, in: label).elementsEqual(pixels(reference, in: label)),
+                "Position label must be visible above Git Log and Terminal")
+        #expect(try pixels(actual, in: outside).elementsEqual(pixels(plain, in: outside)),
+                "The preview must stay in workspace coordinates, outside activity bars and padding")
+        let entry = try #require(store.entries[tool])
+        let center = entry.host.convert(CGPoint(x: entry.host.bounds.midX, y: entry.host.bounds.midY), to: host.superview)
+        let previewHit = host.hitTest(center)
+        #expect(previewHit?.isDescendant(of: entry.host) == true, "Preview must pass mouse events to retained content")
+        state.preview = false
+        let cleared = try snapshot()
+        #expect(try pixels(cleared, in: tint).elementsEqual(pixels(plain, in: tint)))
+        #expect(host.hitTest(center) === previewHit)
+        #expect(store.entries[tool]?.host === entry.host, "Preview updates must preserve retained controls")
+    }
+
     @Test func movingVisibleToolPreservesOtherGroupsAndReplacesDestination() {
         let model = WorkbenchFeatureModel()
         model.setVisibility(.terminal, isVisible: true)
@@ -540,5 +602,43 @@ private struct DockingStripeFixture: View {
             }
             Spacer(minLength: 0)
         }
+    }
+}
+
+@MainActor
+private final class DockPreviewState: ObservableObject {
+    @Published var retained = false
+    @Published var preview = false
+}
+
+private struct DockPreviewFixture: View {
+    @ObservedObject var state: DockPreviewState
+    let store: WorkbenchToolContentStore
+    let tool: WorkbenchFeatureModel.ToolWindow
+    let group: DockGroup
+
+    var body: some View {
+        Group {
+            if state.retained {
+                RetainedWorkbenchToolPane(store: store, tool: tool, content: LitheTheme.editor)
+            } else {
+                LitheTheme.editor
+            }
+        }
+        .frame(width: 400, height: 260)
+        .workbenchToolContentLayers(store: store) {
+            if state.preview {
+                Rectangle().fill(LitheTheme.toolWindowDropArea)
+                    .overlay {
+                        Text(group == .primary ? "Move to Bottom Left" : "Move to Bottom Right")
+                            .font(LitheTheme.uiFont(size: 12))
+                            .padding(8).background(LitheTheme.raised).cornerRadius(6)
+                    }
+                    .frame(width: 200, height: 260)
+                    .position(x: group == .primary ? 100 : 300, y: 130)
+            }
+        }
+        .padding(.leading, 30).padding(.top, 40)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }

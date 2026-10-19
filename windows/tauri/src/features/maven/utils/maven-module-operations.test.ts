@@ -1,11 +1,34 @@
 import { describe, expect, test } from "bun:test";
 import type { RunConfiguration } from "@/features/run/types/run.types";
 import { mapCoreConfiguration } from "@/features/run/utils/run-configuration";
+import { normalizePath } from "@/utils/path-helpers";
 import ownershipFixture from "../../../../../../shared/fixtures/run-configuration/maven-module-ownership.json";
 import {
   findMavenModuleJavaPath,
   findMavenModuleRunConfiguration,
+  mavenModulePomPath,
 } from "./maven-module-operations";
+
+describe("Maven module POM navigation", () => {
+  test("keeps the nested reactor directory for both root and child modules", () => {
+    expect(normalizePath(mavenModulePomPath("C:/work", "backend", "."))).toBe(
+      "C:/work/backend/pom.xml",
+    );
+    expect(normalizePath(mavenModulePomPath("C:/work", "backend", "service"))).toBe(
+      "C:/work/backend/service/pom.xml",
+    );
+  });
+
+  test("keeps workspace-root reactors and WSL workspace roots", () => {
+    expect(normalizePath(mavenModulePomPath("C:/work", ".", "."))).toBe("C:/work/pom.xml");
+    expect(normalizePath(mavenModulePomPath("C:/work", ".", "service"))).toBe(
+      "C:/work/service/pom.xml",
+    );
+    expect(mavenModulePomPath("//wsl.localhost/Linux/work", "backend", "service")).toBe(
+      "//wsl.localhost/Linux/work/backend/service/pom.xml",
+    );
+  });
+});
 
 function configuration(
   overrides: Partial<RunConfiguration> & Pick<RunConfiguration, "id">,

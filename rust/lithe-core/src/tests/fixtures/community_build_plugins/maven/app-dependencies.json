@@ -1,0 +1,16 @@
+{
+  "format": "litheDependencies",
+  "version": 1,
+  "dependencies": [
+    {
+      "name": "core",
+      "group": "demo",
+      "version": "1.0.0-SNAPSHOT",
+      "scope": "compile",
+      "properties": {
+        "type": "jar"
+      },
+      "children": []
+    }
+  ]
+}

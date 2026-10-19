@@ -161,6 +161,16 @@ try {
     assert.match(diagnostics(refused), /platform-feature-matrix.*cannot be reused/);
   });
 
+  await test("Agent fixture screenshots cannot be copied as reusable resources", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const resource = registry.excludedResources.find(item => item.id === "agent-ui-test-evidence");
+    assert.equal(resource?.reusable, false);
+    assert.ok(resource.locations.includes(".artifacts/test-stability/*.png"));
+    const rejected = reuse(["--resource", "agent-ui-test-evidence"]);
+    assert.notEqual(rejected.status, 0);
+    assert.match(diagnostics(rejected), /agent-ui-test-evidence.*cannot be reused/);
+  });
+
   await test("user-owned CLI installations are excluded from worktree copying", { timeout: 15000 }, () => {
     const listed = run(process.execPath, [reuseScript, "--list"]);
     assertSucceeded(listed);
@@ -190,6 +200,18 @@ try {
     assert.notEqual(refused.status, 0);
     assert.match(diagnostics(refused), /jdt-maven-settings.*cannot be reused/);
   });
+  await test("plugin web state has no transferable build identity or copy stage", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const resource = registry.excludedResources.find(item => item.id === "plugin-web-state");
+    assert.equal(resource.reusable, false);
+    assert.ok(resource.locations.some(location => location.includes("web-state/<window-id>/<workspace-digest>.json")));
+    const listed = run(process.execPath, [reuseScript, "--list"]);
+    assertSucceeded(listed);
+    assert.ok(!listed.stdout.includes(resource.id));
+    const refused = reuse(["--resource", resource.id]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /plugin-web-state.*cannot be reused/);
+  });
   await test("PHP downloads, plugin packages and marketplace state stay isolated in each worktree", { timeout: 15000 }, () => {
     const listed = run(process.execPath, [reuseScript, "--list"]);
     assertSucceeded(listed);
@@ -198,6 +220,35 @@ try {
       const refused = reuse(["--resource", id]);
       assert.notEqual(refused.status, 0);
       assert.match(diagnostics(refused), new RegExp(`${id}.*cannot be reused`));
+    }
+  });
+  await test("local disk snapshots and approvals are rejected before any worktree access", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const resource = registry.excludedResources.find(item => item.id === "plugin-disk-install-state");
+    assert.equal(resource.reusable, false);
+    assert.ok(resource.locations.includes("<file-storage-temp>/lithe-plugin-disk-<UUID>/"));
+    assert.ok(resource.locations.includes("<file-storage-temp>/lithe-plugin-disk-<UUID>/archive.zip"));
+    assert.ok(resource.locations.includes("<file-storage-temp>/lithe-plugin-disk-<UUID>/package/"));
+    assert.ok(resource.locations.includes("<app-support>/Lithe/Plugins/.staging/<transaction>/"));
+    assert.ok(resource.locations.includes("<app-support>/Lithe/Plugins/<plugin-id>/versions/<version>/"));
+    assert.ok(resource.locations.includes("<app-support>/Lithe/Plugins/<plugin-id>/installation.json"));
+    const listed = run(process.execPath, [reuseScript, "--list"]);
+    assertSucceeded(listed);
+    assert.ok(!listed.stdout.includes(resource.id));
+
+    // A mixed request must fail before resolving even the valid cache's roots:
+    // neither missing source nor missing target should ever be touched or created.
+    const missingSource = path.join(testRoot, "unopened-disk-source");
+    const missingTarget = path.join(testRoot, "unopened-disk-target");
+    for (const id of [resource.id, "plugin-marketplace-state"]) {
+      const refused = run(process.execPath, [
+        reuseScript, "--source", missingSource, "--target", missingTarget,
+        "--resource", "jdtls", "--resource", id,
+      ]);
+      assert.notEqual(refused.status, 0);
+      assert.match(diagnostics(refused), new RegExp(`${id} is isolated.*cannot be reused`));
+      await assert.rejects(fs.access(missingSource), { code: "ENOENT" });
+      await assert.rejects(fs.access(missingTarget), { code: "ENOENT" });
     }
   });
   await testFailedBackupPreservesDestination();

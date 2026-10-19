@@ -337,6 +337,14 @@ fresh interval. Registration stays ordered under the permission/turn locks;
 waiting and responding run in an SDK-owned task so inbound updates, additional
 permission requests and connection EOF are not blocked. Cancel, terminal prompt
 response and connection shutdown settle every pending request with `cancelled`.
+Child permissions retain both the original requester and the owning root turn.
+Registration holds the ownership lock through insertion into the permission map;
+lock order is ownership, pending permissions, then running turns. A terminal
+child or ancestor settles only that subtree's pending requests with `cancelled`,
+rejects later requests from that subtree, and leaves root and sibling permissions
+and the root prompt running. Settled requests release quiet-period accounting.
+The existing child lifecycle update also removes those prompts from the UI queue
+and refreshes its attention and tool-wait interval; no new wire event is needed.
 Initialization, session/configuration requests, pre-work failure recovery and
 cancellation acknowledgment retain their own bounded deadlines. Tool execution
 and model-request budgets belong to the upstream Agent. This policy does not
@@ -407,6 +415,31 @@ value. Counters are Agent-owned: consumers must not infer a per-turn aggregate,
 session delta or billing amount, because the adapters' accounting scopes differ.
 They must not derive these counters from context occupancy or subscription quota.
 `acp-events-v1.json` covers completion both with and without usage.
+
+The launch JSON's optional `observeSubagents` (default `false`) negotiates the
+pinned adapters' AIR v1 `nativeSubagentSessions` capability. macOS enables it;
+consumers without child-session UI omit it. Native execution and history remain
+upstream-owned. `update` preserves the immediate parent `sessionId` and the
+adapter's `subagent_spawned` payload (`subagentSessionId`, `name`, `task`,
+`capabilities`), or `subagent_state_update` payload (`subagentSessionId`, `state`).
+Ordinary child updates use the child's `sessionId`. Cycles, cross-parent
+reattachment and reuse of a known root ID are rejected. A root history reload
+clears its old child associations before upstream replay announces them again.
+The host's bounded notification shim adds these two adapter variants to the
+pinned SDK; all ordinary updates still use SDK validation. The newer SDK's
+experimental `subagent_update` draft is not wire-compatible with these adapters.
+
+Child permissions retain their original request `sessionId`, while the outer
+`permission.sessionId` identifies the owning root turn. Root cancellation,
+completion or shutdown settles all child permission waits through the existing
+permission lifecycle. Terminal children and their descendants cannot request
+new permissions. Child output and lifecycle count as actual root progress;
+child model failures never trigger a whole-root replay. Child messages and
+thoughts are scoped separately from the root reply; tool IDs are scoped by
+child session, preserving file-review evidence. Only an explicit `completed`
+state counts as success. Failed, cancelled and disconnected children do not;
+a terminal parent leaves any unreported descendant outcome disconnected.
+`acp-events-v1.json` includes nested ownership, output, tools and completion.
 
 The launch JSON's optional `observeModelCalls` (default `false`) asks the host to
 start a loopback proxy for API-key gateways or Codex subscription inference and hand the Agent
@@ -551,6 +584,66 @@ stable error code and a user-facing message:
 
 ## Commands
 
+### MCP configuration
+
+`mcp.parseConfiguration` accepts `{ source: "codex" | "claude", scope:
+"global" | "project", content: string, projectPath?: string }` and returns
+`{ servers: McpServer[] }`. Claude project scope requires `projectPath` and reads
+`projects.<projectPath>.mcpServers`; Codex reads `mcp_servers` in the supplied
+file. Core handles bounded text only; hosts own paths, file I/O, backups and
+atomic writes. Configuration text is limited to 1 MiB UTF-8. Invalid requests or
+configuration return redacted `invalid_request` errors.
+
+A server has `name`, `transport` (`stdio`, `http`, `sse`), optional `command` and
+`url`, `args: string[]`, `env` and `headers` arrays of `{ key, value }`, plus two
+lowercase SHA-256 hashes with separate purposes:
+
+- `definitionHash` keeps the existing library grouping identity: name, transport,
+  and modeled fields used by that transport, with environment/header entries
+  sorted deterministically. Unknown fields do not change this hash.
+- `sourceHash` covers the name and the **complete semantic source entry**,
+  including unknown authentication, timeout, nested and non-string values, as
+  well as fields unused by the active transport. Object/table keys are sorted,
+  array order and value types are preserved, and source formatting/comments are
+  excluded. This hash is source-specific and is not a grouping key. Parsed
+  servers always supply it; request decoding permits an absent/null value for
+  compatibility with older clients and new drafts.
+
+`mcp.planWrite` accepts `{ source, scope, projectPath?, content?: string | null,
+operation: "set" | "remove", server?: McpServer, name?: string,
+previousName?: string, expectedHash?: string, owned?: OwnedEntry[] }`. `set`
+requires `server`, `remove` requires `name`, and project scope requires
+`projectPath`. `previousName` identifies the original of a rename. Each owned
+entry is `{ name, definitionHash, sourceHash?: string }`; hosts must record the
+hashes returned from the actual write plan rather than hashes from the draft.
+
+Automatic replacement/removal, including unchanged set plans used for repeated
+registration, requires an owned record whose name, `definitionHash` and
+`sourceHash` match the current entry. An existing raw entry omitted from discovery
+because it lacks a usable command/URL also conflicts rather than being treated as
+an empty slot. A legacy owned record
+without `sourceHash` does not prove ownership: mutation is refused with
+`externallyModified` when the name is recorded. An unrecorded name returns
+`ownedByUser`. Hosts must not silently upgrade legacy records from the current
+file or append the displayed hash to `owned` to authorize an explicit action.
+
+When supplied, `expectedHash` means the **full `sourceHash` of the original
+entry displayed to the user**, not `definitionHash`. It is checked against the
+current entry before unchanged-definition or ownership early exits; a missing
+entry or different hash returns `externallyModified`, even if a newer ownership
+ledger matches the current file or the desired modeled definition is unchanged.
+An exact match authorizes an explicit edit/remove of that original even when
+it is not owned. For rename, it refers to `previousName`, and cannot authorize
+an unrelated existing destination; destination ownership checks still apply.
+
+The response is `{ content, changed, action, conflict, definitionHash?,
+sourceHash? }`. Actions are `inserted`, `updated`, `unchanged`, `removed`, `absent`,
+or `conflict`; conflicts leave the input unchanged. Successful set plans return
+both hashes computed by parsing the actual output entry, including preserved
+unknown fields. Unchanged set plans also return the current entry's hashes;
+removal/absence normally has no entry hashes. Hashes sent on the draft server
+are never trusted as write output or persisted into Agent configuration.
+
 ### Agent adapters
 
 `agent.parseProviderConfiguration` takes `{source, configuration}` with `source`
@@ -578,7 +671,7 @@ protocol and explicit consent for HTTP.
 Lithe never installs Node.js or npm; the agents' own command-line tools are installed only through `agent.installCli` on an explicit user action. `agent.status`
 detects Node.js and npm through the login shell's `PATH` and lists every
 supported agent with its pinned version, installed version, provider protocol,
-and blocking issues. Adapters that drive the agent's own CLI (Codex, Claude Code) report the
+and blocking issues. Each adapter also reports optional `updateAvailable`: true only when the verified catalog version is strictly newer than the installed version under SemVer precedence, false for equal or newer local versions, and absent for missing or unparseable versions. Build metadata does not affect precedence. This target remains Lithe's verified catalog version, not an unverified latest registry version. Hosts must not derive updates from version-string inequality. Adapters that drive the agent's own CLI (Codex, Claude Code) report the
 CLI found on that `PATH` with its minimum version; they are installed with
 `--omit=optional`, so their bundled CLI copy is not downloaded, and are launched
 with the user's CLI through the adapter's variable (`CODEX_PATH`,
@@ -587,7 +680,7 @@ too old CLI is an issue for the user to resolve, never installed by Lithe.
 For every catalog CLI, `cli.installation.updateAvailable` is `true` only when the verified
 installation owner reports a newer release, `false` when no newer release is found
 (npm's published version or Homebrew's local index), and absent when the check is
-unavailable. It does not change `canUpdate`, which only describes whether Lithe can
+unavailable. Optional `cli.installation.availableVersion` retains the actual target returned by that same query: npm's published version or the matched Homebrew entry's `current_version`. Hosts display the detected current version and confirmed target together, including in the collapsed CLI row. If Homebrew confirms an outdated package without supplying its target version, hosts show an unknown target rather than inferring one from the installed version. Empty Homebrew outdated results do not provide a latest version. Failed read-only probes include optional `cli.installation.updateCheckError` with a bounded diagnostic reason; unavailable native protocols remain unknown without pretending to have checked the latest version. It does not change `canUpdate`, which only describes whether Lithe can
 safely invoke that owner. npm checks query the verified update target, including
 its explicit `@latest` tag; Homebrew checks query the verified owning package and
 do not refresh the local index automatically. Native installers without a
@@ -629,12 +722,9 @@ only when `canUpdate` is true. The hint is never executable input. Absent fields
 remain backward compatible with older hosts. Windows installer/shim ownership
 has not been verified; unrecognized installations use the manual path.
 The minimum CLI version is a compatibility requirement, not a latest-version
-check. For all compatible CLIs, macOS offers Update only when `canUpdate` and
+check. For all CLIs, macOS offers Update only when `canUpdate` and
 `updateAvailable` are both true, including when the preflight row is collapsed.
-A false or absent `updateAvailable` hides that action. Too-old CLIs retain the
-upgrade repair action when `canUpdate` is true, regardless of `updateAvailable`;
-manual guidance remains available when a version check is unknown or an owner
-cannot be updated safely.
+A false or absent `updateAvailable` hides that action, even for a CLI below the adapter's minimum version; compatibility warnings and manual guidance remain visible. Hosts show loading and completion on every refresh, retain old detection data on failure with the failure reason, and hide stale update actions until a subsequent successful check.
 After a successful update, users reconnect the Agent to start the updated CLI
 and obtain its model catalog; existing conversations are not interrupted automatically.
 
@@ -666,7 +756,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `community.discourse.search` | Search normalized topics and sanitized posts |
 | `editor.lineEdit` | Apply a deterministic line-level text transform and return the replacement plus selection to restore |
 | `editor.lineCommentToken` | Resolve the line comment token for a file extension or language id |
-| `workspace.snapshot` | Enumerate visible workspace nodes and relative file paths |
+| `workspace.snapshot` | Enumerate visible workspace nodes and relative file paths; `nestedWorktrees` lists linked worktrees checked out inside their own repository, which are left out of the tree, files, and search index |
 | `workspace.repositories` | Discover deterministic Git repository roots for an opened workspace |
 | `workspace.search` | Search visible file names and UTF-8 text files |
 | `workspace.searchEverywhere` | Search visible file names, Java types/methods, and UTF-8 text files |
@@ -787,6 +877,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `git.conflictMarkers` | Return staged text files that still contain conflict markers |
 | `git.operationState` | Report an interrupted merge, rebase, cherry-pick, or revert and its conflicted paths |
 | `git.blame` | Return structured line blame metadata |
+| `git.lineHistory` | Trace which commits touched a one-based snapshot line range of one file |
 | `github.parseRemote` | Parse a canonical GitHub HTTPS or SSH remote into owner/name |
 | `github.requestPlan` | Validate one GitHub operation and produce a trusted platform HTTP request plan |
 | `github.normalizeResponse` | Normalize raw GitHub JSON and HTTP status into deterministic data or a stable error |
@@ -796,8 +887,22 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `plugins.declarative.runPlan` | Expand a declarative plugin's run template for one workspace file |
 | `plugins.declarative.discoverTests` | List a declarative plugin's workspace and file test items |
 | `plugins.declarative.testPlan` | Expand a declarative plugin's test template for a workspace, file, or test case |
-| `plugins.declarative.languageServerLaunchPlan` | Expand a declarative plugin's language-server launch with host directories and architecture |
+| `plugins.declarative.languageServerLaunchPlan` | Expand a declarative plugin's language-server or build-provider launch with host directories and architecture |
 | `plugins.declarative.checkRuntimeVersion` | Decide whether a launch runtime's version output meets the declared minimum version |
+| `build.detect` | Find every build-system instance the enabled plugins declare in a workspace, with models that need no process |
+| `build.invocationPlan` | List a build system's executable candidates, runtime dependencies, and version probe for one platform |
+| `build.checkToolVersion` | Decide whether a build tool's or runtime's version output meets the declared minimum |
+| `build.resolveOptions` | Check stored build options against the declaration and return effective values, choices, and the fingerprint |
+| `build.modelPlan` | Expand the command that prints a command-sourced build model, or the request a build provider answers |
+| `build.taskPlan` | Expand one declared or model task for a workspace, project, or target |
+| `build.testPlan` | Expand a test run for a scope, suite, or case and say where its reports will be |
+| `build.dependencyPlan` | Expand the command that prints a project's dependency tree, or the request a build provider answers |
+| `build.decodeModel` | Decode model output or a provider result into projects, targets, tasks, content roots, option values, and run entries |
+| `build.decodeTestResults` | Decode a test run's reports and output into per-case results and a summary |
+| `build.decodeDiagnostics` | Decode build output into workspace file diagnostics |
+| `build.decodeDependencies` | Decode dependency output or a provider result into one project's bounded tree |
+| `build.syncFingerprint` | Digest the files a build model depends on, to tell whether it is stale |
+| `build.languageImport` | Map a build system's options to the Java language server's Maven or Gradle project import |
 | `plugins.marketplace.validateIndex` | Validate a marketplace index and report each plugin's availability for one platform |
 | `plugins.marketplace.resolveSource` | Resolve a user-entered marketplace source to the index URL to fetch |
 | `plugins.marketplace.installReview` | List a package's permissions and programs, and those not yet approved |
@@ -853,8 +958,11 @@ the run wrote and returns `testCases`, otherwise an empty list:
 
 ```json
 { "className": "com.example.CalculatorTest", "method": "additionIsCorrect",
-  "status": "failed", "message": "expected <4> but was <5>", "invocations": 1 }
+  "status": "failed", "message": "expected <4> but was <5>", "invocations": 1,
+  "durationMillis": 23 }
 ```
+
+Optional `durationMillis` comes only from each XML testcase's `time` seconds attribute. Repeated/parameterized invocations sum their times in whole milliseconds; if any invocation has a missing, negative, non-finite, unrepresentable time or the sum overflows the host integer range, the field is omitted. A reported zero is valid. Hosts hide missing method durations and must not substitute a console/suite summary or another class's method time. `build.decodeTestResults` preserves the same duration in its canonical testcase result.
 
 Reports are searched in the module's configured Surefire/Failsafe
 `reportsDirectory` values plus `<build directory>/surefire-reports` and
@@ -1069,10 +1177,14 @@ it is not console output. See `shared/fixtures/git/remote-url-v1.json`.
 It returns `{ executable, version, scope, entries, fields, temporaryConfig,
 fetchOptions, fetchError, fetchSources, credentialHelperEnabled,
 interactiveAuthentication }`. Entries are `{ key, value, scope, origin, effective }`
-in Git precedence order, limited to relevant configuration and redacted. Fields
-are `{ key, choices: string[], configuredValues: string[] }` from the selected
-file without expanding includes. Fetch source values are `{ scope, origin }`
-per preference; application sources have null origins. Invalid repository
+in Git precedence order, limited to relevant configuration and redacted. Effective
+`fetch.prunetags` and `remote.<name>.prunetags` entry values use Git's boolean
+parser and return canonical `"true"` or `"false"` for valid spellings (including
+valueless assignments); invalid values remain inspectable as their redacted raw
+text. Fields are `{ key, choices: string[], configuredValues: string[] }` from
+the selected file without expanding includes. `configuredValues` retain the raw
+values for optimistic edit checks, even when an effective entry is normalized.
+Fetch source values are `{ scope, origin }` per preference; application sources have null origins. Invalid repository
 preferences return null `fetchOptions` and a structured `fetchError`.
 
 `git.executionConfigure` adds `{ key, value: string | null, expectedValues:
@@ -1491,6 +1603,10 @@ available, `left`/`right` text, a `kind` (`context`, `changed`, `addition`,
 clients must fall back to `left`. Hunk entries contain their header and the
 patch text needed for partial apply; rows are not duplicated per hunk, so
 clients group `rows` by `hunkID` instead.
+The response also carries `hasDecodingLoss`: true when Git's output was not
+valid UTF-8 and Core replaced bytes with U+FFFD while decoding `patch`. Such a
+patch still renders, but it is not the file's bytes; clients must not write it
+back, for example as byte-faithful rollback material.
 New reference-tree workflows use `gitReference`; Core validates its full
 identity before constructing the diff invocation. When `targetGitReference` is
 present, Core validates both complete identities and constructs the two-ref
@@ -1564,6 +1680,23 @@ body on demand with `git.commit`. See
 `shared/fixtures/git/commit-lookup-response-v1.json`.
 `git.blame` accepts `root` and a workspace-relative `path`; its line numbers
 are one-based and author timestamps are Unix seconds.
+
+`git.lineHistory` accepts `root`, a workspace-relative `path`, the editor
+snapshot `content`, a one-based inclusive `startLine`/`endLine` range
+addressing that snapshot, and an optional `limit` (default 50, capped at 200;
+snapshots above 8 MiB are rejected). The snapshot is mapped onto the pinned
+`baseCommit` through an isolated platform-temp comparison, so unsaved edits
+stay answerable; the response echoes `baseCommit`, lists `unmappedLines`
+(`kind` `new` for provably inserted lines, `unreliable` for rewritten ones),
+and returns `commits` newest first with `hash`, `kind` (`commit` or
+`merge-first-parent`), `authorName`, `authorTime` (Unix seconds), `subject`,
+`pathAtCommit`, optional `previousPath` on renames, `compareBase` (the parent
+the metadata diff was taken against; empty for the root commit whose base is
+the empty tree), and `relevantRanges` hunks intersecting the traced lines.
+Queries walk the first-parent chain only: branch-internal commits of a merge
+are not listed separately, pure renames are not listed as content changes,
+and `truncated` reports entries beyond the limit. Pure-deletion sides report
+the boundary position as both start and end.
 
 `workspace.search` accepts `maxResults` for a total result cap. Callers that
 need separate buckets may also provide `maxFileResults` and
@@ -1773,6 +1906,13 @@ Terminal operation events are exactly one of `operationCompleted` with a typed
 result or `operationFailed` with the adapter command and safe message. Other
 ordered events are `stateChanged`, `initialized`, `output`, `stopped`,
 `continued`, `terminated`, and `breakpoint`. Source coordinates are one-based.
+Source breakpoint confirmations include optional `requestedLine` alongside the
+adapter-resolved `line`. Core retains their association by adapter breakpoint ID,
+so later location-free `breakpoint` events preserve both the requested anchor and
+resolved location. Responses to superseded per-file sets are discarded. Platforms
+persist the requested anchor and may display the resolved line; placement alone
+does not imply that bytecode was bound or that execution will suspend there.
+The correlation fixture is `shared/fixtures/debug/breakpoint-binding-v1.json`.
 The compatibility flow is captured in
 `shared/fixtures/debug/dap-session-v1.json`; exception normalization cases are
 captured in `shared/fixtures/debug/exception-info-v1.json`.
@@ -1834,7 +1974,7 @@ by its original path with a session warning instead of failing startup.
 Copies remain readable until JDT workspace cache eviction or index rebuilding;
 notification delivery is not an acknowledgement that the server read them.
 
-Gradle callers may also provide `javaGradle = { wrapperPresent }`, where
+Gradle callers may also provide `javaGradle = { wrapperPresent, offline?, userHome? }`, where
 `wrapperPresent` reports whether the root ships
 `gradle/wrapper/gradle-wrapper.properties`. When present, Core states
 `java.import.gradle.enabled` in `settings.java` and, if that descriptor exists,
@@ -1842,9 +1982,13 @@ Gradle callers may also provide `javaGradle = { wrapperPresent }`, where
 so the section declares the import behavior Lithe relies on instead of changing
 it; Buildship itself decides which distribution to use, honoring the wrapper only
 when the project ships that descriptor. Settings that require reading the build
-script or network state (`java.home`, `version`, `offline.enabled`) are never
-sent. A workspace whose root declares no Gradle build file sends no `javaGradle`
-and therefore receives no `java.import` settings.
+script (`java.home`, `version`) are never guessed. `offline` and `userHome`
+are the user's own build options, as `build.languageImport` maps them from the
+plugin that declares the Gradle build system; Core sends
+`java.import.gradle.offline.enabled` and `java.import.gradle.user.home` only
+when they are set, and the session keeps them until it restarts. A workspace
+whose root declares no Gradle build file sends no `javaGradle` and therefore
+receives no `java.import` settings.
 
 `lsp.updateMavenConfiguration` accepts `{ sessionId, mavenContext,
 reloadProjects? }` for a running Java session started with a `mavenContext`,
@@ -2612,11 +2756,15 @@ The `plugins.declarative.*` commands implement
 package or the workspace, so hosts pass the parsed `plugin.json` and the
 relevant facts with every call.
 
-`plugins.declarative.validate` accepts `{ "manifest": object }` and returns
-`{ "status": "ok", "plugin": object }` with the normalized manifest (names
-lowercased and sorted, argument order preserved), or
+`plugins.declarative.validate` accepts
+`{ "manifest": object, "hostCapabilities"?: { "<capability>": [integer] } }`
+and returns `{ "status": "ok", "plugin": object }` with the normalized
+manifest (names lowercased and sorted, argument order preserved), or
 `{ "status": "rejected", "error": { "code", "message", "field"? } }` with a
-stable `plugin.*` code.
+stable `plugin.*` code. When the host sends the capability versions it runs,
+a level 3 manifest that requires another one is `plugin.api.unsupported`;
+levels 1 and 2 are unaffected. See Capability versions in
+[`plugins/v1`](plugins/v1/README.md).
 
 `plugins.declarative.runPlan`, `plugins.declarative.discoverTests`, and
 `plugins.declarative.testPlan` accept
@@ -2630,18 +2778,25 @@ Success returns `plan` (`executable`, `arguments`, `workingDirectory`, plus
 `rejected` shape. Only a malformed payload is an `invalid_request` failure.
 `shared/contracts/plugins/v1/fixtures/` holds the golden cases.
 
-`plugins.declarative.languageServerLaunchPlan` uses the same envelope with the
-request `{ pluginDirectory, stateDirectory, workspaceStateDirectory,
-architecture, settings? }`. The directories are absolute host paths used only
+`plugins.declarative.languageServerLaunchPlan` accepts
+`{ "manifest": object, "languageID"?: string, "buildSystemID"?: string,
+"request": object }` with exactly one of `languageID` (a language server) and
+`buildSystemID` (a build provider); naming neither or both is an
+`invalid_request` failure. The request is `{ pluginDirectory, stateDirectory,
+workspaceStateDirectory, architecture, settings? }`. The directories are absolute host paths used only
 as substitution text; the command does not read or create them. `settings` maps
 setting IDs to the values the user stored; a missing, unknown, or no longer
 acceptable value is ignored in favor of the declared default. Success returns
 `plan` with `launch`, `arguments`, `validationArguments`,
 `runtimeRequirements`, `requiredDirectories`, `requiredPackagePaths`, and
 `initializationOptions`, `hostIntegration`, and `settings` (the effective
-values) when the plugin declares them. An unknown
+values) when the plugin declares them. A `buildSystemID` plan adds
+`buildProvider: { buildSystemID, executesProjectCode, mayUseNetwork,
+languageServer? }`; with `languageServer` the plan is that language server's
+and the host reuses its session. An unknown
 architecture or an empty directory is refused with
-`plugin.launch.invalidRequest`, a language without a server with
+`plugin.launch.invalidRequest`; a language without a server, an undeclared
+build system, and a build system without a provider with
 `plugin.launch.unavailable`.
 
 `plugins.declarative.checkRuntimeVersion` accepts
@@ -2652,15 +2807,77 @@ for the plan's `launch.versionArguments`, and returns
 
 The `plugins.marketplace.*` commands are equally pure: hosts fetch indexes and
 archives and pass the parsed JSON. `validateIndex` accepts
-`{ index, sourceKind: "official" | "thirdParty", platform }` and returns
-`{ status: "ok", index: { plugins, rejected } }` with per-entry
-`availability`; `resolveSource` accepts `{ url }` and returns
+`{ index, sourceKind: "official" | "thirdParty", platform, hostCapabilities? }`
+and returns `{ status: "ok", index: { plugins, rejected } }` with per-entry
+`availability`; a level 3 version is available only when every capability it
+requires is in `hostCapabilities`; `resolveSource` accepts `{ url }` and returns
 `{ status: "ok", source: { indexURL, repository, displayName } }`;
 `installReview` accepts `{ manifest, expectedID?, expectedVersion?,
-approvedPrograms? }` and returns `{ status: "ok", review: { id, version,
+approvedPrograms?, hostCapabilities? }` and returns `{ status: "ok", review: { id, version,
 permissions, programs, newPrograms } }`. Content problems use the same
 `rejected` shape; see the Marketplace section of
 [`plugins/v1`](plugins/v1/README.md) and `fixtures/marketplace/`.
+
+### Build systems
+
+The `build.*` commands implement API level 3 `buildSystems` of
+[`plugins/v1`](plugins/v1/README.md). Every build tool shares them, so a host
+has one build workflow and never branches on a build-system ID: Core plans
+each process, the host runs it with the discovered executable, and Core
+decodes what it printed or wrote.
+
+A build system with a `provider` also requires `buildProviders: 1`. Core supports
+validation and planning for that capability; a host advertises it only after
+implementing Provider lifecycle and requests. macOS does not yet advertise it,
+so its marketplace and install review reject Provider plugins while accepting
+compatible declarative build systems.
+
+Except `build.detect`, every command accepts
+`{ manifest, buildSystemID, request }`, revalidates the manifest, and answers
+`plugin.build.unavailable` for an undeclared build system or operation.
+Results use the `plugins.declarative.*` envelope under the key named below;
+selections the declaration does not allow are `plugin.build.invalidSelection`,
+output that does not fit its decoder is `plugin.build.invalidOutput`, and a
+malformed payload is an `invalid_request` failure.
+
+Host-managed runtime probes use `java -version` (including Java 8),
+`node --version`, and `go version`. Hosts execute the returned arguments and
+pass combined stdout and stderr as `build.checkToolVersion.request.output`:
+Java normally prints its version to stderr. Core normalizes legacy Java
+`1.8.0_…` output to major version 8 before comparing the declared minimum,
+and ignores `Picked up …` environment-option notices preceding the version.
+
+Paths in requests are workspace-relative with `/` unless named absolute.
+`root` is the instance root from detection. Selected entities are
+`{ name, path?, tags?, execution?, properties? }` as the decoded model
+returned them. Plan requests share `{ root, options?, pluginDirectory?,
+workspaceStateDirectory? }`; `options` are the stored values by option ID,
+and the directories are absolute host paths used only as substitution text.
+
+| Command | Request | Result |
+| --- | --- | --- |
+| `build.detect` | `{ workspaceRoot, plugins: [{ manifest }], options?: { <buildSystemID>: { <optionID>: value } } }` | `detection`: `{ instances, rejected: [{ index, error }], shadowed: [{ pluginID, buildSystemID, by }] }`; each instance is `{ id, pluginID, buildSystemID, displayName, root, markers, modelSource, optionFingerprint }` plus `model` or `modelError` for `static` and `hostIntegration` sources; a `provider` source has neither |
+| `build.invocationPlan` | `{ root, platform: "macos" \| "linux" \| "windows" }` | `invocation`: `{ buildSystemID, root, executables, environmentInputs, runtimeDependencies, version, minimumVersion }` with project-file paths joined to `root`; every runtime dependency with a known probe, host-managed ones included, carries `version: { arguments }` |
+| `build.checkToolVersion` | `{ runtime?, output }` | `version`: `{ satisfied, version? }`; `runtime` checks that runtime dependency instead of the tool |
+| `build.resolveOptions` | `{ options, modelValues? }` | `options`: `{ options: [{ id, displayName, kind, value, source, choices, allowCustom }], dropped, fingerprint }` |
+| `build.modelPlan`, `build.dependencyPlan` | plan fields plus `project?` (dependencies) and `outputFile?` | `plan`: `{ buildSystemID, root, arguments, environment, workingDirectory, execution, optionFingerprint, output, decoder, executesProjectCode, mayUseNetwork }`; for a `provider` source `{ buildSystemID, root, provider: { method, params }, decoder, executesProjectCode, mayUseNetwork, optionFingerprint }`, where `method` is `lithe/build/model` or `lithe/build/dependencies` and `params` is `{ buildSystemID, root, options, optionArguments, environment, project? }` |
+| `build.taskPlan` | plan fields plus `task`, `project?`, `target?`, `modelTask?`, `userArguments?` | `plan` with `arguments`, `environment`, `workingDirectory`, `execution`, and `optionFingerprint` |
+| `build.testPlan` | plan fields plus `project?`, `target?`, `suite?`, `case?`, `userArguments?`, `projects?` (the model's project directories) | `plan` with the task-plan fields and `results`: `null`, `{ decoder, reports }` with workspace-relative globs (for the selected project, or for the root and every listed project when none is selected), or `{ decoder: "hostIntegration" }`. A `suite` or `case` the templates cannot place on the command line under this selection, such as a case without its suite when the tool only addresses `Suite#case`, is `plugin.build.invalidSelection` rather than a wider run |
+| `build.decodeModel` | `{ workspaceRoot, root, output?, outputFile?, result?, options? }`; `result` is the provider's JSON answer | `model`: `{ projects, targets, tasks, contentRoots, optionValues, run }`; `run` entries carry `buildSystem: { id, root, projectID, targetID?, optionFingerprint }` |
+| `build.decodeTestResults` | `{ workspaceRoot, root, project?, projects?, output, notBeforeMillis?, suite? }`; without `project` the reports of the root and every listed model project are read | `results`: `{ tests: [{ suite, case, status, message?, durationMillis?, path?, line?, invocations }], summary: { total, passed, failed, errors, skipped }, success }`; repeated invocations of one case merge into the most severe status |
+| `build.decodeDiagnostics` | `{ workspaceRoot, root, output }` | `diagnostics`: `[{ path, line, column?, severity, message }]`, deduplicated, inside the workspace only |
+| `build.decodeDependencies` | `{ workspaceRoot, root, project?, output?, outputFile?, result? }` | `dependencies`: `{ project, dependencies: [{ name, group?, version?, scope?, properties?, children }], truncated }` |
+| `build.syncFingerprint` | `{ workspaceRoot, root, projects, options? }` | `sync`: `{ fingerprint, watch }` |
+| `build.languageImport` | `{ workspaceRoot, root, options?, executablePath? }` | `languageImport`: `null` without a `languageImport` declaration; `{ kind: "maven", mavenContext: { version, reactorPath, profiles, settingsPath?, localRepositoryPath?, mavenExecutablePath? } }` for `lsp.startServer.mavenContext` and `lsp.updateMavenConfiguration`; or `{ kind: "gradle", javaGradle: { wrapperPresent, offline, userHome? } }` for `lsp.startServer.javaGradle`, where `wrapperPresent` reports `gradle/wrapper/gradle-wrapper.properties` under `root` |
+
+`outputFile` is an absolute host-allocated path the host creates fresh for
+each run and removes afterwards; a command whose declaration writes to a
+file refuses a plan without it. Unlike the `plugins.declarative.*` commands,
+`build.detect`, `build.decodeModel`, `build.decodeTestResults`,
+`build.decodeDependencies`, and `build.syncFingerprint` read bounded files
+inside `workspaceRoot` (and the given `outputFile`); none of the commands
+writes anything or starts a process. `shared/contracts/plugins/v1/fixtures/build-plans.json`
+holds the golden plans and decoded outputs.
 
 ### Git patch discovery and rebase amendment preconditions
 
@@ -2668,6 +2885,13 @@ permissions, programs, newPrograms } }`. Content problems use the same
 mode it returns candidate file counts and rename identities with empty `patch`
 and zero `byteLength`, independently of patch text encoding and exchange size.
 See [Patch exchange](git-patch-exchange.md) and its metadata fixture.
+
+For Shelf capture, `git.patchExport` also accepts `includeUntracked: true` only
+with `source: "unstaged"`. It snapshots the real index and exports the selected
+working files, including untracked additions, relative to that index. The real
+index remains unchanged. The default false retains tracked-only unstaged export;
+`workingTree` remains HEAD-based. See the same contract and its
+`unstagedWithUntrackedRequest` fixture.
 
 `git.rebaseControl` requires `expectedHead` when `amendMessage` is present.
 Missing or stale HEAD rejects the amendment before writing; plain Continue,
@@ -2941,3 +3165,21 @@ Core-planned direct JDT JDWP launches) so DevTools cannot restart the classloade
 HotSwap. Attach to independently launched JVMs does not change their options.
 The Windows host maps `redefineClasses` to this operation and `cancelOperation`
 to `debug.cancelOperation` with a `timedOut` reason for its bounded result wait.
+
+### Saved changes: directional patches and immutable stashes
+
+`git.patchPreview` and `git.patchApply` accept optional `reverse` (default `false`).
+The preview token binds direction, patch bytes, target, index, HEAD and working files;
+changing direction requires a new preview. Preview checks use disposable index copies
+and preserve the real index bytes. Applying to `indexAndWorktree` may refresh its
+stat cache after reviewed-state validation. Git remains responsible for applicability;
+there is no partial-reject or automatic whitespace repair mode.
+See `shared/fixtures/git/patch-exchange-v1.json`.
+
+`git.stashes` adds `oid`, the full immutable object identity, alongside the positional
+`reference`. `git.diff` accepts `stashReference` to read a stash including its untracked
+files. Stash write operations also accept the full object identity in `reference`;
+Core resolves its current stash position under the existing writer lease and rejects
+an identity that is no longer present. Legacy positional references remain accepted.
+See `shared/fixtures/git/saved-stash-v1.json`. Native Shelf persistence is platform-owned;
+raw patch bytes are kept separately for index and working-tree versions.

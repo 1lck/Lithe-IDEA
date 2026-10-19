@@ -67,10 +67,12 @@
               "source": "npm",
               "canUpdate": true,
               "updateHint": "npm install -g @openai/codex",
-              "updateAvailable": true
+              "updateAvailable": true,
+              "availableVersion": "0.157.1"
             }
           },
-          "issues": []
+          "issues": [],
+          "updateAvailable": false
         },
         {
           "id": "claude-acp",
@@ -171,7 +173,8 @@
       "source": "npm",
       "canUpdate": true,
       "updateHint": "npm install -g @openai/codex",
-      "updateAvailable": true
+      "updateAvailable": true,
+      "availableVersion": "0.157.1"
     },
     "homebrew": {
       "source": "homebrew",
@@ -198,6 +201,12 @@
       "source": "npm",
       "canUpdate": false,
       "updateHint": "Switch to the Node.js/npm environment that installed this CLI, update it there, then check again."
+    },
+    "npmCheckFailed": {
+      "source": "npm",
+      "canUpdate": true,
+      "updateHint": "npm install -g @example/agent",
+      "updateCheckError": "Network request failed: connection refused"
     }
   }
 }

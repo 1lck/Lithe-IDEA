@@ -22,6 +22,9 @@
     { "name": "homepage with embedded credentials", "edits": [{ "op": "set", "path": "/homepage", "value": "https://user:secret@example.com" }], "expectedCode": "plugin.index.invalid" },
     { "name": "tag with whitespace", "edits": [{ "op": "set", "path": "/tags", "value": ["two words"] }], "expectedCode": "plugin.index.invalid" },
     { "name": "localized description with a malformed language tag", "edits": [{ "op": "set", "path": "/localizedDescriptions", "value": { "Chinese": "Zig 语言服务器集成。" } }], "expectedCode": "plugin.index.invalid" },
-    { "name": "empty localized description", "edits": [{ "op": "set", "path": "/localizedDescriptions", "value": { "zh-Hans": " " } }], "expectedCode": "plugin.index.invalid" }
+    { "name": "empty localized description", "edits": [{ "op": "set", "path": "/localizedDescriptions", "value": { "zh-Hans": " " } }], "expectedCode": "plugin.index.invalid" },
+    { "name": "requires below plugin API 3", "edits": [{ "op": "set", "path": "/versions/0/requires", "value": { "languages": 1 } }], "expectedCode": "plugin.index.invalid" },
+    { "name": "plugin API 3 version without requires", "edits": [{ "op": "set", "path": "/versions/0/pluginAPIVersion", "value": 3 }], "expectedCode": "plugin.index.invalid" },
+    { "name": "capability version is not a positive integer", "edits": [{ "op": "set", "path": "/versions/0/pluginAPIVersion", "value": 3 }, { "op": "set", "path": "/versions/0/requires", "value": { "languages": 0 } }], "expectedCode": "plugin.index.invalid" }
   ]
 }

@@ -76,11 +76,12 @@ extension View {
 
 /// The anchor only measures; clicks and hover belong to the underlying control.
 final class LitheDropdownAnchorView: NSView {
+    var onAttach: ((NSView, NSWindow) -> Void)?
     var onDetach: (() -> Void)?
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if window == nil { onDetach?() }
+        if let window { onAttach?(self, window) } else { onDetach?() }
     }
 }
 
@@ -115,6 +116,11 @@ struct LitheDropdownPopover<Content: View>: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSView {
         let view = LitheDropdownAnchorView()
+        // Lazily inserted anchors can receive their first update before they have a window.
+        view.onAttach = { [weak coordinator = context.coordinator] anchor, window in
+            guard let coordinator, coordinator.isPresented.wrappedValue else { return }
+            coordinator.present(relativeTo: anchor, in: window)
+        }
         view.onDetach = { [weak coordinator = context.coordinator] in coordinator?.dismiss() }
         view.wantsLayer = false
         return view
@@ -141,6 +147,7 @@ struct LitheDropdownPopover<Content: View>: NSViewRepresentable {
     }
 
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        (nsView as? LitheDropdownAnchorView)?.onAttach = nil
         (nsView as? LitheDropdownAnchorView)?.onDetach = nil
         coordinator.dismiss()
     }

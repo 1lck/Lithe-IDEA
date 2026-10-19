@@ -1,0 +1,30 @@
+{
+  "id": "git-line-history",
+  "area": "版本控制",
+  "group": "Git",
+  "capability": "行级修改历史：编辑器行号右键查询一基闭区间行范围的提交历史；以未保存编辑器快照为查询基准，映射到钉住的 HEAD 提交（工作区与 .git 只读，快照经平台临时目录比对），插入行提示尚无提交历史、改写行提示无法可靠对应；多行选区仅在右键落在选区行范围内时整体查询，行首光标不多查一行；删除行不扩大追踪区间；重命名跟随并记录历史路径；第一父链语义，合并条目标注相对第一父的比较基准，分支内部提交不单列，纯重命名不列为内容变更；条目携带定位范围，点开单文件提交差异并定位相关变更块；上限截断提示、超时取消与迟到结果丢弃",
+  "macos": {
+    "evidence": [
+      "rust/lithe-core/src/git/mod.rs",
+      "shared/contracts/rust-core-api.md"
+    ],
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/git/api/git-line-history-api.ts",
+      "windows/tauri/src/features/git/api/git-line-history-api.test.ts",
+      "windows/tauri/src/features/git/components/git-line-history-popup.tsx",
+      "windows/tauri/src/features/git/utils/line-history-selection.ts",
+      "windows/tauri/src/features/git/utils/line-history-selection.test.ts",
+      "windows/tauri/src/features/editor/context-menu/editor-context-menu-items.tsx",
+      "windows/tauri/src/features/editor/components/monaco-editor.tsx",
+      "rust/lithe-core/src/tests/git.rs"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Git",
+  "verification": "Windows：未保存顶部插行后右键原内容行，历史归属正确且不串行；右键纯新增行提示尚无提交历史、右键改写行提示无法可靠对应；选中多行后分别右键范围内与范围外行号，确认查询范围服从落点且行首光标不多查一行；删除中间行后查询两侧行，中行专属提交不出现；重命名文件后历史仍可追溯且条目显示历史路径；构造分支合并后查询主线行，合并条目显示相对第一父徽标，被合入分支内部提交不单列；点开普通条目与合并条目，确认打开单文件差异并定位到相关变更块、合并条目与列表使用同一比较基准；构造超过上限的历史确认截断提示；关闭弹层后确认在途查询被取消且迟到结果不重开界面。macOS：共享 Core 命令已具备，界面入口未实现，待后续接入。"
+}

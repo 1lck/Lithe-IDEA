@@ -134,6 +134,10 @@ struct MacRetainedProcessLifecycleTests {
 /// A real OS fork is unavoidable for kqueue coverage. Pipe commands control
 /// fork and parent exit independently; no wall-clock delay orders the scenario.
 private final class RetainedForkFixture {
+    // Launching the real interpreter is an OS integration boundary. Hosted CI
+    // exceeded the in-memory gate's 2s deadline before its first ready line.
+    // Bound startup separately; fork and persistence deadlines stay unchanged.
+    private static let startupTimeout: Duration = .seconds(5)
     let scope = UUID().uuidString
     let process = Process()
     let input = Pipe()
@@ -169,7 +173,10 @@ private final class RetainedForkFixture {
         process.terminationHandler = { _ in exited.open() }
         do {
             try process.run()
-            try #require(await output.rootReady.waitUntilOpen())
+            try #require(
+                await output.rootReady.waitUntilOpen(timeout: Self.startupTimeout),
+                "Root fixture did not report ready: pid=\(process.processIdentifier), running=\(process.isRunning)"
+            )
             root = try #require(MacProcessTable.info(processID: process.processIdentifier)?.identity)
         } catch {
             cleanup()
@@ -213,7 +220,10 @@ private final class RetainedForkFixture {
         unretained.append(process)
         let identity = try #require(MacProcessTable.info(processID: process.processIdentifier)?.identity)
         unretainedIdentities.append(identity)
-        try #require(await ready.waitUntilOpen())
+        try #require(
+            await ready.waitUntilOpen(timeout: Self.startupTimeout),
+            "Sibling fixture did not report ready: pid=\(process.processIdentifier), running=\(process.isRunning)"
+        )
         let arguments = try #require(MacProcessTable.arguments(processID: identity.processID), "Unable to read fixture arguments, errno: \(errno)")
         #expect(arguments.environment[MacProcessScope.environmentKey] == scope)
         return identity

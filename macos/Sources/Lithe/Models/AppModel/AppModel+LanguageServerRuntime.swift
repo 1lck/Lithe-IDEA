@@ -26,6 +26,7 @@ extension AppModel {
 
     func setLanguageServerEnabled(_ enabled: Bool, providerID: String) {
         if providerID == "java", !enabled {
+            javaLanguageServerPreparationCoordinator.cancelMavenConfigurationSynchronization()
             cancelJavaLanguageServerPreparation()
         }
         languageToolingFeature.setEnabled(enabled, providerID: providerID)
@@ -47,11 +48,11 @@ extension AppModel {
     func prepareJavaLanguageServerRuntimeIfNeeded(
         for document: EditorDocument
     ) -> JavaLanguageServerActivationReadiness {
-        if services.projectRuntimeService.isJavaLanguageServerRuntimePrepared() {
+        if services.projectRuntimeService.isJavaLanguageServerRuntimePrepared(),
+           !isBuildLanguageImportPending || languageToolingSessionsIfActive?.activeLanguageServerIDs.contains("java") == true {
             return .ready
         }
-        guard case .idle = javaFeature.languageServerWorkspaceState,
-              let workspaceURL else { return .preparing }
+        guard !javaFeature.isLanguageServerPreparing, let workspaceURL else { return .preparing }
         prepareJavaLanguageServerForWorkspaceIfNeeded(
             at: workspaceURL,
             files: projectFiles,
@@ -66,7 +67,7 @@ extension AppModel {
         fallbackDocument: EditorDocument? = nil
     ) {
         let normalizedRoot = workspaceURL.standardizedFileURL
-        guard self.workspaceURL?.standardizedFileURL == normalizedRoot,
+        guard let identity = currentWorkspaceIdentity, identity.url == normalizedRoot,
               !languageToolingFeature.isDisabled("java") else { return }
         guard services.javaMavenOperations.javaWorkspacePolicy(
             at: normalizedRoot,
@@ -94,7 +95,12 @@ extension AppModel {
                 guard let self else {
                     throw CancellationError()
                 }
-                return try await self.languageSessionsForWorkspaceMaintenance()
+                return try await self.languageSessionsForWorkspaceMaintenance(for: identity)
+            },
+            languageImportPreparation: { [weak self] in
+                guard let self, self.isCurrentWorkspace(identity) else { throw CancellationError() }
+                try await self.prepareBuildLanguageImport()
+                guard self.isCurrentWorkspace(identity) else { throw CancellationError() }
             },
             ownsPreparation: { [weak self] in
                 guard let self else { return false }
@@ -194,6 +200,7 @@ extension AppModel {
     func handleWorkspaceFileChanges(_ changes: [WorkspaceFileChange]) {
         guard let workspaceURL else { return }
         runFeatureIfActive?.markDependencyFilesChanged(changes)
+        handleBuildSystemFileChanges(changes)
         let maven = mavenFeatureIfActive
         let forwarded = changes.filter { change in
             if Self.isWorkspaceDependencyMetadata(
@@ -265,7 +272,7 @@ extension AppModel {
                     NSLocalizedDescriptionKey: self.settings.language.localizedString("Java runtime is not ready. Retry Maven reload.")
                 ])
             }
-            let sessions = try await self.languageSessionsForWorkspaceMaintenance()
+            let sessions = try await self.languageSessionsForWorkspaceMaintenance(for: identity)
             try Task.checkCancellation()
             guard self.isCurrentWorkspace(identity) else { throw CancellationError() }
             guard !self.languageToolingFeature.isDisabled("java") else { return }

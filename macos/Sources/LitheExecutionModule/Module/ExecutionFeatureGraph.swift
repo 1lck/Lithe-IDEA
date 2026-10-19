@@ -11,13 +11,24 @@ package final class ExecutionFeatureGraph: NSObject, ExecutionServiceGraph {
     package let mavenFeature: MavenFeatureModel
     package let runFeature: RunFeatureModel
     package let projectDevelopment: ProjectDevelopmentFeatureModel
+    /// Nil when the host runs no plugin build systems.
+    package let buildSystems: BuildSystemService?
+    package let buildSystemsFeature: BuildSystemsFeatureModel?
     private var activityObservers: Set<AnyCancellable> = []
     private var mavenLease: ModuleLease?
     private var runLease: ModuleLease?
     private var testLease: ModuleLease?
+    private var buildLease: ModuleLease?
 
-    package init(maven: MavenService, run: RunService, tests: LanguageTestService) {
+    package init(
+        maven: MavenService,
+        run: RunService,
+        tests: LanguageTestService,
+        buildSystems: BuildSystemService? = nil
+    ) {
         self.maven = maven; self.run = run; self.tests = tests
+        self.buildSystems = buildSystems
+        buildSystemsFeature = buildSystems.map(BuildSystemsFeatureModel.init(service:))
         let mavenFeature = MavenFeatureModel(service: maven)
         self.mavenFeature = mavenFeature
         runFeature = RunFeatureModel(service: run)
@@ -38,6 +49,7 @@ package final class ExecutionFeatureGraph: NSObject, ExecutionServiceGraph {
     package var isActive: Bool {
         maven.isRunning || maven.isResolvingDependencies || maven.isReloading
             || run.isRunning || run.hasRunningServices || tests.isRunning
+            || buildSystems?.hasActiveWork == true
     }
     package var hasActiveExecutionWork: Bool { isActive }
     package func activate(context: ModuleContext) {
@@ -73,13 +85,18 @@ package final class ExecutionFeatureGraph: NSObject, ExecutionServiceGraph {
             if active, testLease == nil { testLease = acquire("Test run is active") }
             if !active { testLease?.release(); testLease = nil }
         }.store(in: &activityObservers)
+        buildSystems?.$hasActiveWork.removeDuplicates().sink { [weak self] active in
+            guard let self else { return }
+            if active, buildLease == nil { buildLease = acquire("Build system command is running") }
+            if !active { buildLease?.release(); buildLease = nil }
+        }.store(in: &activityObservers)
     }
 
     /// Ends every process this graph started. Service sessions outlive the
     /// run that launched them, so they are stopped here as well: nothing the
     /// IDE started may keep running after the session that owns it is gone.
     package func stop() {
-        maven.stop(); run.stop(); run.stopAllServices(); tests.stop()
+        maven.stop(); run.stop(); run.stopAllServices(); tests.stop(); buildSystems?.stop()
         releaseLeases()
         activityObservers.removeAll()
     }
@@ -88,6 +105,7 @@ package final class ExecutionFeatureGraph: NSObject, ExecutionServiceGraph {
         mavenLease?.release(); mavenLease = nil
         runLease?.release(); runLease = nil
         testLease?.release(); testLease = nil
+        buildLease?.release(); buildLease = nil
     }
 }
 

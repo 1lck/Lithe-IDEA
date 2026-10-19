@@ -77,6 +77,11 @@ public final class AgentConversationFeatureModel: ObservableObject {
         selectedAgentID = agentID
     }
 
+    func existingConnection(for agentID: String) -> AgentConnectionModel? { connections[agentID] }
+    func existingHistoryMetadata(for agentID: String) -> [String: AgentHistoryMetadata] {
+        histories[agentID]?.metadata ?? [:]
+    }
+
     public func connection(for agentID: String) -> AgentConnectionModel {
         if let existing = connections[agentID] { return existing }
         let model = AgentConnectionModel(transport: transport)

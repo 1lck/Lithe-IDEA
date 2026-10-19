@@ -11,20 +11,16 @@ extension AppModel {
         services.pluginManager.issues
     }
 
-    /// Installs a plugin package directory chosen by the user. The package
-    /// store validates the declaration and trust; release builds only accept
-    /// signed packages from disk.
-    func installPluginPackageFromDisk() {
-        guard let packageURL = platformUI.chooseDirectory(
-            title: NSLocalizedString("Install Plugin from Disk", comment: "Plugin package picker title"),
-            prompt: "Install"
+    /// Reviews a private snapshot of the selected ZIP or directory. Community
+    /// packages wait for the same explicit permission sheet as market installs.
+    func installPluginPackageFromDisk() async {
+        guard let packageURL = platformUI.choosePluginPackage(
+            title: PluginMarketplacePresentation.localized("Install Plugin from Disk", locale: settings.language.locale),
+            prompt: PluginMarketplacePresentation.localized("Choose Plugin Package", locale: settings.language.locale)
         ) else { return }
-        do {
-            try services.pluginManager.installPackage(at: packageURL)
-            objectWillChange.send()
-        } catch {
-            showNotification(error.localizedDescription)
-        }
+        await pluginMarketplaceFeature.installFromDisk(at: packageURL)
+        closeStalePluginWebPages()
+        objectWillChange.send()
     }
 
     func restorePlugin(_ pluginID: PluginID) {
@@ -39,6 +35,8 @@ extension AppModel {
     func uninstallPlugin(_ pluginID: PluginID) async {
         do {
             try await services.pluginManager.uninstall(pluginID)
+            buildSystemsFeatureIfActive?.pluginsChanged()
+            closeStalePluginWebPages()
             objectWillChange.send()
         } catch {
             showNotification(error.localizedDescription)
@@ -68,6 +66,10 @@ extension AppModel {
                 showNotification(error.localizedDescription)
             }
         }
+        if !appliedPluginIDs.isEmpty {
+            buildSystemsFeatureIfActive?.pluginsChanged()
+            closeStalePluginWebPages()
+        }
         objectWillChange.send()
         return appliedPluginIDs
     }
@@ -86,6 +88,7 @@ extension AppModel {
     func rollbackPlugin(_ pluginID: PluginID) {
         do {
             try services.pluginManager.rollback(pluginID)
+            closeStalePluginWebPages()
             objectWillChange.send()
         } catch {
             showNotification(error.localizedDescription)

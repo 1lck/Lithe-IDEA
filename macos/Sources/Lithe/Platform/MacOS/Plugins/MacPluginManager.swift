@@ -17,6 +17,11 @@ final class MacPluginManager: PluginManaging {
     private let registeredPluginIDs: Set<PluginID>
     private let hostVersion: PluginVersion
     private let allowsLocalDevelopmentPackages: Bool
+    /// Release pages before their package is replaced or their owner is disabled.
+    private let invalidateWebPages: (PluginID) -> Void
+    private let enableWebPages: (PluginID) -> Void
+    /// Unlike disablement, package mutation blocks pages until process restart.
+    private let beforePackageReplacement: (PluginID) -> Void
     private var installedPlugins: [PluginID: InstalledPluginPackage]
     private var restartRequiredPluginIDs: Set<PluginID> = []
     private(set) var issues: [PluginManagementIssue]
@@ -31,10 +36,16 @@ final class MacPluginManager: PluginManaging {
         managedBuiltInPlugins: [PluginManifest] = [],
         hostVersion: PluginVersion = BuiltInPluginCatalog.hostVersion,
         allowsLocalDevelopmentPackages: Bool =
-            MacOfficialPluginSignatureVerifier.allowsLocalDevelopmentPackagesByDefault
+            MacOfficialPluginSignatureVerifier.allowsLocalDevelopmentPackagesByDefault,
+        invalidateWebPages: @escaping (PluginID) -> Void = { _ in },
+        enableWebPages: @escaping (PluginID) -> Void = { _ in },
+        beforePackageReplacement: ((PluginID) -> Void)? = nil
     ) {
         self.packageStore = packageStore
         self.allowsLocalDevelopmentPackages = allowsLocalDevelopmentPackages
+        self.invalidateWebPages = invalidateWebPages
+        self.enableWebPages = enableWebPages
+        self.beforePackageReplacement = beforePackageReplacement ?? invalidateWebPages
         self.moduleRuntime = moduleRuntime
         self.configurationStore = configurationStore
         self.settings = settings
@@ -62,6 +73,7 @@ final class MacPluginManager: PluginManaging {
                     installationStatus: $0.installation.status,
                     previousVersion: $0.installation.previousVersion,
                     marketplace: $0.installation.marketplace,
+                    disk: $0.installation.disk,
                     settings: $0.descriptor.settings,
                     runtimeSnapshots: runtimeSnapshots
                 )
@@ -73,6 +85,7 @@ final class MacPluginManager: PluginManaging {
                 installationStatus: .installed,
                 previousVersion: nil,
                 marketplace: nil,
+                disk: nil,
                 settings: [],
                 runtimeSnapshots: runtimeSnapshots
             )
@@ -88,6 +101,7 @@ final class MacPluginManager: PluginManaging {
             throw PluginManagerError.requiredPluginCannotBeDisabled(pluginID)
         }
 
+        if !enabled { invalidateWebPages(pluginID) }
         let registeredIDs = Set(moduleRuntime.snapshots().map(\.manifest.id))
         let declarations: [PluginModuleDeclaration] = enabled
             ? manifest.modules
@@ -110,6 +124,7 @@ final class MacPluginManager: PluginManaging {
         if manifest.entrypoint.kind == .declarative, !registeredPluginIDs.contains(pluginID) {
             restartRequiredPluginIDs.insert(pluginID)
         }
+        if enabled && !restartRequiredPluginIDs.contains(pluginID) { enableWebPages(pluginID) }
     }
 
     func installMarketplacePackage(
@@ -127,8 +142,24 @@ final class MacPluginManager: PluginManaging {
             // package; a new version is installed beside the current one.
             replaceExisting: true,
             origin: origin,
-            marketplace: provenance
+            marketplace: provenance,
+            beforeReplacingPackage: beforePackageReplacement
         )
+        enableFirstInstallation(of: installed.manifest)
+        restartRequiredPluginIDs.insert(installed.manifest.id)
+        try refreshInstalledPlugins()
+    }
+
+    func installDiskPackage(at packageURL: URL, provenance: PluginDiskProvenance) throws {
+        let installed = try packageStore.installPackage(
+            from: packageURL,
+            deferActivationUntilRestart: true,
+            replaceExisting: true,
+            origin: .community,
+            disk: provenance,
+            beforeReplacingPackage: beforePackageReplacement
+        )
+        enableFirstInstallation(of: installed.manifest)
         restartRequiredPluginIDs.insert(installed.manifest.id)
         try refreshInstalledPlugins()
     }
@@ -147,14 +178,18 @@ final class MacPluginManager: PluginManaging {
             from: packageURL,
             deferActivationUntilRestart: true,
             replaceExisting: isDevelopmentPackage,
-            origin: isDevelopmentPackage ? .localDevelopment : .marketplace
+            origin: isDevelopmentPackage ? .localDevelopment : .marketplace,
+            beforeReplacingPackage: beforePackageReplacement
         )
+        enableFirstInstallation(of: installed.manifest)
         restartRequiredPluginIDs.insert(installed.manifest.id)
         try refreshInstalledPlugins()
     }
 
     func rollback(_ pluginID: PluginID) throws {
-        _ = try packageStore.rollback(pluginID, deferActivationUntilRestart: true)
+        _ = try packageStore.rollback(
+            pluginID, deferActivationUntilRestart: true, beforeReplacingPackage: beforePackageReplacement
+        )
         restartRequiredPluginIDs.insert(pluginID)
         try refreshInstalledPlugins()
     }
@@ -164,6 +199,7 @@ final class MacPluginManager: PluginManaging {
             guard issues.contains(where: { $0.pluginID == pluginID }) else {
                 throw PluginManagerError.unknownPlugin(pluginID)
             }
+            beforePackageReplacement(pluginID)
             try packageStore.stageInvalidPackageUninstall(pluginID)
             restartRequiredPluginIDs.insert(pluginID)
             issues.removeAll { $0.pluginID == pluginID }
@@ -179,6 +215,7 @@ final class MacPluginManager: PluginManaging {
         guard !installed.manifest.modules.contains(where: { $0.manifest.isRequired }) else {
             throw PluginManagerError.requiredPluginCannotBeUninstalled(pluginID)
         }
+        beforePackageReplacement(pluginID)
         if installed.installation.origin == .bundled {
             // The package itself lives in the read-only app bundle.
             try packageStore.setBundledPluginRemoved(pluginID, removed: true)
@@ -198,6 +235,28 @@ final class MacPluginManager: PluginManaging {
         // Its modules join the module graph at the next launch.
         restartRequiredPluginIDs.insert(pluginID)
         try refreshInstalledPlugins()
+    }
+
+    /// The user confirmed this installation, so its modules start enabled at
+    /// the next launch. Module defaults stay off for packages that appear
+    /// without that confirmation, and an update keeps the user's choice.
+    private func enableFirstInstallation(of manifest: PluginManifest) {
+        guard installedPlugins[manifest.id] == nil, !registeredPluginIDs.contains(manifest.id) else { return }
+        // Language module IDs are shared across plugin IDs. A package rejected
+        // for an ownership collision at restart must not first enable its owner.
+        // Reserve disabled/removed packages too, and keep the running graph's
+        // old modules reserved until restart even if their package was replaced.
+        let existingManifests = BuiltInPluginCatalog.manifests
+            + BundledLanguagePluginCatalog.manifests
+            + managedBuiltInPlugins
+            + installedPlugins.values.map(\.manifest)
+        let ownedModuleIDs = Set(existingManifests.flatMap(\.modules).map(\.manifest.id))
+            .union(moduleRuntime.snapshots().map(\.manifest.id))
+        guard manifest.modules.allSatisfy({ !ownedModuleIDs.contains($0.manifest.id) }) else { return }
+        for declaration in manifest.modules
+        where configurationStore.enabledState(for: declaration.manifest.id) == nil {
+            configurationStore.setEnabledState(true, for: declaration.manifest.id)
+        }
     }
 
     /// A plugin removed in this session is still registered until restart.
@@ -229,6 +288,7 @@ final class MacPluginManager: PluginManaging {
         installationStatus: PluginInstallationStatus,
         previousVersion: PluginVersion?,
         marketplace: PluginMarketplaceProvenance?,
+        disk: PluginDiskProvenance?,
         settings declaredSettings: [DeclarativePluginSetting],
         runtimeSnapshots: [ModuleID: ModuleSnapshot]
     ) -> PluginManagementSnapshot {
@@ -286,7 +346,8 @@ final class MacPluginManager: PluginManaging {
             canRollback: previousVersion != nil,
             statusMessage: statusMessage,
             marketplace: marketplace,
-            settings: settingStates(declaredSettings, pluginID: manifest.id)
+            settings: settingStates(declaredSettings, pluginID: manifest.id),
+            disk: disk
         )
     }
 
