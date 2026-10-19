@@ -17,11 +17,6 @@ function errorDetail(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** A request cancelled by its owner is expected during workspace switches. */
-export function isSpringIndexCancellation(error: unknown): boolean {
-  return error instanceof SpringIndexRequestError && error.code === "cancelled";
-}
-
 export function classifySpringIndexError(
   error: unknown,
   root: string | null | undefined,

@@ -12,7 +12,7 @@ import { pathStartsWithRoot } from "@/utils/path-helpers";
 import { requestSpringIndex } from "../api/spring-index-api";
 import { useSpringStore } from "../stores/spring.store";
 import { EMPTY_SPRING_INDEX } from "../types/spring.types";
-import { classifySpringIndexError, isSpringIndexCancellation } from "../utils/spring-index-error";
+import { classifySpringIndexError } from "../utils/spring-index-error";
 import {
   collectSpringIndexPaths,
   isSpringIndexPath,
@@ -150,7 +150,10 @@ export function useSpringIndex(dependencies: SpringIndexDependencies = defaultDe
         if (cancelled) return;
         store.actions.completeLoad(generation, rootFolderPath, index);
       } catch (error) {
-        if (cancelled || isSpringIndexCancellation(error)) return;
+        // Cleanup sets `cancelled` before it cancels the native request, so the
+        // owner's own cancellation stops here. Any other cancellation is a
+        // failure; returning would leave the phase stuck at `loading`.
+        if (cancelled) return;
         const failure = classifySpringIndexError(error, rootFolderPath);
         console.warn("Spring index failed:", failure.category);
         store.actions.failLoad(generation, failure);

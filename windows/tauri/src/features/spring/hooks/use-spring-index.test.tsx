@@ -404,11 +404,30 @@ test("unmount cancels the in-flight native index request", async () => {
 });
 
 test("a request cancelled by its owner does not surface as an index failure", async () => {
+  let rejectRequest!: (error: unknown) => void;
+  dependencies.cancelRequest = () => {
+    rejectRequest(new SpringIndexRequestError("cancelled", "Operation was cancelled"));
+  };
+  requestIndex.mockImplementationOnce(
+    () =>
+      new Promise<SpringIndex>((_, reject) => {
+        rejectRequest = reject;
+      }),
+  );
+  await mount();
+
+  await act(async () => {
+    root.render(null);
+  });
+  const state = useSpringStore.getStore(WORKSPACE_A).getState();
+  expect(state.phase).not.toBe("failed");
+  expect(state.error).toBeNull();
+});
+
+test("a cancellation the hook did not request fails the load instead of leaving it loading", async () => {
   requestIndex.mockImplementationOnce(async () => {
     throw new SpringIndexRequestError("cancelled", "Operation was cancelled");
   });
   await mount();
-  const state = useSpringStore.getStore(WORKSPACE_A).getState();
-  expect(state.phase).not.toBe("failed");
-  expect(state.error).toBeNull();
+  expect(useSpringStore.getStore(WORKSPACE_A).getState().phase).toBe("failed");
 });

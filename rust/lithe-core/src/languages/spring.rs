@@ -13,7 +13,6 @@ use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::Read;
 use std::path::{Component, Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, LazyLock, Mutex, OnceLock};
 use std::time::Duration;
 use zip::ZipArchive;
@@ -34,20 +33,50 @@ static REPOSITORY_METADATA_CACHE: OnceLock<Mutex<HashMap<PathBuf, Arc<Repository
 struct RepositoryMetadataSlot {
     state: Mutex<RepositoryMetadataState>,
     ready: Condvar,
-    /// Completed scan count. A refresh request accepts any snapshot published
-    /// after the request arrived, so overlapping refreshes coalesce instead of
-    /// queuing one scan each.
-    completed_generation: AtomicU64,
+}
+
+impl RepositoryMetadataSlot {
+    fn latest_scan(&self) -> u64 {
+        self.state
+            .lock()
+            .expect("repository metadata state should not be poisoned")
+            .scan()
+    }
 }
 
 /// Progress of one repository scan and the snapshot it publishes.
+///
+/// Every variant carries the number of the latest scan that started, counted
+/// from 1. A refresh request records that number when it arrives and accepts
+/// only a snapshot from a later scan: a walk that began before the refresh may
+/// have listed the repository before new archives were downloaded.
 enum RepositoryMetadataState {
     /// A request currently owns the scan.
-    Scanning,
+    Scanning(u64),
     /// A completed snapshot shared by every reader until a refresh claims it.
-    Ready(Arc<Vec<SpringPropertyResponse>>),
+    Ready {
+        scan: u64,
+        properties: Arc<Vec<SpringPropertyResponse>>,
+    },
     /// The owner was cancelled or interrupted, so the next reader retries.
-    Failed,
+    Failed(u64),
+}
+
+impl RepositoryMetadataState {
+    fn scan(&self) -> u64 {
+        match self {
+            Self::Scanning(scan) | Self::Failed(scan) | Self::Ready { scan, .. } => *scan,
+        }
+    }
+}
+
+/// Outcome of joining a repository scan.
+#[derive(Debug)]
+enum RepositoryClaim {
+    /// A snapshot this request may reuse.
+    Shared(Vec<SpringPropertyResponse>),
+    /// This request now owns the scan with the given number.
+    Owned(u64),
 }
 
 /// Publishes `Failed` if the scan owner unwinds without completing the state
@@ -63,8 +92,8 @@ impl Drop for RepositoryScanCompletion<'_> {
             return;
         }
         if let Ok(mut state) = self.slot.state.lock() {
-            if matches!(*state, RepositoryMetadataState::Scanning) {
-                *state = RepositoryMetadataState::Failed;
+            if let RepositoryMetadataState::Scanning(scan) = *state {
+                *state = RepositoryMetadataState::Failed(scan);
             }
         }
         self.slot.ready.notify_all();
@@ -296,30 +325,33 @@ fn repository_metadata_with(
     let key = repository
         .canonicalize()
         .unwrap_or_else(|_| repository.to_path_buf());
-    let (slot, owns_scan) = {
+    let (slot, owned_scan) = {
         let mut cache = REPOSITORY_METADATA_CACHE
             .get_or_init(|| Mutex::new(HashMap::new()))
             .lock()
             .expect("repository metadata cache should not be poisoned");
         match cache.get(&key) {
-            Some(slot) => (Arc::clone(slot), false),
+            Some(slot) => (Arc::clone(slot), None),
             None => {
                 let slot = Arc::new(RepositoryMetadataSlot {
-                    state: Mutex::new(RepositoryMetadataState::Scanning),
+                    state: Mutex::new(RepositoryMetadataState::Scanning(1)),
                     ready: Condvar::new(),
-                    completed_generation: AtomicU64::new(0),
                 });
                 cache.insert(key.clone(), Arc::clone(&slot));
-                (slot, true)
+                (slot, Some(1))
             }
         }
     };
-    let request_generation = slot.completed_generation.load(Ordering::Acquire);
-    if !owns_scan {
-        if let Some(properties) = claim_repository_scan(&slot, refresh, request_generation)? {
-            return Ok(properties);
+    let scan_number = match owned_scan {
+        Some(scan_number) => scan_number,
+        None => {
+            let arrival = slot.latest_scan();
+            match claim_repository_scan(&slot, refresh, arrival)? {
+                RepositoryClaim::Shared(properties) => return Ok(properties),
+                RepositoryClaim::Owned(scan_number) => scan_number,
+            }
         }
-    }
+    };
 
     let mut completion = RepositoryScanCompletion {
         slot: &slot,
@@ -332,10 +364,12 @@ fn repository_metadata_with(
             .lock()
             .expect("repository metadata state should not be poisoned");
         *state = match &result {
-            Ok(properties) => RepositoryMetadataState::Ready(Arc::new(properties.clone())),
-            Err(_) => RepositoryMetadataState::Failed,
+            Ok(properties) => RepositoryMetadataState::Ready {
+                scan: scan_number,
+                properties: Arc::new(properties.clone()),
+            },
+            Err(_) => RepositoryMetadataState::Failed(scan_number),
         };
-        slot.completed_generation.fetch_add(1, Ordering::Release);
         completion.published = true;
     }
     slot.ready.notify_all();
@@ -345,31 +379,30 @@ fn repository_metadata_with(
 /// Waits for the current owner or claims the scan for this request.
 ///
 /// Returns a shared snapshot when it is ready and no refresh was requested.
-/// A refresh request also accepts a snapshot published after it arrived, so an
-/// overlapping refresh does not start another full archive walk. `None` means
-/// this request now owns the scan.
+/// `arrival` is the latest scan number seen when the request arrived. A
+/// refresh accepts only a snapshot from a scan numbered after it, so a refresh
+/// that lands mid-scan waits for that walk and then starts its own; refreshes
+/// that land during the same walk still share one follow-up scan.
 fn claim_repository_scan(
     slot: &RepositoryMetadataSlot,
     refresh: bool,
-    request_generation: u64,
-) -> Result<Option<Vec<SpringPropertyResponse>>, CoreError> {
+    arrival: u64,
+) -> Result<RepositoryClaim, CoreError> {
     let mut state = slot
         .state
         .lock()
         .expect("repository metadata state should not be poisoned");
     loop {
         match &*state {
-            RepositoryMetadataState::Ready(properties)
-                if !refresh
-                    || slot.completed_generation.load(Ordering::Acquire) > request_generation =>
-            {
-                return Ok(Some((**properties).clone()));
+            RepositoryMetadataState::Ready { scan, properties } if !refresh || *scan > arrival => {
+                return Ok(RepositoryClaim::Shared((**properties).clone()));
             }
-            RepositoryMetadataState::Ready(_) | RepositoryMetadataState::Failed => {
-                *state = RepositoryMetadataState::Scanning;
-                return Ok(None);
+            RepositoryMetadataState::Ready { .. } | RepositoryMetadataState::Failed(_) => {
+                let scan = state.scan() + 1;
+                *state = RepositoryMetadataState::Scanning(scan);
+                return Ok(RepositoryClaim::Owned(scan));
             }
-            RepositoryMetadataState::Scanning => {
+            RepositoryMetadataState::Scanning(_) => {
                 let (next, _) = slot
                     .ready
                     .wait_timeout(state, REPOSITORY_WAIT_SLICE)
@@ -2203,7 +2236,6 @@ mod tests {
         let scans = Arc::new(AtomicUsize::new(0));
         let (scan_started, started) = mpsc::channel();
         let (release, released) = mpsc::channel::<()>();
-        let (waiter_started, waiter_started_rx) = mpsc::channel::<()>();
 
         let owner_root = root.clone();
         let owner_scans = Arc::clone(&scans);
@@ -2226,15 +2258,14 @@ mod tests {
         let waiter_scans = Arc::clone(&scans);
         let waiter = thread::spawn(move || {
             let _scope = crate::protocol::cancellation::Scope::begin(None, Some(5_000));
-            waiter_started.send(()).expect("waiter start should notify");
             repository_metadata_with(&waiter_root, false, |_| {
                 waiter_scans.fetch_add(1, Ordering::SeqCst);
                 Ok(vec![])
             })
         });
-        waiter_started_rx
-            .recv_timeout(Duration::from_secs(5))
-            .expect("waiter should start");
+        // Release the owner only after the waiter has passed the cache lookup
+        // and holds the slot, so the waiter must join the running scan.
+        wait_for_slot_holders(&root, 4);
         release.send(()).expect("owner scan should be releasable");
 
         owner
@@ -2254,30 +2285,116 @@ mod tests {
         fs::remove_dir_all(root).expect("temporary repository should be removable");
     }
 
-    /// A refresh that arrives while a scan is running accepts that scan's
-    /// result. A refresh that arrives after the snapshot is published must
-    /// claim a new scan, otherwise dependency changes would stay invisible.
+    /// Refreshes that arrive during the same walk share one follow-up scan, but
+    /// a refresh never accepts a snapshot from a walk that started before it.
     #[test]
-    fn refresh_requests_coalesce_with_a_scan_but_invalidate_an_older_snapshot() {
+    fn refresh_requests_accept_only_scans_started_after_they_arrived() {
         let slot = RepositoryMetadataSlot {
-            state: Mutex::new(RepositoryMetadataState::Ready(Arc::new(Vec::new()))),
+            state: Mutex::new(RepositoryMetadataState::Ready {
+                scan: 2,
+                properties: Arc::new(Vec::new()),
+            }),
             ready: Condvar::new(),
-            completed_generation: AtomicU64::new(1),
         };
 
-        assert!(claim_repository_scan(&slot, true, 0)
-            .expect("a coalesced refresh should not wait on cancellation")
-            .is_some());
-        assert!(
+        assert!(matches!(
             claim_repository_scan(&slot, true, 1)
-                .expect("a newer refresh should claim the scan")
-                .is_none(),
-            "a refresh that started after the snapshot must rescan"
+                .expect("a refresh that arrived before scan 2 should not wait"),
+            RepositoryClaim::Shared(_)
+        ));
+        assert!(
+            matches!(
+                claim_repository_scan(&slot, true, 2)
+                    .expect("a refresh that arrived after scan 2 started should claim"),
+                RepositoryClaim::Owned(3)
+            ),
+            "a refresh must not reuse a walk that started before it"
         );
         assert!(matches!(
             *slot.state.lock().unwrap(),
-            RepositoryMetadataState::Scanning
+            RepositoryMetadataState::Scanning(3)
         ));
+    }
+
+    /// A refresh that lands while an ordinary scan is walking the repository
+    /// may miss archives downloaded before the refresh. It must wait for that
+    /// walk and then scan again instead of reusing its snapshot.
+    #[test]
+    fn a_refresh_during_a_running_scan_rescans_after_it() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::mpsc;
+        use std::thread;
+
+        let root = temporary_repository_root("refresh-mid-scan");
+        let (scan_started, started) = mpsc::channel();
+        let (release, released) = mpsc::channel::<()>();
+
+        let owner_root = root.clone();
+        let owner = thread::spawn(move || {
+            let _scope = crate::protocol::cancellation::Scope::begin(None, Some(5_000));
+            repository_metadata_with(&owner_root, false, |_| {
+                scan_started.send(()).expect("scan start should notify");
+                released
+                    .recv_timeout(Duration::from_secs(5))
+                    .expect("scan release should arrive");
+                Ok(vec![])
+            })
+        });
+        started
+            .recv_timeout(Duration::from_secs(5))
+            .expect("owner scan should start");
+
+        let refresh_root = root.clone();
+        let refresh_scans = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&refresh_scans);
+        let refresher = thread::spawn(move || {
+            let _scope = crate::protocol::cancellation::Scope::begin(None, Some(5_000));
+            repository_metadata_with(&refresh_root, true, |_| {
+                counter.fetch_add(1, Ordering::SeqCst);
+                Ok(vec![])
+            })
+        });
+        wait_for_slot_holders(&root, 4);
+        release.send(()).expect("owner scan should be releasable");
+
+        owner
+            .join()
+            .expect("owner thread should finish")
+            .expect("owner scan should succeed");
+        refresher
+            .join()
+            .expect("refresh thread should finish")
+            .expect("refresh scan should succeed");
+        assert_eq!(
+            refresh_scans.load(Ordering::SeqCst),
+            1,
+            "a refresh must not reuse a walk that started before it"
+        );
+
+        fs::remove_dir_all(root).expect("temporary repository should be removable");
+    }
+
+    /// Blocks until `holders` references to the repository slot exist: the
+    /// cache, the running owner, this test, and each request that joined it.
+    fn wait_for_slot_holders(root: &Path, holders: usize) {
+        let key = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+        let slot = Arc::clone(
+            REPOSITORY_METADATA_CACHE
+                .get()
+                .expect("the owner should have created the cache")
+                .lock()
+                .unwrap()
+                .get(&key)
+                .expect("the owner should have created the slot"),
+        );
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while Arc::strong_count(&slot) < holders {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "a second request should join the running scan"
+            );
+            std::thread::yield_now();
+        }
     }
 
     /// A waiter belongs to one request. Cancelling that request must release
@@ -2285,15 +2402,14 @@ mod tests {
     #[test]
     fn a_cancelled_waiter_stops_waiting_for_the_repository_owner() {
         let slot = RepositoryMetadataSlot {
-            state: Mutex::new(RepositoryMetadataState::Scanning),
+            state: Mutex::new(RepositoryMetadataState::Scanning(1)),
             ready: Condvar::new(),
-            completed_generation: AtomicU64::new(0),
         };
         let operation = "spring-repository-waiter-cancel";
         let _scope = crate::protocol::cancellation::Scope::begin(Some(operation.to_string()), None);
         assert!(crate::protocol::cancellation::cancel(operation));
 
-        let error = claim_repository_scan(&slot, false, 0)
+        let error = claim_repository_scan(&slot, false, 1)
             .expect_err("a cancelled waiter must stop waiting");
         assert!(matches!(error.code, ErrorCode::Cancelled));
     }
