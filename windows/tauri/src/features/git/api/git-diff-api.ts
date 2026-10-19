@@ -332,7 +332,9 @@ const fetchRawWorktreePatch = async (
       root: repoPath,
       pathspecs: [filePath],
       contextLines: 3,
-    });
+      // The compatibility adapter re-parses `git.diff` for display and would
+      // strip the very CR and EOF bytes this channel exists to preserve.
+    }, { rawCoreResult: true });
     if (typeof response?.patch !== "string") return null;
     // Core replaced invalid UTF-8 with U+FFFD; writing this back would
     // permanently corrupt the file. Also detect the replacement character
@@ -341,6 +343,29 @@ const fetchRawWorktreePatch = async (
     return response.patch;
   } catch {
     return null;
+  }
+};
+
+/**
+ * Pre-write probe for zero-context rollback: re-reads the raw patch a lossy
+ * diff's `writePatch` came from, with the same repository resolution and fixed
+ * context, and compares it byte for byte. The display diff's context width
+ * (full-file or three lines) never enters the comparison, and CR-only edits the
+ * display strips still count. Any read failure resolves false, so the write is
+ * refused rather than applied to lines that may have moved.
+ */
+export const isWorktreeWritePatchCurrent = async (
+  repoPath: string | undefined,
+  filePath: string,
+  writePatch: string | undefined,
+): Promise<boolean> => {
+  if (!repoPath || !writePatch) return false;
+  try {
+    const resolved = await resolveRepositoryForFile(repoPath, filePath);
+    if (!resolved) return false;
+    return await fetchRawWorktreePatch(resolved.repoPath, resolved.filePath) === writePatch;
+  } catch {
+    return false;
   }
 };
 

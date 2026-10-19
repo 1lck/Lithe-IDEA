@@ -82,14 +82,18 @@ test("Monaco CRLF replacement carries rawPatch through discard operation", async
   try {
     const target = monacoDiffRows(f.indexDiff).find(row => row.actionAnchor)!;
     let received: any;
+    let probed: any;
     owner = createMonacoDiffHunkActions(f.indexDiff, { repoPath: f.root, isStaged: false, canDiscard: true }, {
       stage: async () => false, unstage: async () => false,
       discard: async (_repo, hunk) => { received = hunk; return true; },
+      validate: async (hunk) => { probed = hunk; return true; },
     });
     expect(owner.actions).toEqual(["discard"]);
     expect(await owner.apply(target.hunkID!, "discard")).toBe("applied");
     console.log("monaco replacement", JSON.stringify({ hasRaw: Boolean(received?.rawPatch), lines: received?.lines }));
     expect(received?.rawPatch).toBeTruthy();
+    // The zero-context write was confirmed first, against the same hunk.
+    expect(probed).toBe(received);
   } finally { owner?.dispose(); f.dispose(); }
 }, 15000);
 

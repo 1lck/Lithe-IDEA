@@ -31,11 +31,16 @@ function fixture() {
 }
 
 const core = await import("@/platform/tauri-core");
-mock.module("@/platform/tauri-core", () => ({ ...core, invoke: async (command: string, args: any) => {
+mock.module("@/platform/tauri-core", () => ({ ...core, invoke: async (command: string, args: any, options?: { rawCoreResult?: boolean }) => {
   if (!current) throw new Error("Fixture is not active");
   if (command === "git_discover_repo") return current.root;
   if (command === "git.command") return { output: current.git(args.arguments), exitCode: 0 };
-  if (command === "git.diff") return { patch: current.git(["diff", "--unified=3", "--", "file.txt"]), exitCode: 0 };
+  // Like the real compatibility adapter, `git.diff` yields display diffs
+  // unless the caller asks for Core's raw response.
+  if (command === "git.diff") {
+    const patch = current.git(["diff", "--unified=3", "--", "file.txt"]);
+    return options?.rawCoreResult ? { patch, exitCode: 0, hasDecodingLoss: false } : [parseRawDiffContent(patch, "file.txt")];
+  }
   if (command === "git_diff_file") {
     const diff = parseRawDiffContent(current.git(["diff", ...(args.worktreeSnapshot ? ["HEAD"] : args.staged ? ["--cached"] : []),
       "--unified=9999", "--", "file.txt"]), "file.txt");
@@ -46,7 +51,21 @@ mock.module("@/platform/tauri-core", () => ({ ...core, invoke: async (command: s
   }
   throw new Error(`Unexpected command: ${command}`);
 } }));
-const { getWorkingTreePathDiff } = await import("@/features/git/api/git-diff-api");
+const { getWorkingTreePathDiff, isWorktreeWritePatchCurrent } = await import("@/features/git/api/git-diff-api");
+
+// The same operations MonacoGitDiff wires: a real zero-context apply guarded
+// by the real pre-write probe.
+function monacoOperations(f: ReturnType<typeof fixture>, writePatch: string | undefined) {
+  return {
+    stage: async () => false, unstage: async () => false,
+    discard: async (_repo: string, hunk: { rawPatch?: string }) => {
+      if (!hunk.rawPatch) return false;
+      f.git(["apply", "--reverse", "--unidiff-zero", "--whitespace=nowarn", "-"], hunk.rawPatch);
+      return true;
+    },
+    validate: () => isWorktreeWritePatchCurrent(f.root, "file.txt", writePatch),
+  };
+}
 const { loadWorkingTreeFileDiff } = await import("@/features/git/services/working-tree-diff-refresh");
 
 test("normal Monaco loading and refresh attach writePatch and perform faithful discard", async () => {
@@ -55,18 +74,52 @@ test("normal Monaco loading and refresh attach writePatch and perform faithful d
   try {
     const diff = await loadWorkingTreeFileDiff({ repoPath: f.root, filePath: "file.txt", untracked: false });
     expect(diff?.writePatch).toBeTruthy();
-    owner = createMonacoDiffHunkActions(diff!, { repoPath: f.root, isStaged: false, canDiscard: true }, {
-      stage: async () => false, unstage: async () => false,
-      discard: async (_repo, hunk) => {
-        expect(hunk.rawPatch).toBeTruthy();
-        f.git(["apply", "--reverse", "--unidiff-zero", "--whitespace=nowarn", "-"], hunk.rawPatch!);
-        return true;
-      },
-    });
+    owner = createMonacoDiffHunkActions(diff!, { repoPath: f.root, isStaged: false, canDiscard: true },
+      monacoOperations(f, diff!.writePatch));
     const target = monacoDiffRows(diff!).find(row => row.actionAnchor)!;
     expect(await owner.apply(target.hunkID!, "discard")).toBe("applied");
     expect(readFileSync(f.file, "utf8")).toBe("a\r\nb\r\nc\r\n");
   } finally { owner?.dispose(); afterDisplayRead = undefined; current = undefined; f.dispose(); }
+}, 15000);
+
+// Regression: the probe once re-read a three-line-context display diff and
+// compared it with the full-context review, so every discard there was
+// refused. The raw patch it now compares has a fixed context width.
+test("a full-context review discards a current block through the pre-write probe", async () => {
+  const f = current = fixture();
+  let owner: ReturnType<typeof createMonacoDiffHunkActions> | undefined;
+  try {
+    const lines = (...content: string[]) => content.join("\r\n") + "\r\n";
+    const body = Array.from({ length: 12 }, (_, index) => `line ${index + 1}`);
+    writeFileSync(f.file, lines(...body)); f.git(["add", "file.txt"]); f.git(["commit", "-qm", "long-base"]);
+    writeFileSync(f.file, lines(...body.slice(0, 6), "CHANGED", ...body.slice(7)));
+    const diff = await getWorkingTreePathDiff(f.root, "file.txt", false, undefined, true);
+    expect(diff?.is_full_context).toBe(true);
+    expect(diff?.writePatch).toBeTruthy();
+    owner = createMonacoDiffHunkActions(diff!, { repoPath: f.root, isStaged: false, canDiscard: true },
+      monacoOperations(f, diff!.writePatch));
+    const target = monacoDiffRows(diff!).find(row => row.actionAnchor)!;
+    expect(await owner.apply(target.hunkID!, "discard")).toBe("applied");
+    expect(readFileSync(f.file, "utf8")).toBe(lines(...body));
+  } finally { owner?.dispose(); afterDisplayRead = undefined; current = undefined; f.dispose(); }
+}, 15000);
+
+test("an edit after the diff loaded refuses the zero-context discard as stale", async () => {
+  for (const later of ["a\r\nDISPLAYED\r\nLATER\r\n", "a\r\nDISPLAYED\r\nc\n"]) {
+    // The second edit only drops a CR, which the display strips.
+    const f = current = fixture();
+    let owner: ReturnType<typeof createMonacoDiffHunkActions> | undefined;
+    try {
+      const diff = await getWorkingTreePathDiff(f.root, "file.txt", false, undefined, true);
+      expect(diff?.writePatch).toBeTruthy();
+      owner = createMonacoDiffHunkActions(diff!, { repoPath: f.root, isStaged: false, canDiscard: true },
+        monacoOperations(f, diff!.writePatch));
+      writeFileSync(f.file, later);
+      const target = monacoDiffRows(diff!).find(row => row.actionAnchor)!;
+      expect(await owner.apply(target.hunkID!, "discard")).toBe("stale");
+      expect(readFileSync(f.file, "utf8")).toBe(later);
+    } finally { owner?.dispose(); afterDisplayRead = undefined; current = undefined; f.dispose(); }
+  }
 }, 15000);
 
 test("a writePatch fetched after a file change must not discard content absent from the displayed snapshot", async () => {

@@ -35,11 +35,12 @@ export interface MonacoDiffHunkOperations {
   unstage: HunkOperation;
   /** Reverse-applies the block to the working tree. */
   discard?: HunkOperation;
-  /** Pre-write staleness probe: returns false when the diff the actions were
-   * built from no longer matches the file on disk. Zero-context patches
-   * cannot rely on git apply's context check, so the surface must verify
-   * currency itself before writing. */
-  validate?: () => Promise<boolean>;
+  /** Pre-write staleness probe for zero-context hunks (`rawPatch`): resolves
+   * false when the patch the hunk was sliced from no longer matches the
+   * repository. `git apply --unidiff-zero` has no surrounding context to
+   * reject a relocated change, so the surface verifies currency itself.
+   * Ordinary hunks keep their context lines and rely on git apply. */
+  validate?: (hunk: GitHunk) => Promise<boolean>;
 }
 
 /** Discard rewrites working-tree content. New and deleted files have no
@@ -87,14 +88,13 @@ export function createMonacoDiffHunkActions(
       // confirmation. Keep duplicate clicks locked until the write completes.
       pending = true;
       try {
-        // Discard rewrites the file; zero-context patches have no git-apply
-        // context check, so the surface must verify the diff is still current
-        // before writing. A stale probe means the file changed since this
-        // action was created — refuse rather than write to the wrong lines.
-        if (requested === "discard" && operations.validate) {
-          const still = await operations.validate();
+        // A zero-context discard has no git-apply context check, so it writes
+        // only after the probe confirms its source patch is still current. A
+        // failed or missing probe refuses rather than risk the wrong lines.
+        if (requested === "discard" && hunk.rawPatch) {
+          const current = operations.validate ? await operations.validate(hunk) : false;
           if (disposed) return "ignored";
-          if (!still) return "stale" as ActionResult;
+          if (!current) return "stale";
         }
         const operation = requested === "discard" ? operations.discard! : operations[requested];
         const success = await operation(context.repoPath, hunk);

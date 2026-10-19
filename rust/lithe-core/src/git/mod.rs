@@ -8131,6 +8131,27 @@ mod tests {
         assert_eq!(super::git_process_creation_flags(), 0x08000000);
     }
 
+    // A Latin-1 `é` (0xE9) decodes to U+FFFD; writing that patch back would
+    // replace the original byte with EF BF BD, so the response must say so.
+    #[test]
+    fn structured_diff_reports_lossy_utf8_decoding() {
+        let lossy = structured_diff_from_output(GitProcessOutput {
+            stdout: b"diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-caf\xe9\r\n+cafe\r\n".to_vec(),
+            stderr: Vec::new(),
+            exit_code: 1,
+        });
+        assert!(lossy.has_decoding_loss);
+        assert!(lossy.patch.contains('\u{FFFD}'));
+
+        let faithful = structured_diff_from_output(GitProcessOutput {
+            stdout: "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-café\r\n+cafe\r\n".as_bytes().to_vec(),
+            stderr: Vec::new(),
+            exit_code: 1,
+        });
+        assert!(!faithful.has_decoding_loss);
+        assert!(faithful.patch.contains("café\r\n"));
+    }
+
     #[test]
     fn structured_diff_does_not_parse_git_stderr_as_file_content() {
         let output = GitProcessOutput {
