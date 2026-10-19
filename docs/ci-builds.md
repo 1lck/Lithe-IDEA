@@ -491,6 +491,29 @@ Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono
   官方插件归档由 `.github/workflows/release-official-plugins.yml` 按插件独立 tag 发布，
   不进入 app 构建或工作树缓存。
 
+- 本地社区插件磁盘安装：`MacServiceContainer` 把 `fileStorage.temporaryDirectory()`
+  注入 `MacPluginDiskPackageImporter`，每次选择 ZIP 或解包目录后，先在该平台可写根下创建
+  私有的 `lithe-plugin-disk-<UUID>/`（权限 `0700`）。ZIP 的 `archive.zip` 和复制/解压后的
+  `package/` 只属于这次安装，原始输入保持只读；审查与安装针对快照，不重新从原始路径取包。
+  ZIP 摘要取自复制后的 `archive.zip`；目录没有归档摘要。内容 digest 与完整 canonical
+  `approvedPrograms` 绑定用户批准的字节，不能当作远端仓库/发布者认证，也没有可复用的
+  版本、平台、架构或工具链 identity stamp。
+  `excludedResources.plugin-disk-install-state` 同时排除快照、
+  `<app-support>/Lithe/Plugins/.staging/<transaction>/`、用户级版本目录和 `installation.json`
+  中当前/上一版本的磁盘审批；任何复制阶段都不共享、不打包、不软链接。复用脚本在解析
+  工作树及进入 validator 前拒绝该 ID，不能新增“摘要相同即可复用”的校验路由。
+  importer 负责复制失败和取消的清理；准备成功后 service 负责审查取消、安装成功/失败时
+  discard 本次快照；关闭插件页会结束安装 session 并清理已有及迟到的快照。
+  store 负责安装暂存和持久版本生命周期，并在 staging、扫描、回滚时
+  重验摘要。`PluginDiskProvenance` 与 marketplace provenance 分开，市场同 ID 条目不能
+  自动接管本地包的更新来源。本地磁盘社区首次安装、更新和同版本替换每次确认完整权限/程序，
+  官方固定 ID、命名空间及签名要求与 DEBUG 开发包例外不变。
+  验证运行 `node scripts/test-reuse-worktree-resources.mjs`，确认排除项不在 `--list` 且
+  混合复制请求在任何工作树访问前失败；运行 `./scripts/verify-runtime-bundle-immutability.sh`
+  检查两端发行资源路径。macOS 产品验收另比较典型安装/取消/失败工作流前后的发行 bundle
+  文件清单和哈希；运行时只写平台临时目录及 Application Support，不改变代码签名或
+  Sparkle delta。Windows 尚未实现此声明式磁盘安装流程，不能把边界说明视为实现证据。
+
 - Sparkle 差分基线的单次发布临时目录：
   `<system-temp>/<sparkle-run>/archives/.baseline-<attempt>/` 保存每次 `gh`
   下载尝试，只有命令成功且文件非空才移入同次发布的 `archives/<selected-baseline>.zip`。
