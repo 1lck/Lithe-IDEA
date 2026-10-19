@@ -195,7 +195,7 @@ struct WorkbenchContributionHostTests {
         #expect((expected == .leftSidebar ? workbench.activeLeftToolWindow : (expected == .rightSidebar ? workbench.activeRightToolWindow : workbench.activeToolWindow)) == window)
     }
 
-    @Test(arguments: ["toggle-terminal", "toggle-problems", "toggle-maven", "toggle-git-log", "toggle-run", "toggle-tests", "toggle-debug", "spring-endpoints"])
+    @Test(arguments: ["toggle-terminal", "toggle-problems", "toggle-git-log", "toggle-run", "toggle-tests", "toggle-debug", "spring-endpoints"])
     func nativeWindowCommandsReuseRegisteredActionsAndCheckedState(id: String) async throws {
         let suite = "lithe-native-window-command-" + UUID().uuidString
         let defaults = try #require(UserDefaults(suiteName: suite))
@@ -915,29 +915,6 @@ struct WorkbenchContributionHostTests {
         #expect(model.canPerformShortcutCommand(id: "rebuild-java-index"))
     }
 
-    @Test func savedMavenWindowDoesNotRenderInNonMavenWorkspace() async throws {
-        let suite = "lithe-maven-dock-" + UUID().uuidString
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
-        let store = MacUserDefaultsStore(defaults: defaults), settings = AppSettings(store: store)
-        let workspace = URL(fileURLWithPath: "/fixture/no-maven")
-        let saved = WorkbenchFeatureModel(layoutStore: WorkbenchLayoutStore(store: store))
-        _ = saved.loadLayout(for: workspace)
-        saved.setVisibility(.maven, isVisible: true)
-        let container = MacServiceContainer(store: store, settings: settings)
-        defer { container.moduleLifecycleCoordinator.stop() }
-        let model = AppModel(settings: settings, services: container.services)
-        try await WorkbenchTestScope.withCleanup({ await model.shutdownProjectSession() }) { _ in
-            model.workspaceSessionCoordinator.beginWorkspace(at: workspace)
-            _ = model.loadWorkbenchLayout(for: workspace)
-            let maven = try #require(model.workbenchContributions.first { $0.id == "execution.maven" })
-            #expect(model.workbenchFeature.isVisible(.maven))
-            #expect(!model.hasMavenProject)
-            #expect(model.workbenchUIRegistry.state(for: maven, model: model).isEnabled)
-            #expect(!model.workbenchUIRegistry.isContentVisible(for: maven, model: model))
-        }
-    }
-
     @Test func activationWaitsForGatedSleepWithoutReactivatingTheSleepingInstance() async throws {
         let runtime = ModuleRuntime()
         let owner = ModuleID("org.example.sleep-race")
@@ -1033,20 +1010,22 @@ struct WorkbenchContributionHostTests {
         }
     }
 
-    @Test func defaultMavenMovesRelativeToActualRailOrder() {
+    @Test func buildSystemWindowMovesRelativeToActualRailOrder() {
         let workbench = WorkbenchFeatureModel()
+        let build = DeclarativeBuildSystem(id: "make", displayName: "Make", modelSource: nil, tasks: [], testScopes: [], dependencyScopes: [])
         workbench.reconcileContributions([
             .database: BuiltInModuleCatalog.contributions(for: .database),
             .agentConversation: BuiltInModuleCatalog.contributions(for: .agentConversation),
-            .execution: BuiltInModuleCatalog.contributions(for: .execution)])
+            .buildSystemsExtension("org.example.make"): build.contributions(pluginID: "org.example.make", order: 0)])
         let position = DockPosition(anchor: .right, group: .primary)
-        // The Build tool window shows only with a build-system plugin, but
-        // it is always docked after Maven.
-        #expect(workbench.tools(in: position) == [.database, .agent, .maven, .buildSystems])
-        workbench.moveContribution("execution.maven", earlier: true)
-        #expect(workbench.tools(in: position) == [.database, .maven, .agent, .buildSystems])
-        workbench.moveContribution("execution.maven", earlier: false)
-        #expect(workbench.tools(in: position) == [.database, .agent, .maven, .buildSystems])
+        let window = WorkbenchFeatureModel.ToolWindow(
+            rawValue: DeclarativeBuildSystem.toolWindowID(pluginID: "org.example.make", buildSystemID: "make"))
+        // A build system's window docks on the right like the Maven window it replaces.
+        #expect(workbench.tools(in: position) == [.database, .agent, window])
+        workbench.moveContribution(window.rawValue, earlier: true)
+        #expect(workbench.tools(in: position) == [.database, window, .agent])
+        workbench.moveContribution(window.rawValue, earlier: false)
+        #expect(workbench.tools(in: position) == [.database, .agent, window])
     }
 
     @Test func servicesCommandActivatesDatabaseWithoutOpeningItsSidebar() async throws {

@@ -1,17 +1,19 @@
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { moveFile } from "@/features/file-system/controllers/platform";
+import { moveFile, readDirectory } from "@/features/file-system/controllers/platform";
 import type { FileEntry } from "@/features/file-system/types/app.types";
 import { dispatchSidebarResourceDropOnAI } from "@/features/sidebar/utils/sidebar-resource-drag";
+import { getTreePathIdentity } from "@/features/sidebar/utils/tree-selection";
 import {
   setInternalTabDragHover,
   setInternalTabDragHoverTarget,
 } from "@/features/tabs/utils/internal-tab-drag";
-import { getDirName, getPathSeparator, joinPath } from "@/utils/path-helpers";
+import { getDirName, joinPath, pathStartsWithRoot } from "@/utils/path-helpers";
 
 interface DragState {
   isDragging: boolean;
   draggedItem: { path: string; name: string; isDir: boolean } | null;
+  draggedItems: FileEntry[];
   dragOverPath: string | null;
   dragOverIsDir: boolean;
   mousePosition: { x: number; y: number };
@@ -20,6 +22,7 @@ interface DragState {
 const initialDragState: DragState = {
   isDragging: false,
   draggedItem: null,
+  draggedItems: [],
   dragOverPath: null,
   dragOverIsDir: false,
   mousePosition: { x: 0, y: 0 },
@@ -27,11 +30,28 @@ const initialDragState: DragState = {
 
 export function useFileExplorerDragDrop(
   rootFolderPath: string | undefined,
-  onFileMove?: (oldPath: string, newPath: string) => void,
+  onFileMove?: (oldPath: string, newPath: string) => void | Promise<void>,
   onAutoExpandDirectory?: (path: string) => void,
   onMoveError?: (message: string) => void,
 ) {
   const [dragState, setDragState] = useState<DragState>(initialDragState);
+  const currentSession = useRef({ rootFolderPath });
+  if (currentSession.current.rootFolderPath !== rootFolderPath) {
+    // Returning to the same path must not revive an earlier visit's pending batch.
+    currentSession.current = { rootFolderPath };
+  }
+  const session = currentSession.current;
+  const live = useRef(true);
+  const dropping = useRef(false);
+  useEffect(() => {
+    live.current = true;
+    return () => {
+      live.current = false;
+    };
+  }, []);
+  useEffect(() => {
+    setDragState(initialDragState);
+  }, [rootFolderPath]);
   const dragPreviewRef = useRef<HTMLDivElement | null>(null);
   const autoExpandRef = useRef<{
     path: string;
@@ -88,7 +108,10 @@ export function useFileExplorerDragDrop(
         color: var(--foreground);
         box-shadow: var(--shadow-popover);
       `;
-      preview.textContent = dragState.draggedItem?.name || "";
+      preview.textContent =
+        dragState.draggedItems.length > 1
+          ? `${dragState.draggedItem?.name} (+${dragState.draggedItems.length - 1})`
+          : dragState.draggedItem?.name || "";
       document.body.appendChild(preview);
       dragPreviewRef.current = preview;
     }
@@ -110,12 +133,13 @@ export function useFileExplorerDragDrop(
 
   useEffect(() => {
     if (!dragState.isDragging) return;
+    const isCurrentSession = () => live.current && currentSession.current === session;
 
     const handleMouseMove = (e: MouseEvent) => {
-      setDragState((prev) => ({
-        ...prev,
-        mousePosition: { x: e.clientX, y: e.clientY },
-      }));
+      if (dragPreviewRef.current) {
+        dragPreviewRef.current.style.left = `${e.clientX + 10}px`;
+        dragPreviewRef.current.style.top = `${e.clientY - 10}px`;
+      }
 
       const elementUnder = document.elementFromPoint(e.clientX, e.clientY);
       const fileTreeItem = elementUnder?.closest("[data-file-path]");
@@ -132,146 +156,219 @@ export function useFileExplorerDragDrop(
         const draggedItem = dragState.draggedItem;
 
         if (path && draggedItem && path !== draggedItem.path) {
-          const separator = getPathSeparator(draggedItem.path);
-          const isDropIntoSelf = draggedItem.isDir && path.startsWith(draggedItem.path + separator);
+          const isDropIntoSelf = dragState.draggedItems.some(
+            (item) => item.path === path || (item.isDir && pathStartsWithRoot(path, item.path)),
+          );
           const nextDragOverPath = isDropIntoSelf ? null : path;
           const nextDragOverIsDir = isDropIntoSelf ? false : isDir;
 
-          setDragState((prev) => ({
-            ...prev,
-            dragOverPath: nextDragOverPath,
-            dragOverIsDir: nextDragOverIsDir,
-          }));
+          setDragState((prev) =>
+            prev.dragOverPath === nextDragOverPath && prev.dragOverIsDir === nextDragOverIsDir
+              ? prev
+              : { ...prev, dragOverPath: nextDragOverPath, dragOverIsDir: nextDragOverIsDir },
+          );
           if (nextDragOverPath) {
             scheduleAutoExpand(nextDragOverPath, nextDragOverIsDir);
           } else {
             clearAutoExpand();
           }
         } else {
-          setDragState((prev) => ({
-            ...prev,
-            dragOverPath: null,
-            dragOverIsDir: false,
-          }));
+          setDragState((prev) =>
+            prev.dragOverPath === null
+              ? prev
+              : {
+                  ...prev,
+                  dragOverPath: null,
+                  dragOverIsDir: false,
+                },
+          );
           clearAutoExpand();
         }
       } else if (fileTreeContainer) {
         clearEditorDropHover();
-        setDragState((prev) => ({
-          ...prev,
-          dragOverPath: "__ROOT__",
-          dragOverIsDir: true,
-        }));
+        setDragState((prev) =>
+          prev.dragOverPath === "__ROOT__"
+            ? prev
+            : {
+                ...prev,
+                dragOverPath: "__ROOT__",
+                dragOverIsDir: true,
+              },
+        );
         clearAutoExpand();
       } else if (aiContextDropTarget && dragState.draggedItem) {
         clearEditorDropHover();
-        setDragState((prev) => ({
-          ...prev,
-          dragOverPath: null,
-          dragOverIsDir: false,
-        }));
+        setDragState((prev) =>
+          prev.dragOverPath === null
+            ? prev
+            : {
+                ...prev,
+                dragOverPath: null,
+                dragOverIsDir: false,
+              },
+        );
         clearAutoExpand();
       } else if (editorDropTarget && dragState.draggedItem && !dragState.draggedItem.isDir) {
         setInternalTabDragHover({ x: e.clientX, y: e.clientY });
-        setDragState((prev) => ({
-          ...prev,
-          dragOverPath: null,
-          dragOverIsDir: false,
-        }));
+        setDragState((prev) =>
+          prev.dragOverPath === null
+            ? prev
+            : {
+                ...prev,
+                dragOverPath: null,
+                dragOverIsDir: false,
+              },
+        );
         clearAutoExpand();
       } else {
         clearEditorDropHover();
-        setDragState((prev) => ({
-          ...prev,
-          dragOverPath: null,
-          dragOverIsDir: false,
-        }));
+        setDragState((prev) =>
+          prev.dragOverPath === null
+            ? prev
+            : {
+                ...prev,
+                dragOverPath: null,
+                dragOverIsDir: false,
+              },
+        );
         clearAutoExpand();
       }
     };
 
     const handleMouseUp = async (e: MouseEvent) => {
-      // Check if dropping on a pane container (outside file tree)
-      const elementUnder = document.elementFromPoint(e.clientX, e.clientY);
-      const isOverPane = elementUnder?.closest("[data-pane-container]") !== null;
-      const isOverFileTree = elementUnder?.closest(".file-tree-container") !== null;
-      const isOverAIContextDropTarget =
-        elementUnder?.closest("[data-ai-context-drop-target]") !== null;
-
-      if (isOverAIContextDropTarget && dragState.draggedItem) {
-        dispatchSidebarResourceDropOnAI({
-          type: "file",
-          path: dragState.draggedItem.path,
-          name: dragState.draggedItem.name,
-          isDir: dragState.draggedItem.isDir,
-        });
-        setDragState(initialDragState);
-        clearAutoExpand();
-        clearEditorDropHover();
-        return;
-      }
-
-      // If dropping on a pane (not in file tree), dispatch event for pane to handle
-      if (isOverPane && !isOverFileTree && dragState.draggedItem && !dragState.draggedItem.isDir) {
-        window.dispatchEvent(
-          new CustomEvent("file-tree-drop-on-pane", {
-            detail: {
-              path: dragState.draggedItem.path,
-              name: dragState.draggedItem.name,
-              isDir: dragState.draggedItem.isDir,
-              x: e.clientX,
-              y: e.clientY,
-            },
-          }),
+      if (dropping.current || !isCurrentSession()) return;
+      dropping.current = true;
+      setDragState(initialDragState);
+      clearAutoExpand();
+      clearEditorDropHover();
+      try {
+        // Check if dropping on a pane container (outside file tree)
+        const elementUnder = document.elementFromPoint(e.clientX, e.clientY);
+        const isOverPane = Boolean(elementUnder?.closest("[data-pane-container]"));
+        const isOverFileTree = Boolean(elementUnder?.closest(".file-tree-container"));
+        const isOverAIContextDropTarget = Boolean(
+          elementUnder?.closest("[data-ai-context-drop-target]"),
         );
-        setDragState(initialDragState);
-        clearAutoExpand();
-        clearEditorDropHover();
-        return;
-      }
 
-      if (dragState.dragOverPath && dragState.draggedItem) {
-        const { path: sourcePath, name: sourceName } = dragState.draggedItem;
-        let targetPath = dragState.dragOverPath;
+        if (
+          isOverAIContextDropTarget &&
+          dragState.draggedItem &&
+          dragState.draggedItems.length === 1
+        ) {
+          dispatchSidebarResourceDropOnAI({
+            type: "file",
+            path: dragState.draggedItem.path,
+            name: dragState.draggedItem.name,
+            isDir: dragState.draggedItem.isDir,
+          });
+          setDragState(initialDragState);
+          clearAutoExpand();
+          clearEditorDropHover();
+          return;
+        }
 
-        if (targetPath === "__ROOT__") {
-          targetPath = rootFolderPath || "";
-          if (!targetPath) {
-            setDragState(initialDragState);
-            clearEditorDropHover();
-            return;
+        // If dropping on a pane (not in file tree), dispatch event for pane to handle
+        if (
+          isOverPane &&
+          !isOverFileTree &&
+          dragState.draggedItem &&
+          !dragState.draggedItem.isDir &&
+          dragState.draggedItems.length === 1
+        ) {
+          window.dispatchEvent(
+            new CustomEvent("file-tree-drop-on-pane", {
+              detail: {
+                path: dragState.draggedItem.path,
+                name: dragState.draggedItem.name,
+                isDir: dragState.draggedItem.isDir,
+                x: e.clientX,
+                y: e.clientY,
+              },
+            }),
+          );
+          setDragState(initialDragState);
+          clearAutoExpand();
+          clearEditorDropHover();
+          return;
+        }
+
+        if (dragState.dragOverPath && dragState.draggedItem) {
+          let targetPath = dragState.dragOverPath;
+
+          if (targetPath === "__ROOT__") {
+            targetPath = rootFolderPath || "";
+            if (!targetPath) {
+              setDragState(initialDragState);
+              clearEditorDropHover();
+              return;
+            }
+          }
+
+          if (!dragState.dragOverIsDir && targetPath !== "__ROOT__") {
+            targetPath = getDirName(targetPath) || rootFolderPath || "";
+          }
+
+          try {
+            const entries = dragState.draggedItems.filter(
+              (item) =>
+                getTreePathIdentity(getDirName(item.path)) !== getTreePathIdentity(targetPath),
+            );
+            const names = new Set<string>();
+            const existing = await readDirectory(targetPath);
+            if (!isCurrentSession()) return;
+            const existingPaths = new Set(
+              existing.map((entry) => getTreePathIdentity(joinPath(targetPath, entry.name))),
+            );
+            for (const item of entries) {
+              const destination = joinPath(targetPath, item.name);
+              const identity = getTreePathIdentity(destination);
+              if (
+                identity === getTreePathIdentity(item.path) ||
+                (item.isDir &&
+                  pathStartsWithRoot(getTreePathIdentity(targetPath), getTreePathIdentity(item.path)))
+              )
+                throw new Error("Cannot move a directory into itself");
+              if (names.has(identity) || existingPaths.has(identity))
+                throw new Error(`Destination already contains ${item.name}`);
+              names.add(identity);
+            }
+            for (const item of entries) {
+              if (!isCurrentSession()) return;
+              const destination = joinPath(targetPath, item.name);
+              await moveFile(item.path, destination);
+              // A successful disk move must reconcile its captured workspace owner even after unmount.
+              await onFileMove?.(item.path, destination);
+              if (!isCurrentSession()) return;
+            }
+          } catch (error) {
+            console.error("Failed to move files:", error);
+            if (isCurrentSession())
+              onMoveError?.(error instanceof Error ? error.message : String(error));
           }
         }
 
-        if (!dragState.dragOverIsDir && targetPath !== "__ROOT__") {
-          targetPath = getDirName(targetPath) || rootFolderPath || "";
-        }
-
-        const newPath = joinPath(targetPath, sourceName);
-
-        try {
-          await moveFile(sourcePath, newPath);
-          onFileMove?.(sourcePath, newPath);
-        } catch (error) {
-          console.error("Failed to move file:", error);
-          const message = error instanceof Error ? error.message : String(error);
-          onMoveError?.(`Failed to move ${sourceName}: ${message}`);
-        }
+        if (!isCurrentSession()) return;
+        setDragState(initialDragState);
+        clearAutoExpand();
+        clearEditorDropHover();
+      } finally {
+        dropping.current = false;
       }
+    };
 
+    const cancelDrag = () => {
       setDragState(initialDragState);
       clearAutoExpand();
       clearEditorDropHover();
     };
-
     document.addEventListener("mousemove", handleMouseMove);
     document.addEventListener("mouseup", handleMouseUp);
-    document.addEventListener("mouseleave", handleMouseUp);
+    document.addEventListener("mouseleave", cancelDrag);
 
     return () => {
       document.removeEventListener("mousemove", handleMouseMove);
       document.removeEventListener("mouseup", handleMouseUp);
-      document.removeEventListener("mouseleave", handleMouseUp);
+      document.removeEventListener("mouseleave", cancelDrag);
       clearAutoExpand();
       clearEditorDropHover();
     };
@@ -283,33 +380,39 @@ export function useFileExplorerDragDrop(
     onMoveError,
     rootFolderPath,
     scheduleAutoExpand,
+    session,
   ]);
 
-  const startDrag = useCallback((e: React.MouseEvent, file: FileEntry) => {
-    e.preventDefault();
-    e.stopPropagation();
+  const startDrag = useCallback(
+    (e: React.MouseEvent, file: FileEntry, files: FileEntry[] = [file]) => {
+      e.preventDefault();
+      e.stopPropagation();
 
-    setDragState({
-      isDragging: true,
-      draggedItem: { path: file.path, name: file.name, isDir: file.isDir },
-      dragOverPath: null,
-      dragOverIsDir: false,
-      mousePosition: { x: e.clientX, y: e.clientY },
-    });
+      setDragState({
+        isDragging: true,
+        draggedItem: { path: file.path, name: file.name, isDir: file.isDir },
+        draggedItems: files,
+        dragOverPath: null,
+        dragOverIsDir: false,
+        mousePosition: { x: e.clientX, y: e.clientY },
+      });
 
-    // Store drag data globally for pane containers to access
-    window.__fileDragData = {
-      path: file.path,
-      name: file.name,
-      isDir: file.isDir,
-    };
-  }, []);
+      // Store drag data globally for pane containers to access
+      window.__fileDragData = {
+        path: file.path,
+        name: file.name,
+        isDir: file.isDir,
+      };
+    },
+    [],
+  );
 
   // Clean up global drag data on drag end
   useEffect(() => {
-    if (!dragState.isDragging) {
+    if (!dragState.isDragging) delete window.__fileDragData;
+    return () => {
       delete window.__fileDragData;
-    }
+    };
   }, [dragState.isDragging]);
 
   return { dragState, startDrag };

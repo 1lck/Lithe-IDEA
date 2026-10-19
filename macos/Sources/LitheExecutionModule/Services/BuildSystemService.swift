@@ -25,6 +25,18 @@ package enum BuildRunState: Equatable, Sendable {
     case cancelled
 }
 
+/// How one task or test run ended. `exitCode` is set when the tool exited.
+package struct BuildRunEnd: Equatable, Sendable {
+    package let runID: UUID
+    package let entryID: String
+    package let state: BuildRunState
+    package let exitCode: Int32?
+
+    package init(runID: UUID, entryID: String, state: BuildRunState, exitCode: Int32?) {
+        self.runID = runID; self.entryID = entryID; self.state = state; self.exitCode = exitCode
+    }
+}
+
 /// One detected instance with what the host has loaded for it.
 package struct BuildSystemEntry: Equatable, Identifiable, Sendable {
     package let instance: BuildSystemInstance
@@ -93,12 +105,20 @@ package final class BuildSystemService: ObservableObject {
     @Published package private(set) var diagnostics: [BuildDiagnostic] = []
     @Published package private(set) var testResults: BuildTestResults?
     package private(set) var workspaceURL: URL?
+    /// Nil while detection is pending. An empty value means no plugin import.
+    @Published package private(set) var languageImport: JavaLanguageImportConfiguration?
+    package var onLanguageImportChanged: ((URL) -> Void)?
+    private var languageImportFailure: String?
+    private var detectionID: UUID?
+    private var importWaiters: [UUID: CheckedContinuation<JavaLanguageImportConfiguration, Error>] = [:]
+    private var importTimeouts: [UUID: Task<Void, Never>] = [:]
 
     private let planner: any BuildSystemPlanning
     private let tools: any BuildToolResolving
     private let optionsStore: any BuildOptionsStoring
     private let stateLocator: any BuildSystemStateLocating
     private let runner: any BuildCommandRunning
+    private let waitForRedetection: @Sendable () async throws -> Void
     private let sources: @MainActor () -> [BuildSystemPluginSource]
 
     /// Bumped whenever the workspace changes, so late results are dropped.
@@ -156,6 +176,9 @@ package final class BuildSystemService: ObservableObject {
         optionsStore: any BuildOptionsStoring,
         stateLocator: any BuildSystemStateLocating,
         runner: any BuildCommandRunning,
+        waitForRedetection: @escaping @Sendable () async throws -> Void = {
+            try await Task.sleep(for: .milliseconds(500))
+        },
         sources: @escaping @MainActor () -> [BuildSystemPluginSource]
     ) {
         self.planner = planner
@@ -163,9 +186,16 @@ package final class BuildSystemService: ObservableObject {
         self.optionsStore = optionsStore
         self.stateLocator = stateLocator
         self.runner = runner
+        self.waitForRedetection = waitForRedetection
         self.sources = sources
     }
 
+    /// Every run that ends, stopped or superseded runs included, so a caller
+    /// that started one can tell how its own run ended.
+    package let runEnded = PassthroughSubject<BuildRunEnd, Never>()
+
+    /// The task or test run in progress; nil when none runs.
+    package var currentRunID: UUID? { runID }
     package var isRunning: Bool { runState == .running }
     package var isLoadingModel: Bool { !modelTasks.isEmpty }
     package var isLoadingDependencies: Bool { !dependencyTasks.isEmpty }
@@ -202,18 +232,30 @@ package final class BuildSystemService: ObservableObject {
     /// stale when the files it depends on changed.
     package func detect() {
         guard let workspaceURL else { return }
+        redetectTask?.cancel(); redetectTask = nil
         detectionTask?.cancel()
+        let detectionID = UUID()
+        self.detectionID = detectionID
+        languageImport = nil
+        languageImportFailure = nil
         let sources = sources()
         guard !sources.isEmpty else {
             entries = []
             issues = []
             isDetecting = false
+            publishLanguageImport(JavaLanguageImportConfiguration(), workspaceURL: workspaceURL)
             return
         }
         isDetecting = true
         let storedOptions = Dictionary(
             sources.flatMap(\.buildSystems).map {
                 ($0.id, optionsStore.options(workspaceURL: workspaceURL, buildSystemID: $0.id))
+            },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let emptyMultiSelectOptions = Dictionary(
+            sources.flatMap(\.buildSystems).map {
+                ($0.id, optionsStore.emptyMultiSelectOptions(workspaceURL: workspaceURL, buildSystemID: $0.id))
             },
             uniquingKeysWith: { first, _ in first }
         )
@@ -230,11 +272,13 @@ package final class BuildSystemService: ObservableObject {
                         workspaceURL: workspaceURL,
                         sources: sources,
                         storedOptions: storedOptions,
+                        emptyMultiSelectOptions: emptyMultiSelectOptions,
                         previous: previous
                     )
                 }
             }.value
-            guard let self, self.generation == generation, !Task.isCancelled else { return }
+            guard let self, self.generation == generation,
+                  self.detectionID == detectionID, !Task.isCancelled else { return }
             self.isDetecting = false
             switch result {
             case .success(let detected):
@@ -266,9 +310,50 @@ package final class BuildSystemService: ObservableObject {
                 }
                 self.issues = detected.issues
                 self.persistDroppedOptions()
+                let inputs = self.entries.map { entry in
+                    LanguageImportInput(
+                        entry: entry,
+                        options: self.storedOptions(for: entry, workspaceURL: workspaceURL)
+                    )
+                }
+                // Discovery is passive: importing a project cannot execute a
+                // wrapper or probe the build tool before user confirmation.
+                let normalized = await Task.detached(priority: .userInitiated) {
+                    Result { try Self.languageImports(planner: planner, workspaceURL: workspaceURL, inputs: inputs) }
+                }.value
+                guard self.generation == generation, self.detectionID == detectionID,
+                      !Task.isCancelled else { return }
+                switch normalized {
+                case .success(let imports):
+                    var executables: [String: URL] = [:]
+                    for input in inputs {
+                        guard case .maven? = imports[input.entry.id],
+                              let invocation = try? planner.invocationPlan(input.entry.target, root: input.entry.instance.root)
+                        else { continue }
+                        executables[input.entry.id] = self.tools.languageImportExecutable(invocation, workspaceURL: workspaceURL)
+                    }
+                    let withExecutables = executables
+                    let configured = await Task.detached(priority: .userInitiated) {
+                        Result {
+                            try Self.languageImports(
+                                planner: planner, workspaceURL: workspaceURL, inputs: inputs,
+                                executables: withExecutables, initial: imports
+                            )
+                        }
+                    }.value
+                    guard self.generation == generation, self.detectionID == detectionID,
+                          !Task.isCancelled else { return }
+                    switch configured {
+                    case .success(let values):
+                        self.publishLanguageImport(Self.workspaceImport(inputs: inputs, imports: values), workspaceURL: workspaceURL)
+                    case .failure(let error): self.failLanguageImport(error)
+                    }
+                case .failure(let error): self.failLanguageImport(error)
+                }
             case .failure(let error):
                 self.entries = []
                 self.issues = [error.localizedDescription]
+                self.failLanguageImport(error)
             }
         }
     }
@@ -304,12 +389,120 @@ package final class BuildSystemService: ObservableObject {
             entry.sync?.watch.contains(where: changed.contains) == true
         }
         guard affected else { return }
+        // Reject the old input immediately; consumers wait for the coalesced
+        // detection instead of starting Java with pre-save import settings.
+        detectionTask?.cancel(); detectionTask = nil
+        detectionID = nil
+        languageImport = nil
+        languageImportFailure = nil
+        isDetecting = false
         redetectTask?.cancel()
+        let waitForRedetection = waitForRedetection
         redetectTask = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(500))
-            guard !Task.isCancelled else { return }
-            self?.detect()
+            do { try await waitForRedetection() } catch { return }
+            guard !Task.isCancelled, let self else { return }
+            self.redetectTask = nil
+            self.detect()
         }
+    }
+
+    // MARK: Language import
+
+    /// Waits for the current detection, including option normalization. A
+    /// cancelled waiter never cancels detection shared by other consumers.
+    package func prepareLanguageImport(workspaceURL: URL) async throws -> JavaLanguageImportConfiguration {
+        guard self.workspaceURL == workspaceURL.standardizedFileURL else { throw CancellationError() }
+        if let languageImport { return languageImport }
+        if let languageImportFailure { throw BuildSystemServiceError(languageImportFailure) }
+        let id = UUID()
+        return try await withTaskCancellationHandler {
+            try Task.checkCancellation()
+            return try await withCheckedThrowingContinuation { continuation in
+                importWaiters[id] = continuation
+                importTimeouts[id] = Task { @MainActor [weak self] in
+                    try? await Task.sleep(for: .seconds(30))
+                    guard !Task.isCancelled else { return }
+                    self?.finishImportWaiter(id, result: .failure(BuildSystemServiceError(
+                        String(localized: "Build-system language import preparation timed out. Retry project loading.")
+                    )))
+                }
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                self?.finishImportWaiter(id, result: .failure(CancellationError()))
+            }
+        }
+    }
+
+    private func publishLanguageImport(_ value: JavaLanguageImportConfiguration, workspaceURL: URL) {
+        languageImport = value
+        languageImportFailure = nil
+        finishImportWaiters(.success(value))
+        onLanguageImportChanged?(workspaceURL)
+    }
+
+    private func failLanguageImport(_ error: Error) {
+        languageImportFailure = error.localizedDescription
+        issues.append(error.localizedDescription)
+        finishImportWaiters(.failure(error))
+    }
+
+    private func finishImportWaiter(_ id: UUID, result: Result<JavaLanguageImportConfiguration, Error>) {
+        importTimeouts.removeValue(forKey: id)?.cancel()
+        importWaiters.removeValue(forKey: id)?.resume(with: result)
+    }
+
+    private func finishImportWaiters(_ result: Result<JavaLanguageImportConfiguration, Error>) {
+        for id in Array(importWaiters.keys) { finishImportWaiter(id, result: result) }
+    }
+
+    private struct LanguageImportInput: Sendable {
+        let entry: BuildSystemEntry
+        let options: [String: ToolingJSONValue]
+    }
+
+    nonisolated private static func languageImports(
+        planner: any BuildSystemPlanning, workspaceURL: URL, inputs: [LanguageImportInput],
+        executables: [String: URL] = [:], initial: [String: BuildLanguageImport]? = nil
+    ) throws -> [String: BuildLanguageImport] {
+        var imports = initial ?? [:]
+        for input in inputs {
+            try Task.checkCancellation()
+            if initial != nil && executables[input.entry.id] == nil { continue }
+            let resolution = try planner.resolveOptions(
+                input.entry.target, options: input.options, modelValues: input.entry.model?.optionValues
+            )
+            imports[input.entry.id] = try planner.languageImport(
+                input.entry.target, workspaceURL: workspaceURL, root: input.entry.instance.root,
+                options: effectiveOptionValues(resolution, stored: input.options),
+                executableURL: executables[input.entry.id]
+            )
+        }
+        return imports
+    }
+
+    /// JDT accepts one context of each kind. Prefer the workspace root, then
+    /// the shallowest instance, with stable path/ID ordering for ties. Never
+    /// combine Profiles or machine paths from unrelated reactors.
+    nonisolated private static func workspaceImport(
+        inputs: [LanguageImportInput], imports: [String: BuildLanguageImport]
+    ) -> JavaLanguageImportConfiguration {
+        let ordered = inputs.sorted {
+            let left = $0.entry.instance, right = $1.entry.instance
+            let leftDepth = left.root == "." ? 0 : left.root.split(separator: "/").count
+            let rightDepth = right.root == "." ? 0 : right.root.split(separator: "/").count
+            return (leftDepth, left.root, left.id, left.pluginID) < (rightDepth, right.root, right.id, right.pluginID)
+        }
+        var maven: MavenLaunchContext?
+        var gradle: JavaGradleImportConfiguration?
+        for input in ordered {
+            switch imports[input.entry.id] {
+            case .maven(let context)?: if maven == nil { maven = context }
+            case .gradle(let context)?: if gradle == nil { gradle = context }
+            case nil: break
+            }
+        }
+        return JavaLanguageImportConfiguration(mavenContext: maven, javaGradle: gradle)
     }
 
     // MARK: Model
@@ -369,6 +562,9 @@ package final class BuildSystemService: ObservableObject {
                 }
                 self.noteModelChanged(entryID)
                 self.refreshOptions(buildSystemID: entry.instance.buildSystemID)
+                // Model-provided choices may remove an import option even
+                // when the user has not changed it. Discard any old snapshot.
+                self.detect()
             case .failure(let error) where error is CancellationError:
                 self.update(entryID) {
                     $0.modelState = $0.model == nil ? .notLoaded : .loaded
@@ -435,9 +631,10 @@ package final class BuildSystemService: ObservableObject {
     // MARK: Tasks and tests
 
     /// Runs a declared task, or a model task through its template.
-    package func runTask(_ entryID: String, request: BuildTaskRequest, title: String) {
-        guard let workspaceURL, let entry = entry(entryID) else { return }
-        startRun(entryID, title: title) { service, run in
+    @discardableResult
+    package func runTask(_ entryID: String, request: BuildTaskRequest, title: String) -> UUID? {
+        guard let workspaceURL, let entry = entry(entryID) else { return nil }
+        return startRun(entryID, title: title) { service, run in
             let context = try service.planContext(entry, workspaceURL: workspaceURL)
             let plan = try service.planner.taskPlan(entry.target, context: context, request: request)
             let collected = try await service.runStreamedCommand(
@@ -452,9 +649,10 @@ package final class BuildSystemService: ObservableObject {
         }
     }
 
-    package func runTests(_ entryID: String, request: BuildTestRequest, title: String) {
-        guard let workspaceURL, let entry = entry(entryID) else { return }
-        startRun(entryID, title: title) { service, run in
+    @discardableResult
+    package func runTests(_ entryID: String, request: BuildTestRequest, title: String) -> UUID? {
+        guard let workspaceURL, let entry = entry(entryID) else { return nil }
+        return startRun(entryID, title: title) { service, run in
             let context = try service.planContext(entry, workspaceURL: workspaceURL)
             let plan = try service.planner.testPlan(entry.target, context: context, request: request)
             if plan.results != nil, request.project == nil,
@@ -509,6 +707,10 @@ package final class BuildSystemService: ObservableObject {
     /// Ends the task or test run. Model and dependency commands keep running.
     package func stopRun() {
         guard runTask != nil else { return }
+        var ended: BuildRunEnd?
+        if let runID, let runEntryID {
+            ended = BuildRunEnd(runID: runID, entryID: runEntryID, state: .cancelled, exitCode: nil)
+        }
         runTask?.cancel()
         runTask = nil
         runID = nil
@@ -516,10 +718,18 @@ package final class BuildSystemService: ObservableObject {
         if runState == .running {
             runState = .cancelled
         }
+        if let ended { runEnded.send(ended) }
     }
 
     /// Ends every process this service started.
     package func stop() {
+        detectionTask?.cancel(); detectionTask = nil
+        detectionID = nil
+        redetectTask?.cancel(); redetectTask = nil
+        languageImport = nil
+        languageImportFailure = nil
+        isDetecting = false
+        finishImportWaiters(.failure(CancellationError()))
         stopRun()
         for task in modelTasks.values { task.cancel() }
         for task in dependencyTasks.values { task.cancel() }
@@ -545,7 +755,7 @@ package final class BuildSystemService: ObservableObject {
         _ entryID: String,
         title: String,
         _ work: @escaping @MainActor (BuildSystemService, RunIdentity) async throws -> Int32?
-    ) {
+    ) -> UUID {
         stopRun()
         clearOutput()
         let id = UUID()
@@ -557,8 +767,10 @@ package final class BuildSystemService: ObservableObject {
         runTask = Task { [weak self] in
             guard let self else { return }
             let state: BuildRunState
+            var exitCode: Int32?
             do {
-                if let exitCode = try await work(self, run) {
+                exitCode = try await work(self, run)
+                if let exitCode {
                     state = exitCode == 0
                         ? .succeeded
                         : .failed(String(localized: "The build tool exited with code \(Int(exitCode))."))
@@ -580,7 +792,9 @@ package final class BuildSystemService: ObservableObject {
             self.runTask = nil
             self.runID = nil
             self.runEntryID = nil
+            self.runEnded.send(BuildRunEnd(runID: id, entryID: entryID, state: state, exitCode: exitCode))
         }
+        return id
     }
 
     /// True while `run` is still the run whose results may be shown: same
@@ -714,6 +928,12 @@ package final class BuildSystemService: ObservableObject {
         let buildSystemID = entry.instance.buildSystemID
         var stored = optionsStore.options(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
         stored[optionID] = value
+        var empty = optionsStore.emptyMultiSelectOptions(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+        for root in Array(empty.keys) {
+            empty[root]?.remove(optionID)
+            if empty[root]?.isEmpty == true { empty[root] = nil }
+        }
+        optionsStore.setEmptyMultiSelectOptions(empty, workspaceURL: workspaceURL, buildSystemID: buildSystemID)
         optionsStore.setOptions(stored, workspaceURL: workspaceURL, buildSystemID: buildSystemID)
         refreshOptions(buildSystemID: buildSystemID)
         // The options take part in the sync fingerprint, so a changed value
@@ -721,18 +941,57 @@ package final class BuildSystemService: ObservableObject {
         detect()
     }
 
+    /// An instance editor preserves sibling-only choices in the shared value.
+    /// Explicit empty selections also need an instance marker: sibling-only
+    /// values would otherwise be rejected by Core and revive a non-empty default.
+    /// Reset still removes the option's complete shared and instance overrides.
+    package func setInstanceOption(_ entryID: String, optionID: String, value: ToolingJSONValue?) {
+        guard let workspaceURL, let entry = entry(entryID) else { return }
+        guard case .array(let next)? = value,
+              let option = entry.options.first(where: { $0.id == optionID }), option.kind == .multiSelect,
+              case .array(let visible) = option.value else {
+            setOption(entryID, optionID: optionID, value: value)
+            return
+        }
+        let buildSystemID = entry.instance.buildSystemID
+        var stored = optionsStore.options(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+        let values: [ToolingJSONValue]
+        if case .array(let items)? = stored[optionID] { values = items } else { values = [] }
+        let siblingValues = values.filter { !visible.contains($0) }
+        stored[optionID] = .array(siblingValues + next.filter { !siblingValues.contains($0) })
+        var empty = optionsStore.emptyMultiSelectOptions(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+        let root = entry.instance.root
+        if next.isEmpty {
+            empty[root, default: []].insert(optionID)
+        } else {
+            empty[root]?.remove(optionID)
+            if empty[root]?.isEmpty == true { empty[root] = nil }
+        }
+        optionsStore.setEmptyMultiSelectOptions(empty, workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+        optionsStore.setOptions(stored, workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+        refreshOptions(buildSystemID: buildSystemID)
+        detect()
+    }
+
     private func refreshOptions(buildSystemID: String) {
         guard let workspaceURL else { return }
         let stored = optionsStore.options(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+        let empty = optionsStore.emptyMultiSelectOptions(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
         var resolutions: [BuildOptionsResolution] = []
         for index in entries.indices where entries[index].instance.buildSystemID == buildSystemID {
+            let entry = entries[index]
             guard let resolution = try? planner.resolveOptions(
-                entries[index].target,
-                options: stored,
-                modelValues: entries[index].model?.optionValues
+                entry.target, options: stored, modelValues: entry.model?.optionValues
             ) else { continue }
-            entries[index].options = resolution.options
+            // Shared storage is pruned against the shared value, never an
+            // empty instance override that could hide a sibling's valid choice.
             resolutions.append(resolution)
+            let input = Self.applyingEmptySelections(
+                to: stored, optionIDs: empty[entry.instance.root] ?? [], options: resolution.options
+            )
+            entries[index].options = input == stored ? resolution.options : (
+                try? planner.resolveOptions(entry.target, options: input, modelValues: entry.model?.optionValues)
+            )?.options ?? resolution.options
         }
         // Options are stored per workspace and build system, but a model
         // value is valid for one instance. Keep a value as long as any
@@ -802,21 +1061,38 @@ package final class BuildSystemService: ObservableObject {
         }
     }
 
+    private func storedOptions(for entry: BuildSystemEntry, workspaceURL: URL) -> [String: ToolingJSONValue] {
+        let buildSystemID = entry.instance.buildSystemID
+        return Self.applyingEmptySelections(
+            to: optionsStore.options(workspaceURL: workspaceURL, buildSystemID: buildSystemID),
+            optionIDs: optionsStore.emptyMultiSelectOptions(workspaceURL: workspaceURL, buildSystemID: buildSystemID)[entry.instance.root] ?? [],
+            options: entry.options
+        )
+    }
+
+    nonisolated private static func applyingEmptySelections(
+        to stored: [String: ToolingJSONValue], optionIDs: Set<String>, options: [BuildResolvedOption]
+    ) -> [String: ToolingJSONValue] {
+        var values = stored
+        // A plugin update may change the kind; an old empty marker must not
+        // turn a text or boolean option into an array.
+        for option in options where option.kind == .multiSelect && optionIDs.contains(option.id) {
+            values[option.id] = .array([])
+        }
+        return values
+    }
+
     // MARK: Commands
 
     private func optionFingerprint(_ entry: BuildSystemEntry, workspaceURL: URL) -> String? {
-        let stored = optionsStore.options(
-            workspaceURL: workspaceURL, buildSystemID: entry.instance.buildSystemID
-        )
+        let stored = storedOptions(for: entry, workspaceURL: workspaceURL)
         return (try? planner.resolveOptions(
             entry.target, options: stored, modelValues: entry.model?.optionValues
         ))?.fingerprint
     }
 
     private func planContext(_ entry: BuildSystemEntry, workspaceURL: URL) throws -> BuildPlanContext {
-        let stored = optionsStore.options(
-            workspaceURL: workspaceURL, buildSystemID: entry.instance.buildSystemID
-        )
+        let stored = storedOptions(for: entry, workspaceURL: workspaceURL)
         let resolution = try? planner.resolveOptions(
             entry.target, options: stored, modelValues: entry.model?.optionValues
         )
@@ -1053,6 +1329,7 @@ package final class BuildSystemService: ObservableObject {
         workspaceURL: URL,
         sources: [BuildSystemPluginSource],
         storedOptions: [String: [String: ToolingJSONValue]],
+        emptyMultiSelectOptions: [String: [String: Set<String>]],
         previous: [String: BuildSystemEntry]
     ) throws -> Detected {
         let detection = try planner.detect(workspaceURL: workspaceURL, sources: sources, options: storedOptions)
@@ -1079,10 +1356,18 @@ package final class BuildSystemService: ObservableObject {
                 ? earlier?.model
                 : nil
             let model = instance.model ?? kept
-            let resolution = try? planner.resolveOptions(
+            let sharedResolution = try? planner.resolveOptions(
                 target, options: stored, modelValues: model?.optionValues
             )
-            let options = Self.effectiveOptionValues(resolution, stored: stored)
+            let input = Self.applyingEmptySelections(
+                to: stored,
+                optionIDs: emptyMultiSelectOptions[instance.buildSystemID]?[instance.root] ?? [],
+                options: sharedResolution?.options ?? []
+            )
+            let resolution = input == stored ? sharedResolution : try? planner.resolveOptions(
+                target, options: input, modelValues: model?.optionValues
+            )
+            let options = Self.effectiveOptionValues(resolution, stored: input)
             let sync = try? planner.syncFingerprint(
                 target, workspaceURL: workspaceURL, root: instance.root,
                 projects: model?.projects.map(\.path) ?? [], options: options

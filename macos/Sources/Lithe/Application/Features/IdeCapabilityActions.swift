@@ -23,7 +23,6 @@ protocol IdeCapabilityActions: AnyObject {
     func registerLitheMcpServer(_ server: McpServerDefinition)
     /// Removes project-level Lithe entries Lithe still owns.
     func unregisterLitheMcpServer()
-    func showMavenOutput()
     func copyIdeConfiguration(_ text: String)
 }
 

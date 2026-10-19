@@ -549,6 +549,8 @@ enum PluginMarketplacePresentation {
             PluginMarketplacePresentation.localized("Run your files", locale: locale)
         case "ui.contribute":
             PluginMarketplacePresentation.localized("Add tool windows and commands to the workbench", locale: locale)
+        case "ui.web":
+            PluginMarketplacePresentation.localized("Show its own page in a tool window", locale: locale)
         case "process.test":
             PluginMarketplacePresentation.localized("Run your tests", locale: locale)
         default:

@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "stashesResponse": {
+    "stashes": [
+      {
+        "reference": "stash@{0}",
+        "oid": "1111111111111111111111111111111111111111",
+        "message": "WIP example",
+        "date": "2026-10-16"
+      }
+    ]
+  },
+  "diffRequest": {
+    "root": ".",
+    "pathspecs": [
+      "."
+    ],
+    "stashReference": "1111111111111111111111111111111111111111"
+  },
+  "dropRequest": {
+    "root": ".",
+    "operation": "stashDrop",
+    "reference": "1111111111111111111111111111111111111111"
+  }
+}

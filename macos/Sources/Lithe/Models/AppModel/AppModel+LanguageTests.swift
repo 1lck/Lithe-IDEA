@@ -26,6 +26,7 @@ extension AppModel {
     }
 
     private func startLanguageTestDiscovery(workspaceURL: URL) {
+        guard let identity = currentWorkspaceIdentity, identity.url == workspaceURL.standardizedFileURL else { return }
         let operationID = javaTestWorkflowState.beginDiscovery()
         javaTestWorkflowState.discoveryTask = Task { [weak self] in
             guard let self else { return }
@@ -35,14 +36,14 @@ extension AppModel {
                       for: projectFiles,
                       testService: execution.tests
                   ),
-                  isCurrentLanguageTestDiscovery(operationID) else { return }
+                  isCurrentWorkspace(identity), isCurrentLanguageTestDiscovery(operationID) else { return }
             execution.tests.discover(workspaceURL: workspaceURL, files: projectFiles)
 
             let baseItems = execution.tests.itemsByProviderID["java"] ?? []
             let javaFiles = baseItems.filter { $0.kind == .file && $0.fileURL != nil }
             guard !javaFiles.isEmpty, !languageToolingFeature.isDisabled("java") else { return }
             do {
-                let sessions = try await languageSessionsForWorkspaceMaintenance()
+                let sessions = try await languageSessionsForWorkspaceMaintenance(for: identity)
                 guard !languageToolingFeature.isDisabled("java") else { return }
                 let projected = try await javaTestWorkflowState.projectDiscoveredItems(
                     baseItems,
@@ -113,6 +114,7 @@ extension AppModel {
         request: JavaTestDebugRequest,
         workspaceURL: URL
     ) {
+        guard let identity = currentWorkspaceIdentity, identity.url == workspaceURL.standardizedFileURL else { return }
         let selectedTarget = activeTestTarget
         featureGraph.javaTestDebugWorkflow.start(
             request: request,
@@ -134,7 +136,7 @@ extension AppModel {
                 if let selectedConfiguration = runFeature.selectedConfiguration {
                     runFeature.select(selectedConfiguration)
                 }
-                let sessions = try await self.languageSessionsForWorkspaceMaintenance()
+                let sessions = try await self.languageSessionsForWorkspaceMaintenance(for: identity)
                 return try await self.services.javaTestDebugLaunchService.prepare(
                     fileURL: request.fileURL,
                     testIdentifier: request.testIdentifier,
@@ -143,7 +145,7 @@ extension AppModel {
                 )
             },
             startDebug: { [weak self] prepared in
-                guard let self,
+                guard let self, self.isCurrentWorkspace(identity), !Task.isCancelled,
                       let genericDebugFeature = self.genericDebugFeatureIfActive else {
                     return false
                 }
@@ -195,6 +197,7 @@ extension AppModel {
     }
 
     func cancelJavaWorkspaceWorkflows() {
+        javaLanguageServerPreparationCoordinator.cancelMavenConfigurationSynchronization()
         cancelJavaLanguageServerPreparation()
         cancelJavaTestWorkflows()
     }

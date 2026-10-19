@@ -758,6 +758,8 @@ pub struct GitComparisonResponse {
 /// One stash entry with its stable reference and parsed metadata.
 pub struct GitStashResponse {
     pub reference: String,
+    /// Immutable object identity; stash positions may change after another push.
+    pub oid: String,
     pub message: String,
     pub branch: Option<String>,
     pub date: String,

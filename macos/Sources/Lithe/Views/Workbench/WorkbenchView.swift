@@ -1316,7 +1316,7 @@ struct WorkbenchView: View {
 
     private func openTool(_ tool: WorkbenchFeatureModel.ToolWindow) {
         if let entry = contribution(for: tool) {
-            if entry.text == nil && model.workbenchFeature.isVisible(tool) {
+            if !entry.hasDeclarativeContent && model.workbenchFeature.isVisible(tool) {
                 model.workbenchFeature.setVisibility(tool, isVisible: false)
             } else { moduleUIRegistry.perform(entry, model: model) }
         }

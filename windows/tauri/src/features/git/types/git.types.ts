@@ -191,6 +191,8 @@ export type GitPullResult =
   | { status: "duplicate" };
 
 export interface GitStash {
+  /** Immutable identity supplied by Core; positional legacy callers remain supported. */
+  oid?: string;
   index: number;
   message: string;
   date: string;

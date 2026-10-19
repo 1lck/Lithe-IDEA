@@ -16,7 +16,7 @@ PR #37 是第一阶段 UI Contribution（插件声明的界面入口）基础设
 
 第三方插件可声明版本化 JSON UI 组件树，包含 Tree/List/Form/Input/Button、数据源和事件，由 macOS SwiftUI 等原生适配器渲染。窗口外壳继续由宿主管理停靠、标题、活动栏、顺序、显隐、布局和生命周期；组件事件通过宿主授权的动作或 Provider 调用。
 
-2026-10-18 起，插件也可以在宿主管理的窗口里放自己的包内网页（`ui` 能力版本 2），这是可选项，不替代组件树。外壳规则不变，加载与桥接边界见[插件自带网页界面](2026-10-18-plugin-web-content-in-host-windows.md)。
+2026-10-18 起，插件也可以在宿主管理的窗口里放自己的包内网页（`ui` 能力版本 2），这是可选项，不替代组件树。外壳规则不变，加载与桥接边界见[插件自带网页界面](../../implemented/architecture/2026-10-18-plugin-web-content-in-host-windows.md)。
 
 内置或受信任的原生模块可通过 Native View/Renderer Factory（宿主登记的原生视图构造器）接入复杂 SwiftUI 内容，并共用同一套窗口管理。这个路径不等于恢复任意第三方 Swift Bundle 动态加载；二进制接口（ABI）、签名、分发与隔离仍需单独设计。Windows 使用自己的宿主适配共享数据契约，不复制 SwiftUI 类型，也不据此要求重写当前平台实现。
 
@@ -55,7 +55,7 @@ Services 接入容器、Spring Boot、数据库和本地服务。后续统一设
 
 - 将静态文本和打开窗口固定为最终 API：易验证，但无法覆盖交互 UI 和纯领域能力，因此仅保留为 v2 子集。
 - 直接载入第三方 Swift Bundle：可快速表达复杂原生内容，但没有稳定 ABI，签名与隔离无法覆盖，不采用。
-- 第三方 Webview UI：原先不采用。2026-10-18 改为可选路径，限定为包内页面、宿主外壳和白名单桥接，理由与边界见[插件自带网页界面](2026-10-18-plugin-web-content-in-host-windows.md)。
+- 第三方 Webview UI：原先不采用。2026-10-18 改为可选路径，限定为包内页面、宿主外壳和白名单桥接，理由与边界见[插件自带网页界面](../../implemented/architecture/2026-10-18-plugin-web-content-in-host-windows.md)。
 - 在 #37 一次完成全部组件和 Provider：会扩大未验证协议及迁移面；先保留基础设施，再按领域纵向验收。
 
 ## 验收标准

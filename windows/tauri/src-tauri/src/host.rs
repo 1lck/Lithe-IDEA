@@ -667,7 +667,18 @@ pub fn write_patch_file(path: PathBuf, contents: String) -> Result<(), String> {
 
 #[tauri::command]
 pub fn move_file(source_path: PathBuf, target_path: PathBuf) -> Result<(), String> {
-    fs::rename(source_path, target_path).map_err(|error| error.to_string())
+    #[cfg(windows)]
+    {
+        crate::file_publication::publish_new_record(&source_path, &target_path)
+            .map_err(|error| error.to_string())
+    }
+    #[cfg(not(windows))]
+    {
+        if target_path.exists() {
+            return Err("Destination already exists".into());
+        }
+        fs::rename(source_path, target_path).map_err(|error| error.to_string())
+    }
 }
 
 #[tauri::command]

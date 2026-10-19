@@ -366,6 +366,19 @@ package struct MavenLaunchContext: Codable, Equatable, Sendable {
     package let mavenExecutablePath: String?
     package let javaHomePath: String?
 
+    /// Language-import contexts omit execution-only choices such as Skip Tests.
+    package init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        version = try values.decode(Int.self, forKey: .version)
+        reactorPath = try values.decode(String.self, forKey: .reactorPath)
+        profiles = try values.decode([String].self, forKey: .profiles)
+        settingsPath = try values.decodeIfPresent(String.self, forKey: .settingsPath)
+        localRepositoryPath = try values.decodeIfPresent(String.self, forKey: .localRepositoryPath)
+        skipTests = try values.decodeIfPresent(Bool.self, forKey: .skipTests) ?? false
+        mavenExecutablePath = try values.decodeIfPresent(String.self, forKey: .mavenExecutablePath)
+        javaHomePath = try values.decodeIfPresent(String.self, forKey: .javaHomePath)
+    }
+
     package init(
         version: Int = currentVersion,
         reactorPath: String,

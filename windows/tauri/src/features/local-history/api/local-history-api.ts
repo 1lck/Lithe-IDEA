@@ -1,33 +1,24 @@
+import {
+  historyWorkspaceIdentity,
+  toLocalEntry,
+  type CoreHistoryEntry,
+  type LocalHistoryEntry,
+} from "../utils/history-metadata";
+export type { LocalHistoryEntry } from "../utils/history-metadata";
 import { appDataDir, join } from "@tauri-apps/api/path";
 import { executeCore, type CoreResponse } from "@/core/lithe-core-client";
 import { useProjectStore } from "@/features/window/stores/project.store";
 import { getRelativePath, pathStartsWithRoot } from "@/utils/path-helpers";
 
-export interface LocalHistoryEntry {
-  id: string;
-  file_path: string;
-  file_name: string;
-  created_at: number;
-  size: number;
-  content_hash: string;
-  reason: string;
-  label?: string | null;
-}
-
-interface CoreHistoryEntry {
-  id: string;
-  timestamp: number;
-  relativePath: string;
-  reason: string;
-  contentPath: string;
-  byteCount: number;
-  label?: string;
-}
-
 const coreData = <T>(response: CoreResponse<T>): T => {
   if (response.ok) return response.data;
   throw new Error(`${response.error.code}: ${response.error.message}`);
 };
+
+export async function workspaceHistoryStorage(workspaceRoot: string): Promise<string> {
+  const key = await historyWorkspaceIdentity(workspaceRoot);
+  return join(await appDataDir(), "local-history", "workspaces", key);
+}
 
 const historyContext = async (path: string) => {
   const workspaceRoot = useProjectStore.getState().rootFolderPath;
@@ -40,23 +31,13 @@ const historyContext = async (path: string) => {
   return {
     workspaceRoot,
     relativePath,
-    storageRoot: await join(await appDataDir(), "local-history"),
+    storageRoot: await workspaceHistoryStorage(workspaceRoot),
   };
 };
 
-const toLocalEntry = (entry: CoreHistoryEntry): LocalHistoryEntry => ({
-  id: entry.id,
-  file_path: entry.relativePath,
-  file_name: entry.relativePath.split("/").pop() ?? entry.relativePath,
-  created_at: entry.timestamp,
-  size: entry.byteCount,
-  content_hash: "",
-  reason: entry.reason,
-  label: entry.label ?? null,
-});
-
-const listCoreEntries = async (path: string): Promise<CoreHistoryEntry[]> => {
-  const context = await historyContext(path);
+const listCoreEntries = async (
+  context: Awaited<ReturnType<typeof historyContext>>,
+): Promise<CoreHistoryEntry[]> => {
   const response = await executeCore<{ entries: CoreHistoryEntry[] }>({
     id: crypto.randomUUID(),
     command: "history.entries",
@@ -90,15 +71,28 @@ export const recordLocalHistoryFile = async (
   );
   if (!recorded) return null;
   if (!label) return toLocalEntry(recorded);
-  return renameLocalHistoryEntry(path, recorded.id, label);
+  return toLocalEntry(
+    coreData(
+      await executeCore<CoreHistoryEntry>({
+        id: crypto.randomUUID(),
+        command: "history.rename",
+        payload: {
+          storageRoot: context.storageRoot,
+          path: context.relativePath,
+          id: recorded.id,
+          label,
+        },
+      }),
+    ),
+  );
 };
 
 export const listLocalHistoryFile = async (path: string): Promise<LocalHistoryEntry[]> =>
-  (await listCoreEntries(path)).map(toLocalEntry);
+  (await listCoreEntries(await historyContext(path))).map(toLocalEntry);
 
 export const readLocalHistoryEntry = async (path: string, entryId: string): Promise<string> => {
   const context = await historyContext(path);
-  const entry = (await listCoreEntries(path)).find((candidate) => candidate.id === entryId);
+  const entry = (await listCoreEntries(context)).find((candidate) => candidate.id === entryId);
   if (!entry) throw new Error("Local history entry was not found");
   const response = await executeCore<{ text: string }>({
     id: crypto.randomUUID(),
@@ -137,3 +131,13 @@ export const renameLocalHistoryEntry = async (
   });
   return toLocalEntry(coreData(response));
 };
+
+/** Project timelines use Core's existing unfiltered metadata query. */
+export async function listProjectLocalHistory(workspaceRoot: string): Promise<LocalHistoryEntry[]> {
+  const response = await executeCore<{ entries: CoreHistoryEntry[] }>({
+    id: crypto.randomUUID(),
+    command: "history.entries",
+    payload: { workspaceRoot, storageRoot: await workspaceHistoryStorage(workspaceRoot) },
+  });
+  return coreData(response).entries.map(toLocalEntry);
+}

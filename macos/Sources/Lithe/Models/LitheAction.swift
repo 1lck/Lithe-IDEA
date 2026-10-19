@@ -1,4 +1,5 @@
 import Foundation
+import LitheCoreContracts
 
 enum LitheActionGroup: String, CaseIterable, Sendable {
     case run = "Run"
@@ -90,7 +91,6 @@ enum LitheActionRegistry {
             action("go-to-implementation", model: model) { model.goToImplementation() },
             toolWindowAction("toggle-terminal", model: model),
             toolWindowAction("toggle-problems", model: model),
-            toolWindowAction("toggle-maven", model: model),
             toolWindowAction("toggle-git-log", model: model),
             toolWindowAction("toggle-run", model: model),
             toolWindowAction("toggle-tests", model: model),
@@ -118,7 +118,12 @@ enum LitheActionRegistry {
         return model.registeredContributions(at: .commandPalette).map { contribution in
             let state = model.workbenchUIRegistry.state(for: contribution, model: model, available: available)
             let definition = LitheCommandCatalog.command(id: contribution.actionID ?? "")
-            return LitheAction(id: contribution.actionID ?? contribution.id, title: contribution.title,
+            // A build system's command toggles its window; the title is the
+            // plugin's display name, so only the verb is localized.
+            let isBuildSystemWindow = contribution.visibility[DeclarativeBuildSystem.buildSystemIDKey] != nil
+            let title = isBuildSystemWindow
+                ? String(format: String(localized: "Toggle %@"), contribution.title) : contribution.title
+            return LitheAction(id: contribution.actionID ?? contribution.id, title: title,
                         subtitle: definition?.subtitle ?? "", group: definition?.group ?? .window,
                         keyEquivalent: definition.flatMap { model.keyboardShortcutFeature.displayText(for: $0.id) },
                         contributionID: contribution.id, isEnabled: state.isEnabled, isChecked: state.isChecked,
