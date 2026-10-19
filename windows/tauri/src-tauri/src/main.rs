@@ -8,6 +8,7 @@ mod debug;
 mod diagnostics;
 mod document;
 mod file_events;
+mod file_publication;
 mod fonts;
 mod host;
 mod html_browser;
@@ -22,6 +23,7 @@ mod project_window_registry;
 mod project_windows;
 mod run;
 mod secure_storage;
+mod shelf_storage;
 mod terminal;
 mod watcher;
 mod window_title;
@@ -217,6 +219,7 @@ fn main() {
             host::read_file_custom,
             host::write_file,
             host::write_patch_file,
+            shelf_storage::saved_changes_storage,
             host::move_file,
             host::rename_file,
             host::get_symlink_info,
@@ -227,6 +230,7 @@ fn main() {
             host::clipboard_get,
             host::clipboard_paste,
             host::clipboard_clear,
+            host::clipboard_sequence_number,
             host::create_app_window,
             project_windows::claim_project_window,
             project_windows::release_project_window,

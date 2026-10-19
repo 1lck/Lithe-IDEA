@@ -72,7 +72,9 @@ impl CodexHistory {
                 .into_iter()
                 .map(|thread| AgentSessionSummary {
                     session_id: thread.id,
-                    title: thread.title.and_then(|title| workspace.present_title(&title)),
+                    title: thread
+                        .title
+                        .and_then(|title| workspace.present_title(&title)),
                     updated_at: thread.updated_at,
                 })
                 .collect(),
@@ -127,8 +129,7 @@ impl CodexHistory {
             process.creation_flags(CREATE_NO_WINDOW);
         }
         process.kill_on_drop(true);
-        let mut child =
-            subscription::ProbeProcess(process.spawn().map_err(|_| "unavailable")?);
+        let mut child = subscription::ProbeProcess(process.spawn().map_err(|_| "unavailable")?);
         let result = async {
             let mut input = child.0.stdin.take().ok_or("unavailable")?;
             let mut output = BufReader::new(child.0.stdout.take().ok_or("unavailable")?);
@@ -304,7 +305,11 @@ fn iso8601(seconds: i64) -> Option<String> {
     let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
     let month_index = (5 * day_of_year + 2) / 153;
     let day = day_of_year - (153 * month_index + 2) / 5 + 1;
-    let month = if month_index < 10 { month_index + 3 } else { month_index - 9 };
+    let month = if month_index < 10 {
+        month_index + 3
+    } else {
+        month_index - 9
+    };
     let year = year_of_era + era * 400 + i64::from(month <= 2);
     Some(format!(
         "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z",

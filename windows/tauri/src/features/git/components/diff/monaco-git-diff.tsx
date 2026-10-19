@@ -53,6 +53,8 @@ interface Props {
   startAtFirstDifference?: boolean;
   startAtLastDifference?: boolean;
   focusOnInitialDifference?: boolean;
+  /** One-based modified-side lines to land on; wins over the first/last landing. */
+  revealRange?: { startLine: number; endLine: number };
   highlightWords?: boolean;
   repositoryPreview?: boolean;
   onSplitLayout?: (originalWidth: number) => void;
@@ -76,6 +78,7 @@ export default function MonacoGitDiff({
   startAtFirstDifference = false,
   startAtLastDifference = false,
   focusOnInitialDifference = true,
+  revealRange,
   highlightWords = true,
   repositoryPreview = false,
   onSplitLayout,
@@ -108,11 +111,13 @@ export default function MonacoGitDiff({
   const sourcePath = diff.new_path || diff.file_path || diff.old_path || "";
   const latest = useRef({ rows, sourcePath, sourceRepoPath, isDeleted: diff.is_deleted });
   const updating = useRef(false);
-  const firstDifferencePending = useRef(startAtFirstDifference);
+  const firstDifferencePending = useRef(startAtFirstDifference || Boolean(revealRange));
   const initialDifferenceFocusRef = useRef(focusOnInitialDifference);
   initialDifferenceFocusRef.current = focusOnInitialDifference;
   const lastDifferenceLanding = useRef(startAtLastDifference);
   lastDifferenceLanding.current = startAtLastDifference;
+  const revealRangeLanding = useRef(revealRange);
+  revealRangeLanding.current = revealRange;
   const landingDiff = useRef(diff);
   const navigationListener = useRef(onNavigationChange);
   navigationListener.current = onNavigationChange;
@@ -206,7 +211,36 @@ export default function MonacoGitDiff({
           // Consume once after Monaco finishes; later cursor/model updates keep their position.
           firstDifferencePending.current = false;
           if (changes.length) {
-            const change = changes[lastDifferenceLanding.current ? changes.length - 1 : 0];
+            const reveal = revealRangeLanding.current;
+            // The reveal range speaks source line numbers while Monaco changes
+            // speak model line numbers; translate through the projection rows
+            // (row order is model order, newLine carries the source number).
+            let landed: monaco.editor.ILineChange | undefined;
+            if (reveal) {
+              // The modified-side model only contains rows with a right side;
+              // removed rows are left-only and must not consume model lines.
+              const modelLines = new Set<number>();
+              let modelLine = 0;
+              for (const row of latest.current.rows) {
+                if (row.right !== null && row.right !== undefined) {
+                  modelLine += 1;
+                  if (
+                    row.newLine !== null &&
+                    row.newLine >= reveal.startLine &&
+                    row.newLine <= reveal.endLine
+                  ) {
+                    modelLines.add(modelLine);
+                  }
+                }
+              }
+              landed = changes.find((candidate) => {
+                for (let line = candidate.modifiedStartLineNumber; line <= candidate.modifiedEndLineNumber; line++) {
+                  if (modelLines.has(line)) return true;
+                }
+                return false;
+              });
+            }
+            const change = landed ?? changes[lastDifferenceLanding.current ? changes.length - 1 : 0];
             const lineNumber = differenceStartLine(change, editors[1].getModel()?.getLineCount() ?? 1);
             editors[1].setPosition({ lineNumber, column: 1 });
             editors[1].revealPositionInCenter({ lineNumber, column: 1 });

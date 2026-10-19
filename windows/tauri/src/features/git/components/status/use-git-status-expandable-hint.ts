@@ -15,9 +15,11 @@ function measureTextWidth(part: HTMLElement): number {
   const range = part.ownerDocument.createRange?.();
   range?.selectNodeContents(part);
   const textWidth = range?.getBoundingClientRect().width ?? 0;
-  // Never fall back to scrollWidth when real layout exists: a stretched flex part reports
-  // its box width there, which grows with the tree and would keep widening it.
-  return textWidth > 0 ? textWidth : part.scrollWidth;
+  // An empty or responsively hidden description still has a stretched flex box.
+  // Its zero text width is real; scrollWidth would feed that box back into tree growth.
+  const box = part.getBoundingClientRect();
+  const hasLayout = textWidth > 0 || box.width > 0 || box.height > 0;
+  return hasLayout ? textWidth : part.scrollWidth;
 }
 
 /**

@@ -19,8 +19,8 @@ import {
 } from "../stores/git-commit-panel-preferences.store";
 
 export const COMMIT_MESSAGE_HEIGHT_CSS_VARIABLE = "--git-commit-message-height";
-/** The changes list never gets shorter than this while the commit area grows. */
-export const GIT_CHANGES_MIN_HEIGHT = 96;
+/** Swift reserves 120pt for ChangeList controls/list, plus a 40pt toolbar. */
+export const GIT_CHANGES_MIN_HEIGHT = 160;
 const KEYBOARD_STEP = 16;
 /** The editor never renders taller than this share of the viewport, whatever height is stored. */
 export const COMMIT_MESSAGE_MAX_VIEWPORT_RATIO = 0.6;

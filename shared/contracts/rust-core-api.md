@@ -638,7 +638,7 @@ protocol and explicit consent for HTTP.
 Lithe never installs Node.js or npm; the agents' own command-line tools are installed only through `agent.installCli` on an explicit user action. `agent.status`
 detects Node.js and npm through the login shell's `PATH` and lists every
 supported agent with its pinned version, installed version, provider protocol,
-and blocking issues. Adapters that drive the agent's own CLI (Codex, Claude Code) report the
+and blocking issues. Each adapter also reports optional `updateAvailable`: true only when the verified catalog version is strictly newer than the installed version under SemVer precedence, false for equal or newer local versions, and absent for missing or unparseable versions. Build metadata does not affect precedence. This target remains Lithe's verified catalog version, not an unverified latest registry version. Hosts must not derive updates from version-string inequality. Adapters that drive the agent's own CLI (Codex, Claude Code) report the
 CLI found on that `PATH` with its minimum version; they are installed with
 `--omit=optional`, so their bundled CLI copy is not downloaded, and are launched
 with the user's CLI through the adapter's variable (`CODEX_PATH`,
@@ -647,7 +647,7 @@ too old CLI is an issue for the user to resolve, never installed by Lithe.
 For every catalog CLI, `cli.installation.updateAvailable` is `true` only when the verified
 installation owner reports a newer release, `false` when no newer release is found
 (npm's published version or Homebrew's local index), and absent when the check is
-unavailable. It does not change `canUpdate`, which only describes whether Lithe can
+unavailable. Optional `cli.installation.availableVersion` retains the actual target returned by that same query: npm's published version or the matched Homebrew entry's `current_version`. Hosts display the detected current version and confirmed target together, including in the collapsed CLI row. If Homebrew confirms an outdated package without supplying its target version, hosts show an unknown target rather than inferring one from the installed version. Empty Homebrew outdated results do not provide a latest version. Failed read-only probes include optional `cli.installation.updateCheckError` with a bounded diagnostic reason; unavailable native protocols remain unknown without pretending to have checked the latest version. It does not change `canUpdate`, which only describes whether Lithe can
 safely invoke that owner. npm checks query the verified update target, including
 its explicit `@latest` tag; Homebrew checks query the verified owning package and
 do not refresh the local index automatically. Native installers without a
@@ -689,12 +689,9 @@ only when `canUpdate` is true. The hint is never executable input. Absent fields
 remain backward compatible with older hosts. Windows installer/shim ownership
 has not been verified; unrecognized installations use the manual path.
 The minimum CLI version is a compatibility requirement, not a latest-version
-check. For all compatible CLIs, macOS offers Update only when `canUpdate` and
+check. For all CLIs, macOS offers Update only when `canUpdate` and
 `updateAvailable` are both true, including when the preflight row is collapsed.
-A false or absent `updateAvailable` hides that action. Too-old CLIs retain the
-upgrade repair action when `canUpdate` is true, regardless of `updateAvailable`;
-manual guidance remains available when a version check is unknown or an owner
-cannot be updated safely.
+A false or absent `updateAvailable` hides that action, even for a CLI below the adapter's minimum version; compatibility warnings and manual guidance remain visible. Hosts show loading and completion on every refresh, retain old detection data on failure with the failure reason, and hide stale update actions until a subsequent successful check.
 After a successful update, users reconnect the Agent to start the updated CLI
 and obtain its model catalog; existing conversations are not interrupted automatically.
 
@@ -847,6 +844,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `git.conflictMarkers` | Return staged text files that still contain conflict markers |
 | `git.operationState` | Report an interrupted merge, rebase, cherry-pick, or revert and its conflicted paths |
 | `git.blame` | Return structured line blame metadata |
+| `git.lineHistory` | Trace which commits touched a one-based snapshot line range of one file |
 | `github.parseRemote` | Parse a canonical GitHub HTTPS or SSH remote into owner/name |
 | `github.requestPlan` | Validate one GitHub operation and produce a trusted platform HTTP request plan |
 | `github.normalizeResponse` | Normalize raw GitHub JSON and HTTP status into deterministic data or a stable error |
@@ -927,8 +925,11 @@ the run wrote and returns `testCases`, otherwise an empty list:
 
 ```json
 { "className": "com.example.CalculatorTest", "method": "additionIsCorrect",
-  "status": "failed", "message": "expected <4> but was <5>", "invocations": 1 }
+  "status": "failed", "message": "expected <4> but was <5>", "invocations": 1,
+  "durationMillis": 23 }
 ```
+
+Optional `durationMillis` comes only from each XML testcase's `time` seconds attribute. Repeated/parameterized invocations sum their times in whole milliseconds; if any invocation has a missing, negative, non-finite, unrepresentable time or the sum overflows the host integer range, the field is omitted. A reported zero is valid. Hosts hide missing method durations and must not substitute a console/suite summary or another class's method time. `build.decodeTestResults` preserves the same duration in its canonical testcase result.
 
 Reports are searched in the module's configured Surefire/Failsafe
 `reportsDirectory` values plus `<build directory>/surefire-reports` and
@@ -1643,6 +1644,23 @@ body on demand with `git.commit`. See
 `git.blame` accepts `root` and a workspace-relative `path`; its line numbers
 are one-based and author timestamps are Unix seconds.
 
+`git.lineHistory` accepts `root`, a workspace-relative `path`, the editor
+snapshot `content`, a one-based inclusive `startLine`/`endLine` range
+addressing that snapshot, and an optional `limit` (default 50, capped at 200;
+snapshots above 8 MiB are rejected). The snapshot is mapped onto the pinned
+`baseCommit` through an isolated platform-temp comparison, so unsaved edits
+stay answerable; the response echoes `baseCommit`, lists `unmappedLines`
+(`kind` `new` for provably inserted lines, `unreliable` for rewritten ones),
+and returns `commits` newest first with `hash`, `kind` (`commit` or
+`merge-first-parent`), `authorName`, `authorTime` (Unix seconds), `subject`,
+`pathAtCommit`, optional `previousPath` on renames, `compareBase` (the parent
+the metadata diff was taken against; empty for the root commit whose base is
+the empty tree), and `relevantRanges` hunks intersecting the traced lines.
+Queries walk the first-parent chain only: branch-internal commits of a merge
+are not listed separately, pure renames are not listed as content changes,
+and `truncated` reports entries beyond the limit. Pure-deletion sides report
+the boundary position as both start and end.
+
 `workspace.search` accepts `maxResults` for a total result cap. Callers that
 need separate buckets may also provide `maxFileResults` and
 `maxContentResults`; each category is capped independently and the total cap
@@ -1851,6 +1869,13 @@ Terminal operation events are exactly one of `operationCompleted` with a typed
 result or `operationFailed` with the adapter command and safe message. Other
 ordered events are `stateChanged`, `initialized`, `output`, `stopped`,
 `continued`, `terminated`, and `breakpoint`. Source coordinates are one-based.
+Source breakpoint confirmations include optional `requestedLine` alongside the
+adapter-resolved `line`. Core retains their association by adapter breakpoint ID,
+so later location-free `breakpoint` events preserve both the requested anchor and
+resolved location. Responses to superseded per-file sets are discarded. Platforms
+persist the requested anchor and may display the resolved line; placement alone
+does not imply that bytecode was bound or that execution will suspend there.
+The correlation fixture is `shared/fixtures/debug/breakpoint-binding-v1.json`.
 The compatibility flow is captured in
 `shared/fixtures/debug/dap-session-v1.json`; exception normalization cases are
 captured in `shared/fixtures/debug/exception-info-v1.json`.
@@ -2824,6 +2849,13 @@ mode it returns candidate file counts and rename identities with empty `patch`
 and zero `byteLength`, independently of patch text encoding and exchange size.
 See [Patch exchange](git-patch-exchange.md) and its metadata fixture.
 
+For Shelf capture, `git.patchExport` also accepts `includeUntracked: true` only
+with `source: "unstaged"`. It snapshots the real index and exports the selected
+working files, including untracked additions, relative to that index. The real
+index remains unchanged. The default false retains tracked-only unstaged export;
+`workingTree` remains HEAD-based. See the same contract and its
+`unstagedWithUntrackedRequest` fixture.
+
 `git.rebaseControl` requires `expectedHead` when `amendMessage` is present.
 Missing or stale HEAD rejects the amendment before writing; plain Continue,
 Skip and Abort do not require this field. Both products must send the HEAD
@@ -3096,3 +3128,21 @@ Core-planned direct JDT JDWP launches) so DevTools cannot restart the classloade
 HotSwap. Attach to independently launched JVMs does not change their options.
 The Windows host maps `redefineClasses` to this operation and `cancelOperation`
 to `debug.cancelOperation` with a `timedOut` reason for its bounded result wait.
+
+### Saved changes: directional patches and immutable stashes
+
+`git.patchPreview` and `git.patchApply` accept optional `reverse` (default `false`).
+The preview token binds direction, patch bytes, target, index, HEAD and working files;
+changing direction requires a new preview. Preview checks use disposable index copies
+and preserve the real index bytes. Applying to `indexAndWorktree` may refresh its
+stat cache after reviewed-state validation. Git remains responsible for applicability;
+there is no partial-reject or automatic whitespace repair mode.
+See `shared/fixtures/git/patch-exchange-v1.json`.
+
+`git.stashes` adds `oid`, the full immutable object identity, alongside the positional
+`reference`. `git.diff` accepts `stashReference` to read a stash including its untracked
+files. Stash write operations also accept the full object identity in `reference`;
+Core resolves its current stash position under the existing writer lease and rejects
+an identity that is no longer present. Legacy positional references remain accepted.
+See `shared/fixtures/git/saved-stash-v1.json`. Native Shelf persistence is platform-owned;
+raw patch bytes are kept separately for index and working-tree versions.

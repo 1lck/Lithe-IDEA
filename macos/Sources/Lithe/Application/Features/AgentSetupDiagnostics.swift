@@ -170,11 +170,19 @@ extension AgentSetupDiagnostics {
                 // Compatibility does not mean the CLI has the latest model catalog.
                 let compatible = isVersion(detected.version, atLeast: cli.minimumVersion)
                 let updateAvailable = cli.installation?.updateAvailable == true
-                var statusTitle = title
+                var statusTitle = "\(cli.name) · \(detected.version)"
+                if updateAvailable {
+                    statusTitle += " → " + (cli.installation?.availableVersion ?? String(localized: "Could not confirm", bundle: bundle))
+                }
                 var details: [AgentPreflightCheck.Detail] = [
-                    .init(id: "version", label: String(localized: "Version", bundle: bundle), value: detected.version),
+                    .init(id: "version", label: String(localized: "Current version", bundle: bundle), value: detected.version),
                     .init(id: "path", label: String(localized: "Path", bundle: bundle), value: detected.path),
                 ]
+                details.insert(.init(id: "minimum-version", label: String(localized: "Minimum version", bundle: bundle), value: cli.minimumVersion), at: 1)
+                if updateAvailable {
+                    details.insert(.init(id: "available-version", label: String(localized: "Update to", bundle: bundle),
+                        value: cli.installation?.availableVersion ?? String(localized: "Could not confirm", bundle: bundle)), at: 1)
+                }
                 var guidance: [String] = []
                 var messageLines: [String] = []
                 if !compatible {
@@ -198,6 +206,10 @@ extension AgentSetupDiagnostics {
                         messageLines.append(couldNotCheck)
                     case true?: break
                     }
+                }
+                if let reason = cli.installation?.updateCheckError {
+                    guidance.append(reason)
+                    messageLines.append(reason)
                 }
                 if let installation = cli.installation {
                     let source: String = switch installation.source {
@@ -223,9 +235,9 @@ extension AgentSetupDiagnostics {
                 checks.append(.init(
                     id: "cli",
                     title: statusTitle,
-                    status: compatible ? .pass : .warn,
+                    status: compatible && cli.installation?.updateCheckError == nil ? .pass : .warn,
                     message: messageLines.joined(separator: "\n"),
-                    fix: canUpdate && (!compatible || updateAvailable) ? .updateCli : nil,
+                    fix: canUpdate && updateAvailable ? .updateCli : nil,
                     details: details,
                     guidance: guidance.isEmpty ? nil : guidance.joined(separator: "\n")
                 ))
@@ -245,10 +257,13 @@ extension AgentSetupDiagnostics {
             checks.append(.init(id: "adapter", title: adapterTitle, status: .fail,
                                 message: String(format: String(localized: "%@ is not installed. Lithe installs it with your npm into its application data.", bundle: bundle), "\(agent.package)@\(agent.version)"),
                                 fix: canInstallAdapter ? .install : nil))
-        case let installed? where installed != agent.version:
+        case let installed? where agent.needsUpdate:
             checks.append(.init(id: "adapter", title: adapterTitle, status: .warn,
                                 message: String(format: String(localized: "Installed %@ · update to %@ available", bundle: bundle), installed, agent.version),
                                 fix: canInstallAdapter ? .update : nil))
+        case _? where agent.updateAvailable == nil:
+            checks.append(.init(id: "adapter", title: adapterTitle, status: .warn,
+                                message: String(localized: "Could not compare the local adapter with the verified version.", bundle: bundle)))
         case let installed?:
             checks.append(.init(id: "adapter", title: adapterTitle, status: .pass,
                                 message: String(format: String(localized: "Installed %@", bundle: bundle), installed)))

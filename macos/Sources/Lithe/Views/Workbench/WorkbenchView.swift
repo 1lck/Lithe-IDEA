@@ -6,6 +6,17 @@ import LitheModuleAPI
 enum WorkbenchLayoutMetrics {
     static let rightActivityBarWidth: CGFloat = 40
     static let workspaceTrailingInset = rightActivityBarWidth
+    static let projectTabGap: CGFloat = 4
+
+    @MainActor
+    static func projectTabWidth(name: String, documentName: String?, needsAttention: Bool) -> CGFloat {
+        let nameWidth = (name as NSString).size(withAttributes: [.font: LitheTheme.uiNSFont(size: 13)]).width
+        let documentWidth = documentName.map {
+            ("· \($0)" as NSString).size(withAttributes: [.font: LitheTheme.uiNSFont(size: 11.5)]).width + 7
+        } ?? 0
+        // Reserve the folder, label gaps, close target and content insets; long labels truncate.
+        return min(360, max(120, ceil(nameWidth + documentWidth + 65 + (needsAttention ? 13 : 0))))
+    }
 }
 
 enum ActivityBarMetrics {
@@ -238,15 +249,17 @@ struct WorkbenchView: View {
         VStack(spacing: 0) {
             topBar
 
-            if projectSessions.openProjects(in: projectWindowScope).count > 1 {
-                projectTabBar
-            }
-
             HStack(spacing: 0) {
                 activityBar
-                workspaceArea
-                    .workbenchToolContentLayers(store: toolContentStore) { toolWindowDropOverlay }
-                    .padding(.trailing, WorkbenchLayoutMetrics.workspaceTrailingInset)
+                VStack(spacing: 0) {
+                    if scopedOpenProjects.count > 1 {
+                        projectTabBar
+                    }
+                    workspaceArea
+                        .workbenchToolContentLayers(store: toolContentStore) { toolWindowDropOverlay }
+                }
+                .padding(.horizontal, scopedOpenProjects.count > 1 ? WorkbenchLayoutMetrics.projectTabGap : 0)
+                .padding(.trailing, WorkbenchLayoutMetrics.workspaceTrailingInset)
             }
             .frame(maxHeight: .infinity)
             .overlay(alignment: .trailing) {
@@ -591,59 +604,57 @@ struct WorkbenchView: View {
     }
 
     private var projectTabBar: some View {
-        GeometryReader { geometry in
-            let horizontalPadding: CGFloat = 6
-            let tabSpacing: CGFloat = 6
-            let minimumTabWidth: CGFloat = 180
-            let projectCount = CGFloat(max(scopedOpenProjects.count, 1))
-            let availableWidth = geometry.size.width
-                - horizontalPadding * 2
-                - tabSpacing * (projectCount - 1)
-            let tabWidth = max(minimumTabWidth, floor(availableWidth / projectCount))
-
-            ScrollViewReader { proxy in
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: tabSpacing) {
-                        ForEach(scopedOpenProjects) { projectModel in
-                            projectTab(projectModel, width: tabWidth)
-                                .id(projectModel.id)
-                        }
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(scopedOpenProjects) { projectModel in
+                        projectTab(projectModel)
+                            .id(projectModel.id)
                     }
-                    .padding(.horizontal, horizontalPadding)
-                    .frame(minWidth: geometry.size.width, alignment: .leading)
                 }
-                .onAppear {
-                    proxy.scrollTo(projectSessions.activeSessionID(in: projectWindowScope), anchor: .center)
-                }
-                .onChange(of: projectSessions.activeSessionIDs) { _ in
-                    withAnimation(.easeOut(duration: 0.12)) {
-                        proxy.scrollTo(
-                            projectSessions.activeSessionID(in: projectWindowScope),
-                            anchor: .center
-                        )
-                    }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 4)
+            }
+            .onAppear {
+                proxy.scrollTo(projectSessions.activeSessionID(in: projectWindowScope), anchor: .center)
+            }
+            .onChange(of: projectSessions.activeSessionIDs) { _ in
+                withAnimation(.easeOut(duration: 0.12)) {
+                    proxy.scrollTo(
+                        projectSessions.activeSessionID(in: projectWindowScope),
+                        anchor: .center
+                    )
                 }
             }
         }
-        .frame(height: LitheTheme.Metrics.tabHeight + 4)
-        .background(model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.toolHeader)
+        .frame(height: 36)
+        .workbenchPaneChrome(
+            background: model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.toolHeader,
+            surrounding: frameChromeBackground,
+            roundsCorners: !model.workbenchBackgroundFeature.hasImage,
+            showsFrameGradient: usesIDEAFrameExperiment
+        )
+        .padding(.bottom, WorkbenchLayoutMetrics.projectTabGap)
     }
 
-    private func projectTab(_ projectModel: AppModel, width: CGFloat) -> some View {
+    private func projectTab(_ projectModel: AppModel) -> some View {
         let isActive = projectModel.id == projectSessions.activeSessionID(in: projectWindowScope)
         let isHovered = projectModel.id == hoveredProjectTabID
+        let width = WorkbenchLayoutMetrics.projectTabWidth(
+            name: projectModel.projectName,
+            documentName: projectModel.activeDocument?.displayName,
+            needsAttention: projectModel.agentConversationNeedsAttention
+        )
 
         return ZStack(alignment: .trailing) {
             Button {
                 projectSessions.activateSession(projectModel.id)
             } label: {
                 HStack(spacing: 7) {
-                    Image(systemName: "folder.fill")
-                        .font(LitheTheme.uiFont(size: 11, weight: .medium))
-                        .foregroundStyle(isActive ? LitheTheme.accent : LitheTheme.secondaryText)
+                    LitheIDEAIcon(resourcePath: "expui/nodes/folder.svg", size: 16, preservesOriginalColors: true)
 
                     Text(projectModel.projectName)
-                        .font(LitheTheme.uiFont(size: 12.5, weight: isActive ? .semibold : .medium))
+                        .font(LitheTheme.uiFont(size: 13, weight: .regular))
                         .foregroundStyle(isActive ? LitheTheme.primaryText : LitheTheme.secondaryText)
 
                     AgentAttentionIndicator(model: projectModel)
@@ -655,52 +666,35 @@ struct WorkbenchView: View {
                     }
                 }
                 .lineLimit(1)
-                .padding(.horizontal, 38)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                .padding(.leading, 12)
+                .padding(.trailing, 30)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.litheNoPress)
-            .lithePointer()
             .accessibilityIdentifier("project-tab-\(projectModel.id.uuidString)")
 
             Button {
                 projectSessions.closeProject(projectModel.id)
             } label: {
-                Image(systemName: "xmark")
-                    .font(LitheTheme.uiFont(size: 9, weight: .semibold))
-                    .foregroundStyle(LitheTheme.secondaryText)
+                LitheIDEAIcon(resourcePath: "expui/general/close.svg", size: 16, preservesOriginalColors: true)
             }
             .buttonStyle(LitheIconButtonStyle())
-            .lithePointer()
             .help("Close Project")
             .opacity(isActive || isHovered ? 1 : 0)
             .allowsHitTesting(isActive || isHovered)
             .padding(.trailing, 3)
         }
-        .frame(width: width, height: 30)
+        .frame(width: width, height: 28)
         .background(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
+            RoundedRectangle(cornerRadius: 4)
                 .fill(
                     isActive
-                        ? LitheTheme.activeTabBackground
+                        ? LitheTheme.subtleSelection
                         : (isHovered ? LitheTheme.hoverBackground : LitheTheme.inactiveTabBackground)
                 )
         )
-        .overlay {
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .stroke(
-                    isActive
-                        ? LitheTheme.inputFocusBorder.opacity(0.7)
-                        : (isHovered ? LitheTheme.panelBorder : .clear),
-                    lineWidth: 1
-                )
-        }
-        .overlay(alignment: .bottom) {
-            Capsule()
-                .fill(isActive ? LitheTheme.tabUnderline : .clear)
-                .frame(width: min(56, max(28, width * 0.12)), height: 2)
-                .padding(.bottom, 1)
-        }
+        .clipShape(RoundedRectangle(cornerRadius: 4))
         .onHover { hovering in
             hoveredProjectTabID = hovering ? projectModel.id : nil
         }
@@ -779,8 +773,6 @@ struct WorkbenchView: View {
                            resizableHeight: $branchPopupHeight, minimumHeight: BranchSwitcherPopover.Metrics.minimumHeight) { branchSwitcherContent }
 
             Spacer(minLength: 22)
-
-            workbenchContributionMenu
 
             HStack(spacing: 0) {
                 runConfigurationPicker
@@ -963,28 +955,32 @@ struct WorkbenchView: View {
     }
 
     private var runLaunchButton: some View {
-        Button {
+        let control = WorkbenchModuleUIComposition.mainToolbarDebugControl(for: model)
+        let isRunningConfiguration = model.activeTestTarget == nil && model.runFeatureIfActive?.isSelectedConfigurationRunning == true
+        return Button {
             moduleUIRegistry.performAction(id: "workbench.run-start-or-restart", model: model)
         } label: {
             LitheIDEAIcon(
-                resourcePath: model.runFeatureIfActive?.isSelectedConfigurationRunning == true
+                resourcePath: control.map { DebugToolbarPresentation.ideaAssetPath(for: $0) }
+                    ?? (isRunningConfiguration
                     ? "expui/run/rerun_stroke.svg"
-                    : "expui/run/run_stroke.svg",
+                    : "expui/run/run_stroke.svg"),
                 size: 16,
-                fallbackSystemImage: model.runFeatureIfActive?.isSelectedConfigurationRunning == true
+                fallbackSystemImage: isRunningConfiguration
                     ? "arrow.clockwise"
-                    : "play.fill"
+                    : "play.fill",
+                preservesOriginalColors: control != nil
             )
-                .foregroundStyle(model.runFeatureIfActive?.isSelectedConfigurationRunning == true
+                .foregroundStyle(isRunningConfiguration
                                  ? LitheTheme.MainToolbar.runningIcon : LitheTheme.MainToolbar.runIcon)
         }
         .buttonStyle(LitheMainToolbarButtonStyle(
             insets: LitheTheme.MainToolbar.runInsets,
-            executionBackground: model.runFeatureIfActive?.isSelectedConfigurationRunning == true
+            executionBackground: control == nil && isRunningConfiguration
                 ? LitheTheme.MainToolbar.runningBackground : nil
         ))
-        .help(model.runFeatureIfActive?.isSelectedConfigurationRunning == true ? "Rerun selected configuration" : "Run selected configuration")
-        .accessibilityLabel(model.runFeatureIfActive?.isSelectedConfigurationRunning == true ? "Rerun selected configuration" : "Run selected configuration")
+        .help(control == .resume ? "Resume" : control == .pause ? "Pause" : isRunningConfiguration ? "Rerun selected configuration" : "Run selected configuration")
+        .accessibilityLabel(control == .resume ? "Resume" : control == .pause ? "Pause" : isRunningConfiguration ? "Rerun selected configuration" : "Run selected configuration")
         .accessibilityIdentifier("run-selected-run-configuration")
     }
 
@@ -1040,14 +1036,26 @@ struct WorkbenchView: View {
         } label: {
             HStack(spacing: 2) {
                 HStack(spacing: 6) {
-                    RunConfigurationIcon(
-                        kind: model.runFeatureIfActive?.selectedConfiguration?.kind ?? .currentFile,
-                        size: LitheTheme.MainToolbar.iconSize
-                    )
-                    Text(model.runFeatureIfActive?.selectedConfiguration?.name ?? "Current File")
-                        .font(LitheTheme.MainToolbar.font)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
+                    if let target = model.activeTestTarget {
+                        LitheIDEAIcon(
+                            resourcePath: "expui/runConfigurations/junit.svg",
+                            size: LitheTheme.MainToolbar.iconSize,
+                            preservesOriginalColors: true
+                        )
+                        Text(target.name)
+                            .font(LitheTheme.MainToolbar.font)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    } else {
+                        RunConfigurationIcon(
+                            kind: model.runFeatureIfActive?.selectedConfiguration?.kind ?? .currentFile,
+                            size: LitheTheme.MainToolbar.iconSize
+                        )
+                        Text(model.runFeatureIfActive?.selectedConfiguration?.name ?? "Current File")
+                            .font(LitheTheme.MainToolbar.font)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
                 }
                 LitheIDEAIcon(resourcePath: "expui/general/chevronDown.svg", size: 16)
                     .foregroundStyle(LitheTheme.MainToolbar.icon)
@@ -1077,6 +1085,35 @@ struct WorkbenchView: View {
                 .padding(.top, 6)
             ScrollView {
                 VStack(spacing: 3) {
+                    if let activeTarget = model.activeTestTarget {
+                        Button {
+                            isRunConfigurationPickerPresented = false
+                        } label: {
+                            HStack(spacing: 10) {
+                                LitheIDEAIcon(
+                                    resourcePath: "expui/runConfigurations/junit.svg",
+                                    size: 16,
+                                    preservesOriginalColors: true
+                                )
+                                Text(activeTarget.name)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                Spacer(minLength: 12)
+                                Image(systemName: "checkmark")
+                                    .font(LitheTheme.uiFont(size: 11, weight: .semibold))
+                                    .opacity(1)
+                            }
+                            .foregroundStyle(LitheTheme.primaryText)
+                            .frame(minHeight: LitheDropdownMetrics.rowHeight)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(LitheDropdownRowStyle(isSelected: true))
+                        .help(activeTarget.name)
+                        .accessibilityAddTraits(.isSelected)
+
+                        Divider().padding(.vertical, 3)
+                    }
+
                     ForEach(visibleConfigurations) { configuration in
                         if configuration.id == services.first?.id {
                             Divider().padding(.vertical, 3)
@@ -1226,46 +1263,6 @@ struct WorkbenchView: View {
         .background(frameChromeBackground)
     }
 
-    private var workbenchContributionMenu: some View {
-        LitheMenu {
-            for contribution in model.registeredContributions(at: .menu) {
-                let state = moduleUIRegistry.state(for: contribution, model: model)
-                LitheContextMenuItem.action(contribution.title, localizesTitle: false,
-                    icon: moduleUIRegistry.icon(for: contribution, role: .action),
-                    checked: state.isChecked, isEnabled: state.isEnabled) {
-                    moduleUIRegistry.perform(contribution, model: model)
-                }
-            }
-            LitheContextMenuItem.submenu(String(localized: "Tool Windows")) {
-                for contribution in model.workbenchContributions where contribution.kind == .toolWindow
-                    && moduleUIRegistry.renderer(for: contribution) != nil {
-                    LitheContextMenuItem.submenu(contribution.title, icon: moduleUIRegistry.icon(for: contribution, role: .action)) {
-                        contributionCustomizationItems(contribution)
-                    }
-                }
-            }
-            for (placement, title) in [(ModuleContributionPlacement.toolbar, String(localized: "Toolbar Actions")),
-                                       (.menu, String(localized: "Menu Actions")),
-                                       (.commandPalette, String(localized: "Command Palette Actions"))] {
-                LitheContextMenuItem.submenu(title) {
-                    for contribution in model.workbenchContributions where contribution.placement == placement {
-                        LitheContextMenuItem.submenu(contribution.title, icon: moduleUIRegistry.icon(for: contribution, role: .action)) { contributionCustomizationItems(contribution) }
-                    }
-                }
-            }
-            LitheContextMenuItem.action(String(localized: "Restore Default UI Layout")) {
-                model.workbenchFeature.resetContributionPreferences()
-            }
-        } label: {
-            LitheIDEAIcon(resourcePath: "expui/general/moreHorizontal.svg", size: 16)
-        }
-        .buttonStyle(.litheNoPress)
-        .foregroundStyle(LitheTheme.toolWindowButtonText)
-        .workbenchHoverHelp(Text("Workbench Actions"))
-        .accessibilityLabel("Workbench Actions")
-        .accessibilityIdentifier("workbench-contributions-menu")
-    }
-
     private func contributionCustomizationItems(_ contribution: ModuleContribution) -> [LitheContextMenuItem] {
         let workbench = model.workbenchFeature
         let state = moduleUIRegistry.state(for: contribution, model: model)
@@ -1319,7 +1316,7 @@ struct WorkbenchView: View {
 
     private func openTool(_ tool: WorkbenchFeatureModel.ToolWindow) {
         if let entry = contribution(for: tool) {
-            if entry.text == nil && model.workbenchFeature.isVisible(tool) {
+            if !entry.hasDeclarativeContent && model.workbenchFeature.isVisible(tool) {
                 model.workbenchFeature.setVisibility(tool, isVisible: false)
             } else { moduleUIRegistry.perform(entry, model: model) }
         }

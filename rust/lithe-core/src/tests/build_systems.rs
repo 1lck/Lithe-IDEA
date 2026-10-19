@@ -433,6 +433,51 @@ fn detection_applies_nesting_priority_and_rejections() {
 /// Maven's model comes from the host integration during detection, with the
 /// reactor's modules as projects and its profiles as option values.
 #[test]
+fn maven_method_durations_survive_report_aggregation_and_build_decoding() {
+    let timing: Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../shared/fixtures/maven/testcase-durations-v1.json"
+    )))
+    .unwrap();
+    let workspace = TemporaryWorkspace::new("maven-method-durations");
+    workspace.write("pom.xml", "<project><modelVersion>4.0.0</modelVersion><groupId>demo</groupId><artifactId>timing</artifactId><version>1</version></project>")
+        .write("target/surefire-reports/TEST-demo.DurationTest.xml", timing["xml"].as_str().unwrap());
+    let results = crate::project::test_results(
+        serde_json::from_value(json!({
+            "root": workspace.root(), "output": "", "reports": {"notBeforeMillis": 0}
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        serde_json::to_value(&results.test_cases).unwrap(),
+        timing["expected"]
+    );
+    let decoded = call(
+        "decodeTestResults",
+        fixture("maven-build.plugin.json"),
+        "maven",
+        json!({
+            "workspaceRoot": workspace.root(), "root": ".", "project": ".", "output": "", "notBeforeMillis": 0
+        }),
+    );
+    assert_eq!(decoded["status"], "ok", "{decoded}");
+    let methods = decoded["results"]["tests"].as_array().unwrap();
+    assert_eq!(methods.len(), timing["expected"].as_array().unwrap().len());
+    for expected in timing["expected"].as_array().unwrap() {
+        let actual = methods
+            .iter()
+            .find(|case| case["case"] == expected["method"])
+            .unwrap();
+        assert_eq!(
+            actual["durationMillis"], expected["durationMillis"],
+            "{actual}"
+        );
+        assert_eq!(actual["invocations"], expected["invocations"]);
+    }
+}
+
+#[test]
 fn maven_reactor_detects_through_the_host_integration() {
     let workspace = TemporaryWorkspace::new("build-maven-detect");
     workspace

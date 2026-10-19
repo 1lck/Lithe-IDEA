@@ -39,7 +39,7 @@ extension AppModel {
         guard hasJavaSources else { return (.notJava, nil) }
         let sessions: LanguageToolingSessionManager
         do {
-            sessions = try await languageSessionsForWorkspaceMaintenance()
+            sessions = try await languageSessionsForWorkspaceMaintenance(for: identity)
         } catch {
             return (.failed(error.localizedDescription), nil)
         }
@@ -48,7 +48,10 @@ extension AppModel {
             // Nothing started the Java service for this workspace yet. Asking
             // starts it the way a launch does; its outcome reaches the refresh
             // through `projectPreparation`, so the result here is not needed.
-            Task { [sessions] in _ = try? await sessions.javaEntrypoints(rootURL: identity.url) }
+            Task { [weak self, sessions] in
+                guard self?.isCurrentWorkspace(identity) == true, !Task.isCancelled else { return }
+                _ = try? await sessions.javaEntrypoints(rootURL: identity.url)
+            }
             return (.pending, sessions)
         }
         if preparation.blocksRun {
@@ -147,10 +150,11 @@ extension AppModel {
     /// launchable and Debug keeps using a project entry, as it did when the
     /// editor text was unavailable.
     func isLaunchableJavaEntrypoint(_ document: EditorDocument?, in workspaceURL: URL) async -> Bool {
-        guard let document, document.url.pathExtension.lowercased() == "java" else {
+        guard let identity = currentWorkspaceIdentity, identity.url == workspaceURL.standardizedFileURL,
+              let document, document.url.pathExtension.lowercased() == "java" else {
             return false
         }
-        guard let sessions = try? await languageSessionsForWorkspaceMaintenance() else {
+        guard let sessions = try? await languageSessionsForWorkspaceMaintenance(for: identity) else {
             return false
         }
         do {

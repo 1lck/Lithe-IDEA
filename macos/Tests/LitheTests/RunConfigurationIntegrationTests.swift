@@ -146,44 +146,29 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
-    func javaBreakpointLocationPreflightRejectsNonExecutableLines() {
+    func sourceBreakpointPlacementRetainsBraceAndAnnotatedDeclarationLines() {
         let source = """
-        package demo;
-        // comment
-
-        public class Main {
-            /* block comment */
-            void run() {
-                System.out.println("ok");
+        class Example {
+            @Test void test() {
+                int value = 1;
             }
         }
         """
-
-        #expect(!DebugBreakpointLocationValidator.isExecutableJavaLine(source: source, line: 2))
-        #expect(!DebugBreakpointLocationValidator.isExecutableJavaLine(source: source, line: 3))
-        #expect(!DebugBreakpointLocationValidator.isExecutableJavaLine(source: source, line: 5))
-        #expect(DebugBreakpointLocationValidator.isExecutableJavaLine(source: source, line: 7))
-        #expect(!DebugBreakpointLocationValidator.isExecutableJavaLine(source: source, line: 8))
+        for line in 1...5 {
+            #expect(DebugBreakpointLocationValidator.canSetSourceBreakpoint(source: source, line: line))
+        }
+        #expect(!DebugBreakpointLocationValidator.canSetSourceBreakpoint(source: source, line: 0))
+        #expect(!DebugBreakpointLocationValidator.canSetSourceBreakpoint(source: source, line: 6))
     }
 
     @Test
-    func javaBreakpointLocationPreflightRejectsTypeDeclarationsWithAnyModifierOrder() {
-        let source = """
-        public final class Main {
-            private static interface Nested {
-                void run();
-            }
-            protected abstract record Value(String text) { }
-            static enum Kind { ONE }
-            void execute() { }
+    func sourceBreakpointPlacementDoesNotPretendToVerifyExecutableCode() {
+        let source = "// comment\n\n@Test\n{\n}"
+        for line in 1...5 {
+            #expect(DebugBreakpointLocationValidator.canSetSourceBreakpoint(source: source, line: line))
         }
-        """
-
-        #expect(!DebugBreakpointLocationValidator.isExecutableJavaLine(source: source, line: 1))
-        #expect(!DebugBreakpointLocationValidator.isExecutableJavaLine(source: source, line: 2))
-        #expect(!DebugBreakpointLocationValidator.isExecutableJavaLine(source: source, line: 5))
-        #expect(!DebugBreakpointLocationValidator.isExecutableJavaLine(source: source, line: 6))
-        #expect(DebugBreakpointLocationValidator.isExecutableJavaLine(source: source, line: 7))
+        #expect(!DebugBreakpointLocationValidator.canSetSourceBreakpoint(source: "", line: -1))
+        #expect(!DebugBreakpointLocationValidator.canSetSourceBreakpoint(source: "", line: 2))
     }
 
     @Test
@@ -3282,6 +3267,28 @@ struct RunConfigurationIntegrationTests {
 
         #expect(feature.state == .launching)
         #expect(Self.debugRequest(named: "launch", in: process.sentData) != nil)
+    }
+
+    @Test
+    func breakpointBindingUsesRequestedIdentityWhenTheAdapterMovesItsLocation() throws {
+        let adapter = TestDebugAdapterSession()
+        let manager = DebugAdapterSessionManager(providers: LanguageProviderCatalog.standard.debugProviders) { _, _ in adapter }
+        defer { manager.stopAll() }
+        let feature = GenericDebugFeatureModel(sessions: manager)
+        let root = URL(fileURLWithPath: "/workspace")
+        let source = root.appendingPathComponent("Example.java")
+        feature.toggleBreakpoint(fileURL: source, line: 3)
+        #expect(feature.start(fileURL: source, rootURL: root,
+            configuration: DebugLaunchConfiguration(name: "Example", request: .launch, arguments: [:])))
+        adapter.onEvent?(.breakpoint(DebugBreakpoint(id: 41, verified: true, message: nil,
+            sourceURL: source, line: 5, column: nil, requestedLine: 3)))
+        let point = try #require(feature.breakpoints.first)
+        #expect(point.line == 3 && point.resolvedLine == 5 && point.verified)
+        feature.toggleBreakpoint(fileURL: source, line: 7)
+        #expect(feature.breakpoints.first?.resolvedLine == 5)
+        feature.toggleBreakpoint(fileURL: source, line: 5)
+        #expect(feature.breakpoints.map(\.line) == [7])
+        #expect(adapter.breakpointUpdates.last?.1.map(\.line) == [7])
     }
 
     @Test

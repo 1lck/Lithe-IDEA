@@ -269,6 +269,44 @@ struct ContextMenuCoverageTests {
     }
 
     @Test(arguments: [ColorScheme.light, .dark])
+    func newlyInsertedOpenDropdownPresentsAfterAnchorAttaches(scheme: ColorScheme) async throws {
+        // Info tips insert their anchor only after hover/click requests presentation.
+        var isPresented = true
+        let host = NSHostingView(rootView: LitheDropdownPopover(
+            isPresented: Binding(get: { isPresented }, set: { isPresented = $0 })
+        ) { Text("Setting explanation").frame(width: 320, height: 60) }
+            .frame(width: 18, height: 18).environment(\.colorScheme, scheme))
+        host.layoutSubtreeIfNeeded()
+        func anchor(in view: NSView) -> LitheDropdownAnchorView? {
+            if let anchor = view as? LitheDropdownAnchorView { return anchor }
+            return view.subviews.lazy.compactMap { anchor(in: $0) }.first
+        }
+        let clock = ContinuousClock()
+        let creationDeadline = clock.now.advanced(by: .seconds(1))
+        while anchor(in: host) == nil, clock.now < creationDeadline { await Task.yield() }
+        let detachedAnchor = try #require(anchor(in: host))
+        #expect(detachedAnchor.window == nil)
+        let window = NSWindow(contentRect: NSRect(x: 100, y: 400, width: 100, height: 100),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+        // Attach the native anchor without a second SwiftUI update masking the lifecycle gap.
+        window.contentView = detachedAnchor
+        let deadline = clock.now.advanced(by: .seconds(1))
+        while window.childWindows?.first == nil, clock.now < deadline { await Task.yield() }
+        let popup = try #require(window.childWindows?.first,
+                                 "An initially open anchor must present when attached, without another state change")
+        #expect(popup.isVisible)
+        #expect(popup.appearance?.name == (scheme == .dark ? .darkAqua : .aqua))
+        window.contentView = nil
+        #expect(!popup.isVisible)
+        #expect(!isPresented)
+    }
+
+    @Test(arguments: [ColorScheme.light, .dark])
     func dropdownPresentationDefersLayoutAndUsesTheLatestContent(scheme: ColorScheme) async throws {
         var isPresented = true
         var width: CGFloat = 300

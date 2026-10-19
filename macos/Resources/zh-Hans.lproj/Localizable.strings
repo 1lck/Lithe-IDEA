@@ -3334,6 +3334,15 @@
 
 /* Plugin build systems */
 "Build" = "构建";
+"Run selected task" = "运行所选任务";
+"Reload %@ projects" = "重新加载 %@ 项目";
+"%@ options" = "%@ 选项";
+"%@ build files changed" = "%@ 构建文件已更改";
+"Add to %@" = "添加到 %@";
+"Toggle %@" = "切换 %@";
+"Verification" = "验证";
+"Documentation" = "文档";
+"Other" = "其他";
 "Hide Build tool window" = "隐藏构建工具窗口";
 "Hide Build Output tool window" = "隐藏构建输出工具窗口";
 "Detect build systems again" = "重新检测构建系统";
@@ -3376,3 +3385,37 @@
 "%@ did not report a version; %@ or newer is required." = "%1$@ 没有报告版本，需要 %2$@ 或更高版本。";
 "%@ is not available." = "%@ 不可用。";
 "No JDK is configured for this project." = "此项目没有配置 JDK。";
+
+"Check complete." = "检查完成。";
+
+"Check complete. Some CLI update results are unavailable; see Preflight." = "检查完成。部分 CLI 的更新状态无法确认，请查看预检信息。";
+
+"Check failed." = "检查失败。";
+
+"Could not compare the local adapter with the verified version." = "无法比较本地适配器与已核验版本。";
+
+"A newer verified adapter version is available." = "有更高的已核验适配器版本可用。";
+
+"The local adapter is at or above the verified version." = "本地适配器版本等于或高于已核验版本。";
+
+"Minimum version" = "最低版本";
+
+"Update to" = "可更新至";
+
+"Could not confirm" = "无法确认";
+
+"Current version: %@ · Verified target: %@" = "当前版本：%@ · 已核验目标：%@";
+
+"Update to: %@" = "可更新至：%@";
+
+/* Plugin web tool windows */
+"Show its own page in a tool window" = "在工具窗口中显示插件自带的页面";
+"Load the %@ model" = "加载 %@ 的模型";
+"Load the dependencies of %@" = "加载 %@ 的依赖";
+"Allow “%@” to run build tools?" = "允许“%@”运行构建工具吗？";
+"The plugin’s page asks to run them in %@." = "插件页面请求在 %@ 中运行它们。";
+"Lithe asks again after the plugin is disabled, updated, or Lithe restarts." = "插件被停用、更新或 Lithe 重启后会再次询问。";
+"Arguments from the page:" = "页面提供的参数：";
+"Allow" = "允许";
+"Don’t Allow" = "不允许";
+"Restart Lithe to load the updated page." = "重启 Lithe 以加载更新后的页面。";

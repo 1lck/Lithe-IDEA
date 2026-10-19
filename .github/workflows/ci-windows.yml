@@ -324,6 +324,13 @@ jobs:
           node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-java-name-validation.json -- src/utils/java-name-validation.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Test Project tree selection, reveal, and move lifecycle
+        shell: pwsh
+        timeout-minutes: 2
+        run: |
+          node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-project-tree.json -- src/features/file-explorer/hooks/use-file-explorer-drag-drop.test.tsx src/features/file-explorer/components/file-explorer-selection.test.tsx src/features/file-explorer/components/file-explorer-reveal.test.tsx src/features/file-explorer/stores/directory-marks.test.ts src/features/sidebar/utils/tree-selection.test.ts src/utils/path-helpers.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Test workspace open, replace, and close lifecycle
         shell: pwsh
         run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-workspace-lifecycle.json -- src/features/workspace/services/workspace-lifecycle.test.ts src/features/window/services/project-window-router.test.ts
@@ -344,7 +351,7 @@ jobs:
 
       - name: Test Git gutter changes and inline review lifecycle
         shell: pwsh
-        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-git-gutter.json -- src/features/git/utils/git-gutter-changes.test.ts src/features/editor/engines/monaco/git-gutter-peek-session.test.ts
+        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-git-gutter.json -- src/features/git/utils/git-gutter-changes.test.ts src/features/editor/engines/monaco/git-gutter-peek-session.test.ts src/features/git/api/git-line-history-api.test.ts src/features/git/utils/line-history-selection.test.ts src/features/git/components/git-line-history-popup.test.tsx
 
       - name: Test editor tab scrolling and lifecycle
         shell: pwsh
@@ -471,6 +478,27 @@ jobs:
         shell: pwsh
         run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-commit-panel.json -- src/features/git/hooks/use-git-commit-picker.test.tsx src/features/git/hooks/use-git-commit-area-resize.test.tsx src/features/git/components/git-commit-panel.test.tsx
 
+      - name: Test Shelf and Stash recovery, sessions, locks, and diff identity
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          $runner = ".agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs"
+          # Run each suite in a fresh Bun process to isolate native spies and store mocks.
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-git-saved-changes-panel.json -- src/features/git/components/stash/git-saved-changes.test.tsx
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-git-shelf-workflow.json -- src/features/git/services/git-shelf-workflow.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-git-patch-api.json -- src/features/git/api/git-patch-api.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-git-saved-changes-operations.json -- src/features/git/stores/git-saved-changes-operations.store.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-git-stash-diff.json -- src/features/git/api/git-stash-diff-api.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Test nested Maven dependency navigation
+        shell: pwsh
+        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-project-dependencies.json -- src/features/maven/components/project-dependencies.test.tsx src/features/maven/utils/maven-module-operations.test.ts
+
       - name: Test workspace Git commit adapters and staging
         shell: pwsh
         run: |
@@ -485,6 +513,10 @@ jobs:
       - name: Test terminal discovery, default shell, profiles, and tab layout
         shell: pwsh
         run: ./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend -FrontendTestPath src/features/terminal/stores/shells.store.test.ts,src/features/terminal/utils/terminal-profiles.test.ts,src/features/terminal/utils/terminal-keyboard.test.ts,src/features/settings/lib/default-shell-options.test.ts,src/features/terminal/components/terminal-tab-strip.test.tsx
+
+      - name: Test explorer file paths inserted into the terminal
+        shell: pwsh
+        run: ./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend -FrontendTestPath src/features/file-explorer/lib/clipboard-entry-paths.test.ts,src/features/terminal/utils/terminal-file-drop.test.ts,src/features/file-system/utils/file-system-drop-controller.test.ts,src/features/terminal/stores/terminal-session-shell.test.ts,src/features/wsl/utils/wsl-path.test.ts
 
       - name: Test quick-open file search, number input steppers and editor settings route
         shell: pwsh
@@ -714,6 +746,14 @@ jobs:
             --test-budget tests::git::git_write_deletes_a_local_commit_=30000 `
             --test-budget tests::git::git_write_edits_a_local_commit_message_=30000 `
             --test-budget tests::git::git_write_updates_a_noncurrent_branch_without_switching_head=30000 `
+            --test-budget tests::git_patch_exchange::patch_exchange_detects_index_flags_and_hidden_destination_edits=30000 `
+            --test-budget tests::git_patch_exchange::patch_exchange_rejects_stale_preview_and_forward_conflicts_without_writing=30000 `
+            --test-budget tests::git_patch_exchange::patch_exchange_roundtrips_renames_deletes_and_platform_file_modes=30000 `
+            --test-budget tests::git_patch_exchange::patch_exchange_snapshot_roundtrip_preserves_index_and_binary_files=30000 `
+            --test-budget tests::git_patch_exchange::patch_exchange_distinguishes_sources_and_commit_direction=30000 `
+            --test-budget tests::git_patch_exchange::patch_exchange_reverse_roundtrip_preserves_both_versions_and_untracked_bytes=60000 `
+            --test-budget tests::git_patch_exchange::shelf_roundtrip_preserves_staged_deletions_with_retained_paths=60000 `
+            --test-budget tests::git_patch_exchange::shelf_roundtrip_preserves_staged_rename_with_recreated_source=60000 `
             --test-budget tests::git_patch_exchange::patch_metadata_can_list_an_oversized_export_before_selecting_a_small_subset=30000 `
             --build-timeout-ms 600000 `
             --suite-timeout-ms 1200000 `

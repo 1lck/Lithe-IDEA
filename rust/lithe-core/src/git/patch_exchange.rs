@@ -1,4 +1,4 @@
-//! Lossless UTF-8 patch exchange with forward checks and reviewed-state validation.
+//! Lossless UTF-8 patch exchange with directional checks and reviewed-state validation.
 
 use super::{
     capture_git_with_environment, capture_git_with_options, git_resolved_path, is_safe_pathspec,
@@ -41,6 +41,9 @@ pub struct PatchExportRequest {
     /// Enumerate counts and rename paths without decoding or transporting patch contents.
     #[serde(default)]
     pub metadata_only: bool,
+    /// Include untracked files in an unstaged export, using the real index as its baseline.
+    #[serde(default)]
+    pub include_untracked: bool,
 }
 
 /// Application target; importing a patch never creates a commit.
@@ -59,6 +62,9 @@ pub struct PatchPreviewRequest {
     pub root: String,
     pub patch: String,
     pub target: PatchTarget,
+    /// Reverse a saved patch when cleaning a durably captured shelf. Defaults to forward.
+    #[serde(default)]
+    pub reverse: bool,
     /// Inspect saved patch paths without checking against the current worktree.
     #[serde(default)]
     pub metadata_only: bool,
@@ -71,6 +77,9 @@ pub struct PatchApplyRequest {
     pub root: String,
     pub patch: String,
     pub target: PatchTarget,
+    /// Reverse a saved patch when cleaning a durably captured shelf. Defaults to forward.
+    #[serde(default)]
+    pub reverse: bool,
     pub expected_state: String,
 }
 
@@ -111,6 +120,11 @@ pub struct PatchPreviewResponse {
 pub fn export(request: PatchExportRequest) -> Result<PatchExportResponse, CoreError> {
     let root = checkout_root(&request.root)?;
     let paths = literal_paths(&request.paths)?;
+    if request.include_untracked && !matches!(request.source, PatchSource::Unstaged) {
+        return Err(invalid(
+            "Including untracked files requires the unstaged patch source",
+        ));
+    }
     if !matches!(request.source, PatchSource::Commits)
         && (request.base_revision.is_some() || request.target_revision.is_some())
     {
@@ -135,6 +149,9 @@ pub fn export(request: PatchExportRequest) -> Result<PatchExportResponse, CoreEr
     }
     let bytes = match request.source {
         PatchSource::WorkingTree => export_worktree(&root, &paths, arguments)?,
+        PatchSource::Unstaged if request.include_untracked => {
+            export_unstaged_with_untracked(&root, &paths, arguments)?
+        }
         PatchSource::Staged | PatchSource::Unstaged | PatchSource::Commits => {
             match request.source {
                 PatchSource::Staged => arguments.push("--cached".into()),
@@ -228,7 +245,7 @@ fn parse_export_statistics(bytes: &[u8]) -> Result<Vec<PatchFile>, CoreError> {
 fn export_worktree(
     root: &str,
     paths: &[String],
-    mut arguments: Vec<String>,
+    arguments: Vec<String>,
 ) -> Result<Vec<u8>, CoreError> {
     let head_result = capture_git_with_options(
         root,
@@ -269,6 +286,61 @@ fn export_worktree(
         &output.stderr,
         "Could not prepare the patch snapshot",
     )?;
+    export_snapshot(root, paths, arguments, &environment)
+}
+
+fn export_unstaged_with_untracked(
+    root: &str,
+    paths: &[String],
+    mut arguments: Vec<String>,
+) -> Result<Vec<u8>, CoreError> {
+    let context = TemporaryGitCommitContext::prepare_snapshot(None)?;
+    let index = git_resolved_path(
+        root,
+        &["rev-parse", "--path-format=absolute", "--git-path", "index"],
+        "Git index",
+    )?;
+    let environment = vec![(
+        "GIT_INDEX_FILE".into(),
+        context.index_path.to_string_lossy().into_owned(),
+    )];
+    match std::fs::copy(index, &context.index_path) {
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            let output = capture_git_with_environment(
+                root,
+                &["read-tree".into(), "--empty".into()],
+                None,
+                true,
+                &environment,
+            )?;
+            ensure_success(
+                output.exit_code,
+                &output.stderr,
+                "Could not prepare the patch index",
+            )?;
+        }
+        Err(error) => return Err(patch_io_error(error)),
+    }
+    // A path removed from the index can still exist in HEAD. Preserve that
+    // absence so a recreated path is exported as an addition, not a HEAD diff.
+    let baseline =
+        capture_git_with_environment(root, &["write-tree".into()], None, true, &environment)?;
+    ensure_success(
+        baseline.exit_code,
+        &baseline.stderr,
+        "Could not snapshot the patch index",
+    )?;
+    arguments.push(String::from_utf8_lossy(&baseline.stdout).trim().to_string());
+    export_snapshot(root, paths, arguments, &environment)
+}
+
+fn export_snapshot(
+    root: &str,
+    paths: &[String],
+    mut arguments: Vec<String>,
+    environment: &[(String, String)],
+) -> Result<Vec<u8>, CoreError> {
     let input = paths
         .iter()
         .map(|path| format!("{path}\0"))
@@ -280,7 +352,7 @@ fn export_worktree(
         "--pathspec-from-file=-".into(),
         "--pathspec-file-nul".into(),
     ];
-    let output = capture_git_with_environment(root, &stage, Some(input), true, &environment)?;
+    let output = capture_git_with_environment(root, &stage, Some(input), true, environment)?;
     ensure_success(
         output.exit_code,
         &output.stderr,
@@ -289,7 +361,7 @@ fn export_worktree(
     arguments.push("--cached".into());
     arguments.push("--".into());
     arguments.extend(paths.iter().cloned());
-    let output = capture_git_with_environment(root, &arguments, None, true, &environment)?;
+    let output = capture_git_with_environment(root, &arguments, None, true, environment)?;
     ensure_success(
         output.exit_code,
         &output.stderr,
@@ -313,14 +385,21 @@ pub fn preview(request: PatchPreviewRequest) -> Result<PatchPreviewResponse, Cor
         });
     }
     ensure_no_operation(&root)?;
-    let before = state_token(&root, &request.patch, request.target, &files)?;
-    let output = capture_git_with_options(
+    let before = state_token(
         &root,
-        &apply_arguments(request.target, true),
-        Some(request.patch.clone()),
-        true,
+        &request.patch,
+        request.target,
+        request.reverse,
+        &files,
     )?;
-    let after = state_token(&root, &request.patch, request.target, &files)?;
+    let output = check_patch(&root, &request.patch, request.target, request.reverse)?;
+    let after = state_token(
+        &root,
+        &request.patch,
+        request.target,
+        request.reverse,
+        &files,
+    )?;
     let unchanged = before == after;
     let applicable = output.exit_code == 0 && unchanged;
     let diagnostic = if !unchanged {
@@ -344,18 +423,31 @@ pub fn apply_reviewed(request: PatchApplyRequest) -> Result<GitCommandResponse, 
     validate_nonempty_patch(&request.patch)?;
     ensure_no_operation(&root)?;
     let files = patch_files(&root, &request.patch)?;
-    if state_token(&root, &request.patch, request.target, &files)? != request.expected_state {
+    if state_token(
+        &root,
+        &request.patch,
+        request.target,
+        request.reverse,
+        &files,
+    )? != request.expected_state
+    {
         return Err(invalid(
             "The patch or repository changed after preview. Preview it again.",
         ));
     }
-    let check_arguments = apply_arguments(request.target, true);
-    let checked =
-        capture_git_with_options(&root, &check_arguments, Some(request.patch.clone()), true)?;
+    let check_arguments = apply_arguments(request.target, true, request.reverse);
+    let checked = check_patch(&root, &request.patch, request.target, request.reverse)?;
     if checked.exit_code != 0 {
         return Ok(checked.into_command_response(&check_arguments));
     }
-    if state_token(&root, &request.patch, request.target, &files)? != request.expected_state {
+    if state_token(
+        &root,
+        &request.patch,
+        request.target,
+        request.reverse,
+        &files,
+    )? != request.expected_state
+    {
         return Err(invalid(
             "The repository changed while checking the patch. Preview it again.",
         ));
@@ -363,9 +455,25 @@ pub fn apply_reviewed(request: PatchApplyRequest) -> Result<GitCommandResponse, 
     // No --reject, --3way, --unsafe-paths or automatic whitespace repair: Git
     // performs its own final applicability check and does not silently apply
     // only a subset of the reviewed patch.
-    let arguments = apply_arguments(request.target, false);
+    // After a worktree-only restoration, content can match the index while
+    // stat data is stale. Refresh only after validating the reviewed state.
+    let refreshed = if matches!(request.target, PatchTarget::IndexAndWorktree) {
+        Some(refresh_index(&root, &[])?)
+    } else {
+        None
+    };
+    let arguments = apply_arguments(request.target, false, request.reverse);
     let output = capture_git_with_options(&root, &arguments, Some(request.patch), false)?;
     let mut result = output.into_command_response(&arguments);
+    if let Some(refreshed) = refreshed {
+        result.invocations.insert(
+            0,
+            refreshed
+                .into_command_response(&["update-index".into(), "-q".into(), "--refresh".into()])
+                .invocations
+                .remove(0),
+        );
+    }
     result.invocations.insert(
         0,
         checked
@@ -376,7 +484,64 @@ pub fn apply_reviewed(request: PatchApplyRequest) -> Result<GitCommandResponse, 
     Ok(result)
 }
 
-fn apply_arguments(target: PatchTarget, check: bool) -> Vec<String> {
+// Even --check --index refreshes stat data in Git's index. Check a disposable
+// copy so a preview never writes repository metadata or invalidates its token.
+fn check_patch(
+    root: &str,
+    patch: &str,
+    target: PatchTarget,
+    reverse: bool,
+) -> Result<super::GitProcessOutput, CoreError> {
+    let context = TemporaryGitCommitContext::prepare_snapshot(None)?;
+    let index = git_resolved_path(
+        root,
+        &["rev-parse", "--path-format=absolute", "--git-path", "index"],
+        "Git index",
+    )?;
+    match std::fs::copy(index, &context.index_path) {
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(patch_io_error(error)),
+    }
+    let environment = [(
+        "GIT_INDEX_FILE".into(),
+        context.index_path.to_string_lossy().into_owned(),
+    )];
+    if matches!(target, PatchTarget::IndexAndWorktree) {
+        refresh_index(root, &environment)?;
+    }
+    capture_git_with_environment(
+        root,
+        &apply_arguments(target, true, reverse),
+        Some(patch.to_string()),
+        true,
+        &environment,
+    )
+}
+
+fn refresh_index(
+    root: &str,
+    environment: &[(String, String)],
+) -> Result<super::GitProcessOutput, CoreError> {
+    let output = capture_git_with_environment(
+        root,
+        &["update-index".into(), "-q".into(), "--refresh".into()],
+        None,
+        false,
+        environment,
+    )?;
+    // One means other worktree paths are dirty; Git still refreshes clean paths.
+    if output.exit_code > 1 {
+        ensure_success(
+            output.exit_code,
+            &output.stderr,
+            "Could not refresh the patch index",
+        )?;
+    }
+    Ok(output)
+}
+
+fn apply_arguments(target: PatchTarget, check: bool, reverse: bool) -> Vec<String> {
     let mut arguments = vec![
         "-c".into(),
         "apply.ignorewhitespace=no".into(),
@@ -385,6 +550,9 @@ fn apply_arguments(target: PatchTarget, check: bool) -> Vec<String> {
     ];
     if matches!(target, PatchTarget::IndexAndWorktree) {
         arguments.push("--index".into());
+    }
+    if reverse {
+        arguments.push("--reverse".into());
     }
     if check {
         arguments.push("--check".into());
@@ -510,13 +678,17 @@ fn state_token(
     root: &str,
     patch: &str,
     target: PatchTarget,
+    reverse: bool,
     files: &[PatchFile],
 ) -> Result<String, CoreError> {
     let mut hash = Sha256::new();
     hash.update(b"lithe.patch.v1\0");
     add_hash_field(&mut hash, root.as_bytes());
     add_hash_field(&mut hash, patch.as_bytes());
-    hash.update([u8::from(matches!(target, PatchTarget::IndexAndWorktree))]);
+    hash.update([
+        u8::from(matches!(target, PatchTarget::IndexAndWorktree)),
+        u8::from(reverse),
+    ]);
     // The index contains intent and flags that a content diff does not expose.
     let index = git_resolved_path(
         root,
@@ -524,6 +696,18 @@ fn state_token(
         "Git index",
     )?;
     hash_optional_file(&mut hash, Path::new(&index))?;
+    // Some Git reads refresh stat data despite optional-lock suppression. Keep
+    // every snapshot subprocess on a copy while hashing the real index bytes.
+    let context = TemporaryGitCommitContext::prepare_snapshot(None)?;
+    match std::fs::copy(&index, &context.index_path) {
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(patch_io_error(error)),
+    }
+    let environment = [(
+        "GIT_INDEX_FILE".into(),
+        context.index_path.to_string_lossy().into_owned(),
+    )];
     // Read the exact destinations as well: assume-unchanged, skip-worktree and
     // ignored files can hide concurrent content changes from porcelain/diff.
     let mut destinations = BTreeSet::new();
@@ -567,7 +751,7 @@ fn state_token(
             .into_iter()
             .map(str::to_string)
             .collect::<Vec<_>>();
-        let output = capture_git_with_options(root, &arguments, None, true)?;
+        let output = capture_git_with_environment(root, &arguments, None, true, &environment)?;
         if output.exit_code != 0
             && !(output.exit_code == 1
                 && matches!(arguments[0].as_str(), "rev-parse" | "symbolic-ref"))
@@ -580,7 +764,7 @@ fn state_token(
         }
         add_hash_field(&mut hash, &output.stdout);
     }
-    let output = capture_git_with_options(
+    let output = capture_git_with_environment(
         root,
         &[
             "ls-files".into(),
@@ -590,6 +774,7 @@ fn state_token(
         ],
         None,
         true,
+        &environment,
     )?;
     ensure_success(
         output.exit_code,

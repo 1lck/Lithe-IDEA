@@ -1,3 +1,4 @@
+import { useTreeContentWidth } from "@/features/git/hooks/use-tree-content-width";
 import type React from "react";
 import {
   forwardRef,
@@ -31,6 +32,7 @@ interface FileExplorerViewportProps extends Omit<
   "children"
 > {
   emptyState?: React.ReactNode;
+  layoutKey?: string;
   getRowKey: (index: number) => React.Key;
   renderRow: (index: number) => React.ReactNode;
   rowCount: number;
@@ -46,7 +48,17 @@ export const FileExplorerViewport = forwardRef<
   FileExplorerViewportHandle,
   FileExplorerViewportProps
 >(function FileExplorerViewport(
-  { className, emptyState, getRowKey, renderRow, rowCount, rowHeight, style, ...props },
+  {
+    className,
+    emptyState,
+    layoutKey = "",
+    getRowKey,
+    renderRow,
+    rowCount,
+    rowHeight,
+    style,
+    ...props
+  },
   forwardedRef,
 ) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -166,6 +178,12 @@ export const FileExplorerViewport = forwardRef<
     );
   }, [range.endIndex, range.startIndex]);
 
+  const contentWidth = useTreeContentWidth({
+    viewportRef: scrollRef,
+    rowSelector: ".file-tree-row",
+    resetKey: `${layoutKey}:${rowHeight}`,
+    enabled: rowCount > 0,
+  });
   return (
     <div
       ref={scrollRef}
@@ -181,7 +199,10 @@ export const FileExplorerViewport = forwardRef<
     >
       <div
         className="file-tree-virtual-canvas"
-        style={{ height: getFileTreeTotalHeight(rowCount, rowHeight) }}
+        style={{
+          height: getFileTreeTotalHeight(rowCount, rowHeight),
+          minWidth: contentWidth || undefined,
+        }}
       >
         {virtualIndexes.map((index) => (
           <div
