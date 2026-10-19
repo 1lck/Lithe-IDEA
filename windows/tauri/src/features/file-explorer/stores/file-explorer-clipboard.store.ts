@@ -35,34 +35,27 @@ const useFileClipboardStoreBase = create<FileClipboardStore>()((set) => ({
   clipboard: null,
   actions: {
     copy: async (entries: ClipboardEntry[]) => {
-      // Record locally first: the entries must survive regardless of how the
-      // backend call behaves, because the terminal reads them from this store.
-      set({ clipboard: { entries, operation: "copy" } });
-      // Then adopt the state the backend recorded, which carries the clipboard
-      // counter so every window compares against the copy that produced these
-      // entries. The attempt is best-effort on purpose — a failed or unexpected
-      // reply must not erase what the user just copied.
-      try {
-        const state = await invoke<FileClipboardState | undefined>("clipboard_set", {
-          entries,
-          operation: "copy",
-        });
-        if (state?.entries.length) set({ clipboard: state });
-      } catch (error) {
-        console.error("File clipboard copy could not be synchronized:", error);
-      }
+      // The backend is the single source of truth. It records the entries and the
+      // clipboard counter together and broadcasts the same state, so writing them
+      // here first would let a rejected copy leave this window holding entries the
+      // native clipboard never accepted — the explorer paste would then act on a
+      // different set than the terminal.
+      //
+      // A reply that carries no entries can only come from a caller that does not
+      // implement this command (an older host or a test double); keep the copy
+      // usable there instead of emptying the clipboard.
+      const state = await invoke<FileClipboardState | undefined>("clipboard_set", {
+        entries,
+        operation: "copy",
+      });
+      set({ clipboard: state?.entries.length ? state : { entries, operation: "copy" } });
     },
     cut: async (entries: ClipboardEntry[]) => {
-      set({ clipboard: { entries, operation: "cut" } });
-      try {
-        const state = await invoke<FileClipboardState | undefined>("clipboard_set", {
-          entries,
-          operation: "cut",
-        });
-        if (state?.entries.length) set({ clipboard: state });
-      } catch (error) {
-        console.error("File clipboard cut could not be synchronized:", error);
-      }
+      const state = await invoke<FileClipboardState | undefined>("clipboard_set", {
+        entries,
+        operation: "cut",
+      });
+      set({ clipboard: state?.entries.length ? state : { entries, operation: "cut" } });
     },
     paste: async (targetDirectory: string) => {
       const result = await invoke<PastedEntry[]>("clipboard_paste", {
