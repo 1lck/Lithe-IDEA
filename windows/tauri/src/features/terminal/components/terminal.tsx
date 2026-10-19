@@ -117,6 +117,13 @@ export const XtermTerminal = ({
     [getSession, sessionId, shell],
   );
 
+  // Remote workspaces store frontend `remote://` URIs, so path insertion only
+  // converts them when the terminal is connected to that same host.
+  const resolveRemoteConnectionId = useCallback(
+    () => remoteConnectionId || getSession(sessionId)?.remoteConnectionId,
+    [getSession, remoteConnectionId, sessionId],
+  );
+
   const terminalThemeId = useSettingsStore((state) => state.settings.theme);
   const terminalFontFamily = useSettingsStore((state) => state.settings.terminalFontFamily);
   const terminalFontSize = useSettingsStore((state) => state.settings.terminalFontSize);
@@ -191,14 +198,14 @@ export const XtermTerminal = ({
 
   const insertDroppedPaths = useCallback(
     (paths: string[]) => {
-      const text = formatDroppedPathsForTerminal(paths, resolveShell());
+      const text = formatDroppedPathsForTerminal(paths, resolveShell(), resolveRemoteConnectionId());
       if (!text) return false;
 
       writeBuffered(text);
       requestAnimationFrame(() => xtermRef.current?.focus());
       return true;
     },
-    [resolveShell, writeBuffered],
+    [resolveRemoteConnectionId, resolveShell, writeBuffered],
   );
 
   const handleTerminalFileDrop = useCallback(
@@ -227,6 +234,7 @@ export const XtermTerminal = ({
       const paths = clipboardEntryPaths((detail?.paths ?? []).map((path) => ({ path })));
       const text = formatPathsForTerminal(paths, {
         shell: resolveShell(),
+        remoteConnectionId: resolveRemoteConnectionId(),
         trailingSpace: true,
       });
       if (!text) return;
@@ -241,7 +249,7 @@ export const XtermTerminal = ({
       container.removeEventListener(TERMINAL_FILE_DROP_EVENT, handleNativeFileDrop);
       container.removeEventListener(TERMINAL_PATH_INSERT_EVENT, handlePathInsert);
     };
-  }, [insertDroppedPaths, resolveShell, writeBuffered]);
+  }, [insertDroppedPaths, resolveRemoteConnectionId, resolveShell, writeBuffered]);
 
   const handleTerminalDragOver = useCallback((event: DragEvent<HTMLDivElement>) => {
     if (!Array.from(event.dataTransfer.types).includes("Files")) return;
@@ -275,11 +283,11 @@ export const XtermTerminal = ({
     (terminal: Terminal) => {
       if (!currentConnectionIdRef.current) return;
 
-      void readTerminalPasteText(resolveShell())
+      void readTerminalPasteText(resolveShell(), resolveRemoteConnectionId())
         .then((text) => pasteIntoTerminal(terminal, text))
         .catch((error) => console.error("Failed to paste into terminal:", error));
     },
-    [currentConnectionIdRef, pasteIntoTerminal, resolveShell],
+    [currentConnectionIdRef, pasteIntoTerminal, resolveRemoteConnectionId, resolveShell],
   );
 
   const initializeTerminal = useCallback(async () => {
@@ -958,7 +966,7 @@ export const XtermTerminal = ({
               disabled={!connectionId}
               aria-label={t("terminal.pasteCopiedFilePaths")}
               onClick={() => {
-                void readCopiedFilePathsText(resolveShell())
+                void readCopiedFilePathsText(resolveShell(), resolveRemoteConnectionId())
                   .then((text) => {
                     if (text) writeBuffered(text);
                     requestAnimationFrame(() => xtermRef.current?.focus());

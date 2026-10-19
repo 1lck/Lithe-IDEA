@@ -158,6 +158,38 @@ describe("Nushell quoting", () => {
   });
 });
 
+// Remote workspaces store frontend `remote://` URIs. Handing that URI to a shell
+// inserts something that looks like a path and opens nothing, so it is converted
+// only for the connection that owns the terminal and dropped otherwise.
+describe("remote workspace paths", () => {
+  test("strips the protocol for the connected host", () => {
+    expect(
+      quoteTerminalPaths(["remote://conn/home/me/a.txt"], "bash", {
+        remoteConnectionId: "conn",
+      }),
+    ).toBe("'/home/me/a.txt'");
+  });
+
+  // Inserting the URI would be silently wrong, and inserting nothing is safer
+  // than pointing the user at a path that cannot exist there.
+  test("drops a path from a different connection", () => {
+    expect(
+      quoteTerminalPaths(["remote://other/home/me/a.txt"], "bash", {
+        remoteConnectionId: "conn",
+      }),
+    ).toBe("");
+    expect(
+      quoteTerminalPaths(["remote://conn/home/me/a.txt"], "bash", {
+        remoteConnectionId: null,
+      }),
+    ).toBe("");
+  });
+
+  test("keeps a local path untouched on a local terminal", () => {
+    expect(quoteTerminalPaths(["C:\\work\\a.txt"], "cmd")).toBe('"C:\\work\\a.txt"');
+  });
+});
+
 // PowerShell treats the typographic single quotes U+2018, U+2019, U+201A and
 // U+201B as string delimiters too. Verified by executing an injection inside the
 // quoted path and observing its side effect — a file named

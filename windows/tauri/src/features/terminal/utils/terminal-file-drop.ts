@@ -1,4 +1,5 @@
 import { parseDroppedPaths } from "@/features/file-system/utils/file-system-dropped-paths";
+import { parseRemotePath } from "@/features/remote/utils/remote-path";
 import { pathToWslPath } from "@/features/wsl/utils/wsl-path";
 
 /**
@@ -89,28 +90,58 @@ function quotePathForShell(path: string, family: TerminalShellFamily): string | 
 }
 
 /**
+ * Turn a workspace path into one the target shell can open, or null when it
+ * cannot be expressed there.
+ *
+ * The explorer stores paths in a frontend-only form for WSL and remote
+ * workspaces, which a shell inside that host cannot open:
+ *
+ * - `wsl://<distro>/<path>` and Windows drives become Linux paths in the
+ *   distribution (see `pathToWslPath`).
+ * - `remote://<connection>/<path>` becomes the remote path, but only when the
+ *   terminal is connected to that same connection. Handing the URI to a
+ *   different shell would insert something that looks like a path and opens
+ *   nothing, so any other case is reported as untranslatable.
+ */
+function shellPath(
+  path: string,
+  distro: string | null,
+  remoteConnectionId: string | null,
+): string | null {
+  const remote = parseRemotePath(path);
+  if (remote) {
+    if (!remoteConnectionId || remote.connectionId !== remoteConnectionId) return null;
+    return remote.remotePath;
+  }
+
+  if (distro) return pathToWslPath(path, distro);
+  return path;
+}
+
+/**
  * Quote paths for the target shell so each stays one argument and is never
  * evaluated as command syntax.
  *
- * A WSL session runs inside Linux, so paths are translated into that
- * distribution's namespace first — Windows drives become `/mnt/<drive>` and a
- * `wsl://<distro>` workspace path keeps only its Linux part. Without that the
- * shell treats the path as a relative filename and opens nothing.
+ * Paths are first translated into the target shell's namespace — WSL drives and
+ * protocol paths into Linux paths, remote protocol paths into the connected
+ * host's paths — because a shell cannot open the frontend form at all.
  *
- * A path with no literal form in the target shell is dropped rather than emitted
- * unquoted; inserting a bare path could run a file name as a command.
+ * A path that cannot be expressed in the target shell is dropped rather than
+ * emitted as written; inserting a bare path could run a file name as a command.
  */
 export function quoteTerminalPaths(
   paths: readonly string[],
   shell?: string | null,
+  options: { remoteConnectionId?: string | null } = {},
 ): string {
   const family = terminalShellFamily(shell);
   const distro = (shell ?? "").toLowerCase().startsWith("wsl:")
     ? (shell ?? "").slice("wsl:".length)
     : null;
+  const remoteConnectionId = options.remoteConnectionId ?? null;
   return paths
-    .map((path) => (distro ? (pathToWslPath(path, distro) ?? path) : path))
-    .map((path) => quotePathForShell(path, family))
+    .map((path) => shellPath(path, distro, remoteConnectionId))
+    .map((path) => (path === null ? null : quotePathForShell(path, family)))
     .filter((quoted): quoted is string => quoted !== null)
     .join(" ");
 }
@@ -121,9 +152,11 @@ export function quoteTerminalPaths(
  */
 export function formatPathsForTerminal(
   paths: readonly string[],
-  options: { shell?: string | null; trailingSpace?: boolean } = {},
+  options: { shell?: string | null; remoteConnectionId?: string | null; trailingSpace?: boolean } = {},
 ): string {
-  const text = quoteTerminalPaths(paths, options.shell);
+  const text = quoteTerminalPaths(paths, options.shell, {
+    remoteConnectionId: options.remoteConnectionId,
+  });
   if (!text) return "";
   return options.trailingSpace ? `${text} ` : text;
 }
@@ -131,12 +164,13 @@ export function formatPathsForTerminal(
 export function formatDroppedPathsForTerminal(
   rawPaths: string[],
   shell?: string | null,
+  remoteConnectionId?: string | null,
 ): string {
   const paths = parseDroppedPaths(rawPaths);
   if (paths.length === 0) return "";
   // Quoting can drop every path (a name the shell cannot represent literally),
   // which would otherwise emit a lone trailing space.
-  const quoted = quoteTerminalPaths(paths, shell);
+  const quoted = quoteTerminalPaths(paths, shell, { remoteConnectionId });
   if (!quoted) return "";
   return `${quoted} `;
 }

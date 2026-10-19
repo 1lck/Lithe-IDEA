@@ -20,6 +20,7 @@ import { quoteTerminalPaths } from "./terminal-file-drop";
  */
 async function fileClipboardPasteText(
   shell: string | null,
+  remoteConnectionId: string | null,
   allowStale: boolean,
 ): Promise<string | null> {
   const { clipboard } = useFileClipboardStore.getState();
@@ -48,15 +49,22 @@ async function fileClipboardPasteText(
 
   const paths = clipboardEntryPaths(entries);
   if (paths.length === 0) return null;
-  return quoteTerminalPaths(paths, shell);
+  return quoteTerminalPaths(paths, shell, { remoteConnectionId });
 }
 
 /**
  * Resolve what a terminal paste should insert: the copied explorer paths when
  * that copy is still the user's latest action, otherwise the clipboard text.
  */
-export async function readTerminalPasteText(shell?: string | null): Promise<string> {
-  const filePaths = await fileClipboardPasteText(shell ?? null, false);
+export async function readTerminalPasteText(
+  shell?: string | null,
+  remoteConnectionId?: string | null,
+): Promise<string> {
+  const filePaths = await fileClipboardPasteText(
+    shell ?? null,
+    remoteConnectionId ?? null,
+    false,
+  );
   if (filePaths !== null) return filePaths;
   return readClipboardText();
 }
@@ -66,6 +74,9 @@ export async function readTerminalPasteText(shell?: string | null): Promise<stri
  * must not depend on guessing which copy came last. Returns null when the in-app
  * file clipboard is empty.
  */
-export async function readCopiedFilePathsText(shell?: string | null): Promise<string | null> {
-  return fileClipboardPasteText(shell ?? null, true);
+export async function readCopiedFilePathsText(
+  shell?: string | null,
+  remoteConnectionId?: string | null,
+): Promise<string | null> {
+  return fileClipboardPasteText(shell ?? null, remoteConnectionId ?? null, true);
 }
