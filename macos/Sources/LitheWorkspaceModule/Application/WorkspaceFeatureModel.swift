@@ -293,8 +293,18 @@ package final class WorkspaceFeatureModel: ObservableObject {
         }
 
         let operations = self.operations
+        let previouslyLoaded = rootNode?.url.standardizedFileURL == workspaceURL.standardizedFileURL
+            ? Self.loadedDirectoryPaths(in: rootNode)
+            : []
         let snapshot = await Task.detached(priority: .userInitiated) {
-            operations.snapshot(at: workspaceURL, visibilityRules: rules)
+            operations.snapshot(at: workspaceURL, visibilityRules: rules).map { snapshot in
+                Self.listingTree(
+                    of: snapshot,
+                    reloading: previouslyLoaded,
+                    operations: operations,
+                    rules: rules
+                )
+            }
         }.value
 
         guard isCurrent() else {
@@ -1230,8 +1240,8 @@ package final class WorkspaceFeatureModel: ObservableObject {
         switch incrementalTree(applying: changedURLs, at: workspaceURL) {
         case .unchanged:
             break
-        case .updated(let root):
-            await applyIncrementalTree(root)
+        case .updated(let root, let files, let reloadsTree):
+            await applyIncrementalTree(root: root, files: files, reloadsTree: reloadsTree)
             reloadedProjectServices = true
         case .requiresSnapshot:
             await refreshCurrentSnapshot()
@@ -1280,62 +1290,218 @@ package final class WorkspaceFeatureModel: ObservableObject {
 
     private enum IncrementalTreeResult {
         case unchanged
-        case updated(FileNode)
+        case updated(root: FileNode, files: [URL], reloadsTree: Bool)
         case requiresSnapshot
     }
 
     private func isKnownProjectFile(_ url: URL) -> Bool {
-        rootNode?.node(exactlyAt: url).map { !$0.isDirectory } ?? false
+        switch rootNode?.placement(of: url) {
+        case .displayed(let node, isExact: true)?:
+            return !node.isDirectory
+        case .belowUnloaded?:
+            return projectFiles.contains(url)
+        default:
+            return false
+        }
     }
 
-    /// Applies file creations and deletions to the current tree in place.
+    /// Whether the inventory already accounts for a directory, so an event on
+    /// it carries no files the snapshot has not seen.
+    private func isKnownProjectDirectory(_ url: URL) -> Bool {
+        switch rootNode?.placement(of: url) {
+        case .displayed(let node, _)?:
+            return node.isDirectory
+        case .belowUnloaded?:
+            let prefix = url.path + "/"
+            return projectFiles.contains { $0.path.hasPrefix(prefix) }
+        default:
+            return false
+        }
+    }
+
+    /// Applies file creations and deletions to the file list and the loaded
+    /// part of the tree in place.
     ///
     /// Agent tools create and delete files continuously; rescanning the whole
-    /// workspace for each batch re-reads every directory and rebuilds every
-    /// node. Directory changes and anything the tree cannot place without the
-    /// scan's layout rules still request a snapshot.
+    /// workspace for each batch re-reads every directory. Files below
+    /// directories the tree has not loaded only change the file list. A new
+    /// directory still requests a snapshot, because only a scan finds the
+    /// files inside it.
     private func incrementalTree(
         applying changedURLs: [URL],
         at workspaceURL: URL
     ) -> IncrementalTreeResult {
         guard var root = rootNode else { return .requiresSnapshot }
+        var files = projectFiles
         var didChange = false
+        var reloadsTree = false
+        func apply(_ edit: FileNode.TreeEdit) {
+            switch edit {
+            case .unchanged: break
+            case .updated(let updated): root = updated
+            case .reload: reloadsTree = true
+            }
+        }
         for url in changedURLs where !isWorkspaceDependencyMetadata(url, workspaceURL: workspaceURL) {
-            let existingNode = root.displayedNode(for: url)
             if fileOperations.fileExists(at: url) {
-                // A listed directory's own event carries no child changes:
-                // file-level FSEvents report each child separately.
-                guard existingNode == nil else { continue }
-                if fileOperations.isDirectory(at: url) { return .requiresSnapshot }
-                guard !visibilityRules.isHidden(url, relativeTo: workspaceURL, isDirectory: false) else {
-                    continue
-                }
-                guard let inserted = root.inserting(file: url) else { return .requiresSnapshot }
-                root = inserted
-                didChange = true
-            } else if let existingNode {
-                guard !existingNode.isDirectory, let removed = root.removing(file: url) else {
+                if fileOperations.isDirectory(at: url) {
+                    // A listed directory's own event carries no child changes:
+                    // file-level FSEvents report each child separately.
+                    if isKnownProjectDirectory(url) { continue }
+                    if visibilityRules.isHidden(url, relativeTo: workspaceURL, isDirectory: true) { continue }
                     return .requiresSnapshot
                 }
-                root = removed
+                guard !isKnownProjectFile(url),
+                      !visibilityRules.isHidden(url, relativeTo: workspaceURL, isDirectory: false)
+                else { continue }
+                files.append(url)
+                apply(root.inserting(file: url))
+                didChange = true
+            } else if isKnownProjectFile(url) {
+                files.removeAll { $0 == url }
+                apply(root.removing(file: url))
+                didChange = true
+            } else if isKnownProjectDirectory(url) {
+                let prefix = url.path + "/"
+                files.removeAll { $0.path.hasPrefix(prefix) }
+                if case .displayed = root.placement(of: url) { reloadsTree = true }
                 didChange = true
             }
         }
-        return didChange ? .updated(root) : .unchanged
+        return didChange ? .updated(root: root, files: files, reloadsTree: reloadsTree) : .unchanged
     }
 
-    /// Publishes a spliced tree as a new snapshot so project services see the
-    /// same inventory a rescan would have produced.
-    private func applyIncrementalTree(_ root: FileNode) async {
+    /// Publishes an updated inventory as a new snapshot so project services
+    /// see the same files a rescan would have produced.
+    private func applyIncrementalTree(root: FileNode, files: [URL], reloadsTree: Bool) async {
+        var root = root
+        if reloadsTree, let workspaceURL {
+            let operations = self.operations
+            let rules = visibilityRules
+            let loaded = Self.loadedDirectoryPaths(in: root)
+            let generation = workspaceGeneration
+            let base = FileNode(url: root.url, isDirectory: true, children: nil)
+            let relisted = await Task.detached(priority: .userInitiated) {
+                Self.listingTree(base, reloading: loaded, at: workspaceURL, operations: operations, rules: rules)
+            }.value
+            guard workspaceGeneration == generation, self.workspaceURL == workspaceURL else { return }
+            if let relisted { root = relisted }
+        }
         let snapshot = WorkspaceSnapshot(
             root: root,
-            files: root.fileURLs,
+            files: files,
             nestedWorktrees: appliedSnapshot?.nestedWorktrees ?? []
         )
-        rootNode = snapshot.root
-        projectFiles = snapshot.files
+        rootNode = root
+        projectFiles = files
         appliedSnapshot = snapshot
         await onSnapshotLoaded?(snapshot, false)
+    }
+
+    // MARK: - On-demand tree loading
+
+    /// Lists the expanded directories that are still unloaded, level by level,
+    /// until every expanded row shows its children.
+    ///
+    /// The tree starts with the root's children only. Expanding a directory,
+    /// revealing a file, or restoring expanded rows adds paths here; each pass
+    /// lists one level in a single Core call, so the depth bounds the passes.
+    package func loadExpandedDirectories(_ expandedPaths: Set<String>) async {
+        for _ in 0..<Self.maximumListingPasses {
+            guard let workspaceURL, let rows = rootNode?.unloadedRows(expandedPaths: expandedPaths),
+                  !rows.isEmpty else { return }
+            let generation = workspaceGeneration
+            let operations = self.operations
+            let rules = visibilityRules
+            let listed = await Task.detached(priority: .userInitiated) {
+                operations.childRows(of: rows, at: workspaceURL, visibilityRules: rules)
+            }.value
+            guard workspaceGeneration == generation, self.workspaceURL == workspaceURL,
+                  let listed, var root = rootNode else { return }
+            for row in rows {
+                // A rebuild during the listing may already have loaded the row.
+                guard case .displayed(let current, isExact: true) = root.placement(of: row.url),
+                      current.isUnloadedDirectory else { continue }
+                // A directory that vanished meanwhile shows as empty until the
+                // watcher's refresh removes it.
+                let children = listed[row.url.standardizedFileURL.path] ?? []
+                root = root.loadingChildren(children, intoRowAt: row.url) ?? root
+            }
+            rootNode = root
+        }
+    }
+
+    private nonisolated static let maximumListingPasses = 64
+
+    /// Row URL to reveal for `url`. A path below an unloaded directory is
+    /// revealed as itself once its ancestors are listed, unless the
+    /// visibility rules would leave it out of the tree.
+    package func projectTreeURL(for url: URL) -> URL? {
+        guard url.isFileURL, let rootNode, let workspaceURL else { return nil }
+        switch rootNode.placement(of: url) {
+        case .displayed(let node, _):
+            return node.url
+        case .belowUnloaded:
+            // The sidebar asks on every render, so this stays a path check.
+            guard !visibilityRules.isHiddenPath(url, relativeTo: workspaceURL),
+                  watchConfiguration?.isIgnored(url) != true else { return nil }
+            return url
+        case .absent:
+            return nil
+        }
+    }
+
+    private nonisolated static func loadedDirectoryPaths(in root: FileNode?) -> Set<String> {
+        Set(root?.loadedDirectoryRows.map { $0.url.standardizedFileURL.path } ?? [])
+    }
+
+    /// Fills an unloaded snapshot root with the root's children and every
+    /// directory that was loaded before, so a rescan keeps expanded rows.
+    private nonisolated static func listingTree(
+        of snapshot: WorkspaceSnapshot,
+        reloading loaded: Set<String>,
+        operations: any WorkspaceOperations,
+        rules: FileVisibilityRules
+    ) -> WorkspaceSnapshot {
+        guard snapshot.root.isUnloadedDirectory,
+              let root = listingTree(
+                  snapshot.root,
+                  reloading: loaded,
+                  at: snapshot.root.url,
+                  operations: operations,
+                  rules: rules
+              ) else { return snapshot }
+        return WorkspaceSnapshot(
+            root: root,
+            files: snapshot.files,
+            nestedWorktrees: snapshot.nestedWorktrees,
+            id: snapshot.id
+        )
+    }
+
+    private nonisolated static func listingTree(
+        _ root: FileNode,
+        reloading loaded: Set<String>,
+        at workspaceURL: URL,
+        operations: any WorkspaceOperations,
+        rules: FileVisibilityRules
+    ) -> FileNode? {
+        var tree = root
+        var pending = [root]
+        for _ in 0..<maximumListingPasses where !pending.isEmpty {
+            guard let listed = operations.childRows(of: pending, at: workspaceURL, visibilityRules: rules) else {
+                return pending.count == 1 && pending[0].url == root.url ? nil : tree
+            }
+            var next: [FileNode] = []
+            for row in pending {
+                let children = listed[row.url.standardizedFileURL.path] ?? []
+                guard let updated = tree.loadingChildren(children, intoRowAt: row.url) else { continue }
+                tree = updated
+                next += children.filter { $0.isDirectory && loaded.contains($0.url.standardizedFileURL.path) }
+            }
+            pending = next
+        }
+        return tree
     }
 
     private func isWorkspaceURL(_ url: URL) -> Bool {

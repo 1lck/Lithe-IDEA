@@ -50,8 +50,12 @@ extension AppModel {
     }
 
     func projectTreeURL(for url: URL) -> URL? {
-        guard url.isFileURL, let rootNode else { return nil }
-        return ProjectTreeLocator.matchingURL(for: url, in: rootNode)
+        workspaceFeature.projectTreeURL(for: url)
+    }
+
+    /// Lists expanded project directories that have not been loaded yet.
+    func loadExpandedProjectDirectories(_ expandedPaths: Set<String>) async {
+        await workspaceFeature.loadExpandedDirectories(expandedPaths)
     }
 
     func revealInProjectTree(_ url: URL, isDirectory: Bool = false) {

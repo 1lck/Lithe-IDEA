@@ -17,6 +17,41 @@ struct FileSystemWorkspaceSnapshotBuilder {
         return WorkspaceSnapshot(root: root, files: root.fileURLs, nestedWorktrees: nestedWorktrees.sorted { $0.path < $1.path })
     }
 
+    /// One visible level below each directory, filtered like `scan`.
+    func listDirectories(
+        _ directories: [URL],
+        at rootURL: URL,
+        visibilityRules: FileVisibilityRules
+    ) -> [String: [ProjectDirectoryEntry]] {
+        var result: [String: [ProjectDirectoryEntry]] = [:]
+        for directory in directories {
+            var isDirectory: ObjCBool = false
+            guard fileManager.fileExists(atPath: directory.path, isDirectory: &isDirectory),
+                  isDirectory.boolValue,
+                  let childURLs = try? fileManager.contentsOfDirectory(
+                      at: directory,
+                      includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
+                      options: []
+                  ) else { continue }
+            let entries = childURLs.compactMap { url -> ProjectDirectoryEntry? in
+                guard let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]),
+                      values.isSymbolicLink != true else { return nil }
+                let isDirectory = values.isDirectory == true
+                guard !visibilityRules.isHidden(url, relativeTo: rootURL, isDirectory: isDirectory),
+                      !(isDirectory && isNestedLinkedWorktree(url)) else { return nil }
+                return ProjectDirectoryEntry(
+                    url: directory.appendingPathComponent(url.lastPathComponent),
+                    isDirectory: isDirectory
+                )
+            }.sorted {
+                if $0.isDirectory != $1.isDirectory { return $0.isDirectory }
+                return $0.url.lastPathComponent.localizedCaseInsensitiveCompare($1.url.lastPathComponent) == .orderedAscending
+            }
+            result[directory.standardizedFileURL.path] = entries
+        }
+        return result
+    }
+
     private func scan(_ url: URL, rootURL: URL, visibilityRules: FileVisibilityRules, nestedWorktrees: inout [URL], isRoot: Bool = false) -> FileNode? {
         guard let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]), isRoot || values.isSymbolicLink != true else { return nil }
         let isDirectory = values.isDirectory == true

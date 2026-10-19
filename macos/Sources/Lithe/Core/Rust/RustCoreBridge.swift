@@ -74,25 +74,41 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     /// one URL per file each.
     struct WorkspaceSnapshotPayload: Decodable, Sendable {
         let root: WorkspaceNodePayload
+        let files: [String]
         let nestedWorktrees: [String]
 
         private enum CodingKeys: String, CodingKey {
-            case root, nestedWorktrees
+            case root, files, nestedWorktrees
         }
 
         init(from decoder: any Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             root = try container.decode(WorkspaceNodePayload.self, forKey: .root)
+            files = try container.decodeIfPresent([String].self, forKey: .files) ?? []
             nestedWorktrees = try container.decodeIfPresent([String].self, forKey: .nestedWorktrees) ?? []
         }
 
         func makeSnapshot(at rootURL: URL) -> WorkspaceSnapshot {
-            let tree = root.makeFileNode(at: rootURL)
+            let nested = nestedWorktrees.map { rootURL.appendingPathComponent($0, isDirectory: true) }
+            guard root.children == nil else {
+                // A full tree shares its URL instances with the file list.
+                let tree = root.makeFileNode(at: rootURL)
+                return WorkspaceSnapshot(root: tree, files: tree.fileURLs, nestedWorktrees: nested)
+            }
             return WorkspaceSnapshot(
-                root: tree,
-                files: tree.fileURLs,
-                nestedWorktrees: nestedWorktrees.map { rootURL.appendingPathComponent($0, isDirectory: true) }
+                root: FileNode(url: rootURL, isDirectory: true, children: nil),
+                files: files.map { rootURL.appendingPathComponent($0) },
+                nestedWorktrees: nested
             )
+        }
+    }
+
+    struct DirectoryListingPayload: Decodable, Sendable {
+        let directories: [Directory]
+
+        struct Directory: Decodable, Sendable {
+            let path: String
+            let children: [WorkspaceNodePayload]
         }
     }
 
@@ -1450,6 +1466,16 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let root: String
         let hiddenDirectoryNames: [String]
         let hiddenFilePatterns: [String]
+        /// Omitted for index requests; snapshots pass false and list the tree
+        /// per directory instead.
+        var includeTree: Bool?
+    }
+
+    private struct DirectoryListingRequest: Encodable {
+        let root: String
+        let paths: [String]
+        let hiddenDirectoryNames: [String]
+        let hiddenFilePatterns: [String]
     }
 
     private struct SearchIndexUpdateRequest: Encodable {
@@ -2295,6 +2321,25 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             command: "workspace.snapshot",
             payload: SnapshotRequest(
                 root: rootURL.standardizedFileURL.path,
+                hiddenDirectoryNames: hiddenDirectoryNames,
+                hiddenFilePatterns: hiddenFilePatterns,
+                includeTree: false
+            )
+        )
+    }
+
+    /// Lists one visible level below each workspace-relative directory.
+    func listDirectories(
+        at rootURL: URL,
+        relativePaths: [String],
+        hiddenDirectoryNames: [String] = [],
+        hiddenFilePatterns: [String] = []
+    ) -> DirectoryListingPayload? {
+        execute(
+            command: "workspace.listDirectories",
+            payload: DirectoryListingRequest(
+                root: rootURL.standardizedFileURL.path,
+                paths: relativePaths,
                 hiddenDirectoryNames: hiddenDirectoryNames,
                 hiddenFilePatterns: hiddenFilePatterns
             )

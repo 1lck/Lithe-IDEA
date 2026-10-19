@@ -5532,8 +5532,9 @@ struct EditorDocumentTests {
             gitRefreshCount > refreshesAfterLoad
         }, "The external change did not finish")
         #expect(operations.snapshotCount == 1)
-        #expect(model.projectFiles == [created, main])
-        #expect(model.appliedSnapshot?.files == [created, main])
+        #expect(model.rootNode?.fileURLs == [created, main])
+        #expect(Set(model.projectFiles) == [created, main])
+        #expect(model.appliedSnapshot?.files == model.projectFiles)
         #expect(projectedChanges == [
             WorkspaceFileChange(fileURL: created, kind: .created),
             WorkspaceFileChange(fileURL: removed, kind: .deleted),
@@ -5542,7 +5543,7 @@ struct EditorDocumentTests {
 
     @Test
     @MainActor
-    func externalFileInUnlistedDirectoryRescansTheWorkspace() async throws {
+    func externalFileInUnlistedDirectoryJoinsTheInventoryWithoutRescanning() async throws {
         let workspace = URL(fileURLWithPath: "/in-memory/lithe-incremental-rescan")
         let main = workspace.appendingPathComponent("src/Main.java")
         let created = workspace.appendingPathComponent("generated/Output.java")
@@ -5564,8 +5565,99 @@ struct EditorDocumentTests {
         watcher.emit([created.path])
 
         #expect(await waitForWorkspaceObservation(timeout: .seconds(15)) {
+            model.projectFiles.contains(created)
+        }, "The new file did not join the inventory")
+        #expect(operations.snapshotCount == 1)
+    }
+
+    @Test
+    @MainActor
+    func directoryCreatedOutsideTheInventoryRescansTheWorkspace() async throws {
+        let workspace = URL(fileURLWithPath: "/in-memory/lithe-incremental-rescan-directory")
+        let main = workspace.appendingPathComponent("src/Main.java")
+        let generated = workspace.appendingPathComponent("generated")
+        let operations = SequencedWorkspaceOperations(snapshotAvailability: [true], files: [main])
+        let watcherFactory = TestDirectoryWatcherFactory()
+        let model = makeWorkspaceObservationUnitModel(
+            operations: operations,
+            fileOperations: DirectoryAwareWorkspaceFileOperations(
+                files: [main.path],
+                directories: [generated.path]
+            ),
+            provider: SequencedGitWatchContextProvider([nil]),
+            watcherFactory: watcherFactory,
+            refreshGit: {},
+            observationDelay: { _ in }
+        )
+        defer { model.reset() }
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        _ = await model.rebuild(at: workspace, rules: .default, isCurrent: { true })
+        let watcher = try #require(watcherFactory.source)
+
+        // Only a scan finds the files a new directory arrived with.
+        watcher.emit([generated.path])
+
+        #expect(await waitForWorkspaceObservation(timeout: .seconds(15)) {
             operations.snapshotCount == 2 && !model.isRefreshingWorkspace
         }, "The workspace was not rescanned")
+    }
+
+    @Test
+    @MainActor
+    func lazyTreeListsExpandedDirectoriesAndKeepsThemAcrossRescans() async throws {
+        let workspace = URL(fileURLWithPath: "/in-memory/lithe-lazy-workspace")
+        let main = workspace.appendingPathComponent("src/app/Main.java")
+        let readme = workspace.appendingPathComponent("README.md")
+        let guide = workspace.appendingPathComponent("docs/Guide.md")
+        let operations = SequencedWorkspaceOperations(
+            snapshotAvailability: [true, true],
+            files: [main, readme, guide],
+            isLazy: true
+        )
+        let watcherFactory = TestDirectoryWatcherFactory()
+        var gitRefreshCount = 0
+        let model = makeWorkspaceObservationUnitModel(
+            operations: operations,
+            fileOperations: ExistingWorkspaceFileOperations(paths: [main.path, readme.path, guide.path]),
+            provider: SequencedGitWatchContextProvider([nil]),
+            watcherFactory: watcherFactory,
+            refreshGit: { gitRefreshCount += 1 },
+            observationDelay: { _ in }
+        )
+        defer { model.reset() }
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        _ = await model.rebuild(at: workspace, rules: .default, isCurrent: { true })
+
+        let source = workspace.appendingPathComponent("src")
+        let docs = workspace.appendingPathComponent("docs")
+        let root = try #require(model.rootNode)
+        #expect(root.children?.map(\.url) == [docs, source, readme])
+        #expect(root.node(exactlyAt: source)?.isUnloadedDirectory == true)
+        #expect(Set(model.projectFiles) == [main, readme, guide])
+        #expect(operations.listedPaths == [workspace.path])
+
+        let app = source.appendingPathComponent("app")
+        await model.loadExpandedDirectories([workspace.path, source.path, app.path])
+        #expect(model.rootNode?.node(exactlyAt: main)?.url == main)
+        #expect(model.rootNode?.node(exactlyAt: docs)?.isUnloadedDirectory == true)
+        #expect(operations.listedPaths == [workspace.path, source.path, app.path])
+        #expect(model.projectTreeURL(for: guide) == guide)
+        #expect(model.projectTreeURL(for: workspace.appendingPathComponent(".git/HEAD")) == nil)
+
+        // An edit below an unloaded directory leaves the tree as it is.
+        let refreshesBefore = gitRefreshCount
+        let watcher = try #require(watcherFactory.source)
+        watcher.emit([guide.path])
+        #expect(await waitForWorkspaceObservation(timeout: .seconds(15)) {
+            gitRefreshCount > refreshesBefore
+        }, "The external change did not finish")
+        #expect(operations.snapshotCount == 1)
+        #expect(model.rootNode?.node(exactlyAt: docs)?.isUnloadedDirectory == true)
+
+        await model.refreshCurrent()
+        #expect(operations.snapshotCount == 2)
+        #expect(model.rootNode?.node(exactlyAt: main)?.url == main)
+        #expect(model.rootNode?.node(exactlyAt: docs)?.isUnloadedDirectory == true)
     }
 
     @Test
@@ -6697,29 +6789,153 @@ struct EditorDocumentTests {
 
         let app = package.appendingPathComponent("App.java")
         let license = root.appendingPathComponent("LICENSE")
-        let inserted = try #require(tree.inserting(file: app)?.inserting(file: license))
+        let withApp = try #require(Self.updatedTree(tree.inserting(file: app)))
+        let inserted = try #require(Self.updatedTree(withApp.inserting(file: license)))
         #expect(inserted.fileURLs == [app, main, license, readme])
-        #expect(inserted.inserting(file: app)?.fileURLs == inserted.fileURLs)
+        #expect(Self.isUnchanged(inserted.inserting(file: app)))
         // A file in a collapsed middle package would split the compact row.
-        #expect(tree.inserting(file: source.appendingPathComponent("com/New.java")) == nil)
-        #expect(tree.inserting(file: root.appendingPathComponent("new/New.java")) == nil)
+        #expect(Self.isReload(tree.inserting(file: source.appendingPathComponent("com/New.java"))))
+        #expect(Self.isReload(tree.inserting(file: root.appendingPathComponent("new/New.java"))))
 
-        #expect(inserted.removing(file: readme)?.fileURLs == [app, main, license])
-        #expect(tree.removing(file: package) == nil)
-        #expect(tree.removing(file: root.appendingPathComponent("missing.txt")) == nil)
-        let subpackage = FileNode(url: package.appendingPathComponent("api"), isDirectory: true, children: [])
+        #expect(Self.updatedTree(inserted.removing(file: readme))?.fileURLs == [app, main, license])
+        #expect(Self.isUnchanged(tree.removing(file: package)))
+        #expect(Self.isUnchanged(tree.removing(file: root.appendingPathComponent("missing.txt"))))
+        let mixedRow = root.appendingPathComponent("acme")
+        let mixedMain = mixedRow.appendingPathComponent("Main.java")
         let mixedPackage = FileNode(
             url: root,
             isDirectory: true,
             children: [FileNode(
-                url: package,
+                url: mixedRow,
                 isDirectory: true,
-                children: [subpackage, FileNode(url: main, isDirectory: false, children: nil)],
+                children: [
+                    FileNode(url: mixedRow.appendingPathComponent("api"), isDirectory: true, children: []),
+                    FileNode(url: mixedMain, isDirectory: false, children: nil),
+                ],
                 isInsideSourceRoot: true
             )]
         )
         // Removing the last file would let the package compact into `api`.
-        #expect(mixedPackage.removing(file: main) == nil)
+        #expect(Self.isReload(mixedPackage.removing(file: mixedMain)))
+    }
+
+    @Test
+    func unloadedDirectoriesAreListedOnDemandAndIgnoreEditsBelowThem() throws {
+        let root = URL(fileURLWithPath: "/in-memory/lithe-lazy-tree")
+        let source = root.appendingPathComponent("src")
+        let docs = root.appendingPathComponent("docs")
+        let tree = FileNode(
+            url: root,
+            isDirectory: true,
+            children: [
+                FileNode(url: docs, isDirectory: true, children: nil),
+                FileNode(url: source, isDirectory: true, children: nil),
+            ]
+        )
+        let guide = docs.appendingPathComponent("guide/Intro.md")
+
+        guard case .belowUnloaded(let row) = tree.placement(of: guide) else {
+            Issue.record("A path below an unloaded directory should report that row")
+            return
+        }
+        #expect(row.url == docs)
+        #expect(tree.displayedNode(for: guide) == nil)
+        #expect(tree.node(exactlyAt: docs)?.isUnloadedDirectory == true)
+        #expect(Self.isUnchanged(tree.inserting(file: guide)))
+        #expect(Self.isUnchanged(tree.inserting(file: docs.appendingPathComponent("README.md"))))
+        #expect(tree.unloadedRows(expandedPaths: [root.path]).isEmpty)
+        #expect(tree.unloadedRows(expandedPaths: [root.path, docs.path, source.path]).map(\.url) == [docs, source])
+        #expect(tree.unloadedRows(expandedPaths: [docs.path]).isEmpty)
+        #expect(tree.loadedDirectoryRows.map(\.url) == [root])
+
+        let readme = docs.appendingPathComponent("README.md")
+        let loaded = try #require(tree.loadingChildren(
+            [FileNode(url: readme, isDirectory: false, children: nil)],
+            intoRowAt: docs
+        ))
+        #expect(loaded.node(exactlyAt: readme)?.url == readme)
+        #expect(loaded.loadedDirectoryRows.map(\.url) == [root, docs])
+        #expect(loaded.unloadedRows(expandedPaths: [root.path, docs.path, source.path]).map(\.url) == [source])
+        #expect(tree.loadingChildren([], intoRowAt: guide) == nil)
+    }
+
+    @Test
+    func projectTreeLoaderCompactsPackagesLikeTheFullTreeConversion() throws {
+        let root = URL(fileURLWithPath: "/in-memory/lithe-tree-loader")
+        let files = [
+            "pom.xml",
+            "docs/guides/setup/Install.md",
+            "src/main/java/com/acme/app/Main.java",
+            "src/main/java/com/acme/app/util/Strings.java",
+            "src/main/java/org/sample/Sample.java",
+            "src/main/resources/META-INF/services/Provider",
+            "src/test/java/com/acme/AppTest.java",
+        ].map { root.appendingPathComponent($0) }
+        let plain = makeWorkspaceTree(root: root, files: files)
+        func payload(_ node: FileNode) -> [String: Any] {
+            let rootPath = root.path
+            let path = node.url.path == rootPath ? "" : String(node.url.path.dropFirst(rootPath.count + 1))
+            var value: [String: Any] = [
+                "path": path,
+                "name": node.url.lastPathComponent,
+                "isDirectory": node.isDirectory,
+            ]
+            if let children = node.children { value["children"] = children.map(payload) }
+            return value
+        }
+        let data = try JSONSerialization.data(withJSONObject: ["root": payload(plain), "files": [String]()])
+        let full = try JSONDecoder().decode(RustCoreBridge.WorkspaceSnapshotPayload.self, from: data)
+            .makeSnapshot(at: root).root
+
+        var listingCalls = 0
+        let loader = ProjectTreeLoader { directories in
+            listingCalls += 1
+            return Dictionary(directories.compactMap { url in
+                plain.node(exactlyAt: url)?.children.map { children in
+                    (url.standardizedFileURL.path, children.map {
+                        ProjectDirectoryEntry(url: $0.url, isDirectory: $0.isDirectory)
+                    })
+                }
+            }, uniquingKeysWith: { first, _ in first })
+        }
+        var lazy = FileNode(url: root, isDirectory: true, children: nil)
+        func unloaded(_ node: FileNode) -> [FileNode] {
+            guard node.isDirectory else { return [] }
+            guard let children = node.children else { return [node] }
+            return children.flatMap(unloaded)
+        }
+        for _ in 0..<16 {
+            let rows = unloaded(lazy)
+            if rows.isEmpty { break }
+            let listed = try #require(loader.childRows(of: rows))
+            for row in rows {
+                lazy = try #require(lazy.loadingChildren(listed[row.url.standardizedFileURL.path] ?? [], intoRowAt: row.url))
+            }
+        }
+
+        #expect(unloaded(lazy).isEmpty)
+        #expect(lazy == full)
+        let package = root.appendingPathComponent("src/main/java/com/acme/app")
+        #expect(lazy.node(exactlyAt: package)?.collapsedAncestorPaths == [
+            root.appendingPathComponent("src/main/java/com").path,
+            root.appendingPathComponent("src/main/java/com/acme").path,
+        ])
+        #expect(listingCalls > 0)
+    }
+
+    private static func updatedTree(_ edit: FileNode.TreeEdit) -> FileNode? {
+        if case .updated(let tree) = edit { return tree }
+        return nil
+    }
+
+    private static func isUnchanged(_ edit: FileNode.TreeEdit) -> Bool {
+        if case .unchanged = edit { return true }
+        return false
+    }
+
+    private static func isReload(_ edit: FileNode.TreeEdit) -> Bool {
+        if case .reload = edit { return true }
+        return false
     }
 
     @Test
@@ -7517,12 +7733,42 @@ private final class SequencedWorkspaceOperations: WorkspaceOperations, @unchecke
     private var snapshotAvailability: [Bool]
     private let files: [URL]
     private let nestedWorktrees: [URL]
+    /// Lazy operations return an unloaded root and list directories on
+    /// request, as Rust Core does.
+    private let isLazy: Bool
     private var storedSnapshotCount = 0
+    private var storedListedPaths: [String] = []
 
-    init(snapshotAvailability: [Bool], files: [URL] = [], nestedWorktrees: [URL] = []) {
+    init(snapshotAvailability: [Bool], files: [URL] = [], nestedWorktrees: [URL] = [], isLazy: Bool = false) {
         self.snapshotAvailability = snapshotAvailability
         self.files = files
         self.nestedWorktrees = nestedWorktrees
+        self.isLazy = isLazy
+    }
+
+    var listedPaths: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedListedPaths
+    }
+
+    func childRows(
+        of rows: [FileNode],
+        at rootURL: URL,
+        visibilityRules: FileVisibilityRules
+    ) -> [String: [FileNode]]? {
+        guard isLazy else { return nil }
+        lock.lock()
+        storedListedPaths += rows.map(\.url.path)
+        lock.unlock()
+        let tree = makeWorkspaceTree(root: rootURL, files: files)
+        return Dictionary(uniqueKeysWithValues: rows.compactMap { row in
+            tree.node(exactlyAt: row.url)?.children.map { children in
+                (row.url.standardizedFileURL.path, children.map {
+                    FileNode(url: $0.url, isDirectory: $0.isDirectory, children: nil)
+                })
+            }
+        })
     }
 
     var snapshotCount: Int {
@@ -7537,6 +7783,13 @@ private final class SequencedWorkspaceOperations: WorkspaceOperations, @unchecke
         let isAvailable = snapshotAvailability.isEmpty ? true : snapshotAvailability.removeFirst()
         lock.unlock()
         guard isAvailable else { return nil }
+        if isLazy {
+            return WorkspaceSnapshot(
+                root: FileNode(url: rootURL, isDirectory: true, children: nil),
+                files: files,
+                nestedWorktrees: nestedWorktrees
+            )
+        }
         let root = makeWorkspaceTree(root: rootURL, files: files)
         return WorkspaceSnapshot(root: root, files: root.fileURLs, nestedWorktrees: nestedWorktrees)
     }
@@ -7578,6 +7831,25 @@ private struct ExistingWorkspaceFileOperations: WorkspaceFileOperations {
 
     func fileExists(at url: URL) -> Bool { paths.contains(url.standardizedFileURL.path) }
     func isDirectory(at url: URL) -> Bool { false }
+    func createFile(at url: URL) throws {}
+    func createDirectory(at url: URL, withIntermediateDirectories: Bool) throws {}
+    func copyItem(at sourceURL: URL, to destinationURL: URL) throws {}
+    func moveItem(at sourceURL: URL, to destinationURL: URL) throws {}
+    func removeItem(at url: URL) throws {}
+    func trashItem(at url: URL) throws {}
+    func writeText(_ text: String, to url: URL) throws {}
+    func readText(from url: URL) throws -> String { throw CocoaError(.fileReadNoSuchFile) }
+}
+
+private struct DirectoryAwareWorkspaceFileOperations: WorkspaceFileOperations {
+    let files: Set<String>
+    let directories: Set<String>
+
+    func fileExists(at url: URL) -> Bool {
+        let path = url.standardizedFileURL.path
+        return files.contains(path) || directories.contains(path)
+    }
+    func isDirectory(at url: URL) -> Bool { directories.contains(url.standardizedFileURL.path) }
     func createFile(at url: URL) throws {}
     func createDirectory(at url: URL, withIntermediateDirectories: Bool) throws {}
     func copyItem(at sourceURL: URL, to destinationURL: URL) throws {}
