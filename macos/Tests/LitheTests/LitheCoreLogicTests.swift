@@ -3563,6 +3563,30 @@ struct LitheCoreLogicTests {
     }
 
     @Test
+    func workspaceSnapshotFilesMatchTheTreeFilesInCoreOrder() throws {
+        let json = """
+        {"root":{"path":"","name":"w","isDirectory":true,"children":[
+          {"path":"src","name":"src","isDirectory":true,"children":[
+            {"path":"src/b.txt","name":"b.txt","isDirectory":false},
+            {"path":"src/a.txt","name":"a.txt","isDirectory":false}]},
+          {"path":"README.md","name":"README.md","isDirectory":false}]},
+         "files":["README.md","src/a.txt","src/b.txt","missing.txt"]}
+        """
+        let payload = try JSONDecoder().decode(RustCoreBridge.WorkspaceSnapshotPayload.self, from: Data(json.utf8))
+        let root = URL(fileURLWithPath: "/tmp/lithe-workspace-files")
+        let snapshot = payload.makeSnapshot(at: root)
+
+        func leaves(_ node: FileNode) -> [URL] {
+            node.isDirectory ? (node.children ?? []).flatMap(leaves) : [node.url]
+        }
+        // Core's file order is kept; a path absent from the tree still resolves.
+        #expect(snapshot.files.map(\.path) == ["README.md", "src/a.txt", "src/b.txt", "missing.txt"].map {
+            root.appendingPathComponent($0).path
+        })
+        #expect(Set(leaves(snapshot.root)) == Set(snapshot.files.dropLast()))
+    }
+
+    @Test
     func gitCommitFileTreePreservesHierarchyAndCompactsSingleChildPaths() {
         let tree = GitCommitFileTreeNode.build(
             from: [

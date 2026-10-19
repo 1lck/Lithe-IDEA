@@ -73,6 +73,7 @@ final class MacPluginManager: PluginManaging {
                     installationStatus: $0.installation.status,
                     previousVersion: $0.installation.previousVersion,
                     marketplace: $0.installation.marketplace,
+                    disk: $0.installation.disk,
                     settings: $0.descriptor.settings,
                     runtimeSnapshots: runtimeSnapshots
                 )
@@ -84,6 +85,7 @@ final class MacPluginManager: PluginManaging {
                 installationStatus: .installed,
                 previousVersion: nil,
                 marketplace: nil,
+                disk: nil,
                 settings: [],
                 runtimeSnapshots: runtimeSnapshots
             )
@@ -143,6 +145,20 @@ final class MacPluginManager: PluginManaging {
             marketplace: provenance,
             beforeReplacingPackage: beforePackageReplacement
         )
+        enableFirstInstallation(of: installed.manifest)
+        restartRequiredPluginIDs.insert(installed.manifest.id)
+        try refreshInstalledPlugins()
+    }
+
+    func installDiskPackage(at packageURL: URL, provenance: PluginDiskProvenance) throws {
+        let installed = try packageStore.installPackage(
+            from: packageURL,
+            deferActivationUntilRestart: true,
+            replaceExisting: true,
+            origin: .community,
+            disk: provenance
+        )
+        enableFirstInstallation(of: installed.manifest)
         restartRequiredPluginIDs.insert(installed.manifest.id)
         try refreshInstalledPlugins()
     }
@@ -164,6 +180,7 @@ final class MacPluginManager: PluginManaging {
             origin: isDevelopmentPackage ? .localDevelopment : .marketplace,
             beforeReplacingPackage: beforePackageReplacement
         )
+        enableFirstInstallation(of: installed.manifest)
         restartRequiredPluginIDs.insert(installed.manifest.id)
         try refreshInstalledPlugins()
     }
@@ -219,6 +236,17 @@ final class MacPluginManager: PluginManaging {
         try refreshInstalledPlugins()
     }
 
+    /// The user confirmed this installation, so its modules start enabled at
+    /// the next launch. Module defaults stay off for packages that appear
+    /// without that confirmation, and an update keeps the user's choice.
+    private func enableFirstInstallation(of manifest: PluginManifest) {
+        guard installedPlugins[manifest.id] == nil, !registeredPluginIDs.contains(manifest.id) else { return }
+        for declaration in manifest.modules
+        where configurationStore.enabledState(for: declaration.manifest.id) == nil {
+            configurationStore.setEnabledState(true, for: declaration.manifest.id)
+        }
+    }
+
     /// A plugin removed in this session is still registered until restart.
     private func requiresRestartForRemoval(_ pluginID: PluginID) -> Bool {
         registeredPluginIDs.contains(pluginID)
@@ -248,6 +276,7 @@ final class MacPluginManager: PluginManaging {
         installationStatus: PluginInstallationStatus,
         previousVersion: PluginVersion?,
         marketplace: PluginMarketplaceProvenance?,
+        disk: PluginDiskProvenance?,
         settings declaredSettings: [DeclarativePluginSetting],
         runtimeSnapshots: [ModuleID: ModuleSnapshot]
     ) -> PluginManagementSnapshot {
@@ -305,7 +334,8 @@ final class MacPluginManager: PluginManaging {
             canRollback: previousVersion != nil,
             statusMessage: statusMessage,
             marketplace: marketplace,
-            settings: settingStates(declaredSettings, pluginID: manifest.id)
+            settings: settingStates(declaredSettings, pluginID: manifest.id),
+            disk: disk
         )
     }
 

@@ -158,6 +158,20 @@
       "reason": "Marketplace caches, repository lists and plugin downloads belong to the running app and its user, never to a worktree build. Do not copy, symlink or bundle them; each run fetches and verifies its own copy. The bundled index is copied from Git at packaging time only."
     },
     {
+      "id": "plugin-disk-install-state",
+      "reusable": false,
+      "locations": [
+        "<file-storage-temp>/lithe-plugin-disk-<UUID>/",
+        "<file-storage-temp>/lithe-plugin-disk-<UUID>/archive.zip",
+        "<file-storage-temp>/lithe-plugin-disk-<UUID>/package/",
+        "<app-support>/Lithe/Plugins/.staging/<transaction>/",
+        "<app-support>/Lithe/Plugins/<plugin-id>/versions/<version>/",
+        "<app-support>/Lithe/Plugins/<plugin-id>/installation.json"
+      ],
+      "identity": "One user-selected macOS ZIP or unpacked directory and one import UUID. MacServiceContainer injects fileStorage.temporaryDirectory(); the importer copies a private snapshot before review. ZIP SHA-256 is computed from that snapshot, directories have no archive checksum, and neither authenticates a remote publisher or repository. Content digest and complete canonical approvedPrograms bind the approval to the installed bytes, not to a reusable version/platform/architecture/toolchain stamp.",
+      "reason": "Never copy, symlink, bundle or share local disk snapshots, installation staging, installed versions or active/previous approval records at any worktree reuse stage; content hashes do not transfer user approval or establish marketplace provenance. The importer removes failed/cancelled partial snapshots, then the service owns discard on review cancellation, install success or failure. The package store owns install staging cleanup and persistent version/record lifecycle, revalidates staged, scanned and rollback bytes, and keeps PluginDiskProvenance separate from marketplace provenance. All writable roots come from platform storage outside distribution resources; installed bundles stay read-only with no code-signature or Sparkle delta impact. This is a macOS runtime boundary, not a claim of Windows implementation."
+    },
+    {
       "id": "phpunit-fixture",
       "path": "shared/fixtures/phpunit-project/vendor",
       "reusable": false,

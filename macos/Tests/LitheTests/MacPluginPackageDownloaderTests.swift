@@ -190,14 +190,18 @@ struct MacPluginPackageDownloaderTests {
         )
     }
 
-    /// Rewrites every central-directory uncompressed size to 1 byte, leaving
-    /// the compressed data intact.
+    /// Understates regular-file sizes while retaining valid zero-byte directory
+    /// entries, so extraction reaches the measured-size guard with a valid ZIP.
     private static func understateSizes(of archive: URL, to output: URL) throws {
         var bytes = [UInt8](try Data(contentsOf: archive))
         var index = 0
         while index + 46 <= bytes.count {
             if bytes[index] == 0x50, bytes[index + 1] == 0x4b, bytes[index + 2] == 0x01, bytes[index + 3] == 0x02 {
-                bytes.replaceSubrange((index + 24)..<(index + 28), with: [1, 0, 0, 0])
+                let nameLength = Int(bytes[index + 28]) | Int(bytes[index + 29]) << 8
+                if nameLength > 0, index + 46 + nameLength <= bytes.count,
+                   bytes[index + 46 + nameLength - 1] != 0x2f {
+                    bytes.replaceSubrange((index + 24)..<(index + 28), with: [1, 0, 0, 0])
+                }
                 index += 46
             } else {
                 index += 1
