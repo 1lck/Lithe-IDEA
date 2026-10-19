@@ -51,6 +51,7 @@ struct AgentConversationView: View {
                     onOpenFile: { model.openAgentFile($0) },
                     onRestoreFile: { try await model.restoreAgentFile($0) },
                     onFindFiles: { await model.agentFileMentions(matching: $0) },
+                    fileMentionRevision: model.workspaceSnapshotID,
                     onSavePastedImage: { try model.saveAgentPastedImage($0) },
                     availableAgents: selectableAgents,
                     historyOnly: !isEditor && model.agentChatsInEditor,
@@ -61,8 +62,7 @@ struct AgentConversationView: View {
                         else { model.showAgentChatsInEditor() }
                     },
                     onFocusEditor: { model.showAgentChatsInEditor() },
-                    isEditorLayout: isEditor,
-                    workspaceSummary: { AnyView(AgentEditorGitSummary(feature: model.gitFeatureIfActive)) }
+                    isEditorLayout: isEditor
                 )
             } else {
                 AgentUnconfiguredConversationView(
@@ -242,6 +242,7 @@ struct AgentConfiguredConversationView: View {
     let onOpenFile: (AgentToolDetails.Location) -> Void
     var onRestoreFile: (AgentFileChange) async throws -> Void = { _ in throw AgentEditRestoreError.unavailable }
     var onFindFiles: ((String) async -> [AgentFileMention])? = nil
+    var fileMentionRevision: UUID? = nil
     var onSavePastedImage: ((Data) throws -> URL)? = nil
     var availableAgents: [AgentOption]? = nil
     var historyOnly = false
@@ -250,7 +251,6 @@ struct AgentConfiguredConversationView: View {
     var onToggleLocation: (() -> Void)? = nil
     var onFocusEditor: (() -> Void)? = nil
     var isEditorLayout = false
-    var workspaceSummary: () -> AnyView = { AnyView(EmptyView()) }
 
     var body: some View {
         if let connection = feature.selectedConnection, let agentID = feature.selectedAgentID {
@@ -267,10 +267,11 @@ struct AgentConfiguredConversationView: View {
                 onOpenFile: onOpenFile,
                 onRestoreFile: onRestoreFile,
                 onFindFiles: onFindFiles,
+                fileMentionRevision: fileMentionRevision,
                 onSavePastedImage: onSavePastedImage,
                 historyOnly: historyOnly, showsChatActions: showsChatActions, chatsInEditor: chatsInEditor,
                 onToggleLocation: onToggleLocation, onFocusEditor: onFocusEditor,
-                isEditorLayout: isEditorLayout, workspaceSummary: workspaceSummary
+                isEditorLayout: isEditorLayout
             )
             .id(agentID)
         } else {
@@ -369,6 +370,7 @@ private struct AgentConnectionView: View {
     let onOpenFile: (AgentToolDetails.Location) -> Void
     let onRestoreFile: (AgentFileChange) async throws -> Void
     var onFindFiles: ((String) async -> [AgentFileMention])? = nil
+    var fileMentionRevision: UUID? = nil
     var onSavePastedImage: ((Data) throws -> URL)? = nil
     var historyOnly = false
     var showsChatActions = true
@@ -376,7 +378,6 @@ private struct AgentConnectionView: View {
     var onToggleLocation: (() -> Void)? = nil
     var onFocusEditor: (() -> Void)? = nil
     var isEditorLayout = false
-    var workspaceSummary: () -> AnyView = { AnyView(EmptyView()) }
     @State private var localError: String?
     @State private var showsSearch = false
     @State private var searchText = ""
@@ -459,6 +460,7 @@ private struct AgentConnectionView: View {
             }
         }
         .onAppear { feature.prepareConversation() }
+        .onChange(of: feature.composerFocusRequest) { _ in showsHistory = false }
         .onChange(of: feature.connectionState) { state in
             if state == .ready { feature.prepareConversation() }
         }
@@ -521,10 +523,7 @@ private struct AgentConnectionView: View {
     private var detailsPanel: some View {
         AgentEditorDetailsPanel(
             statistics: feature.selectedConversation?.sessionStatistics,
-            contextUsage: feature.selectedConversation?.contextUsage,
-            fileChanges: AgentActivity(messages: feature.selectedConversation?.messages ?? [],
-                                       reviewed: feature.selectedConversation?.reviewedFileChanges ?? [:]).files,
-            workspace: workspaceSummary
+            contextUsage: feature.selectedConversation?.contextUsage
         )
     }
 
@@ -579,7 +578,7 @@ private struct AgentConnectionView: View {
     }
 
     private var copyConversationAction: (() -> Void)? {
-        guard let messages = feature.selectedConversation?.messages, !messages.isEmpty else { return nil }
+        guard let messages = feature.selectedConversation?.transcriptMessages, !messages.isEmpty else { return nil }
         let title = conversationTitle
         return { AgentPasteboard.copy(AgentTranscriptExport.markdown(title: title, messages: messages, locale: locale)) }
     }
@@ -654,9 +653,10 @@ private struct AgentConnectionView: View {
             onSetConfig: { feature.setConfigOption($0, value: $1) },
             commands: feature.selectedConversation?.availableCommands ?? [],
             findFiles: onFindFiles,
+            fileMentionRevision: fileMentionRevision,
             savePastedImage: onSavePastedImage,
             showsToolbar: showsToolbar, draftText: $feature.draftText, draftFiles: $feature.draftFiles,
-            detailsContent: { AnyView(detailsPanel.frame(height: AgentEditorConversationMetrics.detailsPopupHeight)) }
+            focusRequest: feature.composerFocusRequest
         )
         .id(draftReset)
     }
@@ -694,7 +694,7 @@ private struct AgentConnectionView: View {
         let conversation = feature.selectedConversation
         let sessionID = feature.selectedSessionID
         return AgentActivitySummaryBar(messages: conversation?.messages ?? [], sessionID: sessionID,
-            plan: conversation?.plan, reviewed: conversation?.reviewedFileChanges ?? [:],
+            plan: conversation?.plan, subagents: conversation?.subagents ?? [], reviewed: conversation?.reviewedFileChanges ?? [:],
             isResponding: conversation?.isResponding == true, isReviewing: feature.fileReviewSessionID != nil,
             reviewError: feature.fileReviewErrorSessionID == sessionID ? feature.fileReviewError : nil,
             onOpenFile: onOpenFile,

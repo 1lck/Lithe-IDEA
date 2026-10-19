@@ -60,9 +60,17 @@ public final class AgentConnectionModel: ObservableObject {
     @Published public private(set) var fileReviewSessionID: String?
     @Published public private(set) var fileReviewError: String?
     @Published public private(set) var fileReviewErrorSessionID: String?
-    // Drafts belong to the connection so moving its presentation does not discard unsent input.
+    // Drafts belong to each session, independent of its presentation or Agent process.
     @Published public var draftText = ""
     @Published public var draftFiles: [AgentFileReference] = []
+    @Published public private(set) var composerFocusRequest: UInt = 0
+    private struct Draft {
+        var text = ""
+        var files: [AgentFileReference] = []
+        var isEmpty: Bool { text.isEmpty && files.isEmpty }
+    }
+    private var sessionDrafts: [String: Draft] = [:]
+    private var unassignedDraft = Draft()
     private var fileReviewTask: Task<Void, Never>?
 
     /// Called when any conversation starts or stops waiting for a permission
@@ -93,7 +101,9 @@ public final class AgentConnectionModel: ObservableObject {
     private var loadTokens: [String: String] = [:]
     /// Streamed text not yet shown, per session. One buffer holds one role so
     /// interleaved reasoning and reply chunks become separate messages.
-    private var pendingText: [String: (role: AgentConversationMessage.Role, text: String)] = [:]
+    private var pendingText: [String: (role: AgentConversationMessage.Role, text: String, subagentSessionID: String?)] = [:]
+    /// Child associations are rebuilt with the owning conversation's history snapshot.
+    private var subagentOwners: [String: String] = [:]
     private var flushTask: Task<Void, Never>?
     private var needsAttention = false
     @Published private var createToken: String?
@@ -314,9 +324,11 @@ public final class AgentConnectionModel: ObservableObject {
 
     public func startNewConversation() {
         guard !isCreatingSession else { return }
+        saveDraft()
         discardUnpersistedEmptySessions()
         draftText = ""
         draftFiles = []
+        unassignedDraft = Draft()
         selectedSessionID = nil
         errorMessage = nil
         prepareConversation()
@@ -326,8 +338,20 @@ public final class AgentConnectionModel: ObservableObject {
     public func prepareConversation() {
         guard connectionState == .ready else { return }
         if let sessionID = selectedSessionID {
-            if conversations[sessionID]?.isAttached != true { selectSession(sessionID) }
-            return
+            if unpromptedSessionIDs.contains(sessionID), conversations[sessionID]?.isAttached != true {
+                // An empty Codex session has no persisted rollout to load after
+                // reconnect. Keep its draft while replacing only the stale ID.
+                guard createToken == nil else { return }
+                conversations[sessionID] = nil
+                sessions.removeAll { $0.id == sessionID }
+                openSessionIDs.removeAll { $0 == sessionID }
+                sessionDrafts[sessionID] = nil
+                unpromptedSessionIDs.remove(sessionID)
+                selectedSessionID = nil
+            } else {
+                if conversations[sessionID]?.isAttached != true { selectSession(sessionID) }
+                return
+            }
         }
         guard createToken == nil else { return }
         let token = makeToken()
@@ -356,10 +380,18 @@ public final class AgentConnectionModel: ObservableObject {
         }
     }
     public func selectSession(_ sessionID: String) {
+        if selectedSessionID != sessionID {
+            saveDraft()
+            restoreDraft(sessionDrafts[sessionID] ?? Draft())
+        }
         selectedSessionID = sessionID
         errorMessage = nil
         openTab(sessionID)
         let conversation = conversations[sessionID]
+        if unpromptedSessionIDs.contains(sessionID), conversation?.isAttached != true {
+            prepareConversation()
+            return
+        }
         if conversation?.isAttached != true, conversation?.isLoading != true,
            connection != nil, canLoadSessions {
             beginLoad(sessionID)
@@ -374,15 +406,63 @@ public final class AgentConnectionModel: ObservableObject {
               conversation.pendingConfigToken == nil, conversation.permission == nil else { return }
         openSessionIDs.removeAll { $0 == sessionID }
         conversations[sessionID] = nil
+        rebuildSubagentOwners()
         unpromptedSessionIDs.remove(sessionID)
         pendingText[sessionID] = nil
         queuedPrompts[sessionID] = nil
         if selectedSessionID == sessionID {
-            selectedSessionID = openSessionIDs.last
+            if let next = openSessionIDs.last { selectSession(next) }
+            else {
+                selectedSessionID = nil
+                restoreDraft(Draft())
+                unassignedDraft = Draft()
+            }
             // Closing the final tab does not change connectionState or make
             // the view appear again, so start its replacement settings here.
             if selectedSessionID == nil { prepareConversation() }
         }
+        sessionDrafts[sessionID] = nil
+    }
+
+    /// Attach to a draft without prompting, cancelling a running turn, or waiting
+    /// for settings/history. Validate the entire batch before changing selection.
+    public func attachFiles(_ urls: [URL], to destination: AgentFileAttachmentDestination) throws {
+        let targetFiles: [AgentFileReference]
+        switch destination {
+        case .current:
+            targetFiles = draftFiles
+        case .session(let id):
+            guard sessions.contains(where: { $0.id == id }) else { throw AgentFileAttachmentError.sessionUnavailable }
+            targetFiles = id == selectedSessionID ? draftFiles : sessionDrafts[id]?.files ?? []
+        case .newConversation:
+            targetFiles = selectedSessionID == nil ? draftFiles : unassignedDraft.files
+        }
+        let files = try AgentFileReference.adding(urls, to: targetFiles)
+        switch destination {
+        case .current: break
+        case .session(let id): selectSession(id)
+        case .newConversation:
+            if selectedSessionID == nil { prepareConversation() }
+            else if isCreatingSession || !unassignedDraft.isEmpty {
+                saveDraft()
+                restoreDraft(unassignedDraft)
+                selectedSessionID = nil
+                prepareConversation()
+            } else { startNewConversation() }
+        }
+        draftFiles = files
+        composerFocusRequest &+= 1
+    }
+
+    private func saveDraft() {
+        let draft = Draft(text: draftText, files: draftFiles)
+        if let selectedSessionID { sessionDrafts[selectedSessionID] = draft }
+        else { unassignedDraft = draft }
+    }
+
+    private func restoreDraft(_ draft: Draft) {
+        draftText = draft.text
+        draftFiles = draft.files
     }
 
     public func send(_ text: String, files: [AgentFileReference] = []) throws {
@@ -629,7 +709,12 @@ public final class AgentConnectionModel: ObservableObject {
             updateAttention()
         case "update":
             guard let sessionID, let update = event["update"] as? [String: Any] else { return }
-            apply(update, to: sessionID)
+            if applySubagentLifecycle(update, parentSessionID: sessionID) { return }
+            if let owner = subagentOwners[sessionID] {
+                guard conversations[owner]?.subagents.contains(where: { $0.id == sessionID && $0.state == .running }) == true,
+                      ["agent_message_chunk", "agent_thought_chunk", "user_message_chunk", "tool_call", "tool_call_update"].contains(update["sessionUpdate"] as? String ?? "") else { return }
+                apply(update, to: owner, subagentSessionID: sessionID)
+            } else { apply(update, to: sessionID) }
         case "permission":
             guard let sessionID,
                   conversations[sessionID]?.isCancelling != true,
@@ -694,7 +779,13 @@ public final class AgentConnectionModel: ObservableObject {
         openTab(sessionID)
         pendingNewConversationPrompt = nil
         if selectedSessionID == nil { selectedSessionID = sessionID }
+        else { sessionDrafts[sessionID] = unassignedDraft }
+        unassignedDraft = Draft()
         if let prompt { startPrompt(prompt, in: sessionID) }
+        if let selectedSessionID, selectedSessionID != sessionID,
+           unpromptedSessionIDs.contains(selectedSessionID), conversations[selectedSessionID]?.isAttached != true {
+            prepareConversation()
+        }
     }
 
     private func requestFailed(token: String?, sessionID: String?, message: String) {
@@ -723,6 +814,7 @@ public final class AgentConnectionModel: ObservableObject {
             queuedPrompts.removeValue(forKey: loading)
             pendingText[loading] = nil
             if let backup = loadBackups.removeValue(forKey: loading) { conversations[loading] = backup }
+            rebuildSubagentOwners()
             conversations[loading]?.isLoading = false
             conversations[loading]?.errorMessage = message
             historyContinuations.removeValue(forKey: loading)?.resume(throwing: AgentConversationError.sendFailed(message))
@@ -768,7 +860,7 @@ public final class AgentConnectionModel: ObservableObject {
         sessions = sessions.filter { !listedIDs.contains($0.id) && conversations[$0.id] != nil } + listed
     }
 
-    private func apply(_ update: [String: Any], to sessionID: String) {
+    private func apply(_ update: [String: Any], to sessionID: String, subagentSessionID: String? = nil) {
         switch update["sessionUpdate"] as? String {
         case "notice":
             guard connectionState == .ready, let notice = AgentSessionNotice.parse(update) else { return }
@@ -788,12 +880,12 @@ public final class AgentConnectionModel: ObservableObject {
             applyConfiguration(update["configOptions"], to: sessionID)
         case "agent_message_chunk":
             guard let text = Self.text(of: update) else { return }
-            if !text.isEmpty { markResponseProgress(.responding, in: sessionID) }
-            buffer(text, role: .agent, in: sessionID)
+            if !text.isEmpty, subagentSessionID == nil { markResponseProgress(.responding, in: sessionID) }
+            buffer(text, role: .agent, in: sessionID, subagentSessionID: subagentSessionID)
         case "agent_thought_chunk":
             guard let text = Self.text(of: update) else { return }
-            if !text.isEmpty { markResponseProgress(.thinking, in: sessionID) }
-            buffer(text, role: .thought, in: sessionID)
+            if !text.isEmpty, subagentSessionID == nil { markResponseProgress(.thinking, in: sessionID) }
+            buffer(text, role: .thought, in: sessionID, subagentSessionID: subagentSessionID)
         case "plan":
             guard let plan = AgentPlan.parse(update) else { return }
             conversations[sessionID, default: AgentConversation()].plan = plan.entries.isEmpty ? nil : plan
@@ -825,11 +917,11 @@ public final class AgentConnectionModel: ObservableObject {
             guard conversations[sessionID]?.isResponding != true else { return }
             guard let text = Self.text(of: update) else { return }
             flushPendingText()
-            append(text, role: .user, to: sessionID)
+            append(text, role: .user, to: sessionID, subagentSessionID: subagentSessionID)
         case "tool_call", "tool_call_update":
             guard let toolCallID = update["toolCallId"] as? String else { return }
             flushPendingText()
-            upsertTool(toolCallID, update: update, in: sessionID)
+            upsertTool(toolCallID, update: update, in: sessionID, subagentSessionID: subagentSessionID)
             conversations[sessionID]?.refreshTurnClock(at: now())
             markResponseProgress(.waiting, in: sessionID)
         case "session_info_update":
@@ -964,19 +1056,87 @@ public final class AgentConnectionModel: ObservableObject {
         resumeContinuation(in: sessionID)
     }
 
-    private func append(_ text: String, role: AgentConversationMessage.Role, to sessionID: String) {
+    /// Consume only the pinned adapters' explicit native child lifecycle events.
+    private func applySubagentLifecycle(_ update: [String: Any], parentSessionID: String) -> Bool {
+        let kind = update["sessionUpdate"] as? String
+        guard kind == "subagent_spawned" || kind == "subagent_state_update" else { return false }
+        let root = subagentOwners[parentSessionID] ?? parentSessionID
+        guard var conversation = conversations[root],
+              let child = update["subagentSessionId"] as? String, !child.isEmpty,
+              child != root, child != parentSessionID, conversations[child] == nil else { return true }
+        if kind == "subagent_spawned" {
+            guard let name = update["name"] as? String, let task = update["task"] as? String,
+                  subagentOwners[child] == nil || subagentOwners[child] == root else { return true }
+            if let index = conversation.subagents.firstIndex(where: { $0.id == child }) {
+                guard conversation.subagents[index].parentSessionID == parentSessionID else { return true }
+                conversation.subagents[index].name = name
+                conversation.subagents[index].task = task
+            } else {
+                let parent = conversation.subagents.first { $0.id == parentSessionID }
+                guard parentSessionID == root || parent?.state == .running else { return true }
+                conversation.subagents.append(AgentSubagent(id: child, parentSessionID: parentSessionID,
+                    name: name, task: task, depth: parent.map { $0.depth + 1 } ?? 0))
+            }
+            subagentOwners[child] = root
+        } else {
+            guard let state = (update["state"] as? String).flatMap(AgentSubagent.State.init(rawValue:)),
+                  let index = conversation.subagents.firstIndex(where: { $0.id == child && $0.parentSessionID == parentSessionID }),
+                  conversation.subagents[index].state == .running || conversation.subagents[index].state == .disconnected else { return true }
+            flushPendingText()
+            // Flushing may have appended the child's last output to this snapshot.
+            conversation.messages = conversations[root]?.messages ?? conversation.messages
+            conversation.subagents[index].state = state
+            var ended = Set<String>()
+            if state != .running {
+                ended.insert(child)
+                // A terminal parent cannot continue owning live descendants.
+                // Their outcome is unknown unless they reported it themselves.
+                for _ in conversation.subagents.indices {
+                    for descendant in conversation.subagents.indices where ended.contains(conversation.subagents[descendant].parentSessionID) {
+                        ended.insert(conversation.subagents[descendant].id)
+                        if conversation.subagents[descendant].state == .running {
+                            conversation.subagents[descendant].state = .disconnected
+                        }
+                    }
+                }
+            }
+            for message in conversation.messages.indices where conversation.messages[message].subagentSessionID.map(ended.contains) == true {
+                if conversation.messages[message].toolStatus == .pending || conversation.messages[message].toolStatus == .inProgress {
+                    conversation.messages[message].toolStatus = .interrupted
+                }
+            }
+        }
+        conversations[root] = conversation
+        return true
+    }
+
+    private func rebuildSubagentOwners() {
+        subagentOwners.removeAll()
+        for (root, conversation) in conversations {
+            for child in conversation.subagents { subagentOwners[child.id] = root }
+        }
+    }
+
+    private static func toolMessageID(_ toolCallID: String, subagentSessionID: String?) -> String {
+        guard let child = subagentSessionID else { return "tool:\(toolCallID)" }
+        return "subagent-tool:\(child.utf8.count):\(child):\(toolCallID)"
+    }
+
+    private func append(_ text: String, role: AgentConversationMessage.Role, to sessionID: String, subagentSessionID: String? = nil) {
         var conversation = conversations[sessionID] ?? AgentConversation()
-        if let last = conversation.messages.indices.last, conversation.messages[last].role == role {
+        if let last = conversation.messages.indices.last, conversation.messages[last].role == role,
+           conversation.messages[last].subagentSessionID == subagentSessionID {
             conversation.messages[last].text += text
         } else {
             conversation.messages.append(AgentConversationMessage(role: role, text: text))
+            conversation.messages[conversation.messages.count - 1].subagentSessionID = subagentSessionID
         }
         conversations[sessionID] = conversation
     }
 
-    private func upsertTool(_ toolCallID: String, update: [String: Any], in sessionID: String) {
+    private func upsertTool(_ toolCallID: String, update: [String: Any], in sessionID: String, subagentSessionID: String? = nil) {
         var conversation = conversations[sessionID] ?? AgentConversation()
-        let id = "tool:\(toolCallID)"
+        let id = Self.toolMessageID(toolCallID, subagentSessionID: subagentSessionID)
         let status = (update["status"] as? String).flatMap(AgentConversationMessage.ToolStatus.init(rawValue:))
         let title = (update["title"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         if let index = conversation.messages.firstIndex(where: { $0.id == id }) {
@@ -991,24 +1151,28 @@ public final class AgentConnectionModel: ObservableObject {
                 toolStatus: status ?? .pending
             ))
             conversation.messages[conversation.messages.count - 1].toolDetails.merge(update)
+            conversation.messages[conversation.messages.count - 1].subagentSessionID = subagentSessionID
         }
         conversations[sessionID] = conversation
     }
 
     private func permissionPrompt(_ requestID: String, _ request: [String: Any], sessionID: String) -> AgentPermissionPrompt {
+        let child = (request["sessionId"] as? String).flatMap { subagentOwners[$0] == sessionID ? $0 : nil }
         let tool = request["toolCall"] as? [String: Any]
         let options = (request["options"] as? [[String: Any]] ?? []).compactMap { option -> AgentPermissionChoice? in
             guard let id = option["optionId"] as? String, let label = option["name"] as? String else { return nil }
             return AgentPermissionChoice(id: id, label: label, kind: option["kind"] as? String)
         }
+        let toolTitle = tool?["title"] as? String ?? "Allow the Agent to continue?"
+        let name = child.flatMap { id in conversations[sessionID]?.subagents.first(where: { $0.id == id })?.name }
         var prompt = AgentPermissionPrompt(
             id: requestID,
-            title: tool?["title"] as? String ?? "Allow the Agent to continue?",
+            title: name.map { "\($0): \(toolTitle)" } ?? toolTitle,
             choices: options
         )
         if let tool {
             if let id = tool["toolCallId"] as? String,
-               let known = conversations[sessionID]?.messages.first(where: { $0.id == "tool:\(id)" }) {
+               let known = conversations[sessionID]?.messages.first(where: { $0.id == Self.toolMessageID(id, subagentSessionID: child) }) {
                 prompt.details = known.toolDetails
             }
             prompt.details.merge(tool)
@@ -1098,6 +1262,7 @@ public final class AgentConnectionModel: ObservableObject {
         // Replay carries no timing or usage; earlier connections' totals do.
         conversation.statisticsBaseline = statisticsStore?.record(for: sessionID)
         conversations[sessionID] = conversation
+        rebuildSubagentOwners()
         if !sendCommand(["kind": "loadSession", "token": token, "sessionId": sessionID]) {
             requestFailed(token: token, sessionID: sessionID, message: errorMessage ?? "The Agent request failed.")
         }
@@ -1165,6 +1330,7 @@ public final class AgentConnectionModel: ObservableObject {
         queuedPrompts.removeAll()
         loadTokens.removeAll()
         for (id, backup) in loadBackups { conversations[id] = backup }
+        rebuildSubagentOwners()
         loadBackups.removeAll()
         discardUnpersistedEmptySessions()
         createToken = nil
@@ -1195,10 +1361,13 @@ public final class AgentConnectionModel: ObservableObject {
     }
 
     private func discardUnpersistedEmptySessions() {
-        let discarded = unpromptedSessionIDs.filter { conversations[$0]?.messages.isEmpty == true }
-        unpromptedSessionIDs.removeAll()
+        let discarded = unpromptedSessionIDs.filter {
+            let draft = $0 == selectedSessionID ? Draft(text: draftText, files: draftFiles) : sessionDrafts[$0] ?? Draft()
+            return conversations[$0]?.messages.isEmpty == true && draft.isEmpty
+        }
+        unpromptedSessionIDs.subtract(discarded)
         // Never infer this from an empty transcript alone: unloaded history must survive.
-        for id in discarded { conversations[id] = nil }
+        for id in discarded { conversations[id] = nil; sessionDrafts[id] = nil }
         sessions.removeAll { discarded.contains($0.id) }
         openSessionIDs.removeAll { discarded.contains($0) }
         if let selectedSessionID, discarded.contains(selectedSessionID) {
@@ -1233,9 +1402,9 @@ public final class AgentConnectionModel: ObservableObject {
         }
     }
 
-    private func buffer(_ text: String, role: AgentConversationMessage.Role, in sessionID: String) {
-        if let pending = pendingText[sessionID], pending.role != role { flushPendingText() }
-        pendingText[sessionID, default: (role, "")].text += text
+    private func buffer(_ text: String, role: AgentConversationMessage.Role, in sessionID: String, subagentSessionID: String? = nil) {
+        if let pending = pendingText[sessionID], pending.role != role || pending.subagentSessionID != subagentSessionID { flushPendingText() }
+        pendingText[sessionID, default: (role, "", subagentSessionID)].text += text
         scheduleFlush()
     }
 
@@ -1243,7 +1412,7 @@ public final class AgentConnectionModel: ObservableObject {
         let pending = pendingText
         pendingText.removeAll()
         for (sessionID, chunk) in pending where !chunk.text.isEmpty {
-            append(chunk.text, role: chunk.role, to: sessionID)
+            append(chunk.text, role: chunk.role, to: sessionID, subagentSessionID: chunk.subagentSessionID)
         }
     }
 

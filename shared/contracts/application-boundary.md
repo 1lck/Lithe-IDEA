@@ -46,6 +46,25 @@ acknowledgement, without cancelling the configuration itself. Unknown delivery
 is never retried automatically. Platform UI enables
 this behavior from the negotiated capability, not the Agent's display name.
 
+File context actions target a configured Agent and a root conversation within the
+captured workspace. The quick action names the current Agent; other destinations
+are grouped by Agent and identify existing sessions or a new conversation. Opening
+the menu uses cached session summaries and does not start background Agents.
+Attaching appends deduplicated native file references to that destination's draft,
+preserves its text, and never sends, steers or cancels a turn. Draft text and files
+remain isolated by Agent/session, including new-session creation and failed history
+loads. Stale projects, removed Agents and unavailable sessions must not redirect the
+attachment. Directories are not recursively expanded. References read saved disk
+contents; dirty editor buffers are retained and prompt the user to save before sending.
+
+Agent activity separates reported plans, native subagents and file edits. Ordinary
+tools are execution evidence, never inferred plan steps or child agents. Native
+children expose their upstream task, state and delivered output, scoped to their
+root conversation. Completion counts only explicit success; unknown outcomes
+remain disconnected. Child permissions use the owning root's existing controls.
+A platform enables this monitor only when it consumes negotiated child-session
+events; execution and history storage remain owned by the upstream Agent.
+
 The opened workspace, supplied by the product, defines the default meaning of
 "current project". A containing Git repository and inherited development rules
 do not replace that scope. The shared Host adds the same explicit workspace

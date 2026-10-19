@@ -1,0 +1,30 @@
+{
+  "id": "agent-subagent-monitoring",
+  "area": "AI",
+  "group": "Agent 对话",
+  "capability": "原生子代理监视：以子代理替代运行中，显示真实任务、状态和完成进度，展开已收到的推理、工具和输出；嵌套子代理与授权由主会话管理，普通工具不计入子代理",
+  "macos": {
+    "evidence": [
+      "rust/lithe-agent-host/src/subagents.rs",
+      "rust/lithe-agent-host/src/lib.rs",
+      "rust/lithe-agent-host/src/tests.rs",
+      "macos/Sources/Lithe/Views/Agent/AgentSubagentListView.swift",
+      "macos/Sources/Lithe/Views/Agent/AgentActivitySummaryBar.swift",
+      "macos/Sources/LitheAgentConversationModule/Application/AgentConnectionModel.swift",
+      "macos/Tests/LitheTests/AgentConversationFeatureModelTests.swift",
+      "macos/Tests/LitheTests/AgentActivityPresentationTests.swift",
+      "shared/fixtures/agent/acp-events-v1.json"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features"
+    ],
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable"
+  },
+  "owner": "Agent",
+  "verification": "macOS：使用支持 AIR nativeSubagentSessions 的 Claude/Codex 在隔离项目中创建真实子代理，确认名称、任务、嵌套关系、运行/完成/失败/取消/断开状态与完成数/总数；展开详情查看实际输出和工具，状态刷新保持弹层。普通工具不产生子代理；子输出不拼入主回复、历史预览或复制。切换会话隔离，历史恢复同一子代理，停止主任务收尾子代理授权等待；父代理结束后未报告结果的子代理显示已断开。运行 AgentConversationFeatureModelTests 的 nativeSubagents/nativeChild 回归、AgentActivityPresentationTests.subagentsExpandDeliveredOutputAndRefreshWithoutDismissing 和 Host 的 native_subagents_keep_child_permissions_owned_by_the_root_turn。受控协议与原生 UI 测试不能替代真实供应商工作流，完成该实测前保持 pending。Windows 尚未实现 Agent 对话 UI。"
+}
