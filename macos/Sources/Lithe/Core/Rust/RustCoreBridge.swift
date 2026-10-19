@@ -137,6 +137,9 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let line: Int?
         let preview: String
         let symbolName: String?
+        let nameMatchRanges: [SearchNameRange]?
+        let matchingDegree: Int?
+        let isIgnored: Bool?
     }
 
     struct SearchResponsePayload: Decodable, Sendable {
@@ -149,7 +152,10 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                     line: match.line,
                     preview: match.preview,
                     kind: SearchResultKind(rawValue: match.kind) ?? .content,
-                    symbolName: match.symbolName
+                    symbolName: match.symbolName,
+                    nameMatchRanges: match.nameMatchRanges ?? [],
+                    matchingDegree: match.matchingDegree,
+                    isIgnored: match.isIgnored
                 )
             }
         }
@@ -1476,6 +1482,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let fileMask: String
         let hiddenDirectoryNames: [String]
         let hiddenFilePatterns: [String]
+        var includeGeneratedFileNames = false
     }
 
     private struct ReplacementPreviewRequest: Encodable {
@@ -2413,7 +2420,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 maxSymbolResults: maxSymbolResults,
                 fileMask: fileMask,
                 hiddenDirectoryNames: hiddenDirectoryNames,
-                hiddenFilePatterns: hiddenFilePatterns
+                hiddenFilePatterns: hiddenFilePatterns,
+                includeGeneratedFileNames: true
             )
         )
     }

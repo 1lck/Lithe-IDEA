@@ -4,6 +4,167 @@ use serde_json::Value;
 use std::fs;
 
 #[test]
+fn search_everywhere_uses_git_ignore_rules_for_filename_foreground() {
+    let root = temporary_root("everywhere-ignore-status");
+    struct Cleanup(std::path::PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
+    fs::create_dir_all(root.join(".build")).unwrap();
+    let git = |arguments: &[&str]| {
+        let response = crate::git::execute_git(
+            root.to_str().unwrap(),
+            &arguments
+                .iter()
+                .map(|value| value.to_string())
+                .collect::<Vec<_>>(),
+            None,
+        )
+        .unwrap();
+        assert_eq!(response.exit_code, 0, "{}", response.output);
+    };
+    git(&["init", "-q"]);
+    fs::write(root.join(".gitignore"), ".build/\n*.tmp\n!name-keep.tmp\n").unwrap();
+    fs::write(root.join(".git/info/exclude"), "name-local.dat\n").unwrap();
+    let paths = [
+        ".build/Name.swift",
+        "name ignore\nspace.tmp",
+        "name-tracked.tmp",
+        "name-keep.tmp",
+        "name-local.dat",
+        "name-normal.swift",
+    ];
+    for path in paths {
+        fs::write(root.join(path), "").unwrap();
+    }
+    git(&["add", "-f", "name-tracked.tmp"]);
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "command": "workspace.searchEverywhere", "payload": {
+                "root": root, "query": "name", "maxResults": 100,
+                "maxContentResults": 0, "maxSymbolResults": 0,
+                "includeGeneratedFileNames": true
+            }
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(response["ok"], true, "{response}");
+    let matches = response["data"]["matches"].as_array().unwrap();
+    for path in paths {
+        let item = matches.iter().find(|item| item["path"] == path).unwrap();
+        let ignored = matches!(
+            path,
+            ".build/Name.swift" | "name ignore\nspace.tmp" | "name-local.dat"
+        );
+        assert_eq!(item["isIgnored"], ignored, "{path}");
+    }
+}
+
+#[test]
+fn search_everywhere_matches_names_before_limits_and_shares_utf16_fragments() {
+    let root = temporary_root("everywhere-name-fragments");
+    struct Cleanup(std::path::PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/search/name-matching.json"
+    ))
+    .unwrap();
+    for case in fixture["cases"].as_array().unwrap() {
+        let path = root.join(case["path"].as_str().unwrap());
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            path,
+            "not a content match\nnot a content match\nnot a content match",
+        )
+        .unwrap();
+    }
+    for path in [".git/Name.swift", "excluded/Name.swift", "src/Unrelated.rs"] {
+        let path = root.join(path);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, "not a content match").unwrap();
+    }
+    // Low-relevance names occur earlier in the index than an exact name.
+    for i in 0..60 {
+        fs::write(root.join(format!("aName{i}.txt")), "").unwrap();
+    }
+    let search = |generated: bool, cap: usize| -> Vec<Value> {
+        let response: Value = serde_json::from_str(&execute_json(&serde_json::json!({
+            "command": "workspace.searchEverywhere", "payload": {
+                "root": root, "query": fixture["query"], "maxResults": 1000,
+                "maxFileResults": cap, "maxContentResults": 0, "maxSymbolResults": 0,
+                "includeGeneratedFileNames": generated, "hiddenDirectoryNames": ["excluded", ".build", "target"]
+            }
+        }).to_string())).unwrap();
+        assert_eq!(response["ok"], true, "{response}");
+        response["data"]["matches"].as_array().unwrap().clone()
+    };
+    let results = search(true, 200);
+    for case in fixture["cases"].as_array().unwrap() {
+        let result = results
+            .iter()
+            .find(|m| m["path"] == case["path"])
+            .expect("reported IDEA name should be found");
+        assert_eq!(
+            result["nameMatchRanges"], case["ranges"],
+            "{}",
+            case["path"]
+        );
+        assert!(result["matchingDegree"].as_i64().unwrap() > 0);
+    }
+    assert!(!results
+        .iter()
+        .any(|m| m["path"].as_str().unwrap().starts_with(".git/")
+            || m["path"].as_str().unwrap().starts_with("excluded/")
+            || m["path"] == "src/Unrelated.rs"));
+    let limited = search(true, 1);
+    assert_eq!(limited[0]["path"], ".build/checkouts/Name.swift");
+    assert!(!search(false, 200)
+        .iter()
+        .any(|m| m["path"].as_str().unwrap().contains(".build/")
+            || m["path"].as_str().unwrap().contains("target/")));
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "command": "workspace.searchEverywhere", "payload": {
+                "root": root, "query": "not", "maxResults": 10,
+                "maxFileResults": 0, "maxSymbolResults": 0, "maxContentResults": 2
+            }
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(response["data"]["matches"].as_array().unwrap().len(), 2);
+    // A cached names-only index must follow file updates, deletion and directory invalidation.
+    let update = |paths: &[&str]| {
+        crate::project::files::update_search_index(serde_json::from_value(serde_json::json!({
+            "root": root, "paths": paths, "hiddenDirectoryNames": ["excluded", ".build", "target"]
+        })).unwrap()).unwrap()
+    };
+    fs::write(root.join(".build/checkouts/NameGuide.swift"), "").unwrap();
+    update(&[".build/checkouts/NameGuide.swift"]);
+    assert!(search(true, 200)
+        .iter()
+        .any(|m| m["path"] == ".build/checkouts/NameGuide.swift"));
+    fs::remove_file(root.join(".build/checkouts/NameGuide.swift")).unwrap();
+    update(&[".build/checkouts/NameGuide.swift"]);
+    assert!(!search(true, 200)
+        .iter()
+        .any(|m| m["path"] == ".build/checkouts/NameGuide.swift"));
+    assert!(update(&[".build/checkouts"]).rebuilt);
+    assert!(search(true, 200)
+        .iter()
+        .any(|m| m["path"] == ".build/checkouts/Name.swift"));
+}
+
+#[test]
 fn workspace_snapshot_hides_nested_worktree_checkouts() {
     let root = temporary_root("snapshot-worktree");
     fs::create_dir_all(root.join("src")).expect("source directory should be creatable");
@@ -158,6 +319,40 @@ fn workspace_snapshot_hides_build_artifact_directory() {
 
     assert_eq!(data["files"], serde_json::json!(["src/App.java"]));
     fs::remove_dir_all(root).expect("temporary fixture should be removable");
+}
+
+#[test]
+fn search_everywhere_names_exclude_nested_worktrees_during_incremental_updates() {
+    let root = temporary_root("everywhere-linked-worktree");
+    struct Cleanup(std::path::PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
+    write_linked_worktree_fixture(&root);
+    let root = fs::canonicalize(&root).unwrap();
+    let search = || {
+        core_data(
+            "everywhere-linked",
+            "workspace.searchEverywhere",
+            serde_json::json!({
+                "root": root, "query": "NestedPreview", "includeGeneratedFileNames": true
+            }),
+        )
+    };
+    let path = root.join(".claude/worktrees/agent/src/NestedPreview.java");
+    write_fixture_file(&path, "class NestedPreview {}");
+    assert_eq!(search()["matches"], serde_json::json!([]));
+    fs::write(&path, "class NestedPreview { int updated; }").unwrap();
+    let update = core_data(
+        "everywhere-linked-update",
+        "workspace.searchIndex.update",
+        serde_json::json!({"root": root, "paths": [path]}),
+    );
+    assert_eq!(update["rebuilt"], false, "{update}");
+    assert_eq!(search()["matches"], serde_json::json!([]));
 }
 
 #[test]

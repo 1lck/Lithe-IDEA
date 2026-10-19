@@ -55,9 +55,9 @@ struct RustWorkspaceOperations: WorkspaceOperations, Sendable {
             wholeWords: options.wholeWords,
             regularExpression: options.regularExpression,
             maxResults: SearchEverywhereResults.matchLimit,
-            maxFileResults: 50,
-            maxContentResults: 50,
-            maxSymbolResults: 50,
+            maxFileResults: SearchEverywhereResults.providerLimit,
+            maxContentResults: SearchEverywhereResults.providerLimit,
+            maxSymbolResults: SearchEverywhereResults.providerLimit,
             fileMask: options.fileMask,
             hiddenDirectoryNames: visibilityRules.hiddenDirectoryNames,
             hiddenFilePatterns: visibilityRules.hiddenFilePatterns

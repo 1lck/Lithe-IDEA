@@ -5,7 +5,13 @@
   "capability": "全局命令与设置搜索",
   "macos": {
     "evidence": [
-      "macos/Sources/Lithe/Views/Search"
+      "macos/Sources/Lithe/Views/Search",
+      "macos/Tests/LitheTests/SearchEverywhereAppearanceTests.swift",
+      ".agents/notes/implemented/simplification/2026-09-30-macos-shared-dropdown-style.md",
+      "macos/Sources/Lithe/Views/Components/LitheCenteredPopup.swift",
+      "macos/Tests/LitheTests/SearchEverywhereBehaviorTests.swift",
+      "rust/lithe-core/src/project/name_matching.rs",
+      "shared/fixtures/search/name-matching.json"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -19,5 +25,5 @@
     "verificationStatus": "pending"
   },
   "owner": "Search",
-  "verification": "使用快捷键搜索命令、设置和工作区内容，确认结果来源和跳转行为。"
+  "verification": "使用快捷键搜索命令、设置和工作区内容，确认结果来源和跳转行为。 macOS 双 Shift 打开 Search Everywhere，按 Community Islands 源码核对普通字重的圆角分类选中框、统一弹窗背景、内嵌圆角搜索框及 IDEA 明暗搜索/筛选/关闭图标；在深浅主题与窄窗口检查外框裁剪、搜索框不越界、输入焦点与中文组词，切换分类、清除、筛选、Esc、点击外部及执行命令保持原行为。 搜索弹窗使用独立无边框 NSPanel 和系统 NORMAL 阴影，不绘制 SwiftUI 模糊投影；父窗口移动/缩放后仍居中于顶部指定位置，点击外部与失焦关闭，筛选子菜单获焦时搜索保留；关闭与重新打开均无残留子窗口。 空查询只显示分类与搜索框，输入后展开、清空后收起；原生窗口使用 sRGB backing store，顶部分类复用共享标签聚焦/失焦状态，并从面板自身读取 controlActiveState，父窗口失焦不将活动分类错误画灰。 打开后无需点击即可直接输入首个字符；搜索进行中在输入框右侧、命令提示之前显示加载指示器，分类栏不重复显示；完成后加载指示器消失，输入后命令提示仍保留。 使用同一工作区输入 name，确认 .build/checkouts/Name.swift、rust/target 中的名称及 NativeMenu/navigation-menu 的分段命中；文件名范围来自 Core 的 UTF-16 nameMatchRanges，选中行高亮，名称先排序再按来源截断。漏斗只筛选已实现的 Classes/Files/Symbols/Actions，All/None/Invert 生效，All 包含动作；单独标签不受 All 来源筛选影响。预览按钮开启后，单击/上下键选中文件更新独立只读 Monaco，不能输入、格式化或重命名；回车/双击仍打开，关闭预览不改变主编辑器可写状态或未保存内容。生成目录名称更新沿用索引刷新；未覆盖 IDEA 的外部库、语言服务全量符号、历史/机器学习排序及无限分页。 点击只读预览后结果行仍为活动焦点色；鼠标选择文件保持列表滚动偏移和面板位置/尺寸不变，上下键仅在必要时滚动显示选中项，不强制居中。 新查询或切换来源仍恢复首项可见。 在深浅主题与宽窄窗口按住顶部空白区拖向右下，确认窗口实际位置改变（原生命中区域须填满标题栏高度），输入展开、预览切换和父窗缩放后保持拖动位置，重开恢复默认；标签/输入/按钮不被拖动区域抢占。筛选行按名称排序，使用原始 IDEA 明暗复选框与共享行悬停/选中，固定底部 72×28 All/None/Invert 按钮，200pt 最小高度、共享弹层外框；连续勾选和批量操作不关闭菜单。 筛选内容背景沿 Islands Table/Panel 继承 tool-window-bg（深/浅 #191A1C/#FFFFFF），共享原生下拉面板使用 sRGB；复选框保留 24pt viewBox 自带边距，不叠加普通菜单图标的水平内边距。 筛选行 hover 是共享失焦灰，点击才保留主体蓝，移动到另一行同时保留蓝色选中行与灰色 hover 行，hover 不改变勾选。批量按钮上方使用滚动列表的 1pt 内侧矩形底边（Borders.color，深/浅 #26282C/#D1D3D9），不使用系统 Divider。 关闭时按来源保存非空查询，会话内每来源去重保留 50 条，All 重开恢复最后草稿并全选（包括空草稿）；清空关闭后重开必须为空，不从非空历史回填，项目 reset 清除历史，侧栏查询保持独立。输入框清除按钮使用 16pt 槽位。结果文件名复用 Git 文件状态前景色，选中匹配片段保留金底黑字；被 Git 忽略的文件由 Core 批量 check-ignore 获取真实规则，包含 info/exclude、否定规则和已跟踪文件例外，按 Islands Dark/Light 的 #D69A6B/#8C4F00 着色；Git 不可用时保留未知，不按目录名猜测。右上角设置左侧的搜索图标与双 Shift 调用同一动作，提示快捷键，无工作区时禁用；浅深主题和宽窄窗口核对位置、hover 和点击。Windows 仅兼容可选 isIgnored 字段，ignored 前景色与此工具栏入口尚未同步。 打开搜索时激活并刷新惰性 Git 模块，将已归一化的 GitTreeStatusProjection 发布到当前搜索会话，未打开 Commit 也能得到未跟踪/修改状态色；工作区切换或关闭后不回写旧快照。 顶栏搜索使用 Community 原始 search@20x20 明暗 SVG，不放大 16pt 图标；与设置同用 LitheMainToolbarButtonStyle，放入 spacing=0 的同组工具栏，移除外层 9pt 间距和侧栏 37pt 槽位差异。 关闭搜索释放干净的暂存预览并撤销未完成打开；有未保存输入则保留为正式文档，项目替换仍显示时由替换面板继续持有并负责清理。 Text 预览沿用当前大小写/整词/正则选项，名称预览保持默认；生成名称索引扫描和增量更新均排除嵌套 linked worktree。"
 }

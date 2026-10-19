@@ -105,6 +105,23 @@ pub struct SearchMatch {
     pub preview: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub symbol_name: Option<String>,
+    /// Matching fragments in the displayed name, measured in UTF-16 code units.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub name_match_ranges: Vec<SearchNameRange>,
+    /// Name relevance computed before category truncation; absent for content search.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub matching_degree: Option<i32>,
+    /// Git ignore status for a returned name; absent when Git cannot answer.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_ignored: Option<bool>,
+}
+
+/// One half-open matched fragment in a displayed file or symbol name.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchNameRange {
+    pub start: usize,
+    pub length: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]

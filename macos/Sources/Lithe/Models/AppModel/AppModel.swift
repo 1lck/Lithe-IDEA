@@ -653,7 +653,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         guard workspaceSessionCoordinator.setActive(isActive) else { return }
         shortcutSessionCoordinator?.setActive(isActive)
         if !isActive {
-            searchSessionFeature.isSearchEverywhereVisible = false
+            dismissSearchEverywhere()
             cancelJavaLanguageServerPreparation()
         }
     }

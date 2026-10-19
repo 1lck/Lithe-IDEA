@@ -1965,3 +1965,9 @@
 "Allow" = "Allow";
 "Don’t Allow" = "Don’t Allow";
 "Restart Lithe to load the updated page." = "Restart Lithe to load the updated page.";
+"Search Everywhere (Double Shift)" = "Search Everywhere (Double Shift)";
+"Show Preview" = "Show Preview";
+"Filter results" = "Filter results";
+"Select a file to preview" = "Select a file to preview";
+"Read-only file preview" = "Read-only file preview";
+"Invert" = "Invert";

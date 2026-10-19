@@ -20,6 +20,7 @@ pub(crate) struct WorkspaceSearchIndex {
     free_ids: Vec<u32>,
     path_to_id: HashMap<String, u32>,
     postings: HashMap<u32, Vec<u32>>,
+    names_only: bool,
 }
 
 /// Searchable file contents and symbols stored under a stable numeric ID.
@@ -62,6 +63,7 @@ struct IndexKey {
     root: PathBuf,
     hidden_directories: Vec<String>,
     hidden_file_patterns: Vec<String>,
+    names_only: bool,
 }
 
 type SharedIndex = Arc<RwLock<WorkspaceSearchIndex>>;
@@ -77,6 +79,7 @@ fn key(root: &Path, rules: &VisibilityRules) -> IndexKey {
         root: root.to_path_buf(),
         hidden_directories: rules.hidden_directories.clone(),
         hidden_file_patterns: rules.hidden_file_patterns.clone(),
+        names_only: false,
     }
 }
 
@@ -90,7 +93,24 @@ pub(crate) fn get_or_build(root: &Path, rules: &VisibilityRules) -> Result<Share
     if let Some(index) = indexes.get(&cache_key) {
         return Ok(Arc::clone(index));
     }
-    let index = Arc::new(RwLock::new(WorkspaceSearchIndex::build(root, rules)?));
+    let index = Arc::new(RwLock::new(WorkspaceSearchIndex::build(
+        root, rules, false,
+    )?));
+    indexes.insert(cache_key, Arc::clone(&index));
+    Ok(index)
+}
+
+/// Caches names without reading generated files, binaries, or dependency source contents.
+pub(crate) fn get_names(root: &Path, rules: &VisibilityRules) -> Result<SharedIndex, CoreError> {
+    let mut indexes = cache()
+        .lock()
+        .map_err(|_| CoreError::new(ErrorCode::Unknown, "Search index lock was poisoned"))?;
+    let mut cache_key = key(root, rules);
+    cache_key.names_only = true;
+    if let Some(index) = indexes.get(&cache_key) {
+        return Ok(Arc::clone(index));
+    }
+    let index = Arc::new(RwLock::new(WorkspaceSearchIndex::build(root, rules, true)?));
     indexes.insert(cache_key, Arc::clone(&index));
     Ok(index)
 }
@@ -143,44 +163,52 @@ pub(crate) fn update_paths(
     rules: &VisibilityRules,
     paths: &[String],
 ) -> UpdateOutcome {
-    let cache_key = key(root, rules);
-    let index = {
+    let entries = {
         let Ok(indexes) = cache().lock() else {
             return UpdateOutcome::NotIndexed;
         };
-        indexes.get(&cache_key).cloned()
+        indexes
+            .iter()
+            .filter(|(cache_key, _)| {
+                cache_key.root == root && (cache_key.names_only || **cache_key == key(root, rules))
+            })
+            .map(|(key, index)| (key.clone(), Arc::clone(index)))
+            .collect::<Vec<_>>()
     };
-    let Some(index) = index else {
+    if entries.is_empty() {
         return UpdateOutcome::NotIndexed;
-    };
-    let Ok(mut index) = index.write() else {
-        return UpdateOutcome::RequiresRebuild;
-    };
-
-    for value in paths {
-        let Some(absolute) = normalized_update_path(root, value) else {
-            continue;
+    }
+    for (cache_key, shared) in entries {
+        let Ok(mut index) = shared.write() else {
+            return UpdateOutcome::RequiresRebuild;
         };
-        let relative = relative_path(&absolute, root);
-        // Scans never index nested linked worktrees, so their churn neither
-        // adds entries nor forces a rebuild.
-        if is_inside_nested_linked_worktree(root, &relative) {
-            continue;
+        let effective_rules = VisibilityRules {
+            hidden_directories: cache_key.hidden_directories,
+            hidden_file_patterns: cache_key.hidden_file_patterns,
+        };
+        for value in paths {
+            let Some(absolute) = normalized_update_path(root, value) else {
+                continue;
+            };
+            let relative = relative_path(&absolute, root);
+            // Both name and content indexes exclude nested linked worktrees.
+            if is_inside_nested_linked_worktree(root, &relative) {
+                continue;
+            }
+            let metadata = fs::symlink_metadata(&absolute).ok();
+            if metadata.as_ref().is_some_and(|value| value.is_dir())
+                || (metadata.is_none() && index.has_descendant(&relative))
+            {
+                return UpdateOutcome::RequiresRebuild;
+            }
+            index.update_file(&absolute, &relative, metadata.as_ref(), &effective_rules);
         }
-        let metadata = fs::symlink_metadata(&absolute).ok();
-        if metadata.as_ref().is_some_and(|value| value.is_dir()) {
-            return UpdateOutcome::RequiresRebuild;
-        }
-        if metadata.is_none() && index.has_descendant(&relative) {
-            return UpdateOutcome::RequiresRebuild;
-        }
-        index.update_file(&absolute, &relative, metadata.as_ref(), rules);
     }
     UpdateOutcome::Updated
 }
 
 impl WorkspaceSearchIndex {
-    fn build(root: &Path, rules: &VisibilityRules) -> Result<Self, CoreError> {
+    fn build(root: &Path, rules: &VisibilityRules, names_only: bool) -> Result<Self, CoreError> {
         let mut paths = Vec::new();
         collect_files(root, root, rules, &mut paths)?;
         let mut index = Self {
@@ -188,6 +216,7 @@ impl WorkspaceSearchIndex {
             free_ids: Vec::new(),
             path_to_id: HashMap::with_capacity(paths.len()),
             postings: HashMap::new(),
+            names_only,
         };
         for path in paths {
             crate::protocol::cancellation::check()?;
@@ -201,7 +230,11 @@ impl WorkspaceSearchIndex {
         if let Some(existing) = self.path_to_id.get(&relative).copied() {
             self.remove_id(existing);
         }
-        let (trigrams, symbols) = read_search_data(path, &relative);
+        let (trigrams, symbols) = if self.names_only {
+            (Vec::new(), Vec::new())
+        } else {
+            read_search_data(path, &relative)
+        };
         let id = self
             .free_ids
             .pop()
@@ -439,5 +472,8 @@ pub(crate) fn make_symbol_match(indexed: &IndexedSymbol, path: String) -> Search
         line: Some(indexed.line),
         preview: indexed.signature.clone(),
         symbol_name: Some(indexed.name.clone()),
+        name_match_ranges: Vec::new(),
+        matching_degree: None,
+        is_ignored: None,
     }
 }

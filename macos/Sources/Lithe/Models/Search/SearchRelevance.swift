@@ -4,8 +4,7 @@ import LitheSearchModule
 /// Search Everywhere 的 All 页把文件、类、符号混在一张列表里，需要一个共同的
 /// 相关度标准来排序，否则只能按 kind 分段展示（IDEA 是混排的）。
 ///
-/// 打分在 Swift 侧完成而不是 Rust 侧：`FileSearchResult` 已经带了 `symbolName`
-/// 和 URL，算分不需要额外信息，也就不必改动 FFI 契约。
+/// 优先使用 Rust 在截断前计算的分数；旧 Core 返回值和注入结果才使用本地兼容打分。
 enum SearchRelevance {
     /// 匹配形态，分值差距拉大以保证形态优先于其他维度。
     private enum MatchForm: Int {
@@ -17,6 +16,7 @@ enum SearchRelevance {
     }
 
     static func score(_ result: FileSearchResult, query: String) -> Int {
+        if let degree = result.matchingDegree { return degree }
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !needle.isEmpty else { return 0 }
 

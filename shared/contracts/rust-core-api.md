@@ -1671,9 +1671,42 @@ need separate buckets may also provide `maxFileResults` and
 still applies.
 
 `workspace.searchEverywhere` uses the same query options and visibility fields,
-and additionally accepts `maxSymbolResults`. Results are ordered as file,
-type, symbol, and content matches. Java type and method results include a
-one-based line, `symbolName`, and the matching source line in `preview`.
+and additionally accepts `maxSymbolResults` and optional
+`includeGeneratedFileNames` (default `false`). Ordinary name queries match
+case-insensitive contiguous fragments and camel/word humps, rather than arbitrary
+subsequences. Each file/type/symbol bucket is ranked before its requested cap;
+the total cap still applies to the file, type, symbol, then content buckets.
+Name matches include optional `matchingDegree` and `nameMatchRanges` entries
+`{ start, length }`, measured in UTF-16 units in the displayed basename or
+`symbolName`. Clients must not recompute different highlight fragments. Path-qualified
+queries may have no basename fragments. Explicit case/whole-word/regex options and
+content matches keep their literal search semantics.
+
+Returned Everywhere matches additionally expose optional `isIgnored`, resolved
+by one read-only Git `check-ignore --stdin -z` call for the bounded result set.
+`true` means ignored; `false` means Git answered but did not ignore this path;
+absence means Git is unavailable, the workspace is not a repository, or the query
+failed. Tracked files are never inferred ignored from a matching ignore pattern.
+Git owns rule precedence, nested rules, negations, info/exclude and global excludes.
+Clients may use this status for filename foreground; it does not change matching,
+ranking, UTF-16 match backgrounds, or visibility. macOS uses the Islands editor
+scheme's ignored-file color; Windows tolerates the optional status but does not
+currently render this foreground.
+
+`includeGeneratedFileNames` opts into a separate in-memory names-only index:
+built-in build/dependency directory exclusions (including `.build` and `target`)
+do not suppress names, even when callers pass the same default exclusions.
+Git metadata and nested worktrees remain excluded; custom directory names and
+file/path globs still apply. It does not enable generated-file content or symbol
+indexing and does not change `workspace.search`, tree, watcher, or replacement
+visibility. Names share index invalidation and reported file updates; changes
+inside unwatched generated directories require workspace/index refresh. No index
+files or resources are written to disk. macOS requests 200 matches per bucket
+and 800 total; these are bounded candidate limits, not a claim of unbounded IDEA paging.
+Java type and method results still use the existing syntax index and include a
+one-based line, `symbolName`, and source line in `preview`; language-provider
+workspace-symbol integration and external-library search are not implied.
+The shared name/range examples are in `shared/fixtures/search/name-matching.json`.
 
 `workspace.replacePreview` accepts `root`, `query`, `replacement`, the same
 query options, optional workspace-relative `paths`, optional `textOverrides`

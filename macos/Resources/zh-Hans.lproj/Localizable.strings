@@ -3432,3 +3432,9 @@
 "Allow" = "允许";
 "Don’t Allow" = "不允许";
 "Restart Lithe to load the updated page." = "重启 Lithe 以加载更新后的页面。";
+"Search Everywhere (Double Shift)" = "全局搜索（双击 Shift）";
+"Show Preview" = "显示预览";
+"Filter results" = "筛选结果";
+"Select a file to preview" = "选择文件以预览";
+"Read-only file preview" = "只读文件预览";
+"Invert" = "反选";
