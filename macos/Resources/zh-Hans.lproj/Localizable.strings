@@ -3462,4 +3462,6 @@
 "Review changes" = "查看文件修改";
 
 "Search exclusions" = "搜索排除规则";
-"One pattern per line. Use `*.log` for log files, `**/.*/` for dot folders, `.*` for dot files, or `cache/` for a root folder. Applies to search and replace only; project files stay visible." = "每行一个表达式：`*.log` 排除日志文件，`**/.*/` 排除点开头的目录，`.*` 排除点文件，`cache/` 排除根目录下的文件夹。仅影响搜索和替换，不隐藏项目文件。";
+"One pattern per line: `*.log`, `**/.*/`, `.*`, `cache/`. Only affects this Search Everywhere window." = "每行一个表达式：`*.log`、`**/.*/`、`.*`、`cache/`。仅影响当前双 Shift 搜索窗口。";
+
+"Edit search exclusions" = "编辑搜索排除规则";

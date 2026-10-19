@@ -209,7 +209,36 @@ original/template 分支，否则 SwiftUI 会拆除按钮内的原生下拉锚�
 不能覆盖预览查询。真实 WebKit 集成用例检查匹配数量、装饰、焦点、清除与只读行为。
 搜索的 `check-ignore` 请求也传递用户指定 Git，但不进入交互式 Git 操作或控制台日志。
 
-常规设置中的“搜索排除规则”只影响搜索和项目替换，不改变项目树、文件监听或历史。
+“搜索排除规则”是双 Shift 漏斗列表最上方的勾选项，位于 Actions 之前；常规设置不再提供入口。
+它复用来源行的 24pt 复选框、普通字号、灰色 hover 和点击蓝色选中，不能在列表下另挂文本框。
+整行容器通过共享 `litheRowHover` 绘制灰色悬停与蓝色选中背景，覆盖右侧编辑按钮，
+与来源行右边缘对齐。勾选按钮与编辑按钮是同级独立命中区域，不嵌套按钮；
+点击编辑不改变勾选状态，编辑按钮仍有自己的悬停反馈。
+右侧复用原始 16pt `expui/general/edit.svg` 与共享图标按钮。排除规则编辑是 Lithe
+新增入口，不虚构 IDEA 有同名动作；小动作按钮沿 Community
+`c7f91397daa3a961b4e78bc634fe467a0a7d9ade` 的 `ActionButton` / `IdeaActionButtonLook`：
+22pt 点击及 hover 区、居中 16pt 原图标（四边各 3pt），`Button.arc=8` 对应半径 4pt。
+该入口显式采用现有 `toolbarHoverBackground` / `toolbarPressedBackground` 的
+`ActionButton` 主题色，不沿用通用 5pt 圆角或通用 hover；不修改其他按钮默认值，
+不添加边框、手形光标或改变图标笔画。点击后关闭漏斗，
+由搜索窗口持有带标题的 `LitheCenteredPopup` 编辑弹窗，不把编辑器挂在会消失的漏斗上。
+弹窗使用现有文本编辑框和主题色 `LitheActionButtonStyle(isPrimary: true)` 的“应用”，
+保存后关闭；取消或 Escape 丢弃草稿且保留搜索窗口。Enter 在多行框里继续换行。
+规则输入框打开即聚焦；共享 `LitheCenteredPopup` 的原生首输入焦点查找同时支持
+`NSTextField` 和可编辑 `NSTextView`，在面板成为 key 后设置 firstResponder。
+单行搜索仍全选原有查询，多行规则只激活编辑器而不覆盖选区。
+`litheSettingsTextEditor(height:focus:)` 接收调用方的焦点绑定，
+不再在同一输入框内外分别挂两个 `.focused`。共享多行输入框复用统一控件外框：
+普通 1pt，焦点 2pt 并向外扩展 1pt，焦点颜色与输入组件一致，布局尺寸不变；
+现有设置、MCP、运行配置和 Agent 设置中的多行框沿用该 owner，不在各页复制边框。
+仅规则弹窗的背景空白点击恢复该输入框焦点，保留光标/选区，不覆盖按钮、输入选择或
+Tab 键导航。深浅主题原生用例检查打开时的真实 firstResponder、空白点击后的选区
+及焦点外框两列像素，而不是仅捕获一个 `focused=true` 配置。
+勾选开关单独持久化：取消勾选只恢复搜索范围，不删除已保存表达式；编辑不偷偷重新启用开关。
+升级已有规则默认继续启用，避免改变旧用户的搜索范围。来源 All/None/Invert 仍只控制来源，
+不改规则文本或开关。
+保留原持久化键以继续记忆已有规则，清空并应用后重开仍为空。仅 Search Everywhere
+使用这些规则，侧栏搜索、项目替换和 Agent 补全仍使用项目可见性，不改变项目树、文件监听或历史。
 默认空列表保持原有搜索范围；用户可按行配置 `*.log`、`**/.*/`、`.*`、`cache/`。
 复用已有大小写不敏感的 `*`/`?` 文件名或相对路径匹配（`*` 可跨路径分隔符），
 不另外实现 gitignore 的否定、括号或注释语法。目录末尾 `/` 保留为目录规则；`**/` 同时
@@ -226,7 +255,7 @@ original/template 分支，否则 SwiftUI 会拆除按钮内的原生下拉锚�
 
 Agent 的 `@` 与 `@Name` 都使用项目可见性，不采用搜索专用排除；仅 Search Everywhere
 显式打开生成目录文件名。该标志沿搜索端口传递到 Core，桥接默认关闭，不能波及附件补全。
-Windows UI 暂未提供这项 macOS 设置，共享过滤字段兼容目录规则的新语义。
+Windows UI 暂未提供这项 macOS 漏斗选项，共享过滤字段兼容目录规则的新语义。
 
 顶栏搜索按钮使用同 revision 的 `expui/general/search@20x20.svg` 明暗资源，
 不是放大 16pt 搜索图标。搜索与设置同用 `LitheMainToolbarButtonStyle`，在
@@ -781,6 +810,22 @@ Agent 输入区底栏的切换菜单向上展开，菜单底边锚定触发控�
 绘制提示。欢迎页因此保留无边框布局，复用 `LitheSearchTextField` 的 13pt Regular
 提示文字、专用提示色和输入法组合处理。搜索图标使用已有 `expui/general/search.svg`
 及深色变体，保留原始 16pt 和资源颜色；不使用会统一染色的兼容图标包装。
+
+欢迎页最近项目的行内几何单独采用 Community
+`c7f91397daa3a961b4e78bc634fe467a0a7d9ade` 的
+`RecentProjectFilteringTree.kt.RecentProjectComponent`，不套用顶部项目菜单的行距：
+外层边框留白 4pt，图标单元上/左/下/右为 6/6/0/8pt，文字单元四边为 4pt。
+`RowsGridBuilder` / `GridImpl` 将相邻单元自身留白计入列宽，因此头像与文字的实际
+水平间隔为 12pt；行左边到头像为 10pt，文字顶部为 8pt，头像比文字顶部低 2pt。
+标题、路径、可选分支共用 `VerticalLayout(4)` 的 4pt 间隔，头像保持顶部对齐，
+不能随三行文字整体垂直居中。标题用普通 13pt，路径和分支按
+`ComponentPanelBuilder.getCommentFont` → `JBFont.medium()` 使用 12pt；分支标签的
+图文间距采用 `JLabel` 的 4pt，图标仍为原始 16pt。行高由内容与上下各 8pt 留白决定，
+不能固定 56pt，否则带分支条目会挤压或覆盖下一条目。保留现有打开、失效路径禁用、
+悬停与独立菜单行为，不改顶部项目菜单、资源或运行时可写位置。
+`RecentProjectBranchMetadataTests.welcomeRowsGrowForBranchesWithoutOverlapping` 在深浅色、
+800/1100pt 宽度下渲染真实欢迎页，检查分支多出 16+4pt、行不重叠及横向一致；
+截图用于补充检查头像和文字位置，不把组件检查当作完整应用验收。
 
 ## 打开其他项目的选择弹窗
 

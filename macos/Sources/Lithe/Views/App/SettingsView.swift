@@ -9,7 +9,6 @@ final class SettingsViewState: ObservableObject {
     @Published var searchQuery = ""
     @Published var hiddenDirectoriesDraft = ""
     @Published var hiddenFilePatternsDraft = ""
-    @Published var searchExcludedPatternsDraft = ""
     @Published var aiAPIKeyDraft = ""
     /// Provider shown in Settings › AI Providers; independent of the one
     /// commit messages use.
@@ -117,7 +116,6 @@ struct SettingsView: View {
         }
         .onChange(of: settings.hiddenDirectoryNames) { _ in syncVisibilityDrafts() }
         .onChange(of: settings.hiddenFilePatterns) { _ in syncVisibilityDrafts() }
-        .onChange(of: settings.searchExcludedPathPatterns) { _ in syncVisibilityDrafts() }
         .onChange(of: settings.commitMessageAI.activeProviderID) { _ in syncAIProviderDraft() }
         .onChange(of: viewState.editingProviderID) { _ in syncAIProviderDraft() }
         .onChange(of: initialCategory) { category in
@@ -543,17 +541,6 @@ struct SettingsView: View {
                             backgroundColor: LitheTheme.settingsPrimaryAction,
                             restingOpacity: 1
                         ))
-                }
-            }
-
-            group("Search exclusions", info: "One pattern per line. Use `*.log` for log files, `**/.*/` for dot folders, `.*` for dot files, or `cache/` for a root folder. Applies to search and replace only; project files stay visible.") {
-                TextEditor(text: $viewState.searchExcludedPatternsDraft)
-                    .litheSettingsTextEditor(height: 66)
-                    .accessibilityLabel("Search exclusions")
-                HStack {
-                    Spacer()
-                    Button("Apply") { settings.searchExcludedPathPatterns = entries(from: viewState.searchExcludedPatternsDraft) }
-                        .buttonStyle(LithePrimaryButtonStyle(backgroundColor: LitheTheme.settingsPrimaryAction, restingOpacity: 1))
                 }
             }
 
@@ -1672,7 +1659,6 @@ struct SettingsView: View {
     private func syncVisibilityDrafts() {
         viewState.hiddenDirectoriesDraft = settings.hiddenDirectoryNames.joined(separator: "\n")
         viewState.hiddenFilePatternsDraft = settings.hiddenFilePatterns.joined(separator: "\n")
-        viewState.searchExcludedPatternsDraft = settings.searchExcludedPathPatterns.joined(separator: "\n")
     }
 
     private func applyVisibilityDrafts() {

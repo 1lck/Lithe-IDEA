@@ -271,7 +271,7 @@ struct PluginUIIconTests {
             LitheAction(id: $0, title: $0, subtitle: "", group: .window, isEnabled: $0 != "disabled", perform: {})
         }
         var executed: [String] = []
-        let view = SearchEverywhereView(feature: feature, session: session, actionMatches: { _ in actions },
+        let view = SearchEverywhereView(feature: feature, session: session, settings: AppSettings(store: MacUserDefaultsStore(defaults: UserDefaults(suiteName: UUID().uuidString)!)), actionMatches: { _ in actions },
             search: { _, _ in }, dismiss: {}, openResult: { _ in }, performAction: { executed.append($0.id) }, revealInFinder: { _ in },
             copyPath: { _, _ in }, relativePath: { _ in "" }, moduleLabel: { _ in "" },
             actionIcon: { _ in AnyView(WorkbenchContributionIcon(asset: asset, role: .action)) })

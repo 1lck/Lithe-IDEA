@@ -16,7 +16,7 @@ enum SettingsSearchVocabulary {
     static func terms(for category: SettingsCategory) -> [String] {
         switch category {
         case .general:
-            ["General", "Appearance", "Color theme", "Appearance mode", "Language", "Projects", "Files", "Version control", "Logs", "Log directory", "Hidden paths", "Search exclusions"]
+            ["General", "Appearance", "Color theme", "Appearance mode", "Language", "Projects", "Files", "Version control", "Logs", "Log directory", "Hidden paths"]
         case .editor:
             ["Editor", "Display", "Editor tabs", "tabs", "Font", "Font size", "Search fonts", "File tree row height", "Show minimap", "Minimap", "Indentation", "Tab width"]
         case .keymap:

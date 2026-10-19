@@ -191,14 +191,15 @@ final class LitheCenteredPopupPresenter: NSObject, NSWindowDelegate, ObservableO
         if focusFirstTextField {
             // Request native focus after the hosting view has joined the key panel.
             contentController.view.layoutSubtreeIfNeeded()
-            func firstField(in view: NSView) -> NSTextField? {
+            func firstField(in view: NSView) -> NSView? {
                 if let field = view as? NSTextField, field.isEditable, field.isEnabled { return field }
+                if let editor = view as? NSTextView, editor.isEditable, !editor.isFieldEditor { return editor }
                 return view.subviews.lazy.compactMap { firstField(in: $0) }.first
             }
             if let field = firstField(in: contentController.view) {
                 panel.initialFirstResponder = field
                 panel.makeFirstResponder(field)
-                field.selectText(nil)
+                (field as? NSTextField)?.selectText(nil)
             }
         }
     }

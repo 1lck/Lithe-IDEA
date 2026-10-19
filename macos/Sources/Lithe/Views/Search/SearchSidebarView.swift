@@ -3,7 +3,6 @@ import LitheSearchModule
 
 struct SearchSidebarView: View {
     @EnvironmentObject private var model: AppModel
-    @EnvironmentObject private var settings: AppSettings
     @ObservedObject var feature: SearchFeatureModel
     @ObservedObject var session: SearchSessionFeatureModel
     let openReplace: (ProjectSearchOptions) -> Void
@@ -165,7 +164,7 @@ struct SearchSidebarView: View {
                 .simultaneousGesture(TapGesture().onEnded { _ in dismissSearchFieldFocus() })
             }
         }
-        .task(id: "\(session.query)|\(searchOptions.cacheKey)|\(settings.searchVisibilityRules.hiddenFilePatterns)") {
+        .task(id: "\(session.query)|\(searchOptions.cacheKey)") {
             try? await Task.sleep(for: .milliseconds(250))
             guard !Task.isCancelled else { return }
             await searchProject(searchOptions)

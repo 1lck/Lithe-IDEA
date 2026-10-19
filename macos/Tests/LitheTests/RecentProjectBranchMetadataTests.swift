@@ -1,8 +1,59 @@
+import AppKit
 import Foundation
+import SwiftUI
 import Testing
 @testable import Lithe
 
 struct RecentProjectBranchMetadataTests {
+    @MainActor
+    @Test(arguments: [ColorScheme.dark, .light])
+    func welcomeRowsGrowForBranchesWithoutOverlapping(scheme: ColorScheme) async throws {
+        let root = try makeWorkspace()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let branched = root.appendingPathComponent("AlphaProject")
+        let folder = root.appendingPathComponent("BetaFolder")
+        for url in [branched, folder] {
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        }
+        let store = BranchMetadataKeyValueStore()
+        let projects = RecentProjectsStore(store: store)
+        _ = projects.record(branched, branch: "codex/layout", in: projects.record(folder, in: []))
+        let settings = AppSettings(store: store)
+        let container = MacServiceContainer(store: store, settings: settings, moduleLaunchMode: .safeMode)
+        defer { container.moduleLifecycleCoordinator.stop() }
+        let model = AppModel(settings: settings, services: container.services)
+        let suite = UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let host = NSHostingView(rootView: WelcomeView()
+            .environmentObject(model).environmentObject(UpdateChecker(preferences: defaults))
+            .environment(\.colorScheme, scheme))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 650),
+            styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.orderFront(nil)
+        defer { window.contentView = nil; window.close() }
+        try await WorkbenchTestScope.withCleanup({ await model.shutdownProjectSession() }) { _ in
+            for width: CGFloat in [800, 1100] {
+                window.setContentSize(NSSize(width: width, height: 650))
+                let threeLines = try await AgentNativeControlTestSupport.frame(of: "welcome-project-" + branched.path, in: host)
+                let twoLines = try await AgentNativeControlTestSupport.frame(of: "welcome-project-" + folder.path, in: host)
+                #expect(!threeLines.intersects(twoLines))
+                // A native 16pt branch icon plus VerticalLayout(4), not a fixed 56pt row.
+                #expect(abs(threeLines.height - twoLines.height - 20) <= 1)
+                #expect(threeLines.minX == twoLines.minX && threeLines.width == twoLines.width)
+                if let directory = ProcessInfo.processInfo.environment["LITHE_WELCOME_LAYOUT_SCREENSHOTS"] {
+                    let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+                    host.cacheDisplay(in: host.bounds, to: bitmap)
+                    let image = try #require(bitmap.representation(using: .png, properties: [:]))
+                    try image.write(to: URL(fileURLWithPath: directory)
+                        .appendingPathComponent("welcome-\(scheme == .dark ? "dark" : "light")-\(Int(width)).png"))
+                }
+            }
+        }
+    }
+
     @Test
     func welcomeBranchUsesTheMappedIdeaVcsIconAtItsNativeSize() throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()

@@ -113,14 +113,21 @@ struct SearchEverywhereBehaviorTests {
         let root = URL(fileURLWithPath: "/fixture")
         for path in ["Name.log", "src/Name.log", ".hidden/Name.swift", "src/.hidden/Name.swift", "src/.env", "cache/Name.swift"] {
             let url = root.appendingPathComponent(path)
-            #expect(settings.searchVisibilityRules.isHidden(url, relativeTo: root, isDirectory: false), "\(path)")
+            #expect(settings.searchEverywhereVisibilityRules.isHidden(url, relativeTo: root, isDirectory: false), "\(path)")
             #expect(!settings.fileVisibilityRules.isHidden(url, relativeTo: root, isDirectory: false), "\(path)")
         }
-        #expect(!settings.searchVisibilityRules.isHidden(root.appendingPathComponent("src/Name.swift"), relativeTo: root, isDirectory: false))
+        #expect(!settings.searchEverywhereVisibilityRules.isHidden(root.appendingPathComponent("src/Name.swift"), relativeTo: root, isDirectory: false))
+        settings.searchExclusionsEnabled = false
+        #expect(settings.searchEverywhereVisibilityRules == settings.fileVisibilityRules)
+        let disabled = AppSettings(store: store)
+        #expect(!disabled.searchExclusionsEnabled)
+        #expect(disabled.searchExcludedPathPatterns == settings.searchExcludedPathPatterns)
+        settings.searchExclusionsEnabled = true
+        #expect(AppSettings(store: store).searchExclusionsEnabled)
         settings.searchExcludedPathPatterns = []
         #expect(AppSettings(store: store).searchExcludedPathPatterns.isEmpty)
-        #expect(settings.searchVisibilityRules == settings.fileVisibilityRules)
-        #expect(SettingsSearchVocabulary.matches(query: "Search exclusions", category: .general))
+        #expect(settings.searchEverywhereVisibilityRules == settings.fileVisibilityRules)
+        #expect(!SettingsSearchVocabulary.matches(query: "Search exclusions", category: .general))
     }
 
     @Test
@@ -141,7 +148,7 @@ struct SearchEverywhereBehaviorTests {
     }
 
     @Test
-    func agentMentionsKeepProjectVisibilityAndExclusionsOnlyInvalidateSearch() async throws {
+    func everywhereExclusionsDoNotChangeSidebarReplacementOrAgentMentions() async throws {
         let suite = "lithe-agent-search-scope-" + UUID().uuidString
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
@@ -179,6 +186,27 @@ struct SearchEverywhereBehaviorTests {
             let paths = feature.searchEverywhereResults.fileMatches.map { $0.url.lastPathComponent }
             #expect(paths.contains("NameGenerated.txt") && paths.contains("NameDependency.txt"))
             #expect(!paths.contains("Name.log"))
+            settings.searchExclusionsEnabled = false
+            try await scope.run("disabled exclusions restore global results", timeout: .seconds(5)) {
+                await model.searchEverywhere(query: "Name")
+            }
+            #expect(feature.searchEverywhereResults.fileMatches.contains { $0.url.lastPathComponent == "Name.log" })
+            #expect(settings.searchExcludedPathPatterns == ["*.log"])
+            settings.searchExclusionsEnabled = true
+            model.searchSessionFeature.query = "name"
+            model.openProjectReplace()
+            try await scope.run("sidebar and replacement ignore Everywhere exclusions", timeout: .seconds(5)) {
+                await model.searchProject()
+                await model.previewProjectReplacement(query: "name", replacement: "updated", options: .default)
+            }
+            #expect(feature.searchResults.contains { $0.url.lastPathComponent == "Name.log" })
+            #expect(feature.projectReplacementFiles.contains { $0.relativePath == "Name.log" })
+            #expect(try String(contentsOf: root.appendingPathComponent("Name.log"), encoding: .utf8) == "name")
+            settings.searchExcludedPathPatterns = []
+            try await scope.run("cleared exclusions restore global results", timeout: .seconds(5)) {
+                await model.searchEverywhere(query: "Name")
+            }
+            #expect(feature.searchEverywhereResults.fileMatches.contains { $0.url.lastPathComponent == "Name.log" })
             model.dismissSearchEverywhere()
             let snapshotID = model.workspaceSnapshotID
             let invalidated = TestGate()
@@ -388,7 +416,7 @@ struct SearchEverywhereBehaviorTests {
         session.isEverywherePreviewVisible = true
         session.isSearchEverywhereVisible = true
         var previewedURL: URL?
-        let view = SearchEverywhereView(feature: feature, session: session, actionMatches: { _ in [] },
+        let view = SearchEverywhereView(feature: feature, session: session, settings: AppSettings(store: MacUserDefaultsStore(defaults: UserDefaults(suiteName: UUID().uuidString)!)), actionMatches: { _ in [] },
             search: { _, _ in }, dismiss: {}, openResult: { _ in Issue.record("A single click must only preview") },
             performAction: { _ in }, revealInFinder: { _ in }, copyPath: { _, _ in },
             relativePath: { $0.lastPathComponent }, moduleLabel: { _ in "" },
@@ -478,23 +506,29 @@ struct SearchEverywhereBehaviorTests {
         #expect(scroll.contentView.bounds.contains(firstRow))
     }
 
-    @Test
-    func providerChangesKeepTheNativeFilterAnchorAlive() async throws {
+    @Test(arguments: [ColorScheme.dark, .light])
+    func providerAndExclusionChangesKeepTheNativeFilterAnchorAlive(scheme: ColorScheme) async throws {
         let feature = SearchFeatureModel(operations: RustWorkspaceOperations(core: RustCoreBridge()))
         let session = SearchSessionFeatureModel()
         session.everywhereQuery = "name"
         session.isSearchEverywhereVisible = true
+        let suite = "lithe-funnel-exclusions-" + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = AppSettings(store: MacUserDefaultsStore(defaults: defaults))
+        var searchedPatterns: [[String]] = []
         var filteredProviderWasRead = false
         let action = LitheAction(id: "fixture.name", title: "Name command", subtitle: "", group: .window, perform: {})
-        let view = SearchEverywhereView(feature: feature, session: session, actionMatches: { _ in
+        let view = SearchEverywhereView(feature: feature, session: session, settings: settings, actionMatches: { _ in
             if session.enabledEverywhereProviders == [.actions] { filteredProviderWasRead = true }
             return [action]
-        }, search: { _, _ in }, dismiss: {}, openResult: { _ in }, performAction: { _ in },
+        }, search: { _, _ in searchedPatterns.append(settings.searchExcludedPathPatterns) }, dismiss: {}, openResult: { _ in }, performAction: { _ in },
             revealInFinder: { _ in }, copyPath: { _, _ in }, relativePath: { _ in "" }, moduleLabel: { _ in "" })
         let parent = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 800),
             styleMask: [.borderless], backing: .buffered, defer: false)
         parent.isReleasedWhenClosed = false
-        let host = NSHostingView(rootView: view.frame(width: 1000, height: 800))
+        parent.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
+        let host = NSHostingView(rootView: view.environment(\.colorScheme, scheme).frame(width: 1000, height: 800))
         parent.contentView = host
         parent.makeKeyAndOrderFront(nil)
         defer {
@@ -509,7 +543,7 @@ struct SearchEverywhereBehaviorTests {
             parent.childWindows?.first?.contentView?.layoutSubtreeIfNeeded()
             await Task.yield()
         }
-        let popup = try #require(parent.childWindows?.first)
+        var popup = try #require(parent.childWindows?.first)
         #expect(popup.frame.height > 84)
         let point = NSPoint(x: popup.frame.width - 50, y: popup.frame.height - 21)
         for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
@@ -518,7 +552,7 @@ struct SearchEverywhereBehaviorTests {
         }
         deadline = clock.now.advanced(by: .seconds(1))
         while popup.childWindows?.first == nil, clock.now < deadline { await Task.yield() }
-        let filter = try #require(popup.childWindows?.first)
+        var filter = try #require(popup.childWindows?.first)
         session.enabledEverywhereProviders = [.actions]
         deadline = clock.now.advanced(by: .seconds(1))
         while !filteredProviderWasRead, clock.now < deadline { await Task.yield() }
@@ -526,6 +560,156 @@ struct SearchEverywhereBehaviorTests {
         parent.contentView?.layoutSubtreeIfNeeded()
         await Task.yield()
         #expect(filter.parent === popup, "Updating sources must not dismantle the filter anchor")
+        func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
+        func click(_ window: NSWindow, point: NSPoint) throws {
+            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                NSApp.sendEvent(try #require(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [],
+                    timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)))
+            }
+        }
+        // Custom popup AX nodes are ignored in the isolated runner; exercise native hit-testing.
+        func clickControl(_ identifier: String, in window: NSWindow) async throws {
+            let point: NSPoint
+            switch identifier {
+            case "search-everywhere-filter":
+                point = NSPoint(x: window.frame.width - 50, y: window.frame.height - 21)
+            case "search-exclusions-toggle":
+                point = NSPoint(x: 60, y: window.frame.height - LitheDropdownMetrics.popupPadding - 12)
+            case "search-exclusions-edit":
+                point = NSPoint(x: window.frame.width - LitheDropdownMetrics.popupPadding - 11,
+                    y: window.frame.height - LitheDropdownMetrics.popupPadding - 12)
+            default:
+                let buttonWidth = LitheTheme.Commit.buttonMinimumWidth + 2 * LitheTheme.Commit.buttonBorderInset
+                point = NSPoint(x: window.frame.width - 17 - buttonWidth / 2
+                    - (identifier == "search-exclusions-cancel" ? buttonWidth : 0),
+                    y: 12 + LitheTheme.Commit.buttonBorderInset + LitheTheme.Commit.buttonHeight / 2)
+            }
+            try click(window, point: point)
+        }
+        func openEditor() async throws -> NSWindow {
+            let enabled = settings.searchExclusionsEnabled
+            try await clickControl("search-exclusions-edit", in: filter)
+            let deadline = clock.now.advanced(by: .seconds(1))
+            while popup.childWindows?.first(where: { $0.styleMask.contains(.titled) }) == nil,
+                  clock.now < deadline { await Task.yield() }
+            #expect(settings.searchExclusionsEnabled == enabled, "Editing must not toggle the exclusion checkbox")
+            return try #require(popup.childWindows?.first(where: { $0.styleMask.contains(.titled) }))
+        }
+        // Saving an expression must not turn a disabled rule back on.
+        try await clickControl("search-exclusions-toggle", in: filter)
+        #expect(!settings.searchExclusionsEnabled)
+        await Task.yield()
+        let filterContent = try #require(filter.contentView)
+        filterContent.layoutSubtreeIfNeeded()
+        let rowBitmap = try #require(filterContent.bitmapImageRepForCachingDisplay(in: filterContent.bounds))
+        filterContent.cacheDisplay(in: filterContent.bounds, to: rowBitmap)
+        let rowScale = CGFloat(rowBitmap.pixelsWide) / filterContent.bounds.width
+        let rowY = LitheDropdownMetrics.popupPadding + LitheDropdownMetrics.rowHeight / 2
+        var rowColor: NSColor?
+        filter.effectiveAppearance.performAsCurrentDrawingAppearance {
+            rowColor = NSColor(LitheTheme.settingsSelection).usingColorSpace(.sRGB)
+        }
+        let expectedRowColor = try #require(rowColor)
+        // Sample blank space and the pencil's trailing inset, not its glyph or hover overlay.
+        for x in [CGFloat(160), filterContent.bounds.width - LitheDropdownMetrics.popupPadding - 1] {
+            let color = try #require(rowBitmap.colorAt(x: Int(x * rowScale), y: Int(rowY * rowScale)))
+            #expect(abs(color.redComponent - expectedRowColor.redComponent) < 0.02)
+            #expect(abs(color.greenComponent - expectedRowColor.greenComponent) < 0.02)
+            #expect(abs(color.blueComponent - expectedRowColor.blueComponent) < 0.02,
+                "Selection must extend behind the edit button to the common row edge")
+        }
+        var saved: [String] = []
+        for draft in ["  *.log  \n**/.*/\n\n", ""] {
+            #expect(descendants(try #require(filter.contentView)).compactMap { $0 as? NSTextView }.isEmpty,
+                "The funnel contains a top-level option, not an inline editor")
+            var dialog = try await openEditor()
+            let content = try #require(dialog.contentView)
+            content.layoutSubtreeIfNeeded()
+            var editor = try #require(descendants(content).compactMap { $0 as? NSTextView }.first)
+            #expect(editor.string == saved.joined(separator: "\n"))
+            deadline = clock.now.advanced(by: .seconds(1))
+            while dialog.firstResponder !== editor, clock.now < deadline { await Task.yield() }
+            #expect(dialog.firstResponder === editor, "The rules editor must own native focus when opened")
+            let range = NSRange(location: 0, length: min(2, editor.string.utf16.count))
+            editor.setSelectedRange(range)
+            // Exercise outer padding and the blank footer beside the buttons.
+            for blank in [NSPoint(x: 8, y: 12), NSPoint(x: 130, y: 29)] {
+                try click(dialog, point: blank)
+                deadline = clock.now.advanced(by: .seconds(1))
+                while dialog.firstResponder !== editor, clock.now < deadline { await Task.yield() }
+                #expect(dialog.firstResponder === editor)
+                #expect(editor.selectedRange() == range, "Blank clicks must preserve the caret/selection")
+            }
+            // Shared chrome expands its focused border outward: both the outer and inner pixels are accent.
+            let scroll = try #require(editor.enclosingScrollView)
+            let point = scroll.convert(NSPoint(x: scroll.bounds.minX - 6, y: scroll.bounds.midY), to: content)
+            let bitmap = try #require(content.bitmapImageRepForCachingDisplay(in: content.bounds))
+            content.cacheDisplay(in: content.bounds, to: bitmap)
+            let scale = CGFloat(bitmap.pixelsWide) / content.bounds.width
+            let y = content.isFlipped ? point.y : content.bounds.height - point.y
+            var accent: NSColor?
+            dialog.effectiveAppearance.performAsCurrentDrawingAppearance {
+                accent = NSColor(LitheTheme.settingsControlAccent).usingColorSpace(.sRGB)
+            }
+            let expected = try #require(accent)
+            for offset in [CGFloat(0), 1] {
+                let actual = try #require(bitmap.colorAt(x: Int((point.x + offset) * scale), y: Int(y * scale)))
+                #expect(abs(actual.redComponent - expected.redComponent) < 0.02)
+                #expect(abs(actual.greenComponent - expected.greenComponent) < 0.02)
+                #expect(abs(actual.blueComponent - expected.blueComponent) < 0.02)
+            }
+            if !draft.isEmpty {
+                editor.selectAll(nil)
+                editor.insertText("discarded", replacementRange: editor.selectedRange())
+                try await clickControl("search-exclusions-cancel", in: dialog)
+                #expect(settings.searchExcludedPathPatterns.isEmpty && session.isSearchEverywhereVisible)
+                try await clickControl("search-everywhere-filter", in: popup)
+                deadline = clock.now.advanced(by: .seconds(1))
+                while popup.childWindows?.first == nil, clock.now < deadline { await Task.yield() }
+                filter = try #require(popup.childWindows?.first)
+                dialog = try await openEditor()
+                editor = try #require(dialog.contentView.flatMap { descendants($0).compactMap { $0 as? NSTextView }.first })
+            }
+            #expect(dialog.makeFirstResponder(editor))
+            editor.selectAll(nil)
+            editor.insertText(draft, replacementRange: editor.selectedRange())
+            searchedPatterns = []
+            try await clickControl("search-exclusions-apply", in: dialog)
+            saved = draft.isEmpty ? [] : ["*.log", "**/.*/"]
+            deadline = clock.now.advanced(by: .seconds(2))
+            while !searchedPatterns.contains(saved), clock.now < deadline { await Task.yield() }
+            #expect(searchedPatterns.contains(saved))
+            #expect(AppSettings(store: MacUserDefaultsStore(defaults: defaults)).searchExcludedPathPatterns == saved)
+            #expect(session.isSearchEverywhereVisible)
+            if !draft.isEmpty {
+                #expect(!settings.searchExclusionsEnabled)
+                #expect(settings.searchEverywhereVisibilityRules == settings.fileVisibilityRules)
+                try await clickControl("search-everywhere-filter", in: popup)
+                deadline = clock.now.advanced(by: .seconds(1))
+                while popup.childWindows?.first == nil, clock.now < deadline { await Task.yield() }
+                filter = try #require(popup.childWindows?.first)
+                try await clickControl("search-exclusions-toggle", in: filter)
+                #expect(settings.searchExclusionsEnabled)
+                #expect(settings.searchEverywhereVisibilityRules.hiddenFilePatterns.contains("*.log"))
+            }
+            session.endSearchEverywhere()
+            deadline = clock.now.advanced(by: .seconds(1))
+            while parent.childWindows?.isEmpty == false, clock.now < deadline { await Task.yield() }
+            #expect(parent.childWindows?.isEmpty != false)
+            session.beginSearchEverywhere()
+            deadline = clock.now.advanced(by: .seconds(1))
+            while parent.childWindows?.first == nil, clock.now < deadline { await Task.yield() }
+            popup = try #require(parent.childWindows?.first)
+            try await clickControl("search-everywhere-filter", in: popup)
+            deadline = clock.now.advanced(by: .seconds(1))
+            while popup.childWindows?.first == nil, clock.now < deadline { await Task.yield() }
+            filter = try #require(popup.childWindows?.first)
+        }
+        let finalDialog = try await openEditor()
+        let finalEditor = try #require(finalDialog.contentView.flatMap { descendants($0).compactMap { $0 as? NSTextView }.first })
+        #expect(finalEditor.string.isEmpty, "Clearing and applying must remain empty after reopening")
+        try await clickControl("search-exclusions-cancel", in: finalDialog)
+
     }
 
     @Test

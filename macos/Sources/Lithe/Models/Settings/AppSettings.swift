@@ -35,6 +35,7 @@ final class AppSettings: ObservableObject {
         static let hiddenDirectories = "settings.hiddenDirectories"
         static let hiddenFilePatterns = "settings.hiddenFilePatterns"
         static let searchExcludedPathPatterns = "settings.searchExcludedPathPatterns"
+        static let searchExclusionsEnabled = "settings.searchExclusionsEnabled"
         static let gitExecutable = "settings.gitExecutable"
         static let gitUseCredentialHelper = "settings.gitUseCredentialHelper"
         static let gitFetchOptions = "settings.gitFetchOptions"
@@ -125,6 +126,12 @@ final class AppSettings: ObservableObject {
         didSet {
             defaults.set(searchExcludedPathPatterns, forKey: Key.searchExcludedPathPatterns)
             if oldValue != searchExcludedPathPatterns { searchExclusionsDidChange.send() }
+        }
+    }
+    @Published var searchExclusionsEnabled: Bool {
+        didSet {
+            defaults.set(searchExclusionsEnabled, forKey: Key.searchExclusionsEnabled)
+            if oldValue != searchExclusionsEnabled { searchExclusionsDidChange.send() }
         }
     }
     let gitExecutionPreferences = GitExecutionPreferences()
@@ -240,6 +247,8 @@ final class AppSettings: ObservableObject {
         hiddenFilePatterns = defaults.stringArray(forKey: Key.hiddenFilePatterns)
             ?? FileVisibilityRules.default.hiddenFilePatterns
         searchExcludedPathPatterns = defaults.stringArray(forKey: Key.searchExcludedPathPatterns) ?? []
+        // Existing saved exclusions stay active when upgrading from the inline editor.
+        searchExclusionsEnabled = defaults.object(forKey: Key.searchExclusionsEnabled) as? Bool ?? true
         gitExecutable = defaults.string(forKey: Key.gitExecutable) ?? ""
         gitUseCredentialHelper = defaults.object(forKey: Key.gitUseCredentialHelper) as? Bool ?? true
         var savedFetchOptions = defaults.data(forKey: Key.gitFetchOptions)
@@ -369,8 +378,9 @@ final class AppSettings: ObservableObject {
     private let searchExclusionsDidChange = PassthroughSubject<Void, Never>()
     var searchExclusionsChanges: AnyPublisher<Void, Never> { searchExclusionsDidChange.eraseToAnyPublisher() }
 
-    /// Search-only globs never change project-tree or file-watcher visibility.
-    var searchVisibilityRules: FileVisibilityRules {
+    /// Search Everywhere globs never change other search clients or project visibility.
+    var searchEverywhereVisibilityRules: FileVisibilityRules {
+        guard searchExclusionsEnabled else { return fileVisibilityRules }
         let patterns = searchExcludedPathPatterns.flatMap { value -> [String] in
             let pattern = value.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !pattern.isEmpty else { return [] }
@@ -423,6 +433,7 @@ final class AppSettings: ObservableObject {
         hiddenDirectoryNames = FileVisibilityRules.default.hiddenDirectoryNames
         hiddenFilePatterns = FileVisibilityRules.default.hiddenFilePatterns
         searchExcludedPathPatterns = []
+        searchExclusionsEnabled = true
         gitFetchOptions = GitFetchOptions()
         gitExecutable = ""
         gitUseCredentialHelper = true

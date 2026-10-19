@@ -14,7 +14,7 @@ struct SearchEverywhereAppearanceTests {
         session.beginSearchEverywhere(query: "name")
         session.endSearchEverywhere()
         session.beginSearchEverywhere()
-        let view = SearchEverywhereView(feature: feature, session: session, actionMatches: { _ in [] },
+        let view = SearchEverywhereView(feature: feature, session: session, settings: AppSettings(store: MacUserDefaultsStore(defaults: UserDefaults(suiteName: UUID().uuidString)!)), actionMatches: { _ in [] },
             search: { _, _ in }, dismiss: { session.endSearchEverywhere() }, openResult: { _ in },
             performAction: { _ in }, revealInFinder: { _ in }, copyPath: { _, _ in },
             relativePath: { _ in "" }, moduleLabel: { _ in "" })
@@ -56,7 +56,7 @@ struct SearchEverywhereAppearanceTests {
         let feature = SearchFeatureModel(operations: operations)
         let session = SearchSessionFeatureModel()
         session.isSearchEverywhereVisible = true
-        let view = SearchEverywhereView(feature: feature, session: session, actionMatches: { _ in [] },
+        let view = SearchEverywhereView(feature: feature, session: session, settings: AppSettings(store: MacUserDefaultsStore(defaults: UserDefaults(suiteName: UUID().uuidString)!)), actionMatches: { _ in [] },
             search: { _, _ in }, dismiss: {}, openResult: { _ in }, performAction: { _ in },
             revealInFinder: { _ in }, copyPath: { _, _ in }, relativePath: { _ in "" }, moduleLabel: { _ in "" })
         let host = NSHostingView(rootView: view.environment(\.colorScheme, scheme))

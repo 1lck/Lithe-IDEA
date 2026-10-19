@@ -37,7 +37,7 @@ final class SearchWorkflowCoordinator {
                 at: root,
                 query: query,
                 options: options,
-                visibilityRules: settings.searchVisibilityRules.searchRules,
+                visibilityRules: settings.fileVisibilityRules.searchRules,
                 isCurrent: { [weak session, workspace] in
                     session?.query == query && workspace() == root
                 }
@@ -67,13 +67,15 @@ final class SearchWorkflowCoordinator {
         guard let root = workspace() else { return }
         do {
             let feature = try await activate()
+            let rules = settings.searchEverywhereVisibilityRules.searchRules
             await feature.searchEverywhere(
                 at: root,
                 query: query,
                 options: options,
-                visibilityRules: settings.searchVisibilityRules.searchRules,
+                visibilityRules: rules,
                 isCurrent: { [weak session, workspace] in
                     session?.isSearchEverywhereVisible == true && workspace() == root
+                        && self.settings.searchEverywhereVisibilityRules.searchRules == rules
                 }
             )
             markIdle()

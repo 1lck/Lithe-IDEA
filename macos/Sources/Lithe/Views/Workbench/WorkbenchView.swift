@@ -535,6 +535,7 @@ struct WorkbenchView: View {
                 SearchEverywhereView(
                     feature: feature,
                     session: model.searchSessionFeature,
+                    settings: model.settings,
                     actionMatches: { model.searchEverywhereActionMatches(query: $0) },
                     search: { await model.searchEverywhere(query: $0, options: $1) },
                     dismiss: { model.dismissSearchEverywhere() },

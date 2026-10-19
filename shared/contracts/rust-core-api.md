@@ -1704,8 +1704,12 @@ need separate buckets may also provide `maxFileResults` and
 `maxContentResults`; each category is capped independently and the total cap
 still applies.
 
-macOS search-only exclusion settings reuse `hiddenFilePatterns` on search and
-replacement requests; they do not alter workspace tree visibility. The existing
+macOS Search Everywhere funnel exclusions reuse `hiddenFilePatterns` only on
+Search Everywhere requests. They are remembered across popup openings, have no
+General Settings entry, and have a separately remembered enable toggle. Editing
+happens in a dialog; saving does not enable a disabled rule. They do not affect
+sidebar search, project replacement,
+Agent completion, or workspace tree visibility. The existing
 case-insensitive `*`/`?` matcher applies to a basename or root-relative path (`*`
 can span `/`). A trailing `/` explicitly marks a root-relative directory glob:
 match it before descending into a directory and against ancestors of directly

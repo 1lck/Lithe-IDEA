@@ -262,7 +262,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         runtime: services.moduleRuntime,
         store: moduleCapabilityStore,
         workspace: { [weak self] in self?.workspaceURL },
-        visibilityRules: { [weak self] in self?.settings.searchVisibilityRules ?? .default },
+        visibilityRules: { [weak self] in self?.settings.fileVisibilityRules ?? .default },
         onChange: { [weak self] in self?.scheduleObjectWillChangeRelay() },
         onError: { [weak self] in self?.showNotification($0) }
     )
@@ -553,7 +553,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         }
         searchExclusionsObservation = settings.searchExclusionsChanges.sink { [weak self] in
             guard let self, let root = self.workspaceURL else { return }
-            self.searchFeatureIfActive?.invalidateIndex(at: root, visibilityRules: self.settings.searchVisibilityRules.searchRules)
+            self.searchFeatureIfActive?.invalidateIndex(at: root, visibilityRules: self.settings.searchEverywhereVisibilityRules.searchRules)
         }
         detectedAIConfigurations = loadAIConfigurations()
         let activeProviderHasAPIKey = settings.activeCommitMessageProvider

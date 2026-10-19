@@ -90,17 +90,17 @@ enum WorkspaceProjectionComposition {
                 }
             },
             warmSearchIndex: { [weak model] workspaceURL, rules in
-                model?.searchFeatureIfActive?.warmIndex(at: workspaceURL, visibilityRules: (model?.settings.searchVisibilityRules ?? rules).searchRules)
+                model?.searchFeatureIfActive?.warmIndex(at: workspaceURL, visibilityRules: rules.searchRules)
             },
             updateSearchIndex: { [weak model] workspaceURL, paths, rules in
                 await model?.searchFeatureIfActive?.updateIndex(
                     at: workspaceURL,
                     changedPaths: paths,
-                    visibilityRules: (model?.settings.searchVisibilityRules ?? rules).searchRules
+                    visibilityRules: rules.searchRules
                 )
             },
             invalidateSearchIndex: { [weak model] workspaceURL, rules in
-                model?.searchFeatureIfActive?.invalidateIndex(at: workspaceURL, visibilityRules: (model?.settings.searchVisibilityRules ?? rules).searchRules)
+                model?.searchFeatureIfActive?.invalidateIndex(at: workspaceURL, visibilityRules: rules.searchRules)
             }
         )
     }

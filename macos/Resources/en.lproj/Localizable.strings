@@ -2001,4 +2001,6 @@
 "Review changes" = "Review changes";
 
 "Search exclusions" = "Search exclusions";
-"One pattern per line. Use `*.log` for log files, `**/.*/` for dot folders, `.*` for dot files, or `cache/` for a root folder. Applies to search and replace only; project files stay visible." = "One pattern per line. Use `*.log` for log files, `**/.*/` for dot folders, `.*` for dot files, or `cache/` for a root folder. Applies to search and replace only; project files stay visible.";
+"One pattern per line: `*.log`, `**/.*/`, `.*`, `cache/`. Only affects this Search Everywhere window." = "One pattern per line: `*.log`, `**/.*/`, `.*`, `cache/`. Only affects this Search Everywhere window.";
+
+"Edit search exclusions" = "Edit search exclusions";

@@ -85,6 +85,7 @@ enum SearchEverywhereResultSource: Equatable {
 struct SearchEverywhereView: View {
     @ObservedObject var feature: SearchFeatureModel
     @ObservedObject var session: SearchSessionFeatureModel
+    @ObservedObject var settings: AppSettings
     let actionMatches: (String) -> [LitheAction]
     let search: (String, ProjectSearchOptions) async -> Void
     let dismiss: () -> Void
@@ -107,7 +108,7 @@ struct SearchEverywhereView: View {
                 set: { if !$0 { dismiss() } }
             ), topInset: 84, focusFirstTextField: true,
                contentUpdateKey: "\(geometry.size)|\(colorScheme)|\(locale.identifier)|\(LitheTheme.activeTheme.rawValue)") {
-                SearchEverywhereContent(feature: feature, session: session,
+                SearchEverywhereContent(feature: feature, session: session, settings: settings,
                     actionMatches: actionMatches, search: search, dismiss: dismiss,
                     openResult: openResult, performAction: performAction, revealInFinder: revealInFinder,
                     copyPath: copyPath, relativePath: relativePath, moduleLabel: moduleLabel,
@@ -122,6 +123,7 @@ struct SearchEverywhereView: View {
 private struct SearchEverywhereContent: View {
     @ObservedObject var feature: SearchFeatureModel
     @ObservedObject var session: SearchSessionFeatureModel
+    @ObservedObject var settings: AppSettings
     let actionMatches: (String) -> [LitheAction]
     let search: (String, ProjectSearchOptions) async -> Void
     let dismiss: () -> Void
@@ -135,6 +137,7 @@ private struct SearchEverywhereContent: View {
     var loadPreviewDocument: (URL) async -> EditorDocument? = { _ in nil }
     var makePreviewEditor: SourcePreviewEditorBuilder = SourcePreviewEditorContent.monaco
     let availableSize: CGSize
+    @Environment(\.locale) private var locale
     @State private var searchFocused = false
     @State private var draftQuery: String?
     private var query: String {
@@ -150,6 +153,7 @@ private struct SearchEverywhereContent: View {
     }
     @State private var searchOptions = ProjectSearchOptions.default
     @State private var filterPresented = false
+    @State private var editingExclusions = false
     private var enabledProviders: Set<SearchEverywhereProvider> {
         get { session.enabledEverywhereProviders }
         nonmutating set { session.enabledEverywhereProviders = newValue }
@@ -237,6 +241,10 @@ private struct SearchEverywhereContent: View {
             RoundedRectangle(cornerRadius: LitheTheme.Metrics.popupCornerRadius)
                 .strokeBorder(LitheTheme.SearchEverywhere.border, lineWidth: 1)
         }
+        .background(LitheCenteredPopup(isPresented: $editingExclusions,
+            dialogTitle: String(localized: "Search exclusions", locale: locale), focusFirstTextField: true) {
+            SearchEverywhereExclusionsEditor(settings: settings, dismiss: { editingExclusions = false })
+        }.frame(width: 0, height: 0).allowsHitTesting(false))
         .onAppear {
             selectedIndex = 0
             installKeyMonitor()
@@ -254,7 +262,7 @@ private struct SearchEverywhereContent: View {
             selectedIndex = 0
             selectionRevealRevision &+= 1
         }
-        .task(id: "\(queryMode.workspaceSearchTaskID)|\(scope.rawValue)|\(searchOptions.cacheKey)") {
+        .task(id: "\(queryMode.workspaceSearchTaskID)|\(scope.rawValue)|\(searchOptions.cacheKey)|\(settings.searchExcludedPathPatterns)|\(settings.searchExclusionsEnabled)") {
             if queryMode.commandQuery != nil {
                 await search("", searchOptions)
                 return
@@ -342,28 +350,40 @@ private struct SearchEverywhereContent: View {
         .padding(.vertical, 3)
     }
 
+    private func editExclusions() {
+        filterPresented = false
+        editingExclusions = true
+    }
+
     private var searchOptionsMenu: some View {
         Button { filterPresented.toggle() } label: {
             // Changing the rendering branch would recreate the button's popup anchor.
             LitheIDEAIcon(resourcePath: "expui/general/filter.svg", size: 16,
                           preservesOriginalColors: false)
                 .foregroundStyle(enabledProviders.count == SearchEverywhereProvider.allCases.count
+                    && (!settings.searchExclusionsEnabled || settings.searchExcludedPathPatterns.isEmpty)
                     ? LitheTheme.toolWindowText : LitheTheme.accent)
         }
         .litheDropdown(isPresented: $filterPresented) {
-            if scope == .all {
-                SearchEverywhereProviderFilter(selection: Binding(get: { enabledProviders }, set: { enabledProviders = $0 }))
-            } else {
-                VStack(alignment: .leading) {
-                    Toggle("Match Case", isOn: $searchOptions.caseSensitive)
-                    Toggle("Whole Words", isOn: $searchOptions.wholeWords)
-                    Toggle("Regular Expression", isOn: $searchOptions.regularExpression)
+            VStack(spacing: 0) {
+                if scope == .all {
+                    SearchEverywhereProviderFilter(selection: Binding(get: { enabledProviders }, set: { enabledProviders = $0 }),
+                        settings: settings, editExclusions: editExclusions)
+                } else {
+                    VStack(alignment: .leading) {
+                        SearchEverywhereProviderFilter(selection: .constant([]), settings: settings,
+                            editExclusions: editExclusions, showsProviders: false)
+                        Toggle("Match Case", isOn: $searchOptions.caseSensitive)
+                        Toggle("Whole Words", isOn: $searchOptions.wholeWords)
+                        Toggle("Regular Expression", isOn: $searchOptions.regularExpression)
+                    }
+                    .padding(8)
+                    .frame(minWidth: 220)
                 }
-                .padding(8)
-                .frame(minWidth: 220)
             }
         }
         .litheToolbarIconButton()
+        .accessibilityIdentifier("search-everywhere-filter")
         .accessibilityLabel(scope == .text ? "Search options" : "Filter results")
         .help(scope == .text ? "Search options" : "Filter results")
     }
@@ -622,7 +642,7 @@ private struct SearchEverywhereContent: View {
         guard keyMonitor == nil else { return }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             guard session.isSearchEverywhereVisible else { return event }
-            guard !(event.window?.parent is NSPanel) else { return event }
+            guard !filterPresented, !editingExclusions, !(event.window?.parent is NSPanel) else { return event }
             guard !showsPreview || searchFocused
                 || (event.window?.firstResponder as? NSTextView)?.isFieldEditor == true
                 || event.keyCode == 53 else { return event }
@@ -677,48 +697,141 @@ private struct SearchEverywhereContent: View {
     }
 }
 
+struct SearchEverywhereExclusionsEditor: View {
+    @ObservedObject var settings: AppSettings
+    let dismiss: () -> Void
+    @State private var draft = ""
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("One pattern per line: `*.log`, `**/.*/`, `.*`, `cache/`. Only affects this Search Everywhere window.")
+                .font(LitheTheme.uiFont(size: 13))
+                .foregroundStyle(LitheTheme.secondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+            TextEditor(text: $draft)
+                .litheSettingsTextEditor(height: 140, focus: $focused)
+                .accessibilityLabel("Search exclusions")
+            HStack(spacing: 0) {
+                Spacer()
+                Button("Cancel", action: dismiss)
+                    .buttonStyle(LitheActionButtonStyle())
+                    .keyboardShortcut(.cancelAction)
+                    .accessibilityIdentifier("search-exclusions-cancel")
+                Button("Apply") {
+                    settings.searchExcludedPathPatterns = draft.components(separatedBy: .newlines)
+                        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                        .filter { !$0.isEmpty }
+                    dismiss()
+                }
+                .buttonStyle(LitheActionButtonStyle(isPrimary: true))
+                .accessibilityIdentifier("search-exclusions-apply")
+            }
+        }
+        .padding(.horizontal, 17)
+        .padding(.vertical, 12)
+        .frame(width: 470)
+        .background {
+            LitheCommitDialogStyle.background
+                .contentShape(Rectangle())
+                .onTapGesture { focused = true }
+        }
+        .environment(\.lithePointingHandCursorEnabled, false)
+        .onAppear {
+            draft = settings.searchExcludedPathPatterns.joined(separator: "\n")
+            focused = true
+        }
+        .onExitCommand(perform: dismiss)
+    }
+}
+
 struct SearchEverywhereProviderFilter: View {
     @Binding var selection: Set<SearchEverywhereProvider>
-    @State private var selectedRow: SearchEverywhereProvider?
+    var settings: AppSettings? = nil
+    var editExclusions: () -> Void = {}
+    var showsProviders = true
+    @State private var selectedRow: String?
 
     var body: some View {
         VStack(spacing: 0) {
             ScrollView(.vertical) {
                 VStack(spacing: 0) {
-                    ForEach(SearchEverywhereProvider.allCases.sorted { $0.rawValue < $1.rawValue }, id: \.self) { provider in
-                        let checked = Binding(get: { selection.contains(provider) }, set: {
-                            if $0 { selection.insert(provider) } else { selection.remove(provider) }
-                        })
-                        Button {
-                            selectedRow = provider
-                            checked.wrappedValue.toggle()
-                        } label: {
-                            HStack(spacing: 4) {
-                                LitheIDEAIcon(resourcePath: checked.wrappedValue ? "commit/checkBoxSelected.svg" : "commit/checkBox.svg",
-                                    size: 24, preservesOriginalColors: true)
-                                Text(LocalizedStringKey(provider.rawValue)).font(LitheTheme.uiFont(size: 13))
-                                Spacer(minLength: 0)
+                    if let settings {
+                        HStack(spacing: 0) {
+                            Button {
+                                selectedRow = "exclusions"
+                                settings.searchExclusionsEnabled.toggle()
+                            } label: {
+                                HStack(spacing: 4) {
+                                    LitheIDEAIcon(resourcePath: settings.searchExclusionsEnabled
+                                        ? "commit/checkBoxSelected.svg" : "commit/checkBox.svg",
+                                        size: 24, preservesOriginalColors: true)
+                                    Text("Search exclusions").font(LitheTheme.uiFont(size: 13))
+                                    Spacer(minLength: 0)
+                                }
+                                .frame(maxWidth: .infinity, minHeight: LitheDropdownMetrics.rowHeight, alignment: .leading)
+                                .contentShape(Rectangle())
                             }
+                            .buttonStyle(.plain)
+                            .accessibilityRepresentation {
+                                Toggle("Search exclusions", isOn: Binding(get: { settings.searchExclusionsEnabled },
+                                    set: { settings.searchExclusionsEnabled = $0 }))
+                                    .accessibilityIdentifier("search-exclusions-toggle")
+                            }
+                            Button(action: editExclusions) {
+                                LitheIDEAIcon(resourcePath: "expui/general/edit.svg", size: LitheTheme.Metrics.toolbarIconSize)
+                            }
+                            .buttonStyle(LitheIconButtonStyle(size: LitheTheme.Metrics.toolbarIconButtonSize,
+                                cornerRadius: 4, hoverBackground: LitheTheme.toolbarHoverBackground,
+                                pressedBackground: LitheTheme.toolbarPressedBackground))
+                            .accessibilityLabel("Edit search exclusions")
+                            .accessibilityIdentifier("search-exclusions-edit")
+                            .help("Edit search exclusions")
                         }
-                        .buttonStyle(LitheDropdownRowStyle(isSelected: selectedRow == provider, horizontalPadding: 0,
-                            hoverBackground: LitheTheme.Tree.inactiveSelection))
-                        .accessibilityRepresentation { Toggle(LocalizedStringKey(provider.rawValue), isOn: checked) }
+                        .foregroundStyle(selectedRow == "exclusions" ? LitheTheme.settingsSelectionText : LitheTheme.primaryText)
+                        .litheRowHover(isActive: selectedRow == "exclusions",
+                            cornerRadius: LitheDropdownMetrics.rowCornerRadius,
+                            activeBackground: LitheTheme.settingsSelection,
+                            hoverBackground: LitheTheme.Tree.inactiveSelection)
+                    }
+                    if showsProviders {
+                        ForEach(SearchEverywhereProvider.allCases.sorted { $0.rawValue < $1.rawValue }, id: \.self) { provider in
+                            let checked = Binding(get: { selection.contains(provider) }, set: {
+                                if $0 { selection.insert(provider) } else { selection.remove(provider) }
+                            })
+                            Button {
+                                selectedRow = provider.rawValue
+                                checked.wrappedValue.toggle()
+                            } label: {
+                                HStack(spacing: 4) {
+                                    LitheIDEAIcon(resourcePath: checked.wrappedValue ? "commit/checkBoxSelected.svg" : "commit/checkBox.svg",
+                                        size: 24, preservesOriginalColors: true)
+                                    Text(LocalizedStringKey(provider.rawValue)).font(LitheTheme.uiFont(size: 13))
+                                    Spacer(minLength: 0)
+                                }
+                            }
+                            .buttonStyle(LitheDropdownRowStyle(isSelected: selectedRow == provider.rawValue, horizontalPadding: 0,
+                                hoverBackground: LitheTheme.Tree.inactiveSelection))
+                            .accessibilityRepresentation { Toggle(LocalizedStringKey(provider.rawValue), isOn: checked) }
+                        }
                     }
                 }
                 .padding(LitheDropdownMetrics.popupPadding)
             }
             .litheScrollViewChrome()
             .overlay { Rectangle().strokeBorder(LitheTheme.SearchEverywhere.filterBorder, lineWidth: 1).allowsHitTesting(false) }
-            HStack(spacing: 5) {
-                Button("All") { selection = Set(SearchEverywhereProvider.allCases) }
-                Button("None") { selection = [] }
-                Button("Invert") { selection = Set(SearchEverywhereProvider.allCases).subtracting(selection) }
+            if showsProviders {
+                HStack(spacing: 5) {
+                    Button("All") { selection = Set(SearchEverywhereProvider.allCases) }
+                    Button("None") { selection = [] }
+                    Button("Invert") { selection = Set(SearchEverywhereProvider.allCases).subtracting(selection) }
+                }
+                .buttonStyle(LitheActionButtonStyle(borderInset: 0))
+                .padding(5)
             }
-            .buttonStyle(LitheActionButtonStyle(borderInset: 0))
-            .padding(5)
         }
         // ShowFilterAction: 200pt minimum; FlowLayout's three 72pt buttons with 5pt gaps/insets.
-        .frame(width: 3 * LitheTheme.Commit.buttonMinimumWidth + 20, height: 200)
+        .frame(width: 3 * LitheTheme.Commit.buttonMinimumWidth + 20, height: showsProviders ? 200 : 36)
         // ElementsChooser is a table/Panel surface, not Popup.background.
         .background(LitheTheme.settingsListSurface)
     }
