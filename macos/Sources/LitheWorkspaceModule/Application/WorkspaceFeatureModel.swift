@@ -1298,28 +1298,54 @@ package final class WorkspaceFeatureModel: ObservableObject {
         applying changedURLs: [URL],
         at workspaceURL: URL
     ) -> IncrementalTreeResult {
-        guard var root = rootNode else { return .requiresSnapshot }
+        // No snapshot has been published yet, so there is no older tree to
+        // splice into. The initial load reads the whole tree anyway.
+        guard var root = rootNode else { return .unchanged }
         var didChange = false
         for url in changedURLs where !isWorkspaceDependencyMetadata(url, workspaceURL: workspaceURL) {
-            let existingNode = root.displayedNode(for: url)
+            // `displayedNode` also matches a compact middle-package row that
+            // owns the path; only an own-row node has a comparable type.
+            let exactNode = root.node(exactlyAt: url)
+            let displayedNode = exactNode == nil ? root.displayedNode(for: url) : nil
             if fileOperations.fileExists(at: url) {
-                // A listed directory's own event carries no child changes:
-                // file-level FSEvents report each child separately.
-                guard existingNode == nil else { continue }
-                if fileOperations.isDirectory(at: url) { return .requiresSnapshot }
+                let isDirectory = fileOperations.isDirectory(at: url)
+                if let exactNode {
+                    // FSEvents can report a delete and a recreate of the other
+                    // type in one batch. The row, its children, and the
+                    // compact-package layout then need a scan.
+                    guard exactNode.isDirectory == isDirectory else { return .requiresSnapshot }
+                    // A listed directory's own event carries no child changes:
+                    // file-level FSEvents report each child separately.
+                    continue
+                }
+                if displayedNode != nil {
+                    // The path sits inside a compact middle package row. A new
+                    // directory cannot become a row there, and a file would
+                    // split the row, so both need the scan's layout rules.
+                    guard isDirectory else { return .requiresSnapshot }
+                    continue
+                }
+                if isDirectory { return .requiresSnapshot }
                 guard !visibilityRules.isHidden(url, relativeTo: workspaceURL, isDirectory: false) else {
                     continue
                 }
                 guard let inserted = root.inserting(file: url) else { return .requiresSnapshot }
                 root = inserted
                 didChange = true
-            } else if let existingNode {
-                guard !existingNode.isDirectory, let removed = root.removing(file: url) else {
+            } else if let exactNode {
+                // Removing a directory row changes what the tree displays.
+                guard !exactNode.isDirectory, let removed = root.removing(file: url) else {
                     return .requiresSnapshot
                 }
                 root = removed
                 didChange = true
+            } else if displayedNode != nil {
+                // The removed path belonged to a compact middle package row;
+                // re-running the layout rules is the only safe repair.
+                return .requiresSnapshot
             }
+            // A path that exists in neither the tree nor on disk is not a tree
+            // change; the Git refresh at the end of the batch still covers it.
         }
         return didChange ? .updated(root) : .unchanged
     }

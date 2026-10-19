@@ -5438,6 +5438,66 @@ struct EditorDocumentTests {
     }
 
     @Test
+    func macDirectoryWatcherKeepsSiblingWorktreeMetadataInTheGitRefreshAndRevalidatesExclusions() {
+        let repository = URL(fileURLWithPath: "/in-memory/lithe-classification-worktrees/repository")
+        let commonDirectory = repository.appendingPathComponent(".git")
+        let linkedWorktreeDirectory = commonDirectory.appendingPathComponent("worktrees/feature")
+        let nestedWorktree = repository.appendingPathComponent(".claude/worktrees/agent")
+        let configuration = DirectoryWatchConfiguration(
+            workspaceRoot: repository.appendingPathComponent("feature"),
+            gitContext: GitWatchContext(
+                repositoryRoot: repository.appendingPathComponent("feature"),
+                gitDirectory: linkedWorktreeDirectory,
+                gitCommonDirectory: commonDirectory
+            ),
+            ignoredDirectories: [nestedWorktree]
+        )
+        let watcher = MacDirectoryWatcher(configuration: configuration) { _ in }
+
+        // High-frequency private state of a sibling worktree stays silent.
+        let silent = watcher.classify(
+            paths: [
+                commonDirectory.appendingPathComponent("worktrees/agent/index").path,
+                commonDirectory.appendingPathComponent("worktrees/agent/logs/HEAD").path,
+                nestedWorktree.appendingPathComponent("src/App.java").path,
+            ],
+            eventFlags: Array(repeating: FSEventStreamEventFlags(0), count: 3)
+        )
+        #expect(silent.isEmpty)
+
+        // Its semantic metadata still refreshes Git without rescanning the tree.
+        for relativePath in ["worktrees/agent/locked", "worktrees/agent/HEAD", "worktrees/agent"] {
+            let batch = watcher.classify(
+                paths: [commonDirectory.appendingPathComponent(relativePath).path],
+                eventFlags: [FSEventStreamEventFlags(0)]
+            )
+            #expect(batch.workspacePaths.isEmpty)
+            #expect(batch.gitStateMayHaveChanged)
+            #expect(!batch.requiresFullRescan)
+        }
+
+        // Removing or renaming the excluded worktree, or changing its `.git`
+        // marker, can end the exclusion and must re-run the scan rules.
+        let removedWorktree = watcher.classify(
+            paths: [nestedWorktree.path],
+            eventFlags: [FSEventStreamEventFlags(kFSEventStreamEventFlagItemRemoved)]
+        )
+        #expect(removedWorktree.requiresFullRescan)
+        #expect(removedWorktree.gitStateMayHaveChanged)
+        let markerChanged = watcher.classify(
+            paths: [nestedWorktree.appendingPathComponent(".git").path],
+            eventFlags: [FSEventStreamEventFlags(0)]
+        )
+        #expect(markerChanged.requiresFullRescan)
+        #expect(markerChanged.gitStateMayHaveChanged)
+        let contentChanged = watcher.classify(
+            paths: [nestedWorktree.path],
+            eventFlags: [FSEventStreamEventFlags(kFSEventStreamEventFlagItemModified)]
+        )
+        #expect(contentChanged.isEmpty)
+    }
+
+    @Test
     @MainActor
     func gitRefreshBurstCoalescesAndARequestDuringRefreshRunsAgain() async {
         let watcherFactory = TestDirectoryWatcherFactory()
@@ -5594,6 +5654,96 @@ struct EditorDocumentTests {
 
     @Test
     @MainActor
+    func fileReplacedByDirectoryRescansInsteadOfKeepingTheStaleFileRow() async throws {
+        let workspace = URL(fileURLWithPath: "/in-memory/lithe-incremental-type-change")
+        let main = workspace.appendingPathComponent("src/Main.java")
+        let replaced = workspace.appendingPathComponent("src/Entry.java")
+        let operations = SequencedWorkspaceOperations(snapshotAvailability: [true], files: [main, replaced])
+        let watcherFactory = TestDirectoryWatcherFactory()
+        let model = makeWorkspaceObservationUnitModel(
+            operations: operations,
+            fileOperations: ExistingWorkspaceFileOperations(
+                paths: [main.path],
+                directories: [replaced.path]
+            ),
+            provider: SequencedGitWatchContextProvider([nil]),
+            watcherFactory: watcherFactory,
+            refreshGit: {},
+            observationDelay: { _ in }
+        )
+        defer { model.reset() }
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        _ = await model.rebuild(at: workspace, rules: .default, isCurrent: { true })
+        let watcher = try #require(watcherFactory.source)
+
+        watcher.emit([replaced.path])
+
+        #expect(await waitForWorkspaceObservation(timeout: .seconds(15)) {
+            operations.snapshotCount == 2 && !model.isRefreshingWorkspace
+        }, "A file replaced by a directory did not rescan the workspace")
+    }
+
+    @Test
+    @MainActor
+    func directoryReplacedByFileRescansInsteadOfKeepingTheStaleDirectoryRow() async throws {
+        let workspace = URL(fileURLWithPath: "/in-memory/lithe-incremental-directory-type-change")
+        let source = workspace.appendingPathComponent("src")
+        let main = source.appendingPathComponent("Main.java")
+        let operations = SequencedWorkspaceOperations(snapshotAvailability: [true], files: [main])
+        let watcherFactory = TestDirectoryWatcherFactory()
+        let model = makeWorkspaceObservationUnitModel(
+            operations: operations,
+            fileOperations: ExistingWorkspaceFileOperations(paths: [source.path], directories: []),
+            provider: SequencedGitWatchContextProvider([nil]),
+            watcherFactory: watcherFactory,
+            refreshGit: {},
+            observationDelay: { _ in }
+        )
+        defer { model.reset() }
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        _ = await model.rebuild(at: workspace, rules: .default, isCurrent: { true })
+        let watcher = try #require(watcherFactory.source)
+
+        watcher.emit([source.path])
+
+        #expect(await waitForWorkspaceObservation(timeout: .seconds(15)) {
+            operations.snapshotCount == 2 && !model.isRefreshingWorkspace
+        }, "A directory replaced by a file did not rescan the workspace")
+    }
+
+    @Test
+    @MainActor
+    func externalDeletionOfAPathTheTreeNeverHadOnlyRefreshesGit() async throws {
+        let workspace = URL(fileURLWithPath: "/in-memory/lithe-incremental-unknown-deletion")
+        let main = workspace.appendingPathComponent("src/Main.java")
+        let ghost = workspace.appendingPathComponent("src/Ghost.java")
+        let operations = SequencedWorkspaceOperations(snapshotAvailability: [true], files: [main])
+        let watcherFactory = TestDirectoryWatcherFactory()
+        var gitRefreshCount = 0
+        let model = makeWorkspaceObservationUnitModel(
+            operations: operations,
+            fileOperations: ExistingWorkspaceFileOperations(paths: [main.path]),
+            provider: SequencedGitWatchContextProvider([nil]),
+            watcherFactory: watcherFactory,
+            refreshGit: { gitRefreshCount += 1 },
+            observationDelay: { _ in }
+        )
+        defer { model.reset() }
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        _ = await model.rebuild(at: workspace, rules: .default, isCurrent: { true })
+        let refreshesAfterLoad = gitRefreshCount
+        let watcher = try #require(watcherFactory.source)
+
+        watcher.emit([ghost.path])
+
+        #expect(await waitForWorkspaceObservation(timeout: .seconds(15)) {
+            gitRefreshCount > refreshesAfterLoad
+        }, "The external change did not refresh Git")
+        #expect(operations.snapshotCount == 1)
+    }
+
+    @Test
+    @MainActor
     func nestedWorktreeEventsAreIgnoredByTheWorkspace() async throws {
         let workspace = URL(fileURLWithPath: "/in-memory/lithe-nested-worktree-events")
         let main = workspace.appendingPathComponent("src/Main.java")
@@ -5635,6 +5785,102 @@ struct EditorDocumentTests {
         }, "The external change did not finish")
         #expect(processedPaths == [main])
         #expect(operations.snapshotCount == 1)
+    }
+
+    @Test
+    @MainActor
+    func removedNestedWorktreeRescansSoThePathCanJoinTheWorkspaceAgain() async throws {
+        let workspace = URL(fileURLWithPath: "/in-memory/lithe-nested-worktree-revalidation")
+        let main = workspace.appendingPathComponent("src/Main.java")
+        let nestedWorktree = workspace.appendingPathComponent(".claude/worktrees/agent", isDirectory: true)
+        let operations = SequencedWorkspaceOperations(
+            snapshotAvailability: [true],
+            files: [main],
+            nestedWorktrees: [nestedWorktree]
+        )
+        let watcherFactory = TestDirectoryWatcherFactory()
+        let model = makeWorkspaceObservationUnitModel(
+            operations: operations,
+            fileOperations: ExistingWorkspaceFileOperations(paths: [main.path]),
+            provider: SequencedGitWatchContextProvider([nil]),
+            watcherFactory: watcherFactory,
+            refreshGit: {},
+            observationDelay: { _ in }
+        )
+        defer { model.reset() }
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        _ = await model.rebuild(at: workspace, rules: .default, isCurrent: { true })
+        let configuration = try #require(watcherFactory.configurations.last)
+        #expect(configuration.ignoredDirectories.map(\.path) == [nestedWorktree.path])
+        let watcher = try #require(watcherFactory.source)
+
+        // The real watcher turns removal of an excluded worktree into a full
+        // rescan request, because only a scan can decide whether the path is
+        // ordinary workspace content now. Reuse its classification here.
+        let realWatcher = MacDirectoryWatcher(configuration: configuration) { _ in }
+        let removal = realWatcher.classify(
+            paths: [nestedWorktree.path],
+            eventFlags: [FSEventStreamEventFlags(kFSEventStreamEventFlagItemRemoved)]
+        )
+        #expect(removal.requiresFullRescan)
+        #expect(removal.gitStateMayHaveChanged)
+        watcher.emit(removal)
+
+        #expect(await waitForWorkspaceObservation(timeout: .seconds(15)) {
+            operations.snapshotCount == 2 && !model.isRefreshingWorkspace
+        }, "Removing an excluded worktree did not rescan the workspace")
+    }
+
+    @Test
+    @MainActor
+    func reusedNestedWorktreePathRejoinsTheWorkspaceAfterTheRevalidationRescan() async throws {
+        let workspace = URL(fileURLWithPath: "/in-memory/lithe-nested-worktree-reuse")
+        let main = workspace.appendingPathComponent("src/Main.java")
+        let nestedWorktree = workspace.appendingPathComponent(".claude/worktrees/agent", isDirectory: true)
+        let reusedFile = nestedWorktree.appendingPathComponent("src/Reused.java")
+        let operations = SequencedWorkspaceOperations(
+            snapshotAvailability: [true],
+            files: [main],
+            nestedWorktrees: [nestedWorktree]
+        )
+        let watcherFactory = TestDirectoryWatcherFactory()
+        var processedPaths: [URL] = []
+        let model = makeWorkspaceObservationUnitModel(
+            operations: operations,
+            fileOperations: ExistingWorkspaceFileOperations(paths: [main.path, reusedFile.path]),
+            provider: SequencedGitWatchContextProvider([nil]),
+            watcherFactory: watcherFactory,
+            refreshGit: {},
+            processExternalChanges: { paths in
+                processedPaths.append(contentsOf: paths)
+                return false
+            },
+            observationDelay: { _ in }
+        )
+        defer { model.reset() }
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        _ = await model.rebuild(at: workspace, rules: .default, isCurrent: { true })
+        let configuration = try #require(watcherFactory.configurations.last)
+        let watcher = try #require(watcherFactory.source)
+
+        // The worktree is gone and its path is ordinary content again; only the
+        // scan can drop the stale exclusion.
+        operations.updateNestedWorktrees([])
+        let realWatcher = MacDirectoryWatcher(configuration: configuration) { _ in }
+        watcher.emit(realWatcher.classify(
+            paths: [nestedWorktree.path],
+            eventFlags: [FSEventStreamEventFlags(kFSEventStreamEventFlagItemRemoved)]
+        ))
+        #expect(await waitForWorkspaceObservation(timeout: .seconds(15)) {
+            operations.snapshotCount == 2 && !model.isRefreshingWorkspace
+        }, "The revalidation event did not rescan the workspace")
+        #expect(watcherFactory.configurations.last?.ignoredDirectories.isEmpty == true)
+
+        let refreshedWatcher = try #require(watcherFactory.source)
+        refreshedWatcher.emit([reusedFile.path])
+        #expect(await waitForWorkspaceObservation(timeout: .seconds(15)) {
+            processedPaths.contains(reusedFile)
+        }, "A file below the reused path stayed excluded")
     }
 
     @Test
@@ -6763,9 +7009,24 @@ struct EditorDocumentTests {
 
         #expect(main.isIgnored(nestedWorktree.appendingPathComponent("src/App.java")))
         #expect(main.isIgnored(commonDirectory.appendingPathComponent("worktrees/agent/index")))
+        #expect(main.isIgnored(commonDirectory.appendingPathComponent("worktrees/agent/index.lock")))
+        #expect(main.isIgnored(commonDirectory.appendingPathComponent("worktrees/agent/logs/HEAD")))
+        // Shared semantic state must keep refreshing Git: the Worktrees panel
+        // shows whether a sibling worktree is locked and which commit it is on.
+        #expect(!main.isIgnored(commonDirectory.appendingPathComponent("worktrees/agent/HEAD")))
+        #expect(!main.isIgnored(commonDirectory.appendingPathComponent("worktrees/agent/locked")))
+        #expect(!main.isIgnored(commonDirectory.appendingPathComponent("worktrees/agent")))
         #expect(!main.isIgnored(commonDirectory.appendingPathComponent("index")))
         #expect(!main.isIgnored(commonDirectory.appendingPathComponent("refs/heads/agent")))
         #expect(!main.isIgnored(repository.appendingPathComponent(".claude/settings.json")))
+
+        // Only a structural change or the `.git` marker can end the exclusion;
+        // ordinary work inside the worktree cannot.
+        #expect(main.revalidatesIgnoredDirectory(nestedWorktree, isStructuralChange: true))
+        #expect(!main.revalidatesIgnoredDirectory(nestedWorktree, isStructuralChange: false))
+        #expect(main.revalidatesIgnoredDirectory(nestedWorktree.appendingPathComponent(".git"), isStructuralChange: false))
+        #expect(!main.revalidatesIgnoredDirectory(nestedWorktree.appendingPathComponent("src/App.java"), isStructuralChange: true))
+        #expect(!main.revalidatesIgnoredDirectory(repository.appendingPathComponent(".claude/settings.json"), isStructuralChange: true))
 
         let linkedGitDirectory = commonDirectory.appendingPathComponent("worktrees/feature")
         let linked = DirectoryWatchConfiguration(
@@ -7540,7 +7801,7 @@ private final class SequencedWorkspaceOperations: WorkspaceOperations, @unchecke
     private let lock = NSLock()
     private var snapshotAvailability: [Bool]
     private let files: [URL]
-    private let nestedWorktrees: [URL]
+    private var nestedWorktrees: [URL]
     private var storedSnapshotCount = 0
 
     init(snapshotAvailability: [Bool], files: [URL] = [], nestedWorktrees: [URL] = []) {
@@ -7555,10 +7816,19 @@ private final class SequencedWorkspaceOperations: WorkspaceOperations, @unchecke
         return storedSnapshotCount
     }
 
+    /// Replaces the worktrees the next scan reports, so a test can remove one
+    /// and reuse its path as ordinary workspace content.
+    func updateNestedWorktrees(_ worktrees: [URL]) {
+        lock.lock()
+        defer { lock.unlock() }
+        nestedWorktrees = worktrees
+    }
+
     func snapshot(at rootURL: URL, visibilityRules: FileVisibilityRules) -> WorkspaceSnapshot? {
         lock.lock()
         storedSnapshotCount += 1
         let isAvailable = snapshotAvailability.isEmpty ? true : snapshotAvailability.removeFirst()
+        let nestedWorktrees = self.nestedWorktrees
         lock.unlock()
         guard isAvailable else { return nil }
         let root = makeWorkspaceTree(root: rootURL, files: files)
@@ -7595,13 +7865,18 @@ private final class SequencedWorkspaceOperations: WorkspaceOperations, @unchecke
 
 private struct ExistingWorkspaceFileOperations: WorkspaceFileOperations {
     let paths: Set<String>
+    let directories: Set<String>
 
-    init(paths: [String]) {
+    init(paths: [String], directories: [String] = []) {
         self.paths = Set(paths)
+        self.directories = Set(directories)
     }
 
-    func fileExists(at url: URL) -> Bool { paths.contains(url.standardizedFileURL.path) }
-    func isDirectory(at url: URL) -> Bool { false }
+    func fileExists(at url: URL) -> Bool {
+        let path = url.standardizedFileURL.path
+        return paths.contains(path) || directories.contains(path)
+    }
+    func isDirectory(at url: URL) -> Bool { directories.contains(url.standardizedFileURL.path) }
     func createFile(at url: URL) throws {}
     func createDirectory(at url: URL, withIntermediateDirectories: Bool) throws {}
     func copyItem(at sourceURL: URL, to destinationURL: URL) throws {}
