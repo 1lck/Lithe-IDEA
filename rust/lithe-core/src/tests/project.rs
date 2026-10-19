@@ -351,6 +351,92 @@ fn workspace_snapshot_omits_linked_worktrees_nested_in_their_own_repository() {
 }
 
 #[test]
+fn workspace_snapshot_without_tree_keeps_the_same_file_list() {
+    let root = temporary_root("snapshot-files-only");
+    write_linked_worktree_fixture(&root);
+
+    let full = core_data(
+        "snapshot-full",
+        "workspace.snapshot",
+        serde_json::json!({"root": root}),
+    );
+    let files_only = core_data(
+        "snapshot-files-only",
+        "workspace.snapshot",
+        serde_json::json!({"root": root, "includeTree": false}),
+    );
+
+    assert_eq!(files_only["files"], full["files"]);
+    assert_eq!(files_only["nestedWorktrees"], full["nestedWorktrees"]);
+    assert_eq!(files_only["root"]["path"], "");
+    assert_eq!(files_only["root"]["isDirectory"], true);
+    assert!(files_only["root"].get("children").is_none());
+    fs::remove_dir_all(root).expect("temporary fixture should be removable");
+}
+
+#[test]
+fn list_directories_returns_one_visible_level_per_requested_directory() {
+    let root = temporary_root("list-directories");
+    write_linked_worktree_fixture(&root);
+    write_fixture_file(&root.join("src/main/Util.java"), "class Util {}");
+    write_fixture_file(&root.join("build/Output.class"), "");
+
+    let data = core_data(
+        "list-directories",
+        "workspace.listDirectories",
+        serde_json::json!({
+            "root": root,
+            "paths": ["", "src/", ".claude/worktrees", "missing", "build", "../outside",
+                      ".claude/worktrees/agent", ".claude/worktrees/agent/src"]
+        }),
+    );
+
+    let directories = data["directories"]
+        .as_array()
+        .expect("directories should be an array");
+    let paths = directories
+        .iter()
+        .map(|directory| directory["path"].as_str().unwrap_or_default())
+        .collect::<Vec<_>>();
+    assert_eq!(paths, ["", "src", ".claude/worktrees"]);
+    let names = |index: usize| {
+        directories[index]["children"]
+            .as_array()
+            .expect("children should be an array")
+            .iter()
+            .map(|child| {
+                assert!(child.get("children").is_none(), "{child}");
+                (
+                    child["path"].as_str().unwrap_or_default().to_string(),
+                    child["isDirectory"].as_bool().unwrap_or_default(),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        names(0),
+        [
+            (".claude".to_string(), true),
+            ("src".to_string(), true),
+            ("vendor".to_string(), true)
+        ]
+    );
+    assert_eq!(
+        names(1),
+        [
+            ("src/main".to_string(), true),
+            ("src/App.java".to_string(), false)
+        ]
+    );
+    assert!(names(2).is_empty());
+    assert_eq!(
+        directories[2]["nestedWorktrees"],
+        serde_json::json!([".claude/worktrees/agent"])
+    );
+    fs::remove_dir_all(root).expect("temporary fixture should be removable");
+}
+
+#[test]
 fn workspace_snapshot_keeps_worktrees_outside_their_main_checkout() {
     // Opening a folder that holds a main checkout beside one of its linked
     // worktrees shows both: neither duplicates the other's directory.

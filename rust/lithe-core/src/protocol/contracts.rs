@@ -79,6 +79,28 @@ pub struct WorkspaceSnapshotResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Visible children of the directories requested by `workspace.listDirectories`.
+pub struct DirectoryListingResponse {
+    /// One entry per requested directory that still exists and is visible,
+    /// in request order.
+    pub directories: Vec<DirectoryListing>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// One directory's children, each without its own children.
+pub struct DirectoryListing {
+    /// Normalized workspace-relative path; empty for the root.
+    pub path: String,
+    /// Directories first, then case-insensitive names, as in snapshots.
+    pub children: Vec<WorkspaceNode>,
+    /// Nested linked worktrees directly inside this directory, which
+    /// `children` leaves out.
+    pub nested_worktrees: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 /// One Git repository discovered for an opened workspace.
 pub struct WorkspaceRepositoryResponse {
     /// Absolute native repository root path reported by the host filesystem.

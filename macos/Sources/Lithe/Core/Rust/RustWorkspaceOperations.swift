@@ -24,6 +24,56 @@ struct RustWorkspaceOperations: WorkspaceOperations, Sendable {
         )
     }
 
+    func childRows(
+        of rows: [FileNode],
+        at rootURL: URL,
+        visibilityRules: FileVisibilityRules
+    ) -> [String: [FileNode]]? {
+        ProjectTreeLoader { directories in
+            listDirectories(directories, at: rootURL, visibilityRules: visibilityRules)
+        }.childRows(of: rows)
+    }
+
+    private func listDirectories(
+        _ directories: [URL],
+        at rootURL: URL,
+        visibilityRules: FileVisibilityRules
+    ) -> [String: [ProjectDirectoryEntry]]? {
+        let rootPath = rootURL.standardizedFileURL.path
+        let prefix = rootPath.hasSuffix("/") ? rootPath : rootPath + "/"
+        let relativePaths = directories.compactMap { url -> String? in
+            let path = url.standardizedFileURL.path
+            if path == rootPath { return "" }
+            return path.hasPrefix(prefix) ? String(path.dropFirst(prefix.count)) : nil
+        }
+        guard let payload = core.listDirectories(
+            at: rootURL,
+            relativePaths: relativePaths,
+            hiddenDirectoryNames: visibilityRules.hiddenDirectoryNames,
+            hiddenFilePatterns: visibilityRules.hiddenFilePatterns
+        ) else {
+            return FileSystemWorkspaceSnapshotBuilder().listDirectories(
+                directories,
+                at: rootURL,
+                visibilityRules: visibilityRules
+            )
+        }
+        func url(for relativePath: String) -> URL {
+            relativePath.isEmpty ? rootURL : rootURL.appendingPathComponent(relativePath)
+        }
+        return Dictionary(
+            payload.directories.map { directory in
+                (
+                    url(for: directory.path).standardizedFileURL.path,
+                    directory.children.map {
+                        ProjectDirectoryEntry(url: url(for: $0.path), isDirectory: $0.isDirectory)
+                    }
+                )
+            },
+            uniquingKeysWith: { first, _ in first }
+        )
+    }
+
     func search(
         at rootURL: URL,
         query: String,
