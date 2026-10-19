@@ -1,5 +1,6 @@
 //! Deterministic Spring Boot configuration and source semantic indexing.
 
+use crate::protocol::cancellation;
 use crate::protocol::{
     CoreError, ErrorCode, SpringBeanResponse, SpringConfigurationValueResponse,
     SpringDiagnosticResponse, SpringEndpointResponse, SpringIndexResponse, SpringInjectionResponse,
@@ -12,13 +13,92 @@ use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::Read;
 use std::path::{Component, Path, PathBuf};
-use std::sync::{LazyLock, Mutex, OnceLock};
+use std::sync::{Arc, Condvar, LazyLock, Mutex, OnceLock};
+use std::time::Duration;
 use zip::ZipArchive;
 
 const MAX_METADATA_ARCHIVES: usize = 20_000;
 
-static REPOSITORY_METADATA_CACHE: OnceLock<Mutex<HashMap<PathBuf, Vec<SpringPropertyResponse>>>> =
+/// A waiter rechecks cancellation at this interval while another request owns
+/// the repository scan.
+const REPOSITORY_WAIT_SLICE: Duration = Duration::from_millis(50);
+
+static REPOSITORY_METADATA_CACHE: OnceLock<Mutex<HashMap<PathBuf, Arc<RepositoryMetadataSlot>>>> =
     OnceLock::new();
+
+/// One repository's metadata cache entry.
+///
+/// The first request that misses the cache owns the archive walk; concurrent
+/// requests wait on `ready` instead of scanning the same JARs again.
+struct RepositoryMetadataSlot {
+    state: Mutex<RepositoryMetadataState>,
+    ready: Condvar,
+}
+
+impl RepositoryMetadataSlot {
+    fn latest_scan(&self) -> u64 {
+        self.state
+            .lock()
+            .expect("repository metadata state should not be poisoned")
+            .scan()
+    }
+}
+
+/// Progress of one repository scan and the snapshot it publishes.
+///
+/// Every variant carries the number of the latest scan that started, counted
+/// from 1. A refresh request records that number when it arrives and accepts
+/// only a snapshot from a later scan: a walk that began before the refresh may
+/// have listed the repository before new archives were downloaded.
+enum RepositoryMetadataState {
+    /// A request currently owns the scan.
+    Scanning(u64),
+    /// A completed snapshot shared by every reader until a refresh claims it.
+    Ready {
+        scan: u64,
+        properties: Arc<Vec<SpringPropertyResponse>>,
+    },
+    /// The owner was cancelled or interrupted, so the next reader retries.
+    Failed(u64),
+}
+
+impl RepositoryMetadataState {
+    fn scan(&self) -> u64 {
+        match self {
+            Self::Scanning(scan) | Self::Failed(scan) | Self::Ready { scan, .. } => *scan,
+        }
+    }
+}
+
+/// Outcome of joining a repository scan.
+#[derive(Debug)]
+enum RepositoryClaim {
+    /// A snapshot this request may reuse.
+    Shared(Vec<SpringPropertyResponse>),
+    /// This request now owns the scan with the given number.
+    Owned(u64),
+}
+
+/// Publishes `Failed` if the scan owner unwinds without completing the state
+/// transition, so waiters never block on a scan that can no longer finish.
+struct RepositoryScanCompletion<'a> {
+    slot: &'a RepositoryMetadataSlot,
+    published: bool,
+}
+
+impl Drop for RepositoryScanCompletion<'_> {
+    fn drop(&mut self) {
+        if self.published {
+            return;
+        }
+        if let Ok(mut state) = self.slot.state.lock() {
+            if let RepositoryMetadataState::Scanning(scan) = *state {
+                *state = RepositoryMetadataState::Failed(scan);
+            }
+        }
+        self.slot.ready.notify_all();
+    }
+}
 
 /// One Java parameter declaration: optional annotations, an optional `final`,
 /// the type, and the parameter name. Record components and constructor
@@ -52,6 +132,7 @@ pub struct SpringIndexRequest {
 
 /// Builds one cross-file Spring index without starting an additional server.
 pub fn spring_index(request: SpringIndexRequest) -> Result<SpringIndexResponse, CoreError> {
+    cancellation::check()?;
     let root = existing_directory(&request.root)?;
     let paths = request
         .paths
@@ -60,6 +141,7 @@ pub fn spring_index(request: SpringIndexRequest) -> Result<SpringIndexResponse, 
         .collect::<Vec<_>>();
     let mut properties = built_in_properties();
     for path in &paths {
+        cancellation::check()?;
         if is_metadata_path(path) {
             if let Some(content) = source_content(&root, path, &request.text_overrides) {
                 append_metadata(&content, None, &mut properties);
@@ -76,22 +158,24 @@ pub fn spring_index(request: SpringIndexRequest) -> Result<SpringIndexResponse, 
         properties.extend(repository_metadata(
             Path::new(&repository),
             request.refresh_dependency_metadata,
-        ));
+        )?);
     }
 
     let mut java_sources = Vec::new();
     for path in &paths {
+        cancellation::check()?;
         if path.extension().and_then(|value| value.to_str()) == Some("java") {
             if let Some(source) = source_content(&root, path, &request.text_overrides) {
                 java_sources.push((slash_path(path), source));
             }
         }
     }
-    append_configuration_properties(&java_sources, &mut properties);
+    append_configuration_properties(&java_sources, &mut properties)?;
     deduplicate_properties(&mut properties);
 
     let mut values = Vec::new();
     for path in &paths {
+        cancellation::check()?;
         let relative = slash_path(path);
         let name = path
             .file_name()
@@ -112,8 +196,8 @@ pub fn spring_index(request: SpringIndexRequest) -> Result<SpringIndexResponse, 
     attach_property_targets(&properties, &mut values);
     mark_profile_overrides(&mut values);
     let mut diagnostics = configuration_diagnostics(&properties, &values);
-    let property_references = property_reference_index(&java_sources);
-    let (beans, injections, injection_diagnostics) = bean_index(&java_sources);
+    let property_references = property_reference_index(&java_sources)?;
+    let (beans, injections, injection_diagnostics) = bean_index(&java_sources)?;
     diagnostics.extend(injection_diagnostics);
     diagnostics.sort_by(|left, right| {
         left.path
@@ -122,7 +206,7 @@ pub fn spring_index(request: SpringIndexRequest) -> Result<SpringIndexResponse, 
             .then_with(|| left.column.cmp(&right.column))
             .then_with(|| left.message.cmp(&right.message))
     });
-    let endpoints = endpoint_index(&java_sources);
+    let endpoints = endpoint_index(&java_sources)?;
 
     Ok(SpringIndexResponse {
         properties,
@@ -135,13 +219,16 @@ pub fn spring_index(request: SpringIndexRequest) -> Result<SpringIndexResponse, 
     })
 }
 
-fn property_reference_index(sources: &[(String, String)]) -> Vec<SpringPropertyReferenceResponse> {
+fn property_reference_index(
+    sources: &[(String, String)],
+) -> Result<Vec<SpringPropertyReferenceResponse>, CoreError> {
     static ANNOTATION: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r#"@Value\s*\(\s*[\"']\$\{\s*([^}:\s]+)(?::[^}]*)?\s*\}[\"']\s*\)"#)
             .expect("literal pattern is valid")
     });
     let mut references = Vec::new();
     for (path, source) in sources {
+        cancellation::check()?;
         for (index, line) in source.lines().enumerate() {
             for capture in ANNOTATION.captures_iter(line) {
                 let Some(key) = capture.get(1) else { continue };
@@ -160,7 +247,7 @@ fn property_reference_index(sources: &[(String, String)]) -> Vec<SpringPropertyR
             .then_with(|| left.line.cmp(&right.line))
             .then_with(|| left.column.cmp(&right.column))
     });
-    references
+    Ok(references)
 }
 
 fn source_content(root: &Path, path: &Path, overrides: &HashMap<String, String>) -> Option<String> {
@@ -215,36 +302,126 @@ fn is_metadata_path(path: &Path) -> bool {
     )
 }
 
-fn repository_metadata(repository: &Path, refresh: bool) -> Vec<SpringPropertyResponse> {
+fn repository_metadata(
+    repository: &Path,
+    refresh: bool,
+) -> Result<Vec<SpringPropertyResponse>, CoreError> {
+    repository_metadata_with(repository, refresh, scan_repository_metadata)
+}
+
+/// Loads one repository snapshot while sharing a single in-progress scan.
+///
+/// `scan` is injectable so the coordination behavior can be tested without a
+/// large archive fixture.
+fn repository_metadata_with(
+    repository: &Path,
+    refresh: bool,
+    scan: impl FnOnce(&Path) -> Result<Vec<SpringPropertyResponse>, CoreError>,
+) -> Result<Vec<SpringPropertyResponse>, CoreError> {
+    cancellation::check()?;
     if !repository.is_absolute() || !repository.is_dir() {
-        return Vec::new();
+        return Ok(Vec::new());
     }
     let key = repository
         .canonicalize()
         .unwrap_or_else(|_| repository.to_path_buf());
-    let cache = REPOSITORY_METADATA_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    if !refresh {
-        if let Some(properties) = cache
+    let (slot, owned_scan) = {
+        let mut cache = REPOSITORY_METADATA_CACHE
+            .get_or_init(|| Mutex::new(HashMap::new()))
             .lock()
-            .ok()
-            .and_then(|values| values.get(&key).cloned())
-        {
-            return properties;
+            .expect("repository metadata cache should not be poisoned");
+        match cache.get(&key) {
+            Some(slot) => (Arc::clone(slot), None),
+            None => {
+                let slot = Arc::new(RepositoryMetadataSlot {
+                    state: Mutex::new(RepositoryMetadataState::Scanning(1)),
+                    ready: Condvar::new(),
+                });
+                cache.insert(key.clone(), Arc::clone(&slot));
+                (slot, Some(1))
+            }
         }
-    }
+    };
+    let scan_number = match owned_scan {
+        Some(scan_number) => scan_number,
+        None => {
+            let arrival = slot.latest_scan();
+            match claim_repository_scan(&slot, refresh, arrival)? {
+                RepositoryClaim::Shared(properties) => return Ok(properties),
+                RepositoryClaim::Owned(scan_number) => scan_number,
+            }
+        }
+    };
 
-    let properties = scan_repository_metadata(&key);
-    if let Ok(mut values) = cache.lock() {
-        values.insert(key, properties.clone());
+    let mut completion = RepositoryScanCompletion {
+        slot: &slot,
+        published: false,
+    };
+    let result = scan(&key);
+    {
+        let mut state = slot
+            .state
+            .lock()
+            .expect("repository metadata state should not be poisoned");
+        *state = match &result {
+            Ok(properties) => RepositoryMetadataState::Ready {
+                scan: scan_number,
+                properties: Arc::new(properties.clone()),
+            },
+            Err(_) => RepositoryMetadataState::Failed(scan_number),
+        };
+        completion.published = true;
     }
-    properties
+    slot.ready.notify_all();
+    result
 }
 
-fn scan_repository_metadata(repository: &Path) -> Vec<SpringPropertyResponse> {
+/// Waits for the current owner or claims the scan for this request.
+///
+/// Returns a shared snapshot when it is ready and no refresh was requested.
+/// `arrival` is the latest scan number seen when the request arrived. A
+/// refresh accepts only a snapshot from a scan numbered after it, so a refresh
+/// that lands mid-scan waits for that walk and then starts its own; refreshes
+/// that land during the same walk still share one follow-up scan.
+fn claim_repository_scan(
+    slot: &RepositoryMetadataSlot,
+    refresh: bool,
+    arrival: u64,
+) -> Result<RepositoryClaim, CoreError> {
+    let mut state = slot
+        .state
+        .lock()
+        .expect("repository metadata state should not be poisoned");
+    loop {
+        match &*state {
+            RepositoryMetadataState::Ready { scan, properties } if !refresh || *scan > arrival => {
+                return Ok(RepositoryClaim::Shared((**properties).clone()));
+            }
+            RepositoryMetadataState::Ready { .. } | RepositoryMetadataState::Failed(_) => {
+                let scan = state.scan() + 1;
+                *state = RepositoryMetadataState::Scanning(scan);
+                return Ok(RepositoryClaim::Owned(scan));
+            }
+            RepositoryMetadataState::Scanning(_) => {
+                let (next, _) = slot
+                    .ready
+                    .wait_timeout(state, REPOSITORY_WAIT_SLICE)
+                    .expect("repository metadata wait should not be poisoned");
+                state = next;
+                // A cancelled request must release its worker thread rather
+                // than wait for a scan whose result it will discard.
+                cancellation::check()?;
+            }
+        }
+    }
+}
+
+fn scan_repository_metadata(repository: &Path) -> Result<Vec<SpringPropertyResponse>, CoreError> {
     let mut properties = Vec::new();
     let mut pending = vec![repository.to_path_buf()];
     let mut archive_count = 0usize;
     while let Some(directory) = pending.pop() {
+        cancellation::check()?;
         let Ok(entries) = fs::read_dir(directory) else {
             continue;
         };
@@ -255,20 +432,26 @@ fn scan_repository_metadata(repository: &Path) -> Vec<SpringPropertyResponse> {
             } else if path.extension().and_then(|value| value.to_str()) == Some("jar") {
                 archive_count += 1;
                 if archive_count > MAX_METADATA_ARCHIVES {
-                    return properties;
+                    return Ok(properties);
                 }
-                append_archive_metadata(&path, &mut properties);
+                append_archive_metadata(&path, &mut properties)?;
             }
         }
     }
     deduplicate_properties(&mut properties);
-    properties
+    Ok(properties)
 }
 
-fn append_archive_metadata(path: &Path, properties: &mut Vec<SpringPropertyResponse>) {
-    let Ok(file) = File::open(path) else { return };
+fn append_archive_metadata(
+    path: &Path,
+    properties: &mut Vec<SpringPropertyResponse>,
+) -> Result<(), CoreError> {
+    cancellation::check()?;
+    let Ok(file) = File::open(path) else {
+        return Ok(());
+    };
     let Ok(mut archive) = ZipArchive::new(file) else {
-        return;
+        return Ok(());
     };
     for name in [
         "META-INF/spring-configuration-metadata.json",
@@ -282,6 +465,7 @@ fn append_archive_metadata(path: &Path, properties: &mut Vec<SpringPropertyRespo
             append_metadata(&content, None, properties);
         }
     }
+    Ok(())
 }
 
 fn append_metadata(
@@ -402,7 +586,7 @@ fn built_in_properties() -> Vec<SpringPropertyResponse> {
 fn append_configuration_properties(
     sources: &[(String, String)],
     properties: &mut Vec<SpringPropertyResponse>,
-) {
+) -> Result<(), CoreError> {
     static ANNOTATION: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(
             r#"(?s)@ConfigurationProperties\s*\(\s*(?:prefix\s*=\s*)?[\"']([^\"']+)[\"'][^)]*\).*?\b(?:class|record)\s+([A-Za-z_$][A-Za-z0-9_$]*)"#,
@@ -411,11 +595,13 @@ fn append_configuration_properties(
     });
     let mut types = HashMap::new();
     for (path, source) in sources {
+        cancellation::check()?;
         for value in parse_configuration_types(path, source) {
             types.insert(value.name.clone(), value);
         }
     }
     for (_, source) in sources {
+        cancellation::check()?;
         for capture in ANNOTATION.captures_iter(source) {
             let Some(prefix) = capture.get(1) else {
                 continue;
@@ -432,6 +618,7 @@ fn append_configuration_properties(
             );
         }
     }
+    Ok(())
 }
 
 #[derive(Clone)]
@@ -922,11 +1109,14 @@ struct RawInjection {
 
 fn bean_index(
     sources: &[(String, String)],
-) -> (
-    Vec<SpringBeanResponse>,
-    Vec<SpringInjectionResponse>,
-    Vec<SpringDiagnosticResponse>,
-) {
+) -> Result<
+    (
+        Vec<SpringBeanResponse>,
+        Vec<SpringInjectionResponse>,
+        Vec<SpringDiagnosticResponse>,
+    ),
+    CoreError,
+> {
     static TYPE_DECLARATION: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"\b(class|interface|record)\s+([A-Za-z_$][A-Za-z0-9_$]*)([^\{]*)")
             .expect("literal pattern is valid")
@@ -945,6 +1135,7 @@ fn bean_index(
     });
     let mut supertypes = HashMap::<String, Vec<String>>::new();
     for (_, source) in sources {
+        cancellation::check()?;
         for capture in TYPE_DECLARATION.captures_iter(source) {
             let Some(name) = capture.get(2) else { continue };
             let tail = capture
@@ -958,6 +1149,7 @@ fn bean_index(
     let mut indexed_beans = Vec::new();
     let mut raw_injections = Vec::new();
     for (path, source) in sources {
+        cancellation::check()?;
         let lines = source.lines().collect::<Vec<_>>();
         let source_type = TYPE_DECLARATION
             .captures(source)
@@ -1134,7 +1326,7 @@ fn bean_index(
         .into_iter()
         .map(|bean| bean.response)
         .collect();
-    (beans, injections, diagnostics)
+    Ok((beans, injections, diagnostics))
 }
 
 fn annotation_context(lines: &[&str], index: usize) -> String {
@@ -1474,7 +1666,7 @@ fn split_parameters(value: &str) -> Vec<&str> {
     values
 }
 
-fn endpoint_index(sources: &[(String, String)]) -> Vec<SpringEndpointResponse> {
+fn endpoint_index(sources: &[(String, String)]) -> Result<Vec<SpringEndpointResponse>, CoreError> {
     static CLASS: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"\bclass\s+([A-Za-z_$][A-Za-z0-9_$]*)").expect("literal pattern is valid")
     });
@@ -1484,6 +1676,7 @@ fn endpoint_index(sources: &[(String, String)]) -> Vec<SpringEndpointResponse> {
     });
     let mut endpoints = Vec::new();
     for (path, source) in sources {
+        cancellation::check()?;
         if !SpringAnnotation::Controller.is_present(source)
             && !SpringAnnotation::RestController.is_present(source)
         {
@@ -1548,7 +1741,7 @@ fn endpoint_index(sources: &[(String, String)]) -> Vec<SpringEndpointResponse> {
             .cmp(&right.route)
             .then_with(|| left.http_methods.cmp(&right.http_methods))
     });
-    endpoints
+    Ok(endpoints)
 }
 
 /// Finds the earliest exact Mapping annotation in `annotation_text` and returns
@@ -2015,5 +2208,236 @@ mod tests {
         let spaced = mapping("@GetMapping (\"/x\") @Custom(\"/decoy\")")
             .expect("GetMapping with its own argument list should keep that route");
         assert_eq!(spaced.2, vec!["/x".to_string()]);
+    }
+
+    fn temporary_repository_root(label: &str) -> PathBuf {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock should be valid")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "lithe-core-spring-{label}-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).expect("temporary repository should be creatable");
+        root
+    }
+
+    /// A large Maven workspace can have several index requests in flight. Only
+    /// one may walk the dependency repository; the others must observe its
+    /// snapshot instead of reopening every archive.
+    #[test]
+    fn concurrent_repository_readers_share_one_scan() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::{mpsc, Arc};
+        use std::thread;
+
+        let root = temporary_repository_root("single-flight");
+        let scans = Arc::new(AtomicUsize::new(0));
+        let (scan_started, started) = mpsc::channel();
+        let (release, released) = mpsc::channel::<()>();
+
+        let owner_root = root.clone();
+        let owner_scans = Arc::clone(&scans);
+        let owner = thread::spawn(move || {
+            let _scope = crate::protocol::cancellation::Scope::begin(None, Some(5_000));
+            repository_metadata_with(&owner_root, false, |_| {
+                owner_scans.fetch_add(1, Ordering::SeqCst);
+                scan_started.send(()).expect("scan start should notify");
+                released
+                    .recv_timeout(Duration::from_secs(5))
+                    .expect("scan release should arrive");
+                Ok(vec![])
+            })
+        });
+        started
+            .recv_timeout(Duration::from_secs(5))
+            .expect("owner scan should start");
+
+        let waiter_root = root.clone();
+        let waiter_scans = Arc::clone(&scans);
+        let waiter = thread::spawn(move || {
+            let _scope = crate::protocol::cancellation::Scope::begin(None, Some(5_000));
+            repository_metadata_with(&waiter_root, false, |_| {
+                waiter_scans.fetch_add(1, Ordering::SeqCst);
+                Ok(vec![])
+            })
+        });
+        // Release the owner only after the waiter has passed the cache lookup
+        // and holds the slot, so the waiter must join the running scan.
+        wait_for_slot_holders(&root, 4);
+        release.send(()).expect("owner scan should be releasable");
+
+        owner
+            .join()
+            .expect("owner thread should finish")
+            .expect("owner scan should succeed");
+        waiter
+            .join()
+            .expect("waiter thread should finish")
+            .expect("waiter should reuse the owner snapshot");
+        assert_eq!(
+            scans.load(Ordering::SeqCst),
+            1,
+            "concurrent readers must not repeat the repository walk"
+        );
+
+        fs::remove_dir_all(root).expect("temporary repository should be removable");
+    }
+
+    /// Refreshes that arrive during the same walk share one follow-up scan, but
+    /// a refresh never accepts a snapshot from a walk that started before it.
+    #[test]
+    fn refresh_requests_accept_only_scans_started_after_they_arrived() {
+        let slot = RepositoryMetadataSlot {
+            state: Mutex::new(RepositoryMetadataState::Ready {
+                scan: 2,
+                properties: Arc::new(Vec::new()),
+            }),
+            ready: Condvar::new(),
+        };
+
+        assert!(matches!(
+            claim_repository_scan(&slot, true, 1)
+                .expect("a refresh that arrived before scan 2 should not wait"),
+            RepositoryClaim::Shared(_)
+        ));
+        assert!(
+            matches!(
+                claim_repository_scan(&slot, true, 2)
+                    .expect("a refresh that arrived after scan 2 started should claim"),
+                RepositoryClaim::Owned(3)
+            ),
+            "a refresh must not reuse a walk that started before it"
+        );
+        assert!(matches!(
+            *slot.state.lock().unwrap(),
+            RepositoryMetadataState::Scanning(3)
+        ));
+    }
+
+    /// A refresh that lands while an ordinary scan is walking the repository
+    /// may miss archives downloaded before the refresh. It must wait for that
+    /// walk and then scan again instead of reusing its snapshot.
+    #[test]
+    fn a_refresh_during_a_running_scan_rescans_after_it() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::mpsc;
+        use std::thread;
+
+        let root = temporary_repository_root("refresh-mid-scan");
+        let (scan_started, started) = mpsc::channel();
+        let (release, released) = mpsc::channel::<()>();
+
+        let owner_root = root.clone();
+        let owner = thread::spawn(move || {
+            let _scope = crate::protocol::cancellation::Scope::begin(None, Some(5_000));
+            repository_metadata_with(&owner_root, false, |_| {
+                scan_started.send(()).expect("scan start should notify");
+                released
+                    .recv_timeout(Duration::from_secs(5))
+                    .expect("scan release should arrive");
+                Ok(vec![])
+            })
+        });
+        started
+            .recv_timeout(Duration::from_secs(5))
+            .expect("owner scan should start");
+
+        let refresh_root = root.clone();
+        let refresh_scans = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&refresh_scans);
+        let refresher = thread::spawn(move || {
+            let _scope = crate::protocol::cancellation::Scope::begin(None, Some(5_000));
+            repository_metadata_with(&refresh_root, true, |_| {
+                counter.fetch_add(1, Ordering::SeqCst);
+                Ok(vec![])
+            })
+        });
+        wait_for_slot_holders(&root, 4);
+        release.send(()).expect("owner scan should be releasable");
+
+        owner
+            .join()
+            .expect("owner thread should finish")
+            .expect("owner scan should succeed");
+        refresher
+            .join()
+            .expect("refresh thread should finish")
+            .expect("refresh scan should succeed");
+        assert_eq!(
+            refresh_scans.load(Ordering::SeqCst),
+            1,
+            "a refresh must not reuse a walk that started before it"
+        );
+
+        fs::remove_dir_all(root).expect("temporary repository should be removable");
+    }
+
+    /// Blocks until `holders` references to the repository slot exist: the
+    /// cache, the running owner, this test, and each request that joined it.
+    fn wait_for_slot_holders(root: &Path, holders: usize) {
+        let key = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+        let slot = Arc::clone(
+            REPOSITORY_METADATA_CACHE
+                .get()
+                .expect("the owner should have created the cache")
+                .lock()
+                .unwrap()
+                .get(&key)
+                .expect("the owner should have created the slot"),
+        );
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while Arc::strong_count(&slot) < holders {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "a second request should join the running scan"
+            );
+            std::thread::yield_now();
+        }
+    }
+
+    /// A waiter belongs to one request. Cancelling that request must release
+    /// its worker instead of blocking until the owner finishes.
+    #[test]
+    fn a_cancelled_waiter_stops_waiting_for_the_repository_owner() {
+        let slot = RepositoryMetadataSlot {
+            state: Mutex::new(RepositoryMetadataState::Scanning(1)),
+            ready: Condvar::new(),
+        };
+        let operation = "spring-repository-waiter-cancel";
+        let _scope = crate::protocol::cancellation::Scope::begin(Some(operation.to_string()), None);
+        assert!(crate::protocol::cancellation::cancel(operation));
+
+        let error = claim_repository_scan(&slot, false, 1)
+            .expect_err("a cancelled waiter must stop waiting");
+        assert!(matches!(error.code, ErrorCode::Cancelled));
+    }
+
+    /// Cancellation must reach the archive walk itself, not only the command
+    /// entry point, so a timed-out workspace scan releases its worker.
+    #[test]
+    fn a_cancelled_request_stops_before_walking_repository_archives() {
+        let root = temporary_repository_root("cancelled-scan");
+        fs::write(root.join("dependency.jar"), b"not a zip archive")
+            .expect("archive fixture should be writable");
+        let operation = "spring-repository-scan-cancel";
+        let _scope = crate::protocol::cancellation::Scope::begin(Some(operation.to_string()), None);
+        assert!(crate::protocol::cancellation::cancel(operation));
+
+        assert!(matches!(
+            repository_metadata(&root, true)
+                .expect_err("a cancelled request must not scan")
+                .code,
+            ErrorCode::Cancelled
+        ));
+        assert!(matches!(
+            scan_repository_metadata(&root)
+                .expect_err("a cancelled scan must stop before reading archives")
+                .code,
+            ErrorCode::Cancelled
+        ));
+
+        fs::remove_dir_all(root).expect("temporary repository should be removable");
     }
 }
