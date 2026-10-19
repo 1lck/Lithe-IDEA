@@ -8,7 +8,8 @@ import { toThemeDefinition } from "@/extensions/themes/theme-file";
 import { themeRegistry } from "@/extensions/themes/theme-registry";
 import type { ThemeFile } from "@/extensions/themes/theme-schema";
 import { layoutGitGraph } from "../../utils/git-graph-layout";
-import { GitGraphRow } from "./git-graph-row";
+import { gitGraphPaintMetrics } from "../../utils/git-graph-geometry";
+import { GitGraphCanvas, gitGraphWidth } from "./git-graph-row";
 
 for (const [themeId, color] of [
   ["lithe-light", "rgb(71, 161, 179)"],
@@ -52,7 +53,14 @@ for (const [themeId, color] of [
           },
         ]);
       }, []);
-      return <GitGraphRow row={layout.rows[0]} showDecorations={false} />;
+      const paint = gitGraphPaintMetrics();
+      return (
+        <GitGraphCanvas
+          rows={layout.rows}
+          paint={paint}
+          graphWidth={gitGraphWidth(layout.rows, paint)}
+        />
+      );
     }
     try {
       for (const value of (themes as ThemeFile).themes) {
