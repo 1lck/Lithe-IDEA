@@ -429,7 +429,6 @@ jobs:
             "src/features/git/services/commit-diff-review.test.ts",
             "src/features/git/components/diff/monaco-commit-block-controls.test.ts",
             "src/features/git/hooks/use-commit-diff-review.test.tsx",
-            "src/features/git/hooks/use-commit-diff-review-confirmation-race.test.tsx",
             "src/features/git/utils/diff-buffer-label.test.ts"
           )
           node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-git-log-preview.json -- @previewTests

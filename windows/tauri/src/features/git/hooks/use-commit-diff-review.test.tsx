@@ -328,3 +328,30 @@ test("a late next-file read cannot overwrite a newer comparison in the same tab"
     expect(review.fileNavigationBusy).toBe(false);
   } finally { resolve(diff); await navigation; }
 });
+test("acceptance: refresh and confirm in the same batch must not roll back the refreshed content", async () => {
+  const settings = useSettingsStore.getState();
+  let releaseDialog: ((value: boolean) => void) | undefined;
+  const confirm = spyOn(dialog, "showConfirmDialog").mockImplementation(
+    () => new Promise<boolean>((resolve) => { releaseDialog = resolve; }),
+  );
+  const rollback = spyOn(statusApi, "discardHunk").mockResolvedValue(true);
+  spies.push(confirm, rollback, spyOn(useSettingsStore, "getState").mockReturnValue({
+    ...settings, settings: { ...settings.settings, confirmBeforeDiscard: true },
+  }));
+  await act(async () => { root.render(<LocaleProvider language="en-US"><Harness /></LocaleProvider>); });
+  const pending = review.rollback(review.blocks[0].id);
+  let result: unknown;
+  try {
+    workingDiff.mockResolvedValue(fullDiff(head, ["a", "NEW-UNCONFIRMED", "c", "D"]));
+    await act(async () => {
+      await review.refresh();
+      releaseDialog?.(true);
+      result = await pending;
+    });
+    console.log(JSON.stringify({ acceptanceCase: "same-batch-refresh-confirm", result,
+      discardCalls: rollback.mock.calls.length,
+      discardedNewContent: JSON.stringify(rollback.mock.calls).includes("NEW-UNCONFIRMED") }));
+    expect(result).toBe("stale");
+    expect(rollback).not.toHaveBeenCalled();
+  } finally { releaseDialog?.(false); await pending; }
+});
