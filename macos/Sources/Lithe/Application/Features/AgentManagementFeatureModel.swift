@@ -37,7 +37,7 @@ final class AgentManagementFeatureModel: ObservableObject {
     }
 
     func refresh() async {
-        guard phase != .checking else { return }
+        guard phase != .checking, busyAgentID == nil else { return }
         phase = .checking
         do {
             status = try await service.status(dataDirectory: dataDirectory)

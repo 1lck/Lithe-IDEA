@@ -1,7 +1,12 @@
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { moveFile, readDirectory } from "@/features/file-system/controllers/platform";
+import {
+  dispatchTerminalPathInsert,
+  isTerminalDropTarget,
+} from "@/features/file-system/utils/file-system-drop-controller";
 import type { FileEntry } from "@/features/file-system/types/app.types";
+import { clipboardEntryPaths } from "@/features/file-explorer/lib/clipboard-entry-paths";
 import { dispatchSidebarResourceDropOnAI } from "@/features/sidebar/utils/sidebar-resource-drag";
 import { getTreePathIdentity } from "@/features/sidebar/utils/tree-selection";
 import {
@@ -249,6 +254,19 @@ export function useFileExplorerDragDrop(
         const isOverAIContextDropTarget = Boolean(
           elementUnder?.closest("[data-ai-context-drop-target]"),
         );
+
+        // A terminal lives inside a pane container, so it must be resolved before
+        // the pane branch below or the drop would just open the file. The terminal
+        // receives raw paths because only it knows its shell, and quoting depends
+        // on the shell.
+        if (isTerminalDropTarget(elementUnder) && dragState.draggedItems.length > 0) {
+          // Every dragged entry goes to the terminal, not just the primary one, so
+          // a multi-selection inserts all of its paths.
+          const paths = clipboardEntryPaths(dragState.draggedItems);
+          if (dispatchTerminalPathInsert(elementUnder, paths)) {
+            return;
+          }
+        }
 
         if (
           isOverAIContextDropTarget &&

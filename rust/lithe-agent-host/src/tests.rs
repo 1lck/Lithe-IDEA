@@ -854,6 +854,43 @@ fn management_status_matches_the_shared_fixture() {
         serde_json::to_value(status).unwrap(),
         fixture["responses"]["status"]
     );
+    for agent in catalog::CATALOG {
+        fake_install(&data, agent.id);
+        for (installed, expected) in [
+            ("0.0.0".to_string(), Some(true)),
+            (agent.version.to_string(), Some(false)),
+            ("9999.0.0".to_string(), Some(false)),
+            (format!("{}-beta.1", agent.version), Some(true)),
+            (format!("{}+local", agent.version), Some(false)),
+            ("unreadable".to_string(), None),
+        ] {
+            std::fs::write(
+                data.join("agents").join(agent.id).join("lithe-agent.json"),
+                serde_json::to_vec(&json!({"id": agent.id, "version": installed})).unwrap(),
+            )
+            .unwrap();
+            let status = install::status_with(
+                &data,
+                environment::RuntimeEnvironment {
+                    node: None,
+                    npm: None,
+                    used_login_shell: true,
+                },
+                &|_| None,
+                &|_| None,
+            );
+            let actual = status
+                .agents
+                .iter()
+                .find(|status| status.id == agent.id)
+                .unwrap();
+            assert_eq!(
+                actual.update_available, expected,
+                "{} {installed}",
+                agent.id
+            );
+        }
+    }
     let _ = std::fs::remove_dir_all(&data);
 }
 

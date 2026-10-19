@@ -94,6 +94,9 @@ pub struct AgentStatus {
     /// Version Lithe installs.
     pub version: String,
     pub installed_version: Option<String>,
+    /// Whether the verified catalog target is strictly newer than the local adapter.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub update_available: Option<bool>,
     pub protocol: ProviderProtocol,
     pub minimum_node_major: u32,
     pub verified: bool,
@@ -123,20 +126,31 @@ pub fn status(data_directory: &Path, cancel: &dyn Fn() -> bool) -> ManagementSta
                 cli_update::detect(cli, &environment, cancel)
                     .map(|mut plan| {
                         if let Some(installed) = environment::detect_tool(cli.command, cancel) {
-                            plan.installation.update_available = cli_update::update_available(
+                            match cli_update::update_available(
                                 &plan,
                                 &installed.version,
                                 environment::search_path().as_deref(),
                                 cancel,
-                            );
+                            ) {
+                                Ok(Some(check)) => {
+                                    plan.installation.update_available = Some(check.available);
+                                    plan.installation.available_version = check.version;
+                                }
+                                Ok(None) => {}
+                                Err(error) => {
+                                    plan.installation.update_check_error = Some(error.message())
+                                }
+                            }
                         }
                         plan.installation
                     })
-                    .unwrap_or_else(|_| CliInstallation {
+                    .unwrap_or_else(|error| CliInstallation {
                         source: CliSource::Unknown,
                         can_update: false,
                         update_hint: cli_update::MANUAL_HINT.into(),
                         update_available: None,
+                        update_check_error: Some(error.message()),
+                        available_version: None,
                     }),
             )
         },
@@ -167,13 +181,18 @@ pub(crate) fn status_with(
             if let (Some(cli), Some(status)) = (&agent.cli, &cli) {
                 issues.extend(cli_issue(cli, status.detected.as_ref()));
             }
+            let installed_version = installed_version(data_directory, agent);
+            let update_available = installed_version.as_deref().and_then(|installed| {
+                environment::newer_version_available(installed, agent.version)
+            });
             AgentStatus {
                 id: agent.id.into(),
                 name: agent.name.into(),
                 description: agent.description.into(),
                 package: agent.package.into(),
                 version: agent.version.into(),
-                installed_version: installed_version(data_directory, agent),
+                installed_version,
+                update_available,
                 protocol: agent.protocol,
                 minimum_node_major: agent.minimum_node_major,
                 verified: agent.verified,

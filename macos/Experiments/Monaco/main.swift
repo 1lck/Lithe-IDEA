@@ -60,8 +60,10 @@ final class Probe: NSObject, NSApplicationDelegate, WKScriptMessageHandlerWithRe
         ["id": "parent", "line": 2, "direction": "up", "relation": "inheritance"],
         ["id": "implementers", "line": 2, "direction": "down", "relation": "interface"]
     ]]
+    var softWrapToggleCount = 0
     var debugRequests: [[String: Any]] = []
     var definitionRequests: [[String: Any]] = []
+    var editorLayout: [String: Any] = [:]
     var markdownScrollRequests: [[String: Any]] = []
     var markdownScrollWaiter: ((Any?, String?) -> Void)?
     var fixtureDocuments: [String: (text: String, revision: Int)] = [:]
@@ -142,6 +144,13 @@ final class Probe: NSObject, NSApplicationDelegate, WKScriptMessageHandlerWithRe
                 return
             }
             switch type {
+            case "toggleSoftWrap":
+                softWrapToggleCount += 1
+                replyHandler(["ok": true], nil)
+            case "softWrapToggleCount": replyHandler(["count": softWrapToggleCount], nil)
+            case "cursorSnapshot":
+                replyHandler(["cursor": NSCursor.current == .pointingHand ? "pointer" : NSCursor.current == .iBeam ? "text" : NSCursor.current == .arrow ? "arrow" : "other",
+                              "description": String(describing: NSCursor.current)], nil)
             case "closeFixtureDocument":
                 guard let id = body["documentID"] as? String else { throw ProbeError.invalid("Missing fixture ID") }
                 fixtureDocuments[id] = nil
@@ -156,8 +165,19 @@ final class Probe: NSObject, NSApplicationDelegate, WKScriptMessageHandlerWithRe
                 replyHandler(["selected": NSNull()], nil)
             case "lastContextMenu": replyHandler(lastContextMenu, nil)
             case "javaRunMarkers":
-                let markers: [[String: Any]] = body["id"] as? String == "readonly-run-test"
-                    ? [["id": "main", "line": 1, "endLine": 1, "kind": "main", "label": "Main.main()", "status": "none"]] : []
+                let id = body["id"] as? String ?? ""
+                let markers: [[String: Any]]
+                if id == "gutter-test-class" {
+                    markers = [["id": "main", "line": 1, "endLine": 1, "kind": "testClass", "label": "Main.main()", "status": "none"]]
+                } else if id == "gutter-test-passed" {
+                    markers = [["id": "main", "line": 1, "endLine": 1, "kind": "testMethod", "label": "Test.passed()", "status": "passed"]]
+                } else if id == "gutter-test-failed" {
+                    markers = [["id": "main", "line": 1, "endLine": 1, "kind": "testMethod", "label": "Test.failed()", "status": "failed"]]
+                } else if ["readonly-run-test", "gutter-order"].contains(id) {
+                    markers = [["id": "main", "line": 1, "endLine": 1, "kind": "main", "label": "Main.main()", "status": "none"]]
+                } else {
+                    markers = []
+                }
                 replyHandler(["markers": markers, "canDebug": true], nil)
             case "javaRunMarkerAction":
                 javaRunActionCount += 1
@@ -271,7 +291,7 @@ final class Probe: NSObject, NSApplicationDelegate, WKScriptMessageHandlerWithRe
             case "rename":
                 guard let name = body["newName"] as? String else { throw ProbeError.invalid("Missing rename") }
                 replyHandler(["changes": try workspaceFixtureChanges(name: name)], nil)
-            case "runToCursor":
+            case "toggleBreakpoint", "editBreakpoint", "runToCursor":
                 debugRequests.append(body)
                 replyHandler(["ok": true], nil)
             case "debugRequests":
@@ -281,6 +301,11 @@ final class Probe: NSObject, NSApplicationDelegate, WKScriptMessageHandlerWithRe
                 replyHandler(["ok": true], nil)
             case "definitionRequests":
                 replyHandler(["requests": definitionRequests], nil)
+            case "editorLayout":
+                editorLayout = body
+                replyHandler(["ok": true], nil)
+            case "editorLayoutSnapshot":
+                replyHandler(editorLayout, nil)
             case "markdownScroll":
                 markdownScrollRequests.append(body)
                 markdownScrollWaiter?(["requests": markdownScrollRequests], nil); markdownScrollWaiter = nil

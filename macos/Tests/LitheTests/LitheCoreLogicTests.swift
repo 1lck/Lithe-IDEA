@@ -82,13 +82,20 @@ struct LitheCoreLogicTests {
 
     @Test
     @MainActor
-    func closingAWorkspaceWindowClosesTheProjectInsteadOfTheWindow() {
+    func closingAWorkspaceWindowResetsItsProjectsAndKeepsTheWelcomeWindow() async {
         let sessions = TestProjectWindowSessions(hasActiveProject: true)
-        let coordinator = LitheWindowCoordinator(projectSessions: sessions)
-        let window = NSWindow()
+        let coordinator = LitheWindowCoordinator(
+            projectSessions: sessions, confirmUnsavedDocuments: { _ in true }
+        )
+        let window = CloseCommandTestWindow()
+        coordinator.attach(to: window, layout: .workspace)
 
         #expect(!coordinator.windowShouldClose(window))
-        #expect(sessions.closeActiveProjectCallCount == 1)
+        #expect(await sessions.projectWindowCleanupFinished.waitUntilOpen())
+        #expect(sessions.resetForProjectWindowCloseCallCount == 1)
+        #expect(sessions.requestCloseActiveSessionCallCount == 0)
+        #expect(!sessions.hasActiveProject)
+        #expect(window.performCloseCallCount == 0)
     }
 
     @Test
@@ -159,10 +166,15 @@ struct LitheCoreLogicTests {
     func commandWCancelDoesNotResetSessionsOrLeakIntoTheNextWindowClose() async {
         let confirmationFinished = TestGate()
         defer { confirmationFinished.open() }
+        var confirmationCount = 0
         let sessions = TestProjectWindowSessions(hasActiveProject: true)
         let coordinator = LitheWindowCoordinator(
             projectSessions: sessions,
-            confirmUnsavedDocuments: { _ in confirmationFinished.open(); return false }
+            confirmUnsavedDocuments: { _ in
+                confirmationCount += 1
+                confirmationFinished.open()
+                return confirmationCount > 1
+            }
         )
         let window = CloseCommandTestWindow()
         coordinator.attach(to: window, layout: .workspace)
@@ -170,13 +182,15 @@ struct LitheCoreLogicTests {
         coordinator.performCloseCommand()
         #expect(await confirmationFinished.waitUntilOpen())
 
-        #expect(await confirmationFinished.waitUntilOpen())
         #expect(window.performCloseCallCount == 1)
         #expect(!window.delegateAllowedClose)
         #expect(sessions.resetForProjectWindowCloseCallCount == 0)
 
         #expect(!coordinator.windowShouldClose(window))
-        #expect(sessions.requestCloseActiveSessionCallCount == 1)
+        #expect(await sessions.projectWindowCleanupFinished.waitUntilOpen())
+        #expect(sessions.requestCloseActiveSessionCallCount == 0)
+        #expect(sessions.resetForProjectWindowCloseCallCount == 1)
+        #expect(window.performCloseCallCount == 1)
     }
 
     @Test
@@ -210,13 +224,56 @@ struct LitheCoreLogicTests {
 
     @Test
     @MainActor
-    func ordinaryWindowCloseStillClosesOnlyTheActiveSession() {
+    func ordinaryWindowCloseWaitsForCleanupAndIgnoresDuplicateClicks() async {
+        let cleanupStarted = TestGate()
+        let releaseCleanup = TestGate()
         let sessions = TestProjectWindowSessions(hasActiveProject: true)
-        let coordinator = LitheWindowCoordinator(projectSessions: sessions)
+        sessions.projectWindowCleanupStarted = cleanupStarted
+        sessions.projectWindowCleanupRelease = releaseCleanup
+        let coordinator = LitheWindowCoordinator(
+            projectSessions: sessions, confirmUnsavedDocuments: { _ in true }
+        )
+        let window = CloseCommandTestWindow()
+        coordinator.attach(to: window, layout: .workspace)
+        defer { releaseCleanup.open() }
 
-        #expect(!coordinator.windowShouldClose(NSWindow()))
-        #expect(sessions.requestCloseActiveSessionCallCount == 1)
+        #expect(!coordinator.windowShouldClose(window))
+        #expect(await cleanupStarted.waitUntilOpen())
+        #expect(sessions.hasActiveProject)
+        #expect(!coordinator.windowShouldClose(window))
+        #expect(sessions.resetForProjectWindowCloseCallCount == 1)
+        releaseCleanup.open()
+        #expect(await sessions.projectWindowCleanupFinished.waitUntilOpen())
+        #expect(!sessions.hasActiveProject)
+        #expect(window.performCloseCallCount == 0)
+    }
+
+    @Test(arguments: [false, true])
+    @MainActor
+    func ordinaryWindowCloseCancelOrSaveFailureKeepsProjects(saveFailure: Bool) async {
+        let confirmationFinished = TestGate()
+        let sessions = TestProjectWindowSessions(hasActiveProject: true)
+        sessions.hasUnsavedDocuments = true
+        sessions.saveAllDocumentsResult = false
+        let coordinator = LitheWindowCoordinator(
+            projectSessions: sessions,
+            confirmUnsavedDocuments: { owner in
+                defer { confirmationFinished.open() }
+                #expect(owner.hasUnsavedDocuments)
+                if saveFailure { return await owner.saveAllDocuments() }
+                return false
+            }
+        )
+        let window = CloseCommandTestWindow()
+        coordinator.attach(to: window, layout: .workspace)
+
+        #expect(!coordinator.windowShouldClose(window))
+        #expect(await confirmationFinished.waitUntilOpen())
+        #expect(sessions.hasActiveProject)
         #expect(sessions.resetForProjectWindowCloseCallCount == 0)
+        #expect(sessions.requestCloseActiveSessionCallCount == 0)
+        #expect(sessions.saveAllDocumentsCallCount == (saveFailure ? 1 : 0))
+        #expect(window.performCloseCallCount == 0)
     }
 
     @Test
@@ -483,6 +540,7 @@ struct LitheCoreLogicTests {
         let dedicatedSessionID = manager.activeSessionID(in: .dedicated(dedicatedWindowID))
 
         #expect(manager.primaryOpenProjects.count == 2)
+        #expect(manager.shouldDismissPrimaryWindowWhenClosingActiveSession)
         await manager.resetForProjectWindowClose()
 
         #expect(manager.primaryOpenProjects.isEmpty)
@@ -3709,6 +3767,7 @@ private final class TestProjectWindowSessions: ProjectWindowSessionHandling {
     var saveAllDocumentsResult = true
     var projectWindowCleanupStarted: TestGate?
     var projectWindowCleanupRelease: TestGate?
+    let projectWindowCleanupFinished = TestGate()
     private(set) var closeActiveProjectCallCount = 0
     private(set) var closeActiveWorkbenchItemCallCount = 0
     private(set) var requestCloseActiveSessionCallCount = 0
@@ -3746,6 +3805,8 @@ private final class TestProjectWindowSessions: ProjectWindowSessionHandling {
         if let projectWindowCleanupRelease {
             _ = await projectWindowCleanupRelease.waitUntilOpen()
         }
+        hasActiveProject = false
+        projectWindowCleanupFinished.open()
     }
 
     func noteWindowBecameKey() {

@@ -3379,6 +3379,28 @@
 "%@ is not available." = "%@ 不可用。";
 "No JDK is configured for this project." = "此项目没有配置 JDK。";
 
+"Check complete." = "检查完成。";
+
+"Check complete. Some CLI update results are unavailable; see Preflight." = "检查完成。部分 CLI 的更新状态无法确认，请查看预检信息。";
+
+"Check failed." = "检查失败。";
+
+"Could not compare the local adapter with the verified version." = "无法比较本地适配器与已核验版本。";
+
+"A newer verified adapter version is available." = "有更高的已核验适配器版本可用。";
+
+"The local adapter is at or above the verified version." = "本地适配器版本等于或高于已核验版本。";
+
+"Minimum version" = "最低版本";
+
+"Update to" = "可更新至";
+
+"Could not confirm" = "无法确认";
+
+"Current version: %@ · Verified target: %@" = "当前版本：%@ · 已核验目标：%@";
+
+"Update to: %@" = "可更新至：%@";
+
 /* Plugin web tool windows */
 "Show its own page in a tool window" = "在工具窗口中显示插件自带的页面";
 "Load the %@ model" = "加载 %@ 的模型";

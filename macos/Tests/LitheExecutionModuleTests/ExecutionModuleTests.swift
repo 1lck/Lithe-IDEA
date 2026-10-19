@@ -1403,6 +1403,42 @@ struct ExecutionModuleTests {
     }
 
     @Test(arguments: [false, true])
+    func closingOrClearingResultsKeepsEditorHistoryAndDiscoveredScopes(clearOnly: Bool) async throws {
+        let root = URL(fileURLWithPath: "/workspace/results-lifecycle")
+        let first = root.appendingPathComponent("src/test/java/demo/FirstTest.java")
+        let second = root.appendingPathComponent("src/test/java/demo/SecondTest.java")
+        let files = [root.appendingPathComponent("pom.xml"), first, second,
+            root.appendingPathComponent("package.json"), root.appendingPathComponent("sample.test.js"),
+            root.appendingPathComponent("pyproject.toml"), root.appendingPathComponent("test_sample.py")]
+        let outcomes = [MavenTestCaseOutcome(className: "demo.FirstTest", method: "check", status: "passed")]
+        let results = MavenTestResults(testsRun: 1, failures: 0, errors: 0, skipped: 0, passed: 1,
+            success: true, failureDetails: [], testCases: outcomes)
+        let process = TestStreamingProcess()
+        let service = LanguageTestService(executableResolver: TestExecutableResolver(),
+            processFactory: { process }, resultParser: { _, _, _ in results })
+        defer { service.reset() }
+        service.discover(workspaceURL: root, files: files)
+        let discovered = service.itemsByProviderID
+        for provider in ["java", "node", "python"] {
+            #expect(discovered[provider]?.contains { $0.kind == .workspace } == true)
+        }
+        #expect(service.run(providerID: "java", scope: .testCase(identifier: "demo.FirstTest#check", fileURL: first),
+            workspaceURL: root, projectFiles: files))
+        process.onTermination?(0)
+        try await awaitTestValue(service.$state, matching: { $0 == .passed })
+        #expect(service.results == results)
+        #expect(service.testOutcomes == outcomes)
+        if clearOnly { service.clearOutput() } else { service.closeRun() }
+        #expect(service.results == nil)
+        #expect(service.testOutcomes == outcomes, "Editor marker history must outlive the visible result")
+        #expect(service.itemsByProviderID == discovered)
+        #expect(service.run(providerID: "java", scope: .file(second), workspaceURL: root, projectFiles: files))
+        #expect(service.hasRun(providerID: "java", scope: .file(second)))
+        #expect(service.run(providerID: "java", scope: .workspace, workspaceURL: root, projectFiles: files))
+        #expect(service.hasRun(providerID: "java", scope: .workspace))
+    }
+
+    @Test(arguments: [false, true])
     func closingTestRunPreservesDiscoveryAndAllowsNewRun(completed: Bool) async throws {
         let root = URL(fileURLWithPath: "/workspace/test-tab", isDirectory: true)
         let files = [root.appendingPathComponent("pom.xml")]
