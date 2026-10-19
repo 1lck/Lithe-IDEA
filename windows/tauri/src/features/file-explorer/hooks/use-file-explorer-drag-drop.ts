@@ -256,17 +256,14 @@ export function useFileExplorerDragDrop(
         );
 
         // A terminal lives inside a pane container, so it must be resolved before
-        // the pane branch below or the drop would just open the file.
+        // the pane branch below or the drop would just open the file. The terminal
+        // receives raw paths because only it knows its shell, and quoting depends
+        // on the shell.
         if (isTerminalDropTarget(elementUnder) && dragState.draggedItems.length > 0) {
           // Every dragged entry goes to the terminal, not just the primary one, so
           // a multi-selection inserts all of its paths.
           const paths = clipboardEntryPaths(dragState.draggedItems);
-          if (
-            dispatchTerminalPathInsert(
-              elementUnder,
-              formatPathsForTerminal(paths, { trailingSpace: true }),
-            )
-          ) {
+          if (dispatchTerminalPathInsert(elementUnder, paths)) {
             return;
           }
         }
