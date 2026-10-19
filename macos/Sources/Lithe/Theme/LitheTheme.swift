@@ -183,22 +183,24 @@ enum LitheTheme {
                 let value = isDark ? dark : light
                 return RGBA(red: value.0, green: value.1, blue: value.2, alpha: value.3)
             }
+            // Islands Dark editor-bg / tool-window-bg resolve to gray-10 (#191A1C).
+            let editorSurface = isDark ? RGBA(0x191A1C) : RGBA(0xFFFFFF)
             let secondaryText = adaptive(light: (0.373, 0.396, 0.439, 1), dark: (1, 1, 1, 0.50))
 
             return Palette(
                 window: adaptive(light: (0.933, 0.945, 0.961, 1), dark: (0.157, 0.161, 0.173, 1)),
                 titlebar: adaptive(light: (0.910, 0.922, 0.937, 1), dark: (0.157, 0.161, 0.173, 1)),
-                toolHeader: adaptive(light: (0.984, 0.984, 0.988, 1), dark: (0.094, 0.098, 0.106, 1)),
-                toolHeaderInactive: adaptive(light: (0.969, 0.973, 0.980, 1), dark: (0.094, 0.098, 0.106, 1)),
-                sidebar: adaptive(light: (1, 1, 1, 1), dark: (0.094, 0.098, 0.106, 1)),
-                editor: adaptive(light: (1, 1, 1, 1), dark: (0.094, 0.098, 0.106, 1)),
+                toolHeader: adaptive(light: (0.984, 0.984, 0.988, 1), dark: (25.0 / 255.0, 26.0 / 255.0, 28.0 / 255.0, 1)),
+                toolHeaderInactive: adaptive(light: (0.969, 0.973, 0.980, 1), dark: (25.0 / 255.0, 26.0 / 255.0, 28.0 / 255.0, 1)),
+                sidebar: editorSurface,
+                editor: editorSurface,
                 raised: adaptive(light: (0.969, 0.973, 0.980, 1), dark: (0.165, 0.175, 0.190, 1)),
                 notification: adaptive(light: (1, 1, 1, 1), dark: (51.0 / 255.0, 54.0 / 255.0, 59.0 / 255.0, 1)),
                 selection: adaptive(light: (0.208, 0.455, 0.941, 1), dark: (0.208, 0.455, 0.941, 1)),
                 subtleSelection: adaptive(light: (0.914, 0.922, 0.937, 1), dark: (0.205, 0.218, 0.238, 1)),
                 hoverBackground: adaptive(light: (0.949, 0.953, 0.961, 1), dark: (1, 1, 1, 23.0 / 255.0)),
                 pressedBackground: adaptive(light: (0.882, 0.890, 0.906, 1), dark: (1, 1, 1, 0.095)),
-                activeTabBackground: adaptive(light: (1, 1, 1, 1), dark: (0.094, 0.098, 0.106, 1)),
+                activeTabBackground: editorSurface,
                 tabUnderline: adaptive(light: (0.208, 0.455, 0.941, 1), dark: (0.208, 0.455, 0.941, 1)),
                 diffInformationBackground: adaptive(light: (0.910, 0.949, 1, 1), dark: (0.13, 0.20, 0.30, 1)),
                 diffInformationText: adaptive(light: (0.141, 0.357, 0.620, 1), dark: (0.50, 0.72, 0.98, 1)),

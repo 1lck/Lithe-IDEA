@@ -3,7 +3,7 @@ import {
   CaretDownIcon as CaretDown,
   FolderOpenIcon as FolderOpen,
   PlusIcon as Plus,
-  ArrowClockwiseIcon as RefreshCw,
+  RefreshIcon as RefreshCw,
 } from "@/ui/icons";
 import { useCallback, useMemo, useState } from "react";
 import {

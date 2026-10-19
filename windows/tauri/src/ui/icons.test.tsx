@@ -15,7 +15,7 @@ function renderIcon(IconComponent: ElementType) {
 
 describe("application icon mappings", () => {
   test("exports the complete icon inventory", () => {
-    expect(iconEntries).toHaveLength(214);
+    expect(iconEntries).toHaveLength(216);
   });
 
   test("avoids unintended help fallbacks", () => {
@@ -64,6 +64,8 @@ describe("application icon mappings", () => {
       "MenuIcon",
       "RunToolWindowIcon",
       "ProblemsToolWindowIcon",
+      "CommitMagicIcon",
+      "RevertIcon",
     ];
     for (const exportName of mapped) {
       const markup = renderIcon(AppIcons[exportName] as ElementType);

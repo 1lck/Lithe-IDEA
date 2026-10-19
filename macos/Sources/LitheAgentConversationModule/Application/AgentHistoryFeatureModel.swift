@@ -132,7 +132,7 @@ public struct AgentHistoryDocument: Sendable {
             let title = (document.title ?? String(localized: "Untitled conversation"))
                 .components(separatedBy: .newlines).joined(separator: " ")
             var sections = ["# \(title)", "Session ID: \(document.id)"]
-            for message in document.messages {
+            for message in document.messages where message.subagentSessionID == nil || message.role == .tool {
                 let role: String
                 switch message.role {
                 case .user: role = String(localized: "You")

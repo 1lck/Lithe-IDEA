@@ -33,6 +33,16 @@ package struct GitConfigurationField: Decodable, Identifiable, Sendable {
     package let configuredValues: [String]
     package var id: String { key }
 }
+/// The Git binary Lithe will run and its reported version. Resolution does not
+/// need a repository, so settings can echo it before a project is open.
+package struct GitExecutableResolution: Decodable, Equatable, Sendable {
+    package let executable: String?
+    package let version: String?
+    package init(executable: String?, version: String?) {
+        self.executable = executable
+        self.version = version
+    }
+}
 package struct GitExecutionSettingsSnapshot: Decodable, Sendable {
     package let executable: String?
     package let version: String

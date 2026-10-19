@@ -273,6 +273,7 @@ export function adaptCoreResult<T>(
           ? data.stashes.map((stash: JsonRecord, index: number) => ({
               index: Number(String(stash.reference ?? "").match(/\d+/)?.[0] ?? index),
               message: stash.message,
+              oid: stash.oid,
               date: stash.date,
             }))
           : []
@@ -295,6 +296,7 @@ export function adaptCoreResult<T>(
     }
     case "git_diff_file":
     case "git_commit_diff":
+    case "git.diff":
     case "git_ref_diff":
     case "git_working_tree_ref_diff":
     case "git_stash_diff":

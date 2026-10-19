@@ -155,6 +155,11 @@ pub(super) fn resolve(
         return Err(issue);
     }
     let executable = detected.ok_or("Codex CLI is unavailable")?.path;
+    let mut config = codex_session_config(None);
+    config["model_provider"] = json!("openai");
+    // Empty disables a saved openai_base_url override in Codex.
+    config["openai_base_url"] = json!("");
+    config["chatgpt_base_url"] = json!(CHATGPT_BASE_URL);
     Ok(ResolvedLaunch {
         command: install::installed_command(&data, agent),
         args: launch.args,
@@ -167,16 +172,7 @@ pub(super) fn resolve(
                 executable.to_string_lossy().into_owned(),
             ),
             ("MODEL_PROVIDER".into(), "openai".into()),
-            (
-                "CODEX_CONFIG".into(),
-                json!({
-                    "model_provider": "openai",
-                    // Empty disables a saved openai_base_url override in Codex.
-                    "openai_base_url": "",
-                    "chatgpt_base_url": CHATGPT_BASE_URL,
-                })
-                .to_string(),
-            ),
+            ("CODEX_CONFIG".into(), config.to_string()),
         ],
         gateway: None,
         secret: String::new(),

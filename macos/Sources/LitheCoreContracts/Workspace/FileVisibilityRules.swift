@@ -3,7 +3,7 @@ import Foundation
 package struct FileVisibilityRules: Hashable, Sendable {
     package static let builtInHiddenDirectories = [
         ".git", ".worktree", ".worktrees", ".build", ".swiftpm", "node_modules", "target", "build",
-        "DerivedData", ".gradle", ".next", "dist", "coverage", "design-qa-artifacts"
+        "DerivedData", ".gradle", ".next", "dist", "coverage", "design-qa-artifacts", ".artifacts"
     ]
     /// Names and globs omitted from the project tree, search index, watchers,
     /// and Local History. LSP-generated artifacts are not built-in; users can

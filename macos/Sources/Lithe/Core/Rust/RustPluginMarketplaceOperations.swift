@@ -1,5 +1,6 @@
 import Foundation
 import LitheCoreContracts
+import LitheModuleAPI
 
 /// Typed `plugins.marketplace.*` operations. Rust Core owns index validation,
 /// availability, source resolution, and install reviews for both products;
@@ -17,7 +18,8 @@ struct RustPluginMarketplaceOperations: PluginMarketplaceEvaluating {
             payload: ValidateIndexPayload(
                 index: try Self.json(index, invalidCode: "plugin.index.invalid", what: "The plugin index"),
                 sourceKind: sourceKind,
-                platform: platform
+                platform: platform,
+                hostCapabilities: PluginManifest.hostCapabilities
             )
         )
         return outcome.value.index
@@ -43,7 +45,8 @@ struct RustPluginMarketplaceOperations: PluginMarketplaceEvaluating {
                 manifest: try Self.json(manifest, invalidCode: "plugin.manifest.invalid", what: "plugin.json"),
                 expectedID: expectedID,
                 expectedVersion: expectedVersion,
-                approvedPrograms: approvedPrograms?.map(\.json)
+                approvedPrograms: approvedPrograms?.map(\.json),
+                hostCapabilities: PluginManifest.hostCapabilities
             )
         )
         let review = outcome.value.review
@@ -89,6 +92,8 @@ struct RustPluginMarketplaceOperations: PluginMarketplaceEvaluating {
         let index: ToolingJSONValue
         let sourceKind: PluginMarketplaceSourceKind
         let platform: String
+        /// Level 3 versions are offered only for capabilities this host runs.
+        let hostCapabilities: [String: [Int]]
     }
 
     private struct ResolveSourcePayload: Encodable {
@@ -100,6 +105,7 @@ struct RustPluginMarketplaceOperations: PluginMarketplaceEvaluating {
         let expectedID: String?
         let expectedVersion: String?
         let approvedPrograms: [ToolingJSONValue]?
+        let hostCapabilities: [String: [Int]]
     }
 
     private struct Outcome<Value: Decodable>: Decodable {

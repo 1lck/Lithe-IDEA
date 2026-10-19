@@ -1,0 +1,145 @@
+{
+  "schemaVersion": 2,
+  "id": "dev.lithe.fixture.go-build",
+  "displayName": "Go Build Fixture",
+  "version": "0.1.0",
+  "pluginAPIVersion": 3,
+  "requires": { "buildSystems": 1 },
+  "vendor": {
+    "id": "org.example",
+    "displayName": "Example",
+    "signatureRequirement": "publisherPackage"
+  },
+  "permissions": [
+    "process.build"
+  ],
+  "activationEvents": [
+    "onBuildSystem:go"
+  ],
+  "languages": [],
+  "buildSystems": [
+    {
+      "id": "go",
+      "displayName": "Go Modules",
+      "detection": {
+        "markers": ["go.mod"]
+      },
+      "invocation": {
+        "executables": [
+          { "kind": "runtime", "runtime": "go" }
+        ],
+        "runtimeDependencies": [
+          { "id": "go", "minimumVersion": "1.21" }
+        ]
+      },
+      "options": [
+        { "id": "tags", "displayName": "Build Tags", "kind": "text", "arguments": ["-tags", "${value}"] },
+        { "id": "race", "displayName": "Race Detector", "kind": "boolean", "arguments": ["-race"] }
+      ],
+      "model": {
+        "source": "command",
+        "arguments": ["list", "-json", "./..."],
+        "decoder": "jsonStream",
+        "executesProjectCode": false,
+        "mayUseNetwork": true,
+        "map": {
+          "projects": [
+            {
+              "each": "/0/Module",
+              "name": "/Path",
+              "path": "/Dir",
+              "properties": { "goVersion": "/GoVersion" },
+              "targets": [
+                {
+                  "each": "$/*",
+                  "where": [{ "pointer": "/Name", "equals": "main" }],
+                  "name": "/ImportPath",
+                  "path": "/Dir",
+                  "tags": ["application"],
+                  "properties": { "short": { "from": "/ImportPath", "transform": "lastSegment" } }
+                },
+                {
+                  "each": "$/*",
+                  "where": [{ "pointer": "/TestGoFiles", "exists": true }],
+                  "name": "/ImportPath",
+                  "path": "/Dir",
+                  "tags": ["test"]
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "tasks": [
+        {
+          "id": "build",
+          "displayName": "Build",
+          "group": "build",
+          "scopes": ["project"],
+          "arguments": ["build", "${optionArguments}", "./..."]
+        },
+        {
+          "id": "vet",
+          "displayName": "Vet",
+          "group": "verification",
+          "scopes": ["project", "target"],
+          "arguments": [
+            "vet",
+            "${optionArguments}",
+            { "value": "./...", "when": "noTargetSelected" },
+            { "value": "${target.name}", "when": "targetSelected" }
+          ]
+        }
+      ],
+      "run": [
+        {
+          "id": "main",
+          "fromTargets": { "tags": ["application"] },
+          "name": "${target.property:short}",
+          "arguments": ["run", "${optionArguments}", "${target.name}"]
+        }
+      ],
+      "test": {
+        "scopes": ["project", "target"],
+        "filters": ["case"],
+        "arguments": [
+          "test",
+          "${optionArguments}",
+          { "value": "./...", "when": "noTargetSelected" },
+          { "value": "${target.name}", "when": "targetSelected" },
+          { "value": "-run", "when": "caseSelected" },
+          { "value": "^${test.case:regex}$", "when": "caseSelected" }
+        ]
+      },
+      "diagnostics": {
+        "decoder": "lineMatcher",
+        "patterns": [
+          {
+            "regex": "^(\\S+\\.go):(\\d+):(?:(\\d+):)? (.+)$",
+            "file": 1,
+            "line": 2,
+            "column": 3,
+            "message": 4,
+            "defaultSeverity": "error"
+          }
+        ]
+      },
+      "dependencies": {
+        "source": "command",
+        "scopes": ["project"],
+        "arguments": ["list", "-m", "-json", "all"],
+        "decoder": "jsonStream",
+        "executesProjectCode": false,
+        "mayUseNetwork": true,
+        "map": {
+          "each": "/*",
+          "where": [{ "pointer": "/Main", "exists": false }],
+          "name": "/Path",
+          "version": "/Version",
+          "properties": { "indirect": "/Indirect" }
+        }
+      },
+      "sync": { "watch": ["go.mod", "go.sum", "go.work"] }
+    }
+  ]
+}

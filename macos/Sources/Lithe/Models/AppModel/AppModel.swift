@@ -18,6 +18,9 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     lazy var testPerformanceFeature = TestJVMPerformanceFeatureModel(
         sampler: services.debugPerformanceSampler, provider: services.testJVMPerformance)
     lazy var ideCapabilities = IdeCapabilitiesFeatureModel(model: self)
+    /// Settings › MCP: servers registered with Codex and Claude Code, created
+    /// when the page is first shown.
+    lazy var mcpServerLibrary = McpServerLibraryFeatureModel(model: self)
     @Published var isChangingAgentProvider = false
     var workspaceURL: URL? { workspaceSessionCoordinator.workspaceURL }
     var standaloneFileURL: URL? { workspaceSessionCoordinator.standaloneFileURL }
@@ -59,6 +62,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         get { searchSessionFeature.selectedReplacementPaths }
         set { searchSessionFeature.selectedReplacementPaths = newValue }
     }
+    let gitLogPresentationCache = GitLogPresentationCache()
     let editorChrome = EditorChromeModel()
     let editorDiagnosticsStore = EditorDiagnosticsStore()
     /// 编辑器当前选中的单行文本，供 Find/Replace in Files 预填查询词。
@@ -127,6 +131,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         set { editorChrome.update(caret: newValue) }
     }
     @Published var editorNavigationTarget: EditorNavigationTarget?
+    @Published var activeTestTarget: ActiveTestTarget?
     var navigationHistoryFeature: NavigationHistoryFeatureModel {
         featureGraph.navigationHistory
     }
@@ -654,11 +659,14 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     }
 
     func shutdownProjectSession() async {
+        // Native window close can retain this model through Settings without
+        // closing its workspace. Revoke page requests before teardown can yield.
+        services.pluginWebPages.closeAll()
         workbenchFeature.endLayoutSession()
         await ideCapabilities.shutdown()
         shortcutSessionCoordinator?.shutdown()
         documentLanguageCoordinator?.stop()
-        cancelJavaTestWorkflows()
+        cancelJavaWorkspaceWorkflows()
         languageToolingSessionsIfActive?.stopAll()
         executionModuleCoordinator.stopTests(languageTestServiceIfActive)
         stopTerminalSessions()
@@ -676,6 +684,8 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     /// operation instead of racing a capability release.
     private func beginModuleRuntimeShutdown() {
         cancelContributionActivations()
+        // A plugin page belongs to the workspace it was opened in.
+        services.pluginWebPages.closeAll()
         moduleSessionCoordinator?.beginShutdown()
     }
 
@@ -894,7 +904,8 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         executionModuleCoordinator.resetFeatures(
             maven: mavenFeatureIfActive,
             run: runFeatureIfActive,
-            tests: languageTestServiceIfActive
+            tests: languageTestServiceIfActive,
+            buildSystems: buildSystemsFeatureIfActive
         )
         runWorkflowCoordinator.resetPendingAction()
         debugModuleCoordinator.resetFeature(genericDebugFeatureIfActive)
@@ -959,7 +970,8 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         executionModuleCoordinator.resetFeatures(
             maven: mavenFeatureIfActive,
             run: runFeatureIfActive,
-            tests: languageTestServiceIfActive
+            tests: languageTestServiceIfActive,
+            buildSystems: buildSystemsFeatureIfActive
         )
         runWorkflowCoordinator.resetPendingAction()
         debugModuleCoordinator.resetFeature(genericDebugFeatureIfActive)
@@ -1300,8 +1312,9 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
 
     @discardableResult
     func activateLanguageServerIfAvailable(for document: EditorDocument) -> Bool {
-        guard let workspaceURL,
+        guard let identity = currentWorkspaceIdentity,
               let descriptor = languageProviderCatalog.provider(for: document.url) else { return false }
+        let workspaceURL = identity.url
         guard !languageToolingFeature.isDisabled(descriptor.id) else {
             languageToolingSessionsIfActive?.recordLanguageServerLog(
                 providerID: descriptor.id,
@@ -1332,6 +1345,8 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
                     guard let self, let document else { return }
                     do {
                         _ = try await self.services.moduleRuntime.activateCapability(capabilityID)
+                        guard self.isCurrentWorkspace(identity), !Task.isCancelled,
+                              self.openDocuments.contains(where: { $0 === document }) else { return }
                         _ = self.activateLanguageServerIfAvailable(for: document)
                     } catch {
                         self.languageToolingFeature.markActivationFailed(
@@ -1372,7 +1387,8 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
                tools.needsCandidateValidation(for: registered) {
                 Task { [weak self, weak document] in
                     await tools.refreshCandidates(for: registered)
-                    guard let self, let document else { return }
+                    guard let self, let document, self.isCurrentWorkspace(identity), !Task.isCancelled,
+                          self.openDocuments.contains(where: { $0 === document }) else { return }
                     _ = self.activateLanguageServerIfAvailable(for: document)
                 }
                 return false
@@ -1388,6 +1404,8 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
                     let value = try await self.services.moduleRuntime.activateCapability(.languageIntelligence)
                     guard let capability = value as? LitheLanguageIntelligenceModule.LanguageIntelligenceCapability else { return }
                     self.bindLanguageIntelligenceCapability(capability)
+                    guard self.isCurrentWorkspace(identity), !Task.isCancelled,
+                          self.openDocuments.contains(where: { $0 === document }) else { return }
                     _ = self.activateLanguageServerIfAvailable(for: document)
                 } catch {
                     self.languageToolingFeature.markActivationFailed(

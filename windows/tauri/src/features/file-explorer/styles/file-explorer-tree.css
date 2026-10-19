@@ -8,7 +8,7 @@
   --file-tree-selected-idle-bg: var(--border);
   --tree-guide-color: color-mix(in srgb, var(--subtle-foreground) 20%, transparent);
   position: relative;
-  overflow-x: hidden;
+  overflow-x: auto;
   overflow-y: auto;
   overscroll-behavior: none;
   overflow-anchor: none;

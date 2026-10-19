@@ -27,7 +27,9 @@ struct AgentProviderConfigurationView: View {
     }
 
     var body: some View {
-        LitheSettingsSection("Providers") {
+        LitheSettingsSection(title: "Providers", accessory: {
+            LitheInfoTip("Local configuration follows your CLI files. Custom providers are saved in Lithe and do not change those files. Switching restarts this project's Agent connection; open history again to continue a saved conversation.")
+        }) {
             HStack {
                 Text("Use local configuration or add your own provider.")
                     .font(LitheTheme.uiFont(size: 12)).foregroundStyle(LitheTheme.secondaryText)
@@ -69,7 +71,6 @@ struct AgentProviderConfigurationView: View {
             if let errorMessage {
                 AgentSettingsIssue(errorMessage)
             }
-            AgentSettingsHint("Local configuration follows your CLI files. Custom providers are saved in Lithe and do not change those files. Switching restarts this project's Agent connection; open history again to continue a saved conversation.")
         }
         .disabled(model.isChangingAgentProvider)
         .sheet(item: $editor) { draft in
@@ -92,10 +93,9 @@ struct AgentProviderConfigurationView: View {
         HStack(spacing: 8) {
             Image(systemName: usesSubscription ? "checkmark.circle.fill" : "person.crop.circle")
                 .foregroundStyle(usesSubscription ? LitheTheme.accent : LitheTheme.secondaryText)
-            VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 4) {
                 Text("Codex subscription").font(LitheTheme.uiFont(size: 12, weight: .medium))
-                Text("Use your local ChatGPT account. No API key or URL is needed.")
-                    .font(LitheTheme.uiFont(size: 11)).foregroundStyle(LitheTheme.secondaryText)
+                LitheInfoTip("Use your local ChatGPT account. No API key or URL is needed.")
             }
             Spacer(minLength: 8)
             Button(usesSubscription ? "Enabled" : "Enable") {

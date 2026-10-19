@@ -69,6 +69,7 @@ interface FileNavigatorSidebarProps {
   searchMode?: FileNavigatorSearchMode;
   compactRows?: boolean;
   searchResetKey?: string;
+  fitWidth?: boolean;
 }
 
 const fileNavigatorSurfaceVariants = cva(
@@ -262,6 +263,7 @@ export const FileNavigatorSidebar = memo(function FileNavigatorSidebar({
   searchMode = "substring",
   compactRows = false,
   searchResetKey,
+  fitWidth = false,
 }: FileNavigatorSidebarProps) {
   const { t } = useTranslation();
   const [searchQuery, setSearchQuery] = useState("");
@@ -386,7 +388,7 @@ export const FileNavigatorSidebar = memo(function FileNavigatorSidebar({
     <aside
       ref={navigatorRef}
       className={cn(fileNavigatorSurfaceVariants({ surface }), className)}
-      style={{ width: navigatorLayout.width }}
+      style={{ width: fitWidth ? "100%" : navigatorLayout.width }}
       aria-label={ariaLabel || t("fileNavigator.files")}
     >
       {onViewModeChange ? (
@@ -461,18 +463,20 @@ export const FileNavigatorSidebar = memo(function FileNavigatorSidebar({
           </SidebarTree>
         )}
       </ScrollArea>
-      <div
-        className="absolute top-0 -right-1 z-20 h-full w-2 cursor-ew-resize"
-        onPointerDown={handleResizeStart}
-        onKeyDown={handleResizeKeyDown}
-        role="separator"
-        aria-orientation="vertical"
-        aria-label={t("fileNavigator.resizeAria")}
-        aria-valuemin={navigatorLayout.minWidth}
-        aria-valuemax={navigatorLayout.maxWidth}
-        aria-valuenow={navigatorLayout.width}
-        tabIndex={0}
-      />
+      {!fitWidth && (
+        <div
+          className="absolute top-0 -right-1 z-20 h-full w-2 cursor-ew-resize"
+          onPointerDown={handleResizeStart}
+          onKeyDown={handleResizeKeyDown}
+          role="separator"
+          aria-orientation="vertical"
+          aria-label={t("fileNavigator.resizeAria")}
+          aria-valuemin={navigatorLayout.minWidth}
+          aria-valuemax={navigatorLayout.maxWidth}
+          aria-valuenow={navigatorLayout.width}
+          tabIndex={0}
+        />
+      )}
       {isResizing ? (
         <div className="pointer-events-none fixed inset-0 z-10 cursor-ew-resize" />
       ) : null}

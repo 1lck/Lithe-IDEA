@@ -1,0 +1,143 @@
+{
+  "schemaVersion": 2,
+  "id": "dev.lithe.fixture.cargo-build",
+  "displayName": "Cargo Build Fixture",
+  "version": "0.1.0",
+  "pluginAPIVersion": 3,
+  "requires": { "buildSystems": 1 },
+  "vendor": {
+    "id": "org.example",
+    "displayName": "Example",
+    "signatureRequirement": "publisherPackage"
+  },
+  "permissions": [
+    "process.build"
+  ],
+  "activationEvents": [
+    "onBuildSystem:cargo"
+  ],
+  "languages": [],
+  "buildSystems": [
+    {
+      "id": "cargo",
+      "displayName": "Cargo",
+      "detection": {
+        "markers": ["Cargo.toml"]
+      },
+      "invocation": {
+        "executables": [
+          { "kind": "command", "command": "cargo" }
+        ],
+        "version": { "arguments": ["--version"], "pattern": "cargo (\\d+\\.\\d+\\.\\d+)" },
+        "minimumVersion": "1.70"
+      },
+      "options": [
+        { "id": "release", "displayName": "Release Profile", "kind": "boolean", "arguments": ["--release"] },
+        {
+          "id": "features",
+          "displayName": "Features",
+          "kind": "multiSelect",
+          "choicesFromModel": true,
+          "arguments": ["--features", "${value}"]
+        },
+        { "id": "offline", "displayName": "Offline", "kind": "boolean", "arguments": ["--offline"] }
+      ],
+      "model": {
+        "source": "static",
+        "file": "Cargo.toml",
+        "decoder": "toml",
+        "map": {
+          "projects": [
+            {
+              "each": "/package",
+              "name": "/name",
+              "properties": { "version": "/version", "edition": "/edition" },
+              "targets": [
+                { "each": "$/bin/*", "name": "/name", "tags": ["application"] },
+                { "fallback": true, "whenFile": "src/main.rs", "name": "/name", "tags": ["application"] },
+                { "each": "$/test/*", "name": "/name", "tags": ["test"] },
+                { "each": "$/example/*", "name": "/name", "tags": ["example"] }
+              ],
+              "contentRoots": [
+                { "path": { "value": "src" }, "kind": "source" },
+                { "path": { "value": "tests" }, "kind": "testSource" }
+              ]
+            }
+          ],
+          "optionValues": {
+            "features": { "each": "/features/*", "value": "@key" }
+          }
+        }
+      },
+      "tasks": [
+        {
+          "id": "build",
+          "displayName": "Build",
+          "group": "build",
+          "scopes": ["project"],
+          "arguments": ["build", "--message-format=short", "${optionArguments}"]
+        },
+        {
+          "id": "check",
+          "displayName": "Check",
+          "group": "verification",
+          "scopes": ["project"],
+          "arguments": ["check", "--message-format=short", "${optionArguments}"]
+        },
+        {
+          "id": "clean",
+          "displayName": "Clean",
+          "group": "build",
+          "scopes": ["project"],
+          "arguments": ["clean"]
+        },
+        {
+          "id": "example",
+          "displayName": "Run Example",
+          "group": "run",
+          "execution": "application",
+          "scopes": ["target"],
+          "targetTags": ["example"],
+          "arguments": ["run", "--example", "${target.name}", "${optionArguments}"]
+        }
+      ],
+      "run": [
+        {
+          "id": "binary",
+          "fromTargets": { "tags": ["application"] },
+          "arguments": ["run", "--bin", "${target.name}", "${optionArguments}"],
+          "extension": { "bin": "${target.name}" }
+        }
+      ],
+      "test": {
+        "scopes": ["project", "target"],
+        "targetTags": ["test"],
+        "filters": ["case"],
+        "arguments": [
+          "test",
+          "${optionArguments}",
+          { "value": "--test", "when": "targetSelected" },
+          { "value": "${target.name}", "when": "targetSelected" },
+          { "value": "--", "when": "caseSelected" },
+          { "value": "${test.case}", "when": "caseSelected" },
+          { "value": "--exact", "when": "caseSelected" }
+        ]
+      },
+      "diagnostics": {
+        "decoder": "lineMatcher",
+        "patterns": [
+          {
+            "regex": "^([^\\s:][^:]*\\.rs):(\\d+):(\\d+): (error|warning)(?:\\[\\w+\\])?: (.+)$",
+            "file": 1,
+            "line": 2,
+            "column": 3,
+            "severity": 4,
+            "message": 5
+          }
+        ]
+      },
+      "sync": { "watch": ["Cargo.toml", "Cargo.lock"] },
+      "layout": { "excluded": ["target"] }
+    }
+  ]
+}

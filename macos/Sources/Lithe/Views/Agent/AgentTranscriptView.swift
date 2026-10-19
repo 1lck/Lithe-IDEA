@@ -125,7 +125,7 @@ struct AgentTranscriptView: View {
     var body: some View {
         let conversation = feature.selectedConversation
         let sessionID = feature.selectedSessionID
-        let messages = conversation?.messages ?? []
+        let messages = conversation?.transcriptMessages ?? []
         // A load replays the whole history one event at a time. Building rows
         // for every intermediate state is quadratic, so rows wait for the replay to end.
         let isReplaying = conversation?.isLoading == true

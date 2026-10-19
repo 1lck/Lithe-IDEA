@@ -30,9 +30,9 @@ struct RunConfigurationEditorView: View {
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    saveScopeSection
-                    configurationSummary
+                VStack(alignment: .leading, spacing: 10) {
+                    saveScopeRow
+                    configurationDetails
                     projectToolchainSection
                     runtimeSection
                     argumentsSection
@@ -44,11 +44,16 @@ struct RunConfigurationEditorView: View {
                         mavenOptionsSection
                     }
                 }
-                .padding(18)
+                .font(LitheTheme.settingsFont)
+                .frame(maxWidth: 760, alignment: .leading)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 18)
+                .padding(.top, 4)
+                .padding(.bottom, 20)
             }
 
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
-            HStack {
+            HStack(spacing: 10) {
                 Button("Reset") {
                     options = RunOptions()
                     environmentText = ""
@@ -57,14 +62,18 @@ struct RunConfigurationEditorView: View {
                 .lithePointer()
                 .foregroundStyle(LitheTheme.secondaryText)
                 Spacer()
-                Button("Cancel", action: onClose)
                 if let saveError {
-                    Text(saveError)
-                        .font(LitheTheme.uiFont(size: 10.5))
-                        .foregroundStyle(LitheTheme.error)
-                        .lineLimit(2)
-                        .frame(maxWidth: 250, alignment: .trailing)
+                    Label {
+                        Text(saveError).lineLimit(2)
+                    } icon: {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                    }
+                    .font(LitheTheme.uiFont(size: 11))
+                    .foregroundStyle(LitheTheme.error)
+                    .frame(maxWidth: 280, alignment: .trailing)
                 }
+                Button("Cancel", action: onClose)
+                    .buttonStyle(LitheSecondaryButtonStyle(horizontalPadding: 12, height: 28))
                 Button("Save") {
                     options.environment = Self.environment(from: environmentText)
                     guard let scopedOptions = scopedOptionsForSave() else { return }
@@ -81,11 +90,11 @@ struct RunConfigurationEditorView: View {
                         saveError = feature.configurationSaveError
                     }
                 }
+                    .buttonStyle(LithePrimaryButtonStyle(horizontalPadding: 14, height: 28))
                     .keyboardShortcut("s", modifiers: .command)
-                    .lithePointer()
             }
-            .padding(.horizontal, 14)
-            .frame(height: 48)
+            .padding(.horizontal, 16)
+            .frame(height: 52)
             .background(LitheTheme.toolHeader)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -105,37 +114,55 @@ struct RunConfigurationEditorView: View {
         )
     }
 
-    private var saveScopeSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Save scope")
-                .font(LitheTheme.uiFont(size: 12, weight: .semibold))
-                .foregroundStyle(LitheTheme.secondaryText)
-            Picker("Save scope", selection: $saveScope) {
-                Text("This Mac").tag(RunConfigurationSaveScope.local)
-                Text("Project").tag(RunConfigurationSaveScope.project)
+    private var saveScopeInfo: LocalizedStringKey {
+        saveScope == .local
+            ? "Saved in .lithe/run/local.json and excluded from Git."
+            : "Saved in .lithe/run/configurations.json for the whole team. Local JDK paths are never shared."
+    }
+
+    private var saveScopeRow: some View {
+        HStack(spacing: 12) {
+            LitheSettingsLabel("Save scope", info: saveScopeInfo)
+            Spacer(minLength: 16)
+            LitheSettingsSegmentedControl(
+                selection: $saveScope,
+                options: [.local, .project],
+                width: 200
+            ) { scope in
+                switch scope {
+                case .local: "This Mac"
+                case .project: "Project"
+                }
             }
-            .pickerStyle(.segmented)
-            Text(saveScope == .local
-                 ? String(localized: "Saved in .lithe/run/local.json and excluded from Git.")
-                 : String(localized: "Saved in .lithe/run/configurations.json for the whole team. Local JDK paths are never shared."))
-                .font(LitheTheme.uiFont(size: 11))
-                .foregroundStyle(LitheTheme.secondaryText)
-                .fixedSize(horizontal: false, vertical: true)
         }
+        .frame(minHeight: 28)
     }
 
     private var header: some View {
-        HStack(spacing: 9) {
-            RunConfigurationIcon(kind: configuration.kind, size: 18)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Run Configuration")
-                    .font(LitheTheme.uiFont(size: 14, weight: .semibold))
+        HStack(spacing: 10) {
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(LitheTheme.accent.opacity(0.12))
+                .frame(width: 30, height: 30)
+                .overlay {
+                    RunConfigurationIcon(kind: configuration.kind, size: 17)
+                }
+
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 7) {
+                    Text("Run Configuration")
+                        .font(LitheTheme.uiFont(size: 14, weight: .semibold))
+                    typeBadge
+                    sourceBadge
+                }
                 Text(configuration.name)
                     .font(LitheTheme.uiFont(size: 11.5))
                     .foregroundStyle(LitheTheme.secondaryText)
                     .lineLimit(1)
+                    .truncationMode(.middle)
+                    .help(configuration.name)
             }
-            Spacer()
+
+            Spacer(minLength: 8)
             Button(action: onClose) {
                 Image(systemName: "xmark")
                     .font(LitheTheme.uiFont(size: 11, weight: .semibold))
@@ -144,23 +171,60 @@ struct RunConfigurationEditorView: View {
             .help("Close run configuration")
         }
         .foregroundStyle(LitheTheme.primaryText)
-        .padding(.horizontal, 14)
-        .frame(height: 48)
+        .padding(.horizontal, 16)
+        .frame(height: 60)
         .background(LitheTheme.toolHeader)
     }
 
-    private var configurationSummary: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Configuration")
-                .font(LitheTheme.uiFont(size: 12, weight: .semibold))
-                .foregroundStyle(LitheTheme.secondaryText)
-            summaryRow(title: "Type", value: configuration.kind.title)
-            summaryRow(title: "Effective source", value: sourceTitle)
-            if let mainClass = configuration.mainClass {
-                summaryRow(title: "Main class", value: mainClass)
-            }
-            if let modulePath = configuration.modulePath {
-                summaryRow(title: "Maven module", value: modulePath)
+    private var typeBadge: some View {
+        HStack(spacing: 5) {
+            RunConfigurationIcon(kind: configuration.kind, size: 11)
+            Text(LocalizedStringKey(configuration.kind.title))
+                .lineLimit(1)
+        }
+        .font(LitheTheme.uiFont(size: 10.5, weight: .medium))
+        .foregroundStyle(LitheTheme.accent)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 3)
+        .background(LitheTheme.accent.opacity(0.10))
+        .clipShape(Capsule())
+    }
+
+    private var sourceBadge: some View {
+        HStack(spacing: 4) {
+            Image(systemName: sourceSymbol)
+                .font(LitheTheme.uiFont(size: 9, weight: .semibold))
+            Text(sourceTitle)
+                .lineLimit(1)
+        }
+        .font(LitheTheme.uiFont(size: 10.5, weight: .medium))
+        .foregroundStyle(LitheTheme.secondaryText)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 3)
+        .background(LitheTheme.settingsControlBackground)
+        .clipShape(Capsule())
+        .overlay {
+            Capsule().strokeBorder(LitheTheme.settingsControlBorder, lineWidth: 1)
+        }
+    }
+
+    private var sourceSymbol: String {
+        switch feature.source(for: configuration) {
+        case .generated: "sparkles"
+        case .project: "person.2"
+        case .local: "desktopcomputer"
+        }
+    }
+
+    @ViewBuilder private var configurationDetails: some View {
+        if configuration.mainClass != nil || configuration.modulePath != nil {
+            section(title: "Configuration details") {
+                if let mainClass = configuration.mainClass {
+                    summaryRow(title: "Main class", value: mainClass, isCode: true)
+                }
+                if let modulePath = configuration.modulePath {
+                    summaryRow(title: "Maven module", value: modulePath)
+                }
             }
         }
     }
@@ -174,10 +238,10 @@ struct RunConfigurationEditorView: View {
     }
 
     private var runtimeSection: some View {
-        section(title: "Configuration overrides") {
-            Text("These overrides affect only this run configuration. Clear a path to inherit the project environment.")
-                .font(LitheTheme.uiFont(size: 11))
-                .foregroundStyle(LitheTheme.secondaryText)
+        section(
+            title: "Configuration overrides",
+            info: "These overrides affect only this run configuration. Clear a path to inherit the project environment."
+        ) {
             if effectiveCapabilities.contains(.javaRuntime) {
                 pathRow(
                     title: "JDK Home",
@@ -258,13 +322,29 @@ struct RunConfigurationEditorView: View {
     }
 
     private var projectToolchainSection: some View {
-        section(title: "Project environment") {
-            Text("Run configurations inherit the project JDK and Maven unless overridden below.")
-                .font(LitheTheme.uiFont(size: 11))
-                .foregroundStyle(LitheTheme.secondaryText)
-            Button("Configure project JDK and Maven…") {
+        section(
+            title: "Project environment",
+            info: "Run configurations inherit the project JDK and Maven unless overridden below."
+        ) {
+            Button {
                 onClose()
                 model.showSettings(category: .project)
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "slider.horizontal.3")
+                        .font(LitheTheme.uiFont(size: 12))
+                        .foregroundStyle(LitheTheme.accent)
+                    Text("Configure project JDK and Maven…")
+                        .foregroundStyle(LitheTheme.primaryText)
+                    Spacer(minLength: 8)
+                    Image(systemName: "chevron.right")
+                        .font(LitheTheme.uiFont(size: 9, weight: .semibold))
+                        .foregroundStyle(LitheTheme.tertiaryText)
+                }
+                .padding(.horizontal, 10)
+                .frame(height: 32)
+                .contentShape(Rectangle())
+                .litheSettingsControlChrome()
             }
             .buttonStyle(.litheNoPress)
             .lithePointer()
@@ -291,51 +371,43 @@ struct RunConfigurationEditorView: View {
     }
 
     private var environmentSection: some View {
-        section(title: "Environment") {
+        section(title: "Environment", info: "One NAME=value entry per line") {
             TextEditor(text: $environmentText)
-                .font(LitheTheme.uiFont(size: 11.5, design: .monospaced))
-                .frame(minHeight: 72)
-                .padding(5)
-                .litheRoundedControlBackground(LitheTheme.inputBackground, cornerRadius: 5)
-                .overlay {
-                    RoundedRectangle(cornerRadius: 5)
-                        .stroke(LitheTheme.divider, lineWidth: 1)
-                }
-            Text("One NAME=value entry per line")
-                .font(LitheTheme.uiFont(size: 10.5))
-                .foregroundStyle(LitheTheme.secondaryText)
+                .litheSettingsTextEditor(height: 88)
         }
     }
 
     private var mavenOptionsSection: some View {
         section(title: "Maven") {
             if effectiveCapabilities.contains(.mavenSkipTests) {
-                Picker("Tests", selection: Binding(
-                    get: { options.mavenSkipTests },
-                    set: { options.mavenSkipTests = $0 }
-                )) {
-                    Text("Project default").tag(Bool?.none)
-                    Text("Run tests").tag(Bool?.some(false))
-                    Text("Skip tests").tag(Bool?.some(true))
+                HStack(spacing: 12) {
+                    LitheSettingsLabel("Tests")
+                    Spacer(minLength: 16)
+                    LitheSettingsSegmentedControl(
+                        selection: Binding(
+                            get: { options.mavenSkipTests },
+                            set: { options.mavenSkipTests = $0 }
+                        ),
+                        options: [nil, false, true],
+                        width: 300
+                    ) { value in
+                        switch value {
+                        case nil: "Project default"
+                        case false: "Run tests"
+                        case true: "Skip tests"
+                        }
+                    }
                 }
-                .pickerStyle(.segmented)
+                .frame(minHeight: 28)
             }
             if effectiveCapabilities.contains(.mavenProfiles) {
-                ForEach(feature.mavenProfiles) { profile in
-                    Toggle(isOn: profileBinding(for: profile)) {
-                        HStack(spacing: 0) {
-                            Text(profile.id)
-                                .lineLimit(1)
-                            Spacer(minLength: 0)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(feature.mavenProfiles) { profile in
+                        LitheSettingsCheckbox(
+                            isOn: profileBinding(for: profile),
+                            title: LocalizedStringKey(profile.id)
+                        )
                     }
-                    .toggleStyle(.checkbox)
-                    .lithePointer()
-                    .font(LitheTheme.uiFont(size: 12))
-                    .foregroundStyle(LitheTheme.primaryText)
-                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
         }
@@ -343,27 +415,32 @@ struct RunConfigurationEditorView: View {
 
     private func section<Content: View>(
         title: String,
+        info: LocalizedStringKey? = nil,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(LocalizedStringKey(title))
-                .font(LitheTheme.uiFont(size: 12, weight: .semibold))
-                .foregroundStyle(LitheTheme.secondaryText)
-            content()
-        }
+        LitheSettingsSection(title: title, accessory: {
+            if let info {
+                LitheInfoTip(info)
+            }
+        }, content: content)
     }
 
-    private func summaryRow(title: String, value: String) -> some View {
+    private func summaryRow(title: String, value: String, isCode: Bool = false) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             Text(LocalizedStringKey(title))
                 .foregroundStyle(LitheTheme.secondaryText)
-                .frame(width: 120, alignment: .leading)
-            Text(value)
+                .frame(width: 100, alignment: .leading)
+            Text(verbatim: value)
+                .font(isCode
+                    ? LitheTheme.uiFont(size: 11.5, design: .monospaced)
+                    : LitheTheme.settingsFont)
                 .lineLimit(1)
+                .truncationMode(.middle)
                 .textSelection(.enabled)
+                .help(value)
             Spacer(minLength: 0)
         }
-        .font(LitheTheme.uiFont(size: 12))
+        .font(LitheTheme.settingsFont)
     }
 
     private func pathRow(
@@ -378,14 +455,14 @@ struct RunConfigurationEditorView: View {
                 .foregroundStyle(LitheTheme.secondaryText)
                 .frame(width: 120, alignment: .leading)
             TextField(LocalizedStringKey(placeholder), text: text)
-                .textFieldStyle(.roundedBorder)
+                .litheSettingsTextField()
             Button(action: chooseDirectory) {
                 LitheSystemIcon(systemImage: "folder")
             }
             .litheIconButton()
             .help(chooseHelp)
         }
-        .font(LitheTheme.uiFont(size: 12))
+        .font(LitheTheme.settingsFont)
     }
 
     private func argumentField(
@@ -398,7 +475,7 @@ struct RunConfigurationEditorView: View {
                 .font(LitheTheme.uiFont(size: 11.5))
                 .foregroundStyle(LitheTheme.secondaryText)
             TextField(LocalizedStringKey(placeholder), text: text)
-                .textFieldStyle(.roundedBorder)
+                .litheSettingsTextField()
         }
     }
 

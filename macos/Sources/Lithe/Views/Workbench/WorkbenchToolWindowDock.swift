@@ -164,6 +164,227 @@ struct ToolWindowWorkspaceAnchor: NSViewRepresentable {
     }
 }
 
+/// Hosts stay in one native surface for the workbench lifetime. Reparenting a
+/// hosting view through SwiftUI dock slots resets its descendant native controls.
+@MainActor
+final class WorkbenchToolContentStore: ObservableObject {
+    @MainActor
+    final class Entry {
+        let host: NSHostingView<AnyView>
+        let chrome = ChromeHost(rootView: AnyView(EmptyView()))
+        var identity: AnyHashable
+        weak var slot: Slot?
+        var onActivate: (() -> Void)?
+        var activationRequestID: UUID?
+        init(identity: AnyHashable, content: AnyView) {
+            self.identity = identity
+            host = NSHostingView(rootView: content)
+            host.sizingOptions = []
+            host.isHidden = true
+            chrome.sizingOptions = []
+            chrome.isHidden = true
+        }
+    }
+
+    final class ChromeHost: NSHostingView<AnyView> {
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+        override func accessibilityChildren() -> [Any]? { [] }
+        override func isAccessibilityElement() -> Bool { false }
+    }
+
+    final class Surface: NSView {
+        weak var store: WorkbenchToolContentStore?
+        private var testingUnderlyingContent = false
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            guard !testingUnderlyingContent else { return nil }
+            let hit = super.hitTest(point)
+            guard let hit, hit !== self else { return nil }
+            // Ask the native layout below this overlay first: its divider's
+            // 10pt target extends beyond the 5pt gap into the retained panes.
+            testingUnderlyingContent = true
+            defer { testingUnderlyingContent = false }
+            if let root = window?.contentView,
+               let handle = root.hitTest(root.superview?.convert(point, from: superview) ?? point)
+                    as? SplitHandleInteractionView {
+                return handle
+            }
+            return hit
+        }
+        override func accessibilityChildren() -> [Any]? {
+            NSAccessibility.unignoredChildren(from: subviews.filter { !$0.isHidden })
+        }
+        override func layout() { super.layout(); store?.refresh() }
+        override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); store?.refresh() }
+    }
+
+    final class Slot: NSView {
+        weak var store: WorkbenchToolContentStore?
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+        override func layout() { super.layout(); store?.refresh() }
+        override func setFrameOrigin(_ origin: NSPoint) { super.setFrameOrigin(origin); store?.refresh() }
+        override func setFrameSize(_ size: NSSize) { super.setFrameSize(size); store?.refresh() }
+        override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); store?.refresh() }
+    }
+
+    let surface = Surface()
+    private(set) var entries: [WorkbenchFeatureModel.ToolWindow: Entry] = [:]
+
+    init() { surface.store = self }
+
+    func show(_ tool: WorkbenchFeatureModel.ToolWindow, in slot: Slot,
+              identity: AnyHashable, onActivate: (() -> Void)? = nil,
+              chrome: AnyView = AnyView(EmptyView()), content: () -> AnyView) {
+        // SwiftUI reuses a slot when two tools have the same renderer type.
+        // Transfer ownership before showing the new tool in that slot.
+        for (otherTool, other) in entries where otherTool != tool && other.slot === slot {
+            other.slot = nil
+            hide(other)
+        }
+        let entry: Entry
+        if let existing = entries[tool] {
+            entry = existing
+            if entry.identity != identity {
+                entry.host.rootView = content()
+                entry.identity = identity
+            }
+        } else {
+            entry = Entry(identity: identity, content: content())
+            entries[tool] = entry
+            surface.addSubview(entry.host)
+            surface.addSubview(entry.chrome)
+        }
+        entry.chrome.rootView = chrome
+        slot.store = self
+        entry.onActivate = onActivate
+        entry.slot = slot
+        refresh()
+    }
+
+    func detach(_ slot: Slot) {
+        for entry in entries.values where entry.slot === slot {
+            entry.slot = nil
+            hide(entry)
+        }
+        slot.store = nil
+    }
+
+    private func hide(_ entry: Entry) {
+        entry.activationRequestID = nil
+        if let window = entry.host.window, let responder = window.firstResponder as? NSView,
+           responder.isDescendant(of: entry.host) {
+            window.makeFirstResponder(nil)
+        }
+        entry.host.isHidden = true
+        entry.chrome.isHidden = true
+    }
+
+    func refresh() {
+        for entry in entries.values {
+            guard let slot = entry.slot, let window = slot.window,
+                  window === surface.window, !slot.isHiddenOrHasHiddenAncestor else {
+                hide(entry)
+                continue
+            }
+            let frame = slot.convert(slot.bounds, to: surface)
+            if entry.host.frame != frame { entry.host.frame = frame }
+            if entry.chrome.frame != frame { entry.chrome.frame = frame }
+            entry.chrome.isHidden = frame.isEmpty
+            let becomesVisible = entry.host.isHidden && !frame.isEmpty
+            entry.host.isHidden = frame.isEmpty
+            if becomesVisible {
+                let requestID = UUID()
+                entry.activationRequestID = requestID
+                // Focus after SwiftUI/native layout finishes. Hiding cancels stale requests.
+                DispatchQueue.main.async { [weak entry] in
+                    guard let entry, entry.activationRequestID == requestID,
+                          !entry.host.isHiddenOrHasHiddenAncestor, entry.host.window != nil else { return }
+                    entry.activationRequestID = nil
+                    entry.onActivate?()
+                }
+            }
+        }
+    }
+}
+
+extension View {
+    /// Keep docking feedback above retained native panes in the same workspace bounds.
+    func workbenchToolContentLayers<DropPreview: View>(
+        store: WorkbenchToolContentStore, @ViewBuilder dropPreview: () -> DropPreview
+    ) -> some View {
+        self.overlay { WorkbenchToolContentSurface(store: store) }
+            .overlay { dropPreview().allowsHitTesting(false) }
+    }
+}
+
+struct WorkbenchToolContentSurface: NSViewRepresentable {
+    let store: WorkbenchToolContentStore
+    func makeNSView(context: Context) -> WorkbenchToolContentStore.Surface { store.surface }
+    func updateNSView(_ view: WorkbenchToolContentStore.Surface, context: Context) { store.refresh() }
+}
+
+struct RetainedWorkbenchToolContent<Content: View>: NSViewRepresentable {
+    let store: WorkbenchToolContentStore
+    let tool: WorkbenchFeatureModel.ToolWindow
+    let content: Content
+    var contentIdentity: AnyHashable = 0
+    var onActivate: (() -> Void)? = nil
+    var chrome: AnyView = AnyView(EmptyView())
+    @Environment(\.workbenchToolbarGlow) private var toolbarGlow
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.locale) private var locale
+    @Environment(\.controlActiveState) private var controlActiveState
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.workbenchHasBackgroundImage) private var hasBackgroundImage
+    @Environment(\.isLithePaneResizing) private var isResizing
+
+    func makeNSView(context: Context) -> WorkbenchToolContentStore.Slot { .init() }
+
+    func updateNSView(_ view: WorkbenchToolContentStore.Slot, context: Context) {
+        let identity: [AnyHashable] = [contentIdentity, locale.identifier, colorScheme == .dark,
+            controlActiveState == .key, controlActiveState == .active, isEnabled, isResizing, hasBackgroundImage]
+        store.show(tool, in: view, identity: AnyHashable(identity), onActivate: onActivate,
+                   chrome: AnyView(chrome.environment(\.colorScheme, colorScheme)
+                    .environment(\.workbenchToolbarGlow, toolbarGlow))) {
+            AnyView(content
+                .environment(\.colorScheme, colorScheme)
+                .environment(\.locale, locale)
+                .environment(\.controlActiveState, controlActiveState)
+                .environment(\.isEnabled, isEnabled)
+                .environment(\.isLithePaneResizing, isResizing)
+                .environment(\.workbenchHasBackgroundImage, hasBackgroundImage)
+                .workbenchHoverTooltipScope())
+        }
+    }
+
+    static func dismantleNSView(_ view: WorkbenchToolContentStore.Slot, coordinator: ()) {
+        view.store?.detach(view)
+    }
+}
+
+/// Only the small chrome host receives workbench geometry and glow changes;
+/// resizing must not replace the retained tool's content root.
+struct RetainedWorkbenchToolPane<Content: View>: View {
+    let store: WorkbenchToolContentStore
+    let tool: WorkbenchFeatureModel.ToolWindow
+    let content: Content
+    var contentIdentity: AnyHashable = 0
+    var onActivate: (() -> Void)? = nil
+    var showsFrameGradient = false
+    @Environment(\.workbenchHasBackgroundImage) private var hasBackgroundImage
+
+    var body: some View {
+        GeometryReader { proxy in
+            RetainedWorkbenchToolContent(store: store, tool: tool, content: content,
+                contentIdentity: contentIdentity, onActivate: onActivate,
+                chrome: AnyView(Color.clear.workbenchPaneChrome(
+                    background: .clear, surrounding: LitheTheme.titlebar,
+                    roundsCorners: !hasBackgroundImage, showsFrameGradient: showsFrameGradient,
+                    frameInWorkbench: proxy.frame(in: .named(WorkbenchFrameGradient.coordinateSpace)))
+                    .allowsHitTesting(false).accessibilityHidden(true)))
+        }
+    }
+}
+
 /// Keeps both groups visible and delegates high-frequency resizing to the shared split.
 struct WorkbenchDockGroups<Content: View>: View {
     let anchor: DockAnchor
