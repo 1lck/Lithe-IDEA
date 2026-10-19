@@ -22,7 +22,7 @@ async function fileClipboardPasteText(
   shell: string | null,
   allowStale: boolean,
 ): Promise<string | null> {
-  const { clipboard, sourceClipboardSequence } = useFileClipboardStore.getState();
+  const { clipboard } = useFileClipboardStore.getState();
   const entries = clipboard?.entries ?? [];
   if (entries.length === 0) return null;
 
@@ -36,9 +36,11 @@ async function fileClipboardPasteText(
       return null;
     }
 
+    // The counter comes from the state itself, so a copy received from another
+    // window is compared against the copy that produced these entries.
     const prefersFilePaths = shouldPasteFileClipboardPaths({
       entryCount: entries.length,
-      sourceSequence: sourceClipboardSequence,
+      sourceSequence: clipboard?.source_sequence ?? null,
       currentSequence,
     });
     if (!prefersFilePaths) return null;

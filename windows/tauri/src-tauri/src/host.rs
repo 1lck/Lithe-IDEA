@@ -54,6 +54,14 @@ pub enum ClipboardOperation {
 pub struct FileClipboardState {
     entries: Vec<ClipboardEntry>,
     operation: ClipboardOperation,
+    /// Clipboard change counter captured when this copy happened.
+    ///
+    /// It travels with the entries so a window that receives them through
+    /// `file-clipboard-changed` compares against the copy that produced *these*
+    /// entries, not against a sequence left over from its own earlier copy.
+    /// `None` means the platform could not report a counter.
+    #[serde(default)]
+    source_sequence: Option<u32>,
 }
 
 #[derive(Default)]
@@ -127,7 +135,13 @@ pub fn clipboard_set(
             ));
         }
     }
-    let clipboard = FileClipboardState { entries, operation };
+    // Capture the counter here so it describes this copy and can be broadcast
+    // with the entries to every window.
+    let clipboard = FileClipboardState {
+        entries,
+        operation,
+        source_sequence: Some(clipboard_change_counter()),
+    };
     *state
         .0
         .lock()
@@ -160,6 +174,21 @@ pub fn clipboard_clear(
         .map_err(|error| error.to_string())
 }
 
+/// Reads Windows' clipboard change counter for the calling session.
+///
+/// Returns 0 on platforms without one; callers treat 0 as "unknown".
+#[cfg(windows)]
+fn clipboard_change_counter() -> u32 {
+    // SAFETY: the function takes no arguments, has no failure mode, and only
+    // reads a counter that Windows maintains for the calling session.
+    unsafe { windows_sys::Win32::System::DataExchange::GetClipboardSequenceNumber() }
+}
+
+#[cfg(not(windows))]
+fn clipboard_change_counter() -> u32 {
+    0
+}
+
 /// Returns Windows' clipboard change counter.
 ///
 /// The counter increments on every clipboard write by any process, so comparing
@@ -167,19 +196,9 @@ pub fn clipboard_clear(
 /// something clipboard *content* cannot express, because copying the same text
 /// again leaves the content identical. The terminal uses it to decide whether a
 /// copied file is still the user's most recent clipboard action.
-#[cfg(windows)]
 #[tauri::command]
 pub fn clipboard_sequence_number() -> u32 {
-    // SAFETY: the function takes no arguments, has no failure mode, and only
-    // reads a counter that Windows maintains for the calling session.
-    unsafe { windows_sys::Win32::System::DataExchange::GetClipboardSequenceNumber() }
-}
-
-/// Reports that no change counter is available on this platform.
-#[cfg(not(windows))]
-#[tauri::command]
-pub fn clipboard_sequence_number() -> u32 {
-    0
+    clipboard_change_counter()
 }
 
 #[tauri::command]

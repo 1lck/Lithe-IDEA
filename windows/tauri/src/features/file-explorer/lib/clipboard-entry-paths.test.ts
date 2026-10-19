@@ -97,4 +97,31 @@ describe("shouldPasteFileClipboardPaths", () => {
       }),
     ).toBe(false);
   });
+
+  // Regression: the counter must describe the copy that produced the entries.
+  // When a window receives a copy from another window it has to compare against
+  // that copy's counter, not one left over from its own earlier copy — otherwise
+  // the entries and the counter describe different operations.
+  test("compares against the counter that came with the entries", () => {
+    const entryStateFromOtherWindow = { entries: [{ path: "C:\\a.txt" }], source_sequence: 50 };
+    const thisWindowLeftover = 42;
+
+    expect(
+      shouldPasteFileClipboardPaths({
+        entryCount: entryStateFromOtherWindow.entries.length,
+        sourceSequence: entryStateFromOtherWindow.source_sequence,
+        currentSequence: 50,
+      }),
+    ).toBe(true);
+
+    // The same paste judged with this window's stale counter would have been
+    // wrong, which is what the reported bug did.
+    expect(
+      shouldPasteFileClipboardPaths({
+        entryCount: entryStateFromOtherWindow.entries.length,
+        sourceSequence: thisWindowLeftover,
+        currentSequence: 50,
+      }),
+    ).toBe(false);
+  });
 });
