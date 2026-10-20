@@ -130,6 +130,10 @@ enum PluginMarketplaceInstallState: Equatable {
     /// Built in or installed from disk, not managed by the marketplace.
     case managedOutsideMarketplace(version: String)
     case unsupported(message: String)
+    /// The community plugin replaces a retired official plugin that is still
+    /// installed, or still loaded until restart after its uninstall. Both
+    /// declare the same language, so the community package would be rejected.
+    case blockedByRetiredPlugin(name: String, uninstallPending: Bool)
 }
 
 /// All sources' listings of one plugin ID.
@@ -389,6 +393,13 @@ final class PluginMarketplaceFeatureModel: ObservableObject {
             }
             return .installed(version: installedVersion)
         }
+        if let retired = retiredPluginBlocking(pluginID) {
+            return .blockedByRetiredPlugin(
+                name: retired.manifest.displayName,
+                uninstallPending: retired.installationStatus == .uninstallPending
+                    || retired.installationStatus == .removed
+            )
+        }
         switch offer.entry.availability {
         case .available:
             return .installable
@@ -419,16 +430,35 @@ final class PluginMarketplaceFeatureModel: ObservableObject {
 
     /// The marketplace source a plugin was installed from. Official packages
     /// installed before the marketplace existed belong to the official source.
+    /// An official plugin that moved to the community has no source left: the
+    /// official index no longer lists it, so it offers no update or reinstall.
     func installedSourceID(for pluginID: PluginID) -> String? {
         guard let snapshot = pluginManager.snapshots.first(where: { $0.id == pluginID }) else { return nil }
         guard snapshot.disk == nil else { return nil }
+        let official = OfficialPluginCatalog.entry(for: pluginID)
+        guard official?.communityReplacementID == nil else { return nil }
         if let provenance = snapshot.marketplace {
             return provenance.sourceID
         }
-        if snapshot.origin == .marketplace, OfficialPluginCatalog.entry(for: pluginID) != nil {
+        if snapshot.origin == .marketplace, official != nil {
             return PluginMarketplaceSource.officialID
         }
         return nil
+    }
+
+    /// The retired official plugin that `pluginID` replaces, while its package
+    /// is still on disk. An uninstall is only finished by the next launch.
+    func retiredPluginBlocking(_ pluginID: PluginID) -> PluginManagementSnapshot? {
+        guard let retired = OfficialPluginCatalog.entries.first(where: { $0.communityReplacementID == pluginID }) else {
+            return nil
+        }
+        return pluginManager.snapshots.first { $0.id == retired.id }
+    }
+
+    /// Whether a plugin change made in this session waits for a restart, so
+    /// Plugin Management offers "Restart Lithe".
+    var hasChangesPendingRestart: Bool {
+        pluginManager.snapshots.contains(where: \.hasChangesPendingRestart)
     }
 
     /// An installed or updated plugin is only loaded when Lithe starts, so the
@@ -455,6 +485,7 @@ final class PluginMarketplaceFeatureModel: ObservableObject {
     func install(_ offer: PluginMarketplaceOffer) async {
         let pluginID = PluginID(offer.entry.id)
         guard !busyPluginIDs.contains(pluginID),
+              retiredPluginBlocking(pluginID) == nil,
               let download = offer.entry.availability.download else { return }
         busyPluginIDs.insert(pluginID)
         errors[pluginID] = nil
@@ -586,7 +617,10 @@ final class PluginMarketplaceFeatureModel: ObservableObject {
         // Source order is the user's list order with the official source
         // first, so it is also the default choice for a shared ID.
         for source in sources where source.isEnabled {
-            for entry in indexes[source.id]?.plugins ?? [] {
+            // A cached official index from before a plugin moved to the
+            // community may still list it; its successor is installed instead.
+            for entry in indexes[source.id]?.plugins ?? []
+            where OfficialPluginCatalog.entry(for: PluginID(entry.id))?.communityReplacementID == nil {
                 offersByID[entry.id, default: []].append(PluginMarketplaceOffer(source: source, entry: entry))
             }
         }

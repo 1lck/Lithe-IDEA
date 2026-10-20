@@ -39,6 +39,10 @@ private struct PluginManagementPage: View {
         VStack(spacing: 0) {
             header
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
+            if feature.hasChangesPendingRestart {
+                restartBanner
+                Rectangle().fill(LitheTheme.divider).frame(height: 1)
+            }
             if let error = feature.diskInstallError {
                 Label(error, systemImage: "exclamationmark.triangle.fill")
                     .font(LitheTheme.smallFont)
@@ -109,6 +113,21 @@ private struct PluginManagementPage: View {
         .padding(.horizontal, 16)
         .frame(height: 42)
         .background(LitheTheme.settingsSurface)
+    }
+
+    /// Like IntelliJ IDEA's "Restart IDE": plugin installs, updates, and
+    /// uninstalls apply at the next launch, so offer it right here.
+    private var restartBanner: some View {
+        HStack(spacing: 10) {
+            Label(LocalizedStringKey("Plugin changes take effect after Lithe restarts."), systemImage: "arrow.clockwise.circle")
+                .font(LitheTheme.smallFont)
+                .foregroundStyle(LitheTheme.warning)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 8)
+            RestartLitheButton()
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
     }
 
     private func tabButton(_ value: Tab, title: String) -> some View {
@@ -405,6 +424,9 @@ private struct InstalledPluginsView: View {
                     .buttonStyle(.bordered)
                     .disabled(isApplyingChanges || isBusy || plugin.isRequired)
                 }
+                if plugin.hasChangesPendingRestart {
+                    RestartLitheButton(prominent: false)
+                }
                 if isBusy {
                     ProgressView().controlSize(.small)
                 }
@@ -450,6 +472,29 @@ private struct InstalledPluginsView: View {
                         Label(LocalizedStringKey("Source Repository"), systemImage: "arrow.up.right.square")
                     }
                     .font(LitheTheme.smallFont)
+                }
+                if let replacementID = OfficialPluginCatalog.entry(for: plugin.id)?.communityReplacementID {
+                    // The old package keeps its language until the next launch
+                    // removes it, so the community version is installed after
+                    // that restart, not beside the old one.
+                    let uninstalling = plugin.installationStatus == .uninstallPending
+                    Label(
+                        String(
+                            format: PluginMarketplacePresentation.localized(
+                                uninstalling
+                                    ? "Restart Lithe to finish uninstalling %@, then install the community plugin %@ from the Marketplace."
+                                    : "%@ is no longer an official plugin. It moved to the community plugin %@ in Lithe Store and gets no further updates here. Uninstall it, restart Lithe, then install the community version from the Marketplace.",
+                                locale: locale
+                            ),
+                            plugin.manifest.displayName,
+                            replacementID.rawValue
+                        ),
+                        systemImage: "arrow.triangle.branch"
+                    )
+                    .font(LitheTheme.smallFont)
+                    .foregroundStyle(LitheTheme.warning)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
                 }
                 if plugin.origin == .community {
                     Label(
@@ -589,7 +634,7 @@ struct PluginManagementListContent {
             Presentation(
                 systemImage: "chevron.left.forwardslash.chevron.right",
                 tint: LitheTheme.accent,
-                summary: "Adds Go language-server integration through gopls, running, and test support. Install gopls and Go separately."
+                summary: "Retired official Go plugin. Go support is now the community plugin Go Support in Lithe Store."
             )
         case OfficialPluginCatalog.javaPluginID:
             Presentation(
@@ -601,7 +646,7 @@ struct PluginManagementListContent {
             Presentation(
                 systemImage: "globe",
                 tint: LitheTheme.success,
-                summary: "Adds PHP language-server integration, formatting, running, and test support."
+                summary: "Retired official PHP plugin. PHP support is now the community plugin PHP Support in Lithe Store."
             )
         default:
             nil

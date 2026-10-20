@@ -286,8 +286,11 @@ contract must preserve these invariants:
   execution are built-in lifecycle modules. They are not marketplace plugins.
 - Java language tooling remains part of the built-in product. Every other
   language provider is represented by an independently configurable bundled
-  language-support plugin; PHP uses an optional separately installed native package,
-  Go uses the bundled signed native-package path while the
+  language-support plugin. On macOS, Go and PHP are community declarative
+  plugins from Lithe Store (`io.github.lithe-idea.go-support`,
+  `io.github.lithe-idea.php-support`); the retired official IDs
+  `dev.lithe.plugin.go-support` and `dev.lithe.plugin.php-support` keep their
+  pinned publisher signature requirement but have no official source. The
   remaining providers share the host's generic language-server module.
 - A downloadable language support package may declare language-server,
   execution, testing, and debug module IDs under one language ID. All referenced
@@ -674,9 +677,11 @@ cannot disagree with a separate host-owned preparation veto.
 
 ### Optional PHP support
 
-PHP plugin installation is explicit. The base application ships neither the PHP
-native package nor Node/Bun/Intelephense. macOS accepts a verified signed package
-through plugin management; its tools are user-owned and never deleted by Lithe.
+PHP plugin installation is explicit. The base application ships neither a PHP
+package nor Node/Bun/Intelephense. macOS installs the Lithe Store community package
+`io.github.lithe-idea.php-support` through plugin management; the package does not
+bundle Intelephense, which the user installs, and its tools are user-owned and
+never deleted by Lithe.
 Windows installs language tools only on an explicit install/repair action; its
 managed tool cache is removed on uninstall without touching global tools. PHP
 run/test discovery and launch require enabled support. Disable cancels installation,

@@ -29,14 +29,6 @@ const MIX_PROVIDER_FIXTURE: &str = contract_file!("fixtures/mix-provider.plugin.
 const INVALID_MANIFESTS: &str = contract_file!("fixtures/invalid-manifests.json");
 const COMMAND_PLANS: &str = contract_file!("fixtures/command-plans.json");
 const RUNTIME_VERSIONS: &str = contract_file!("fixtures/runtime-versions.json");
-const OFFICIAL_PHP: &str = include_str!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../Plugins/mac/Official/PhpSupport/plugin.json"
-));
-const OFFICIAL_GO: &str = include_str!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../Plugins/mac/Official/GoSupport/plugin.json"
-));
 const OFFICIAL_JAVA: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../Plugins/mac/Official/JavaSupport/plugin.json"
@@ -72,8 +64,6 @@ fn contract_fixtures_and_official_plugins_validate() {
         GO_FIXTURE,
         HELLO_FIXTURE,
         WEB_PANEL_FIXTURE,
-        OFFICIAL_PHP,
-        OFFICIAL_GO,
         JAVA_FIXTURE,
         NODE_RUNTIME_FIXTURE,
         OFFICIAL_JAVA,
