@@ -45,7 +45,11 @@ Lithe 的插件管理改成和 IntelliJ IDEA 一样的“插件市场 / 已安�
 
 **存储与清理。** `MacServiceContainer` 通过 `fileStorage.temporaryDirectory()` 注入上述临时根，开发版随发行身份隔离；不从 bundle 推导可写目录。导入失败或取消由 importer 删除部分快照，准备完成后由市场 service 持有，取消审查、安装成功或安装失败都调用 discard 删除本次目录。插件页关闭时取消自己的磁盘导入任务并结束安装 session；已有待确认快照立即 discard，迟到的准备结果也只清理，不能在页面关闭后安装。安装 store 另行持有 `<app-support>/Lithe/Plugins/.staging/<transaction>/`，安装后只保留用户级版本目录及 `installation.json`；这些资源和审批记录没有可跨工作树复用的版本/平台/架构/工具链身份标记，任何复制阶段均不复用，注册表为 `plugin-disk-install-state`。
 
-**索引图标。** 条目的 `icon` 由 Rust Core 限定为该插件仓库的 raw 文件，实际多数是 SVG。SwiftUI 的 `AsyncImage` 只能解码位图，SVG 会静默落回默认插头图标，所以列表和详情不再用它。现在由 `MacPluginMarketplaceService.iconData(from:)` 下载（上限 256 KB），再走与插件包内图标相同的 `MacPluginUIIconLoader.decodedPixelArea` 校验：只接受静态 SVG 子集或单帧 PNG，最大 1024×1024；SVG 允许 Simple Icons 等常见图标带的 `role` 属性。校验通过后由 AppKit 解码。字节只缓存在 `PluginMarketplaceFeatureModel` 的内存里，同一 URL 本次运行只请求一次，失败也记住，不写 Caches 或 bundle。
+**索引图标。** 条目的 `icon` 由 Rust Core 限定为该插件仓库的 raw 文件，实际多数是 SVG。SwiftUI 的 `AsyncImage` 只能解码位图，SVG 会静默落回默认插头图标，所以列表和详情不再用它。现在由 `MacPluginMarketplaceService.iconData(from:)` 下载（上限 256 KB），再走与插件包内图标相同的 `MacPluginUIIconLoader.decodedPixelArea` 校验：只接受静态 SVG 子集或单帧 PNG，最大 1024×1024；SVG 允许 Simple Icons 等常见图标带的 `role` 属性。校验通过后由 AppKit 解码。
+
+字节由 `PluginMarketplaceIconStore` 只放在内存里，视图按当前条目的 URL 去读，而不是把异步结果写回自己的状态，所以切换插件后迟到的旧请求不会把 A 的图标画到 B 上。同一 URL 的并发请求合并为一次。失败分两类：地址不合法、4xx（408/429 除外）、超限或格式不合格由 service 抛 `PluginMarketplaceIconRejected`，记住后不再逐行重试；断网、超时、5xx 等其余错误不缓存，视图下次出现时重试。Core 并不要求 URL 固定 commit（分支 ref 同样合法），因此刷新索引会让图标作废重取：已显示的旧图标保留到新字节到达，刷新前发出的请求结果直接丢弃。下载经 transport 的临时文件中转并立即删除，`URLSession.shared` 可能按系统策略在 Caches 留响应缓存，这些都不在 bundle 内，不影响签名和 Sparkle delta。
+
+没有图标、仍在加载或图标不可用时，按 IDEA 项目头像的做法显示首字母头像，直接复用 `ProjectAvatarBadge` 和同一套 Islands 配色，颜色按插件 ID 稳定取值：名称以中日韩字符开头时只取第一个字，否则取前两个单词的首字母，只有一个单词时取前两个字母（`Go Support` → GS，`Lua` → LU，`数据库工具` → 数）。头像是 SwiftUI 原生绘制，没有先生成 SVG 再解码。只有详情页的“未选择插件”空状态仍用 IDEA 的插件节点图标。索引图标统一按原色显示，深色主题下深色品牌色（如 Lua 的 `#2C2D72`）对比度偏低，模板/品牌模式需要索引契约另加字段，暂不处理。
 
 源列表写在 Application Support，索引缓存写在 Caches，网络下载和解压也只使用本次临时目录。app bundle 只读地附带官方索引，作为离线和首次启动兜底。运行时不写 macOS 发行 bundle 或 Windows 安装资源，不影响代码签名和 Sparkle delta 的发布基线；静态门禁之外，真实验收还需比较典型工作流前后的 bundle 文件清单和哈希。
 

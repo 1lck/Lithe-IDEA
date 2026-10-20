@@ -592,7 +592,13 @@ private struct InstalledPluginsView: View {
                 .foregroundStyle(presentation.tint)
                 .frame(width: size, height: size)
         } else {
-            PluginMarketplaceIcon(feature: feature, entry: marketplaceEntry(for: plugin.id), size: size)
+            PluginMarketplaceIcon(
+                icons: feature.icons,
+                entry: marketplaceEntry(for: plugin.id),
+                size: size,
+                fallbackName: plugin.manifest.displayName,
+                fallbackKey: plugin.id.rawValue
+            )
         }
     }
 

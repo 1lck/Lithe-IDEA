@@ -472,13 +472,13 @@ struct PluginMarketplaceServiceTests {
 
         #expect(try await service.iconData(from: base + "go.svg") == files["go.svg"])
         #expect(try await service.iconData(from: base + "logo.png") == files["logo.png"])
-        for rejected in ["scripted.svg", "page.html"] {
-            await #expect(throws: MacPluginUIIconLoader.InvalidIcon.self) {
-                _ = try await service.iconData(from: base + rejected)
+        // Retrying cannot fix these (the missing file answers 404), so the
+        // icon store remembers them instead of requesting them per row.
+        let rejected = ["scripted.svg", "page.html", "missing.svg"].map { base + $0 } + ["http://example.com/icon.svg"]
+        for icon in rejected {
+            await #expect(throws: PluginMarketplaceIconRejected.self) {
+                _ = try await service.iconData(from: icon)
             }
-        }
-        await #expect(throws: MacPluginPackageDownloadError.self) {
-            _ = try await service.iconData(from: "http://example.com/icon.svg")
         }
         // Icons stay in memory: neither storage directory is created.
         #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("cache").path))
