@@ -21,6 +21,7 @@ import {
 import { Spinner } from "@/ui/spinner";
 import { cn } from "@/utils/cn";
 import { tryWriteClipboardText } from "@/utils/clipboard";
+import { useAgentSurfaceStore } from "../stores/agent-surface.store";
 import {
   activitySummary,
   groupTranscript,
@@ -260,13 +261,18 @@ function ReasoningRow({
   text,
   isStreaming = false,
   isSearching = false,
+  expandedKey,
 }: {
   text: string;
   isStreaming?: boolean;
   isSearching?: boolean;
+  expandedKey: string;
 }) {
   const { t } = useTranslation();
-  const [manualExpanded, setManualExpanded] = useState<boolean | null>(null);
+  const manualExpanded = useAgentSurfaceStore((state) => state.reasoningExpanded[expandedKey]);
+  const setReasoningExpanded = useAgentSurfaceStore(
+    (state) => state.actions.setReasoningExpanded,
+  );
   const expanded = isSearching || (manualExpanded ?? isStreaming);
   const scrollRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -284,7 +290,7 @@ function ReasoningRow({
         onClick={() => {
           // A matching search must keep its text visible, including after a click.
           if (isSearching) return;
-          setManualExpanded(!expanded);
+          setReasoningExpanded(expandedKey, !expanded);
         }}
       >
         {isStreaming ? <Spinner className="size-3 shrink-0" /> : null}
@@ -578,11 +584,13 @@ function CodeBlock({ language, code }: { language: string; code: string }) {
 
 function MessageRow({
   message,
+  sessionID,
   onOpenLocation,
   searchText = "",
   isStreaming = false,
 }: {
   message: AgentConversationMessage;
+  sessionID: string | null;
   onOpenLocation: (location: AgentToolLocation) => void;
   searchText?: string;
   isStreaming?: boolean;
@@ -604,6 +612,7 @@ function MessageRow({
     return (
       <ReasoningRow
         text={message.text}
+        expandedKey={`${sessionID ?? "pending"}:${message.id}`}
         isStreaming={isStreaming}
         isSearching={needle.length > 0 && message.text.toLocaleLowerCase().includes(needle)}
       />
@@ -723,6 +732,7 @@ function PermissionCard({
 
 interface AgentTranscriptProps {
   conversation: AgentConversation | null;
+  sessionID: string | null;
   agentName: string | null;
   agentVersion: string | null;
   pendingPrompt: string | null;
@@ -741,6 +751,7 @@ interface AgentTranscriptProps {
  */
 export function AgentTranscript({
   conversation,
+  sessionID,
   agentName,
   agentVersion,
   pendingPrompt,
@@ -806,6 +817,7 @@ export function AgentTranscript({
                     <MessageRow
                       key={item.id}
                       message={item.message}
+                      sessionID={sessionID}
                       searchText={searchText}
                       isStreaming={
                         conversation?.isResponding === true &&
@@ -842,6 +854,7 @@ export function AgentTranscript({
                     content: [],
                   },
                 }}
+                sessionID={sessionID}
                 onOpenLocation={onOpenLocation}
               />
             ) : null}

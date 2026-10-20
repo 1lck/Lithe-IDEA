@@ -557,6 +557,7 @@ export function AgentPanel({
     return (
       <AgentTranscript
         conversation={conversation}
+        sessionID={selected}
         agentName={agentName}
         agentVersion={snapshot.agentVersion}
         pendingPrompt={selected === null ? snapshot.pendingNewConversationPrompt : null}
