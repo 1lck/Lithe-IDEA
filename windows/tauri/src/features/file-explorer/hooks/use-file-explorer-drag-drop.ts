@@ -2,6 +2,9 @@ import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { moveFile, readDirectory } from "@/features/file-system/controllers/platform";
 import {
+  AGENT_DROP_TARGET_SELECTOR,
+  dispatchAgentDropHover,
+  dispatchDroppedPathsToAgent,
   dispatchTerminalPathInsert,
   isTerminalDropTarget,
 } from "@/features/file-system/utils/file-system-drop-controller";
@@ -71,6 +74,14 @@ export function useFileExplorerDragDrop(
 
   const clearEditorDropHover = useCallback(() => {
     setInternalTabDragHoverTarget({ paneId: null, zone: null });
+  }, []);
+
+  const agentDropHoverTargetRef = useRef<Element | null>(null);
+  const clearAgentDropHover = useCallback(() => {
+    const previous = agentDropHoverTargetRef.current;
+    if (previous === null) return;
+    agentDropHoverTargetRef.current = null;
+    dispatchAgentDropHover(previous, false);
   }, []);
 
   const scheduleAutoExpand = useCallback(
@@ -147,6 +158,15 @@ export function useFileExplorerDragDrop(
       }
 
       const elementUnder = document.elementFromPoint(e.clientX, e.clientY);
+
+      // The tree drag is mouse-driven, so the Agent composer only learns that it
+      // is the drop point from here.
+      const agentDropTarget = elementUnder?.closest(AGENT_DROP_TARGET_SELECTOR) ?? null;
+      if (agentDropTarget !== agentDropHoverTargetRef.current) {
+        agentDropHoverTargetRef.current = agentDropTarget;
+        dispatchAgentDropHover(agentDropTarget, agentDropTarget !== null);
+      }
+
       const fileTreeItem = elementUnder?.closest("[data-file-path]");
       const fileTreeContainer = elementUnder?.closest(".file-tree-container");
       const aiContextDropTarget = elementUnder?.closest("[data-ai-context-drop-target]");
@@ -243,6 +263,7 @@ export function useFileExplorerDragDrop(
     const handleMouseUp = async (e: MouseEvent) => {
       if (dropping.current || !isCurrentSession()) return;
       dropping.current = true;
+      clearAgentDropHover();
       setDragState(initialDragState);
       clearAutoExpand();
       clearEditorDropHover();
@@ -254,6 +275,21 @@ export function useFileExplorerDragDrop(
         const isOverAIContextDropTarget = Boolean(
           elementUnder?.closest("[data-ai-context-drop-target]"),
         );
+
+        // A file released over the Agent composer becomes a file reference; it
+        // never falls through to a move inside the tree.
+        if (
+          elementUnder?.closest(AGENT_DROP_TARGET_SELECTOR) &&
+          dragState.draggedItems.length > 0
+        ) {
+          // A folder is referenced like any other dropped path, the same way the
+          // macOS composer and an OS drop treat it.
+          dispatchDroppedPathsToAgent(
+            elementUnder,
+            dragState.draggedItems.map((item) => item.path),
+          );
+          return;
+        }
 
         // A terminal lives inside a pane container, so it must be resolved before
         // the pane branch below or the drop would just open the file. The terminal
@@ -378,6 +414,7 @@ export function useFileExplorerDragDrop(
       setDragState(initialDragState);
       clearAutoExpand();
       clearEditorDropHover();
+      clearAgentDropHover();
     };
     document.addEventListener("mousemove", handleMouseMove);
     document.addEventListener("mouseup", handleMouseUp);
@@ -389,8 +426,10 @@ export function useFileExplorerDragDrop(
       document.removeEventListener("mouseleave", cancelDrag);
       clearAutoExpand();
       clearEditorDropHover();
+      clearAgentDropHover();
     };
   }, [
+    clearAgentDropHover,
     clearAutoExpand,
     clearEditorDropHover,
     dragState,

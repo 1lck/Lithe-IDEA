@@ -32,8 +32,8 @@ pub enum ModelDelivery {
 
 /// The agent's own command-line tool, which the user installs and updates.
 ///
-/// Adapters that can drive an existing CLI are installed without their bundled
-/// copy, so Lithe never downloads an agent the user already has.
+/// Adapters that can drive an existing CLI normally omit their bundled copy, so
+/// Lithe does not download an agent the user already has.
 #[derive(Debug, PartialEq, Eq)]
 pub struct AgentCli {
     /// Executable searched on the login shell's `PATH`.
@@ -43,6 +43,12 @@ pub struct AgentCli {
     pub minimum_version: &'static str,
     /// Environment variable that tells the adapter which executable to run.
     pub path_env: &'static str,
+    /// Whether this environment variable accepts an npm `.cmd` shim on Windows.
+    ///
+    /// Codex's relay launches the shim through a shell. Claude's adapter passes
+    /// the path directly to `child_process.spawn`, which cannot execute batch
+    /// files, so Windows keeps the SDK's native launcher for that adapter.
+    pub accepts_windows_shim: bool,
     /// How users usually install or update the CLI, shown when it is missing.
     pub install_hint: &'static str,
     /// npm package that provides the CLI, for one-click install or update
@@ -94,6 +100,7 @@ pub const CATALOG: &[CatalogAgent] = &[
             name: "Codex CLI",
             minimum_version: "0.156.0",
             path_env: "CODEX_PATH",
+            accepts_windows_shim: true,
             install_hint: "npm install -g @openai/codex",
             package: "@openai/codex",
             brew_packages: &["codex"],
@@ -110,13 +117,15 @@ pub const CATALOG: &[CatalogAgent] = &[
         minimum_node_major: 22,
         protocol: ProviderProtocol::AnthropicMessages,
         model_delivery: ModelDelivery::ClaudeSessionOptions,
-        // The Claude Agent SDK pairs with Claude Code 2.1.280; its native
-        // binary is an optional dependency that the install skips.
+        // The Claude Agent SDK pairs with Claude Code 2.1.280. Its native
+        // binary is an optional dependency; Windows keeps it because npm's
+        // `claude` shim is a `.cmd` file that the adapter cannot spawn.
         cli: Some(AgentCli {
             command: "claude",
             name: "Claude Code",
             minimum_version: "2.1.280",
             path_env: "CLAUDE_CODE_EXECUTABLE",
+            accepts_windows_shim: false,
             install_hint: "npm install -g @anthropic-ai/claude-code",
             package: "@anthropic-ai/claude-code",
             brew_packages: &["claude-code", "claude-code@latest"],

@@ -315,11 +315,8 @@ fn resolve_with(
         if let Some(issue) = install::cli_issue(cli, detected.as_ref()) {
             return Err(issue);
         }
-        if let Some(tool) = detected {
-            env.push((
-                cli.path_env.to_owned(),
-                tool.path.to_string_lossy().into_owned(),
-            ));
+        if let Some(entry) = detected.as_ref().and_then(|tool| cli_path_env(cli, tool)) {
+            env.push(entry);
         }
     }
     let model = provider
@@ -344,6 +341,27 @@ fn resolve_with(
         gateway,
         secret: provider.api_key,
         subscription_cli: None,
+    })
+}
+
+/// Environment entry that points an adapter at the user's CLI.
+///
+/// On Windows, npm installs command shims as `.cmd` files. Adapters that pass
+/// `path_env` straight to `child_process.spawn` cannot execute them; those
+/// adapters use their bundled native launcher instead.
+fn cli_path_env(
+    cli: &catalog::AgentCli,
+    tool: &environment::DetectedTool,
+) -> Option<(String, String)> {
+    let script_shim = cfg!(windows)
+        && tool.path.extension().is_some_and(|extension| {
+            extension.eq_ignore_ascii_case("cmd") || extension.eq_ignore_ascii_case("bat")
+        });
+    (!script_shim || cli.accepts_windows_shim).then(|| {
+        (
+            cli.path_env.to_owned(),
+            tool.path.to_string_lossy().into_owned(),
+        )
     })
 }
 
@@ -1023,6 +1041,9 @@ async fn run_agent(
         // An inherited model pin must not override the model restored by ACP.
         // Keep the user's alias mappings and other native CLI settings intact.
         command.env_remove("ANTHROPIC_MODEL");
+        // An inherited executable can be an unusable Windows batch shim. The
+        // launch environment below re-adds a valid path when one was resolved.
+        command.env_remove("CLAUDE_CODE_EXECUTABLE");
     }
     if launch.subscription_cli.is_some() {
         subscription::isolate_environment(&mut command);

@@ -33,6 +33,7 @@ import {
   clearQueuedWorkspaceSessionSave,
   saveSessionToStore,
 } from "@/features/editor/stores/buffer-session-persistence";
+import { agentConversationPath } from "@/features/agent/utils/agent-conversation-path";
 import { detectLanguageFromFileName } from "@/features/editor/utils/language-detection";
 import { logger } from "@/features/editor/utils/logger";
 import { readFileContentWithEncoding } from "@/features/file-system/controllers/file-operations";
@@ -190,6 +191,7 @@ interface BufferActions {
     sessionId?: string;
   }) => string;
   openAgentBuffer: (sessionId?: string) => string;
+  openAgentConversationBuffer: (sessionId: string, agentId?: string) => string;
   openGlobalSearchBuffer: () => string;
   openDiagnosticsBuffer: () => string;
   openReferencesBuffer: () => string;
@@ -799,6 +801,32 @@ const createBufferStore = (workspaceId: string) => {
               return newBuffer.id;
             }
 
+            case "agentConversation": {
+              const path = agentConversationPath(spec.sessionId);
+              const existing = getBufferByPath(buffers, path);
+              if (existing) {
+                set((state) => {
+                  activateBufferInState(state, existing.id);
+                });
+                syncAndFocusBufferInPane(existing.id);
+                return existing.id;
+              }
+
+              let newBuffers = [...buffers];
+              newBuffers = applyAutoEviction(newBuffers, maxOpenTabs);
+
+              const id = generateBufferId(path);
+              const newBuffer = createPaneContent(id, spec);
+
+              set((state) => {
+                state.buffers = [...deactivateBuffers(newBuffers), newBuffer];
+                state.activeBufferId = newBuffer.id;
+              });
+
+              syncBufferToPane(newBuffer.id);
+              return newBuffer.id;
+            }
+
             case "webViewer": {
               let displayName = "Web Viewer";
               if (spec.url && spec.url !== "about:blank") {
@@ -1344,6 +1372,10 @@ const createBufferStore = (workspaceId: string) => {
 
         openAgentBuffer: (sessionId?: string): string => {
           return get().actions.openContent({ type: "agent", sessionId });
+        },
+
+        openAgentConversationBuffer: (sessionId: string, agentId?: string): string => {
+          return get().actions.openContent({ type: "agentConversation", sessionId, agentId });
         },
 
         openGlobalSearchBuffer: (): string => {

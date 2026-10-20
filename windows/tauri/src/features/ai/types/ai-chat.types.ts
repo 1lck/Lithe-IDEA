@@ -87,6 +87,9 @@ export interface MarkdownRendererProps {
   content: string;
   onApplyCode?: (code: string) => void;
   chatId?: string | null;
+  showLinkIcons?: boolean;
+  copyableTables?: boolean;
+  onOpenLink?: (href: string, label: string) => boolean;
 }
 
 export interface AIChatInputBarProps {
