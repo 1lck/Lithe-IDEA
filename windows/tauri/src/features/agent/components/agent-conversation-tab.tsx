@@ -66,6 +66,7 @@ export function AgentConversationTab({ buffer, isActive }: AgentConversationTabP
       isActive={isActive}
       placement="editor"
       sessionID={buffer.sessionId}
+      agentId={buffer.agentId}
       onClose={moveToToolWindow}
       onMoveToToolWindow={moveToToolWindow}
       onTitleChange={rename}

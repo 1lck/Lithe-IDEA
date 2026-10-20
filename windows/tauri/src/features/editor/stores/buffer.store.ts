@@ -191,7 +191,7 @@ interface BufferActions {
     sessionId?: string;
   }) => string;
   openAgentBuffer: (sessionId?: string) => string;
-  openAgentConversationBuffer: (sessionId: string) => string;
+  openAgentConversationBuffer: (sessionId: string, agentId?: string) => string;
   openGlobalSearchBuffer: () => string;
   openDiagnosticsBuffer: () => string;
   openReferencesBuffer: () => string;
@@ -1374,8 +1374,8 @@ const createBufferStore = (workspaceId: string) => {
           return get().actions.openContent({ type: "agent", sessionId });
         },
 
-        openAgentConversationBuffer: (sessionId: string): string => {
-          return get().actions.openContent({ type: "agentConversation", sessionId });
+        openAgentConversationBuffer: (sessionId: string, agentId?: string): string => {
+          return get().actions.openContent({ type: "agentConversation", sessionId, agentId });
         },
 
         openGlobalSearchBuffer: (): string => {

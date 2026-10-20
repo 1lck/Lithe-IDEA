@@ -67,6 +67,7 @@ export const createPaneContent = (id: string, spec: OpenContentSpec): PaneConten
         name: "Agent",
         isPreview: false,
         sessionId: spec.sessionId,
+        agentId: spec.agentId ?? "",
       };
     case "webViewer":
       return {

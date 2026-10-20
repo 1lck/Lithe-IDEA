@@ -29,6 +29,7 @@ import { AgentHistoryExportError, saveHistoryMarkdown } from "../services/agent-
 import { historyMarkdown, type AgentHistoryDocument } from "../services/agent-history-export";
 import { historyTitle } from "../services/agent-history-view";
 import { provisionalTabTitle } from "../services/agent-transcript-items";
+import { resolveAgentEditorBinding } from "../services/agent-editor-binding";
 import {
   agentConnection,
   agentDataDirectory,
@@ -83,6 +84,8 @@ interface AgentPanelProps {
   isActive?: boolean;
   /** Session bound to the editor tab. The tool window follows the connection. */
   sessionID?: string | null;
+  /** Agent that owns the session bound to the editor tab. */
+  agentId?: string | null;
   onMoveToToolWindow?: () => void;
   onTitleChange?: (title: string) => void;
 }
@@ -100,6 +103,7 @@ export function AgentPanel({
   placement = "toolWindow",
   isActive = true,
   sessionID = null,
+  agentId = null,
   onMoveToToolWindow,
   onTitleChange,
 }: AgentPanelProps) {
@@ -113,7 +117,8 @@ export function AgentPanel({
   const handleFileSelect = useFileSystemStore((state) => state.handleFileSelect);
   const settings = useSettingsStore((state) => state.settings.agentPanel);
   const updateSetting = useSettingsStore((state) => state.actions.updateSetting);
-  const history = useAgentHistory(rootFolderPath, settings.agentId);
+  const boundAgentID = isEditorPlacement ? (agentId === "" ? null : agentId) : null;
+  const history = useAgentHistory(rootFolderPath, boundAgentID ?? settings.agentId);
   const [dataDirectory, setDataDirectory] = useState<string | null>(null);
   const [page, setPage] = useState<AgentPanelPage>("conversation");
   const management = useAgentManagement(dataDirectory, page === "settings" || !settings.enabled);
@@ -122,7 +127,14 @@ export function AgentPanel({
   const [showsTabs, setShowsTabs] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const status = snapshot.connectionState.status;
-  const selected = snapshot.selectedSessionID;
+  const { sessionID: surfaceSessionID, isForeignAgent } = resolveAgentEditorBinding({
+    isEditor: isEditorPlacement,
+    boundSessionID: sessionID,
+    boundAgentID,
+    activeAgentID: settings.agentId,
+    selectedSessionID: snapshot.selectedSessionID,
+  });
+  const selected = surfaceSessionID;
   const conversation = selected === null ? null : (snapshot.conversations[selected] ?? null);
 
   // Drafts belong to the conversation key, not to whichever surface happens
@@ -154,7 +166,8 @@ export function AgentPanel({
     surfaceActions.setDraft(selected, pending);
     surfaceActions.clearDraft(NEW_AGENT_DRAFT_KEY);
   }, [selected, surfaceActions]);
-  const agentName = AGENT_NAMES[settings.agentId] ?? snapshot.agentName;
+  const activeAgentId = boundAgentID ?? settings.agentId;
+  const agentName = AGENT_NAMES[activeAgentId] ?? snapshot.agentName;
   const isConfigured = settings.enabled && rootFolderPath !== null;
 
   const { ownsConnection: connectionMatchesWorkspace, claim } = useAgentConnectionOwnership({
@@ -172,6 +185,12 @@ export function AgentPanel({
       .catch(() => undefined);
   }, [claim, rootFolderPath]);
 
+  const switchToBoundAgent = useCallback(() => {
+    if (boundAgentID === null) return;
+    const current = useSettingsStore.getState().settings.agentPanel;
+    void updateSetting("agentPanel", { ...current, agentId: boundAgentID });
+  }, [boundAgentID, updateSetting]);
+
   useEffect(() => {
     void agentDataDirectory()
       .then(setDataDirectory)
@@ -179,21 +198,41 @@ export function AgentPanel({
   }, []);
 
   useEffect(() => {
-    if (!connectionMatchesWorkspace || status !== "ready") return;
+    if (!connectionMatchesWorkspace || status !== "ready" || isForeignAgent) return;
     // An editor tab waits for its bound session instead of creating a fresh
     // empty conversation before that session is selected.
-    if (isEditorPlacement && sessionID !== null && selected !== sessionID) return;
+    if (isEditorPlacement && sessionID !== null && snapshot.selectedSessionID !== sessionID) return;
     agentConnection().prepareConversation();
-  }, [connectionMatchesWorkspace, isEditorPlacement, selected, sessionID, status]);
+  }, [
+    connectionMatchesWorkspace,
+    isEditorPlacement,
+    isForeignAgent,
+    sessionID,
+    snapshot.selectedSessionID,
+    status,
+  ]);
 
   // An editor tab is bound to one session. Only the visible tab may select it,
   // otherwise every hidden tab would keep stealing the shared connection.
   useEffect(() => {
-    if (!isEditorPlacement || !connectionMatchesWorkspace || sessionID === null || status !== "ready")
+    if (
+      isForeignAgent ||
+      !isEditorPlacement ||
+      !connectionMatchesWorkspace ||
+      sessionID === null ||
+      status !== "ready"
+    )
       return;
     if (snapshot.selectedSessionID === sessionID) return;
     agentConnection().selectSession(sessionID);
-  }, [connectionMatchesWorkspace, isEditorPlacement, sessionID, snapshot.selectedSessionID, status]);
+  }, [
+    connectionMatchesWorkspace,
+    isEditorPlacement,
+    isForeignAgent,
+    sessionID,
+    snapshot.selectedSessionID,
+    status,
+  ]);
 
   // Quota polls only while the conversation itself is visible, as on macOS.
   useEffect(() => {
@@ -227,10 +266,18 @@ export function AgentPanel({
   const editorTabTitle = sessionID === null ? headerTitle : sessionTitle(sessionID);
 
   useEffect(() => {
-    if (!isEditorPlacement || !isActive || !isConfigured || !sessionKnown) return;
+    if (!isEditorPlacement || isForeignAgent || !isActive || !isConfigured || !sessionKnown) return;
     if (onTitleChange === undefined) return;
     onTitleChange(editorTabTitle);
-  }, [editorTabTitle, isActive, isConfigured, isEditorPlacement, onTitleChange, sessionKnown]);
+  }, [
+    editorTabTitle,
+    isActive,
+    isConfigured,
+    isEditorPlacement,
+    isForeignAgent,
+    onTitleChange,
+    sessionKnown,
+  ]);
 
   const tabs = useMemo(
     () =>
@@ -343,6 +390,41 @@ export function AgentPanel({
     />
   );
 
+  if (isForeignAgent && boundAgentID !== null) {
+    const boundAgentName = AGENT_NAMES[boundAgentID] ?? boundAgentID;
+    const activeAgentName = AGENT_NAMES[settings.agentId] ?? settings.agentId;
+    return (
+      <PanelFrame placement={placement}>
+        <AgentPanelHeader title={t("agent.editor.foreignAgentTitle")}>
+          {onMoveToToolWindow === undefined ? null : (
+            <AgentToolbarButton
+              label={t("agent.actions.moveToToolWindow")}
+              onClick={onMoveToToolWindow}
+            >
+              <CaretDoubleRightIcon className="size-3.5" />
+            </AgentToolbarButton>
+          )}
+          <AgentToolbarButton label={t("agent.actions.close")} onClick={onClose}>
+            <XIcon className="size-3.5" />
+          </AgentToolbarButton>
+        </AgentPanelHeader>
+        <AgentEmptyState
+          icon={<WarningIcon />}
+          title={t("agent.editor.foreignAgentTitle")}
+          message={t("agent.editor.foreignAgentMessage", {
+            agent: boundAgentName,
+            current: activeAgentName,
+          })}
+          action={{
+            label: t("agent.editor.switchBack", { agent: boundAgentName }),
+            onClick: switchToBoundAgent,
+          }}
+          secondaryAction={{ label: t("agent.actions.close"), onClick: onClose }}
+        />
+      </PanelFrame>
+    );
+  }
+
   if (page === "settings") {
     return (
       <PanelFrame placement={placement}>
@@ -419,12 +501,14 @@ export function AgentPanel({
           action={{
             label: t("agent.editor.focusTab"),
             onClick: () => {
-              if (focusSessionID !== null) openAgentConversationInEditor(focusSessionID);
+              if (focusSessionID !== null) {
+                openAgentConversationInEditor(focusSessionID, settings.agentId);
+              }
             },
           }}
         />
         <div className="min-h-0 flex-1 overflow-auto">
-          {historyList((sessionID) => openAgentConversationInEditor(sessionID))}
+          {historyList((sessionID) => openAgentConversationInEditor(sessionID, settings.agentId))}
         </div>
       </PanelFrame>
     );
@@ -546,6 +630,7 @@ export function AgentPanel({
   // otherwise the first prompt would use a configuration nobody confirmed.
   const canSend =
     isConfigured &&
+    (!isEditorPlacement || (sessionID !== null && snapshot.selectedSessionID === sessionID)) &&
     status === "ready" &&
     !snapshot.isCreatingSession &&
     conversation?.isLoading !== true &&
@@ -618,7 +703,9 @@ export function AgentPanel({
               label={t("agent.actions.openInEditor")}
               disabled={!isConfigured || selected === null}
               onClick={() => {
-                if (selected !== null) openAgentConversationInEditor(selected);
+                if (selected !== null) {
+                  openAgentConversationInEditor(selected, settings.agentId);
+                }
               }}
             >
               <ArrowSquareOutIcon className="size-3.5" />
