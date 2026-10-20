@@ -60,6 +60,14 @@ export interface AgentPlanEntry {
   status: AgentPlanStatus;
 }
 
+/** A slash command or skill the Agent advertised for this session. */
+export interface AgentCommand {
+  name: string;
+  description: string;
+  /** Placeholder for the free-form input that follows the command name. */
+  hint: string | null;
+}
+
 export type AgentMessageRole = "user" | "agent" | "tool" | "reasoning";
 
 export type AgentToolStatus = "pending" | "in_progress" | "completed" | "failed" | "interrupted";
@@ -116,6 +124,8 @@ export interface AgentConversation {
   contextUsage: AgentContextUsage | null;
   /** Replaced as a whole on every ACP plan update; empty means no plan. */
   plan: AgentPlanEntry[];
+  /** Slash commands the Agent advertised for this session; empty hides the list. */
+  availableCommands: AgentCommand[];
   /** The turn the user submitted and the Agent has not finished yet. */
   activeTurn: AgentTurnStatistics | null;
   /**
@@ -191,6 +201,7 @@ export function createConversation(): AgentConversation {
     messages: [],
     contextUsage: null,
     plan: [],
+    availableCommands: [],
     activeTurn: null,
     completedTurns: [],
     isResponding: false,
@@ -658,4 +669,28 @@ export function addFileReferences(existing: AgentFileReference[], uris: string[]
     }
   }
   return result;
+}
+/**
+ * Parse an ACP `available_commands_update`. A command name is its invocation
+ * and UI identity, so a repeated name keeps the first definition, as macOS does.
+ * Only the first 200 entries are considered.
+ */
+export function parseAvailableCommands(update: unknown): AgentCommand[] | null {
+  if (!isRecord(update) || !Array.isArray(update.availableCommands)) return null;
+  const names = new Set<string>();
+  const commands: AgentCommand[] = [];
+  for (const entry of update.availableCommands.slice(0, 200)) {
+    if (!isRecord(entry)) continue;
+    const name = asString(entry.name);
+    if (name === null || name.length === 0 || names.has(name)) continue;
+    names.add(name);
+    const input = isRecord(entry.input) ? entry.input : null;
+    const hint = input === null ? null : asString(input.hint);
+    commands.push({
+      name,
+      description: asString(entry.description) ?? "",
+      hint: hint === null || hint.length === 0 ? null : hint,
+    });
+  }
+  return commands;
 }

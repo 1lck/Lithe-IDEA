@@ -14,7 +14,7 @@ import type { AgentTurnStatistics } from "../types/agent-turn-statistics";
 export type AgentTranscriptItem =
   | { kind: "message"; id: string; message: AgentConversationMessage }
   | { kind: "toolGroup"; id: string; tools: AgentConversationMessage[] }
-  | { kind: "turnSummary"; id: string; turn: AgentTurnStatistics };
+  | { kind: "turnSummary"; id: string; turn: AgentTurnStatistics; reply: string };
 
 function contains(text: string | null | undefined, query: string): boolean {
   return text != null && text.toLocaleLowerCase().includes(query.toLocaleLowerCase());
@@ -55,12 +55,16 @@ export function groupTranscript(
   }
   const items: AgentTranscriptItem[] = [];
   let tools: AgentConversationMessage[] = [];
+  // The footer copies the turn's final Agent reply, as macOS does.
+  let reply = "";
   const flushTools = () => {
     if (tools.length === 0) return;
     items.push({ kind: "toolGroup", id: `tools:${tools[0].id}`, tools });
     tools = [];
   };
   for (const message of messages) {
+    if (message.role === "user") reply = "";
+    if (message.role === "agent") reply = message.text;
     if (message.role === "tool") {
       tools.push(message);
     } else {
@@ -70,7 +74,7 @@ export function groupTranscript(
     const summary = summaries.get(message.id);
     if (summary !== undefined) {
       flushTools();
-      items.push({ kind: "turnSummary", id: `turn:${summary.id}`, turn: summary });
+      items.push({ kind: "turnSummary", id: `turn:${summary.id}`, turn: summary, reply });
     }
   }
   flushTools();
