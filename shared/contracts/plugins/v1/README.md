@@ -1220,8 +1220,10 @@ and `plugin.web.forbidden`. Build requests also report the `build.*` codes.
 Function requests report Core's codes unchanged (`plugin.function.*`,
 `requestCancelled`, `requestTimeout`); a failure the plugin reported also
 carries its own `pluginErrorCode`, which the host never interprets. A page
-has at most 16 function calls running, and closing it cancels them. Each
-invocation asks for the same consent as the host's provider requests.
+has at most 16 function calls running, and closing it cancels them.
+`functions.list` and `functions.invoke` ask for the same consent as the
+host's provider requests: once given for a plugin and workspace, it holds
+until the project is closed.
 macOS implements web content with WKWebView and advertises `ui: [1, 2]`.
 Windows has no WebView2 host yet and still advertises `ui: [1]`, so Core refuses
 `ui` 2 plugins there with `plugin.api.unsupported`.
