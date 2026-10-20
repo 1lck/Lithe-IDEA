@@ -47,6 +47,17 @@ package final class BuildSystemsFeatureModel: ObservableObject {
     package func detect() { service.detect() }
     package func workspaceFilesChanged(_ urls: [URL]) { service.workspaceFilesChanged(urls) }
     package func loadModel(_ entryID: String) { service.loadModel(entryID) }
+    package func pluginFunctions(_ entryID: String) async throws -> [String] {
+        try await service.pluginFunctions(entryID)
+    }
+    package func invokePluginFunction(
+        _ entryID: String, functionID: String, params: ToolingJSONValue, timeout: Duration,
+        progress: @escaping @MainActor @Sendable (PluginFunctionProgress) -> Void
+    ) async throws -> ToolingJSONValue {
+        try await service.invokePluginFunction(
+            entryID, functionID: functionID, params: params, timeout: timeout, progress: progress
+        )
+    }
     @discardableResult
     package func runTask(_ entryID: String, request: BuildTaskRequest, title: String) -> UUID? {
         service.runTask(entryID, request: request, title: title)

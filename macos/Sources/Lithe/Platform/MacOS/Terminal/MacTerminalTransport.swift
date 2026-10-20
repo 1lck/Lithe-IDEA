@@ -160,11 +160,14 @@ final class LitheTerminalView: LocalProcessTerminalView {
 
     func applyThemeColors() {
         let isDark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        let palette = MacTerminalPalette(preferences: UserDefaults.standard.persistentDomain(forName: "com.apple.Terminal"))
+        let editorColor = LitheTheme.nsColor(.editor, isDark: isDark)
+        let palette = MacTerminalPalette(
+            preferences: UserDefaults.standard.persistentDomain(forName: "com.apple.Terminal"),
+            backgroundColor: editorColor
+        )
         // The SwiftUI pane supplies the shared editor color or wallpaper.
         // SwiftTerm's Metal canvas must leave its default cells transparent.
-        nativeBackgroundColor = LitheTheme.nsColor(.editor, isDark: isDark)
-            .withAlphaComponent(0)
+        nativeBackgroundColor = editorColor.withAlphaComponent(0)
         layer?.backgroundColor = NSColor.clear.cgColor
         layer?.isOpaque = false
         // Terminal.app profiles may use a foreground color that assumes their
@@ -179,13 +182,7 @@ final class LitheTerminalView: LocalProcessTerminalView {
             : NSColor(srgbRed: 0.69, green: 0.82, blue: 0.98, alpha: 1)
         // Fall back per entry to the existing palette, including IDEA's
         // BLOCK_TERMINAL_BLUE and BLOCK_TERMINAL_BLUE_BRIGHT.
-        let ansiColors: [UInt32] = [
-            0x000000, 0x990001, 0x00A603, 0x999900,
-            isDark ? 0x5594FA : 0x225CD6, 0xB200B2, 0x00A5B2, 0xBFBFBF,
-            0x8A898A, 0xE50001, 0x00D800, 0xE5E500,
-            isDark ? 0x3399FF : 0x009DFF, 0xE500E5, 0x00E5E5, 0xE5E5E5
-        ]
-        installColors(ansiColors.enumerated().map { index, fallback in
+        installColors(MacTerminalPalette.fallbackANSIColors(isDark: isDark).enumerated().map { index, fallback in
             palette.ansiColors[index] ?? SwiftTerm.Color(
                 red: UInt16((fallback >> 16) & 0xff) * 257,
                 green: UInt16((fallback >> 8) & 0xff) * 257,
@@ -217,26 +214,83 @@ final class LitheTerminalView: LocalProcessTerminalView {
 
 extension LitheTerminalView: WorkbenchBackgroundRendering {}
 
-/// Read only colors from Terminal.app's default profile. Missing entries leave
-/// Lithe's theme and ANSI defaults intact; shell commands and fonts are ignored.
+/// Read colors from Terminal.app's default profile. ANSI entries are imported
+/// only when their WCAG contrast against Lithe's editor background is at least 4.5:1.
+/// Missing or rejected entries fall back to Lithe's theme-aware ANSI defaults.
 struct MacTerminalPalette {
     let textColor: NSColor?
     let ansiColors: [SwiftTerm.Color?]
 
-    init(preferences: [String: Any]?) {
+    init(preferences: [String: Any]?, backgroundColor: NSColor? = nil) {
         let name = preferences?["Default Window Settings"] as? String ?? ""
         let profiles = preferences?["Window Settings"] as? [String: [String: Any]]
         let profile = profiles?[name] ?? [:]
         textColor = Self.decodeColor(profile["TextColor"])
         let names = ["Black", "Red", "Green", "Yellow", "Blue", "Magenta", "Cyan", "White"]
+        let usableBackground = backgroundColor.flatMap(Self.sRGBComponents)
         ansiColors = (names + names.map { "Bright" + $0 }).map { name in
             guard let color = Self.decodeColor(profile["ANSI\(name)Color"]) else { return nil }
+            if let usableBackground, !Self.hasSufficientContrast(color, against: usableBackground) { return nil }
             return SwiftTerm.Color(
                 red: UInt16((color.redComponent * 65535).rounded()),
                 green: UInt16((color.greenComponent * 65535).rounded()),
                 blue: UInt16((color.blueComponent * 65535).rounded())
             )
         }
+    }
+
+    static func fallbackANSIColors(isDark: Bool) -> [UInt32] {
+        [
+            isDark ? 0x000000 : 0x1F2328, isDark ? 0x990001 : 0xCF222E,
+            isDark ? 0x00A603 : 0x1A7F37, isDark ? 0x999900 : 0x9A6700,
+            isDark ? 0x5594FA : 0x0969DA, isDark ? 0xB200B2 : 0x8250DF,
+            isDark ? 0x00A5B2 : 0x0A6670, isDark ? 0xBFBFBF : 0x59636E,
+            isDark ? 0x8A898A : 0x59636E, isDark ? 0xE50001 : 0xA40E26,
+            isDark ? 0x00D800 : 0x116329, isDark ? 0xE5E500 : 0x7D4E00,
+            isDark ? 0x3399FF : 0x0550AE, isDark ? 0xE500E5 : 0x6639BA,
+            isDark ? 0x00E5E5 : 0x055B63, isDark ? 0xE5E5E5 : 0x3D444D
+        ]
+    }
+
+    private typealias SRGBComponents = (red: CGFloat, green: CGFloat, blue: CGFloat, alpha: CGFloat)
+    private typealias LinearRGB = (red: CGFloat, green: CGFloat, blue: CGFloat)
+
+    private static func sRGBComponents(_ color: NSColor) -> SRGBComponents? {
+        guard let color = color.usingColorSpace(.sRGB) else { return nil }
+        let components = (color.redComponent, color.greenComponent, color.blueComponent, color.alphaComponent)
+        guard components.0.isFinite, components.1.isFinite, components.2.isFinite, components.3.isFinite,
+              (0...1).contains(components.0), (0...1).contains(components.1),
+              (0...1).contains(components.2), (0...1).contains(components.3) else { return nil }
+        return (components.0, components.1, components.2, components.3)
+    }
+
+    private static func hasSufficientContrast(_ color: NSColor, against background: SRGBComponents) -> Bool {
+        guard let foreground = sRGBComponents(color) else { return false }
+        let white: LinearRGB = (1, 1, 1)
+        let backgroundLinear = composite(background, over: white)
+        let foregroundLinear = composite(foreground, over: backgroundLinear)
+        let backgroundLuminance = luminance(backgroundLinear)
+        let foregroundLuminance = luminance(foregroundLinear)
+        let lighter = max(backgroundLuminance, foregroundLuminance)
+        let darker = min(backgroundLuminance, foregroundLuminance)
+        return (lighter + 0.05) / (darker + 0.05) >= 4.5
+    }
+
+    private static func composite(_ color: SRGBComponents, over background: LinearRGB) -> LinearRGB {
+        let alpha = color.alpha
+        return (
+            linearize(color.red) * alpha + background.red * (1 - alpha),
+            linearize(color.green) * alpha + background.green * (1 - alpha),
+            linearize(color.blue) * alpha + background.blue * (1 - alpha)
+        )
+    }
+
+    private static func linearize(_ channel: CGFloat) -> CGFloat {
+        channel <= 0.04045 ? channel / 12.92 : pow((channel + 0.055) / 1.055, 2.4)
+    }
+
+    private static func luminance(_ color: LinearRGB) -> CGFloat {
+        0.2126 * color.red + 0.7152 * color.green + 0.0722 * color.blue
     }
 
     private static func decodeColor(_ value: Any?) -> NSColor? {
@@ -328,7 +382,10 @@ final class MacTerminalTransport: NSObject, TerminalTransport, @preconcurrency L
 
     var nativeView: AnyObject { view }
 
-    override init() {
+    private let scrollbackLines: Int
+
+    init(scrollbackLines: Int = 2_000) {
+        self.scrollbackLines = scrollbackLines
         view = LitheTerminalView(frame: .zero)
         super.init()
 
@@ -347,7 +404,7 @@ final class MacTerminalTransport: NSObject, TerminalTransport, @preconcurrency L
 
         var options = view.terminal.options
         options.termName = "xterm-256color"
-        options.scrollback = 2_000
+        options.scrollback = scrollbackLines
         view.terminal.options = options
         view.terminal.setup(isReset: false)
     }

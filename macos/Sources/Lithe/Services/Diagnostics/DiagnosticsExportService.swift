@@ -58,6 +58,7 @@ final class DiagnosticsExportService: ObservableObject {
     private let fileStorage: any FileStorage
     private let systemDiagnostics: any SystemDiagnosticsProviding
     private let archiver: any DiagnosticsArchiving
+    let applicationLogging: (any ApplicationLogging)?
     private let core: RustCoreBridge
     private let now: () -> Date
 
@@ -75,6 +76,7 @@ final class DiagnosticsExportService: ObservableObject {
         systemDiagnostics: any SystemDiagnosticsProviding,
         archiver: any DiagnosticsArchiving,
         core: RustCoreBridge,
+        applicationLogging: (any ApplicationLogging)? = nil,
         now: @escaping () -> Date = Date.init
     ) {
         self.logDirectoryProviding = logDirectoryProviding
@@ -82,10 +84,11 @@ final class DiagnosticsExportService: ObservableObject {
         self.systemDiagnostics = systemDiagnostics
         self.archiver = archiver
         self.core = core
+        self.applicationLogging = applicationLogging
         self.now = now
     }
 
-    func prepare() async {
+    func prepare(query: ApplicationLogQuery = ApplicationLogQuery()) async {
         operationGeneration += 1
         let generation = operationGeneration
         state = .preparing
@@ -94,8 +97,12 @@ final class DiagnosticsExportService: ObservableObject {
         }
         stagingRootURL = nil
 
+        let collection: ApplicationLogCollection?
+        do { collection = try await applicationLogging?.collect(query: query) }
+        catch { if generation == operationGeneration { state = .failed(error.localizedDescription) }; return }
+        guard generation == operationGeneration else { return }
         let logFileURL = logDirectoryProviding.applicationLogFileURL
-        let logDirectoryURL = logDirectoryProviding.defaultLogDirectory
+        let logDirectoryURL = collection?.effectiveDirectory ?? logDirectoryProviding.defaultLogDirectory
         let fileStorage = fileStorage
         let systemDiagnostics = systemDiagnostics
         let core = core
@@ -104,16 +111,18 @@ final class DiagnosticsExportService: ObservableObject {
         let exportFolderName = Self.exportFolderName
 
         let outcome = await Task.detached(priority: .userInitiated) { () -> PrepareOutcome in
-            let rawLogText: String
-            do {
-                let data = try fileStorage.readData(from: logFileURL, options: [])
-                rawLogText = String(data: data, encoding: .utf8) ?? ""
-            } catch {
-                return .failure("Could not read the application log: \(error.localizedDescription)")
-            }
-
-            guard case .success(let redactedLog) = core.redactDiagnosticText(rawLogText) else {
-                return .failure("Could not redact the application log for export.")
+            let collectedFiles: [ApplicationLogFile]
+            if let collection {
+                collectedFiles = collection.files
+            } else {
+                do {
+                    let data = try fileStorage.readData(from: logFileURL, options: [])
+                    let text = String(decoding: data, as: UTF8.self)
+                    guard case .success(let redacted) = core.redactDiagnosticText(text) else {
+                        return .failure("Could not redact the application log for export.")
+                    }
+                    collectedFiles = [ApplicationLogFile(relativePath: logFileURL.lastPathComponent, data: Data(redacted.redacted.utf8))]
+                } catch { return .failure("Could not read the application log: \(error.localizedDescription)") }
             }
 
             let snapshot = systemDiagnostics.currentSnapshot(volumeURL: logDirectoryURL)
@@ -125,12 +134,11 @@ final class DiagnosticsExportService: ObservableObject {
             do {
                 try fileStorage.createDirectory(at: contentDirectoryURL, withIntermediateDirectories: true)
 
-                let logData = Data(redactedLog.redacted.utf8)
-                try fileStorage.writeData(
-                    logData,
-                    to: contentDirectoryURL.appendingPathComponent(logFileURL.lastPathComponent, isDirectory: false),
-                    options: [.atomic]
-                )
+                for file in collectedFiles {
+                    let destination = contentDirectoryURL.appendingPathComponent(file.relativePath)
+                    try fileStorage.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    try fileStorage.writeData(file.data, to: destination, options: [.atomic])
+                }
 
                 let environmentData = try JSONEncoder().encode(snapshot)
                 try fileStorage.writeData(
@@ -139,18 +147,11 @@ final class DiagnosticsExportService: ObservableObject {
                     options: [.atomic]
                 )
 
-                let files = [
-                    RustCoreBridge.DiagnosticsFileEntryInput(
-                        relativePath: logFileURL.lastPathComponent,
-                        sizeBytes: Int64(logData.count),
-                        description: "Application log (redacted)"
-                    ),
-                    RustCoreBridge.DiagnosticsFileEntryInput(
-                        relativePath: environmentFileName,
-                        sizeBytes: Int64(environmentData.count),
-                        description: "Environment and performance snapshot"
-                    )
-                ]
+                let files = collectedFiles.map {
+                    RustCoreBridge.DiagnosticsFileEntryInput(relativePath: $0.relativePath,
+                        sizeBytes: Int64($0.data.count), description: "Application log (redacted)")
+                } + [RustCoreBridge.DiagnosticsFileEntryInput(relativePath: environmentFileName,
+                    sizeBytes: Int64(environmentData.count), description: "Environment and performance snapshot")]
 
                 switch core.buildDiagnosticsManifest(
                     environment: RustCoreBridge.DiagnosticsEnvironmentInfo(
@@ -244,7 +245,7 @@ final class DiagnosticsExportService: ObservableObject {
         }.value
 
         try? fileStorage.removeItem(at: stagingRootURL)
-        self.stagingRootURL = nil
+        if self.stagingRootURL == stagingRootURL { self.stagingRootURL = nil }
 
         // Cancelled (or superseded) mid-archive: the staging cleanup above still
         // runs, but leave the user's cancelled state untouched.

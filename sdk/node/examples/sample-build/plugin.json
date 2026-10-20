@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 2,
+  "id": "org.example.sample-build",
+  "displayName": "Sample Build",
+  "version": "0.1.0",
+  "pluginAPIVersion": 3,
+  "requires": { "buildProviders": 1, "buildSystems": 1, "serverProcess": 1 },
+  "vendor": {
+    "id": "org.example",
+    "displayName": "Example",
+    "signatureRequirement": "publisherPackage"
+  },
+  "permissions": ["languageServer.launch", "process.build"],
+  "activationEvents": ["onBuildSystem:sample"],
+  "languages": [],
+  "buildSystems": [
+    {
+      "id": "sample",
+      "displayName": "Sample",
+      "detection": { "markers": ["lithe-sample.json"], "nesting": "outermost" },
+      "invocation": {
+        "executables": [{ "kind": "command", "command": "node" }]
+      },
+      "provider": {
+        "launch": {
+          "kind": "runtime",
+          "tool": "node",
+          "minimumVersion": "20.3",
+          "entry": "backend/main.mjs"
+        },
+        "arguments": ["--state", "${workspaceStateDir}"],
+        "executesProjectCode": true,
+        "mayUseNetwork": false
+      },
+      "model": { "source": "provider" },
+      "tasks": [
+        {
+          "id": "build",
+          "displayName": "Build",
+          "group": "build",
+          "scopes": ["workspace"],
+          "arguments": ["--version"]
+        }
+      ],
+      "dependencies": { "source": "provider", "scopes": ["workspace", "project"] },
+      "sync": { "watch": ["lithe-sample.json"] }
+    }
+  ]
+}

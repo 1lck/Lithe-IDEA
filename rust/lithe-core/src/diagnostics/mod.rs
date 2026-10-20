@@ -7,6 +7,8 @@
 //! each platform's own adapters per `develop-lithe`'s platform-adapter
 //! boundary.
 
+pub mod logging;
+
 mod manifest;
 mod redaction;
 

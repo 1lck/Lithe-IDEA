@@ -14,6 +14,8 @@ struct MacProcessScope: Equatable, Sendable {
     static let environmentKey = "LITHE_PROCESS_SCOPE"
     /// Set on an Agent process; its descendants are that Agent's tasks.
     static let agentEnvironmentKey = "LITHE_AGENT_SCOPE"
+    /// Set on a plugin backend; its descendants are what that backend left.
+    static let pluginBackendEnvironmentKey = "LITHE_PLUGIN_BACKEND_SCOPE"
 
     /// The scope of the running application, once `activate()` has run.
     nonisolated(unsafe) private(set) static var current: MacProcessScope?
@@ -28,9 +30,11 @@ struct MacProcessScope: Equatable, Sendable {
         if let current { return current }
         let scope = MacProcessScope(id: UUID().uuidString)
         setenv(environmentKey, scope.id, 1)
-        // Only the Agent host sets this; a parent Lithe's value would make every
-        // process of this instance look like an Agent task.
+        // Only the Agent host and the plugin backend host set these; a parent
+        // Lithe's value would make every process of this instance look like
+        // an Agent task or a plugin backend's leftover.
         unsetenv(agentEnvironmentKey)
+        unsetenv(pluginBackendEnvironmentKey)
         current = scope
         return scope
     }

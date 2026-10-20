@@ -901,6 +901,8 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `github.parseRemote` | Parse a canonical GitHub HTTPS or SSH remote into owner/name |
 | `github.requestPlan` | Validate one GitHub operation and produce a trusted platform HTTP request plan |
 | `github.normalizeResponse` | Normalize raw GitHub JSON and HTTP status into deterministic data or a stable error |
+| `diagnostics.prepareLogEvent` | Normalize a bounded application event and recursively redact structured fields |
+| `diagnostics.queryLogs` | Merge and filter bounded host-collected module log tails |
 | `diagnostics.redactText` | Redact credentials, tokens, and home-directory paths from diagnostic-bundle text |
 | `diagnostics.buildManifest` | Shape a deterministic diagnostic bundle manifest from host-gathered environment and file facts |
 | `plugins.declarative.validate` | Validate and normalize a declarative plugin manifest (plugin contract v1) |
@@ -2807,6 +2809,46 @@ Windows drive-letter `Users` path). Hosts run every diagnostic-bundle log
 line, panic report, and other free-form text through this command before it
 is staged for export; the command never reads the filesystem itself.
 Re-running it over already-redacted text is a no-op.
+
+`diagnostics.prepareLogEvent` accepts `{scope,message,fields}` and returns
+`{category,scope,message,fields}`. The fixed categories are `application`,
+`language`, `run`, `git`, `plugins`, and `performance`; unknown scopes route to
+`application`. Recursive field redaction precedes JSON escaping, bounds nesting
+and collection sizes, and excludes credential, source-content, buffer, history,
+and environment fields. Hosts attach schema version 1, UTC RFC3339 timestamp,
+severity, opaque process/session/operation/window identities and sequence numbers.
+Native queues, filesystem access, directory fallback and write ownership remain
+in platform adapters. See `fixtures/diagnostics/logging-v1.json` for budgets.
+
+`diagnostics.queryLogs` accepts bounded `{sources:[{category,text}],category?,
+minimumLevel?,sessionId?,search?,since?,until?,limit?}`. It returns
+`{content,truncated,matchedLines}`: a stable merged timeline, inclusive severity
+and UTC time bounds, exact session filter, case-insensitive text search, and the
+last 1–10000 matching lines. Hosts resolve current/previous session selection,
+apply the module/session filters before the file-count cap, read bounded file tails,
+discard partial first lines, and report both native
+collection truncation and Core query truncation, including files omitted by the cap.
+Time comparisons use parsed RFC3339 instants, so fractional precision and equivalent
+UTC offsets do not change ordering or inclusive boundaries. Missing filters include all.
+
+Diagnostic previews freeze the selected redacted bytes before confirmation.
+Windows returns a `snapshotId` from `preview_diagnostic_bundle`; export consumes
+that exact ID once. Discard releases it on cancel; at most four previews remain
+in memory for five minutes. macOS retains the staged files until export/cancel.
+Both exports include `collection-status.txt` with truncation, dropped-event and
+write-failure counts. Legacy flat logs remain available with the all-session
+selection; native adapters never scan arbitrary workspace or terminal files.
+Detailed diagnostics are limited to the selected category and expire after
+15 minutes; warnings/errors remain enabled in installed builds.
+
+The native settings entry is Tools → Logs and Diagnostics on both platforms;
+persisted category identities remain `Diagnostics` (macOS) and `logs` (Windows).
+The timeline, diagnostics, locations, retention/cleanup and export sections follow
+`fixtures/diagnostics/logging-ui-v1.json`. Clearing explicitly affects all managed
+modules/sessions in the effective directory regardless of display filters.
+Preview confirmation shows its frozen module/session/level selection. Native
+views retain platform styling and present actual diagnostic scope and collection
+health, rather than inferring them from the currently selected view filter.
 
 `diagnostics.buildManifest` accepts an `environment` object
 (`appVersion`, `osName`, `osVersion`, `cpuCoreCount`, `memoryRssBytes`,

@@ -59,6 +59,177 @@ struct PluginWebBridgeTests {
         #expect(try await harness.error("ui.getState") == "plugin.web.forbidden")
     }
 
+    @Test func functionsAreReachedOnlyThroughThePluginsOwnInstancesWithConsent() async throws {
+        let harness = try BridgeHarness()
+        defer { harness.cleanUp() }
+
+        #expect(try await harness.error("functions.list", ["instance": .string("foreign")]) == "plugin.web.forbidden")
+        #expect(try await harness.error("functions.invoke", [
+            "instance": .string("foreign"), "function": .string("snapshot.read")
+        ]) == "plugin.web.forbidden")
+        #expect(try await harness.error("functions.invoke", [
+            "instance": .string("own"), "function": .string("snapshot.read"), "params": .array([])
+        ]) == "plugin.web.invalidRequest")
+        #expect(harness.host.consents.isEmpty)
+
+        harness.host.allowsProcesses = false
+        #expect(try await harness.error("functions.list", ["instance": .string("own")]) == "plugin.web.forbidden")
+        #expect(try await harness.error("functions.invoke", [
+            "instance": .string("own"), "function": .string("snapshot.read")
+        ]) == "plugin.web.forbidden")
+        #expect(harness.build.functionListings == 0)
+        #expect(harness.build.invocations.isEmpty)
+
+        harness.host.allowsProcesses = true
+        #expect(try await harness.ok("functions.list", ["instance": .string("own")])
+            == .object(["functions": .array([.string("snapshot.read"), .string("workspace.build")])]))
+        #expect(harness.build.functionListings == 1)
+        #expect(harness.host.consents.allSatisfy { $0.pluginID == "dev.example.web" })
+    }
+
+    @Test func functionResultsProgressAndPluginFailuresReachThePage() async throws {
+        let harness = try BridgeHarness()
+        defer { harness.cleanUp() }
+        var events: [(String, ToolingJSONValue)] = []
+        harness.bridge.emit = { events.append(($0, $1)) }
+        harness.build.invoke = { functionID, params, progress in
+            progress(PluginFunctionProgress(message: "Building app", percentage: 40))
+            guard functionID == "workspace.build" else {
+                throw PluginFunctionFailure(
+                    code: "plugin.function.failed", message: "broken failed", pluginErrorCode: "sample.buildFailed"
+                )
+            }
+            return .object(["echo": params])
+        }
+
+        let value = try await harness.ok("functions.invoke", [
+            "instance": .string("own"), "function": .string("workspace.build"),
+            "params": .object(["project": .string("app")]), "call": .string("call-1")
+        ])
+        #expect(value == .object(["value": .object(["echo": .object(["project": .string("app")])])]))
+        #expect(harness.build.invocations.map(\.entryID) == ["own"])
+        #expect(events.count == 1)
+        #expect(events.first?.0 == "functions.progress")
+        #expect(events.first?.1 == .object([
+            "call": .string("call-1"), "instance": .string("own"), "function": .string("workspace.build"),
+            "message": .string("Building app"), "percentage": .integer(40)
+        ]))
+
+        // Without a call ID nothing can be correlated, so no progress is sent.
+        let failure = try await harness.failure("functions.invoke", [
+            "instance": .string("own"), "function": .string("snapshot.clear")
+        ])
+        #expect(failure == .object([
+            "code": .string("plugin.function.failed"), "message": .string("broken failed"),
+            "pluginErrorCode": .string("sample.buildFailed")
+        ]))
+        #expect(events.count == 1)
+    }
+
+    @Test func cancellingACallOrClosingThePageCancelsTheFunction() async throws {
+        let harness = try BridgeHarness()
+        defer { harness.cleanUp() }
+        let entered = TestGate()
+        harness.build.invoke = { _, _, _ in
+            entered.open()
+            // Ends through cancellation; the gate's bound keeps a broken test finite.
+            _ = await TestGate().waitUntilOpen(timeout: .seconds(10))
+            try Task.checkCancellation()
+            return .null
+        }
+
+        let pending = Task { try await harness.error("functions.invoke", [
+            "instance": .string("own"), "function": .string("workspace.build"), "call": .string("slow")
+        ]) }
+        defer { pending.cancel() }
+        #expect(await entered.waitUntilOpen(), "The function never started")
+        #expect(try await harness.error("functions.invoke", [
+            "instance": .string("own"), "function": .string("workspace.build"), "call": .string("slow")
+        ]) == "plugin.web.invalidRequest")
+        #expect(try await harness.ok("functions.cancel", ["call": .string("slow")]) == .object([:]))
+        #expect(try await pending.value == "requestCancelled")
+        // A finished call is cancelled as a no-op.
+        #expect(try await harness.ok("functions.cancel", ["call": .string("slow")]) == .object([:]))
+
+        let second = TestGate()
+        harness.build.invoke = { _, _, _ in
+            second.open()
+            _ = await TestGate().waitUntilOpen(timeout: .seconds(10))
+            try Task.checkCancellation()
+            return .null
+        }
+        let closing = Task { try await harness.error("functions.invoke", [
+            "instance": .string("own"), "function": .string("workspace.build")
+        ]) }
+        defer { closing.cancel() }
+        #expect(await second.waitUntilOpen(), "The second function never started")
+        harness.bridge.close()
+        #expect(try await closing.value == "requestCancelled")
+    }
+
+    @Test func callCancelledWhileAwaitingConsentNeverStarts() async throws {
+        let harness = try BridgeHarness()
+        defer { harness.cleanUp() }
+        let confirmationRequested = TestGate()
+        let confirm = TestGate()
+        harness.host.confirmProcessStart = {
+            confirmationRequested.open()
+            return await confirm.waitUntilOpen()
+        }
+        let pending = Task { try await harness.error("functions.invoke", [
+            "instance": .string("own"), "function": .string("workspace.build"), "call": .string("c1")
+        ]) }
+        defer { confirm.open(); pending.cancel() }
+        #expect(await confirmationRequested.waitUntilOpen(), "The call never reached consent")
+
+        // invoke -> cancel -> the user approves: the function must not start.
+        #expect(try await harness.ok("functions.cancel", ["call": .string("c1")]) == .object([:]))
+        confirm.open()
+        #expect(try await pending.value == "requestCancelled")
+        #expect(harness.build.invocations.isEmpty)
+    }
+
+    @Test func callsAwaitingConsentCountAgainstTheLimit() async throws {
+        let harness = try BridgeHarness()
+        defer { harness.cleanUp() }
+        let limit = PluginWebBridge.functionCallLimit
+        let allAwaitConsent = TestGate()
+        let confirm = TestGate()
+        var awaiting = 0
+        harness.host.confirmProcessStart = {
+            awaiting += 1
+            if awaiting == limit { allAwaitConsent.open() }
+            return await confirm.waitUntilOpen()
+        }
+        let pending = (0..<limit).map { index in
+            Task { try await harness.error("functions.invoke", [
+                "instance": .string("own"), "function": .string("workspace.build"), "call": .string("call-\(index)")
+            ]) }
+        }
+        defer { confirm.open(); pending.forEach { $0.cancel() } }
+        #expect(await allAwaitConsent.waitUntilOpen(), "Not every call reached consent")
+
+        // One more call is refused at once, before the user answers.
+        #expect(try await harness.error("functions.invoke", [
+            "instance": .string("own"), "function": .string("workspace.build"), "call": .string("extra")
+        ]) == "plugin.build.unavailable")
+        confirm.open()
+        for call in pending { #expect(try await call.value == nil) }
+        #expect(harness.build.invocations.count == limit)
+    }
+
+    @Test func aCallIDIsNeverAcceptedTwice() async throws {
+        let harness = try BridgeHarness()
+        defer { harness.cleanUp() }
+        let parameters: [String: ToolingJSONValue] = [
+            "instance": .string("own"), "function": .string("workspace.build"), "call": .string("c1")
+        ]
+
+        #expect(try await harness.ok("functions.invoke", parameters) == .object(["value": .null]))
+        #expect(try await harness.error("functions.invoke", parameters) == "plugin.web.invalidRequest")
+        #expect(harness.build.invocations.count == 1)
+    }
+
     @Test func decodedModelTaskCategoriesAndRunEntriesReachThePage() throws {
         let data = Data(#"""
         {"projects":[{"id":"app","path":"app","name":"app"}],"tasks":[
@@ -851,6 +1022,23 @@ private final class FakeBuildAccess: PluginWebBuildAccess {
     }
     func loadDependencies(_ entryID: String, project: BuildModel.Project?) {}
     func setOption(_ entryID: String, optionID: String, value: ToolingJSONValue?) {}
+
+    var functionListings = 0
+    var invocations: [(entryID: String, functionID: String)] = []
+    var invoke: (@MainActor (String, ToolingJSONValue, @escaping @MainActor @Sendable (PluginFunctionProgress) -> Void) async throws
+        -> ToolingJSONValue)?
+    func pluginFunctions(_ entryID: String) async throws -> [String] {
+        functionListings += 1
+        return ["snapshot.read", "workspace.build"]
+    }
+    func invokePluginFunction(
+        _ entryID: String, functionID: String, params: ToolingJSONValue, timeout: Duration,
+        progress: @escaping @MainActor @Sendable (PluginFunctionProgress) -> Void
+    ) async throws -> ToolingJSONValue {
+        invocations.append((entryID, functionID))
+        return try await invoke?(functionID, params, progress) ?? .null
+    }
+
     func stopRun() {
         stopCount += 1
         if let currentRunID, let entryID = entries.first?.id {
@@ -914,6 +1102,11 @@ private final class BridgeHarness {
         let reply = try await send(method, params)
         guard case .object(let error)? = reply["error"], case .string(let code)? = error["code"] else { return nil }
         return code
+    }
+
+    /// The whole error object of a refused request.
+    func failure(_ method: String, _ params: [String: ToolingJSONValue] = [:]) async throws -> ToolingJSONValue? {
+        try await send(method, params)["error"]
     }
 
     func errorCode(_ message: String) async throws -> String? {
