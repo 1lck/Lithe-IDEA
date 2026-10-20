@@ -118,6 +118,7 @@ package final class BuildSystemService: ObservableObject {
     private let optionsStore: any BuildOptionsStoring
     private let stateLocator: any BuildSystemStateLocating
     private let runner: any BuildCommandRunning
+    private let providers: (any BuildProviderRequesting)?
     private let waitForRedetection: @Sendable () async throws -> Void
     private let sources: @MainActor () -> [BuildSystemPluginSource]
 
@@ -176,6 +177,7 @@ package final class BuildSystemService: ObservableObject {
         optionsStore: any BuildOptionsStoring,
         stateLocator: any BuildSystemStateLocating,
         runner: any BuildCommandRunning,
+        providers: (any BuildProviderRequesting)? = nil,
         waitForRedetection: @escaping @Sendable () async throws -> Void = {
             try await Task.sleep(for: .milliseconds(500))
         },
@@ -186,6 +188,7 @@ package final class BuildSystemService: ObservableObject {
         self.optionsStore = optionsStore
         self.stateLocator = stateLocator
         self.runner = runner
+        self.providers = providers
         self.waitForRedetection = waitForRedetection
         self.sources = sources
     }
@@ -211,6 +214,8 @@ package final class BuildSystemService: ObservableObject {
     /// Forgets the previous workspace and detects the new one.
     package func reset(workspaceURL: URL?) {
         stop()
+        // A provider has loaded the previous workspace; none carries over.
+        providers?.retainProviders { _ in false }
         generation += 1
         detectionTask?.cancel(); detectionTask = nil
         redetectTask?.cancel(); redetectTask = nil
@@ -370,6 +375,10 @@ package final class BuildSystemService: ObservableObject {
         for key in Array(dependencyTasks.keys) where removed.contains(Self.entryID(ofDependencyTask: key)) {
             dependencyTasks.removeValue(forKey: key)?.cancel()
         }
+        // A disabled plugin's provider stops, and so does the old version of
+        // an updated one: its package directory is no longer installed.
+        let packages = Set(sources().map { [$0.pluginID, $0.packageURL.standardizedFileURL.path] })
+        providers?.retainProviders { packages.contains([$0.pluginID, $0.packageURL.path]) }
         detect()
     }
 
@@ -515,14 +524,9 @@ package final class BuildSystemService: ObservableObject {
         case .static?, .hostIntegration?:
             detect()
             return
-        case .provider?:
-            update(entryID) {
-                $0.modelState = .failed(Self.providerUnsupportedMessage)
-            }
-            return
         case nil:
             return
-        case .command?:
+        case .command?, .provider?:
             break
         }
         modelTasks[entryID]?.cancel()
@@ -594,10 +598,9 @@ package final class BuildSystemService: ObservableObject {
             let outputFile = try context.workspaceStateDirectory.map { try stateLocator.allocateOutputFile(in: $0) }
             defer { if let outputFile { stateLocator.removeOutputFile(outputFile) } }
             let plan = try planner.modelPlan(entry.target, context: context, outputFile: outputFile)
-            guard case .process(let process) = plan else { throw BuildSystemServiceError(Self.providerUnsupportedMessage) }
             let title = String(localized: "Loading \(entry.instance.displayName) model")
-            let output = try await runCapturedCommand(
-                process,
+            let output = try await captureOutput(
+                plan,
                 entry: entry,
                 workspaceURL: workspaceURL,
                 outputFile: outputFile,
@@ -895,10 +898,9 @@ package final class BuildSystemService: ObservableObject {
                 project: project.map(BuildSelection.init(project:)),
                 outputFile: outputFile
             )
-            guard case .process(let process) = plan else { throw BuildSystemServiceError(Self.providerUnsupportedMessage) }
             let name = project?.displayName ?? project?.name ?? entry.instance.displayName
-            let output = try await runCapturedCommand(
-                process,
+            let output = try await captureOutput(
+                plan,
                 entry: entry,
                 workspaceURL: workspaceURL,
                 outputFile: outputFile,
@@ -1184,6 +1186,39 @@ package final class BuildSystemService: ObservableObject {
     }
 
     /// Runs a model or dependency command and returns what Core decodes.
+    /// Runs a model or dependency plan: its command, or its request to the
+    /// plugin's provider process.
+    private func captureOutput(
+        _ plan: BuildOutputPlan,
+        entry: BuildSystemEntry,
+        workspaceURL: URL,
+        outputFile: URL?,
+        title: String,
+        timeout: Duration,
+        owner: CommandOwner
+    ) async throws -> BuildCommandOutput {
+        switch plan {
+        case .process(let process):
+            return try await runCapturedCommand(
+                process, entry: entry, workspaceURL: workspaceURL, outputFile: outputFile,
+                title: title, timeout: timeout, owner: owner
+            )
+        case .provider(let request):
+            guard let providers else { throw BuildSystemServiceError(Self.providerUnsupportedMessage) }
+            if canAppend(owner) {
+                appendOutput("\n▶ " + title + "\n→ " + request.method + "\n", in: outputDirectory(entry))
+            }
+            let target = BuildProviderTarget(
+                pluginID: entry.source.pluginID,
+                manifest: entry.source.manifest,
+                packageURL: entry.source.packageURL,
+                buildSystemID: entry.instance.buildSystemID,
+                workspaceURL: workspaceURL
+            )
+            return .providerResult(try await providers.send(request, to: target, timeout: timeout))
+        }
+    }
+
     private func runCapturedCommand(
         _ plan: BuildProcessPlan,
         entry: BuildSystemEntry,
@@ -1314,7 +1349,7 @@ package final class BuildSystemService: ObservableObject {
     }
 
     private static var providerUnsupportedMessage: String {
-        String(localized: "This build system answers through a provider process, which Lithe for macOS does not run yet.")
+        String(localized: "This build system answers through a provider process, which this build of Lithe cannot start.")
     }
 
     // MARK: Detection
@@ -1351,8 +1386,8 @@ package final class BuildSystemService: ObservableObject {
             // plugin can take the same ID over. Its model and dependencies are
             // not this plugin's data.
             let samePlugin = earlier?.instance.pluginID == instance.pluginID
-            // A command model only changes when the user loads it again.
-            let kept = samePlugin && instance.model == nil && instance.modelSource == .command
+            // A command or provider model only changes when the user loads it again.
+            let kept = samePlugin && instance.model == nil && instance.loadsModelOnRequest
                 ? earlier?.model
                 : nil
             let model = instance.model ?? kept

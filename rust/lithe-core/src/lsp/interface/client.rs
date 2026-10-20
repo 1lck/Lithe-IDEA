@@ -122,7 +122,8 @@ pub fn client_initialize(request: ClientInitializeRequest) -> Result<LspClientRe
                 },
                 "window": {
                     "workDoneProgress": true
-                }
+                },
+                "experimental": super::build_provider::client_experimental_capabilities()
             },
             "initializationOptions": request.initialization_options
         }),
@@ -969,6 +970,11 @@ fn lsp_feature_result_for_method(method: Option<&str>, result: Option<&Value>) -
             })
         }),
         Some("workspace/executeCommand") => Some(json!({ "value": result })),
+        // Wrapped like a command result so no provider-specific normalizer
+        // reinterprets fields of the document Core decodes.
+        Some(method) if super::build_provider::is_build_method(method) => {
+            Some(json!({ "value": result }))
+        }
         Some("textDocument/definition")
         | Some("textDocument/declaration")
         | Some("textDocument/typeDefinition")
@@ -1500,6 +1506,9 @@ fn feature_names_from_capabilities(capabilities: &Value) -> Vec<String> {
         == Some(true)
     {
         insert_unique(&mut values, "codeActionResolve");
+    }
+    if super::build_provider::negotiated(capabilities) {
+        insert_unique(&mut values, super::build_provider::BUILD_PROVIDER_FEATURE);
     }
     values
 }

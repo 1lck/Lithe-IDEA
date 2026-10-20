@@ -101,19 +101,31 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
         languageID: String,
         request: DeclarativeLanguageServerLaunchRequest
     ) throws -> DeclarativeLanguageServerLaunchPlan {
+        try launchPlan(LaunchPlanPayload(
+            manifest: try Self.json(manifest),
+            languageID: languageID,
+            buildSystemID: nil,
+            request: LaunchRequest(request)
+        ))
+    }
+
+    func buildProviderLaunchPlan(
+        manifest: Data,
+        buildSystemID: String,
+        request: DeclarativeLanguageServerLaunchRequest
+    ) throws -> DeclarativeLanguageServerLaunchPlan {
+        try launchPlan(LaunchPlanPayload(
+            manifest: try Self.json(manifest),
+            languageID: nil,
+            buildSystemID: buildSystemID,
+            request: LaunchRequest(request)
+        ))
+    }
+
+    private func launchPlan(_ payload: LaunchPlanPayload) throws -> DeclarativeLanguageServerLaunchPlan {
         let outcome: Outcome<LaunchPlanResult> = try execute(
             "plugins.declarative.languageServerLaunchPlan",
-            payload: PlanPayload(
-                manifest: try Self.json(manifest),
-                languageID: languageID,
-                request: LaunchRequest(
-                    pluginDirectory: request.pluginDirectory.path,
-                    stateDirectory: request.stateDirectory.path,
-                    workspaceStateDirectory: request.workspaceStateDirectory.path,
-                    architecture: request.architecture,
-                    settings: request.settings
-                )
-            )
+            payload: payload
         )
         let plan = outcome.value.plan
         return DeclarativeLanguageServerLaunchPlan(
@@ -138,7 +150,16 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
                 }
                 return directory
             },
-            requiredPackagePaths: plan.requiredPackagePaths
+            requiredPackagePaths: plan.requiredPackagePaths,
+            executable: plan.launch.executable,
+            buildProvider: plan.buildProvider.map {
+                .init(
+                    buildSystemID: $0.buildSystemID,
+                    executesProjectCode: $0.executesProjectCode,
+                    mayUseNetwork: $0.mayUseNetwork,
+                    languageServer: $0.languageServer
+                )
+            }
         )
     }
 
@@ -233,6 +254,14 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
         let workspaceStateDirectory: String
         let architecture: String
         let settings: [String: ToolingJSONValue]
+
+        init(_ request: DeclarativeLanguageServerLaunchRequest) {
+            pluginDirectory = request.pluginDirectory.path
+            stateDirectory = request.stateDirectory.path
+            workspaceStateDirectory = request.workspaceStateDirectory.path
+            architecture = request.architecture
+            settings = request.settings
+        }
     }
 
     private struct LaunchPlan: Decodable {
@@ -242,11 +271,23 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
         }
 
         struct Launch: Decodable {
+            let kind: String?
+            let path: String?
+            let commands: [String]?
             let tool: String?
             let entry: String?
             let packagedRuntime: String?
             let minimumVersion: String?
             let versionArguments: [String]?
+
+            var executable: DeclarativeLanguageServerLaunchPlan.Executable? {
+                switch kind {
+                case "packaged": path.map { .packaged($0) }
+                case "systemCommand": commands.map { .systemCommand($0) }
+                case "runtime": tool.map { .runtime($0) }
+                default: nil
+                }
+            }
 
             var versionRequirement: LanguageServerExecutableVersionRequirement? {
                 guard let tool, let minimumVersion, let versionArguments else { return nil }
@@ -285,6 +326,22 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
         let runtimeRequirements: [RuntimeRequirement]
         let requiredDirectories: [String]
         let requiredPackagePaths: [String]
+        let buildProvider: BuildProvider?
+
+        struct BuildProvider: Decodable {
+            let buildSystemID: String
+            let executesProjectCode: Bool
+            let mayUseNetwork: Bool
+            let languageServer: String?
+        }
+    }
+
+    /// Names the process by exactly one of its language and its build system.
+    private struct LaunchPlanPayload: Encodable {
+        let manifest: ToolingJSONValue
+        let languageID: String?
+        let buildSystemID: String?
+        let request: LaunchRequest
     }
 
     private struct LaunchPlanResult: Decodable {

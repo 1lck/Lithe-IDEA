@@ -207,6 +207,12 @@ package struct BuildSystemInstance: Equatable, Identifiable, Sendable, Decodable
     package let model: BuildModel?
     package let modelError: BuildFailure?
 
+    /// A command or provider model: detection never reads it, it is loaded
+    /// only when the user asks, and kept until the next load.
+    package var loadsModelOnRequest: Bool {
+        modelSource == .command || modelSource == .provider
+    }
+
     package init(
         id: String, pluginID: String, buildSystemID: String, displayName: String, root: String,
         markers: [String], modelSource: DeclarativeBuildSystem.ModelSource?, optionFingerprint: String,
@@ -696,11 +702,30 @@ package struct BuildProcessPlan: Equatable, Sendable {
     }
 }
 
+/// A `lithe/build/*` request Core planned for the plugin's Provider process.
+/// The host sends `method` and `params` unchanged and hands the reply back
+/// to Core, which decodes it like command output.
+package struct BuildProviderRequest: Equatable, Sendable {
+    package let method: String
+    package let params: ToolingJSONValue
+    package let optionFingerprint: String
+    package let executesProjectCode: Bool
+    package let mayUseNetwork: Bool
+
+    package init(
+        method: String, params: ToolingJSONValue, optionFingerprint: String,
+        executesProjectCode: Bool, mayUseNetwork: Bool
+    ) {
+        self.method = method; self.params = params; self.optionFingerprint = optionFingerprint
+        self.executesProjectCode = executesProjectCode; self.mayUseNetwork = mayUseNetwork
+    }
+}
+
 /// A model or dependency plan: a command, or a request for the plugin's
 /// Provider process.
 package enum BuildOutputPlan: Equatable, Sendable {
     case process(BuildProcessPlan)
-    case provider(method: String)
+    case provider(BuildProviderRequest)
 }
 
 package struct BuildTestPlan: Equatable, Sendable {
@@ -724,6 +749,8 @@ package struct BuildTestPlan: Equatable, Sendable {
 package enum BuildCommandOutput: Equatable, Sendable {
     case stdout(String)
     case outputFile(URL)
+    /// The reply of a Provider request.
+    case providerResult(ToolingJSONValue)
 }
 
 package struct BuildTestResults: Equatable, Sendable, Decodable {
@@ -920,6 +947,43 @@ package protocol BuildSystemPlanning: Sendable {
         projects: [String],
         options: [String: ToolingJSONValue]
     ) throws -> BuildSyncState
+}
+
+// MARK: Provider processes
+
+/// The Provider process of one build system of one plugin in one workspace.
+/// Two plugins never share a process, even for the same build system ID.
+package struct BuildProviderTarget: Hashable, Sendable {
+    package let pluginID: String
+    /// Normalized manifest from `plugins.declarative.validate`.
+    package let manifest: Data
+    /// Installed package directory, read-only.
+    package let packageURL: URL
+    package let buildSystemID: String
+    package let workspaceURL: URL
+
+    package init(pluginID: String, manifest: Data, packageURL: URL, buildSystemID: String, workspaceURL: URL) {
+        self.pluginID = pluginID; self.manifest = manifest
+        self.packageURL = packageURL.standardizedFileURL; self.buildSystemID = buildSystemID
+        self.workspaceURL = workspaceURL.standardizedFileURL
+    }
+}
+
+/// Sends `lithe/build/*` requests to Provider processes. The host starts a
+/// process on the first request, which only a user action makes, and keeps
+/// it until the workspace or the enabled plugins change. Each process talks
+/// to the host alone, over its own stdio channel.
+@MainActor
+package protocol BuildProviderRequesting: AnyObject {
+    /// The provider's reply, still undecoded. Cancelling the task cancels
+    /// the request in the process.
+    func send(
+        _ request: BuildProviderRequest,
+        to target: BuildProviderTarget,
+        timeout: Duration
+    ) async throws -> ToolingJSONValue
+    /// Stops every process whose target `keep` rejects.
+    func retainProviders(_ keep: (BuildProviderTarget) -> Bool)
 }
 
 // MARK: Host storage

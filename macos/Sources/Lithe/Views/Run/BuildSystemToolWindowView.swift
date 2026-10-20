@@ -259,10 +259,10 @@ struct BuildSystemToolWindowView: View {
     }
 
     private func refresh() {
-        if entries.isEmpty || entries.contains(where: { $0.instance.modelSource != .command }) {
+        if entries.isEmpty || entries.contains(where: { !$0.instance.loadsModelOnRequest }) {
             feature.detect()
         }
-        for entry in entries where entry.instance.modelSource == .command {
+        for entry in entries where entry.instance.loadsModelOnRequest {
             feature.loadModel(entry.id)
         }
     }
@@ -291,7 +291,7 @@ struct BuildSystemToolWindowView: View {
     }
 
     private func reloadModel(_ entry: BuildSystemEntry) {
-        if entry.instance.modelSource == .command { feature.loadModel(entry.id) } else { feature.detect() }
+        if entry.instance.loadsModelOnRequest { feature.loadModel(entry.id) } else { feature.detect() }
     }
 
     private var emptyState: some View {
@@ -453,7 +453,7 @@ struct BuildSystemToolWindowView: View {
                     ForEach(Self.rootProjects(buildModel)) { project in
                         projectNode(entry, model: buildModel, project: project, isRoot: false)
                     }
-                } else if entry.instance.modelSource == .command, entry.modelState != .loading {
+                } else if entry.instance.loadsModelOnRequest, entry.modelState != .loading {
                     actionRow(title: String(localized: "Load Project Model"), iconPath: "expui/general/refresh.svg") {
                         feature.loadModel(entry.id)
                     }
@@ -821,7 +821,7 @@ struct BuildSystemToolWindowView: View {
         }
         if project == nil || isRoot {
             LitheContextMenuItem.action(
-                entry.instance.modelSource == .command && entry.model == nil ? "Load Project Model" : "Reload",
+                entry.instance.loadsModelOnRequest && entry.model == nil ? "Load Project Model" : "Reload",
                 isEnabled: entry.modelState != .loading && !feature.isDetecting
             ) { reloadModel(entry) }
         }

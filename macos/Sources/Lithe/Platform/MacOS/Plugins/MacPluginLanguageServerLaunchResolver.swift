@@ -38,12 +38,17 @@ struct MacPluginStateDirectories: Sendable {
             .appendingPathComponent(Self.workspaceDigest(workspaceRootURL), isDirectory: true)
     }
 
-    /// `${workspaceStateDir}` of one build system: the plugin's build tools
-    /// and its language servers never share a directory.
-    func buildSystemWorkspaceStateDirectory(pluginID: String, buildSystemID: String, workspaceRootURL: URL) -> URL {
+    /// `${stateDir}` of one build system's provider process.
+    func buildSystemStateDirectory(pluginID: String, buildSystemID: String) -> URL {
         pluginDirectory(pluginID: pluginID)
             .appendingPathComponent("build-systems", isDirectory: true)
             .appendingPathComponent(buildSystemID, isDirectory: true)
+    }
+
+    /// `${workspaceStateDir}` of one build system: the plugin's build tools
+    /// and its language servers never share a directory.
+    func buildSystemWorkspaceStateDirectory(pluginID: String, buildSystemID: String, workspaceRootURL: URL) -> URL {
+        buildSystemStateDirectory(pluginID: pluginID, buildSystemID: buildSystemID)
             .appendingPathComponent("workspaces", isDirectory: true)
             .appendingPathComponent(Self.workspaceDigest(workspaceRootURL), isDirectory: true)
     }
@@ -122,6 +127,104 @@ struct MacPluginLanguageServerLaunchResolver {
             arguments: plan.arguments,
             initializationOptions: plan.initializationOptions
         )
+    }
+
+    /// How a build system's provider answers, after Core expanded its launch.
+    enum BuildProviderLaunch: Equatable {
+        /// The language server of the same plugin answers; no process starts.
+        case languageServer(String)
+        case process(BuildProviderProcess)
+    }
+
+    /// A provider process of its own, with every package path verified and
+    /// its state directories created.
+    struct BuildProviderProcess: Equatable {
+        enum Executable: Equatable {
+            /// A file inside the package, the plugin's own runtime included.
+            case file(URL)
+            /// Command names the host's tool discovery resolves, in order.
+            case commands([String])
+            /// A runtime the host discovers with the user's settings.
+            case runtime(String, versionRequirement: LanguageServerExecutableVersionRequirement?)
+        }
+
+        let executable: Executable
+        let arguments: [String]
+        let initializationOptions: ToolingJSONValue?
+        /// Runtimes the process needs on `PATH`.
+        let runtimeTools: [String]
+        let executesProjectCode: Bool
+        let mayUseNetwork: Bool
+    }
+
+    /// Expands the provider launch of one build system for one workspace.
+    /// Its `${stateDir}` and `${workspaceStateDir}` belong to the build
+    /// system, so the provider never writes into a language server's state.
+    func resolveBuildProvider(
+        pluginID: String,
+        buildSystemID: String,
+        manifest: Data,
+        packageURL: URL,
+        workspaceRootURL: URL
+    ) throws -> BuildProviderLaunch {
+        let request = DeclarativeLanguageServerLaunchRequest(
+            pluginDirectory: packageURL.standardizedFileURL,
+            stateDirectory: directories.buildSystemStateDirectory(pluginID: pluginID, buildSystemID: buildSystemID),
+            workspaceStateDirectory: directories.buildSystemWorkspaceStateDirectory(
+                pluginID: pluginID,
+                buildSystemID: buildSystemID,
+                workspaceRootURL: workspaceRootURL
+            ),
+            architecture: Self.hostArchitecture,
+            settings: settings.values(forPlugin: pluginID)
+        )
+        let plan = try planner.buildProviderLaunchPlan(
+            manifest: manifest,
+            buildSystemID: buildSystemID,
+            request: request
+        )
+        guard let provider = plan.buildProvider, provider.buildSystemID == buildSystemID else {
+            throw DeclarativePluginRejection(
+                code: "plugin.launch.unavailable",
+                message: "Rust Core returned no provider for \(buildSystemID)."
+            )
+        }
+        if let languageID = provider.languageServer { return .languageServer(languageID) }
+        try verifyPackagePaths(plan.requiredPackagePaths, packageURL: packageURL)
+        let root = packageURL.standardizedFileURL
+        let executable: BuildProviderProcess.Executable
+        switch plan.executable {
+        case .packaged(let path)?:
+            executable = .file(root.appendingPathComponent(path).standardizedFileURL)
+        case .systemCommand(let commands)?:
+            executable = .commands(commands)
+        case .runtime(let tool)?:
+            executable = if let path = plan.packagedRuntimePath {
+                .file(root.appendingPathComponent(path).standardizedFileURL)
+            } else {
+                .runtime(tool, versionRequirement: plan.executableVersionRequirement)
+            }
+        case nil:
+            throw DeclarativePluginRejection(
+                code: "plugin.launch.unavailable",
+                message: "Rust Core returned a provider launch without an executable."
+            )
+        }
+        for directory in plan.requiredDirectories {
+            let url = switch directory {
+            case .state: request.stateDirectory
+            case .workspaceState: request.workspaceStateDirectory
+            }
+            try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
+        }
+        return .process(BuildProviderProcess(
+            executable: executable,
+            arguments: plan.arguments,
+            initializationOptions: plan.initializationOptions,
+            runtimeTools: plan.runtimeRequirements.map(\.tool),
+            executesProjectCode: provider.executesProjectCode,
+            mayUseNetwork: provider.mayUseNetwork
+        ))
     }
 
     /// A declared host integration with its resources located in the package.

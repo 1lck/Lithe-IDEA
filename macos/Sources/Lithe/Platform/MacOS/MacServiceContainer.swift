@@ -242,6 +242,17 @@ final class MacServiceContainer {
             pluginStartup.registeredPlugins,
             installed: pluginStartup.scanSucceeded ? pluginStartup.installedPlugins : nil
         )
+        // Provider processes of plugin build systems, one per plugin, build
+        // system, and workspace. Created eagerly so the language sessions
+        // can be connected; nothing starts until a model or dependency load.
+        let buildProviderSessions = MacBuildProviderSessions(
+            launchResolver: pluginLaunchResolver,
+            tools: MacBuildToolResolver(runtime: runtimeService, processRunner: processRunner, fileStorage: fileStorage),
+            versionChecker: declarativePluginOperations,
+            runtime: runtimeService,
+            core: rustCore,
+            processRegistry: processRegistry
+        )
         let rustLanguageProviderCatalogSource = RustLanguageProviderCatalogSource(core: rustCore)
         // Installation owns the process-backed language boundary even when a
         // package is disabled, quarantined, or failed to load. Only the active
@@ -375,6 +386,7 @@ final class MacServiceContainer {
                             fileStorage: fileStorage
                         ),
                         runner: MacBuildCommandRunner(processRegistry: processRegistry),
+                        providers: buildProviderSessions,
                         sources: {
                             // Enablement is read on every detection, so turning a
                             // plugin off takes its build systems away at once.
@@ -726,6 +738,9 @@ final class MacServiceContainer {
         services.mcpConfigurationStore = MacAgentMcpConfigurationStore(
             core: rustCore, storage: fileStorage
         )
+        services.connectBuildProviderLanguageSessions = { sessions in
+            buildProviderSessions.languageSessions = sessions
+        }
         services.processExitCoordinator = ProcessExitCoordinator(
             core: RustProcessLifecycleDecider(core: rustCore),
             presenter: MacProcessExitConfirmationPresenter.shared

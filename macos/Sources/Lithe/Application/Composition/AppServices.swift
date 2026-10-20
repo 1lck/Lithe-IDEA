@@ -3,6 +3,7 @@ import LitheApplicationKernel
 import LitheCoreContracts
 import LitheModuleAPI
 import LitheDebugModule
+import LitheLanguageIntelligenceModule
 
 /// Platform-neutral service graph consumed by application orchestration.
 /// Platform composition roots construct this graph with their own adapters.
@@ -15,6 +16,9 @@ final class AppServices {
     var mcpConfigurationStore: (any McpConfigurationStore)?
     /// Confirms closing terminals with running programs; `nil` closes directly.
     var processExitCoordinator: ProcessExitCoordinator?
+    /// Gives build providers that share a language server the language
+    /// sessions; `nil` when the platform starts no build providers.
+    var connectBuildProviderLanguageSessions: ((@escaping @MainActor () -> LanguageToolingSessionManager?) -> Void)?
     let moduleRuntime: ModuleRuntime
     let pluginManager: any PluginManaging
     let pluginMarketplace: any PluginMarketplaceServicing

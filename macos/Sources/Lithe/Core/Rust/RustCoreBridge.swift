@@ -1974,6 +1974,13 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         }
     }
 
+    private struct LspBuildRequest: Encodable {
+        let sessionId: String
+        let method: String
+        let params: ToolingJSONValue
+        let timeoutMilliseconds: Int
+    }
+
     private struct LspCancelOperationRequest: Encodable {
         let sessionId: String
         let operationId: String
@@ -3757,6 +3764,25 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 direction: marker.direction.rawValue,
                 relation: marker.relation.rawValue,
                 documentVersion: documentVersion
+            )
+        )
+    }
+
+    /// Sends a `lithe/build/*` request Core planned. Core refuses it unless
+    /// the session negotiated the build-provider protocol in `initialize`.
+    func lspBuildRequest(
+        sessionID: String,
+        method: String,
+        params: ToolingJSONValue,
+        timeout: TimeInterval
+    ) -> Result<LspOperationPayload, CoreCallError> {
+        executeResult(
+            command: "lsp.buildRequest",
+            payload: LspBuildRequest(
+                sessionId: sessionID,
+                method: method,
+                params: params,
+                timeoutMilliseconds: max(1, Self.milliseconds(timeout))
             )
         )
     }
