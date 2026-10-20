@@ -30,6 +30,7 @@ let dataDirectory: Promise<string> | null = null;
 /** Opening and closing share one queue, including requests arriving during startup. */
 let requestQueue: Promise<void> = Promise.resolve();
 let requestGeneration = 0;
+let pendingLaunchRequest: { key: string; operation: Promise<void> } | null = null;
 
 function enqueueConnectionRequest(operation: () => Promise<void>): Promise<void> {
   const pending = requestQueue.then(operation);
@@ -102,12 +103,20 @@ export async function openAgentConnection(
   nextWorkspacePath: string,
   settings: AgentPanelSettings,
 ): Promise<void> {
-  const generation = ++requestGeneration;
   const key = launchKey(nextWorkspacePath, settings);
-  return enqueueConnectionRequest(async () => {
+  // The editor and sidebar may claim the same startup together. Both must
+  // observe its completed ownership instead of superseding each other.
+  if (pendingLaunchRequest?.key === key) return pendingLaunchRequest.operation;
+  const generation = ++requestGeneration;
+  const queued = enqueueConnectionRequest(async () => {
     if (generation !== requestGeneration) return;
     await openAgentConnectionNow(generation, key, nextWorkspacePath, settings);
   });
+  const operation = queued.finally(() => {
+    if (pendingLaunchRequest?.operation === operation) pendingLaunchRequest = null;
+  });
+  pendingLaunchRequest = { key, operation };
+  return operation;
 }
 
 async function openAgentConnectionNow(
@@ -165,6 +174,7 @@ async function openAgentConnectionNow(
 
 /** Stop the agent and wait for its process tree to exit. */
 export async function closeAgentConnection(): Promise<void> {
+  pendingLaunchRequest = null;
   requestGeneration += 1;
   return enqueueConnectionRequest(async () => {
     if (model === null) return;

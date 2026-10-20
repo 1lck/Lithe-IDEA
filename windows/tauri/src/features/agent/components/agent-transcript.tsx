@@ -6,7 +6,11 @@ import {
   ArrowsClockwiseIcon,
   CaretDownIcon,
   CaretRightIcon,
+  CaretUpIcon,
+  CheckCircleIcon,
   CheckIcon,
+  CircleIcon,
+  ClipboardTextIcon,
   CopyIcon,
   FileTextIcon,
   HandIcon,
@@ -17,6 +21,7 @@ import {
 import { Spinner } from "@/ui/spinner";
 import { cn } from "@/utils/cn";
 import { tryWriteClipboardText } from "@/utils/clipboard";
+import { useAgentSurfaceStore } from "../stores/agent-surface.store";
 import {
   activitySummary,
   groupTranscript,
@@ -27,9 +32,12 @@ import {
 } from "../services/agent-transcript-items";
 import {
   currentPermission,
+  planProgress,
   type AgentConversation,
   type AgentConversationMessage,
   type AgentPermissionPrompt,
+  type AgentPlanEntry,
+  type AgentPlanStatus,
   type AgentToolDetails,
   type AgentToolLocation,
   type AgentToolStatus,
@@ -137,6 +145,180 @@ export function AgentActivitySummaryBar({ messages }: { messages: AgentConversat
           ) : null}
         </div>
       ))}
+    </div>
+  );
+}
+
+/** Agent-reported plan above the activity bar, collapsed to progress by default. */
+export function AgentPlanPanel({
+  plan,
+  isResponding,
+}: {
+  plan: AgentPlanEntry[];
+  isResponding: boolean;
+}) {
+  const { t } = useTranslation();
+  const [expanded, setExpanded] = useState(false);
+  if (plan.length === 0) return null;
+  const progress = planProgress(plan);
+  const isComplete = progress.total > 0 && progress.completed === progress.total;
+  return (
+    <div className="mx-[18px] mb-1 shrink-0 overflow-hidden rounded-[5px] border border-border bg-surface">
+      <button
+        type="button"
+        aria-expanded={expanded}
+        title={expanded ? t("agent.plan.collapse") : t("agent.plan.expand")}
+        className="flex h-7 w-full items-center gap-[7px] px-2.5 text-left text-foreground ui-text-caption"
+        onClick={() => setExpanded((value) => !value)}
+      >
+        <ClipboardTextIcon
+          className={cn("size-3 shrink-0", isComplete ? "text-success" : "text-primary")}
+        />
+        <span className="shrink-0 font-semibold tabular-nums">
+          {t("agent.plan.progress", {
+            completed: progress.completed,
+            total: progress.total,
+          })}
+        </span>
+        {expanded || progress.current === null ? null : (
+          <span className="min-w-0 flex-1 truncate text-subtle-foreground">
+            {progress.current}
+          </span>
+        )}
+        <span className="ml-auto shrink-0">
+          {expanded ? <CaretDownIcon className="size-3" /> : <CaretUpIcon className="size-3" />}
+        </span>
+      </button>
+      {expanded ? (
+        <ul className="max-h-[180px] space-y-1.5 overflow-y-auto border-t border-border px-2.5 py-2">
+          {plan.map((entry, index) => (
+            <li
+              key={`${index}:${entry.content}`}
+              aria-label={`${t(statusLabel(entry.status))}: ${entry.content}`}
+              className="flex items-start gap-[7px] ui-text-caption"
+            >
+              <PlanEntryIcon status={entry.status} isResponding={isResponding} />
+              <span
+                className={cn(
+                  "min-w-0 break-words",
+                  entry.status === "completed"
+                    ? "text-subtle-foreground line-through"
+                    : "text-foreground",
+                )}
+              >
+                {entry.content}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
+function statusLabel(status: AgentPlanStatus) {
+  if (status === "completed") return "agent.plan.completed" as const;
+  if (status === "in_progress") return "agent.plan.running" as const;
+  return "agent.plan.pending" as const;
+}
+
+/** Completed steps use a success check, running steps a ring, pending an open circle. */
+function PlanEntryIcon({
+  status,
+  isResponding,
+}: {
+  status: AgentPlanStatus;
+  isResponding: boolean;
+}) {
+  if (status === "completed") {
+    return <CheckCircleIcon className="mt-px size-3 shrink-0 text-success" />;
+  }
+  if (status === "in_progress") {
+    if (isResponding) {
+      return <CircleIcon className="mt-px size-3 shrink-0 text-primary" />;
+    }
+    return (
+      <span
+        aria-hidden="true"
+        className="mt-px size-3 shrink-0 rounded-full border border-primary text-primary"
+        style={{ backgroundImage: "linear-gradient(90deg, currentColor 50%, transparent 50%)" }}
+      />
+    );
+  }
+  return (
+    <span
+      aria-hidden="true"
+      className="mt-px size-3 shrink-0 rounded-full border border-subtle-foreground/60"
+    />
+  );
+}
+
+/**
+ * Reasoning stays a quiet summary line over a rounded Markdown card. It opens
+ * while it streams or the user asks, and a matching search keeps it open.
+ */
+function ReasoningRow({
+  text,
+  isStreaming = false,
+  isSearching = false,
+  expandedKey,
+}: {
+  text: string;
+  isStreaming?: boolean;
+  isSearching?: boolean;
+  expandedKey: string;
+}) {
+  const { t } = useTranslation();
+  const manualExpanded = useAgentSurfaceStore((state) => state.reasoningExpanded[expandedKey]);
+  const setReasoningExpanded = useAgentSurfaceStore(
+    (state) => state.actions.setReasoningExpanded,
+  );
+  const expanded = isSearching || (manualExpanded ?? isStreaming);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (!isStreaming || !expanded) return;
+    const element = scrollRef.current;
+    if (element !== null) element.scrollTop = element.scrollHeight;
+  }, [expanded, isStreaming, text]);
+  return (
+    <div className="flex flex-col gap-1.5">
+      <button
+        type="button"
+        aria-expanded={expanded}
+        title={expanded ? t("agent.transcript.hideReasoning") : t("agent.transcript.showReasoning")}
+        className="flex w-fit items-center gap-[5px] py-0.5 text-left text-subtle-foreground ui-text-caption hover:text-foreground"
+        onClick={() => {
+          // A matching search must keep its text visible, including after a click.
+          if (isSearching) return;
+          setReasoningExpanded(expandedKey, !expanded);
+        }}
+      >
+        {isStreaming ? <Spinner className="size-3 shrink-0" /> : null}
+        <span>
+          {isStreaming ? t("agent.transcript.thinking") : t("agent.transcript.reasoning")}
+        </span>
+        <CaretDownIcon
+          className={cn("size-2.5 shrink-0 transition-transform", !expanded && "-rotate-90")}
+        />
+      </button>
+      {expanded ? (
+        <div
+          ref={scrollRef}
+          className="max-h-60 select-text overflow-y-auto rounded-[8px] border border-border bg-surface/50 px-3 py-2.5 text-subtle-foreground ui-text-caption"
+        >
+          <div className="space-y-2">
+            {messageSegments(text.trim()).map((segment, index) =>
+              segment.kind === "code" ? (
+                <CodeBlock key={index} language={segment.language} code={segment.code} />
+              ) : (
+                <div key={index} className="whitespace-pre-wrap break-words">
+                  <InlineMarkdown text={segment.text} />
+                </div>
+              ),
+            )}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -402,10 +584,16 @@ function CodeBlock({ language, code }: { language: string; code: string }) {
 
 function MessageRow({
   message,
+  sessionID,
   onOpenLocation,
+  searchText = "",
+  isStreaming = false,
 }: {
   message: AgentConversationMessage;
+  sessionID: string | null;
   onOpenLocation: (location: AgentToolLocation) => void;
+  searchText?: string;
+  isStreaming?: boolean;
 }) {
   if (message.role === "user") {
     return (
@@ -418,6 +606,17 @@ function MessageRow({
   }
   if (message.role === "tool") {
     return <ToolGroup tools={[message]} searchText="" onOpenLocation={onOpenLocation} />;
+  }
+  if (message.role === "reasoning") {
+    const needle = searchText.toLocaleLowerCase();
+    return (
+      <ReasoningRow
+        text={message.text}
+        expandedKey={`${sessionID ?? "pending"}:${message.id}`}
+        isStreaming={isStreaming}
+        isSearching={needle.length > 0 && message.text.toLocaleLowerCase().includes(needle)}
+      />
+    );
   }
   return (
     <div className="space-y-2">
@@ -533,6 +732,7 @@ function PermissionCard({
 
 interface AgentTranscriptProps {
   conversation: AgentConversation | null;
+  sessionID: string | null;
   agentName: string | null;
   agentVersion: string | null;
   pendingPrompt: string | null;
@@ -551,6 +751,7 @@ interface AgentTranscriptProps {
  */
 export function AgentTranscript({
   conversation,
+  sessionID,
   agentName,
   agentVersion,
   pendingPrompt,
@@ -616,6 +817,12 @@ export function AgentTranscript({
                     <MessageRow
                       key={item.id}
                       message={item.message}
+                      sessionID={sessionID}
+                      searchText={searchText}
+                      isStreaming={
+                        conversation?.isResponding === true &&
+                        item.message.id === messages[messages.length - 1]?.id
+                      }
                       onOpenLocation={onOpenLocation}
                     />
                   );
@@ -647,6 +854,7 @@ export function AgentTranscript({
                     content: [],
                   },
                 }}
+                sessionID={sessionID}
                 onOpenLocation={onOpenLocation}
               />
             ) : null}
@@ -666,6 +874,9 @@ export function AgentTranscript({
           onAnswer={onAnswerPermission}
           onOpenLocation={onOpenLocation}
         />
+      )}
+      {conversation === null ? null : (
+        <AgentPlanPanel plan={conversation.plan} isResponding={isResponding} />
       )}
       <AgentActivitySummaryBar messages={messages} />
     </div>

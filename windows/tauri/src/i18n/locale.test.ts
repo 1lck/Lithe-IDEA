@@ -13,6 +13,15 @@ describe("Windows display language", () => {
     expect(chinese("maven.sourceRoot.generatedTest")).toBe("生成的测试源码");
   });
 
+  test("formats the Agent plan progress like macOS", () => {
+    expect(createTranslator("en-US")("agent.plan.progress", { completed: 1, total: 3 })).toBe(
+      "Plan 1/3",
+    );
+    expect(createTranslator("zh-CN")("agent.plan.progress", { completed: 1, total: 3 })).toBe(
+      "计划 1/3",
+    );
+  });
+
   test("uses Simplified Chinese strings and falls back to English", () => {
     const translate = createTranslator("zh-CN");
 

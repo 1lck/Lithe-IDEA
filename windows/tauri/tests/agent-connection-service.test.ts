@@ -101,3 +101,16 @@ test("stop and immediate reopen stay ordered during startup", async () => {
   expect(opened).toHaveLength(2);
   expect(closed).toEqual([settings.agentId]);
 }, 5_000);
+
+
+test("editor and sidebar claims join the same startup", async () => {
+  const settings = { ...DEFAULT_AGENT_PANEL_SETTINGS, enabled: true };
+  pending.push(openAgentConnection("C:/fake-shared-start", settings));
+  await started.promise;
+  pending.push(openAgentConnection("C:/fake-shared-start", settings));
+  release.resolve();
+  await Promise.all(pending);
+
+  expect(opened).toHaveLength(1);
+  expect(closed).toEqual([]);
+}, 5_000);

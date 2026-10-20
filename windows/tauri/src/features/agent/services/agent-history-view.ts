@@ -84,5 +84,7 @@ export function agentHistoryRows(
 export function historyMessageCount(conversation: AgentConversation | null): number | null {
   if (conversation === null || conversation.isLoading) return null;
   if (!conversation.isAttached && conversation.messages.length === 0) return null;
-  return conversation.messages.filter((message) => message.role !== "tool").length;
+  return conversation.messages.filter(
+    (message) => message.role !== "tool" && message.role !== "reasoning",
+  ).length;
 }

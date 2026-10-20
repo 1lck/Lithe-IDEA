@@ -19,12 +19,23 @@ export interface AgentHistoryExportLabels {
   untitled: string;
   you: string;
   tool: string;
+  thinking: string;
 }
 
 function roleHeading(role: AgentConversationMessage["role"], labels: AgentHistoryExportLabels) {
   if (role === "user") return labels.you;
   if (role === "tool") return labels.tool;
+  if (role === "reasoning") return labels.thinking;
   return "Agent";
+}
+
+/** Reasoning is exported as a quote so it stays distinct from the reply. */
+function messageBody(message: AgentConversationMessage): string {
+  if (message.role !== "reasoning") return message.text;
+  return message.text
+    .split("\n")
+    .map((line) => "> " + line)
+    .join("\n");
 }
 
 export function historyMarkdown(
@@ -35,7 +46,7 @@ export function historyMarkdown(
     const title = (document.title ?? labels.untitled).replace(/\r?\n/g, " ");
     const sections = [`# ${title}`, `Session ID: ${document.id}`];
     for (const message of document.messages) {
-      let content = `## ${roleHeading(message.role, labels)}\n\n${message.text}`;
+      let content = `## ${roleHeading(message.role, labels)}\n\n${messageBody(message)}`;
       if (message.toolStatus !== null) content += `\n\nStatus: ${message.toolStatus}`;
       for (const detail of [message.toolDetails.input, message.toolDetails.output]) {
         if (detail !== null) content += `\n\n${detail}`;
