@@ -150,6 +150,15 @@ export function invoke<T>(
 function capabilityForCommand(command: string): BackendCapability | null {
   if (command.startsWith("github_")) return "github";
   if (command.startsWith("docker_")) return "docker";
+  if (command === "wsl_automount_root") {
+    // Placing a path inside a WSL prompt is terminal behaviour, not WSL
+    // management: the terminal backend is what inserts it, and reading
+    // `/etc/wsl.conf` only decides where Windows drives live. Gating it behind
+    // the unavailable `wsl` family would reject every call before IPC and
+    // silently fall back to `/mnt`, which inserts a path the distribution
+    // cannot open when it uses a custom root.
+    return "terminal";
+  }
   if (command.startsWith("wsl_")) return "wsl";
   if (
     command.startsWith("ssh_") ||

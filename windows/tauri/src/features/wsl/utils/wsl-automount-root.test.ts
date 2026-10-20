@@ -6,6 +6,12 @@ import { WSL_DEFAULT_AUTOMOUNT_ROOT } from "./wsl-path";
  *
  * `answer` decides what each call does, so a test can make the read resolve, fail
  * or never settle without a real UNC path.
+ *
+ * This replaces the wrapper rather than the native IPC on purpose: Bun shares one
+ * module registry across test files, so a test that rebinds `@tauri-apps/api/core`
+ * only wins if it loads before anything else imports the wrapper. The capability
+ * gate lives in `tauri-core`, so it is asserted in `tauri-core.test.ts`, where the
+ * native mock is registered by the file that imports the wrapper.
  */
 let answer: (distro: string) => Promise<string> = async () => WSL_DEFAULT_AUTOMOUNT_ROOT;
 const invoke = mock(async (command: string, args?: unknown): Promise<unknown> => {
