@@ -395,6 +395,10 @@ pub enum CoreCommand {
     GitHubNormalizeResponse,
     /// Redacts credentials, tokens, and home-directory paths from diagnostic text (`diagnostics.redactText`).
     DiagnosticsRedactText,
+    /// Normalizes a bounded, redacted application log event (`diagnostics.prepareLogEvent`).
+    DiagnosticsPrepareLogEvent,
+    /// Filters and merges bounded host-collected log tails (`diagnostics.queryLogs`).
+    DiagnosticsQueryLogs,
     /// Shapes a deterministic diagnostic bundle manifest from host-gathered facts (`diagnostics.buildManifest`).
     DiagnosticsBuildManifest,
 }
@@ -588,6 +592,8 @@ impl CoreCommand {
             "github.requestPlan" => Some(Self::GitHubRequestPlan),
             "github.normalizeResponse" => Some(Self::GitHubNormalizeResponse),
             "diagnostics.redactText" => Some(Self::DiagnosticsRedactText),
+            "diagnostics.prepareLogEvent" => Some(Self::DiagnosticsPrepareLogEvent),
+            "diagnostics.queryLogs" => Some(Self::DiagnosticsQueryLogs),
             "diagnostics.buildManifest" => Some(Self::DiagnosticsBuildManifest),
             _ => None,
         }

@@ -52,6 +52,22 @@ struct SettingsSearchVocabularyTests {
         #expect(!SettingsSearchVocabulary.matches(query: "menlo", category: .editor))
     }
 
+    @Test func logsAndDiagnosticsShareOneSearchableToolsPage() throws {
+        let translations = try simplifiedChineseTranslations()
+        for query in ["Logs", "Log directory", "Log timeline", "Detailed diagnostics", "日志", "日志目录", "详细诊断"] {
+            #expect(SettingsSearchVocabulary.matches(query: query, category: .diagnostics, localize: { translations[$0] ?? $0 }))
+            #expect(!SettingsSearchVocabulary.matches(query: query, category: .general, localize: { translations[$0] ?? $0 }))
+        }
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let fixture = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: root.appendingPathComponent("shared/fixtures/diagnostics/logging-ui-v1.json"))) as? [String: Any])
+        let navigation = try #require(fixture["navigation"] as? [String: String])
+        #expect(SettingsCategory.diagnostics.title == navigation["title"])
+        #expect(SettingsCategory.diagnostics.group?.rawValue == navigation["group"])
+        #expect(SettingsCategory.diagnostics.rawValue == navigation["macosCategory"])
+        #expect(SettingsCategory.diagnostics.group == .tools)
+        #expect(SettingsCategory.diagnostics.rawValue == "Diagnostics", "Existing navigation identifiers remain compatible")
+    }
+
     @Test func emptyQueryMatchesEveryPage() {
         for category in SettingsCategory.allCases {
             #expect(SettingsSearchVocabulary.matches(query: "", category: category))

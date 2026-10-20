@@ -330,3 +330,33 @@ struct DiagnosticsExportServiceTests {
         #expect(!storage.allFilePaths.contains { $0.contains("diagnostics-export") })
     }
 }
+
+private struct SelectedDirectoryLogCollector: ApplicationLogging {
+    func record(level: String, scope: String, message: String, fields: [String: String]) {}
+    func configureDiagnostic(category: String?, enabled: Bool) async {}
+    func clear() async throws {}
+    func collect(query: ApplicationLogQuery) async throws -> ApplicationLogCollection {
+        ApplicationLogCollection(files: [ApplicationLogFile(relativePath: "logs/language/session.log", data: Data("selected log\n".utf8))],
+            content: "selected log", truncated: false,
+            effectiveDirectory: URL(fileURLWithPath: "/selected-log-directory"), diagnosticEnabled: false,
+            droppedEvents: 0, writeFailures: 0)
+    }
+}
+
+extension DiagnosticsExportServiceTests {
+    @Test
+    func preparesNativeSnapshotWithoutReadingTheDefaultLogFile() async {
+        let service = DiagnosticsExportService(
+            logDirectoryProviding: makeLogDirectoryProviding(), fileStorage: InMemoryDiagnosticsFileStorage(),
+            systemDiagnostics: StubSystemDiagnosticsProvider(), archiver: RecordingArchiver(),
+            core: RustCoreBridge(), applicationLogging: SelectedDirectoryLogCollector())
+        await service.prepare()
+        guard case .awaitingConfirmation(let manifest) = service.state else {
+            Issue.record("Expected a snapshot from the configured collector, got \(service.state)")
+            return
+        }
+        #expect(manifest.files.contains { $0.relativePath == "logs/language/session.log" })
+        #expect(!manifest.files.contains { $0.relativePath == "lithe.log" })
+        service.cancel()
+    }
+}

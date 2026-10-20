@@ -925,6 +925,53 @@ package final class BuildSystemService: ObservableObject {
 
     /// Stores one option value, or removes it with nil, for every instance
     /// of the build system in this workspace.
+    // MARK: Plugin functions
+
+    /// The plugin functions the instance's provider process registers now,
+    /// starting the process when none runs. Callers ask the user first, as
+    /// for any request that starts a build tool.
+    package func pluginFunctions(_ entryID: String) async throws -> [String] {
+        let (providers, target) = try functionTarget(entryID)
+        return try await providers.pluginFunctions(of: target)
+    }
+
+    /// Invokes a plugin function in the instance's provider process. The
+    /// function belongs to the instance's plugin, which Core checks again
+    /// against the process owner; cancelling the task cancels the call.
+    package func invokePluginFunction(
+        _ entryID: String,
+        functionID: String,
+        params: ToolingJSONValue,
+        timeout: Duration,
+        progress: @escaping @MainActor @Sendable (PluginFunctionProgress) -> Void
+    ) async throws -> ToolingJSONValue {
+        let (providers, target) = try functionTarget(entryID)
+        return try await providers.invokePluginFunction(
+            functionID, params: params, on: target, timeout: timeout, progress: progress
+        )
+    }
+
+    private func functionTarget(_ entryID: String) throws -> (any BuildProviderRequesting, BuildProviderTarget) {
+        guard let workspaceURL, let entry = entry(entryID) else {
+            throw PluginFunctionFailure(
+                code: "plugin.function.unavailable",
+                message: String(localized: "The build-system instance is no longer detected.")
+            )
+        }
+        guard let providers else { throw BuildSystemServiceError(Self.providerUnsupportedMessage) }
+        return (providers, Self.providerTarget(entry, workspaceURL: workspaceURL))
+    }
+
+    private static func providerTarget(_ entry: BuildSystemEntry, workspaceURL: URL) -> BuildProviderTarget {
+        BuildProviderTarget(
+            pluginID: entry.source.pluginID,
+            manifest: entry.source.manifest,
+            packageURL: entry.source.packageURL,
+            buildSystemID: entry.instance.buildSystemID,
+            workspaceURL: workspaceURL
+        )
+    }
+
     package func setOption(_ entryID: String, optionID: String, value: ToolingJSONValue?) {
         guard let workspaceURL, let entry = entry(entryID) else { return }
         let buildSystemID = entry.instance.buildSystemID
@@ -1208,13 +1255,7 @@ package final class BuildSystemService: ObservableObject {
             if canAppend(owner) {
                 appendOutput("\n▶ " + title + "\n→ " + request.method + "\n", in: outputDirectory(entry))
             }
-            let target = BuildProviderTarget(
-                pluginID: entry.source.pluginID,
-                manifest: entry.source.manifest,
-                packageURL: entry.source.packageURL,
-                buildSystemID: entry.instance.buildSystemID,
-                workspaceURL: workspaceURL
-            )
+            let target = Self.providerTarget(entry, workspaceURL: workspaceURL)
             return .providerResult(try await providers.send(request, to: target, timeout: timeout))
         }
     }

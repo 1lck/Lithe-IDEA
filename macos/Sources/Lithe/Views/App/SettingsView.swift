@@ -544,66 +544,7 @@ struct SettingsView: View {
                 }
             }
 
-            group("Logs") {
-                Text("Log directory")
-                    .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
 
-                HStack(spacing: 10) {
-                    Text(settings.logDirectory.path)
-                        .font(LitheTheme.uiFont(size: 13, weight: .medium))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .textSelection(.enabled)
-                        .help(settings.logDirectory.path)
-
-                    Spacer(minLength: 8)
-
-                    Button {
-                        guard let directory = model.platformUI.chooseDirectory(
-                            title: "Choose Log Directory",
-                            prompt: "Choose"
-                        ) else { return }
-                        settings.setCustomLogDirectory(directory)
-                    } label: {
-                        Image(systemName: "folder")
-                            .font(LitheTheme.uiFont(size: 16, weight: .regular))
-                            .frame(width: 26, height: 26)
-                    }
-                    .buttonStyle(.litheNoPress)
-                    .foregroundStyle(LitheTheme.secondaryText)
-                    .contentShape(Rectangle())
-                    .lithePointer()
-                    .help("Choose Directory")
-                }
-                .padding(.horizontal, 12)
-                .frame(maxWidth: .infinity, minHeight: 46, maxHeight: 46)
-                .litheSettingsControlChrome(background: LitheTheme.settingsTextFieldBackground)
-
-                HStack(spacing: 6) {
-                    Text("Default directory")
-                        .foregroundStyle(LitheTheme.secondaryText)
-                    Text(settings.defaultLogDirectory.path)
-                        .foregroundStyle(LitheTheme.tertiaryText)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .textSelection(.enabled)
-                        .help(settings.defaultLogDirectory.path)
-
-                    Spacer(minLength: 8)
-
-                    if settings.customLogDirectory != nil {
-                        Button {
-                            settings.setCustomLogDirectory(nil)
-                        } label: {
-                            Text("Restore Default")
-                        }
-                        .buttonStyle(.litheNoPress)
-                        .foregroundStyle(LitheTheme.accent)
-                        .lithePointer()
-                    }
-                }
-                .font(LitheTheme.smallFont)
-            }
         }
     }
 
@@ -1457,28 +1398,86 @@ struct SettingsView: View {
     }
 
     private var diagnosticsSettings: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            group("Diagnostic bundle") {
-                Text("Package the redacted application log with an environment and performance snapshot into a zip you can attach to a bug report. Credentials, tokens, and home-directory paths are removed automatically, and you can review the file list before anything is written.")
-                    .font(LitheTheme.smallFont)
-                    .foregroundStyle(LitheTheme.secondaryText)
+        ApplicationLogDiagnosticsPage(feature: model.diagnosticsFeature) {
+            logDirectoryControls
+        }
+    }
+
+    private var logDirectoryControls: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Log directory")
+                .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
+
+            HStack(spacing: 10) {
+                Text(settings.logDirectory.path)
+                    .font(LitheTheme.uiFont(size: 13, weight: .medium))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .textSelection(.enabled)
+                    .help(settings.logDirectory.path)
+
+                Spacer(minLength: 8)
 
                 Button {
-                    model.diagnosticsFeature.presentExport()
+                    guard let directory = model.platformUI.chooseDirectory(
+                        title: "Choose Log Directory",
+                        prompt: "Choose"
+                    ) else { return }
+                    Task {
+                        if await model.diagnosticsFeature.changeLogDirectory(to: directory) {
+                            settings.setCustomLogDirectory(directory)
+                        }
+                    }
                 } label: {
-                    Label("Export Diagnostics Bundle…", systemImage: "stethoscope")
+                    Image(systemName: "folder")
+                        .font(LitheTheme.uiFont(size: 16, weight: .regular))
+                        .frame(width: 26, height: 26)
                 }
-                .buttonStyle(LithePrimaryButtonStyle(
-                    backgroundColor: LitheTheme.settingsPrimaryAction,
-                    restingOpacity: 1
-                ))
+                .buttonStyle(.litheNoPress)
+                .foregroundStyle(LitheTheme.secondaryText)
+                .contentShape(Rectangle())
+                .lithePointer()
+                .help("Choose Directory")
+                .disabled(model.diagnosticsFeature.isBusy)
             }
-        }
-        .sheet(isPresented: Binding(
-            get: { model.diagnosticsFeature.isPresented },
-            set: { model.diagnosticsFeature.isPresented = $0 }
-        )) {
-            DiagnosticsExportSheet(feature: model.diagnosticsFeature)
+            .padding(.horizontal, 12)
+            .frame(maxWidth: .infinity, minHeight: 46, maxHeight: 46)
+            .litheSettingsControlChrome(background: LitheTheme.settingsTextFieldBackground)
+
+            HStack(spacing: 6) {
+                Text("Default directory")
+                    .foregroundStyle(LitheTheme.secondaryText)
+                Text(settings.defaultLogDirectory.path)
+                    .foregroundStyle(LitheTheme.tertiaryText)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .textSelection(.enabled)
+                    .help(settings.defaultLogDirectory.path)
+
+                Spacer(minLength: 8)
+
+                if settings.customLogDirectory != nil {
+                    Button {
+                        Task {
+                            if await model.diagnosticsFeature.changeLogDirectory(to: settings.defaultLogDirectory) {
+                                settings.setCustomLogDirectory(nil)
+                            }
+                        }
+                    } label: {
+                        Text("Restore Default")
+                    }
+                    .buttonStyle(.litheNoPress)
+                    .foregroundStyle(LitheTheme.accent)
+                    .lithePointer()
+                    .disabled(model.diagnosticsFeature.isBusy)
+                }
+            }
+            .font(LitheTheme.smallFont)
+            HStack {
+                Button("Open Log Directory") { model.platformUI.open(settings.logDirectory) }
+                Button("Copy Path") { model.platformUI.copyToClipboard(settings.logDirectory.path) }
+            }
+            .buttonStyle(LitheSecondaryButtonStyle())
         }
     }
 
