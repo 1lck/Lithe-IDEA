@@ -41,7 +41,7 @@ Core 再检查一次：`lsp.functionRequest` 里的 `pluginID` 必须和会话�
 
 ### 3. 每次调用都要过同意和上限
 
-- **同意**：每次 `functions.invoke` 都走宿主现有的进程启动同意框，和 `build.*` 是同一套工作区信任规则。`functions.list` 会启动 Provider，所以也要先同意。
+- **同意**：`functions.list` 和每次 `functions.invoke` 都要经过宿主现有的进程启动同意（`PluginWebPages.confirmProcessStart`），和 `build.*` 是同一套工作区信任规则。同一插件在同一工作区同意过一次后，本次打开项目期间不再弹框；关闭并重新打开项目后会重新询问。
 - **上限**：一个页面最多同时有 16 个调用在跑，同一个 `call` ID 不能重复使用。
 - **页面关闭**：取消该页面所有正在跑的调用。
 
@@ -108,7 +108,7 @@ if pluginID == "dev.lithe.maven" { 启动带函数的会话 }   // 宿主按插�
 - **收益**：插件能在自己的网页里调用自己后端的私有动作，带进度、取消和插件错误码，宿主里没有插件特例。
 - **收益**：协议没有新版本，旧插件包和旧后端都不受影响。
 - **代价**：只有 macOS，并且只有“构建 Provider 由插件自己的进程实现”时才有函数。纯声明式插件和共享语言服务器都没有函数。
-- **代价**：每次调用都会弹同意框（与 `build.*` 一致）。频繁调用的插件体验会差一些，以后可以随工作区信任设计统一的记忆规则。
+- **代价**：同意只在一次项目会话内记住（与 `build.*` 一致），每次重新打开项目都要再确认一次。以后可以随工作区信任设计统一的记忆规则。
 - **代价**：插件后端还不能请宿主做任何事。
 
 ## 验证
@@ -122,6 +122,14 @@ if pluginID == "dev.lithe.maven" { 启动带函数的会话 }   // 宿主按插�
   - 取消会调用 Core 的 `cancelLanguageServerOperation`。
   - 停用插件会停止 Provider。
 - `./scripts/verify-runtime-bundle-immutability.sh`：确认没有新增写入 bundle 的路径。
+- macOS 原生验收（2026-10-20，PR #1366 合并 PR #1365 后的 debug 应用）：
+  - 环境：`sdk/node/examples/sample-build` 加一个只用于验收的网页窗口，作为开发包从磁盘安装；另装一个带自己构建系统和网页窗口的验收插件；示例工作区含成功、失败（退出码 3）和长时间运行三个项目。页面把每一步结果写进 `ui.setState`，验收读取 Application Support 中的状态文件核对。
+  - `functions.list` 返回 `snapshot.read`、`workspace.build`；一次成功构建后再列出，多了运行时注册的 `snapshot.clear`。
+  - `functions.invoke` 带 `call` 时，页面依次收到 `Preparing`、`Building app`、`Done` 三个 `functions.progress`，结果作为 `{ value }` 到达；失败项目返回 `plugin.function.failed`，并带上插件自己的 `pluginErrorCode: sample.buildFailed`。
+  - `functions.cancel` 后调用以 `requestCancelled` 结束；构建子进程在取消后立刻退出（采样中最后一次出现早于取消约 0.1 秒）。对已结束的 `call` 再取消返回 `{}`。未注册的函数返回 `plugin.function.unknown`，`params` 不是对象返回 `plugin.web.invalidRequest`。
+  - 另一个插件的页面用 `sample:.` 调用 `functions.list` / `functions.invoke` 都得到 `plugin.web.forbidden`，并且在弹同意框之前就被拒绝；它调用自己实例上的 `snapshot.read` 得到 `plugin.function.unknown`，说明函数按进程隔离。
+  - 进程清理：调用进行中关闭项目、或在设置里停用插件，Provider 及其构建子进程都会退出（`ps`/`pgrep` 确认）；从磁盘替换插件包时旧 Provider 也会停止；退出应用后没有任何 Lithe 或插件进程残留。重启应用后 `snapshot.read` 返回上次会话的快照。
+  - 验收发现示例的路径检查在宿主 `rootUri` 带尾部斜杠时拒绝所有路径（macOS 传的是目录 URL 的 `absoluteString`），所有构建都报 `sample.config`。已在示例里用 `path.resolve` 规范化根目录，并让 `rust/lithe-core/tests/plugin_sdk_node.rs` 用带尾部斜杠的 `rootUri`；未修复时该测试失败，修复后通过。
 - `./scripts/verify-platform-feature-matrix.sh`：`plugin-functions` 的 macOS 证据已更新。
 
 ## 适用范围
