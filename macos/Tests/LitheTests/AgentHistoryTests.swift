@@ -265,6 +265,69 @@ struct AgentHistoryTests {
     }
 
     @Test
+    func completedTurnsInvalidateFreshActiveHistoryWithoutRefreshingArchives() async throws {
+        let clock = HistoryClock()
+        try await HistoryFixture(now: { clock.instant }).run(archived: true) { fixture in
+            try fixture.emit(["kind": "archivedSessions", "token": fixture.transport.connection.commands[0]["token"] as Any,
+                              "sessions": [], "complete": true])
+            fixture.feature.selectSession("session-b")
+            let load = try #require(fixture.transport.connection.commands.last)
+            try fixture.emit(["kind": "sessionLoaded", "sessionId": "session-b", "token": load["token"] as Any])
+            let cachedCount = fixture.transport.connection.commands.count
+            fixture.feature.refreshSessionsIfNeeded()
+            #expect(fixture.transport.connection.commands.count == cachedCount, "Viewing history preserves freshness")
+
+            try fixture.feature.send("A new turn")
+            // Finishing a background conversation must invalidate the same connection's list.
+            fixture.feature.selectSession("session-a")
+            clock.instant = clock.instant.advanced(by: .seconds(1))
+            try fixture.emit(["kind": "turnFinished", "sessionId": "session-b", "stopReason": "end_turn"])
+            let beforeRefresh = fixture.transport.connection.commands.count
+            fixture.feature.refreshSessionsIfNeeded()
+            let requests = Array(fixture.transport.connection.commands.dropFirst(beforeRefresh))
+            #expect(requests.map { $0["kind"] as? String } == ["listSessions"])
+            let token = try #require(requests.first?["token"] as? String)
+            try fixture.emit(["kind": "sessions", "token": token,
+                "sessions": [["sessionId": "session-a", "updatedAt": "2026-09-26T10:00:00Z"],
+                             ["sessionId": "session-b", "updatedAt": "2026-09-27T10:00:00Z"]]])
+            let rows = AgentHistoryPresentation.sessions(fixture.feature.sessions, metadata: [:], query: "", filter: .all)
+            #expect(rows.map(\.id) == ["session-b", "session-a"])
+            #expect(rows.first?.updatedAt == "2026-09-27T10:00:00Z")
+            #expect(fixture.feature.selectedSessionID == "session-a")
+            let refreshedCount = fixture.transport.connection.commands.count
+            fixture.feature.refreshSessionsIfNeeded()
+            #expect(fixture.transport.connection.commands.count == refreshedCount, "The post-turn snapshot is reusable")
+        }
+    }
+
+    @Test(arguments: [false, true])
+    func historyScanOverlappingATurnDoesNotRestoreFreshness(listFinishesAfterTurn: Bool) async throws {
+        let clock = HistoryClock()
+        try await HistoryFixture(now: { clock.instant }).run { fixture in
+            fixture.feature.selectSession("session-a")
+            let load = try #require(fixture.transport.connection.commands.last)
+            try fixture.emit(["kind": "sessionLoaded", "sessionId": "session-a", "token": load["token"] as Any])
+            try fixture.feature.send("A new turn")
+            fixture.feature.refreshSessions()
+            let list = try #require(fixture.transport.connection.commands.last)
+            let snapshot: [String: Any] = ["kind": "sessions", "token": list["token"] as Any,
+                                           "sessions": [["sessionId": "session-a"]]]
+            if !listFinishesAfterTurn { try fixture.emit(snapshot) }
+            try fixture.emit(["kind": "turnFinished", "sessionId": "session-a", "stopReason": "end_turn"])
+            let count = fixture.transport.connection.commands.count
+            if listFinishesAfterTurn {
+                fixture.feature.refreshSessionsIfNeeded()
+                #expect(fixture.transport.connection.commands.count == count, "The pending scan remains coalesced")
+                try fixture.emit(snapshot)
+            }
+            fixture.feature.refreshSessionsIfNeeded()
+            #expect(fixture.transport.connection.commands.count == count + 1,
+                    "A snapshot that may precede the completed turn cannot renew freshness")
+            #expect(fixture.transport.connection.commands.last?["kind"] as? String == "listSessions")
+        }
+    }
+
+    @Test
     func archiveFailureRetriesIndependentlyOfTheFreshActiveSnapshot() async throws {
         try await HistoryFixture().run(archived: true) { fixture in
             let token = try #require(fixture.transport.connection.commands.first?["token"] as? String)

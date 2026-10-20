@@ -113,6 +113,8 @@ public final class AgentConnectionModel: ObservableObject {
     private var unpromptedSessionIDs: Set<String> = []
     private var historyContinuations: [String: CheckedContinuation<[AgentConversationMessage], Error>] = [:]
     private var historyRefreshToken: String?
+    /// A scan already in flight when a turn ends may still contain pre-turn activity.
+    private var historyRefreshInvalidated = false
     private var archivedRefreshToken: String?
     /// Successful snapshots are reusable within this connection, including empty lists.
     private static let historyFreshness: Duration = .seconds(30)
@@ -233,6 +235,7 @@ public final class AgentConnectionModel: ObservableObject {
            now() - refreshedAt < Self.historyFreshness { return }
         let token = makeToken()
         historyRefreshToken = token
+        historyRefreshInvalidated = false
         isRefreshingSessions = true
         sessionsRefreshedAt = nil
         historyError = nil
@@ -649,7 +652,7 @@ public final class AgentConnectionModel: ObservableObject {
             mergeSessions(event["sessions"] as? [[String: Any]] ?? [])
             historyRefreshToken = nil
             isRefreshingSessions = false
-            sessionsRefreshedAt = now()
+            sessionsRefreshedAt = historyRefreshInvalidated ? nil : now()
             reconcileArchivedSessions()
         case "archivedSessions":
             if let token, supersededListTokens.remove(token) != nil { return }
@@ -767,6 +770,8 @@ public final class AgentConnectionModel: ObservableObject {
         case "turnFinished":
             refreshQuota()
             guard let sessionID else { return }
+            sessionsRefreshedAt = nil
+            historyRefreshInvalidated = true
             if event["stopReason"] as? String == "cancelled" { cancelContinuation(in: sessionID) }
             flushPendingText()
             conversations[sessionID]?.finishTurn(at: now(), usage: AgentTurnUsage.parse(event["usage"]))
@@ -1353,6 +1358,7 @@ public final class AgentConnectionModel: ObservableObject {
         continuations.removeAll()
         isRefreshingSessions = false
         historyRefreshToken = nil
+        historyRefreshInvalidated = false
         sessionsRefreshedAt = nil
         archivedSessionsRefreshedAt = nil
         // Archived rows belong to this connection's Agent and workspace; never
