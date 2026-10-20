@@ -152,6 +152,8 @@ Lithe 的插件逻辑跑在插件自己的进程里。声明和规范格式解�
 
 - **协商与请求在 Core 的 LSP 客户端里。** `initialize` 在 `capabilities.experimental.litheBuild` 下发 `{"versions": [1]}`（`lsp/interface/build_provider.rs`），Provider 回答 `{"version": 1}` 后会话才记录 `litheBuild` 能力。宿主用 `lsp.buildRequest {sessionId, method, params, timeoutMilliseconds}` 发请求，Core 只接受协商出的版本里的两个方法；没有协商成功的会话直接返回失败，所以共享写法里不认识这套协议的语言服务器不会收到 `lithe/build/*`。结果和其他 LSP 操作一样经 `requestCompleted` 回到宿主。
 
+同一个会话还可以协商 `litheFunctions`，提供插件私有的函数；它与 `litheBuild` 互不依赖，也不能代替类型化的领域方法，见[插件函数契约与能力方向](2026-10-20-plugin-function-contract.md)。
+
 还没有实现：`lithe/build/execute`（Provider 自己执行任务并流式汇报进度和测试事件），见提案第 4 节。测试结果目前仍来自声明的报告解码器或 `hostIntegration`，没有 `provider` 来源。
 
 ### 10. macOS 宿主适配层
