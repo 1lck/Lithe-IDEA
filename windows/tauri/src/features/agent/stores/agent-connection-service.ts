@@ -26,6 +26,10 @@ import { useAgentSurfaceStore } from "./agent-surface.store";
 let model: AgentConnectionModel | null = null;
 let workspacePath: string | null = null;
 let dataDirectory: Promise<string> | null = null;
+/** Serializes switches so two panels cannot leave the shared connection half-owned. */
+let requestQueue: Promise<void> = Promise.resolve();
+/** A newer activation supersedes every older start that has not connected yet. */
+let requestGeneration = 0;
 
 function translator() {
   return createTranslator(useSettingsStore.getState().settings.displayLanguage);
@@ -72,6 +76,25 @@ function launchKey(workspace: string, settings: AgentPanelSettings): string {
 
 let activeLaunchKey: string | null = null;
 
+/**
+ * Whether the shared connection currently belongs to this project and launch
+ * configuration. Panels use this before selecting a session, so a cached
+ * workspace that is becoming active never routes its session through another
+ * project's process.
+ */
+export function agentConnectionMatches(
+  workspace: string | null,
+  settings: AgentPanelSettings,
+): boolean {
+  return (
+    workspace !== null &&
+    model !== null &&
+    workspacePath === workspace &&
+    activeLaunchKey === launchKey(workspace, settings) &&
+    model.hasActiveConnection
+  );
+}
+
 /** Sessions kept per Agent, so switching back shows the same conversation. */
 const keptSnapshots = new Map<string, AgentConnectionSnapshot>();
 
@@ -83,14 +106,30 @@ export async function openAgentConnection(
   nextWorkspacePath: string,
   settings: AgentPanelSettings,
 ): Promise<void> {
-  const connection = agentConnection();
+  const generation = ++requestGeneration;
   const key = launchKey(nextWorkspacePath, settings);
+  const operation = requestQueue.then(async () => {
+    if (generation !== requestGeneration) return;
+    await openAgentConnectionNow(generation, key, nextWorkspacePath, settings);
+  });
+  requestQueue = operation.catch(() => undefined);
+  return operation;
+}
+
+async function openAgentConnectionNow(
+  generation: number,
+  key: string,
+  nextWorkspacePath: string,
+  settings: AgentPanelSettings,
+): Promise<void> {
+  const connection = agentConnection();
   if (workspacePath !== nextWorkspacePath) {
     // A different project starts from nothing; kept Agent sessions belong to
     // the previous workspace and must not leak into this one. Placement state
     // is keyed by session but lives window-wide, so clear it before reconnecting.
     useAgentSurfaceStore.getState().actions.reset();
     await connection.stop();
+    if (generation !== requestGeneration) return;
     connection.reset();
     keptSnapshots.clear();
     workspacePath = nextWorkspacePath;
@@ -98,6 +137,7 @@ export async function openAgentConnection(
   } else if (activeLaunchKey !== null && activeLaunchKey !== key) {
     keptSnapshots.set(activeLaunchKey, connection.captureSnapshot());
     await connection.stop();
+    if (generation !== requestGeneration) return;
     connection.reset();
     const kept = keptSnapshots.get(key);
     if (kept !== undefined) connection.restoreSnapshot(kept);
@@ -110,11 +150,15 @@ export async function openAgentConnection(
       dataDirectory: await agentDataDirectory(),
       settings,
     });
+    if (generation !== requestGeneration) return;
     await connection.connect(launch);
+    if (generation !== requestGeneration) return;
     activeLaunchKey = key;
   } catch (error) {
     if (error instanceof AgentLaunchError) {
-      connection.reportConnectionFailure(translator()(LAUNCH_FAILURE_KEYS[error.failure]));
+      if (generation === requestGeneration) {
+        connection.reportConnectionFailure(translator()(LAUNCH_FAILURE_KEYS[error.failure]));
+      }
       return;
     }
     throw error;
@@ -123,6 +167,8 @@ export async function openAgentConnection(
 
 /** Stop the agent and wait for its process tree to exit. */
 export async function closeAgentConnection(): Promise<void> {
+  requestGeneration += 1;
+  await requestQueue.catch(() => undefined);
   if (model === null) return;
   activeLaunchKey = null;
   await model.stop();
