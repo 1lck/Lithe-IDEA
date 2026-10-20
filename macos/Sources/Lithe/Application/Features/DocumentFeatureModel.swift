@@ -128,10 +128,10 @@ final class DocumentFeatureModel: ObservableObject {
     }
 
     /// Clean previews stay outside the tab collection until opened or edited.
-    func previewDocument(at url: URL, owner: PreviewOwner = .unscoped) async -> EditorDocument? {
+    /// A caller-supplied request ID allows releasing only that acquisition, including pending loads.
+    func previewDocument(at url: URL, owner: PreviewOwner = .unscoped, requestID: UUID = UUID()) async -> EditorDocument? {
         let path = url.standardizedFileURL.path
         if let document = openDocuments.first(where: { $0.url.standardizedFileURL.path == path }) { return document }
-        let requestID = UUID()
         previewOwners[path, default: [:]][owner] = requestID
         previewDiscardIDs[path] = nil
         await openFileAsync(url, isReadOnly: false, displayPath: nil, activateWhenReady: false, asPreview: true)
@@ -140,7 +140,7 @@ final class DocumentFeatureModel: ObservableObject {
             return nil
         }
         if let document = openDocuments.first(where: { $0.url.standardizedFileURL.path == path }) { return document }
-        guard previewOwners[path]?[owner] != nil else { return nil }
+        guard previewOwners[path]?[owner] == requestID else { return nil }
         guard let document = previewDocuments[path] else {
             if previewOwners[path]?[owner] == requestID { releasePreview(at: path, owner: owner) }
             return nil
@@ -167,6 +167,12 @@ final class DocumentFeatureModel: ObservableObject {
 
     func discardPreviewDocuments(owner: PreviewOwner = .unscoped) {
         for path in Array(previewOwners.keys) { releasePreview(at: path, owner: owner) }
+    }
+
+    func releasePreviewDocument(at url: URL, owner: PreviewOwner, requestID: UUID) {
+        let path = url.standardizedFileURL.path
+        guard previewOwners[path]?[owner] == requestID else { return }
+        releasePreview(at: path, owner: owner)
     }
 
     private func releasePreview(at path: String, owner: PreviewOwner) {

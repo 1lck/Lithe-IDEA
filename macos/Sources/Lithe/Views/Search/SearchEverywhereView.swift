@@ -96,7 +96,8 @@ struct SearchEverywhereView: View {
     let relativePath: (URL) -> String
     let moduleLabel: (URL) -> String
     var actionIcon: (LitheAction) -> AnyView? = { _ in nil }
-    var loadPreviewDocument: (URL) async -> EditorDocument? = { _ in nil }
+    var loadPreviewDocument: (URL, UUID) async -> EditorDocument? = { _, _ in nil }
+    var releasePreviewDocument: (URL, UUID) -> Void = { _, _ in }
     var makePreviewEditor: SourcePreviewEditorBuilder = SourcePreviewEditorContent.monaco
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.locale) private var locale
@@ -112,7 +113,7 @@ struct SearchEverywhereView: View {
                     actionMatches: actionMatches, search: search, dismiss: dismiss,
                     openResult: openResult, performAction: performAction, revealInFinder: revealInFinder,
                     copyPath: copyPath, relativePath: relativePath, moduleLabel: moduleLabel,
-                    actionIcon: actionIcon, loadPreviewDocument: loadPreviewDocument,
+                    actionIcon: actionIcon, loadPreviewDocument: loadPreviewDocument, releasePreviewDocument: releasePreviewDocument,
                     makePreviewEditor: makePreviewEditor, availableSize: geometry.size)
             }
         }
@@ -134,7 +135,8 @@ private struct SearchEverywhereContent: View {
     let relativePath: (URL) -> String
     let moduleLabel: (URL) -> String
     var actionIcon: (LitheAction) -> AnyView? = { _ in nil }
-    var loadPreviewDocument: (URL) async -> EditorDocument? = { _ in nil }
+    var loadPreviewDocument: (URL, UUID) async -> EditorDocument? = { _, _ in nil }
+    var releasePreviewDocument: (URL, UUID) -> Void = { _, _ in }
     var makePreviewEditor: SourcePreviewEditorBuilder = SourcePreviewEditorContent.monaco
     let availableSize: CGSize
     @Environment(\.locale) private var locale
@@ -399,7 +401,7 @@ private struct SearchEverywhereContent: View {
                 } flexible: {
                     if visibleItems.indices.contains(selectedIndex), case .result(let result) = visibleItems[selectedIndex] {
                         SearchEverywhereSourcePreview(result: result, query: query,
-                            options: scope == .text ? searchOptions : .default, loadDocument: loadPreviewDocument, makeEditor: makePreviewEditor)
+                            options: scope == .text ? searchOptions : .default, loadDocument: loadPreviewDocument, releaseDocument: releasePreviewDocument, makeEditor: makePreviewEditor)
                     } else {
                         placeholder("Select a file to preview")
                     }
@@ -875,11 +877,13 @@ struct SearchEverywhereSourcePreview: View {
     let result: FileSearchResult
     let query: String
     var options: ProjectSearchOptions = .default
-    let loadDocument: (URL) async -> EditorDocument?
+    let loadDocument: (URL, UUID) async -> EditorDocument?
+    var releaseDocument: (URL, UUID) -> Void = { _, _ in }
     var makeEditor: SourcePreviewEditorBuilder = SourcePreviewEditorContent.monaco
     @State private var document: EditorDocument?
     @State private var isLoading = true
     @State private var presentationID = UUID()
+    @State private var previewRequest: (url: URL, id: UUID)?
 
     var body: some View {
         Group {
@@ -897,12 +901,25 @@ struct SearchEverywhereSourcePreview: View {
         .clipped()
         .accessibilityLabel("Read-only file preview")
         .task(id: result.url) {
-            document = nil
+            releaseCurrentPreview()
+            let url = result.url, requestID = UUID()
+            previewRequest = (url, requestID)
             isLoading = true
-            let loaded = await loadDocument(result.url)
-            guard !Task.isCancelled else { return }
+            let loaded = await loadDocument(url, requestID)
+            guard !Task.isCancelled, previewRequest?.id == requestID else {
+                releaseDocument(url, requestID)
+                return
+            }
             document = loaded
             isLoading = false
         }
+        .onDisappear { releaseCurrentPreview() }
+    }
+
+    private func releaseCurrentPreview() {
+        document = nil
+        guard let request = previewRequest else { return }
+        previewRequest = nil
+        releaseDocument(request.url, request.id)
     }
 }

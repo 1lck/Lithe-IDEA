@@ -1704,6 +1704,11 @@ need separate buckets may also provide `maxFileResults` and
 `maxContentResults`; each category is capped independently and the total cap
 still applies.
 
+Search index enumeration skips inaccessible or vanished descendant directories,
+logging workspace-relative diagnostic paths without discarding unrelated results.
+Workspace-root failures, cancellation, deadlines, and other errors still propagate.
+This applies to both the content and file-name indexes.
+
 macOS Search Everywhere funnel exclusions reuse `hiddenFilePatterns` only on
 Search Everywhere requests. They are remembered across popup openings, have no
 General Settings entry, and have a separately remembered enable toggle. Editing

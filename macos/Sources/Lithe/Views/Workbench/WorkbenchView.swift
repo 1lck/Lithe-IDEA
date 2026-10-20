@@ -562,7 +562,8 @@ struct WorkbenchView: View {
                               let contribution = model.workbenchContributions.first(where: { $0.id == id }) else { return nil }
                         return moduleUIRegistry.icon(for: contribution, role: .action)
                     },
-                    loadPreviewDocument: { await model.documentFeature.previewDocument(at: $0, owner: .searchEverywhere) }
+                    loadPreviewDocument: { await model.documentFeature.previewDocument(at: $0, owner: .searchEverywhere, requestID: $1) },
+                    releasePreviewDocument: { model.documentFeature.releasePreviewDocument(at: $0, owner: .searchEverywhere, requestID: $1) }
                 )
                     .transition(.opacity)
             }

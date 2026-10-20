@@ -416,7 +416,26 @@ fn collect_files(
     files: &mut Vec<PathBuf>,
 ) -> Result<(), CoreError> {
     crate::protocol::cancellation::check()?;
-    let children = visible_children(path, root, rules)?.children;
+    let children = match visible_children(path, root, rules) {
+        Ok(listing) => listing.children,
+        Err(error)
+            if path != root
+                && matches!(
+                    error.code,
+                    ErrorCode::PermissionDenied | ErrorCode::WorkspaceNotFound
+                ) =>
+        {
+            // A transient/inaccessible descendant must not hide unrelated workspace results.
+            // Log only a workspace-relative path; root errors and cancellation still propagate.
+            eprintln!(
+                "Search index skipped directory {:?}: {}",
+                relative_path(path, root),
+                error.message
+            );
+            return Ok(());
+        }
+        Err(error) => return Err(error),
+    };
     for (child, is_directory) in children {
         if is_directory {
             collect_files(root, &child, rules, files)?;
@@ -488,6 +507,100 @@ pub(crate) fn make_symbol_match(indexed: &IndexedSymbol, path: String) -> Search
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn missing_descendants_are_skipped_but_root_and_cancellation_errors_propagate() {
+        let root = crate::tests::support::temporary_root("search-missing-descendant");
+        let rules = VisibilityRules {
+            hidden_directories: vec![],
+            hidden_file_patterns: vec![],
+        };
+        let mut paths = Vec::new();
+        assert!(collect_files(&root, &root.join("vanished"), &rules, &mut paths).is_ok());
+        assert!(paths.is_empty());
+        assert!(matches!(
+            collect_files(&root, &root, &rules, &mut paths)
+                .unwrap_err()
+                .code,
+            ErrorCode::WorkspaceNotFound
+        ));
+        let operation_id = root.to_string_lossy().into_owned();
+        let _scope = crate::protocol::cancellation::Scope::begin(Some(operation_id.clone()), None);
+        assert!(crate::protocol::cancellation::cancel(&operation_id));
+        assert!(matches!(
+            collect_files(&root, &root.join("vanished"), &rules, &mut paths)
+                .unwrap_err()
+                .code,
+            ErrorCode::Cancelled
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn inaccessible_generated_subtree_preserves_source_and_text_results() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = crate::tests::support::temporary_root("search-unreadable-generated");
+        let blocked = root.join(".build/blocked");
+        fs::create_dir_all(&blocked).unwrap();
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(
+            root.join("src/Name.java"),
+            "class Name {\n    void useName() {}\n}",
+        )
+        .unwrap();
+        struct Cleanup(PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = fs::set_permissions(
+                    self.0.join(".build/blocked"),
+                    fs::Permissions::from_mode(0o755),
+                );
+                invalidate_root(&self.0);
+                let _ = fs::remove_dir_all(&self.0);
+            }
+        }
+        let _cleanup = Cleanup(root.clone());
+        fs::set_permissions(&blocked, fs::Permissions::from_mode(0)).unwrap();
+        if fs::read_dir(&blocked).is_ok() {
+            // Privileged test runners bypass Unix mode bits; do not claim a permission regression ran.
+            eprintln!("Skipping permission fixture: runner can enumerate mode-000 directories");
+            return;
+        }
+        for text_only in [false, true] {
+            invalidate_root(&root);
+            let request = serde_json::from_value(serde_json::json!({
+                "root": root, "query": "Name", "includeGeneratedFileNames": true,
+                "maxResults": 100, "maxFileResults": if text_only { 0 } else { 100 },
+                "maxSymbolResults": if text_only { 0 } else { 100 }
+            }))
+            .unwrap();
+            let response = super::super::files::search_everywhere(request).unwrap();
+            for kind in if text_only {
+                vec!["content"]
+            } else {
+                vec!["file", "type", "symbol", "content"]
+            } {
+                assert!(
+                    response
+                        .matches
+                        .iter()
+                        .any(|item| item.path == "src/Name.java" && item.kind == kind),
+                    "Missing {kind} result after encountering an inaccessible generated directory"
+                );
+            }
+        }
+        let rules = VisibilityRules {
+            hidden_directories: vec![],
+            hidden_file_patterns: vec![],
+        };
+        let mut paths = Vec::new();
+        assert!(matches!(
+            collect_files(&blocked, &blocked, &rules, &mut paths)
+                .unwrap_err()
+                .code,
+            ErrorCode::PermissionDenied
+        ));
+    }
 
     #[test]
     fn directory_exclusions_prune_enumeration_and_incremental_updates() {

@@ -71,6 +71,93 @@ struct SearchEverywhereBehaviorTests {
         }
     }
 
+    @Test(arguments: ["clean", "dirty", "shared"])
+    func navigatingAndHidingSourcePreviewReleasesOnlyItsCurrentRequest(ownership: String) async throws {
+        let suite = "lithe-search-navigation-" + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = MacUserDefaultsStore(defaults: defaults)
+        let settings = AppSettings(store: store)
+        let container = MacServiceContainer(store: store, settings: settings, moduleLaunchMode: .safeMode)
+        defer { container.moduleLifecycleCoordinator.stop() }
+        let model = AppModel(settings: settings, services: container.services)
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(suite)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        model.documentFeature.configure(workspaceURLProvider: { root }, autoSaveEnabledProvider: { false },
+            autoSaveDelayProvider: { 0 }, notify: { _ in }, onDocumentOpened: { _ in },
+            onDocumentChanged: { _ in }, onDocumentClosed: { _ in }, onRecordSave: { _, _ in },
+            onRecordDiscard: { _ in }, onRecordExternalChanges: { _ in },
+            onDocumentCollectionChanged: {}, onProjectCloseReady: {})
+        let host = NSHostingView(rootView: AnyView(EmptyView()))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 250),
+            styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        defer { window.contentView = nil; window.close() }
+        try await WorkbenchTestScope.withCleanup({ await model.shutdownProjectSession() }) { scope in
+            var rendered: EditorDocument?
+            var first: EditorDocument?
+            var firstRequest: UUID?
+            @MainActor func waitUntil(_ name: String, _ condition: @MainActor () -> Bool) async throws {
+                let clock = ContinuousClock(), deadline = ContinuousClock().now.advanced(by: .seconds(2))
+                while !condition(), clock.now < deadline {
+                    host.layoutSubtreeIfNeeded()
+                    await Task.yield()
+                }
+                guard condition() else { throw WorkbenchTestScope.DeadlineExceeded(operation: name) }
+            }
+            for name in ["A", "B", "C"] {
+                let url = root.appendingPathComponent(name + ".txt")
+                try "initial".write(to: url, atomically: true, encoding: .utf8)
+                rendered = nil
+                host.rootView = AnyView(SearchEverywhereSourcePreview(
+                    result: .init(url: url, line: nil, preview: "", kind: .file), query: "initial",
+                    loadDocument: { url, requestID in
+                        if name == "A" { firstRequest = requestID }
+                        return await model.documentFeature.previewDocument(at: url, owner: .searchEverywhere, requestID: requestID)
+                    }, releaseDocument: { url, requestID in
+                        model.documentFeature.releasePreviewDocument(at: url, owner: .searchEverywhere, requestID: requestID)
+                    }, makeEditor: { doc, _ in
+                        rendered = doc
+                        return AnyView(Text(doc.text))
+                    }).frame(width: 500, height: 250))
+                try await waitUntil("render selected preview") { rendered?.url == url }
+                if name == "A" {
+                    first = rendered
+                    if ownership == "dirty" { first?.applyLiveEditorText("unsaved") }
+                    if ownership == "shared" {
+                        _ = await model.documentFeature.previewDocument(at: url, owner: .problems)
+                    }
+                }
+                let expected = ownership == "clean" || name == "A" ? 1 : 2
+                try await waitUntil("release previous preview") { model.documentFeature.editorDocuments.count == expected }
+            }
+            // Removing the preview models collapse, empty results and search-window dismissal.
+            host.rootView = AnyView(EmptyView())
+            try await waitUntil("release hidden preview") {
+                model.documentFeature.editorDocuments.count == (ownership == "clean" ? 0 : 1)
+            }
+            if ownership == "dirty" {
+                #expect(model.documentFeature.openDocuments.first === first)
+                #expect(first?.text == "unsaved")
+            }
+            if ownership == "shared" {
+                #expect(model.documentFeature.editorDocuments.first === first)
+                model.documentFeature.discardPreviewDocuments(owner: .problems)
+                #expect(model.documentFeature.editorDocuments.isEmpty)
+            }
+            // A late old release of the same path cannot discard a newly acquired preview.
+            let url = root.appendingPathComponent("A.txt"), currentID = UUID()
+            _ = await model.documentFeature.previewDocument(at: url, owner: .searchEverywhere, requestID: currentID)
+            model.documentFeature.releasePreviewDocument(at: url, owner: .searchEverywhere,
+                requestID: try #require(firstRequest))
+            #expect(model.documentFeature.editorDocuments.contains { $0.url == url })
+            model.documentFeature.releasePreviewDocument(at: url, owner: .searchEverywhere, requestID: currentID)
+            #expect(model.documentFeature.editorDocuments.isEmpty == (ownership != "dirty"))
+        }
+    }
+
     @Test(.enabled(if: ProcessInfo.processInfo.environment["LITHE_RUN_GIT_EXECUTION_INTEGRATION"] == "1"))
     func searchUsesSelectedGitWithoutAnInteractiveConsoleOperation() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-search-git-" + UUID().uuidString)
@@ -420,7 +507,7 @@ struct SearchEverywhereBehaviorTests {
             search: { _, _ in }, dismiss: {}, openResult: { _ in Issue.record("A single click must only preview") },
             performAction: { _ in }, revealInFinder: { _ in }, copyPath: { _, _ in },
             relativePath: { $0.lastPathComponent }, moduleLabel: { _ in "" },
-            loadPreviewDocument: { EditorDocument(url: $0, text: "preview", modificationDate: nil) },
+            loadPreviewDocument: { url, _ in EditorDocument(url: url, text: "preview", modificationDate: nil) },
             makePreviewEditor: { document, _ in
                 previewedURL = document.url
                 return AnyView(TextField("Preview fixture", text: .constant(document.text)))
@@ -751,7 +838,7 @@ struct SearchEverywhereBehaviorTests {
         var rendered: MonacoPreviewConfiguration?
         let view = SearchEverywhereSourcePreview(result: result, query: "name",
             options: .init(caseSensitive: customOptions, wholeWords: customOptions, regularExpression: customOptions),
-            loadDocument: { _ in document },
+            loadDocument: { _, _ in document },
             makeEditor: { doc, configuration in
                 rendered = configuration
                 return AnyView(Text(doc.text))
