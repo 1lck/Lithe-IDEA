@@ -14,6 +14,7 @@ import {
   interruptPendingTools,
   isQuotaStale,
   mostUsedQuotaWindow,
+  parseAvailableCommands,
   parseContextUsage,
   parsePlan,
   parseSessionConfigOptions,
@@ -28,6 +29,38 @@ import {
 } from "./agent.types";
 
 const quotaSnapshot = fixture.events.quota.snapshot;
+
+describe("Available commands", () => {
+  test("reads the commands the Agent advertised for the session", () => {
+    expect(parseAvailableCommands(fixture.events.availableCommands.update)).toEqual([
+      {
+        name: "review",
+        description: "Review the current changes",
+        hint: "optional focus",
+      },
+      {
+        name: "compact",
+        description: "Summarize the conversation to free context",
+        hint: null,
+      },
+    ]);
+  });
+
+  test("keeps the first definition, drops nameless entries and ignores malformed updates", () => {
+    const commands = parseAvailableCommands({
+      availableCommands: [
+        { name: "review", description: "first" },
+        { name: "review", description: "second" },
+        { description: "nameless" },
+        "not-a-command",
+        { name: "", description: "empty" },
+      ],
+    });
+    expect(commands).toEqual([{ name: "review", description: "first", hint: null }]);
+    expect(parseAvailableCommands({ availableCommands: "nope" })).toBeNull();
+    expect(parseAvailableCommands({})).toBeNull();
+  });
+});
 
 
 describe("Agent plan and mode", () => {

@@ -29,13 +29,16 @@ describe("Agent transcript grouping", () => {
       message("t3", "tool", "Run tests", { toolStatus: "completed" }),
     ];
     const turn = finishTurn(startTurn("u1", 0), 1_000, "t3", null);
-    expect(groupTranscript(messages, [turn]).map((item) => item.id)).toEqual([
+    const items = groupTranscript(messages, [turn]);
+    expect(items.map((item) => item.id)).toEqual([
       "u1",
       "tools:t1",
       "a1",
       "tools:t3",
       "turn:u1",
     ]);
+    // The footer copies the turn's final Agent reply, not the last tool text.
+    expect(items[items.length - 1]).toMatchObject({ kind: "turnSummary", reply: "Done" });
   });
 
   test("search matches tool evidence and never matches a turn summary", () => {

@@ -28,6 +28,8 @@ export interface AgentTurnStatistics {
   endingMessageID: string | null;
   /** Seconds, set once the turn finished. */
   duration: number | null;
+  /** Wall-clock time the turn ended, shown beside the reply. */
+  completedAt: number | null;
   usage: AgentTurnUsage | null;
 }
 
@@ -54,7 +56,7 @@ export function parseTurnUsage(value: unknown): AgentTurnUsage | null {
 }
 
 export function startTurn(id: string, startedAt: number): AgentTurnStatistics {
-  return { id, startedAt, endingMessageID: null, duration: null, usage: null };
+  return { id, startedAt, endingMessageID: null, duration: null, completedAt: null, usage: null };
 }
 
 /** Seconds since submission, or the frozen duration of a finished turn. */
@@ -67,8 +69,9 @@ export function finishTurn(
   now: number,
   endingMessageID: string,
   usage: AgentTurnUsage | null,
+  completedAt: number = Date.now(),
 ): AgentTurnStatistics {
-  return { ...turn, duration: turnElapsed(turn, now), endingMessageID, usage };
+  return { ...turn, duration: turnElapsed(turn, now), endingMessageID, completedAt, usage };
 }
 
 /** Labels for `formatTurnDuration`, already localized by the caller. */
