@@ -24,13 +24,13 @@ import { openAgentConversationInEditor } from "../actions/agent-conversation-pla
 import { useAgentManagement } from "../hooks/use-agent-management";
 import { useAgentSnapshot } from "../hooks/use-agent-connection";
 import { useAgentHistory } from "../hooks/use-agent-history";
+import { useAgentConnectionOwnership } from "../hooks/use-agent-connection-ownership";
 import { AgentHistoryExportError, saveHistoryMarkdown } from "../services/agent-history-save";
 import { historyMarkdown, type AgentHistoryDocument } from "../services/agent-history-export";
 import { historyTitle } from "../services/agent-history-view";
 import { provisionalTabTitle } from "../services/agent-transcript-items";
 import {
   agentConnection,
-  agentConnectionMatches,
   agentDataDirectory,
   closeAgentConnection,
   openAgentConnection,
@@ -116,7 +116,6 @@ export function AgentPanel({
   const history = useAgentHistory(rootFolderPath, settings.agentId);
   const [dataDirectory, setDataDirectory] = useState<string | null>(null);
   const [page, setPage] = useState<AgentPanelPage>("conversation");
-  const [connectedWorkspace, setConnectedWorkspace] = useState<string | null>(null);
   const management = useAgentManagement(dataDirectory, page === "settings" || !settings.enabled);
   const [showsSearch, setShowsSearch] = useState(false);
   const [searchText, setSearchText] = useState("");
@@ -169,63 +168,28 @@ export function AgentPanel({
         conversation.pendingPermissions.length > 0,
     );
 
-  const connect = useCallback(() => {
-    if (!settings.enabled) return closeAgentConnection();
-    if (rootFolderPath === null) return Promise.resolve();
-    return openAgentConnection(rootFolderPath, settings);
-  }, [rootFolderPath, settings]);
+  const { ownsConnection: connectionMatchesWorkspace, claim } = useAgentConnectionOwnership({
+    isActive,
+    workspacePath: rootFolderPath,
+    settings,
+  });
 
   const reconnect = useCallback(() => {
     // Read the store at call time: a settings edit is committed before the
     // reconnect request, while this render's `settings` is still the old value.
     const current = useSettingsStore.getState().settings.agentPanel;
     if (rootFolderPath === null) return;
-    setConnectedWorkspace(null);
     void closeAgentConnection()
-      .then(() => openAgentConnection(rootFolderPath, current))
-      .then(() => {
-        if (agentConnectionMatches(rootFolderPath, current)) setConnectedWorkspace(rootFolderPath);
-      })
+      .then(() => (current.enabled ? openAgentConnection(rootFolderPath, current) : undefined))
+      .then(() => claim(rootFolderPath, current))
       .catch(() => undefined);
-  }, [rootFolderPath]);
+  }, [claim, rootFolderPath]);
 
   useEffect(() => {
     void agentDataDirectory()
       .then(setDataDirectory)
       .catch(() => setDataDirectory(null));
   }, []);
-
-  // A cached workspace becomes active without changing its own root path, so
-  // activation itself must claim the shared connection. Hidden cached panels
-  // never reconnect; they only release their identity claim.
-  useEffect(() => {
-    if (!isActive) {
-      setConnectedWorkspace(null);
-      return;
-    }
-    let cancelled = false;
-    setConnectedWorkspace(
-      rootFolderPath !== null && agentConnectionMatches(rootFolderPath, settings)
-        ? rootFolderPath
-        : null,
-    );
-    void connect()
-      .then(() => {
-        if (cancelled) return;
-        setConnectedWorkspace(
-          rootFolderPath !== null && agentConnectionMatches(rootFolderPath, settings)
-            ? rootFolderPath
-            : null,
-        );
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, [connect, isActive, rootFolderPath, settings]);
-
-  const connectionMatchesWorkspace =
-    isActive && rootFolderPath !== null && connectedWorkspace === rootFolderPath;
 
   useEffect(() => {
     if (!connectionMatchesWorkspace || status !== "ready") return;
