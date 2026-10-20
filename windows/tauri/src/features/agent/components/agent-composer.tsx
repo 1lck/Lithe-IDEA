@@ -144,11 +144,6 @@ export function AgentComposer({
   const hasContent = draft.trim().length > 0 || files.length > 0;
   const sessionID = snapshot.selectedSessionID;
 
-  // A different conversation starts with no attachments, as on macOS.
-  useEffect(() => {
-    if (sessionID !== null) onFilesChange([]);
-  }, [sessionID, onFilesChange]);
-
   useEffect(() => {
     textareaRef.current?.focus();
   }, []);
@@ -463,6 +458,9 @@ export function AgentComposer({
                 const outcome = resolveCommandKey(commandKey, key, draft, commands, isResponding);
                 if (outcome.kind === "handled") {
                   event.preventDefault();
+                  // The list consumed Escape; do not let the composer's outer
+                  // handler also cancel the running turn.
+                  if (key === "escape") event.stopPropagation();
                   setCommandKey(outcome.state);
                   return;
                 }

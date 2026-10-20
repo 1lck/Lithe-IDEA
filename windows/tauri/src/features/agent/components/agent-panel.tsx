@@ -30,6 +30,7 @@ import { historyTitle } from "../services/agent-history-view";
 import { provisionalTabTitle } from "../services/agent-transcript-items";
 import {
   agentConnection,
+  agentConnectionMatches,
   agentDataDirectory,
   closeAgentConnection,
   openAgentConnection,
@@ -115,6 +116,7 @@ export function AgentPanel({
   const history = useAgentHistory(rootFolderPath, settings.agentId);
   const [dataDirectory, setDataDirectory] = useState<string | null>(null);
   const [page, setPage] = useState<AgentPanelPage>("conversation");
+  const [connectedWorkspace, setConnectedWorkspace] = useState<string | null>(null);
   const management = useAgentManagement(dataDirectory, page === "settings" || !settings.enabled);
   const [showsSearch, setShowsSearch] = useState(false);
   const [searchText, setSearchText] = useState("");
@@ -132,12 +134,12 @@ export function AgentPanel({
   const draft = draftEntry?.text ?? EMPTY_AGENT_DRAFT.text;
   const files = draftEntry?.files ?? EMPTY_AGENT_DRAFT.files;
   const setDraft = useCallback(
-    (value: string) => surfaceActions.setDraft(draftKey, { text: value, files }),
-    [draftKey, files, surfaceActions],
+    (value: string) => surfaceActions.setDraftText(draftKey, value),
+    [draftKey, surfaceActions],
   );
   const setFiles = useCallback(
-    (next: AgentFileReference[]) => surfaceActions.setDraft(draftKey, { text: draft, files: next }),
-    [draftKey, draft, surfaceActions],
+    (next: AgentFileReference[]) => surfaceActions.setDraftFiles(draftKey, next),
+    [draftKey, surfaceActions],
   );
 
   // A session can be created while the user is already typing under the
@@ -157,21 +159,20 @@ export function AgentPanel({
   const isConfigured = settings.enabled && rootFolderPath !== null;
 
   const connect = useCallback(() => {
-    if (!settings.enabled) {
-      // Turning the feature off stops the Agent processes; the panel stays open.
-      void closeAgentConnection();
-      return;
-    }
-    if (rootFolderPath === null) return;
-    void openAgentConnection(rootFolderPath, settings).catch(() => undefined);
+    if (!settings.enabled) return closeAgentConnection();
+    if (rootFolderPath === null) return Promise.resolve();
+    return openAgentConnection(rootFolderPath, settings);
   }, [rootFolderPath, settings]);
 
   const reconnect = useCallback(() => {
-    void agentConnection()
-      .stop()
+    setConnectedWorkspace(null);
+    void closeAgentConnection()
       .then(connect)
+      .then(() => {
+        if (agentConnectionMatches(rootFolderPath, settings)) setConnectedWorkspace(rootFolderPath);
+      })
       .catch(() => undefined);
-  }, [connect]);
+  }, [connect, rootFolderPath, settings]);
 
   useEffect(() => {
     void agentDataDirectory()
@@ -179,26 +180,54 @@ export function AgentPanel({
       .catch(() => setDataDirectory(null));
   }, []);
 
-  // Connecting is idempotent, so settings edits simply re-ask for the project.
+  // A cached workspace becomes active without changing its own root path, so
+  // activation itself must claim the shared connection. Hidden cached panels
+  // never reconnect; they only release their identity claim.
   useEffect(() => {
-    connect();
-  }, [connect]);
+    if (!isActive) {
+      setConnectedWorkspace(null);
+      return;
+    }
+    let cancelled = false;
+    setConnectedWorkspace(
+      rootFolderPath !== null && agentConnectionMatches(rootFolderPath, settings)
+        ? rootFolderPath
+        : null,
+    );
+    void connect()
+      .then(() => {
+        if (cancelled) return;
+        setConnectedWorkspace(
+          rootFolderPath !== null && agentConnectionMatches(rootFolderPath, settings)
+            ? rootFolderPath
+            : null,
+        );
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [connect, isActive, rootFolderPath, settings]);
+
+  const connectionMatchesWorkspace =
+    isActive && rootFolderPath !== null && connectedWorkspace === rootFolderPath;
 
   useEffect(() => {
-    if (!isActive || status !== "ready") return;
+    if (!connectionMatchesWorkspace || status !== "ready") return;
     // An editor tab waits for its bound session instead of creating a fresh
     // empty conversation before that session is selected.
     if (isEditorPlacement && sessionID !== null && selected !== sessionID) return;
     agentConnection().prepareConversation();
-  }, [isActive, isEditorPlacement, selected, sessionID, status]);
+  }, [connectionMatchesWorkspace, isEditorPlacement, selected, sessionID, status]);
 
   // An editor tab is bound to one session. Only the visible tab may select it,
   // otherwise every hidden tab would keep stealing the shared connection.
   useEffect(() => {
-    if (!isEditorPlacement || !isActive || sessionID === null || status !== "ready") return;
+    if (!isEditorPlacement || !connectionMatchesWorkspace || sessionID === null || status !== "ready")
+      return;
     if (snapshot.selectedSessionID === sessionID) return;
     agentConnection().selectSession(sessionID);
-  }, [isActive, isEditorPlacement, sessionID, snapshot.selectedSessionID, status]);
+  }, [connectionMatchesWorkspace, isEditorPlacement, sessionID, snapshot.selectedSessionID, status]);
 
   // Quota polls only while the conversation itself is visible, as on macOS.
   useEffect(() => {
@@ -528,6 +557,7 @@ export function AgentPanel({
     return (
       <AgentTranscript
         conversation={conversation}
+        sessionID={selected}
         agentName={agentName}
         agentVersion={snapshot.agentVersion}
         pendingPrompt={selected === null ? snapshot.pendingNewConversationPrompt : null}

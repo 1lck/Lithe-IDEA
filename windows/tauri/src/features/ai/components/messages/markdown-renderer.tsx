@@ -33,7 +33,7 @@ import { normalizeCodeFenceLanguage } from "@/features/editor/markdown/language-
 import { Button } from "@/ui/button";
 import { useTranslation } from "@/i18n/locale-provider";
 import { Marker, MarkerContent, MarkerIcon } from "@/ui/marker";
-import { writeClipboardText } from "@/utils/clipboard";
+import { writeClipboardHtml, writeClipboardText } from "@/utils/clipboard";
 import { classifyMarkdownLink } from "@/utils/markdown-links";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { useProjectStore } from "@/features/window/stores/project.store";
@@ -564,6 +564,11 @@ function tableToHtml(table: MarkdownTable): string {
   return `<table>` + header + `<tbody>` + rows + `</tbody></table>`;
 }
 
+/** Tab-separated fallback for clipboards without HTML support. */
+function tableToPlainText(table: MarkdownTable): string {
+  return [table.headers, ...table.rows].map((row) => row.join("\t")).join("\n");
+}
+
 function tableElement(
   table: MarkdownTable,
   options: MarkdownInlineOptions,
@@ -618,9 +623,17 @@ function MarkdownTableBlock({
     return () => clearTimeout(timer);
   }, [copied]);
 
-  const copy = (kind: "markdown" | "html") => {
-    void copyTextToClipboard(kind === "markdown" ? source : tableToHtml(table));
-    setCopied(kind);
+  const copy = async (kind: "markdown" | "html") => {
+    try {
+      if (kind === "html") {
+        await writeClipboardHtml(tableToHtml(table), tableToPlainText(table));
+      } else {
+        await writeClipboardText(source);
+      }
+      setCopied(kind);
+    } catch {
+      setCopied(null);
+    }
   };
 
   const buttonClass =
@@ -633,7 +646,7 @@ function MarkdownTableBlock({
           type="button"
           title={t("ai.copyTableMarkdown")}
           className={buttonClass}
-          onClick={() => copy("markdown")}
+          onClick={() => void copy("markdown")}
         >
           {copied === "markdown" ? <Check className="size-3" /> : <Copy className="size-3" />}
           <span>MD</span>
@@ -642,7 +655,7 @@ function MarkdownTableBlock({
           type="button"
           title={t("ai.copyTableHtml")}
           className={buttonClass}
-          onClick={() => copy("html")}
+          onClick={() => void copy("html")}
         >
           {copied === "html" ? <Check className="size-3" /> : <Copy className="size-3" />}
           <span>HTML</span>
