@@ -52,6 +52,54 @@ struct MacBuildProviderSessionsTests {
         #expect(fixture.core.startCalls.count == 2)
     }
 
+    /// Shutdown rejects a queued initialize reply and releases the runtime
+    /// after the terminal event, for ready and initializing providers alike.
+    @Test(arguments: [false, true])
+    func releasingProvidersStopsReadyAndInitializingSessions(initializing: Bool) async throws {
+        let core = ScriptedProviderCore(
+            initialState: initializing ? "initializing" : "ready",
+            readyAfterStop: initializing
+        )
+        let fixture = try ProviderFixture(core: core)
+        let finished = TestGate()
+        let request = Task { @MainActor () -> Result<ToolingJSONValue, Error> in
+            defer { finished.open() }
+            do {
+                return .success(try await fixture.load())
+            } catch {
+                return .failure(error)
+            }
+        }
+        defer {
+            request.cancel()
+            fixture.remove()
+            core.finishStopping()
+        }
+        try #require(await core.started.waitUntilOpen())
+        if !initializing { try #require(await finished.waitUntilOpen()) }
+
+        fixture.sessions.retainProviders { _ in false }
+
+        #expect(core.stopCalls == ["provider-1"])
+        let requestFinished = await finished.waitUntilOpen()
+        #expect(requestFinished)
+        if requestFinished {
+            switch await request.value {
+            case .success(let reply):
+                #expect(!initializing)
+                #expect(reply == .object(["session": .string("provider-1")]))
+            case .failure(let error):
+                #expect(initializing)
+                #expect(error is CancellationError)
+            }
+            #expect(core.buildRequests == (initializing ? [] : ["lithe/build/model"]))
+        }
+        core.finishStopping()
+        #expect(await core.destroyed.waitUntilOpen())
+        fixture.sessions.retainProviders { _ in false }
+        #expect(core.stopCalls == ["provider-1"])
+    }
+
     /// A packaged entry that lost its executable bit is refused before any
     /// process starts, with the path in the message.
     @Test
@@ -81,12 +129,13 @@ private struct ProviderFixture {
     let workspaceURL: URL
     let manifest: Data
     let settings = InMemoryPluginSettings()
-    let core = ScriptedProviderCore()
+    let core: ScriptedProviderCore
     let sessions: MacBuildProviderSessions
 
     var executableURL: URL { packageURL.appendingPathComponent(Self.executablePath) }
 
-    init() throws {
+    init(core: ScriptedProviderCore = ScriptedProviderCore()) throws {
+        self.core = core
         root = FileManager.default.temporaryDirectory
             .appendingPathComponent("lithe-build-provider-\(UUID().uuidString)", isDirectory: true)
         packageURL = root.appendingPathComponent("package", isDirectory: true)
@@ -152,17 +201,25 @@ private struct ProviderFixture {
     }
 }
 
-/// Starts every session ready and answers each build request at once, so
-/// the session's own event loop completes it on its next poll.
+/// Answers requests immediately and exposes gates for lifecycle ordering.
 private final class ScriptedProviderCore: LanguageServerRuntimeCore, @unchecked Sendable {
     struct StartCall { let arguments: [String] }
 
+    let started = TestGate()
+    let destroyed = TestGate()
+    private let initialState: String
+    private let readyAfterStop: Bool
     private let lock = NSLock()
     private var nextSession = 0
     private var events: [String: [LanguageServerRuntimeEvent]] = [:]
     private var _startCalls: [StartCall] = []
     private var _stopCalls: [String] = []
     private var _buildRequests: [String] = []
+
+    init(initialState: String = "ready", readyAfterStop: Bool = false) {
+        self.initialState = initialState
+        self.readyAfterStop = readyAfterStop
+    }
 
     var startCalls: [StartCall] { lock.withLock { _startCalls } }
     var stopCalls: [String] { lock.withLock { _stopCalls } }
@@ -192,17 +249,32 @@ private final class ScriptedProviderCore: LanguageServerRuntimeCore, @unchecked 
         workspaceFingerprint _: String?, mavenContext _: MavenLaunchContext?, initializeTimeout _: TimeInterval,
         requestTimeout _: TimeInterval, shutdownTimeout _: TimeInterval
     ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure> {
-        lock.withLock {
+        let result = lock.withLock {
             nextSession += 1
             _startCalls.append(StartCall(arguments: arguments))
-            return .success(LanguageServerRuntimeStart(sessionID: "provider-\(nextSession)", state: "ready", processID: nil))
+            return LanguageServerRuntimeStart(
+                sessionID: "provider-\(nextSession)", state: initialState, processID: nil
+            )
         }
+        started.open()
+        return .success(result)
     }
 
     func stopLanguageServer(sessionID: String) {
         lock.withLock {
             _stopCalls.append(sessionID)
-            events[sessionID, default: []].append(LanguageServerRuntimeEvent(type: "stateChanged", state: "stopped"))
+            // The test withholds the terminal event until the waiter has
+            // handled this initialize reply that was queued before shutdown.
+            let state = readyAfterStop ? "ready" : "stopped"
+            events[sessionID, default: []].append(LanguageServerRuntimeEvent(type: "stateChanged", state: state))
+        }
+    }
+
+    func finishStopping() {
+        lock.withLock {
+            for sessionID in _stopCalls {
+                events[sessionID, default: []].append(LanguageServerRuntimeEvent(type: "stateChanged", state: "stopped"))
+            }
         }
     }
 
@@ -243,7 +315,7 @@ private final class ScriptedProviderCore: LanguageServerRuntimeCore, @unchecked 
     }
 
     func cancelLanguageServerOperation(sessionID _: String, operationID _: String) {}
-    func destroyLanguageServer(sessionID _: String) {}
+    func destroyLanguageServer(sessionID _: String) { destroyed.open() }
 }
 
 /// The packaged provider never goes through tool discovery.

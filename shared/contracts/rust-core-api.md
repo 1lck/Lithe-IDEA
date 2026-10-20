@@ -817,6 +817,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `lsp.closeDocument` | Close a document and clear its diagnostics |
 | `lsp.request` | Submit a typed semantic request and return an opaque operation ID |
 | `lsp.buildRequest` | Forward one planned `lithe/build/*` request to a session that negotiated the build-provider protocol |
+| `lsp.functionRequest` | Invoke one registered plugin function on a session its plugin started |
 | `java.navigationMarkers` | Resolve versioned Java gutter markers from bounded JDT LS semantic requests |
 | `java.resolveNavigation` | Resolve one Java gutter marker to normalized parent or implementation locations |
 | `lsp.cancelOperation` | Cancel one pending semantic operation |
@@ -1953,7 +1954,8 @@ The `lsp.*Server`, `lsp.*Document`, `lsp.request`, `lsp.pollEvents`, and
 commands are the semantic LSP runtime boundary. `lsp.startServer` accepts the
 provider ID, selected executable/arguments/environment, root URI, working
 directory, initialization options, optional runtime executable,
-`jdtlsLaunchResources`, cache directory, and `workspaceFingerprint`, plus
+`jdtlsLaunchResources`, cache directory, `workspaceFingerprint`, and the
+optional `pluginId` of the plugin that owns the process, plus
 initialize, post-initialize readiness, request, Java project build
 (`javaBuildTimeoutMilliseconds`), and shutdown deadlines.
 Java callers may also provide the versioned `mavenContext` accepted by
@@ -2216,6 +2218,39 @@ event carries the provider's reply unchanged as `result.value`, which the host
 passes to `build.decodeModel` or `build.decodeDependencies` as `result`;
 cancellation and late results follow `lsp.cancelOperation`.
 
+`lsp.functionRequest` accepts `{ sessionId, operationId?, function: { pluginID,
+functionID }, params?, timeoutMilliseconds? }` and returns `{ operationId }`.
+It sends `lithe/function/invoke` to a session started with
+`lsp.startServer.pluginId` equal to `function.pluginID` that negotiated
+`capabilities.experimental.litheFunctions` version 1 and registered the
+function. `params` must be a JSON object and defaults to `{}`. Refusals are
+`invalid_request`, `not_supported`, or `permission_denied` with a
+`plugin.function.*` code in `details`, in the order the
+[plugin contract](plugins/v1/README.md#plugin-functions) defines. The
+`requestCompleted` event carries the backend result as `result.value`; a
+failed call carries `error.code` `plugin.function.failed`, `invalidResult`, or
+`revoked` and, when the backend supplied one, `error.pluginErrorCode`.
+Timeout, cancellation, and late results follow `lsp.buildRequest`. Core gives
+each backend invocation a unique, opaque `operationID`; the backend echoes
+that value in progress notifications. It is distinct from the host's
+`operationId`, which may be reused after a previous call ends. Core only
+forwards progress belonging to the current pending function request and
+translates its ID to the host's ID: `requestProgress` has
+`method: "lithe/function/invoke"` and `result: { operationID, message?,
+percentage? }`, with both event and result referring to the host operation.
+Every terminal path discards the function/request association, so late
+progress or unregister requests cannot affect a later operation reusing that
+host ID, including a build request.
+
+A plugin-owned session publishes its initialized registry as `functionsChanged`
+with `result: { functions, removed: [] }` after successful `initialize`
+negotiation, including an empty negotiated registry. Subsequent register and
+unregister requests publish
+`functionsChanged` with `result: { functions, removed }`; the current registry
+is `pluginFunctions` in the session's client state. Sessions without
+`lsp.startServer.pluginId` neither offer nor accept `litheFunctions`, retain no
+registry, and publish no function-discovery events.
+
 `lsp.request` accepts a semantic `operation` plus
 the operation-specific URI, position, range, diagnostics, item, action, or
 command fields, and returns `{ operationId }`. Supported operations include
@@ -2310,7 +2345,8 @@ channel until events are queued or the timeout elapses, then drains the same
 typed events. Hosts should use `waitEvents` so idle sessions do not poll.
 Event types
 include `stateChanged`, `featuresChanged`, `diagnostics`,
-`requestCompleted`, `serverInfoChanged`, and `log`. Every request completes at
+`requestCompleted`, `requestProgress`, `functionsChanged`,
+`serverInfoChanged`, and `log`. Every request completes at
 most once with either `result` or a structured runtime error containing
 provider/session, stage, optional method/document/request, stable code, and
 optional process-exit detail. Late responses after cancellation or deadline

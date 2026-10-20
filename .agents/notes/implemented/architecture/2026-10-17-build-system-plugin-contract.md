@@ -152,6 +152,8 @@ Lithe 的插件逻辑跑在插件自己的进程里。声明和规范格式解�
 
 - **协商与请求在 Core 的 LSP 客户端里。** `initialize` 在 `capabilities.experimental.litheBuild` 下发 `{"versions": [1]}`（`lsp/interface/build_provider.rs`），Provider 回答 `{"version": 1}` 后会话才记录 `litheBuild` 能力。宿主用 `lsp.buildRequest {sessionId, method, params, timeoutMilliseconds}` 发请求，Core 只接受协商出的版本里的两个方法；没有协商成功的会话直接返回失败，所以共享写法里不认识这套协议的语言服务器不会收到 `lithe/build/*`。结果和其他 LSP 操作一样经 `requestCompleted` 回到宿主。
 
+同一个会话还可以协商 `litheFunctions`，提供插件私有的函数；它与 `litheBuild` 互不依赖，也不能代替类型化的领域方法，见[插件函数契约与能力方向](2026-10-20-plugin-function-contract.md)。
+
 还没有实现：`lithe/build/execute`（Provider 自己执行任务并流式汇报进度和测试事件），见提案第 4 节。测试结果目前仍来自声明的报告解码器或 `hostIntegration`，没有 `provider` 来源。
 
 ### 10. macOS 宿主适配层
@@ -182,7 +184,7 @@ macOS 宿主接受级别 3，并在 `PluginManifest.hostCapabilities` 里声明 
 - **可写文件放在哪里。** 输出文件和状态目录都在插件状态目录下，读完就删；不写 app bundle、不写插件包，符合运行时只读规则。
 - **插件变化。** 启用、停用或卸载插件后，`pluginsChanged()` 先停止该插件已经启动的命令和 Provider 进程，再重新识别，它的实例随即从工具窗口消失。可用插件列表在启动时确定，新安装的插件和其他声明式插件一样，重启后才出现。
 - **Provider 进程彼此隔离。** 进程按“插件 ID + 构建系统 ID + 工作区”一一对应（`BuildProviderTarget`），两个插件永远不共用一个进程。每个进程只通过自己的 stdio 与宿主说 JSON-RPC 2.0，宿主不在进程之间转发消息，所以一个插件够不到另一个插件的 Provider。可写状态放在该插件的构建系统状态目录（`<插件状态目录>/build-systems/<buildSystemID>`），设置也只读该插件自己的；插件包和 app bundle 只读。能跨进程共享的只有宿主统一读取的只读信息，例如工作区路径和 Core 解析好的计划。共享写法（`buildProvider.languageServer`）只允许复用**同一个插件**的语言服务器会话：`LanguageToolingSessionManager.requestBuildProvider` 在发送前核对该语言运行时的来源插件 ID，不同插件时拒绝。这是进程和通信层面的隔离，不是操作系统沙盒，Provider 仍以用户权限运行。
-- **Provider 什么时候启动、什么时候停止。** 和 `command` 模型一样，只在用户点击“加载模型”“重新加载”或加载依赖时启动；`executesProjectCode`、`mayUseNetwork` 随请求带到宿主，安装时已由用户确认。进程常驻到它的目标被丢弃：切换或关闭工作区（`reset`，退出应用也走这里）、停用插件（`pluginsChanged()`）。安装、同版本重装、回滚或卸载会替换或移走插件包，`MacPluginManager` 在动包之前调用 `beforePackageReplacement`，组合根在这里按插件 ID 直接停止该插件全部 Provider（`MacBuildProviderSessions.stopProviders(ofPlugin:)`）；不靠 `BuildSystemService` 的插件列表比较，因为那份列表是启动时的快照，看不到包已被替换。启动参数会展开插件设置（例如 `-Xmx${setting:providerHeapMB}m`），所以每个进程记下启动时的设置值，下一次请求发现当前设置不同就停掉旧进程按新值重启；“Restart Language Servers”不负责独立的 Provider。进程退出或崩溃后，下一次请求重新启动；同一目标的并发请求等待同一次启动。共享写法的语言模块还没激活时，宿主提示用户先打开该语言的文件，而不是另起一个进程。
+- **Provider 什么时候启动、什么时候停止。** 和 `command` 模型一样，只在用户点击“加载模型”“重新加载”或加载依赖时启动；`executesProjectCode`、`mayUseNetwork` 随请求带到宿主，安装时已由用户确认。进程常驻到它的目标被丢弃：切换或关闭工作区、项目窗口关闭或执行模块停用（`ExecutionFeatureGraph.stop()` → `BuildSystemService.stop()`；`reset` 也走 `stop`）、停用插件（`pluginsChanged()`）。服务的 `stop` 是统一回收入口，必须连同已就绪和初始化中的 Provider 一起停止；不能只在 `reset` 回收，否则直接关闭项目窗口会留下进程与会话轮询。安装、同版本重装、回滚或卸载会替换或移走插件包，`MacPluginManager` 在动包之前调用 `beforePackageReplacement`，组合根在这里按插件 ID 直接停止该插件全部 Provider（`MacBuildProviderSessions.stopProviders(ofPlugin:)`）；不靠 `BuildSystemService` 的插件列表比较，因为那份列表是启动时的快照，看不到包已被替换。启动参数会展开插件设置（例如 `-Xmx${setting:providerHeapMB}m`），所以每个进程记下启动时的设置值，下一次请求发现当前设置不同就停掉旧进程按新值重启；“Restart Language Servers”不负责独立的 Provider。进程退出或崩溃后，下一次请求重新启动；同一目标的并发请求等待同一次启动。共享写法的语言模块还没激活时，宿主提示用户先打开该语言的文件，而不是另起一个进程。
 - **Provider 入口在安装时校验。** `MacPluginPackageStore.validateLaunchResources` 除了语言服务器，还对每个声明了 `provider` 的构建系统（`DeclarativeBuildSystem.declaresProvider`）用 Core 展开一次启动计划（状态目录用不会创建的临时路径，设置用默认值），要求 `requiredPackagePaths` 都在包内且不经过符号链接，包内可执行文件和打包运行时是普通可执行文件；不满足时安装失败（`buildProviderLaunchMissing`），而不是等到第一次“加载模型”才报错。共享写法跟着对应语言服务器校验。启动时 `MacPluginLanguageServerLaunchResolver.resolveBuildProvider` 仍做同样的检查，防止安装后包被改动。
 - **可执行文件怎么找。** 包内文件直接启动；`command` 和 `runtime` 启动方式合成一份 `BuildInvocation`，交给构建命令同一个 `MacBuildToolResolver`，所以 Provider 看到的运行时、`PATH` 和最低版本检查与构建命令一致。
 

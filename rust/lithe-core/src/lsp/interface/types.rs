@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -135,6 +135,10 @@ pub struct LspClientState {
     pub diagnostics: BTreeMap<String, Vec<LspClientDiagnostic>>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub diagnostic_versions: BTreeMap<String, i64>,
+    /// Plugin functions the backend registered, once `litheFunctions` was
+    /// negotiated; empty otherwise.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub plugin_functions: BTreeSet<String>,
 }
 
 impl Default for LspClientState {
@@ -151,6 +155,7 @@ impl Default for LspClientState {
             pending_semantic_legends: BTreeMap::new(),
             diagnostics: BTreeMap::new(),
             diagnostic_versions: BTreeMap::new(),
+            plugin_functions: BTreeSet::new(),
         }
     }
 }
@@ -299,7 +304,8 @@ pub struct LspClientResponse {
 #[serde(rename_all = "camelCase")]
 /// Normalized event produced while reducing a server message.
 pub struct LspClientEvent {
-    /// Pure-client event category: `diagnostics`, `notification`, `response`, or `error`.
+    /// Pure-client event category: `diagnostics`, `notification`, `response`,
+    /// `error`, `functionsChanged`, or `functionProgress`.
     pub kind: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub request_id: Option<String>,
