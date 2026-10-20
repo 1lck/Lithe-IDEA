@@ -132,6 +132,32 @@ fn workspace_snapshot_without_tree_keeps_the_same_file_list() {
 }
 
 #[test]
+fn list_directories_marks_only_visibly_empty_directories_as_leaves() {
+    let root = temporary_root("directory-leaves");
+    fs::create_dir_all(root.join("logs")).unwrap();
+    fs::create_dir_all(root.join("parent/empty")).unwrap();
+    write_fixture_file(&root.join("hidden-only/ignored.tmp"), "");
+    let data = core_data(
+        "directory-leaves",
+        "workspace.listDirectories",
+        serde_json::json!({
+            "root": root, "paths": [""], "hiddenFilePatterns": ["*.tmp"]
+        }),
+    );
+    let children = data["directories"][0]["children"].as_array().unwrap();
+    for name in ["logs", "hidden-only"] {
+        let child = children.iter().find(|child| child["name"] == name).unwrap();
+        assert_eq!(child["children"], serde_json::json!([]));
+    }
+    let parent = children
+        .iter()
+        .find(|child| child["name"] == "parent")
+        .unwrap();
+    assert!(parent.get("children").is_none());
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn list_directories_returns_one_visible_level_per_requested_directory() {
     let root = temporary_root("list-directories");
     write_linked_worktree_fixture(&root);

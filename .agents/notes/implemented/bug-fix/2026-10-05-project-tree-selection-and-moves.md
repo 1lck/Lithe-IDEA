@@ -23,6 +23,14 @@ macOS 使用系统多文件拖动，工作区模块继续负责实际文件操�
 
 - 行高亮和右键目标只使用明确选择集合。⌘ 点击增减单项，Shift 只在需要范围时
   读取可见行顺序，⌘A 保留焦点项同级语义。
+- macOS 目录名称双击在第二次按下时触发展开，不等待松开；同一次松开不能再次切换。
+  ⌘、Shift 和 Control 点击仍保持选择与右键语义，文件双击动作仍在松开时处理，
+  双击次数使用按下事件的计数。重复选中相同行不写回同值状态，压缩包祖先的展开路径一次写回。
+  参考 Community `4b7301e1ae43acd14528f1d86b8b7ffaf3bba4d3` 的
+  [`Tree.processMouseEvent/getDragEnabled`](https://github.com/JetBrains/intellij-community/blob/4b7301e1ae43acd14528f1d86b8b7ffaf3bba4d3/platform/platform-api/src/com/intellij/ui/treeStructure/Tree.java)
+  对双击禁用拖动识别，以及
+  [`DefaultTreeUI`](https://github.com/JetBrains/intellij-community/blob/4b7301e1ae43acd14528f1d86b8b7ffaf3bba4d3/platform/ui.tree/src/com/intellij/ui/tree/ui/DefaultTreeUI.java)
+  复用 Swing 按下事件的展开入口。不要用只调用 `mouseUp` 的测试证明真实窗口双击流畅。
 - 文件树点击后的键盘归属由原生事件适配器维护，方向键被消费后不能继续送到编辑器；
   点击树外或后续键盘焦点改变时释放归属，搜索输入框仍处理自己的方向键与文字快捷键。
   上下移动只选择可见行，不打开文件；Shift 上下扩展范围，左右按显示层级处理压缩包，

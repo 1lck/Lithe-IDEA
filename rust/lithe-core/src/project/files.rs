@@ -235,7 +235,11 @@ pub fn list_directories(
                 path: relative_path(&path, &root),
                 name: node_name(&path),
                 is_directory,
-                children: None,
+                children: if is_directory && directory_is_visibly_empty(&path, &root, &rules) {
+                    Some(Vec::new())
+                } else {
+                    None
+                },
             })
             .collect();
         directories.push(DirectoryListing {
@@ -773,22 +777,7 @@ pub(crate) fn visible_children(
     let mut children = fs::read_dir(path)
         .map_err(CoreError::from)?
         .filter_map(Result::ok)
-        .filter_map(|entry| {
-            let child_path = entry.path();
-            let metadata = fs::symlink_metadata(&child_path).ok()?;
-            if metadata.file_type().is_symlink() {
-                return None;
-            }
-            let child_relative = relative_path(&child_path, root);
-            if rules.is_hidden(&child_relative, metadata.is_dir()) {
-                return None;
-            }
-            if metadata.is_dir() && is_nested_linked_worktree(&child_path) {
-                nested_worktrees.push(child_path);
-                return None;
-            }
-            Some((child_path, metadata.is_dir()))
-        })
+        .filter_map(|entry| visible_child(entry, root, rules, &mut nested_worktrees))
         .collect::<Vec<_>>();
     children.sort_by(|left, right| {
         right.1.cmp(&left.1).then_with(|| {
@@ -812,6 +801,38 @@ pub(crate) fn visible_children(
         children,
         nested_worktrees,
     })
+}
+
+/// Checks only until the first visible entry; unreadable directories remain expandable.
+fn directory_is_visibly_empty(path: &Path, root: &Path, rules: &VisibilityRules) -> bool {
+    let Ok(mut entries) = fs::read_dir(path) else {
+        return false;
+    };
+    !entries.any(|entry| match entry {
+        Ok(entry) => visible_child(entry, root, rules, &mut Vec::new()).is_some(),
+        Err(_) => true,
+    })
+}
+
+/// Applies the same visibility boundary to full listings and leaf probes.
+fn visible_child(
+    entry: fs::DirEntry,
+    root: &Path,
+    rules: &VisibilityRules,
+    nested_worktrees: &mut Vec<PathBuf>,
+) -> Option<(PathBuf, bool)> {
+    let child_path = entry.path();
+    let metadata = fs::symlink_metadata(&child_path).ok()?;
+    if metadata.file_type().is_symlink()
+        || rules.is_hidden(&relative_path(&child_path, root), metadata.is_dir())
+    {
+        return None;
+    }
+    if metadata.is_dir() && is_nested_linked_worktree(&child_path) {
+        nested_worktrees.push(child_path);
+        return None;
+    }
+    Some((child_path, metadata.is_dir()))
 }
 
 /// A `.git` pointer file is a single `gitdir:` line; anything larger is not one.

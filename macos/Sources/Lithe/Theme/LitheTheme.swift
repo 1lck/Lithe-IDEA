@@ -479,6 +479,10 @@ enum LitheTheme {
     }
 
     enum ActionToolbar {
+        // ActionToolbarImpl: 22pt button plus 2pt horizontal border on either side.
+        static let actionSpacing: CGFloat = 4
+        // Islands dark ColorPalette maps CED0D6 to gray-120; light keeps the SVG stroke.
+        static var icon: Color { controlColor(light: 0x6C707E, dark: 0xC3C5CB) }
         static var separator: Color {
             controlColor(light: 0x000000, dark: 0xFFFFFF, lightAlpha: 32/255, darkAlpha: 33/255)
         }

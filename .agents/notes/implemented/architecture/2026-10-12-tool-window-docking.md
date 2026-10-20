@@ -105,3 +105,31 @@ macOS 的工具窗口位置由工作台维护，功能模块继续维护自己�
 从四个按钮中的第二个水平拖入内容区，保留中间插槽；纵向越过按钮中点后才改变顺序，
 真正低于全部按钮时才追加到末尾。Swift 继续用既有稳定窗口 ID 表示插入点，不复制 Java 的
 Swing 容器或另建一份持久化顺序。
+
+## 工具窗口标题动作的悬停
+
+用户要求工具窗口的隐藏按钮在鼠标离开整个面板时隐藏，Project 的定位、刷新、全部展开和全部收起
+也使用同一范围。标题栏不再单独监听悬停，否则鼠标从目录移动到标题栏前看不到这些动作。
+`LitheToolWindowHoverRegion` 在每个工具内容的宿主根视图记录局部悬停，只向后代传递环境值，
+不写 `AppModel` 或重新构造目录行。Terminal 和 Git 保留独立 AppKit 宿主，悬停区域必须装在传入的
+内容内部，不能只在外层 SwiftUI 宿主注入一次，否则保留视图读不到变化。
+
+所有主工具窗口的隐藏按钮统一走 `LitheSidebarHideButton`；共享 Header 的 onMinimize 和原来
+Terminal/Git 的独立按钮也改走这个入口，保留原动作和位置。`LitheToolWindowHoverAction`
+统一控制透明度与鼠标命中，隐藏时保留槽位，避免工具栏跳动；键盘焦点或 VoiceOver 焦点进入按钮时
+仍显示，不能用 disabled 或 accessibilityHidden 阻止非鼠标用户访问。内部详情区的局部折叠不是隐藏
+整个工具窗口，不把这些内容切换按钮混进主窗口规则。
+
+图标沿 Community `e74205a077adefec3b3500499be794f8fafb8e2c` 的 PlatformActions.xml
+ProjectViewToolbar → ExpandAll/CollapseAll → PlatformIconMappings，使用原始
+`platform/icons/src/expui/general/{expandAll,collapseAll}.svg` 及 dark 变体，16pt 显示。
+刷新仍保留 Lithe 的现有刷新动作；不能因为 IDEA 同处有 ExpandRecursively 动作就只换它的图标，
+造成图标与实际行为不一致。资源来源记录在 IDEAIcons/NOTICE.txt。
+
+验证：`LitheToolWindowHoverTests` 在深浅模式渲染共享动作的显示/隐藏状态；
+实际检查 Project 正文、Terminal 正文及 Git 正文的进入/离开，保留工具栏布局与原动作。
+
+Project 标题动作按 ActionToolbarImpl 的默认 22pt 按钮和左右各 2pt 边框使用 26pt 槽位，
+不继承标题 HStack 的 8pt 间距。深色 Islands 的 SVG ColorPalette 会把 CED0D6 换成 gray-120
+（C3C5CB），浅色保留原始 6C707E 描边；单色标题动作使用共享 ActionToolbar.icon，
+不套用主工具栏的另一套颜色。目录箭头的 B4B8BF 不在这个替换项里，继续使用原始资源。

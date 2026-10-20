@@ -1433,11 +1433,12 @@ struct WorkbenchView: View {
 
     @ViewBuilder
     private func toolContent(_ tool: WorkbenchFeatureModel.ToolWindow?) -> some View {
-        if tool == .references { LanguageReferencesView() }
-        else if tool == .spring { SpringEndpointsView() }
+        if tool == .references { LanguageReferencesView().modifier(LitheToolWindowHoverRegion()) }
+        else if tool == .spring { SpringEndpointsView().modifier(LitheToolWindowHoverRegion()) }
         else if let tool, let entry = contribution(for: tool), let renderer = moduleUIRegistry.renderer(for: entry) {
             let content = ModuleToolContent(rendererID: renderer.id,
                 contentIdentity: renderer.contentIdentity(model), content: renderer.content(model)).equatable()
+                .modifier(LitheToolWindowHoverRegion())
             if tool == .gitLog || tool == .terminal {
                 RetainedWorkbenchToolPane(store: toolContentStore, tool: tool, content: content
                     .environmentObject(model).environmentObject(settings).environmentObject(projectSessions)

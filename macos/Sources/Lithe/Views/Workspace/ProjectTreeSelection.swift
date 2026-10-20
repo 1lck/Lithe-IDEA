@@ -98,12 +98,31 @@ struct ProjectTreeSelection: Equatable {
             self.node = FileNode(
                 url: node.url,
                 isDirectory: node.isDirectory,
-                children: nil,
+                children: node.children?.isEmpty == true ? [] : nil,
                 collapsedAncestorPaths: node.collapsedAncestorPaths,
                 isInsideSourceRoot: node.isInsideSourceRoot
             )
             self.depth = depth
         }
+    }
+
+    /// IDEA expands a sole directory child, preserving each row and stopping at files or siblings.
+    static func expandingSingleDirectoryChains(from paths: Set<String>, in root: FileNode,
+                                               expandedPaths: Set<String>) -> Set<String> {
+        var expanded = expandedPaths
+        for path in paths where expanded.contains(path) {
+            var current = root.node(exactlyAt: URL(fileURLWithPath: path))
+            for _ in 0..<64 {
+                guard let children = current?.children, children.count == 1,
+                      let child = children.first, child.isDirectory,
+                      child.children?.isEmpty != true,
+                      !child.url.lastPathComponent.hasPrefix(".") else { break }
+                expanded.insert(child.url.path)
+                expanded.formUnion(child.collapsedAncestorPaths)
+                current = child
+            }
+        }
+        return expanded
     }
 
     static func visibleRows(in root: FileNode, expandedPaths: Set<String>) -> [VisibleRow] {
@@ -138,7 +157,7 @@ struct ProjectTreeSelection: Equatable {
         case .up: target = max(0, index - 1)
         case .down: target = min(rows.count - 1, index + 1)
         case .right:
-            guard row.node.isDirectory else { return }
+            guard row.node.isDirectory, row.node.children?.isEmpty != true else { return }
             if expandedPaths.insert(row.id).inserted {
                 expandedPaths.formUnion(row.node.collapsedAncestorPaths)
                 return

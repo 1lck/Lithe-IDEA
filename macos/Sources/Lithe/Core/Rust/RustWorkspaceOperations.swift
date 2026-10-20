@@ -6,6 +6,11 @@ typealias WorkspaceOperations = LitheCoreContracts.WorkspaceOperations
 
 struct RustWorkspaceOperations: WorkspaceOperations, Sendable {
     let core: RustCoreBridge
+    private let directoryListings = ProjectDirectoryListingCache()
+
+    func invalidateDirectoryListings() {
+        directoryListings.invalidate()
+    }
 
     func snapshot(
         at rootURL: URL,
@@ -29,7 +34,10 @@ struct RustWorkspaceOperations: WorkspaceOperations, Sendable {
         at rootURL: URL,
         visibilityRules: FileVisibilityRules
     ) -> [String: [FileNode]]? {
-        ProjectTreeLoader { directories in
+        ProjectTreeLoader(
+            cache: directoryListings,
+            generation: directoryListings.prepare(at: rootURL, rules: visibilityRules)
+        ) { directories in
             listDirectories(directories, at: rootURL, visibilityRules: visibilityRules)
         }.childRows(of: rows)
     }
@@ -66,7 +74,7 @@ struct RustWorkspaceOperations: WorkspaceOperations, Sendable {
                 (
                     url(for: directory.path).standardizedFileURL.path,
                     directory.children.map {
-                        ProjectDirectoryEntry(url: url(for: $0.path), isDirectory: $0.isDirectory)
+                        ProjectDirectoryEntry(url: url(for: $0.path), isDirectory: $0.isDirectory, isEmptyDirectory: $0.isDirectory && $0.children?.isEmpty == true)
                     }
                 )
             },

@@ -40,24 +40,11 @@ private enum ProjectSidebarContent: String, CaseIterable, Identifiable {
 struct ProjectSidebarView: View {
     @EnvironmentObject private var model: AppModel
     let rowHeight: CGFloat
-    @State private var expandedDirectoryPaths: Set<String> = []
-    @State private var expandedTreeRootPath: String?
-    @State private var contextMenuPath: String?
-    @State private var selection = ProjectTreeSelection()
-    @State private var treeActive = false
-    @Environment(\.controlActiveState) private var controlActiveState
+    @State private var treeState = ProjectTreeViewState()
     @State private var selectedContent: ProjectSidebarContent = .project
     @State private var dependencyRefreshRevision = 0
-    @State private var isHeaderHovered = false
-    private enum HeaderAction: Hashable { case reveal, refresh }
-    @FocusState private var focusedHeaderAction: HeaderAction?
-    @AccessibilityFocusState private var accessibleHeaderAction: HeaderAction?
+    @State private var expandAllRequestID: UUID?
 
-    private func selectedURLs(in root: FileNode) -> [URL] {
-        ProjectTreeSelection.visibleNodes(in: root, expandedPaths: expandedDirectoryPaths)
-            .filter { selection.paths.contains($0.url.path) && $0.url != root.url }
-            .map(\.url)
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -74,110 +61,18 @@ struct ProjectSidebarView: View {
                 .foregroundStyle(LitheTheme.secondaryText)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let root = model.rootNode {
-                GeometryReader { geometry in
-                    ScrollViewReader { proxy in
-                        ScrollView([.vertical, .horizontal]) {
-                            ProjectFileTreeContent(
-                                root: root,
-                                availableWidth: geometry.size.width,
-                                rowHeight: rowHeight,
-                                activeDocumentURL: model.activeDocument?.url,
-                                gitStatus: ProjectGitStatusSnapshot(
-                                    repositoryRoot: model.gitRepositoryRoot,
-                                    projection: model.gitTreeStatusProjection
-                                ),
-                                directoryMarks: model.projectDirectoryMarks,
-                                actions: ProjectTreeActions(model: model),
-                                selectionSnapshot: selection,
-                                isFocused: treeActive && controlActiveState == .key,
-                                selection: $selection,
-                                visibleRows: ProjectTreeSelection.visibleRows(in: root, expandedPaths: expandedDirectoryPaths),
-                                expandedDirectoryPathsSnapshot: expandedDirectoryPaths,
-                                expandedDirectoryPaths: $expandedDirectoryPaths,
-                                contextMenuPath: $contextMenuPath
-                            )
-                            .equatable()
-                            .padding(.vertical, LitheTheme.Metrics.projectTreeContentVerticalInset)
-                            .frame(
-                                minWidth: geometry.size.width,
-                                minHeight: geometry.size.height,
-                                alignment: .topLeading
-                            )
-                        }
-                        .background(ProjectTreeKeyboardCommands(
-                            copy: { model.copyProjectItems(selectedURLs(in: root)) },
-                            paste: {
-                                let nodes = ProjectTreeSelection.visibleNodes(in: root, expandedPaths: expandedDirectoryPaths)
-                                let focused = nodes.first { $0.url.path == selection.focusedPath }
-                                let destination = focused.map { $0.isDirectory ? $0.url : $0.url.deletingLastPathComponent() } ?? root.url
-                                Task { await model.pasteProjectItems(in: destination) }
-                            },
-                            selectAll: {
-                                selection.selectAll(in: root)
-                            },
-                            navigate: { key, extending in
-                                contextMenuPath = nil
-                                selection.navigate(key, in: root, expandedPaths: &expandedDirectoryPaths, extending: extending)
-                                if let path = selection.focusedPath { proxy.scrollTo(path) }
-                            },
-                            focusChanged: { treeActive = $0 }
-                        ).frame(maxWidth: .infinity, maxHeight: .infinity))
-                        .onChange(of: ProjectTreeSelection.visibleNodes(in: root, expandedPaths: expandedDirectoryPaths).map { $0.url.path }) { paths in
-                            selection.retain(visiblePaths: paths)
-                        }
-                        .onChange(of: model.activeDocument?.url.standardizedFileURL.path) { path in
-                            // A single selection follows the editor, as it did before
-                            // multi-selection; an explicit group stays until changed.
-                            guard let path, selection.paths.count <= 1 else { return }
-                            selection.select(path, visiblePaths: [], extending: false, toggling: false)
-                        }
-                        .scrollContentBackground(.hidden)
-                        .litheScrollViewChrome(usesCompactScrollers: true)
-                        // Directories are listed when first expanded; this also
-                        // covers rows a rescan or reveal left expanded but unloaded.
-                        .task(id: root.unloadedRows(expandedPaths: expandedDirectoryPaths).map(\.url.path)) {
-                            await model.loadExpandedProjectDirectories(expandedDirectoryPaths)
-                        }
-                        .task(
-                            id: ProjectTreeTaskID(
-                                rootPath: root.url.standardizedFileURL.path,
-                                revealRequestID: model.projectTreeRevealRequest?.id
-                            )
-                        ) {
-                            let rootPath = root.url.standardizedFileURL.path
-                            let revealRequest = model.projectTreeRevealRequest
-                            let shouldRefreshGit = expandedTreeRootPath != rootPath
-                            if shouldRefreshGit {
-                                selection = ProjectTreeSelection()
-                                expandedTreeRootPath = rootPath
-                                expandedDirectoryPaths = [rootPath]
-                            }
-                            if let request = revealRequest {
-                                expandedDirectoryPaths.formUnion(
-                                    ProjectTreeLocator.expandedDirectoryPaths(
-                                        for: request.fileURL,
-                                        rootURL: root.url,
-                                        includeItem: request.isDirectory
-                                    )
-                                )
-                                await model.loadExpandedProjectDirectories(expandedDirectoryPaths)
-                                await Task.yield()
-                                // Listing can fold the target into a compact package row.
-                                let rowURL = model.projectTreeURL(for: request.fileURL) ?? request.fileURL
-                                proxy.scrollTo(
-                                    rowURL.standardizedFileURL.path,
-                                    anchor: .center
-                                )
-                            }
-                            if shouldRefreshGit {
-                                await model.refreshGit()
-                            }
-                            if let request = revealRequest {
-                                model.consumeProjectTreeRevealRequest(id: request.id)
-                            }
-                        }
-                    }
-                }
+                ProjectSidebarTree(
+                    model: model,
+                    root: root,
+                    rowHeight: rowHeight,
+                    activeDocumentURL: model.activeDocument?.url,
+                    gitStatus: ProjectGitStatusSnapshot(repositoryRoot: model.gitRepositoryRoot, projection: model.gitTreeStatusProjection),
+                    directoryMarks: model.projectDirectoryMarks,
+                    revealRequest: model.projectTreeRevealRequest,
+                    stateSnapshot: treeState,
+                    state: $treeState
+                )
+                .equatable()
             } else if let error = model.workspaceLoadErrorMessage {
                 VStack(spacing: 10) {
                     Image(systemName: "folder.badge.questionmark")
@@ -204,6 +99,20 @@ struct ProjectSidebarView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        .task(id: expandAllRequestID) {
+            guard let requestID = expandAllRequestID, let workspace = model.rootNode?.url else { return }
+            let paths = await model.loadAllProjectDirectories()
+            guard !Task.isCancelled, expandAllRequestID == requestID, model.rootNode?.url == workspace else { return }
+            expandAllRequestID = nil
+            guard let paths, let root = model.rootNode else {
+                model.showNotification("Could not expand all project directories")
+                return
+            }
+            treeState.updateExpandedPaths(paths, in: root)
+        }
+        .onChange(of: selectedContent) { _ in expandAllRequestID = nil }
+        .onChange(of: model.rootNode?.url) { _ in expandAllRequestID = nil }
+        .onDisappear { expandAllRequestID = nil }
         .sheet(item: renameRequest) { request in
             ProjectItemNameDialog(request: request) { name in
                 Task { await model.performProjectItemEdit(named: name) }
@@ -281,71 +190,98 @@ struct ProjectSidebarView: View {
             .help("Switch project view")
             .accessibilityIdentifier("project-sidebar-view-selector")
             Spacer()
-            if selectedContent == .project,
-               let activeURL = model.activeDocument?.url,
-               model.canRevealInProjectTree(activeURL) {
-                Button {
-                    model.revealInProjectTree(activeURL)
-                } label: {
-                    LitheIDEAIcon(
-                        resourcePath: "expui/general/locate.svg",
-                        size: LitheTheme.Metrics.toolbarIconSize,
-                        fallbackSystemImage: "scope",
-                        preservesOriginalColors: true
-                    )
-                    .opacity(isHeaderHovered || focusedHeaderAction == .reveal
-                             || accessibleHeaderAction == .reveal ? 1 : 0)
+            HStack(spacing: LitheTheme.ActionToolbar.actionSpacing) {
+                if selectedContent == .project,
+                   let activeURL = model.activeDocument?.url,
+                   model.canRevealInProjectTree(activeURL) {
+                    Button {
+                        model.revealInProjectTree(activeURL)
+                    } label: {
+                        LitheIDEAIcon(
+                            resourcePath: "expui/general/locate.svg",
+                            size: LitheTheme.Metrics.toolbarIconSize,
+                            fallbackSystemImage: "scope",
+                            preservesOriginalColors: false
+                        )
+                        .foregroundStyle(LitheTheme.ActionToolbar.icon)
+                    }
+                    .litheToolbarIconButton()
+                    .modifier(LitheToolWindowHoverAction())
+                    .accessibilityLabel("Reveal Active File in Project Tree")
+                    .help("Reveal Active File in Project Tree")
                 }
-                .litheToolbarIconButton()
-                .focused($focusedHeaderAction, equals: .reveal)
-                .accessibilityFocused($accessibleHeaderAction, equals: .reveal)
-                .accessibilityHidden(false)
-                .accessibilityLabel("Reveal Active File in Project Tree")
-                .help("Reveal Active File in Project Tree")
-            }
-            if selectedContent == .dependencies {
-                Button {
-                    dependencyRefreshRevision &+= 1
-                } label: {
-                    LitheSystemIcon(systemImage: "arrow.clockwise")
+                if selectedContent == .dependencies {
+                    Button {
+                        dependencyRefreshRevision &+= 1
+                    } label: {
+                        LitheSystemIcon(systemImage: "arrow.clockwise")
+                    }
+                    .litheIconButton()
+                    .help("Refresh dependencies")
+                    .modifier(LitheToolWindowHoverAction())
+                } else if model.isRefreshingWorkspace {
+                    ProgressView()
+                        .controlSize(.small)
+                        .frame(width: 28, height: 28)
+                        .help("Refreshing project")
+                        .modifier(LitheToolWindowHoverAction())
+                } else {
+                    Button {
+                        Task { await model.refreshWorkspace() }
+                    } label: {
+                        LitheIDEAIcon(
+                            resourcePath: "expui/general/refresh.svg",
+                            size: LitheTheme.Metrics.toolbarIconSize,
+                            fallbackSystemImage: "arrow.clockwise",
+                            preservesOriginalColors: false
+                        )
+                        .foregroundStyle(LitheTheme.ActionToolbar.icon)
+                    }
+                    .litheToolbarIconButton()
+                    .modifier(LitheToolWindowHoverAction())
+                    .accessibilityLabel("Refresh")
+                    .help("Refresh")
                 }
-                .litheIconButton()
-                .help("Refresh dependencies")
-            } else if model.isRefreshingWorkspace {
-                ProgressView()
-                    .controlSize(.small)
-                    .frame(width: 28, height: 28)
-                    .help("Refreshing project")
-            } else {
-                Button {
-                    Task { await model.refreshWorkspace() }
-                } label: {
-                    LitheIDEAIcon(
-                        resourcePath: "expui/general/refresh.svg",
-                        size: LitheTheme.Metrics.toolbarIconSize,
-                        fallbackSystemImage: "arrow.clockwise",
-                        preservesOriginalColors: true
-                    )
-                    .opacity(isHeaderHovered || focusedHeaderAction == .refresh
-                             || accessibleHeaderAction == .refresh ? 1 : 0)
+                if selectedContent == .project {
+                    Button {
+                        expandAllRequestID = UUID()
+                    } label: {
+                        LitheIDEAIcon(resourcePath: "expui/general/expandAll.svg", size: LitheTheme.Metrics.toolbarIconSize,
+                                      preservesOriginalColors: false, usesIDEADisabledAppearance: true)
+                        .foregroundStyle(LitheTheme.ActionToolbar.icon)
+                    }
+                    .litheToolbarIconButton()
+                    .modifier(LitheToolWindowHoverAction())
+                    .disabled(model.rootNode == nil || expandAllRequestID != nil)
+                    .help("Expand All")
+                    .accessibilityLabel("Expand All")
+                    .accessibilityIdentifier("project-expand-all")
+                    Button {
+                        expandAllRequestID = nil
+                        treeState.pendingDirectoryExpansionPaths = []
+                        treeState.expandedDirectoryPaths = model.rootNode.map { [$0.url.path] } ?? []
+                    } label: {
+                        LitheIDEAIcon(resourcePath: "expui/general/collapseAll.svg", size: LitheTheme.Metrics.toolbarIconSize,
+                                      preservesOriginalColors: false, usesIDEADisabledAppearance: true)
+                        .foregroundStyle(LitheTheme.ActionToolbar.icon)
+                    }
+                    .litheToolbarIconButton()
+                    .modifier(LitheToolWindowHoverAction())
+                    .disabled(model.rootNode == nil)
+                    .help("Collapse All")
+                    .accessibilityLabel("Collapse All")
+                    .accessibilityIdentifier("project-collapse-all")
                 }
-                .litheToolbarIconButton()
-                .focused($focusedHeaderAction, equals: .refresh)
-                .accessibilityFocused($accessibleHeaderAction, equals: .refresh)
-                .accessibilityHidden(false)
-                .accessibilityLabel("Refresh")
-                .help("Refresh")
+                LitheSidebarHideButton(title: selectedContent.title) {
+                    model.workbenchFeature.setVisibility(.project, isVisible: false)
+                }
             }
-            LitheSidebarHideButton(title: selectedContent.title) {
-                model.workbenchFeature.setVisibility(.project, isVisible: false)
-            }
+            .foregroundStyle(LitheTheme.ActionToolbar.icon)
         }
         .padding(.leading, LitheTheme.Metrics.projectTreeContentHorizontalInset)
         .padding(.trailing, 12)
         .frame(height: 39)
         .contentShape(Rectangle())
-        .onHover { isHeaderHovered = $0 }
-        .animation(.easeInOut(duration: 0.18), value: isHeaderHovered)
     }
 
     private var renameRequest: Binding<ProjectItemEditRequest?> {
@@ -360,6 +296,182 @@ struct ProjectSidebarView: View {
                 model.cancelProjectItemEdit()
             }
         )
+    }
+}
+
+private struct ProjectTreeViewState: Equatable {
+    var expandedDirectoryPaths: Set<String> = []
+    var pendingDirectoryExpansionPaths: Set<String> = []
+    var expandedTreeRootPath: String?
+    var contextMenuPath: String?
+    var selection = ProjectTreeSelection()
+    var isActive = false
+
+    mutating func updateExpandedPaths(_ paths: Set<String>, in root: FileNode) {
+        let added = paths.subtracting(expandedDirectoryPaths)
+        pendingDirectoryExpansionPaths.subtract(expandedDirectoryPaths.subtracting(paths))
+        pendingDirectoryExpansionPaths.formUnion(added.filter {
+            root.node(exactlyAt: URL(fileURLWithPath: $0))?.isUnloadedDirectory == true
+        })
+        expandedDirectoryPaths = ProjectTreeSelection.expandingSingleDirectoryChains(
+            from: added, in: root, expandedPaths: paths
+        )
+    }
+}
+
+/// Isolates tree projection/layout from unrelated AppModel notifications.
+private struct ProjectSidebarTree: View, Equatable {
+    let model: AppModel
+    let root: FileNode
+    let rowHeight: CGFloat
+    let activeDocumentURL: URL?
+    let gitStatus: ProjectGitStatusSnapshot
+    let directoryMarks: [String: WorkspaceDirectoryMark]
+    let revealRequest: ProjectTreeRevealRequest?
+    let stateSnapshot: ProjectTreeViewState
+    @Binding var state: ProjectTreeViewState
+    @Environment(\.controlActiveState) private var controlActiveState
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.model === rhs.model && lhs.root == rhs.root && lhs.rowHeight == rhs.rowHeight
+            && lhs.activeDocumentURL == rhs.activeDocumentURL && lhs.gitStatus == rhs.gitStatus
+            && lhs.directoryMarks == rhs.directoryMarks && lhs.revealRequest == rhs.revealRequest
+            && lhs.stateSnapshot == rhs.stateSnapshot
+    }
+
+    private func selectedURLs(in root: FileNode) -> [URL] {
+        ProjectTreeSelection.visibleNodes(in: root, expandedPaths: displayedExpandedPaths)
+            .filter { state.selection.paths.contains($0.url.path) && $0.url != root.url }
+            .map(\.url)
+    }
+
+    private var displayedExpandedPaths: Set<String> {
+        ProjectTreeSelection.expandingSingleDirectoryChains(
+            from: state.pendingDirectoryExpansionPaths, in: root,
+            expandedPaths: state.expandedDirectoryPaths
+        )
+    }
+
+    var body: some View {
+        let visibleRows = ProjectTreeSelection.visibleRows(in: root, expandedPaths: displayedExpandedPaths)
+        let visiblePaths = visibleRows.map(\.id)
+        GeometryReader { geometry in
+            ScrollViewReader { proxy in
+                ScrollView([.vertical, .horizontal]) {
+                    ProjectFileTreeContent(
+                        root: root,
+                        availableWidth: geometry.size.width,
+                        rowHeight: rowHeight,
+                        activeDocumentURL: activeDocumentURL,
+                        gitStatus: gitStatus,
+                        directoryMarks: directoryMarks,
+                        actions: ProjectTreeActions(model: model),
+                        selectionSnapshot: state.selection,
+                        isFocused: state.isActive && controlActiveState == .key,
+                        selection: $state.selection,
+                        visibleRows: visibleRows,
+                        expandedDirectoryPathsSnapshot: displayedExpandedPaths,
+                        expandedDirectoryPaths: Binding(
+                            get: { displayedExpandedPaths },
+                            set: { state.updateExpandedPaths($0, in: root) }
+                        ),
+                        contextMenuPath: $state.contextMenuPath
+                    )
+                    .equatable()
+                    .padding(.vertical, LitheTheme.Metrics.projectTreeContentVerticalInset)
+                    .frame(
+                        minWidth: geometry.size.width,
+                        minHeight: geometry.size.height,
+                        alignment: .topLeading
+                    )
+                }
+                .background(ProjectTreeKeyboardCommands(
+                    copy: { model.copyProjectItems(selectedURLs(in: root)) },
+                    paste: {
+                        let focused = visibleRows.first { $0.id == state.selection.focusedPath }?.node
+                        let destination = focused.map { $0.isDirectory ? $0.url : $0.url.deletingLastPathComponent() } ?? root.url
+                        Task { await model.pasteProjectItems(in: destination) }
+                    },
+                    selectAll: {
+                        state.selection.selectAll(in: root)
+                    },
+                    navigate: { key, extending in
+                        var updated = state
+                        updated.contextMenuPath = nil
+                        var paths = updated.expandedDirectoryPaths
+                        updated.selection.navigate(key, in: root, expandedPaths: &paths, extending: extending)
+                        updated.updateExpandedPaths(paths, in: root)
+                        state = updated
+                        if let path = updated.selection.focusedPath { proxy.scrollTo(path) }
+                    },
+                    focusChanged: { state.isActive = $0 }
+                ).frame(maxWidth: .infinity, maxHeight: .infinity))
+                .onChange(of: root) { [old = root] new in
+                    let loaded = Set(old.unloadedRows(expandedPaths: state.expandedDirectoryPaths).map(\.url.path))
+                    state.expandedDirectoryPaths = ProjectTreeSelection.expandingSingleDirectoryChains(
+                        from: loaded, in: new, expandedPaths: state.expandedDirectoryPaths
+                    )
+                    state.pendingDirectoryExpansionPaths.subtract(loaded)
+                }
+                .onChange(of: visiblePaths) { paths in
+                    var retained = state.selection
+                    retained.retain(visiblePaths: paths)
+                    if retained != state.selection { state.selection = retained }
+                }
+                .onChange(of: activeDocumentURL?.standardizedFileURL.path) { path in
+                    // A single selection follows the editor, as it did before
+                    // multi-selection; an explicit group stays until changed.
+                    guard let path, state.selection.paths.count <= 1 else { return }
+                    state.selection.select(path, visiblePaths: [], extending: false, toggling: false)
+                }
+                .scrollContentBackground(.hidden)
+                .litheScrollViewChrome(usesCompactScrollers: true)
+                // Directories are listed when first expanded; this also
+                // covers rows a rescan or reveal left expanded but unloaded.
+                .task(id: root.unloadedRows(expandedPaths: state.expandedDirectoryPaths).map(\.url.path)) {
+                    await model.loadExpandedProjectDirectories(state.expandedDirectoryPaths)
+                }
+                .task(
+                    id: ProjectTreeTaskID(
+                        rootPath: root.url.standardizedFileURL.path,
+                        revealRequestID: revealRequest?.id
+                    )
+                ) {
+                    let rootPath = root.url.standardizedFileURL.path
+                    let shouldRefreshGit = state.expandedTreeRootPath != rootPath
+                    if shouldRefreshGit {
+                        state.selection = ProjectTreeSelection()
+                        state.expandedTreeRootPath = rootPath
+                        state.pendingDirectoryExpansionPaths = []
+                        state.updateExpandedPaths([rootPath], in: root)
+                    }
+                    if let request = revealRequest {
+                        let paths = state.expandedDirectoryPaths.union(
+                            ProjectTreeLocator.expandedDirectoryPaths(
+                                for: request.fileURL,
+                                rootURL: root.url,
+                                includeItem: request.isDirectory
+                            )
+                        )
+                        state.updateExpandedPaths(paths, in: root)
+                        await model.loadExpandedProjectDirectories(state.expandedDirectoryPaths)
+                        await Task.yield()
+                        // Listing can fold the target into a compact package row.
+                        let rowURL = model.projectTreeURL(for: request.fileURL) ?? request.fileURL
+                        proxy.scrollTo(
+                            rowURL.standardizedFileURL.path,
+                            anchor: .center
+                        )
+                    }
+                    if shouldRefreshGit {
+                        await model.refreshGit()
+                    }
+                    if let request = revealRequest {
+                        model.consumeProjectTreeRevealRequest(id: request.id)
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -569,7 +681,7 @@ private struct FileNodeRow: View {
     private var rowWidth: CGFloat {
         max(
             availableWidth - (LitheTheme.Metrics.projectTreeContentHorizontalInset * 2),
-            CGFloat(depth * 14 + 8 + 180)
+            CGFloat(depth) * LitheTheme.Tree.indent + 180
         )
     }
 
@@ -582,13 +694,16 @@ private struct FileNodeRow: View {
     }
 
     private func toggleExpanded() {
+        guard node.children?.isEmpty != true else { return }
+        var updated = expandedDirectoryPaths
         if isExpanded {
-            expandedDirectoryPaths.remove(node.url.path)
-            node.collapsedAncestorPaths.forEach { expandedDirectoryPaths.remove($0) }
+            updated.remove(node.url.path)
+            updated.subtract(node.collapsedAncestorPaths)
         } else {
-            expandedDirectoryPaths.insert(node.url.path)
-            node.collapsedAncestorPaths.forEach { expandedDirectoryPaths.insert($0) }
+            updated.insert(node.url.path)
+            updated.formUnion(node.collapsedAncestorPaths)
         }
+        expandedDirectoryPaths = updated
     }
 
     private func activateRow() {
@@ -606,12 +721,13 @@ private struct FileNodeRow: View {
             workspaceURL: projectRootURL,
             destinationURL: node.isDirectory ? node.url : nil,
             disclosureInset: node.isDirectory
-                ? CGFloat(depth * 14 + 8 + 16) + LitheTheme.Metrics.projectTreeContentHorizontalInset : 0,
+                ? (CGFloat(depth) * LitheTheme.Tree.indent + LitheTheme.Tree.disclosureSlot) + LitheTheme.Metrics.projectTreeContentHorizontalInset : 0,
             select: { flags in
                 contextMenuPath = nil
                 selectRow(flags: flags)
             },
             activate: { activateRow() },
+            doubleClickOnMouseDown: node.isDirectory,
             doubleClick: {
                 ProjectFileRowActivation.performDoubleClick(
                     isDirectory: node.isDirectory,
@@ -635,16 +751,16 @@ private struct FileNodeRow: View {
         Button {
             toggleExpanded()
         } label: {
-            HStack(spacing: 6) {
+            HStack(spacing: LitheTheme.Tree.iconTextGap) {
                 LitheIDEAIcon(
                     resourcePath: isExpanded
                         ? "expui/general/chevronDown.svg"
                         : "expui/general/chevronRight.svg",
                     size: 16,
-                    fallbackSystemImage: isExpanded ? "chevron.down" : "chevron.right",
                     preservesOriginalColors: true
                 )
-                .frame(width: 10)
+                .frame(width: LitheTheme.Tree.disclosureSlot, alignment: .leading)
+                .opacity(node.children?.isEmpty == true ? 0 : 1)
                 LitheIcon(kind: directoryIconKind, size: LitheTheme.Metrics.treeIconSize)
                     .frame(width: LitheTheme.Metrics.treeIconSize, height: LitheTheme.Metrics.treeIconSize)
                 Text(node.name)
@@ -655,7 +771,7 @@ private struct FileNodeRow: View {
                     .layoutPriority(1)
                 Spacer(minLength: 0)
             }
-            .padding(.leading, CGFloat(depth * 14 + 8))
+            .padding(.leading, CGFloat(depth) * LitheTheme.Tree.indent)
             .padding(.trailing, 8)
             .frame(width: rowWidth, alignment: .leading)
             .frame(height: rowHeight)
@@ -667,7 +783,6 @@ private struct FileNodeRow: View {
             )
         }
         .buttonStyle(.litheNoPress)
-        .lithePointer()
         .padding(.horizontal, LitheTheme.Metrics.projectTreeContentHorizontalInset)
         .overlay { rowInteraction }
         .litheContextMenu(
@@ -683,8 +798,8 @@ private struct FileNodeRow: View {
         Button {
             activateRow()
         } label: {
-            HStack(spacing: 6) {
-                Color.clear.frame(width: 10)
+            HStack(spacing: LitheTheme.Tree.iconTextGap) {
+                Color.clear.frame(width: LitheTheme.Tree.disclosureSlot)
                 LitheIcon(kind: resolvedJavaIconKind ?? resolvedFileIconKind ?? node.iconKind, size: LitheTheme.Metrics.treeIconSize)
                     .frame(width: LitheTheme.Metrics.treeIconSize)
                 Text(node.name)
@@ -701,7 +816,7 @@ private struct FileNodeRow: View {
                         .accessibilityLabel(status.kind.title)
                 }
             }
-            .padding(.leading, CGFloat(depth * 14 + 8))
+            .padding(.leading, CGFloat(depth) * LitheTheme.Tree.indent)
             .padding(.trailing, 8)
             .frame(width: rowWidth, alignment: .leading)
             .frame(height: rowHeight)
@@ -738,12 +853,14 @@ private struct FileNodeRow: View {
     /// Modified clicks update selection without opening files or folding directories.
     /// Control-click stays the macOS secondary click and opens the context menu.
     private func selectRow(flags: NSEvent.ModifierFlags = []) {
-        selection.select(
+        var updated = selection
+        updated.select(
             node.url.path,
             visiblePaths: visibleRows.map { $0.node.url.path },
             extending: flags.contains(.shift),
             toggling: flags.contains(.command)
         )
+        if updated != selection { selection = updated }
     }
 
     private var selectedItemURLs: [URL] {

@@ -8,6 +8,96 @@ import WebKit
 
 struct ProjectTreeSelectionTests {
     @Test
+    func singleDirectoryChainsExpandWithoutMergingRowsAndKeepManualCollapse() throws {
+        let rootURL = URL(fileURLWithPath: "/fixture")
+        let infra = rootURL.appendingPathComponent("infra")
+        let docker = infra.appendingPathComponent("docker")
+        let database = docker.appendingPathComponent("database-validation")
+        let file = FileNode(url: database.appendingPathComponent("compose.yaml"), isDirectory: false, children: nil)
+        let leaf = FileNode(url: database, isDirectory: true, children: [file])
+        let middle = FileNode(url: docker, isDirectory: true, children: [leaf])
+        let parent = FileNode(url: infra, isDirectory: true, children: [middle])
+        let root = FileNode(url: rootURL, isDirectory: true, children: [parent])
+        let expanded = ProjectTreeSelection.expandingSingleDirectoryChains(from: [infra.path], in: root, expandedPaths: [rootURL.path, infra.path])
+        #expect(expanded == [rootURL.path, infra.path, docker.path, database.path])
+        #expect(ProjectTreeSelection.visibleRows(in: root, expandedPaths: expanded).map(\.node.name) == ["fixture", "infra", "docker", "database-validation", "compose.yaml"])
+        // Only newly expanded/loaded parents are candidates; unrelated updates cannot reopen a collapsed child.
+        #expect(ProjectTreeSelection.expandingSingleDirectoryChains(from: [], in: root, expandedPaths: [rootURL.path, infra.path]) == [rootURL.path, infra.path])
+        let unloaded = FileNode(url: infra, isDirectory: true, children: nil)
+        #expect(ProjectTreeSelection.expandingSingleDirectoryChains(from: [infra.path], in: unloaded, expandedPaths: [infra.path]) == [infra.path])
+    }
+
+    @Test(arguments: ["empty", "hidden", "siblings", "file"])
+    func automaticExpansionStopsAtLeavesHiddenDirectoriesAndSiblings(reason: String) {
+        let url = URL(fileURLWithPath: "/fixture")
+        let child = FileNode(url: url.appendingPathComponent(reason == "hidden" ? ".hidden" : "logs"),
+                             isDirectory: reason != "file", children: reason == "empty" ? [] : nil)
+        let children = reason == "siblings" ? [child, FileNode(url: url.appendingPathComponent("README"), isDirectory: false, children: nil)] : [child]
+        let root = FileNode(url: url, isDirectory: true, children: children)
+        #expect(ProjectTreeSelection.expandingSingleDirectoryChains(from: [url.path], in: root, expandedPaths: [url.path]) == [url.path])
+        if reason == "empty" {
+            let row = ProjectTreeSelection.VisibleRow(node: child, depth: 1)
+            #expect(row.node.children?.isEmpty == true)
+            var selection = ProjectTreeSelection()
+            selection.select(child.url.path, visiblePaths: [], extending: false, toggling: false)
+            var expanded: Set<String> = [url.path]
+            selection.navigate(.right, in: root, expandedPaths: &expanded, extending: false)
+            #expect(expanded == [url.path])
+        }
+    }
+
+    @Test(arguments: [NSEvent.ModifierFlags(), .command, .shift, .control])
+    @MainActor
+    func directoryDoubleClickStartsOnSecondPressAndOnlyOnce(flags: NSEvent.ModifierFlags) throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 240, height: 24),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let row = ProjectTreeRowInteractionView(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+        window.contentView?.addSubview(row)
+        row.doubleClickOnMouseDown = true
+        var activations = 0
+        var expansions = 0
+        row.activate = { activations += 1 }
+        row.doubleClick = { expansions += 1 }
+        let down = try #require(NSEvent.mouseEvent(
+            with: .leftMouseDown, location: NSPoint(x: 80, y: 12), modifierFlags: flags, timestamp: 0,
+            windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 2, pressure: 1))
+        row.mouseDown(with: down)
+        #expect(expansions == (flags.isEmpty ? 1 : 0), "A directory must expand before the second release")
+        let up = try #require(NSEvent.mouseEvent(
+            with: .leftMouseUp, location: NSPoint(x: 80, y: 12), modifierFlags: [], timestamp: 0,
+            windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 0))
+        row.mouseUp(with: up)
+        #expect(expansions == (flags.isEmpty ? 1 : 0), "Release must not toggle the directory a second time")
+        #expect(activations == (flags.isEmpty ? 1 : 0))
+    }
+
+    @Test
+    @MainActor
+    func fileDoubleClickUsesPressCountAndStillWaitsForRelease() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 240, height: 24),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let row = ProjectTreeRowInteractionView(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+        window.contentView?.addSubview(row)
+        var runs = 0
+        row.doubleClick = { runs += 1 }
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            let event = try #require(NSEvent.mouseEvent(
+                with: type, location: NSPoint(x: 80, y: 12), modifierFlags: [], timestamp: 0,
+                windowNumber: window.windowNumber, context: nil, eventNumber: 1,
+                clickCount: type == .leftMouseDown ? 2 : 1, pressure: 1))
+            if type == .leftMouseDown {
+                row.mouseDown(with: event)
+                #expect(runs == 0)
+            } else { row.mouseUp(with: event) }
+        }
+        #expect(runs == 1)
+    }
+
+    @Test
     @MainActor
     func treeArrowsAreConsumedAfterClickAndYieldOutsideTheTree() throws {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
