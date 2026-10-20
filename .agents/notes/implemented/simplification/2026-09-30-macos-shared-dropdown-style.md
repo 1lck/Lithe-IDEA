@@ -42,6 +42,256 @@ Commit/Shelf 页签的留白以同一 Community revision 的 `IslandsUICustomiza
 焦点 2pt 边框；SwiftUI 选择器在展开或键盘聚焦时使用焦点描边。继承的 `Component.arc=8`
 对应半径 4，控件高 28；其余设置输入框维持原有描边宽度。弹出列表布局不变。
 
+### Search Everywhere
+
+双 Shift 搜索窗口沿用 Community `c7f91397daa3a961b4e78bc634fe467a0a7d9ade`
+的 `SearchEverywhereUI.java`、`SENewUIHeaderView.kt`、`BigPopupUI.java`、
+`IslandsUICustomization.kt`、`IslandsTabPainter.kt` 与 `ManyIslandsDark/Light.theme.json`。
+分类栏使用普通 13pt 字体和已有 `LitheToolWindowTabStyle`，不另外维护下划线标签。
+Islands 的 JTabbedPane 委托同一个工具窗口标签绘制器；40pt 分类布局内绘制
+28pt 选中框，主题的 Header.insets 顶部增加 2pt。标签水平绘制内缩为 4pt，
+对应可见标签之间 8pt 留白，首项加 Header 左侧 4pt 后为 8pt。
+
+`search.everywhere.round.text.field` 在该版本的
+`platform/ide-core-impl/resources/intellij.platform.ide.core.impl.xml` 中默认开启。
+搜索行复用 `LitheSearchTextField` / `litheSearchField`，外包裹层按源码保留
+上下 3pt、左右 5pt，图标和输入间距为 6pt。该包装移除内部原生边框，
+聚焦态由共享搜索外框绘制，不再叠加另一层原生边框；保留原生编辑焦点和中文输入。
+搜索、筛选和关闭使用已有 IDEA 明暗 SVG，原有选项和关闭动作不变。
+
+弹窗与输入背景读取 `Popup.background`，深/浅分别为 `#26282C/#F7F8F9`；
+外边框读取 `Popup.borderColor`，分别为 `#33353B/#DDDFE4`。
+这些是搜索弹窗专用 token，不修改其他菜单的背景。结果区首选宽度 670pt、
+最大高度 600pt 来自 `BigPopupUI.createListPane` 与 `JBUI.CurrentTheme.BigPopup`，
+窄窗口把宽度限制在当前工作区内部。外框裁剪内容后内描边，避免分类背景盖住圆角。
+`BigPopupUI.calcPrefSize` 的 SHORT 模式移除结果区：没有输入时只保留 84pt
+分类栏与搜索行，输入后展开结果区，清空后恢复紧凑高度。
+
+`SearchEverywhereManagerImpl` 通过 `createComponentPopupBuilder` 创建独立窗口；
+`AbstractPopup` 使用 `WindowShadowMode.NORMAL`，`WindowManagerImpl.setWindowShadow`
+设置 `Window.shadow=true`，并移除只有 SMALL 模式才使用的 `Window.style=small`。
+因此 macOS 搜索复用 `LitheCenteredPopup` 的透明无边框 `NSPanel` 与
+`hasShadow=true`，不再在工作台内叠加 SwiftUI 模糊投影。新增可选 `topInset`
+仅用于保持搜索窗口原有顶部位置；未设置时其他表单仍然居中。面板内容按父窗口
+尺寸更新，父窗口移动/缩放时同步定位；关闭、宿主销毁、失焦由原呈现器清理，
+筛选子菜单取得焦点不会关闭搜索。输入框在面板内容实际挂载时取得焦点，
+不能在工作台占位视图出现时提前设置焦点，否则原生面板打开后不能立即输入。
+搜索显式开启呈现器的 `focusFirstTextField`，
+在原生面板成为 key window 后设置 `initialFirstResponder` 并请求字段焦点，避免
+SwiftUI 跨 Hosting 树的默认焦点请求丢失。字段通过已有
+`LitheToolWindowActivityTracker` 观察原生字段编辑器，不跨 Hosting 树传递 `FocusState`。
+其他弹窗保持原有焦点策略。回归直接向面板发送首个文字按键，
+不先点击输入框或直接调用字段编辑器插入文字，以免掩盖焦点交接失败。
+原生呈现器复用 `LitheDropdownAnchorView` 的上窗回调：第一次 `updateNSView`
+可能早于 NSWindow 挂载，必须在挂载后重试，而不是等待另一次用户输入碰巧触发更新。
+初始查询在首次尺寸测量前从会话读取，不能等 `onAppear` 后才使结果区展开。
+面板继承产品语言和主题，但 `controlActiveState` 必须由面板自身的原生 key-window
+通知更新，再传给 Hosting 内容，不能继承已经失焦的父窗口；顶部分类继续使用
+项目共享的选中与失焦渲染。
+搜索面板顶部分类与工具按钮之间的空白区可拖动。沿用 Community
+`SearchEverywhereManagerImpl.setMovable(true)` / `AbstractPopup.WindowMoveListener`
+的窗口移动语义，交给 AppKit `performDrag(with:)`，不在 SwiftUI 中逐帧发布坐标。
+用户开始拖动后，内容展开/收起、切换预览及父窗口尺寸变化保留面板当前左上角，
+不重新居中；关闭重开恢复初始顶部位置。拖动命中仅覆盖空白区，不拦截标签、输入与工具按钮。
+空白 Spacer 必须显式填满标题栏高度，否则其原生拖动覆盖层高度为 0，鼠标永远
+命中不到。回归必须在真实搜索宿主中检查尺寸和 `hitTest`，不能只给离屏 DragView
+设置一个测试用 frame，就认为真实窗口已支持拖动。
+
+JBR `d2fc8926ec75b7241aa34acde0b2377139c7e311` 的
+`src/java.desktop/macosx/native/libawt_lwawt/awt/AWTWindow.m` 默认启用颜色匹配，
+将窗口 backing store 设为 sRGB。共享原生表单面板同样设置 `colorSpace = .sRGB`，
+避免显示器 ICC 配置让相同主题 RGB 呈现为不同背景；不通过采样截图改写颜色 token。
+
+结果名字和路径使用普通 13pt 字体、文件类型图标保持 16pt；结果行复用
+`litheSelectionRow` 的焦点/非焦点选中色，未配置动作图标时保留空位，不画通用闪电。
+选中行的焦点归属整个搜索面板，而不是搜索输入框；点击下方预览后仍保留活动选中色。
+依据同版本 `SeTargetItemPresentationRenderer.kt` 的 `UIUtil.getListBackground(selected, selected)`，
+输入框焦点只控制输入框外框和键盘路由，面板失去 key-window 后仍由共享行样式处理失焦色。
+搜索结果与工具按钮保留默认箭头光标。
+加载指示器按同一 Community 版本 `HintHelper.kt.setSearchInProgress` 放到
+搜索框右侧，位于命令提示之前，不再放在分类栏。复用原有 `ProgressView`
+和 `isSearchingEverywhere` 状态，在 16pt 插槽中显示；命令提示在输入后仍保留，
+完成搜索后移除指示器。测试用已有 `TestGate` 控制真实搜索状态，核对加载器
+与输入字段位于同一行且搜索完成后消失，不依赖任务执行速度。
+验证使用 `SearchEverywhereAppearanceTests`、
+`SearchEverywhereQueryModeTests`、`LitheCenteredPopupTests`、`PluginUIIconTests` 命令面板回归及真实应用；
+组件截图不代替完整工作区验收。
+
+名称匹配还要对照同 revision 的 `NameUtil`、`MinusculeMatcherImpl` 与
+`DefaultChooseByNameItemProvider`，不能只修改列表外观。Core 的名称匹配同时返回
+分数与 UTF-16 片段；先检查全部候选再按来源排序、截断，Swift 不再给新结果重新猜分。
+例如 `name` 能命中 `NativeMenu` 的 `Na` / `Me`，而不是仅做连续子串匹配；
+不能先取目录遍历的前 50 项再排序，否则晚出现的 `Name.swift` 精确命中会丢失。
+没有引入 Kotlin/JVM UI 运行时，也不声称移植了完整 Minuscule、拼写纠错、键盘布局、
+历史或机器学习权重。当前独立匹配器仅承担跨平台名称/单词片段匹配；语言语义仍应来自
+已安装语言服务，不扩展正则来仿造语义索引。现有 Java 语法索引和外部库能力的缺口仍存在。
+
+`SeTargetItemPresentationRenderer` 只对选中行调用 `speedSearch`，匹配范围由后端
+提供；`SimpleColoredComponent` / `UIUtil.drawSearchMatch` 使用
+`SearchMatch.startBackground/endBackground`，Islands 深/浅为 `#BA9752/#FEE6B1`，
+文字深/浅为黑色/`Gray._50`。不能把截图中整段的文件状态颜色当成搜索匹配色，
+也不能让前端以另一套子串算法重新定位片段。
+
+Search Everywhere 可显式包含生成目录的**文件名**，但不把 `.build`、`target`
+中的几十 GB 内容和二进制加入正文/符号索引。额外索引仅在内存中保存路径，沿用
+Core 索引失效与文件增量事件；未被 watcher 监视的生成目录新增条目需刷新索引。
+Git 元数据、嵌套工作树、自定义隐藏目录及路径 glob 仍被排除；该开关覆盖内置生成
+目录名称排除，不改变项目树、正文搜索、替换和 watcher 的范围。每来源 200 项、
+四类总计 800 项是有界候选，不等于 IDEA 的无限分页或完整项目模型。
+
+漏斗按 `SearchEverywhereFiltersAction` 控制当前已实现的 Classes/Files/Symbols/Actions，
+底部支持 All/None/Invert，复用 `litheDropdown` 的原生子面板。All 页包含选中来源的
+名称与动作，单独标签不受 All 来源开关影响；正文大小写/整词/正则只作用于 Text，
+不能冒充来源筛选。来源和预览状态保存在当前搜索会话，关闭重开仍保留。
+没有对应筛选能力的单独标签不展示无效的来源筛选入口。
+
+交互状态由面板内的 `SearchEverywhereContent` 持有。窗口宿主的 `contentUpdateKey`
+只随工作区尺寸、主题和语言变化；来源与查询等普通更新由内部视图直接观察，
+并复用 `LitheDropdownHostingController.preferredContentSize` 回调调整紧凑/展开高度。
+漏斗 SVG 始终使用同一 template 渲染分支，只切换前景色。不能在筛选变化时切换
+original/template 分支，否则 SwiftUI 会拆除按钮内的原生下拉锚点，选一次就关闭
+筛选器。原生事件回归和真实 None/Invert 连续操作覆盖这一生命周期。
+筛选内容按同版本 `ShowFilterAction.createFilterPanel` / `ElementsChooser` /
+`MultiStateElementsChooser` 排列：上方可滚动多选行、下方固定 All/None/Invert，
+弹层最小高度 200。底部复用 `LitheActionButtonStyle` 的 72×28 普通字重按钮，
+采用 Swing FlowLayout 的 5pt 间距和边距，不再使用系统 `.bordered` 胶囊按钮。
+多选行复用共享 `LitheDropdownRowStyle`，按名称排序，勾选状态与行选中/悬停分离；
+使用已导入的 24pt `commit/checkBox[Selected].svg` 明暗资源（实际勾框为 16pt），
+不使用被原生裁剪影响的系统 Toggle。外框继续由共享 `litheDropdown` 绘制，
+不能复制另一套浮层背景与边框。只有四种已实现来源，不补齐 IDEA 插件贡献项。
+内容背景是 `MultiStateElementsChooser` 的 JTable / JPanel，沿 Islands `*.background`
+继承 `tool-window-bg`（深/浅 `#191A1C/#FFFFFF`）；复用 `settingsListSurface`，
+不把通用菜单的 `settingsPopupBackground` 当成筛选表格背景。
+复选框 SVG 自带 4pt 留白，筛选行不再叠加普通菜单图标的 8pt 水平内边距；
+共享行样式默认值不变。共享原生下拉面板也明确使用 sRGB backing store，
+与 JBR AWTWindow 及搜索主面板一致，避免显示器 ICC 改变相同 RGB 的显示结果。
+筛选行的 hover 和点击选中是两种状态：hover 使用项目失焦灰，点击后保留主体蓝；
+移动到另一行时，原蓝色选中行仍保留，新的 hover 行只显示灰色，也不能改变复选框。
+通过共享 `LitheDropdownRowStyle` 的 hover 背景参数表达这个表格角色，普通菜单仍沿用
+原来的蓝色 hover，不能为修复筛选器改掉所有菜单的交互。
+三个批量按钮上方不是独立 Divider：`ScrollPaneFactory` 创建的 `JBScrollPane` 由
+`DarculaScrollPaneBorder` 绘制 1pt 矩形边框，底边自然成为按钮上方的线。
+颜色沿 `JBColor.border()` → `Borders.color` → `layer-0-border`，Islands 深/浅为
+`#26282C/#D1D3D9`。边框覆盖在滚动列表内侧，不额外占一行或叠加系统 Divider。
+
+预览按钮使用已有 `previewVertically.svg`，通过共享纵向分隔容器显示下方编辑器。
+单击或键盘选择只更新预览，回车/双击仍打开文件。预览沿用 Problems 的独立
+`MonacoPreviewConfiguration.presentationID` 会话，因此可看、可选中文字，却不能
+输入、格式化或重命名，也不会夺走主编辑器的 WebView 或保存同步所有权。
+不能通过把共享 `EditorDocument.isReadOnly` 改为 true 来实现预览，那会锁住原编辑器。
+鼠标选择不触发列表自动滚动，也不改变窗口位置和尺寸；只有上下键导航才请求
+滚动至可见位置，使用系统最小滚动，不再把选中项强行居中。
+新查询或切换结果来源仍重置到首项，不能让上一轮的列表偏移隐藏新结果。
+`SearchEverywhereBehaviorTests`、共享 `search/name-matching.json`、Core project 回归
+与 Monaco 会话生命周期测试分别检查高亮片段、排序截断、预览只读和资源释放。
+
+搜索输入草稿由 `SearchSessionFeatureModel` 在每次输入时同步接收，而不是等搜索防抖
+结束才保存。All 重开恢复最后草稿，**空字符串也是有效草稿**：用户删除输入后关闭，
+下一次打开必须为空，不能用 Community 的非空历史回填规则复活旧查询。
+非空查询历史仍按来源去重、每来源最多 50 条；侧栏查询、来源过滤和预览开关各自保存，
+项目会话重置时清除。打开时原生字段全选已恢复的文字。
+
+文件名的前景色与金色匹配底纹是两种效果。修改/未跟踪等状态复用 Git 模块的
+`GitTreeStatusProjection`；Git 模块惰性加载，因此打开搜索时需刷新后发布快照，
+不能要求用户先打开 Commit。忽略状态由 Core 对有界结果一次执行只读
+`git check-ignore --stdin -z`，Git 负责否定规则、已跟踪例外、info/exclude 和全局规则；
+失败时保留未知，不按 `.build` 等目录名猜颜色。Islands Dark/Light 的忽略前景色为
+`#D69A6B/#8C4F00`；获取状态前释放搜索索引读锁，避免 Git 查询阻塞增量更新。
+
+预览文档按使用方（Problems、项目替换、Search Everywhere）分别持有；同一路径的
+并发读取仍合并为一次。关闭搜索只调用 `discardPreviewDocuments(owner: .searchEverywhere)`，
+不能用“项目替换是否显示”猜测所有权，更不能移除 Problems 正在显示的文档或文件监听。
+最后一个使用方释放时，才撤销未完成的预览打开并同步编辑器；未保存或同步失败的文档
+提升为正式文档。每次请求有自己的标识，旧请求取消不能释放后来重新打开的预览。
+搜索预览按当前路径和请求标识持有文档：切换选中文件时释放旧持有，收起预览或
+清空结果时通过视图消失释放；异步读取晚返回仍用原请求标识释放，不能清掉同一路径
+的新请求。整窗关闭清理只作为兜底，不能作为无限累积正文和文件监听的缓存策略。
+原生视图连续预览 A/B/C 后移除预览，检查干净文档数量回落、Problems 仍有持有及
+未保存内容提升为正式文档；共享加载用例验证旧请求释放不会撤销新请求或其他使用方。
+
+搜索索引的目录枚举在进入每个目录前继续检查取消。后代目录失去权限或已消失时
+跳过该子树，并向标准错误记录工作区相对路径及错误；根目录错误、取消、超时及其他
+异常仍向调用方传播。内容和名称索引共用此边界，生成目录不再能导致正常源码和
+Text 结果全部丢失。Unix 权限回归使用真实不可读目录，Windows 不创建权限位夹具；
+各平台共用缺失后代、根目录失败及取消回归。
+
+独立只读会话复用现有 `window.lithe.nativeFind` 的 Monaco 匹配与装饰，而不是会打开
+查找框、抢焦点的 `find`。Text 分类传递当前大小写、整词和正则选项；主编辑器查找状态
+不能覆盖预览查询。真实 WebKit 集成用例检查匹配数量、装饰、焦点、清除与只读行为。
+名称匹配先尝试 basename（文件名），未命中仍尝试工作区相对路径；不要求查询带斜杠，
+因此 `src` 与 Agent `@src` 都能找到 `src/Foo.swift`。路径回退低于任何文件名命中，
+且不把目录片段当成文件名高亮；共享路径 fixture 同时经 Rust 命令和 Agent 补全链路验证。
+
+搜索请求按实际可见来源复用既有分类上限，不新增另一套协议字段。Actions 和 `/` 命令
+直接使用动作匹配并清除旧工作区结果；Text 将文件名和符号上限置零；Files 与 Agent
+补全只请求文件名；All 按漏斗勾选来源决定，Classes/Symbols 复用同一个符号索引。
+来源变更参与搜索任务标识和过期响应校验。Core 在构建前检查零上限，不能先枚举完整
+工作区再截断；模块激活也不预热正文索引，避免从另一条入口重新引入多余扫描。
+已有工作区后台索引更新仍由工作区生命周期管理，不取消其他使用方已发起的任务。
+带 2000 个生成文件的冷索引用例核对目录访问、缓存种类和驻留文件数，并记录耗时；
+这些是受控规模的回归证据，不等同于大型真实工作区的峰值内存基准。
+
+预览开启时，结果按钮仍保留鼠标单击选择、双击打开；显式注册辅助功能默认打开动作
+和命名 Open 动作，不再让非鼠标激活依赖当前鼠标事件的 clickCount。Return 继续走
+选中项打开入口。打包预览已验证鼠标单击保留搜索面板，默认辅助功能激活与命名
+Open 动作均关闭搜索并打开对应文件标签；真实 VoiceOver 操作仍需单独实机验收，
+不能用键盘回归或默认动作探针冒充完整屏幕阅读器验收。
+
+搜索的 `check-ignore` 请求也传递用户指定 Git，但不进入交互式 Git 操作或控制台日志。
+
+“搜索排除规则”是双 Shift 漏斗列表最上方的勾选项，位于 Actions 之前；常规设置不再提供入口。
+它复用来源行的 24pt 复选框、普通字号、灰色 hover 和点击蓝色选中，不能在列表下另挂文本框。
+整行容器通过共享 `litheRowHover` 绘制灰色悬停与蓝色选中背景，覆盖右侧编辑按钮，
+与来源行右边缘对齐。勾选按钮与编辑按钮是同级独立命中区域，不嵌套按钮；
+点击编辑不改变勾选状态，编辑按钮仍有自己的悬停反馈。
+右侧复用原始 16pt `expui/general/edit.svg` 与共享图标按钮。排除规则编辑是 Lithe
+新增入口，不虚构 IDEA 有同名动作；小动作按钮沿 Community
+`c7f91397daa3a961b4e78bc634fe467a0a7d9ade` 的 `ActionButton` / `IdeaActionButtonLook`：
+22pt 点击及 hover 区、居中 16pt 原图标（四边各 3pt），`Button.arc=8` 对应半径 4pt。
+该入口显式采用现有 `toolbarHoverBackground` / `toolbarPressedBackground` 的
+`ActionButton` 主题色，不沿用通用 5pt 圆角或通用 hover；不修改其他按钮默认值，
+不添加边框、手形光标或改变图标笔画。点击后关闭漏斗，
+由搜索窗口持有带标题的 `LitheCenteredPopup` 编辑弹窗，不把编辑器挂在会消失的漏斗上。
+弹窗使用现有文本编辑框和主题色 `LitheActionButtonStyle(isPrimary: true)` 的“应用”，
+保存后关闭；取消或 Escape 丢弃草稿且保留搜索窗口。Enter 在多行框里继续换行。
+规则输入框打开即聚焦；共享 `LitheCenteredPopup` 的原生首输入焦点查找同时支持
+`NSTextField` 和可编辑 `NSTextView`，在面板成为 key 后设置 firstResponder。
+单行搜索仍全选原有查询，多行规则只激活编辑器而不覆盖选区。
+`litheSettingsTextEditor(height:focus:)` 接收调用方的焦点绑定，
+不再在同一输入框内外分别挂两个 `.focused`。共享多行输入框复用统一控件外框：
+普通 1pt，焦点 2pt 并向外扩展 1pt，焦点颜色与输入组件一致，布局尺寸不变；
+现有设置、MCP、运行配置和 Agent 设置中的多行框沿用该 owner，不在各页复制边框。
+仅规则弹窗的背景空白点击恢复该输入框焦点，保留光标/选区，不覆盖按钮、输入选择或
+Tab 键导航。深浅主题原生用例检查打开时的真实 firstResponder、空白点击后的选区
+及焦点外框两列像素，而不是仅捕获一个 `focused=true` 配置。
+勾选开关单独持久化：取消勾选只恢复搜索范围，不删除已保存表达式；编辑不偷偷重新启用开关。
+升级已有规则默认继续启用，避免改变旧用户的搜索范围。来源 All/None/Invert 仍只控制来源，
+不改规则文本或开关。
+保留原持久化键以继续记忆已有规则，清空并应用后重开仍为空。仅 Search Everywhere
+使用这些规则，侧栏搜索、项目替换和 Agent 补全仍使用项目可见性，不改变项目树、文件监听或历史。
+默认空列表保持原有搜索范围；用户可按行配置 `*.log`、`**/.*/`、`.*`、`cache/`。
+复用已有大小写不敏感的 `*`/`?` 文件名或相对路径匹配（`*` 可跨路径分隔符），
+不另外实现 gitignore 的否定、括号或注释语法。目录末尾 `/` 保留为目录规则；`**/` 同时
+展开根目录形式，避免漏掉根目录的点文件夹。Core 在列出子项时剪枝这些目录，不进入
+其后代；文件监听直接报告后代路径时也按祖先目录过滤。普通文件 glob 不推断为目录规则，
+避免把 `*.log` 误当成目录或改变原来的文件名语义。真实列目录探针验证排除目录未被枚举。
+
+搜索配置变化走独立事件，只使搜索索引失效，不重建项目树。失效操作是队列屏障，
+不能被紧随其后的 watcher 更新取消跳过；后续查询等待屏障。Core 每个工作区最多缓存
+一个内容规则版本和一个名称规则版本，替换同类版本时淘汰旧分配；进行中的请求通过
+自身引用完成后释放。这样即使旧请求晚到也不会积累无界规则版本。代价是 Agent 与
+全局搜索交替使用不同规则时可能重建索引；若实测切换成本成为问题，再改成有界多客户缓存。
+测试连续切换 32 次规则、旧分配的弱引用释放和增量更新，不用不稳定的进程 RSS 猜内存。
+
+Agent 的 `@` 与 `@Name` 都使用项目可见性，不采用搜索专用排除；仅 Search Everywhere
+显式打开生成目录文件名。该标志沿搜索端口传递到 Core，桥接默认关闭，不能波及附件补全。
+Windows UI 暂未提供这项 macOS 漏斗选项，共享过滤字段兼容目录规则的新语义。
+
+顶栏搜索按钮使用同 revision 的 `expui/general/search@20x20.svg` 明暗资源，
+不是放大 16pt 搜索图标。搜索与设置同用 `LitheMainToolbarButtonStyle`，在
+`spacing: 0` 的同组布局中保持连续的 40pt 槽位；不叠加顶栏外层的 9pt 控件间距，
+也不借用侧边栏的 37pt 槽位与蓝色选中样式。点击与双 Shift 共用同一打开动作。
+
 ### Stash / Shelf 浏览
 
 沿用 Community `c7f91397daa3a961b4e78bc634fe467a0a7d9ade` 的
@@ -467,7 +717,7 @@ Lithe 的项目菜单按本地化命令、项目名称与显示路径测量，�
 `LitheContextMenuPresenter.menuWidth` 和 `LitheDropdownMetrics` 的宽度边界；
 项目菜单不再受普通操作菜单的 360pt 上限限制；按名称、路径和分支的实际字体宽度展开，由原生呈现器限制在当前屏幕可见区域。普通操作菜单的上限保持不变。宽度使用实际 frame 而不是仅提供 `idealWidth`，让异步分支到达后宿主的首选尺寸确实变大；分支文本保持单行自然宽度，不进行中间省略。
 
-项目条目参考同一 IDEA revision 的 `ProjectToolbarWidgetAction.kt` / `ProjectWidgetRenderer`：名称和路径下方按需增加分支图标与常规小字号的第三行。`AllIcons.Vcs.Branch` 在 New UI 的 `PlatformIconMappings.json` 映射到 `expui/general/vcs.svg`，复用仓库现有的明暗 SVG，不使用旧 `vcs/branch.svg` 文件中的列表形图案。每次打开菜单时通过既有 Git 仓库检查器读取打开项目和最近项目的当前分支，不保存上次显示的分支名。读取只返回元数据，不覆盖当前工作区的 Git 身份编辑草稿；取消菜单任务后不再写入结果。没有 Git 仓库、分离 HEAD 或 Git 模块未启用时不显示分支行。这样避免每个项目启动完整 Git 状态刷新和文件扫描；代价是分支行在异步读取完成后出现。
+项目条目参考同一 IDEA revision 的 `ProjectToolbarWidgetAction.kt` / `ProjectWidgetRenderer`：名称和路径下方按需增加分支图标与常规小字号的第三行。`AllIcons.Vcs.Branch` 在 New UI 的 `PlatformIconMappings.json` 映射到 `expui/general/vcs.svg`，复用仓库现有的明暗 SVG，不使用旧 `vcs/branch.svg` 文件中的列表形图案。欢迎页的最近项目分支行也使用该映射资源的原生 16pt 尺寸，并沿 `RecentProjectFilteringTree.kt` 对图标使用路径文字的失焦提示色，不缩成 11pt 或显示列表占位图案。每次打开菜单时通过既有 Git 仓库检查器读取打开项目和最近项目的当前分支，不保存上次显示的分支名。读取只返回元数据，不覆盖当前工作区的 Git 身份编辑草稿；取消菜单任务后不再写入结果。没有 Git 仓库、分离 HEAD 或 Git 模块未启用时不显示分支行。这样避免每个项目启动完整 Git 状态刷新和文件扫描；代价是分支行在异步读取完成后出现。
 分支菜单的 375pt 基准也集中在 `LitheDropdownMetrics` 中。
 
 `ExpandableComboAction.showUnderneathOf` 按完整工具栏控件的下缘定位；
@@ -590,6 +840,22 @@ Agent 输入区底栏的切换菜单向上展开，菜单底边锚定触发控�
 绘制提示。欢迎页因此保留无边框布局，复用 `LitheSearchTextField` 的 13pt Regular
 提示文字、专用提示色和输入法组合处理。搜索图标使用已有 `expui/general/search.svg`
 及深色变体，保留原始 16pt 和资源颜色；不使用会统一染色的兼容图标包装。
+
+欢迎页最近项目的行内几何单独采用 Community
+`c7f91397daa3a961b4e78bc634fe467a0a7d9ade` 的
+`RecentProjectFilteringTree.kt.RecentProjectComponent`，不套用顶部项目菜单的行距：
+外层边框留白 4pt，图标单元上/左/下/右为 6/6/0/8pt，文字单元四边为 4pt。
+`RowsGridBuilder` / `GridImpl` 将相邻单元自身留白计入列宽，因此头像与文字的实际
+水平间隔为 12pt；行左边到头像为 10pt，文字顶部为 8pt，头像比文字顶部低 2pt。
+标题、路径、可选分支共用 `VerticalLayout(4)` 的 4pt 间隔，头像保持顶部对齐，
+不能随三行文字整体垂直居中。标题用普通 13pt，路径和分支按
+`ComponentPanelBuilder.getCommentFont` → `JBFont.medium()` 使用 12pt；分支标签的
+图文间距采用 `JLabel` 的 4pt，图标仍为原始 16pt。行高由内容与上下各 8pt 留白决定，
+不能固定 56pt，否则带分支条目会挤压或覆盖下一条目。保留现有打开、失效路径禁用、
+悬停与独立菜单行为，不改顶部项目菜单、资源或运行时可写位置。
+`RecentProjectBranchMetadataTests.welcomeRowsGrowForBranchesWithoutOverlapping` 在深浅色、
+800/1100pt 宽度下渲染真实欢迎页，检查分支多出 16+4pt、行不重叠及横向一致；
+截图用于补充检查头像和文字位置，不把组件检查当作完整应用验收。
 
 ## 打开其他项目的选择弹窗
 

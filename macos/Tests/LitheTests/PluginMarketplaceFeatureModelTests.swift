@@ -19,6 +19,107 @@ struct PluginMarketplaceFeatureModelTests {
         isEnabled: true
     )
 
+    /// Rows and the detail pane ask for one URL at the same time; they share
+    /// one request, and a rejected icon is not requested again per row.
+    @Test
+    func indexIconRequestsAreSharedAndRejectionsAreRemembered() async throws {
+        let fetcher = ScriptedIconFetcher()
+        let icons = PluginMarketplaceIconStore(fetch: fetcher.fetch)
+        let good = "https://raw.githubusercontent.com/example/plugins/main/icons/zig.svg"
+        let broken = "https://raw.githubusercontent.com/example/plugins/main/icons/page.html"
+        fetcher.responses[good] = [.success(Data("<svg/>".utf8))]
+        fetcher.responses[broken] = [.failure(PluginMarketplaceIconRejected())]
+
+        let row = try #require(icons.load(good))
+        let detail = try #require(icons.load(good))
+        await row.value
+        await detail.value
+        await icons.load(broken)?.value
+        #expect(icons.load(good) == nil)
+        #expect(icons.load(broken) == nil)
+
+        #expect(icons.data(for: good) == Data("<svg/>".utf8))
+        #expect(icons.data(for: broken) == nil)
+        #expect(fetcher.requests == [good, broken])
+    }
+
+    /// Offline at first, the icon is requested again the next time a view
+    /// asks instead of keeping the fallback for the rest of the session.
+    @Test
+    func transientIconFailuresAreRetried() async {
+        let fetcher = ScriptedIconFetcher()
+        let icons = PluginMarketplaceIconStore(fetch: fetcher.fetch)
+        let icon = "https://raw.githubusercontent.com/example/plugins/main/icons/zig.svg"
+        fetcher.responses[icon] = [.failure(URLError(.notConnectedToInternet)), .success(Data("<svg/>".utf8))]
+
+        await icons.load(icon)?.value
+        #expect(icons.data(for: icon) == nil)
+        await icons.load(icon)?.value
+
+        #expect(icons.data(for: icon) == Data("<svg/>".utf8))
+        #expect(fetcher.requests == [icon, icon])
+    }
+
+    /// A branch URL can serve new bytes: after a refresh the old icon stays
+    /// until the new one arrives, and a request started before the refresh
+    /// cannot overwrite the newer result even when it finishes last.
+    @Test
+    func refreshReplacesIconBytesAndDropsRequestsFromBeforeIt() async throws {
+        let fetcher = ScriptedIconFetcher()
+        let icons = PluginMarketplaceIconStore(fetch: fetcher.fetch)
+        let icon = "https://raw.githubusercontent.com/example/plugins/main/icons/zig.svg"
+        let other = "https://raw.githubusercontent.com/example/plugins/main/icons/lua.svg"
+        fetcher.responses[icon] = [.success(Data("v1".utf8)), .success(Data("v2".utf8))]
+        await icons.load(icon)?.value
+
+        // Refresh while `other` is still in flight with pre-refresh bytes.
+        fetcher.held.insert(other)
+        let early = try #require(icons.load(other))
+        icons.invalidate()
+        #expect(icons.data(for: icon) == Data("v1".utf8))
+        let replaced = try #require(icons.load(icon))
+        let late = try #require(icons.load(other))
+        await replaced.value
+        fetcher.respond(other, with: .success(Data("new".utf8)))
+        await late.value
+        fetcher.respond(other, with: .success(Data("old".utf8)))
+        await early.value
+
+        #expect(icons.data(for: icon) == Data("v2".utf8))
+        #expect(icons.data(for: other) == Data("new".utf8))
+        #expect(fetcher.requests == [icon, other, icon, other])
+    }
+
+    /// Plugins without a usable icon get IDEA-style avatar text: two Latin
+    /// letters, or a single CJK character.
+    @Test
+    func pluginsWithoutIconsShowIDEAStyleInitials() {
+        #expect(PluginMarketplacePresentation.avatarText(for: "Go Support") == "GS")
+        #expect(PluginMarketplacePresentation.avatarText(for: "maven-build") == "MB")
+        #expect(PluginMarketplacePresentation.avatarText(for: "Lua") == "LU")
+        #expect(PluginMarketplacePresentation.avatarText(for: "R") == "R")
+        #expect(PluginMarketplacePresentation.avatarText(for: "数据库工具") == "数")
+        #expect(PluginMarketplacePresentation.avatarText(for: "Go 语言支持") == "GO")
+        #expect(PluginMarketplacePresentation.avatarText(for: "  -- ") == nil)
+    }
+
+    /// Refreshing the sources is the user's way to retry: an icon rejected
+    /// before is requested again.
+    @Test
+    func refreshingSourcesRetriesRejectedIcons() async throws {
+        let (feature, service, _) = try makeModel()
+        let icon = "https://raw.githubusercontent.com/example/plugins/main/icons/zig.svg"
+        await feature.icons.load(icon)?.value
+        #expect(feature.icons.data(for: icon) == nil)
+        service.icons[icon] = Data("<svg/>".utf8)
+
+        await feature.refreshAll()
+        await feature.icons.load(icon)?.value
+
+        #expect(feature.icons.data(for: icon) == Data("<svg/>".utf8))
+        #expect(service.iconRequests == [icon, icon])
+    }
+
     @Test
     func communityInstallWaitsForConfirmationAndCancelDiscardsTheDownload() async throws {
         let (feature, service, manager) = try makeModel()
@@ -513,6 +614,41 @@ struct PluginMarketplaceFeatureModelTests {
     }
 }
 
+/// Serves scripted icon responses in order. A URL in `held` waits until the
+/// test calls `respond`, so the test decides which request finishes first;
+/// responses given before the request arrives are delivered when it does.
+@MainActor
+private final class ScriptedIconFetcher {
+    var responses: [String: [Result<Data, Error>]] = [:]
+    var held: Set<String> = []
+    private(set) var requests: [String] = []
+    private var waiting: [String: [CheckedContinuation<Data, Error>]] = [:]
+    private var released: [String: [Result<Data, Error>]] = [:]
+
+    func fetch(_ icon: String) async throws -> Data {
+        requests.append(icon)
+        if held.contains(icon) {
+            if let result = released[icon]?.first {
+                released[icon]?.removeFirst()
+                return try result.get()
+            }
+            return try await withCheckedThrowingContinuation { waiting[icon, default: []].append($0) }
+        }
+        guard let result = responses[icon]?.first else { throw PluginMarketplaceIconRejected() }
+        responses[icon]?.removeFirst()
+        return try result.get()
+    }
+
+    /// Completes the most recent held request for `icon`.
+    func respond(_ icon: String, with result: Result<Data, Error>) {
+        if let continuation = waiting[icon]?.popLast() {
+            continuation.resume(with: result)
+        } else {
+            released[icon, default: []].append(result)
+        }
+    }
+}
+
 @MainActor
 private final class FakeMarketplaceService: PluginMarketplaceServicing {
     let platform = "darwin-arm64"
@@ -552,6 +688,15 @@ private final class FakeMarketplaceService: PluginMarketplaceServicing {
 
     func removeCache(for source: PluginMarketplaceSource) {
         indexes[source.id] = nil
+    }
+
+    var icons: [String: Data] = [:]
+    private(set) var iconRequests: [String] = []
+
+    func iconData(from icon: String) async throws -> Data {
+        iconRequests.append(icon)
+        guard let data = icons[icon] else { throw PluginMarketplaceIconRejected() }
+        return data
     }
 
     func prepareInstall(

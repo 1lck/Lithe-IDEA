@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import LitheCoreContracts
 import LitheModuleAPI
@@ -121,7 +122,7 @@ struct PluginMarketplaceView: View {
         let offer = feature.offer(for: listing)
         let isSelected = selectedListing?.pluginID == listing.pluginID
         return HStack(spacing: 10) {
-            PluginMarketplaceIcon(entry: offer?.entry, size: 32)
+            PluginMarketplaceIcon(icons: feature.icons, entry: offer?.entry, size: 32)
             VStack(alignment: .leading, spacing: 3) {
                 Text(verbatim: offer?.entry.name ?? listing.pluginID.rawValue)
                     .font(LitheTheme.uiFont(size: 13, weight: .semibold))
@@ -207,7 +208,7 @@ struct PluginMarketplaceView: View {
             .background(LitheTheme.settingsSurface)
         } else {
             VStack(spacing: 10) {
-                PluginMarketplaceIcon(entry: nil, size: 36)
+                PluginMarketplaceIcon(icons: feature.icons, entry: nil, size: 36)
                 Text(LocalizedStringKey("Select a plugin"))
                     .font(LitheTheme.uiFont(size: 15, weight: .medium))
                     .foregroundStyle(LitheTheme.secondaryText)
@@ -289,7 +290,7 @@ private struct PluginMarketplaceDetail: View {
 
     private var header: some View {
         HStack(alignment: .top, spacing: 14) {
-            PluginMarketplaceIcon(entry: entry, size: 48)
+            PluginMarketplaceIcon(icons: feature.icons, entry: entry, size: 48)
             // The detail pane can be narrow inside Settings, so the name
             // wraps by words and the action sits below it instead of
             // squeezing the name from the side.
@@ -533,26 +534,50 @@ struct PluginTrustBadge: View {
 }
 
 /// Plugin icon from the index, limited by Core to the plugin's own
-/// repository, with IDEA's plugin node icon as the fallback.
+/// repository. The icon store downloads and validates it; AppKit decodes both
+/// SVG and PNG, which SwiftUI's `AsyncImage` cannot do for SVG. Without a
+/// usable icon the plugin gets an IDEA-style initials avatar, and only the
+/// empty detail pane shows IDEA's plugin node icon.
 struct PluginMarketplaceIcon: View {
+    private struct Request: Equatable {
+        let icon: String?
+        let generation: Int
+    }
+
+    @ObservedObject var icons: PluginMarketplaceIconStore
     let entry: PluginMarketplaceEntry?
     let size: CGFloat
+    /// Avatar identity for an installed plugin that no index lists.
+    var fallbackName: String?
+    var fallbackKey: String?
 
     var body: some View {
         Group {
-            if let icon = entry?.icon, let url = URL(string: icon) {
-                AsyncImage(url: url) { phase in
-                    if let image = phase.image {
-                        image.resizable().interpolation(.high).scaledToFit()
-                    } else {
-                        fallback
-                    }
-                }
+            // The bytes are looked up for the entry shown now, so a late
+            // download for a plugin the user has left cannot replace it.
+            if let icon = entry?.icon, let data = icons.data(for: icon),
+               let image = PluginMarketplaceIconImages.image(for: icon, data: data) {
+                Image(nsImage: image)
+                    .renderingMode(.original)
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFit()
+            } else if let name = entry?.name ?? fallbackName,
+                      let text = PluginMarketplacePresentation.avatarText(for: name) {
+                ProjectAvatarBadge(
+                    name: name,
+                    colorIndex: ProjectIdentityAppearance.colorIndex(forKey: entry?.id ?? fallbackKey ?? name),
+                    size: size,
+                    text: text
+                )
             } else {
                 fallback
             }
         }
         .frame(width: size, height: size)
+        .task(id: Request(icon: entry?.icon, generation: icons.generation)) {
+            if let icon = entry?.icon { icons.load(icon) }
+        }
     }
 
     private var fallback: some View {
@@ -566,7 +591,61 @@ struct PluginMarketplaceIcon: View {
     }
 }
 
+/// Decoded index icons, so a row scrolling back into view does not decode its
+/// SVG on the main thread again. Entries are checked against the bytes because
+/// an index refresh can change what a URL serves.
+@MainActor
+private enum PluginMarketplaceIconImages {
+    private final class Decoded {
+        let data: Data
+        let image: NSImage
+
+        init(data: Data, image: NSImage) {
+            self.data = data
+            self.image = image
+        }
+    }
+
+    private static let cache: NSCache<NSString, Decoded> = {
+        let cache = NSCache<NSString, Decoded>()
+        cache.countLimit = 256
+        return cache
+    }()
+
+    static func image(for icon: String, data: Data) -> NSImage? {
+        if let decoded = cache.object(forKey: icon as NSString), decoded.data == data {
+            return decoded.image
+        }
+        guard let image = NSImage(data: data) else { return nil }
+        cache.setObject(Decoded(data: data, image: image), forKey: icon as NSString)
+        return image
+    }
+}
+
 enum PluginMarketplacePresentation {
+    /// IDEA-style avatar text for a plugin without a usable icon. A name that
+    /// starts with a CJK character shows that one character; otherwise the
+    /// first letters of the first two words, or the first two letters of a
+    /// single word: "Go Support" → "GS", "Lua" → "LU", "数据库工具" → "数".
+    static func avatarText(for name: String) -> String? {
+        let words = name.split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+        guard let first = words.first, let initial = first.first else { return nil }
+        if isSquareGlyph(initial) { return String(initial) }
+        if let second = words.dropFirst().first?.first, !isSquareGlyph(second) {
+            return String([initial, second]).uppercased()
+        }
+        return String(first.prefix(2)).uppercased()
+    }
+
+    /// CJK ideographs, kana and Hangul fill the avatar on their own.
+    private static func isSquareGlyph(_ character: Character) -> Bool {
+        character.unicodeScalars.contains { scalar in
+            scalar.properties.isIdeographic
+                || (0x3040...0x30FF).contains(scalar.value)
+                || (0xAC00...0xD7AF).contains(scalar.value)
+        }
+    }
+
     /// Looks up `key` in the app's chosen interface language rather than the
     /// system language, which `NSLocalizedString` would use.
     static func localized(_ key: String, locale: Locale) -> String {
