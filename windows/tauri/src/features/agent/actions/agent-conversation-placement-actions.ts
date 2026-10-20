@@ -6,7 +6,7 @@ import { useBufferStore } from "@/features/editor/stores/buffer.store";
  * from the session, so asking twice focuses the existing tab instead of
  * creating another connection or a second copy of the same conversation.
  */
-export function openAgentConversationInEditor(sessionID: string): string {
+export function openAgentConversationInEditor(sessionID: string, agentId: string): string {
   activateMainEditorPane();
-  return useBufferStore.getState().actions.openAgentConversationBuffer(sessionID);
+  return useBufferStore.getState().actions.openAgentConversationBuffer(sessionID, agentId);
 }

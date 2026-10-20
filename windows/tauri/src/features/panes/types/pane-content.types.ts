@@ -137,6 +137,8 @@ export interface AgentContent extends PaneContentBase {
 export interface AgentConversationContent extends PaneContentBase {
   type: "agentConversation";
   sessionId: string;
+  /** Agent that owns the session. A connection of another Agent cannot load it. */
+  agentId: string;
 }
 
 export interface WebViewerContent extends PaneContentBase {
@@ -381,7 +383,7 @@ export type OpenContentSpec =
       path?: string;
     }
   | { type: "agent"; sessionId?: string }
-  | { type: "agentConversation"; sessionId: string }
+  | { type: "agentConversation"; sessionId: string; agentId?: string }
   | {
       type: "webViewer";
       url: string;
