@@ -63,4 +63,24 @@ describe("agent surface placement", () => {
     expect(useAgentSurfaceStore.getState().drafts["session-a"]).toBeUndefined();
     expect(useAgentSurfaceStore.getState().drafts["session-b"]?.text).toBe("second");
   });
+
+  test("text and attachment updates merge without restoring stale fields", () => {
+    const { setDraftFiles, setDraftText } = useAgentSurfaceStore.getState().actions;
+    const file = { uri: "file:///tmp/notes.txt", name: "notes.txt" };
+
+    setDraftText("session-a", "hello");
+    setDraftFiles("session-a", [file]);
+    setDraftText("session-a", "hello world");
+
+    expect(useAgentSurfaceStore.getState().drafts["session-a"]).toEqual({
+      text: "hello world",
+      files: [file],
+    });
+
+    // Success clears text and attachments through two separate callbacks; each
+    // must keep the other field's latest value.
+    setDraftText("session-a", "");
+    setDraftFiles("session-a", []);
+    expect(useAgentSurfaceStore.getState().drafts["session-a"]).toEqual({ text: "", files: [] });
+  });
 });
