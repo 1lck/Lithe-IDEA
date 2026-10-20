@@ -1,0 +1,24 @@
+{
+  "name": "@lithe/plugin-sdk",
+  "version": "0.1.0",
+  "description": "Official SDK for Lithe plugin backends: plugin functions and build providers over the LSP base protocol.",
+  "license": "Apache-2.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20.3"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.mjs"
+    }
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  }
+}
