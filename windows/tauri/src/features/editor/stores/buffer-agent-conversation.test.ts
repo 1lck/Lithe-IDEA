@@ -42,6 +42,18 @@ describe("openAgentConversationBuffer", () => {
     ]);
   });
 
+  test("keeps the Agent that owns the session on the tab", () => {
+    const store = useBufferStore.getStore(WORKSPACE);
+    store.getState().actions.openAgentConversationBuffer("session-a", "claude-acp");
+
+    const tab = store
+      .getState()
+      .buffers.find((buffer) => buffer.type === "agentConversation");
+    expect(tab?.type).toBe("agentConversation");
+    if (tab?.type !== "agentConversation") throw new Error("Agent tab missing");
+    expect(tab.agentId).toBe("claude-acp");
+  });
+
   test("keeps the Agent conversation out of automatic tab eviction", () => {
     const store = useBufferStore.getStore(WORKSPACE);
     const id = store.getState().actions.openAgentConversationBuffer("session-a");

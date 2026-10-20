@@ -381,6 +381,10 @@ const catalogs = {
     "agent.editor.handoffNotice":
       "This conversation is open in the editor. The tool window shows history.",
     "agent.editor.focusTab": "Focus editor tab",
+    "agent.editor.foreignAgentTitle": "This conversation belongs to another Agent",
+    "agent.editor.foreignAgentMessage":
+      "This tab was opened with {{agent}}, but {{current}} is active. Switch back to {{agent}} to load it; the current connection must not take over the session.",
+    "agent.editor.switchBack": "Switch to {{agent}}",
     "agent.state.starting": "Starting the Agent…",
     "agent.state.startingMessage": "The Agent process starts when this panel opens.",
     "agent.state.signIn": "Sign in to Codex",
@@ -5231,6 +5235,10 @@ const catalogs = {
     "agent.details.unavailable": "MCP 服务器与变更文件会在 Agent 上报后显示。",
     "agent.editor.handoffNotice": "该对话已在编辑区打开，工具窗口显示历史列表。",
     "agent.editor.focusTab": "定位到编辑区标签",
+    "agent.editor.foreignAgentTitle": "该会话属于其他 Agent",
+    "agent.editor.foreignAgentMessage":
+      "此标签由 {{agent}} 打开，当前启用的是 {{current}}。请切回 {{agent}} 加载会话，当前连接不能接管该会话。",
+    "agent.editor.switchBack": "切回 {{agent}}",
     "agent.state.starting": "正在启动 Agent…",
     "agent.state.startingMessage": "打开此面板时才会启动 Agent 进程。",
     "agent.state.signIn": "登录 Codex",
