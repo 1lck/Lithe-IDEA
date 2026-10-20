@@ -45,21 +45,23 @@ final class MacServiceContainer {
         MacLogDirectoryProvider()
     }
 
-    static func makeApplicationLogWriter() -> MacApplicationLogWriter {
-        MacApplicationLogWriter()
+    static func makeApplicationLogWriter(onDirectoryFallback: @escaping @Sendable () -> Void = {}) -> MacApplicationLogWriter {
+        MacApplicationLogWriter(onDirectoryFallback: onDirectoryFallback)
     }
 
     static func makeDiagnosticsExportService(
         fileStorage: any FileStorage,
         processRunner: any ProcessRunner,
-        core: RustCoreBridge
+        core: RustCoreBridge,
+        applicationLogging: (any ApplicationLogging)? = nil
     ) -> DiagnosticsExportService {
         DiagnosticsExportService(
             logDirectoryProviding: makeLogDirectoryProvider(),
             fileStorage: fileStorage,
             systemDiagnostics: MacSystemDiagnosticsProvider(),
             archiver: MacDittoArchiver(processRunner: processRunner),
-            core: core
+            core: core,
+            applicationLogging: applicationLogging
         )
     }
 
@@ -77,10 +79,17 @@ final class MacServiceContainer {
         platformUI providedPlatformUI: (any PlatformUI)? = nil,
         aiConfigurationSources providedAIConfigurationSources: [any AIConfigurationSource]? = nil,
         gitPerformanceLogger: (any GitPerformanceLogger)? = nil,
-        pluginWebPageLifecycle providedPluginWebPageLifecycle: PluginWebPageLifecycle? = nil
+        pluginWebPageLifecycle providedPluginWebPageLifecycle: PluginWebPageLifecycle? = nil,
+        applicationLogging: (any ApplicationLogging)? = nil
     ) {
         let pluginWebPageLifecycle = providedPluginWebPageLifecycle ?? .shared
         let gitExecutionJournal = GitExecutionJournal()
+        gitExecutionJournal.onLifecycleEvent = { event in
+            applicationLogging?.record(level: event.error != nil || (event.exitCode ?? 0) != 0 ? "error" : "info",
+                scope: "git.execution", message: event.type,
+                fields: ["operation_id": event.operationId, "duration_ms": event.durationMilliseconds.map(String.init) ?? "",
+                    "exit_code": event.exitCode.map(String.init) ?? "", "error_code": event.error?.code ?? ""])
+        }
         let rustCore = RustCoreBridge(gitPreferences: settings.gitExecutionPreferences,
                                       gitExecutionJournal: gitExecutionJournal)
         let mavenRepositoryURL = FileManager.default.homeDirectoryForCurrentUser
@@ -103,7 +112,7 @@ final class MacServiceContainer {
         let debugBreakpointStore = MacDebugBreakpointStore(store: store)
         let debugSteppingFilterStore = MacDebugSteppingFilterStore(store: store)
         let fileOperations = MacWorkspaceFileOperations()
-        let processRunner = MacProcessRunner()
+        let processRunner = MacProcessRunner(logging: applicationLogging)
         let secureStore = MacLocalSecretStore()
         let databaseSecureStore = MacKeychainSecureStore(
             service: fileStorage.identity.keychainService("database"),
@@ -117,10 +126,12 @@ final class MacServiceContainer {
             git: MacGitHubGitOperations(core: rustCore)
         )
         let platformUI = providedPlatformUI ?? MacPlatformUI()
+        let logWindowID = UUID().uuidString
         let diagnosticsExportService = Self.makeDiagnosticsExportService(
             fileStorage: fileStorage,
             processRunner: processRunner,
-            core: rustCore
+            core: rustCore,
+            applicationLogging: applicationLogging
         )
         let codexConfigurationSource = MacCodexConfigurationSource()
         let claudeConfigurationSource = MacClaudeConfigurationSource()
@@ -354,6 +365,12 @@ final class MacServiceContainer {
                             )
                         }
                     )
+                    sessions.onLogEvent = { provider, operation, level, message, detail in
+                        applicationLogging?.record(level: level == "warning" ? "warn" : level,
+                            scope: "language.\(provider)", message: message,
+                            fields: ["operation_id": operation ?? "", "window_id": logWindowID, "detail": detail ?? ""])
+                    }
+
                     let graph = LanguageIntelligenceFeatureGraph(
                         sessions: sessions,
                         tools: tools
@@ -752,7 +769,15 @@ final class MacServiceContainer {
             presenter: MacProcessExitConfirmationPresenter.shared
         )
         moduleLifecycleCoordinator.start()
-        Task { try? await moduleRegistry.startEagerModules() }
+        Task {
+            do {
+                try await moduleRegistry.startEagerModules()
+                applicationLogging?.record(level: "info", scope: "plugins.lifecycle", message: "eager modules started", fields: [:])
+            } catch {
+                applicationLogging?.record(level: "error", scope: "plugins.lifecycle", message: "module activation failed",
+                    fields: ["error": error.localizedDescription])
+            }
+        }
     }
 
     /// Host-owned module factories for declarative plugins. The plugins'

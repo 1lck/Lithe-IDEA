@@ -8,6 +8,9 @@ export interface LogSettingsSnapshot {
   effective_path: string;
   fallback_reason: LogFallbackReason | null;
   diagnostic_enabled: boolean;
+  diagnostic_category?: string | null;
+  dropped_events?: number;
+  write_failures?: number;
 }
 
 export interface LogDirectoryChangeResult {
@@ -21,7 +24,27 @@ export interface ClearLogResult {
   freed_bytes: number;
 }
 
+export interface LogSelection {
+  category?: string | null;
+  minimumLevel?: string | null;
+  session?: "current" | "previous" | "all";
+  search?: string | null;
+  since?: string | null;
+  until?: string | null;
+}
+
+export interface LogTimeline {
+  content: string;
+  truncated: boolean;
+  matchedLines: number;
+}
+
+export function queryLitheLogs(selection: LogSelection) {
+  return invoke<LogTimeline>("query_lithe_logs", { selection });
+}
+
 export interface DiagnosticBundlePreview {
+  snapshotId: string;
   manifest: {
     schemaVersion: number;
     generatedAtEpochMilliseconds: number;
@@ -42,9 +65,9 @@ export interface DiagnosticBundlePreview {
 }
 
 export interface DiagnosticBundleResult {
-  destination_path: string;
-  included_relative_paths: string[];
-  total_size_bytes: number;
+  destinationPath: string;
+  includedRelativePaths: string[];
+  totalSizeBytes: number;
 }
 
 export function getLogSettings() {
@@ -57,8 +80,8 @@ export function setLogDirectory(parentPath: string | null) {
   });
 }
 
-export function setDiagnosticLogging(enabled: boolean) {
-  return invoke<LogSettingsSnapshot>("set_diagnostic_logging", { enabled });
+export function setDiagnosticLogging(enabled: boolean, category: string | null = null) {
+  return invoke<LogSettingsSnapshot>("set_diagnostic_logging", { enabled, category });
 }
 
 export function clearLitheLogs() {
@@ -75,12 +98,19 @@ export function openLogDirectory() {
   return invoke<void>("open_log_directory");
 }
 
-export function previewDiagnosticBundle() {
-  return invoke<DiagnosticBundlePreview>("preview_diagnostic_bundle");
+export function previewDiagnosticBundle(selection?: LogSelection) {
+  return invoke<DiagnosticBundlePreview>("preview_diagnostic_bundle", {
+    selection: selection ?? null,
+  });
 }
 
-export function exportDiagnosticBundle(destinationPath: string) {
+export function exportDiagnosticBundle(destinationPath: string, snapshotId: string) {
   return invoke<DiagnosticBundleResult>("export_diagnostic_bundle", {
     destinationPath,
+    snapshotId,
   });
+}
+
+export function discardDiagnosticBundle(snapshotId: string) {
+  return invoke<void>("discard_diagnostic_bundle", { snapshotId });
 }

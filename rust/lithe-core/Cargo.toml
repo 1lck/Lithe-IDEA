@@ -14,6 +14,7 @@ lithe-agent-host = { path = "../lithe-agent-host" }
 lithe-ide-host = { path = "../lithe-ide-host" }
 ammonia = "4.1.4"
 base64 = "0.22"
+chrono = { version = "0.4", default-features = false, features = ["std"] }
 comrak = { version = "0.54.0", default-features = false, features = ["shortcodes"] }
 rand = "0.8"
 regex = "1.11"

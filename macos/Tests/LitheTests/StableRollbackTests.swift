@@ -13,8 +13,7 @@ struct StableRollbackTests {
         try writer.redirect(to: fixture.root)
         let finished = TestGate()
         let rollback = MacStableRollback(diagnosticSink: { message in
-            do { try writer.append(message) }
-            catch { Issue.record("Could not append fixture diagnostic: \(error)") }
+            writer.record(level: "error", scope: "application.update", message: message, fields: [:])
         }, loadPackage: { _, _ in
             try await withCheckedThrowingContinuation { continuation in
                 DispatchQueue.global(qos: .utility).async {
@@ -29,9 +28,7 @@ struct StableRollbackTests {
         defer { observation.cancel() }
         rollback.download(bundle: .main)
         #expect(await finished.waitUntilOpen())
-        // This is the same applicationLogFileURL contract used by the export service.
-        let provider = RollbackLogDirectory(defaultLogDirectory: fixture.root)
-        let contents = try String(contentsOf: provider.applicationLogFileURL, encoding: .utf8)
+        let contents = try await writer.collect(query: ApplicationLogQuery()).content
         #expect(contents.contains("stage=codesign"))
         #expect(contents.contains("exit=1"))
         #expect(!contents.contains(fixture.root.path))

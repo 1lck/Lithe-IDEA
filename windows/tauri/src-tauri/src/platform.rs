@@ -16,6 +16,12 @@ pub async fn platform_invoke(
     agent_events: Option<tauri::ipc::JavaScriptChannelId>,
     git_execution: Option<Value>,
 ) -> Result<Value, String> {
+    let log_manager = webview
+        .app_handle()
+        .try_state::<Arc<crate::logging::LogManager>>()
+        .map(|state| state.inner().clone());
+    let log_window = webview.window().label().to_string();
+    let log_started = std::time::Instant::now();
     let ide_owner = if command == "ideHost.control" && args["action"] == "open" {
         let owner = webview.window().label().to_owned();
         args["arguments"]["ownerID"] = json!(owner);
@@ -43,6 +49,25 @@ pub async fn platform_invoke(
         .map(ToString::to_string)
         .unwrap_or_else(|| format!("windows-{}", REQUEST_ID.fetch_add(1, Ordering::Relaxed)));
     let (core_command, payload) = translate(&command, args)?;
+    let log_level = if [
+        "start", "stop", "build", "execute", "import", "commit", "pull", "push", "fetch",
+        "install", "activate",
+    ]
+    .iter()
+    .any(|action| core_command.to_ascii_lowercase().contains(action))
+    {
+        "info"
+    } else {
+        "debug"
+    };
+    if let Some(manager) = &log_manager {
+        manager.emit_json(
+            log_level,
+            core_command.clone(),
+            "operation started".into(),
+            Some(json!({ "operation_id": operation_id, "window_id": log_window })),
+        );
+    }
     let interactive_git = is_interactive_git(&core_command, &command);
     // Observe every Git request at the shared boundary. Core suppresses its
     // parser-only probes, so new operation entry points cannot miss the console.
@@ -97,6 +122,20 @@ pub async fn platform_invoke(
     let envelope: Value = serde_json::from_str(&response)
         .map_err(|error| format!("Shared core returned invalid JSON: {error}"))?;
 
+    if let Some(manager) = &log_manager {
+        manager.emit_json(
+            if envelope["ok"] == true {
+                log_level
+            } else {
+                "error"
+            },
+            core_command.clone(),
+            "operation finished".into(),
+            Some(json!({"operation_id":operation_id, "window_id":log_window,
+                "duration_ms": log_started.elapsed().as_millis() as u64,
+                "error_code": envelope.pointer("/error/code").and_then(Value::as_str) })),
+        );
+    }
     platform_response(
         &command,
         &envelope,

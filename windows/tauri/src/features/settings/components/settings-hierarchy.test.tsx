@@ -9,6 +9,7 @@ import { WorkspaceStoreScopeContext } from "@/features/workspace/stores/create-w
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
 import * as dialog from "@/ui/dialog";
 import * as panels from "./settings-panels";
+import workflowFixture from "../../../../../../shared/fixtures/diagnostics/logging-ui-v1.json";
 import SettingsDialog from "./settings-dialog";
 import {
   filterSettingsCategories,
@@ -25,6 +26,15 @@ test("settings search finds shipped Chinese labels and English vocabulary on the
   for (const language of ["en-US", "zh-CN"] as const) {
     const t = createTranslator(language);
     const matches = (query: string) => filterSettingsCategories(query, t).map(({ id }) => id);
+    expect(t("settings.tabs.logs")).toBe(
+      language === "en-US" ? workflowFixture.navigation.title : "日志与诊断",
+    );
+    expect(matches(t("settings.tabs.logs")).map(String)).toEqual([
+      workflowFixture.navigation.windowsCategory,
+    ]);
+    expect(matches("日志与诊断")).toEqual(["logs"]);
+    expect(matches(t("settings.logs.search"))).toEqual(["logs"]);
+    expect(matches(t("settings.logs.module"))).toContain("logs");
     expect(matches("Minimap")).toContain("editor");
     expect(matches("AI Chat & Editing")).toContain("ai");
     expect(matches("Tools")).toContain("terminal");
@@ -63,20 +73,12 @@ test("every settings page belongs to exactly one group or is a top-level page, i
     ["tools", ["terminal", "logs"]],
     ["ai", ["mcp", "ai-commit", "ai"]],
   ]);
-  expect(settingsSidebarLayout.flatMap((entry) => (entry.type === "page" ? [entry.id] : []))).toEqual([
-    "plugins",
-  ]);
+  expect(
+    settingsSidebarLayout.flatMap((entry) => (entry.type === "page" ? [entry.id] : [])),
+  ).toEqual(["plugins"]);
   expect(
     settingsSidebarLayout.map((entry) => (entry.type === "group" ? entry.group.id : entry.id)),
-  ).toEqual([
-    "appearance",
-    "plugins",
-    "version-control",
-    "build",
-    "languages",
-    "tools",
-    "ai",
-  ]);
+  ).toEqual(["appearance", "plugins", "version-control", "build", "languages", "tools", "ai"]);
   for (const language of ["en-US", "zh-CN"] as const) {
     const t = createTranslator(language);
     expect(settingsGroups.map(({ labelKey }) => t(labelKey))).toEqual(
