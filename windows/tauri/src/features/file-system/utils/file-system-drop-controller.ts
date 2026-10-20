@@ -1,9 +1,27 @@
 import { parseDroppedPaths } from "./file-system-dropped-paths";
 
 export const TERMINAL_FILE_DROP_EVENT = "lithe-terminal-file-drop";
+/**
+ * Dispatched on the Agent composer for files dropped from the OS or the project
+ * tree. WebView2 delivers OS drops only as native Tauri events, and the project
+ * tree drags with mouse events, so neither reaches an HTML5 `drop` handler.
+ */
+export const AGENT_FILE_DROP_EVENT = "lithe-agent-file-drop";
+/**
+ * Dispatched on the Agent composer while a drag is over it. OS drops and
+ * project-tree drags never reach an HTML5 `dragenter`, so the drop point needs
+ * this signal to highlight the same way the macOS composer does.
+ */
+export const AGENT_FILE_DROP_HOVER_EVENT = "lithe-agent-file-drop-hover";
 
 export interface TerminalFileDropDetail {
   paths: string[];
+}
+
+export type AgentFileDropDetail = TerminalFileDropDetail;
+
+export interface AgentFileDropHoverDetail {
+  active: boolean;
 }
 
 /**
@@ -94,9 +112,10 @@ export function isExternalFileDragTypeList(types: Iterable<string> | null | unde
   return Array.from(types).includes("Files");
 }
 
-export type ExternalFileDropRoute = "global" | "local" | "terminal";
+export type ExternalFileDropRoute = "global" | "local" | "terminal" | "agent";
 
 const TERMINAL_DROP_TARGET_SELECTOR = "[data-terminal-drop-target]";
+export const AGENT_DROP_TARGET_SELECTOR = "[data-agent-file-drop-target]";
 const LOCAL_DROP_TARGET_SELECTOR = [
   "[data-external-file-drop-scope]",
   "[data-bottom-pane-drop-target]",
@@ -148,12 +167,46 @@ export function dispatchDroppedPathsToTerminal(
   return true;
 }
 
+/** Hand dropped paths to the Agent composer under `target`, if there is one. */
+export function dispatchDroppedPathsToAgent(
+  target: Pick<Element, "closest"> | null | undefined,
+  rawPaths: string[],
+): boolean {
+  const agentTarget = target?.closest<HTMLElement>(AGENT_DROP_TARGET_SELECTOR);
+  const paths = parseDroppedPaths(rawPaths);
+  if (!agentTarget || paths.length === 0) return false;
+
+  agentTarget.dispatchEvent(
+    new CustomEvent<AgentFileDropDetail>(AGENT_FILE_DROP_EVENT, {
+      detail: { paths },
+    }),
+  );
+  return true;
+}
+
+/** Tell the Agent composer under `target` whether a drag is over it. */
+export function dispatchAgentDropHover(
+  target: Pick<Element, "closest"> | null | undefined,
+  active: boolean,
+): boolean {
+  const agentTarget = target?.closest<HTMLElement>(AGENT_DROP_TARGET_SELECTOR);
+  if (!agentTarget) return false;
+
+  agentTarget.dispatchEvent(
+    new CustomEvent<AgentFileDropHoverDetail>(AGENT_FILE_DROP_HOVER_EVENT, {
+      detail: { active },
+    }),
+  );
+  return true;
+}
+
 export function getExternalFileDropRoute(
   target: Pick<Element, "closest"> | null | undefined,
   treatPaneDropAsGlobal = false,
 ): ExternalFileDropRoute {
   if (!target) return "global";
   if (target.closest(TERMINAL_DROP_TARGET_SELECTOR)) return "terminal";
+  if (target.closest(AGENT_DROP_TARGET_SELECTOR)) return "agent";
   if (target.closest(LOCAL_DROP_TARGET_SELECTOR)) return "local";
   if (target.closest(PANE_DROP_TARGET_SELECTOR)) {
     return treatPaneDropAsGlobal ? "global" : "local";

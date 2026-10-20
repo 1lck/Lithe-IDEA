@@ -585,14 +585,16 @@ fn run_npm_install_observed(
     progress: &dyn Fn(InstallProgress),
 ) -> Result<(), ManagementError> {
     let mut command = Command::new(npm);
+    command.arg("install").arg("--prefix").arg(prefix).args([
+        "--no-audit",
+        "--no-fund",
+        "--omit=dev",
+        "--loglevel=error",
+    ]);
+    if omit_optional(agent) {
+        command.arg("--omit=optional");
+    }
     command
-        .arg("install")
-        .arg("--prefix")
-        .arg(prefix)
-        .args(["--no-audit", "--no-fund", "--omit=dev", "--loglevel=error"])
-        // Adapters that drive the user's CLI skip their bundled copy, which is
-        // an optional dependency of several hundred megabytes.
-        .args(agent.cli.as_ref().map(|_| "--omit=optional"))
         .arg(format!("{}@{}", agent.package, agent.version))
         .current_dir(prefix);
     if let Some(path) = environment::search_path() {
@@ -611,6 +613,17 @@ fn run_npm_install_observed(
             "Could not run npm: {message}"
         ))),
     }
+}
+
+/// Adapters that drive the user's CLI normally skip their bundled copy, which
+/// is an optional dependency of several hundred megabytes. On Windows, Claude's
+/// adapter cannot receive an npm `.cmd` shim, so it needs the SDK's native
+/// launcher instead.
+fn omit_optional(agent: &CatalogAgent) -> bool {
+    agent
+        .cli
+        .as_ref()
+        .is_some_and(|cli| !cfg!(windows) || cli.accepts_windows_shim)
 }
 
 /// Swap `staging` into `target`, keeping the old install until the swap succeeds.
@@ -990,5 +1003,19 @@ while :; do :; done
         let tail = tail(&long);
         assert!(tail.ends_with("END"));
         assert!(tail.chars().count() <= OUTPUT_TAIL + 1);
+    }
+}
+
+#[cfg(test)]
+mod optional_dependency_tests {
+    use super::*;
+
+    #[test]
+    fn claude_keeps_its_bundled_launcher_only_on_windows() {
+        let codex = crate::catalog::find("codex-acp").unwrap();
+        let claude = crate::catalog::find("claude-acp").unwrap();
+
+        assert!(omit_optional(codex));
+        assert_eq!(omit_optional(claude), !cfg!(windows));
     }
 }
