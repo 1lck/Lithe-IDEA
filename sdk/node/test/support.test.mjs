@@ -301,3 +301,21 @@ test('a shutdown during a slow initialize hook keeps the session closed', async 
   host.notify('exit');
   assert.equal(await withTimeout(host.done, 'the backend to exit'), 0);
 });
+
+test('a replaced environment still carries the host process markers', async (t) => {
+  const saved = { scope: process.env.LITHE_PROCESS_SCOPE, backend: process.env.LITHE_PLUGIN_BACKEND_SCOPE };
+  t.after(() => {
+    for (const [name, value] of [['LITHE_PROCESS_SCOPE', saved.scope], ['LITHE_PLUGIN_BACKEND_SCOPE', saved.backend]]) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  });
+  process.env.LITHE_PROCESS_SCOPE = 'instance-1';
+  process.env.LITHE_PLUGIN_BACKEND_SCOPE = 'backend-1';
+  const print = 'process.stdout.write(JSON.stringify([process.env.LITHE_PROCESS_SCOPE, process.env.LITHE_PLUGIN_BACKEND_SCOPE, process.env.PLUGIN_VALUE]))';
+  // A plugin can neither drop nor forge the markers.
+  const result = await runProcess(process.execPath, ['-e', print], {
+    env: { PLUGIN_VALUE: 'kept', LITHE_PLUGIN_BACKEND_SCOPE: 'forged' },
+  });
+  assert.deepEqual(JSON.parse(result.stdout), ['instance-1', 'backend-1', 'kept']);
+});

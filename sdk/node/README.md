@@ -129,7 +129,9 @@ lifecycle unified. The SDK enforces the ones it can.
    the workers it left in its process group with it. On `shutdown`, `exit`, or
    the end of input the SDK ends every process it started. If the backend
    itself is killed, no JavaScript runs; ending what it left is the host's
-   job, not the SDK's.
+   job, not the SDK's. Lithe finds those processes by the markers it puts in
+   the backend's environment, so `runProcess` carries them over even when
+   `env` replaces the environment.
 6. **Errors stay presentable.** Throw `PluginError` for failures the user
    should see; every other exception is reported generically.
 

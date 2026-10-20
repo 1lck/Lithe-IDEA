@@ -14,6 +14,22 @@ const isWindows = process.platform === 'win32';
 const running = new Set();
 
 /**
+ * Variables Lithe sets on the backend so it can find and end every process
+ * the backend started, even one that left its process group. A tool always
+ * inherits them, also when the plugin replaces the environment.
+ */
+const HOST_MARKERS = ['LITHE_PROCESS_SCOPE', 'LITHE_PLUGIN_BACKEND_SCOPE'];
+
+function withHostMarkers(env) {
+  const result = { ...env };
+  for (const name of HOST_MARKERS) {
+    if (process.env[name] === undefined) delete result[name];
+    else result[name] = process.env[name];
+  }
+  return result;
+}
+
+/**
  * Runs `command` without a shell and resolves with its exit status and
  * captured output. Aborting `signal` ends the process tree and rejects with
  * the signal's reason. A non-zero exit resolves; the caller decides what it
@@ -23,7 +39,8 @@ const running = new Set();
  * @param {string[]} [args]
  * @param {object} [options]
  * @param {string} [options.cwd]
- * @param {Record<string, string>} [options.env] Replaces the environment when given.
+ * @param {Record<string, string>} [options.env] Replaces the environment when given; the
+ *   host's process markers are carried over regardless.
  * @param {AbortSignal} [options.signal]
  * @param {number} [options.maxOutputBytes] Captured bytes per stream; default 1 MiB.
  * @param {(chunk: string) => void} [options.onStdout]
@@ -39,7 +56,7 @@ export function runProcess(command, args = [], options = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       cwd,
-      env,
+      env: env && withHostMarkers(env),
       shell: false,
       windowsHide: true,
       // Its own process group on POSIX, so a stop reaches grandchildren too.

@@ -7,7 +7,7 @@ export type JsonObject = { [key: string]: JsonValue };
 
 export interface RunProcessOptions {
   cwd?: string;
-  /** Replaces the environment when given. */
+  /** Replaces the environment when given; Lithe's process markers are carried over regardless. */
   env?: Record<string, string>;
   /** Aborting it ends the whole process tree and rejects with its reason. */
   signal?: AbortSignal;
