@@ -100,7 +100,8 @@ impl Session {
                 "pluginId": PLUGIN_ID,
                 "executablePath": node,
                 "arguments": arguments,
-                "rootUri": format!("file://{}", workspace.display()),
+                // Directory URI with a trailing slash, as the macOS host sends it.
+                "rootUri": format!("file://{}/", workspace.display()),
                 "workingDirectory": workspace,
                 "initializeTimeoutMilliseconds": WAIT.as_millis() as u64,
                 "requestTimeoutMilliseconds": WAIT.as_millis() as u64,

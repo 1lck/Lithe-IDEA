@@ -19,7 +19,7 @@
 // `backend/vendor/lithe-plugin-sdk/`, and imports it from there.
 
 import { readFile } from 'node:fs/promises';
-import { isAbsolute, join, normalize, sep } from 'node:path';
+import { isAbsolute, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createBackend, openStateStore, PluginError } from '../../../src/index.mjs';
 
@@ -28,7 +28,9 @@ let workspaceRoot;
 let store;
 
 backend.onInitialize(async ({ params }) => {
-  workspaceRoot = fileURLToPath(params.rootUri);
+  // Hosts may send a directory URI with a trailing slash (macOS does);
+  // `resolve` drops it so `inside` compares like paths.
+  workspaceRoot = resolve(fileURLToPath(params.rootUri));
   // `--state ${workspaceStateDir}` in plugin.json: the host's writable
   // directory for this workspace. The package itself is read-only.
   store = openStateStore(argument('--state'));
