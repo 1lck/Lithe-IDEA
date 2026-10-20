@@ -200,7 +200,7 @@ const TabBarItem = memo(function TabBarItem({
               <GitBranch className="text-subtle-foreground" />
             ) : buffer.type === "terminal" ? (
               <Terminal className="text-subtle-foreground" />
-            ) : buffer.type === "agent" ? (
+            ) : buffer.type === "agent" || buffer.type === "agentConversation" ? (
               <Sparkles className="text-subtle-foreground" />
             ) : buffer.type === "webViewer" ? (
               buffer.favicon && !faviconError ? (

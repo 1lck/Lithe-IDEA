@@ -1,37 +1,52 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useBufferStore } from "@/features/editor/stores/buffer.store";
+import { useShallow } from "zustand/react/shallow";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { useTranslation } from "@/i18n/locale-provider";
 import {
+  ArrowSquareOutIcon,
+  CaretDoubleRightIcon,
   CaretLeftIcon,
   ClockCounterClockwiseIcon,
   GearIcon,
   MagnifyingGlassIcon,
   PlusIcon,
+  SidebarSimpleIcon,
   SparkleIcon,
   SquareSplitHorizontalIcon,
   UserCircleIcon,
   WarningIcon,
   XIcon,
 } from "@/ui/icons";
+import { cn } from "@/utils/cn";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/ui/resizable";
 import { joinPath } from "@/utils/path-helpers";
+import { openAgentConversationInEditor } from "../actions/agent-conversation-placement-actions";
 import { useAgentManagement } from "../hooks/use-agent-management";
 import { useAgentSnapshot } from "../hooks/use-agent-connection";
 import { useAgentHistory } from "../hooks/use-agent-history";
+import { useAgentConnectionOwnership } from "../hooks/use-agent-connection-ownership";
 import { AgentHistoryExportError, saveHistoryMarkdown } from "../services/agent-history-save";
 import { historyMarkdown, type AgentHistoryDocument } from "../services/agent-history-export";
 import { historyTitle } from "../services/agent-history-view";
 import { provisionalTabTitle } from "../services/agent-transcript-items";
+import { editorAgentSessionIDs, resolveAgentEditorBinding } from "../services/agent-editor-binding";
 import {
   agentConnection,
   agentDataDirectory,
   closeAgentConnection,
   openAgentConnection,
 } from "../stores/agent-connection-service";
+import {
+  EMPTY_AGENT_DRAFT,
+  NEW_AGENT_DRAFT_KEY,
+  useAgentSurfaceStore,
+} from "../stores/agent-surface.store";
 import { CODEX_AGENT_ID, CLAUDE_AGENT_ID } from "../types/agent-settings.types";
 import {
   currentPermission,
+  type AgentConversation,
   type AgentFileReference,
   type AgentToolLocation,
 } from "../types/agent.types";
@@ -46,6 +61,7 @@ import {
 } from "./agent-panel-parts";
 import { AgentSettingsSection } from "./agent-settings-section";
 import { AgentHero, AgentActivitySummaryBar, AgentTranscript } from "./agent-transcript";
+import { AgentContextUsageView } from "./agent-usage-panel";
 
 /** How often a visible subscription panel asks the host for fresh quota. */
 const QUOTA_REFRESH_MILLISECONDS = 60_000;
@@ -58,8 +74,22 @@ const AGENT_NAMES: Record<string, string> = {
 
 type AgentPanelPage = "conversation" | "settings" | "history";
 
+export type AgentPanelPlacement = "toolWindow" | "editor";
+
 interface AgentPanelProps {
   onClose: () => void;
+  /**
+   * The tool window keeps history visible while an editor tab owns the
+   * conversation; the editor surface is the centered conversation itself.
+   */
+  placement?: AgentPanelPlacement;
+  isActive?: boolean;
+  /** Session bound to the editor tab. The tool window follows the connection. */
+  sessionID?: string | null;
+  /** Agent that owns the session bound to the editor tab. */
+  agentId?: string | null;
+  onMoveToToolWindow?: () => void;
+  onTitleChange?: (title: string) => void;
 }
 
 /**
@@ -70,14 +100,30 @@ interface AgentPanelProps {
  * instead of hiding the composer. No Agent process starts until the panel is
  * enabled and the project's adapter is configured.
  */
-export function AgentPanel({ onClose }: AgentPanelProps) {
+export function AgentPanel({
+  onClose,
+  placement = "toolWindow",
+  isActive = true,
+  sessionID = null,
+  agentId = null,
+  onMoveToToolWindow,
+  onTitleChange,
+}: AgentPanelProps) {
   const { t } = useTranslation();
+  const isEditorPlacement = placement === "editor";
+  const detailsOpen = useAgentSurfaceStore((state) => state.detailsOpen);
+  const surfaceActions = useAgentSurfaceStore.use.actions();
   const snapshot = useAgentSnapshot();
   const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath ?? null);
   const handleFileSelect = useFileSystemStore((state) => state.handleFileSelect);
   const settings = useSettingsStore((state) => state.settings.agentPanel);
+  // Buffer ownership survives cached workspace hiding and connection resets.
+  const editorSessionIDs = useBufferStore(
+    useShallow((state) => editorAgentSessionIDs(state.buffers, settings.agentId)),
+  );
   const updateSetting = useSettingsStore((state) => state.actions.updateSetting);
-  const history = useAgentHistory(rootFolderPath, settings.agentId);
+  const boundAgentID = isEditorPlacement ? (agentId === "" ? null : agentId) : null;
+  const history = useAgentHistory(rootFolderPath, boundAgentID ?? settings.agentId);
   const [dataDirectory, setDataDirectory] = useState<string | null>(null);
   const [page, setPage] = useState<AgentPanelPage>("conversation");
   const management = useAgentManagement(dataDirectory, page === "settings" || !settings.enabled);
@@ -85,33 +131,70 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
   const [searchText, setSearchText] = useState("");
   const [showsTabs, setShowsTabs] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
-  // The composer unmounts on the settings and history pages, so the draft
-  // and its attachments live here to survive that round trip.
-  const [draft, setDraft] = useState("");
-  const [files, setFiles] = useState<AgentFileReference[]>([]);
-
   const status = snapshot.connectionState.status;
-  const selected = snapshot.selectedSessionID;
+  const { sessionID: surfaceSessionID, isForeignAgent } = resolveAgentEditorBinding({
+    isEditor: isEditorPlacement,
+    boundSessionID: sessionID,
+    boundAgentID,
+    activeAgentID: settings.agentId,
+    selectedSessionID: snapshot.selectedSessionID,
+  });
+  const selected = surfaceSessionID;
   const conversation = selected === null ? null : (snapshot.conversations[selected] ?? null);
-  const agentName = AGENT_NAMES[settings.agentId] ?? snapshot.agentName;
+
+  // Drafts belong to the conversation key, not to whichever surface happens
+  // to be mounted. Moving the conversation therefore keeps unsent text and
+  // attachments, and two surfaces never fight over the same composer.
+  const draftKey = selected ?? NEW_AGENT_DRAFT_KEY;
+  const draftEntry = useAgentSurfaceStore((state) => state.drafts[draftKey]);
+  const draft = draftEntry?.text ?? EMPTY_AGENT_DRAFT.text;
+  const files = draftEntry?.files ?? EMPTY_AGENT_DRAFT.files;
+  const setDraft = useCallback(
+    (value: string) => surfaceActions.setDraftText(draftKey, value),
+    [draftKey, surfaceActions],
+  );
+  const setFiles = useCallback(
+    (next: AgentFileReference[]) => surfaceActions.setDraftFiles(draftKey, next),
+    [draftKey, surfaceActions],
+  );
+
+  // A session can be created while the user is already typing under the
+  // "new conversation" key. Move that draft onto the real session instead of
+  // making the text disappear when the key changes.
+  const previousSelected = useRef<string | null>(selected);
+  useEffect(() => {
+    const previous = previousSelected.current;
+    previousSelected.current = selected;
+    if (previous !== null || selected === null) return;
+    const pending = useAgentSurfaceStore.getState().drafts[NEW_AGENT_DRAFT_KEY];
+    if (pending === undefined) return;
+    surfaceActions.setDraft(selected, pending);
+    surfaceActions.clearDraft(NEW_AGENT_DRAFT_KEY);
+  }, [selected, surfaceActions]);
+  const activeAgentId = boundAgentID ?? settings.agentId;
+  const agentName = AGENT_NAMES[activeAgentId] ?? snapshot.agentName;
   const isConfigured = settings.enabled && rootFolderPath !== null;
 
-  const connect = useCallback(() => {
-    if (!settings.enabled) {
-      // Turning the feature off stops the Agent processes; the panel stays open.
-      void closeAgentConnection();
-      return;
-    }
-    if (rootFolderPath === null) return;
-    void openAgentConnection(rootFolderPath, settings).catch(() => undefined);
-  }, [rootFolderPath, settings]);
+  const { ownsConnection: connectionMatchesWorkspace, claim } = useAgentConnectionOwnership({
+    isActive,
+    workspacePath: rootFolderPath,
+    settings,
+  });
 
   const reconnect = useCallback(() => {
-    void agentConnection()
-      .stop()
-      .then(connect)
+    const current = useSettingsStore.getState().settings.agentPanel;
+    if (rootFolderPath === null) return;
+    void closeAgentConnection()
+      .then(() => (current.enabled ? openAgentConnection(rootFolderPath, current) : undefined))
+      .then(() => claim(rootFolderPath, current))
       .catch(() => undefined);
-  }, [connect]);
+  }, [claim, rootFolderPath]);
+
+  const switchToBoundAgent = useCallback(() => {
+    if (boundAgentID === null) return;
+    const current = useSettingsStore.getState().settings.agentPanel;
+    void updateSetting("agentPanel", { ...current, agentId: boundAgentID });
+  }, [boundAgentID, updateSetting]);
 
   useEffect(() => {
     void agentDataDirectory()
@@ -119,25 +202,54 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
       .catch(() => setDataDirectory(null));
   }, []);
 
-  // Connecting is idempotent, so settings edits simply re-ask for the project.
   useEffect(() => {
-    connect();
-  }, [connect]);
+    if (!connectionMatchesWorkspace || status !== "ready" || isForeignAgent) return;
+    // An editor tab waits for its bound session instead of creating a fresh
+    // empty conversation before that session is selected.
+    if (isEditorPlacement && sessionID !== null && snapshot.selectedSessionID !== sessionID) return;
+    agentConnection().prepareConversation();
+  }, [
+    connectionMatchesWorkspace,
+    isEditorPlacement,
+    isForeignAgent,
+    sessionID,
+    snapshot.selectedSessionID,
+    status,
+  ]);
 
+  // An editor tab is bound to one session. Only the visible tab may select it,
+  // otherwise every hidden tab would keep stealing the shared connection.
   useEffect(() => {
-    if (status === "ready") agentConnection().prepareConversation();
-  }, [status]);
+    if (
+      isForeignAgent ||
+      !isEditorPlacement ||
+      !connectionMatchesWorkspace ||
+      sessionID === null ||
+      status !== "ready"
+    )
+      return;
+    if (snapshot.selectedSessionID === sessionID) return;
+    agentConnection().selectSession(sessionID);
+  }, [
+    connectionMatchesWorkspace,
+    isEditorPlacement,
+    isForeignAgent,
+    sessionID,
+    snapshot.selectedSessionID,
+    status,
+  ]);
 
   // Quota polls only while the conversation itself is visible, as on macOS.
   useEffect(() => {
-    if (!snapshot.usesSubscription || status !== "ready" || page !== "conversation") return;
+    if (!isActive || !snapshot.usesSubscription || status !== "ready" || page !== "conversation")
+      return;
     const tick = () => {
       if (document.visibilityState === "visible") agentConnection().refreshQuota();
     };
     tick();
     const handle = setInterval(tick, QUOTA_REFRESH_MILLISECONDS);
     return () => clearInterval(handle);
-  }, [page, snapshot.usesSubscription, status]);
+  }, [isActive, page, snapshot.usesSubscription, status]);
 
   const sessionTitle = useCallback(
     (sessionID: string): string => {
@@ -150,6 +262,27 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
 
   const headerTitle =
     selected === null ? t("agent.actions.newConversation") : sessionTitle(selected);
+
+  // A tab carries its own session even while another surface shows a different
+  // conversation, so it titles itself from `sessionID`, never from the global
+  // selection. Hidden tabs must not rename themselves or their neighbours.
+  const sessionKnown =
+    sessionID === null || snapshot.sessions.some((entry) => entry.id === sessionID);
+  const editorTabTitle = sessionID === null ? headerTitle : sessionTitle(sessionID);
+
+  useEffect(() => {
+    if (!isEditorPlacement || isForeignAgent || !isActive || !isConfigured || !sessionKnown) return;
+    if (onTitleChange === undefined) return;
+    onTitleChange(editorTabTitle);
+  }, [
+    editorTabTitle,
+    isActive,
+    isConfigured,
+    isEditorPlacement,
+    isForeignAgent,
+    onTitleChange,
+    sessionKnown,
+  ]);
 
   const tabs = useMemo(
     () =>
@@ -243,9 +376,63 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
 
   const openSettings = useCallback(() => setPage("settings"), []);
 
+  const historyList = (onSelect: (sessionID: string) => void) => (
+    <AgentHistoryList
+      sessions={snapshot.sessions}
+      metadata={history.metadata}
+      conversations={snapshot.conversations}
+      isRefreshing={snapshot.isRefreshingSessions}
+      error={snapshot.historyError ?? history.error ?? exportError}
+      canRefresh={snapshot.canLoadSessions && status === "ready"}
+      onRefresh={() => agentConnection().refreshSessions()}
+      onSelect={onSelect}
+      onRename={history.rename}
+      onSetFavorite={(sessionIDs, favorite) => void history.setFavorite(sessionIDs, favorite)}
+      onSetHidden={(sessionIDs, hidden) => void history.setHidden(sessionIDs, hidden)}
+      isExporting={isExporting}
+      onExport={(sessionIDs) => void exportSessions(sessionIDs)}
+      canExportSession={(sessionID) => agentConnection().canExportTranscript(sessionID)}
+    />
+  );
+
+  if (isForeignAgent && boundAgentID !== null) {
+    const boundAgentName = AGENT_NAMES[boundAgentID] ?? boundAgentID;
+    const activeAgentName = AGENT_NAMES[settings.agentId] ?? settings.agentId;
+    return (
+      <PanelFrame placement={placement}>
+        <AgentPanelHeader title={t("agent.editor.foreignAgentTitle")}>
+          {onMoveToToolWindow === undefined ? null : (
+            <AgentToolbarButton
+              label={t("agent.actions.moveToToolWindow")}
+              onClick={onMoveToToolWindow}
+            >
+              <CaretDoubleRightIcon className="size-3.5" />
+            </AgentToolbarButton>
+          )}
+          <AgentToolbarButton label={t("agent.actions.close")} onClick={onClose}>
+            <XIcon className="size-3.5" />
+          </AgentToolbarButton>
+        </AgentPanelHeader>
+        <AgentEmptyState
+          icon={<WarningIcon />}
+          title={t("agent.editor.foreignAgentTitle")}
+          message={t("agent.editor.foreignAgentMessage", {
+            agent: boundAgentName,
+            current: activeAgentName,
+          })}
+          action={{
+            label: t("agent.editor.switchBack", { agent: boundAgentName }),
+            onClick: switchToBoundAgent,
+          }}
+          secondaryAction={{ label: t("agent.actions.close"), onClick: onClose }}
+        />
+      </PanelFrame>
+    );
+  }
+
   if (page === "settings") {
     return (
-      <PanelFrame>
+      <PanelFrame placement={placement}>
         <div className="flex h-[34px] shrink-0 items-center gap-2 border-border border-b bg-surface px-2">
           <AgentToolbarButton
             label={t("agent.settings.back")}
@@ -274,7 +461,7 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
 
   if (page === "history") {
     return (
-      <PanelFrame>
+      <PanelFrame placement={placement}>
         <div className="flex h-[34px] shrink-0 items-center gap-2 border-border border-b bg-surface px-2">
           <AgentToolbarButton
             label={t("agent.settings.back")}
@@ -287,25 +474,46 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
           </span>
         </div>
         <div className="min-h-0 flex-1 overflow-auto">
-          <AgentHistoryList
-            sessions={snapshot.sessions}
-            metadata={history.metadata}
-            conversations={snapshot.conversations}
-            isRefreshing={snapshot.isRefreshingSessions}
-            error={snapshot.historyError ?? history.error ?? exportError}
-            canRefresh={snapshot.canLoadSessions && status === "ready"}
-            onRefresh={() => agentConnection().refreshSessions()}
-            onSelect={(sessionID) => {
-              agentConnection().selectSession(sessionID);
-              setPage("conversation");
-            }}
-            onRename={history.rename}
-            onSetFavorite={(sessionIDs, favorite) => void history.setFavorite(sessionIDs, favorite)}
-            onSetHidden={(sessionIDs, hidden) => void history.setHidden(sessionIDs, hidden)}
-            isExporting={isExporting}
-            onExport={(sessionIDs) => void exportSessions(sessionIDs)}
-            canExportSession={(sessionID) => agentConnection().canExportTranscript(sessionID)}
-          />
+          {historyList((sessionID) => {
+            agentConnection().selectSession(sessionID);
+            setPage("conversation");
+          })}
+        </div>
+      </PanelFrame>
+    );
+  }
+
+  // While an editor tab owns the conversation, the tool window becomes the
+  // history manager. Selecting a row focuses that session's existing tab or
+  // opens one for a session that is not placed yet.
+  if (!isEditorPlacement && editorSessionIDs.length > 0) {
+    const focusSessionID = editorSessionIDs[editorSessionIDs.length - 1] ?? null;
+    return (
+      <PanelFrame placement={placement}>
+        <div className="flex h-[34px] shrink-0 items-center gap-2 border-border border-b bg-surface px-2">
+          <span className="flex-1 font-semibold text-foreground ui-text-sm">
+            {t("agent.actions.history")}
+          </span>
+          <AgentToolbarButton label={t("agent.actions.settings")} onClick={openSettings}>
+            <GearIcon className="size-3.5" />
+          </AgentToolbarButton>
+          <AgentToolbarButton label={t("agent.actions.close")} onClick={onClose}>
+            <XIcon className="size-3.5" />
+          </AgentToolbarButton>
+        </div>
+        <AgentInlineNotice
+          text={t("agent.editor.handoffNotice")}
+          action={{
+            label: t("agent.editor.focusTab"),
+            onClick: () => {
+              if (focusSessionID !== null) {
+                openAgentConversationInEditor(focusSessionID, settings.agentId);
+              }
+            },
+          }}
+        />
+        <div className="min-h-0 flex-1 overflow-auto">
+          {historyList((sessionID) => openAgentConversationInEditor(sessionID, settings.agentId))}
         </div>
       </PanelFrame>
     );
@@ -427,13 +635,14 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
   // otherwise the first prompt would use a configuration nobody confirmed.
   const canSend =
     isConfigured &&
+    (!isEditorPlacement || (sessionID !== null && snapshot.selectedSessionID === sessionID)) &&
     status === "ready" &&
     !snapshot.isCreatingSession &&
     conversation?.isLoading !== true &&
     conversation?.pendingConfigToken == null;
 
-  return (
-    <PanelFrame>
+  const conversationSurface = (
+    <PanelFrame placement={placement}>
       <AgentPanelHeader title={isConfigured ? headerTitle : t("agent.actions.newConversation")}>
         {isConfigured ? (
           <>
@@ -447,34 +656,73 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
             >
               <MagnifyingGlassIcon className="size-3.5" />
             </AgentToolbarButton>
-            <AgentToolbarButton
-              label={t("agent.actions.newConversation")}
-              disabled={selected === null}
-              onClick={() => agentConnection().startNewConversation()}
-            >
-              <PlusIcon className="size-3.5" />
-            </AgentToolbarButton>
-            <AgentToolbarButton
-              label={t("agent.actions.tabs")}
-              active={showsTabs}
-              onClick={() => setShowsTabs((value) => !value)}
-            >
-              <SquareSplitHorizontalIcon className="size-3.5" />
-            </AgentToolbarButton>
-            <AgentToolbarButton
-              label={t("agent.actions.history")}
-              onClick={() => setPage("history")}
-            >
-              <ClockCounterClockwiseIcon className="size-3.5" />
-            </AgentToolbarButton>
+            {isEditorPlacement ? null : (
+              <>
+                <AgentToolbarButton
+                  label={t("agent.actions.newConversation")}
+                  disabled={selected === null}
+                  onClick={() => agentConnection().startNewConversation()}
+                >
+                  <PlusIcon className="size-3.5" />
+                </AgentToolbarButton>
+                <AgentToolbarButton
+                  label={t("agent.actions.tabs")}
+                  active={showsTabs}
+                  onClick={() => setShowsTabs((value) => !value)}
+                >
+                  <SquareSplitHorizontalIcon className="size-3.5" />
+                </AgentToolbarButton>
+                <AgentToolbarButton
+                  label={t("agent.actions.history")}
+                  onClick={() => setPage("history")}
+                >
+                  <ClockCounterClockwiseIcon className="size-3.5" />
+                </AgentToolbarButton>
+              </>
+            )}
           </>
         ) : null}
-        <AgentToolbarButton label={t("agent.actions.settings")} onClick={openSettings}>
-          <GearIcon className="size-3.5" />
-        </AgentToolbarButton>
-        <AgentToolbarButton label={t("agent.actions.close")} onClick={onClose}>
-          <XIcon className="size-3.5" />
-        </AgentToolbarButton>
+        {isEditorPlacement ? (
+          <>
+            <AgentToolbarButton
+              label={
+                detailsOpen ? t("agent.actions.hideDetails") : t("agent.actions.showDetails")
+              }
+              active={detailsOpen}
+              onClick={() => surfaceActions.setDetailsOpen(!detailsOpen)}
+            >
+              <SidebarSimpleIcon className="size-3.5" />
+            </AgentToolbarButton>
+            {onMoveToToolWindow === undefined ? null : (
+              <AgentToolbarButton
+                label={t("agent.actions.moveToToolWindow")}
+                onClick={onMoveToToolWindow}
+              >
+                <CaretDoubleRightIcon className="size-3.5" />
+              </AgentToolbarButton>
+            )}
+          </>
+        ) : (
+          <>
+            <AgentToolbarButton
+              label={t("agent.actions.openInEditor")}
+              disabled={!isConfigured || selected === null}
+              onClick={() => {
+                if (selected !== null) {
+                  openAgentConversationInEditor(selected, settings.agentId);
+                }
+              }}
+            >
+              <ArrowSquareOutIcon className="size-3.5" />
+            </AgentToolbarButton>
+            <AgentToolbarButton label={t("agent.actions.settings")} onClick={openSettings}>
+              <GearIcon className="size-3.5" />
+            </AgentToolbarButton>
+            <AgentToolbarButton label={t("agent.actions.close")} onClick={onClose}>
+              <XIcon className="size-3.5" />
+            </AgentToolbarButton>
+          </>
+        )}
       </AgentPanelHeader>
 
       {isConfigured && showsSearch ? (
@@ -506,7 +754,7 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
         </div>
       ) : null}
 
-      {isConfigured && showsTabStrip ? (
+      {isConfigured && !isEditorPlacement && showsTabStrip ? (
         <AgentConversationTabs
           tabs={tabs}
           showsNewTab={selected === null}
@@ -532,38 +780,197 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
           </div>
         }
         composerPane={
-          <AgentComposer
-            conversation={isConfigured ? conversation : null}
-            agentName={agentName}
-            draft={draft}
-            onDraftChange={setDraft}
-            files={files}
-            onFilesChange={setFiles}
-            canSend={canSend}
-            onOpenSettings={openSettings}
-            onError={setLocalError}
-            blockedReason={
-              !settings.enabled
-                ? t("agent.error.disabled")
-                : rootFolderPath === null
-                  ? t("agent.setup.noProject")
-                  : status !== "ready"
-                    ? t("agent.error.notConnected")
-                    : t("agent.error.preparing")
-            }
-          />
+          <div className={cn("h-full", isEditorPlacement && "mx-auto w-full max-w-[700px]")}>
+            <AgentComposer
+              conversation={isConfigured ? conversation : null}
+              agentName={agentName}
+              draft={draft}
+              onDraftChange={setDraft}
+              files={files}
+              onFilesChange={setFiles}
+              canSend={canSend}
+              onOpenSettings={openSettings}
+              onError={setLocalError}
+              blockedReason={
+                !settings.enabled
+                  ? t("agent.error.disabled")
+                  : rootFolderPath === null
+                    ? t("agent.setup.noProject")
+                    : status !== "ready"
+                      ? t("agent.error.notConnected")
+                      : t("agent.error.preparing")
+              }
+            />
+          </div>
         }
       />
     </PanelFrame>
   );
+
+  if (!isEditorPlacement) return conversationSurface;
+
+  return (
+    <div className="relative flex size-full min-h-0">
+      {conversationSurface}
+      {detailsOpen ? (
+        <AgentSessionDetails
+          title={headerTitle}
+          sessionID={selected}
+          agentName={agentName}
+          agentVersion={snapshot.agentVersion}
+          workspacePath={rootFolderPath}
+          conversation={conversation}
+          onClose={() => surfaceActions.setDetailsOpen(false)}
+        />
+      ) : null}
+    </div>
+  );
 }
 
-function PanelFrame({ children }: { children: ReactNode }) {
+function PanelFrame({
+  children,
+  placement = "toolWindow",
+}: {
+  children: ReactNode;
+  placement?: AgentPanelPlacement;
+}) {
   const { t } = useTranslation();
   return (
-    <section aria-label={t("agent.title")} className="flex h-full min-h-0 flex-col bg-background">
+    <section
+      aria-label={t("agent.title")}
+      className={cn(
+        "flex h-full min-h-0 flex-col bg-background",
+        placement === "editor" &&
+          "mx-auto w-full max-w-[716px] border-border/60 border-x",
+      )}
+    >
       {children}
     </section>
+  );
+}
+
+/**
+ * Editor-only session details. It reports only data the Agent connection has
+ * already published; MCP servers and changed files stay absent rather than
+ * inventing local stand-ins.
+ */
+function AgentSessionDetails({
+  title,
+  sessionID,
+  agentName,
+  agentVersion,
+  workspacePath,
+  conversation,
+  onClose,
+}: {
+  title: string;
+  sessionID: string | null;
+  agentName: string | null;
+  agentVersion: string | null;
+  workspacePath: string | null;
+  conversation: AgentConversation | null;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <aside
+      aria-label={t("agent.details.title")}
+      className="absolute inset-y-0 right-0 z-20 flex w-[280px] flex-col border-border border-l bg-surface shadow-xl xl:static xl:shadow-none"
+    >
+      <div className="flex h-[34px] shrink-0 items-center gap-2 border-border border-b px-2">
+        <span className="flex-1 font-semibold text-foreground ui-text-sm">
+          {t("agent.details.title")}
+        </span>
+        <AgentToolbarButton label={t("agent.actions.hideDetails")} onClick={onClose}>
+          <XIcon className="size-3.5" />
+        </AgentToolbarButton>
+      </div>
+      <div className="min-h-0 flex-1 overflow-auto p-3">
+        <DetailSection title={t("agent.details.session")}>
+          <DetailRow label={t("agent.details.titleLabel")} value={title} />
+          <DetailRow
+            label={t("agent.details.agent")}
+            value={
+              agentName === null
+                ? "—"
+                : agentVersion === null
+                  ? agentName
+                  : `${agentName} ${agentVersion}`
+            }
+          />
+          <DetailRow label={t("agent.details.workspace")} value={workspacePath ?? "—"} />
+          <DetailRow label={t("agent.details.sessionId")} value={sessionID ?? "—"} mono />
+          <DetailRow
+            label={t("agent.details.messages")}
+            value={String(conversation?.messages.length ?? 0)}
+          />
+          <DetailRow
+            label={t("agent.details.turns")}
+            value={String(conversation?.completedTurns.length ?? 0)}
+          />
+        </DetailSection>
+        <DetailSection title={t("agent.details.context")}>
+          <div className="flex items-center justify-between py-0.5">
+            <span className="text-subtle-foreground ui-text-caption">
+              {t("agent.context.label")}
+            </span>
+            <AgentContextUsageView usage={conversation?.contextUsage ?? null} />
+          </div>
+          {conversation === null || conversation.configOptions.length === 0 ? (
+            <p className="py-1 text-subtle-foreground ui-text-caption">
+              {t("agent.details.noConfig")}
+            </p>
+          ) : (
+            conversation.configOptions.map((option) => {
+              const choice = option.choices.find((entry) => entry.id === option.currentValue);
+              return (
+                <DetailRow
+                  key={option.id}
+                  label={option.name}
+                  value={choice?.name ?? option.currentValue}
+                />
+              );
+            })
+          )}
+        </DetailSection>
+        <p className="text-subtle-foreground ui-text-caption">
+          {t("agent.details.unavailable")}
+        </p>
+      </div>
+    </aside>
+  );
+}
+
+function DetailSection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="mb-2 border-border/60 border-b pb-2 last:mb-0 last:border-b-0">
+      <h3 className="mb-1 font-semibold text-subtle-foreground ui-text-caption">{title}</h3>
+      {children}
+    </section>
+  );
+}
+
+function DetailRow({
+  label,
+  value,
+  mono = false,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-3 py-0.5">
+      <span className="shrink-0 text-subtle-foreground ui-text-caption">{label}</span>
+      <span
+        className={cn(
+          "min-w-0 text-right text-foreground ui-text-caption",
+          mono ? "break-all font-mono" : "break-words",
+        )}
+      >
+        {value}
+      </span>
+    </div>
   );
 }
 

@@ -132,11 +132,6 @@ export function AgentComposer({
   const hasContent = draft.trim().length > 0 || files.length > 0;
   const sessionID = snapshot.selectedSessionID;
 
-  // A different conversation starts with no attachments, as on macOS.
-  useEffect(() => {
-    if (sessionID !== null) onFilesChange([]);
-  }, [sessionID, onFilesChange]);
-
   useEffect(() => {
     textareaRef.current?.focus();
   }, []);
