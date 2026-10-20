@@ -99,6 +99,9 @@ protocol PluginMarketplaceServicing: AnyObject {
     func cachedIndex(for source: PluginMarketplaceSource) -> PluginMarketplaceIndexSnapshot?
     func refreshIndex(for source: PluginMarketplaceSource) async throws -> PluginMarketplaceIndexSnapshot
     func removeCache(for source: PluginMarketplaceSource)
+    /// Downloads an index entry's `icon` and returns it only when it is a
+    /// static SVG or PNG the platform can decode within the icon limits.
+    func iconData(from icon: String) async throws -> Data
     /// Downloads the archive, verifies the index checksum, validates the
     /// package and its trust for the source, and reviews its programs.
     func prepareInstall(
@@ -228,6 +231,11 @@ final class PluginMarketplaceFeatureModel: ObservableObject {
     /// Late imports may finish after the settings page has closed; they must
     /// release their snapshot instead of reopening an approval or installing.
     private var installationSession = UUID()
+    /// Index icons for this session, keyed by URL. Index icon URLs pin a
+    /// commit, so a URL's bytes never change; a failure is remembered as
+    /// `nil` so a broken icon is requested once, not once per row.
+    private var iconResults: [String: Data?] = [:]
+    private var iconLoads: [String: Task<Data?, Never>] = [:]
 
     init(service: any PluginMarketplaceServicing, pluginManager: any PluginManaging) {
         self.service = service
@@ -235,6 +243,22 @@ final class PluginMarketplaceFeatureModel: ObservableObject {
     }
 
     var platform: String { service.platform }
+
+    /// Icon bytes for an index `icon` URL, or `nil` when the view should keep
+    /// its fallback icon. Concurrent rows asking for one URL share a request.
+    func iconData(for icon: String) async -> Data? {
+        if let cached = iconResults[icon] { return cached }
+        if let load = iconLoads[icon] { return await load.value }
+        let service = service
+        // A missing, oversized or unsupported icon is a presentation fallback,
+        // not an error the user can act on, so the failure is not surfaced.
+        let load = Task { try? await service.iconData(from: icon) }
+        iconLoads[icon] = load
+        let data = await load.value
+        iconLoads[icon] = nil
+        iconResults[icon] = .some(data)
+        return data
+    }
 
     /// Reads persisted sources and cached indexes without touching the network.
     func loadIfNeeded() {

@@ -45,6 +45,8 @@ Lithe 的插件管理改成和 IntelliJ IDEA 一样的“插件市场 / 已安�
 
 **存储与清理。** `MacServiceContainer` 通过 `fileStorage.temporaryDirectory()` 注入上述临时根，开发版随发行身份隔离；不从 bundle 推导可写目录。导入失败或取消由 importer 删除部分快照，准备完成后由市场 service 持有，取消审查、安装成功或安装失败都调用 discard 删除本次目录。插件页关闭时取消自己的磁盘导入任务并结束安装 session；已有待确认快照立即 discard，迟到的准备结果也只清理，不能在页面关闭后安装。安装 store 另行持有 `<app-support>/Lithe/Plugins/.staging/<transaction>/`，安装后只保留用户级版本目录及 `installation.json`；这些资源和审批记录没有可跨工作树复用的版本/平台/架构/工具链身份标记，任何复制阶段均不复用，注册表为 `plugin-disk-install-state`。
 
+**索引图标。** 条目的 `icon` 由 Rust Core 限定为该插件仓库的 raw 文件，实际多数是 SVG。SwiftUI 的 `AsyncImage` 只能解码位图，SVG 会静默落回默认插头图标，所以列表和详情不再用它。现在由 `MacPluginMarketplaceService.iconData(from:)` 下载（上限 256 KB），再走与插件包内图标相同的 `MacPluginUIIconLoader.decodedPixelArea` 校验：只接受静态 SVG 子集或单帧 PNG，最大 1024×1024；SVG 允许 Simple Icons 等常见图标带的 `role` 属性。校验通过后由 AppKit 解码。字节只缓存在 `PluginMarketplaceFeatureModel` 的内存里，同一 URL 本次运行只请求一次，失败也记住，不写 Caches 或 bundle。
+
 源列表写在 Application Support，索引缓存写在 Caches，网络下载和解压也只使用本次临时目录。app bundle 只读地附带官方索引，作为离线和首次启动兜底。运行时不写 macOS 发行 bundle 或 Windows 安装资源，不影响代码签名和 Sparkle delta 的发布基线；静态门禁之外，真实验收还需比较典型工作流前后的 bundle 文件清单和哈希。
 
 **官方插件发布。** `Plugins/marketplace/official-plugins.json` 登记每个官方插件的标签前缀、包目录和资产名。`release-official-plugins.yml` 在 PR 上检查“插件内容变了但版本没升”，合入 preview 后只为版本有变化的插件新建 `plugin-<名称>-v<版本>` 标签和 Release。插件代码不变，它的标签就不动。

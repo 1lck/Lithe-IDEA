@@ -592,7 +592,7 @@ private struct InstalledPluginsView: View {
                 .foregroundStyle(presentation.tint)
                 .frame(width: size, height: size)
         } else {
-            PluginMarketplaceIcon(entry: marketplaceEntry(for: plugin.id), size: size)
+            PluginMarketplaceIcon(feature: feature, entry: marketplaceEntry(for: plugin.id), size: size)
         }
     }
 

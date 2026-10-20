@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import LitheCoreContracts
 import LitheModuleAPI
@@ -121,7 +122,7 @@ struct PluginMarketplaceView: View {
         let offer = feature.offer(for: listing)
         let isSelected = selectedListing?.pluginID == listing.pluginID
         return HStack(spacing: 10) {
-            PluginMarketplaceIcon(entry: offer?.entry, size: 32)
+            PluginMarketplaceIcon(feature: feature, entry: offer?.entry, size: 32)
             VStack(alignment: .leading, spacing: 3) {
                 Text(verbatim: offer?.entry.name ?? listing.pluginID.rawValue)
                     .font(LitheTheme.uiFont(size: 13, weight: .semibold))
@@ -207,7 +208,7 @@ struct PluginMarketplaceView: View {
             .background(LitheTheme.settingsSurface)
         } else {
             VStack(spacing: 10) {
-                PluginMarketplaceIcon(entry: nil, size: 36)
+                PluginMarketplaceIcon(feature: feature, entry: nil, size: 36)
                 Text(LocalizedStringKey("Select a plugin"))
                     .font(LitheTheme.uiFont(size: 15, weight: .medium))
                     .foregroundStyle(LitheTheme.secondaryText)
@@ -289,7 +290,7 @@ private struct PluginMarketplaceDetail: View {
 
     private var header: some View {
         HStack(alignment: .top, spacing: 14) {
-            PluginMarketplaceIcon(entry: entry, size: 48)
+            PluginMarketplaceIcon(feature: feature, entry: entry, size: 48)
             // The detail pane can be narrow inside Settings, so the name
             // wraps by words and the action sits below it instead of
             // squeezing the name from the side.
@@ -533,26 +534,33 @@ struct PluginTrustBadge: View {
 }
 
 /// Plugin icon from the index, limited by Core to the plugin's own
-/// repository, with IDEA's plugin node icon as the fallback.
+/// repository, with IDEA's plugin node icon as the fallback. The feature
+/// model downloads and validates it; AppKit decodes both SVG and PNG, which
+/// SwiftUI's `AsyncImage` cannot do for SVG.
 struct PluginMarketplaceIcon: View {
+    let feature: PluginMarketplaceFeatureModel
     let entry: PluginMarketplaceEntry?
     let size: CGFloat
+    @State private var image: NSImage?
 
     var body: some View {
         Group {
-            if let icon = entry?.icon, let url = URL(string: icon) {
-                AsyncImage(url: url) { phase in
-                    if let image = phase.image {
-                        image.resizable().interpolation(.high).scaledToFit()
-                    } else {
-                        fallback
-                    }
-                }
+            if let image {
+                Image(nsImage: image)
+                    .renderingMode(.original)
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFit()
             } else {
                 fallback
             }
         }
         .frame(width: size, height: size)
+        .task(id: entry?.icon) {
+            image = nil
+            guard let icon = entry?.icon, let data = await feature.iconData(for: icon) else { return }
+            image = NSImage(data: data)
+        }
     }
 
     private var fallback: some View {

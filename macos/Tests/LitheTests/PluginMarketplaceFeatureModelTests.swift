@@ -19,6 +19,22 @@ struct PluginMarketplaceFeatureModelTests {
         isEnabled: true
     )
 
+    /// Every row and the detail pane ask for the same icon URL; the service
+    /// is asked once per URL, and a failed icon is not retried per row.
+    @Test
+    func indexIconsAreFetchedOncePerURLIncludingFailures() async throws {
+        let (feature, service, _) = try makeModel()
+        let good = "https://raw.githubusercontent.com/example/plugins/abc/icons/zig.svg"
+        let broken = "https://raw.githubusercontent.com/example/plugins/abc/icons/missing.svg"
+        service.icons[good] = Data("<svg/>".utf8)
+
+        #expect(await feature.iconData(for: good) == Data("<svg/>".utf8))
+        #expect(await feature.iconData(for: good) == Data("<svg/>".utf8))
+        #expect(await feature.iconData(for: broken) == nil)
+        #expect(await feature.iconData(for: broken) == nil)
+        #expect(service.iconRequests == [good, broken])
+    }
+
     @Test
     func communityInstallWaitsForConfirmationAndCancelDiscardsTheDownload() async throws {
         let (feature, service, manager) = try makeModel()
@@ -552,6 +568,15 @@ private final class FakeMarketplaceService: PluginMarketplaceServicing {
 
     func removeCache(for source: PluginMarketplaceSource) {
         indexes[source.id] = nil
+    }
+
+    var icons: [String: Data] = [:]
+    private(set) var iconRequests: [String] = []
+
+    func iconData(from icon: String) async throws -> Data {
+        iconRequests.append(icon)
+        guard let data = icons[icon] else { throw CocoaError(.fileReadNoSuchFile) }
+        return data
     }
 
     func prepareInstall(

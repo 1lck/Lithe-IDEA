@@ -18,6 +18,9 @@ final class MacPluginMarketplaceService: PluginMarketplaceServicing {
     static let communityRepository = "https://github.com/Lithe-IDEA/Lithe-store"
     static let communityIndexURL = PluginMarketplaceSource.communityIndexURL
     private static let maximumIndexBytes: Int64 = 5 * 1_048_576
+    /// Same per-file limits as icons inside a plugin package.
+    private static let maximumIconBytes: Int64 = 262_144
+    private static let maximumIconPixels = 1024 * 1024
     private static let sourcesSchemaVersion = 1
 
     let platform: String
@@ -182,6 +185,25 @@ final class MacPluginMarketplaceService: PluginMarketplaceServicing {
         cacheRootURL
             .appendingPathComponent(source.id, isDirectory: true)
             .appendingPathComponent("index.json", isDirectory: false)
+    }
+
+    // MARK: Icons
+
+    /// Core already limits `icon` to a raw file of the plugin's repository;
+    /// the bytes then pass the same static-SVG/PNG gate as package icons.
+    /// Nothing is written to disk: the feature model keeps them in memory.
+    func iconData(from icon: String) async throws -> Data {
+        guard let url = URL(string: icon), url.scheme == "https", url.host == "raw.githubusercontent.com" else {
+            throw MacPluginPackageDownloadError.invalidEndpoint
+        }
+        let data = try await transport.data(from: url, maximumBytes: Self.maximumIconBytes)
+        let isPNG = data.starts(with: [137, 80, 78, 71, 13, 10, 26, 10])
+        guard MacPluginUIIconLoader.decodedPixelArea(
+            of: data, isSVG: !isPNG, pixelBudget: Self.maximumIconPixels
+        ) != nil else {
+            throw MacPluginUIIconLoader.InvalidIcon(path: url.lastPathComponent)
+        }
+        return data
     }
 
     // MARK: Installation
