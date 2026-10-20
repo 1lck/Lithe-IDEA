@@ -533,16 +533,40 @@ export function GitLogToolWindow() {
   ) => {
     try {
       await restoreDeletedBranch(deletedRepoPath, deletion);
-      // Deleting a branch drops its tracking configuration; bring it back when the remote
-      // branch is still known. Failing to do so must not hide that the branch is back.
-      if (upstream) {
-        await setBranchUpstream(deletedRepoPath, deletion.name, upstream).catch(() => undefined);
-      }
-      toast.success(t("git.log.branchRestored", { name: deletion.name }));
-      if (latestRepoPathRef.current === deletedRepoPath) await latestRefreshRef.current();
     } catch (error) {
       toast.error(referenceActionErrorMessage(t("git.log.restoreBranch"), error));
+      return;
     }
+    // Deleting a branch drops its tracking configuration; bring it back when the remote
+    // branch is still known. A tracking failure is only a partial success: the branch is
+    // already back, so report it as a warning instead of failing the whole restore and
+    // inviting the user to create a duplicate branch.
+    let trackingFailure: { upstream: GitReference; error: unknown } | undefined;
+    if (upstream) {
+      try {
+        await setBranchUpstream(deletedRepoPath, deletion.name, upstream);
+      } catch (error) {
+        trackingFailure = { upstream, error };
+      }
+    }
+    if (trackingFailure) {
+      toast.warning(
+        t("git.log.branchRestoredUpstreamFailed", {
+          name: deletion.name,
+          upstream: trackingFailure.upstream.shortName,
+        }),
+        {
+          description: referenceActionErrorMessage(
+            t("git.log.restoreUpstreamTracking"),
+            trackingFailure.error,
+          ),
+        },
+      );
+    } else {
+      toast.success(t("git.log.branchRestored", { name: deletion.name }));
+    }
+    // `refresh` reports its own load failures; the branch is restored regardless.
+    if (latestRepoPathRef.current === deletedRepoPath) await latestRefreshRef.current();
   };
 
   const deleteLocalReference = async (reference: GitReference) => {

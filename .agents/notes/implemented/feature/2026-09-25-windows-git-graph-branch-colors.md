@@ -189,7 +189,6 @@ Branch 下拉对应 `BranchFilterPopupComponent`，选择结果就是日志控�
 引用，沿用既有的“引用缺失则回退全部”逻辑。控制器在同一仓库内因 `load` 身份变化
 重跑时保留当前选择，避免语言切换清掉筛选。
 
->>>>>>> 07ee0656 (feat(windows): Git Log 文本筛选按 Enter 搜索，新增可持久化的 Branch 筛选)
 ### 图形与提交文字按行混排
 
 Windows 不再把六列当作标题的最小固定留白。对照 Community
