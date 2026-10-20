@@ -130,12 +130,42 @@ struct RustBuildSystemOperationsTests {
         }
     }
 
+    /// The bridge encodes the reload reason and the resolved tool as the
+    /// `refresh` and `tool` fields Core copies into the provider params.
+    @Test
+    func providerPlansCarryTheReloadReasonAndTheResolvedTool() throws {
+        let target = try Self.target("gradle-provider", "gradle")
+        let context = BuildPlanContext(root: ".", options: [:])
+        let executable = URL(fileURLWithPath: "/opt/tools/gradle/bin/gradle")
+
+        let initial = try operations.modelPlan(
+            target, context: context, outputFile: nil, providerHints: BuildProviderHints()
+        )
+        let reload = try operations.dependencyPlan(
+            target, context: context, project: nil, outputFile: nil,
+            providerHints: BuildProviderHints(reason: .refresh, toolExecutable: executable)
+        )
+
+        guard case .provider(let first) = initial, case .object(let firstParams) = first.params,
+              case .provider(let second) = reload, case .object(let secondParams) = second.params else {
+            Issue.record("Expected provider plans, got \(initial) and \(reload)")
+            return
+        }
+        #expect(firstParams["refresh"] == nil)
+        #expect(firstParams["tool"] == nil)
+        #expect(secondParams["refresh"] == .bool(true))
+        #expect(secondParams["tool"] == .object(["executable": .string(executable.path)]))
+    }
+
     @Test
     func commandModelPlansAndDecodesStandardOutput() throws {
         let target = try Self.target("go-build", "go")
         let workspace = URL(fileURLWithPath: "/tmp/lithe-go-workspace")
 
-        let plan = try operations.modelPlan(target, context: BuildPlanContext(root: ".", options: [:]), outputFile: nil)
+        let plan = try operations.modelPlan(
+            target, context: BuildPlanContext(root: ".", options: [:]), outputFile: nil,
+            providerHints: BuildProviderHints()
+        )
         guard case .process(let process) = plan else {
             Issue.record("Expected a process plan, got \(plan)")
             return

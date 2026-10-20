@@ -72,11 +72,16 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
         return outcome.value.options
     }
 
-    func modelPlan(_ target: BuildSystemTarget, context: BuildPlanContext, outputFile: URL?) throws -> BuildOutputPlan {
+    func modelPlan(
+        _ target: BuildSystemTarget,
+        context: BuildPlanContext,
+        outputFile: URL?,
+        providerHints: BuildProviderHints
+    ) throws -> BuildOutputPlan {
         let outcome: Outcome<PlanResult> = try execute(
             "build.modelPlan",
             target: target,
-            request: OutputRequest(context: context, project: nil, outputFile: outputFile)
+            request: OutputRequest(context: context, project: nil, outputFile: outputFile, hints: providerHints)
         )
         return try outcome.value.plan.outputPlan()
     }
@@ -106,12 +111,13 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
         _ target: BuildSystemTarget,
         context: BuildPlanContext,
         project: BuildSelection?,
-        outputFile: URL?
+        outputFile: URL?,
+        providerHints: BuildProviderHints
     ) throws -> BuildOutputPlan {
         let outcome: Outcome<PlanResult> = try execute(
             "build.dependencyPlan",
             target: target,
-            request: OutputRequest(context: context, project: project, outputFile: outputFile)
+            request: OutputRequest(context: context, project: project, outputFile: outputFile, hints: providerHints)
         )
         return try outcome.value.plan.outputPlan()
     }
@@ -303,14 +309,22 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
         let workspaceStateDirectory: String?
         let project: BuildSelection?
         let outputFile: String?
+        let refresh: Bool
+        let tool: Tool?
 
-        init(context: BuildPlanContext, project: BuildSelection?, outputFile: URL?) {
+        struct Tool: Encodable {
+            let executable: String
+        }
+
+        init(context: BuildPlanContext, project: BuildSelection?, outputFile: URL?, hints: BuildProviderHints) {
             root = context.root
             options = context.options
             pluginDirectory = context.pluginDirectory?.path
             workspaceStateDirectory = context.workspaceStateDirectory?.path
             self.project = project
             self.outputFile = outputFile?.path
+            refresh = hints.reason == .refresh
+            tool = hints.toolExecutable.map { Tool(executable: $0.path) }
         }
     }
 
