@@ -331,7 +331,11 @@ export const XtermTerminal = ({
         onRendererFallback: fitTerminal,
       });
       terminal.attachCustomKeyEventHandler((event) => {
-        const action = getTerminalKeyAction(event, currentPlatform);
+        const action = getTerminalKeyAction(event, currentPlatform, {
+          // Read the live selection rather than the state captured at render time:
+          // the user may have selected text since the last re-render.
+          hasSelection: hasTerminalSelection(terminal),
+        });
         if (action.type === "switchTab") {
           event.preventDefault();
           window.dispatchEvent(
@@ -948,7 +952,7 @@ export const XtermTerminal = ({
             >
               <CopyIcon />
               {t("terminal.copySelection")}
-              <ContextMenuShortcut>Ctrl+Shift+C</ContextMenuShortcut>
+              <ContextMenuShortcut>Ctrl+C</ContextMenuShortcut>
             </ContextMenuItem>
             <ContextMenuItem
               disabled={!connectionId}
