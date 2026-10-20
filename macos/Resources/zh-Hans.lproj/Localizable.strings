@@ -235,6 +235,10 @@
 "Shell" = "Shell";
 "Default shell" = "默认 Shell";
 "Used for new terminal sessions." = "用于新建的终端会话。";
+"Scrollback" = "回滚";
+"Terminal scrollback" = "终端回滚行数";
+"Lines kept for scrolling back in new terminal sessions." = "新建终端会话保留的可回滚行数。";
+"%lld lines" = "%lld 行";
 "Restore Defaults" = "恢复默认设置";
 "Done" = "完成";
 "Java SDK" = "Java SDK";

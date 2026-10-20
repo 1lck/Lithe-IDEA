@@ -26,7 +26,7 @@ enum SettingsSearchVocabulary {
         case .run:
             ["Run configurations", "Program arguments", "VM options", "Environment variables", "Working directory", "Services"]
         case .terminal:
-            ["Terminal", "Shell", "Default shell"]
+            ["Terminal", "Shell", "Default shell", "Scrollback", "Terminal scrollback", "Scrollback lines"]
         case .lsp:
             ["LSP", "Language server"]
         case .ai:
