@@ -162,6 +162,140 @@ struct MacBuildProviderSessionsTests {
         fixture.sessions.stopProviders(ofPlugin: ProviderFixture.pluginID)
         #expect(fixture.core.stopCalls.count == 1)
     }
+
+    /// A failed write carries an OS error text in `details`; only Core's
+    /// refusal codes become the caller's code, so this one keeps its own
+    /// and the text stays in the message.
+    @Test
+    func aTransportFailureKeepsItsCodeAndNotTheOSErrorText() async throws {
+        let fixture = try ProviderFixture()
+        defer { fixture.remove() }
+
+        await #expect(throws: PluginFunctionFailure(
+            code: "processFailed", message: "Could not write to language-server stdin.: Broken pipe (os error 32)"
+        )) {
+            _ = try await fixture.invoke("transport.broken")
+        }
+    }
+
+    /// Core writes a request to the backend's stdin synchronously. A write
+    /// blocked on a backend that stopped reading never holds the main actor,
+    /// and once the call is cancelled the backend is ended to free it.
+    @Test
+    func aBlockedSendNeverHoldsTheMainActorAndCancelEndsTheBackend() async throws {
+        let fixture = try ProviderFixture()
+        defer {
+            fixture.core.releaseStuckSend()
+            fixture.remove()
+        }
+        let ended = TestGate()
+        fixture.endedBackends.onEnd = { immediately in
+            guard immediately else { return }
+            ended.open()
+            fixture.core.releaseStuckSend()
+        }
+        _ = try await fixture.sessions.pluginFunctions(of: fixture.target)
+        let finished = TestGate()
+        let call = Task { @MainActor in
+            defer { finished.open() }
+            return try await fixture.invoke("workspace.stuck")
+        }
+        // This test runs on the main actor: it resumes here only because the
+        // blocked write runs elsewhere.
+        try #require(await fixture.core.stuckSendStarted.waitUntilOpen())
+        #expect(fixture.endedBackends.calls.isEmpty)
+
+        call.cancel()
+        try #require(await ended.waitUntilOpen())
+        try #require(await finished.waitUntilOpen())
+        await #expect(throws: CancellationError.self) { _ = try await call.value }
+        let token = try #require(fixture.core.startCalls.first?.environment["LITHE_PLUGIN_BACKEND_SCOPE"])
+        #expect(fixture.endedBackends.calls == [.init(token: token, immediately: true)])
+    }
+
+    /// Stopping a provider whose write is blocked does not wait on it: Core's
+    /// stop runs off the main actor and the backend is ended after the grace.
+    @Test
+    func stoppingAProviderWithABlockedSendEndsTheBackend() async throws {
+        let fixture = try ProviderFixture()
+        defer {
+            fixture.core.releaseStuckSend()
+            fixture.remove()
+        }
+        let ended = TestGate()
+        fixture.endedBackends.onEnd = { immediately in
+            guard immediately else { return }
+            ended.open()
+            fixture.core.releaseStuckSend()
+        }
+        _ = try await fixture.sessions.pluginFunctions(of: fixture.target)
+        let finished = TestGate()
+        let call = Task { @MainActor in
+            defer { finished.open() }
+            return try await fixture.invoke("workspace.stuck")
+        }
+        try #require(await fixture.core.stuckSendStarted.waitUntilOpen())
+
+        fixture.sessions.stopProviders(ofPlugin: ProviderFixture.pluginID)
+        try #require(await ended.waitUntilOpen())
+        try #require(await finished.waitUntilOpen())
+        await #expect(throws: PluginFunctionFailure.self) { _ = try await call.value }
+        // Release follows the terminal event Core's stop queued.
+        try #require(await fixture.core.destroyed.waitUntilOpen())
+        #expect(fixture.core.stopCalls == ["provider-1"])
+    }
+
+    /// The start is shared by every call that arrives meanwhile. Cancelling
+    /// one caller ends its wait at once, while the start goes on and serves
+    /// the next call.
+    @Test
+    func cancellingACallWhileTheProviderStartsEndsOnlyThatCall() async throws {
+        let core = ScriptedProviderCore(initialState: "initializing")
+        let fixture = try ProviderFixture(core: core)
+        defer { fixture.remove() }
+        let finished = TestGate()
+        let first = Task { @MainActor in
+            defer { finished.open() }
+            return try await fixture.invoke("workspace.build")
+        }
+        try #require(await core.started.waitUntilOpen())
+
+        first.cancel()
+        try #require(await finished.waitUntilOpen())
+        await #expect(throws: CancellationError.self) { _ = try await first.value }
+        #expect(core.functionRequests.isEmpty)
+
+        core.becomeReady()
+        #expect(try await fixture.invoke("workspace.build") == .object(["built": .bool(true)]))
+        #expect(core.startCalls.count == 1)
+    }
+
+    /// Every backend starts with its own token, and once its session has
+    /// ended the host ends what carries that token, gracefully.
+    @Test
+    func anEndedBackendHasWhatItLeftEnded() async throws {
+        let fixture = try ProviderFixture()
+        defer { fixture.remove() }
+        let released = TestGate()
+        fixture.endedBackends.onEnd = { immediately in
+            if !immediately { released.open() }
+        }
+        _ = try await fixture.sessions.pluginFunctions(of: fixture.target)
+        let token = try #require(fixture.core.startCalls.first?.environment["LITHE_PLUGIN_BACKEND_SCOPE"])
+        #expect(!token.isEmpty)
+
+        fixture.sessions.stopProviders(ofPlugin: ProviderFixture.pluginID)
+        try #require(await released.waitUntilOpen())
+        #expect(fixture.endedBackends.calls == [.init(token: token, immediately: false)])
+    }
+}
+
+/// What the host asked to end, by backend token.
+@MainActor
+private final class EndedBackends {
+    struct Call: Equatable { let token: String; let immediately: Bool }
+    var calls: [Call] = []
+    var onEnd: ((_ immediately: Bool) -> Void)?
 }
 
 @MainActor
@@ -183,6 +317,7 @@ private struct ProviderFixture {
     let settings = InMemoryPluginSettings()
     let core: ScriptedProviderCore
     let sessions: MacBuildProviderSessions
+    let endedBackends = EndedBackends()
 
     var executableURL: URL { packageURL.appendingPathComponent(Self.executablePath) }
 
@@ -229,7 +364,12 @@ private struct ProviderFixture {
             versionChecker: operations,
             runtime: EmptyToolRuntime(),
             core: core,
-            processRegistry: nil
+            processRegistry: nil,
+            stuckSendGrace: .milliseconds(20),
+            endBackendProcesses: { [endedBackends] token, immediately in
+                endedBackends.calls.append(.init(token: token, immediately: immediately))
+                endedBackends.onEnd?(immediately)
+            }
         )
     }
 
@@ -271,13 +411,17 @@ private struct ProviderFixture {
 
 /// Answers requests immediately and exposes gates for lifecycle ordering.
 private final class ScriptedProviderCore: LanguageServerRuntimeCore, @unchecked Sendable {
-    struct StartCall { let arguments: [String]; let pluginID: String? }
+    struct StartCall { let arguments: [String]; let pluginID: String?; var environment: [String: String] = [:] }
     struct FunctionCall: Equatable { let pluginID: String; let functionID: String }
 
     let started = TestGate()
     let functionStarted = TestGate()
     let functionCancelled = TestGate()
     let destroyed = TestGate()
+    /// Opened when a `workspace.stuck` send is blocked; it stays blocked, as
+    /// a write to a backend that stopped reading would, until `releaseStuckSend`.
+    let stuckSendStarted = TestGate()
+    private let stuckSendReleased = TestGate()
     private let initialState: String
     private let readyAfterStop: Bool
     private let lock = NSLock()
@@ -334,37 +478,62 @@ private final class ScriptedProviderCore: LanguageServerRuntimeCore, @unchecked 
     }
 
     /// Core queues the negotiated functions before the session turns ready.
+    /// With `initialState: "initializing"` the session stays initializing
+    /// until `becomeReady()`, or until a stop queues the late ready reply.
     func startPluginLanguageServer(
         pluginID: String, providerID _: String, executableURL _: URL, arguments: [String],
-        environment _: [String: String], rootURL _: URL, initializationOptions _: ToolingJSONValue?,
+        environment: [String: String], rootURL _: URL, initializationOptions _: ToolingJSONValue?,
         initializeTimeout _: TimeInterval, requestTimeout _: TimeInterval, shutdownTimeout _: TimeInterval
     ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure> {
         let result = lock.withLock {
             nextSession += 1
-            _startCalls.append(StartCall(arguments: arguments, pluginID: pluginID))
+            _startCalls.append(StartCall(arguments: arguments, pluginID: pluginID, environment: environment))
             let sessionID = "provider-\(nextSession)"
-            events[sessionID, default: []] += [
-                LanguageServerRuntimeEvent(
-                    type: "functionsChanged",
-                    result: .object([
-                        "functions": .array([.string("workspace.build"), .string("snapshot.read")]),
-                        "removed": .array([])
-                    ])
-                ),
-                LanguageServerRuntimeEvent(type: "stateChanged", state: "ready")
-            ]
+            events[sessionID, default: []].append(LanguageServerRuntimeEvent(
+                type: "functionsChanged",
+                result: .object([
+                    "functions": .array([.string("workspace.build"), .string("snapshot.read")]),
+                    "removed": .array([])
+                ])
+            ))
+            if initialState == "ready" {
+                events[sessionID, default: []].append(LanguageServerRuntimeEvent(type: "stateChanged", state: "ready"))
+            }
             return LanguageServerRuntimeStart(sessionID: sessionID, state: "initializing", processID: nil)
         }
         started.open()
         return .success(result)
     }
 
+    func becomeReady() {
+        lock.withLock {
+            let sessionID = "provider-\(nextSession)"
+            events[sessionID, default: []].append(LanguageServerRuntimeEvent(type: "stateChanged", state: "ready"))
+        }
+    }
+
+    /// Lets the blocked send fail the way a write to a killed process does.
+    func releaseStuckSend() { stuckSendReleased.open() }
+
     /// `workspace.build` reports progress then succeeds, `snapshot.read`
-    /// fails with a plugin code, `workspace.wait` runs until cancelled, and
-    /// anything else is refused like Core refuses an unknown function.
+    /// fails with a plugin code, `workspace.wait` runs until cancelled,
+    /// `workspace.stuck` blocks like a write to a backend that stopped
+    /// reading and then fails with an OS error text, `transport.broken`
+    /// fails that way at once, and anything else is refused like Core
+    /// refuses an unknown function.
     func requestPluginFunction(
         sessionID: String, pluginID: String, functionID: String, params _: ToolingJSONValue, timeout _: TimeInterval
     ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
+        let brokenPipe = LanguageServerRuntimeFailure(
+            code: "processFailed", message: "Could not write to language-server stdin.",
+            details: "Broken pipe (os error 32)"
+        )
+        if functionID == "workspace.stuck" {
+            stuckSendStarted.open()
+            _ = stuckSendReleased.waitSynchronously(timeout: 10)
+            return .failure(brokenPipe)
+        }
+        if functionID == "transport.broken" { return .failure(brokenPipe) }
         let known = ["workspace.build", "snapshot.read", "workspace.wait"]
         guard known.contains(functionID) else {
             return .failure(LanguageServerRuntimeFailure(

@@ -54,6 +54,24 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     private var pollTask: Task<Void, Never>?
     private var state: LanguageServerSessionState = .stopped
     private var processID: Int32?
+    /// Requests being written off the main actor. Core writes a request to
+    /// the server's stdin synchronously, and a server that stopped reading
+    /// blocks that write, so plugin requests are sent from a background task.
+    /// While one is in flight the poll loop holds the events, so a reply
+    /// never arrives before its operation is registered.
+    private var sendsInFlight = 0
+    private var stopWatchdog: SendWatchdog?
+
+    /// How long a write may stay blocked after its call was cancelled or the
+    /// session was stopped before the process is ended to free it.
+    package var stuckSendGrace: Duration = .seconds(2)
+    /// Ends the server process at once. The owner of a plugin backend sets
+    /// it; ending the process is the only way to free a write blocked on a
+    /// server that no longer reads its input.
+    package var terminateProcess: (@MainActor () -> Void)?
+    /// Called once the session has ended and handed its process back to
+    /// Core, so the owner can end what the process left running.
+    package var onReleased: (@MainActor () -> Void)?
 
     package var onDiagnostics: ((URL, [LanguageServerDiagnostic]) -> Void)?
     package var onLog: ((LanguageServerLogLevel, String, String?, String?) -> Void)?
@@ -528,9 +546,14 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
             throw LanguageServerRuntimeSessionError.notReady
         }
         let operation: LanguageServerRuntimeOperation
-        switch core.requestBuildProvider(sessionID: sessionID, method: method, params: params, timeout: timeout) {
+        switch await send(timeout: timeout, { core in
+            core.requestBuildProvider(sessionID: sessionID, method: method, params: params, timeout: timeout)
+        }) {
         case .success(let started): operation = started
-        case .failure(let error): throw LanguageServerRuntimeSessionError.requestRejected(error.userMessage)
+        case .failure(let error):
+            sendsInFlight -= 1
+            try Task.checkCancellation()
+            throw LanguageServerRuntimeSessionError.requestRejected(error.userMessage)
         }
         // Registration happens before this actor can run the cancellation
         // below, so a cancelled request always finds its pending entry and
@@ -545,12 +568,10 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
                         return .success(value)
                     })
                 }
+                sendsInFlight -= 1
             }
         } onCancel: {
-            Task { @MainActor [weak self] in
-                guard let self, let sessionID = self.sessionID else { return }
-                self.core.cancelLanguageServerOperation(sessionID: sessionID, operationID: operation.operationID)
-            }
+            Task { @MainActor [weak self] in self?.cancelOffMain(operation.operationID) }
         }
     }
 
@@ -572,12 +593,18 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
             throw LanguageServerRuntimeSessionError.notReady
         }
         let operation: LanguageServerRuntimeOperation
-        switch core.requestPluginFunction(
-            sessionID: sessionID, pluginID: pluginID, functionID: functionID, params: params, timeout: timeout
-        ) {
+        switch await send(timeout: timeout, { core in
+            core.requestPluginFunction(
+                sessionID: sessionID, pluginID: pluginID, functionID: functionID, params: params, timeout: timeout
+            )
+        }) {
         case .success(let started): operation = started
         case .failure(let error):
-            throw PluginFunctionFailure(code: error.details ?? error.code, message: error.message)
+            sendsInFlight -= 1
+            try Task.checkCancellation()
+            let code = Self.refusalCode(of: error)
+            // A diagnostic that did not become the code stays in the message.
+            throw PluginFunctionFailure(code: code, message: code == error.details ? error.message : error.userMessage)
         }
         functionProgress[operation.operationID] = progress
         return try await withTaskCancellationHandler {
@@ -591,13 +618,72 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
                         return .success(value)
                     })
                 }
+                sendsInFlight -= 1
             }
         } onCancel: {
-            Task { @MainActor [weak self] in
-                guard let self, let sessionID = self.sessionID else { return }
-                self.core.cancelLanguageServerOperation(sessionID: sessionID, operationID: operation.operationID)
-            }
+            Task { @MainActor [weak self] in self?.cancelOffMain(operation.operationID) }
         }
+    }
+
+    /// Codes Core puts in `details` when it refuses a call before it reaches
+    /// the backend. Any other `details`, such as an OS error text from a
+    /// failed write, is a diagnostic and never becomes the page's code.
+    private static let functionRefusalCodes: Set<String> = [
+        "plugin.function.invalidReference",
+        "plugin.function.invalidParams",
+        "plugin.function.unavailable",
+        "plugin.function.wrongPlugin",
+        "plugin.function.unknown",
+    ]
+
+    package static func refusalCode(of error: LanguageServerRuntimeFailure) -> String {
+        if let details = error.details, functionRefusalCodes.contains(details) { return details }
+        return error.code
+    }
+
+    /// Runs `request` off the main actor and returns its result. The caller
+    /// must decrement `sendsInFlight` once it has registered the operation,
+    /// or right away when the request was refused.
+    ///
+    /// A write that is still blocked when the call's timeout passes, or
+    /// `stuckSendGrace` after the caller was cancelled, ends the process:
+    /// the write then fails and Core fails the session.
+    private func send(
+        timeout: TimeInterval,
+        _ request: @escaping @Sendable (any LanguageServerRuntimeCore) -> Result<
+            LanguageServerRuntimeOperation, LanguageServerRuntimeFailure
+        >
+    ) async -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
+        sendsInFlight += 1
+        let core = core
+        let sending = Task.detached(priority: .userInitiated) { request(core) }
+        let watchdog = SendWatchdog()
+        let grace = stuckSendGrace
+        let endStuck: @MainActor () -> Void = { [weak self] in self?.endStuckSend() }
+        watchdog.arm(after: .seconds(max(timeout, 0)), endStuck)
+        let result = await withTaskCancellationHandler {
+            await sending.value
+        } onCancel: {
+            Task { @MainActor in watchdog.arm(after: grace, endStuck) }
+        }
+        watchdog.disarm()
+        return result
+    }
+
+    /// Cancels an operation without waiting on the main actor: Core takes the
+    /// same write lock a blocked request holds.
+    private func cancelOffMain(_ operationID: String) {
+        guard let sessionID else { return }
+        let core = core
+        Task.detached(priority: .userInitiated) {
+            core.cancelLanguageServerOperation(sessionID: sessionID, operationID: operationID)
+        }
+    }
+
+    private func endStuckSend() {
+        guard sendsInFlight > 0 else { return }
+        onLog?(.warning, "Language server stopped reading its input", "Ending the process to free a blocked request.", nil)
+        terminateProcess?()
     }
 
     private static func functionFailure(_ error: Error) -> Error {
@@ -662,7 +748,20 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         // The runtime sends the shutdown, force-terminates on its own deadline,
         // and publishes the terminal transition. The poll loop releases the
         // session when that arrives, so nothing here waits on the server.
-        core.stopLanguageServer(sessionID: sessionID)
+        if sendsInFlight > 0 {
+            // Core's stop waits for the request being written. A server that
+            // stopped reading never lets that write finish, so it is ended
+            // once the grace has passed.
+            let core = core
+            Task.detached(priority: .userInitiated) { core.stopLanguageServer(sessionID: sessionID) }
+            if stopWatchdog == nil {
+                let watchdog = SendWatchdog()
+                watchdog.arm(after: stuckSendGrace) { [weak self] in self?.endStuckSend() }
+                stopWatchdog = watchdog
+            }
+        } else {
+            core.stopLanguageServer(sessionID: sessionID)
+        }
         if isRunning { transition(to: .stopping) }
     }
 
@@ -744,7 +843,9 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         pollTask = Task { @MainActor [self] in
             while !Task.isCancelled {
                 guard let sessionID else { return }
-                let events = core.pollLanguageServerEvents(sessionID: sessionID)
+                // Core keeps the events until the requests being written are
+                // registered; see `sendsInFlight`.
+                let events = sendsInFlight > 0 ? [] : core.pollLanguageServerEvents(sessionID: sessionID)
                 var reachedTerminalState = false
                 for event in events where handle(event) {
                     reachedTerminalState = true
@@ -887,6 +988,8 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     /// Hands the session back to the runtime once it has reached a terminal state.
     private func releaseSession() {
         pollTask = nil
+        stopWatchdog?.disarm()
+        stopWatchdog = nil
         functionProgress = [:]
         failPendingOperations(with: LanguageServerRuntimeSessionError.sessionStopped)
         if let sessionID {
@@ -910,6 +1013,9 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
             functionIDs = []
             onFunctionsChange?([])
         }
+        let released = onReleased
+        onReleased = nil
+        released?()
     }
 
     private func failPendingOperations(with error: Error) {
@@ -1360,5 +1466,29 @@ private struct InlayHintPayload: Decodable {
         LanguageServerInlayHint(position: position.makeModel(), label: label, kind: kind, tooltip: tooltip,
                                paddingLeft: paddingLeft ?? false, paddingRight: paddingRight ?? false,
                                textEdits: (textEdits ?? []).map { $0.makeModel() })
+    }
+}
+
+/// Runs an action once a delay has passed, unless disarmed first. Arming
+/// again replaces the pending delay; a disarmed watchdog never fires.
+@MainActor
+private final class SendWatchdog {
+    private var finished = false
+    private var timer: Task<Void, Never>?
+
+    func arm(after delay: Duration, _ action: @escaping @MainActor () -> Void) {
+        guard !finished else { return }
+        timer?.cancel()
+        timer = Task { @MainActor [weak self] in
+            guard (try? await Task.sleep(for: delay)) != nil, let self, !self.finished else { return }
+            self.finished = true
+            action()
+        }
+    }
+
+    func disarm() {
+        finished = true
+        timer?.cancel()
+        timer = nil
     }
 }

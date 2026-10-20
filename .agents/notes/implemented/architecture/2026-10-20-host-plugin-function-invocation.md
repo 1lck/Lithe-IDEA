@@ -55,12 +55,29 @@ Core 再检查一次：`lsp.functionRequest` 里的 `pluginID` 必须和会话�
 | 插件后端自己报告的失败 | 额外带上 `pluginErrorCode`。宿主只透传这个码，从不按它分支 |
 | 进度 | 发出 `functions.progress` 事件，只有调用时给了 `call` ID 才发，否则页面无法把进度对应到某一次调用 |
 | 取消 | 宿主会调用 `lsp.cancelOperation` |
+| Core 送不出去（例如写入已退出的后端） | 保留 Core 的传输码（如 `processFailed`），OS 诊断文字只进 `message`。只有 Core 的五个拒绝码（`invalidReference`、`invalidParams`、`unavailable`、`wrongPlugin`、`unknown`）会从 `details` 提升为页面的 `code` |
 
-### 5. 不留进程
+### 5. 不阻塞主线程
 
-函数和 `lithe/build/*` 用的是同一个 Provider 会话，也走同一套进程表。下面这些已有的停止路径都会把它停掉：项目关闭（`retainProviders`）、插件停用或替换（`stopProviders(ofPlugin:)`）、设置变更引起的重启。本次没有新增任何进程或缓存目录。
+Core 的 `lsp.functionRequest` 和 `lithe/build/*` 请求是同步把消息写进后端 stdin 的。后端卡住、不再读 stdin 时，大参数会把管道写满，写入一直阻塞；Core 的 `stop` 和 `cancelOperation` 还要拿同一把写锁。所以：
 
-### 6. `lithe/host/*` 暂缓
+- 插件会话的请求、取消和“有写入在途时的停止”都在后台任务里调用 Core，主线程只等结果。
+- 有写入在途时，会话暂停轮询 Core 事件，保证回复不会先于操作登记到达；写入结束后照常轮询。
+- **逃生路径**：写入超过调用自己的超时仍未返回，或调用被取消、Provider 被停止后 2 秒仍未返回，宿主立即结束这个后端（见决策 6 的标记）。写入随即失败，Core 把会话判为失败并释放写锁。
+- Provider 正在启动时，每个调用各自等待共享的启动任务。取消一个调用只结束它自己的等待，不取消别的调用也在等的启动；启动失败由启动任务自己清理登记。
+
+### 6. 不留进程
+
+函数和 `lithe/build/*` 用的是同一个 Provider 会话，也走同一套进程表。下面这些已有的停止路径都会把它停掉：项目关闭（`retainProviders`）、插件停用或替换（`stopProviders(ofPlugin:)`）、设置变更引起的重启。本次没有新增缓存目录。
+
+后端被强杀或崩溃时，SDK 来不及结束它启动的工具。这条边界由宿主的[统一子进程生命周期](../../proposed/architecture/2026-10-16-unified-child-process-lifecycle.md)负责：
+
+- 每个 Provider 启动时，宿主在它的环境里放一个独有的 `LITHE_PLUGIN_BACKEND_SCOPE`（UUID）。它和 `LITHE_PROCESS_SCOPE` 一样被所有后代继承，`setsid` 或被重新挂到 `launchd` 后也还在；SDK 的 `runProcess` 在插件替换 `env` 时也强制带上这两个标记。
+- 会话结束、交还给 Core 之后，宿主在本实例的 `LITHE_PROCESS_SCOPE` 里找出带这个标记的进程，按 PID 加启动时间的精确身份先 `SIGTERM`、过了设置里的优雅停止时间再 `SIGKILL`，全程不在主线程。
+- 只覆盖插件后端，不覆盖 jdtls 等宿主自己的语言服务器。退出应用时的整体清理仍由统一生命周期的实例扫尾负责。
+- Windows 没有插件后端宿主，暂无对应实现。
+
+### 7. `lithe/host/*` 暂缓
 
 这次只做了评估，没有设计宿主能力，原因如下：
 
@@ -102,7 +119,7 @@ if pluginID == "dev.lithe.maven" { 启动带函数的会话 }   // 宿主按插�
 
 ### 现在就开放 `lithe/host/process.run`
 
-没有采用，理由见决策 6。
+没有采用，理由见决策 7。
 
 ## 后果
 
@@ -111,6 +128,7 @@ if pluginID == "dev.lithe.maven" { 启动带函数的会话 }   // 宿主按插�
 - **代价**：只有 macOS，并且只有“构建 Provider 由插件自己的进程实现”时才有函数。纯声明式插件和共享语言服务器都没有函数。
 - **代价**：同意只在一次项目会话内记住（与 `build.*` 一致），每次重新打开项目都要再确认一次。以后可以随工作区信任设计统一的记忆规则。
 - **代价**：插件后端还不能请宿主做任何事。
+- **代价**：有写入在途时同一会话的其他事件会暂缓投递。正常写入只需毫秒；只有后端卡住时才会暂缓到逃生路径结束它。
 
 ## 验证
 
@@ -122,6 +140,10 @@ if pluginID == "dev.lithe.maven" { 启动带函数的会话 }   // 宿主按插�
   - Core 拒绝时保留 `plugin.function.*` 码。
   - 取消会调用 Core 的 `cancelLanguageServerOperation`。
   - 停用插件会停止 Provider。
+  - 写入被阻塞时主线程不被占用；调用取消或 Provider 停止后，宿主立即结束该后端，调用随之结束。
+  - 传输失败保留 `processFailed`，OS 错误文字不会成为页面的 `code`。
+  - Provider 初始化中取消调用会立刻结束该调用，启动继续并服务下一次调用；初始化中停止时迟到的 ready 不会触发请求。
+  - 每个 Provider 带独有的 `LITHE_PLUGIN_BACKEND_SCOPE`，会话结束后宿主按该标记优雅结束遗留进程。
 - `./scripts/verify-runtime-bundle-immutability.sh`：确认没有新增写入 bundle 的路径。
 - macOS 原生验收（2026-10-20，PR #1366 合并 PR #1365 后的 debug 应用）：
   - 环境：`sdk/node/examples/sample-build` 加一个只用于验收的网页窗口，作为开发包从磁盘安装；另装一个带自己构建系统和网页窗口的验收插件；示例工作区含成功、失败（退出码 3）和长时间运行三个项目。页面把每一步结果写进 `ui.setState`，验收读取 Application Support 中的状态文件核对。
@@ -138,6 +160,8 @@ if pluginID == "dev.lithe.maven" { 启动带函数的会话 }   // 宿主按插�
 - `macos/Sources/Lithe/Application/Features/PluginWebBridge.swift`
 - `macos/Sources/Lithe/Platform/MacOS/Plugins/Web/MacPluginWebPage.swift`
 - `macos/Sources/Lithe/Platform/MacOS/Build/MacBuildProviderSessions.swift`
+- `macos/Sources/Lithe/Platform/MacOS/Process/MacPluginBackendProcesses.swift`
+- `macos/Sources/Lithe/Platform/MacOS/Process/MacProcessScope.swift`
 - `macos/Sources/Lithe/Core/Rust/RustCoreBridge.swift`
 - `macos/Sources/Lithe/Core/Rust/RustLanguageServerRuntimeAdapter.swift`
 - `macos/Sources/LitheLanguageIntelligenceModule/Runtime/LanguageServerSession.swift`

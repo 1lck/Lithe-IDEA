@@ -1206,7 +1206,7 @@ their output appears in the host's Build output window.
 | `ui.getState`, `ui.setState` | none, `{ state }` | `{ state }`, `{}`; JSON of at most 64 KiB per window and workspace |
 | `functions.list` | `{ instance }` | `{ functions }`: sorted IDs of the functions the instance's provider currently offers; starts the provider |
 | `functions.invoke` | `{ instance, function, params?, call? }`; `params` an object, `call` a page-chosen ID of at most 128 characters that the page never used before | `{ value }`, the function's result |
-| `functions.cancel` | `{ call }` | `{}`; a call still awaiting consent never starts; a call that already ended is ignored |
+| `functions.cancel` | `{ call }` | `{}`; a call still awaiting consent never starts, a call waiting for its provider to start ends at once while the start goes on, and a call that already ended is ignored |
 
 | Event | Payload |
 | --- | --- |
@@ -1219,7 +1219,12 @@ Bridge errors are `plugin.web.unknownMethod`, `plugin.web.invalidRequest`,
 and `plugin.web.forbidden`. Build requests also report the `build.*` codes.
 Function requests report Core's codes unchanged (`plugin.function.*`,
 `requestCancelled`, `requestTimeout`); a failure the plugin reported also
-carries its own `pluginErrorCode`, which the host never interprets. A page
+carries its own `pluginErrorCode`, which the host never interprets. A call
+Core could not deliver, such as a write to a backend that exited, keeps
+Core's transport code (`processFailed`) and carries the OS diagnostic only in
+its message. A backend that stops reading its input is ended when a write to
+it stays blocked past the call's timeout, or briefly after the call was
+cancelled or the provider stopped. A page
 has at most 16 function calls accepted at once, counting calls still awaiting
 consent, and closing it cancels them. Reusing a `call` ID is
 `plugin.web.invalidRequest`, also after that call ended.
