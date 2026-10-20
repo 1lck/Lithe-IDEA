@@ -1,0 +1,138 @@
+# Agent 笔记：宿主调用插件函数的入口与 `lithe/host/*` 暂缓
+
+状态：已实现
+
+## 先说结论
+
+macOS 现在能调用插件函数了。入口只有一个：插件自己的网页窗口通过 `window.lithe` 调用 `functions.list`、`functions.invoke`、`functions.cancel`，宿主把请求交给**这个插件自己启动的构建 Provider 进程**。Rust Core 的 `lsp.functionRequest` 负责路由和结果。
+
+为了让 Core 能协商函数，宿主启动构建 Provider 时会带上它所属插件的 `pluginId`。这是唯一的接线改动，宿主代码里没有任何按插件名的分支。
+
+插件调用宿主能力（`lithe/host/*`，例如让插件后端请宿主跑一个进程）这次**不做**。理由见下文。
+
+## 问题
+
+[插件函数契约](2026-10-20-plugin-function-contract.md)只在 Core 里实现了协议，宿主还没有入口。macOS 启动构建 Provider 时也从不传 `pluginId`，所以 Core 永远不会和这些进程协商 `litheFunctions`，函数一个都不会出现。
+
+接入时要回答四个问题：
+
+1. 谁可以调用函数？
+2. 函数跑在哪个进程里？
+3. 进度、失败和取消怎么回到调用方？
+4. 项目关闭或插件停用后，会不会留下进程？
+
+## 决策
+
+### 1. 只有插件自己的网页能调用，归属检查两层
+
+网页桥接（`PluginWebBridge`，宿主给插件网页提供 `window.lithe` 的那一层）沿用 `build.*` 方法已有的 `entry()` 检查：页面只能指定自己插件的构建实例，不能指定别的插件的实例。
+
+Core 再检查一次：`lsp.functionRequest` 里的 `pluginID` 必须和会话启动时的 `pluginId` 相同，否则返回 `plugin.function.wrongPlugin`。
+
+两层检查都不认识任何插件名。宿主只是把“实例属于哪个插件”这个事实原样传下去。
+
+### 2. 只有插件自己拥有的进程才提供函数
+
+`MacBuildProviderSessions` 用 `startPluginLanguageServer(pluginID:…)` 启动 Provider，Core 因此能协商这个进程的函数。
+
+如果 Provider 其实是一个共享语言服务器（清单里写的是 `languageServer`），宿主直接拒绝，错误码是 `plugin.function.unavailable`。共享语言服务器是宿主为一种语言的所有插件启动的，不属于任何一个插件，让它提供某个插件的函数会把归属弄乱。
+
+宿主自己的语言服务器仍然不带 `pluginId`，行为不变。
+
+### 3. 每次调用都要过同意和上限
+
+- **同意**：每次 `functions.invoke` 都走宿主现有的进程启动同意框，和 `build.*` 是同一套工作区信任规则。`functions.list` 会启动 Provider，所以也要先同意。
+- **上限**：一个页面最多同时有 16 个调用在跑，同一个 `call` ID 不能重复使用。
+- **页面关闭**：取消该页面所有正在跑的调用。
+
+### 4. 结果按 Core 的稳定码原样返回
+
+| 情况 | 页面收到的结果 |
+| --- | --- |
+| 成功 | `{ value }` |
+| 调用被拒或调用失败 | Core 的码原样返回：`plugin.function.*`、`requestCancelled`、`requestTimeout` |
+| 插件后端自己报告的失败 | 额外带上 `pluginErrorCode`。宿主只透传这个码，从不按它分支 |
+| 进度 | 发出 `functions.progress` 事件，只有调用时给了 `call` ID 才发，否则页面无法把进度对应到某一次调用 |
+| 取消 | 宿主会调用 `lsp.cancelOperation` |
+
+### 5. 不留进程
+
+函数和 `lithe/build/*` 用的是同一个 Provider 会话，也走同一套进程表。下面这些已有的停止路径都会把它停掉：项目关闭（`retainProviders`）、插件停用或替换（`stopProviders(ofPlugin:)`）、设置变更引起的重启。本次没有新增任何进程或缓存目录。
+
+### 6. `lithe/host/*` 暂缓
+
+这次只做了评估，没有设计宿主能力，原因如下：
+
+- **没有真实需求**：Maven、Gradle 的第一批函数只需要读 Provider 已经算好的状态。真正需要“请宿主跑进程”的场景，要等 PR 4 把 Maven 插件迁过来才能确认参数形状。
+- **权限还没定**：进程能力意味着插件后端能在用户机器上执行任意命令。这需要和安装审查、工作区信任、`executesProjectCode` 一起设计，不能只加一个方法名。
+- **兼容成本低**：契约已经规定宿主能力要随新的协议版本逐个开放。现在不开放，以后加也不会破坏旧插件。
+
+所以版本 1 继续对所有 `lithe/host/*` 请求返回 `plugin.host.unavailable`。
+
+### 正确做法
+
+```text
+插件网页: lithe.request("functions.invoke", {instance, function: "snapshot.read", call: "c1"})
+  → PluginWebBridge.entry() 确认实例属于本插件 → 同意框
+  → BuildSystemService.invokePluginFunction → MacBuildProviderSessions（本插件的 Provider 会话）
+  → Core lsp.functionRequest {function: {pluginID, functionID}}（Core 再校验 pluginID）
+```
+
+### 不要这样做
+
+```text
+if pluginID == "dev.lithe.maven" { 启动带函数的会话 }   // 宿主按插件名开特例
+让共享 JDT LS 会话带上某个插件的 pluginId           // 一种语言的所有插件共用这个进程
+在宿主的 Swift 原生界面里直接调别的插件的函数         // 绕过了“只有插件自己能调用”的边界
+```
+
+## 考虑过的备选方案
+
+### 让宿主的原生界面也能调用函数
+
+例如在构建工具窗口里给每个函数加一个按钮。没有采用，原因有两个：
+
+- 函数是插件私有的，宿主不知道参数长什么样，也不知道结果怎么展示。
+- 原生界面要展示什么，应该由类型化的领域能力决定，插件函数不能替代领域能力。
+
+### 新增一个独立的插件后端进程类型来跑函数
+
+没有采用。构建 Provider 已经是插件自己的 JSON-RPC 进程。再加一种进程，还得重新做一遍启动、同意、设置重启和清理。
+
+### 现在就开放 `lithe/host/process.run`
+
+没有采用，理由见决策 6。
+
+## 后果
+
+- **收益**：插件能在自己的网页里调用自己后端的私有动作，带进度、取消和插件错误码，宿主里没有插件特例。
+- **收益**：协议没有新版本，旧插件包和旧后端都不受影响。
+- **代价**：只有 macOS，并且只有“构建 Provider 由插件自己的进程实现”时才有函数。纯声明式插件和共享语言服务器都没有函数。
+- **代价**：每次调用都会弹同意框（与 `build.*` 一致）。频繁调用的插件体验会差一些，以后可以随工作区信任设计统一的记忆规则。
+- **代价**：插件后端还不能请宿主做任何事。
+
+## 验证
+
+- `scripts/test-macos.sh --filter "PluginWebBridgeTests|MacBuildProviderSessionsTests"`，覆盖以下场景：
+  - 页面只能访问本插件的实例，并且必须同意。
+  - 结果、进度和 `pluginErrorCode` 能到达页面。
+  - 取消调用和关闭页面都会取消函数。
+  - Provider 以插件会话启动，并带上 `pluginID`。
+  - Core 拒绝时保留 `plugin.function.*` 码。
+  - 取消会调用 Core 的 `cancelLanguageServerOperation`。
+  - 停用插件会停止 Provider。
+- `./scripts/verify-runtime-bundle-immutability.sh`：确认没有新增写入 bundle 的路径。
+- `./scripts/verify-platform-feature-matrix.sh`：`plugin-functions` 的 macOS 证据已更新。
+
+## 适用范围
+
+- `macos/Sources/Lithe/Application/Features/PluginWebBridge.swift`
+- `macos/Sources/Lithe/Platform/MacOS/Plugins/Web/MacPluginWebPage.swift`
+- `macos/Sources/Lithe/Platform/MacOS/Build/MacBuildProviderSessions.swift`
+- `macos/Sources/Lithe/Core/Rust/RustCoreBridge.swift`
+- `macos/Sources/Lithe/Core/Rust/RustLanguageServerRuntimeAdapter.swift`
+- `macos/Sources/LitheLanguageIntelligenceModule/Runtime/LanguageServerSession.swift`
+- `macos/Sources/LitheExecutionModule/Services/BuildSystemService.swift`
+- `macos/Sources/LitheCoreContracts/Language/LanguageServerRuntimeContracts.swift`
+- `macos/Sources/LitheCoreContracts/Execution/BuildSystemContracts.swift`
+- `shared/contracts/plugins/v1/README.md`

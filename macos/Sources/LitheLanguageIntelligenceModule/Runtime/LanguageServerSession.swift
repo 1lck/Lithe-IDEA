@@ -42,9 +42,14 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     private let core: any LanguageServerRuntimeCore
     private weak var processRegistry: (any LanguageServerProcessRegistry)?
     private let moduleID: ModuleID
+    /// The plugin that owns the process; nil for host-owned servers, which
+    /// serve no plugin functions.
+    private let pluginID: String?
 
     private var sessionID: String?
     private var pendingOperations: [String: PendingOperation] = [:]
+    /// Progress listeners of running plugin functions, by operation ID.
+    private var functionProgress: [String: @MainActor @Sendable (PluginFunctionProgress) -> Void] = [:]
     private var documentVersions: [URL: Int] = [:]
     private var pollTask: Task<Void, Never>?
     private var state: LanguageServerSessionState = .stopped
@@ -60,6 +65,10 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     package var onSemanticTokensRefresh: (() -> Void)?
     package var onFeaturesChange: ((LanguageServerFeatureSet) -> Void)?
     package private(set) var serverInfo: LanguageServerInfo?
+    /// Plugin functions the backend registers now, sorted, as Core's last
+    /// `functionsChanged` event listed them.
+    package private(set) var functionIDs: [String] = []
+    package var onFunctionsChange: (([String]) -> Void)?
     package var onServerInfoChange: ((LanguageServerInfo?) -> Void)?
     package var javaTestRunnerURL: URL? {
         hostIntegrationLaunch?.coreLaunch?.jdtlsLaunchResources?.javaTestRunnerURL
@@ -79,7 +88,8 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         shutdownTimeout: TimeInterval = 2,
         core: any LanguageServerRuntimeCore,
         processRegistry: (any LanguageServerProcessRegistry)? = nil,
-        moduleID: ModuleID = .languageIntelligence
+        moduleID: ModuleID = .languageIntelligence,
+        pluginID: String? = nil
     ) {
         self.providerID = providerID
         self.executableURL = executableURL
@@ -95,6 +105,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         self.core = core
         self.processRegistry = processRegistry
         self.moduleID = moduleID
+        self.pluginID = pluginID
     }
 
     /// Derived from the last lifecycle state Rust published: there is no local
@@ -155,7 +166,21 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
             ([executableURL.path] + arguments).joined(separator: " "),
             nil
         )
-        switch core.startLanguageServer(
+        let started = if let pluginID {
+            core.startPluginLanguageServer(
+                pluginID: pluginID,
+                providerID: providerID,
+                executableURL: executableURL,
+                arguments: arguments,
+                environment: environment,
+                rootURL: normalizedRoot,
+                initializationOptions: initializationOptions,
+                initializeTimeout: initializeTimeout,
+                requestTimeout: requestTimeout,
+                shutdownTimeout: shutdownTimeout
+            )
+        } else {
+            core.startLanguageServer(
             providerID: providerID,
             executableURL: executableURL,
             arguments: arguments,
@@ -172,7 +197,9 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
             initializeTimeout: initializeTimeout,
             requestTimeout: requestTimeout,
             shutdownTimeout: shutdownTimeout
-        ) {
+            )
+        }
+        switch started {
         case .success(let payload):
             sessionID = payload.sessionID
             processID = payload.processID
@@ -527,6 +554,60 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         }
     }
 
+    /// Invokes a plugin function of the plugin that owns this session. Core
+    /// checks ownership and registration; a refusal or a failed call throws
+    /// `PluginFunctionFailure`, and cancelling the task cancels the call.
+    package func invokeFunction(
+        _ functionID: String,
+        params: ToolingJSONValue,
+        timeout: TimeInterval,
+        progress: @escaping @MainActor @Sendable (PluginFunctionProgress) -> Void
+    ) async throws -> ToolingJSONValue {
+        guard let pluginID else {
+            throw PluginFunctionFailure(
+                code: "plugin.function.unavailable", message: "This server belongs to no plugin."
+            )
+        }
+        guard let sessionID, state == .ready else {
+            throw LanguageServerRuntimeSessionError.notReady
+        }
+        let operation: LanguageServerRuntimeOperation
+        switch core.requestPluginFunction(
+            sessionID: sessionID, pluginID: pluginID, functionID: functionID, params: params, timeout: timeout
+        ) {
+        case .success(let started): operation = started
+        case .failure(let error):
+            throw PluginFunctionFailure(code: error.details ?? error.code, message: error.message)
+        }
+        functionProgress[operation.operationID] = progress
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                registerPendingOperation(operation, name: functionID) { [weak self] result in
+                    self?.functionProgress[operation.operationID] = nil
+                    continuation.resume(with: result.mapError(Self.functionFailure).flatMap { event in
+                        guard case .object(let object)? = event.result, let value = object["value"] else {
+                            return .failure(LanguageServerRuntimeSessionError.missingResult)
+                        }
+                        return .success(value)
+                    })
+                }
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                guard let self, let sessionID = self.sessionID else { return }
+                self.core.cancelLanguageServerOperation(sessionID: sessionID, operationID: operation.operationID)
+            }
+        }
+    }
+
+    private static func functionFailure(_ error: Error) -> Error {
+        guard let failure = error as? LanguageServerRequestFailure else { return error }
+        let runtimeError = failure.runtimeError
+        return PluginFunctionFailure(
+            code: runtimeError.code, message: runtimeError.message, pluginErrorCode: runtimeError.pluginErrorCode
+        )
+    }
+
     /// Asks JDT, through Core, which classes in the workspace can be launched.
     package func javaEntrypoints(
         completion: @escaping (Result<JavaEntrypoints, Error>) -> Void
@@ -734,6 +815,29 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         case "semanticTokensRefresh":
             onSemanticTokensRefresh?()
             return false
+        case "functionsChanged":
+            guard case .object(let object)? = event.result, case .array(let values)? = object["functions"] else {
+                return false
+            }
+            let updated = values.compactMap { value -> String? in
+                if case .string(let id) = value { return id }
+                return nil
+            }.sorted()
+            guard updated != functionIDs else { return false }
+            functionIDs = updated
+            onFunctionsChange?(updated)
+            return false
+        case "requestProgress":
+            guard let operationID = event.operationID, let listener = functionProgress[operationID],
+                  case .object(let object)? = event.result else {
+                return false
+            }
+            var message: String?
+            if case .string(let text)? = object["message"] { message = text }
+            var percentage: Int?
+            if case .integer(let value)? = object["percentage"] { percentage = value }
+            listener(PluginFunctionProgress(message: message, percentage: percentage))
+            return false
         case "featuresChanged":
             updateFeatures(capabilityNames: event.capabilities ?? [])
             return false
@@ -783,6 +887,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     /// Hands the session back to the runtime once it has reached a terminal state.
     private func releaseSession() {
         pollTask = nil
+        functionProgress = [:]
         failPendingOperations(with: LanguageServerRuntimeSessionError.sessionStopped)
         if let sessionID {
             core.destroyLanguageServer(sessionID: sessionID)
@@ -800,6 +905,10 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         if serverInfo != nil {
             serverInfo = nil
             onServerInfoChange?(nil)
+        }
+        if !functionIDs.isEmpty {
+            functionIDs = []
+            onFunctionsChange?([])
         }
     }
 

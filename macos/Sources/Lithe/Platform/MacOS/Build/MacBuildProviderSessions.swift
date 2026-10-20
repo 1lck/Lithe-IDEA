@@ -106,6 +106,50 @@ final class MacBuildProviderSessions: BuildProviderRequesting {
         }
     }
 
+    func pluginFunctions(of target: BuildProviderTarget) async throws -> [String] {
+        try await functionSession(for: target).functionIDs
+    }
+
+    func invokePluginFunction(
+        _ functionID: String,
+        params: ToolingJSONValue,
+        on target: BuildProviderTarget,
+        timeout: Duration,
+        progress: @escaping @MainActor @Sendable (PluginFunctionProgress) -> Void
+    ) async throws -> ToolingJSONValue {
+        let session = try await functionSession(for: target)
+        return try await session.invokeFunction(
+            functionID, params: params, timeout: Self.seconds(timeout), progress: progress
+        )
+    }
+
+    /// The target's own process, started like `send` would. Functions are
+    /// served only by a process the plugin owns: a shared language server is
+    /// started by the host for every plugin of its language, so it never
+    /// serves one plugin's functions.
+    private func functionSession(for target: BuildProviderTarget) async throws -> LanguageServerRuntimeSession {
+        try Task.checkCancellation()
+        let settings = launchResolver.settingValues(forPlugin: target.pluginID)
+        if let session = try await runningSession(for: target, settings: settings) { return session }
+        switch try launchResolver.resolveBuildProvider(
+            pluginID: target.pluginID,
+            buildSystemID: target.buildSystemID,
+            manifest: target.manifest,
+            packageURL: target.packageURL,
+            workspaceRootURL: target.workspaceURL
+        ) {
+        case .languageServer:
+            throw PluginFunctionFailure(
+                code: "plugin.function.unavailable",
+                message: String(localized: "This build system's provider runs in a shared language server, which serves no plugin functions.")
+            )
+        case .process(let process):
+            let session = try await startSession(for: target, process: process)
+            try Task.checkCancellation()
+            return session
+        }
+    }
+
     func retainProviders(_ keep: (BuildProviderTarget) -> Bool) {
         for (target, entry) in running where !keep(target) {
             stop(entry, for: target)
@@ -192,7 +236,8 @@ final class MacBuildProviderSessions: BuildProviderRequesting {
             initializeTimeout: 60,
             core: core,
             processRegistry: processRegistry,
-            moduleID: .buildSystemsExtension(target.pluginID)
+            moduleID: .buildSystemsExtension(target.pluginID),
+            pluginID: target.pluginID
         )
         entry.session = session
         try await waitUntilReady(session, rootURL: target.workspaceURL)

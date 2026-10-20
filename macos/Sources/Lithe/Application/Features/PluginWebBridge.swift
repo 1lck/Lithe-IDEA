@@ -23,6 +23,8 @@ struct PluginWebWindow: Equatable, Sendable {
 struct PluginWebBridgeFailure: Error, Equatable {
     let code: String
     let message: String
+    /// The plugin's own code of a failed function, passed to its page as is.
+    var pluginErrorCode: String?
 
     static func forbidden(_ message: String) -> Self { .init(code: "plugin.web.forbidden", message: message) }
     static func invalidRequest(_ message: String) -> Self { .init(code: "plugin.web.invalidRequest", message: message) }
@@ -58,6 +60,12 @@ protocol PluginWebBuildAccess: AnyObject {
     func loadDependencies(_ entryID: String, project: BuildModel.Project?)
     func setOption(_ entryID: String, optionID: String, value: ToolingJSONValue?)
     func stopRun()
+    /// Functions the instance's provider process registers; starts it.
+    func pluginFunctions(_ entryID: String) async throws -> [String]
+    func invokePluginFunction(
+        _ entryID: String, functionID: String, params: ToolingJSONValue, timeout: Duration,
+        progress: @escaping @MainActor @Sendable (PluginFunctionProgress) -> Void
+    ) async throws -> ToolingJSONValue
 }
 
 extension BuildSystemsFeatureModel: PluginWebBuildAccess {
@@ -105,6 +113,8 @@ final class MemoryPluginWebStateStore: PluginWebStateStoring {
 final class PluginWebBridge {
     static let stateLimit = 64 * 1024
     static let messageLimit = 1024 * 1024
+    /// Function calls one page may keep running at once.
+    static let functionCallLimit = 16
 
     let window: PluginWebWindow
     /// Delivers an event and its JSON payload to the page.
@@ -116,6 +126,8 @@ final class PluginWebBridge {
     private weak var build: (any PluginWebBuildAccess)?
     private var observations: [AnyCancellable] = []
     private var runs: [String: Run] = [:]
+    /// Running function calls, by the page's call ID or a host-made one.
+    private var functionCalls: [String: Task<ToolingJSONValue, Error>] = [:]
     private var lastInstances: ToolingJSONValue?
     private var waiters: [Waiter] = []
     private var isCheckScheduled = false
@@ -152,6 +164,9 @@ final class PluginWebBridge {
         isClosed = true
         emit = nil
         observations.removeAll()
+        let calls = functionCalls
+        functionCalls.removeAll()
+        calls.values.forEach { $0.cancel() }
         let pending = waiters
         waiters.removeAll()
         pending.forEach { $0.timeout.cancel(); $0.continuation.resume(returning: false) }
@@ -170,7 +185,9 @@ final class PluginWebBridge {
             }
             reply = .object(["ok": try await handle(method: method, params: body["params"] ?? .null)])
         } catch let failure as PluginWebBridgeFailure {
-            reply = .object(["error": .object(["code": .string(failure.code), "message": .string(failure.message)])])
+            var error: [String: ToolingJSONValue] = ["code": .string(failure.code), "message": .string(failure.message)]
+            if let code = failure.pluginErrorCode { error["pluginErrorCode"] = .string(code) }
+            reply = .object(["error": .object(error)])
         } catch {
             reply = .object(["error": .object([
                 "code": .string("plugin.web.invalidRequest"), "message": .string(error.localizedDescription)
@@ -184,7 +201,8 @@ final class PluginWebBridge {
         guard !isClosed else { throw PluginWebBridgeFailure.forbidden("The page was closed.") }
         let known: Set<String> = [
             "build.instances", "build.refresh", "build.runTask", "build.runTests", "build.cancel",
-            "build.dependencies", "build.setOptions", "workspace.openFile", "ui.getState", "ui.setState"
+            "build.dependencies", "build.setOptions", "workspace.openFile", "ui.getState", "ui.setState",
+            "functions.list", "functions.invoke", "functions.cancel"
         ]
         guard known.contains(method) else { throw PluginWebBridgeFailure.unknownMethod(method) }
         let workspaceURL = try currentWorkspace()
@@ -220,6 +238,17 @@ final class PluginWebBridge {
             return try await setOptions(Parameters(params, allowed: ["instance", "values"]))
         case "workspace.openFile":
             return try openFile(Parameters(params, allowed: ["path", "line", "column"]), workspaceURL: workspaceURL)
+        case "functions.list":
+            return try await listFunctions(Parameters(params, allowed: ["instance"]), workspaceURL: workspaceURL)
+        case "functions.invoke":
+            return try await invokeFunction(
+                Parameters(params, allowed: ["instance", "function", "params", "call"]), workspaceURL: workspaceURL
+            )
+        case "functions.cancel":
+            let call = try Parameters(params, allowed: ["call"]).string("call", limit: 128)
+            // A call that already ended is cancelled as a no-op.
+            functionCalls[call]?.cancel()
+            return .object([:])
         case "ui.getState":
             _ = try Parameters(params, allowed: [])
             guard let data = stateStore.state(pluginID: window.pluginID, windowID: window.windowID, workspaceURL: workspaceURL),
@@ -414,6 +443,82 @@ final class PluginWebBridge {
             build.runEnded.sink { [weak self] ended in self?.runDidEnd(ended) }
         ]
         scheduleCheck()
+    }
+
+    // MARK: Plugin functions
+
+    /// Functions are reached through one of this plugin's own instances, so
+    /// a page can call only its plugin's provider process; Core checks the
+    /// process owner again.
+    private func listFunctions(_ params: Parameters, workspaceURL: URL) async throws -> ToolingJSONValue {
+        let (build, entry) = try await entry(params)
+        try await consent(String(localized: "Start the \(entry.instance.displayName) provider"), workspaceURL: workspaceURL)
+        let functions = try await functionOutcome { try await build.pluginFunctions(entry.id) }
+        _ = try currentWorkspace()
+        return .object(["functions": .array(functions.map(ToolingJSONValue.string))])
+    }
+
+    private func invokeFunction(_ params: Parameters, workspaceURL: URL) async throws -> ToolingJSONValue {
+        let (build, entry) = try await entry(params)
+        let functionID = try params.string("function", limit: 128)
+        let input = params.values["params"] ?? .object([:])
+        guard case .object = input else {
+            throw PluginWebBridgeFailure.invalidRequest("params must be an object.")
+        }
+        let pageCall = try params.optionalString("call", limit: 128)
+        if let pageCall, functionCalls[pageCall] != nil {
+            throw PluginWebBridgeFailure.invalidRequest("The call \(pageCall) is still running.")
+        }
+        guard functionCalls.count < Self.functionCallLimit else {
+            throw PluginWebBridgeFailure.unavailable("This page already runs \(Self.functionCallLimit) function calls.")
+        }
+        try await consent(String(localized: "Run \(functionID) of \(entry.instance.displayName)"), workspaceURL: workspaceURL)
+        // Consent can suspend while the page reuses the call ID.
+        let call = pageCall ?? UUID().uuidString.lowercased()
+        guard functionCalls[call] == nil else {
+            throw PluginWebBridgeFailure.invalidRequest("The call \(call) is still running.")
+        }
+        let entryID = entry.id
+        let timeout = requestTimeout
+        let task = Task { @MainActor [weak self] in
+            try await build.invokePluginFunction(
+                entryID, functionID: functionID, params: input, timeout: timeout
+            ) { progress in
+                guard let self, let pageCall, self.functionCalls[pageCall] != nil else { return }
+                var payload: [String: ToolingJSONValue] = [
+                    "call": .string(pageCall), "instance": .string(entryID), "function": .string(functionID)
+                ]
+                if let message = progress.message { payload["message"] = .string(message) }
+                if let percentage = progress.percentage { payload["percentage"] = .integer(percentage) }
+                self.emit?("functions.progress", .object(payload))
+            }
+        }
+        functionCalls[call] = task
+        defer { functionCalls[call] = nil }
+        let value = try await withTaskCancellationHandler {
+            try await functionOutcome { try await task.value }
+        } onCancel: {
+            task.cancel()
+        }
+        _ = try currentWorkspace()
+        return .object(["value": value])
+    }
+
+    /// Passes Core's outcome codes through unchanged, so a page sees the same
+    /// `plugin.function.*`, `requestCancelled`, and `requestTimeout` codes on
+    /// every host.
+    private func functionOutcome<Value>(_ body: () async throws -> Value) async throws -> Value {
+        do {
+            return try await body()
+        } catch let failure as PluginFunctionFailure {
+            throw PluginWebBridgeFailure(code: failure.code, message: failure.message, pluginErrorCode: failure.pluginErrorCode)
+        } catch is CancellationError {
+            throw PluginWebBridgeFailure(code: "requestCancelled", message: "The function call was cancelled.")
+        } catch let failure as PluginWebBridgeFailure {
+            throw failure
+        } catch {
+            throw PluginWebBridgeFailure(code: "plugin.function.unavailable", message: error.localizedDescription)
+        }
     }
 
     // MARK: Events
