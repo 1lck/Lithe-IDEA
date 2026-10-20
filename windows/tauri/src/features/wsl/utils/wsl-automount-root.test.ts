@@ -126,15 +126,60 @@ describe("bounded automount root lookup", () => {
     );
   });
 
-  test("does not cache the fallback from a timeout", async () => {
-    answer = () => new Promise<string>(() => {});
+  // The caller's wait is bounded; the host read is not cancelled by it. A read
+  // that finishes after the timeout must still reach the cache, otherwise a
+  // distribution whose lookup is always slower than the timeout would fall back
+  // to `/mnt` and insert paths that point nowhere.
+  test("caches a late answer that arrives after the caller gave up", async () => {
+    let resolveRead: ((root: string) => void) | undefined;
+    answer = () =>
+      new Promise<string>((resolve) => {
+        resolveRead = resolve;
+      });
+
     expect(await resolveWslAutomountRoot("Ubuntu", { timeoutMs: 20 })).toBe(
       WSL_DEFAULT_AUTOMOUNT_ROOT,
     );
 
-    // The distribution started; the next paste must pick up the real root.
+    resolveRead?.("/windrives");
+    // Let the host promise settle so the cache is written.
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(await resolveWslAutomountRoot("Ubuntu")).toBe("/windrives");
+    // The late answer came from the read that was already running, so no second
+    // UNC read was started.
+    expect(invoke.mock.calls).toHaveLength(1);
+  });
+
+  // A caller that timed out must not delete the record of a read still in
+  // progress; the next caller attaches to it instead of starting another.
+  test("reuses a read that outlives the caller timeout", async () => {
+    let resolveRead: ((root: string) => void) | undefined;
+    answer = () =>
+      new Promise<string>((resolve) => {
+        resolveRead = resolve;
+      });
+
+    await resolveWslAutomountRoot("Ubuntu", { timeoutMs: 20 });
+    const second = resolveWslAutomountRoot("Ubuntu", { timeoutMs: 20 });
+    resolveRead?.("/windrives");
+
+    expect(await second).toBe("/windrives");
+    expect(invoke.mock.calls).toHaveLength(1);
+  });
+
+  // A read that fails is not a value worth remembering, so the next paste must
+  // be able to try again.
+  test("does not cache a failed read", async () => {
+    answer = async () => {
+      throw new Error("no such distribution");
+    };
+    expect(await resolveWslAutomountRoot("Ubuntu")).toBe(WSL_DEFAULT_AUTOMOUNT_ROOT);
+
     answer = async () => "/windrives";
     expect(await resolveWslAutomountRoot("Ubuntu")).toBe("/windrives");
+    expect(invoke.mock.calls).toHaveLength(2);
   });
 
   test("caches a successful answer", async () => {

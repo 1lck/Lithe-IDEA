@@ -13,21 +13,24 @@ import { parseWslPath, WSL_DEFAULT_AUTOMOUNT_ROOT } from "./wsl-path";
 const automountRoots = new Map<string, string>();
 
 /**
- * Queries still waiting for the host, so concurrent pastes share one read.
+ * The host read for each distribution, tracked to the end of its own lifetime.
  *
- * The host reads a UNC path, and a distribution that is not running can hold
- * that read for seconds. Sharing the in-flight query keeps a burst of pastes
- * from stacking up one filesystem read each.
+ * `automountRootReads` is keyed by distribution and removed only when the host
+ * actually finishes, not when a caller stops waiting. A read that outlives one
+ * caller's timeout therefore stays reusable: the next paste attaches to it
+ * instead of starting another UNC read, and a late answer still reaches the
+ * cache through `readAutomountRoot`.
  */
 const automountRootReads = new Map<string, Promise<string>>();
 
 /**
- * How long a paste waits for the host before using the default root.
+ * How long a caller waits for the host before using the default root.
  *
  * The lookup only refines where Windows drives are mounted. A distribution that
  * answers slowly must not hold the clipboard read behind it, so the wait is
- * bounded and the default is used; the correct value still arrives for the next
- * paste through the cache.
+ * bounded. This bounds the caller, not the read: the host call keeps running and
+ * its answer is cached when it arrives, so a slow distribution converges to the
+ * right root instead of falling back to `/mnt` on every paste.
  */
 const AUTOMOUNT_ROOT_TIMEOUT_MS = 2_000;
 
@@ -50,23 +53,24 @@ export function resolveWslAutomountRoot(
   const cached = automountRoots.get(distro);
   if (cached !== undefined) return Promise.resolve(cached);
 
-  const inFlight = automountRootReads.get(distro);
-  if (inFlight) return inFlight;
-
-  const read = readAutomountRoot(distro, options.timeoutMs ?? AUTOMOUNT_ROOT_TIMEOUT_MS).finally(
-    () => {
-      automountRootReads.delete(distro);
-    },
+  return waitForAutomountRoot(
+    distro,
+    options.timeoutMs ?? AUTOMOUNT_ROOT_TIMEOUT_MS,
   );
-  automountRootReads.set(distro, read);
-  return read;
 }
 
-async function readAutomountRoot(distro: string, timeoutMs: number): Promise<string> {
+/**
+ * Attach to the distribution's host read, bounded by `timeoutMs`.
+ *
+ * The read itself is created once per distribution and is deliberately not
+ * awaited to completion here: when the caller's wait expires it returns the
+ * default, while the read continues and stores its answer for the next caller.
+ */
+async function waitForAutomountRoot(distro: string, timeoutMs: number): Promise<string> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const root = await Promise.race([
-      invoke<string>("wsl_automount_root", { distro }),
+    return await Promise.race([
+      readAutomountRoot(distro),
       new Promise<never>((_resolve, reject) => {
         timer = setTimeout(
           () => reject(new Error(`WSL automount root did not arrive within ${timeoutMs}ms`)),
@@ -74,17 +78,46 @@ async function readAutomountRoot(distro: string, timeoutMs: number): Promise<str
         );
       }),
     ]);
-    const resolved = typeof root === "string" ? root : WSL_DEFAULT_AUTOMOUNT_ROOT;
-    automountRoots.set(distro, resolved);
-    return resolved;
   } catch (error) {
-    // Do not cache a failure: a transient condition or a late answer should not
-    // pin the default for the rest of the session.
     console.error("Could not read the WSL automount root:", error);
     return WSL_DEFAULT_AUTOMOUNT_ROOT;
   } finally {
     if (timer !== undefined) clearTimeout(timer);
   }
+}
+
+/**
+ * Start, or join, the host read for this distribution.
+ *
+ * The entry lives until the host answers or fails, so a second caller shares the
+ * first read even after the first caller gave up waiting.
+ */
+function readAutomountRoot(distro: string): Promise<string> {
+  const existing = automountRootReads.get(distro);
+  if (existing) return existing;
+
+  const read = invoke<string>("wsl_automount_root", { distro })
+    .then((root) => {
+      const resolved = typeof root === "string" ? root : WSL_DEFAULT_AUTOMOUNT_ROOT;
+      // The answer arrives even if every caller already returned the default,
+      // which is what lets the next paste use the real root.
+      automountRoots.set(distro, resolved);
+      return resolved;
+    })
+    .catch((error: unknown) => {
+      // Do not cache a failure: a transient condition should not pin the default
+      // for the rest of the session.
+      console.error("Could not read the WSL automount root:", error);
+      return WSL_DEFAULT_AUTOMOUNT_ROOT;
+    })
+    .finally(() => {
+      // Retire the entry only after the host is done. A caller that timed out
+      // must not remove a read that is still in progress.
+      if (automountRootReads.get(distro) === read) automountRootReads.delete(distro);
+    });
+
+  automountRootReads.set(distro, read);
+  return read;
 }
 
 /**

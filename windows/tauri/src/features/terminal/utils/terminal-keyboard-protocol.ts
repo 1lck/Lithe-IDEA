@@ -14,8 +14,25 @@
 const SUPPORTED_KITTY_FLAGS = 1;
 
 /** CSI ... u sequences a program uses to negotiate the keyboard protocol. */
-const CSI = "\u001b[";
+const ESC = "\u001b";
+const CSI = `${ESC}[`;
 const BEL_OR_ST = ["\u0007", "\u009c"];
+
+/**
+ * Longest unfinished sequence worth keeping between reads.
+ *
+ * Every sequence this stream tracks is a handful of bytes (`CSI ? u`,
+ * `CSI > 1 u`, `CSI ? 1049 h`). A candidate that grows past this is not one of
+ * them, and holding it would let a stream of digits grow the buffer without limit
+ * while every chunk rescans it.
+ */
+const MAX_PENDING_SEQUENCE = 32;
+
+/** Longest run of digits accepted in one parameter. */
+const MAX_PARAMETER_DIGITS = 4;
+
+/** Most parameters accepted in one sequence. */
+const MAX_PARAMETERS = 4;
 
 /**
  * Private modes that switch to the alternate screen buffer.
@@ -85,17 +102,43 @@ export class TerminalKeyboardProtocolStream {
     let index = 0;
 
     while (index < buffer.length) {
-      const escapeIndex = buffer.indexOf(CSI, index);
-      if (escapeIndex === -1) {
-        // Keep a trailing ESC so a sequence split across reads is still seen.
-        this.pending = buffer.endsWith("\u001b") ? "\u001b" : "";
+      const escapeIndex = buffer.indexOf(ESC, index);
+      if (escapeIndex === -1) break;
+
+      // `ESC c` is RIS, the full terminal reset. xterm clears its own modes on
+      // it, so the protocol state has to be cleared here too: otherwise a session
+      // that reset after a TUI would keep encoding keys the fresh program never
+      // asked for.
+      if (buffer[escapeIndex + 1] === "c") {
+        this.reset();
+        index = escapeIndex + 2;
+        continue;
+      }
+
+      // A trailing ESC may be the start of a sequence split across reads, so it
+      // is kept until the next chunk arrives.
+      if (buffer.length === escapeIndex + 1) {
+        this.pending = ESC;
         break;
+      }
+
+      if (!buffer.startsWith(CSI, escapeIndex)) {
+        // Some other escape sequence; only the ones above carry state.
+        index = escapeIndex + 1;
+        continue;
       }
 
       const parsed = parseCsiSequence(buffer, escapeIndex + CSI.length);
       if (parsed === "incomplete") {
-        this.pending = buffer.slice(escapeIndex);
-        break;
+        const rest = buffer.slice(escapeIndex);
+        // A real sequence is a few bytes. Keeping an unfinished one unbounded
+        // would let a stream of digits grow this buffer without limit and rescan
+        // it on every chunk, so an over-long candidate is abandoned and the scan
+        // resumes after it.
+        this.pending = rest.length <= MAX_PENDING_SEQUENCE ? rest : "";
+        if (this.pending) break;
+        index = escapeIndex + 1;
+        continue;
       }
       if (parsed === null) {
         index = escapeIndex + CSI.length;
@@ -218,15 +261,21 @@ function parseCsiSequence(buffer: string, start: number): CsiEvent | "incomplete
   for (; index < buffer.length; index += 1) {
     const character = buffer[index];
     if (character >= "0" && character <= "9") {
+      // Every parameter this stream reads is a small number (a flag set, a mode,
+      // a pop count). A longer run is not a sequence Lithe tracks, and rejecting
+      // it here keeps the scan bounded instead of accumulating digits.
+      if ((current ?? "").length >= MAX_PARAMETER_DIGITS) return null;
       current = (current ?? "") + character;
       continue;
     }
     if (character === ";") {
+      if (numbers.length >= MAX_PARAMETERS) return null;
       numbers.push(current === null ? 0 : Number(current));
       current = null;
       continue;
     }
     if (character === "u") {
+      if (numbers.length >= MAX_PARAMETERS) return null;
       numbers.push(current === null ? 0 : Number(current));
       return {
         kind: "kitty",
@@ -240,7 +289,10 @@ function parseCsiSequence(buffer: string, start: number): CsiEvent | "incomplete
       };
     }
     if ((character === "h" || character === "l") && prefix === "?") {
-      if (current !== null) numbers.push(Number(current));
+      if (current !== null) {
+        if (numbers.length >= MAX_PARAMETERS) return null;
+        numbers.push(Number(current));
+      }
       const switchesScreen = numbers.some((mode) => ALTERNATE_SCREEN_MODES.includes(mode));
       if (!switchesScreen) return null;
       return { kind: "screen", alternate: character === "h", end: index + 1 };

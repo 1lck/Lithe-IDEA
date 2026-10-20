@@ -187,4 +187,90 @@ describe("chunk boundary after the CSI prefix", () => {
     stream.feed(">1u");
     expect(stream.flags).toBe(1);
   });
+
+  test("waits when a chunk ends on a lone ESC", () => {
+    const stream = new TerminalKeyboardProtocolStream();
+    expect(stream.feed("\u001b")).toBeNull();
+    stream.feed(`${CSI}>1u`);
+    expect(stream.flags).toBe(1);
+  });
+});
+
+// None of the sequences this stream tracks is long, so an unfinished candidate
+// that keeps growing is not one of them. Holding it would grow the buffer without
+// limit and rescan it on every chunk, inside the terminal output callback.
+describe("bounded incomplete sequence buffering", () => {
+  test("abandons an over-long unfinished sequence", () => {
+    const stream = new TerminalKeyboardProtocolStream();
+    expect(stream.feed(`${CSI}>`)).toBeNull();
+
+    // Digits with no final byte; the candidate can never become a query.
+    for (let chunk = 0; chunk < 8; chunk += 1) {
+      expect(stream.feed("1".repeat(8192))).toBeNull();
+    }
+
+    // Recovery: a later well-formed exchange is still handled.
+    expect(stream.feed(`${CSI}>1u`)).toBeNull();
+    expect(stream.flags).toBe(1);
+  });
+
+  test("abandons an over-long parameter before resuming the scan", () => {
+    const stream = new TerminalKeyboardProtocolStream();
+    stream.feed(`${CSI}>1u`);
+    // Five digits exceed what any tracked sequence carries.
+    expect(stream.feed(`${CSI}?12345u`)).toBeNull();
+    expect(stream.flags).toBe(1);
+    // The scan resumed, so a following real query is still answered.
+    expect(stream.feed(`${CSI}?u`)).toBe(`${CSI}?1u`);
+  });
+
+  test("ignores a sequence with too many parameters", () => {
+    const stream = new TerminalKeyboardProtocolStream();
+    stream.feed(`${CSI}>1u`);
+    expect(stream.feed(`${CSI}?1;1;1;1;1u`)).toBeNull();
+    expect(stream.feed(`${CSI}?u`)).toBe(`${CSI}?1u`);
+  });
+});
+
+// `ESC c` is RIS: xterm resets every mode it owns, so a program that resets the
+// terminal must not leave the protocol answered as if a TUI were still running.
+describe("terminal reset", () => {
+  test("clears the flags when the program resets the terminal", () => {
+    const stream = new TerminalKeyboardProtocolStream();
+    stream.feed(`${CSI}>1u`);
+    expect(stream.flags).toBe(1);
+    stream.feed("\u001bc");
+    expect(stream.flags).toBe(0);
+    expect(stream.feed(`${CSI}?u`)).toBe(`${CSI}?0u`);
+  });
+
+  test("clears the screen state and the stack too", () => {
+    const stream = new TerminalKeyboardProtocolStream();
+    stream.feed(`${CSI}?1049h`);
+    stream.feed(`${CSI}>1u`);
+    stream.feed(`${CSI}>0u`);
+    stream.feed("\u001bc");
+
+    expect(stream.flags).toBe(0);
+    // The screen marker is gone, so a query and a pop both see a fresh terminal.
+    expect(stream.feed(`${CSI}?u`)).toBe(`${CSI}?0u`);
+    stream.feed(`${CSI}<u`);
+    expect(stream.flags).toBe(0);
+  });
+
+  test("handles a reset split across reads", () => {
+    const stream = new TerminalKeyboardProtocolStream();
+    stream.feed(`${CSI}>1u`);
+    expect(stream.feed("\u001b")).toBeNull();
+    stream.feed("c");
+    expect(stream.flags).toBe(0);
+  });
+
+  test("handles output after a reset in the same chunk", () => {
+    const stream = new TerminalKeyboardProtocolStream();
+    stream.feed(`${CSI}>1u`);
+    // The reset comes with a following query, which must be answered from the
+    // cleared state.
+    expect(stream.feed(`\u001bc${CSI}?u`)).toBe(`${CSI}?0u`);
+  });
 });
