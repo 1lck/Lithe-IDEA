@@ -880,7 +880,8 @@ serializable params and results, which the host invokes on behalf of the same
 plugin, for example from that plugin's own window. Functions complement the
 typed domain protocols; they never replace them. Version 1 of the protocol is
 implemented in Rust Core (`rust/lithe-core/src/lsp/interface/plugin_function.rs`);
-no host invokes functions yet, and Windows has no plugin backend host.
+no host invokes functions yet, and Windows has no plugin backend host. The
+[official Node SDK](#official-backend-sdk) implements the backend side.
 
 ### Capability ownership
 
@@ -1038,6 +1039,20 @@ running on that session, is dropped.
   them, and a scripted backend covers routing, result, failure, cancellation,
   deadline, late reply, revocation, and compatibility with a build-only
   backend.
+
+### Official backend SDK
+
+[`sdk/node`](../../../../sdk/node/README.md) is the official SDK for backends
+started through a `node` runtime launch. It implements this protocol and
+`litheBuild` 1, so a plugin author writes only handlers. It enforces the
+rules above on the backend side: `lithe/*` methods are never sent, stdout
+carries only protocol frames, `PluginError` is the only way to set a
+`pluginErrorCode`, processes started for a call end with it, and its state
+store refuses the plugin package. Its sample plugin
+(`sdk/node/examples/sample-build`) is driven through a real Core session by
+`rust/lithe-core/tests/plugin_sdk_node.rs`, which the Rust Core lane runs with
+`LITHE_PLUGIN_SDK_NODE` set. The SDK adds no wire field: a backend written
+without it is equally valid.
 
 ## Outcomes and error codes
 
