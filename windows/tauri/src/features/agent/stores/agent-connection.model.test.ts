@@ -500,7 +500,7 @@ describe("Agent connection lifecycle", () => {
         await steeringConversation();
         model.send("/status");
         const steer = transport.command("steer");
-        const supplementID = conversation().messages.at(-1)!.id;
+        const supplementID = conversation().messages[conversation().messages.length - 1].id;
         transport.emit({
           ...fixture.events.steeringResult,
           token: steer?.token,
