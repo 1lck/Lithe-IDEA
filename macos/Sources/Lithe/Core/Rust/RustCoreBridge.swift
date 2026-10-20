@@ -1839,6 +1839,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
 
     private struct LspStartServerRequest: Encodable {
         let providerId: String
+        /// The plugin that owns the process; nil for host-owned servers.
+        let pluginId: String?
         let executablePath: String
         let arguments: [String]
         let environment: [String: String]
@@ -1988,6 +1990,18 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let timeoutMilliseconds: Int
     }
 
+    private struct LspFunctionRequest: Encodable {
+        struct Reference: Encodable {
+            let pluginID: String
+            let functionID: String
+        }
+
+        let sessionId: String
+        let function: Reference
+        let params: ToolingJSONValue
+        let timeoutMilliseconds: Int
+    }
+
     private struct LspCancelOperationRequest: Encodable {
         let sessionId: String
         let operationId: String
@@ -2040,6 +2054,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let underlyingMessage: String?
         let processExitCode: Int?
         let javaBuildReport: JavaBuildReport?
+        let pluginErrorCode: String?
     }
 
     struct LspServerInfoPayload: Decodable, Sendable {
@@ -3531,6 +3546,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     /// and owns the process; nothing about it crosses back except this ID.
     func lspStartServer(
         providerID: String,
+        pluginID: String? = nil,
         executableURL: URL,
         arguments: [String],
         environment: [String: String],
@@ -3551,6 +3567,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             command: "lsp.startServer",
             payload: LspStartServerRequest(
                 providerId: providerID,
+                pluginId: pluginID,
                 executablePath: executableURL.standardizedFileURL.path,
                 arguments: arguments,
                 environment: environment,
@@ -3790,6 +3807,26 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             payload: LspBuildRequest(
                 sessionId: sessionID,
                 method: method,
+                params: params,
+                timeoutMilliseconds: max(1, Self.milliseconds(timeout))
+            )
+        )
+    }
+
+    /// Invokes a plugin function. Core refuses it unless the session belongs
+    /// to `pluginID` and registered the function.
+    func lspFunctionRequest(
+        sessionID: String,
+        pluginID: String,
+        functionID: String,
+        params: ToolingJSONValue,
+        timeout: TimeInterval
+    ) -> Result<LspOperationPayload, CoreCallError> {
+        executeResult(
+            command: "lsp.functionRequest",
+            payload: LspFunctionRequest(
+                sessionId: sessionID,
+                function: .init(pluginID: pluginID, functionID: functionID),
                 params: params,
                 timeoutMilliseconds: max(1, Self.milliseconds(timeout))
             )

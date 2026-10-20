@@ -988,6 +988,41 @@ package protocol BuildProviderRequesting: AnyObject {
     ) async throws -> ToolingJSONValue
     /// Stops every process whose target `keep` rejects.
     func retainProviders(_ keep: (BuildProviderTarget) -> Bool)
+    /// The plugin functions the target's process registers now, sorted.
+    /// Starts the process like `send` when none runs.
+    func pluginFunctions(of target: BuildProviderTarget) async throws -> [String]
+    /// Invokes a plugin function of the target's plugin in its process,
+    /// starting the process like `send`. Cancelling the task cancels the
+    /// call; a failure is a `PluginFunctionFailure`.
+    func invokePluginFunction(
+        _ functionID: String,
+        params: ToolingJSONValue,
+        on target: BuildProviderTarget,
+        timeout: Duration,
+        progress: @escaping @MainActor @Sendable (PluginFunctionProgress) -> Void
+    ) async throws -> ToolingJSONValue
+}
+
+package extension BuildProviderRequesting {
+    func pluginFunctions(of _: BuildProviderTarget) async throws -> [String] {
+        throw PluginFunctionFailure(
+            code: "plugin.function.unavailable",
+            message: "Plugin functions are not available in this host."
+        )
+    }
+
+    func invokePluginFunction(
+        _: String,
+        params _: ToolingJSONValue,
+        on _: BuildProviderTarget,
+        timeout _: Duration,
+        progress _: @escaping @MainActor @Sendable (PluginFunctionProgress) -> Void
+    ) async throws -> ToolingJSONValue {
+        throw PluginFunctionFailure(
+            code: "plugin.function.unavailable",
+            message: "Plugin functions are not available in this host."
+        )
+    }
 }
 
 // MARK: Host storage

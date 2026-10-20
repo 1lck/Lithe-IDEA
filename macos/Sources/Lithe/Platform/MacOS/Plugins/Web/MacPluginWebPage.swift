@@ -173,7 +173,8 @@ final class MacPluginWebPage: NSObject, PluginWebPageHandle, WKNavigationDelegat
       const initial = __LITHE_CONTEXT__;
       let theme = __LITHE_THEME__;
       const listeners = new Map();
-      const failure = (code, message) => freeze({ code, message });
+      const failure = (code, message, pluginErrorCode) =>
+        freeze(typeof pluginErrorCode === 'string' ? { code, message, pluginErrorCode } : { code, message });
       const applyTheme = () => {
         const root = document.documentElement;
         if (!root) { document.addEventListener('readystatechange', applyTheme, { once: true }); return; }
@@ -200,7 +201,7 @@ final class MacPluginWebPage: NSObject, PluginWebPageHandle, WKNavigationDelegat
           }
           return post(message).then((reply) => {
             const result = parse(reply);
-            if (result.error) throw failure(result.error.code, result.error.message);
+            if (result.error) throw failure(result.error.code, result.error.message, result.error.pluginErrorCode);
             return result.ok;
           }, (error) => { throw failure('plugin.web.forbidden', String(error && error.message || error)); });
         },

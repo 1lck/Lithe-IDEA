@@ -30,4 +30,9 @@ node .agents/skills/write-stable-tests/scripts/run-rust-tests-with-timing.mjs \
     --report .artifacts/test-stability/ide-host-rust.json
 cargo build --locked --manifest-path rust/Cargo.toml -p lithe-ide-host --features mcp --bin lithe-mcp
 node --test scripts/test-ide-mcp.mjs
-cargo test --manifest-path rust/Cargo.toml -p lithe-core
+node --test --test-reporter=spec --test-reporter-destination=stdout \
+    --test-reporter=junit --test-reporter-destination=.artifacts/test-stability/plugin-sdk-node.xml \
+    sdk/node/test/*.test.mjs
+# Opts the Node plugin SDK end-to-end test in; it drives the sample backend
+# through Core's real plugin session with the Node already used above.
+LITHE_PLUGIN_SDK_NODE="$(command -v node)" cargo test --manifest-path rust/Cargo.toml -p lithe-core
