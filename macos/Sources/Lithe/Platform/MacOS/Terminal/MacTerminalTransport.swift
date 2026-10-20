@@ -125,7 +125,7 @@ final class LitheTerminalView: LocalProcessTerminalView {
         // its paused Metal surface also needs a frame when no output arrives.
         needsDisplay = true
         for case let renderer as MTKView in subviews {
-            renderer.layer?.isOpaque = false
+            renderer.layer?.isOpaque = !showsWorkbenchBackground
             if !(renderer.delegate is TerminalMetalFocusDelegate), let delegate = renderer.delegate {
                 let focusDelegate = TerminalMetalFocusDelegate(
                     view: renderer, terminalView: self, renderer: delegate
@@ -166,10 +166,19 @@ final class LitheTerminalView: LocalProcessTerminalView {
             backgroundColor: editorColor
         )
         // The SwiftUI pane supplies the shared editor color or wallpaper.
-        // SwiftTerm's Metal canvas must leave its default cells transparent.
-        nativeBackgroundColor = editorColor.withAlphaComponent(0)
-        layer?.backgroundColor = NSColor.clear.cgColor
-        layer?.isOpaque = false
+        // Canvas background: no wallpaper → opaque editor color, wallpaper → clear to (0, 0, 0, 0).
+        // The pane behind already paints the editor color, and a transparent canvas lets the compositor blend it twice.
+        // Metal clear colors are premultiplied; RGB with zero alpha over-exposes glyph edges on light backgrounds.
+        let showsWallpaper = showsWorkbenchBackground
+        nativeBackgroundColor = showsWallpaper ? .black.withAlphaComponent(0) : editorColor
+        layer?.backgroundColor = (showsWallpaper ? NSColor.clear : editorColor).cgColor
+        layer?.isOpaque = !showsWallpaper
+        for case let renderer as MTKView in subviews {
+            renderer.layer?.isOpaque = !showsWallpaper
+        }
+        // OSC 11 answers with this same color.
+        // With a wallpaper the canvas is transparent, so applications are told black.
+        // Reporting an opaque color there would make the compositor blend it twice.
         // Terminal.app profiles may use a foreground color that assumes their
         // own opaque background. The terminal is composited over Lithe's
         // editor or wallpaper, so keep the default text tied to the app theme.
