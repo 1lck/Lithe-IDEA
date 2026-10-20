@@ -26,7 +26,7 @@ const conversation = {
   hasCompleteHistory: true,
   pendingPermissions: [],
   errorMessage: null,
-} satisfies AgentConversation;
+} as unknown as AgentConversation;
 
 const actGlobal = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
 let previousActEnvironment: boolean | undefined;
