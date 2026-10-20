@@ -104,15 +104,19 @@ public struct DeclarativeBuildSystem: Equatable, Sendable {
     public let testTargetTags: [String]
     /// Empty when the build system lists no dependencies.
     public let dependencyScopes: [BuildScope]
+    /// The build system declares a provider launch. Installation verifies
+    /// its packaged files before the provider can ever start.
+    public let declaresProvider: Bool
 
     public init(
         id: String, displayName: String, icon: PluginUIIcon? = nil, modelSource: ModelSource?,
         options: [Option] = [], tasks: [Task], testScopes: [BuildScope], testTargetTags: [String] = [],
-        dependencyScopes: [BuildScope]
+        dependencyScopes: [BuildScope], declaresProvider: Bool = false
     ) {
         self.id = id; self.displayName = displayName; self.icon = icon; self.modelSource = modelSource
         self.options = options; self.tasks = tasks
         self.testScopes = testScopes; self.testTargetTags = testTargetTags; self.dependencyScopes = dependencyScopes
+        self.declaresProvider = declaresProvider
     }
 
     public func option(_ id: String) -> Option? {

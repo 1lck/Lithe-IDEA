@@ -32,6 +32,9 @@ enum PluginPackageStoreError: Error, Equatable, LocalizedError {
     case declarationRejected(PluginID?, DeclarativePluginRejection)
     /// `plugin.launch.missing`: the packaged language server is unusable.
     case languageServerLaunchMissing(PluginID, String)
+    /// A file a build system's provider launch points at is missing, outside
+    /// the package, reached through a symbolic link, or not executable.
+    case buildProviderLaunchMissing(PluginID, buildSystemID: String, path: String)
     /// A `sameTeamAsHost` package outside the host's sealed installation.
     case hostSealRequired(PluginID)
     /// An unsigned package outside a confirmed community installation, or
@@ -62,6 +65,8 @@ enum PluginPackageStoreError: Error, Equatable, LocalizedError {
             rejection.message
         case .languageServerLaunchMissing(let id, let path):
             "Plugin \(id) is missing its language server or it is not executable: \(path)."
+        case .buildProviderLaunchMissing(let id, let buildSystemID, let path):
+            "Plugin \(id) is missing the \(buildSystemID) build provider's file or it is not usable: \(path)."
         case .hostSealRequired(let id):
             "Plugin \(id) can only be trusted when it ships inside Lithe."
         case .unsignedPackageNotAllowed(let id):
@@ -112,6 +117,9 @@ final class MacPluginPackageStore {
     private let stateDirectories: MacPluginStateDirectories?
     private let hostVersion: PluginVersion
     private let validator: any DeclarativePluginManifestValidating
+    /// Expands build provider launches so installation can check the files
+    /// they point at. A package that declares a provider is refused without it.
+    private let launchPlanner: (any DeclarativeLanguageServerLaunchPlanning)?
     private let verifier: any PluginPackageSignatureVerifying
     private let fileManager: FileManager
     private let encoder: JSONEncoder
@@ -123,6 +131,7 @@ final class MacPluginPackageStore {
         stateDirectories: MacPluginStateDirectories? = nil,
         hostVersion: PluginVersion = BuiltInPluginCatalog.hostVersion,
         validator: any DeclarativePluginManifestValidating,
+        launchPlanner: (any DeclarativeLanguageServerLaunchPlanning)? = nil,
         verifier: any PluginPackageSignatureVerifying = MacOfficialPluginSignatureVerifier(),
         fileManager: FileManager = .default
     ) {
@@ -131,6 +140,7 @@ final class MacPluginPackageStore {
         self.stateDirectories = stateDirectories
         self.hostVersion = hostVersion
         self.validator = validator
+        self.launchPlanner = launchPlanner ?? validator as? any DeclarativeLanguageServerLaunchPlanning
         self.verifier = verifier
         self.fileManager = fileManager
         encoder = JSONEncoder()
@@ -398,7 +408,7 @@ final class MacPluginPackageStore {
             try validatePackage(descriptor, at: stagedURL, origin: origin, marketplace: marketplace, disk: disk)
         } catch let error as PluginPackageStoreError {
             switch error {
-            case .languageServerLaunchMissing:
+            case .languageServerLaunchMissing, .buildProviderLaunchMissing:
                 throw PluginPackageStoreError.invalidInstalledPlugin(descriptor.id, error.localizedDescription)
             default:
                 throw error
@@ -697,6 +707,71 @@ final class MacPluginPackageStore {
                 throw PluginPackageStoreError.languageServerLaunchMissing(descriptor.id, relativePath)
             }
         }
+        for buildSystem in descriptor.buildSystems where buildSystem.declaresProvider {
+            try validateBuildProviderLaunch(buildSystem.id, of: descriptor, at: root)
+        }
+    }
+
+    /// Expands the provider launch with throwaway directories (nothing is
+    /// created) and checks every package path it points at, so a broken
+    /// package is refused here rather than at its first model load. A
+    /// provider that shares a language server is checked with that server.
+    private func validateBuildProviderLaunch(
+        _ buildSystemID: String,
+        of descriptor: DeclarativePluginDescriptor,
+        at root: URL
+    ) throws {
+        let missing = { (path: String) in
+            PluginPackageStoreError.buildProviderLaunchMissing(descriptor.id, buildSystemID: buildSystemID, path: path)
+        }
+        guard let launchPlanner else { throw missing("provider") }
+        let unused = fileManager.temporaryDirectory
+            .appendingPathComponent("lithe-provider-validation", isDirectory: true)
+        let plan: DeclarativeLanguageServerLaunchPlan
+        do {
+            plan = try launchPlanner.buildProviderLaunchPlan(
+                manifest: descriptor.normalizedManifest,
+                buildSystemID: buildSystemID,
+                request: DeclarativeLanguageServerLaunchRequest(
+                    pluginDirectory: root,
+                    stateDirectory: unused.appendingPathComponent("state", isDirectory: true),
+                    workspaceStateDirectory: unused.appendingPathComponent("workspace", isDirectory: true),
+                    architecture: MacPluginLanguageServerLaunchResolver.hostArchitecture,
+                    settings: [:]
+                )
+            )
+        } catch let rejection as DeclarativePluginRejection {
+            throw PluginPackageStoreError.declarationRejected(descriptor.id, rejection)
+        }
+        guard plan.buildProvider?.languageServer == nil else { return }
+        for relativePath in plan.requiredPackagePaths where !isPackageEntry(relativePath, in: root) {
+            throw missing(relativePath)
+        }
+        var executables: [String] = []
+        if case .packaged(let path)? = plan.executable { executables.append(path) }
+        if let path = plan.packagedRuntimePath { executables.append(path) }
+        for relativePath in executables {
+            let url = root.appendingPathComponent(relativePath).standardizedFileURL
+            let values = try? url.resourceValues(forKeys: [.isRegularFileKey])
+            guard isPackageEntry(relativePath, in: root),
+                  values?.isRegularFile == true,
+                  fileManager.isExecutableFile(atPath: url.path) else {
+                throw missing(relativePath)
+            }
+        }
+    }
+
+    /// The path exists inside the package and no component of it is a
+    /// symbolic link, the same rule the launch resolver applies at start.
+    private func isPackageEntry(_ relativePath: String, in root: URL) -> Bool {
+        var current = root
+        for component in relativePath.split(separator: "/") {
+            guard component != "..", component != "." else { return false }
+            current.appendPathComponent(String(component))
+            guard let values = try? current.resourceValues(forKeys: [.isSymbolicLinkKey]),
+                  values.isSymbolicLink != true else { return false }
+        }
+        return current.standardizedFileURL.path.hasPrefix(root.path + "/")
     }
 
     private func validateOfficialTrustPolicy(_ manifest: PluginManifest) throws {

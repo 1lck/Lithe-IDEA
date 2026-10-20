@@ -375,8 +375,8 @@ package final class BuildSystemService: ObservableObject {
         for key in Array(dependencyTasks.keys) where removed.contains(Self.entryID(ofDependencyTask: key)) {
             dependencyTasks.removeValue(forKey: key)?.cancel()
         }
-        // A disabled plugin's provider stops, and so does the old version of
-        // an updated one: its package directory is no longer installed.
+        // A disabled plugin's provider stops. Package replacement and
+        // uninstall stop theirs earlier, through the plugin manager.
         let packages = Set(sources().map { [$0.pluginID, $0.packageURL.standardizedFileURL.path] })
         providers?.retainProviders { packages.contains([$0.pluginID, $0.packageURL.path]) }
         detect()

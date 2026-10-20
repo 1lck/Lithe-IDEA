@@ -750,6 +750,7 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
             let tasks: [Task]
             let test: Test?
             let dependencies: Source?
+            let declaresProvider: Bool
 
             init(from decoder: Decoder) throws {
                 let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -761,10 +762,11 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 tasks = try values.decodeIfPresent([Task].self, forKey: .tasks) ?? []
                 test = try values.decodeIfPresent(Test.self, forKey: .test)
                 dependencies = try values.decodeIfPresent(Source.self, forKey: .dependencies)
+                declaresProvider = values.contains(.provider)
             }
 
             private enum CodingKeys: String, CodingKey {
-                case id, displayName, icon, options, model, tasks, test, dependencies
+                case id, displayName, icon, options, model, tasks, test, dependencies, provider
             }
 
             func declaration() -> DeclarativeBuildSystem {
@@ -792,7 +794,8 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                     testTargetTags: test?.targetTags ?? [],
                     // A host integration lists the whole instance and each
                     // project; the other sources declare their scopes.
-                    dependencyScopes: dependencies.map { $0.scopes ?? [.workspace, .project] } ?? []
+                    dependencyScopes: dependencies.map { $0.scopes ?? [.workspace, .project] } ?? [],
+                    declaresProvider: declaresProvider
                 )
             }
         }

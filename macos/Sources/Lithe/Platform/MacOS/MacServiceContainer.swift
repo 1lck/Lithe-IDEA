@@ -646,7 +646,13 @@ final class MacServiceContainer {
             managedBuiltInPlugins: bundledLanguageManifests,
             invalidateWebPages: { id in pluginWebPageLifecycle.disable(id.rawValue) },
             enableWebPages: { id in pluginWebPageLifecycle.enable(id.rawValue) },
-            beforePackageReplacement: { id in pluginWebPageLifecycle.packageWillChange(id.rawValue) }
+            beforePackageReplacement: { id in
+                pluginWebPageLifecycle.packageWillChange(id.rawValue)
+                // The running provider still executes the old files; the
+                // build systems' plugin list is a startup snapshot and does
+                // not see the replacement.
+                buildProviderSessions.stopProviders(ofPlugin: id.rawValue)
+            }
         )
         let pluginMarketplaceTransport: any MacPluginMarketplaceTransport
         #if DEBUG

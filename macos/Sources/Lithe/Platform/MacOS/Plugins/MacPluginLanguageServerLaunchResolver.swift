@@ -69,6 +69,7 @@ struct MacPluginLanguageServerLaunchResolver {
     enum ResolutionError: LocalizedError, Equatable {
         case missingPackagePath(String)
         case packagePathOutsidePackage(String)
+        case packagedExecutableNotRunnable(String)
 
         var errorDescription: String? {
             switch self {
@@ -76,6 +77,8 @@ struct MacPluginLanguageServerLaunchResolver {
                 "The plugin package is missing \(path). Reinstall the plugin."
             case .packagePathOutsidePackage(let path):
                 "The plugin launch refers to \(path), which is not a file inside its package."
+            case .packagedExecutableNotRunnable(let path):
+                "The plugin package's \(path) is not an executable file. Reinstall the plugin."
             }
         }
     }
@@ -95,6 +98,12 @@ struct MacPluginLanguageServerLaunchResolver {
         self.directories = directories
         self.settings = settings
         self.fileManager = fileManager
+    }
+
+    /// The plugin's stored setting values a launch expands with now. A
+    /// provider started with other values is out of date.
+    func settingValues(forPlugin pluginID: String) -> [String: ToolingJSONValue] {
+        settings.values(forPlugin: pluginID)
     }
 
     static var hostArchitecture: String {
@@ -155,6 +164,8 @@ struct MacPluginLanguageServerLaunchResolver {
         let runtimeTools: [String]
         let executesProjectCode: Bool
         let mayUseNetwork: Bool
+        /// The setting values the launch was expanded with.
+        let settings: [String: ToolingJSONValue]
     }
 
     /// Expands the provider launch of one build system for one workspace.
@@ -167,6 +178,7 @@ struct MacPluginLanguageServerLaunchResolver {
         packageURL: URL,
         workspaceRootURL: URL
     ) throws -> BuildProviderLaunch {
+        let settingValues = settings.values(forPlugin: pluginID)
         let request = DeclarativeLanguageServerLaunchRequest(
             pluginDirectory: packageURL.standardizedFileURL,
             stateDirectory: directories.buildSystemStateDirectory(pluginID: pluginID, buildSystemID: buildSystemID),
@@ -176,7 +188,7 @@ struct MacPluginLanguageServerLaunchResolver {
                 workspaceRootURL: workspaceRootURL
             ),
             architecture: Self.hostArchitecture,
-            settings: settings.values(forPlugin: pluginID)
+            settings: settingValues
         )
         let plan = try planner.buildProviderLaunchPlan(
             manifest: manifest,
@@ -195,12 +207,12 @@ struct MacPluginLanguageServerLaunchResolver {
         let executable: BuildProviderProcess.Executable
         switch plan.executable {
         case .packaged(let path)?:
-            executable = .file(root.appendingPathComponent(path).standardizedFileURL)
+            executable = .file(try packagedExecutable(path, packageURL: root))
         case .systemCommand(let commands)?:
             executable = .commands(commands)
         case .runtime(let tool)?:
             executable = if let path = plan.packagedRuntimePath {
-                .file(root.appendingPathComponent(path).standardizedFileURL)
+                .file(try packagedExecutable(path, packageURL: root))
             } else {
                 .runtime(tool, versionRequirement: plan.executableVersionRequirement)
             }
@@ -223,7 +235,8 @@ struct MacPluginLanguageServerLaunchResolver {
             initializationOptions: plan.initializationOptions,
             runtimeTools: plan.runtimeRequirements.map(\.tool),
             executesProjectCode: provider.executesProjectCode,
-            mayUseNetwork: provider.mayUseNetwork
+            mayUseNetwork: provider.mayUseNetwork,
+            settings: settingValues
         ))
     }
 
@@ -301,6 +314,19 @@ struct MacPluginLanguageServerLaunchResolver {
             architecture: Self.hostArchitecture,
             settings: settings.values(forPlugin: source.pluginID)
         )
+    }
+
+    /// A packaged file the host starts: inside the package, reached without
+    /// a symbolic link, a regular file, and executable. Installation checks
+    /// the same; this guards a package changed on disk since.
+    private func packagedExecutable(_ relativePath: String, packageURL: URL) throws -> URL {
+        try verifyPackagePaths([relativePath], packageURL: packageURL)
+        let url = packageURL.appendingPathComponent(relativePath).standardizedFileURL
+        let values = try? url.resourceValues(forKeys: [.isRegularFileKey])
+        guard values?.isRegularFile == true, fileManager.isExecutableFile(atPath: url.path) else {
+            throw ResolutionError.packagedExecutableNotRunnable(relativePath)
+        }
+        return url
     }
 
     /// A launch may only point at files or directories that exist inside the

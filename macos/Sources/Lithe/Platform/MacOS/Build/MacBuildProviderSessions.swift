@@ -11,8 +11,10 @@ import LitheModuleAPI
 /// channel, so no plugin can reach another plugin's provider.
 ///
 /// A process starts on the first request, which only a user action sends,
-/// and runs until `retainProviders` drops its target: a workspace switch, a
-/// disabled or updated plugin, or the app quitting. Its writable state lives
+/// and runs until `retainProviders` drops its target (a workspace switch, a
+/// disabled plugin, or the app quitting) or `stopProviders(ofPlugin:)` stops
+/// it before its package is replaced or removed. A change of the plugin's
+/// settings restarts it on the next request. Its writable state lives
 /// in the build system's plugin state directory, never in the app bundle or
 /// the plugin package.
 @MainActor
@@ -38,8 +40,14 @@ final class MacBuildProviderSessions: BuildProviderRequesting {
     /// soon as the process is launched, so a drop during initialize stops it.
     private final class Running {
         let id = UUID()
+        /// The plugin's setting values the launch was expanded with.
+        let settings: [String: ToolingJSONValue]
         var task: Task<LanguageServerRuntimeSession, Error>?
         var session: LanguageServerRuntimeSession?
+
+        init(settings: [String: ToolingJSONValue]) {
+            self.settings = settings
+        }
     }
 
     init(
@@ -64,7 +72,8 @@ final class MacBuildProviderSessions: BuildProviderRequesting {
         timeout: Duration
     ) async throws -> ToolingJSONValue {
         let seconds = Self.seconds(timeout)
-        if let session = try await runningSession(for: target) {
+        let settings = launchResolver.settingValues(forPlugin: target.pluginID)
+        if let session = try await runningSession(for: target, settings: settings) {
             return try await session.buildRequest(method: request.method, params: request.params, timeout: seconds)
         }
         switch try launchResolver.resolveBuildProvider(
@@ -96,16 +105,36 @@ final class MacBuildProviderSessions: BuildProviderRequesting {
 
     func retainProviders(_ keep: (BuildProviderTarget) -> Bool) {
         for (target, entry) in running where !keep(target) {
-            running[target] = nil
-            entry.task?.cancel()
-            entry.session?.stop()
+            stop(entry, for: target)
         }
     }
 
+    /// Stops every process of `pluginID`, in every workspace. The plugin
+    /// manager calls it before the package is replaced, rolled back, or
+    /// uninstalled, so no process keeps running the files it replaces.
+    func stopProviders(ofPlugin pluginID: String) {
+        retainProviders { $0.pluginID != pluginID }
+    }
+
+    private func stop(_ entry: Running, for target: BuildProviderTarget) {
+        if running[target] === entry { running[target] = nil }
+        entry.task?.cancel()
+        entry.session?.stop()
+    }
+
     /// The process already started for `target`; nil when none runs. A
-    /// process that exited or crashed is replaced by the next request.
-    private func runningSession(for target: BuildProviderTarget) async throws -> LanguageServerRuntimeSession? {
+    /// process that exited or crashed is replaced by the next request, and
+    /// so is one started with other setting values: its arguments, such as
+    /// a heap size, came from the settings it was launched with.
+    private func runningSession(
+        for target: BuildProviderTarget,
+        settings: [String: ToolingJSONValue]
+    ) async throws -> LanguageServerRuntimeSession? {
         guard let entry = running[target], let task = entry.task else { return nil }
+        if entry.settings != settings {
+            stop(entry, for: target)
+            return nil
+        }
         if let session = entry.session, !session.isRunning {
             running[target] = nil
             return nil
@@ -119,8 +148,8 @@ final class MacBuildProviderSessions: BuildProviderRequesting {
     ) async throws -> LanguageServerRuntimeSession {
         // Another request may have started the process while this one
         // resolved the launch.
-        if let session = try await runningSession(for: target) { return session }
-        let entry = Running()
+        if let session = try await runningSession(for: target, settings: process.settings) { return session }
+        let entry = Running(settings: process.settings)
         running[target] = entry
         let task = Task { @MainActor [weak self] () throws -> LanguageServerRuntimeSession in
             guard let self else { throw CancellationError() }
