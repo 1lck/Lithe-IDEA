@@ -46,6 +46,7 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
     private var terminationCleanupTask: Task<Void, Never>?
     private var terminationCleanupState: TerminationCleanupState = .idle
     private var isUpdateInstallTermination = false
+    private var relaunchesAfterTermination = false
     private var updateForceExitTask: Task<Void, Never>?
     weak var projectSessions: ProjectSessionManager? {
         didSet {
@@ -134,6 +135,16 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
         isUpdateInstallTermination = true
     }
 
+    /// "Restart Lithe": quits through the normal confirmations and opens Lithe
+    /// again once this process has exited. Cancelling any confirmation keeps
+    /// Lithe running and forgets the request.
+    func requestRestart() {
+        guard terminationCleanupState == .idle, terminationConfirmationTask == nil,
+              !isUpdateInstallTermination else { return }
+        relaunchesAfterTermination = true
+        NSApp.terminate(nil)
+    }
+
     func finishUpdateCycle() {
         if terminationCleanupState == .idle {
             isUpdateInstallTermination = false
@@ -155,7 +166,11 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let projectSessions else {
-            return (prepareStableRollbackTermination?() ?? true) ? .terminateNow : .terminateCancel
+            guard prepareStableRollbackTermination?() ?? true else {
+                relaunchesAfterTermination = false
+                return .terminateCancel
+            }
+            return .terminateNow
         }
 
         // AppKit may ask more than once while a previous asynchronous reply is
@@ -179,6 +194,7 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
                     self.isUpdateInstallTermination = false
                 }
                 self.terminationConfirmationTask = nil
+                self.relaunchesAfterTermination = false
                 sender.reply(toApplicationShouldTerminate: false)
                 return
             }
@@ -197,6 +213,7 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
                     self.isUpdateInstallTermination = false
                 }
                 self.cancelProcessExit()
+                self.relaunchesAfterTermination = false
                 sender.reply(toApplicationShouldTerminate: false)
                 return
             }
@@ -204,6 +221,7 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
                 guard self.prepareStableRollbackTermination?() ?? true else {
                     self.isUpdateInstallTermination = false
                     self.cancelProcessExit()
+                    self.relaunchesAfterTermination = false
                     sender.reply(toApplicationShouldTerminate: false)
                     return
                 }
@@ -269,6 +287,9 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
         // is still alive must not outlive the IDE.
         MacLiveProcessGroups.application.terminateAllAndWait()
         sweepProcessScope()
+        if relaunchesAfterTermination, !isUpdateInstallTermination {
+            MacApplicationRelauncher.scheduleRelaunch()
+        }
         isUpdateInstallTermination = false
         updateForceExitTask?.cancel()
         updateForceExitTask = nil
@@ -596,6 +617,11 @@ struct LitheApp: App {
 
     private var model: AppModel { projectSessions.activeModel }
 
+    private var restartApplication: ApplicationRestartAction {
+        let appDelegate = appDelegate
+        return ApplicationRestartAction { appDelegate.requestRestart() }
+    }
+
     var body: some Scene {
         WindowGroup(id: LitheWindowID.welcome) {
             RootView(scope: .primary)
@@ -607,6 +633,7 @@ struct LitheApp: App {
                 .environmentObject(frameRateMonitor)
                 .environmentObject(updateChecker)
                 .environment(\.locale, settings.language.locale)
+                .environment(\.restartApplication, restartApplication)
                 .font(LitheTheme.uiFont(.body))
                 // SwiftUI does not consistently re-resolve every existing
                 // LocalizedStringKey when only the locale environment value
@@ -803,6 +830,7 @@ struct LitheApp: App {
                         .environmentObject(frameRateMonitor)
                         .environmentObject(updateChecker)
                         .environment(\.locale, settings.language.locale)
+                        .environment(\.restartApplication, restartApplication)
                         .font(LitheTheme.uiFont(.body))
                         .id("\(windowID.uuidString)-\(settings.language)")
                         .preferredColorScheme(settings.themePreference.preferredColorScheme)
@@ -821,6 +849,7 @@ struct LitheApp: App {
             .environmentObject(settings)
             .environmentObject(updateChecker)
             .environment(\.locale, settings.language.locale)
+            .environment(\.restartApplication, restartApplication)
             .font(LitheTheme.uiFont(.body))
         }
         .defaultSize(width: 900, height: 668)
@@ -832,6 +861,7 @@ struct LitheApp: App {
                 .environmentObject(model)
                 .environmentObject(updateChecker)
                 .environment(\.locale, settings.language.locale)
+                .environment(\.restartApplication, restartApplication)
                 .font(LitheTheme.uiFont(.body))
                 .id(settings.language)
                 .preferredColorScheme(settings.themePreference.preferredColorScheme)

@@ -130,6 +130,10 @@ enum PluginMarketplaceInstallState: Equatable {
     /// Built in or installed from disk, not managed by the marketplace.
     case managedOutsideMarketplace(version: String)
     case unsupported(message: String)
+    /// The community plugin replaces a retired official plugin that is still
+    /// installed, or still loaded until restart after its uninstall. Both
+    /// declare the same language, so the community package would be rejected.
+    case blockedByRetiredPlugin(name: String, uninstallPending: Bool)
 }
 
 /// All sources' listings of one plugin ID.
@@ -389,6 +393,13 @@ final class PluginMarketplaceFeatureModel: ObservableObject {
             }
             return .installed(version: installedVersion)
         }
+        if let retired = retiredPluginBlocking(pluginID) {
+            return .blockedByRetiredPlugin(
+                name: retired.manifest.displayName,
+                uninstallPending: retired.installationStatus == .uninstallPending
+                    || retired.installationStatus == .removed
+            )
+        }
         switch offer.entry.availability {
         case .available:
             return .installable
@@ -435,6 +446,21 @@ final class PluginMarketplaceFeatureModel: ObservableObject {
         return nil
     }
 
+    /// The retired official plugin that `pluginID` replaces, while its package
+    /// is still on disk. An uninstall is only finished by the next launch.
+    func retiredPluginBlocking(_ pluginID: PluginID) -> PluginManagementSnapshot? {
+        guard let retired = OfficialPluginCatalog.entries.first(where: { $0.communityReplacementID == pluginID }) else {
+            return nil
+        }
+        return pluginManager.snapshots.first { $0.id == retired.id }
+    }
+
+    /// Whether a plugin change made in this session waits for a restart, so
+    /// Plugin Management offers "Restart Lithe".
+    var hasChangesPendingRestart: Bool {
+        pluginManager.snapshots.contains(where: \.hasChangesPendingRestart)
+    }
+
     /// An installed or updated plugin is only loaded when Lithe starts, so the
     /// marketplace says so instead of looking finished.
     func requiresRestart(_ pluginID: PluginID) -> Bool {
@@ -459,6 +485,7 @@ final class PluginMarketplaceFeatureModel: ObservableObject {
     func install(_ offer: PluginMarketplaceOffer) async {
         let pluginID = PluginID(offer.entry.id)
         guard !busyPluginIDs.contains(pluginID),
+              retiredPluginBlocking(pluginID) == nil,
               let download = offer.entry.availability.download else { return }
         busyPluginIDs.insert(pluginID)
         errors[pluginID] = nil

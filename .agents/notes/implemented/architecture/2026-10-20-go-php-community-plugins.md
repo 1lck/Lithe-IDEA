@@ -40,9 +40,15 @@ Go 和 PHP 已经是声明式插件：包里只有 `plugin.json`（PHP 另有 In
 
 ### 3. 用户手动迁移，不自动替换
 
-新旧包声明同一个语言（`go` / `php`）。启动时加载器按 ID 排序处理插件包，同一语言只能有一个拥有者：旧包 `dev.lithe.*` 排在前面，所以两者都装着时社区包会因为语言冲突被拒绝。迁移提示因此要求“先卸载旧包，再安装社区版”。
+新旧包声明同一个语言（`go` / `php`），也复用同样的语言模块 ID。同一语言只能有一个拥有者，而卸载要到下次启动才真正删除旧包：在那之前，旧包的模块仍然注册在当前进程里，社区包即使装上也会因语言冲突被拒绝。所以迁移顺序固定为“卸载旧包 → 重启 → 安装社区版 → 重启”：
+
+- 插件市场在旧包还在磁盘上时，把社区版显示为“需先卸载旧版”，不允许安装（`blockedByRetiredPlugin`）；旧包已标记卸载时，直接给出“重启 Lithe”按钮。
+- 插件管理页顶部在本次会话有待重启生效的插件变更时显示横幅和“重启 Lithe”按钮，效果和 IntelliJ IDEA 的“Restart IDE”一样。重启走正常退出流程：未保存文件和运行中进程照常确认，任何一步取消都不会重启。真正重新打开应用的是一个分离的辅助进程，它等待旧进程退出（最多 30 秒），然后用 `open` 打开同一个 app bundle；如果旧进程到时还没退出，`open` 只会激活它，不会再开第二个 Lithe。
+- 卸载会停掉正在运行的模块，但这不等于用户关闭了它。卸载时只保留用户明确关闭过的模块（存储里是 `false`），其余模块的启用记录被清除，下一次确认安装（包括替代它的社区版）就会按“首次安装默认启用”的规则启用。否则旧版启用 → 卸载 → 安装社区版之后，社区版会继承卸载时写入的 `false`，装好了却是禁用的。
 
 不做自动迁移，是因为社区包的信任模型不同（没有 Lithe 签名，需要用户在确认框里看过权限和程序），宿主不能替用户点这个确认。
+
+LSP 控制中心对已迁移的语言单独给出引导：没装插件时提示从 Lithe Store 安装，旧包还在时提示先卸载并重启，有待重启的变更时附带“重启 Lithe”按钮。
 
 ### 4. PHP 插件改用用户安装的 Intelephense
 
@@ -75,7 +81,7 @@ Go/PHP 插件可以独立迭代和发布，不占用主仓库 CI，也不需要 
 
 ## 验证
 
-- `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'PluginMarketplace|PluginManager|PluginManagementPresentation|PluginPackageStore'`：已迁移 ID 不出现在官方列表、没有官方来源和更新、可以卸载，旧 ID 仍要求 publisher 签名。
+- `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'PluginMarketplace|PluginManager|PluginManagementPresentation|PluginPackageStore|ApplicationRelauncher'`：已迁移 ID 不出现在官方列表、没有官方来源和更新、可以卸载，旧 ID 仍要求 publisher 签名；旧包未删除前社区版不可安装；启用的旧包卸载、重启后安装替代包会启用，用户关闭过的保持关闭；重启辅助进程的等待有上限且不会多开实例。
 - `node --test scripts/official-plugin-releases.test.mjs`：官方插件配置为空时发布计划为空，发布流程用合成插件继续可测。
 - `node scripts/test-official-plugin-distribution.mjs`：应用内置名单只含 Java Support。
 - `node scripts/test-reuse-worktree-resources.mjs`：已删除的 PHP 下载资源不再出现在复用清单里。
@@ -89,6 +95,9 @@ Go/PHP 插件可以独立迭代和发布，不占用主仓库 CI，也不需要 
 - `macos/Sources/Lithe/Application/Features/PluginMarketplace.swift`
 - `macos/Sources/Lithe/Views/App/PluginManagementView.swift`
 - `macos/Sources/Lithe/Views/Language/LSPControlCenterView.swift`
+- `macos/Sources/Lithe/Views/App/ApplicationRestartAction.swift`
+- `macos/Sources/Lithe/Platform/MacOS/MacApplicationRelauncher.swift`
+- `macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginManager.swift`
 - `macos/Tests/LitheTests/Fixtures/RetiredOfficialPlugins/`
 - `Plugins/mac/README.md`
 - `Plugins/marketplace/`

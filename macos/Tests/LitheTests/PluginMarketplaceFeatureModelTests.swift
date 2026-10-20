@@ -302,11 +302,54 @@ struct PluginMarketplaceFeatureModelTests {
     func officialPluginMovedToTheCommunityHasNoOfficialSource() throws {
         let retiredID = OfficialPluginCatalog.phpPluginID
         let (feature, _, manager) = try makeModel(staleOfficialIDs: [retiredID.rawValue])
+        manager.snapshots = [try retiredPHPSnapshot(status: .installed)]
+
+        #expect(OfficialPluginCatalog.entry(for: retiredID)?.communityReplacementID
+            == PluginID("io.github.lithe-idea.php-support"))
+        #expect(!feature.listings.contains { $0.pluginID == retiredID })
+        #expect(feature.listings.contains { $0.pluginID.rawValue == "dev.lithe.plugin.sample" })
+        #expect(feature.installedSourceID(for: retiredID) == nil)
+        #expect(feature.availableUpdate(for: retiredID) == nil)
+        #expect(feature.canUninstall(retiredID))
+    }
+
+    /// The community plugin declares the same language as the retired one,
+    /// so it cannot be installed until the old package is gone after restart.
+    @Test
+    func communityReplacementWaitsUntilTheRetiredPluginIsRemoved() async throws {
+        let replacementID = "io.github.lithe-idea.php-support"
+        let (feature, service, manager) = try makeModel(extraCommunityIDs: [replacementID])
+        service.origin = .community
+        let listing = try #require(feature.listings.first { $0.pluginID.rawValue == replacementID })
+        let offer = try #require(feature.offer(for: listing))
+
+        manager.snapshots = [try retiredPHPSnapshot(status: .installed)]
+        #expect(feature.installState(for: offer) == .blockedByRetiredPlugin(name: "PHP Support", uninstallPending: false))
+        await feature.install(offer)
+        #expect(feature.pendingConfirmation == nil)
+        #expect(manager.installed.isEmpty)
+
+        manager.snapshots = [try retiredPHPSnapshot(status: .uninstallPending, hasChangesPendingRestart: true)]
+        #expect(feature.installState(for: offer) == .blockedByRetiredPlugin(name: "PHP Support", uninstallPending: true))
+        #expect(feature.hasChangesPendingRestart)
+
+        // After the restart the old package is gone.
+        manager.snapshots = []
+        #expect(feature.installState(for: offer) == .installable)
+        #expect(!feature.hasChangesPendingRestart)
+        await feature.install(offer)
+        #expect(feature.pendingConfirmation != nil)
+    }
+
+    private func retiredPHPSnapshot(
+        status: PluginInstallationStatus,
+        hasChangesPendingRestart: Bool = false
+    ) throws -> PluginManagementSnapshot {
         let manifest = try DeclarativePluginTestSupport.officialDescriptor("PhpSupport").pluginManifest
-        manager.snapshots = [PluginManagementSnapshot(
+        return PluginManagementSnapshot(
             manifest: manifest,
             origin: .marketplace,
-            installationStatus: .installed,
+            installationStatus: status,
             isEnabled: true,
             isRequired: false,
             isRunning: false,
@@ -322,16 +365,9 @@ struct PluginMarketplaceFeatureModelTests {
                 archiveSHA256: String(repeating: "1", count: 64),
                 contentDigest: String(repeating: "2", count: 64),
                 approvedPrograms: []
-            )
-        )]
-
-        #expect(OfficialPluginCatalog.entry(for: retiredID)?.communityReplacementID
-            == PluginID("io.github.lithe-idea.php-support"))
-        #expect(!feature.listings.contains { $0.pluginID == retiredID })
-        #expect(feature.listings.contains { $0.pluginID.rawValue == "dev.lithe.plugin.sample" })
-        #expect(feature.installedSourceID(for: retiredID) == nil)
-        #expect(feature.availableUpdate(for: retiredID) == nil)
-        #expect(feature.canUninstall(retiredID))
+            ),
+            hasChangesPendingRestart: hasChangesPendingRestart
+        )
     }
 
     @Test
@@ -374,6 +410,7 @@ struct PluginMarketplaceFeatureModelTests {
     private func makeModel(
         alsoListCommunityInOfficial: Bool = false,
         staleOfficialIDs: [String] = [],
+        extraCommunityIDs: [String] = [],
         communitySource community: PluginMarketplaceSource = Self.community
     ) throws -> (PluginMarketplaceFeatureModel, FakeMarketplaceService, FakePluginManager) {
         let official = MacPluginMarketplaceService.officialSource
@@ -392,7 +429,9 @@ struct PluginMarketplaceFeatureModelTests {
                 community.id: PluginMarketplaceIndex(plugins: [
                     Self.entry(id: "io.example.windows-only", date: "2026-08-01", platforms: ["windows-x64"]),
                     Self.entry(id: "io.example.zig-support", date: "2026-10-10", platforms: ["darwin-arm64"]),
-                ], rejected: []),
+                ] + extraCommunityIDs.map {
+                    Self.entry(id: $0, date: "2026-10-20", platforms: ["darwin-arm64"])
+                }, rejected: []),
             ]
         )
         let manager = FakePluginManager()

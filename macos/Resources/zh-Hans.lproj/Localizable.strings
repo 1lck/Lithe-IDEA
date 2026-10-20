@@ -1377,7 +1377,6 @@
 "Uninstall" = "卸载";
 "Reinstall" = "重新安装";
 "Restart required" = "需要重启 Lithe";
-"Restart to Activate" = "重启后生效";
 "Version %@ is installed. Restart Lithe to load it." = "已安装版本 %@，重启 Lithe 后生效。";
 "Removed. Restart Lithe to finish." = "已移除，重启 Lithe 后完成。";
 "Removed. Restore it to use it again." = "已移除，恢复后可再次使用。";
@@ -2852,7 +2851,13 @@
 "Adds Java language intelligence through the Eclipse JDT language server, with Lombok, debugging, and test support. Ships its own Java runtime." = "通过 Eclipse JDT 语言服务器提供 Java 代码智能，并支持 Lombok、调试和测试。自带 Java 运行时。";
 
 "Retired official Go plugin. Go support is now the community plugin Go Support in Lithe Store." = "已退役的官方 Go 插件。Go 支持现在由 Lithe Store 中的社区插件 Go Support 提供。";
-"%@ is no longer an official plugin. It moved to the community plugin %@ in Lithe Store and gets no further updates here. Uninstall it, then install the community version from the Marketplace." = "%@ 已不再是官方插件，已迁移为 Lithe Store 中的社区插件 %@，这里不会再收到更新。请先卸载它，再从插件市场安装社区版本。";
+"%@ is no longer an official plugin. It moved to the community plugin %@ in Lithe Store and gets no further updates here. Uninstall it, restart Lithe, then install the community version from the Marketplace." = "%@ 已不再是官方插件，已迁移为 Lithe Store 中的社区插件 %@，这里不会再收到更新。请先卸载它并重启 Lithe，再从插件市场安装社区版本。";
+"Restart Lithe to finish uninstalling %@, then install the community plugin %@ from the Marketplace." = "请重启 Lithe 以完成 %@ 的卸载，然后从插件市场安装社区插件 %@。";
+"Restart Lithe to finish uninstalling %@, then install this plugin." = "请重启 Lithe 以完成 %@ 的卸载，然后再安装此插件。";
+"Uninstall %@ from the Installed tab and restart Lithe first. It is the retired official version of this plugin and supports the same language." = "请先在“已安装”中卸载 %@ 并重启 Lithe。它是此插件已退役的官方版本，支持同一种语言。";
+"Replaces an Installed Plugin" = "需先卸载旧版";
+"Plugin changes take effect after Lithe restarts." = "插件变更将在重启 Lithe 后生效。";
+"Restart Lithe" = "重启 Lithe";
 
 "Download PHP Support from the official signed plugin package." = "从官方签名的插件包下载 PHP 支持。";
 

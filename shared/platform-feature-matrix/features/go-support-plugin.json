@@ -10,7 +10,10 @@
       "macos/Sources/Lithe/Views/App/PluginManagementView.swift",
       "macos/Sources/Lithe/Application/Features/PluginMarketplace.swift",
       "macos/Tests/LitheTests/LanguageExtensionProcessLifecycleTests.swift",
-      "shared/contracts/plugins/v1/fixtures/command-plans.json"
+      "shared/contracts/plugins/v1/fixtures/command-plans.json",
+      "macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginManager.swift",
+      "macos/Sources/Lithe/Platform/MacOS/MacApplicationRelauncher.swift",
+      "macos/Tests/LitheTests/PluginManagerTests.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -23,5 +26,5 @@
     "verificationStatus": "not-applicable"
   },
   "owner": "Go Support（社区插件 Lithe-IDEA/lithe-plugin-go）",
-  "verification": "macOS 打开插件管理，确认“Lithe 官方”源不再列出 Go Support，而 Lithe Store 社区源列出 io.github.lithe-idea.go-support 0.1.0；安装后启用无需重启，打开含 go.mod 的项目并点开 .go 文件，确认使用用户安装的 gopls 启动语言服务器；运行 main.go、运行整套与单文件、单个测试函数的 go test；禁用后 gopls 和运行进程退出。未安装 gopls 时给出缺失提示而不是崩溃。已安装旧官方包 dev.lithe.plugin.go-support 的环境：插件管理显示“已迁移到社区插件”提示、没有官方更新、可以卸载，旧包仍按官方签名要求校验；卸载后从市场安装社区版。Windows 暂无 Go 插件。"
+  "verification": "macOS 打开插件管理，确认“Lithe 官方”源不再列出 Go Support，而 Lithe Store 社区源列出 io.github.lithe-idea.go-support 0.1.0；安装后启用无需重启，打开含 go.mod 的项目并点开 .go 文件，确认使用用户安装的 gopls 启动语言服务器；运行 main.go、运行整套与单文件、单个测试函数的 go test；禁用后 gopls 和运行进程退出。未安装 gopls 时给出缺失提示而不是崩溃。已安装旧官方包 dev.lithe.plugin.go-support 的环境：插件管理显示“已迁移到社区插件”提示、没有官方更新、可以卸载；旧包还在时插件市场里社区版显示“需先卸载旧版”且不可安装，卸载后点“重启 Lithe”按钮（未保存文件和运行中进程照常确认，取消则不重启）重启进入同一个应用，再安装社区版并重启，确认社区版是启用状态、LSP/运行/测试可用；卸载前手动关闭过的则保持关闭，旧包仍按官方签名要求校验；卸载后从市场安装社区版。Windows 暂无 Go 插件。"
 }
