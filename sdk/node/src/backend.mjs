@@ -406,7 +406,7 @@ class Backend {
       id,
       functionID,
       (context) => handler(params ?? {}, { ...context, functionID, operationID, progress }),
-      (result) => result ?? null,
+      functionResult,
       () => {
         reporting = false;
       },
@@ -539,7 +539,14 @@ class Backend {
 
   #respond(id, result, error) {
     if (this.#phase === 'exited') return;
-    this.#write(error ? { jsonrpc: '2.0', id, error } : { jsonrpc: '2.0', id, result: result ?? null });
+    try {
+      this.#write(error ? { jsonrpc: '2.0', id, error } : { jsonrpc: '2.0', id, result: result ?? null });
+    } catch (failure) {
+      // A result JSON cannot encode, such as a BigInt or a cycle, must not
+      // become an unhandled rejection that ends the whole session.
+      this.log('The result could not be encoded:', failure);
+      this.#write({ jsonrpc: '2.0', id, error: toResponseError(failure) });
+    }
   }
 
   #write(message) {
@@ -576,7 +583,31 @@ function buildResult(method, result) {
   if (result.format !== undefined && result.format !== expected) {
     throw new PluginSdkError('sdk.build.invalidResult', `${method} returned format ${result.format}, not ${expected}.`);
   }
-  return { format: expected, version: 1, ...result };
+  if (result.version !== undefined && result.version !== 1) {
+    throw new PluginSdkError('sdk.build.invalidResult', `${method} returned version ${result.version}, not 1.`);
+  }
+  return { ...result, format: expected, version: 1 };
+}
+
+/**
+ * A function result as the JSON value Core accepts. A value JSON cannot
+ * encode, or one over Core's 1 MiB limit, fails here as a backend bug with a
+ * log line, instead of breaking the response frame or being refused by Core.
+ */
+function functionResult(result) {
+  let encoded;
+  try {
+    encoded = JSON.stringify(result ?? null);
+  } catch (error) {
+    throw new PluginSdkError('sdk.function.invalidResult', `The result is not JSON: ${error.message}`);
+  }
+  if (encoded === undefined) {
+    throw new PluginSdkError('sdk.function.invalidResult', 'The result is not a JSON value.');
+  }
+  if (Buffer.byteLength(encoded) > LIMITS.maxResultBytes) {
+    throw new PluginSdkError('sdk.function.invalidResult', `The result exceeds ${LIMITS.maxResultBytes} bytes.`);
+  }
+  return result ?? null;
 }
 
 /**

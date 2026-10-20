@@ -212,6 +212,43 @@ test('build handlers get the canonical format stamped, and a wrong format fails'
   await host.close();
 });
 
+test('a build result cannot replace the version the SDK stamps', async () => {
+  const backend = createBackend();
+  backend.build.model(() => ({ version: 2, projects: [] }));
+  backend.build.dependencies(() => ({ version: 1, dependencies: [] }));
+  const host = new TestHost(backend);
+  await host.initialize();
+  const model = await host.request('lithe/build/model', { buildSystemID: 'sample', root: '.' });
+  assert.equal(model.error.code, -32603);
+  const dependencies = await host.request('lithe/build/dependencies', { buildSystemID: 'sample', root: '.' });
+  assert.deepEqual(dependencies.result, { format: 'litheDependencies', version: 1, dependencies: [] });
+  await host.close();
+});
+
+test('a result JSON cannot encode, or one over 1 MiB, fails the call and the session continues', async () => {
+  const cycle = {};
+  cycle.self = cycle;
+  const backend = createBackend()
+    .function('result.bigint', () => 1n)
+    .function('result.cycle', () => cycle)
+    .function('result.symbol', () => Symbol('value'))
+    .function('result.large', () => 'x'.repeat(1 << 20))
+    .function('result.fine', () => ({ ok: true }));
+  backend.build.model(() => ({ projects: [{ name: 'app', path: '.', size: 1n }] }));
+  const host = new TestHost(backend);
+  await host.initialize();
+  let operation = 0;
+  for (const functionID of ['result.bigint', 'result.cycle', 'result.symbol', 'result.large']) {
+    const response = await host.request('lithe/function/invoke', { functionID, operationID: `op-${operation++}` });
+    assert.equal(response.error?.code, -32603, functionID);
+  }
+  const model = await host.request('lithe/build/model', { buildSystemID: 'sample', root: '.' });
+  assert.equal(model.error?.code, -32603);
+  const fine = await host.request('lithe/function/invoke', { functionID: 'result.fine', operationID: 'op-last' });
+  assert.deepEqual(fine.result, { ok: true });
+  assert.equal(await host.close(), 1);
+});
+
 test('build requests are refused when the host did not negotiate litheBuild', async () => {
   const backend = createBackend();
   backend.build.model(() => ({ projects: [] }));

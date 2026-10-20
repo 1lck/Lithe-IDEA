@@ -59,7 +59,7 @@ imports has to be inside the package. The SDK has no dependencies.
 | API | Purpose |
 | --- | --- |
 | `createBackend({ name?, version?, capabilities? })` | Creates the backend. `capabilities` are standard LSP server capabilities; `experimental.litheBuild` and `experimental.litheFunctions` are reserved for the SDK. |
-| `backend.build.model(handler)`, `backend.build.dependencies(handler)` | Implements the typed build requests. The SDK stamps `format` and `version`; Core validates the document. `litheBuild` is answered only when a handler exists. |
+| `backend.build.model(handler)`, `backend.build.dependencies(handler)` | Implements the typed build requests. The SDK stamps `format` and `version`; a handler returning another format or a version other than 1 fails. Core validates the document. `litheBuild` is answered only when a handler exists. |
 | `backend.function(id, handler)` | Declares a function offered in `initialize`. |
 | `backend.registerFunction(id, handler)`, `backend.unregisterFunction(id)` | Adds or withdraws a function. Called before the `initialize` answer (for example from `onInitialize`), they change the initial list; later they send `lithe/function/register` / `unregister`. Withdrawing revokes running calls. |
 | `backend.onInitialize(hook)`, `backend.onShutdown(hook)` | Lifecycle hooks. `onInitialize` receives the `initialize` params and what was negotiated. |
@@ -91,7 +91,9 @@ Every handler receives a context:
 | Throws anything else | `plugin.function.failed` with a generic message, so paths and stack traces never reach the UI. The real error goes to stderr. |
 | Ends because of `signal` | `requestCancelled` (or Lithe's timeout/revocation outcome) |
 
-A result must serialize to at most 1 MiB. A function ID is dot-separated
+A result must serialize to at most 1 MiB of JSON. A value JSON cannot encode
+(a `BigInt`, a cycle) or a larger one fails like any other unexpected error and
+is logged to stderr; the session keeps running. A function ID is dot-separated
 lowerCamelCase segments (`snapshot.refresh`), at most 128 bytes, and a session
 holds at most 256 functions. A `PluginError` code matches
 `[A-Za-z][A-Za-z0-9._-]*`, at most 64 bytes.

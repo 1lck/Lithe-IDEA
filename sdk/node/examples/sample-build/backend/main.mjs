@@ -55,11 +55,10 @@ backend.build.dependencies(async ({ root, project }) => {
 });
 
 backend.function('workspace.build', async ({ projects: selected }, context) => {
-  // Step 1: prepare. Read the workspace file and the previous snapshot.
+  // Step 1: prepare. Read the workspace file and resolve the selection.
   context.progress({ message: 'Preparing', percentage: 0 });
   const config = await readConfig('.');
-  const previous = store.read('snapshot', null);
-  const projects = selected ? config.projects.filter(({ name }) => selected.includes(name)) : config.projects;
+  const projects = selectProjects(config, selected);
 
   // Step 2: run each project's tool. `context.run` ends the whole process
   // tree when Lithe cancels the call, so a cancelled build leaves nothing behind.
@@ -73,20 +72,24 @@ backend.function('workspace.build', async ({ projects: selected }, context) => {
     });
     results.push({ name: project.name, exitCode });
     if (exitCode !== 0) {
-      record(previous, results, 'failed');
+      record(results, 'failed');
       throw new PluginError('sample.buildFailed', `${project.name} failed with exit code ${exitCode}.`);
     }
   }
 
   // Step 3: record the outcome, so `snapshot.read` returns it after a restart.
-  const snapshot = record(previous, results, 'succeeded');
+  const snapshot = record(results, 'succeeded');
   context.progress({ message: 'Done', percentage: 100 });
   return snapshot;
 });
 
 backend.function('snapshot.read', () => store.read('snapshot', null));
 
-function record(previous, projects, status) {
+// Reads the latest snapshot when the build ends, not when it starts: two
+// overlapping builds then get consecutive generations instead of the same one.
+// The read and the write run without an `await` between them.
+function record(projects, status) {
+  const previous = store.read('snapshot', null);
   const snapshot = { generation: (previous?.generation ?? 0) + 1, status, projects };
   store.write('snapshot', snapshot);
   offerClear();
@@ -101,6 +104,19 @@ function offerClear() {
       return null;
     })
     .catch((error) => backend.log('snapshot.clear stays unavailable:', error.message));
+}
+
+/** Every project, or exactly the named ones; an unknown name is an error, not an empty build. */
+function selectProjects(config, selected) {
+  if (selected === undefined || selected === null) return config.projects;
+  if (!Array.isArray(selected) || selected.length === 0 || !selected.every((name) => typeof name === 'string')) {
+    throw new PluginError('sample.selection', '"projects" must be a non-empty list of project names.');
+  }
+  const unknown = selected.filter((name) => !config.projects.some((project) => project.name === name));
+  if (unknown.length > 0) {
+    throw new PluginError('sample.unknownProject', `Unknown project: ${unknown.join(', ')}.`);
+  }
+  return config.projects.filter(({ name }) => selected.includes(name));
 }
 
 async function readConfig(root) {

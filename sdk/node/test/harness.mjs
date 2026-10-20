@@ -1,6 +1,7 @@
-// An in-memory host for SDK tests: it writes framed messages to a backend
-// and decodes what the backend answers, with a bounded wait on every reply.
+// A host for SDK tests: it writes framed messages to a backend, in memory or
+// in a child process, and decodes the answers with a bounded wait on each.
 
+import { ChildProcess } from 'node:child_process';
 import { PassThrough } from 'node:stream';
 import { encodeFrame, FrameDecoder } from '../src/framing.mjs';
 
@@ -8,15 +9,24 @@ import { encodeFrame, FrameDecoder } from '../src/framing.mjs';
 export const WAIT_MILLISECONDS = 5000;
 
 export class TestHost {
-  input = new PassThrough();
-  output = new PassThrough();
-  errorOutput = new PassThrough();
   messages = [];
   #waiters = [];
   #nextID = 1;
   exitCode;
 
+  /** Hosts `backend` in memory, or talks to a backend child process over its stdio as Lithe does. */
   constructor(backend) {
+    if (backend instanceof ChildProcess) {
+      this.input = backend.stdin;
+      this.output = backend.stdout;
+      this.errorOutput = backend.stderr;
+      this.done = new Promise((resolve) => backend.once('exit', (code) => resolve(code)));
+    } else {
+      this.input = new PassThrough();
+      this.output = new PassThrough();
+      this.errorOutput = new PassThrough();
+      this.done = backend.listen({ input: this.input, output: this.output, errorOutput: this.errorOutput, exit: null });
+    }
     const decoder = new FrameDecoder();
     this.output.on('data', (chunk) => {
       for (const message of decoder.push(chunk)) {
@@ -25,7 +35,6 @@ export class TestHost {
       }
     });
     this.errorOutput.resume();
-    this.done = backend.listen({ input: this.input, output: this.output, errorOutput: this.errorOutput, exit: null });
   }
 
   send(message) {
@@ -42,10 +51,13 @@ export class TestHost {
     this.send({ method, params });
   }
 
-  async initialize(experimental = { litheBuild: { versions: [1] }, litheFunctions: { versions: [1] } }) {
+  async initialize(
+    experimental = { litheBuild: { versions: [1] }, litheFunctions: { versions: [1] } },
+    rootUri = 'file:///workspace',
+  ) {
     const response = await this.request('initialize', {
       processId: null,
-      rootUri: 'file:///workspace',
+      rootUri,
       capabilities: { experimental },
     });
     this.notify('initialized', {});
