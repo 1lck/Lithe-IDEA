@@ -4,28 +4,22 @@ import LitheApplicationKernel
 import LitheModuleAPI
 import LitheSearchModule
 
-/// Owns activation and initial warming of the search module capability.
+/// Owns search capability activation; each request builds only the indexes it needs.
 @MainActor
 final class SearchModuleCoordinator {
     private let runtime: ModuleRuntime
     private let store: ModuleCapabilityStore
-    private let workspace: @MainActor () -> URL?
-    private let visibilityRules: @MainActor () -> FileVisibilityRules
     private let onChange: () -> Void
     private let onError: (String) -> Void
 
     init(
         runtime: ModuleRuntime,
         store: ModuleCapabilityStore,
-        workspace: @escaping @MainActor () -> URL?,
-        visibilityRules: @escaping @MainActor () -> FileVisibilityRules,
         onChange: @escaping () -> Void,
         onError: @escaping (String) -> Void
     ) {
         self.runtime = runtime
         self.store = store
-        self.workspace = workspace
-        self.visibilityRules = visibilityRules
         self.onChange = onChange
         self.onError = onError
     }
@@ -46,12 +40,6 @@ final class SearchModuleCoordinator {
             store.observe(.search, observation: capability.feature.objectWillChange.sink { [weak self] _ in
                 self?.onChange()
             })
-            if let workspace = workspace() {
-                capability.feature.warmIndex(
-                    at: workspace,
-                    visibilityRules: visibilityRules().searchRules
-                )
-            }
             return capability.feature
         } catch {
             onError(error.localizedDescription)

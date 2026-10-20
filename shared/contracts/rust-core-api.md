@@ -1734,6 +1734,18 @@ and additionally accepts `maxSymbolResults` and optional
 case-insensitive contiguous fragments and camel/word humps, rather than arbitrary
 subsequences. Each file/type/symbol bucket is ranked before its requested cap;
 the total cap still applies to the file, type, symbol, then content buckets.
+A zero `maxFileResults` skips the names-only index entirely; zero
+`maxContentResults` together with zero `maxSymbolResults` skips the content/symbol
+index. All three zero caps produce no index builds. Omitted caps retain their
+existing defaults. macOS forwards the selected workspace sources through these
+existing caps: Actions-only stays local, Text-only requests contents, Files and
+Agent completion request names, and Classes/Symbols share the symbol index.
+Search module activation does not eagerly build a content index.
+Basename matches rank above relative-path fallback matches, even when the query
+contains no slash (for example `src` matches `src/Foo.swift`). Path-only matches
+have `matchingDegree: -1` and no basename ranges; literal basename hits use degree
+zero when there is no fuzzy degree. See `shared/fixtures/search/path-fallback.json`.
+
 Name matches include optional `matchingDegree` and `nameMatchRanges` entries
 `{ start, length }`, measured in UTF-16 units in the displayed basename or
 `symbolName`. Clients must not recompute different highlight fragments. Path-qualified

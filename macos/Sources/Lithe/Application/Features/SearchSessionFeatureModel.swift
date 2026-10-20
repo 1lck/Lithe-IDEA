@@ -52,6 +52,24 @@ final class SearchSessionFeatureModel: ObservableObject {
     }
 
     @Published var enabledEverywhereProviders = Set(SearchEverywhereProvider.allCases)
+    var everywhereResultKinds: Set<SearchResultKind> {
+        switch everywhereScope {
+        case .all:
+            return Set(enabledEverywhereProviders.compactMap { provider -> SearchResultKind? in
+                switch provider {
+                case .files: return .file
+                case .classes: return .type
+                case .symbols: return .symbol
+                case .actions: return nil
+                }
+            })
+        case .files: return [.file]
+        case .classes: return [.type]
+        case .symbols: return [.symbol]
+        case .text: return [.content]
+        case .actions: return []
+        }
+    }
     @Published var isEverywherePreviewVisible = false
     @Published var isProjectReplaceVisible = false
     @Published var replacementQuery = ""

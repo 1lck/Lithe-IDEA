@@ -2,6 +2,7 @@ import AppKit
 import Combine
 import SwiftUI
 import Testing
+import os
 import LitheSearchModule
 import LitheAgentConversationModule
 import LitheGitModule
@@ -242,7 +243,10 @@ struct SearchEverywhereBehaviorTests {
         let store = MacUserDefaultsStore(defaults: defaults), settings = AppSettings(store: store)
         settings.searchExcludedPathPatterns = ["*.log"]
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(suite)
-        for path in ["Name.txt", "Name.log", ".build/NameGenerated.txt", "node_modules/NameDependency.txt"] {
+        let fixture = try #require(JSONSerialization.jsonObject(with: Data(contentsOf:
+            DeclarativePluginTestSupport.repositoryRoot.appendingPathComponent("shared/fixtures/search/path-fallback.json"))) as? [String: Any])
+        let pathFiles = try #require(fixture["files"] as? [String])
+        for path in ["Name.txt", "Name.log", ".build/NameGenerated.txt", "node_modules/NameDependency.txt"] + pathFiles {
             let file = root.appendingPathComponent(path)
             try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
             try "name".write(to: file, atomically: true, encoding: .utf8)
@@ -266,8 +270,15 @@ struct SearchEverywhereBehaviorTests {
                 bare = await model.agentFileMentions(matching: "")
                 named = await model.agentFileMentions(matching: "Name")
             }
-            #expect(Set(bare.map(\.path)) == ["Name.txt", "Name.log"])
-            #expect(Set(named.map(\.path)) == Set(bare.map(\.path)))
+            #expect(Set(bare.map(\.path)) == Set(["Name.txt", "Name.log"] + pathFiles))
+            #expect(Set(named.map(\.path)) == ["Name.txt", "Name.log"])
+            for item in try #require(fixture["cases"] as? [[String: Any]]) {
+                let query = try #require(item["query"] as? String)
+                let paths = try #require(item["paths"] as? [String])
+                var mentions: [AgentFileMention] = []
+                try await scope.run("Agent @ path fallback") { mentions = await model.agentFileMentions(matching: query) }
+                #expect(mentions.map(\.path) == paths)
+            }
             model.searchSessionFeature.beginSearchEverywhere(query: "Name")
             try await scope.run("global generated-name search", timeout: .seconds(5)) { await model.searchEverywhere(query: "Name") }
             let paths = feature.searchEverywhereResults.fileMatches.map { $0.url.lastPathComponent }
@@ -306,7 +317,7 @@ struct SearchEverywhereBehaviorTests {
                 _ = await observedFeature.findFiles(at: root, query: "Name", visibilityRules: settings.fileVisibilityRules.searchRules)
             }
             #expect(model.workspaceSnapshotID == snapshotID, "Search exclusions must not rebuild the project tree")
-            #expect(Set(model.projectFiles.map(\.lastPathComponent)) == ["Name.txt", "Name.log"])
+            #expect(Set(model.projectFiles.map(\.lastPathComponent)) == Set((["Name.txt", "Name.log"] + pathFiles).map { URL(fileURLWithPath: $0).lastPathComponent }))
         }
     }
 
@@ -492,6 +503,41 @@ struct SearchEverywhereBehaviorTests {
         #expect(window.isVisible)
     }
 
+    @Test
+    func requestedSourcesReachTheCorePortWithoutSearchingForActions() async throws {
+        let requests = OSAllocatedUnfairLock(initialState: [Set<SearchResultKind>]())
+        let feature = SearchFeatureModel(operations: PreviewSelectionOperations(onSearch: { kinds in
+            requests.withLock { $0.append(kinds) }
+        }))
+        defer { feature.reset() }
+        let session = SearchSessionFeatureModel()
+        session.beginSearchEverywhere(query: "name")
+        let suite = "lithe-search-sources-" + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = AppSettings(store: MacUserDefaultsStore(defaults: defaults))
+        let coordinator = SearchWorkflowCoordinator(session: session, settings: settings, activate: { feature },
+            workspace: { URL(fileURLWithPath: "/fixture") }, notify: { Issue.record("Unexpected failure: \($0)") }, markIdle: {})
+        let cases: [(SearchEverywhereScope, Set<SearchEverywhereProvider>, Set<SearchResultKind>)] = [
+            (.files, [.actions], [.file]), (.text, [], [.content]),
+            (.classes, [], [.type]), (.symbols, [], [.symbol]),
+            (.all, [.files, .symbols], [.file, .symbol]),
+            (.actions, Set(SearchEverywhereProvider.allCases), []), (.all, [.actions], [])
+        ]
+        for (scope, providers, expected) in cases {
+            session.everywhereScope = scope
+            session.enabledEverywhereProviders = providers
+            let before = requests.withLock { $0.count }
+            await coordinator.searchEverywhere(query: "name", options: .default)
+            #expect(session.everywhereResultKinds == expected)
+            #expect(requests.withLock { $0.count } == before + (expected.isEmpty ? 0 : 1))
+            if !expected.isEmpty { #expect(requests.withLock { $0.last } == expected) }
+            else { #expect(feature.searchEverywhereResults.allMatches.isEmpty) }
+        }
+        _ = await coordinator.findFiles(query: "src")
+        #expect(requests.withLock { $0.last } == [.file], "Agent completion needs only the name index")
+    }
+
     @Test(arguments: [ColorScheme.dark, .light])
     func previewSelectionKeepsFocusColorAndMouseScrollPosition(scheme: ColorScheme) async throws {
         let operations = PreviewSelectionOperations()
@@ -503,8 +549,9 @@ struct SearchEverywhereBehaviorTests {
         session.isEverywherePreviewVisible = true
         session.isSearchEverywhereVisible = true
         var previewedURL: URL?
+        var openedURL: URL?
         let view = SearchEverywhereView(feature: feature, session: session, settings: AppSettings(store: MacUserDefaultsStore(defaults: UserDefaults(suiteName: UUID().uuidString)!)), actionMatches: { _ in [] },
-            search: { _, _ in }, dismiss: {}, openResult: { _ in Issue.record("A single click must only preview") },
+            search: { _, _ in }, dismiss: {}, openResult: { openedURL = $0.url },
             performAction: { _ in }, revealInFinder: { _ in }, copyPath: { _, _ in },
             relativePath: { $0.lastPathComponent }, moduleLabel: { _ in "" },
             loadPreviewDocument: { url, _ in EditorDocument(url: url, text: "preview", modificationDate: nil) },
@@ -552,6 +599,7 @@ struct SearchEverywhereBehaviorTests {
                 timestamp: 0, windowNumber: popup.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)))
         }
         await settle("mouse selection") { previewedURL?.lastPathComponent == "name07.swift" }
+        #expect(openedURL == nil, "A single mouse click must only preview")
         let previewField = try #require(descendants(content).compactMap { $0 as? NSTextField }
             .first { $0.stringValue == "preview" })
         #expect(popup.makeFirstResponder(previewField))
@@ -591,6 +639,11 @@ struct SearchEverywhereBehaviorTests {
             previewedURL?.lastPathComponent == "name00.swift" && scroll.contentView.bounds.contains(firstRow)
         }
         #expect(scroll.contentView.bounds.contains(firstRow))
+        // Non-mouse activation must open even while the preview is visible.
+        NSApp.sendEvent(try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+            timestamp: 0, windowNumber: popup.windowNumber, context: nil, characters: "\r", charactersIgnoringModifiers: "\r",
+            isARepeat: false, keyCode: 36)))
+        #expect(openedURL?.lastPathComponent == "name00.swift", "Return must open the selected result with preview enabled")
     }
 
     @Test(arguments: [ColorScheme.dark, .light])
@@ -647,6 +700,7 @@ struct SearchEverywhereBehaviorTests {
         parent.contentView?.layoutSubtreeIfNeeded()
         await Task.yield()
         #expect(filter.parent === popup, "Updating sources must not dismantle the filter anchor")
+        session.enabledEverywhereProviders = [.files, .actions] // Exclusion edits below exercise a workspace source.
         func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
         func click(_ window: NSWindow, point: NSPoint) throws {
             for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
@@ -869,10 +923,12 @@ struct SearchEverywhereBehaviorTests {
 
 private struct PreviewSelectionOperations: SearchOperations {
     var onInvalidate: @Sendable () -> Void = {}
+    var onSearch: @Sendable (Set<SearchResultKind>) -> Void = { _ in }
     func invalidateSearchIndex(at rootURL: URL, visibilityRules: SearchVisibilityRules) { onInvalidate() }
     func search(at rootURL: URL, query: String, options: ProjectSearchOptions, visibilityRules: SearchVisibilityRules) -> [FileSearchResult]? { [] }
-    func searchEverywhere(at rootURL: URL, query: String, options: ProjectSearchOptions, visibilityRules: SearchVisibilityRules, includeGeneratedFileNames: Bool) -> SearchEverywhereResults? {
-        .init(fileMatches: (0..<40).map { index in
+    func searchEverywhere(at rootURL: URL, query: String, options: ProjectSearchOptions, visibilityRules: SearchVisibilityRules, includeGeneratedFileNames: Bool, kinds: Set<SearchResultKind>) -> SearchEverywhereResults? {
+        onSearch(kinds)
+        return .init(fileMatches: (0..<40).map { index in
             FileSearchResult(url: rootURL.appendingPathComponent(String(format: "name%02d.swift", index)),
                 line: nil, preview: "", kind: .file, matchingDegree: 100)
         }, contentMatches: [])

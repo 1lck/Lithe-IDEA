@@ -147,6 +147,61 @@ fn search_everywhere_uses_git_ignore_rules_for_filename_foreground() {
 }
 
 #[test]
+fn search_everywhere_preserves_directory_fallback_below_basename_matches() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/search/path-fallback.json"
+    ))
+    .unwrap();
+    let root = temporary_root("search-path-fallback");
+    struct Cleanup(std::path::PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
+    for file in fixture["files"].as_array().unwrap() {
+        let path = root.join(file.as_str().unwrap());
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, "").unwrap();
+    }
+    for case in fixture["cases"].as_array().unwrap() {
+        for literal in [false, true] {
+            let response: Value = serde_json::from_str(&execute_json(
+                &serde_json::json!({
+                    "command": "workspace.searchEverywhere", "payload": {
+                        "root": root, "query": case["query"], "caseSensitive": literal,
+                        "maxResults": 100, "maxContentResults": 0, "maxSymbolResults": 0
+                    }
+                })
+                .to_string(),
+            ))
+            .unwrap();
+            assert_eq!(response["ok"], true, "{response}");
+            let matches = response["data"]["matches"].as_array().unwrap();
+            assert_eq!(
+                matches
+                    .iter()
+                    .map(|item| item["path"].clone())
+                    .collect::<Vec<_>>(),
+                case["paths"].as_array().unwrap().clone(),
+                "{response}"
+            );
+            if let Some(basename) = case["basenameFirst"].as_str() {
+                assert_eq!(matches[0]["path"], basename);
+                assert!(matches[1..]
+                    .iter()
+                    .all(|item| item["nameMatchRanges"].as_array().is_none_or(Vec::is_empty)));
+                assert!(matches[1..]
+                    .iter()
+                    .all(|item| item["matchingDegree"].as_i64().unwrap()
+                        < matches[0]["matchingDegree"].as_i64().unwrap()));
+            }
+        }
+    }
+}
+
+#[test]
 fn search_everywhere_matches_names_before_limits_and_shares_utf16_fragments() {
     let root = temporary_root("everywhere-name-fragments");
     struct Cleanup(std::path::PathBuf);

@@ -154,11 +154,12 @@ public final class SearchFeatureModel: ObservableObject {
         query: String,
         options: ProjectSearchOptions,
         visibilityRules: SearchVisibilityRules,
+        kinds: Set<SearchResultKind> = [.file, .type, .symbol, .content],
         isCurrent: @escaping @MainActor () -> Bool
     ) async {
         everywhereSearchGeneration += 1
         let generation = everywhereSearchGeneration
-        guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        guard !kinds.isEmpty, !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             clearSearchEverywhere()
             return
         }
@@ -172,7 +173,8 @@ public final class SearchFeatureModel: ObservableObject {
                 query: query,
                 options: options,
                 visibilityRules: visibilityRules,
-                includeGeneratedFileNames: true
+                includeGeneratedFileNames: true,
+                kinds: kinds
             ) ?? SearchEverywhereResults()
         }.value
 
@@ -204,7 +206,8 @@ public final class SearchFeatureModel: ObservableObject {
                 query: query,
                 options: .default,
                 visibilityRules: visibilityRules,
-                includeGeneratedFileNames: false
+                includeGeneratedFileNames: false,
+                kinds: [.file]
             )
         }.value
         return results?.fileMatches.map(\.url) ?? []

@@ -183,7 +183,7 @@ private struct ControlledEverywhereOperations: SearchOperations {
     let started = TestGate()
     let finished = TestGate()
     func search(at rootURL: URL, query: String, options: ProjectSearchOptions, visibilityRules: SearchVisibilityRules) -> [FileSearchResult]? { [] }
-    func searchEverywhere(at rootURL: URL, query: String, options: ProjectSearchOptions, visibilityRules: SearchVisibilityRules, includeGeneratedFileNames: Bool) -> SearchEverywhereResults? {
+    func searchEverywhere(at rootURL: URL, query: String, options: ProjectSearchOptions, visibilityRules: SearchVisibilityRules, includeGeneratedFileNames: Bool, kinds: Set<SearchResultKind>) -> SearchEverywhereResults? {
         started.open()
         _ = finished.waitSynchronously()
         return .init()

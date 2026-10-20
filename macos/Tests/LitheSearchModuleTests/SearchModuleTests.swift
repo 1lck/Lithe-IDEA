@@ -135,7 +135,7 @@ private final class EmptyWorkspaceModule: LitheModule {
 
 private struct TestSearchOperations: SearchOperations {
     func search(at rootURL: URL, query: String, options: ProjectSearchOptions, visibilityRules: SearchVisibilityRules) -> [FileSearchResult]? { [] }
-    func searchEverywhere(at rootURL: URL, query: String, options: ProjectSearchOptions, visibilityRules: SearchVisibilityRules, includeGeneratedFileNames: Bool) -> SearchEverywhereResults? { SearchEverywhereResults() }
+    func searchEverywhere(at rootURL: URL, query: String, options: ProjectSearchOptions, visibilityRules: SearchVisibilityRules, includeGeneratedFileNames: Bool, kinds: Set<SearchResultKind>) -> SearchEverywhereResults? { SearchEverywhereResults() }
     func previewReplacement(at rootURL: URL, query: String, replacement: String, options: ProjectSearchOptions, paths: [String], textOverrides: [String: String], visibilityRules: SearchVisibilityRules) -> [ProjectReplacementFile]? { [] }
     func readFile(at rootURL: URL, relativePath: String) -> String? { nil }
     func writeFile(_ text: String, at rootURL: URL, relativePath: String) -> Bool { false }
@@ -184,7 +184,7 @@ private final class BlockingIndexOperations: SearchOperations, @unchecked Sendab
     }
 
     func search(at rootURL: URL, query: String, options: ProjectSearchOptions, visibilityRules: SearchVisibilityRules) -> [FileSearchResult]? { [] }
-    func searchEverywhere(at rootURL: URL, query: String, options: ProjectSearchOptions, visibilityRules: SearchVisibilityRules, includeGeneratedFileNames: Bool) -> SearchEverywhereResults? { SearchEverywhereResults() }
+    func searchEverywhere(at rootURL: URL, query: String, options: ProjectSearchOptions, visibilityRules: SearchVisibilityRules, includeGeneratedFileNames: Bool, kinds: Set<SearchResultKind>) -> SearchEverywhereResults? { SearchEverywhereResults() }
     func previewReplacement(at rootURL: URL, query: String, replacement: String, options: ProjectSearchOptions, paths: [String], textOverrides: [String: String], visibilityRules: SearchVisibilityRules) -> [ProjectReplacementFile]? { [] }
     func readFile(at rootURL: URL, relativePath: String) -> String? { nil }
     func writeFile(_ text: String, at rootURL: URL, relativePath: String) -> Bool { false }

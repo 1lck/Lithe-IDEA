@@ -264,9 +264,9 @@ private struct SearchEverywhereContent: View {
             selectedIndex = 0
             selectionRevealRevision &+= 1
         }
-        .task(id: "\(queryMode.workspaceSearchTaskID)|\(scope.rawValue)|\(searchOptions.cacheKey)|\(settings.searchExcludedPathPatterns)|\(settings.searchExclusionsEnabled)") {
-            if queryMode.commandQuery != nil {
-                await search("", searchOptions)
+        .task(id: "\(queryMode.workspaceSearchTaskID)|\(scope.rawValue)|\(session.everywhereResultKinds.map(\.rawValue).sorted())|\(searchOptions.cacheKey)|\(settings.searchExcludedPathPatterns)|\(settings.searchExclusionsEnabled)") {
+            if queryMode.commandQuery != nil || session.everywhereResultKinds.isEmpty {
+                feature.clearSearchEverywhere()
                 return
             }
             try? await Task.sleep(for: .milliseconds(180))
@@ -490,7 +490,8 @@ private struct SearchEverywhereContent: View {
         // 否则嵌套的 Button 收不到点击。
         HStack(spacing: 8) {
             Button {
-                if showsPreview && NSApp.currentEvent?.clickCount != 2 { selectedIndex = index }
+                let event = NSApp.currentEvent
+                if showsPreview && event?.type != .keyDown && event?.clickCount != 2 { selectedIndex = index }
                 else { openResult(result) }
             } label: {
                 HStack(spacing: 8) {
@@ -534,6 +535,9 @@ private struct SearchEverywhereContent: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.litheNoPress)
+            .accessibilityIdentifier("search-everywhere-result-\(index)")
+            .accessibilityAction(.default) { openResult(result) }
+            .accessibilityAction(named: Text("Open")) { openResult(result) }
 
             Button {
                 revealInFinder(result.url)

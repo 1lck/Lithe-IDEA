@@ -97,7 +97,8 @@ struct RustWorkspaceOperations: WorkspaceOperations, Sendable {
         query: String,
         options: ProjectSearchOptions,
         visibilityRules: FileVisibilityRules,
-        includeGeneratedFileNames: Bool = false
+        includeGeneratedFileNames: Bool = false,
+        kinds: Set<SearchResultKind> = [.file, .type, .symbol, .content]
     ) -> SearchEverywhereResults? {
         core.searchEverywhere(
             at: rootURL,
@@ -106,9 +107,9 @@ struct RustWorkspaceOperations: WorkspaceOperations, Sendable {
             wholeWords: options.wholeWords,
             regularExpression: options.regularExpression,
             maxResults: SearchEverywhereResults.matchLimit,
-            maxFileResults: SearchEverywhereResults.providerLimit,
-            maxContentResults: SearchEverywhereResults.providerLimit,
-            maxSymbolResults: SearchEverywhereResults.providerLimit,
+            maxFileResults: kinds.contains(.file) ? SearchEverywhereResults.providerLimit : 0,
+            maxContentResults: kinds.contains(.content) ? SearchEverywhereResults.providerLimit : 0,
+            maxSymbolResults: !kinds.isDisjoint(with: [.type, .symbol]) ? SearchEverywhereResults.providerLimit : 0,
             fileMask: options.fileMask,
             hiddenDirectoryNames: visibilityRules.hiddenDirectoryNames,
             hiddenFilePatterns: visibilityRules.hiddenFilePatterns,
@@ -214,9 +215,10 @@ extension RustWorkspaceOperations: SearchOperations {
         query: String,
         options: ProjectSearchOptions,
         visibilityRules: SearchVisibilityRules,
-        includeGeneratedFileNames: Bool = false
+        includeGeneratedFileNames: Bool = false,
+        kinds: Set<SearchResultKind> = [.file, .type, .symbol, .content]
     ) -> SearchEverywhereResults? {
-        searchEverywhere(at: rootURL, query: query, options: options, visibilityRules: FileVisibilityRules(searchRules: visibilityRules), includeGeneratedFileNames: includeGeneratedFileNames)
+        searchEverywhere(at: rootURL, query: query, options: options, visibilityRules: FileVisibilityRules(searchRules: visibilityRules), includeGeneratedFileNames: includeGeneratedFileNames, kinds: kinds)
     }
 
     func previewReplacement(

@@ -397,10 +397,6 @@ pub fn search_everywhere(request: SearchRequest) -> Result<SearchResponse, CoreE
         request.hidden_directory_names.clone(),
         request.hidden_file_patterns.clone(),
     );
-    let index = search_index::get_or_build(&root, &rules)?;
-    let index = index
-        .read()
-        .map_err(|_| CoreError::new(ErrorCode::Unknown, "Search index lock was poisoned"))?;
     let matcher = Matcher::new(
         &query,
         request.case_sensitive,
@@ -409,69 +405,92 @@ pub fn search_everywhere(request: SearchRequest) -> Result<SearchResponse, CoreE
     )?;
     let masks = parse_file_mask(&request.file_mask);
     let limit = request.max_results.max(1).min(10_000);
+    let file_limit = request.max_file_results.unwrap_or(limit).min(limit);
     let symbol_limit = request.max_symbol_results.unwrap_or(limit).min(limit);
+    let content_limit = request.max_content_results.unwrap_or(limit).min(limit);
+    // Zero source caps are execution boundaries, not just post-scan truncation.
+    let shared_index = if symbol_limit > 0 || content_limit > 0 {
+        Some(search_index::get_or_build(&root, &rules)?)
+    } else {
+        None
+    };
+    let index = shared_index
+        .as_ref()
+        .map(|index| {
+            index
+                .read()
+                .map_err(|_| CoreError::new(ErrorCode::Unknown, "Search index lock was poisoned"))
+        })
+        .transpose()?;
     let mut files = Vec::new();
     let mut types = Vec::new();
     let mut symbols = Vec::new();
-    let name_rules = VisibilityRules {
-        // Generated output is a file-name source, not a content/symbol index.
-        hidden_directories: rules
-            .hidden_directories
-            .iter()
-            .filter(|name| {
-                !request.include_generated_file_names
-                    || !BUILT_IN_HIDDEN_DIRECTORIES.contains(&name.as_str())
-                    || [".git", ".worktree", ".worktrees"].contains(&name.as_str())
-            })
-            .cloned()
-            .collect(),
-        hidden_file_patterns: rules.hidden_file_patterns.clone(),
-    };
-    let names = search_index::get_names(&root, &name_rules)?;
-    let names = names
-        .read()
-        .map_err(|_| CoreError::new(ErrorCode::Unknown, "Search index lock was poisoned"))?;
-    for id in names.all_file_ids() {
-        crate::protocol::cancellation::check()?;
-        let Some(file) = names.file(id) else { continue };
-        if !file_mask_allows(&masks, &file.path) {
-            continue;
-        }
-        let name = file.path.rsplit('/').next().unwrap_or(&file.path);
-        let mut result = SearchMatch {
-            kind: "file".to_string(),
-            path: file.path.clone(),
-            line: None,
-            preview: file.path.clone(),
-            symbol_name: None,
-            name_match_ranges: Vec::new(),
-            matching_degree: None,
-            is_ignored: None,
+    if file_limit > 0 {
+        let name_rules = VisibilityRules {
+            // Generated output is a file-name source, not a content/symbol index.
+            hidden_directories: rules
+                .hidden_directories
+                .iter()
+                .filter(|name| {
+                    !request.include_generated_file_names
+                        || !BUILT_IN_HIDDEN_DIRECTORIES.contains(&name.as_str())
+                        || [".git", ".worktree", ".worktrees"].contains(&name.as_str())
+                })
+                .cloned()
+                .collect(),
+            hidden_file_patterns: rules.hidden_file_patterns.clone(),
         };
-        if match_everywhere_name(&request, &matcher, name, &mut result)
-            || ((query.contains('/') || query.contains('\\'))
-                && match_everywhere_name(&request, &matcher, &file.path, &mut result))
-        {
-            // Path-qualified fragments do not refer to the displayed basename.
-            if query.contains('/') || query.contains('\\') {
+        let names = search_index::get_names(&root, &name_rules)?;
+        let names = names
+            .read()
+            .map_err(|_| CoreError::new(ErrorCode::Unknown, "Search index lock was poisoned"))?;
+        for id in names.all_file_ids() {
+            crate::protocol::cancellation::check()?;
+            let Some(file) = names.file(id) else { continue };
+            if !file_mask_allows(&masks, &file.path) {
+                continue;
+            }
+            let name = file.path.rsplit('/').next().unwrap_or(&file.path);
+            let mut result = SearchMatch {
+                kind: "file".to_string(),
+                path: file.path.clone(),
+                line: None,
+                preview: file.path.clone(),
+                symbol_name: None,
+                name_match_ranges: Vec::new(),
+                matching_degree: None,
+                is_ignored: None,
+            };
+            if match_everywhere_name(&request, &matcher, name, &mut result) {
+                result.matching_degree.get_or_insert(0);
+            } else if match_everywhere_name(&request, &matcher, &file.path, &mut result) {
+                // Directory-only matches remain candidates (including Agent mentions), below every basename hit.
+                result.matching_degree = Some(-1);
                 result.name_match_ranges.clear();
+            } else {
+                continue;
             }
             files.push(result);
         }
     }
-    for id in index.all_file_ids() {
-        crate::protocol::cancellation::check()?;
-        let Some(file) = index.file(id) else { continue };
-        if !file_mask_allows(&masks, &file.path) {
-            continue;
-        }
-        for symbol in index.symbols(id) {
-            let mut result = search_index::make_symbol_match(symbol, file.path.clone());
-            if match_everywhere_name(&request, &matcher, &symbol.name, &mut result) {
-                if result.kind == "type" {
-                    types.push(result);
-                } else {
-                    symbols.push(result);
+    if symbol_limit > 0 {
+        let index = index
+            .as_ref()
+            .expect("symbol source requires content index");
+        for id in index.all_file_ids() {
+            crate::protocol::cancellation::check()?;
+            let Some(file) = index.file(id) else { continue };
+            if !file_mask_allows(&masks, &file.path) {
+                continue;
+            }
+            for symbol in index.symbols(id) {
+                let mut result = search_index::make_symbol_match(symbol, file.path.clone());
+                if match_everywhere_name(&request, &matcher, &symbol.name, &mut result) {
+                    if result.kind == "type" {
+                        types.push(result);
+                    } else {
+                        symbols.push(result);
+                    }
                 }
             }
         }
@@ -491,13 +510,24 @@ pub fn search_everywhere(request: SearchRequest) -> Result<SearchResponse, CoreE
     }
     let mut content_request = request.clone();
     content_request.max_file_results = Some(0);
-    let content = search_with_index(&root, &content_request, &query, &index)?;
+    let content = if content_limit > 0 {
+        search_with_index(
+            &root,
+            &content_request,
+            &query,
+            index
+                .as_ref()
+                .expect("content source requires content index"),
+        )?
+        .matches
+    } else {
+        Vec::new()
+    };
     let mut matches = files;
     matches.extend(types);
     matches.extend(symbols);
-    matches.extend(content.matches);
+    matches.extend(content);
     matches.truncate(limit);
-    drop(names);
     drop(index);
     // Ask Git once for the bounded result set, not once per row or indexed file.
     let paths: Vec<String> = matches.iter().map(|item| item.path.clone()).collect();

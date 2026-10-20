@@ -509,6 +509,81 @@ mod tests {
     use super::*;
 
     #[test]
+    fn source_caps_build_only_required_cold_indexes_and_skip_generated_text_enumeration() {
+        let root = crate::tests::support::temporary_root("search-source-caps");
+        fs::create_dir_all(root.join("src")).unwrap();
+        let root = root.canonicalize().unwrap();
+        struct Cleanup(PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                invalidate_root(&self.0);
+                super::super::files::DIRECTORY_VISITS.with_borrow_mut(|visits| *visits = None);
+                let _ = fs::remove_dir_all(&self.0);
+            }
+        }
+        let _cleanup = Cleanup(root.clone());
+        fs::write(root.join("src/Name.java"), "class Name {}\n").unwrap();
+        for directory in [".build", "node_modules"] {
+            fs::create_dir(root.join(directory)).unwrap();
+            for number in 0..1000 {
+                fs::write(root.join(directory).join(format!("Name{number}.bin")), "").unwrap();
+            }
+        }
+        for (files, content, symbols, expected_indexes) in [
+            (0, 0, 0, vec![]),
+            (0, 1, 0, vec![false]),
+            (1, 0, 0, vec![true]),
+            (0, 0, 1, vec![false]),
+            (1, 0, 1, vec![false, true]),
+        ] {
+            invalidate_root(&root);
+            super::super::files::DIRECTORY_VISITS
+                .with_borrow_mut(|visits| *visits = Some(Vec::new()));
+            let started = std::time::Instant::now();
+            let response = super::super::files::search_everywhere(
+                serde_json::from_value(serde_json::json!({
+                    "root": root, "query": "Name", "includeGeneratedFileNames": true,
+                    "maxResults": 10, "maxFileResults": files,
+                    "maxContentResults": content, "maxSymbolResults": symbols
+                }))
+                .unwrap(),
+            )
+            .unwrap();
+            let indexes = cache().lock().unwrap();
+            let mut built: Vec<_> = indexes
+                .keys()
+                .filter(|key| key.root == root)
+                .map(|key| key.names_only)
+                .collect();
+            built.sort();
+            assert_eq!(built, expected_indexes);
+            let resident_files: usize = indexes
+                .iter()
+                .filter(|(key, _)| key.root == root)
+                .map(|(_, index)| index.read().unwrap().stats().file_count)
+                .sum();
+            assert_eq!(
+                resident_files,
+                usize::from(files > 0) * 2001 + usize::from(content > 0 || symbols > 0)
+            );
+            eprintln!("Cold source caps files={files} content={content} symbols={symbols}: {:?}, indexes={}, resident files={resident_files}, results={}",
+                started.elapsed(), built.len(), response.matches.len());
+            super::super::files::DIRECTORY_VISITS.with_borrow(|visits| {
+                let visits = visits.as_ref().unwrap();
+                if expected_indexes.is_empty() {
+                    assert!(visits.is_empty());
+                }
+                if files == 0 {
+                    assert!(!visits
+                        .iter()
+                        .any(|path| path.starts_with(root.join(".build"))
+                            || path.starts_with(root.join("node_modules"))));
+                }
+            });
+        }
+    }
+
+    #[test]
     fn missing_descendants_are_skipped_but_root_and_cancellation_errors_propagate() {
         let root = crate::tests::support::temporary_root("search-missing-descendant");
         let rules = VisibilityRules {

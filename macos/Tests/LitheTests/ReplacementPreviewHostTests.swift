@@ -145,7 +145,7 @@ private final class PreviewHostTestStore: KeyValueStore, @unchecked Sendable {
 private struct PreviewEditorSearchOperations: SearchOperations {
     let file: ProjectReplacementFile
     func search(at rootURL: URL, query: String, options: ProjectSearchOptions, visibilityRules: SearchVisibilityRules) -> [FileSearchResult]? { [] }
-    func searchEverywhere(at rootURL: URL, query: String, options: ProjectSearchOptions, visibilityRules: SearchVisibilityRules, includeGeneratedFileNames: Bool) -> SearchEverywhereResults? { .init() }
+    func searchEverywhere(at rootURL: URL, query: String, options: ProjectSearchOptions, visibilityRules: SearchVisibilityRules, includeGeneratedFileNames: Bool, kinds: Set<SearchResultKind>) -> SearchEverywhereResults? { .init() }
     func previewReplacement(at rootURL: URL, query: String, replacement: String, options: ProjectSearchOptions, paths: [String], textOverrides: [String: String], visibilityRules: SearchVisibilityRules) -> [ProjectReplacementFile]? { [file] }
     func readFile(at rootURL: URL, relativePath: String) -> String? { nil }
     func writeFile(_ text: String, at rootURL: URL, relativePath: String) -> Bool { false }
