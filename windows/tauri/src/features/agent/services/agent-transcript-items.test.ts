@@ -16,7 +16,7 @@ function message(
   text: string,
   extra: Partial<AgentConversationMessage> = {},
 ): AgentConversationMessage {
-  return { id, role, text, toolStatus: null, toolDetails: emptyToolDetails(), ...extra };
+  return { id, role, text, delivery: null, toolStatus: null, toolDetails: emptyToolDetails(), ...extra };
 }
 
 describe("Agent transcript grouping", () => {

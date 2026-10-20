@@ -141,6 +141,9 @@ export function AgentComposer({
   const isResponding = conversation?.isResponding === true;
   const isCancelling = conversation?.isCancelling === true;
   const isConfiguring = conversation?.pendingConfigToken != null;
+  const canSteer = snapshot.canSteer;
+  const isSendingSupplement = conversation?.pendingSteeringToken != null;
+  const hasPendingContinuation = snapshot.hasPendingContinuation;
   const hasContent = draft.trim().length > 0 || files.length > 0;
   const sessionID = snapshot.selectedSessionID;
 
@@ -221,7 +224,10 @@ export function AgentComposer({
   }, [draft]);
 
   const send = useCallback(() => {
-    if (!hasContent || isResponding) return;
+    if (!hasContent || isSendingSupplement || hasPendingContinuation) return;
+    // While responding, the input becomes a supplementary message only when
+    // the Agent negotiated steering; otherwise the Stop button is the action.
+    if (isResponding && !canSteer) return;
     if (!canSend) {
       onError(blockedReason);
       return;
@@ -242,10 +248,13 @@ export function AgentComposer({
   }, [
     blockedReason,
     canSend,
+    canSteer,
     draft,
     files,
     hasContent,
+    hasPendingContinuation,
     isResponding,
+    isSendingSupplement,
     onError,
     onDraftChange,
     onFilesChange,
@@ -304,7 +313,13 @@ export function AgentComposer({
           setIsDropTargeted(false);
         }}
         onKeyDown={(event) => {
-          if (event.key === "Escape" && isResponding) agentConnection().cancel();
+          if (
+            event.key === "Escape" &&
+            (isResponding || hasPendingContinuation) &&
+            !isCancelling
+          ) {
+            agentConnection().cancel();
+          }
         }}
       >
         <div className="m-px flex h-7 shrink-0 items-center gap-2 rounded-[7px] bg-muted/60 px-2.5 text-subtle-foreground ui-text-caption">
@@ -518,38 +533,41 @@ export function AgentComposer({
             </>
           ) : null}
           <span className="flex-1" />
+          {isResponding || hasPendingContinuation ? (
+            <button
+              type="button"
+              aria-label={isCancelling ? t("agent.composer.cancelling") : t("agent.composer.stop")}
+              title={isCancelling ? t("agent.composer.cancelling") : t("agent.composer.stop")}
+              disabled={isCancelling}
+              className="flex size-[26px] items-center justify-center rounded bg-muted text-destructive disabled:cursor-default"
+              onClick={() => agentConnection().cancel()}
+            >
+              <SquareIcon className="size-3 fill-current" />
+            </button>
+          ) : null}
           <button
             type="button"
             aria-label={
-              isCancelling
-                ? t("agent.composer.cancelling")
-                : isResponding
-                  ? t("agent.composer.stop")
-                  : t("agent.composer.send")
+              isSendingSupplement ? t("agent.composer.sending") : t("agent.composer.send")
             }
-            title={
-              isCancelling
-                ? t("agent.composer.cancelling")
-                : isResponding
-                  ? t("agent.composer.stop")
-                  : t("agent.composer.send")
+            title={isSendingSupplement ? t("agent.composer.sending") : t("agent.composer.send")}
+            disabled={
+              isCancelling ||
+              isSendingSupplement ||
+              hasPendingContinuation ||
+              (isResponding && !canSteer) ||
+              !hasContent ||
+              isConfiguring
             }
-            disabled={isCancelling || (!isResponding && (!hasContent || isConfiguring))}
             className={cn(
               "flex size-[26px] items-center justify-center rounded bg-muted disabled:cursor-default",
-              isResponding
-                ? "text-destructive"
-                : hasContent
-                  ? "text-foreground"
-                  : "text-subtle-foreground/70",
+              hasContent && (!isResponding || canSteer)
+                ? "text-foreground"
+                : "text-subtle-foreground/70",
             )}
-            onClick={() => (isResponding ? agentConnection().cancel() : send())}
+            onClick={send}
           >
-            {isResponding ? (
-              <SquareIcon className="size-3 fill-current" />
-            ) : (
-              <PaperPlaneTiltIcon className="size-3.5" />
-            )}
+            <PaperPlaneTiltIcon className="size-3.5" />
           </button>
         </div>
       </div>
