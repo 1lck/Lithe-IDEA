@@ -65,6 +65,10 @@ export interface BuildRequestParams {
   environment: Record<string, string>;
   /** Dependencies only: the selected project, or null for the workspace. */
   project?: { name: string; path: string } | null;
+  /** True when the user or a sync-file change asked to reload; skip any snapshot. */
+  refresh?: boolean;
+  /** The build tool the host resolved; absent when it could not, so look it up yourself. */
+  tool?: { executable: string };
   [key: string]: unknown;
 }
 

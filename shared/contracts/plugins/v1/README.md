@@ -806,6 +806,15 @@ with `buildSystemID`. For a provider source, `build.modelPlan` and
 | `options` | Effective option values by option ID. |
 | `optionArguments`, `environment` | What the options contribute, for a provider that runs the tool. |
 | `project` | Dependencies only: `{ name, path }` of the selected project, or `null` for the workspace. |
+| `refresh` | Optional; `true` when the user asked to reload (Reload, Retry, a page's `build.refresh`) or the host reloads after a `sync` file changed. The provider must then recompute instead of answering from a cache or snapshot of its own. Absent or `false` for a first load, which a provider may answer from a snapshot it still trusts. |
+| `tool` | Optional; `{ executable }`, the absolute path of the build tool the host resolved from the build system's `invocation` the same way a task run does (project wrapper, environment variable, `PATH`, the user's override), so the provider need not repeat the lookup. Absent when the host could not resolve it; the provider then looks the tool up itself. It is never a reason to fail the request. |
+
+The host passes `refresh` and `tool` in the `build.modelPlan` and
+`build.dependencyPlan` requests; Core validates `tool.executable` as an
+absolute path (`plugin.build.invalidSelection` otherwise) and copies both into
+`params` only when they are set, so a request without them is the same as
+before they existed. Command sources ignore both. Both are optional data
+within protocol version 1.
 
 The host passes the JSON result of the request as `result` to
 `build.decodeModel` or `build.decodeDependencies`, which decode it like the

@@ -54,10 +54,10 @@ protocol PluginWebBuildAccess: AnyObject {
     var currentRunID: UUID? { get }
     var changes: AnyPublisher<Void, Never> { get }
     var runEnded: AnyPublisher<BuildRunEnd, Never> { get }
-    func loadModel(_ entryID: String)
+    func loadModel(_ entryID: String, reason: BuildLoadReason)
     func runTask(_ entryID: String, request: BuildTaskRequest, title: String) -> UUID?
     func runTests(_ entryID: String, request: BuildTestRequest, title: String) -> UUID?
-    func loadDependencies(_ entryID: String, project: BuildModel.Project?)
+    func loadDependencies(_ entryID: String, project: BuildModel.Project?, reason: BuildLoadReason)
     func setOption(_ entryID: String, optionID: String, value: ToolingJSONValue?)
     func stopRun()
     /// Functions the instance's provider process registers; starts it.
@@ -235,7 +235,9 @@ final class PluginWebBridge {
             if let source = entry.instance.modelSource, source != .static {
                 try await consent(String(localized: "Load the \(entry.instance.displayName) model"), workspaceURL: workspaceURL)
             }
-            build.loadModel(entry.id)
+            // The documented meaning is a reload; a provider must not answer
+            // it from its own snapshot.
+            build.loadModel(entry.id, reason: .refresh)
             return .object([:])
         case "build.runTask":
             return try await runTask(Parameters(
@@ -387,7 +389,7 @@ final class PluginWebBridge {
         if entry.dependencies[key] != .loading {
             let name = project.map { $0.displayName ?? $0.name } ?? entry.instance.displayName
             try await consent(String(localized: "Load the dependencies of \(name)"), workspaceURL: workspaceURL)
-            build.loadDependencies(entry.id, project: project)
+            build.loadDependencies(entry.id, project: project, reason: .initial)
         }
         let entryID = entry.id
         let completed = await wait { [weak build] in

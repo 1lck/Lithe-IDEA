@@ -725,6 +725,26 @@ package struct BuildProviderRequest: Equatable, Sendable {
     }
 }
 
+/// Why the host loads a model or dependencies. A provider may answer an
+/// initial load from a snapshot of its own; a refresh (the user's Reload or
+/// Retry, or a reload after sync files changed) must recompute.
+package enum BuildLoadReason: Equatable, Sendable {
+    case initial
+    case refresh
+}
+
+/// What the host adds to a provider request; command plans ignore it.
+package struct BuildProviderHints: Equatable, Sendable {
+    package let reason: BuildLoadReason
+    /// The build tool resolved from the build system's invocation, so the
+    /// provider need not repeat the lookup. Nil when resolution failed.
+    package let toolExecutable: URL?
+
+    package init(reason: BuildLoadReason = .initial, toolExecutable: URL? = nil) {
+        self.reason = reason; self.toolExecutable = toolExecutable
+    }
+}
+
 /// A model or dependency plan: a command, or a request for the plugin's
 /// Provider process.
 package enum BuildOutputPlan: Equatable, Sendable {
@@ -916,7 +936,12 @@ package protocol BuildSystemPlanning: Sendable {
         options: [String: ToolingJSONValue],
         modelValues: [String: [String]]?
     ) throws -> BuildOptionsResolution
-    func modelPlan(_ target: BuildSystemTarget, context: BuildPlanContext, outputFile: URL?) throws -> BuildOutputPlan
+    func modelPlan(
+        _ target: BuildSystemTarget,
+        context: BuildPlanContext,
+        outputFile: URL?,
+        providerHints: BuildProviderHints
+    ) throws -> BuildOutputPlan
     func taskPlan(_ target: BuildSystemTarget, context: BuildPlanContext, request: BuildTaskRequest) throws
         -> BuildProcessPlan
     func testPlan(_ target: BuildSystemTarget, context: BuildPlanContext, request: BuildTestRequest) throws
@@ -925,7 +950,8 @@ package protocol BuildSystemPlanning: Sendable {
         _ target: BuildSystemTarget,
         context: BuildPlanContext,
         project: BuildSelection?,
-        outputFile: URL?
+        outputFile: URL?,
+        providerHints: BuildProviderHints
     ) throws -> BuildOutputPlan
     func decodeModel(
         _ target: BuildSystemTarget,
