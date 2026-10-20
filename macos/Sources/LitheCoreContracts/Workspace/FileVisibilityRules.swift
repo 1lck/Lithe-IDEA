@@ -56,6 +56,14 @@ package struct FileVisibilityRules: Hashable, Sendable {
             return true
         }
 
+        let directoryCount = isDirectory == false ? max(0, components.count - 1) : components.count
+        for pattern in hiddenFilePatterns where pattern.hasSuffix("/") {
+            for count in 1..<(directoryCount + 1) {
+                if Self.globMatches(String(pattern.dropLast()), value: components.prefix(count).joined(separator: "/")) {
+                    return true
+                }
+            }
+        }
         guard isDirectory != true else { return false }
         return hiddenFilePatterns.contains { pattern in
             Self.globMatches(pattern, value: lastComponent) ||

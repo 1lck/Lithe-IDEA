@@ -1708,10 +1708,84 @@ need separate buckets may also provide `maxFileResults` and
 `maxContentResults`; each category is capped independently and the total cap
 still applies.
 
+Search index enumeration skips inaccessible or vanished descendant directories,
+logging workspace-relative diagnostic paths without discarding unrelated results.
+Workspace-root failures, cancellation, deadlines, and other errors still propagate.
+This applies to both the content and file-name indexes.
+
+macOS Search Everywhere funnel exclusions reuse `hiddenFilePatterns` only on
+Search Everywhere requests. They are remembered across popup openings, have no
+General Settings entry, and have a separately remembered enable toggle. Editing
+happens in a dialog; saving does not enable a disabled rule. They do not affect
+sidebar search, project replacement,
+Agent completion, or workspace tree visibility. The existing
+case-insensitive `*`/`?` matcher applies to a basename or root-relative path (`*`
+can span `/`). A trailing `/` explicitly marks a root-relative directory glob:
+match it before descending into a directory and against ancestors of directly
+reported file updates. The UI adds the root form for leading `**/`; ordinary
+file globs retain their file-only semantics. Empty user exclusions preserve the
+normal visibility rules. Search settings changes invalidate only the search
+cache, not the workspace tree. Each root retains at most one content and one
+names-only rule variant; superseded allocations are released when active
+requests finish. Watcher updates refresh the retained variants.
+Agent file completion uses project visibility and leaves generated names disabled;
+only the Search Everywhere UI explicitly enables them. Directory-versus-file
+matching examples are shared in `shared/fixtures/search/exclusions.json`.
+
 `workspace.searchEverywhere` uses the same query options and visibility fields,
-and additionally accepts `maxSymbolResults`. Results are ordered as file,
-type, symbol, and content matches. Java type and method results include a
-one-based line, `symbolName`, and the matching source line in `preview`.
+and additionally accepts `maxSymbolResults` and optional
+`includeGeneratedFileNames` (default `false`). Ordinary name queries match
+case-insensitive contiguous fragments and camel/word humps, rather than arbitrary
+subsequences. Each file/type/symbol bucket is ranked before its requested cap;
+the total cap still applies to the file, type, symbol, then content buckets.
+A zero `maxFileResults` skips the names-only index entirely; zero
+`maxContentResults` together with zero `maxSymbolResults` skips the content/symbol
+index. All three zero caps produce no index builds. Omitted caps retain their
+existing defaults. macOS forwards the selected workspace sources through these
+existing caps: Actions-only stays local, Text-only requests contents, Files and
+Agent completion request names, and Classes/Symbols share the symbol index.
+Search module activation does not eagerly build a content index.
+Basename matches rank above relative-path fallback matches, even when the query
+contains no slash (for example `src` matches `src/Foo.swift`). Path-only matches
+have `matchingDegree: -1` and no basename ranges; literal basename hits use degree
+zero when there is no fuzzy degree. See `shared/fixtures/search/path-fallback.json`.
+
+Name matches include optional `matchingDegree` and `nameMatchRanges` entries
+`{ start, length }`, measured in UTF-16 units in the displayed basename or
+`symbolName`. Clients must not recompute different highlight fragments. Path-qualified
+queries may have no basename fragments. Explicit case/whole-word/regex options and
+content matches keep their literal search semantics.
+Case-insensitive contiguous fallback preserves whole-string Unicode lowercase
+matching, including expansions such as `İ` to `i` plus a combining dot. A partial
+match inside an expansion highlights the complete original character, not folded
+offsets. See `shared/fixtures/search/unicode-contiguous.json` (also used by Agent
+completion regressions).
+
+Returned Everywhere matches additionally expose optional `isIgnored`, resolved
+by one read-only Git `check-ignore --stdin -z` call for the bounded result set.
+`true` means ignored; `false` means Git answered but did not ignore this path;
+absence means Git is unavailable, the workspace is not a repository, or the query
+failed. Tracked files are never inferred ignored from a matching ignore pattern.
+Git owns rule precedence, nested rules, negations, info/exclude and global excludes.
+Clients may use this status for filename foreground; it does not change matching,
+ranking, UTF-16 match backgrounds, or visibility. macOS uses the Islands editor
+scheme's ignored-file color; Windows tolerates the optional status but does not
+currently render this foreground.
+
+`includeGeneratedFileNames` opts into a separate in-memory names-only index:
+built-in build/dependency directory exclusions (including `.build` and `target`)
+do not suppress names, even when callers pass the same default exclusions.
+Git metadata and nested worktrees remain excluded; custom directory names and
+file/path globs still apply. It does not enable generated-file content or symbol
+indexing and does not change `workspace.search`, tree, watcher, or replacement
+visibility. Names share index invalidation and reported file updates; changes
+inside unwatched generated directories require workspace/index refresh. No index
+files or resources are written to disk. macOS requests 200 matches per bucket
+and 800 total; these are bounded candidate limits, not a claim of unbounded IDEA paging.
+Java type and method results still use the existing syntax index and include a
+one-based line, `symbolName`, and source line in `preview`; language-provider
+workspace-symbol integration and external-library search are not implied.
+The shared name/range examples are in `shared/fixtures/search/name-matching.json`.
 
 `workspace.replacePreview` accepts `root`, `query`, `replacement`, the same
 query options, optional workspace-relative `paths`, optional `textOverrides`

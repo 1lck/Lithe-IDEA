@@ -3435,6 +3435,12 @@
 "Allow" = "允许";
 "Don’t Allow" = "不允许";
 "Restart Lithe to load the updated page." = "重启 Lithe 以加载更新后的页面。";
+"Search Everywhere (Double Shift)" = "全局搜索（双击 Shift）";
+"Show Preview" = "显示预览";
+"Filter results" = "筛选结果";
+"Select a file to preview" = "选择文件以预览";
+"Read-only file preview" = "只读文件预览";
+"Invert" = "反选";
 
 "Subagent" = "子代理";
 
@@ -3464,6 +3470,11 @@
 "All tasks completed" = "所有任务已完成";
 "Modified files: %lld" = "修改了 %lld 个文件";
 "Review changes" = "查看文件修改";
+
+"Search exclusions" = "搜索排除规则";
+"One pattern per line: `*.log`, `**/.*/`, `.*`, `cache/`. Only affects this Search Everywhere window." = "每行一个表达式：`*.log`、`**/.*/`、`.*`、`cache/`。仅影响当前双 Shift 搜索窗口。";
+
+"Edit search exclusions" = "编辑搜索排除规则";
 
 "All modules" = "全部模块";
 

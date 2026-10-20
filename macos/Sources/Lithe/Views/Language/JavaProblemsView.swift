@@ -35,7 +35,7 @@ struct ProblemsView: View {
                         listWithToolbar
                     } flexible: {
                         ProblemsSourcePreview(diagnostic: selectedDiagnostic) { url in
-                            await model.documentFeature.previewDocument(at: url)
+                            await model.documentFeature.previewDocument(at: url, owner: .problems)
                         }
                         .id(selectedDiagnostic.fileURL)
                     }
@@ -46,6 +46,10 @@ struct ProblemsView: View {
         }
         .litheWorkbenchSurface(LitheTheme.editor)
         .background(LitheToolWindowActivityTracker(isActive: $toolWindowActive))
+        .onDisappear { model.documentFeature.discardPreviewDocuments(owner: .problems) }
+        .onChange(of: previewEnabled) { enabled in
+            if !enabled { model.documentFeature.discardPreviewDocuments(owner: .problems) }
+        }
     }
 
     private var listWithToolbar: some View {

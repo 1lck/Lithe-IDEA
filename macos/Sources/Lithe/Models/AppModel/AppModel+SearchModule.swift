@@ -16,19 +16,28 @@ extension AppModel {
 
     func toggleSearchEverywhere() {
         guard workspaceURL != nil, !isSearchEverywhereVisible else { return }
-        isSearchEverywhereVisible = true
+        let root = workspaceURL
+        searchSessionFeature.everywhereGitStatus = gitTreeStatusProjection
+        searchSessionFeature.beginSearchEverywhere()
         Task { [weak self] in
             guard let self else { return }
             if await activateSearchModule() == nil {
                 isSearchEverywhereVisible = false
+                return
             }
+            guard workspaceURL == root, isSearchEverywhereVisible else { return }
+            // Git is lazy: searching must not require opening Commit first.
+            await refreshGit()
+            guard workspaceURL == root, isSearchEverywhereVisible else { return }
+            searchSessionFeature.everywhereGitStatus = gitTreeStatusProjection
         }
     }
 
     func dismissSearchEverywhere() {
-        isSearchEverywhereVisible = false
-        searchEverywhereQuery = ""
+        guard isSearchEverywhereVisible else { return }
+        searchSessionFeature.endSearchEverywhere()
         searchFeatureIfActive?.clearSearchEverywhere()
+        documentFeature.discardPreviewDocuments(owner: .searchEverywhere)
     }
 
     func searchEverywhere(

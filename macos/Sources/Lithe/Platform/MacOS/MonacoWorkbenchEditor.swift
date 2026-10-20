@@ -457,7 +457,12 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
             if let preview, self.lastPreview != preview || self.previewDocumentID != document.id.uuidString {
                 self.lastPreview = preview
                 self.previewDocumentID = document.id.uuidString
-                if !self.isReadOnlyPreview {
+                if self.isReadOnlyPreview {
+                    self.call("window.lithe.nativeFind(payload)", arguments: ["payload": [
+                        "id": document.id.uuidString, "token": UUID().uuidString,
+                        "visible": !preview.query.isEmpty, "query": preview.query,
+                        "matchCase": preview.matchCase, "wholeWord": preview.wholeWord, "regex": preview.regex]])
+                } else {
                     self.call("window.lithe.find(payload)", arguments: ["payload": ["id": document.id.uuidString,
                         "query": preview.query, "matchCase": preview.matchCase, "wholeWord": preview.wholeWord, "regex": preview.regex]])
                 }
@@ -501,7 +506,8 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
     }
 
     private func synchronizeFind(command: String? = nil) {
-        guard ready, let model else { return }
+        // Independent previews own their query, not the main editor's find bar.
+        guard !isReadOnlyPreview, ready, let model else { return }
         let document = model.focusedEditorDocument ?? model.activeDocument
         let id = document?.id.uuidString ?? ""
         let visible = model.isFindBarVisible && !currentMountIsPreview && activeIDs.values.contains(id)

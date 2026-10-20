@@ -6704,7 +6704,8 @@ struct EditorDocumentTests {
             onProjectCloseReady: {}
         )
 
-        let first = Task { @MainActor in await model.previewDocument(at: fileA) }
+        let firstID = UUID()
+        let first = Task { @MainActor in await model.previewDocument(at: fileA, requestID: firstID) }
         defer { first.cancel() }
         #expect(await operations.waitUntilReadingA())
         first.cancel()
@@ -6723,6 +6724,8 @@ struct EditorDocumentTests {
         // The main-actor caller has entered the pending load before this gate resumes us.
         #expect(await returningStarted.waitUntilOpen())
         #expect(!returnedBeforeRelease, "A duplicate open must await the existing read")
+        // The superseded request must not release the newer same-owner request sharing this read.
+        model.releasePreviewDocument(at: fileA, owner: .unscoped, requestID: firstID)
         if ending == "dismiss" { model.discardPreviewDocuments() }
         if ending == "reset" { model.reset() }
         operations.releaseA()
@@ -6742,6 +6745,45 @@ struct EditorDocumentTests {
         let retry = await model.previewDocument(at: fileA)
         #expect((retry != nil) == !readFails)
         #expect(operations.readACount == (readFails || discarded ? 2 : 1))
+    }
+
+    @Test(arguments: [false, true])
+    @MainActor
+    func closingSearchPreservesAnotherOwnersPendingPreview(releaseByPath: Bool) async throws {
+        let workspace = URL(fileURLWithPath: "/tmp/lithe-owner-preview-tests")
+        let file = workspace.appendingPathComponent("A.swift")
+        let operations = BlockingWorkspaceOperations()
+        defer { operations.releaseA() }
+        let model = DocumentFeatureModel(operations: operations,
+            documentLifecycleDecider: PreviewExternalChangeLifecycleDecider(),
+            fileOperations: EmptyWorkspaceFileOperations(), fileStorage: InMemoryFileStorage(),
+            binaryFileViewerRegistry: BinaryFileViewerRegistry())
+        defer { model.reset() }
+        model.configure(workspaceURLProvider: { workspace }, autoSaveEnabledProvider: { false },
+            autoSaveDelayProvider: { 0 }, notify: { _ in }, onDocumentOpened: { _ in },
+            onDocumentChanged: { _ in }, onDocumentClosed: { _ in }, onRecordSave: { _, _ in },
+            onRecordDiscard: { _ in }, onRecordExternalChanges: { _ in }, onDocumentCollectionChanged: {}, onProjectCloseReady: {})
+        let searchID = UUID()
+        let search = Task { @MainActor in await model.previewDocument(at: file, owner: .searchEverywhere, requestID: searchID) }
+        defer { search.cancel() }
+        #expect(await operations.waitUntilReadingA())
+        let started = TestGate()
+        let problems = Task { @MainActor in
+            started.open()
+            return await model.previewDocument(at: file, owner: .problems)
+        }
+        defer { problems.cancel() }
+        #expect(await started.waitUntilOpen())
+        if releaseByPath { model.releasePreviewDocument(at: file, owner: .searchEverywhere, requestID: searchID) }
+        else { model.discardPreviewDocuments(owner: .searchEverywhere) }
+        operations.releaseA()
+        #expect(await search.value == nil)
+        let document = try #require(await problems.value)
+        #expect(document.text == "A")
+        #expect(operations.readACount == 1)
+        #expect(model.editorDocuments.contains { $0 === document })
+        model.discardPreviewDocuments(owner: .problems)
+        #expect(model.editorDocuments.isEmpty)
     }
 
     @Test
