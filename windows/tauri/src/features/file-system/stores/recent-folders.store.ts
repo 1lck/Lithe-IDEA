@@ -5,6 +5,7 @@ import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { createAppWindow } from "@/features/window/utils/create-app-window";
 import { useWorkspaceTabsStore } from "@/features/window/stores/workspace-tabs.store";
 import { createTranslator } from "@/i18n/locale";
+import { showConfirmDialog } from "@/ui/dialog";
 import { getFolderName } from "@/utils/path-helpers";
 import { createSelectors } from "@/utils/zustand-selectors";
 import { createSafeJSONStorage } from "@/utils/zustand-storage";
@@ -39,6 +40,11 @@ interface RecentFoldersActions {
   addToRecents: (folderPath: string, metadata?: RecentFolderMetadata) => void;
   importRecentFolders: (folders: RecentFolderImport[]) => number;
   openRecentFolder: (folderPath: string) => Promise<void>;
+  /** Marks the entry missing and asks whether to drop it; resolves after the user answers. */
+  offerToRemoveUnavailableRecent: (
+    folderPath: string,
+    messageKey: "fileSystem.recentProjectUnavailable" | "fileSystem.recentProjectNotFolder",
+  ) => Promise<void>;
   removeFromRecents: (folderPath: string) => void;
   removeMissingFromRecents: () => void;
   clearRecents: () => void;
@@ -106,16 +112,18 @@ const useRecentFoldersStoreBase = create<RecentFoldersStore>()(
               try {
                 const pathInfo = await getSymlinkInfo(folderPath);
                 if (!pathInfo.is_dir) {
-                  get().actions.updateRecentFolder(folderPath, { missing: true });
-                  const { toast } = await import("sonner");
-                  toast.error(getCurrentTranslator()("fileSystem.recentProjectNotFolder", { path: folderPath }));
+                  await get().actions.offerToRemoveUnavailableRecent(
+                    folderPath,
+                    "fileSystem.recentProjectNotFolder",
+                  );
                   return;
                 }
               } catch (error) {
-                get().actions.updateRecentFolder(folderPath, { missing: true });
                 console.error("Recent folder is no longer available:", folderPath, error);
-                const { toast } = await import("sonner");
-                toast.error(getCurrentTranslator()("fileSystem.recentProjectUnavailable", { path: folderPath }));
+                await get().actions.offerToRemoveUnavailableRecent(
+                  folderPath,
+                  "fileSystem.recentProjectUnavailable",
+                );
                 return;
               }
 
@@ -151,6 +159,23 @@ const useRecentFoldersStoreBase = create<RecentFoldersStore>()(
               });
             } catch (error) {
               console.error("Error opening recent folder:", error);
+            }
+          },
+
+          // Stays inside the store's action scope so the removal goes through the same
+          // `removeFromRecents` that the list UIs use.
+          offerToRemoveUnavailableRecent: async (folderPath, messageKey) => {
+            get().actions.updateRecentFolder(folderPath, { missing: true });
+            const t = getCurrentTranslator();
+            // IntelliJ's "Reopen Project" dialog: the project cannot be opened, so the only
+            // useful follow-up is dropping the stale entry from the list.
+            const shouldRemove = await showConfirmDialog(t(messageKey, { path: folderPath }), {
+              title: t("fileSystem.recentProjectUnavailableTitle"),
+              confirmLabel: t("fileSystem.removeFromList"),
+              cancelLabel: t("projectOpen.cancel"),
+            });
+            if (shouldRemove) {
+              get().actions.removeFromRecents(folderPath);
             }
           },
 

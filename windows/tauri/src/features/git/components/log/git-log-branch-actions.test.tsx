@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { LocaleProvider } from "@/i18n/locale-provider";
 import { installHappyDom } from "@/test-utils/happy-dom";
 import { useRepositoryStore } from "../../stores/git-repository.store";
+import { useGitLogPreferencesStore } from "../../stores/git-log-preferences.store";
 import type { GitReference } from "../../types/git.types";
 import { GitLogToolWindow } from "./git-log-tool-window";
 
@@ -17,6 +18,7 @@ const historyMutations = await import("../../hooks/use-git-history-mutations");
 const pullWorkflow = await import("../../hooks/use-git-pull-workflow");
 const branchApi = await import("../../api/git-branches-api");
 const updates = await import("../../services/git-log-branch-update");
+const notifications = await import("@/ui/idea-notification");
 const tree = await import("./git-reference-tree");
 const table = await import("./git-commit-table");
 const inspector = await import("./git-commit-inspector");
@@ -37,6 +39,11 @@ const remoteReference: GitReference = {
   kind: "remote",
   upstreamShortName: undefined,
 };
+const trackingRemote: GitReference = {
+  ...remoteReference,
+  fullName: "refs/remotes/origin/topic",
+  shortName: "origin/topic",
+};
 const refresh = mock(async () => {});
 const confirm = mock(async () => true);
 const checkout = mock(async (..._args: Parameters<typeof branchApi.checkoutGitReference>) => ({
@@ -48,6 +55,21 @@ const checkout = mock(async (..._args: Parameters<typeof branchApi.checkoutGitRe
 const pull = mock(async () => ({ status: "pulled" as const }));
 const success = mock(() => "toast");
 const failure = mock((..._args: Parameters<typeof toast.error>) => "toast");
+const warning = mock((..._args: Parameters<typeof toast.warning>) => "toast");
+type NotificationCard = Parameters<typeof notifications.showIdeaNotification>[0];
+const notificationsShown: NotificationCard[] = [];
+const deleteLocal = mock(
+  async (..._args: Parameters<typeof branchApi.deleteLocalBranch>) => ({
+    name: "topic",
+    deletedTarget: "abc123def456",
+  }),
+);
+const restoreDeleted = mock(
+  async (..._args: Parameters<typeof branchApi.restoreDeletedBranch>) => {},
+);
+const setTracking = mock(
+  async (..._args: Parameters<typeof branchApi.setBranchUpstream>) => {},
+);
 const pendingUpdates: Array<() => void> = [];
 const operations: Promise<unknown>[] = [];
 const update = mock((...args: Parameters<typeof updates.updateGitLogBranch>) => {
@@ -65,6 +87,9 @@ let restoreDom: () => void;
 let container: HTMLDivElement;
 let root: Root;
 let previousRepos: ReturnType<typeof useRepositoryStore.getState>;
+// The tool window persists the applied Branch filter per repository; restore the shared
+// preferences store so randomized suite order cannot leak this file's references.
+let previousGitLogPreferences: ReturnType<typeof useGitLogPreferencesStore.getState>;
 const globals = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
 let previousAct: boolean | undefined;
 const content = ({ children }: { children?: ReactNode }) => <div>{children}</div>;
@@ -74,6 +99,7 @@ beforeEach(() => {
   previousAct = globals.IS_REACT_ACT_ENVIRONMENT;
   globals.IS_REACT_ACT_ENVIRONMENT = true;
   previousRepos = useRepositoryStore.getState();
+  previousGitLogPreferences = useGitLogPreferencesStore.getState();
   useRepositoryStore.setState({ activeRepoPath: "C:/repo-a", availableRepoPaths: ["C:/repo-a"] });
   refresh.mockClear();
   confirm.mockClear();
@@ -82,11 +108,21 @@ beforeEach(() => {
   pull.mockClear();
   success.mockClear();
   failure.mockClear();
+  warning.mockClear();
+  deleteLocal.mockClear();
+  restoreDeleted.mockClear();
+  setTracking.mockClear();
+  notificationsShown.length = 0;
   // Keep the real action owner; stub unrelated data loading and rendering, so
   // this test exercises checkout confirmation and update dispatch without Git or layout timers.
   spies.push(
     spyOn(controller, "useGitLogController").mockImplementation(() => ({
-      history: { references: [reference], recentReferences: [], commits: [], hasMore: false },
+      history: {
+        references: [reference, trackingRemote],
+        recentReferences: [],
+        commits: [],
+        hasMore: false,
+      },
       repositoryCommits: [],
       loadState: "ready",
       error: null,
@@ -120,7 +156,14 @@ beforeEach(() => {
     })),
     spyOn(dialogs, "showConfirmDialog").mockImplementation(confirm),
     spyOn(branchApi, "checkoutGitReference").mockImplementation(checkout),
+    spyOn(branchApi, "deleteLocalBranch").mockImplementation(deleteLocal),
+    spyOn(branchApi, "restoreDeletedBranch").mockImplementation(restoreDeleted),
+    spyOn(branchApi, "setBranchUpstream").mockImplementation(setTracking),
     spyOn(updates, "updateGitLogBranch").mockImplementation(update),
+    spyOn(notifications, "showIdeaNotification").mockImplementation((card) => {
+      notificationsShown.push(card);
+      return "toast";
+    }),
     spyOn(resize, "ResizablePanelGroup").mockImplementation(content),
     spyOn(resize, "ResizablePanel").mockImplementation(content),
     spyOn(resize, "ResizableHandle").mockImplementation(() => <></>),
@@ -166,6 +209,12 @@ beforeEach(() => {
         >
           Checkout and Rebase
         </button>
+        <button
+          data-action="delete-local"
+          onClick={() => onReferenceAction("deleteLocal", reference)}
+        >
+          Delete Local
+        </button>
       </div>
     )),
     spyOn(table, "GitCommitTable").mockImplementation(() => <></>),
@@ -173,6 +222,7 @@ beforeEach(() => {
     spyOn(title, "GitLogTitleBar").mockImplementation(() => <></>),
     spyOn(toast, "success").mockImplementation(success),
     spyOn(toast, "error").mockImplementation(failure),
+    spyOn(toast, "warning").mockImplementation(warning),
   );
   container = document.createElement("div");
   document.body.append(container);
@@ -188,6 +238,7 @@ afterEach(async () => {
   } finally {
     for (const spy of spies.splice(0)) spy.mockRestore();
     useRepositoryStore.setState(previousRepos);
+    useGitLogPreferencesStore.setState(previousGitLogPreferences, true);
     container.remove();
     if (previousAct === undefined) delete globals.IS_REACT_ACT_ENVIRONMENT;
     else globals.IS_REACT_ACT_ENVIRONMENT = previousAct;
@@ -204,6 +255,11 @@ const render = async (language: "en-US" | "zh-CN" = "en-US") =>
   );
 const button = (action: string) =>
   container.querySelector<HTMLButtonElement>(`[data-action="${action}"]`)!;
+// Notification actions start an async restore without returning its promise, so advance the
+// microtask queue explicitly instead of waiting on a real timer.
+const flushPromises = async () => {
+  for (let turn = 0; turn < 5; turn += 1) await Promise.resolve();
+};
 
 test("Git Log Checkout starts directly without a second confirmation and refreshes afterwards", async () => {
   await render();
@@ -211,19 +267,20 @@ test("Git Log Checkout starts directly without a second confirmation and refresh
   expect(confirm).not.toHaveBeenCalled();
   expect(checkout.mock.calls).toEqual([["C:/repo-a", reference]]);
   expect(refresh).toHaveBeenCalledTimes(1);
-  expect(success).toHaveBeenCalledWith("Checkout completed for topic");
+  // Like IDEA, a successful checkout needs no popup; the branch label switching is the feedback.
+  expect(success).not.toHaveBeenCalled();
 });
 
 test.each([
-  ["en-US", "checkout", "Checkout completed for topic"],
-  ["zh-CN", "checkout", "已对 topic 完成“检出”"],
-  ["en-US", "checkout-remote", "Checkout completed for upstream/preview"],
-  ["zh-CN", "checkout-remote", "已对 upstream/preview 完成“检出”"],
-] as const)("Checkout shows a translated success message for %s / %s when the API message is empty", async (language, action, message) => {
+  ["en-US", "checkout"],
+  ["zh-CN", "checkout"],
+  ["en-US", "checkout-remote"],
+  ["zh-CN", "checkout-remote"],
+] as const)("Checkout shows no success popup for %s / %s", async (language, action) => {
   await render(language);
   await act(async () => button(action).click());
-  expect(success).toHaveBeenCalledTimes(1);
-  expect(success).toHaveBeenCalledWith(message);
+  expect(success).not.toHaveBeenCalled();
+  expect(failure).not.toHaveBeenCalled();
   expect(confirm).not.toHaveBeenCalled();
   expect(checkout.mock.calls).toEqual([["C:/repo-a", action === "checkout" ? reference : remoteReference]]);
   expect(refresh).toHaveBeenCalledTimes(1);
@@ -292,4 +349,38 @@ test("An old update cannot refresh a new repository or unlock its active operati
   await act(async () => pendingUpdates.shift()!());
   expect(refresh).toHaveBeenCalledTimes(1);
   expect(button("update").disabled).toBe(false);
+});
+
+test("Restore keeps the branch and warns when upstream tracking cannot be restored", async () => {
+  setTracking.mockImplementationOnce(async () => {
+    throw new Error("could not lock config file .git/config");
+  });
+  await render();
+  await act(async () => button("delete-local").click());
+  expect(deleteLocal.mock.calls).toEqual([["C:/repo-a", "topic"]]);
+  const card = notificationsShown[0]!;
+  expect(card.title).toBe("Deleted Branch:");
+  expect(card.message).toBe("topic");
+
+  refresh.mockClear();
+  await act(async () => {
+    card.actions![0]!.onClick();
+    await flushPromises();
+  });
+
+  expect(restoreDeleted.mock.calls).toEqual([
+    ["C:/repo-a", { name: "topic", deletedTarget: "abc123def456" }],
+  ]);
+  expect(setTracking.mock.calls).toEqual([["C:/repo-a", "topic", trackingRemote]]);
+  // The branch itself is back, so the whole restore must not be reported as a failure that
+  // would push the user to create a duplicate branch.
+  expect(failure).not.toHaveBeenCalled();
+  expect(success).not.toHaveBeenCalled();
+  expect(warning).toHaveBeenCalledTimes(1);
+  const [message, options] = warning.mock.calls[0]!;
+  expect(message).toBe(
+    "Restored branch topic, but could not restore its upstream tracking (origin/topic)",
+  );
+  expect(options?.description).toBe("could not lock config file .git/config");
+  expect(refresh).toHaveBeenCalledTimes(1);
 });
