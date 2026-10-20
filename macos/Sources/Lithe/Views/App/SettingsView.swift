@@ -736,31 +736,45 @@ struct SettingsView: View {
     }
 
     private var terminalSettings: some View {
-        group("Shell") {
-            row("Default shell", info: "Used for new terminal sessions.") {
-                LitheSettingsSelect(
-                    selection: Binding(
-                        get: { settings.terminalShellPath ?? "" },
-                        set: { path in
-                            guard path.isEmpty || terminalShellIsAvailable(path) else {
-                                missingTerminalShellPath = path
-                                return
+        VStack(alignment: .leading, spacing: 10) {
+            group("Shell") {
+                row("Default shell", info: "Used for new terminal sessions.") {
+                    LitheSettingsSelect(
+                        selection: Binding(
+                            get: { settings.terminalShellPath ?? "" },
+                            set: { path in
+                                guard path.isEmpty || terminalShellIsAvailable(path) else {
+                                    missingTerminalShellPath = path
+                                    return
+                                }
+                                settings.selectTerminalShell(path: path)
                             }
-                            settings.selectTerminalShell(path: path)
-                        }
-                    ),
-                    options: terminalShellOptions,
-                    width: 320,
-                    accessibilityLabel: "Default shell",
-                    title: terminalShellTitle,
-                    isAvailable: terminalShellIsAvailable,
-                    onUnavailableSelection: { path in missingTerminalShellPath = path }
-                )
+                        ),
+                        options: terminalShellOptions,
+                        width: 320,
+                        accessibilityLabel: "Default shell",
+                        title: terminalShellTitle,
+                        isAvailable: terminalShellIsAvailable,
+                        onUnavailableSelection: { path in missingTerminalShellPath = path }
+                    )
+                }
+                Button("Detect Installed Shells") {
+                    model.terminalFeature?.refreshAvailableShells()
+                    viewState.detectedTerminalShells = model.availableTerminalShells
+                    viewState.knownTerminalShells = MacTerminalShellDiscovery.knownShells()
+                }
             }
-            Button("Detect Installed Shells") {
-                model.terminalFeature?.refreshAvailableShells()
-                viewState.detectedTerminalShells = model.availableTerminalShells
-                viewState.knownTerminalShells = MacTerminalShellDiscovery.knownShells()
+            group("Scrollback") {
+                row("Terminal scrollback", info: "Lines kept for scrolling back in new terminal sessions.") {
+                    LitheSettingsStepper(
+                        value: $settings.terminalScrollbackLines,
+                        in: AppSettings.terminalScrollbackLinesRange,
+                        step: 500,
+                        width: 146,
+                        accessibilityLabel: "Terminal scrollback",
+                        title: { String(format: String(localized: "%lld lines"), $0) }
+                    )
+                }
             }
         }
         .task {

@@ -328,7 +328,10 @@ final class MacTerminalTransport: NSObject, TerminalTransport, @preconcurrency L
 
     var nativeView: AnyObject { view }
 
-    override init() {
+    private let scrollbackLines: Int
+
+    init(scrollbackLines: Int = 2_000) {
+        self.scrollbackLines = scrollbackLines
         view = LitheTerminalView(frame: .zero)
         super.init()
 
@@ -347,7 +350,7 @@ final class MacTerminalTransport: NSObject, TerminalTransport, @preconcurrency L
 
         var options = view.terminal.options
         options.termName = "xterm-256color"
-        options.scrollback = 2_000
+        options.scrollback = scrollbackLines
         view.terminal.options = options
         view.terminal.setup(isReset: false)
     }

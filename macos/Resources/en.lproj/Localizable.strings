@@ -959,6 +959,10 @@
 "Default shell" = "Default shell";
 "Detect Installed Shells" = "Detect Installed Shells";
 "Used for new terminal sessions." = "Used for new terminal sessions.";
+"Scrollback" = "Scrollback";
+"Terminal scrollback" = "Terminal scrollback";
+"Lines kept for scrolling back in new terminal sessions." = "Lines kept for scrolling back in new terminal sessions.";
+"%lld lines" = "%lld lines";
 "System default" = "System default";
 "System default · Shell not detected" = "System default · Shell not detected";
 "System default · %@ (%@)" = "System default · %@ (%@)";
