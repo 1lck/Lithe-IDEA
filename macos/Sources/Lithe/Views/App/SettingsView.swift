@@ -644,7 +644,7 @@ struct SettingsView: View {
                 row("Font size") {
                     LitheSettingsStepper(
                         value: $settings.editorFontSize,
-                        in: 10...22,
+                        in: 8...22,
                         step: 1,
                         width: 126,
                         accessibilityLabel: "Font size",
