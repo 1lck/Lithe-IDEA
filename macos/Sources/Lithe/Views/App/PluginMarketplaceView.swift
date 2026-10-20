@@ -168,9 +168,7 @@ struct PluginMarketplaceView: View {
                     .controlSize(.small)
             case .installed, .installedFromOtherSource, .managedOutsideMarketplace:
                 if feature.requiresRestart(pluginID) {
-                    Text(LocalizedStringKey("Restart to Activate"))
-                        .font(LitheTheme.smallFont)
-                        .foregroundStyle(LitheTheme.warning)
+                    RestartLitheButton(prominent: false)
                 } else {
                     Text(LocalizedStringKey("Installed"))
                         .font(LitheTheme.smallFont)
@@ -180,6 +178,14 @@ struct PluginMarketplaceView: View {
                 Text(LocalizedStringKey("Not Supported"))
                     .font(LitheTheme.smallFont)
                     .foregroundStyle(LitheTheme.secondaryText)
+            case .blockedByRetiredPlugin(_, let uninstallPending):
+                if uninstallPending {
+                    RestartLitheButton(prominent: false)
+                } else {
+                    Text(LocalizedStringKey("Replaces an Installed Plugin"))
+                        .font(LitheTheme.smallFont)
+                        .foregroundStyle(LitheTheme.warning)
+                }
             }
         }
     }
@@ -321,9 +327,13 @@ private struct PluginMarketplaceDetail: View {
                     .tint(LitheTheme.accent)
             case .installed, .installedFromOtherSource, .managedOutsideMarketplace:
                 HStack(spacing: 8) {
-                    Button(LocalizedStringKey("Installed")) {}
-                        .buttonStyle(.bordered)
-                        .disabled(true)
+                    if feature.requiresRestart(PluginID(entry.id)) {
+                        RestartLitheButton()
+                    } else {
+                        Button(LocalizedStringKey("Installed")) {}
+                            .buttonStyle(.bordered)
+                            .disabled(true)
+                    }
                     if feature.canUninstall(PluginID(entry.id)) {
                         Button(LocalizedStringKey("Uninstall")) { confirmingUninstall = true }
                             .buttonStyle(.bordered)
@@ -343,6 +353,13 @@ private struct PluginMarketplaceDetail: View {
                 Button(LocalizedStringKey("Not Supported")) {}
                     .buttonStyle(.bordered)
                     .disabled(true)
+            case .blockedByRetiredPlugin(_, let uninstallPending):
+                HStack(spacing: 8) {
+                    Button(LocalizedStringKey("Install")) {}
+                        .buttonStyle(.bordered)
+                        .disabled(true)
+                    if uninstallPending { RestartLitheButton() }
+                }
             }
         }
     }
@@ -384,6 +401,21 @@ private struct PluginMarketplaceDetail: View {
 
     @ViewBuilder private var stateMessage: some View {
         switch state {
+        case .blockedByRetiredPlugin(let name, let uninstallPending):
+            Label(
+                String(
+                    format: PluginMarketplacePresentation.localized(
+                        uninstallPending
+                            ? "Restart Lithe to finish uninstalling %@, then install this plugin."
+                            : "Uninstall %@ from the Installed tab and restart Lithe first. It is the retired official version of this plugin and supports the same language.",
+                        locale: locale
+                    ),
+                    name
+                ),
+                systemImage: "arrow.triangle.branch"
+            )
+            .foregroundStyle(LitheTheme.warning)
+            .fixedSize(horizontal: false, vertical: true)
         case .unsupported(let message):
             Label(
                 PluginMarketplacePresentation.unsupportedMessage(entry: entry, platform: feature.platform, fallback: message, locale: locale),

@@ -181,8 +181,10 @@ struct MacRuntimeToolDiscovery: RuntimeToolDiscovery {
             return RuntimeToolGuidance(
                 command: command,
                 displayName: "PHP language server",
-                summary: "Intelephense was not found in the PHP Support plugin or configured toolchain.",
-                recovery: "Reinstall PHP Support from Plugin Management, or install Node.js and configure an Intelephense executable."
+                summary: "Intelephense was not found on PATH or in the configured toolchain.",
+                // PHP Support does not bundle Intelephense: its licence does not
+                // allow redistribution, so the user installs it.
+                recovery: "Install Node.js, then run npm install -g intelephense and restart the language server."
             )
         default:
             return RuntimeToolGuidance(

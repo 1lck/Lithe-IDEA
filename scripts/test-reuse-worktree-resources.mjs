@@ -212,10 +212,10 @@ try {
     assert.notEqual(refused.status, 0);
     assert.match(diagnostics(refused), /plugin-web-state.*cannot be reused/);
   });
-  await test("PHP downloads, plugin packages and marketplace state stay isolated in each worktree", { timeout: 15000 }, () => {
+  await test("plugin packages and marketplace state stay isolated in each worktree", { timeout: 15000 }, () => {
     const listed = run(process.execPath, [reuseScript, "--list"]);
     assertSucceeded(listed);
-    for (const id of ["php-language-server-downloads", "official-plugin-packages", "plugin-marketplace-state"]) {
+    for (const id of ["official-plugin-packages", "plugin-marketplace-state"]) {
       assert.ok(!listed.stdout.includes(id));
       const refused = reuse(["--resource", id]);
       assert.notEqual(refused.status, 0);
