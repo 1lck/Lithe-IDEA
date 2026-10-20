@@ -22,7 +22,11 @@
     "evidence": [
       "rust/lithe-agent-host/src/prompt.rs",
       "rust/lithe-agent-host/src/tests.rs",
-      "shared/fixtures/agent/acp-events-v1.json"
+      "shared/fixtures/agent/acp-events-v1.json",
+      "windows/tauri/src/features/agent/components/agent-transcript.tsx",
+      "windows/tauri/src/features/agent/stores/agent-connection.model.ts",
+      "windows/tauri/src/features/agent/stores/agent-turn-statistics.model.test.ts",
+      "windows/tauri/src/features/agent/types/agent-turn-statistics.ts"
     ],
     "implementationStatus": "partial",
     "verificationStatus": "pending"

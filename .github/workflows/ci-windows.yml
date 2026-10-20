@@ -290,6 +290,14 @@ jobs:
           node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-notifications.json -- src/features/notifications
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Test Agent panel and capability gate
+        shell: pwsh
+        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-agent.json -- src/features/agent src/config/backend-capabilities.test.ts src/i18n src/features/file-system/utils/file-system-drop-controller.test.ts src/ui/icons.test.tsx
+
+      - name: Test Agent connection service ownership in isolation
+        shell: pwsh
+        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-agent-connection-service.json -- ./tests/agent-connection-service.test.ts
+
       - name: Test Java debug session ownership and cleanup
         shell: pwsh
         timeout-minutes: 5
