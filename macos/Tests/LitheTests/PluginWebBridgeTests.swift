@@ -167,6 +167,69 @@ struct PluginWebBridgeTests {
         #expect(try await closing.value == "requestCancelled")
     }
 
+    @Test func callCancelledWhileAwaitingConsentNeverStarts() async throws {
+        let harness = try BridgeHarness()
+        defer { harness.cleanUp() }
+        let confirmationRequested = TestGate()
+        let confirm = TestGate()
+        harness.host.confirmProcessStart = {
+            confirmationRequested.open()
+            return await confirm.waitUntilOpen()
+        }
+        let pending = Task { try await harness.error("functions.invoke", [
+            "instance": .string("own"), "function": .string("workspace.build"), "call": .string("c1")
+        ]) }
+        defer { confirm.open(); pending.cancel() }
+        #expect(await confirmationRequested.waitUntilOpen(), "The call never reached consent")
+
+        // invoke -> cancel -> the user approves: the function must not start.
+        #expect(try await harness.ok("functions.cancel", ["call": .string("c1")]) == .object([:]))
+        confirm.open()
+        #expect(try await pending.value == "requestCancelled")
+        #expect(harness.build.invocations.isEmpty)
+    }
+
+    @Test func callsAwaitingConsentCountAgainstTheLimit() async throws {
+        let harness = try BridgeHarness()
+        defer { harness.cleanUp() }
+        let limit = PluginWebBridge.functionCallLimit
+        let allAwaitConsent = TestGate()
+        let confirm = TestGate()
+        var awaiting = 0
+        harness.host.confirmProcessStart = {
+            awaiting += 1
+            if awaiting == limit { allAwaitConsent.open() }
+            return await confirm.waitUntilOpen()
+        }
+        let pending = (0..<limit).map { index in
+            Task { try await harness.error("functions.invoke", [
+                "instance": .string("own"), "function": .string("workspace.build"), "call": .string("call-\(index)")
+            ]) }
+        }
+        defer { confirm.open(); pending.forEach { $0.cancel() } }
+        #expect(await allAwaitConsent.waitUntilOpen(), "Not every call reached consent")
+
+        // One more call is refused at once, before the user answers.
+        #expect(try await harness.error("functions.invoke", [
+            "instance": .string("own"), "function": .string("workspace.build"), "call": .string("extra")
+        ]) == "plugin.build.unavailable")
+        confirm.open()
+        for call in pending { #expect(try await call.value == nil) }
+        #expect(harness.build.invocations.count == limit)
+    }
+
+    @Test func aCallIDIsNeverAcceptedTwice() async throws {
+        let harness = try BridgeHarness()
+        defer { harness.cleanUp() }
+        let parameters: [String: ToolingJSONValue] = [
+            "instance": .string("own"), "function": .string("workspace.build"), "call": .string("c1")
+        ]
+
+        #expect(try await harness.ok("functions.invoke", parameters) == .object(["value": .null]))
+        #expect(try await harness.error("functions.invoke", parameters) == "plugin.web.invalidRequest")
+        #expect(harness.build.invocations.count == 1)
+    }
+
     @Test func decodedModelTaskCategoriesAndRunEntriesReachThePage() throws {
         let data = Data(#"""
         {"projects":[{"id":"app","path":"app","name":"app"}],"tasks":[

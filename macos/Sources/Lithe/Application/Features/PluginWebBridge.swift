@@ -126,8 +126,12 @@ final class PluginWebBridge {
     private weak var build: (any PluginWebBuildAccess)?
     private var observations: [AnyCancellable] = []
     private var runs: [String: Run] = [:]
-    /// Running function calls, by the page's call ID or a host-made one.
-    private var functionCalls: [String: Task<ToolingJSONValue, Error>] = [:]
+    /// Function calls from the moment they are accepted, through consent,
+    /// until they end, by the page's call ID or a host-made one.
+    private var functionCalls: [String: FunctionCall] = [:]
+    /// Every call ID the page has used; an ID is never accepted twice, so
+    /// late progress of an ended call cannot be mistaken for a new one.
+    private var usedCallIDs: Set<String> = []
     private var lastInstances: ToolingJSONValue?
     private var waiters: [Waiter] = []
     private var isCheckScheduled = false
@@ -139,6 +143,19 @@ final class PluginWebBridge {
         let entryID: String
         var isAnnounced = false
         var isFinished = false
+    }
+
+    /// Holds its slot under the call limit while consent is pending, so a
+    /// cancel that arrives before the function starts still stops it.
+    @MainActor
+    private final class FunctionCall {
+        private(set) var isCancelled = false
+        var task: Task<ToolingJSONValue, Error>?
+
+        func cancel() {
+            isCancelled = true
+            task?.cancel()
+        }
     }
 
     private struct Waiter {
@@ -166,6 +183,7 @@ final class PluginWebBridge {
         observations.removeAll()
         let calls = functionCalls
         functionCalls.removeAll()
+        usedCallIDs.removeAll()
         calls.values.forEach { $0.cancel() }
         let pending = waiters
         waiters.removeAll()
@@ -246,7 +264,8 @@ final class PluginWebBridge {
             )
         case "functions.cancel":
             let call = try Parameters(params, allowed: ["call"]).string("call", limit: 128)
-            // A call that already ended is cancelled as a no-op.
+            // A call that already ended is cancelled as a no-op. One still
+            // awaiting consent is marked and never starts.
             functionCalls[call]?.cancel()
             return .object([:])
         case "ui.getState":
@@ -466,25 +485,30 @@ final class PluginWebBridge {
             throw PluginWebBridgeFailure.invalidRequest("params must be an object.")
         }
         let pageCall = try params.optionalString("call", limit: 128)
-        if let pageCall, functionCalls[pageCall] != nil {
-            throw PluginWebBridgeFailure.invalidRequest("The call \(pageCall) is still running.")
+        if let pageCall, usedCallIDs.contains(pageCall) {
+            throw PluginWebBridgeFailure.invalidRequest("The call ID \(pageCall) was already used.")
         }
         guard functionCalls.count < Self.functionCallLimit else {
             throw PluginWebBridgeFailure.unavailable("This page already runs \(Self.functionCallLimit) function calls.")
         }
-        try await consent(String(localized: "Run \(functionID) of \(entry.instance.displayName)"), workspaceURL: workspaceURL)
-        // Consent can suspend while the page reuses the call ID.
+        // Reserve the ID and a slot before consent suspends, so concurrent
+        // requests count against the limit and `functions.cancel` reaches it.
         let call = pageCall ?? UUID().uuidString.lowercased()
-        guard functionCalls[call] == nil else {
-            throw PluginWebBridgeFailure.invalidRequest("The call \(call) is still running.")
+        let reservation = FunctionCall()
+        functionCalls[call] = reservation
+        if let pageCall { usedCallIDs.insert(pageCall) }
+        defer { if functionCalls[call] === reservation { functionCalls[call] = nil } }
+        try await consent(String(localized: "Run \(functionID) of \(entry.instance.displayName)"), workspaceURL: workspaceURL)
+        guard !reservation.isCancelled else {
+            throw PluginWebBridgeFailure(code: "requestCancelled", message: "The function call was cancelled.")
         }
         let entryID = entry.id
         let timeout = requestTimeout
-        let task = Task { @MainActor [weak self] in
+        let task = Task { @MainActor [weak self, weak reservation] in
             try await build.invokePluginFunction(
                 entryID, functionID: functionID, params: input, timeout: timeout
             ) { progress in
-                guard let self, let pageCall, self.functionCalls[pageCall] != nil else { return }
+                guard let self, let pageCall, let reservation, self.functionCalls[pageCall] === reservation else { return }
                 var payload: [String: ToolingJSONValue] = [
                     "call": .string(pageCall), "instance": .string(entryID), "function": .string(functionID)
                 ]
@@ -493,8 +517,7 @@ final class PluginWebBridge {
                 self.emit?("functions.progress", .object(payload))
             }
         }
-        functionCalls[call] = task
-        defer { functionCalls[call] = nil }
+        reservation.task = task
         let value = try await withTaskCancellationHandler {
             try await functionOutcome { try await task.value }
         } onCancel: {

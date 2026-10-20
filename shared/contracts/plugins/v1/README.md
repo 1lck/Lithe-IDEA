@@ -1205,8 +1205,8 @@ their output appears in the host's Build output window.
 | `workspace.openFile` | `{ path, line?, column? }`, a path inside the workspace | `{}` |
 | `ui.getState`, `ui.setState` | none, `{ state }` | `{ state }`, `{}`; JSON of at most 64 KiB per window and workspace |
 | `functions.list` | `{ instance }` | `{ functions }`: sorted IDs of the functions the instance's provider currently offers; starts the provider |
-| `functions.invoke` | `{ instance, function, params?, call? }`; `params` an object, `call` a page-chosen ID of at most 128 characters | `{ value }`, the function's result |
-| `functions.cancel` | `{ call }` | `{}`; a call that already ended is ignored |
+| `functions.invoke` | `{ instance, function, params?, call? }`; `params` an object, `call` a page-chosen ID of at most 128 characters that the page never used before | `{ value }`, the function's result |
+| `functions.cancel` | `{ call }` | `{}`; a call still awaiting consent never starts; a call that already ended is ignored |
 
 | Event | Payload |
 | --- | --- |
@@ -1220,7 +1220,9 @@ and `plugin.web.forbidden`. Build requests also report the `build.*` codes.
 Function requests report Core's codes unchanged (`plugin.function.*`,
 `requestCancelled`, `requestTimeout`); a failure the plugin reported also
 carries its own `pluginErrorCode`, which the host never interprets. A page
-has at most 16 function calls running, and closing it cancels them.
+has at most 16 function calls accepted at once, counting calls still awaiting
+consent, and closing it cancels them. Reusing a `call` ID is
+`plugin.web.invalidRequest`, also after that call ended.
 `functions.list` and `functions.invoke` ask for the same consent as the
 host's provider requests: once given for a plugin and workspace, it holds
 until the project is closed.
