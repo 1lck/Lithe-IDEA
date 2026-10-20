@@ -20,9 +20,13 @@
     "evidence": [
       "rust/lithe-agent-host/src/lib.rs",
       "shared/fixtures/agent/acp-events-v1.json",
-      "windows/tauri/src-tauri/src/agent.rs"
+      "windows/tauri/src-tauri/src/agent.rs",
+      "windows/tauri/src/features/agent/components/agent-settings-section.tsx",
+      "windows/tauri/src/features/agent/components/agent-panel.tsx",
+      "windows/tauri/src/features/agent/services/agent-launch.ts"
     ]
   },
   "owner": "Agent",
-  "verification": "macOS：已有 Codex ChatGPT 登录直接对话；未登录只显示登录按钮，点击才打开浏览器，取消与超时清理进程；API Key 与订阅空闲切换后验证实际计费来源，不携带旧 key/URL/模型、不改提交服务商；忙碌时拒绝切换，账号变化后断开；老配置仍走 API Key，Claude 不显示订阅选项。真实账号与 macOS UI 待验证；Windows 连接桥已接通共享 host，UI 待接入；2026-10-16 删除了从未接入后端的「Codex 集成」设置页与 Codex app-server 客户端死代码，AI 设置不再显示 Codex CLI 状态或连接按钮。"
+  "verification": "macOS：已有 Codex ChatGPT 登录直接对话；未登录只显示登录按钮，点击才打开浏览器，取消与超时清理进程；API Key 与订阅空闲切换后验证实际计费来源，不携带旧 key/URL/模型、不改提交服务商；忙碌时拒绝切换，账号变化后断开；老配置仍走 API Key，Claude 不显示订阅选项。真实账号与 macOS UI 待验证；Windows 连接桥已接通共享 host，UI 待接入；2026-10-16 删除了从未接入后端的「Codex 集成」设置页与 Codex app-server 客户端死代码，AI 设置不再显示 Codex CLI 状态或连接按钮。",
+  "notes": "2026-10-16 Windows：设置区可在 API Key 与 Codex 订阅之间切换，面板按共享 host 的登录状态显示登录、登录中与取消，订阅启动不携带供应商 key/URL/模型；真实 ChatGPT 账号验收待执行。"
 }

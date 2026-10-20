@@ -186,12 +186,24 @@ function capabilityForCommand(command: string): BackendCapability | null {
     return "runActions";
   }
   if (
+    command === "agent.status" ||
+    command === "agent.install" ||
+    command === "agent.uninstall" ||
+    command === "agent.installCli" ||
+    command === "agent.parseProviderConfiguration"
+  ) {
+    return "agent";
+  }
+  if (
     command.includes("acp_") ||
     command.includes("ai_provider") ||
     command.includes("_chat") ||
     command === "get_available_agents"
   ) {
-    return "agent";
+    // The legacy `features/ai` chat has no Windows backend. It keeps its own
+    // gate so those commands still read "待开发" instead of reaching the
+    // dispatcher that answers "not implemented".
+    return "aiChat";
   }
   if (
     command.includes("extension_secret") ||
