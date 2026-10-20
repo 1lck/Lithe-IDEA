@@ -27,7 +27,7 @@ struct ProjectTreeSelectionTests {
         #expect(ProjectTreeSelection.expandingSingleDirectoryChains(from: [infra.path], in: unloaded, expandedPaths: [infra.path]) == [infra.path])
     }
 
-    @Test(arguments: ["empty", "hidden", "siblings", "file"])
+    @Test(arguments: ["empty", "hidden", "siblings", "file", "unloaded"])
     func automaticExpansionStopsAtLeavesHiddenDirectoriesAndSiblings(reason: String) {
         let url = URL(fileURLWithPath: "/fixture")
         let child = FileNode(url: url.appendingPathComponent(reason == "hidden" ? ".hidden" : "logs"),

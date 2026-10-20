@@ -115,7 +115,7 @@ struct ProjectTreeSelection: Equatable {
             for _ in 0..<64 {
                 guard let children = current?.children, children.count == 1,
                       let child = children.first, child.isDirectory,
-                      child.children?.isEmpty != true,
+                      let childRows = child.children, !childRows.isEmpty,
                       !child.url.lastPathComponent.hasPrefix(".") else { break }
                 expanded.insert(child.url.path)
                 expanded.formUnion(child.collapsedAncestorPaths)

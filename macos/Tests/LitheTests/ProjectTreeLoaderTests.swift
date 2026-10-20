@@ -43,6 +43,50 @@ struct ProjectTreeLoaderTests {
         #expect(loader.childRows(of: [FileNode(url: root, isDirectory: true, children: nil)]) == nil)
     }
 
+    @Test(arguments: [false, true], [false, true])
+    func omittedChainDirectoryKeepsReadableRows(compacted: Bool, nested: Bool) throws {
+        let root = URL(fileURLWithPath: "/fixture/readable")
+        let middle = root.appendingPathComponent("middle")
+        let locked = nested ? middle.appendingPathComponent("locked") : middle
+        let sibling = URL(fileURLWithPath: "/fixture/sibling")
+        let file = sibling.appendingPathComponent("README.md")
+        var disk: [String: [ProjectDirectoryEntry]] = [
+            root.path: [.init(url: middle, isDirectory: true)],
+            sibling.path: [.init(url: file, isDirectory: false)],
+        ]
+        if nested { disk[middle.path] = [.init(url: locked, isDirectory: true)] }
+        let loader = ProjectTreeLoader { urls in
+            Dictionary(uniqueKeysWithValues: urls.compactMap { url in disk[url.path].map { (url.path, $0) } })
+        }
+        let listed = try #require(loader.childRows(of: [
+            FileNode(url: root, isDirectory: true, children: nil, isInsideSourceRoot: compacted),
+            FileNode(url: sibling, isDirectory: true, children: nil),
+        ]))
+        let children = try #require(listed[root.path])
+        let tree = FileNode(url: root, isDirectory: true, children: children)
+        #expect(tree.node(exactlyAt: locked)?.isUnloadedDirectory == true)
+        #expect(listed[sibling.path]?.map(\.url) == [file])
+        let expanded = ProjectTreeSelection.expandingSingleDirectoryChains(from: [root.path], in: tree, expandedPaths: [root.path])
+        #expect(!expanded.contains(locked.path))
+        #expect(ProjectTreeSelection.visibleRows(in: tree, expandedPaths: expanded).last?.node.url == locked)
+    }
+
+    @Test
+    func cancellationDuringOmittedChainProbeStillRejectsTheResult() async {
+        let root = URL(fileURLWithPath: "/fixture/cancelled")
+        let child = root.appendingPathComponent("locked")
+        let task = Task {
+            let loader = ProjectTreeLoader { urls in
+                if urls == [root] { return [root.path: [.init(url: child, isDirectory: true)]] }
+                withUnsafeCurrentTask { $0?.cancel() }
+                return [:]
+            }
+            return loader.childRows(of: [FileNode(url: root, isDirectory: true, children: nil)])
+        }
+        defer { task.cancel() }
+        #expect(await task.value == nil)
+    }
+
     @Test
     func automaticChainLookaheadStopsAtItsDepthBound() throws {
         let root = URL(fileURLWithPath: "/fixture/chain")

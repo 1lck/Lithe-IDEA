@@ -103,8 +103,9 @@ struct ProjectTreeLoader {
                 guard children.count == 1, let child = children.first,
                       child.isDirectory, child.children?.isEmpty != true,
                       !child.url.lastPathComponent.hasPrefix(".") else { break }
-                guard let listed = listedChildRows(of: [child]),
-                      let next = listed[child.url.standardizedFileURL.path] else { return nil }
+                guard let listed = listedChildRows(of: [child]), !Task.isCancelled else { return nil }
+                // An omitted probe is unreadable or gone, not a failure of its readable parent.
+                guard let next = listed[child.url.standardizedFileURL.path] else { break }
                 chain.append(child)
                 children = next
             }
@@ -148,7 +149,10 @@ struct ProjectTreeLoader {
             guard let listed = cachedList(chains.map(\.tip)) else { return nil }
             var continuing: [CompactionChain] = []
             for var chain in chains {
-                let entries = listed[chain.tip.standardizedFileURL.path] ?? []
+                guard let entries = listed[chain.tip.standardizedFileURL.path] else {
+                    chain.apply(to: &result)
+                    continue
+                }
                 if entries.count == 1, let only = entries.first, only.isDirectory,
                    LitheIcons.isValidPackageName(only.url.lastPathComponent) {
                     chain.collapsed.append(chain.tip.path)
