@@ -1,0 +1,27 @@
+{
+  "id": "terminal-extended-keyboard",
+  "area": "工作台",
+  "group": "终端",
+  "capability": "终端向 TUI 程序传递带修饰键的按键（如 Shift+Enter 换行）",
+  "macos": {
+    "evidence": [
+      "Package.swift",
+      "macos/Sources/Lithe/Platform/MacOS/Terminal/MacTerminalTransport.swift"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/terminal/utils/terminal-keyboard.ts",
+      "windows/tauri/src/features/terminal/utils/terminal-keyboard.test.ts",
+      "windows/tauri/src-tauri/build.rs",
+      "third_party/conpty/manifest.json",
+      "windows/tauri/src-tauri/tauri.conf.json"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Terminal",
+  "verification": "在运行 kimi 等 TUI 程序的终端里按 Shift+Enter，确认插入换行而不是提交；Ctrl+Enter、Alt+Enter 同样按 kitty 协议发送 CSI 13;<modifier>u。 macOS 由 SwiftTerm 1.15.0 实现该协议，Lithe 不拦截按键。Windows 必须使用随应用分发的 conpty.dll 与 OpenConsole.exe：系统 Windows 10 的 conhost 会丢弃该序列，因此安装目录需要这两个文件，且可执行文件同目录优先于系统宿主。核对卸载或手动删除这两个文件后 Shift+Enter 失效而终端其余功能正常，确认降级不崩溃。真实 Windows 与 macOS 产品交互验收 pending。"
+}
