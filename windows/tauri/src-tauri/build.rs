@@ -11,10 +11,13 @@ use std::path::{Path, PathBuf};
 /// - `conpty.dll` exports `CreatePseudoConsole` and friends.
 /// - `OpenConsole.exe` is the console host that `conpty.dll` launches, and the
 ///   pair does not work without it.
+/// - `ConPTY-LICENSE.txt` is the MIT text for that upstream code. The license
+///   requires the notice to accompany every distributed copy, so it ships beside
+///   the binaries instead of staying behind in the repository.
 ///
 /// See `third_party/conpty/manifest.json` for the pinned upstream package and
 /// `scripts/prepare-conpty.ps1` for the download that fills `.artifacts`.
-const CONPTY_FILES: [&str; 2] = ["conpty.dll", "OpenConsole.exe"];
+const CONPTY_FILES: [&str; 3] = ["conpty.dll", "OpenConsole.exe", "ConPTY-LICENSE.txt"];
 
 fn main() {
     tauri_build::build();

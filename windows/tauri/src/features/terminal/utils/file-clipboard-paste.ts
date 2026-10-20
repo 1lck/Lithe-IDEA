@@ -5,6 +5,7 @@ import {
 } from "@/features/file-explorer/lib/clipboard-entry-paths";
 import { useFileClipboardStore } from "@/features/file-explorer/stores/file-explorer-clipboard.store";
 import { readClipboardText } from "@/utils/clipboard";
+import { resolveAutomountRootForPaths } from "@/features/wsl/utils/wsl-automount-root";
 import { quoteTerminalPaths } from "./terminal-file-drop";
 
 /**
@@ -15,13 +16,16 @@ import { quoteTerminalPaths } from "./terminal-file-drop";
  * application can read. Translating it here means pasting keeps working for the
  * user without the copy having to overwrite the system clipboard.
  *
+ * The automount root is resolved here rather than by the caller because it is
+ * only needed for a Windows drive path, and the paths are only known once the
+ * in-app clipboard has been read.
+ *
  * When `allowStale` is true the clipboard-recency check is skipped, so the caller
  * can offer an explicit action that always pastes the copied paths.
  */
 async function fileClipboardPasteText(
   shell: string | null,
   remoteConnectionId: string | null,
-  automountRoot: string | null,
   allowStale: boolean,
 ): Promise<string | null> {
   const { clipboard } = useFileClipboardStore.getState();
@@ -50,6 +54,7 @@ async function fileClipboardPasteText(
 
   const paths = clipboardEntryPaths(entries);
   if (paths.length === 0) return null;
+  const automountRoot = await resolveAutomountRootForPaths(shell, paths);
   return quoteTerminalPaths(paths, shell, { remoteConnectionId, automountRoot });
 }
 
@@ -60,14 +65,8 @@ async function fileClipboardPasteText(
 export async function readTerminalPasteText(
   shell?: string | null,
   remoteConnectionId?: string | null,
-  automountRoot?: string | null,
 ): Promise<string> {
-  const filePaths = await fileClipboardPasteText(
-    shell ?? null,
-    remoteConnectionId ?? null,
-    automountRoot ?? null,
-    false,
-  );
+  const filePaths = await fileClipboardPasteText(shell ?? null, remoteConnectionId ?? null, false);
   if (filePaths !== null) return filePaths;
   return readClipboardText();
 }
@@ -80,12 +79,6 @@ export async function readTerminalPasteText(
 export async function readCopiedFilePathsText(
   shell?: string | null,
   remoteConnectionId?: string | null,
-  automountRoot?: string | null,
 ): Promise<string | null> {
-  return fileClipboardPasteText(
-    shell ?? null,
-    remoteConnectionId ?? null,
-    automountRoot ?? null,
-    true,
-  );
+  return fileClipboardPasteText(shell ?? null, remoteConnectionId ?? null, true);
 }

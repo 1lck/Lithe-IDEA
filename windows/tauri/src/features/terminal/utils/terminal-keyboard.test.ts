@@ -167,7 +167,8 @@ describe("terminal keyboard actions", () => {
 
 // Advertising the disambiguation bit promises that the keys whose legacy bytes
 // collide stay distinguishable. Ctrl+I shares 0x09 with Tab and Ctrl+M shares
-// 0x0D with Enter, so those combinations must use the codepoint form.
+// 0x0D with Enter, and Escape shares its single byte with the prefix of every
+// escape sequence, so those cases must use the codepoint form.
 describe("disambiguated keys", () => {
   const key = (init: { key: string } & Record<string, unknown>) => ({
     type: "keydown" as const,
@@ -194,9 +195,11 @@ describe("disambiguated keys", () => {
     });
   });
 
-  // The plain keys keep their usual bytes so shells and other programs that
-  // never negotiated the protocol are untouched.
-  test("leaves plain Tab, Enter and Escape on the legacy path", () => {
+  // The plain Tab and Enter keys keep their usual bytes: shells and the many
+  // programs that read them as control characters depend on that. Escape cannot
+  // stay on the legacy path, though: its bare byte is the prefix of every escape
+  // sequence, which is exactly what this bit exists to disambiguate.
+  test("leaves plain Tab and Enter on the legacy path", () => {
     const active = { extendedKeyboardActive: true };
     expect(getTerminalKeyAction(key({ key: "Tab" }), "windows", active)).toEqual({
       type: "passthrough",
@@ -204,7 +207,29 @@ describe("disambiguated keys", () => {
     expect(getTerminalKeyAction(key({ key: "Enter" }), "windows", active)).toEqual({
       type: "passthrough",
     });
+  });
+
+  test("encodes Escape once the program negotiated disambiguation", () => {
+    const active = { extendedKeyboardActive: true };
     expect(getTerminalKeyAction(key({ key: "Escape" }), "windows", active)).toEqual({
+      type: "write",
+      data: "\u001b[27u",
+    });
+    expect(
+      getTerminalKeyAction(key({ key: "Escape", shiftKey: true }), "windows", active),
+    ).toEqual({ type: "write", data: "\u001b[27;2u" });
+    expect(getTerminalKeyAction(key({ key: "Escape", altKey: true }), "windows", active)).toEqual({
+      type: "write",
+      data: "\u001b[27;3u",
+    });
+    expect(getTerminalKeyAction(key({ key: "Escape", ctrlKey: true }), "windows", active)).toEqual({
+      type: "write",
+      data: "\u001b[27;5u",
+    });
+  });
+
+  test("keeps Escape on the legacy path before negotiation", () => {
+    expect(getTerminalKeyAction(key({ key: "Escape" }), "windows")).toEqual({
       type: "passthrough",
     });
   });

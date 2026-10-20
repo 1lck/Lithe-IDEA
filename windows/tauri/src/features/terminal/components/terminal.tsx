@@ -26,7 +26,7 @@ import {
 } from "@/features/file-system/utils/file-system-drop-controller";
 import { clipboardEntryPaths } from "@/features/file-explorer/lib/clipboard-entry-paths";
 import { formatPathsForTerminal } from "@/features/terminal/utils/terminal-file-drop";
-import { resolveAutomountRootForShell } from "@/features/wsl/utils/wsl-automount-root";
+import { resolveAutomountRootForPaths } from "@/features/wsl/utils/wsl-automount-root";
 import { showConfirmDialog } from "@/ui/dialog";
 import {
   ContextMenu,
@@ -200,9 +200,9 @@ export const XtermTerminal = ({
 
   const insertDroppedPaths = useCallback(
     (paths: string[]) => {
-      // Resolving the mount root reads the distribution's wsl.conf, so it is async;
-      // the insertion happens once that settles.
-      void resolveAutomountRootForShell(resolveShell()).then((automountRoot) => {
+      // Only a Windows drive path needs the mount root, so the host read is
+      // skipped for the Linux-form and protocol paths that make up most drops.
+      void resolveAutomountRootForPaths(resolveShell(), paths).then((automountRoot) => {
         const text = formatDroppedPathsForTerminal(
           paths,
           resolveShell(),
@@ -243,7 +243,7 @@ export const XtermTerminal = ({
     const handlePathInsert = (event: Event) => {
       const detail = (event as CustomEvent<TerminalPathInsertDetail>).detail;
       const paths = clipboardEntryPaths((detail?.paths ?? []).map((path) => ({ path })));
-      void resolveAutomountRootForShell(resolveShell()).then((automountRoot) => {
+      void resolveAutomountRootForPaths(resolveShell(), paths).then((automountRoot) => {
         const text = formatPathsForTerminal(paths, {
           shell: resolveShell(),
           remoteConnectionId: resolveRemoteConnectionId(),
@@ -297,9 +297,10 @@ export const XtermTerminal = ({
     (terminal: Terminal) => {
       if (!currentConnectionIdRef.current) return;
 
-      void resolveAutomountRootForShell(resolveShell()).then((automountRoot) =>
-        readTerminalPasteText(resolveShell(), resolveRemoteConnectionId(), automountRoot),
-      )
+      // The mount root is only needed for a Windows drive path, and that is only
+      // known after the clipboard has been read, so the lookup happens inside
+      // `readTerminalPasteText` instead of gating the clipboard read.
+      void readTerminalPasteText(resolveShell(), resolveRemoteConnectionId())
         .then((text) => pasteIntoTerminal(terminal, text))
         .catch((error) => console.error("Failed to paste into terminal:", error));
     },
@@ -987,10 +988,7 @@ export const XtermTerminal = ({
               disabled={!connectionId}
               aria-label={t("terminal.pasteCopiedFilePaths")}
               onClick={() => {
-                void resolveAutomountRootForShell(resolveShell())
-                  .then((automountRoot) =>
-                    readCopiedFilePathsText(resolveShell(), resolveRemoteConnectionId(), automountRoot),
-                  )
+                void readCopiedFilePathsText(resolveShell(), resolveRemoteConnectionId())
                   .then((text) => {
                     if (text) writeBuffered(text);
                     requestAnimationFrame(() => xtermRef.current?.focus());

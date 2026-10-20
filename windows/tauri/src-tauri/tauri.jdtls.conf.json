@@ -5,7 +5,8 @@
       "../../../.artifacts/jdtls": "LanguageServers/jdtls",
       "../../../.artifacts/jdk": "LanguageServers/jdk",
       "../../../.artifacts/conpty/conpty.dll": "",
-      "../../../.artifacts/conpty/OpenConsole.exe": ""
+      "../../../.artifacts/conpty/OpenConsole.exe": "",
+      "../../../.artifacts/conpty/ConPTY-LICENSE.txt": ""
     }
   }
 }

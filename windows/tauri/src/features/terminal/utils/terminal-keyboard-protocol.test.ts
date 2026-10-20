@@ -101,6 +101,76 @@ describe("TerminalKeyboardProtocolStream", () => {
   });
 });
 
+// A TUI enables the protocol on the alternate screen and the shell it returns to
+// never asked for it. Sharing one set of flags would leave the shell answering
+// `CSI ? u` with a mode it cannot use, so the protocol state follows the screen
+// buffer that owns it.
+describe("per-screen keyboard protocol state", () => {
+  test("reports the main screen flags after leaving the alternate screen", () => {
+    const stream = new TerminalKeyboardProtocolStream();
+    stream.feed(`${CSI}?1049h`);
+    stream.feed(`${CSI}>1u`);
+    expect(stream.flags).toBe(1);
+    stream.feed(`${CSI}?1049l`);
+    expect(stream.flags).toBe(0);
+    expect(stream.feed(`${CSI}?u`)).toBe(`${CSI}?0u`);
+  });
+
+  test("keeps the main screen flags across an alternate screen visit", () => {
+    const stream = new TerminalKeyboardProtocolStream();
+    stream.feed(`${CSI}>1u`);
+    stream.feed(`${CSI}?1049h`);
+    // The alternate screen starts empty even though the main screen is set.
+    expect(stream.flags).toBe(0);
+    stream.feed(`${CSI}?1049l`);
+    expect(stream.flags).toBe(1);
+  });
+
+  test("handles the other alternate screen modes", () => {
+    for (const mode of [47, 1047]) {
+      const stream = new TerminalKeyboardProtocolStream();
+      stream.feed(`${CSI}?${mode}h`);
+      expect(stream.flags).toBe(0);
+      stream.feed(`${CSI}>1u`);
+      expect(stream.flags).toBe(1);
+      stream.feed(`${CSI}?${mode}l`);
+      expect(stream.flags).toBe(0);
+    }
+  });
+
+  // A program killed inside a TUI never sends the pop or the screen restore, so
+  // the next program to take the alternate screen must not inherit its flags.
+  test("clears leftover alternate screen flags when a new one is entered", () => {
+    const stream = new TerminalKeyboardProtocolStream();
+    stream.feed(`${CSI}?1049h`);
+    stream.feed(`${CSI}>1u`);
+    // The program dies; the shell returns to the main screen and a second TUI
+    // takes the alternate screen.
+    stream.feed(`${CSI}?1049l`);
+    stream.feed(`${CSI}?1049h`);
+    expect(stream.flags).toBe(0);
+    expect(stream.feed(`${CSI}?u`)).toBe(`${CSI}?0u`);
+  });
+
+  test("ignores private modes that do not switch screens", () => {
+    const stream = new TerminalKeyboardProtocolStream();
+    stream.feed(`${CSI}>1u`);
+    stream.feed(`${CSI}?25l${CSI}?2004h${CSI}?25h${CSI}?2004l`);
+    expect(stream.flags).toBe(1);
+  });
+
+  test("resets both screens", () => {
+    const stream = new TerminalKeyboardProtocolStream();
+    stream.feed(`${CSI}>1u`);
+    stream.feed(`${CSI}?1049h`);
+    stream.feed(`${CSI}>1u`);
+    stream.reset();
+    expect(stream.flags).toBe(0);
+    stream.feed(`${CSI}?1049l`);
+    expect(stream.flags).toBe(0);
+  });
+});
+
 // A PTY can split output at any byte, including right after `CSI`. Waiting for
 // the rest is what keeps a query at that boundary from being dropped.
 describe("chunk boundary after the CSI prefix", () => {

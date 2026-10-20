@@ -46,13 +46,20 @@ export function isTerminalAltTextInput(event: TerminalKeyboardEvent): boolean {
  * them. Once the program enables that bit it expects the distinct codepoint form
  * for the combination that would otherwise alias.
  *
- * Only the aliasing combinations are re-encoded. The plain Tab, Enter, Escape and
- * Backspace keys keep the terminal's usual bytes, which every program and shell
- * still relies on.
+ * Escape is encoded too, and for the reason the bit is named after: its bare byte
+ * is identical to the prefix of every CSI and OSC sequence, so a program that has
+ * asked for disambiguated escape codes must not receive one. The plain Tab and
+ * Enter keys keep the terminal's usual bytes, which shells still rely on.
  *
  * Returns null for keys with no ambiguous legacy form.
  */
 function encodeDisambiguatedKey(event: TerminalKeyboardEvent): string | null {
+  if (event.key === "Escape") {
+    const modifier =
+      1 + (event.shiftKey ? 1 : 0) + (event.altKey ? 2 : 0) + (event.ctrlKey ? 4 : 0);
+    // The protocol omits the modifier when it is the default.
+    return modifier === 1 ? "\x1b[27u" : `\x1b[27;${modifier}u`;
+  }
   if (event.ctrlKey && !event.shiftKey && !event.altKey && event.key.length === 1) {
     const letter = event.key.toLowerCase();
     if (letter === "i" || letter === "m" || letter === "[") {
@@ -133,8 +140,8 @@ export function getTerminalKeyAction(
 
   // The kitty "disambiguate escape codes" bit promises a distinct encoding for
   // every key that a legacy terminal could not tell apart. Advertising the bit
-  // while only encoding Enter would make a TUI trust a guarantee that does not
-  // hold, so the ambiguous keys below are encoded together with it.
+  // while leaving those keys on the legacy path would make a TUI trust a
+  // guarantee that does not hold, so every aliasing key is encoded with it.
   if (context.extendedKeyboardActive && !event.metaKey) {
     const encoded = encodeDisambiguatedKey(event);
     if (encoded) return { type: "write", data: encoded };

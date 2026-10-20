@@ -152,6 +152,14 @@ function Get-ConptyFiles {
     }
 
     # build.rs reads this to copy the files next to the executable it produces.
+    # The license travels with them: the MIT text requires the copyright and
+    # permission notice to accompany every distributed copy.
+    $licenseSource = Join-Path $root "third_party/conpty/LICENSE.txt"
+    if (-not (Test-Path -LiteralPath $licenseSource -PathType Leaf)) {
+        throw "ConPTY license text is missing: $licenseSource"
+    }
+    Copy-Item -Force -LiteralPath $licenseSource -Destination (Join-Path $output "ConPTY-LICENSE.txt")
+
     $stamp = [ordered]@{
         version = [string]$manifest.version
         platform = $Platform

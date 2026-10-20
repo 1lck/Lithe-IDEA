@@ -57,6 +57,18 @@ if ($preparedConptyOutput.Count -eq 0) {
     throw "ConPTY preparation did not return an output directory."
 }
 $env:LITHE_REQUIRE_CONPTY = "1"
+$preparedConptyRoot = [System.IO.Path]::GetFullPath([string]$preparedConptyOutput[-1])
+foreach ($requiredPath in @(
+    (Join-Path $preparedConptyRoot "conpty.dll"),
+    (Join-Path $preparedConptyRoot "OpenConsole.exe"),
+    # The MIT text ships as a bundle resource, so packaging stops here rather than
+    # distributing the binaries without the notice they must carry.
+    (Join-Path $preparedConptyRoot "ConPTY-LICENSE.txt")
+)) {
+    if (-not (Test-Path -LiteralPath $requiredPath)) {
+        throw "Bundled console host preparation is incomplete: $requiredPath"
+    }
+}
 foreach ($requiredPath in @(
     (Join-Path $preparedJdtlsRoot "bin/jdtls.bat"),
     (Join-Path $preparedJdtlsRoot "plugins"),
