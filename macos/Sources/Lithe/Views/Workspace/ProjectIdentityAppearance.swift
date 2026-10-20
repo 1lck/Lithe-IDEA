@@ -32,7 +32,12 @@ struct ProjectIdentityAppearance {
         guard let path = projectURL?.standardizedFileURL.path else { return 0 }
         // ponytail: A stable path hash avoids a second project-color store, but cannot retain a
         // user-chosen color. Add project-owned metadata when color customization is supported.
-        let hash = path.utf8.reduce(UInt64(14_695_981_039_346_656_037)) {
+        return colorIndex(forKey: path)
+    }
+
+    /// Stable palette slot for any identity, such as a plugin ID.
+    static func colorIndex(forKey key: String) -> Int {
+        let hash = key.utf8.reduce(UInt64(14_695_981_039_346_656_037)) {
             ($0 ^ UInt64($1)) &* 1_099_511_628_211
         }
         return Int(hash % UInt64(palette.count))
@@ -85,12 +90,14 @@ struct ProjectAvatarBadge: View {
     let colorIndex: Int
     let size: CGFloat
     var isEnabled = true
+    /// Replaces the project initials, for avatars of things other than projects.
+    var text: String?
 
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         let appearance = ProjectIdentityAppearance(colorIndex: colorIndex, isDark: colorScheme == .dark)
-        Text(ProjectIdentityAppearance.initials(for: name))
+        Text(text ?? ProjectIdentityAppearance.initials(for: name))
             // Community AvatarUtils New UI: JetBrains Mono DemiBold, 13pt at 20pt.
             .font(LitheTheme.uiFont(size: floor(13 * size / 20), weight: .semibold, design: .monospaced))
             .foregroundStyle(.white)
