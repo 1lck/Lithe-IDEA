@@ -24,6 +24,7 @@ import MarkdownRenderer from "@/features/ai/components/messages/markdown-rendere
 import { cn } from "@/utils/cn";
 import { classifyMarkdownLink } from "@/utils/markdown-links";
 import { tryWriteClipboardText } from "@/utils/clipboard";
+import { useAgentSurfaceStore } from "../stores/agent-surface.store";
 import {
   transcriptNavigation,
   type AgentTranscriptNavigationEntry,
@@ -266,15 +267,20 @@ function ReasoningRow({
   text,
   isStreaming = false,
   isSearching = false,
+  expandedKey,
   onOpenLocation,
 }: {
   text: string;
   isStreaming?: boolean;
   isSearching?: boolean;
+  expandedKey: string;
   onOpenLocation: (location: AgentToolLocation) => void;
 }) {
   const { t } = useTranslation();
-  const [manualExpanded, setManualExpanded] = useState<boolean | null>(null);
+  const manualExpanded = useAgentSurfaceStore((state) => state.reasoningExpanded[expandedKey]);
+  const setReasoningExpanded = useAgentSurfaceStore(
+    (state) => state.actions.setReasoningExpanded,
+  );
   const expanded = isSearching || (manualExpanded ?? isStreaming);
   const scrollRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -292,7 +298,7 @@ function ReasoningRow({
         onClick={() => {
           // A matching search must keep its text visible, including after a click.
           if (isSearching) return;
-          setManualExpanded(!expanded);
+          setReasoningExpanded(expandedKey, !expanded);
         }}
       >
         {isStreaming ? <Spinner className="size-3 shrink-0" /> : null}
@@ -544,11 +550,13 @@ function deliveryLabel(delivery: AgentMessageDelivery, t: Translate): string {
 
 function MessageRow({
   message,
+  sessionID,
   onOpenLocation,
   searchText = "",
   isStreaming = false,
 }: {
   message: AgentConversationMessage;
+  sessionID: string | null;
   onOpenLocation: (location: AgentToolLocation) => void;
   searchText?: string;
   isStreaming?: boolean;
@@ -585,6 +593,7 @@ function MessageRow({
     return (
       <ReasoningRow
         text={message.text}
+        expandedKey={`${sessionID ?? "pending"}:${message.id}`}
         onOpenLocation={onOpenLocation}
         isStreaming={isStreaming}
         isSearching={needle.length > 0 && message.text.toLocaleLowerCase().includes(needle)}
@@ -857,6 +866,7 @@ function AgentTranscriptNavigationRail({
 }
 interface AgentTranscriptProps {
   conversation: AgentConversation | null;
+  sessionID: string | null;
   agentName: string | null;
   agentVersion: string | null;
   pendingPrompt: string | null;
@@ -875,6 +885,7 @@ interface AgentTranscriptProps {
  */
 export function AgentTranscript({
   conversation,
+  sessionID,
   agentName,
   agentVersion,
   pendingPrompt,
@@ -974,6 +985,7 @@ export function AgentTranscript({
                     >
                       <MessageRow
                         message={item.message}
+                        sessionID={sessionID}
                         searchText={searchText}
                         isStreaming={
                           conversation?.isResponding === true &&
@@ -1012,6 +1024,7 @@ export function AgentTranscript({
                     content: [],
                   },
                 }}
+                sessionID={sessionID}
                 onOpenLocation={onOpenLocation}
               />
             ) : null}

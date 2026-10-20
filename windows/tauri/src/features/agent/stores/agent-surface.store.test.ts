@@ -37,13 +37,14 @@ describe("agent surface placement", () => {
   });
 
   test("clears window-wide placement state when the workspace changes", () => {
-    const { registerEditorSession, reset, setDetailsOpen, setDraft } =
+    const { registerEditorSession, reset, setDetailsOpen, setDraft, setReasoningExpanded } =
       useAgentSurfaceStore.getState().actions;
 
     registerEditorSession("session-a");
     setDetailsOpen(true);
     setDraft("session-a", { text: "old project draft", files: [] });
     setDraft(NEW_AGENT_DRAFT_KEY, { text: "unsent new conversation", files: [] });
+    setReasoningExpanded("session-a:reasoning-1", true);
 
     reset();
 
@@ -51,6 +52,21 @@ describe("agent surface placement", () => {
     expect(state.editorSessionIDs).toEqual([]);
     expect(state.detailsOpen).toBe(false);
     expect(state.drafts).toEqual({});
+    expect(state.reasoningExpanded).toEqual({});
+  });
+
+  test("reasoning expansion survives a filtered transcript remount", () => {
+    const { setReasoningExpanded } = useAgentSurfaceStore.getState().actions;
+
+    setReasoningExpanded("session-a:reasoning-1", true);
+    setReasoningExpanded("session-b:reasoning-1", false);
+
+    // Filtering unmounts the row; the preference remains owned by the surface
+    // store instead of dying with that component instance.
+    expect(useAgentSurfaceStore.getState().reasoningExpanded).toEqual({
+      "session-a:reasoning-1": true,
+      "session-b:reasoning-1": false,
+    });
   });
 
   test("clears a draft without disturbing the other conversation", () => {
@@ -62,5 +78,25 @@ describe("agent surface placement", () => {
 
     expect(useAgentSurfaceStore.getState().drafts["session-a"]).toBeUndefined();
     expect(useAgentSurfaceStore.getState().drafts["session-b"]?.text).toBe("second");
+  });
+
+  test("text and attachment updates merge without restoring stale fields", () => {
+    const { setDraftFiles, setDraftText } = useAgentSurfaceStore.getState().actions;
+    const file = { uri: "file:///tmp/notes.txt", name: "notes.txt" };
+
+    setDraftText("session-a", "hello");
+    setDraftFiles("session-a", [file]);
+    setDraftText("session-a", "hello world");
+
+    expect(useAgentSurfaceStore.getState().drafts["session-a"]).toEqual({
+      text: "hello world",
+      files: [file],
+    });
+
+    // Success clears text and attachments through two separate callbacks; each
+    // must keep the other field's latest value.
+    setDraftText("session-a", "");
+    setDraftFiles("session-a", []);
+    expect(useAgentSurfaceStore.getState().drafts["session-a"]).toEqual({ text: "", files: [] });
   });
 });

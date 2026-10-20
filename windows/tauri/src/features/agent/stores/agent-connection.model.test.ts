@@ -494,6 +494,26 @@ describe("Agent connection lifecycle", () => {
       expect(model.getSnapshot().hasPendingContinuation).toBe(false);
     });
 
+    test("a failed original turn releases a deferred supplement", async () => {
+      await steeringConversation();
+      model.send("Focus on the login flow");
+      const steer = transport.command("steer");
+      transport.emit({
+        ...fixture.events.steeringResult,
+        token: steer?.token,
+        outcome: "promptRequired",
+      });
+      expect(model.getSnapshot().hasPendingContinuation).toBe(true);
+
+      transport.emit({ ...fixture.events.requestFailed, message: "The original turn failed." });
+
+      expect(model.getSnapshot().hasPendingContinuation).toBe(false);
+      expect(conversation().isResponding).toBe(false);
+      expect(transport.commands.filter((command) => command.kind === "prompt")).toHaveLength(1);
+      const messages = conversation().messages;
+      expect(messages[messages.length - 1].delivery).toEqual({ failed: "The original turn failed." });
+    });
+
     test("stopping the turn revokes a deferred supplement", async () => {
       await steeringConversation();
       model.send("Focus on the login flow");

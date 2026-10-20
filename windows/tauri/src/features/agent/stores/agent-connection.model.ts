@@ -1017,6 +1017,13 @@ export class AgentConnectionModel {
     }
     if (sessionID !== null && this.snapshot.conversations[sessionID] !== undefined) {
       this.flushPendingText();
+      // The original turn can no longer consume a deferred supplement. Release
+      // it with the same failure instead of leaving the composer blocked.
+      const continuation = this.continuations.get(sessionID);
+      if (continuation !== undefined) {
+        this.continuations.delete(sessionID);
+        this.setDelivery(sessionID, continuation.messageID, { failed: message });
+      }
       this.editConversation(sessionID, (current) => ({
         ...interruptPendingTools(finishActiveTurn(current, this.now())),
         isResponding: false,
