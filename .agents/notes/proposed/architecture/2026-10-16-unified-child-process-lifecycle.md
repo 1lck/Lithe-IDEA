@@ -615,6 +615,7 @@ shell 身份和当前可执行文件都吻合时算空闲；同 PID 的 exec 替
   “复制”按钮复制原始命令行，不复制排版结果。
 - **保留的 Agent 任务**：Agent 本体结束后，如果任务还在向 Agent 的管道写输出，可能被 `SIGPIPE` 结束。这是首批的已知限制，需要 Agent host 在保留前把任务的标准输出转到 `/dev/null`，作为后续工作。
 - **插件清单的 `lifecycle` 字段和禁止直接启动进程的静态检查**：首批未做，仍按提案执行。
+- **插件后端的遗留进程**（2026-10-20）：每个插件构建 Provider 启动时带独有的 `LITHE_PLUGIN_BACKEND_SCOPE`，和 `LITHE_AGENT_SCOPE` 一样随后代继承，`activate()` 会清掉从父 Lithe 继承来的值。会话结束后宿主在本实例作用域内按该标记和精确身份优雅结束遗留进程（`MacPluginBackendProcesses`）。只覆盖插件后端，不含宿主自己的语言服务器；详见[宿主调用插件函数](../../implemented/architecture/2026-10-20-host-plugin-function-invocation.md)决策 6。
 
 ## 验收标准
 

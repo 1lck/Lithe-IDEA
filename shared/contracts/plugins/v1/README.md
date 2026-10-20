@@ -879,8 +879,12 @@ starts) can offer **plugin functions**: plugin-private actions with
 serializable params and results, which the host invokes on behalf of the same
 plugin, for example from that plugin's own window. Functions complement the
 typed domain protocols; they never replace them. Version 1 of the protocol is
-implemented in Rust Core (`rust/lithe-core/src/lsp/interface/plugin_function.rs`);
-no host invokes functions yet, and Windows has no plugin backend host. The
+implemented in Rust Core (`rust/lithe-core/src/lsp/interface/plugin_function.rs`).
+macOS starts every build provider process as a session of the plugin that
+owns it and invokes its functions from that plugin's web pages (the
+`functions.*` bridge methods below). A provider served by a shared language
+server is started by the host for every plugin of its language, so it serves
+no plugin's functions. Windows has no plugin backend host. The
 [official Node SDK](#official-backend-sdk) implements the backend side.
 
 ### Capability ownership
@@ -1215,15 +1219,33 @@ their output appears in the host's Build output window.
 | `build.setOptions` | `{ instance, values }` | `{ options }`, checked by `build.resolveOptions` and stored like values set in the host's option list |
 | `workspace.openFile` | `{ path, line?, column? }`, a path inside the workspace | `{}` |
 | `ui.getState`, `ui.setState` | none, `{ state }` | `{ state }`, `{}`; JSON of at most 64 KiB per window and workspace |
+| `functions.list` | `{ instance }` | `{ functions }`: sorted IDs of the functions the instance's provider currently offers; starts the provider |
+| `functions.invoke` | `{ instance, function, params?, call? }`; `params` an object, `call` a page-chosen ID of at most 128 characters that the page never used before | `{ value }`, the function's result |
+| `functions.cancel` | `{ call }` | `{}`; a call still awaiting consent never starts, a call waiting for its provider to start ends at once while the start goes on, and a call that already ended is ignored |
 
 | Event | Payload |
 | --- | --- |
 | `build.instancesChanged` | `{ instances }`, as `build.instances` returns them |
 | `build.runChanged` | `{ run, instance, state, exitCode? }`, `state` one of `running`, `succeeded`, `failed`, `cancelled` |
+| `functions.progress` | `{ call, instance, function, message?, percentage? }`, only for a call made with `call` |
 | `ui.themeChanged` | `{ theme }` |
 
 Bridge errors are `plugin.web.unknownMethod`, `plugin.web.invalidRequest`,
 and `plugin.web.forbidden`. Build requests also report the `build.*` codes.
+Function requests report Core's codes unchanged (`plugin.function.*`,
+`requestCancelled`, `requestTimeout`); a failure the plugin reported also
+carries its own `pluginErrorCode`, which the host never interprets. A call
+Core could not deliver, such as a write to a backend that exited, keeps
+Core's transport code (`processFailed`) and carries the OS diagnostic only in
+its message. A backend that stops reading its input is ended when a write to
+it stays blocked past the call's timeout, or briefly after the call was
+cancelled or the provider stopped. A page
+has at most 16 function calls accepted at once, counting calls still awaiting
+consent, and closing it cancels them. Reusing a `call` ID is
+`plugin.web.invalidRequest`, also after that call ended.
+`functions.list` and `functions.invoke` ask for the same consent as the
+host's provider requests: once given for a plugin and workspace, it holds
+until the project is closed.
 macOS implements web content with WKWebView and advertises `ui: [1, 2]`.
 Windows has no WebView2 host yet and still advertises `ui: [1]`, so Core refuses
 `ui` 2 plugins there with `plugin.api.unsupported`.
