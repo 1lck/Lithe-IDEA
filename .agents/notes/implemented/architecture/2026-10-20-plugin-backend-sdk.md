@@ -1,14 +1,14 @@
-# Agent 笔记：官方插件后端 SDK（Node）
+# Agent 笔记：官方插件后端 SDK（Node、Java）
 
 状态：已实现
 
 ## 先说结论
 
-Lithe 现在有第一个官方插件后端 SDK：`sdk/node`（包名 `@lithe/plugin-sdk`）。插件作者用 Node 写后端时，只写处理器（handler，收到一次请求后执行的函数）；JSON-RPC 帧、`litheBuild` 和 `litheFunctions` 协商、取消、进程清理、错误映射都由 SDK 负责。
+Lithe 有两个官方插件后端 SDK：`sdk/node`（包名 `@lithe/plugin-sdk`）和 `sdk/java`（`lithe-plugin-sdk-java`，Java 8 起可用）。插件作者只写处理器（handler，收到一次请求后执行的函数）；JSON-RPC 帧、`litheBuild` 和 `litheFunctions` 协商、取消、进程清理、错误映射都由 SDK 负责。两个 SDK 的规则和错误语义相同。
 
 SDK 只**实现**契约，不**定义**契约。协议仍以 `shared/contracts/plugins/v1/README.md` 为准，SDK 不新增任何线上字段；不用 SDK 手写的后端同样合法。SDK 的价值是把“不能破坏 Lithe 统一管理”的规则变成默认行为：不发 `lithe/*` 回调、stdout 只走协议、状态只写宿主给的目录、调用结束时进程树一起结束。
 
-示例插件 `sdk/node/examples/sample-build` 通过真实 Core 会话端到端验证（`rust/lithe-core/tests/plugin_sdk_node.rs`），已挂进 Rust Core CI lane。
+两个 SDK 各有一个示例插件（`sdk/*/examples/sample-build`），在 Rust Core CI lane 里经真实 Core 会话跑**同一套**端到端场景（`rust/lithe-core/tests/plugin_sdk/mod.rs`）。所以任一 SDK 与契约或另一个 SDK 的行为出现分叉时，测试都会失败。
 
 ## 问题
 
@@ -51,6 +51,23 @@ Lithe 的 `runtime` 启动方式已支持 `node` 和 `java`。Node 无需编译�
 
 端到端测试发现：插件常常要在 `initialize` 时读状态，再决定提供哪些函数（示例里“有快照才提供 `snapshot.clear`”）。此时还没回复 `initialize`，宿主也还没协商，发 `lithe/function/register` 会失败。SDK 规定：回复 `initialize` 之前调用 `registerFunction`/`unregisterFunction`，直接修改初始函数列表；之后才走注册请求，并按顺序排队。
 
+### 5. Java SDK：零依赖、Java 8、按 JAR + SHA-256 发布
+
+Maven、Gradle 这类插件需要在后端里调用 JVM 生态的工具，并长期持有缓存（例如 Maven 插件的依赖快照），用 Java 写后端更自然。所以 Java SDK 按 Node SDK 的同一份契约和同一组端到端断言实现，并做了这些取舍：
+
+- **最低 Java 8。** 很多企业项目仍在 Java 8 上构建，后端最好能直接用项目那个 JDK 启动。代价是 SDK 只能用 Java 8 的 API。
+- **零运行时依赖，自带最小 JSON 读写（`Json`）。** 插件要把 SDK shade（打进同一个 JAR）到自己的后端里。如果 SDK 依赖 Gson 或 lsp4j，就会和插件自己的同名依赖冲突，许可证审查范围也会变大。
+- **发布方式：主仓库打 `sdk-java-v<版本>` 标签，Release 附带 JAR 和 `.sha256`。** 工作流是 `.github/workflows/release-java-plugin-sdk.yml`，暂不发到 Maven 仓库。插件仓库在构建时按固定版本和 SHA-256 下载并校验，再 shade 进后端 JAR，运行时不下载任何东西。
+- **处理器各自跑在守护线程池上，读循环只负责分帧和派发。** 取消不打断（interrupt）线程，只置位取消令牌，并结束该调用启动的进程。这是因为中断会让处理器里正在进行的文件写入半途失败。
+- **进程树清理有版本边界。** Java 9+ 通过反射调用 `ProcessHandle.descendants()`，先给整棵树发 SIGTERM，宽限期后强制结束。Java 8 无法列出子孙进程，只结束直接子进程。剩下的由宿主按 `LITHE_PLUGIN_BACKEND_SCOPE` 标记兜底，与“后端被强杀”走同一条路径，不在 SDK 里另写 `ps` 解析。
+- **stdout 保护。** `listen()` 抓住真正的 stdout 只写协议帧，再把 `System.out` 指向 stderr，防止插件或第三方库 `println` 破坏帧。
+
+实现时发现并修复了 Core 的一个问题：运行时版本探测原来对所有工具都用 `--version`，Java 8 不认这个参数，后端会被判定为不可用。现在启动计划复用构建运行时的探测参数（`crate::build::host_runtime_version_arguments`：java 用 `-version`，node 用 `--version`）。宿主把 stdout 和 stderr 合在一起读，`1.8.0` 规范化为 8。
+
+正确做法：Maven 插件后端的依赖从 `pom.xml` 的 shade 配置进入后端 JAR，SDK JAR 的版本和哈希写在插件仓库的锁文件里。
+
+不要这样做：后端启动时去 GitHub 下载 SDK 或依赖，或者在 `onInitialize` 里往插件包目录写缓存。前者离线不可用，后者破坏签名和更新基线，`StateStore.open` 也会直接拒绝。
+
 ## 考虑过的备选方案
 
 ### 只写协议文档，不提供 SDK
@@ -63,7 +80,15 @@ Lithe 的 `runtime` 启动方式已支持 `node` 和 `java`。Node 无需编译�
 
 ### 先做 Java SDK
 
-暂缓：Maven、Gradle 插件最终可能更适合 Java，但 Java 需要编译和打包 jar，示例和测试链路都更重。Node SDK 先把规则和测试方式定下来，Java SDK 以后按同一份契约和同一组端到端断言实现。
+当时暂缓：Java 需要编译和打包 JAR，示例和测试链路都更重。所以先由 Node SDK 把规则和测试方式定下来，Java SDK 随后按同一份契约和同一组端到端断言实现（见决策 5）。
+
+### Java SDK 依赖 lsp4j 或 Gson
+
+被否：shade 进插件后会和插件自己的同名依赖冲突。lsp4j 也不认识 `litheFunctions`、只读插件包和进程清理规则，SDK 仍要在它外面再包一层。
+
+### Java SDK 从 Java 11 起步，统一用 `ProcessHandle`
+
+被否：Java 8 项目的后端就要单独装一个新 JDK。Java 8 上进程清理的缺口，由宿主已有的后端进程标记兜底，不需要在 SDK 里补。
 
 ### 让 SDK 增加便利字段（如函数描述、参数 schema）
 
@@ -73,7 +98,8 @@ Lithe 的 `runtime` 启动方式已支持 `node` 和 `java`。Node 无需编译�
 
 - 收益：插件作者只写处理器；取消、清理、错误映射和状态存储默认正确，Lithe 的统一管理规则不依赖作者自觉。
 - 收益：示例插件经过真实 Core 会话验证，契约改动若破坏 SDK，Rust Core lane 会直接失败。
-- 代价：SDK 以复制源码方式分发，插件里的副本不会自动升级；修复安全问题时需要插件重新发布。
+- 代价：Node SDK 以复制源码方式分发，Java SDK 被 shade 进插件 JAR，插件里的副本都不会自动升级；修复安全问题时需要插件重新发布。
+- 代价：Rust Core lane 需要 Node、JDK 和 Maven；CI 用 Java 8 运行时跑 Java SDK 测试和示例后端，用 JDK 21 编译。
 - 代价：仓库新增一个顶层目录和一条 CI 测试，`sdk/*` 改动会触发 Rust Core lane。
 - 代价：宿主还没有调用函数的界面入口，也没有宿主能力（`lithe/host/*`）；Windows 没有插件后端宿主。SDK 目前对用户不可见，只给开发者和后续 PR 使用。
 
@@ -81,13 +107,18 @@ Lithe 的 `runtime` 启动方式已支持 `node` 和 `java`。Node 无需编译�
 
 - `node --test sdk/node/test/*.test.mjs`：协商、ID 规则（对照 `function-protocol.json`）、保留方法、调用/进度/错误/取消、运行时注册、构建结果、生命周期和退出码、分帧、进程树取消、状态存储与只读包拒绝、类型声明与运行时导出一致。
 - `LITHE_PLUGIN_SDK_NODE="$(command -v node)" cargo test --manifest-path rust/Cargo.toml -p lithe-core --test plugin_sdk_node`：示例插件经 Core 校验、启动计划、版本检查、构建模型/依赖、函数结果/进度/失败/取消、重启后状态恢复，最后确认插件包文件清单不变。
-- `./scripts/verify-rust-core-crates.sh`：CI 中同时运行以上两项。
+- `mvn -B -f sdk/java/pom.xml verify [-Djvm=<java8>]`：Java SDK 的 JUnit 测试，覆盖与 Node 测试相同的协议场景，另含 JSON、分帧、进程树取消和状态存储。
+- `cargo test … --test plugin_sdk_java`（需要 `LITHE_PLUGIN_SDK_JAVA`、`LITHE_PLUGIN_SDK_JAVA_SAMPLE`、`LITHE_PLUGIN_SDK_NODE`）：Java 示例按插件实际打包方式（`plugin.json` + shade 后的 JAR）装进临时包目录，跑同一套 Core 场景。
+- `./scripts/verify-rust-core-crates.sh`：CI 中运行以上全部；设置 `LITHE_PLUGIN_SDK_JAVA_RUNTIME` 时，Java 测试和示例后端在该运行时（CI 为 Java 8）上运行。
 - `bash scripts/test-classify-ci-changes.sh`：`sdk/*` 改动被分到 Rust Core lane。
 
 ## 适用范围
 
 - `sdk/node/`
-- `rust/lithe-core/tests/plugin_sdk_node.rs`
+- `sdk/java/`
+- `rust/lithe-core/tests/plugin_sdk/`、`plugin_sdk_node.rs`、`plugin_sdk_java.rs`
+- `rust/lithe-core/src/plugins/declarative.rs`（运行时启动计划的版本探测参数）
+- `.github/workflows/release-java-plugin-sdk.yml`
 - `scripts/verify-rust-core-crates.sh`
 - `scripts/classify-ci-changes.sh`
 - `shared/contracts/plugins/v1/README.md`

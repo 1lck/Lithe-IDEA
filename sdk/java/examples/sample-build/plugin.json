@@ -1,0 +1,87 @@
+{
+  "schemaVersion": 2,
+  "id": "org.example.sample-build-java",
+  "displayName": "Sample Build (Java)",
+  "version": "0.1.0",
+  "pluginAPIVersion": 3,
+  "requires": {
+    "buildProviders": 1,
+    "buildSystems": 1,
+    "serverProcess": 1
+  },
+  "vendor": {
+    "id": "org.example",
+    "displayName": "Example",
+    "signatureRequirement": "publisherPackage"
+  },
+  "permissions": [
+    "languageServer.launch",
+    "process.build"
+  ],
+  "activationEvents": [
+    "onBuildSystem:sample"
+  ],
+  "languages": [],
+  "buildSystems": [
+    {
+      "id": "sample",
+      "displayName": "Sample",
+      "detection": {
+        "markers": [
+          "lithe-sample.json"
+        ],
+        "nesting": "outermost"
+      },
+      "invocation": {
+        "executables": [
+          {
+            "kind": "command",
+            "command": "java"
+          }
+        ]
+      },
+      "provider": {
+        "launch": {
+          "kind": "runtime",
+          "tool": "java",
+          "minimumVersion": "8",
+          "entry": "backend/sample-build.jar"
+        },
+        "arguments": [
+          "--state",
+          "${workspaceStateDir}"
+        ],
+        "executesProjectCode": true,
+        "mayUseNetwork": false
+      },
+      "model": {
+        "source": "provider"
+      },
+      "tasks": [
+        {
+          "id": "build",
+          "displayName": "Build",
+          "group": "build",
+          "scopes": [
+            "workspace"
+          ],
+          "arguments": [
+            "-version"
+          ]
+        }
+      ],
+      "dependencies": {
+        "source": "provider",
+        "scopes": [
+          "workspace",
+          "project"
+        ]
+      },
+      "sync": {
+        "watch": [
+          "lithe-sample.json"
+        ]
+      }
+    }
+  ]
+}
