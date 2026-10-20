@@ -827,6 +827,24 @@ can grow without a new manifest field or capability version:
   params and results, so either side can add optional data within a version.
   A change the other side must not ignore needs a new protocol version.
 
+A host that declares `buildProviders` keeps providers apart:
+
+- One process per plugin, build system, and workspace. Two plugins never
+  share a process, and the host never relays messages between processes; each
+  speaks JSON-RPC only with the host, over its own stdio.
+- The shared form reuses a language server session of the same plugin only.
+- A provider starts on the first build request, which only a user action
+  sends, and stops when its workspace closes, its plugin is disabled, or
+  before its package is replaced, rolled back, or uninstalled. A change of
+  the plugin's settings restarts it on the next request, so its launch
+  arguments always reflect the current values. A provider that exits is
+  started again by the next request.
+- Installation refuses a package whose provider launch points at a missing
+  file, a path outside the package or through a symbolic link, or a packaged
+  executable or runtime that is not a regular executable file.
+- Its writable state lives in the plugin's state directory for that build
+  system, never in the plugin package or the host's installation.
+
 ### Host integrations
 
 `hostIntegration` names host code that owns one concern while a built-in tool

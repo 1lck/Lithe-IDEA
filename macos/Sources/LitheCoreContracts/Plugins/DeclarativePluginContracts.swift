@@ -273,6 +273,35 @@ public struct DeclarativeLanguageServerLaunchPlan: Equatable, Sendable {
     public let requiredDirectories: [RequiredDirectory]
     /// Package-relative paths the launch points at.
     public let requiredPackagePaths: [String]
+    /// The declared executable. Language servers resolve it from their
+    /// descriptor instead; build providers use this.
+    public let executable: Executable?
+    /// Set when the plan was selected by build system.
+    public let buildProvider: BuildProvider?
+
+    public enum Executable: Equatable, Sendable {
+        /// Package-relative file.
+        case packaged(String)
+        /// Command names looked up on the machine, in order.
+        case systemCommand([String])
+        /// A runtime the host discovers; `packagedRuntimePath` replaces it
+        /// when the plugin ships one.
+        case runtime(String)
+    }
+
+    public struct BuildProvider: Equatable, Sendable {
+        public let buildSystemID: String
+        public let executesProjectCode: Bool
+        public let mayUseNetwork: Bool
+        /// The language whose server of the same plugin answers the build
+        /// requests; nil when the provider is a process of its own.
+        public let languageServer: String?
+
+        public init(buildSystemID: String, executesProjectCode: Bool, mayUseNetwork: Bool, languageServer: String?) {
+            self.buildSystemID = buildSystemID; self.executesProjectCode = executesProjectCode
+            self.mayUseNetwork = mayUseNetwork; self.languageServer = languageServer
+        }
+    }
 
     public init(
         arguments: [String],
@@ -284,7 +313,9 @@ public struct DeclarativeLanguageServerLaunchPlan: Equatable, Sendable {
         executableVersionRequirement: LanguageServerExecutableVersionRequirement? = nil,
         runtimeRequirements: [RuntimeRequirement] = [],
         requiredDirectories: [RequiredDirectory] = [],
-        requiredPackagePaths: [String] = []
+        requiredPackagePaths: [String] = [],
+        executable: Executable? = nil,
+        buildProvider: BuildProvider? = nil
     ) {
         self.arguments = arguments
         self.validationArguments = validationArguments
@@ -296,6 +327,8 @@ public struct DeclarativeLanguageServerLaunchPlan: Equatable, Sendable {
         self.runtimeRequirements = runtimeRequirements
         self.requiredDirectories = requiredDirectories
         self.requiredPackagePaths = requiredPackagePaths
+        self.executable = executable
+        self.buildProvider = buildProvider
     }
 }
 
@@ -717,6 +750,7 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
             let tasks: [Task]
             let test: Test?
             let dependencies: Source?
+            let declaresProvider: Bool
 
             init(from decoder: Decoder) throws {
                 let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -728,10 +762,11 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 tasks = try values.decodeIfPresent([Task].self, forKey: .tasks) ?? []
                 test = try values.decodeIfPresent(Test.self, forKey: .test)
                 dependencies = try values.decodeIfPresent(Source.self, forKey: .dependencies)
+                declaresProvider = values.contains(.provider)
             }
 
             private enum CodingKeys: String, CodingKey {
-                case id, displayName, icon, options, model, tasks, test, dependencies
+                case id, displayName, icon, options, model, tasks, test, dependencies, provider
             }
 
             func declaration() -> DeclarativeBuildSystem {
@@ -759,7 +794,8 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                     testTargetTags: test?.targetTags ?? [],
                     // A host integration lists the whole instance and each
                     // project; the other sources declare their scopes.
-                    dependencyScopes: dependencies.map { $0.scopes ?? [.workspace, .project] } ?? []
+                    dependencyScopes: dependencies.map { $0.scopes ?? [.workspace, .project] } ?? [],
+                    declaresProvider: declaresProvider
                 )
             }
         }
@@ -839,6 +875,27 @@ public protocol DeclarativeLanguageServerLaunchPlanning: Sendable {
         languageID: String,
         request: DeclarativeLanguageServerLaunchRequest
     ) throws -> DeclarativeLanguageServerLaunchPlan
+    /// The launch plan of a build system's provider. A provider that shares
+    /// a language server gets that server's plan with
+    /// `buildProvider.languageServer` set.
+    func buildProviderLaunchPlan(
+        manifest: Data,
+        buildSystemID: String,
+        request: DeclarativeLanguageServerLaunchRequest
+    ) throws -> DeclarativeLanguageServerLaunchPlan
+}
+
+public extension DeclarativeLanguageServerLaunchPlanning {
+    func buildProviderLaunchPlan(
+        manifest _: Data,
+        buildSystemID _: String,
+        request _: DeclarativeLanguageServerLaunchRequest
+    ) throws -> DeclarativeLanguageServerLaunchPlan {
+        throw DeclarativePluginRejection(
+            code: "plugin.launch.unavailable",
+            message: "This host cannot plan build provider launches."
+        )
+    }
 }
 
 /// Reads a launch runtime's version from its probe output and compares it

@@ -447,6 +447,15 @@ package protocol LanguageServerRuntimeCore: Sendable {
         marker: JavaNavigationMarker,
         documentVersion: Int
     ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure>
+    /// Sends a request of the negotiated build-provider protocol. Its
+    /// completion arrives as a `requestCompleted` event with the reply under
+    /// `result.value`.
+    func requestBuildProvider(
+        sessionID: String,
+        method: String,
+        params: ToolingJSONValue,
+        timeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure>
     func cancelLanguageServerOperation(sessionID: String, operationID: String)
     func pollLanguageServerEvents(sessionID: String) -> [LanguageServerRuntimeEvent]
     func destroyLanguageServer(sessionID: String)
@@ -551,6 +560,18 @@ package extension LanguageServerRuntimeCore {
         .failure(LanguageServerRuntimeFailure(
             code: "not_supported",
             message: "Java navigation is not supported by this runtime."
+        ))
+    }
+
+    func requestBuildProvider(
+        sessionID _: String,
+        method _: String,
+        params _: ToolingJSONValue,
+        timeout _: TimeInterval
+    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
+        .failure(LanguageServerRuntimeFailure(
+            code: "not_supported",
+            message: "Build-provider requests are not supported by this runtime."
         ))
     }
 }

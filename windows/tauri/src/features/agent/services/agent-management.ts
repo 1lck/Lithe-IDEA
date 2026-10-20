@@ -61,6 +61,16 @@ export interface AgentInstallProgress {
   idleMilliseconds: number;
 }
 
+/**
+ * Verified outcome of `agent.installCli`. The warning carries a bounded
+ * installer log tail when the updater reported failure but the CLI was
+ * verifiably updated; it is never error input.
+ */
+export interface AgentCliUpdateResult {
+  cliVersion: string;
+  updaterWarning: string | null;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -130,6 +140,7 @@ function cliStatus(value: unknown): AgentCliStatus | null | typeof INVALID {
   ) {
     return INVALID;
   }
+
   return {
     name,
     command,
@@ -140,6 +151,19 @@ function cliStatus(value: unknown): AgentCliStatus | null | typeof INVALID {
     // means an unknown source rather than a missing field.
     installation: installation ?? { source: "unknown", canUpdate: false, updateHint: "" },
   };
+}
+
+/**
+ * Read the documented `agent.installCli` response, or `null` when it is not
+ * recognised. Responses from hosts that predate `updaterWarning` decode as a
+ * clean result.
+ */
+export function parseAgentCliUpdateResult(value: unknown): AgentCliUpdateResult | null {
+  if (!isRecord(value)) return null;
+  const cliVersion = asString(value.cliVersion);
+  if (cliVersion === null || cliVersion.length === 0) return null;
+  const warning = (asString(value.updaterWarning) ?? "").trim();
+  return { cliVersion, updaterWarning: warning.length > 0 ? warning : null };
 }
 
 /**
@@ -227,25 +251,52 @@ export async function loadAgentManagementStatus(
   return status;
 }
 
+/** Channel that forwards one operation's `agentInstallProgress` events. */
+function installProgressChannel(
+  onProgress?: (progress: AgentInstallProgress) => void,
+): Channel<unknown> | undefined {
+  if (onProgress === undefined) return undefined;
+  const channel = new Channel<unknown>();
+  channel.onmessage = (event) => {
+    const progress = installProgressEvent(event);
+    if (progress !== null) onProgress(progress);
+  };
+  return channel;
+}
+
 /** Install one adapter, reporting npm transfer progress through a channel. */
 export async function installAgent(
   dataDirectory: string,
   agentId: string,
   onProgress?: (progress: AgentInstallProgress) => void,
 ): Promise<void> {
-  const channel = onProgress === undefined ? undefined : new Channel<unknown>();
-  if (channel !== undefined && onProgress !== undefined) {
-    const report = onProgress;
-    channel.onmessage = (event) => {
-      const progress = installProgressEvent(event);
-      if (progress !== null) report(progress);
-    };
-  }
+  const channel = installProgressChannel(onProgress);
   await invoke(
     "agent.install",
     { dataDirectory, agentId },
     channel === undefined ? undefined : { agentEvents: channel },
   );
+}
+
+/**
+ * Install or update the agent's own CLI through the installation owner the
+ * host re-resolves on this call, so no remembered installation facts travel
+ * with the request.
+ */
+export async function installAgentCli(
+  dataDirectory: string,
+  agentId: string,
+  onProgress?: (progress: AgentInstallProgress) => void,
+): Promise<AgentCliUpdateResult> {
+  const channel = installProgressChannel(onProgress);
+  const response = await invoke<unknown>(
+    "agent.installCli",
+    { dataDirectory, agentId },
+    channel === undefined ? undefined : { agentEvents: channel },
+  );
+  const result = parseAgentCliUpdateResult(response);
+  if (result === null) throw new Error("The Agent CLI update response was not recognised.");
+  return result;
 }
 
 export async function uninstallAgent(dataDirectory: string, agentId: string): Promise<void> {

@@ -1,5 +1,6 @@
 //! Standard LSP contracts and the stateful client/session implementation.
 
+mod build_provider;
 mod client;
 mod engine;
 mod process;

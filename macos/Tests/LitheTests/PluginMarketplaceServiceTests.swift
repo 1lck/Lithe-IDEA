@@ -374,19 +374,15 @@ struct PluginMarketplaceServiceTests {
     }
 
     @Test(arguments: ["gradle-provider", "mix-provider"])
-    func buildProvidersAreRejectedByTheMacOSHost(_ fixture: String) throws {
+    func buildProvidersAreAcceptedByTheMacOSHost(_ fixture: String) throws {
         let fixtures = DeclarativePluginTestSupport.repositoryRoot
             .appendingPathComponent("shared/contracts/plugins/v1/fixtures")
         let manifest = try Data(contentsOf: fixtures.appendingPathComponent("\(fixture).plugin.json"))
-        do {
-            _ = try PluginMarketplaceTestSupport.evaluator.installReview(
-                manifest: manifest, expectedID: nil, expectedVersion: nil, approvedPrograms: nil
-            )
-            Issue.record("A host without Provider support must reject \(fixture).")
-        } catch let rejection as DeclarativePluginRejection {
-            #expect(rejection.code == "plugin.api.unsupported")
-            #expect(rejection.field == "requires.buildProviders")
-        }
+        // The host declares `buildProviders`, so the requirement no longer
+        // blocks the review; a rejection here would name another field.
+        _ = try PluginMarketplaceTestSupport.evaluator.installReview(
+            manifest: manifest, expectedID: nil, expectedVersion: nil, approvedPrograms: nil
+        )
     }
 
     /// The approval covers what actually runs, not just which executable:

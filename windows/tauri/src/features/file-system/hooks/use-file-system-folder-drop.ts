@@ -11,6 +11,8 @@ import {
 } from "@/features/tabs/utils/internal-tab-drag";
 import { useUIState } from "@/features/window/stores/ui-state.store";
 import {
+  dispatchAgentDropHover,
+  dispatchDroppedPathsToAgent,
   dispatchDroppedPathsToTerminal,
   handleExternalFileDropPayload,
   getExternalFileDropRoute,
@@ -146,6 +148,18 @@ export const useFileSystemFolderDrop = (
         if (route === "terminal") {
           if (payload.type === "drop" && payload.paths) {
             dispatchDroppedPathsToTerminal(target, payload.paths);
+          }
+          setIsDraggingOver(false);
+          return;
+        }
+
+        if (route === "agent") {
+          if (payload.type === "drop" && payload.paths) {
+            dispatchDroppedPathsToAgent(target, payload.paths);
+          } else if (payload.type === "enter" || payload.type === "leave") {
+            // The composer highlights from this signal because an OS drop never
+            // reaches its DOM drag handlers.
+            dispatchAgentDropHover(target, payload.type === "enter");
           }
           setIsDraggingOver(false);
           return;

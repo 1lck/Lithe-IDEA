@@ -19,11 +19,18 @@
   },
   "windows": {
     "evidence": [
-      "windows/tauri/src/features"
+      "windows/tauri/src/features/agent/types/agent.types.ts",
+      "windows/tauri/src/features/agent/stores/agent-connection.model.ts",
+      "windows/tauri/src/features/agent/components/agent-transcript.tsx",
+      "shared/fixtures/agent/acp-events-v1.json",
+      "windows/tauri/src/features/agent/services/agent-transcript-items.ts",
+      "windows/tauri/src/features/agent/services/agent-history-export.ts",
+      "windows/tauri/src/features/agent/services/agent-history-view.ts"
     ],
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable"
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
   },
   "owner": "Agent",
-  "verification": "macOS：使用会上报思考内容的 Agent 与思考强度发送需要推理的问题，确认思考块在流式输出时展开显示“思考中…”，底部等待行显示“回复中…”并保留本轮计时，回复或工具调用到达后自动收起为“思考过程”，手动展开后保持；搜索不匹配的文字使思考行消失后，清空搜索仍恢复手动展开状态，切换会话不串用偏好、关闭会话后释放偏好；思考与回复交替时顺序正确且文本不混合；手动收起思考块后搜索其内容，命中时仍展开，搜索期间保持可见，清空搜索后恢复手动折叠状态；加载历史会话后思考块与实时流一致；导出 Markdown 中思考以引用块出现，历史消息数不计思考。在窄宽面板及深浅主题检查长文本换行与可读性。Windows Agent 对话 UI 尚未实现。"
+  "verification": "macOS：使用会上报思考内容的 Agent 与思考强度发送需要推理的问题，确认思考块在流式输出时展开显示“思考中…”，底部等待行显示“回复中…”并保留本轮计时，回复或工具调用到达后自动收起为“思考过程”，手动展开后保持；搜索不匹配的文字使思考行消失后，清空搜索仍恢复手动展开状态，切换会话不串用偏好、关闭会话后释放偏好；思考与回复交替时顺序正确且文本不混合；手动收起思考块后搜索其内容，命中时仍展开，搜索期间保持可见，清空搜索后恢复手动折叠状态；加载历史会话后思考块与实时流一致；导出 Markdown 中思考以引用块出现，历史消息数不计思考。在窄宽面板及深浅主题检查长文本换行与可读性。Windows 已把 `agent_thought_chunk` 作为独立 `reasoning` 行接入：流式期间默认展开，回复或工具到达后自动折叠，手动展开保持；搜索命中时强制展开，清空搜索后回到手动或默认状态；思考文本不并入回复，历史消息数不计思考，导出标为 Thinking 并以引用块呈现。真机与历史回放验收待执行。",
+  "notes": "2026-10-18 Windows：推理块先冲刷待合并正文，保证思考与回复的流顺序；思考行默认在流式时展开、回复到达后折叠，搜索命中时展开且不改变手动偏好。历史导出与消息计数已排除推理行。真机验收待执行。"
 }
