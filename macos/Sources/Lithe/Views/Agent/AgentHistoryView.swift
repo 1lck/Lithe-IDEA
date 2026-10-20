@@ -192,7 +192,7 @@ struct AgentHistoryView: View {
             }
         }
         .litheWorkbenchSurface(AgentPanelStyle.canvas)
-        .onAppear { feature.refreshSessions() }
+        .onAppear { feature.refreshSessionsIfNeeded() }
         .onChange(of: visibleIDs) { selectedIDs.formIntersection($0) }
         .onChange(of: query) { _ in archivedExpansion = nil }
         .alert("Confirm deletion", isPresented: Binding(

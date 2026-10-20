@@ -4,7 +4,12 @@ import { getBaseName, normalizePath } from "@/utils/path-helpers";
 export const JAVA_LANGUAGE_ID = "java";
 export const JAVA_PROVIDER_ID = "java";
 
-const VIRTUAL_PATH_PREFIXES = ["remote://", "wsl://", "diff://"];
+const VIRTUAL_PATH_PREFIXES = [
+  "remote://",
+  "wsl://",
+  "diff://",
+  "agent-conversation://",
+];
 
 export function isJavaSourcePath(filePath: string | undefined): boolean {
   if (!filePath || isVirtualEditorPath(filePath)) return false;

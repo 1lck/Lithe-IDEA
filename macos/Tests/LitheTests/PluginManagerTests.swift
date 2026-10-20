@@ -44,6 +44,16 @@ struct PluginManagerTests {
             try DeclarativePluginTestSupport.officialDescriptor($0).pluginManifest
         }
         #expect(Set(officialLanguagePlugins.map(\.id)) == Set(OfficialPluginCatalog.entries.map(\.id)))
+        // Go and PHP moved to Lithe Store: installed copies keep their pinned
+        // publisher signature, but the host no longer suggests them.
+        #expect(OfficialPluginCatalog.publishedEntries.map(\.id) == [OfficialPluginCatalog.javaPluginID])
+        #expect(OfficialPluginCatalog.entry(for: OfficialPluginCatalog.goPluginID)?.communityReplacementID
+            == PluginID("io.github.lithe-idea.go-support"))
+        #expect(OfficialPluginCatalog.entry(for: OfficialPluginCatalog.phpPluginID)?.communityReplacementID
+            == PluginID("io.github.lithe-idea.php-support"))
+        #expect([OfficialPluginCatalog.goPluginID, OfficialPluginCatalog.phpPluginID].allSatisfy {
+            OfficialPluginCatalog.entry(for: $0)?.signatureRequirement == .publisherPackage
+        })
         #expect(officialLanguagePlugins.flatMap(\.modules).allSatisfy {
             $0.manifest.defaultState == .disabled
         })
@@ -269,6 +279,128 @@ struct PluginManagerTests {
         let enabled = try #require(manager.snapshots.first { $0.id == installed.manifest.id })
         #expect(enabled.isEnabled)
         #expect(enabled.requiresRestart)
+    }
+
+    /// Migration from a retired official plugin to its community replacement:
+    /// both declare the same language module. Uninstalling the enabled old
+    /// package stops the module, but that must not count as the user turning
+    /// it off, or the replacement would install disabled.
+    @Test
+    func uninstallingAnEnabledPluginLetsItsReplacementStartEnabled() async throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let configuration = MacModuleConfigurationStore(store: PluginManagerKeyValueStore())
+        configuration.setEnabledState(true, for: pluginModuleID)
+
+        try await uninstallRegisteredPackage(root: root, configuration: configuration)
+        #expect(configuration.enabledState(for: pluginModuleID) == nil)
+
+        let replacement = try installReplacementAfterRestart(root: root, configuration: configuration)
+        #expect(configuration.enabledState(for: pluginModuleID) == true)
+        #expect(replacement.isEnabled)
+        #expect(replacement.requiresRestart)
+    }
+
+    @Test
+    func uninstallKeepsAnExplicitlyDisabledModuleOff() async throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let configuration = MacModuleConfigurationStore(store: PluginManagerKeyValueStore())
+        configuration.setEnabledState(true, for: pluginModuleID)
+
+        try await uninstallRegisteredPackage(root: root, configuration: configuration, disableFirst: true)
+        #expect(configuration.enabledState(for: pluginModuleID) == false)
+
+        let replacement = try installReplacementAfterRestart(root: root, configuration: configuration)
+        #expect(configuration.enabledState(for: pluginModuleID) == false)
+        #expect(!replacement.isEnabled)
+    }
+
+    private func lifecyclePackage(root: URL, id: String) throws -> URL {
+        try DeclarativePluginTestSupport.writePackage(
+            at: root.appendingPathComponent("source-\(id)"),
+            manifest: DeclarativePluginTestSupport.manifestObject(
+                id: id,
+                version: PluginVersion(major: 0, minor: 3, patch: 0),
+                signatureRequirement: .publisherPackage
+            )
+        )
+    }
+
+    private func lifecycleStore(root: URL) -> MacPluginPackageStore {
+        MacPluginPackageStore(
+            rootURL: root.appendingPathComponent("installed"),
+            validator: DeclarativePluginTestSupport.operations,
+            verifier: MacOfficialPluginSignatureVerifier(allowsLocalDevelopmentPackages: true)
+        )
+    }
+
+    /// The old package is installed, registered, and running, then the user
+    /// (optionally after disabling it) uninstalls it.
+    private func uninstallRegisteredPackage(
+        root: URL,
+        configuration: MacModuleConfigurationStore,
+        disableFirst: Bool = false
+    ) async throws {
+        let store = lifecycleStore(root: root)
+        let old = try store.installPackage(
+            from: lifecyclePackage(root: root, id: "dev.example.retired"),
+            origin: .localDevelopment
+        )
+        let runtime = ModuleRuntime(configurationStore: configuration, recoveryStore: configuration)
+        let moduleManifest = try #require(old.manifest.modules.first?.manifest)
+        #expect(moduleManifest.id == pluginModuleID)
+        let workspace = try #require(BuiltInModuleCatalog.manifest(for: .workspace))
+        try runtime.register(ModuleFactory(manifest: workspace) { PluginManagerWorkspaceModule(manifest: workspace) })
+        let recorder = PluginManagerModuleRecorder()
+        try runtime.register(ModuleFactory(manifest: moduleManifest) {
+            PluginManagerTestModule(manifest: moduleManifest, recorder: recorder)
+        })
+        _ = try await runtime.activate(pluginModuleID)
+        let manager = MacPluginManager(
+            packageStore: store,
+            moduleRuntime: runtime,
+            configurationStore: configuration,
+            settings: InMemoryPluginSettings(),
+            launchMode: .normal,
+            startup: MacPluginStartupResult(installedPlugins: [old], registeredPlugins: [old], issues: []),
+            allowsLocalDevelopmentPackages: true
+        )
+        if disableFirst { try await manager.setEnabled(false, for: old.manifest.id) }
+
+        try await manager.uninstall(old.manifest.id)
+
+        #expect(recorder.shutdownCount == 1)
+        #expect(try runtime.snapshot(for: pluginModuleID).state == .disabled)
+        let pending = try #require(manager.snapshots.first { $0.id == old.manifest.id })
+        #expect(pending.installationStatus == .uninstallPending)
+        #expect(pending.hasChangesPendingRestart)
+    }
+
+    /// Restart (the old package is removed at launch), then install the
+    /// replacement that declares the same language module.
+    private func installReplacementAfterRestart(
+        root: URL,
+        configuration: MacModuleConfigurationStore
+    ) throws -> PluginManagementSnapshot {
+        let store = lifecycleStore(root: root)
+        try store.prepareForLaunch()
+        let scan = try store.scanInstalledPlugins()
+        #expect(scan.packages.isEmpty)
+        let manager = MacPluginManager(
+            packageStore: store,
+            moduleRuntime: ModuleRuntime(configurationStore: configuration, recoveryStore: configuration),
+            configurationStore: configuration,
+            settings: InMemoryPluginSettings(),
+            launchMode: .normal,
+            startup: MacPluginStartupResult(installedPlugins: scan.packages, registeredPlugins: [], issues: []),
+            allowsLocalDevelopmentPackages: true
+        )
+        let replacementID = PluginID("dev.example.replacement")
+        try manager.installPackage(at: lifecyclePackage(root: root, id: replacementID.rawValue))
+        let snapshot = try #require(manager.snapshots.first { $0.id == replacementID })
+        #expect(snapshot.hasChangesPendingRestart)
+        return snapshot
     }
 
     private func temporaryRoot() -> URL {

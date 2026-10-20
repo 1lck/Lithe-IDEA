@@ -209,11 +209,20 @@ final class MacPluginManager: PluginManaging {
             ))
             return
         }
-        if registeredPluginIDs.contains(pluginID) {
-            try await setEnabled(false, for: pluginID)
-        }
         guard !installed.manifest.modules.contains(where: { $0.manifest.isRequired }) else {
             throw PluginManagerError.requiredPluginCannotBeUninstalled(pluginID)
+        }
+        if registeredPluginIDs.contains(pluginID) {
+            // Stopping the modules is not the user turning them off. Language
+            // module IDs outlive the package (a later install, or the community
+            // plugin that replaces a retired official one, reuses them), so keep
+            // only an explicit "off" and let the next installation start fresh.
+            let moduleIDs = installed.manifest.modules.map(\.manifest.id)
+            let explicitlyDisabled = Set(moduleIDs.filter { configurationStore.enabledState(for: $0) == false })
+            try await setEnabled(false, for: pluginID)
+            for moduleID in moduleIDs where !explicitlyDisabled.contains(moduleID) {
+                configurationStore.clearEnabledState(for: moduleID)
+            }
         }
         beforePackageReplacement(pluginID)
         if installed.installation.origin == .bundled {
@@ -347,7 +356,9 @@ final class MacPluginManager: PluginManaging {
             statusMessage: statusMessage,
             marketplace: marketplace,
             settings: settingStates(declaredSettings, pluginID: manifest.id),
-            disk: disk
+            disk: disk,
+            hasChangesPendingRestart: restartRequiredPluginIDs.contains(manifest.id)
+                || installationStatus == .uninstallPending
         )
     }
 

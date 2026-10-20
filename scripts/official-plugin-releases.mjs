@@ -54,7 +54,11 @@ function directoryChangedSince(tag, directory) {
   }
 }
 
-export function releaseFor(plugin, readManifest = (dir) => JSON.parse(readFileSync(join(root, dir, "plugin.json"), "utf8"))) {
+function readPackageManifest(directory) {
+  return JSON.parse(readFileSync(join(root, directory, "plugin.json"), "utf8"));
+}
+
+export function releaseFor(plugin, readManifest = readPackageManifest) {
   const manifest = readManifest(plugin.packageDirectory);
   if (manifest.id !== plugin.id) {
     throw new Error(`${plugin.packageDirectory}/plugin.json has id ${manifest.id}, expected ${plugin.id}`);
@@ -73,8 +77,8 @@ export function releaseFor(plugin, readManifest = (dir) => JSON.parse(readFileSy
 }
 
 /** Plugins whose current version has no tag yet. */
-export function plan(plugins = loadConfig(), exists = tagExists) {
-  return plugins.map((plugin) => releaseFor(plugin)).filter((release) => !exists(release.tag));
+export function plan(plugins = loadConfig(), exists = tagExists, readManifest = readPackageManifest) {
+  return plugins.map((plugin) => releaseFor(plugin, readManifest)).filter((release) => !exists(release.tag));
 }
 
 /** Released (tagged) versions that the official index does not list yet.
@@ -106,10 +110,15 @@ function readIndex() {
 
 /** Changing a released plugin without a new version would ship two
  *  different packages under one version, so it is an error. */
-export function check(plugins = loadConfig(), exists = tagExists, changed = directoryChangedSince) {
+export function check(
+  plugins = loadConfig(),
+  exists = tagExists,
+  changed = directoryChangedSince,
+  readManifest = readPackageManifest,
+) {
   const problems = [];
   for (const plugin of plugins) {
-    const release = releaseFor(plugin);
+    const release = releaseFor(plugin, readManifest);
     if (exists(release.tag) && changed(release.tag, release.packageDirectory)) {
       problems.push(`${release.id}: ${release.packageDirectory} changed since ${release.tag}; bump the version in plugin.json`);
     }

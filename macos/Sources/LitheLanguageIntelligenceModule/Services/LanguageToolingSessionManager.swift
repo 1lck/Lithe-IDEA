@@ -1392,6 +1392,35 @@ package final class LanguageToolingSessionManager: ObservableObject,
         throw unavailableLanguageServerError(for: fileURL)
     }
 
+    /// Sends a build request to the language server a plugin's build system
+    /// shares, starting it for `rootURL` when needed. Only the server of the
+    /// same plugin qualifies: another plugin may answer for the same language,
+    /// and its process must never receive this plugin's requests.
+    package func requestBuildProvider(
+        languageID: String,
+        pluginID: String,
+        rootURL: URL,
+        method: String,
+        params: ToolingJSONValue,
+        timeout: TimeInterval
+    ) async throws -> ToolingJSONValue {
+        guard extensionRuntimeIDs.contains(languageID),
+              runtimesByID[languageID]?.descriptor.languageServerLaunch?.launchSource?.pluginID == pluginID else {
+            throw LanguageToolingSessionError.toolingUnavailable(
+                "The language server this build system shares is not running for its plugin."
+            )
+        }
+        let root = rootURL.standardizedFileURL
+        _ = try startLanguageServer(providerID: languageID, rootURL: root)
+        try await waitUntilLanguageServerReady(providerID: languageID, rootURL: root)
+        guard let session = languageServers[languageID], session.isRunning else {
+            throw LanguageToolingSessionError.toolingUnavailable(
+                "The language server this build system shares stopped."
+            )
+        }
+        return try await session.buildRequest(method: method, params: params, timeout: timeout)
+    }
+
     package func resolveVirtualDocument(
         providerID: String,
         uri: URL,

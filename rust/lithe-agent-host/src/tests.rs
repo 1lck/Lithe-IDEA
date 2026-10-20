@@ -742,6 +742,17 @@ fn serialized_events_match_the_shared_fixture() {
             },
         ),
         (
+            "sessionsPage",
+            AgentEvent::SessionsPage {
+                token: "token-3".into(),
+                sessions: vec![AgentSessionSummary {
+                    session_id: "session-1".into(),
+                    title: Some("Explain this project".into()),
+                    updated_at: Some("2026-09-25T10:00:00Z".into()),
+                }],
+            },
+        ),
+        (
             "sessions",
             AgentEvent::Sessions {
                 token: "token-3".into(),
@@ -2682,6 +2693,16 @@ async fn session_history_is_listed_across_pages_and_loaded() {
         .await;
     let second = harness.agent.expect("session/list").await;
     assert_eq!(second["params"]["cursor"], "page-2");
+    // The second response is deliberately withheld: the first page must already
+    // be visible, without completing or cancelling the remaining scan.
+    match harness.event().await {
+        AgentEvent::SessionsPage { token, sessions } => {
+            assert_eq!(token, "list");
+            assert_eq!(sessions.len(), 1);
+            assert_eq!(sessions[0].session_id, "s1");
+        }
+        other => panic!("expected early page, got {other:?}"),
+    }
     harness
         .agent
         .reply(
@@ -2710,6 +2731,62 @@ async fn session_history_is_listed_across_pages_and_loaded() {
         }
         other => panic!("expected loaded session, got {other:?}"),
     }
+    assert_eq!(harness.stop().await, Ok(()));
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn session_history_follows_empty_workspace_pages_and_reports_later_failure() {
+    let mut harness = Harness::ready().await;
+    harness.send(json!({"kind":"listSessions", "token":"history"}));
+    let first = harness.agent.expect("session/list").await;
+    // A global Codex page may contain no sessions for this workspace. It does
+    // not establish empty history and must not prevent finding later matches.
+    harness
+        .agent
+        .reply(&first, json!({"sessions":[], "nextCursor":"next"}))
+        .await;
+    let second = harness.agent.expect("session/list").await;
+    assert_eq!(second["params"]["cursor"], "next");
+    harness
+        .agent
+        .reply(
+            &second,
+            json!({"sessions":[{"sessionId":"found", "cwd":"/w"}], "nextCursor":"last"}),
+        )
+        .await;
+    let third = harness.agent.expect("session/list").await;
+    assert!(
+        matches!(harness.event().await, AgentEvent::SessionsPage { token, sessions }
+        if token == "history" && sessions.len() == 1 && sessions[0].session_id == "found")
+    );
+    harness
+        .agent
+        .write(json!({"jsonrpc":"2.0", "id":third["id"],
+        "error":{"code":-32603, "message":"History unavailable"}}))
+        .await;
+    assert!(
+        matches!(harness.event().await, AgentEvent::RequestFailed { token: Some(token), .. } if token == "history")
+    );
+    assert_eq!(harness.stop().await, Ok(()));
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn session_history_stops_with_an_outstanding_page() {
+    let mut harness = Harness::ready().await;
+    harness.send(json!({"kind":"listSessions", "token":"history"}));
+    let first = harness.agent.expect("session/list").await;
+    harness
+        .agent
+        .reply(
+            &first,
+            json!({"sessions":[{"sessionId":"found", "cwd":"/w"}], "nextCursor":"next"}),
+        )
+        .await;
+    let _pending = harness.agent.expect("session/list").await;
+    assert!(matches!(
+        harness.event().await,
+        AgentEvent::SessionsPage { .. }
+    ));
     assert_eq!(harness.stop().await, Ok(()));
 }
 
@@ -3251,6 +3328,41 @@ fn catalog_agents_resolve_to_their_install_and_key_delivery() {
     assert!(mismatch.contains("Anthropic Messages"), "{mismatch}");
     assert!(resolve(launch("unknown", provider())).is_err());
     let _ = std::fs::remove_dir_all(&data);
+}
+
+#[test]
+fn windows_batch_shims_are_only_forwarded_to_adapters_that_shell_out() {
+    let claude = catalog::find("claude-acp").unwrap().cli.as_ref().unwrap();
+    let codex = catalog::find("codex-acp").unwrap().cli.as_ref().unwrap();
+    let tool = |path: &str| environment::DetectedTool {
+        version: "2.1.303".into(),
+        path: path.into(),
+    };
+    let shim = tool("C:/tools/claude.cmd");
+
+    let claude_shim = cli_path_env(claude, &shim);
+    if cfg!(windows) {
+        assert_eq!(claude_shim, None);
+    } else {
+        assert_eq!(
+            claude_shim,
+            Some((
+                "CLAUDE_CODE_EXECUTABLE".into(),
+                "C:/tools/claude.cmd".into()
+            ))
+        );
+    }
+    assert_eq!(
+        cli_path_env(codex, &shim),
+        Some(("CODEX_PATH".into(), "C:/tools/claude.cmd".into()))
+    );
+    assert_eq!(
+        cli_path_env(claude, &tool("C:/tools/claude.exe")),
+        Some((
+            "CLAUDE_CODE_EXECUTABLE".into(),
+            "C:/tools/claude.exe".into()
+        ))
+    );
 }
 
 #[test]

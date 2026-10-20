@@ -511,6 +511,9 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         languageToolingFeature.configureSessions { [weak self] in
             self?.languageToolingSessionsIfActive
         }
+        services.connectBuildProviderLanguageSessions? { [weak self] in
+            self?.languageToolingSessionsIfActive
+        }
         featureObservationBinder = AppModelObservationBinder(graph: featureGraph) { [weak self] in
             self?.scheduleObjectWillChangeRelay()
         }

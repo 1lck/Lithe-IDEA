@@ -971,10 +971,22 @@ package protocol LanguageServerSession: AnyObject {
         marker: JavaNavigationMarker,
         completion: @escaping (Result<[LanguageServerLocation], Error>) -> Void
     ) throws
+    /// Sends a `lithe/build/*` request Core planned and returns the reply
+    /// undecoded. Cancelling the task cancels the request in the process.
+    func buildRequest(method: String, params: ToolingJSONValue, timeout: TimeInterval) async throws
+        -> ToolingJSONValue
     func stop()
 }
 
 package extension LanguageServerSession {
+    func buildRequest(method _: String, params _: ToolingJSONValue, timeout _: TimeInterval) async throws
+        -> ToolingJSONValue {
+        throw LanguageServerRuntimeFailure(
+            code: "not_supported",
+            message: "This language session cannot answer build requests."
+        )
+    }
+
     func inlayHints(fileURL: URL, range: LanguageServerRange,
                     completion: @escaping (Result<[LanguageServerInlayHint], Error>) -> Void) throws {
         completion(.success([]))

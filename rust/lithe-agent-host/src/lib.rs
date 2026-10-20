@@ -315,11 +315,8 @@ fn resolve_with(
         if let Some(issue) = install::cli_issue(cli, detected.as_ref()) {
             return Err(issue);
         }
-        if let Some(tool) = detected {
-            env.push((
-                cli.path_env.to_owned(),
-                tool.path.to_string_lossy().into_owned(),
-            ));
+        if let Some(entry) = detected.as_ref().and_then(|tool| cli_path_env(cli, tool)) {
+            env.push(entry);
         }
     }
     let model = provider
@@ -344,6 +341,27 @@ fn resolve_with(
         gateway,
         secret: provider.api_key,
         subscription_cli: None,
+    })
+}
+
+/// Environment entry that points an adapter at the user's CLI.
+///
+/// On Windows, npm installs command shims as `.cmd` files. Adapters that pass
+/// `path_env` straight to `child_process.spawn` cannot execute them; those
+/// adapters use their bundled native launcher instead.
+fn cli_path_env(
+    cli: &catalog::AgentCli,
+    tool: &environment::DetectedTool,
+) -> Option<(String, String)> {
+    let script_shim = cfg!(windows)
+        && tool.path.extension().is_some_and(|extension| {
+            extension.eq_ignore_ascii_case("cmd") || extension.eq_ignore_ascii_case("bat")
+        });
+    (!script_shim || cli.accepts_windows_shim).then(|| {
+        (
+            cli.path_env.to_owned(),
+            tool.path.to_string_lossy().into_owned(),
+        )
     })
 }
 
@@ -433,7 +451,7 @@ pub enum AgentCommand {
 }
 
 /// One entry of the agent-owned conversation history for the workspace.
-#[derive(Debug, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentSessionSummary {
     pub session_id: String,
@@ -510,6 +528,11 @@ pub enum AgentEvent {
     TurnActivity {
         session_id: String,
         quiet: bool,
+    },
+    /// Newly received nonterminal page; only `Sessions` replaces the full snapshot.
+    SessionsPage {
+        token: String,
+        sessions: Vec<AgentSessionSummary>,
     },
     Sessions {
         token: String,
@@ -1024,6 +1047,9 @@ async fn run_agent(
         // An inherited model pin must not override the model restored by ACP.
         // Keep the user's alias mappings and other native CLI settings intact.
         command.env_remove("ANTHROPIC_MODEL");
+        // An inherited executable can be an unusable Windows batch shim. The
+        // launch environment below re-adds a valid path when one was resolved.
+        command.env_remove("CLAUDE_CODE_EXECUTABLE");
     }
     if launch.subscription_cli.is_some() {
         subscription::isolate_environment(&mut command);
@@ -1618,8 +1644,8 @@ where
                         let history = history.clone();
                         tasks.spawn(async move {
                             let result = match history {
-                                Some(history) => history.list_active(&workspace).await,
-                                None => list_sessions(&connection, cwd, &workspace).await,
+                                Some(history) => history.list_active(&workspace, &token, &emit).await,
+                                None => list_sessions(&connection, cwd, &workspace, &token, &emit).await,
                             };
                             emit(match result {
                                 Ok(sessions) => AgentEvent::Sessions { token, sessions },
@@ -2001,6 +2027,8 @@ async fn list_sessions(
     connection: &ConnectionTo<Agent>,
     cwd: PathBuf,
     workspace: &workspace_context::WorkspaceContext,
+    token: &str,
+    emit: &Emit,
 ) -> Result<Vec<AgentSessionSummary>, String> {
     let mut sessions = Vec::new();
     let mut cursor: Option<String> = None;
@@ -2016,15 +2044,31 @@ async fn list_sessions(
                 .block_task(),
         )
         .await?;
-        sessions.extend(page.sessions.into_iter().map(|session| {
-            AgentSessionSummary {
+        let entries: Vec<_> = page
+            .sessions
+            .into_iter()
+            .map(|session| AgentSessionSummary {
                 session_id: session.session_id.0.to_string(),
                 title: session
                     .title
                     .and_then(|title| workspace.present_title(&title)),
                 updated_at: session.updated_at,
-            }
-        }));
+            })
+            .collect();
+        // Keep the final aggregate compatible with clients that do not consume pages.
+        // Publish intermediate rows before requesting the next page, never a false empty list.
+        if page
+            .next_cursor
+            .as_ref()
+            .is_some_and(|next| !next.is_empty())
+            && !entries.is_empty()
+        {
+            emit(AgentEvent::SessionsPage {
+                token: token.to_owned(),
+                sessions: entries.clone(),
+            });
+        }
+        sessions.extend(entries);
         match page.next_cursor {
             Some(next) if !next.is_empty() => cursor = Some(next),
             _ => return Ok(sessions),

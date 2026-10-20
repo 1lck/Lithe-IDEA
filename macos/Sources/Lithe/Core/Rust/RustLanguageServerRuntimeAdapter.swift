@@ -207,6 +207,17 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
             .mapError(Self.runtimeFailure)
     }
 
+    func requestBuildProvider(
+        sessionID: String,
+        method: String,
+        params: ToolingJSONValue,
+        timeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
+        lspBuildRequest(sessionID: sessionID, method: method, params: params, timeout: timeout)
+            .map { LanguageServerRuntimeOperation(operationID: $0.operationId) }
+            .mapError(Self.runtimeFailure)
+    }
+
     func cancelLanguageServerOperation(sessionID: String, operationID: String) {
         lspCancelOperation(sessionID: sessionID, operationID: operationID)
     }

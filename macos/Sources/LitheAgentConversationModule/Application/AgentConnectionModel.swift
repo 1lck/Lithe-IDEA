@@ -114,6 +114,10 @@ public final class AgentConnectionModel: ObservableObject {
     private var historyContinuations: [String: CheckedContinuation<[AgentConversationMessage], Error>] = [:]
     private var historyRefreshToken: String?
     private var archivedRefreshToken: String?
+    /// Successful snapshots are reusable within this connection, including empty lists.
+    private static let historyFreshness: Duration = .seconds(30)
+    private var sessionsRefreshedAt: ContinuousClock.Instant?
+    private var archivedSessionsRefreshedAt: ContinuousClock.Instant?
     /// List requests made obsolete by an unarchive. The host still answers them,
     /// so their terminal events must be consumed here rather than treated as new.
     private var supersededListTokens: Set<String> = []
@@ -213,12 +217,24 @@ public final class AgentConnectionModel: ObservableObject {
 
     public var canRefreshSessions: Bool { canListSessions && connectionState == .ready }
 
+    /// Opening either history surface reuses recent results; explicit refresh always queries.
+    public func refreshSessionsIfNeeded() {
+        refreshSessions(onlyIfStale: true)
+    }
+
     public func refreshSessions() {
-        refreshArchivedSessions()
+        refreshSessions(onlyIfStale: false)
+    }
+
+    private func refreshSessions(onlyIfStale: Bool) {
+        refreshArchivedSessions(onlyIfStale: onlyIfStale)
         guard canRefreshSessions, !isRefreshingSessions else { return }
+        if onlyIfStale, let refreshedAt = sessionsRefreshedAt,
+           now() - refreshedAt < Self.historyFreshness { return }
         let token = makeToken()
         historyRefreshToken = token
         isRefreshingSessions = true
+        sessionsRefreshedAt = nil
         historyError = nil
         if !sendCommand(["kind": "listSessions", "token": token]) {
             historyError = errorMessage
@@ -227,11 +243,14 @@ public final class AgentConnectionModel: ObservableObject {
         }
     }
 
-    private func refreshArchivedSessions() {
+    private func refreshArchivedSessions(onlyIfStale: Bool) {
         guard canListArchivedSessions, connectionState == .ready, !isRefreshingArchivedSessions else { return }
+        if onlyIfStale, let refreshedAt = archivedSessionsRefreshedAt,
+           now() - refreshedAt < Self.historyFreshness { return }
         let token = makeToken()
         archivedRefreshToken = token
         isRefreshingArchivedSessions = true
+        archivedSessionsRefreshedAt = nil
         archivedHistoryError = nil
         if !sendCommand(["kind": "listArchivedSessions", "token": token]) {
             archivedHistoryError = errorMessage
@@ -619,12 +638,18 @@ public final class AgentConnectionModel: ObservableObject {
                 setDelivery(.failed(event["message"] as? String ?? "The Agent did not accept the supplementary message."),
                             messageID: supplement.messageID, in: sessionID)
             }
+        case "sessionsPage":
+            guard isRefreshingSessions, token == historyRefreshToken else { return }
+            // A page proves presence, never absence. Keep cached rows until the final snapshot.
+            mergeSessions(event["sessions"] as? [[String: Any]] ?? [], replacingSnapshot: false)
+            reconcileArchivedSessions()
         case "sessions":
             if let token, supersededListTokens.remove(token) != nil { return }
             guard isRefreshingSessions, token == historyRefreshToken else { return }
             mergeSessions(event["sessions"] as? [[String: Any]] ?? [])
             historyRefreshToken = nil
             isRefreshingSessions = false
+            sessionsRefreshedAt = now()
             reconcileArchivedSessions()
         case "archivedSessions":
             if let token, supersededListTokens.remove(token) != nil { return }
@@ -636,6 +661,7 @@ public final class AgentConnectionModel: ObservableObject {
             isArchivedHistoryComplete = event["complete"] as? Bool ?? false
             archivedRefreshToken = nil
             isRefreshingArchivedSessions = false
+            archivedSessionsRefreshedAt = now()
             reconcileArchivedSessions()
         case "sessionUnarchived":
             guard let token else { return }
@@ -798,12 +824,14 @@ public final class AgentConnectionModel: ObservableObject {
         } else if let token, token == archivedRefreshToken {
             archivedRefreshToken = nil
             isRefreshingArchivedSessions = false
+            archivedSessionsRefreshedAt = nil
             archivedHistoryError = message
         } else if let token, token == unarchiveRequest?.token {
             finishUnarchive(token: token, result: .failure(AgentConversationError.sendFailed(message)))
         } else if let token, token == historyRefreshToken {
             historyRefreshToken = nil
             isRefreshingSessions = false
+            sessionsRefreshedAt = nil
             historyError = message
         } else if let sessionID, let token, conversations[sessionID]?.pendingConfigToken == token {
             conversations[sessionID]?.pendingConfigToken = nil
@@ -846,10 +874,12 @@ public final class AgentConnectionModel: ObservableObject {
         sessions.removeAll { archived.contains($0.id) }
     }
 
-    private func mergeSessions(_ entries: [[String: Any]]) {
+    private func mergeSessions(_ entries: [[String: Any]], replacingSnapshot: Bool = true) {
+        let previous = Dictionary(sessions.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
+        var seen: Set<String> = []
         let listed = entries.compactMap { entry -> AgentSessionSummary? in
-            guard let id = entry["sessionId"] as? String else { return nil }
-            let local = sessions.first { $0.id == id }
+            guard let id = entry["sessionId"] as? String, seen.insert(id).inserted else { return nil }
+            let local = previous[id]
             return AgentSessionSummary(
                 id: id,
                 title: entry["title"] as? String ?? local?.title,
@@ -857,11 +887,14 @@ public final class AgentConnectionModel: ObservableObject {
             )
         }
         let listedIDs = Set(listed.map(\.id))
-        upstreamActiveSessionIDs = listedIDs
+        if replacingSnapshot { upstreamActiveSessionIDs = listedIDs }
+        else { upstreamActiveSessionIDs.formUnion(listedIDs) }
         // A listed session is owned by upstream history even if the local transcript is empty.
         unpromptedSessionIDs.subtract(listedIDs)
         // Sessions created in this run may not be persisted by the agent yet.
-        sessions = sessions.filter { !listedIDs.contains($0.id) && conversations[$0.id] != nil } + listed
+        sessions = sessions.filter {
+            !listedIDs.contains($0.id) && (!replacingSnapshot || conversations[$0.id] != nil)
+        } + listed
     }
 
     private func apply(_ update: [String: Any], to sessionID: String, subagentSessionID: String? = nil) {
@@ -1320,6 +1353,8 @@ public final class AgentConnectionModel: ObservableObject {
         continuations.removeAll()
         isRefreshingSessions = false
         historyRefreshToken = nil
+        sessionsRefreshedAt = nil
+        archivedSessionsRefreshedAt = nil
         // Archived rows belong to this connection's Agent and workspace; never
         // let them outlive it into another Agent's history.
         canListArchivedSessions = false

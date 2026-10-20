@@ -217,6 +217,8 @@ does not fabricate a local timestamp. Other Agents retain standard ACP listing.
 `shared/fixtures/agent/history-activity-v1.json` covers initial state, metadata-only
 viewing, and a new conversation turn. The history UI geometry is unchanged.
 
+Both native Codex App Server listing and standard ACP listing may emit additive `sessionsPage` events for nonterminal pages with matching rows. Each carries the original `listSessions` token and only that page’s summaries. Consumers merge these rows without pruning cached entries or completing the loading state. The existing terminal `sessions` event still carries the full snapshot; consumers that ignore `sessionsPage` remain compatible. A later `requestFailed` retains cached and already received rows. Ignore pages from superseded, completed, or disconnected requests. Empty filtered pages do not end a scan: follow the Agent’s cursor. Platform history surfaces may reuse successful connection-local snapshots (including empty results) for 30 seconds, with independent active/archive freshness; explicit refresh and post-unarchive reconciliation bypass freshness. Failed scans remain retryable and reconnection invalidates freshness. This adds no persisted history or runtime resource directory.
+
 `prompt` retains `text` and optionally carries ordered `files` entries with `uri`
 (a native `file://` URL) and `name` (the display filename). The host validates up to
 32 references and sends upstream ACP `resource_link` blocks after the text block;
@@ -831,6 +833,8 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `lsp.workspaceFilesChanged` | Publish normalized created, changed, or deleted workspace files to one session |
 | `lsp.closeDocument` | Close a document and clear its diagnostics |
 | `lsp.request` | Submit a typed semantic request and return an opaque operation ID |
+| `lsp.buildRequest` | Forward one planned `lithe/build/*` request to a session that negotiated the build-provider protocol |
+| `lsp.functionRequest` | Invoke one registered plugin function on a session its plugin started |
 | `java.navigationMarkers` | Resolve versioned Java gutter markers from bounded JDT LS semantic requests |
 | `java.resolveNavigation` | Resolve one Java gutter marker to normalized parent or implementation locations |
 | `lsp.cancelOperation` | Cancel one pending semantic operation |
@@ -1967,7 +1971,8 @@ The `lsp.*Server`, `lsp.*Document`, `lsp.request`, `lsp.pollEvents`, and
 commands are the semantic LSP runtime boundary. `lsp.startServer` accepts the
 provider ID, selected executable/arguments/environment, root URI, working
 directory, initialization options, optional runtime executable,
-`jdtlsLaunchResources`, cache directory, and `workspaceFingerprint`, plus
+`jdtlsLaunchResources`, cache directory, `workspaceFingerprint`, and the
+optional `pluginId` of the plugin that owns the process, plus
 initialize, post-initialize readiness, request, Java project build
 (`javaBuildTimeoutMilliseconds`), and shutdown deadlines.
 Java callers may also provide the versioned `mavenContext` accepted by
@@ -2216,6 +2221,53 @@ markers use JDT LS `java/findLinks` with `superImplementation`. Its terminal
 result is `{ documentVersion, locations }`, using the same normalized physical
 and virtual-location representation as ordinary navigation.
 
+`lsp.buildRequest` accepts `{ sessionId, operationId?, method, params,
+timeoutMilliseconds? }` and returns `{ operationId }`. `method` and `params`
+are the `provider` field of a `build.modelPlan` or `build.dependencyPlan`
+result; only `lithe/build/model` and `lithe/build/dependencies` are accepted,
+and anything else is `invalid_request`. Every session offers
+`capabilities.experimental.litheBuild: { versions: [1] }` in `initialize`; a
+session whose process did not answer one of those versions rejects the request
+with `not_supported`, so a shared provider that does not speak the protocol
+still serves its language. `timeoutMilliseconds` replaces the session's request
+timeout for this request and is capped at one hour. The `requestCompleted`
+event carries the provider's reply unchanged as `result.value`, which the host
+passes to `build.decodeModel` or `build.decodeDependencies` as `result`;
+cancellation and late results follow `lsp.cancelOperation`.
+
+`lsp.functionRequest` accepts `{ sessionId, operationId?, function: { pluginID,
+functionID }, params?, timeoutMilliseconds? }` and returns `{ operationId }`.
+It sends `lithe/function/invoke` to a session started with
+`lsp.startServer.pluginId` equal to `function.pluginID` that negotiated
+`capabilities.experimental.litheFunctions` version 1 and registered the
+function. `params` must be a JSON object and defaults to `{}`. Refusals are
+`invalid_request`, `not_supported`, or `permission_denied` with a
+`plugin.function.*` code in `details`, in the order the
+[plugin contract](plugins/v1/README.md#plugin-functions) defines. The
+`requestCompleted` event carries the backend result as `result.value`; a
+failed call carries `error.code` `plugin.function.failed`, `invalidResult`, or
+`revoked` and, when the backend supplied one, `error.pluginErrorCode`.
+Timeout, cancellation, and late results follow `lsp.buildRequest`. Core gives
+each backend invocation a unique, opaque `operationID`; the backend echoes
+that value in progress notifications. It is distinct from the host's
+`operationId`, which may be reused after a previous call ends. Core only
+forwards progress belonging to the current pending function request and
+translates its ID to the host's ID: `requestProgress` has
+`method: "lithe/function/invoke"` and `result: { operationID, message?,
+percentage? }`, with both event and result referring to the host operation.
+Every terminal path discards the function/request association, so late
+progress or unregister requests cannot affect a later operation reusing that
+host ID, including a build request.
+
+A plugin-owned session publishes its initialized registry as `functionsChanged`
+with `result: { functions, removed: [] }` after successful `initialize`
+negotiation, including an empty negotiated registry. Subsequent register and
+unregister requests publish
+`functionsChanged` with `result: { functions, removed }`; the current registry
+is `pluginFunctions` in the session's client state. Sessions without
+`lsp.startServer.pluginId` neither offer nor accept `litheFunctions`, retain no
+registry, and publish no function-discovery events.
+
 `lsp.request` accepts a semantic `operation` plus
 the operation-specific URI, position, range, diagnostics, item, action, or
 command fields, and returns `{ operationId }`. Supported operations include
@@ -2310,7 +2362,8 @@ channel until events are queued or the timeout elapses, then drains the same
 typed events. Hosts should use `waitEvents` so idle sessions do not poll.
 Event types
 include `stateChanged`, `featuresChanged`, `diagnostics`,
-`requestCompleted`, `serverInfoChanged`, and `log`. Every request completes at
+`requestCompleted`, `requestProgress`, `functionsChanged`,
+`serverInfoChanged`, and `log`. Every request completes at
 most once with either `result` or a structured runtime error containing
 provider/session, stage, optional method/document/request, stable code, and
 optional process-exit detail. Late responses after cancellation or deadline

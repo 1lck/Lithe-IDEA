@@ -19,6 +19,13 @@ final class MacModuleConfigurationStore: ModuleConfigurationStore, ModuleRecover
         store.set(enabled, forKey: key(for: moduleID))
     }
 
+    /// Forgets the stored choice so the module's default (or a confirmed
+    /// first installation) decides again.
+    func clearEnabledState(for moduleID: ModuleID) {
+        lock.lock(); defer { lock.unlock() }
+        store.set(nil, forKey: key(for: moduleID))
+    }
+
     func pendingActivation() -> ModuleID? {
         lock.lock(); defer { lock.unlock() }
         return pendingActivationsLocked().first

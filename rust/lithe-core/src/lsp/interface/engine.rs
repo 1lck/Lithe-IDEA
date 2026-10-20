@@ -1,15 +1,15 @@
 //! Stateful language-server sessions coordinating client state and child processes.
 
+use super::client::{client_apply_server_message_for_plugin, client_initialize_for_plugin};
 use super::process::{LspProcessHandle, LspProcessLauncher, LspProcessSpec, SystemProcessLauncher};
 use super::{
-    client_apply_server_message, client_change_document, client_close_document,
-    client_feature_request_canonical, client_initialize, client_open_document,
-    client_provider_document_feature_request_canonical, client_shutdown, frame_message,
-    parse_server_messages, ClientApplyServerMessageRequest, ClientChangeDocumentRequest,
-    ClientCloseDocumentRequest, ClientFeatureRequest, ClientInitializeRequest,
-    ClientOpenDocumentRequest, ClientShutdownRequest, FrameMessageRequest, LspClientDiagnostic,
-    LspClientDocument, LspClientState, LspDocumentContentChange, LspPosition, LspRange,
-    ParseServerMessagesRequest,
+    client_change_document, client_close_document, client_feature_request_canonical,
+    client_open_document, client_provider_document_feature_request_canonical, client_shutdown,
+    frame_message, parse_server_messages, ClientApplyServerMessageRequest,
+    ClientChangeDocumentRequest, ClientCloseDocumentRequest, ClientFeatureRequest,
+    ClientInitializeRequest, ClientOpenDocumentRequest, ClientShutdownRequest, FrameMessageRequest,
+    LspClientDiagnostic, LspClientDocument, LspClientState, LspDocumentContentChange, LspPosition,
+    LspRange, ParseServerMessagesRequest,
 };
 use crate::lsp::languages::java_entrypoints::{
     java_entrypoints_command, normalize_java_entrypoints,
@@ -55,6 +55,10 @@ const DEFAULT_SERVICE_READY_IDLE_TIMEOUT_MS: u64 = 45_000;
 const DEFAULT_SERVICE_READY_ABSOLUTE_TIMEOUT_MS: u64 = 10 * 60_000;
 const DEFAULT_REQUEST_TIMEOUT_MS: u64 = 30_000;
 const DEFAULT_SHUTDOWN_TIMEOUT_MS: u64 = 2_000;
+/// Upper bound of one build-provider request. A model request can load a
+/// large build, so it may outlive the ordinary request timeout, but never
+/// stays pending without a deadline.
+const MAX_BUILD_PROVIDER_TIMEOUT_MS: u64 = 60 * 60_000;
 const MONITOR_INTERVAL_MS: u64 = 10;
 /// JSON-RPC method carrying Java Debug Server build commands.
 const JAVA_BUILD_METHOD: &str = "workspace/executeCommand";
@@ -86,6 +90,11 @@ pub enum LspLifecycleState {
 /// Validated process, workspace, initialization, and timeout settings for a server.
 pub struct StartServerRequest {
     pub provider_id: String,
+    /// Plugin that owns the process, for plugin-provided servers and build
+    /// providers. Only such a session can serve that plugin's functions;
+    /// host-owned servers leave it out.
+    #[serde(default)]
+    pub plugin_id: Option<String>,
     pub executable_path: String,
     #[serde(default)]
     pub arguments: Vec<String>,
@@ -356,6 +365,49 @@ pub struct SemanticRequest {
     pub command: Option<Value>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+/// One build-provider request, forwarded as `build.modelPlan` or
+/// `build.dependencyPlan` planned it. The result arrives as a
+/// `requestCompleted` event whose `result.value` is the provider's reply,
+/// which the host passes to Core's decoder unchanged.
+pub struct BuildProviderRequest {
+    pub session_id: String,
+    #[serde(default)]
+    pub operation_id: Option<String>,
+    /// `lithe/build/model` or `lithe/build/dependencies`.
+    pub method: String,
+    /// The plan's `provider.params`, sent as is.
+    pub params: Value,
+    /// Deadline of this request, in milliseconds, capped at
+    /// `MAX_BUILD_PROVIDER_TIMEOUT_MS`; the session's request timeout when absent.
+    #[serde(default)]
+    pub timeout_milliseconds: Option<u64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+/// One plugin-function invocation. The result arrives as a `requestCompleted`
+/// event whose `result.value` is the function's result; failures carry a
+/// stable `plugin.function.*` code. Progress arrives as `requestProgress`.
+pub struct PluginFunctionRequest {
+    pub session_id: String,
+    #[serde(default)]
+    pub operation_id: Option<String>,
+    pub function: super::plugin_function::FunctionReference,
+    /// Serializable function input; must be a JSON object.
+    #[serde(default = "empty_object")]
+    pub params: Value,
+    /// Deadline of this call, in milliseconds, capped at one hour; the
+    /// session's request timeout when absent.
+    #[serde(default)]
+    pub timeout_milliseconds: Option<u64>,
+}
+
+fn empty_object() -> Value {
+    json!({})
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 /// Correlation identifier used to receive or cancel an asynchronous result.
@@ -468,6 +520,10 @@ pub struct LspRuntimeError {
     /// `javaBuild` failures; hosts that do not read it are unaffected.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub java_build_report: Option<JavaBuildReport>,
+    /// Plugin-defined code of a failed plugin function (`error.data.code`),
+    /// passed through for the plugin's own UI; Lithe never branches on it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub plugin_error_code: Option<String>,
 }
 
 #[cfg(test)]
@@ -538,12 +594,22 @@ struct JavaNavigationMarkerCacheEntry {
     markers: Vec<crate::protocol::JavaNavigationMarkerResponse>,
 }
 
+/// Links one host operation to the exact backend request and function it owns.
+struct PendingFunctionCall {
+    function_id: String,
+    /// Also serves as the opaque wire operation ID; request IDs never repeat in a session.
+    request_id: String,
+}
+
 struct SessionState {
     preparation_snapshot: Option<crate::lsp::languages::project_preparation::ProjectPreparation>,
     lifecycle: LspLifecycleState,
     client: LspClientState,
     pending: BTreeMap<String, PendingRequest>,
     request_by_operation: BTreeMap<String, String>,
+    /// Exact function invocation owned by each active host operation. Every
+    /// terminal path removes its entry before that host operation ID can be reused.
+    function_by_operation: BTreeMap<String, PendingFunctionCall>,
     /// Symbolic-link facts about the open documents, rebuilt lazily from
     /// `client.open_documents`.
     linked_document_paths: LinkedDocumentPaths,
@@ -591,6 +657,8 @@ struct SessionState {
 struct RuntimeSession {
     id: String,
     provider_id: String,
+    /// Plugin that owns the process, if any; see `StartServerRequest::plugin_id`.
+    plugin_id: Option<String>,
     /// Maven import settings JDT LS currently holds. Replaced as a whole when
     /// the workspace's Maven configuration changes; never held across another
     /// lock.
@@ -1007,6 +1075,34 @@ pub fn semantic_request(request: SemanticRequest) -> Result<OperationResponse, C
     Ok(OperationResponse { operation_id })
 }
 
+/// Sends one build-provider request to a session that negotiated the protocol.
+pub fn build_provider_request(
+    request: BuildProviderRequest,
+) -> Result<OperationResponse, CoreError> {
+    let operation_id = request
+        .operation_id
+        .clone()
+        .unwrap_or_else(|| engine().next_operation_id());
+    engine()
+        .session(&request.session_id)?
+        .build_request(request, operation_id.clone())?;
+    Ok(OperationResponse { operation_id })
+}
+
+/// Invokes one plugin function on a session of the function's plugin.
+pub fn plugin_function_request(
+    request: PluginFunctionRequest,
+) -> Result<OperationResponse, CoreError> {
+    let operation_id = request
+        .operation_id
+        .clone()
+        .unwrap_or_else(|| engine().next_operation_id());
+    engine()
+        .session(&request.session_id)?
+        .function_request(request, operation_id.clone())?;
+    Ok(OperationResponse { operation_id })
+}
+
 /// Cancels a pending semantic request in both client state and the server.
 pub fn cancel_operation(request: CancelOperationRequest) -> Result<(), CoreError> {
     engine()
@@ -1276,21 +1372,24 @@ impl LspEngine {
         let java_build_timeout = Duration::from_millis(request.java_build_timeout_milliseconds);
         let shutdown_timeout = Duration::from_millis(request.shutdown_timeout_milliseconds);
         let jdt_java_runtimes = jdt_java_runtimes(&request.java_runtimes);
-        let initialize = client_initialize(ClientInitializeRequest {
-            state: LspClientState::default(),
-            root_uri: request.root_uri.clone(),
-            process_id: Some(std::process::id() as i64),
-            initialization_options: adapt_initialization_options(
-                &request.provider_id,
-                request.initialization_options,
-                &java_extension_bundle_paths,
-                JdtSettings {
-                    maven: jdt_maven_configuration.as_deref(),
-                    gradle: request.java_gradle.as_ref(),
-                    java_runtimes: &jdt_java_runtimes,
-                },
-            ),
-        })?;
+        let initialize = client_initialize_for_plugin(
+            ClientInitializeRequest {
+                state: LspClientState::default(),
+                root_uri: request.root_uri.clone(),
+                process_id: Some(std::process::id() as i64),
+                initialization_options: adapt_initialization_options(
+                    &request.provider_id,
+                    request.initialization_options,
+                    &java_extension_bundle_paths,
+                    JdtSettings {
+                        maven: jdt_maven_configuration.as_deref(),
+                        gradle: request.java_gradle.as_ref(),
+                        java_runtimes: &jdt_java_runtimes,
+                    },
+                ),
+            },
+            request.plugin_id.is_some(),
+        )?;
         let request_id = (initialize.state.next_request_id - 1).to_string();
         let now = Instant::now();
         let process_id = process.handle.process_id();
@@ -1308,6 +1407,7 @@ impl LspEngine {
         let session = Arc::new(RuntimeSession {
             id: session_id.clone(),
             provider_id: request.provider_id,
+            plugin_id: request.plugin_id,
             jdt_maven_configuration: Mutex::new(jdt_maven_configuration),
             maven_inputs,
             maven_update_order: Mutex::new(()),
@@ -1331,6 +1431,7 @@ impl LspEngine {
                     },
                 )]),
                 request_by_operation: BTreeMap::new(),
+                function_by_operation: BTreeMap::new(),
                 linked_document_paths: LinkedDocumentPaths::default(),
                 java_navigation_marker_batches: BTreeMap::new(),
                 java_navigation_marker_cache: BTreeMap::new(),
@@ -1709,6 +1810,166 @@ impl RuntimeSession {
         self.request_with_kind(request, operation_id, pending_kind, document_version)
     }
 
+    /// Writes a build-provider request. It needs no open document, so it is
+    /// not a semantic feature request; only the negotiated protocol's methods
+    /// are accepted, so the host cannot use it as a generic JSON-RPC tunnel.
+    fn build_request(
+        &self,
+        request: BuildProviderRequest,
+        operation_id: String,
+    ) -> Result<(), CoreError> {
+        if !super::build_provider::is_build_method(&request.method) {
+            return Err(CoreError::new(
+                ErrorCode::InvalidRequest,
+                "This is not a build-provider request.",
+            )
+            .with_details(request.method));
+        }
+        let outbound_order = self.lock_outbound_order()?;
+        let (messages, request_id) = {
+            let mut state = self.lock_state()?;
+            if state.lifecycle != LspLifecycleState::Ready || !state.client.initialized {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Language server is not ready.",
+                ));
+            }
+            if state.request_by_operation.contains_key(&operation_id)
+                || state.java_builds.contains(&operation_id)
+            {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "The language-server operation ID is already pending.",
+                ));
+            }
+            if !state
+                .client
+                .server_capabilities
+                .iter()
+                .any(|feature| feature == super::build_provider::BUILD_PROVIDER_FEATURE)
+            {
+                return Err(CoreError::new(
+                    ErrorCode::NotSupported,
+                    "The process did not agree on a build-provider protocol version.",
+                )
+                .with_details(super::build_provider::BUILD_PROVIDER_FEATURE));
+            }
+            let timeout = request
+                .timeout_milliseconds
+                .map(|milliseconds| {
+                    Duration::from_millis(milliseconds.clamp(1, MAX_BUILD_PROVIDER_TIMEOUT_MS))
+                })
+                .unwrap_or(state.request_timeout);
+            let response =
+                allocate_raw_request(state.client.clone(), &request.method, request.params)?;
+            let request_id = (response.state.next_request_id - 1).to_string();
+            let now = Instant::now();
+            state.client = response.state;
+            state.pending.insert(
+                request_id.clone(),
+                PendingRequest {
+                    kind: PendingKind::Feature,
+                    operation_id: Some(operation_id.clone()),
+                    method: request.method,
+                    document_uri: None,
+                    document_version: None,
+                    created_at: now,
+                    deadline: now + timeout,
+                },
+            );
+            state
+                .request_by_operation
+                .insert(operation_id, request_id.clone());
+            (response.messages, request_id)
+        };
+        self.send_request_or_fail(&outbound_order, messages, &request_id)
+    }
+
+    /// Writes a `lithe/function/invoke` request. The plan comes from
+    /// `plugin_function::plan_invocation`, so plugin identity, negotiation,
+    /// and registration are checked before anything reaches the process.
+    fn function_request(
+        &self,
+        request: PluginFunctionRequest,
+        operation_id: String,
+    ) -> Result<(), CoreError> {
+        let outbound_order = self.lock_outbound_order()?;
+        let (messages, request_id) = {
+            let mut state = self.lock_state()?;
+            if state.lifecycle != LspLifecycleState::Ready || !state.client.initialized {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Language server is not ready.",
+                ));
+            }
+            if state.request_by_operation.contains_key(&operation_id)
+                || state.java_builds.contains(&operation_id)
+            {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "The language-server operation ID is already pending.",
+                ));
+            }
+            let negotiated = state
+                .client
+                .server_capabilities
+                .iter()
+                .any(|feature| feature == super::plugin_function::FUNCTIONS_FEATURE);
+            // Progress echoes this per-request wire ID, never the reusable host ID.
+            let wire_operation_id = state.client.next_request_id.to_string();
+            let params = super::plugin_function::plan_invocation(
+                &super::plugin_function::FunctionSession {
+                    plugin_id: self.plugin_id.as_deref(),
+                    negotiated,
+                    functions: &state.client.plugin_functions,
+                },
+                &request.function,
+                &wire_operation_id,
+                &request.params,
+            )?;
+            let timeout = request
+                .timeout_milliseconds
+                .map(|milliseconds| {
+                    Duration::from_millis(
+                        milliseconds.clamp(1, super::plugin_function::MAX_FUNCTION_TIMEOUT_MS),
+                    )
+                })
+                .unwrap_or(state.request_timeout);
+            let response = allocate_raw_request(
+                state.client.clone(),
+                super::plugin_function::INVOKE_METHOD,
+                params,
+            )?;
+            let request_id = (response.state.next_request_id - 1).to_string();
+            let now = Instant::now();
+            state.client = response.state;
+            state.pending.insert(
+                request_id.clone(),
+                PendingRequest {
+                    kind: PendingKind::Feature,
+                    operation_id: Some(operation_id.clone()),
+                    method: super::plugin_function::INVOKE_METHOD.to_string(),
+                    document_uri: None,
+                    document_version: None,
+                    created_at: now,
+                    deadline: now + timeout,
+                },
+            );
+            state
+                .request_by_operation
+                .insert(operation_id.clone(), request_id.clone());
+            state.function_by_operation.insert(
+                operation_id,
+                PendingFunctionCall {
+                    function_id: request.function.function_id,
+                    request_id: request_id.clone(),
+                },
+            );
+            (response.messages, request_id)
+        };
+        self.send_request_or_fail(&outbound_order, messages, &request_id)
+    }
+
     fn request_with_kind(
         &self,
         request: SemanticRequest,
@@ -1967,9 +2228,21 @@ impl RuntimeSession {
                 .insert(operation_id, request_id.clone());
             (response.messages, request_id)
         };
-        if let Err(error) = self.send_messages(&outbound_order, messages) {
+        self.send_request_or_fail(&outbound_order, messages, &request_id)
+    }
+
+    /// Writes an allocated request. A write failure completes the request
+    /// with an error and fails the session, because the server's view of the
+    /// conversation is no longer known.
+    fn send_request_or_fail(
+        &self,
+        outbound_order: &MutexGuard<'_, ()>,
+        messages: Vec<String>,
+        request_id: &str,
+    ) -> Result<(), CoreError> {
+        if let Err(error) = self.send_messages(outbound_order, messages) {
             self.complete_request_with_error(
-                &request_id,
+                request_id,
                 "transportFailed",
                 "request",
                 "Could not write the language-server request.",
@@ -2036,6 +2309,7 @@ impl RuntimeSession {
             })?;
             state.client.pending_requests.remove(&request_id);
             state.client.pending_semantic_legends.remove(&request_id);
+            state.function_by_operation.remove(operation_id);
             state.java_navigation_marker_batches.remove(operation_id);
             let error = runtime_error(
                 self,
@@ -2125,6 +2399,7 @@ impl RuntimeSession {
                 "Language-server session is stopping.",
                 None,
             );
+            clear_function_registry(self, &mut state);
             clear_runtime_diagnostics(self, &mut state);
             transition_locked(self, &mut state, LspLifecycleState::Stopping, None);
             state.initialize_deadline = None;
@@ -2397,10 +2672,13 @@ impl RuntimeSession {
             } else {
                 message
             };
-            client_apply_server_message(ClientApplyServerMessageRequest {
-                state: state.client.clone(),
-                message,
-            })?
+            client_apply_server_message_for_plugin(
+                ClientApplyServerMessageRequest {
+                    state: state.client.clone(),
+                    message,
+                },
+                self.plugin_id.is_some(),
+            )?
         };
         let mut outbound = reduced.messages;
         let mut flush_documents = false;
@@ -2418,6 +2696,7 @@ impl RuntimeSession {
                 if let Some(pending) = state.pending.remove(request_id) {
                     if let Some(operation_id) = &pending.operation_id {
                         state.request_by_operation.remove(operation_id);
+                        state.function_by_operation.remove(operation_id);
                     }
                 }
             }
@@ -2463,6 +2742,30 @@ impl RuntimeSession {
                         }
                         ready_server_info = parse_server_info(&value);
                         flush_documents = true;
+                    }
+                }
+                Some(PendingKind::Feature)
+                    if pending_before.as_ref().is_some_and(|pending| {
+                        pending.method == super::plugin_function::INVOKE_METHOD
+                    }) =>
+                {
+                    if let Some(operation_id) = pending_before
+                        .as_ref()
+                        .and_then(|pending| pending.operation_id.as_ref())
+                    {
+                        let (result, error) =
+                            match super::plugin_function::invocation_outcome(&value) {
+                                Ok(result) => (Some(result), None),
+                                Err(failure) => (None, Some(function_runtime_error(self, failure))),
+                            };
+                        push_request_event(
+                            self,
+                            &mut state,
+                            operation_id,
+                            super::plugin_function::INVOKE_METHOD,
+                            result,
+                            error,
+                        );
                     }
                 }
                 Some(PendingKind::Feature) => {
@@ -3073,6 +3376,20 @@ impl RuntimeSession {
             for event in reduced.events {
                 if event.kind == "semanticTokensRefresh" {
                     push_semantic_tokens_refresh_event(self, &mut state);
+                } else if event.kind == "functionsChanged" {
+                    let result = event.result.unwrap_or_default();
+                    let removed: Vec<String> = result
+                        .get("removed")
+                        .and_then(Value::as_array)
+                        .into_iter()
+                        .flatten()
+                        .filter_map(Value::as_str)
+                        .map(ToString::to_string)
+                        .collect();
+                    outbound.extend(revoke_function_calls_locked(self, &mut state, &removed));
+                    push_functions_event(self, &mut state, result);
+                } else if event.kind == "functionProgress" {
+                    push_function_progress_locked(self, &mut state, event.result);
                 } else if event.kind == "diagnostics" {
                     if let Some(uri) = event.uri.as_deref() {
                         push_diagnostics_event(
@@ -3749,6 +4066,7 @@ impl RuntimeSession {
                 state.client.pending_semantic_legends.remove(&request_id);
                 if let Some(operation_id) = pending.operation_id.as_deref() {
                     state.request_by_operation.remove(operation_id);
+                    state.function_by_operation.remove(operation_id);
                     state.java_navigation_marker_batches.remove(operation_id);
                     let elapsed = now.saturating_duration_since(pending.created_at);
                     let error = runtime_error(
@@ -4008,6 +4326,7 @@ impl RuntimeSession {
             state.client.pending_semantic_legends.remove(request_id);
             if let Some(operation_id) = pending.operation_id.as_deref() {
                 state.request_by_operation.remove(operation_id);
+                state.function_by_operation.remove(operation_id);
                 state.java_navigation_marker_batches.remove(operation_id);
                 let error = runtime_error(
                     self,
@@ -4451,6 +4770,7 @@ fn finish_java_navigation_marker_batch(
         return;
     };
     state.request_by_operation.remove(operation_id);
+    state.function_by_operation.remove(operation_id);
     let source = pending
         .document_uri
         .as_deref()
@@ -4682,6 +5002,183 @@ fn push_request_event(
     );
 }
 
+/// Resolves a function mapping only while both pending tables still own its exact request.
+fn pending_function_request<'a>(
+    state: &'a SessionState,
+    operation_id: &str,
+    call: &PendingFunctionCall,
+) -> Option<&'a PendingRequest> {
+    if state.request_by_operation.get(operation_id) != Some(&call.request_id)
+        || state
+            .client
+            .pending_requests
+            .get(&call.request_id)
+            .map(String::as_str)
+            != Some(super::plugin_function::INVOKE_METHOD)
+    {
+        return None;
+    }
+    state.pending.get(&call.request_id).filter(|pending| {
+        pending.kind == PendingKind::Feature
+            && pending.method == super::plugin_function::INVOKE_METHOD
+            && pending.operation_id.as_deref() == Some(operation_id)
+    })
+}
+
+/// Ends every running call of the withdrawn functions with
+/// `plugin.function.revoked` and returns the `$/cancelRequest` messages
+/// telling the backend to stop. A reply that still arrives is late and is
+/// ignored like any reply to a request that is no longer pending.
+fn revoke_function_calls_locked(
+    session: &RuntimeSession,
+    state: &mut SessionState,
+    removed: &[String],
+) -> Vec<String> {
+    let revoked: Vec<String> = state
+        .function_by_operation
+        .iter()
+        .filter(|(operation, call)| {
+            removed.contains(&call.function_id)
+                && pending_function_request(state, operation, call).is_some()
+        })
+        .map(|(operation, _)| operation.clone())
+        .collect();
+    let mut cancellations = Vec::new();
+    for operation_id in revoked {
+        state.function_by_operation.remove(&operation_id);
+        let Some(request_id) = state.request_by_operation.remove(&operation_id) else {
+            continue;
+        };
+        state.pending.remove(&request_id);
+        state.client.pending_requests.remove(&request_id);
+        let failure = super::plugin_function::FunctionFailure {
+            code: super::plugin_function::codes::REVOKED,
+            message: "The plugin withdrew this function while it was running.".to_string(),
+            plugin_error_code: None,
+        };
+        let error = function_runtime_error(session, failure);
+        push_request_event(
+            session,
+            state,
+            &operation_id,
+            super::plugin_function::INVOKE_METHOD,
+            None,
+            Some(error),
+        );
+        cancellations.push(
+            json!({
+                "jsonrpc": "2.0",
+                "method": "$/cancelRequest",
+                "params": { "id": request_id }
+            })
+            .to_string(),
+        );
+    }
+    cancellations
+}
+
+/// Publishes a progress report of a call that is still running. Reports for
+/// an unknown, finished, cancelled, or revoked operation are dropped, so a
+/// late report never revives an ended call in the host.
+fn push_function_progress_locked(
+    session: &RuntimeSession,
+    state: &mut SessionState,
+    progress: Option<Value>,
+) {
+    let Some(mut progress) = progress else {
+        return;
+    };
+    let Some(wire_operation_id) = progress.get("operationID").and_then(Value::as_str) else {
+        return;
+    };
+    let Some(operation_id) = state
+        .function_by_operation
+        .iter()
+        .find_map(|(operation, call)| {
+            (call.request_id == wire_operation_id
+                && pending_function_request(state, operation, call).is_some())
+            .then(|| operation.clone())
+        })
+    else {
+        return;
+    };
+    progress["operationID"] = json!(operation_id);
+    let sequence = take_sequence(state);
+    enqueue_runtime_event(
+        session,
+        state,
+        LspRuntimeEvent {
+            kind: "requestProgress".to_string(),
+            sequence,
+            provider_id: session.provider_id.clone(),
+            session_id: session.id.clone(),
+            state: None,
+            operation_id: Some(operation_id),
+            method: Some(super::plugin_function::INVOKE_METHOD.to_string()),
+            uri: None,
+            version: None,
+            diagnostics: None,
+            result: Some(progress),
+            error: None,
+            capabilities: None,
+            server_info: None,
+            level: None,
+            message: None,
+            detail: None,
+            maven_profile_project: None,
+            maven_profile_task: None,
+        },
+    );
+}
+
+/// Publishes the session's registered functions after a registry change.
+fn push_functions_event(session: &RuntimeSession, state: &mut SessionState, result: Value) {
+    let sequence = take_sequence(state);
+    enqueue_runtime_event(
+        session,
+        state,
+        LspRuntimeEvent {
+            kind: "functionsChanged".to_string(),
+            sequence,
+            provider_id: session.provider_id.clone(),
+            session_id: session.id.clone(),
+            state: None,
+            operation_id: None,
+            method: None,
+            uri: None,
+            version: None,
+            diagnostics: None,
+            result: Some(result),
+            error: None,
+            capabilities: None,
+            server_info: None,
+            level: None,
+            message: None,
+            detail: None,
+            maven_profile_project: None,
+            maven_profile_task: None,
+        },
+    );
+}
+
+fn function_runtime_error(
+    session: &RuntimeSession,
+    failure: super::plugin_function::FunctionFailure,
+) -> LspRuntimeError {
+    let mut error = runtime_error(
+        session,
+        failure.code,
+        "request",
+        Some(super::plugin_function::INVOKE_METHOD),
+        None,
+        &failure.message,
+        None,
+        None,
+    );
+    error.plugin_error_code = failure.plugin_error_code;
+    error
+}
+
 fn normalize_provider_navigation_result(
     provider_id: &str,
     mut result: Option<Value>,
@@ -4750,6 +5247,7 @@ fn cancel_stale_document_requests_locked(
         state.client.pending_semantic_legends.remove(&request_id);
         if let Some(operation_id) = pending.operation_id.as_deref() {
             state.request_by_operation.remove(operation_id);
+            state.function_by_operation.remove(operation_id);
             state.java_navigation_marker_batches.remove(operation_id);
             let error = runtime_error(
                 session,
@@ -5082,6 +5580,7 @@ fn runtime_error(
         underlying_message: underlying.map(ToString::to_string),
         process_exit_code,
         java_build_report: None,
+        plugin_error_code: None,
     }
 }
 
@@ -5117,6 +5616,7 @@ fn fail_feature_requests(
         state.client.pending_semantic_legends.remove(&request_id);
         if let Some(operation_id) = pending.operation_id.as_deref() {
             state.request_by_operation.remove(operation_id);
+            state.function_by_operation.remove(operation_id);
             state.java_navigation_marker_batches.remove(operation_id);
             let error = runtime_error(
                 session,
@@ -5190,6 +5690,20 @@ fn clear_runtime_diagnostics(session: &RuntimeSession, state: &mut SessionState)
     }
 }
 
+/// Withdraws the session registry when shutdown or process failure ends its lifetime.
+fn clear_function_registry(session: &RuntimeSession, state: &mut SessionState) {
+    let removed: Vec<_> = std::mem::take(&mut state.client.plugin_functions)
+        .into_iter()
+        .collect();
+    if !removed.is_empty() {
+        push_functions_event(
+            session,
+            state,
+            json!({ "functions": [], "removed": removed }),
+        );
+    }
+}
+
 fn clear_runtime_state(session: &RuntimeSession, state: &mut SessionState) {
     clear_runtime_diagnostics(session, state);
     state.client.initialized = false;
@@ -5199,6 +5713,8 @@ fn clear_runtime_state(session: &RuntimeSession, state: &mut SessionState) {
     state.client.pending_requests.clear();
     state.pending.clear();
     state.request_by_operation.clear();
+    state.function_by_operation.clear();
+    clear_function_registry(session, state);
     state.linked_document_paths = LinkedDocumentPaths::default();
     state.java_navigation_marker_batches.clear();
     state.java_navigation_marker_cache.clear();
@@ -5299,6 +5815,7 @@ mod tests {
             // A non-Java provider keeps JDT argument adaptation out of the way;
             // `adapt_start` is covered by its own tests.
             provider_id: "gopls".to_string(),
+            plugin_id: None,
             executable_path: "/usr/bin/scripted-server".to_string(),
             arguments: vec!["--stdio".to_string()],
             environment: BTreeMap::new(),
@@ -8823,6 +9340,7 @@ public class Main {
         let started = engine
             .start_server(StartServerRequest {
                 provider_id: "java".to_string(),
+                plugin_id: None,
                 executable_path,
                 arguments: Vec::new(),
                 environment: BTreeMap::from([(
@@ -9556,6 +10074,7 @@ public class Main {
     fn start_contract_rejects_missing_runtime_identity() {
         let request = StartServerRequest {
             provider_id: String::new(),
+            plugin_id: None,
             executable_path: "/bin/server".to_string(),
             arguments: Vec::new(),
             environment: BTreeMap::new(),
@@ -10021,5 +10540,1001 @@ public class Main {
             .expect("a stopping session cannot build");
         assert_eq!(error.code, "requestCancelled");
         assert!(harness.snapshot().pending_operation_ids.is_empty());
+    }
+
+    /// A process that answered build-provider protocol version 1.
+    fn negotiated_build_provider() -> Harness {
+        let mut harness = Harness::start(|_| {});
+        harness.server.complete_initialize(json!({
+            "experimental": { "litheBuild": { "version": 1 } }
+        }));
+        harness.await_state(LspLifecycleState::Ready);
+        harness
+    }
+
+    fn build_request(
+        harness: &Harness,
+        method: &str,
+        params: Value,
+        timeout_milliseconds: Option<u64>,
+    ) -> Result<String, CoreError> {
+        let operation_id = harness.engine.next_operation_id();
+        harness
+            .session()
+            .build_request(
+                BuildProviderRequest {
+                    session_id: harness.session_id.clone(),
+                    operation_id: Some(operation_id.clone()),
+                    method: method.to_string(),
+                    params,
+                    timeout_milliseconds,
+                },
+                operation_id.clone(),
+            )
+            .map(|()| operation_id)
+    }
+
+    /// Every session offers the protocol, but one whose process did not
+    /// choose a version must never receive a build request: a shared
+    /// language server keeps serving its language without it.
+    #[test]
+    fn build_requests_need_a_negotiated_protocol_version() {
+        let harness = Harness::ready();
+        let initialize = harness
+            .server
+            .messages()
+            .into_iter()
+            .find(|message| message["method"] == "initialize")
+            .expect("initialize should have been written");
+        assert_eq!(
+            initialize["params"]["capabilities"]["experimental"]["litheBuild"],
+            json!({ "versions": [1] })
+        );
+
+        let error = build_request(&harness, "lithe/build/model", json!({}), None)
+            .expect_err("an unnegotiated session must refuse build requests");
+        assert!(matches!(error.code, ErrorCode::NotSupported));
+        assert!(harness
+            .server
+            .messages()
+            .iter()
+            .all(|message| message["method"] != "lithe/build/model"));
+    }
+
+    #[test]
+    fn a_negotiated_build_request_forwards_the_plan_and_returns_the_reply() {
+        let mut harness = negotiated_build_provider();
+        let params = json!({
+            "buildSystemID": "gradle",
+            "root": "",
+            "options": { "offline": true },
+            "optionArguments": ["--offline"],
+            "environment": {}
+        });
+        let operation =
+            build_request(&harness, "lithe/build/model", params.clone(), None).expect("accepted");
+        let request_id = harness
+            .server
+            .await_request("lithe/build/model")
+            .expect("the request should reach the provider");
+        assert_eq!(harness.written_request(&request_id)["params"], params);
+
+        // A reply with a `locations` field proves no navigation normalizer
+        // rewrites the document Core decodes.
+        let reply = json!({ "format": "litheBuildModel", "version": 1, "locations": [] });
+        harness
+            .server
+            .send(json!({ "jsonrpc": "2.0", "id": request_id, "result": reply }));
+        let completed = harness
+            .await_event(|event| {
+                event.kind == "requestCompleted"
+                    && event.operation_id.as_deref() == Some(operation.as_str())
+            })
+            .clone();
+        assert!(completed.error.is_none());
+        assert_eq!(completed.result, Some(json!({ "value": reply })));
+        assert!(harness.snapshot().pending_operation_ids.is_empty());
+    }
+
+    /// Only the negotiated methods pass, so the build path cannot become a
+    /// generic JSON-RPC tunnel into a language server.
+    #[test]
+    fn build_requests_accept_only_the_protocol_methods() {
+        let harness = negotiated_build_provider();
+        for method in [
+            "workspace/executeCommand",
+            "lithe/build/execute",
+            "shutdown",
+        ] {
+            let error = build_request(&harness, method, json!({}), None)
+                .expect_err("only protocol methods are build requests");
+            assert!(matches!(error.code, ErrorCode::InvalidRequest), "{method}");
+        }
+        assert!(harness
+            .server
+            .messages()
+            .iter()
+            .all(|message| message["method"] != "workspace/executeCommand"));
+    }
+
+    /// A build request's own deadline replaces the session's request timeout,
+    /// here shortened, and the timed-out request is cancelled on the wire.
+    #[test]
+    fn a_build_request_times_out_on_its_own_deadline() {
+        let mut harness = negotiated_build_provider();
+        let operation = build_request(&harness, "lithe/build/dependencies", json!({}), Some(30))
+            .expect("accepted");
+        harness
+            .server
+            .await_request("lithe/build/dependencies")
+            .expect("the request should reach the provider");
+        let timeout = harness
+            .await_event(|event| event.operation_id.as_deref() == Some(operation.as_str()))
+            .clone();
+        assert_eq!(
+            timeout.error.as_ref().map(|error| error.code.as_str()),
+            Some("requestTimeout")
+        );
+        assert!(harness.server.await_notification("$/cancelRequest"));
+    }
+
+    // Plugin functions against a scripted backend. The scripted server plays
+    // the plugin process, so every outcome (result, failure, cancellation,
+    // deadline, late reply, revocation, and compatibility with a backend that
+    // only speaks the build protocol) is driven at a chosen moment.
+
+    const FUNCTION_PLUGIN: &str = "dev.lithe.fixture.maven";
+
+    /// A session owned by `FUNCTION_PLUGIN` whose backend answered
+    /// `initialize` with `experimental`.
+    fn plugin_backend(experimental: Value) -> Harness {
+        let mut harness = Harness::start(|request| {
+            request.plugin_id = Some(FUNCTION_PLUGIN.to_string());
+        });
+        harness
+            .server
+            .complete_initialize(json!({ "experimental": experimental }));
+        harness.await_state(LspLifecycleState::Ready);
+        harness
+    }
+
+    fn function_backend() -> Harness {
+        plugin_backend(json!({
+            "litheBuild": { "version": 1 },
+            "litheFunctions": { "version": 1, "functions": [{ "id": "snapshot.refresh" }] }
+        }))
+    }
+
+    fn invoke(
+        harness: &Harness,
+        plugin_id: &str,
+        function_id: &str,
+        timeout_milliseconds: Option<u64>,
+    ) -> Result<String, CoreError> {
+        let operation_id = harness.engine.next_operation_id();
+        invoke_with_operation(
+            harness,
+            plugin_id,
+            function_id,
+            timeout_milliseconds,
+            operation_id,
+        )
+    }
+
+    /// Starts a call using a host-selected ID so regressions can exercise ID reuse.
+    fn invoke_with_operation(
+        harness: &Harness,
+        plugin_id: &str,
+        function_id: &str,
+        timeout_milliseconds: Option<u64>,
+        operation_id: String,
+    ) -> Result<String, CoreError> {
+        harness
+            .session()
+            .function_request(
+                PluginFunctionRequest {
+                    session_id: harness.session_id.clone(),
+                    operation_id: Some(operation_id.clone()),
+                    function: super::super::plugin_function::FunctionReference {
+                        plugin_id: plugin_id.to_string(),
+                        function_id: function_id.to_string(),
+                    },
+                    params: json!({ "project": "app" }),
+                    timeout_milliseconds,
+                },
+                operation_id.clone(),
+            )
+            .map(|()| operation_id)
+    }
+
+    /// The engine's reply to a request the scripted backend sent, waited for
+    /// with a bounded deadline because the reply is written by the reader thread.
+    fn await_reply(harness: &Harness, id: &str) -> Value {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < deadline {
+            if let Some(reply) = harness
+                .server
+                .messages()
+                .into_iter()
+                .find(|message| message["id"] == id && message.get("method").is_none())
+            {
+                return reply;
+            }
+            thread::sleep(Duration::from_millis(2));
+        }
+        panic!("the engine never answered backend request {id}");
+    }
+
+    fn completions(harness: &mut Harness, operation: &str) -> Vec<LspRuntimeEvent> {
+        harness.poll();
+        harness
+            .events
+            .iter()
+            .filter(|event| {
+                event.kind == "requestCompleted" && event.operation_id.as_deref() == Some(operation)
+            })
+            .cloned()
+            .collect()
+    }
+
+    #[test]
+    fn a_plugin_function_is_routed_to_its_plugin_and_returns_its_result() {
+        let mut harness = function_backend();
+        let initialize = harness
+            .server
+            .messages()
+            .into_iter()
+            .find(|message| message["method"] == "initialize")
+            .expect("initialize should have been written");
+        assert_eq!(
+            initialize["params"]["capabilities"]["experimental"],
+            json!({ "litheBuild": { "versions": [1] }, "litheFunctions": { "versions": [1] } })
+        );
+
+        // Another plugin's reference never reaches this process.
+        let error = invoke(
+            &harness,
+            "dev.lithe.fixture.gradle",
+            "snapshot.refresh",
+            None,
+        )
+        .expect_err("a foreign plugin is refused");
+        assert!(matches!(error.code, ErrorCode::PermissionDenied));
+        assert_eq!(
+            error.details.as_deref(),
+            Some("plugin.function.wrongPlugin")
+        );
+        let error = invoke(&harness, FUNCTION_PLUGIN, "snapshot.clear", None)
+            .expect_err("an unregistered function is refused");
+        assert_eq!(error.details.as_deref(), Some("plugin.function.unknown"));
+        assert!(harness
+            .server
+            .messages()
+            .iter()
+            .all(|message| message["method"] != "lithe/function/invoke"));
+
+        let operation = invoke(&harness, FUNCTION_PLUGIN, "snapshot.refresh", None).expect("sent");
+        let request_id = harness
+            .server
+            .await_request("lithe/function/invoke")
+            .expect("the call should reach the backend");
+        let wire_operation = harness.written_request(&request_id)["params"]["operationID"].clone();
+        assert!(wire_operation.as_str().is_some_and(|id| !id.is_empty()));
+        assert_eq!(
+            harness.written_request(&request_id)["params"],
+            json!({
+                "functionID": "snapshot.refresh",
+                "operationID": wire_operation,
+                "params": { "project": "app" }
+            })
+        );
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "result": { "snapshot": 3, "locations": [] }
+        }));
+        let completed = harness
+            .await_event(|event| {
+                event.kind == "requestCompleted"
+                    && event.operation_id.as_deref() == Some(operation.as_str())
+            })
+            .clone();
+        assert!(completed.error.is_none());
+        assert_eq!(
+            completed.result,
+            Some(json!({ "value": { "snapshot": 3, "locations": [] } }))
+        );
+        assert!(harness.snapshot().pending_operation_ids.is_empty());
+    }
+
+    #[test]
+    fn a_failing_plugin_function_reports_the_stable_and_the_plugin_code() {
+        let mut harness = function_backend();
+        let operation = invoke(&harness, FUNCTION_PLUGIN, "snapshot.refresh", None).expect("sent");
+        let request_id = harness
+            .server
+            .await_request("lithe/function/invoke")
+            .expect("the call should reach the backend");
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "error": { "code": -32000, "message": "Snapshot is locked.", "data": { "code": "maven.snapshotLocked" } }
+        }));
+        let error = harness
+            .await_event(|event| event.operation_id.as_deref() == Some(operation.as_str()))
+            .error
+            .clone()
+            .expect("an error reply fails the call");
+        assert_eq!(error.code, "plugin.function.failed");
+        assert_eq!(error.message, "Snapshot is locked.");
+        assert_eq!(
+            error.plugin_error_code.as_deref(),
+            Some("maven.snapshotLocked")
+        );
+    }
+
+    /// Cancellation reaches the backend, ends the call once, and neither a
+    /// late reply nor a late progress report revives it.
+    #[test]
+    fn a_cancelled_plugin_function_ignores_its_late_reply_and_progress() {
+        let mut harness = function_backend();
+        let operation = invoke(&harness, FUNCTION_PLUGIN, "snapshot.refresh", None).expect("sent");
+        let request_id = harness
+            .server
+            .await_request("lithe/function/invoke")
+            .expect("the call should reach the backend");
+        let wire_operation = harness.written_request(&request_id)["params"]["operationID"].clone();
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "method": "lithe/function/progress",
+            "params": { "operationID": wire_operation, "message": "Reading snapshot", "percentage": 40 }
+        }));
+        let progress = harness
+            .await_event(|event| event.kind == "requestProgress")
+            .clone();
+        assert_eq!(progress.operation_id.as_deref(), Some(operation.as_str()));
+        assert_eq!(
+            progress.result,
+            Some(
+                json!({ "operationID": operation, "message": "Reading snapshot", "percentage": 40 })
+            )
+        );
+
+        harness
+            .session()
+            .cancel_operation(&operation)
+            .expect("a running call can be cancelled");
+        assert!(harness.server.await_notification("$/cancelRequest"));
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "method": "lithe/function/progress",
+            "params": { "operationID": wire_operation, "percentage": 90 }
+        }));
+        harness
+            .server
+            .send(json!({ "jsonrpc": "2.0", "id": request_id, "result": "too late" }));
+        // A request the backend sends after the late messages is answered only
+        // once the reader has processed them, so its reply orders the check.
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "id": "fence",
+            "method": "workspace/configuration",
+            "params": { "items": [] }
+        }));
+        await_reply(&harness, "fence");
+
+        let ended = completions(&mut harness, &operation);
+        assert_eq!(
+            ended.len(),
+            1,
+            "a late reply must not complete the call again"
+        );
+        assert_eq!(
+            ended[0].error.as_ref().map(|error| error.code.as_str()),
+            Some("requestCancelled")
+        );
+        assert_eq!(
+            harness
+                .events
+                .iter()
+                .filter(|event| event.kind == "requestProgress")
+                .count(),
+            1,
+            "progress after cancellation must be dropped"
+        );
+    }
+
+    #[test]
+    fn a_plugin_function_times_out_on_its_own_deadline() {
+        let mut harness = function_backend();
+        let operation =
+            invoke(&harness, FUNCTION_PLUGIN, "snapshot.refresh", Some(60_000)).expect("sent");
+        harness
+            .server
+            .await_request("lithe/function/invoke")
+            .expect("the call should reach the backend");
+        harness
+            .session()
+            .expire_deadlines_at(Instant::now() + Duration::from_secs(30));
+        assert!(completions(&mut harness, &operation).is_empty());
+        assert_eq!(
+            harness.snapshot().pending_operation_ids,
+            vec![operation.clone()]
+        );
+        harness
+            .session()
+            .expire_deadlines_at(Instant::now() + Duration::from_secs(61));
+        let timeout = harness
+            .await_event(|event| event.operation_id.as_deref() == Some(operation.as_str()))
+            .clone();
+        assert_eq!(
+            timeout.error.as_ref().map(|error| error.code.as_str()),
+            Some("requestTimeout")
+        );
+        assert!(harness.server.await_notification("$/cancelRequest"));
+    }
+
+    /// Registration after `initialize` is all or nothing, and withdrawing a
+    /// function ends its running calls instead of letting them finish later.
+    #[test]
+    fn unregistering_a_running_function_revokes_the_call() {
+        let mut harness = function_backend();
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "id": "register-bad",
+            "method": "lithe/function/register",
+            "params": { "functions": [{ "id": "snapshot.clear" }, { "id": "snapshot.refresh" }] }
+        }));
+        let refused = await_reply(&harness, "register-bad");
+        assert_eq!(
+            refused["error"]["data"]["code"],
+            "plugin.function.invalidRegistration"
+        );
+
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "id": "register",
+            "method": "lithe/function/register",
+            "params": { "functions": [{ "id": "snapshot.clear" }] }
+        }));
+        assert_eq!(await_reply(&harness, "register")["result"], Value::Null);
+        let changed = harness
+            .await_event(|event| {
+                event.kind == "functionsChanged"
+                    && event.result.as_ref().is_some_and(|result| {
+                        result["functions"] == json!(["snapshot.clear", "snapshot.refresh"])
+                    })
+            })
+            .clone();
+        assert_eq!(
+            changed.result,
+            Some(json!({ "functions": ["snapshot.clear", "snapshot.refresh"], "removed": [] }))
+        );
+
+        let operation = invoke(&harness, FUNCTION_PLUGIN, "snapshot.clear", None).expect("sent");
+        let request_id = harness
+            .server
+            .await_request("lithe/function/invoke")
+            .expect("the call should reach the backend");
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "id": "unregister",
+            "method": "lithe/function/unregister",
+            "params": { "ids": ["snapshot.clear"] }
+        }));
+        assert_eq!(await_reply(&harness, "unregister")["result"], Value::Null);
+        let revoked = harness
+            .await_event(|event| event.operation_id.as_deref() == Some(operation.as_str()))
+            .clone();
+        assert_eq!(
+            revoked.error.as_ref().map(|error| error.code.as_str()),
+            Some("plugin.function.revoked")
+        );
+        assert!(harness
+            .server
+            .messages()
+            .iter()
+            .any(|message| message["method"] == "$/cancelRequest"
+                && message["params"]["id"] == request_id));
+        let error = invoke(&harness, FUNCTION_PLUGIN, "snapshot.clear", None)
+            .expect_err("a withdrawn function is unknown");
+        assert_eq!(error.details.as_deref(), Some("plugin.function.unknown"));
+        assert!(harness.snapshot().pending_operation_ids.is_empty());
+    }
+
+    /// A backend written before plugin functions keeps its build requests;
+    /// it receives no function calls and its function messages are not
+    /// mistaken for registrations.
+    #[test]
+    fn a_build_only_backend_keeps_working_without_plugin_functions() {
+        let mut harness = plugin_backend(json!({ "litheBuild": { "version": 1 } }));
+        let error = invoke(&harness, FUNCTION_PLUGIN, "snapshot.refresh", None)
+            .expect_err("functions need the negotiated protocol");
+        assert!(matches!(error.code, ErrorCode::NotSupported));
+        assert_eq!(
+            error.details.as_deref(),
+            Some("plugin.function.unavailable")
+        );
+
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "id": "register",
+            "method": "lithe/function/register",
+            "params": { "functions": [{ "id": "snapshot.refresh" }] }
+        }));
+        assert_eq!(await_reply(&harness, "register")["error"]["code"], -32601);
+
+        let operation = build_request(&harness, "lithe/build/model", json!({}), None)
+            .expect("the build protocol is unaffected");
+        let request_id = harness
+            .server
+            .await_request("lithe/build/model")
+            .expect("the build request should reach the backend");
+        let reply = json!({ "format": "litheBuildModel", "version": 1 });
+        harness
+            .server
+            .send(json!({ "jsonrpc": "2.0", "id": request_id, "result": reply }));
+        let completed = harness
+            .await_event(|event| event.operation_id.as_deref() == Some(operation.as_str()))
+            .clone();
+        assert_eq!(completed.result, Some(json!({ "value": reply })));
+    }
+
+    /// Host-owned sessions neither offer nor accept the plugin-function protocol.
+    #[test]
+    fn a_host_owned_session_serves_no_plugin_functions() {
+        let mut harness = Harness::start(|_| {});
+        harness.server.complete_initialize(json!({
+            "experimental": { "litheFunctions": { "version": 1, "functions": [{ "id": "snapshot.refresh" }] } }
+        }));
+        harness.await_state(LspLifecycleState::Ready);
+        let initialize = harness
+            .server
+            .messages()
+            .into_iter()
+            .find(|message| message["method"] == "initialize")
+            .expect("initialize written");
+        assert!(initialize["params"]["capabilities"]["experimental"]
+            .get("litheFunctions")
+            .is_none());
+        assert!(!harness
+            .session()
+            .lock_state()
+            .expect("session state")
+            .client
+            .server_capabilities
+            .iter()
+            .any(|feature| feature == "litheFunctions"));
+        for (id, method, params) in [
+            (
+                "host-register",
+                "lithe/function/register",
+                json!({ "functions": [{ "id": "snapshot.clear" }] }),
+            ),
+            (
+                "host-unregister",
+                "lithe/function/unregister",
+                json!({ "ids": ["snapshot.refresh"] }),
+            ),
+        ] {
+            harness
+                .server
+                .send(json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }));
+            assert_eq!(await_reply(&harness, id)["error"]["code"], -32601);
+        }
+        harness.poll();
+        assert!(harness
+            .events
+            .iter()
+            .all(|event| event.kind != "functionsChanged"));
+        let error = invoke(&harness, FUNCTION_PLUGIN, "snapshot.refresh", None)
+            .expect_err("a session without a plugin is refused");
+        assert_eq!(
+            error.details.as_deref(),
+            Some("plugin.function.unavailable")
+        );
+    }
+
+    /// Ends the first invocation at a controlled boundary before reusing its host ID.
+    fn finish_function_for_reuse(
+        harness: &mut Harness,
+        operation: &str,
+        request: &str,
+        ending: &str,
+    ) {
+        match ending {
+            "cancel" => harness
+                .session()
+                .cancel_operation(operation)
+                .expect("cancelled"),
+            "timeout" => harness
+                .session()
+                .expire_deadlines_at(Instant::now() + Duration::from_secs(61)),
+            "complete" => harness
+                .server
+                .send(json!({ "jsonrpc": "2.0", "id": request, "result": "first" })),
+            "error" => harness.server.send(json!({ "jsonrpc": "2.0", "id": request, "error": { "code": -32000, "message": "first failed" } })),
+            "revoke" => {
+                harness.server.send(json!({
+                    "jsonrpc": "2.0", "id": "withdraw-first", "method": "lithe/function/unregister",
+                    "params": { "ids": ["snapshot.refresh"] }
+                }));
+                assert_eq!(
+                    await_reply(harness, "withdraw-first")["result"],
+                    Value::Null
+                );
+            }
+            _ => panic!("unknown termination scenario"),
+        }
+        harness.await_event(|event| {
+            event.kind == "requestCompleted" && event.operation_id.as_deref() == Some(operation)
+        });
+        if matches!(ending, "cancel" | "timeout" | "revoke") {
+            assert!(harness.server.await_notification("$/cancelRequest"));
+        }
+        if ending == "revoke" {
+            harness.server.send(json!({
+                "jsonrpc": "2.0", "id": "restore-first", "method": "lithe/function/register",
+                "params": { "functions": [{ "id": "snapshot.refresh" }] }
+            }));
+            assert_eq!(await_reply(harness, "restore-first")["result"], Value::Null);
+        }
+    }
+
+    #[test]
+    fn plugin_function_initialization_publishes_the_full_registry() {
+        for functions in [
+            json!([{ "id": "snapshot.refresh" }, { "id": "snapshot.clear" }]),
+            json!([]),
+        ] {
+            let mut harness = plugin_backend(
+                json!({ "litheFunctions": { "version": 1, "functions": functions } }),
+            );
+            let initialized = harness
+                .await_event(|event| event.kind == "functionsChanged")
+                .clone();
+            let mut expected: Vec<_> = functions
+                .as_array()
+                .expect("descriptors")
+                .iter()
+                .map(|item| item["id"].as_str().expect("function identifier"))
+                .collect();
+            expected.sort_unstable();
+            assert_eq!(
+                initialized.result,
+                Some(json!({ "functions": expected, "removed": [] }))
+            );
+            assert_eq!(
+                harness
+                    .events
+                    .iter()
+                    .filter(|event| event.kind == "functionsChanged")
+                    .count(),
+                1
+            );
+        }
+    }
+
+    /// An ended call's response and progress cannot become the next call's result,
+    /// even when the host chooses the same operation ID after every terminal outcome.
+    #[test]
+    fn reused_plugin_function_operation_ids_ignore_old_wire_progress() {
+        for ending in ["cancel", "timeout", "complete", "error", "revoke"] {
+            let mut harness = function_backend();
+            harness.server.send(json!({
+                "jsonrpc": "2.0", "id": "register-second", "method": "lithe/function/register",
+                "params": { "functions": [{ "id": "snapshot.clear" }] }
+            }));
+            assert_eq!(
+                await_reply(&harness, "register-second")["result"],
+                Value::Null
+            );
+            let operation = "reusable-function-operation";
+            invoke_with_operation(
+                &harness,
+                FUNCTION_PLUGIN,
+                "snapshot.refresh",
+                Some(60_000),
+                operation.to_string(),
+            )
+            .expect("first call");
+            let first = harness
+                .server
+                .await_request("lithe/function/invoke")
+                .expect("first wire request");
+            let old_wire = harness.written_request(&first)["params"]["operationID"].clone();
+            finish_function_for_reuse(&mut harness, operation, &first, ending);
+            invoke_with_operation(
+                &harness,
+                FUNCTION_PLUGIN,
+                "snapshot.clear",
+                None,
+                operation.to_string(),
+            )
+            .expect("reused host ID");
+            let second = harness
+                .server
+                .await_request_at("lithe/function/invoke", 1)
+                .expect("second wire request");
+            let current_wire = harness.written_request(&second)["params"]["operationID"].clone();
+            assert_ne!(
+                old_wire, current_wire,
+                "wire identity must change after {ending}"
+            );
+            harness.server.send(json!({
+                "jsonrpc": "2.0", "id": "withdraw-old-function", "method": "lithe/function/unregister",
+                "params": { "ids": ["snapshot.refresh"] }
+            }));
+            assert_eq!(
+                await_reply(&harness, "withdraw-old-function")["result"],
+                Value::Null
+            );
+            assert_eq!(
+                harness.snapshot().pending_operation_ids,
+                vec![operation.to_string()]
+            );
+            assert!(harness
+                .server
+                .messages()
+                .iter()
+                .all(|message| message["method"] != "$/cancelRequest"
+                    || message["params"]["id"] != second));
+            harness
+                .server
+                .send(json!({ "jsonrpc": "2.0", "id": first, "result": "late" }));
+            harness.server.send(json!({ "jsonrpc": "2.0", "method": "lithe/function/progress", "params": { "operationID": old_wire, "message": "stale" } }));
+            harness.server.send(json!({ "jsonrpc": "2.0", "method": "lithe/function/progress", "params": { "operationID": current_wire, "message": "current", "percentage": 50 } }));
+            let progress = harness
+                .await_event(|event| event.kind == "requestProgress")
+                .clone();
+            assert_eq!(progress.operation_id.as_deref(), Some(operation));
+            assert_eq!(
+                progress.result,
+                Some(json!({ "operationID": operation, "message": "current", "percentage": 50 })),
+                "{ending}"
+            );
+            harness
+                .server
+                .send(json!({ "jsonrpc": "2.0", "id": second, "result": "second" }));
+            harness.await_event(|event| {
+                event.kind == "requestCompleted"
+                    && event.result == Some(json!({ "value": "second" }))
+            });
+            assert_eq!(completions(&mut harness, operation).len(), 2, "{ending}");
+            assert_eq!(
+                harness
+                    .events
+                    .iter()
+                    .filter(|event| event.kind == "requestProgress")
+                    .count(),
+                1,
+                "{ending}"
+            );
+            assert!(harness.snapshot().pending_operation_ids.is_empty());
+        }
+    }
+
+    /// Revocation after a function has ended must never cancel an unrelated
+    /// build that reused the same host operation ID.
+    #[test]
+    fn reused_plugin_function_operation_ids_preserve_build_requests() {
+        for ending in ["cancel", "timeout", "complete", "error", "revoke"] {
+            let mut harness = function_backend();
+            let operation = "reusable-build-operation";
+            invoke_with_operation(
+                &harness,
+                FUNCTION_PLUGIN,
+                "snapshot.refresh",
+                Some(60_000),
+                operation.to_string(),
+            )
+            .expect("first call");
+            let first = harness
+                .server
+                .await_request("lithe/function/invoke")
+                .expect("function request");
+            let old_wire = harness.written_request(&first)["params"]["operationID"].clone();
+            finish_function_for_reuse(&mut harness, operation, &first, ending);
+            harness
+                .session()
+                .build_request(
+                    BuildProviderRequest {
+                        session_id: harness.session_id.clone(),
+                        operation_id: Some(operation.to_string()),
+                        method: "lithe/build/model".to_string(),
+                        params: json!({}),
+                        timeout_milliseconds: None,
+                    },
+                    operation.to_string(),
+                )
+                .expect("build may reuse host operation ID");
+            let build = harness
+                .server
+                .await_request("lithe/build/model")
+                .expect("build request");
+            harness
+                .server
+                .send(json!({ "jsonrpc": "2.0", "id": first, "result": "late" }));
+            harness.server.send(json!({ "jsonrpc": "2.0", "method": "lithe/function/progress", "params": { "operationID": old_wire, "message": "stale" } }));
+            harness.server.send(json!({
+                "jsonrpc": "2.0", "id": "withdraw-during-build", "method": "lithe/function/unregister",
+                "params": { "ids": ["snapshot.refresh"] }
+            }));
+            assert_eq!(
+                await_reply(&harness, "withdraw-during-build")["result"],
+                Value::Null
+            );
+            harness.poll();
+            assert!(harness
+                .events
+                .iter()
+                .any(|event| event.kind == "functionsChanged"
+                    && event.result
+                        == Some(json!({ "functions": [], "removed": ["snapshot.refresh"] }))));
+            assert_eq!(
+                harness.snapshot().pending_operation_ids,
+                vec![operation.to_string()],
+                "{ending}"
+            );
+            assert!(harness
+                .server
+                .messages()
+                .iter()
+                .all(|message| message["method"] != "$/cancelRequest"
+                    || message["params"]["id"] != build));
+            harness
+                .server
+                .send(json!({ "jsonrpc": "2.0", "id": build, "result": { "version": 1 } }));
+            harness.await_event(|event| {
+                event.kind == "requestCompleted"
+                    && event.method.as_deref() == Some("lithe/build/model")
+            });
+            let ended = completions(&mut harness, operation);
+            assert_eq!(ended.len(), 2, "{ending}");
+            assert!(ended[1].error.is_none(), "{ending}: {:?}", ended[1]);
+            assert!(
+                harness
+                    .events
+                    .iter()
+                    .all(|event| event.kind != "requestProgress"),
+                "{ending}"
+            );
+        }
+    }
+
+    #[test]
+    fn stopping_a_plugin_function_withdraws_registry_and_ignores_late_messages() {
+        let mut harness = function_backend();
+        let operation = invoke(&harness, FUNCTION_PLUGIN, "snapshot.refresh", None).expect("call");
+        let request = harness
+            .server
+            .await_request("lithe/function/invoke")
+            .expect("wire request");
+        let wire = harness.written_request(&request)["params"]["operationID"].clone();
+        harness.session().stop().expect("shutdown starts");
+        let shutdown = harness
+            .server
+            .await_request("shutdown")
+            .expect("shutdown request");
+        harness.poll();
+        let registry_changes = harness
+            .events
+            .iter()
+            .filter(|event| event.kind == "functionsChanged")
+            .count();
+        assert_eq!(
+            registry_changes, 2,
+            "initialize publishes, then stop withdraws"
+        );
+        harness.server.send(json!({ "jsonrpc": "2.0", "method": "lithe/function/progress", "params": { "operationID": wire, "message": "late" } }));
+        harness
+            .server
+            .send(json!({ "jsonrpc": "2.0", "id": request, "result": "late" }));
+        for (id, method, params) in [
+            (
+                "late-register",
+                "lithe/function/register",
+                json!({ "functions": [{ "id": "snapshot.late" }] }),
+            ),
+            (
+                "late-unregister",
+                "lithe/function/unregister",
+                json!({ "ids": ["snapshot.refresh"] }),
+            ),
+        ] {
+            harness
+                .server
+                .send(json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }));
+            // The reply fences every earlier notification before asserting absence.
+            assert_eq!(await_reply(&harness, id)["error"]["code"], -32601);
+        }
+        harness.poll();
+        assert!(harness
+            .session()
+            .lock_state()
+            .expect("session state")
+            .client
+            .plugin_functions
+            .is_empty());
+        assert_eq!(
+            harness
+                .events
+                .iter()
+                .filter(|event| event.kind == "functionsChanged")
+                .count(),
+            registry_changes
+        );
+        harness
+            .server
+            .send(json!({ "jsonrpc": "2.0", "id": shutdown, "result": null }));
+        assert!(harness.server.await_notification("exit"));
+        harness.server.exit(Some(0));
+        harness.await_state(LspLifecycleState::Stopped);
+        assert_eq!(completions(&mut harness, &operation).len(), 1);
+        assert!(harness
+            .events
+            .iter()
+            .all(|event| event.kind != "requestProgress"));
+        assert!(harness
+            .events
+            .iter()
+            .any(|event| event.kind == "functionsChanged"
+                && event.result
+                    == Some(json!({ "functions": [], "removed": ["snapshot.refresh"] }))));
+    }
+
+    #[test]
+    fn a_plugin_function_process_failure_withdraws_registry_and_completes_calls() {
+        let mut harness = function_backend();
+        let operation = invoke(&harness, FUNCTION_PLUGIN, "snapshot.refresh", None).expect("call");
+        harness
+            .server
+            .await_request("lithe/function/invoke")
+            .expect("wire request");
+        harness.server.exit(Some(42));
+        harness.await_state(LspLifecycleState::Failed);
+        let ended = completions(&mut harness, &operation);
+        assert_eq!(ended.len(), 1);
+        assert!(ended[0].error.is_some());
+        assert!(harness.snapshot().pending_operation_ids.is_empty());
+        assert!(harness
+            .events
+            .iter()
+            .any(|event| event.kind == "functionsChanged"
+                && event.result
+                    == Some(json!({ "functions": [], "removed": ["snapshot.refresh"] }))));
+    }
+
+    /// Domain dispatch could route back into the backend that asked, whose
+    /// handler would wait on itself; version 1 also offers no host capability.
+    #[test]
+    fn a_backend_cannot_ask_the_host_to_dispatch_back_into_itself() {
+        let harness = function_backend();
+        for (id, method, code) in [
+            (
+                "invoke",
+                "lithe/function/invoke",
+                "plugin.function.recursiveCall",
+            ),
+            (
+                "model",
+                "lithe/build/model",
+                "plugin.function.recursiveCall",
+            ),
+            (
+                "process",
+                "lithe/host/process.run",
+                "plugin.host.unavailable",
+            ),
+        ] {
+            harness.server.send(json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "method": method,
+                "params": {}
+            }));
+            let reply = await_reply(&harness, id);
+            assert_eq!(reply["error"]["data"]["code"], code, "{method}");
+        }
     }
 }

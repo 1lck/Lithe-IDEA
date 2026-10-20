@@ -3,6 +3,7 @@ import { isEditorContent, type PaneContent } from "@/features/panes/types/pane-c
 
 const AUTO_EVICTION_PROTECTED_TYPES = new Set<PaneContent["type"]>([
   "agent",
+  "agentConversation",
   "externalEditor",
   "terminal",
   "webViewer",

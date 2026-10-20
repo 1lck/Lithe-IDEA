@@ -1,5 +1,6 @@
 //! Pure LSP client-state transitions and JSON-RPC message construction.
 
+use super::plugin_function;
 use super::types::*;
 use crate::lsp::{
     apply_content_changes_sequential, order_incremental_changes_for_replay, ApplyTextEditsRequest,
@@ -8,8 +9,17 @@ use crate::lsp::{
 use crate::protocol::{CoreError, ErrorCode};
 use serde_json::{json, Value};
 
-/// Creates an initialize request and records it as pending client state.
+/// Creates a host-owned initialize request for stateless client tests.
+#[cfg(test)]
 pub fn client_initialize(request: ClientInitializeRequest) -> Result<LspClientResponse, CoreError> {
+    client_initialize_for_plugin(request, false)
+}
+
+/// Offers plugin functions only when the runtime owns an identified plugin session.
+pub(super) fn client_initialize_for_plugin(
+    request: ClientInitializeRequest,
+    plugin_owned: bool,
+) -> Result<LspClientResponse, CoreError> {
     validate_uri(&request.root_uri)?;
     let workspace_name = workspace_name_from_uri(&request.root_uri);
     let mut state = request.state;
@@ -122,7 +132,8 @@ pub fn client_initialize(request: ClientInitializeRequest) -> Result<LspClientRe
                 },
                 "window": {
                     "workDoneProgress": true
-                }
+                },
+                "experimental": experimental_capabilities(plugin_owned)
             },
             "initializationOptions": request.initialization_options
         }),
@@ -330,9 +341,18 @@ fn client_feature_request_with_document_ownership(
     Ok(client_response(state, vec![message], Vec::new()))
 }
 
-/// Reduces one server JSON-RPC message into state changes and host events.
+/// Reduces a server message for host-owned stateless client tests.
+#[cfg(test)]
 pub fn client_apply_server_message(
     request: ClientApplyServerMessageRequest,
+) -> Result<LspClientResponse, CoreError> {
+    client_apply_server_message_for_plugin(request, false)
+}
+
+/// Applies function protocol messages only for sessions with a runtime-owned plugin identity.
+pub(super) fn client_apply_server_message_for_plugin(
+    request: ClientApplyServerMessageRequest,
+    plugin_owned: bool,
 ) -> Result<LspClientResponse, CoreError> {
     let mut state = request.state;
     let message: Value = serde_json::from_str(&request.message).map_err(|error| {
@@ -402,6 +422,83 @@ pub fn client_apply_server_message(
                     responses.push(json_rpc_result(id, Value::Null)?);
                 }
             }
+            plugin_function::REGISTER_METHOD | plugin_function::UNREGISTER_METHOD
+                if plugin_owned
+                    && !state.shutdown_requested
+                    && state
+                        .server_capabilities
+                        .iter()
+                        .any(|feature| feature == plugin_function::FUNCTIONS_FEATURE) =>
+            {
+                let params = message.get("params");
+                let outcome = if method == plugin_function::REGISTER_METHOD {
+                    plugin_function::apply_registration(&state.plugin_functions, params)
+                        .map(|registry| (registry, Vec::new()))
+                } else {
+                    plugin_function::apply_unregistration(&state.plugin_functions, params)
+                };
+                match outcome {
+                    Ok((registry, removed)) => {
+                        state.plugin_functions = registry;
+                        if let Some(id) = request_id {
+                            responses.push(json_rpc_result(id, Value::Null)?);
+                        }
+                        events.push(LspClientEvent {
+                            kind: "functionsChanged".to_string(),
+                            request_id: None,
+                            method: Some(method.to_string()),
+                            uri: None,
+                            version: None,
+                            diagnostics: None,
+                            result: Some(json!({
+                                "functions": state.plugin_functions,
+                                "removed": removed
+                            })),
+                            error: None,
+                        });
+                    }
+                    Err(reason) => {
+                        if let Some(id) = request_id {
+                            responses.push(json_rpc_error_with_code(
+                                id,
+                                -32602,
+                                reason,
+                                plugin_function::codes::INVALID_REGISTRATION,
+                            )?);
+                        }
+                    }
+                }
+            }
+            plugin_function::PROGRESS_METHOD
+                if plugin_owned
+                    && !state.shutdown_requested
+                    && state
+                        .server_capabilities
+                        .iter()
+                        .any(|feature| feature == plugin_function::FUNCTIONS_FEATURE) =>
+            {
+                // Malformed reports are dropped here; reports for an operation
+                // that is no longer running are dropped by the engine.
+                if let Some(progress) = plugin_function::parse_progress(message.get("params")) {
+                    let mut result = json!({ "operationID": progress.operation_id });
+                    if let Some(text) = progress.message {
+                        result["message"] = json!(text);
+                    }
+                    if let Some(percentage) = progress.percentage {
+                        result["percentage"] = json!(percentage);
+                    }
+                    events.push(LspClientEvent {
+                        kind: "functionProgress".to_string(),
+                        request_id: None,
+                        method: Some(method.to_string()),
+                        uri: None,
+                        version: None,
+                        diagnostics: None,
+                        result: Some(result),
+                        error: None,
+                    });
+                }
+            }
             "workspace/semanticTokens/refresh" => {
                 if let Some(id) = request_id {
                     responses.push(json_rpc_result(id, Value::Null)?);
@@ -437,7 +534,15 @@ pub fn client_apply_server_message(
             }
             _ => {
                 if let Some(id) = request_id {
-                    responses.push(json_rpc_error(id, -32601, "Method not found")?);
+                    responses.push(match plugin_function::refused_backend_request(method) {
+                        Some(code) => json_rpc_error_with_code(
+                            id,
+                            -32601,
+                            "The host does not serve this request to a plugin process.",
+                            code,
+                        )?,
+                        None => json_rpc_error(id, -32601, "Method not found")?,
+                    });
                 } else {
                     events.push(LspClientEvent {
                         kind: "notification".to_string(),
@@ -463,6 +568,31 @@ pub fn client_apply_server_message(
                 state.server_capabilities = feature_names_from_capabilities(
                     result.get("capabilities").unwrap_or(&Value::Null),
                 );
+                let functions = plugin_owned
+                    .then(|| {
+                        plugin_function::negotiate(
+                            result.get("capabilities").unwrap_or(&Value::Null),
+                        )
+                    })
+                    .flatten();
+                if let Some(functions) = functions {
+                    state.plugin_functions = functions;
+                    events.push(LspClientEvent {
+                        kind: "functionsChanged".to_string(),
+                        request_id: None,
+                        method: Some("initialize".to_string()),
+                        uri: None,
+                        version: None,
+                        diagnostics: None,
+                        result: Some(json!({ "functions": state.plugin_functions, "removed": [] })),
+                        error: None,
+                    });
+                } else {
+                    state.plugin_functions.clear();
+                    state
+                        .server_capabilities
+                        .retain(|feature| feature != plugin_function::FUNCTIONS_FEATURE);
+                }
                 state.text_document_sync =
                     text_document_sync_kind(result.get("capabilities").unwrap_or(&Value::Null));
                 if let Some(options) = result
@@ -488,6 +618,7 @@ pub fn client_apply_server_message(
             state.open_documents.clear();
             state.diagnostics.clear();
             state.diagnostic_versions.clear();
+            state.plugin_functions.clear();
             responses.push(json_rpc_message_without_params(None, "exit")?);
         }
         let result = if pending.as_deref() == Some("textDocument/semanticTokens/full") {
@@ -583,6 +714,31 @@ fn json_rpc_result(id: &Value, result: Value) -> Result<String, CoreError> {
         "jsonrpc": "2.0",
         "id": id,
         "result": result
+    }))
+}
+
+/// `capabilities.experimental`: every Lithe protocol a plugin process may
+/// speak next to LSP, each negotiated on its own key.
+fn experimental_capabilities(plugin_owned: bool) -> Value {
+    let mut experimental = super::build_provider::client_experimental_capabilities();
+    if plugin_owned {
+        let (functions_key, functions_offer) = plugin_function::client_experimental_capabilities();
+        experimental[functions_key] = functions_offer;
+    }
+    experimental
+}
+
+/// A JSON-RPC error whose `data.code` carries a stable plugin-contract code.
+fn json_rpc_error_with_code(
+    id: &Value,
+    code: i64,
+    message: &str,
+    contract_code: &str,
+) -> Result<String, CoreError> {
+    encode_json_rpc(json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "error": { "code": code, "message": message, "data": { "code": contract_code } }
     }))
 }
 
@@ -969,6 +1125,14 @@ fn lsp_feature_result_for_method(method: Option<&str>, result: Option<&Value>) -
             })
         }),
         Some("workspace/executeCommand") => Some(json!({ "value": result })),
+        // Wrapped like a command result so no provider-specific normalizer
+        // reinterprets fields of the document Core decodes.
+        Some(method)
+            if super::build_provider::is_build_method(method)
+                || method == plugin_function::INVOKE_METHOD =>
+        {
+            Some(json!({ "value": result }))
+        }
         Some("textDocument/definition")
         | Some("textDocument/declaration")
         | Some("textDocument/typeDefinition")
@@ -1500,6 +1664,12 @@ fn feature_names_from_capabilities(capabilities: &Value) -> Vec<String> {
         == Some(true)
     {
         insert_unique(&mut values, "codeActionResolve");
+    }
+    if super::build_provider::negotiated(capabilities) {
+        insert_unique(&mut values, super::build_provider::BUILD_PROVIDER_FEATURE);
+    }
+    if plugin_function::negotiate(capabilities).is_some() {
+        insert_unique(&mut values, plugin_function::FUNCTIONS_FEATURE);
     }
     values
 }

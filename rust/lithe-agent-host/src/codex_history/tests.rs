@@ -187,6 +187,7 @@ fn pages_keep_only_this_workspace_and_prefer_the_user_title() {
 async fn listing_follows_cursors_past_foreign_pages_without_duplicates() {
     let (local, server) = tokio::io::duplex(64 * 1024);
     let (mut writer, mut reader) = client(local);
+    let mut on_page = |_: &[HistoryThread]| {};
     let peer = serve_pages(server, 3, |index| match index {
         0 => json!({"data": [thread("a", WORKSPACE)], "nextCursor": "c1"}),
         // Another workspace fills this page; the history has not ended.
@@ -195,7 +196,14 @@ async fn listing_follows_cursors_past_foreign_pages_without_duplicates() {
     });
     let (result, received) = tokio::time::timeout(Duration::from_secs(5), async {
         tokio::join!(
-            list_pages(&mut writer, &mut reader, "openai", WORKSPACE, true),
+            list_pages(
+                &mut writer,
+                &mut reader,
+                "openai",
+                WORKSPACE,
+                true,
+                &mut on_page
+            ),
             peer
         )
     })
@@ -219,6 +227,7 @@ async fn listing_follows_cursors_past_foreign_pages_without_duplicates() {
 async fn listing_reports_when_the_page_bound_truncated_it() {
     let (local, server) = tokio::io::duplex(64 * 1024);
     let (mut writer, mut reader) = client(local);
+    let mut on_page = |_: &[HistoryThread]| {};
     let peer = serve_pages(
         server,
         MAX_SESSION_LIST_PAGES,
@@ -226,7 +235,14 @@ async fn listing_reports_when_the_page_bound_truncated_it() {
     );
     let (result, received) = tokio::time::timeout(Duration::from_secs(5), async {
         tokio::join!(
-            list_pages(&mut writer, &mut reader, "custom-gateway", WORKSPACE, true),
+            list_pages(
+                &mut writer,
+                &mut reader,
+                "custom-gateway",
+                WORKSPACE,
+                true,
+                &mut on_page
+            ),
             peer
         )
     })
@@ -236,6 +252,80 @@ async fn listing_reports_when_the_page_bound_truncated_it() {
     assert!(!complete);
     assert_eq!(threads.len(), MAX_SESSION_LIST_PAGES);
     assert_eq!(received.len(), MAX_SESSION_LIST_PAGES);
+}
+
+#[tokio::test]
+async fn active_history_publishes_matching_rows_before_later_pages_without_duplicates() {
+    let (local, server) = tokio::io::duplex(64 * 1024);
+    let (mut writer, mut reader) = client(local);
+    let workspace = workspace_context::WorkspaceContext::new(Path::new(WORKSPACE)).unwrap();
+    let published = Mutex::new(Vec::<Vec<AgentSessionSummary>>::new());
+    let mut on_page = |threads: &[HistoryThread]| {
+        published.lock().unwrap().push(
+            threads
+                .iter()
+                .map(|thread| thread.summary(&workspace))
+                .collect(),
+        );
+    };
+    let peer = serve_pages(server, 4, |index| {
+        if index > 0 {
+            // Each next request is observed before its response is sent. The first
+            // page must already be visible, even while the scan is incomplete.
+            let pages = published.lock().unwrap();
+            assert_eq!(
+                pages.len(),
+                1,
+                "Foreign and duplicate-only pages add no rows"
+            );
+            assert_eq!(pages[0][0].session_id, "a");
+            assert_eq!(pages[0][0].title.as_deref(), Some("Preview a"));
+            assert_eq!(
+                pages[0][0].updated_at.as_deref(),
+                Some("2026-09-20T08:30:00Z")
+            );
+        }
+        match index {
+            0 => json!({"data": [thread("a", WORKSPACE)], "nextCursor": "c1"}),
+            1 => json!({"data": [thread("foreign", "/fixture/other")], "nextCursor": "c2"}),
+            2 => json!({"data": [thread("a", WORKSPACE)], "nextCursor": "c3"}),
+            _ => json!({"data": [thread("b", WORKSPACE)], "nextCursor": null}),
+        }
+    });
+    let (result, received) = tokio::time::timeout(Duration::from_secs(5), async {
+        tokio::join!(
+            list_pages(
+                &mut writer,
+                &mut reader,
+                "openai",
+                WORKSPACE,
+                false,
+                &mut on_page
+            ),
+            peer
+        )
+    })
+    .await
+    .expect("bounded incremental official history listing");
+    let (threads, complete) = result.unwrap();
+    assert!(complete);
+    assert_eq!(
+        threads
+            .iter()
+            .map(|thread| thread.id.as_str())
+            .collect::<Vec<_>>(),
+        ["a", "b"]
+    );
+    assert_eq!(
+        published.lock().unwrap().len(),
+        1,
+        "The final page belongs to the full snapshot"
+    );
+    assert!(received
+        .iter()
+        .all(|params| params["useStateDbOnly"] == true
+            && params["sortKey"] == "recency_at"
+            && params["archived"] == false));
 }
 
 /// A fake `codex app-server` that records requests and answers every id.
@@ -290,8 +380,12 @@ async fn active_and_archived_listing_only_read_official_activity_metadata() {
         model_provider: SUBSCRIPTION_PROVIDER,
     };
     let workspace = workspace_context::WorkspaceContext::new(&directory.0).unwrap();
+    let emit: Emit = Arc::new(|_| {});
     tokio::time::timeout(Duration::from_secs(10), async {
-        let active = history.list_active(&workspace).await.unwrap();
+        let active = history
+            .list_active(&workspace, "active", &emit)
+            .await
+            .unwrap();
         let archived = history.list_archived(&workspace).await.unwrap();
         assert_eq!(active, archived.sessions);
         assert_eq!(

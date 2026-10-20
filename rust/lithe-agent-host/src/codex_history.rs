@@ -60,40 +60,53 @@ impl CodexHistory {
     pub(crate) async fn list_active(
         &self,
         workspace: &workspace_context::WorkspaceContext,
+        token: &str,
+        emit: &Emit,
     ) -> Result<Vec<AgentSessionSummary>, String> {
-        self.list(workspace, false)
-            .await
-            .map(|listed| listed.sessions)
+        self.list(workspace, false, |threads| {
+            emit(AgentEvent::SessionsPage {
+                token: token.to_owned(),
+                sessions: threads
+                    .iter()
+                    .map(|thread| thread.summary(workspace))
+                    .collect(),
+            });
+        })
+        .await
+        .map(|listed| listed.sessions)
     }
 
     pub(crate) async fn list_archived(
         &self,
         workspace: &workspace_context::WorkspaceContext,
     ) -> Result<ListedSessions, String> {
-        self.list(workspace, true).await
+        self.list(workspace, true, |_| {}).await
     }
 
     async fn list(
         &self,
         workspace: &workspace_context::WorkspaceContext,
         archived: bool,
+        mut on_page: impl FnMut(&[HistoryThread]),
     ) -> Result<ListedSessions, String> {
         let workspace_path = normalize_path(&self.cwd.to_string_lossy());
         let provider = self.model_provider;
         self.exchange(|mut input, mut output| async move {
-            list_pages(&mut input, &mut output, provider, &workspace_path, archived).await
+            list_pages(
+                &mut input,
+                &mut output,
+                provider,
+                &workspace_path,
+                archived,
+                &mut on_page,
+            )
+            .await
         })
         .await
         .map(|(threads, complete)| ListedSessions {
             sessions: threads
-                .into_iter()
-                .map(|thread| AgentSessionSummary {
-                    session_id: thread.id,
-                    title: thread
-                        .title
-                        .and_then(|title| workspace.present_title(&title)),
-                    updated_at: thread.updated_at,
-                })
+                .iter()
+                .map(|thread| thread.summary(workspace))
                 .collect(),
             complete,
         })
@@ -193,6 +206,20 @@ struct HistoryThread {
     updated_at: Option<String>,
 }
 
+impl HistoryThread {
+    /// Pages and final snapshots share title filtering and activity semantics.
+    fn summary(&self, workspace: &workspace_context::WorkspaceContext) -> AgentSessionSummary {
+        AgentSessionSummary {
+            session_id: self.id.clone(),
+            title: self
+                .title
+                .as_deref()
+                .and_then(|title| workspace.present_title(title)),
+            updated_at: self.updated_at.clone(),
+        }
+    }
+}
+
 /// Follow cursors to the end. A page whose threads all belong to other
 /// workspaces is still followed: filtering is local, so an empty page does
 /// not mean the history ended.
@@ -202,6 +229,7 @@ async fn list_pages(
     model_provider: &str,
     workspace: &str,
     archived: bool,
+    on_page: &mut impl FnMut(&[HistoryThread]),
 ) -> Result<(Vec<HistoryThread>, bool), &'static str> {
     let mut threads = Vec::new();
     let mut seen = std::collections::HashSet::new();
@@ -226,10 +254,16 @@ async fn list_pages(
         )
         .await?;
         let (page_threads, next) = parse_page(&result, workspace)?;
+        let first_new = threads.len();
         for thread in page_threads {
             if seen.insert(thread.id.clone()) {
                 threads.push(thread);
             }
+        }
+        // Do not wait for a later global page to expose this workspace's rows.
+        // Deduplication and recency normalization are identical to the final snapshot.
+        if next.is_some() && threads.len() > first_new {
+            on_page(&threads[first_new..]);
         }
         match next {
             Some(next) => cursor = Some(next),
