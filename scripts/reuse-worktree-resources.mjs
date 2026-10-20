@@ -379,6 +379,8 @@ async function main() {
       // Includes application-log-state: logs, confirmation snapshots and export ZIP
       // staging belong to one runtime session; no validator or copy stage applies.
       // Includes test-jfr-recordings: worker-owned profiling output has no transferable build identity.
+      // Localized logging probes also reject their temporary SwiftPM UI hosts;
+      // the host belongs to one source/toolchain/localization verification run.
       // Includes agent-ui-test-evidence: fixture screenshots belong to one test
       // revision/theme/viewport, never to a reusable build or runtime resource.
       // Includes plugin-ui-icons: signed runtime packages are never build-cache inputs.

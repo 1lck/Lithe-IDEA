@@ -1,4 +1,11 @@
 export const modularLoggingEnglish = {
+  "settings.logs.workflow":
+    "Choose a module, enable detailed diagnostics, reproduce the problem, then preview and export a diagnostic bundle.",
+  "settings.logs.diagnosticOn": "Detailed diagnostics: On ({module})",
+  "settings.logs.diagnosticOff": "Detailed diagnostics: Off",
+  "settings.logs.selectionSummary":
+    "Module: {module} · Session: {session} · Minimum level: {level}",
+  "settings.logs.previewExport": "Preview and Export…",
   "settings.logs.timeline": "Log timeline",
   "settings.logs.module": "Module",
   "settings.logs.session": "Session",
@@ -25,6 +32,11 @@ export const modularLoggingEnglish = {
 };
 
 export const modularLoggingChinese = {
+  "settings.logs.workflow": "选择模块，开启详细诊断并复现问题，然后预览并导出诊断包。",
+  "settings.logs.diagnosticOn": "详细诊断：已开启（{module}）",
+  "settings.logs.diagnosticOff": "详细诊断：已关闭",
+  "settings.logs.selectionSummary": "模块：{module} · 会话：{session} · 最低级别：{level}",
+  "settings.logs.previewExport": "预览并导出…",
   "settings.logs.timeline": "日志时间线",
   "settings.logs.module": "模块",
   "settings.logs.session": "会话",

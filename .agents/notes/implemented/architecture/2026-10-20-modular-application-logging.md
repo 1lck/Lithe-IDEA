@@ -35,6 +35,23 @@ Rust Core 的 `diagnostics` 模块只处理传入的数据，不读写文件、�
 正确示例：记录 `git.execution`、操作编号、退出码和耗时。
 不要这样做：为了排查一次 Git 失败，把所有命令参数、凭据响应或文件正文写入日志。
 
+### 双端使用一个日志与诊断入口
+
+两端的用户入口都是“设置 → 工具 → 日志与诊断”。macOS 保留原来的 `Diagnostics`
+导航身份，Windows 保留 `logs`，只统一展示名称和搜索词；通用设置不再重复放日志。
+页面顺序统一为时间线、详细诊断、日志位置、保留与清理、诊断包。现有应用菜单的
+导出按钮继续作为快捷入口，不成为另一套导出流程。
+
+用户选择模块后开启详细诊断，复现问题，再预览并导出。诊断状态显示实际启用的
+模块，改变查看筛选条件不会暗中重启或改名诊断会话；十五分钟到期由平台执行，
+页面说明刷新可读取当前状态。预览固定点击时的筛选条件，并在确认中展示模块、
+会话和最低级别。页面最多显示最近 2000 行及 200000 个字符，省略时明确提示。
+
+清理影响有效目录中所有模块和会话的托管文件，不受查看筛选限制；确认文案必须
+明确这点。目录切换成功后才保存 macOS 偏好，切换与清理后刷新时间线。失败保持
+可重试状态，不让过期结果覆盖新筛选条件，也不让按钮一直停留在忙碌状态。
+共享界面验收数据见 `shared/fixtures/diagnostics/logging-ui-v1.json`。
+
 ### 先脱敏，再序列化
 
 结构化对象逐层清理凭据、源码内容、缓冲区、历史和环境字段，再转换成字符串。
@@ -97,6 +114,14 @@ Windows 预览只保存已经脱敏的内存快照，最多四份、五分钟有
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'MacApplicationLogWriterTests|DiagnosticsExportServiceTests|StableRollbackTests'`
 - `./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope WindowsRust`
 - `node scripts/test-reuse-worktree-resources.mjs`
+- `./scripts/test-macos.sh --filter DiagnosticsWorkflowTests`
+- `./scripts/probe-macos-logging-ui.sh --skip-build`
+
+本地原生截图通过临时宿主加载产品字符串表。SwiftPM 默认 runner 不包含产品翻译，
+不能把它输出的英文截图当成中文渲染证据。探针只复制当前 Xcode 的 runner 和构建时
+编译的翻译表到临时 app，使用原测试、真实控件和桌面隔离；退出时删除临时 app。
+截图在 `.artifacts/test-stability/`，不进入安装包，不参与代码签名或增量更新基线，
+且与一次源版本、工具链、语言和外观绑定，禁止跨工作树复用。
 
 ## 适用范围
 

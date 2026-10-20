@@ -2824,6 +2824,15 @@ selection; native adapters never scan arbitrary workspace or terminal files.
 Detailed diagnostics are limited to the selected category and expire after
 15 minutes; warnings/errors remain enabled in installed builds.
 
+The native settings entry is Tools → Logs and Diagnostics on both platforms;
+persisted category identities remain `Diagnostics` (macOS) and `logs` (Windows).
+The timeline, diagnostics, locations, retention/cleanup and export sections follow
+`fixtures/diagnostics/logging-ui-v1.json`. Clearing explicitly affects all managed
+modules/sessions in the effective directory regardless of display filters.
+Preview confirmation shows its frozen module/session/level selection. Native
+views retain platform styling and present actual diagnostic scope and collection
+health, rather than inferring them from the currently selected view filter.
+
 `diagnostics.buildManifest` accepts an `environment` object
 (`appVersion`, `osName`, `osVersion`, `cpuCoreCount`, `memoryRssBytes`,
 `diskFreeBytes`), a `files` array of already-staged, already-redacted entries

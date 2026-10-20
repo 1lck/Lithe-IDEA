@@ -8,7 +8,8 @@
       "macos/Sources/Lithe/Views/Diagnostics/DiagnosticsExportSheet.swift",
       "macos/Sources/Lithe/Services/Diagnostics",
       "macos/Sources/Lithe/Platform/MacOS/Logging/MacApplicationLogWriter.swift",
-      "macos/Sources/Lithe/Views/Diagnostics/ApplicationLogSettingsView.swift"
+      "macos/Sources/Lithe/Views/Diagnostics/ApplicationLogSettingsView.swift",
+      "macos/Tests/LitheTests/DiagnosticsWorkflowTests.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -17,11 +18,12 @@
     "evidence": [
       "windows/tauri/src-tauri/src/logging.rs",
       "windows/tauri/src-tauri/src/diagnostics.rs",
-      "windows/tauri/src/features/settings/components/log-settings-panel.tsx"
+      "windows/tauri/src/features/settings/components/log-settings-panel.tsx",
+      "windows/tauri/src/features/settings/components/log-settings-panel.test.tsx"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
   },
   "owner": "Diagnostics",
-  "verification": "双端记录 language/git/run/performance 事件，按模块、当前/上次会话、级别、UTC 时间与文本筛选；确认诊断 15 分钟到期、过载不阻塞调用线程、日志受限额控制、目录切换后收集实际位置、嵌套与转义凭据不落盘；确认预览后修改源文件不改变导出快照，取消/失败清理暂存，并检查旧日志兼容与收集缺失计数。 验证自定义目录中无关的 lithe.*.log 不被收集或删除、刷新期间修改条件后按钮恢复、UTC 小数精度及等价时区边界正确、200 文件上限在模块/会话筛选后应用且遗漏明确标记。"
+  "verification": "双端记录 language/git/run/performance 事件，按模块、当前/上次会话、级别、UTC 时间与文本筛选；确认诊断 15 分钟到期、过载不阻塞调用线程、日志受限额控制、目录切换后收集实际位置、嵌套与转义凭据不落盘；确认预览后修改源文件不改变导出快照，取消/失败清理暂存，并检查旧日志兼容与收集缺失计数。 验证自定义目录中无关的 lithe.*.log 不被收集或删除、刷新期间修改条件后按钮恢复、UTC 小数精度及等价时区边界正确、200 文件上限在模块/会话筛选后应用且遗漏明确标记。 两端从设置→工具→日志与诊断进入同一流程，核对中英文名称、顺序、实际诊断范围、清理全模块会话范围、目录/清理后刷新、预览条件冻结，以及取消/失败后按钮和快照恢复；原生 macOS 明暗页面与实际 ZIP 链路、Windows 前端界面交互分别验证。"
 }

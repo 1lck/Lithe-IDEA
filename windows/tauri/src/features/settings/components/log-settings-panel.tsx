@@ -59,22 +59,6 @@ export function LogSettingsPanel({ onClose }: { onClose: () => void }) {
       queryGeneration.current += 1;
     };
   }, [selection]);
-  const refreshTimeline = async () => {
-    const generation = ++queryGeneration.current;
-    setBusy(true);
-    try {
-      const result = await queryLitheLogs(selection);
-      if (generation === queryGeneration.current) setTimeline(result);
-      await load();
-    } catch (error) {
-      if (generation === queryGeneration.current)
-        showToast({ message: errorMessage(error), type: "error" });
-    } finally {
-      // Filter changes invalidate the result, but this request still owns busy.
-      setBusy(false);
-    }
-  };
-
   const load = useCallback(async () => {
     try {
       setSettings(await getLogSettings());
@@ -86,8 +70,39 @@ export function LogSettingsPanel({ onClose }: { onClose: () => void }) {
     }
   }, [showToast, t]);
 
+  const refreshTimeline = useCallback(
+    async (manageBusy = true) => {
+      const generation = ++queryGeneration.current;
+      if (manageBusy) setBusy(true);
+      try {
+        const result = await queryLitheLogs(selection);
+        if (generation === queryGeneration.current) {
+          setTimeline({
+            ...result,
+            content: result.content.slice(-200_000),
+            truncated: result.truncated || result.content.length > 200_000,
+          });
+        }
+      } catch (error) {
+        if (generation === queryGeneration.current)
+          showToast({ message: errorMessage(error), type: "error" });
+      } finally {
+        await load();
+        // Mutating callers retain busy until their whole workflow completes.
+        if (manageBusy) setBusy(false);
+      }
+    },
+    [selection, load, showToast],
+  );
+
+  const initialLoadStarted = useRef(false);
   useEffect(() => {
-    void load();
+    if (initialLoadStarted.current) return;
+    initialLoadStarted.current = true;
+    void refreshTimeline();
+  }, [refreshTimeline]);
+
+  useEffect(() => {
     const handleRuntimeFallback = (event: Event) => {
       setSettings((event as CustomEvent<LogSettingsSnapshot>).detail);
     };
@@ -110,6 +125,7 @@ export function LogSettingsPanel({ onClose }: { onClose: () => void }) {
 
   const finishDirectoryChange = async (result: Awaited<ReturnType<typeof setLogDirectory>>) => {
     setSettings(result.settings);
+    await refreshTimeline(false);
     await refreshOpenLogAfterMutation();
     if (!result.previous_custom_path || result.previous_log_bytes <= 0) return;
     const shouldDelete = await showConfirmDialog(
@@ -195,6 +211,8 @@ export function LogSettingsPanel({ onClose }: { onClose: () => void }) {
     setBusy(true);
     try {
       const result = await clearLitheLogs();
+      setTimeline(null);
+      await refreshTimeline(false);
       await refreshOpenLogAfterMutation();
       showToast({
         message: t("settings.logs.cleared", {
@@ -252,9 +270,10 @@ export function LogSettingsPanel({ onClose }: { onClose: () => void }) {
 
   const exportDiagnostics = async () => {
     setBusy(true);
+    const exportSelection = { ...selection };
     let preview: Awaited<ReturnType<typeof previewDiagnosticBundle>>;
     try {
-      preview = await previewDiagnosticBundle(selection);
+      preview = await previewDiagnosticBundle(exportSelection);
     } catch (error) {
       showToast({
         message: t("settings.logs.exportBundlePreviewFailed", { error: errorMessage(error) }),
@@ -269,6 +288,13 @@ export function LogSettingsPanel({ onClose }: { onClose: () => void }) {
       const confirmed = await showConfirmDialog(
         <div className="flex flex-col gap-2">
           <p>{t("settings.logs.exportBundleIntro")}</p>
+          <p>
+            {t("settings.logs.selectionSummary", {
+              module: t(`settings.logs.category.${exportSelection.category ?? "all"}`),
+              session: t(`settings.logs.session.${exportSelection.session ?? "current"}`),
+              level: (exportSelection.minimumLevel ?? "info").toUpperCase(),
+            })}
+          </p>
           <ul className="flex max-h-48 flex-col gap-1 overflow-y-auto ui-text-caption text-subtle-foreground">
             {preview.manifest.files.map((file) => (
               <li key={file.relativePath} className="flex items-center justify-between gap-3">
@@ -319,6 +345,7 @@ export function LogSettingsPanel({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="flex flex-col gap-4">
+      <p className="ui-text-sm text-subtle-foreground">{t("settings.logs.workflow")}</p>
       <SettingsGroup title={t("settings.logs.timeline")}>
         <div className="flex flex-wrap gap-2">
           <SettingsSelect
@@ -404,10 +431,31 @@ export function LogSettingsPanel({ onClose }: { onClose: () => void }) {
             failures: settings?.write_failures ?? 0,
           })}
         </p>
+      </SettingsGroup>
+      <SettingsGroup title={t("settings.logs.diagnostics")}>
+        <SettingsRow
+          label={t("settings.logs.diagnosticMode")}
+          description={t("settings.logs.diagnosticModeDescription")}
+        >
+          <Switch
+            checked={settings?.diagnostic_enabled ?? false}
+            disabled={!settings || busy}
+            onChange={(enabled) => void toggleDiagnostic(enabled)}
+            size="sm"
+          />
+        </SettingsRow>
+        <p className="ui-text-caption text-subtle-foreground">
+          {settings?.diagnostic_enabled
+            ? t("settings.logs.diagnosticOn", {
+                module: t(`settings.logs.category.${settings.diagnostic_category ?? "all"}`),
+              })
+            : t("settings.logs.diagnosticOff")}
+        </p>
         <p className="ui-text-caption text-subtle-foreground">
           {t("settings.logs.diagnosticExpiry")}
         </p>
       </SettingsGroup>
+
       <SettingsGroup title={t("settings.logs.locations")}>
         <SettingsRow
           label={t("settings.logs.effectivePath")}
@@ -483,20 +531,6 @@ export function LogSettingsPanel({ onClose }: { onClose: () => void }) {
         </SettingsRow>
       </SettingsGroup>
 
-      <SettingsGroup title={t("settings.logs.diagnostics")}>
-        <SettingsRow
-          label={t("settings.logs.diagnosticMode")}
-          description={t("settings.logs.diagnosticModeDescription")}
-        >
-          <Switch
-            checked={settings?.diagnostic_enabled ?? false}
-            disabled={!settings || busy}
-            onChange={(enabled) => void toggleDiagnostic(enabled)}
-            size="sm"
-          />
-        </SettingsRow>
-      </SettingsGroup>
-
       <SettingsGroup title={t("settings.logs.retention")}>
         <p className="ui-text-sm leading-relaxed text-subtle-foreground">
           {t("settings.logs.retentionDescription")}
@@ -522,7 +556,7 @@ export function LogSettingsPanel({ onClose }: { onClose: () => void }) {
             disabled={busy}
             onClick={() => void exportDiagnostics()}
           >
-            {t("settings.logs.exportBundleConfirm")}
+            {t("settings.logs.previewExport")}
           </Button>
         </SettingsRow>
       </SettingsGroup>

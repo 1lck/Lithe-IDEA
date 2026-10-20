@@ -276,10 +276,11 @@
       "reusable": false,
       "locations": [
         ".artifacts/test-stability/*.png",
-        ".artifacts/<test-report>/screenshots/*.png"
+        ".artifacts/<test-report>/screenshots/*.png",
+        "<temporary>/lithe-localized-logging.*/Lithe Logging UI.app/"
       ],
-      "identity": "One first-party native test run at an exact source revision, platform, theme, viewport and fixture parameters. No reusable build identity stamp or installed runtime ownership.",
-      "reason": "Native fixture views produce these sanitized review/diagnostic screenshots inside the owning worktree report directory. CI uploads them with test-stability-macos and applies artifact retention; local reports remain until removed by the developer. They never capture the user desktop, enter a package, modify a signed bundle or participate in any worktree copy stage."
+      "identity": "One first-party native test run at an exact source revision, platform, theme, viewport and fixture parameters. No reusable build identity stamp or installed runtime ownership. Localized log-page hosts additionally bind the selected Xcode SwiftPM runner and the product string tables.",
+      "reason": "Native fixture views produce these sanitized review/diagnostic screenshots inside the owning worktree report directory. CI uploads them with test-stability-macos and applies artifact retention; local reports remain until removed by the developer. They never capture the user desktop, enter a package, modify a signed bundle or participate in any worktree copy stage. scripts/probe-macos-logging-ui.sh copies the stock runner and compiled product localizations into one disposable temporary app; its EXIT trap removes the host after bounded native rendering. The original toolchain and installed app bundles remain read-only."
     },
     {
       "id": "application-log-state",

@@ -386,6 +386,20 @@ macOS 的 Application Support 临时快照 `.lithe-dev-profile-import-<transacti
 macOS 的暂存目录由导出成功、失败或取消清理。测试必须注入各自的临时日志根目录，
 不要复用真实用户日志。这些数据不进入 app bundle、Windows 安装目录或签名基线。
 
+#### 日志与诊断的原生界面检查
+
+编译 macOS 测试后运行 `./scripts/probe-macos-logging-ui.sh --skip-build`，或省略
+`--skip-build` 先构建测试。脚本使用当前 Xcode 的 SwiftPM runner，在系统临时目录
+创建一次性的 `Lithe Logging UI.app`，并复用产品本地化打包脚本装入中英文字符串表。
+它运行真实原生页面的四种语言/明暗组合，生成 `.artifacts/test-stability/logging-*.png`
+和计时 HTML/JUnit；不会启动用户工作区，也不会改写 Xcode 或已安装的 Lithe。
+
+临时宿主由脚本创建并在退出时删除，截图留在当前工作树的测试报告中。
+`agent-ui-test-evidence` 将两者都列为不可复用资源：身份只覆盖当前源版本、Xcode
+runner、产品字符串表、外观和测试参数，没有可跨工作树迁移的可靠 identity stamp。
+复用脚本在复制前直接拒绝这类资源，不复制、不校验后发布，也不共享原生测试宿主。
+
+
 功能矩阵生成物 `.artifacts/platform-feature-matrix/`（CI Pages 使用
 `<runner-temp>/lithe-agent-notes-site/platform-feature-matrix/`）不允许跨工作树复用。
 它依赖当前 checkout 的能力记录、证据路径及提交信息，没有可靠的版本、平台、

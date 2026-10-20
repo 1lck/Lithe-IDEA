@@ -24,6 +24,7 @@ struct ApplicationLogCollection: Sendable {
     let diagnosticEnabled: Bool
     let droppedEvents: Int
     let writeFailures: Int
+    var diagnosticCategory: String? = nil
 }
 
 protocol ApplicationLogging: Sendable {
@@ -31,4 +32,9 @@ protocol ApplicationLogging: Sendable {
     func collect(query: ApplicationLogQuery) async throws -> ApplicationLogCollection
     func configureDiagnostic(category: String?, enabled: Bool) async
     func clear() async throws
+    func changeDirectory(to directory: URL) async throws
+}
+
+extension ApplicationLogging {
+    func changeDirectory(to directory: URL) async throws { throw CocoaError(.featureUnsupported) }
 }

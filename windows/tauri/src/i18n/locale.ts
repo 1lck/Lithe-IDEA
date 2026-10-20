@@ -2131,7 +2131,7 @@ const catalogs = {
     "settings.tabs.lsp": "LSP",
     "settings.tabs.maven": "Maven",
     "settings.tabs.aiCommit": "AI & Commit",
-    "settings.tabs.logs": "Logs",
+    "settings.tabs.logs": "Logs and Diagnostics",
     "settings.tabs.updates": "Updates",
     "settings.mac.categories": "Settings categories",
     "settings.mac.restoreDefaults": "Restore Defaults",
@@ -2223,7 +2223,7 @@ const catalogs = {
     "settings.mac.updateAvailable": "Version {version} is available.",
     "settings.mac.upToDate": "Lithe is up to date.",
     "settings.mac.updateHint": "Lithe can check for new preview and stable releases.",
-    "settings.logs.locations": "Log Locations",
+    "settings.logs.locations": "Log locations",
     "settings.logs.effectivePath": "Current log location",
     "settings.logs.effectivePathDescription": "The directory receiving logs in this session.",
     "settings.logs.defaultPath": "Default log location",
@@ -2255,20 +2255,20 @@ const catalogs = {
     "settings.logs.keepLogs": "Keep Logs",
     "settings.logs.cleanupFailed": "Unable to clean up logs: {error}",
     "settings.logs.diagnostics": "Diagnostics",
-    "settings.logs.diagnosticMode": "Diagnostic logging for this session",
+    "settings.logs.diagnosticMode": "Detailed diagnostics",
     "settings.logs.diagnosticModeDescription":
       "Record detailed events for the selected module for 15 minutes.",
     "settings.logs.diagnosticFailed": "Unable to change diagnostic logging: {error}",
-    "settings.logs.retention": "Retention",
+    "settings.logs.retention": "Retention and cleanup",
     "settings.logs.retentionDescription":
       "Module logs rotate at 10 MiB and expire after 30 days. The combined budget is 100 MiB; performance logs have a separate 20 MiB budget.",
     "settings.logs.clearCurrent": "Clear current directory logs",
     "settings.logs.clearCurrentDescription":
       "Delete only log files managed by Lithe in the active directory.",
     "settings.logs.clearLogs": "Clear Logs",
-    "settings.logs.clearTitle": "Clear Current Logs?",
+    "settings.logs.clearTitle": "Clear collected logs?",
     "settings.logs.clearPrompt":
-      "Lithe will close the current log, delete every managed log in the active directory, and start a new log file.",
+      "Delete only Lithe-managed logs in the active directory across all modules and sessions. Filters do not limit this action. New events will continue to be recorded.",
     "settings.logs.cancel": "Cancel",
     "settings.logs.cleared": "Deleted {count} log files and freed {size}.",
     "settings.logs.refreshFailed":
@@ -2283,9 +2283,9 @@ const catalogs = {
       "The log directory {path} is unavailable; this session is using the default location.",
     "settings.logs.unavailableNotification":
       "Application file logging is unavailable; Lithe will continue without writing log files.",
-    "settings.logs.diagnosticBundle": "Diagnostic Bundle",
+    "settings.logs.diagnosticBundle": "Diagnostic bundle",
     "settings.logs.diagnosticBundleDescription":
-      "Export a zip with redacted application logs and an environment snapshot for troubleshooting.",
+      "Preview and export the selected logs with environment information. Credentials and home-directory paths are redacted; source code, editor buffers and terminal history are excluded.",
     "settings.logs.exportBundle": "Export Diagnostic Bundle…",
     "settings.logs.exportBundlePreviewFailed":
       "Unable to prepare the diagnostic bundle: {error}",
@@ -6942,7 +6942,7 @@ const catalogs = {
     "settings.tabs.lsp": "LSP",
     "settings.tabs.maven": "Maven",
     "settings.tabs.aiCommit": "AI 与提交",
-    "settings.tabs.logs": "日志",
+    "settings.tabs.logs": "日志与诊断",
     "settings.tabs.updates": "更新",
     "settings.mac.categories": "设置分类",
     "settings.mac.restoreDefaults": "恢复默认设置",
@@ -7059,19 +7059,19 @@ const catalogs = {
     "settings.logs.keepLogs": "保留日志",
     "settings.logs.cleanupFailed": "无法清理日志：{error}",
     "settings.logs.diagnostics": "诊断",
-    "settings.logs.diagnosticMode": "本次会话启用诊断日志",
+    "settings.logs.diagnosticMode": "详细诊断",
     "settings.logs.diagnosticModeDescription":
       "所选模块记录详细事件，15 分钟后自动关闭。",
     "settings.logs.diagnosticFailed": "无法切换诊断日志：{error}",
-    "settings.logs.retention": "保留策略",
+    "settings.logs.retention": "保留与清理",
     "settings.logs.retentionDescription":
       "模块日志达到 10 MiB 后轮转，保留 30 天。总预算为 100 MiB，性能日志另有限额 20 MiB。",
     "settings.logs.clearCurrent": "清除当前目录日志",
     "settings.logs.clearCurrentDescription": "只删除当前目录中由 Lithe 管理的日志文件。",
-    "settings.logs.clearLogs": "清除日志",
-    "settings.logs.clearTitle": "清除当前日志？",
+    "settings.logs.clearLogs": "清空日志",
+    "settings.logs.clearTitle": "清空已收集的日志？",
     "settings.logs.clearPrompt":
-      "Lithe 将关闭当前日志，删除生效目录中的全部托管日志，然后创建新的日志文件。",
+      "仅删除生效目录中由 Lithe 管理的所有模块和会话日志。筛选条件不限制清理范围，后续事件仍会继续记录。",
     "settings.logs.cancel": "取消",
     "settings.logs.cleared": "已删除 {count} 个日志文件，释放 {size}。",
     "settings.logs.refreshFailed": "日志已清除，但无法刷新已打开的日志标签：{error}",
@@ -7084,7 +7084,7 @@ const catalogs = {
       "应用文件日志当前不可用，Lithe 将继续运行但不会写入日志文件。",
     "settings.logs.diagnosticBundle": "诊断包",
     "settings.logs.diagnosticBundleDescription":
-      "导出包含脱敏应用日志和环境快照的压缩包，用于排查问题。",
+      "预览并导出筛选后的日志和环境信息。凭据和用户目录路径均会脱敏，不包含源码、编辑缓冲区或终端历史。",
     "settings.logs.exportBundle": "导出诊断包…",
     "settings.logs.exportBundlePreviewFailed": "无法准备诊断包：{error}",
     "settings.logs.exportBundleTitle": "导出诊断包？",

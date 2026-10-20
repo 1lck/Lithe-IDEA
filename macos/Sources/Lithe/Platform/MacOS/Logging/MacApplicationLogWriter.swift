@@ -75,6 +75,10 @@ final class MacApplicationLogWriter: ApplicationLogging, @unchecked Sendable {
         }
     }
 
+    func changeDirectory(to directory: URL) async throws {
+        try await redirectAsync(to: directory)
+    }
+
     func record(level: String, scope: String, message: String, fields: [String: String] = [:]) {
         let accepted = lock.withLock { () -> Bool in
             // Reserve capacity for warnings/errors without ever writing on the caller.
@@ -291,7 +295,7 @@ final class MacApplicationLogWriter: ApplicationLogging, @unchecked Sendable {
             files.append(ApplicationLogFile(relativePath: "collection-status.txt", data: Data(summary.utf8)))
             return ApplicationLogCollection(files: files, content: timeline.content, truncated: truncated || timeline.truncated,
                 effectiveDirectory: root, diagnosticEnabled: diagnosticNow() < diagnosticUntil,
-                droppedEvents: counts.0, writeFailures: counts.1)
+                droppedEvents: counts.0, writeFailures: counts.1, diagnosticCategory: diagnosticCategory)
         }
     }
 

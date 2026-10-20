@@ -177,6 +177,7 @@ try {
     assert.ok(resource.locations.includes(".artifacts/test-stability/*.png"));
     const rejected = reuse(["--resource", "agent-ui-test-evidence"]);
     assert.notEqual(rejected.status, 0);
+    assert.ok(resource.locations.some(location => location.includes("lithe-localized-logging")));
     assert.match(diagnostics(rejected), /agent-ui-test-evidence.*cannot be reused/);
   });
 
