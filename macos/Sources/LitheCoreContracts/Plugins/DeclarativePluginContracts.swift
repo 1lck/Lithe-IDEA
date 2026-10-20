@@ -273,6 +273,35 @@ public struct DeclarativeLanguageServerLaunchPlan: Equatable, Sendable {
     public let requiredDirectories: [RequiredDirectory]
     /// Package-relative paths the launch points at.
     public let requiredPackagePaths: [String]
+    /// The declared executable. Language servers resolve it from their
+    /// descriptor instead; build providers use this.
+    public let executable: Executable?
+    /// Set when the plan was selected by build system.
+    public let buildProvider: BuildProvider?
+
+    public enum Executable: Equatable, Sendable {
+        /// Package-relative file.
+        case packaged(String)
+        /// Command names looked up on the machine, in order.
+        case systemCommand([String])
+        /// A runtime the host discovers; `packagedRuntimePath` replaces it
+        /// when the plugin ships one.
+        case runtime(String)
+    }
+
+    public struct BuildProvider: Equatable, Sendable {
+        public let buildSystemID: String
+        public let executesProjectCode: Bool
+        public let mayUseNetwork: Bool
+        /// The language whose server of the same plugin answers the build
+        /// requests; nil when the provider is a process of its own.
+        public let languageServer: String?
+
+        public init(buildSystemID: String, executesProjectCode: Bool, mayUseNetwork: Bool, languageServer: String?) {
+            self.buildSystemID = buildSystemID; self.executesProjectCode = executesProjectCode
+            self.mayUseNetwork = mayUseNetwork; self.languageServer = languageServer
+        }
+    }
 
     public init(
         arguments: [String],
@@ -284,7 +313,9 @@ public struct DeclarativeLanguageServerLaunchPlan: Equatable, Sendable {
         executableVersionRequirement: LanguageServerExecutableVersionRequirement? = nil,
         runtimeRequirements: [RuntimeRequirement] = [],
         requiredDirectories: [RequiredDirectory] = [],
-        requiredPackagePaths: [String] = []
+        requiredPackagePaths: [String] = [],
+        executable: Executable? = nil,
+        buildProvider: BuildProvider? = nil
     ) {
         self.arguments = arguments
         self.validationArguments = validationArguments
@@ -296,6 +327,8 @@ public struct DeclarativeLanguageServerLaunchPlan: Equatable, Sendable {
         self.runtimeRequirements = runtimeRequirements
         self.requiredDirectories = requiredDirectories
         self.requiredPackagePaths = requiredPackagePaths
+        self.executable = executable
+        self.buildProvider = buildProvider
     }
 }
 
@@ -312,8 +345,15 @@ public struct DeclarativeUIContributions: Equatable, Codable, Sendable {
         public let title: String
         public let placement: String
         public let order: Int
-        public let text: String
+        /// Core accepts exactly one of `text` and `web`.
+        public let text: String?
+        /// `ui` 2: a package HTML page shown inside the host-owned window shell.
+        public let web: Web?
         public let icon: PluginUIIcon?
+    }
+    public struct Web: Equatable, Codable, Sendable {
+        /// Package-relative `.html` path that Core already checked for traversal.
+        public let entry: String
     }
     public struct Command: Equatable, Codable, Sendable {
         public let id: String
@@ -332,7 +372,7 @@ public struct DeclarativeUIContributions: Equatable, Codable, Sendable {
                 id: window.id, kind: .toolWindow, title: window.title,
                 placement: window.placement == "left" ? .leftSidebar : (window.placement == "right" ? .rightSidebar : .activityBar),
                 order: window.order, actionID: window.id + ".toggle", rendererID: window.id,
-                text: window.text, uiIcon: window.icon
+                text: window.text, uiIcon: window.icon, webEntry: window.web?.entry
             )
         } + commands.flatMap { command in
             command.placements.map { placement in
@@ -353,6 +393,7 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
     public let pluginManifest: PluginManifest
     public let languageServers: [DeclarativeLanguageServer]
     public let executionProviders: [DeclarativeExecutionProvider]
+    public let buildSystems: [DeclarativeBuildSystem]
     public let settings: [DeclarativePluginSetting]
     public let permissions: [String]
     public let activationEvents: [String]
@@ -393,6 +434,7 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 providesTest: provider.test != nil
             )
         }
+        buildSystems = decoded.buildSystems.map { $0.declaration() }
         ui = decoded.ui
         settings = try decoded.settings.map { try $0.declaration() }
         permissions = decoded.permissions
@@ -426,6 +468,19 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
             PluginModuleDeclaration(manifest: LanguageExtensionModuleManifests.execution(
                 languageID: provider.languageID,
                 displayName: displayNames[provider.languageID] ?? provider.languageID
+            ))
+        }
+        if !buildSystems.isEmpty {
+            // One tool window per build system, enabled with the plugin.
+            modules.append(PluginModuleDeclaration(
+                manifest: LanguageExtensionModuleManifests.buildSystems(
+                    pluginID: decoded.id,
+                    displayName: decoded.displayName,
+                    enabledByDefault: enabledByDefault
+                ),
+                contributions: buildSystems.enumerated().flatMap { index, buildSystem in
+                    buildSystem.contributions(pluginID: decoded.id, order: index)
+                }
             ))
         }
         if let ui = decoded.ui {
@@ -639,6 +694,111 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
         struct JSONPresence: Decodable {
             init(from decoder: Decoder) throws {}
         }
+        /// The parts of a build system the tool window lists. Detection,
+        /// commands, and decoders stay with Rust Core.
+        struct BuildSystem: Decodable {
+            struct Source: Decodable {
+                let source: String
+                let scopes: [BuildScope]?
+            }
+            struct Task: Decodable {
+                let id: String
+                let displayName: String
+                let group: BuildTaskGroup
+                let scopes: [BuildScope]
+                let fromModel: Bool
+                let targetTags: [String]
+                let requiresUserArguments: Bool
+                let description: String?
+                let category: [String]
+
+                init(from decoder: Decoder) throws {
+                    let values = try decoder.container(keyedBy: CodingKeys.self)
+                    id = try values.decode(String.self, forKey: .id)
+                    displayName = try values.decode(String.self, forKey: .displayName)
+                    group = try values.decode(BuildTaskGroup.self, forKey: .group)
+                    scopes = try values.decodeIfPresent([BuildScope].self, forKey: .scopes) ?? []
+                    fromModel = try values.decodeIfPresent(Bool.self, forKey: .fromModel) ?? false
+                    targetTags = try values.decodeIfPresent([String].self, forKey: .targetTags) ?? []
+                    requiresUserArguments = try values.decodeIfPresent(Bool.self, forKey: .requiresUserArguments)
+                        ?? false
+                    description = try values.decodeIfPresent(String.self, forKey: .description)
+                    category = try values.decodeIfPresent([String].self, forKey: .category) ?? []
+                }
+
+                private enum CodingKeys: String, CodingKey {
+                    case id, displayName, group, scopes, fromModel, targetTags, requiresUserArguments, description
+                    case category
+                }
+            }
+            /// Only where the window offers the option; Core resolves the rest.
+            struct Option: Decodable {
+                let id: String
+                let presentation: String?
+                let icon: PluginUIIcon?
+            }
+            struct Test: Decodable {
+                let scopes: [BuildScope]
+                let targetTags: [String]?
+            }
+
+            let id: String
+            let displayName: String
+            let icon: PluginUIIcon?
+            let options: [Option]
+            let model: Source?
+            let tasks: [Task]
+            let test: Test?
+            let dependencies: Source?
+            let declaresProvider: Bool
+
+            init(from decoder: Decoder) throws {
+                let values = try decoder.container(keyedBy: CodingKeys.self)
+                id = try values.decode(String.self, forKey: .id)
+                displayName = try values.decode(String.self, forKey: .displayName)
+                icon = try values.decodeIfPresent(PluginUIIcon.self, forKey: .icon)
+                options = try values.decodeIfPresent([Option].self, forKey: .options) ?? []
+                model = try values.decodeIfPresent(Source.self, forKey: .model)
+                tasks = try values.decodeIfPresent([Task].self, forKey: .tasks) ?? []
+                test = try values.decodeIfPresent(Test.self, forKey: .test)
+                dependencies = try values.decodeIfPresent(Source.self, forKey: .dependencies)
+                declaresProvider = values.contains(.provider)
+            }
+
+            private enum CodingKeys: String, CodingKey {
+                case id, displayName, icon, options, model, tasks, test, dependencies, provider
+            }
+
+            func declaration() -> DeclarativeBuildSystem {
+                DeclarativeBuildSystem(
+                    id: id,
+                    displayName: displayName,
+                    icon: icon,
+                    modelSource: model.flatMap { DeclarativeBuildSystem.ModelSource(rawValue: $0.source) },
+                    options: options.map {
+                        .init(
+                            id: $0.id,
+                            presentation: $0.presentation.flatMap(DeclarativeBuildSystem.OptionPresentation.init),
+                            icon: $0.icon
+                        )
+                    },
+                    tasks: tasks.map {
+                        .init(
+                            id: $0.id, displayName: $0.displayName, group: $0.group, scopes: $0.scopes,
+                            fromModel: $0.fromModel, targetTags: $0.targetTags,
+                            requiresUserArguments: $0.requiresUserArguments, description: $0.description,
+                            category: $0.category
+                        )
+                    },
+                    testScopes: test?.scopes ?? [],
+                    testTargetTags: test?.targetTags ?? [],
+                    // A host integration lists the whole instance and each
+                    // project; the other sources declare their scopes.
+                    dependencyScopes: dependencies.map { $0.scopes ?? [.workspace, .project] } ?? [],
+                    declaresProvider: declaresProvider
+                )
+            }
+        }
 
         let id: String
         let displayName: String
@@ -650,6 +810,7 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
         let languages: [Language]
         let languageServers: [LanguageServer]
         let executionProviders: [ExecutionProvider]
+        let buildSystems: [BuildSystem]
         let ui: DeclarativeUIContributions?
         let settings: [Setting]
 
@@ -666,12 +827,13 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
             ui = try values.decodeIfPresent(DeclarativeUIContributions.self, forKey: .ui)
             languageServers = try values.decodeIfPresent([LanguageServer].self, forKey: .languageServers) ?? []
             executionProviders = try values.decodeIfPresent([ExecutionProvider].self, forKey: .executionProviders) ?? []
+            buildSystems = try values.decodeIfPresent([BuildSystem].self, forKey: .buildSystems) ?? []
             settings = try values.decodeIfPresent([Setting].self, forKey: .settings) ?? []
         }
 
         private enum CodingKeys: String, CodingKey {
             case id, displayName, version, pluginAPIVersion, vendor, permissions, activationEvents
-            case languages, languageServers, executionProviders, ui, settings
+            case languages, languageServers, executionProviders, buildSystems, ui, settings
         }
     }
 }
@@ -713,6 +875,27 @@ public protocol DeclarativeLanguageServerLaunchPlanning: Sendable {
         languageID: String,
         request: DeclarativeLanguageServerLaunchRequest
     ) throws -> DeclarativeLanguageServerLaunchPlan
+    /// The launch plan of a build system's provider. A provider that shares
+    /// a language server gets that server's plan with
+    /// `buildProvider.languageServer` set.
+    func buildProviderLaunchPlan(
+        manifest: Data,
+        buildSystemID: String,
+        request: DeclarativeLanguageServerLaunchRequest
+    ) throws -> DeclarativeLanguageServerLaunchPlan
+}
+
+public extension DeclarativeLanguageServerLaunchPlanning {
+    func buildProviderLaunchPlan(
+        manifest _: Data,
+        buildSystemID _: String,
+        request _: DeclarativeLanguageServerLaunchRequest
+    ) throws -> DeclarativeLanguageServerLaunchPlan {
+        throw DeclarativePluginRejection(
+            code: "plugin.launch.unavailable",
+            message: "This host cannot plan build provider launches."
+        )
+    }
 }
 
 /// Reads a launch runtime's version from its probe output and compares it

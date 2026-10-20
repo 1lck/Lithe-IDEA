@@ -62,6 +62,17 @@ enum MacPluginUIIconLoader {
             guard let icon = contribution.uiIcon, let path = icon.path else { continue }
             result[contribution.id] = try PluginUIIconResources(light: read(path), dark: icon.darkPath.map(read))
         }
+        // Toolbar options of a build-system window.
+        for buildSystem in descriptor.buildSystems {
+            let window = DeclarativeBuildSystem.toolWindowID(
+                pluginID: descriptor.id.rawValue, buildSystemID: buildSystem.id
+            )
+            for option in buildSystem.options {
+                guard let icon = option.icon, let path = icon.path else { continue }
+                result[DeclarativeBuildSystem.optionIconID(toolWindowID: window, optionID: option.id)] =
+                    try PluginUIIconResources(light: read(path), dark: icon.darkPath.map(read))
+            }
+        }
         return result
     }
 

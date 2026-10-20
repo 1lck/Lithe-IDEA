@@ -1,0 +1,31 @@
+{
+  "id": "agent-subagent-monitoring",
+  "area": "AI",
+  "group": "Agent 对话",
+  "capability": "原生子代理监视：有真实子会话时在任务状态行右侧显示独立子代理数量入口，查看真实任务、状态、完成进度及已收到的推理、工具和输出；嵌套子代理与授权由主会话管理，普通工具不计入子代理；子代理或祖先终止时只结算对应子树的未决授权，移除失效卡片并释放计时/静默计数，保留主轮次和其他授权",
+  "macos": {
+    "evidence": [
+      "rust/lithe-agent-host/src/subagents.rs",
+      "rust/lithe-agent-host/src/lib.rs",
+      "rust/lithe-agent-host/src/tests.rs",
+      "macos/Sources/Lithe/Views/Agent/AgentSubagentListView.swift",
+      "macos/Sources/Lithe/Views/Agent/AgentActivitySummaryBar.swift",
+      "macos/Sources/LitheAgentConversationModule/Application/AgentConnectionModel.swift",
+      "macos/Tests/LitheTests/AgentConversationFeatureModelTests.swift",
+      "macos/Tests/LitheTests/AgentActivityPresentationTests.swift",
+      "shared/fixtures/agent/acp-events-v1.json",
+      "macos/Sources/LitheAgentConversationModule/Application/AgentConversationState.swift"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features"
+    ],
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable"
+  },
+  "owner": "Agent",
+  "verification": "macOS：使用支持 AIR nativeSubagentSessions 的 Claude/Codex 在隔离项目中创建真实子代理，确认名称、任务、嵌套关系、运行/完成/失败/取消/断开状态与完成数/总数；展开详情查看实际输出和工具，状态刷新保持弹层。普通工具不产生子代理；子输出不拼入主回复、历史预览或复制。切换会话隔离，历史恢复同一子代理，停止主任务收尾子代理授权等待；父代理结束后未报告结果的子代理显示已断开。运行 AgentConversationFeatureModelTests 的 nativeSubagents/nativeChild 回归、AgentActivityPresentationTests.subagentsExpandDeliveredOutputAndRefreshWithoutDismissing 和 Host 的 native_subagents_keep_child_permissions_owned_by_the_root_turn。受控协议与原生 UI 测试不能替代真实供应商工作流，完成该实测前保持 pending。Windows 尚未实现 Agent 对话 UI。 macOS 窄宽面板：子代理入口在任务摘要右侧且与任务独立点击，无计划时仍可单独出现；数量为真实子会话总数，已完成/总数保留在可访问值与详情。子代理为空时不显示占位；保留深浅主题、展开输出、状态更新和弹层关闭验证。 终态授权清理：根 prompt 保持未结束，依次创建子代理、后代与同级代理并挂起授权；对子代理发送 completed/failed/cancelled/disconnected，确认只将其自身及后代请求回应 cancelled，根和同级请求仍可答复；终态后迟到请求不再入队。Swift 同步移除对应卡片、保留其他队列项，最后一项终止后注意状态解除、等待计时停止；虚拟时钟推进后 Host 静默提醒恢复，根轮次正常完成。"
+}

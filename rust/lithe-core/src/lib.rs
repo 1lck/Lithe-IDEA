@@ -4,15 +4,17 @@ use std::path::Path;
 
 mod agent;
 pub mod ai;
+mod build;
 mod community;
 mod debug;
-mod diagnostics;
+pub mod diagnostics;
 mod editor;
 pub mod execution;
 mod git;
 mod github;
 mod languages;
 mod lsp;
+mod mcp;
 pub mod plugins;
 pub mod process;
 mod project;

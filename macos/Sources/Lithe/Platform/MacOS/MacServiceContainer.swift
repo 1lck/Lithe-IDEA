@@ -45,21 +45,23 @@ final class MacServiceContainer {
         MacLogDirectoryProvider()
     }
 
-    static func makeApplicationLogWriter() -> MacApplicationLogWriter {
-        MacApplicationLogWriter()
+    static func makeApplicationLogWriter(onDirectoryFallback: @escaping @Sendable () -> Void = {}) -> MacApplicationLogWriter {
+        MacApplicationLogWriter(onDirectoryFallback: onDirectoryFallback)
     }
 
     static func makeDiagnosticsExportService(
         fileStorage: any FileStorage,
         processRunner: any ProcessRunner,
-        core: RustCoreBridge
+        core: RustCoreBridge,
+        applicationLogging: (any ApplicationLogging)? = nil
     ) -> DiagnosticsExportService {
         DiagnosticsExportService(
             logDirectoryProviding: makeLogDirectoryProvider(),
             fileStorage: fileStorage,
             systemDiagnostics: MacSystemDiagnosticsProvider(),
             archiver: MacDittoArchiver(processRunner: processRunner),
-            core: core
+            core: core,
+            applicationLogging: applicationLogging
         )
     }
 
@@ -76,9 +78,18 @@ final class MacServiceContainer {
         runExecutableResolver providedRunExecutableResolver: (any RunExecutableResolving)? = nil,
         platformUI providedPlatformUI: (any PlatformUI)? = nil,
         aiConfigurationSources providedAIConfigurationSources: [any AIConfigurationSource]? = nil,
-        gitPerformanceLogger: (any GitPerformanceLogger)? = nil
+        gitPerformanceLogger: (any GitPerformanceLogger)? = nil,
+        pluginWebPageLifecycle providedPluginWebPageLifecycle: PluginWebPageLifecycle? = nil,
+        applicationLogging: (any ApplicationLogging)? = nil
     ) {
+        let pluginWebPageLifecycle = providedPluginWebPageLifecycle ?? .shared
         let gitExecutionJournal = GitExecutionJournal()
+        gitExecutionJournal.onLifecycleEvent = { event in
+            applicationLogging?.record(level: event.error != nil || (event.exitCode ?? 0) != 0 ? "error" : "info",
+                scope: "git.execution", message: event.type,
+                fields: ["operation_id": event.operationId, "duration_ms": event.durationMilliseconds.map(String.init) ?? "",
+                    "exit_code": event.exitCode.map(String.init) ?? "", "error_code": event.error?.code ?? ""])
+        }
         let rustCore = RustCoreBridge(gitPreferences: settings.gitExecutionPreferences,
                                       gitExecutionJournal: gitExecutionJournal)
         let mavenRepositoryURL = FileManager.default.homeDirectoryForCurrentUser
@@ -101,7 +112,7 @@ final class MacServiceContainer {
         let debugBreakpointStore = MacDebugBreakpointStore(store: store)
         let debugSteppingFilterStore = MacDebugSteppingFilterStore(store: store)
         let fileOperations = MacWorkspaceFileOperations()
-        let processRunner = MacProcessRunner()
+        let processRunner = MacProcessRunner(logging: applicationLogging)
         let secureStore = MacLocalSecretStore()
         let databaseSecureStore = MacKeychainSecureStore(
             service: fileStorage.identity.keychainService("database"),
@@ -115,10 +126,12 @@ final class MacServiceContainer {
             git: MacGitHubGitOperations(core: rustCore)
         )
         let platformUI = providedPlatformUI ?? MacPlatformUI()
+        let logWindowID = UUID().uuidString
         let diagnosticsExportService = Self.makeDiagnosticsExportService(
             fileStorage: fileStorage,
             processRunner: processRunner,
-            core: rustCore
+            core: rustCore,
+            applicationLogging: applicationLogging
         )
         let codexConfigurationSource = MacCodexConfigurationSource()
         let claudeConfigurationSource = MacClaudeConfigurationSource()
@@ -209,7 +222,7 @@ final class MacServiceContainer {
             })
             try moduleRegistry.register(ModuleFactory(manifest: TerminalModule.moduleManifest, contributions: TerminalModule.moduleContributions) {
                 TerminalModule(
-                    terminalFactory: { MacTerminalTransport() },
+                    terminalFactory: { MacTerminalTransport(scrollbackLines: settings.terminalScrollbackLines) },
                     shellDiscovery: { MacTerminalTransport.availableShells() }
                 )
             })
@@ -239,6 +252,17 @@ final class MacServiceContainer {
         languageServerHostIntegrations.pluginsDidLoad(
             pluginStartup.registeredPlugins,
             installed: pluginStartup.scanSucceeded ? pluginStartup.installedPlugins : nil
+        )
+        // Provider processes of plugin build systems, one per plugin, build
+        // system, and workspace. Created eagerly so the language sessions
+        // can be connected; nothing starts until a model or dependency load.
+        let buildProviderSessions = MacBuildProviderSessions(
+            launchResolver: pluginLaunchResolver,
+            tools: MacBuildToolResolver(runtime: runtimeService, processRunner: processRunner, fileStorage: fileStorage),
+            versionChecker: declarativePluginOperations,
+            runtime: runtimeService,
+            core: rustCore,
+            processRegistry: processRegistry
         )
         let rustLanguageProviderCatalogSource = RustLanguageProviderCatalogSource(core: rustCore)
         // Installation owns the process-backed language boundary even when a
@@ -341,6 +365,12 @@ final class MacServiceContainer {
                             )
                         }
                     )
+                    sessions.onLogEvent = { provider, operation, level, message, detail in
+                        applicationLogging?.record(level: level == "warning" ? "warn" : level,
+                            scope: "language.\(provider)", message: message,
+                            fields: ["operation_id": operation ?? "", "window_id": logWindowID, "detail": detail ?? ""])
+                    }
+
                     let graph = LanguageIntelligenceFeatureGraph(
                         sessions: sessions,
                         tools: tools
@@ -358,6 +388,39 @@ final class MacServiceContainer {
                         runtimeService: runtimeService,
                         toolchainRegistry: runToolchainRegistry,
                         metadataResolver: ProcessRunToolchainMetadataResolver(processRunner: processRunner)
+                    )
+                    let buildSystemPlugins = pluginStartup.registeredPlugins.filter { !$0.descriptor.buildSystems.isEmpty }
+                    let buildSystems = buildSystemPlugins.isEmpty ? nil : BuildSystemService(
+                        planner: RustBuildSystemOperations(core: rustCore),
+                        tools: MacBuildToolResolver(
+                            runtime: runtimeService,
+                            processRunner: processRunner,
+                            fileStorage: fileStorage
+                        ),
+                        optionsStore: MacBuildOptionsStore(store: store),
+                        stateLocator: MacBuildSystemStateLocator(
+                            directories: MacPluginStateDirectories(fileStorage: fileStorage),
+                            fileStorage: fileStorage
+                        ),
+                        runner: MacBuildCommandRunner(processRegistry: processRegistry),
+                        providers: buildProviderSessions,
+                        sources: {
+                            // Enablement is read on every detection, so turning a
+                            // plugin off takes its build systems away at once.
+                            buildSystemPlugins.compactMap { plugin -> BuildSystemPluginSource? in
+                                let id = plugin.descriptor.id.rawValue
+                                guard let snapshot = try? moduleRuntime.snapshot(for: .buildSystemsExtension(id)),
+                                      snapshot.state != .disabled,
+                                      !snapshot.isQuarantined,
+                                      !snapshot.isSuppressedBySafeMode else { return nil }
+                                return BuildSystemPluginSource(
+                                    pluginID: id,
+                                    manifest: plugin.descriptor.normalizedManifest,
+                                    packageURL: plugin.packageURL,
+                                    buildSystems: plugin.descriptor.buildSystems
+                                )
+                            }
+                        }
                     )
                     let graph = ExecutionFeatureGraph(
                         maven: MavenService(
@@ -397,7 +460,8 @@ final class MacServiceContainer {
                                     reports: reports
                                 )
                             }
-                        )
+                        ),
+                        buildSystems: buildSystems
                     )
                     let mavenFeature = graph.mavenFeature
                     graph.run.configureLanguageDependencyProvider { [weak mavenFeature] languageID, workspace, serviceID in
@@ -580,6 +644,15 @@ final class MacServiceContainer {
         // Keep binary formats default-denied. Future format support must be
         // registered explicitly at this composition boundary.
         let binaryFileViewerRegistry = BinaryFileViewerRegistry()
+        let pluginWebPages = PluginWebPages(
+            windows: MacPluginWebContent.windows(pluginStartup.registeredPlugins),
+            stateStore: MacPluginWebStateStore(
+                directories: MacPluginStateDirectories(fileStorage: fileStorage),
+                fileStorage: fileStorage
+            ),
+            prompt: MacPluginWebConsentPrompt.confirm
+        )
+        pluginWebPageLifecycle.register(pluginWebPages)
         let pluginManager = MacPluginManager(
             packageStore: pluginPackageStore,
             moduleRuntime: moduleRuntime,
@@ -587,7 +660,16 @@ final class MacServiceContainer {
             settings: pluginSettings,
             launchMode: moduleLaunchMode,
             startup: pluginStartup,
-            managedBuiltInPlugins: bundledLanguageManifests
+            managedBuiltInPlugins: bundledLanguageManifests,
+            invalidateWebPages: { id in pluginWebPageLifecycle.disable(id.rawValue) },
+            enableWebPages: { id in pluginWebPageLifecycle.enable(id.rawValue) },
+            beforePackageReplacement: { id in
+                pluginWebPageLifecycle.packageWillChange(id.rawValue)
+                // The running provider still executes the old files; the
+                // build systems' plugin list is a startup snapshot and does
+                // not see the replacement.
+                buildProviderSessions.stopProviders(ofPlugin: id.rawValue)
+            }
         )
         let pluginMarketplaceTransport: any MacPluginMarketplaceTransport
         #if DEBUG
@@ -609,7 +691,8 @@ final class MacServiceContainer {
             // Read-only input shipped with the app; fetched indexes go to
             // the cache directory above, never into the bundle.
             bundledOfficialIndexURL: Bundle.main.resourceURL?
-                .appendingPathComponent("PluginMarketplace/index.json", isDirectory: false)
+                .appendingPathComponent("PluginMarketplace/index.json", isDirectory: false),
+            diskImporter: MacPluginDiskPackageImporter(temporaryDirectory: fileStorage.temporaryDirectory())
         )
         let pluginCatalog: ValidatedPluginCatalog
         do {
@@ -626,6 +709,7 @@ final class MacServiceContainer {
             pluginMarketplace: pluginMarketplace,
             pluginCatalog: pluginCatalog,
             pluginUIIconResources: pluginStartup.iconResources,
+            pluginWebPages: pluginWebPages,
             languageProviderCatalogSource: languageProviderCatalogSource,
             workspaceLanguageServerPreferences: workspaceLanguageServerPreferences,
             languageProviderCatalogSnapshot: languageProviderCatalogSnapshot,
@@ -661,6 +745,7 @@ final class MacServiceContainer {
             agentProviderConfigurationParser: MacAgentProviderConfigurationParser(core: rustCore),
             aiConfigurationSources: aiConfigurationSources,
             recentProjectsStore: RecentProjectsStore(store: store),
+            recentProjectBranchReader: MacRecentProjectBranchReader(storage: fileStorage),
             workspaceSessionStore: WorkspaceSessionStore(store: store),
             directoryMarkStore: directoryMarkStore,
             workbenchLayoutStore: WorkbenchLayoutStore(store: store),
@@ -673,12 +758,26 @@ final class MacServiceContainer {
         )
         services.ideCapabilityRegistry = ideCapabilityRegistry
         services.ideHostTransport = MacIdeHostTransport(core: rustCore, storage: fileStorage)
+        services.mcpConfigurationStore = MacAgentMcpConfigurationStore(
+            core: rustCore, storage: fileStorage
+        )
+        services.connectBuildProviderLanguageSessions = { sessions in
+            buildProviderSessions.languageSessions = sessions
+        }
         services.processExitCoordinator = ProcessExitCoordinator(
             core: RustProcessLifecycleDecider(core: rustCore),
             presenter: MacProcessExitConfirmationPresenter.shared
         )
         moduleLifecycleCoordinator.start()
-        Task { try? await moduleRegistry.startEagerModules() }
+        Task {
+            do {
+                try await moduleRegistry.startEagerModules()
+                applicationLogging?.record(level: "info", scope: "plugins.lifecycle", message: "eager modules started", fields: [:])
+            } catch {
+                applicationLogging?.record(level: "error", scope: "plugins.lifecycle", message: "module activation failed",
+                    fields: ["error": error.localizedDescription])
+            }
+        }
     }
 
     /// Host-owned module factories for declarative plugins. The plugins'
@@ -754,7 +853,11 @@ final class MacServiceContainer {
                     )
                 }
             }
-            let workbench = descriptor.pluginManifest.modules.filter { !$0.contributions.isEmpty }.map { declaration in
+            // The build-systems module also carries the enabled state; the
+            // execution module reads it before handing the plugin to Rust Core.
+            let workbench = descriptor.pluginManifest.modules.filter {
+                !$0.contributions.isEmpty || $0.manifest.id == .buildSystemsExtension(descriptor.id.rawValue)
+            }.map { declaration in
                 ModuleFactory(manifest: declaration.manifest, contributions: declaration.contributions) {
                     DeclarativeWorkbenchModule(declaration: declaration)
                 }

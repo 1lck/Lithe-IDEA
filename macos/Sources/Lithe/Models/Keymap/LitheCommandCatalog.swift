@@ -172,7 +172,6 @@ enum LitheCommandCatalog {
 
         command("toggle-terminal", "Toggle Terminal", "Show or hide the Terminal tool window", .window),
         command("toggle-problems", "Toggle Problems", "Show or hide language diagnostics", .window),
-        command("toggle-maven", "Toggle Maven", "Show or hide the Maven tool window", .window),
         command("toggle-git-log", "Toggle Git Log", "Show or hide Git history", .window),
         command("toggle-run", "Toggle Run", "Show or hide run output", .window),
         command("toggle-tests", "Toggle Tests", "Show or hide language-neutral test runners", .window),
@@ -188,7 +187,7 @@ enum LitheCommandCatalog {
 
     static func moduleOwner(for id: String) -> ModuleID? {
         switch id {
-        case "run", "stop-run", "toggle-run", "toggle-tests", "toggle-maven": .execution
+        case "run", "stop-run", "toggle-run", "toggle-tests": .execution
         case "debug", "stop-debug", "debug-resume", "debug-step-over", "debug-step-into", "debug-step-out",
              "toggle-breakpoint", "view-breakpoints", "toggle-debug": .debug
         case "toggle-terminal": .terminal
@@ -204,7 +203,6 @@ enum LitheCommandCatalog {
         switch id {
         case "toggle-terminal": .terminal
         case "toggle-problems": .problems
-        case "toggle-maven": .maven
         case "toggle-git-log": .gitLog
         case "toggle-run": .run
         case "toggle-tests": .tests

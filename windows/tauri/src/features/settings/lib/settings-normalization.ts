@@ -24,6 +24,7 @@ import {
 } from "@/features/layout/config/item-order";
 import { normalizeEditorFontSize } from "./editor-font-size";
 import { normalizeUiFontSize } from "@/features/settings/lib/ui-font-size";
+import { normalizeAgentPanelSettings } from "@/features/agent/types/agent-settings.types";
 import type { Settings, SettingsSection } from "@/features/settings/types/settings.types";
 
 const AI_MODEL_MIGRATIONS: Record<string, Record<string, string>> = {
@@ -501,6 +502,7 @@ export function normalizeSettings(settings: Settings): Settings {
     ...defaultSettings.coreFeatures,
     ...normalizedSettings.coreFeatures,
   };
+  normalizedSettings.agentPanel = normalizeAgentPanelSettings(settings.agentPanel);
   delete (normalizedSettings.coreFeatures as { litheEditorEngine?: unknown }).litheEditorEngine;
   delete (normalizedSettings.coreFeatures as { energyEdge?: unknown }).energyEdge;
 
@@ -751,6 +753,10 @@ export function normalizeSettingValue<K extends keyof Settings>(
 
   if (key === "aiSkills") {
     return normalizeAISkills(value as Settings["aiSkills"]) as Settings[K];
+  }
+
+  if (key === "agentPanel") {
+    return normalizeAgentPanelSettings(value) as Settings[K];
   }
 
   if (key === "v0DesignSystems") {

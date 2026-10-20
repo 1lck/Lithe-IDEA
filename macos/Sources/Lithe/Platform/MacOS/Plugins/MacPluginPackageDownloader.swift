@@ -148,6 +148,10 @@ final class MacPluginPackageDownloader: MacPluginPackageDownloading {
 
     static let maximumArchiveBytes: Int64 = Limits.standard.archiveBytes
     private static let extractionTimeout: TimeInterval = 5 * 60
+    private static let maximumZIPPathComponents = 64
+    /// Caps retained normalized path text independently of payload size. Also
+    /// respect a smaller archive budget, so metadata cannot exceed that budget.
+    private static let maximumZIPPathBytes = 16 * 1_048_576
     private static let extractionPollInterval: TimeInterval = 0.05
     /// How often the extracted tree is measured while `ditto` runs.
     private static let extractionMeasureInterval: TimeInterval = 0.25
@@ -191,7 +195,7 @@ final class MacPluginPackageDownloader: MacPluginPackageDownloading {
             .appendingPathComponent("lithe-plugin-download-\(UUID().uuidString)", isDirectory: true)
         try fileManager.createDirectory(at: extractionRoot, withIntermediateDirectories: true)
         do {
-            try extract(archiveOnDisk, into: extractionRoot)
+            try extractArchive(archiveOnDisk, into: extractionRoot)
             let packageURL = try Self.findPackage(in: extractionRoot, pluginID: pluginID, fileManager: fileManager)
             return MacDownloadedPluginPackage(
                 packageURL: packageURL,
@@ -209,17 +213,26 @@ final class MacPluginPackageDownloader: MacPluginPackageDownloading {
         defer { try? handle.close() }
         var hasher = SHA256()
         while let chunk = try handle.read(upToCount: 1_048_576), !chunk.isEmpty {
+            try Task.checkCancellation()
             hasher.update(data: chunk)
         }
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
-    private func extract(_ archiveURL: URL, into directory: URL) throws {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
-        process.arguments = ["-x", "-k", archiveURL.path, directory.path]
-        let errorPipe = Pipe()
-        process.standardError = errorPipe
+    /// Shared by marketplace downloads and local, already-snapshotted ZIPs.
+    /// The caller owns `directory` and removes it on every failed operation.
+    func extractArchive(_ archiveURL: URL, into directory: URL) throws {
+        try Task.checkCancellation()
+        try Self.checkDeclaredContents(of: archiveURL, limits: limits)
+        // MacManagedProcess resolves Foundation's null-device sentinel only
+        // for stdin. Its output dup2 actions require a real, open descriptor.
+        let sink = try FileHandle(forWritingTo: URL(fileURLWithPath: "/dev/null"))
+        defer { try? sink.close() }
+        let process = MacManagedProcess(
+            executableURL: URL(fileURLWithPath: "/usr/bin/ditto"),
+            arguments: ["-x", "-k", archiveURL.path, directory.path],
+            standardInput: .nullDevice, standardOutput: sink, standardError: sink
+        )
         do {
             try process.run()
         } catch {
@@ -229,12 +242,12 @@ final class MacPluginPackageDownloader: MacPluginPackageDownloading {
         // would leave a cancelled or wedged download task alive indefinitely.
         // Poll on a bounded interval and terminate the process before
         // propagating cancellation or timeout to the caller.
-        let deadline = Date().addingTimeInterval(Self.extractionTimeout)
-        var nextMeasurement = Date()
+        let deadline = ProcessInfo.processInfo.systemUptime + Self.extractionTimeout
+        var nextMeasurement = ProcessInfo.processInfo.systemUptime
         while process.isRunning {
             // Declared sizes can lie; measure what was actually written.
-            if Date() >= nextMeasurement {
-                nextMeasurement = Date().addingTimeInterval(Self.extractionMeasureInterval)
+            if ProcessInfo.processInfo.systemUptime >= nextMeasurement {
+                nextMeasurement = ProcessInfo.processInfo.systemUptime + Self.extractionMeasureInterval
                 if let exceeded = Self.limitExceeded(in: directory, limits: limits, fileManager: fileManager) {
                     terminateExtractionProcess(process)
                     throw MacPluginPackageDownloadError.extractionLimitExceeded(exceeded)
@@ -246,7 +259,7 @@ final class MacPluginPackageDownloader: MacPluginPackageDownloading {
                 terminateExtractionProcess(process)
                 throw error
             }
-            guard Date() < deadline else {
+            guard ProcessInfo.processInfo.systemUptime < deadline else {
                 terminateExtractionProcess(process)
                 throw MacPluginPackageDownloadError.extractionFailed(
                     "ditto did not finish within \(Int(Self.extractionTimeout)) seconds"
@@ -254,12 +267,9 @@ final class MacPluginPackageDownloader: MacPluginPackageDownloading {
             }
             Thread.sleep(forTimeInterval: Self.extractionPollInterval)
         }
+        try Task.checkCancellation()
         guard process.terminationStatus == 0 else {
-            let detail = String(
-                data: errorPipe.fileHandleForReading.readDataToEndOfFile(),
-                encoding: .utf8
-            )?.trimmingCharacters(in: .whitespacesAndNewlines)
-            throw MacPluginPackageDownloadError.extractionFailed(detail ?? "ditto exited with status \(process.terminationStatus)")
+            throw MacPluginPackageDownloadError.extractionFailed("ditto exited with status \(process.terminationStatus)")
         }
         // A fast extraction can finish between two measurements.
         if let exceeded = Self.limitExceeded(in: directory, limits: limits, fileManager: fileManager) {
@@ -297,78 +307,234 @@ final class MacPluginPackageDownloader: MacPluginPackageDownloading {
         ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
     }
 
-    /// Reads the ZIP central directory and checks the declared entry count
-    /// and uncompressed total against the limits. ZIP64 archives, which can
-    /// declare sizes beyond 4 GB, are refused; plugin packages never need
-    /// them.
+    /// Checks bounded ZIP metadata before `ditto` sees it. Both directory and
+    /// local headers are inspected: extractors can use either filename. Links,
+    /// special files, ambiguous paths, encryption and ZIP64 are not packages.
     static func checkDeclaredContents(of archiveURL: URL, limits: Limits) throws {
+        try Task.checkCancellation()
         let handle = try FileHandle(forReadingFrom: archiveURL)
         defer { try? handle.close() }
         let fileSize = try handle.seekToEnd()
-        // End of central directory: 22 bytes plus a comment of up to 64 KB.
+        guard limits.archiveBytes >= 0, fileSize <= UInt64(limits.archiveBytes) else {
+            throw MacPluginPackageDownloadError.archiveTooLarge(limits.archiveBytes)
+        }
         let tailLength = min(fileSize, 22 + 65_535)
         try handle.seek(toOffset: fileSize - tailLength)
         let tail = [UInt8](try handle.read(upToCount: Int(tailLength)) ?? Data())
         guard tail.count >= 22,
               let end = stride(from: tail.count - 22, through: 0, by: -1).first(where: {
                   tail[$0] == 0x50 && tail[$0 + 1] == 0x4b && tail[$0 + 2] == 0x05 && tail[$0 + 3] == 0x06
+                      && $0 + 22 + zipUInt16(tail, $0 + 20) == tail.count
               }) else {
             throw MacPluginPackageDownloadError.invalidArchive
         }
-        func u16(_ bytes: [UInt8], _ at: Int) -> Int { Int(bytes[at]) | Int(bytes[at + 1]) << 8 }
-        func u32(_ bytes: [UInt8], _ at: Int) -> UInt64 {
-            UInt64(bytes[at]) | UInt64(bytes[at + 1]) << 8 | UInt64(bytes[at + 2]) << 16 | UInt64(bytes[at + 3]) << 24
-        }
-        let entryCount = u16(tail, end + 10)
-        let directorySize = u32(tail, end + 12)
-        let directoryOffset = u32(tail, end + 16)
+        let entryCount = zipUInt16(tail, end + 10)
+        let directorySize = zipUInt32(tail, end + 12)
+        let directoryOffset = zipUInt32(tail, end + 16)
         guard entryCount != 0xFFFF, directorySize != 0xFFFF_FFFF, directoryOffset != 0xFFFF_FFFF else {
             throw MacPluginPackageDownloadError.extractionLimitExceeded("ZIP64 archives are not supported")
+        }
+        guard zipUInt16(tail, end + 4) == 0, zipUInt16(tail, end + 6) == 0,
+              zipUInt16(tail, end + 8) == entryCount,
+              directoryOffset + directorySize == fileSize - tailLength + UInt64(end) else {
+            throw MacPluginPackageDownloadError.invalidArchive
         }
         guard entryCount <= limits.entries else {
             throw MacPluginPackageDownloadError.extractionLimitExceeded("more than \(limits.entries) files")
         }
-        guard directoryOffset + directorySize <= fileSize else {
-            throw MacPluginPackageDownloadError.invalidArchive
-        }
-        try handle.seek(toOffset: directoryOffset)
-        let directory = [UInt8](try handle.read(upToCount: Int(directorySize)) ?? Data())
-        var offset = 0
+        var offset = directoryOffset
         var total: UInt64 = 0
+        var paths = Set<String>()
+        var filePaths = Set<String>()
+        var parentPaths = Set<String>()
+        var objectCount = 0
+        var pathBytes: Int64 = 0
+        let pathByteLimit = min(limits.archiveBytes, Int64(Self.maximumZIPPathBytes))
+        func reservePath(_ path: String) throws {
+            guard objectCount < limits.entries else {
+                throw MacPluginPackageDownloadError.extractionLimitExceeded("more than \(limits.entries) files")
+            }
+            let bytes = Int64(path.utf8.count)
+            guard bytes <= pathByteLimit - pathBytes else {
+                throw MacPluginPackageDownloadError.extractionLimitExceeded("more than \(pathByteLimit) path bytes")
+            }
+            objectCount += 1
+            pathBytes += bytes
+        }
+        var localEntries: [(offset: UInt64, end: UInt64, descriptor: Bool)] = []
         for _ in 0..<entryCount {
-            guard offset + 46 <= directory.count,
-                  directory[offset] == 0x50, directory[offset + 1] == 0x4b,
-                  directory[offset + 2] == 0x01, directory[offset + 3] == 0x02 else {
+            try Task.checkCancellation()
+            guard offset + 46 <= directoryOffset + directorySize else {
                 throw MacPluginPackageDownloadError.invalidArchive
             }
-            let uncompressed = u32(directory, offset + 24)
-            guard uncompressed != 0xFFFF_FFFF else {
+            let header = try zipRead(handle, at: offset, count: 46)
+            guard Array(header.prefix(4)) == [0x50, 0x4b, 0x01, 0x02],
+                  zipUInt16(header, 34) == 0 else {
+                throw MacPluginPackageDownloadError.invalidArchive
+            }
+            let compressed = zipUInt32(header, 20)
+            let uncompressed = zipUInt32(header, 24)
+            let localOffset = zipUInt32(header, 42)
+            guard compressed != 0xFFFF_FFFF, uncompressed != 0xFFFF_FFFF, localOffset != 0xFFFF_FFFF else {
                 throw MacPluginPackageDownloadError.extractionLimitExceeded("ZIP64 archives are not supported")
             }
             total += uncompressed
-            guard total <= UInt64(limits.extractedBytes) else {
-                throw MacPluginPackageDownloadError.extractionLimitExceeded(
-                    "more than \(formatted(limits.extractedBytes))"
-                )
+            guard limits.extractedBytes >= 0, total <= UInt64(limits.extractedBytes) else {
+                throw MacPluginPackageDownloadError.extractionLimitExceeded("more than \(formatted(limits.extractedBytes))")
             }
-            offset += 46 + u16(directory, offset + 28) + u16(directory, offset + 30) + u16(directory, offset + 32)
+            let nameLength = zipUInt16(header, 28)
+            let extraLength = zipUInt16(header, 30)
+            let nextOffset = offset + 46 + UInt64(nameLength + extraLength + zipUInt16(header, 32))
+            guard nextOffset <= directoryOffset + directorySize else {
+                throw MacPluginPackageDownloadError.invalidArchive
+            }
+            let name = try zipRead(handle, at: offset + 46, count: nameLength)
+            let path = try safeZIPPath(name)
+            if name.last == 0x2f, uncompressed != 0 {
+                throw MacPluginPackageDownloadError.invalidArchive
+            }
+            // APFS commonly ignores case and normalizes Unicode. A duplicate
+            // must not silently replace a manifest or turn a file into a parent.
+            let key = path.precomposedStringWithCanonicalMapping.lowercased()
+            guard !paths.contains(key) else {
+                throw MacPluginPackageDownloadError.invalidArchive
+            }
+            let components = key.split(separator: "/")
+            guard components.count <= Self.maximumZIPPathComponents else {
+                throw MacPluginPackageDownloadError.extractionLimitExceeded("more than \(Self.maximumZIPPathComponents) path components")
+            }
+            var parent = ""
+            for component in components.dropLast() {
+                parent = parent.isEmpty ? String(component) : parent + "/" + component
+                guard !filePaths.contains(parent) else { throw MacPluginPackageDownloadError.invalidArchive }
+                if !parentPaths.contains(parent) {
+                    try reservePath(parent)
+                    parentPaths.insert(parent)
+                }
+            }
+            // The filesystem creates omitted parents too. Count every unique
+            // file/directory once, including explicit empty directories, before
+            // retaining its path or allowing extraction to start.
+            if name.last == 0x2f {
+                if !parentPaths.contains(key) {
+                    try reservePath(key)
+                    parentPaths.insert(key)
+                }
+            } else {
+                guard !parentPaths.contains(key) else { throw MacPluginPackageDownloadError.invalidArchive }
+                try reservePath(key)
+                filePaths.insert(key)
+            }
+            paths.insert(key)
+            let mode = zipUInt32(header, 38) >> 16
+            let type = mode & 0xF000
+            guard type == 0 || type == 0x8000 || type == 0x4000,
+                  type != 0x4000 || name.last == 0x2f,
+                  type != 0x8000 || name.last != 0x2f,
+                  zipUInt16(header, 8) & 1 == 0 else {
+                throw MacPluginPackageDownloadError.invalidArchive
+            }
+            try checkZIPExtra(try zipRead(handle, at: offset + 46 + UInt64(nameLength), count: extraLength), name: name)
+            guard localOffset + 30 <= directoryOffset else {
+                throw MacPluginPackageDownloadError.invalidArchive
+            }
+            let local = try zipRead(handle, at: localOffset, count: 30)
+            let localNameLength = zipUInt16(local, 26)
+            let localExtraLength = zipUInt16(local, 28)
+            let dataOffset = localOffset + 30 + UInt64(localNameLength + localExtraLength)
+            guard Array(local.prefix(4)) == [0x50, 0x4b, 0x03, 0x04],
+                  zipUInt16(local, 6) == zipUInt16(header, 8),
+                  zipUInt16(local, 8) == zipUInt16(header, 10),
+                  dataOffset + compressed <= directoryOffset,
+                  try zipRead(handle, at: localOffset + 30, count: localNameLength) == name else {
+                throw MacPluginPackageDownloadError.invalidArchive
+            }
+            try checkZIPExtra(try zipRead(handle, at: localOffset + 30 + UInt64(localNameLength), count: localExtraLength), name: name)
+            localEntries.append((localOffset, dataOffset + compressed, zipUInt16(local, 6) & 8 != 0))
+            offset = nextOffset
+        }
+        guard offset == directoryOffset + directorySize else {
+            throw MacPluginPackageDownloadError.invalidArchive
+        }
+        // Every local entry must be indexed. Otherwise an extractor walking
+        // local headers could write an unchecked path hidden from the directory.
+        var localEnd: UInt64 = 0
+        for entry in localEntries.sorted(by: { $0.offset < $1.offset }) {
+            try Task.checkCancellation()
+            guard entry.offset == localEnd else {
+                throw MacPluginPackageDownloadError.invalidArchive
+            }
+            localEnd = entry.end
+            if entry.descriptor {
+                let signature = try zipRead(handle, at: localEnd, count: 4)
+                localEnd += signature == [0x50, 0x4b, 0x07, 0x08] ? 16 : 12
+            }
+            guard localEnd <= directoryOffset else {
+                throw MacPluginPackageDownloadError.invalidArchive
+            }
+        }
+        guard localEnd == directoryOffset else {
+            throw MacPluginPackageDownloadError.invalidArchive
         }
     }
 
-    private func terminateExtractionProcess(_ process: Process) {
-        guard process.isRunning else { return }
-        process.terminate()
-        let deadline = Date().addingTimeInterval(1)
-        while process.isRunning, Date() < deadline {
-            Thread.sleep(forTimeInterval: Self.extractionPollInterval)
+    private static func zipUInt16(_ bytes: [UInt8], _ at: Int) -> Int {
+        Int(bytes[at]) | Int(bytes[at + 1]) << 8
+    }
+
+    private static func zipUInt32(_ bytes: [UInt8], _ at: Int) -> UInt64 {
+        UInt64(bytes[at]) | UInt64(bytes[at + 1]) << 8 | UInt64(bytes[at + 2]) << 16 | UInt64(bytes[at + 3]) << 24
+    }
+
+    private static func zipRead(_ handle: FileHandle, at offset: UInt64, count: Int) throws -> [UInt8] {
+        try handle.seek(toOffset: offset)
+        let bytes = [UInt8](try handle.read(upToCount: count) ?? Data())
+        guard bytes.count == count else { throw MacPluginPackageDownloadError.invalidArchive }
+        return bytes
+    }
+
+    private static func safeZIPPath(_ bytes: [UInt8]) throws -> String {
+        guard let path = String(bytes: bytes, encoding: .utf8), !path.isEmpty,
+              !path.hasPrefix("/"), !path.contains("\\"), !path.contains(":"), !path.contains("\0") else {
+            throw MacPluginPackageDownloadError.invalidArchive
         }
-        if process.isRunning {
-            process.interrupt()
+        let components = (path.hasSuffix("/") ? String(path.dropLast()) : path)
+            .split(separator: "/", omittingEmptySubsequences: false)
+        guard components.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else {
+            throw MacPluginPackageDownloadError.invalidArchive
         }
-        if process.isRunning {
-            kill(process.processIdentifier, SIGKILL)
+        return components.joined(separator: "/")
+    }
+
+    private static func checkZIPExtra(_ bytes: [UInt8], name: [UInt8]) throws {
+        var offset = 0
+        while offset < bytes.count {
+            guard offset + 4 <= bytes.count else { throw MacPluginPackageDownloadError.invalidArchive }
+            let tag = zipUInt16(bytes, offset)
+            let size = zipUInt16(bytes, offset + 2)
+            let end = offset + 4 + size
+            guard end <= bytes.count, tag != 0x0001 else {
+                throw MacPluginPackageDownloadError.invalidArchive
+            }
+            // The Unicode path extension can override the header filename.
+            // Accept it only when it names exactly the same checked path.
+            if tag == 0x7075 {
+                guard size >= 5, bytes[offset + 4] == 1,
+                      Array(bytes[(offset + 9)..<end]) == name else {
+                    throw MacPluginPackageDownloadError.invalidArchive
+                }
+            }
+            // ASi and PKWARE Unix metadata can carry a second mode or link
+            // target, independent of the central directory's regular-file mode.
+            if tag == 0x756e || (tag == 0x000d && size > 12) {
+                throw MacPluginPackageDownloadError.invalidArchive
+            }
+            offset = end
         }
-        process.waitUntilExit()
+    }
+
+    private func terminateExtractionProcess(_ process: MacManagedProcess) {
+        _ = process.terminateAndWait(gracePeriod: 0.2, forcedTerminationTimeout: 1)
     }
 
     /// Identifies the package by its `id` only. Any manifest schema is

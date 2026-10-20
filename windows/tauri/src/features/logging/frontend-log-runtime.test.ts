@@ -17,11 +17,26 @@ describe("frontend log serialization", () => {
 
   test("summarizes errors and limits stack frames", () => {
     const error = new Error("broken");
-    error.stack = ["Error: broken", ...Array.from({ length: 20 }, (_, index) => `at frame${index}`)].join("\n");
+    error.stack = [
+      "Error: broken",
+      ...Array.from({ length: 20 }, (_, index) => `at frame${index}`),
+    ].join("\n");
     const serialized = serializeConsoleArguments([error]);
     expect(serialized).toContain("Error: broken");
     expect(serialized).toContain("frame7");
     expect(serialized).not.toContain("frame12");
+  });
+
+  test("bounds array traversal before serializing the result", () => {
+    let visited = 0;
+    const values = Array.from({ length: 1000 }, () => ({
+      get value() {
+        visited += 1;
+        return "item";
+      },
+    }));
+    serializeConsoleArguments([values]);
+    expect(visited).toBe(24);
   });
 
   test("truncates oversized payloads", () => {

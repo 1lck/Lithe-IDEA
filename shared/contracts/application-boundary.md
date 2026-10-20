@@ -46,6 +46,25 @@ acknowledgement, without cancelling the configuration itself. Unknown delivery
 is never retried automatically. Platform UI enables
 this behavior from the negotiated capability, not the Agent's display name.
 
+File context actions target a configured Agent and a root conversation within the
+captured workspace. The quick action names the current Agent; other destinations
+are grouped by Agent and identify existing sessions or a new conversation. Opening
+the menu uses cached session summaries and does not start background Agents.
+Attaching appends deduplicated native file references to that destination's draft,
+preserves its text, and never sends, steers or cancels a turn. Draft text and files
+remain isolated by Agent/session, including new-session creation and failed history
+loads. Stale projects, removed Agents and unavailable sessions must not redirect the
+attachment. Directories are not recursively expanded. References read saved disk
+contents; dirty editor buffers are retained and prompt the user to save before sending.
+
+Agent activity separates reported plans, native subagents and file edits. Ordinary
+tools are execution evidence, never inferred plan steps or child agents. Native
+children expose their upstream task, state and delivered output, scoped to their
+root conversation. Completion counts only explicit success; unknown outcomes
+remain disconnected. Child permissions use the owning root's existing controls.
+A platform enables this monitor only when it consumes negotiated child-session
+events; execution and history storage remain owned by the upstream Agent.
+
 The opened workspace, supplied by the product, defines the default meaning of
 "current project". A containing Git repository and inherited development rules
 do not replace that scope. The shared Host adds the same explicit workspace
@@ -58,9 +77,22 @@ presented by Lithe and from generated live/history-list titles, without rewritin
 upstream history or filtering model replies. Titles left empty by this filtering
 are missing values, so presentation retains its existing title fallbacks.
 
-Agent activity presentation uses the selected session's reported plan, pending
-tools and file diffs. Review acknowledgements are local to the exact reported
-version; later edits remain reviewable and start after the acknowledged prefix.
+The Host enables the native Codex checklist through process-local
+`tools.update_plan.enabled` configuration for both API and subscription launches.
+It does not edit CLI settings or switch collaboration mode. Plan creation and
+updates remain Agent-owned.
+
+Native child permissions preserve their requester separately from the root turn.
+An ended child or ancestor cancels only that subtree's pending permissions;
+presentation consumes the same lifecycle update to remove its prompts and refresh
+attention/timing. Root and sibling permissions and the root prompt stay active.
+
+Agent activity presentation uses the selected session's reported plan, native
+subagents and file diffs. Compact summaries may omit empty categories; ordinary
+tools do not create placeholder tasks or child sessions. File-summary line totals
+require complete reported counts for all included, completed changes; missing or
+overflowing counts remain unknown rather than becoming partial or estimated totals.
+Review acknowledgements are local to the exact reported version; later edits remain reviewable and start after the acknowledged prefix.
 The same open session retains its acknowledgements through disconnects and history
 reloads; closing its tab releases them. Replay must still match the exact version
 or prefix, so changed upstream evidence is never hidden by a stale acknowledgement.
@@ -94,6 +126,7 @@ These presentation actions do not add Agent Host commands or persist chat histor
 | Terminal | input bytes, output bytes, lifecycle; [shell selection semantics](terminal-profiles.md) | PTY/ConPTY, shell discovery, native profile preferences, and environment |
 | Workbench background | versioned source (`none`, bundled slot `01`–`10`, or `custom`) and opacity | UI, image rendering, bundled-resource packaging, local-image access permission and persistence |
 | Local History | revision metadata, text content, restore result | persistence location and file operations |
+| Application logging | fixed module categories, versioned event context, recursive privacy rules, bounded timeline filters and frozen diagnostic preview manifests | background queues, native file rotation/retention, effective directory fallback, crash capture, session selection, viewing and user-selected export destinations |
 | Modules | stable IDs, manifests, enabled state, lifecycle snapshots, dependencies, capabilities, and contributions | native factories, processes, timers, PTY/ConPTY, watchers, connections, and UI rendering |
 | Community integrations | Discourse authorization sessions, RSA-OAEP callback verification, user API protocol models, and normalized community data | opening the system browser, receiving URL callbacks, and credential-vault persistence |
 | Updates | normalized release metadata, state names, validated `stable|autobuild` preference, explicit rolling consent, and stable error codes | update feeds, package verification, download, installation, restart, and native UI |
@@ -254,8 +287,11 @@ contract must preserve these invariants:
   execution are built-in lifecycle modules. They are not marketplace plugins.
 - Java language tooling remains part of the built-in product. Every other
   language provider is represented by an independently configurable bundled
-  language-support plugin; PHP uses an optional separately installed native package,
-  Go uses the bundled signed native-package path while the
+  language-support plugin. On macOS, Go and PHP are community declarative
+  plugins from Lithe Store (`io.github.lithe-idea.go-support`,
+  `io.github.lithe-idea.php-support`); the retired official IDs
+  `dev.lithe.plugin.go-support` and `dev.lithe.plugin.php-support` keep their
+  pinned publisher signature requirement but have no official source. The
   remaining providers share the host's generic language-server module.
 - A downloadable language support package may declare language-server,
   execution, testing, and debug module IDs under one language ID. All referenced
@@ -642,9 +678,11 @@ cannot disagree with a separate host-owned preparation veto.
 
 ### Optional PHP support
 
-PHP plugin installation is explicit. The base application ships neither the PHP
-native package nor Node/Bun/Intelephense. macOS accepts a verified signed package
-through plugin management; its tools are user-owned and never deleted by Lithe.
+PHP plugin installation is explicit. The base application ships neither a PHP
+package nor Node/Bun/Intelephense. macOS installs the Lithe Store community package
+`io.github.lithe-idea.php-support` through plugin management; the package does not
+bundle Intelephense, which the user installs, and its tools are user-owned and
+never deleted by Lithe.
 Windows installs language tools only on an explicit install/repair action; its
 managed tool cache is removed on uninstall without touching global tools. PHP
 run/test discovery and launch require enabled support. Disable cancels installation,

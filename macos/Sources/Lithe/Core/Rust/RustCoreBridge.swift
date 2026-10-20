@@ -72,12 +72,46 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     struct WorkspaceSnapshotPayload: Decodable, Sendable {
         let root: WorkspaceNodePayload
         let files: [String]
+        let nestedWorktrees: [String]
+
+        private enum CodingKeys: String, CodingKey {
+            case root, files, nestedWorktrees
+        }
+
+        init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            root = try container.decode(WorkspaceNodePayload.self, forKey: .root)
+            files = try container.decode([String].self, forKey: .files)
+            nestedWorktrees = try container.decodeIfPresent([String].self, forKey: .nestedWorktrees) ?? []
+        }
 
         func makeSnapshot(at rootURL: URL) -> WorkspaceSnapshot {
-            WorkspaceSnapshot(
-                root: root.makeFileNode(at: rootURL),
-                files: files.map { rootURL.appendingPathComponent($0) }
+            let nested = nestedWorktrees.map { rootURL.appendingPathComponent($0, isDirectory: true) }
+            guard root.children != nil else {
+                return WorkspaceSnapshot(
+                    root: FileNode(url: rootURL, isDirectory: true, children: nil),
+                    files: files.map { rootURL.appendingPathComponent($0) },
+                    nestedWorktrees: nested
+                )
+            }
+            // Preserve Core's file order while sharing URLs with the full tree.
+            var fileURLs: [String: URL] = [:]
+            fileURLs.reserveCapacity(files.count)
+            let rootNode = root.makeFileNode(at: rootURL, fileURLs: &fileURLs)
+            return WorkspaceSnapshot(
+                root: rootNode,
+                files: files.map { fileURLs[$0] ?? rootURL.appendingPathComponent($0) },
+                nestedWorktrees: nested
             )
+        }
+    }
+
+    struct DirectoryListingPayload: Decodable, Sendable {
+        let directories: [Directory]
+
+        struct Directory: Decodable, Sendable {
+            let path: String
+            let children: [WorkspaceNodePayload]
         }
     }
 
@@ -214,6 +248,41 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
 
     struct MarkdownRenderPayload: Decodable, Sendable {
         let html: String
+    }
+
+    struct PreparedLogEvent: Codable, Sendable {
+        let category: String
+        let scope: String
+        let message: String
+        let fields: [String: String]
+    }
+
+    struct LogSource: Encodable, Sendable {
+        let category: String
+        let text: String
+    }
+
+    struct LogQueryPayload: Decodable, Sendable {
+        let content: String
+        let truncated: Bool
+        let matchedLines: Int
+    }
+
+    private struct LogEventRequest: Encodable {
+        let scope: String
+        let message: String
+        let fields: [String: String]
+    }
+
+    private struct LogQueryRequest: Encodable {
+        let sources: [LogSource]
+        let category: String?
+        let minimumLevel: String?
+        let sessionId: String?
+        let search: String?
+        let since: String?
+        let until: String?
+        let limit: Int
     }
 
     struct DiagnosticsRedactTextPayload: Decodable, Sendable {
@@ -1435,6 +1504,16 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let root: String
         let hiddenDirectoryNames: [String]
         let hiddenFilePatterns: [String]
+        /// Omitted for index requests; snapshots pass false and list the tree
+        /// per directory instead.
+        var includeTree: Bool?
+    }
+
+    private struct DirectoryListingRequest: Encodable {
+        let root: String
+        let paths: [String]
+        let hiddenDirectoryNames: [String]
+        let hiddenFilePatterns: [String]
     }
 
     private struct SearchIndexUpdateRequest: Encodable {
@@ -1788,6 +1867,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
 
     private struct LspStartServerRequest: Encodable {
         let providerId: String
+        /// The plugin that owns the process; nil for host-owned servers.
+        let pluginId: String?
         let executablePath: String
         let arguments: [String]
         let environment: [String: String]
@@ -1799,6 +1880,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let cacheDirectory: String?
         let workspaceFingerprint: String?
         let mavenContext: MavenLaunchContext?
+        let javaGradle: JavaGradleImportConfiguration?
         let javaRuntimes: [LspJavaRuntimeRequest]
         let initializeTimeoutMilliseconds: Int
         let requestTimeoutMilliseconds: Int
@@ -1929,6 +2011,25 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         }
     }
 
+    private struct LspBuildRequest: Encodable {
+        let sessionId: String
+        let method: String
+        let params: ToolingJSONValue
+        let timeoutMilliseconds: Int
+    }
+
+    private struct LspFunctionRequest: Encodable {
+        struct Reference: Encodable {
+            let pluginID: String
+            let functionID: String
+        }
+
+        let sessionId: String
+        let function: Reference
+        let params: ToolingJSONValue
+        let timeoutMilliseconds: Int
+    }
+
     private struct LspCancelOperationRequest: Encodable {
         let sessionId: String
         let operationId: String
@@ -1981,6 +2082,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let underlyingMessage: String?
         let processExitCode: Int?
         let javaBuildReport: JavaBuildReport?
+        let pluginErrorCode: String?
     }
 
     struct LspServerInfoPayload: Decodable, Sendable {
@@ -2279,6 +2381,25 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             command: "workspace.snapshot",
             payload: SnapshotRequest(
                 root: rootURL.standardizedFileURL.path,
+                hiddenDirectoryNames: hiddenDirectoryNames,
+                hiddenFilePatterns: hiddenFilePatterns,
+                includeTree: false
+            )
+        )
+    }
+
+    /// Lists one visible level below each workspace-relative directory.
+    func listDirectories(
+        at rootURL: URL,
+        relativePaths: [String],
+        hiddenDirectoryNames: [String] = [],
+        hiddenFilePatterns: [String] = []
+    ) -> DirectoryListingPayload? {
+        execute(
+            command: "workspace.listDirectories",
+            payload: DirectoryListingRequest(
+                root: rootURL.standardizedFileURL.path,
+                paths: relativePaths,
                 hiddenDirectoryNames: hiddenDirectoryNames,
                 hiddenFilePatterns: hiddenFilePatterns
             )
@@ -3260,6 +3381,17 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
 
     /// Redacts credentials, tokens, and home-directory paths from diagnostic
     /// text before it is staged for a diagnostic bundle export.
+    func prepareLogEvent(scope: String, message: String, fields: [String: String]) -> PreparedLogEvent? {
+        execute(command: "diagnostics.prepareLogEvent", payload: LogEventRequest(
+            scope: scope, message: message, fields: fields))
+    }
+
+    func queryLogs(sources: [LogSource], query: ApplicationLogQuery, sessionID: String?) -> LogQueryPayload? {
+        execute(command: "diagnostics.queryLogs", payload: LogQueryRequest(
+            sources: sources, category: query.category, minimumLevel: query.minimumLevel,
+            sessionId: sessionID, search: query.search, since: query.since, until: query.until, limit: 10000))
+    }
+
     func redactDiagnosticText(_ text: String) -> Result<DiagnosticsRedactTextPayload, CoreCallError> {
         executeResult(
             command: "diagnostics.redactText",
@@ -3451,6 +3583,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     /// and owns the process; nothing about it crosses back except this ID.
     func lspStartServer(
         providerID: String,
+        pluginID: String? = nil,
         executableURL: URL,
         arguments: [String],
         environment: [String: String],
@@ -3462,6 +3595,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         cacheDirectoryURL: URL? = nil,
         workspaceFingerprint: String? = nil,
         mavenContext: MavenLaunchContext? = nil,
+        javaGradle: JavaGradleImportConfiguration? = nil,
         initializeTimeout: TimeInterval = 30,
         requestTimeout: TimeInterval = 30,
         shutdownTimeout: TimeInterval = 2
@@ -3470,6 +3604,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             command: "lsp.startServer",
             payload: LspStartServerRequest(
                 providerId: providerID,
+                pluginId: pluginID,
                 executablePath: executableURL.standardizedFileURL.path,
                 arguments: arguments,
                 environment: environment,
@@ -3489,6 +3624,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 cacheDirectory: cacheDirectoryURL?.standardizedFileURL.path,
                 workspaceFingerprint: workspaceFingerprint,
                 mavenContext: mavenContext,
+                javaGradle: javaGradle,
                 javaRuntimes: (jdtlsLaunchResources?.javaRuntimes ?? []).map {
                     LspJavaRuntimeRequest(homePath: $0.homePath, version: $0.version)
                 },
@@ -3691,6 +3827,45 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 direction: marker.direction.rawValue,
                 relation: marker.relation.rawValue,
                 documentVersion: documentVersion
+            )
+        )
+    }
+
+    /// Sends a `lithe/build/*` request Core planned. Core refuses it unless
+    /// the session negotiated the build-provider protocol in `initialize`.
+    func lspBuildRequest(
+        sessionID: String,
+        method: String,
+        params: ToolingJSONValue,
+        timeout: TimeInterval
+    ) -> Result<LspOperationPayload, CoreCallError> {
+        executeResult(
+            command: "lsp.buildRequest",
+            payload: LspBuildRequest(
+                sessionId: sessionID,
+                method: method,
+                params: params,
+                timeoutMilliseconds: max(1, Self.milliseconds(timeout))
+            )
+        )
+    }
+
+    /// Invokes a plugin function. Core refuses it unless the session belongs
+    /// to `pluginID` and registered the function.
+    func lspFunctionRequest(
+        sessionID: String,
+        pluginID: String,
+        functionID: String,
+        params: ToolingJSONValue,
+        timeout: TimeInterval
+    ) -> Result<LspOperationPayload, CoreCallError> {
+        executeResult(
+            command: "lsp.functionRequest",
+            payload: LspFunctionRequest(
+                sessionId: sessionID,
+                function: .init(pluginID: pluginID, functionID: functionID),
+                params: params,
+                timeoutMilliseconds: max(1, Self.milliseconds(timeout))
             )
         )
     }
@@ -4078,18 +4253,20 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
 }
 
 private extension RustCoreBridge.WorkspaceNodePayload {
-    func makeFileNode(at rootURL: URL) -> FileNode {
-        makeFileNode(at: rootURL, insideSourceRoot: false)
+    /// Also records each file's URL by its payload path.
+    func makeFileNode(at rootURL: URL, fileURLs: inout [String: URL]) -> FileNode {
+        makeFileNode(at: rootURL, insideSourceRoot: false, fileURLs: &fileURLs)
     }
 
     /// 把只含单个子目录的中间包压缩成一行（IDEA 的 Compact Middle Packages）。
     /// 规则对齐 TreeViewUtil.isEmptyMiddlePackage：唯一的子节点是目录、且当前
     /// 目录下没有文件时才压缩。只在源码根之下压缩，src/main/java 之外的目录树
     /// 保持原样，否则普通项目里任意的单层目录也会被合并，反而更难看懂。
-    private func makeFileNode(at rootURL: URL, insideSourceRoot: Bool) -> FileNode {
+    private func makeFileNode(at rootURL: URL, insideSourceRoot: Bool, fileURLs: inout [String: URL]) -> FileNode {
         let url = path.isEmpty ? rootURL : rootURL.appendingPathComponent(path)
 
         guard isDirectory else {
+            fileURLs[path] = url
             return FileNode(url: url, isDirectory: false, children: nil)
         }
 
@@ -4116,7 +4293,7 @@ private extension RustCoreBridge.WorkspaceNodePayload {
             url: nodeURL,
             isDirectory: true,
             children: node.children?.map {
-                $0.makeFileNode(at: rootURL, insideSourceRoot: childrenInsideSourceRoot)
+                $0.makeFileNode(at: rootURL, insideSourceRoot: childrenInsideSourceRoot, fileURLs: &fileURLs)
             },
             collapsedAncestorPaths: collapsed,
             isInsideSourceRoot: insideSourceRoot

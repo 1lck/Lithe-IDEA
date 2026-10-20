@@ -133,6 +133,11 @@ struct ProjectSidebarView: View {
                         }
                         .scrollContentBackground(.hidden)
                         .litheScrollViewChrome(usesCompactScrollers: true)
+                        // Directories are listed when first expanded; this also
+                        // covers rows a rescan or reveal left expanded but unloaded.
+                        .task(id: root.unloadedRows(expandedPaths: expandedDirectoryPaths).map(\.url.path)) {
+                            await model.loadExpandedProjectDirectories(expandedDirectoryPaths)
+                        }
                         .task(
                             id: ProjectTreeTaskID(
                                 rootPath: root.url.standardizedFileURL.path,
@@ -155,9 +160,12 @@ struct ProjectSidebarView: View {
                                         includeItem: request.isDirectory
                                     )
                                 )
+                                await model.loadExpandedProjectDirectories(expandedDirectoryPaths)
                                 await Task.yield()
+                                // Listing can fold the target into a compact package row.
+                                let rowURL = model.projectTreeURL(for: request.fileURL) ?? request.fileURL
                                 proxy.scrollTo(
-                                    request.fileURL.standardizedFileURL.path,
+                                    rowURL.standardizedFileURL.path,
                                     anchor: .center
                                 )
                             }
@@ -385,6 +393,11 @@ private final class ProjectTreeActions: @unchecked Sendable {
 
     init(model: AppModel) {
         self.model = model
+    }
+
+    @MainActor
+    func agentAttachmentMenuItems(_ urls: [URL]) -> [LitheContextMenuItem] {
+        AgentFileAttachmentMenu.items(model: model, urls: urls)
     }
 
     // Button and context-menu closures are not MainActor-isolated under the
@@ -739,7 +752,9 @@ private struct FileNodeRow: View {
 
     private var batchMenuItems: [LitheContextMenuItem] {
         let urls = selectedItemURLs
-        return clipboardMenuItems + [.separator] + projectSearchMenuItems + [
+        let attachments = actions.agentAttachmentMenuItems(urls)
+        return clipboardMenuItems + [.separator] + projectSearchMenuItems
+            + (attachments.isEmpty ? [] : [.separator] + attachments) + [
             .separator,
             .action("Duplicate", isEnabled: !urls.isEmpty) { actions.duplicateFiles(urls) },
             .action("Move to Trash", systemImage: "trash", role: .destructive, isEnabled: !urls.isEmpty) {
@@ -902,6 +917,8 @@ private struct FileNodeRow: View {
                 actions.openFile(node.url)
             }
         ] + [.separator] + projectSearchMenuItems
+        let attachments = actions.agentAttachmentMenuItems([node.url])
+        if !attachments.isEmpty { items += [.separator] + attachments }
 
         if let change = gitStatus.change(for: node.url) {
             items += [

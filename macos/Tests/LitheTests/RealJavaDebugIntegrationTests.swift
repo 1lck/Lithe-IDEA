@@ -364,6 +364,10 @@ struct RealJavaDebugIntegrationTests {
             in: testSource
         ))
 
+        let braceLine = try #require(testSource.components(separatedBy: .newlines)
+            .firstIndex { $0.trimmingCharacters(in: .whitespaces) == "}" }).advanced(by: 1)
+        #expect(DebugBreakpointLocationValidator.canSetSourceBreakpoint(source: testSource, line: braceLine))
+
         let core = RustCoreBridge()
         #expect(core.isAvailable)
         guard core.isAvailable else { return }
@@ -453,6 +457,7 @@ struct RealJavaDebugIntegrationTests {
 
         #expect(prepared.target.framework == scenario.framework)
         feature.toggleBreakpoint(fileURL: testURL, line: breakpointLine)
+        feature.toggleBreakpoint(fileURL: testURL, line: braceLine)
         #expect(feature.start(
             fileURL: testURL,
             rootURL: rootURL,
@@ -467,7 +472,7 @@ struct RealJavaDebugIntegrationTests {
             )
         }
         #expect(
-            feature.breakpoints.first?.verified == true,
+            feature.breakpoints.first(where: { $0.line == breakpointLine })?.verified == true,
             "The Java test breakpoint was not verified.\n\(debugSnapshot(feature, protocolTrace: protocolTrace))"
         )
         guard await waitUntil(timeout: .seconds(30), condition: {
@@ -483,6 +488,10 @@ struct RealJavaDebugIntegrationTests {
             feature.variables.contains { $0.name == scenario.expectedVariable }
         }, "The stopped Java test frame did not expose \(scenario.expectedVariable).")
 
+        let brace = try #require(feature.breakpoints.first(where: { $0.line == braceLine }))
+        // Placement remains saved whether the adapter can bind this brace or not.
+        #expect(feature.breakpoints.count == 2)
+        feature.removeBreakpoint(brace)
         feature.execute(.continueExecution)
         #expect(await waitUntil(timeout: .seconds(60)) {
             feature.state == .terminated
@@ -656,8 +665,7 @@ private enum RealJavaTestDebugScenario: String {
             import org.junit.jupiter.api.Test;
 
             class UserServiceTest {
-                @Test
-                void addsNumbers() {
+                @Test void addsNumbers() {
                     int left = 20;
                     int right = 22;
                     int total = left + right;

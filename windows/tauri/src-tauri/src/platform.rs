@@ -16,6 +16,12 @@ pub async fn platform_invoke(
     agent_events: Option<tauri::ipc::JavaScriptChannelId>,
     git_execution: Option<Value>,
 ) -> Result<Value, String> {
+    let log_manager = webview
+        .app_handle()
+        .try_state::<Arc<crate::logging::LogManager>>()
+        .map(|state| state.inner().clone());
+    let log_window = webview.window().label().to_string();
+    let log_started = std::time::Instant::now();
     let ide_owner = if command == "ideHost.control" && args["action"] == "open" {
         let owner = webview.window().label().to_owned();
         args["arguments"]["ownerID"] = json!(owner);
@@ -43,6 +49,25 @@ pub async fn platform_invoke(
         .map(ToString::to_string)
         .unwrap_or_else(|| format!("windows-{}", REQUEST_ID.fetch_add(1, Ordering::Relaxed)));
     let (core_command, payload) = translate(&command, args)?;
+    let log_level = if [
+        "start", "stop", "build", "execute", "import", "commit", "pull", "push", "fetch",
+        "install", "activate",
+    ]
+    .iter()
+    .any(|action| core_command.to_ascii_lowercase().contains(action))
+    {
+        "info"
+    } else {
+        "debug"
+    };
+    if let Some(manager) = &log_manager {
+        manager.emit_json(
+            log_level,
+            core_command.clone(),
+            "operation started".into(),
+            Some(json!({ "operation_id": operation_id, "window_id": log_window })),
+        );
+    }
     let interactive_git = is_interactive_git(&core_command, &command);
     // Observe every Git request at the shared boundary. Core suppresses its
     // parser-only probes, so new operation entry points cannot miss the console.
@@ -97,6 +122,20 @@ pub async fn platform_invoke(
     let envelope: Value = serde_json::from_str(&response)
         .map_err(|error| format!("Shared core returned invalid JSON: {error}"))?;
 
+    if let Some(manager) = &log_manager {
+        manager.emit_json(
+            if envelope["ok"] == true {
+                log_level
+            } else {
+                "error"
+            },
+            core_command.clone(),
+            "operation finished".into(),
+            Some(json!({"operation_id":operation_id, "window_id":log_window,
+                "duration_ms": log_started.elapsed().as_millis() as u64,
+                "error_code": envelope.pointer("/error/code").and_then(Value::as_str) })),
+        );
+    }
     platform_response(
         &command,
         &envelope,
@@ -423,7 +462,10 @@ fn translate(command: &str, args: Value) -> Result<(String, Value), String> {
                 .remove("stashIndex")
                 .and_then(|value| value.as_u64())
                 .unwrap_or(0);
-            payload.insert("reference".into(), json!(format!("stash@{{{index}}}")));
+            let reference = payload
+                .remove("stashOid")
+                .unwrap_or_else(|| json!(format!("stash@{{{index}}}")));
+            payload.insert("stashReference".into(), reference);
             payload.insert("pathspecs".into(), json!(["."]));
             "git.diff"
         }
@@ -517,7 +559,10 @@ fn translate(command: &str, args: Value) -> Result<(String, Value), String> {
                 .remove("stashIndex")
                 .and_then(|value| value.as_u64())
                 .unwrap_or(0);
-            payload.insert("reference".into(), json!(format!("stash@{{{index}}}")));
+            let reference = payload
+                .remove("stashOid")
+                .unwrap_or_else(|| json!(format!("stash@{{{index}}}")));
+            payload.insert("reference".into(), reference);
             let operation = match command {
                 "git_apply_stash" => "stashApply",
                 "git_pop_stash" => "stashPop",
@@ -712,7 +757,22 @@ fn translate(command: &str, args: Value) -> Result<(String, Value), String> {
             let hunk = payload
                 .remove("hunk")
                 .ok_or_else(|| "Hunk payload is required".to_string())?;
-            payload.insert("patch".into(), json!(hunk_patch(&hunk)?));
+            // A raw patch from the byte-faithful channel carries original CR
+            // and EOF markers and zero context; reconstructing from display
+            // lines would lose both. Fall back to reconstruction (which
+            // propagates its own error) only when no raw patch exists.
+            let raw_patch = hunk
+                .get("rawPatch")
+                .and_then(Value::as_str)
+                .filter(|value| !value.is_empty());
+            let (patch, unidiff_zero) = match raw_patch {
+                Some(raw) => (raw.to_string(), true),
+                None => (hunk_patch(&hunk)?, false),
+            };
+            payload.insert("patch".into(), json!(patch));
+            if unidiff_zero {
+                payload.insert("unidiffZero".into(), json!(true));
+            }
             payload.insert(
                 "mode".into(),
                 // `discard` reverse-applies the worktree hunk without touching

@@ -3,6 +3,7 @@ import LitheApplicationKernel
 import LitheCoreContracts
 import LitheModuleAPI
 import LitheDebugModule
+import LitheLanguageIntelligenceModule
 
 /// Platform-neutral service graph consumed by application orchestration.
 /// Platform composition roots construct this graph with their own adapters.
@@ -10,13 +11,21 @@ import LitheDebugModule
 final class AppServices {
     var ideCapabilityRegistry: IdeCapabilityRegistry?
     var ideHostTransport: (any IdeHostTransport)?
+    /// Codex and Claude Code MCP configuration files. `nil` before platform
+    /// composition, which leaves the settings page read-only.
+    var mcpConfigurationStore: (any McpConfigurationStore)?
     /// Confirms closing terminals with running programs; `nil` closes directly.
     var processExitCoordinator: ProcessExitCoordinator?
+    /// Gives build providers that share a language server the language
+    /// sessions; `nil` when the platform starts no build providers.
+    var connectBuildProviderLanguageSessions: ((@escaping @MainActor () -> LanguageToolingSessionManager?) -> Void)?
     let moduleRuntime: ModuleRuntime
     let pluginManager: any PluginManaging
     let pluginMarketplace: any PluginMarketplaceServicing
     let pluginCatalog: ValidatedPluginCatalog
     let pluginUIIconResources: [String: PluginUIIconResources]
+    /// Plugin pages shown in host tool windows (`ui` 2).
+    let pluginWebPages: PluginWebPages
     /// Unified language-pack composition. The derived catalog and focused
     /// registries remain exposed below for source compatibility with existing
     /// feature models while new composition should use this value.
@@ -59,6 +68,7 @@ final class AppServices {
     let agentProviderConfigurationParser: any AgentProviderConfigurationParsing
     let aiConfigurationSources: [any AIConfigurationSource]
     let recentProjectsStore: RecentProjectsStore
+    let recentProjectBranchReader: any RecentProjectBranchReading
     let workspaceSessionStore: WorkspaceSessionStore
     let directoryMarkStore: any WorkspaceDirectoryMarkStoring
     let workbenchLayoutStore: WorkbenchLayoutStore
@@ -73,6 +83,7 @@ final class AppServices {
         pluginMarketplace: any PluginMarketplaceServicing,
         pluginCatalog: ValidatedPluginCatalog,
         pluginUIIconResources: [String: PluginUIIconResources] = [:],
+        pluginWebPages: PluginWebPages? = nil,
         languageProviderCatalogSource: any LanguageProviderCatalogSource,
         workspaceLanguageServerPreferences: any WorkspaceLanguageServerPreferencesStoring,
         languageProviderCatalogSnapshot: LanguageProviderCatalogSnapshot? = nil,
@@ -102,6 +113,7 @@ final class AppServices {
         agentProviderConfigurationParser: any AgentProviderConfigurationParsing = UnavailableAgentProviderConfigurationParser(),
         aiConfigurationSources: [any AIConfigurationSource],
         recentProjectsStore: RecentProjectsStore,
+        recentProjectBranchReader: any RecentProjectBranchReading = UnavailableRecentProjectBranchReader(),
         workspaceSessionStore: WorkspaceSessionStore,
         directoryMarkStore: any WorkspaceDirectoryMarkStoring,
         workbenchLayoutStore: WorkbenchLayoutStore,
@@ -119,6 +131,7 @@ final class AppServices {
         self.pluginMarketplace = pluginMarketplace
         self.pluginCatalog = pluginCatalog
         self.pluginUIIconResources = pluginUIIconResources
+        self.pluginWebPages = pluginWebPages ?? PluginWebPages()
         self.languageProviderCatalogSource = languageProviderCatalogSource
         self.workspaceLanguageServerPreferences = workspaceLanguageServerPreferences
         let resolvedCatalogSnapshot = languageProviderCatalogSnapshot
@@ -157,6 +170,7 @@ final class AppServices {
         self.agentProviderConfigurationParser = agentProviderConfigurationParser
         self.aiConfigurationSources = aiConfigurationSources
         self.recentProjectsStore = recentProjectsStore
+        self.recentProjectBranchReader = recentProjectBranchReader
         self.workspaceSessionStore = workspaceSessionStore
         self.directoryMarkStore = directoryMarkStore
         self.workbenchLayoutStore = workbenchLayoutStore

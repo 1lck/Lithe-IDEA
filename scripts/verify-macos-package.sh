@@ -246,9 +246,9 @@ if [[ -e "$app_path/Contents/Resources/LanguageServers" ]]; then
     exit 1
 fi
 
-# Go and PHP support are downloaded from the plugin marketplace, so the app
-# ships no official plugin package; the marketplace index below is the offline
-# catalog for them.
+# Go and PHP support moved to community plugins in Lithe Store. The app must
+# not carry their retired official packages; the marketplace index below is
+# the offline catalog for downloadable official plugins.
 for optional_plugin in dev.lithe.plugin.php-support dev.lithe.plugin.go-support; do
     if [[ -e "$app_path/Contents/Resources/OfficialPlugins/$optional_plugin" ]]; then
         print -u2 -- "Optional plugin $optional_plugin must not be bundled with Lithe"

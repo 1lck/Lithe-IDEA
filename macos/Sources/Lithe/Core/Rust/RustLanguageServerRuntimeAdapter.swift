@@ -39,6 +39,23 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
     }
 
     func startLanguageServer(
+        providerID: String, executableURL: URL, arguments: [String], environment: [String: String],
+        rootURL: URL, workingDirectoryURL: URL, initializationOptions: ToolingJSONValue?,
+        runtimeExecutableURL: URL?, jdtlsLaunchResources: JDTLSLaunchResources?, cacheDirectoryURL: URL?,
+        workspaceFingerprint: String?, mavenContext: MavenLaunchContext?,
+        initializeTimeout: TimeInterval, requestTimeout: TimeInterval, shutdownTimeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure> {
+        startLanguageServer(
+            providerID: providerID, executableURL: executableURL, arguments: arguments, environment: environment,
+            rootURL: rootURL, workingDirectoryURL: workingDirectoryURL, initializationOptions: initializationOptions,
+            runtimeExecutableURL: runtimeExecutableURL, jdtlsLaunchResources: jdtlsLaunchResources,
+            cacheDirectoryURL: cacheDirectoryURL, workspaceFingerprint: workspaceFingerprint,
+            mavenContext: mavenContext, javaGradle: nil, initializeTimeout: initializeTimeout,
+            requestTimeout: requestTimeout, shutdownTimeout: shutdownTimeout
+        )
+    }
+
+    func startLanguageServer(
         providerID: String,
         executableURL: URL,
         arguments: [String],
@@ -51,6 +68,7 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
         cacheDirectoryURL: URL?,
         workspaceFingerprint: String?,
         mavenContext: MavenLaunchContext?,
+        javaGradle: JavaGradleImportConfiguration?,
         initializeTimeout: TimeInterval,
         requestTimeout: TimeInterval,
         shutdownTimeout: TimeInterval
@@ -68,6 +86,7 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
             cacheDirectoryURL: cacheDirectoryURL,
             workspaceFingerprint: workspaceFingerprint,
             mavenContext: mavenContext,
+            javaGradle: javaGradle,
             initializeTimeout: initializeTimeout,
             requestTimeout: requestTimeout,
             shutdownTimeout: shutdownTimeout
@@ -188,6 +207,59 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
             .mapError(Self.runtimeFailure)
     }
 
+    func requestBuildProvider(
+        sessionID: String,
+        method: String,
+        params: ToolingJSONValue,
+        timeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
+        lspBuildRequest(sessionID: sessionID, method: method, params: params, timeout: timeout)
+            .map { LanguageServerRuntimeOperation(operationID: $0.operationId) }
+            .mapError(Self.runtimeFailure)
+    }
+
+    func startPluginLanguageServer(
+        pluginID: String,
+        providerID: String,
+        executableURL: URL,
+        arguments: [String],
+        environment: [String: String],
+        rootURL: URL,
+        initializationOptions: ToolingJSONValue?,
+        initializeTimeout: TimeInterval,
+        requestTimeout: TimeInterval,
+        shutdownTimeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure> {
+        lspStartServer(
+            providerID: providerID,
+            pluginID: pluginID,
+            executableURL: executableURL,
+            arguments: arguments,
+            environment: environment,
+            rootURL: rootURL,
+            workingDirectoryURL: rootURL,
+            initializationOptions: initializationOptions,
+            initializeTimeout: initializeTimeout,
+            requestTimeout: requestTimeout,
+            shutdownTimeout: shutdownTimeout
+        ).map {
+            LanguageServerRuntimeStart(sessionID: $0.sessionId, state: $0.state, processID: $0.processId)
+        }.mapError(Self.runtimeFailure)
+    }
+
+    func requestPluginFunction(
+        sessionID: String,
+        pluginID: String,
+        functionID: String,
+        params: ToolingJSONValue,
+        timeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
+        lspFunctionRequest(
+            sessionID: sessionID, pluginID: pluginID, functionID: functionID, params: params, timeout: timeout
+        ).map { LanguageServerRuntimeOperation(operationID: $0.operationId) }
+            .mapError(Self.runtimeFailure)
+    }
+
     func cancelLanguageServerOperation(sessionID: String, operationID: String) {
         lspCancelOperation(sessionID: sessionID, operationID: operationID)
     }
@@ -208,7 +280,8 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
                         message: $0.message,
                         underlyingMessage: $0.underlyingMessage,
                         processExitCode: $0.processExitCode,
-                        javaBuildReport: $0.javaBuildReport
+                        javaBuildReport: $0.javaBuildReport,
+                        pluginErrorCode: $0.pluginErrorCode
                     )
                 },
                 capabilities: event.capabilities,

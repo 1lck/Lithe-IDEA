@@ -16,7 +16,7 @@ enum SettingsSearchVocabulary {
     static func terms(for category: SettingsCategory) -> [String] {
         switch category {
         case .general:
-            ["General", "Appearance", "Color theme", "Appearance mode", "Language", "Projects", "Files", "Version control", "Logs", "Log directory", "Hidden paths"]
+            ["General", "Appearance", "Color theme", "Appearance mode", "Language", "Projects", "Files", "Version control", "Hidden paths"]
         case .editor:
             ["Editor", "Display", "Editor tabs", "tabs", "Font", "Font size", "Search fonts", "File tree row height", "Show minimap", "Minimap", "Indentation", "Tab width"]
         case .keymap:
@@ -26,7 +26,7 @@ enum SettingsSearchVocabulary {
         case .run:
             ["Run configurations", "Program arguments", "VM options", "Environment variables", "Working directory", "Services"]
         case .terminal:
-            ["Terminal", "Shell", "Default shell"]
+            ["Terminal", "Shell", "Default shell", "Scrollback", "Terminal scrollback", "Scrollback lines"]
         case .lsp:
             ["LSP", "Language server"]
         case .ai:
@@ -42,11 +42,11 @@ enum SettingsSearchVocabulary {
         case .processTermination:
             ["Process Termination Policy", "Process", "Quit", "Terminals with running programs", "Agent tasks", "Background services", "Closing a terminal tab", "After Lithe closes unexpectedly", "Time to exit", "Remembered choices", "Daemon"]
         case .diagnostics:
-            ["Diagnostics", "Diagnostics bundle", "Export logs", "Bug report"]
+            ["Logs and Diagnostics", "Logs", "Log directory", "Log timeline", "Diagnostics", "Diagnostic bundle", "Export logs", "Bug report", "Detailed diagnostics", "Module", "Session", "Minimum level", "Filter log messages", "From (UTC ISO 8601)", "Until (UTC ISO 8601)", "Retention and cleanup"]
         case .plugins:
             ["Plugins", "Installed", "Marketplace", "Language support"]
         case .mcp:
-            ["MCP Configuration", "MCP", "Agent", "AI tool connections (MCP)", "Copy agent configuration", "Permissions"]
+            ["MCP Configuration", "MCP", "MCP servers", "Server library", "Add server", "Codex", "Claude Code", "Agent", "AI tool connections (MCP)", "Copy agent configuration", "Permissions", "Environment variables", "Lithe IDE access"]
         }
     }
 

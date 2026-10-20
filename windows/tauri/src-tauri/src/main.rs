@@ -8,6 +8,7 @@ mod debug;
 mod diagnostics;
 mod document;
 mod file_events;
+mod file_publication;
 mod fonts;
 mod host;
 mod html_browser;
@@ -22,6 +23,7 @@ mod project_window_registry;
 mod project_windows;
 mod run;
 mod secure_storage;
+mod shelf_storage;
 mod terminal;
 mod watcher;
 mod window_title;
@@ -97,6 +99,7 @@ fn main() {
                     return Ok(());
                 }
             }
+            app.manage(Arc::new(diagnostics::DiagnosticBundleStore::default()));
             match logging::LogManager::initialize(app.handle()) {
                 Ok(log_manager) => {
                     app.manage(log_manager);
@@ -201,6 +204,8 @@ fn main() {
             logging::set_log_directory,
             logging::set_diagnostic_logging,
             logging::read_lithe_log,
+            logging::query_lithe_logs,
+            diagnostics::discard_diagnostic_bundle,
             logging::clear_lithe_logs,
             logging::resolve_previous_log_cleanup,
             logging::open_log_directory,
@@ -217,6 +222,7 @@ fn main() {
             host::read_file_custom,
             host::write_file,
             host::write_patch_file,
+            shelf_storage::saved_changes_storage,
             host::move_file,
             host::rename_file,
             host::get_symlink_info,
@@ -227,6 +233,7 @@ fn main() {
             host::clipboard_get,
             host::clipboard_paste,
             host::clipboard_clear,
+            host::clipboard_sequence_number,
             host::create_app_window,
             project_windows::claim_project_window,
             project_windows::release_project_window,

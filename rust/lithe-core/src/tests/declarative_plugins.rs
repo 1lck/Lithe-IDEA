@@ -16,20 +16,19 @@ macro_rules! contract_file {
 
 const PHP_FIXTURE: &str = contract_file!("fixtures/php-support.plugin.json");
 const HELLO_FIXTURE: &str = contract_file!("fixtures/hello-lithe.plugin.json");
+const WEB_PANEL_FIXTURE: &str = contract_file!("fixtures/web-panel.plugin.json");
 const GO_FIXTURE: &str = contract_file!("fixtures/go-support.plugin.json");
 const JAVA_FIXTURE: &str = contract_file!("fixtures/java-support.plugin.json");
 const NODE_RUNTIME_FIXTURE: &str = contract_file!("fixtures/node-runtime.plugin.json");
+const CARGO_BUILD_FIXTURE: &str = contract_file!("fixtures/cargo-build.plugin.json");
+const GO_BUILD_FIXTURE: &str = contract_file!("fixtures/go-build.plugin.json");
+const GRADLE_BUILD_FIXTURE: &str = contract_file!("fixtures/gradle-build.plugin.json");
+const MAVEN_BUILD_FIXTURE: &str = contract_file!("fixtures/maven-build.plugin.json");
+const GRADLE_PROVIDER_FIXTURE: &str = contract_file!("fixtures/gradle-provider.plugin.json");
+const MIX_PROVIDER_FIXTURE: &str = contract_file!("fixtures/mix-provider.plugin.json");
 const INVALID_MANIFESTS: &str = contract_file!("fixtures/invalid-manifests.json");
 const COMMAND_PLANS: &str = contract_file!("fixtures/command-plans.json");
 const RUNTIME_VERSIONS: &str = contract_file!("fixtures/runtime-versions.json");
-const OFFICIAL_PHP: &str = include_str!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../Plugins/mac/Official/PhpSupport/plugin.json"
-));
-const OFFICIAL_GO: &str = include_str!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../Plugins/mac/Official/GoSupport/plugin.json"
-));
 const OFFICIAL_JAVA: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../Plugins/mac/Official/JavaSupport/plugin.json"
@@ -40,8 +39,15 @@ fn fixture(name: &str) -> Value {
         "php-support.plugin.json" => PHP_FIXTURE,
         "go-support.plugin.json" => GO_FIXTURE,
         "hello-lithe.plugin.json" => HELLO_FIXTURE,
+        "web-panel.plugin.json" => WEB_PANEL_FIXTURE,
         "java-support.plugin.json" => JAVA_FIXTURE,
         "node-runtime.plugin.json" => NODE_RUNTIME_FIXTURE,
+        "cargo-build.plugin.json" => CARGO_BUILD_FIXTURE,
+        "go-build.plugin.json" => GO_BUILD_FIXTURE,
+        "gradle-build.plugin.json" => GRADLE_BUILD_FIXTURE,
+        "maven-build.plugin.json" => MAVEN_BUILD_FIXTURE,
+        "gradle-provider.plugin.json" => GRADLE_PROVIDER_FIXTURE,
+        "mix-provider.plugin.json" => MIX_PROVIDER_FIXTURE,
         other => panic!("unknown fixture {other}"),
     };
     serde_json::from_str(source).expect("fixture manifest is JSON")
@@ -57,8 +63,7 @@ fn contract_fixtures_and_official_plugins_validate() {
         PHP_FIXTURE,
         GO_FIXTURE,
         HELLO_FIXTURE,
-        OFFICIAL_PHP,
-        OFFICIAL_GO,
+        WEB_PANEL_FIXTURE,
         JAVA_FIXTURE,
         NODE_RUNTIME_FIXTURE,
         OFFICIAL_JAVA,
@@ -203,11 +208,16 @@ fn host_integration_capabilities_are_normalized_and_checked_against_the_integrat
 fn command_plan_fixtures_match_golden_expansions() {
     let fixtures: Value = serde_json::from_str(COMMAND_PLANS).unwrap();
     for case in fixtures["cases"].as_array().unwrap() {
-        let payload = json!({
+        let mut payload = json!({
             "manifest": fixture(case["plugin"].as_str().unwrap()),
-            "languageID": case["languageID"],
             "request": case["request"],
         });
+        // A launch plan selects its process by language or by build system.
+        for key in ["languageID", "buildSystemID"] {
+            if let Some(value) = case.get(key) {
+                payload[key] = value.clone();
+            }
+        }
         let outcome = match case["operation"].as_str().unwrap() {
             "runPlan" => run_plan_command(payload),
             "discoverTests" => discover_tests_command(payload),
@@ -345,6 +355,144 @@ fn settings_are_normalized_in_identifier_order() {
     assert_eq!(ids, ["heapMB", "logLevel", "telemetry"]);
 }
 
+/// API level 3 versions each section on its own: a manifest lists exactly
+/// the capabilities it uses, a missing one is named precisely, and a host
+/// that sends its capabilities refuses only plugins that need one it lacks.
+#[test]
+fn level_3_manifests_list_exactly_the_capabilities_they_use() {
+    let rejected = |outcome: Value| {
+        assert_eq!(outcome["status"], "rejected", "{outcome}");
+        (
+            outcome["error"]["code"].as_str().unwrap().to_string(),
+            outcome["error"]["field"].as_str().unwrap().to_string(),
+        )
+    };
+    let mix = fixture("mix-provider.plugin.json");
+    let outcome = validate(mix.clone());
+    assert_eq!(outcome["status"], "ok", "{outcome}");
+    assert_eq!(
+        outcome["plugin"]["requires"],
+        json!({ "buildProviders": 1, "buildSystems": 1, "languageServers": 1, "languages": 1, "serverProcess": 1 })
+    );
+    let legacy = validate(fixture("php-support.plugin.json"));
+    assert!(legacy["plugin"].get("requires").is_none(), "{legacy}");
+
+    let mut future = mix.clone();
+    future["requires"]["debuggers"] = json!(1);
+    future["debuggers"] = json!([{ "id": "lldb" }]);
+    assert_eq!(
+        rejected(validate(future)),
+        ("plugin.api.unsupported".into(), "requires.debuggers".into())
+    );
+    let mut missing = mix.clone();
+    missing["requires"]
+        .as_object_mut()
+        .unwrap()
+        .remove("serverProcess");
+    assert_eq!(
+        rejected(validate(missing)),
+        ("plugin.manifest.invalid".into(), "requires".into())
+    );
+    let mut unused = mix.clone();
+    unused["requires"]["settings"] = json!(1);
+    assert_eq!(
+        rejected(validate(unused)),
+        ("plugin.manifest.invalid".into(), "requires.settings".into())
+    );
+
+    // A level 3 plugin without build systems never depends on them.
+    let mut language_only = fixture("php-support.plugin.json");
+    language_only["pluginAPIVersion"] = json!(3);
+    language_only["requires"] = json!({
+        "executionProviders": 1, "languageServers": 1, "languages": 1, "serverProcess": 1
+    });
+    let host_without_builds = json!({
+        "executionProviders": [1], "languageServers": [1], "languages": [1], "serverProcess": [1]
+    });
+    let validate_on = |manifest: &Value, host: &Value| {
+        validate_command(json!({ "manifest": manifest, "hostCapabilities": host }))
+            .expect("payload is well formed")
+    };
+    assert_eq!(
+        validate_on(&language_only, &host_without_builds)["status"],
+        "ok"
+    );
+    assert_eq!(
+        rejected(validate_on(&mix, &host_without_builds)),
+        (
+            "plugin.api.unsupported".into(),
+            "requires.buildProviders".into()
+        )
+    );
+    let mut host_with_builds = host_without_builds.clone();
+    host_with_builds["buildSystems"] = json!([1]);
+    host_with_builds["buildProviders"] = json!([1]);
+    assert_eq!(validate_on(&mix, &host_with_builds)["status"], "ok");
+    // Capability versions do not apply below level 3.
+    assert_eq!(
+        validate_on(&fixture("php-support.plugin.json"), &json!({}))["status"],
+        "ok"
+    );
+}
+
+/// Provider orchestration is independent of declarative build commands and
+/// process launching, including when the provider shares a language server.
+#[test]
+fn build_providers_require_their_own_host_capability() {
+    let mut host = json!({
+        "buildSystems": [1], "languageServers": [1], "languages": [1],
+        "serverProcess": [1], "settings": [1]
+    });
+    let template = validate_command(json!({
+        "manifest": fixture("cargo-build.plugin.json"), "hostCapabilities": host
+    }))
+    .unwrap();
+    assert_eq!(template["status"], "ok", "{template}");
+
+    for (name, build_system_id) in [
+        ("gradle-provider.plugin.json", "gradle"),
+        ("mix-provider.plugin.json", "mix"),
+    ] {
+        let manifest = fixture(name);
+        for versions in [None, Some(json!([2])), Some(json!([1]))] {
+            host.as_object_mut().unwrap().remove("buildProviders");
+            if let Some(versions) = versions {
+                host["buildProviders"] = versions;
+            }
+            let outcome = validate_command(json!({
+                "manifest": manifest, "hostCapabilities": host
+            }))
+            .unwrap();
+            if host["buildProviders"] == json!([1]) {
+                assert_eq!(outcome["status"], "ok", "{name}: {outcome}");
+            } else {
+                assert_eq!(outcome["status"], "rejected", "{name}: {outcome}");
+                assert_eq!(outcome["error"]["code"], "plugin.api.unsupported");
+                assert_eq!(outcome["error"]["field"], "requires.buildProviders");
+            }
+        }
+        // Tooling without a host table may validate and plan what Core supports.
+        let outcome = validate(manifest.clone());
+        assert_eq!(outcome["status"], "ok", "{name}: {outcome}");
+        let launch = language_server_launch_plan_command(json!({
+            "manifest": manifest,
+            "buildSystemID": build_system_id,
+            "request": {
+                "pluginDirectory": "/plugins/provider",
+                "stateDirectory": "/state/provider",
+                "workspaceStateDirectory": "/state/provider/workspace",
+                "architecture": "arm64"
+            }
+        }))
+        .unwrap();
+        assert_eq!(launch["status"], "ok", "{name}: {launch}");
+        assert_eq!(
+            launch["plan"]["buildProvider"]["buildSystemID"],
+            build_system_id
+        );
+    }
+}
+
 #[test]
 fn malformed_payload_is_a_core_failure_not_a_rejection() {
     assert!(run_plan_command(json!({ "manifest": {} })).is_err());
@@ -401,6 +549,55 @@ fn ui_contributions_are_normalized_without_interpreting_text() {
             result["plugin"]["ui"]["toolWindows"][0]["placement"],
             placement
         );
+    }
+}
+
+/// A plugin may bring its own page instead of literal text. The page is a
+/// package file behind its own consent, and a host that runs only `ui` 1
+/// never receives it, so it cannot fall back to showing the page as text.
+#[test]
+fn web_tool_windows_need_ui_2_their_permission_and_a_package_page() {
+    let outcome = validate(fixture("web-panel.plugin.json"));
+    assert_eq!(outcome["status"], "ok", "{outcome}");
+    let windows = &outcome["plugin"]["ui"]["toolWindows"];
+    assert_eq!(windows[0]["id"], "dev.lithe.fixture.web-panel.notes");
+    assert!(windows[0].get("web").is_none());
+    assert_eq!(windows[1]["web"], json!({ "entry": "ui/index.html" }));
+    assert!(windows[1].get("text").is_none());
+    assert_eq!(
+        outcome["plugin"]["permissions"],
+        json!(["ui.contribute", "ui.web"])
+    );
+
+    let validate_on = |host: Value| {
+        validate_command(json!({
+            "manifest": fixture("web-panel.plugin.json"),
+            "hostCapabilities": host,
+        }))
+        .expect("payload is well formed")
+    };
+    let text_only = validate_on(json!({ "ui": [1] }));
+    assert_eq!(text_only["status"], "rejected", "{text_only}");
+    assert_eq!(text_only["error"]["code"], "plugin.api.unsupported");
+    assert_eq!(text_only["error"]["field"], "requires.ui");
+    assert_eq!(validate_on(json!({ "ui": [1, 2] }))["status"], "ok");
+
+    for entry in [
+        "index.html",
+        "ui/pages/tree.html",
+        "ui/index.htm",
+        "../index.html",
+        "/ui/index.html",
+        "ui//index.html",
+        "ui/./index.html",
+        "https://example.com/index.html",
+        "ui/index.html#x",
+    ] {
+        let mut manifest = fixture("web-panel.plugin.json");
+        manifest["ui"]["toolWindows"][0]["web"]["entry"] = json!(entry);
+        let accepted = validate(manifest)["status"] == "ok";
+        let expected = matches!(entry, "index.html" | "ui/pages/tree.html");
+        assert_eq!(accepted, expected, "{entry}");
     }
 }
 

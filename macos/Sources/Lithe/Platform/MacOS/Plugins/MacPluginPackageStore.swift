@@ -5,7 +5,7 @@ import LitheCoreContracts
 import LitheModuleAPI
 import LithePluginPackageSigning
 
-protocol PluginPackageSignatureVerifying {
+protocol PluginPackageSignatureVerifying: Sendable {
     func verify(
         packageAt packageURL: URL,
         manifest: PluginManifest,
@@ -32,6 +32,9 @@ enum PluginPackageStoreError: Error, Equatable, LocalizedError {
     case declarationRejected(PluginID?, DeclarativePluginRejection)
     /// `plugin.launch.missing`: the packaged language server is unusable.
     case languageServerLaunchMissing(PluginID, String)
+    /// A file a build system's provider launch points at is missing, outside
+    /// the package, reached through a symbolic link, or not executable.
+    case buildProviderLaunchMissing(PluginID, buildSystemID: String, path: String)
     /// A `sameTeamAsHost` package outside the host's sealed installation.
     case hostSealRequired(PluginID)
     /// An unsigned package outside a confirmed community installation, or
@@ -62,12 +65,14 @@ enum PluginPackageStoreError: Error, Equatable, LocalizedError {
             rejection.message
         case .languageServerLaunchMissing(let id, let path):
             "Plugin \(id) is missing its language server or it is not executable: \(path)."
+        case .buildProviderLaunchMissing(let id, let buildSystemID, let path):
+            "Plugin \(id) is missing the \(buildSystemID) build provider's file or it is not usable: \(path)."
         case .hostSealRequired(let id):
             "Plugin \(id) can only be trusted when it ships inside Lithe."
         case .unsignedPackageNotAllowed(let id):
-            "Plugin \(id) has no Lithe signature. Unsigned plugins can only be installed from a community plugin repository."
+            "Plugin \(id) has no Lithe signature. Community plugins require confirmation before installation."
         case .communityContentChanged(let id):
-            "Community plugin \(id) was changed after it was installed. Reinstall it from its plugin repository."
+            "Community plugin \(id) differs from its approved contents. Select the package again or reinstall it from its plugin repository."
         case .invalidInstalledPlugin(let id, let message):
             if let id {
                 "Installed plugin \(id) is invalid: \(message)"
@@ -112,6 +117,9 @@ final class MacPluginPackageStore {
     private let stateDirectories: MacPluginStateDirectories?
     private let hostVersion: PluginVersion
     private let validator: any DeclarativePluginManifestValidating
+    /// Expands build provider launches so installation can check the files
+    /// they point at. A package that declares a provider is refused without it.
+    private let launchPlanner: (any DeclarativeLanguageServerLaunchPlanning)?
     private let verifier: any PluginPackageSignatureVerifying
     private let fileManager: FileManager
     private let encoder: JSONEncoder
@@ -123,6 +131,7 @@ final class MacPluginPackageStore {
         stateDirectories: MacPluginStateDirectories? = nil,
         hostVersion: PluginVersion = BuiltInPluginCatalog.hostVersion,
         validator: any DeclarativePluginManifestValidating,
+        launchPlanner: (any DeclarativeLanguageServerLaunchPlanning)? = nil,
         verifier: any PluginPackageSignatureVerifying = MacOfficialPluginSignatureVerifier(),
         fileManager: FileManager = .default
     ) {
@@ -131,6 +140,7 @@ final class MacPluginPackageStore {
         self.stateDirectories = stateDirectories
         self.hostVersion = hostVersion
         self.validator = validator
+        self.launchPlanner = launchPlanner ?? validator as? any DeclarativeLanguageServerLaunchPlanning
         self.verifier = verifier
         self.fileManager = fileManager
         encoder = JSONEncoder()
@@ -231,7 +241,8 @@ final class MacPluginPackageStore {
                     descriptor,
                     at: packageURL,
                     origin: record.origin,
-                    marketplace: record.marketplace
+                    marketplace: record.marketplace,
+                    disk: record.disk
                 )
                 let candidate = InstalledPluginPackage(
                     descriptor: descriptor,
@@ -322,6 +333,24 @@ final class MacPluginPackageStore {
         ).filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
     }
 
+    /// A preparation worker owns its decoder and never reads or writes installed
+    /// records. Immutable validation policy is shared with the installation store.
+    func makePreparationStoreFactory() -> @Sendable () -> MacPluginPackageStore {
+        let rootURL = rootURL
+        let hostVersion = hostVersion
+        let validator = validator
+        let verifier = verifier
+        return {
+            MacPluginPackageStore(
+                rootURL: rootURL,
+                hostVersion: hostVersion,
+                validator: validator,
+                verifier: verifier,
+                fileManager: FileManager()
+            )
+        }
+    }
+
     /// Reads and validates a package's declaration without installing it.
     func inspectPackage(at packageURL: URL) throws -> DeclarativePluginDescriptor {
         try loadPackage(at: packageURL)
@@ -332,14 +361,15 @@ final class MacPluginPackageStore {
     func verifyCandidatePackage(
         at packageURL: URL,
         origin: PluginInstallationOrigin,
-        marketplace: PluginMarketplaceProvenance?
+        marketplace: PluginMarketplaceProvenance?,
+        disk: PluginDiskProvenance? = nil
     ) throws -> DeclarativePluginDescriptor {
         let descriptor = try loadPackage(at: packageURL)
         guard !Self.retiredPluginIDs.contains(descriptor.id) else {
             throw PluginPackageStoreError.retiredPlugin(descriptor.id)
         }
         try validatePathComponent(descriptor.id.rawValue)
-        try validatePackage(descriptor, at: packageURL, origin: origin, marketplace: marketplace)
+        try validatePackage(descriptor, at: packageURL, origin: origin, marketplace: marketplace, disk: disk)
         return descriptor
     }
 
@@ -349,7 +379,9 @@ final class MacPluginPackageStore {
         deferActivationUntilRestart: Bool = false,
         replaceExisting: Bool = false,
         origin: PluginInstallationOrigin = .marketplace,
-        marketplace: PluginMarketplaceProvenance? = nil
+        marketplace: PluginMarketplaceProvenance? = nil,
+        disk: PluginDiskProvenance? = nil,
+        beforeReplacingPackage: (PluginID) -> Void = { _ in }
     ) throws -> InstalledPluginPackage {
         let sourceDescriptor = try loadPackage(at: sourceURL)
         guard !Self.retiredPluginIDs.contains(sourceDescriptor.id) else {
@@ -373,10 +405,10 @@ final class MacPluginPackageStore {
             throw PluginPackageStoreError.manifestDoesNotMatchInstallation
         }
         do {
-            try validatePackage(descriptor, at: stagedURL, origin: origin, marketplace: marketplace)
+            try validatePackage(descriptor, at: stagedURL, origin: origin, marketplace: marketplace, disk: disk)
         } catch let error as PluginPackageStoreError {
             switch error {
-            case .languageServerLaunchMissing:
+            case .languageServerLaunchMissing, .buildProviderLaunchMissing:
                 throw PluginPackageStoreError.invalidInstalledPlugin(descriptor.id, error.localizedDescription)
             default:
                 throw error
@@ -400,6 +432,9 @@ final class MacPluginPackageStore {
         let backupURL = destinationExists
             ? stagingRoot.appendingPathComponent("backup-\(UUID().uuidString)", isDirectory: true)
             : nil
+        // Validation failures leave live pages alone. Once mutation begins,
+        // close every page before any installed bytes can be moved or replaced.
+        beforeReplacingPackage(manifest.id)
         if let backupURL {
             try fileManager.moveItem(at: destination, to: backupURL)
         }
@@ -428,7 +463,11 @@ final class MacPluginPackageStore {
                 marketplace: marketplace,
                 previousMarketplace: replacesActiveVersion
                     ? existingRecord?.previousMarketplace
-                    : existingRecord?.marketplace
+                    : existingRecord?.marketplace,
+                disk: disk,
+                previousDisk: replacesActiveVersion
+                    ? existingRecord?.previousDisk
+                    : existingRecord?.disk
             )
             try write(record, to: pluginDirectory.appendingPathComponent("installation.json"))
             if let backupURL {
@@ -454,7 +493,8 @@ final class MacPluginPackageStore {
     @discardableResult
     func rollback(
         _ pluginID: PluginID,
-        deferActivationUntilRestart: Bool = false
+        deferActivationUntilRestart: Bool = false,
+        beforeReplacingPackage: (PluginID) -> Void = { _ in }
     ) throws -> InstalledPluginPackage {
         try validatePathComponent(pluginID.rawValue)
         let pluginDirectory = rootURL.appendingPathComponent(pluginID.rawValue, isDirectory: true)
@@ -475,7 +515,8 @@ final class MacPluginPackageStore {
             descriptor,
             at: previousPackageURL,
             origin: previousOrigin,
-            marketplace: record.previousMarketplace
+            marketplace: record.previousMarketplace,
+            disk: record.previousDisk
         )
         let restored = PluginInstallationRecord(
             pluginID: pluginID,
@@ -485,8 +526,11 @@ final class MacPluginPackageStore {
             previousOrigin: record.origin,
             status: deferActivationUntilRestart ? .updateStaged : .installed,
             marketplace: record.previousMarketplace,
-            previousMarketplace: record.marketplace
+            previousMarketplace: record.marketplace,
+            disk: record.previousDisk,
+            previousDisk: record.disk
         )
+        beforeReplacingPackage(pluginID)
         try write(restored, to: pluginDirectory.appendingPathComponent("installation.json"))
         return InstalledPluginPackage(
             descriptor: descriptor,
@@ -607,16 +651,18 @@ final class MacPluginPackageStore {
         _ descriptor: DeclarativePluginDescriptor,
         at packageURL: URL,
         origin: PluginInstallationOrigin,
-        marketplace: PluginMarketplaceProvenance? = nil
+        marketplace: PluginMarketplaceProvenance? = nil,
+        disk: PluginDiskProvenance? = nil
     ) throws {
         try validateOfficialTrustPolicy(descriptor.pluginManifest)
         _ = try ValidatedPluginCatalog(manifests: [descriptor.pluginManifest], hostVersion: hostVersion)
         try verifier.verify(packageAt: packageURL, manifest: descriptor.pluginManifest, origin: origin)
         if origin == .community {
-            try validateCommunityContent(descriptor.id, at: packageURL, marketplace: marketplace)
+            try validateCommunityContent(descriptor.id, at: packageURL, marketplace: marketplace, disk: disk)
         }
         try validateLaunchResources(descriptor, at: packageURL)
         _ = try MacPluginUIIconLoader.load(descriptor, at: packageURL)
+        try MacPluginWebContent.validateEntries(descriptor, at: packageURL)
     }
 
     /// A community package has no publisher signature, so its integrity is
@@ -625,9 +671,13 @@ final class MacPluginPackageStore {
     private func validateCommunityContent(
         _ pluginID: PluginID,
         at packageURL: URL,
-        marketplace: PluginMarketplaceProvenance?
+        marketplace: PluginMarketplaceProvenance?,
+        disk: PluginDiskProvenance?
     ) throws {
-        guard let marketplace else {
+        // Exactly one source owns the approval; local bytes must never acquire
+        // repository update provenance merely by sharing the plugin ID.
+        guard (marketplace != nil) != (disk != nil),
+              let expectedDigest = marketplace?.contentDigest ?? disk?.contentDigest else {
             throw PluginPackageStoreError.communityContentChanged(pluginID)
         }
         let digest: String
@@ -636,7 +686,7 @@ final class MacPluginPackageStore {
         } catch {
             throw PluginPackageStoreError.communityContentChanged(pluginID)
         }
-        guard digest == marketplace.contentDigest else {
+        guard digest == expectedDigest else {
             throw PluginPackageStoreError.communityContentChanged(pluginID)
         }
     }
@@ -657,6 +707,71 @@ final class MacPluginPackageStore {
                 throw PluginPackageStoreError.languageServerLaunchMissing(descriptor.id, relativePath)
             }
         }
+        for buildSystem in descriptor.buildSystems where buildSystem.declaresProvider {
+            try validateBuildProviderLaunch(buildSystem.id, of: descriptor, at: root)
+        }
+    }
+
+    /// Expands the provider launch with throwaway directories (nothing is
+    /// created) and checks every package path it points at, so a broken
+    /// package is refused here rather than at its first model load. A
+    /// provider that shares a language server is checked with that server.
+    private func validateBuildProviderLaunch(
+        _ buildSystemID: String,
+        of descriptor: DeclarativePluginDescriptor,
+        at root: URL
+    ) throws {
+        let missing = { (path: String) in
+            PluginPackageStoreError.buildProviderLaunchMissing(descriptor.id, buildSystemID: buildSystemID, path: path)
+        }
+        guard let launchPlanner else { throw missing("provider") }
+        let unused = fileManager.temporaryDirectory
+            .appendingPathComponent("lithe-provider-validation", isDirectory: true)
+        let plan: DeclarativeLanguageServerLaunchPlan
+        do {
+            plan = try launchPlanner.buildProviderLaunchPlan(
+                manifest: descriptor.normalizedManifest,
+                buildSystemID: buildSystemID,
+                request: DeclarativeLanguageServerLaunchRequest(
+                    pluginDirectory: root,
+                    stateDirectory: unused.appendingPathComponent("state", isDirectory: true),
+                    workspaceStateDirectory: unused.appendingPathComponent("workspace", isDirectory: true),
+                    architecture: MacPluginLanguageServerLaunchResolver.hostArchitecture,
+                    settings: [:]
+                )
+            )
+        } catch let rejection as DeclarativePluginRejection {
+            throw PluginPackageStoreError.declarationRejected(descriptor.id, rejection)
+        }
+        guard plan.buildProvider?.languageServer == nil else { return }
+        for relativePath in plan.requiredPackagePaths where !isPackageEntry(relativePath, in: root) {
+            throw missing(relativePath)
+        }
+        var executables: [String] = []
+        if case .packaged(let path)? = plan.executable { executables.append(path) }
+        if let path = plan.packagedRuntimePath { executables.append(path) }
+        for relativePath in executables {
+            let url = root.appendingPathComponent(relativePath).standardizedFileURL
+            let values = try? url.resourceValues(forKeys: [.isRegularFileKey])
+            guard isPackageEntry(relativePath, in: root),
+                  values?.isRegularFile == true,
+                  fileManager.isExecutableFile(atPath: url.path) else {
+                throw missing(relativePath)
+            }
+        }
+    }
+
+    /// The path exists inside the package and no component of it is a
+    /// symbolic link, the same rule the launch resolver applies at start.
+    private func isPackageEntry(_ relativePath: String, in root: URL) -> Bool {
+        var current = root
+        for component in relativePath.split(separator: "/") {
+            guard component != "..", component != "." else { return false }
+            current.appendPathComponent(String(component))
+            guard let values = try? current.resourceValues(forKeys: [.isSymbolicLinkKey]),
+                  values.isSymbolicLink != true else { return false }
+        }
+        return current.standardizedFileURL.path.hasPrefix(root.path + "/")
     }
 
     private func validateOfficialTrustPolicy(_ manifest: PluginManifest) throws {

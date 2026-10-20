@@ -326,7 +326,13 @@ pub(crate) fn is_progress(update: &serde_json::Value) -> bool {
                     .as_str()
                     .is_some_and(|kind| kind != "text")
         }
-        Some("tool_call" | "tool_call_update" | "plan") => true,
+        Some(
+            "tool_call"
+            | "tool_call_update"
+            | "plan"
+            | "subagent_spawned"
+            | "subagent_state_update",
+        ) => true,
         _ => false,
     }
 }

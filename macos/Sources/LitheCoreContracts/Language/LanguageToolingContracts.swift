@@ -870,6 +870,12 @@ package protocol LanguageServerSession: AnyObject {
         workspaceFingerprint: String?,
         mavenContext: MavenLaunchContext?
     ) throws
+    func start(
+        rootURL: URL,
+        workspaceFingerprint: String?,
+        mavenContext: MavenLaunchContext?,
+        javaGradle: JavaGradleImportConfiguration?
+    ) throws
     func retryMavenProfiles()
     /// Hands a changed Maven context to the running server. A failure means the
     /// session cannot take it and should be restarted.
@@ -965,10 +971,22 @@ package protocol LanguageServerSession: AnyObject {
         marker: JavaNavigationMarker,
         completion: @escaping (Result<[LanguageServerLocation], Error>) -> Void
     ) throws
+    /// Sends a `lithe/build/*` request Core planned and returns the reply
+    /// undecoded. Cancelling the task cancels the request in the process.
+    func buildRequest(method: String, params: ToolingJSONValue, timeout: TimeInterval) async throws
+        -> ToolingJSONValue
     func stop()
 }
 
 package extension LanguageServerSession {
+    func buildRequest(method _: String, params _: ToolingJSONValue, timeout _: TimeInterval) async throws
+        -> ToolingJSONValue {
+        throw LanguageServerRuntimeFailure(
+            code: "not_supported",
+            message: "This language session cannot answer build requests."
+        )
+    }
+
     func inlayHints(fileURL: URL, range: LanguageServerRange,
                     completion: @escaping (Result<[LanguageServerInlayHint], Error>) -> Void) throws {
         completion(.success([]))
@@ -1006,6 +1024,18 @@ package extension LanguageServerSession {
         mavenContext _: MavenLaunchContext?
     ) throws {
         try start(rootURL: rootURL, workspaceFingerprint: workspaceFingerprint)
+    }
+
+    func start(
+        rootURL: URL,
+        workspaceFingerprint: String?,
+        mavenContext: MavenLaunchContext?,
+        javaGradle: JavaGradleImportConfiguration?
+    ) throws {
+        guard javaGradle == nil else {
+            throw LanguageServerRuntimeFailure(code: "unsupported", message: "This language session cannot apply Gradle import settings.")
+        }
+        try start(rootURL: rootURL, workspaceFingerprint: workspaceFingerprint, mavenContext: mavenContext)
     }
 }
 

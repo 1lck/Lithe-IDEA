@@ -4,9 +4,11 @@
 
 ## 先说结论
 
-以后新增或修改带语言服务器（Language Server，负责通过 LSP 提供补全、诊断和跳转能力的进程）的插件，都必须沿用 PHP Support 的构建方式：插件声明固定版本和校验值，构建阶段下载、校验并把语言服务器放入插件包，插件包完成签名后再分发。主程序不再为插件维护第二套语言服务器路径，也不在运行时改写已安装的 app bundle。
+以后新增或修改带语言服务器（Language Server，负责通过 LSP 提供补全、诊断和跳转能力的进程）的官方插件，都必须沿用这里的构建方式（最早由 PHP Support 验证）：插件声明固定版本和校验值，构建阶段下载、校验并把语言服务器放入插件包，插件包完成签名后再分发。主程序不再为插件维护第二套语言服务器路径，也不在运行时改写已安装的 app bundle。
 
-插件拥有语言服务器的文件和启动入口，并在 `plugin.json` 的 `languageServers` 中声明；Lithe 负责插件包验证、插件启停、运行时发现、进程生命周期和现有 LSP 会话编排。插件包是声明式的，不含宿主加载的代码，见 [声明式语言插件](2026-10-12-declarative-language-plugins.md)。运行时资源写入用户级 Application Support、Caches 或临时目录，插件卸载、重装和回滚必须能够连同自己的语言服务器一起清理或替换。
+插件拥有语言服务器的文件和启动入口，并在 `plugin.json` 的 `languageServers` 中声明；Lithe 负责插件包验证、插件启停、运行时发现、进程生命周期和现有 LSP 会话编排。插件包是声明式的，不含宿主加载的代码，见 [声明式语言插件](2026-10-12-declarative-language-plugins.md)。
+
+PHP Support 后来迁到 Lithe Store 社区仓库，并因 Intelephense 许可证禁止再分发而改为启动用户安装的 `intelephense`（`systemCommand`），见 [Go 与 PHP 改为 Lithe Store 社区插件](2026-10-20-go-php-community-plugins.md)。打包语言服务器前必须先确认上游许可证允许再分发；不允许时只能声明 `systemCommand`，由用户自行安装。运行时资源写入用户级 Application Support、Caches 或临时目录，插件卸载、重装和回滚必须能够连同自己的语言服务器一起清理或替换。
 
 ## 问题
 
@@ -20,7 +22,7 @@ PHP Support 已经验证了独立插件包、固定 Intelephense 版本和插件
 
 每个带 LSP 的插件在自己的源码目录提供 `language-server.json`。清单至少固定以下事实：服务器版本、HTTPS 下载地址、SHA-256、归档格式、归档根目录、启动脚本相对路径和许可证路径。清单只描述构建所需的上游输入，不保存机器路径、用户目录或运行时缓存路径。
 
-当前 PHP 插件的示例是 `Plugins/mac/Official/PhpSupport/language-server.json`。如果另一个语言服务器使用 zip、单文件可执行程序或不同的启动方式，应扩展构建脚本支持的格式，并保持“固定来源、固定校验、构建后签名”的原则；不能跳过校验直接把网络下载物复制进插件。
+迁移前 PHP 插件使用过 `language-server.json`；主仓库目前没有需要下载语言服务器的可选官方插件。如果新的语言服务器使用 zip、单文件可执行程序或不同的启动方式，应扩展构建脚本支持的格式，并保持“固定来源、固定校验、构建后签名”的原则；不能跳过校验直接把网络下载物复制进插件。
 
 ### 2. 构建阶段完成下载、解压和组装
 
@@ -35,7 +37,7 @@ PHP Support 已经验证了独立插件包、固定 Intelephense 版本和插件
 
 唯一的例外是自带运行时的 Java Support：它的包里有每个架构各一份的 JDK，因此与架构有关，并且只随应用发行、由应用的代码签名覆盖。它的组装步骤在插件自己的目录里，见 [Java 语言服务器是一个声明式插件](2026-10-13-java-language-server-as-declarative-plugin.md)。
 
-PHP 的具体下载和组装逻辑位于 `scripts/prepare-php-language-server.sh`。后续插件可以复用相同的构建阶段和校验结构，但不能把某个语言的路径、版本或下载地址硬编码到宿主应用中。
+下载和组装逻辑放在插件专属的准备脚本里（PHP 迁出前是 `prepare-php-language-server.sh`，已随迁移删除）。后续插件可以复用相同的构建阶段和校验结构，但不能把某个语言的路径、版本或下载地址硬编码到宿主应用中。
 
 ### 3. 插件包是发布和安装单位
 
@@ -90,10 +92,8 @@ macOS 使用声明式插件包和 publisher Ed25519 包签名；Windows 使用�
 
 ## 适用范围
 
-- `Plugins/mac/Official/*/language-server.json`
-- `Plugins/mac/Official/PhpSupport/`
+- `Plugins/mac/Official/`
 - `scripts/build-official-plugins.sh`
-- `scripts/prepare-php-language-server.sh`
 - `macos/Sources/Lithe/Platform/MacOS/Plugins/`
 - `macos/Sources/Lithe/Platform/MacOS/Runtime/MacRuntimeToolDiscovery.swift`
 - `macos/Sources/LitheLanguageIntelligenceModule/`

@@ -94,6 +94,15 @@ struct AgentPreflightCheck: Identifiable, Equatable {
         static func < (lhs: Status, rhs: Status) -> Bool { lhs.rawValue < rhs.rawValue }
     }
 
+    /// One labelled fact from a passing check, such as the detected version or
+    /// the executable path. The settings page draws these as rows instead of
+    /// one long `version · path` string.
+    struct Detail: Identifiable, Equatable {
+        let id: String
+        let label: String
+        let value: String
+    }
+
     /// What the user can do about a failing check, if anything.
     enum Fix: Equatable {
         case install
@@ -108,6 +117,12 @@ struct AgentPreflightCheck: Identifiable, Equatable {
     let status: Status
     let message: String
     var fix: Fix?
+    /// Structured facts to show above `guidance`; `message` remains the
+    /// plain-text source used by diagnostics and tests.
+    var details: [Detail] = []
+    /// Extra guidance that is not a single labelled fact, such as an update
+    /// hint or an explanation of a failed check.
+    var guidance: String?
 }
 
 extension AgentSetupDiagnostics {
@@ -131,11 +146,19 @@ extension AgentSetupDiagnostics {
             checks.append(.init(id: "node", title: nodeTitle, status: .fail,
                                 message: Issue.nodeTooOld(minimumMajor: agent.minimumNodeMajor, found: node.version).message(bundle: bundle)))
         case let node?:
-            checks.append(.init(id: "node", title: nodeTitle, status: .pass, message: "\(node.version) · \(node.path)"))
+            checks.append(.init(id: "node", title: nodeTitle, status: .pass, message: "\(node.version) · \(node.path)",
+                                details: [
+                                    .init(id: "version", label: String(localized: "Version", bundle: bundle), value: node.version),
+                                    .init(id: "path", label: String(localized: "Path", bundle: bundle), value: node.path)
+                                ]))
         }
 
         if let npm = environment.npm {
-            checks.append(.init(id: "npm", title: "npm", status: .pass, message: "\(npm.version) · \(npm.path)"))
+            checks.append(.init(id: "npm", title: "npm", status: .pass, message: "\(npm.version) · \(npm.path)",
+                                details: [
+                                    .init(id: "version", label: String(localized: "Version", bundle: bundle), value: npm.version),
+                                    .init(id: "path", label: String(localized: "Path", bundle: bundle), value: npm.path)
+                                ]))
         } else {
             checks.append(.init(id: "npm", title: "npm", status: .fail, message: Issue.npmMissing.message(bundle: bundle)))
         }
@@ -144,50 +167,84 @@ extension AgentSetupDiagnostics {
             let title = String(format: String(localized: "%@ %@ or later", bundle: bundle), cli.name, cli.minimumVersion)
             let canUpdate = cli.installation?.canUpdate ?? true
             if let detected = cli.detected {
-                if isVersion(detected.version, atLeast: cli.minimumVersion) {
-                    // Compatibility does not mean the CLI has the latest model catalog.
-                    let updateAvailable = cli.installation?.updateAvailable == true
-                    var statusTitle = title
-                    var message = "\(detected.version) · \(detected.path)"
+                // Compatibility does not mean the CLI has the latest model catalog.
+                let compatible = isVersion(detected.version, atLeast: cli.minimumVersion)
+                let updateAvailable = cli.installation?.updateAvailable == true
+                var statusTitle = "\(cli.name) · \(detected.version)"
+                if updateAvailable {
+                    statusTitle += " → " + (cli.installation?.availableVersion ?? String(localized: "Could not confirm", bundle: bundle))
+                }
+                var details: [AgentPreflightCheck.Detail] = [
+                    .init(id: "version", label: String(localized: "Current version", bundle: bundle), value: detected.version),
+                    .init(id: "path", label: String(localized: "Path", bundle: bundle), value: detected.path),
+                ]
+                details.insert(.init(id: "minimum-version", label: String(localized: "Minimum version", bundle: bundle), value: cli.minimumVersion), at: 1)
+                if updateAvailable {
+                    details.insert(.init(id: "available-version", label: String(localized: "Update to", bundle: bundle),
+                        value: cli.installation?.availableVersion ?? String(localized: "Could not confirm", bundle: bundle)), at: 1)
+                }
+                var guidance: [String] = []
+                var messageLines: [String] = []
+                if !compatible {
+                    messageLines.append(Issue.cliTooOld(name: cli.name, minimumVersion: cli.minimumVersion, found: detected.version).message(bundle: bundle))
+                }
+                messageLines.append("\(detected.version) · \(detected.path)")
+                if compatible {
                     switch cli.installation?.updateAvailable {
                     case false?:
                         if cli.installation?.source == .homebrew {
                             statusTitle += " · " + String(localized: "No updates found in the local Homebrew index.", bundle: bundle)
-                            message += "\n" + String(localized: "Run `brew update` manually, then check again for updates.", bundle: bundle)
+                            let manualUpdate = String(localized: "Run `brew update` manually, then check again for updates.", bundle: bundle)
+                            guidance.append(manualUpdate)
+                            messageLines.append(manualUpdate)
                         } else {
                             statusTitle += " · " + String(localized: "Up to date.", bundle: bundle)
                         }
-                    case nil: message += "\n" + String(localized: "Could not check for updates.", bundle: bundle)
+                    case nil:
+                        let couldNotCheck = String(localized: "Could not check for updates.", bundle: bundle)
+                        guidance.append(couldNotCheck)
+                        messageLines.append(couldNotCheck)
                     case true?: break
                     }
-                    checks.append(.init(id: "cli", title: statusTitle, status: .pass,
-                                        message: message,
-                                        fix: canUpdate && updateAvailable ? .updateCli : nil))
-                } else {
-                    checks.append(.init(id: "cli", title: title, status: .warn,
-                                        message: Issue.cliTooOld(name: cli.name, minimumVersion: cli.minimumVersion, found: detected.version).message(bundle: bundle),
-                                        fix: canUpdate ? .updateCli : nil))
                 }
+                if let reason = cli.installation?.updateCheckError {
+                    guidance.append(reason)
+                    messageLines.append(reason)
+                }
+                if let installation = cli.installation {
+                    let source: String = switch installation.source {
+                    case .npm: "npm"
+                    case .homebrew: "Homebrew"
+                    case .native: String(localized: "Native installer", bundle: bundle)
+                    case .missing: String(localized: "Not installed", bundle: bundle)
+                    case .unknown: String(localized: "Unknown source", bundle: bundle)
+                    }
+                    details.append(.init(id: "source", label: String(localized: "Installation", bundle: bundle), value: source))
+                    let provenance = String(
+                        format: String(localized: "Installation: %@", bundle: bundle),
+                        source
+                    )
+                    messageLines.append(provenance)
+                    let hint = NSLocalizedString(installation.updateHint, bundle: bundle, comment: "CLI update guidance")
+                    let showHint = installation.updateAvailable != false || !compatible
+                    if showHint {
+                        guidance.append(hint)
+                        messageLines.append(hint)
+                    }
+                }
+                checks.append(.init(
+                    id: "cli",
+                    title: statusTitle,
+                    status: compatible && cli.installation?.updateCheckError == nil ? .pass : .warn,
+                    message: messageLines.joined(separator: "\n"),
+                    fix: canUpdate && updateAvailable ? .updateCli : nil,
+                    details: details,
+                    guidance: guidance.isEmpty ? nil : guidance.joined(separator: "\n")
+                ))
             } else {
                 checks.append(.init(id: "cli", title: title, status: .fail,
                                     message: Issue.cliMissing(name: cli.name, installHint: cli.installHint).message(bundle: bundle),
                                     fix: canUpdate ? .installCli : nil))
-            }
-            if let installation = cli.installation, let index = checks.firstIndex(where: { $0.id == "cli" }) {
-                let check = checks[index]
-                let source: String = switch installation.source {
-                case .npm: "npm"
-                case .homebrew: "Homebrew"
-                case .native: String(localized: "Native installer", bundle: bundle)
-                case .missing: String(localized: "Not installed", bundle: bundle)
-                case .unknown: String(localized: "Unknown source", bundle: bundle)
-                }
-                let provenance = String(format: String(localized: "Installation: %@", bundle: bundle), source)
-                let hint = NSLocalizedString(installation.updateHint, bundle: bundle, comment: "CLI update guidance")
-                let showHint = installation.updateAvailable != false || check.status != .pass
-                checks[index] = .init(id: check.id, title: check.title, status: check.status,
-                                     message: "\(check.message)\n\(provenance)" + (showHint ? "\n\(hint)" : ""),
-                                     fix: check.fix)
             }
         }
 
@@ -200,10 +257,13 @@ extension AgentSetupDiagnostics {
             checks.append(.init(id: "adapter", title: adapterTitle, status: .fail,
                                 message: String(format: String(localized: "%@ is not installed. Lithe installs it with your npm into its application data.", bundle: bundle), "\(agent.package)@\(agent.version)"),
                                 fix: canInstallAdapter ? .install : nil))
-        case let installed? where installed != agent.version:
+        case let installed? where agent.needsUpdate:
             checks.append(.init(id: "adapter", title: adapterTitle, status: .warn,
                                 message: String(format: String(localized: "Installed %@ · update to %@ available", bundle: bundle), installed, agent.version),
                                 fix: canInstallAdapter ? .update : nil))
+        case _? where agent.updateAvailable == nil:
+            checks.append(.init(id: "adapter", title: adapterTitle, status: .warn,
+                                message: String(localized: "Could not compare the local adapter with the verified version.", bundle: bundle)))
         case let installed?:
             checks.append(.init(id: "adapter", title: adapterTitle, status: .pass,
                                 message: String(format: String(localized: "Installed %@", bundle: bundle), installed)))

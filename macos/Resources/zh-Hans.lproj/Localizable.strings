@@ -1,4 +1,5 @@
 /* Core interface strings for Simplified Chinese. */
+"Some MCP configuration files could not be restored: %@. Refresh and check these files before retrying." = "部分 MCP 配置文件未能恢复：%@。请刷新并检查这些文件后重试。";
 "Settings" = "设置";
 "Close Settings" = "关闭设置";
 "Search settings" = "搜索设置";
@@ -234,6 +235,10 @@
 "Shell" = "Shell";
 "Default shell" = "默认 Shell";
 "Used for new terminal sessions." = "用于新建的终端会话。";
+"Scrollback" = "回滚";
+"Terminal scrollback" = "终端回滚行数";
+"Lines kept for scrolling back in new terminal sessions." = "新建终端会话保留的可回滚行数。";
+"%lld lines" = "%lld 行";
 "Restore Defaults" = "恢复默认设置";
 "Done" = "完成";
 "Java SDK" = "Java SDK";
@@ -1375,6 +1380,8 @@
 "Pending plugin changes: %lld" = "待确认的插件修改：%lld";
 "Uninstall" = "卸载";
 "Reinstall" = "重新安装";
+"Restart required" = "需要重启 Lithe";
+"Version %@ is installed. Restart Lithe to load it." = "已安装版本 %@，重启 Lithe 后生效。";
 "Removed. Restart Lithe to finish." = "已移除，重启 Lithe 后完成。";
 "Removed. Restore it to use it again." = "已移除，恢复后可再次使用。";
 "Uninstall PHP Support?" = "卸载 PHP 支持？";
@@ -1745,6 +1752,10 @@
 "Initialize Git Repository…" = "初始化 Git 仓库…";
 "Open a project to use Git" = "请打开项目以使用 Git";
 "Effective value: %@" = "当前生效值：%@";
+"Effective Git: from PATH" = "实际使用的 Git：来自 PATH";
+"Effective Git: %@" = "实际使用的 Git：%@";
+"Effective Git: %@ · %@" = "实际使用的 Git：%@ · %@";
+"Lithe could not find a runnable Git." = "Lithe 未找到可运行的 Git。";
 "Git setup is unavailable." = "Git 设置暂不可用。";
 "Initialize a repository before saving repository-specific identity" = "请先初始化仓库，再保存仓库身份配置。";
 "Enter a nonempty Git identity without control characters or angle brackets" = "请输入非空姓名或邮箱，不要包含控制字符或尖括号。";
@@ -2019,6 +2030,8 @@
 "Shell is not available at this path" = "此路径没有可用的 Shell";
 "Git behavior and configuration" = "Git 行为与配置";
 "Git executable" = "Git 可执行文件";
+"Choose how Lithe locates Git and handles credentials." = "选择 Lithe 如何查找 Git 并处理凭据。";
+"Set the defaults used by ordinary Fetch in every project. Credentials use your existing Git helper and SSH configuration." = "设置所有项目中普通 Fetch 使用的默认行为。凭据使用现有的 Git 凭据助手和 SSH 配置。";
 "Use Git from PATH" = "使用 PATH 中的 Git";
 "Use credential helper" = "使用凭据助手";
 "Git can request credentials in Lithe. Passwords are not saved by Lithe; the selected Git helper controls credential storage." = "Git 可以在 Lithe 中请求凭据。Lithe 不保存密码；是否保存凭据由所选 Git 凭据助手控制。";
@@ -2049,6 +2062,8 @@
 "Use Git setting" = "使用 Git 配置";
 "Follow Git setting" = "遵循 Git 配置";
 "Follow Git tag rules" = "遵循 Git 标签规则";
+"Fetch tags that point to fetched commits" = "获取指向已获取提交的标签";
+"Follows each remote's tag setting" = "按各远程的标签设置";
 "Remove stale branches" = "清理失效分支";
 "Keep stale branches" = "保留失效分支";
 "Remove stale tags" = "清理失效标签";
@@ -2419,6 +2434,7 @@
 "Native installer" = "原生安装器";
 "Unknown source" = "未知来源";
 "Installation: %@" = "安装来源：%@";
+"Installation" = "安装来源";
 "Update this CLI using its original installer, then check again." = "请使用原安装器更新此 CLI，然后重新检测。";
 "Switch to the Node.js/npm environment that installed this CLI, update it there, then check again." = "请切换到安装此 CLI 的 Node.js/npm 环境，在该环境中更新后重新检测。";
 
@@ -2429,8 +2445,7 @@
 "Update log" = "更新日志";
 
 /* Agent session selectors */
-"Search models" = "搜索模型";
-"No matching models" = "没有匹配的模型";
+"No models available" = "暂无可用模型";
 "Thinking level" = "思考强度";
 "Speed" = "速度";
 "Fast" = "快速";
@@ -2639,7 +2654,74 @@
 "Enabled plugins can also use this project grant." = "已启用的插件也可使用此项目授权。";
 
 "MCP Configuration" = "MCP 配置";
+"Let connected agents inspect and control this project." = "允许连接的 Agent 查看和控制此项目。";
+"Authorize this project to expose environment, Maven, run configurations and output to connected agents. Output may contain sensitive project data. Access ends when this project or Lithe closes. Enabled plugins can also use this project grant." = "仅授权此项目，连接的 Agent 可以读取环境、Maven、运行配置和输出。输出可能包含项目敏感信息。关闭项目或退出 Lithe 后连接失效。已启用的插件也可使用此项目授权。";
+"Project access" = "项目权限";
+"Connected agents can change the project JDK, Maven and run configuration settings." = "连接的 Agent 可以修改项目 JDK、Maven 和运行配置。";
+"Connected agents can run, build, reload and stop the project. Commands execute project code, so enable this only for projects you trust." = "连接的 Agent 可以运行、构建、重载和停止项目。命令会执行项目代码，请仅对信任的项目开启。";
+"MCP is enabled for this project." = "此项目的 MCP 已开启。";
+"MCP is off for this project." = "此项目的 MCP 已关闭。";
+"Connected agents can use the configuration below while this project is open." = "项目打开期间，连接的 Agent 可以使用下方配置。";
+"Turn on MCP to generate a configuration for agents." = "开启 MCP 后会生成供 Agent 使用的配置。";
+"Agent configuration" = "Agent 配置";
+"Paste this into your MCP client configuration." = "将此内容粘贴到 MCP 客户端配置中。";
 "Open a project to configure MCP access for agents." = "打开项目后，可在这里配置 Agent 的 MCP 访问权限。";
+
+"MCP servers" = "MCP 服务器";
+"Manage the servers Codex and Claude Code can start." = "管理 Codex 与 Claude Code 可以启动的服务器。";
+"Lithe reads the servers registered in your Codex and Claude Code configuration. Saving writes only the changed entry, keeps backups in Application Support, and never overwrites an entry created outside Lithe. Agents read MCP configuration when a session starts, so restart a session to apply changes." = "Lithe 会读取你已在 Codex 与 Claude Code 配置中注册的服务器。保存时只改写发生变化的条目，备份存放在 Application Support 中，且不会覆盖在 Lithe 之外创建的条目。Agent 在会话启动时读取 MCP 配置，重启会话后生效。";
+"Server library" = "服务器资源库";
+"Add server" = "添加服务器";
+"No MCP servers registered" = "尚未注册 MCP 服务器";
+"Add one here, or register a server with Codex or Claude Code and refresh." = "可以在这里添加，也可以先在 Codex 或 Claude Code 中注册服务器后刷新。";
+"Previous configuration backed up to" = "原配置已备份到";
+"Conflict" = "冲突";
+"Another global entry uses this name with a different definition." = "另一个全局条目使用了相同名称但定义不同。";
+"No command" = "无命令";
+"This entry belongs to the open project and is managed by Lithe IDE access." = "该条目属于当前打开的项目，由“Lithe IDE 访问”管理。";
+"Registered with %@" = "已注册到 %@";
+"Add to %@" = "添加到 %@";
+"%@ enabled" = "%@ 已启用";
+"%@ disabled" = "%@ 已停用";
+"All servers" = "所有服务器";
+"Server" = "服务器";
+"Transport" = "传输方式";
+"One argument per line. Arguments keep spaces without quoting." = "每行一个参数。参数中的空格无需额外引号。";
+"URL" = "URL";
+"Environment variables" = "环境变量";
+"Headers" = "请求头";
+"Add header" = "添加请求头";
+"Add variable" = "添加变量";
+"Header" = "请求头";
+"Available to Agents" = "可用的 Agent";
+"Each Agent keeps its own configuration file. Turning an Agent off removes only the entry Lithe wrote; an entry created outside Lithe is never removed without taking ownership first." = "每个 Agent 使用各自的配置文件。关闭某个 Agent 只会移除 Lithe 写入的条目；在 Lithe 之外创建的条目必须先接管所有权才会被移除。";
+"Created outside Lithe." = "该条目在 Lithe 之外创建。";
+"Take ownership" = "接管所有权";
+"Saving writes to" = "保存将写入";
+"No Agent is selected." = "未选择 Agent。";
+"Values are masked here but stored as plain text in the Agent's configuration file." = "此处仅做遮蔽显示，值会以明文保存在 Agent 配置文件中。";
+"Lithe IDE access" = "Lithe IDE 访问";
+"Authorize this project to expose environment, Maven, run configurations and output to connected agents. Output may contain sensitive project data. Access ends when this project or Lithe closes, and the project-level server registration is removed. Enabled plugins can also use this project grant." = "授权当前项目后，已连接的 Agent 可以访问环境、Maven、运行配置与输出。输出可能包含敏感项目数据。关闭项目或退出 Lithe 时访问结束，并移除项目级服务器注册。已启用的插件也可以使用该授权。";
+"No project is open" = "未打开项目";
+"Open a project to let connected agents inspect and control it." = "打开项目后，已连接的 Agent 才能检查和控制它。";
+"Registered for this project in %@." = "已为该项目的 %@ 注册。";
+"No project-level MCP entry was written." = "未写入项目级 MCP 条目。";
+"no Agent" = "无 Agent";
+"MCP configuration management is unavailable." = "MCP 配置管理不可用。";
+"This Agent has no global MCP configuration file." = "该 Agent 没有全局 MCP 配置文件。";
+"“%@” was created outside Lithe. Take ownership before changing it." = "“%@”是在 Lithe 之外创建的。请先接管所有权再修改。";
+"“%@” changed outside Lithe. Refresh and try again." = "“%@”在 Lithe 之外被修改。请刷新后重试。";
+"Could not read %@: %@" = "无法读取 %@：%@";
+"Could not write %@. The previous contents were kept in %@." = "无法写入 %@。之前的内容已保留在 %@。";
+"Enter a server name." = "请输入服务器名称。";
+"Use letters, digits, dots, dashes or underscores. The name must start with a letter or digit." = "只能使用字母、数字、点、短横线或下划线，且必须以字母或数字开头。";
+"Choose at least one Agent." = "请至少选择一个 Agent。";
+"Environment variable and header names must be unique." = "环境变量名和 Header 名不能重复。";
+"Enter the command that starts this server." = "请输入启动该服务器的命令。";
+"Enter a complete server URL." = "请输入完整的服务器 URL。";
+"Could not register Lithe MCP in %@: %@" = "无法在 %@ 中注册 Lithe MCP：%@";
+"Lithe MCP was registered, but .codex/config.toml could not be added to Git’s local exclude list: %@" = "Lithe MCP 已注册，但无法把 .codex/config.toml 加入 Git 的本地排除列表：%@";
+"Could not remove Lithe MCP from %@: %@" = "无法从 %@ 中移除 Lithe MCP：%@";
 
 "%lld more notifications" = "还有 %lld 条通知";
 "1 more notification" = "还有 1 条通知";
@@ -2769,10 +2851,17 @@
 
 "Update required" = "需要更新";
 
-"Adds PHP language-server integration, formatting, running, and test support." = "提供 PHP 语言服务器集成、格式化、运行和测试支持。";
+"Retired official PHP plugin. PHP support is now the community plugin PHP Support in Lithe Store." = "已退役的官方 PHP 插件。PHP 支持现在由 Lithe Store 中的社区插件 PHP Support 提供。";
 "Adds Java language intelligence through the Eclipse JDT language server, with Lombok, debugging, and test support. Ships its own Java runtime." = "通过 Eclipse JDT 语言服务器提供 Java 代码智能，并支持 Lombok、调试和测试。自带 Java 运行时。";
 
-"Adds Go language-server integration through gopls, running, and test support. Install gopls and Go separately." = "通过 gopls 提供 Go 语言服务器集成、运行和测试支持。需要另行安装 gopls 和 Go。";
+"Retired official Go plugin. Go support is now the community plugin Go Support in Lithe Store." = "已退役的官方 Go 插件。Go 支持现在由 Lithe Store 中的社区插件 Go Support 提供。";
+"%@ is no longer an official plugin. It moved to the community plugin %@ in Lithe Store and gets no further updates here. Uninstall it, restart Lithe, then install the community version from the Marketplace." = "%@ 已不再是官方插件，已迁移为 Lithe Store 中的社区插件 %@，这里不会再收到更新。请先卸载它并重启 Lithe，再从插件市场安装社区版本。";
+"Restart Lithe to finish uninstalling %@, then install the community plugin %@ from the Marketplace." = "请重启 Lithe 以完成 %@ 的卸载，然后从插件市场安装社区插件 %@。";
+"Restart Lithe to finish uninstalling %@, then install this plugin." = "请重启 Lithe 以完成 %@ 的卸载，然后再安装此插件。";
+"Uninstall %@ from the Installed tab and restart Lithe first. It is the retired official version of this plugin and supports the same language." = "请先在“已安装”中卸载 %@ 并重启 Lithe。它是此插件已退役的官方版本，支持同一种语言。";
+"Replaces an Installed Plugin" = "需先卸载旧版";
+"Plugin changes take effect after Lithe restarts." = "插件变更将在重启 Lithe 后生效。";
+"Restart Lithe" = "重启 Lithe";
 
 "Download PHP Support from the official signed plugin package." = "从官方签名的插件包下载 PHP 支持。";
 
@@ -2851,6 +2940,16 @@
 "Installed from %@" = "安装自 %@";
 "Community plugin maintained by a third party. Report plugin problems in its own repository." = "社区插件由第三方维护，插件问题请到它自己的仓库反馈。";
 "Install Plugin from Disk" = "从磁盘安装插件";
+"Choose Plugin Package" = "选择插件包";
+"Installed from Disk" = "从磁盘安装";
+"Community plugin installed from disk. Its publisher and repository have not been verified." = "从磁盘安装的社区插件，尚未验证发布者与源码仓库。";
+"Local Package" = "本地插件包";
+"Full Program Declaration" = "完整程序声明";
+"Builds %@ projects" = "构建 %@ 项目";
+"Tasks: %@" = "任务：%@";
+"Archive SHA-256" = "归档 SHA-256";
+"Content SHA-256" = "内容 SHA-256";
+"Selected from disk. The publisher and repository have not been verified." = "从本地磁盘选择，尚未验证发布者与源码仓库。";
 "Check: %@" = "检查：%@";
 "All tests: %@" = "全部测试：%@";
 "One file: %@" = "单个文件：%@";
@@ -2901,14 +3000,12 @@
 "Non-streaming responses" = "非流式响应";
 "%@ (%@ failed)" = "%@（失败 %@）";
 "Turn on Model call statistics in Agent settings and reconnect to see model calls, time to first token and output speed." = "在 Agent 设置中开启“模型调用统计”并重新连接后，可查看模型调用次数、首 token 延迟和输出速度。";
-"Model calls are observed by the local proxy. Tool time is measured by Lithe and includes permission waits." = "模型调用由本机代理观测；工具用时由 Lithe 本地计时，包含等待授权的时间。";
 "Token usage" = "Token 用量";
 "Cache hit" = "缓存命中";
 "Uncached input" = "未缓存输入";
 "Cache read" = "缓存读取";
 "Cache write" = "缓存写入";
 "Reasoning" = "推理";
-"Counts returned by the model provider for every request in this session." = "本会话所有模型请求由服务商返回的计数。";
 "Latest turn as reported by the Agent; its accounting scope depends on the Agent. Turn on Model call statistics for session totals." = "最近一轮由 Agent 上报的计数，统计口径由 Agent 决定；开启“模型调用统计”后显示整个会话的合计。";
 "System prompt" = "系统提示词";
 "Tool definitions" = "工具定义";
@@ -3072,10 +3169,6 @@
 "Session" = "会话";
 "Context tokens" = "上下文 Token";
 "Turn on Model call statistics in Agent settings and reconnect to see the MCP tools sent with each request." = "在 Agent 设置中开启模型调用统计并重新连接后，可查看每次请求携带的 MCP 工具。";
-"This conversation has not edited any files." = "本对话尚未编辑任何文件。";
-"Agent edits" = "Agent 编辑";
-"Edited files" = "已编辑文件";
-"Changed files" = "变更文件";
 "Used %@" = "已使用 %@";
 "Tools sent" = "发送的工具";
 "MCP tools sent" = "发送的 MCP 工具";
@@ -3141,18 +3234,19 @@
 "Closing the terminal ends these programs." = "关闭终端会结束这些程序。";
 "A task %@ started before Lithe last closed unexpectedly is still running" = "Lithe 上次意外关闭前，%@ 启动的一个任务仍在运行";
 "%@ started a task that is still running" = "%@ 启动的任务仍在运行";
-"Workspace: %@" = "工作区：%@";
 "Directory: %@" = "目录：%@";
 "Project: %@" = "项目：%@";
-"Running for %@" = "已运行 %@";
 "running for %@" = "已运行 %@";
-"Includes %lld processes" = "包含 %lld 个进程";
 "%lld processes" = "%lld 个进程";
 "ports %@" = "端口 %@";
 "%lld of %lld" = "第 %lld 个，共 %lld 个";
 "Agents may run deployments, migrations or long builds. Ending one halfway can leave data or services inconsistent. Keep it if you are not sure what it does." = "Agent 可能在执行部署、数据库迁移或耗时构建。中途结束可能导致数据或服务处于不一致状态。如果不确定它在做什么，请选择保留。";
 "Keep Running" = "保留此任务";
 "End This Task" = "结束此任务";
+"Workspace" = "工作区";
+"Directory" = "目录";
+"Running Time" = "已运行";
+"Copy Original Command" = "复制原始命令";
 "Lithe closed unexpectedly last time and left programs running" = "Lithe 上次意外关闭，有程序仍在运行";
 "These programs were started in Lithe before it closed unexpectedly. Checked items are ended now; unchecked items keep running and are not tracked anymore." = "这些程序是 Lithe 意外关闭前在 Lithe 中启动的。勾选的项目会立即结束；未勾选的项目继续运行，Lithe 之后不再管理它们。";
 "Background services started in Lithe are still running" = "在 Lithe 中启动的后台服务仍在运行";
@@ -3253,3 +3347,178 @@
 "Turn usage" = "本轮用量";
 "Copy reply" = "复制回复";
 "Copy table" = "复制表格";
+
+/* Plugin build systems */
+"Build" = "构建";
+"Run selected task" = "运行所选任务";
+"Reload %@ projects" = "重新加载 %@ 项目";
+"%@ options" = "%@ 选项";
+"%@ build files changed" = "%@ 构建文件已更改";
+"Add to %@" = "添加到 %@";
+"Toggle %@" = "切换 %@";
+"Verification" = "验证";
+"Documentation" = "文档";
+"Other" = "其他";
+"Hide Build tool window" = "隐藏构建工具窗口";
+"Hide Build Output tool window" = "隐藏构建输出工具窗口";
+"Detect build systems again" = "重新检测构建系统";
+"Stop build task" = "停止构建任务";
+"Detecting build systems…" = "正在检测构建系统…";
+"No %@ project was detected in this workspace." = "此工作区未检测到 %@ 工程。";
+"Build files changed. Reload the model to pick up the changes." = "构建文件已更改，请重新加载模型以应用更改。";
+"Build files changed." = "构建文件已更改。";
+"Load the project model" = "加载项目模型";
+"Reload the project model" = "重新加载项目模型";
+"Load Project Model" = "加载项目模型";
+"Reload Project Model" = "重新加载项目模型";
+"The project model is not loaded." = "项目模型尚未加载。";
+"Load" = "加载";
+"Run Tests" = "运行测试";
+"Run All Tests" = "运行全部测试";
+"Show Dependencies" = "显示依赖";
+"Load the dependencies again" = "重新加载依赖";
+"Loading dependencies…" = "正在加载依赖…";
+"No dependencies." = "没有依赖。";
+"Some dependencies are not shown." = "部分依赖未显示。";
+"The model is too large; some entries are not shown." = "模型过大，部分条目未显示。";
+"Separate arguments with spaces; quote an argument that contains spaces." = "参数之间用空格分隔；包含空格的参数请加引号。";
+"Use the default value" = "使用默认值";
+"None" = "无";
+"Run a build task to see output." = "运行构建任务后会显示输出。";
+"Succeeded" = "成功";
+"Tests passed" = "测试通过";
+"Tests failed" = "测试失败";
+"%lld skipped" = "%lld 个跳过";
+"Loading %@ model" = "正在加载 %@ 模型";
+"Loading dependencies of %@" = "正在加载 %@ 的依赖";
+"The build tool exited with code %lld." = "构建工具已退出，退出码 %lld。";
+"The build tool timed out." = "构建工具超时。";
+"%@ timed out." = "%@ 超时。";
+"The build tool output is too large or not UTF-8." = "构建工具的输出过大或不是 UTF-8 编码。";
+"This build system answers through a provider process, which Lithe for macOS does not run yet." = "此构建系统通过 provider 进程响应，macOS 版 Lithe 暂不支持运行 provider 进程。";
+"%@ of %@ is handled by %@." = "%2$@ 的 %1$@ 由 %3$@ 处理。";
+"%@ is version %@; %@ or newer is required." = "%1$@ 的版本是 %2$@，需要 %3$@ 或更高版本。";
+"%@ did not report a version; %@ or newer is required." = "%1$@ 没有报告版本，需要 %2$@ 或更高版本。";
+"%@ is not available." = "%@ 不可用。";
+"No JDK is configured for this project." = "此项目没有配置 JDK。";
+
+"Check complete." = "检查完成。";
+
+"Check complete. Some CLI update results are unavailable; see Preflight." = "检查完成。部分 CLI 的更新状态无法确认，请查看预检信息。";
+
+"Check failed." = "检查失败。";
+
+"Could not compare the local adapter with the verified version." = "无法比较本地适配器与已核验版本。";
+
+"A newer verified adapter version is available." = "有更高的已核验适配器版本可用。";
+
+"The local adapter is at or above the verified version." = "本地适配器版本等于或高于已核验版本。";
+
+"Minimum version" = "最低版本";
+
+"Update to" = "可更新至";
+
+"Could not confirm" = "无法确认";
+
+"Current version: %@ · Verified target: %@" = "当前版本：%@ · 已核验目标：%@";
+
+"Update to: %@" = "可更新至：%@";
+
+/* Plugin web tool windows */
+"Show its own page in a tool window" = "在工具窗口中显示插件自带的页面";
+"Load the %@ model" = "加载 %@ 的模型";
+"Load the dependencies of %@" = "加载 %@ 的依赖";
+"Allow “%@” to run build tools?" = "允许“%@”运行构建工具吗？";
+"The plugin’s page asks to run them in %@." = "插件页面请求在 %@ 中运行它们。";
+"Lithe asks again after the plugin is disabled, updated, or Lithe restarts." = "插件被停用、更新或 Lithe 重启后会再次询问。";
+"Arguments from the page:" = "页面提供的参数：";
+"Allow" = "允许";
+"Don’t Allow" = "不允许";
+"Restart Lithe to load the updated page." = "重启 Lithe 以加载更新后的页面。";
+
+"Subagent" = "子代理";
+
+"Subagents" = "子代理";
+
+"No subagents yet" = "暂无子代理";
+
+"Subagent task" = "子代理任务";
+
+"Subagent output" = "子代理输出";
+
+"No subagent output yet" = "尚未收到子代理输出";
+
+"Disconnected" = "已断开";
+/* File context actions */
+"Add to Current Conversation · %@" = "添加到当前会话 · %@";
+"Add to Another Conversation" = "添加到其他会话";
+"New Conversation" = "新建会话";
+"Set Up Agent File Attachments…" = "设置 Agent 文件附件…";
+"Choose existing files to add to a conversation." = "请选择仍存在的文件添加到会话。";
+"Files added. Save your editor changes before sending so the Agent can read them." = "文件已添加。请在发送前保存编辑内容，以便 Agent 读取最新文件。";
+"This conversation is no longer available. Choose another conversation." = "此会话已不可用，请选择其他会话。";
+"This Agent is no longer configured. Open Agent settings to configure it." = "此 Agent 已取消配置，请打开 Agent 设置重新配置。";
+
+/* Agent activity summaries */
+"Current: %@" = "当前：%@";
+"All tasks completed" = "所有任务已完成";
+"Modified files: %lld" = "修改了 %lld 个文件";
+"Review changes" = "查看文件修改";
+
+"All modules" = "全部模块";
+
+"Application" = "应用运行";
+
+"Editor and language services" = "编辑器与语言服务";
+
+"Build, run and debug" = "构建、运行与调试";
+
+"Current session" = "当前会话";
+
+"Previous session" = "上一次会话";
+
+"All sessions" = "全部会话";
+
+"Log filter" = "日志筛选";
+
+"Log level" = "日志级别";
+
+"Filter log messages" = "筛选日志内容";
+
+"From (UTC ISO 8601)" = "起始时间（UTC ISO 8601）";
+
+"Until (UTC ISO 8601)" = "结束时间（UTC ISO 8601）";
+
+"Refresh Logs" = "刷新日志";
+
+"Clear Logs" = "清空日志";
+
+"Detailed diagnostics for 15 minutes" = "详细诊断（15 分钟后关闭）";
+
+"No matching logs" = "没有匹配的日志";
+
+"Earlier log content omitted" = "较早的日志已省略";
+
+"Delete collected application logs?" = "删除已收集的应用日志？";
+
+/* Unified logs and diagnostics workflow. */
+"Logs and Diagnostics" = "日志与诊断";
+"Log locations" = "日志位置";
+"Log timeline" = "日志时间线";
+"Retention and cleanup" = "保留与清理";
+"Choose a module, enable detailed diagnostics, reproduce the problem, then preview and export a diagnostic bundle." = "选择模块，开启详细诊断并复现问题，然后预览并导出诊断包。";
+"Preview and export the selected logs with environment information. Credentials and home-directory paths are redacted; source code, editor buffers and terminal history are excluded." = "预览并导出筛选后的日志和环境信息。凭据和用户目录路径均会脱敏，不包含源码、编辑缓冲区或终端历史。";
+"Preview and Export…" = "预览并导出…";
+"Detailed diagnostics" = "详细诊断";
+"Detailed diagnostics cover the selected module and expire after 15 minutes. Refresh to see the current status." = "详细诊断仅覆盖所选模块，15 分钟后自动关闭。刷新可查看当前状态。";
+"Detailed diagnostics: On (%@)" = "详细诊断：已开启（%@）";
+"Detailed diagnostics: Off" = "详细诊断：已关闭";
+"Dropped: %lld; write failures: %lld" = "已丢弃：%lld；写入失败：%lld";
+"Earlier evidence was omitted by collection limits." = "部分较早的日志因收集上限被省略。";
+"Module logs rotate at 10 MiB and expire after 30 days. The combined budget is 100 MiB; performance logs have a separate 20 MiB budget." = "模块日志达到 10 MiB 后轮转，保留 30 天。总预算为 100 MiB，性能日志另有限额 20 MiB。";
+"Clear collected logs?" = "清空已收集的日志？";
+"Delete only Lithe-managed logs in the active directory across all modules and sessions. Filters do not limit this action. New events will continue to be recorded." = "仅删除生效目录中由 Lithe 管理的所有模块和会话日志。筛选条件不限制清理范围，后续事件仍会继续记录。";
+"Collected logs cleared." = "已清空收集的日志。";
+"Module: %@ · Session: %@ · Minimum level: %@" = "模块：%@ · 会话：%@ · 最低级别：%@";
+"Minimum level" = "最低级别";
+"Open Log Directory" = "打开日志目录";

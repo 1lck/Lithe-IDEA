@@ -5,14 +5,14 @@
   "capability": "Maven 工具栏提示；macOS 使用 IDEA 原色 SVG、共享按钮与单行树样式",
   "macos": {
     "evidence": [
-      "macos/Sources/Lithe/Views/Run/MavenView.swift",
+      "macos/Sources/Lithe/Views/Run/BuildSystemToolWindowView.swift",
       "macos/Sources/Lithe/Views/Workbench/WorkbenchHoverTooltip.swift",
       "macos/Tests/LitheTests/WorkbenchHoverTooltipTests.swift",
       "macos/Resources/IDEAIcons/NOTICE.txt",
       "macos/Sources/Lithe/Theme/LitheTheme.swift",
       "macos/Tests/LitheTests/AgentMavenAppearanceTests.swift"
     ],
-    "implementationStatus": "implemented",
+    "implementationStatus": "partial",
     "verificationStatus": "pending"
   },
   "windows": {
@@ -23,5 +23,5 @@
     "verificationStatus": "pending"
   },
   "owner": "Java / Maven",
-  "verification": "在 macOS 和 Windows 的 Maven 工具窗口逐一悬停运行、执行目标、重新加载、跳过测试、折叠和设置图标，确认提示与动作一致、提示框宽度适配文字；再检查禁用按钮和窄窗口中的提示换行与边缘约束。 macOS Maven 停靠入口使用 Community c7f91397 映射的 maven/expui/toolwindow/maven@20x20 明暗原始 SVG；标题只显示 Maven 与既有项目副标题，移除左侧图标。macOS 对照 Community c7f91397 的 Islands 明暗主题，核对 16pt 原色图标、22pt 按钮及 hover/pressed、Skip tests 选中、禁用、默认箭头；展开项目/生命周期/依赖，检查 24pt 行高、同一行说明、焦点与非焦点选中，双击运行、右键菜单和窄宽度仍正常。"
+  "verification": "macOS 的 Maven 窗口由构建插件声明，通用 BuildSystemToolWindowView 沿用共享按钮、悬停提示和单行树样式；窗口标题取 displayName、不显示项目副标题，窗口与开关图标取清单并保留明暗资源和原色，无图标时使用通用图标。隔离回归：BuildSystemToolWindowTests 校验窗口与选项图标只读加载及参数任务作用范围；ContextMenuCoverageTests、WorkbenchRenderingSafetyTests、LitheTreeRowStyleTests 检查共享交互边界。仍需真实 UI 验收：安装 Maven 插件后逐一悬停运行、参数任务、刷新、插件开关、折叠和选项按钮，确认提示与动作一致、禁用状态及窄窗口换行和边缘约束；在明暗主题核对 16pt 原色图标、22pt 按钮及 hover/pressed、开关选中、默认箭头，展开工程、任务分组、Profiles 和依赖，检查共享行高、同一行说明、焦点与非焦点选中、双击运行及右键菜单。Windows 仍使用原 Maven 面板，需在 Windows 逐项验收现有按钮提示。本次未运行真实 Lithe UI 或 Windows，保持 pending。"
 }

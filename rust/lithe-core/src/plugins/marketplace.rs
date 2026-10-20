@@ -8,6 +8,7 @@
 //! start, so macOS and Windows present the same catalog and the same trust
 //! prompts. The contract lives in `shared/contracts/plugins/v1/`.
 
+use super::capabilities::{self, HostCapabilities, Requires, CAPABILITIES_API_VERSION};
 use super::declarative::{
     is_official_namespace, is_plugin_id, is_semantic_version, validate_manifest_value,
     PluginRejection, Validation, SUPPORTED_PLUGIN_API_VERSIONS,
@@ -70,6 +71,10 @@ struct IndexVersion {
     version: String,
     #[serde(rename = "pluginAPIVersion")]
     plugin_api_version: u64,
+    /// Capability versions of a level 3 package, copied from its manifest
+    /// so hosts can tell before downloading whether they can run it.
+    #[serde(default)]
+    requires: Option<Value>,
     /// Calendar date `YYYY-MM-DD`, used for sorting and display only.
     release_date: String,
     /// One archive per platform group; a platform may appear only once.
@@ -109,7 +114,12 @@ impl GitHubRepository {
 
 /// Validates a whole index for one platform. Whole-index problems reject the
 /// index; a bad entry is reported in `rejected` without hiding the others.
-fn validate_index(index: Value, source: SourceKind, platform: &str) -> Validation<Value> {
+fn validate_index(
+    index: Value,
+    source: SourceKind,
+    platform: &str,
+    host_capabilities: Option<&HostCapabilities>,
+) -> Validation<Value> {
     if !is_platform(platform) {
         return Err(PluginRejection::at(
             "plugin.index.invalid",
@@ -169,7 +179,7 @@ fn validate_index(index: Value, source: SourceKind, platform: &str) -> Validatio
                     format!("The plugin entry is invalid: {error}"),
                 )
             })
-            .and_then(|entry| validate_entry(entry, source, platform, &field))
+            .and_then(|entry| validate_entry(entry, source, platform, host_capabilities, &field))
             .and_then(|plugin| {
                 // The first listing of an ID wins; a later duplicate cannot
                 // silently replace the download the user saw first.
@@ -211,6 +221,7 @@ fn validate_entry(
     entry: IndexEntry,
     source: SourceKind,
     platform: &str,
+    host_capabilities: Option<&HostCapabilities>,
     field: &str,
 ) -> Validation<Value> {
     if !is_plugin_id(&entry.id) {
@@ -311,6 +322,7 @@ fn validate_entry(
                 "The release date must use YYYY-MM-DD.",
             ));
         }
+        let requires = index_requires(version, &version_field)?;
         if version.downloads.is_empty() {
             return Err(index_invalid(
                 format!("{version_field}.downloads"),
@@ -355,14 +367,19 @@ fn validate_entry(
                 ));
             }
         }
-        versions.push((number, version, platforms));
+        versions.push(ListedVersion {
+            number,
+            version,
+            requires,
+            platforms,
+        });
     }
     // Newest first, so "latest" and the version list read the same way on
     // every host regardless of the order an index author used.
-    versions.sort_by(|left, right| right.0.cmp(&left.0));
+    versions.sort_by_key(|listed| std::cmp::Reverse(listed.number));
 
     let latest = &versions[0];
-    let availability = availability(&versions, platform);
+    let availability = availability(&versions, platform, host_capabilities);
     Ok(json!({
         "id": entry.id,
         "name": entry.name.trim(),
@@ -374,40 +391,85 @@ fn validate_entry(
         "tags": tags,
         "license": entry.license.trim(),
         "icon": entry.icon,
-        "platforms": latest.2,
-        "latestVersion": latest.1.version,
-        "latestReleaseDate": latest.1.release_date,
+        "platforms": latest.platforms,
+        "latestVersion": latest.version.version,
+        "latestReleaseDate": latest.version.release_date,
         "availability": availability,
-        "versions": versions.iter().map(|(_, version, platforms)| json!({
-            "version": version.version,
-            "pluginAPIVersion": version.plugin_api_version,
-            "releaseDate": version.release_date,
-            "platforms": platforms,
-        })).collect::<Vec<_>>(),
+        "versions": versions.iter().map(|listed| {
+            let mut value = json!({
+                "version": listed.version.version,
+                "pluginAPIVersion": listed.version.plugin_api_version,
+                "releaseDate": listed.version.release_date,
+                "platforms": listed.platforms,
+            });
+            if let Some(requires) = &listed.requires {
+                value["requires"] = json!(requires);
+            }
+            value
+        }).collect::<Vec<_>>(),
     }))
+}
+
+/// One validated version of an entry.
+struct ListedVersion<'a> {
+    number: (u32, u32, u32),
+    version: &'a IndexVersion,
+    requires: Option<Requires>,
+    platforms: BTreeSet<String>,
+}
+
+/// Reads a version's `requires`, which level 3 lists and earlier levels do
+/// not. Unknown capability IDs are kept: they make the version unavailable
+/// on this host instead of rejecting the whole entry.
+fn index_requires(version: &IndexVersion, field: &str) -> Validation<Option<Requires>> {
+    let field = format!("{field}.requires");
+    match (&version.requires, version.plugin_api_version) {
+        (None, level) if level == u64::from(CAPABILITIES_API_VERSION) => Err(index_invalid(
+            field,
+            "A pluginAPIVersion 3 version lists the capabilities it uses in requires.",
+        )),
+        (Some(_), level) if level < u64::from(CAPABILITIES_API_VERSION) => Err(index_invalid(
+            field,
+            "Capability versions require pluginAPIVersion 3.",
+        )),
+        (None, _) => Ok(None),
+        (Some(requires), _) => {
+            capabilities::parse_requires(requires, &field, "plugin.index.invalid").map(Some)
+        }
+    }
 }
 
 /// Picks the newest version this host can install. When none qualifies, an
 /// API mismatch is reported in preference to a missing platform, because a
 /// Lithe update is then enough to install the plugin.
 fn availability(
-    versions: &[((u32, u32, u32), &IndexVersion, BTreeSet<String>)],
+    versions: &[ListedVersion<'_>],
     platform: &str,
+    host_capabilities: Option<&HostCapabilities>,
 ) -> Value {
     let mut platform_listed = false;
-    for (_, version, platforms) in versions {
-        if !platforms.contains(platform) {
+    for listed in versions {
+        let version = listed.version;
+        if !listed.platforms.contains(platform) {
             continue;
         }
         platform_listed = true;
-        // Core validates UI declarations on every platform, but only macOS
-        // currently has the API level 2 UI host. Do not advertise an adapter
-        // that Windows/Linux cannot run merely because validation succeeded.
         if !SUPPORTED_PLUGIN_API_VERSIONS
             .iter()
             .any(|supported| u64::from(*supported) == version.plugin_api_version)
-            || (version.plugin_api_version >= 2 && !platform.starts_with("darwin-"))
         {
+            continue;
+        }
+        let hosted = match &listed.requires {
+            // A level 3 version runs where the host implements every
+            // capability version it requires, whatever else it lacks.
+            Some(requires) => capabilities::hosts(requires, host_capabilities),
+            // Core validates level 2 UI declarations on every platform, but
+            // only macOS has the level 2 UI host. Do not advertise an adapter
+            // Windows cannot run merely because validation succeeded.
+            None => version.plugin_api_version < 2 || platform.starts_with("darwin-"),
+        };
+        if !hosted {
             continue;
         }
         let download = version
@@ -520,8 +582,12 @@ fn install_review(
     expected_id: Option<&str>,
     expected_version: Option<&str>,
     approved_programs: Option<&[Value]>,
+    host_capabilities: Option<&HostCapabilities>,
 ) -> Validation<Value> {
     let manifest = validate_manifest_value(manifest)?;
+    if let Some(host) = host_capabilities {
+        capabilities::check_hosted(manifest.requires(), host)?;
+    }
     if expected_id.is_some_and(|id| id != manifest.id())
         || expected_version.is_some_and(|version| version != manifest.version())
     {
@@ -704,6 +770,10 @@ struct ValidateIndexPayload {
     index: Value,
     source_kind: SourceKind,
     platform: String,
+    /// Capability versions the host runs; without them no level 3 version
+    /// is offered.
+    #[serde(default)]
+    host_capabilities: Option<HostCapabilities>,
 }
 
 #[derive(Deserialize)]
@@ -724,6 +794,10 @@ struct InstallReviewPayload {
     /// first installation.
     #[serde(default)]
     approved_programs: Option<Vec<Value>>,
+    /// Capability versions the host runs. When sent, a level 3 package that
+    /// requires anything else is refused.
+    #[serde(default)]
+    host_capabilities: Option<HostCapabilities>,
 }
 
 fn decode_payload<T: for<'de> Deserialize<'de>>(
@@ -758,7 +832,12 @@ pub fn validate_index_command(payload: Value) -> Result<Value, CoreError> {
         decode_payload(payload, "plugins.marketplace.validateIndex")?;
     Ok(outcome(
         "index",
-        validate_index(payload.index, payload.source_kind, &payload.platform),
+        validate_index(
+            payload.index,
+            payload.source_kind,
+            &payload.platform,
+            payload.host_capabilities.as_ref(),
+        ),
     ))
 }
 
@@ -782,6 +861,7 @@ pub fn install_review_command(payload: Value) -> Result<Value, CoreError> {
             payload.expected_id.as_deref(),
             payload.expected_version.as_deref(),
             payload.approved_programs.as_deref(),
+            payload.host_capabilities.as_ref(),
         ),
     ))
 }

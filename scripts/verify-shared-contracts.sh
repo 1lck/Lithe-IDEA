@@ -178,11 +178,47 @@ done
   plans.each do |item|
     abort "plan case #{item.fetch("name")} uses an unknown plugin" unless fixture_names.include?(item.fetch("plugin"))
     abort "plan case #{item.fetch("name")} uses an unknown operation" unless %w[runPlan discoverTests testPlan languageServerLaunchPlan].include?(item.fetch("operation"))
+    abort "plan case #{item.fetch("name")} must name exactly one of languageID and buildSystemID" unless item.key?("languageID") ^ item.key?("buildSystemID")
     expected = item.fetch("expected")
     if expected.fetch("status") == "rejected"
       abort "plan case #{item.fetch("name")} uses an undocumented code" unless documented.include?(expected.fetch("code"))
     end
   end
+  build_operations = %w[
+    invocationPlan checkToolVersion resolveOptions modelPlan taskPlan testPlan dependencyPlan
+    decodeModel decodeTestResults decodeDiagnostics decodeDependencies syncFingerprint
+  ]
+  build_plans = JSON.parse(File.read(File.join(root, "fixtures", "build-plans.json")))
+  abort "build plan fixture schema must be 1" unless build_plans.fetch("schemaVersion") == 1
+  build_names = build_plans.fetch("cases").map { |item| item.fetch("name") }
+  abort "build plan case names must be unique" unless build_names.uniq.length == build_names.length
+  build_plans.fetch("cases").each do |item|
+    abort "build plan case #{item.fetch("name")} uses an unknown plugin" unless fixture_names.include?(item.fetch("plugin"))
+    abort "build plan case #{item.fetch("name")} uses an unknown operation" unless build_operations.include?(item.fetch("operation"))
+    expected = item.fetch("expected")
+    if expected.fetch("status") == "rejected"
+      abort "build plan case #{item.fetch("name")} uses an undocumented code" unless documented.include?(expected.fetch("error").fetch("code"))
+    end
+    abort "build plan case #{item.fetch("name")} contains a machine path" if JSON.generate(item).match?(%r{/(?:Users|home|var/folders|private/var)/|[A-Za-z]:\\\\})
+  end
+  functions = JSON.parse(File.read(File.join(root, "fixtures", "function-protocol.json")))
+  abort "function protocol fixture schema must be 1" unless functions.fetch("schemaVersion") == 1
+  abort "function protocol fixture must describe litheFunctions" unless functions.fetch("protocol") == "litheFunctions"
+  function_sections = %w[negotiation registration invocations outcomes progress backendRequests]
+  function_names = function_sections.flat_map { |section| functions.fetch(section).map { |item| item.fetch("name") } }
+  abort "function protocol case names must be unique" unless function_names.uniq.length == function_names.length
+  function_codes = []
+  functions.fetch("registration").each do |item|
+    abort "function registration case #{item.fetch("name")} uses an unknown method" unless %w[lithe/function/register lithe/function/unregister].include?(item.fetch("method"))
+    function_codes << item.fetch("expected")["code"]
+  end
+  functions.fetch("invocations").each { |item| function_codes << item.fetch("expected")["code"] }
+  functions.fetch("outcomes").each { |item| function_codes << item.fetch("expected").fetch("error", {})["code"] }
+  functions.fetch("backendRequests").each { |item| function_codes << item.fetch("expected")["code"] }
+  function_codes.compact.uniq.each do |code|
+    abort "function protocol fixture uses an undocumented code #{code}" unless documented.include?(code)
+  end
+  abort "function protocol fixture contains a machine path" if JSON.generate(functions).match?(%r{/(?:Users|home|var/folders|private/var)/|[A-Za-z]:\\\\})
   index_schema = JSON.parse(File.read(File.join(root, "plugin-index.schema.json")))
   abort "plugin index schema ID mismatch" unless index_schema.fetch("$id").end_with?("/plugins/v1/plugin-index.schema.json")
   abort "plugin indexes must use schemaVersion 1" unless index_schema.fetch("properties").fetch("schemaVersion").fetch("const") == 1

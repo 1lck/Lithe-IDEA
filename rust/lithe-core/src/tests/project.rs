@@ -36,6 +36,256 @@ fn workspace_snapshot_hides_nested_worktree_checkouts() {
     fs::remove_dir_all(root).expect("temporary fixture should be removable");
 }
 
+fn core_data(id: &str, command: &str, payload: Value) -> Value {
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({"id": id, "command": command, "payload": payload}).to_string(),
+    ))
+    .expect("core response should be JSON");
+    assert_eq!(response["ok"], true, "{response}");
+    response["data"].clone()
+}
+
+fn write_fixture_file(path: &std::path::Path, text: &str) {
+    fs::create_dir_all(path.parent().expect("fixture file should have a parent"))
+        .expect("fixture directory should be creatable");
+    fs::write(path, text).expect("fixture file should be writable");
+}
+
+/// Lays out the pointer files Git writes for a linked worktree, a submodule,
+/// and a worktree placed beside its main checkout.
+fn write_linked_worktree_fixture(root: &std::path::Path) {
+    write_fixture_file(&root.join("src/App.java"), "class App {}");
+    write_fixture_file(&root.join(".git/HEAD"), "ref: refs/heads/main\n");
+    write_fixture_file(
+        &root.join(".git/worktrees/agent/HEAD"),
+        "ref: refs/heads/agent\n",
+    );
+    write_fixture_file(
+        &root.join(".claude/worktrees/agent/.git"),
+        &format!("gitdir: {}\n", root.join(".git/worktrees/agent").display()),
+    );
+    write_fixture_file(
+        &root.join(".claude/worktrees/agent/src/App.java"),
+        "class App { int nestedWorktreeToken731; }",
+    );
+    write_fixture_file(&root.join(".claude/settings.json"), "{}");
+    // Submodules point into `.git/modules`, so they remain part of the project.
+    write_fixture_file(
+        &root.join(".git/modules/lib/HEAD"),
+        "ref: refs/heads/main\n",
+    );
+    write_fixture_file(
+        &root.join("vendor/lib/.git"),
+        "gitdir: ../../.git/modules/lib\n",
+    );
+    write_fixture_file(&root.join("vendor/lib/Lib.java"), "class Lib {}");
+}
+
+#[test]
+fn workspace_snapshot_omits_linked_worktrees_nested_in_their_own_repository() {
+    let root = temporary_root("snapshot-linked-worktree");
+    write_linked_worktree_fixture(&root);
+
+    let data = core_data(
+        "snapshot-linked-worktree",
+        "workspace.snapshot",
+        serde_json::json!({"root": root}),
+    );
+
+    assert_eq!(
+        data["files"],
+        serde_json::json!([
+            ".claude/settings.json",
+            "src/App.java",
+            "vendor/lib/Lib.java"
+        ])
+    );
+    assert_eq!(
+        data["nestedWorktrees"],
+        serde_json::json!([".claude/worktrees/agent"])
+    );
+    fs::remove_dir_all(root).expect("temporary fixture should be removable");
+}
+
+#[test]
+fn workspace_snapshot_without_tree_keeps_the_same_file_list() {
+    let root = temporary_root("snapshot-files-only");
+    write_linked_worktree_fixture(&root);
+
+    let full = core_data(
+        "snapshot-full",
+        "workspace.snapshot",
+        serde_json::json!({"root": root}),
+    );
+    let files_only = core_data(
+        "snapshot-files-only",
+        "workspace.snapshot",
+        serde_json::json!({"root": root, "includeTree": false}),
+    );
+
+    assert_eq!(files_only["files"], full["files"]);
+    assert_eq!(files_only["nestedWorktrees"], full["nestedWorktrees"]);
+    assert_eq!(files_only["root"]["path"], "");
+    assert_eq!(files_only["root"]["isDirectory"], true);
+    assert!(files_only["root"].get("children").is_none());
+    fs::remove_dir_all(root).expect("temporary fixture should be removable");
+}
+
+#[test]
+fn list_directories_returns_one_visible_level_per_requested_directory() {
+    let root = temporary_root("list-directories");
+    write_linked_worktree_fixture(&root);
+    write_fixture_file(&root.join("src/main/Util.java"), "class Util {}");
+    write_fixture_file(&root.join("build/Output.class"), "");
+
+    let data = core_data(
+        "list-directories",
+        "workspace.listDirectories",
+        serde_json::json!({
+            "root": root,
+            "paths": ["", "src/", ".claude/worktrees", "missing", "build", "../outside",
+                      ".claude/worktrees/agent", ".claude/worktrees/agent/src"]
+        }),
+    );
+
+    let directories = data["directories"]
+        .as_array()
+        .expect("directories should be an array");
+    let paths = directories
+        .iter()
+        .map(|directory| directory["path"].as_str().unwrap_or_default())
+        .collect::<Vec<_>>();
+    assert_eq!(paths, ["", "src", ".claude/worktrees"]);
+    let names = |index: usize| {
+        directories[index]["children"]
+            .as_array()
+            .expect("children should be an array")
+            .iter()
+            .map(|child| {
+                assert!(child.get("children").is_none(), "{child}");
+                (
+                    child["path"].as_str().unwrap_or_default().to_string(),
+                    child["isDirectory"].as_bool().unwrap_or_default(),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        names(0),
+        [
+            (".claude".to_string(), true),
+            ("src".to_string(), true),
+            ("vendor".to_string(), true)
+        ]
+    );
+    assert_eq!(
+        names(1),
+        [
+            ("src/main".to_string(), true),
+            ("src/App.java".to_string(), false)
+        ]
+    );
+    assert!(names(2).is_empty());
+    assert_eq!(
+        directories[2]["nestedWorktrees"],
+        serde_json::json!([".claude/worktrees/agent"])
+    );
+    fs::remove_dir_all(root).expect("temporary fixture should be removable");
+}
+
+#[test]
+fn workspace_snapshot_keeps_worktrees_outside_their_main_checkout() {
+    // Opening a folder that holds a main checkout beside one of its linked
+    // worktrees shows both: neither duplicates the other's directory.
+    let root = temporary_root("snapshot-sibling-worktree");
+    write_fixture_file(&root.join("main/.git/HEAD"), "ref: refs/heads/main\n");
+    write_fixture_file(
+        &root.join("main/.git/worktrees/feature/HEAD"),
+        "ref: refs/heads/f\n",
+    );
+    write_fixture_file(&root.join("main/App.java"), "class App {}");
+    write_fixture_file(
+        &root.join("feature/.git"),
+        &format!(
+            "gitdir: {}\n",
+            root.join("main/.git/worktrees/feature").display()
+        ),
+    );
+    write_fixture_file(&root.join("feature/App.java"), "class App {}");
+
+    let data = core_data(
+        "snapshot-sibling-worktree",
+        "workspace.snapshot",
+        serde_json::json!({"root": root}),
+    );
+
+    assert_eq!(
+        data["files"],
+        serde_json::json!(["feature/App.java", "main/App.java"])
+    );
+    assert_eq!(data["nestedWorktrees"], serde_json::json!([]));
+    fs::remove_dir_all(root).expect("temporary fixture should be removable");
+}
+
+#[test]
+fn workspace_snapshot_hides_build_artifact_directory() {
+    let root = temporary_root("snapshot-artifacts");
+    write_fixture_file(&root.join("src/App.java"), "class App {}");
+    write_fixture_file(
+        &root.join(".artifacts/test-stability/index.html"),
+        "<html></html>",
+    );
+
+    let data = core_data(
+        "snapshot-artifacts",
+        "workspace.snapshot",
+        serde_json::json!({"root": root}),
+    );
+
+    assert_eq!(data["files"], serde_json::json!(["src/App.java"]));
+    fs::remove_dir_all(root).expect("temporary fixture should be removable");
+}
+
+#[test]
+fn search_index_ignores_nested_linked_worktree_content_and_updates() {
+    let root = temporary_root("search-linked-worktree");
+    write_linked_worktree_fixture(&root);
+    // Watcher paths arrive canonical; match them so the update is not dropped
+    // merely for lying outside the root.
+    let root = fs::canonicalize(&root).expect("fixture root should resolve");
+    let search = |id: &str| {
+        core_data(
+            id,
+            "workspace.search",
+            serde_json::json!({"root": root, "query": "nestedWorktreeToken731"}),
+        )
+    };
+
+    assert_eq!(
+        search("search-linked-worktree")["matches"],
+        serde_json::json!([])
+    );
+    write_fixture_file(
+        &root.join(".claude/worktrees/agent/src/New.java"),
+        "class New { int nestedWorktreeToken731; }",
+    );
+    let update = core_data(
+        "search-linked-worktree-update",
+        "workspace.searchIndex.update",
+        serde_json::json!({
+            "root": root,
+            "paths": [root.join(".claude/worktrees/agent/src/New.java")]
+        }),
+    );
+
+    assert_eq!(update["rebuilt"], false, "{update}");
+    assert_eq!(
+        search("search-linked-worktree-after-update")["matches"],
+        serde_json::json!([])
+    );
+    fs::remove_dir_all(root).expect("temporary fixture should be removable");
+}
+
 #[test]
 fn search_can_match_unique_content_inside_jdtls_factorypath_files() {
     // Shared visibility rules must not hide `.factorypath`, otherwise search

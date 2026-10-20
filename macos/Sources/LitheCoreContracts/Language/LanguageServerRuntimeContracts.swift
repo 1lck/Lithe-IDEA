@@ -210,6 +210,9 @@ package struct LanguageServerRuntimeError: Equatable, Sendable {
     package let underlyingMessage: String?
     package let processExitCode: Int?
     package let javaBuildReport: JavaBuildReport?
+    /// Plugin-defined code of a failed plugin function, for the plugin's own
+    /// UI only; the host never branches on it.
+    package let pluginErrorCode: String?
 
     package init(
         code: String,
@@ -217,7 +220,8 @@ package struct LanguageServerRuntimeError: Equatable, Sendable {
         message: String,
         underlyingMessage: String?,
         processExitCode: Int?,
-        javaBuildReport: JavaBuildReport? = nil
+        javaBuildReport: JavaBuildReport? = nil,
+        pluginErrorCode: String? = nil
     ) {
         self.code = code
         self.stage = stage
@@ -225,6 +229,7 @@ package struct LanguageServerRuntimeError: Equatable, Sendable {
         self.underlyingMessage = underlyingMessage
         self.processExitCode = processExitCode
         self.javaBuildReport = javaBuildReport
+        self.pluginErrorCode = pluginErrorCode
     }
 }
 
@@ -324,6 +329,30 @@ package struct LanguageServerRuntimeEvent: Equatable, Sendable {
     }
 }
 
+/// Core-normalized Buildship options, fixed for one Java session's lifetime.
+package struct JavaGradleImportConfiguration: Codable, Equatable, Sendable {
+    package let wrapperPresent: Bool
+    package let offline: Bool?
+    package let userHome: String?
+
+    package init(wrapperPresent: Bool, offline: Bool? = nil, userHome: String? = nil) {
+        self.wrapperPresent = wrapperPresent
+        self.offline = offline
+        self.userHome = userHome
+    }
+}
+
+/// Maven and Gradle can coexist in a workspace; each keeps its own import input.
+package struct JavaLanguageImportConfiguration: Equatable, Sendable {
+    package let mavenContext: MavenLaunchContext?
+    package let javaGradle: JavaGradleImportConfiguration?
+
+    package init(mavenContext: MavenLaunchContext? = nil, javaGradle: JavaGradleImportConfiguration? = nil) {
+        self.mavenContext = mavenContext
+        self.javaGradle = javaGradle
+    }
+}
+
 package protocol LanguageServerRuntimeCore: Sendable {
     func startLanguageServer(
         providerID: String,
@@ -354,6 +383,25 @@ package protocol LanguageServerRuntimeCore: Sendable {
         cacheDirectoryURL: URL?,
         workspaceFingerprint: String?,
         mavenContext: MavenLaunchContext?,
+        initializeTimeout: TimeInterval,
+        requestTimeout: TimeInterval,
+        shutdownTimeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure>
+
+    func startLanguageServer(
+        providerID: String,
+        executableURL: URL,
+        arguments: [String],
+        environment: [String: String],
+        rootURL: URL,
+        workingDirectoryURL: URL,
+        initializationOptions: ToolingJSONValue?,
+        runtimeExecutableURL: URL?,
+        jdtlsLaunchResources: JDTLSLaunchResources?,
+        cacheDirectoryURL: URL?,
+        workspaceFingerprint: String?,
+        mavenContext: MavenLaunchContext?,
+        javaGradle: JavaGradleImportConfiguration?,
         initializeTimeout: TimeInterval,
         requestTimeout: TimeInterval,
         shutdownTimeout: TimeInterval
@@ -404,12 +452,64 @@ package protocol LanguageServerRuntimeCore: Sendable {
         marker: JavaNavigationMarker,
         documentVersion: Int
     ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure>
+    /// Sends a request of the negotiated build-provider protocol. Its
+    /// completion arrives as a `requestCompleted` event with the reply under
+    /// `result.value`.
+    func requestBuildProvider(
+        sessionID: String,
+        method: String,
+        params: ToolingJSONValue,
+        timeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure>
+    /// Starts a process a plugin owns. Only such a session negotiates plugin
+    /// functions, and Core lets it serve that plugin's functions alone.
+    func startPluginLanguageServer(
+        pluginID: String,
+        providerID: String,
+        executableURL: URL,
+        arguments: [String],
+        environment: [String: String],
+        rootURL: URL,
+        initializationOptions: ToolingJSONValue?,
+        initializeTimeout: TimeInterval,
+        requestTimeout: TimeInterval,
+        shutdownTimeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure>
+    /// Invokes a plugin function of `pluginID`. Progress arrives as
+    /// `requestProgress` events and the outcome as one `requestCompleted`,
+    /// with the result under `result.value`.
+    func requestPluginFunction(
+        sessionID: String,
+        pluginID: String,
+        functionID: String,
+        params: ToolingJSONValue,
+        timeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure>
     func cancelLanguageServerOperation(sessionID: String, operationID: String)
     func pollLanguageServerEvents(sessionID: String) -> [LanguageServerRuntimeEvent]
     func destroyLanguageServer(sessionID: String)
 }
 
 package extension LanguageServerRuntimeCore {
+    func startLanguageServer(
+        providerID: String, executableURL: URL, arguments: [String], environment: [String: String],
+        rootURL: URL, workingDirectoryURL: URL, initializationOptions: ToolingJSONValue?,
+        runtimeExecutableURL: URL?, jdtlsLaunchResources: JDTLSLaunchResources?, cacheDirectoryURL: URL?,
+        workspaceFingerprint: String?, mavenContext: MavenLaunchContext?, javaGradle: JavaGradleImportConfiguration?,
+        initializeTimeout: TimeInterval, requestTimeout: TimeInterval, shutdownTimeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure> {
+        guard javaGradle == nil else {
+            return .failure(LanguageServerRuntimeFailure(code: "unsupported", message: "This language runtime cannot apply Gradle import settings."))
+        }
+        return startLanguageServer(
+            providerID: providerID, executableURL: executableURL, arguments: arguments, environment: environment,
+            rootURL: rootURL, workingDirectoryURL: workingDirectoryURL, initializationOptions: initializationOptions,
+            runtimeExecutableURL: runtimeExecutableURL, jdtlsLaunchResources: jdtlsLaunchResources,
+            cacheDirectoryURL: cacheDirectoryURL, workspaceFingerprint: workspaceFingerprint, mavenContext: mavenContext,
+            initializeTimeout: initializeTimeout, requestTimeout: requestTimeout, shutdownTimeout: shutdownTimeout
+        )
+    }
+
     func retryMavenProfiles(sessionID _: String) -> Result<Void, LanguageServerRuntimeFailure> { .success(()) }
 
     /// Runtimes without in-place Maven updates report that they cannot take
@@ -491,6 +591,83 @@ package extension LanguageServerRuntimeCore {
             message: "Java navigation is not supported by this runtime."
         ))
     }
+
+    func requestBuildProvider(
+        sessionID _: String,
+        method _: String,
+        params _: ToolingJSONValue,
+        timeout _: TimeInterval
+    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
+        .failure(LanguageServerRuntimeFailure(
+            code: "not_supported",
+            message: "Build-provider requests are not supported by this runtime."
+        ))
+    }
+
+    /// Runtimes without plugin ownership start a host-owned session, which
+    /// serves no plugin functions.
+    func startPluginLanguageServer(
+        pluginID _: String,
+        providerID: String,
+        executableURL: URL,
+        arguments: [String],
+        environment: [String: String],
+        rootURL: URL,
+        initializationOptions: ToolingJSONValue?,
+        initializeTimeout: TimeInterval,
+        requestTimeout: TimeInterval,
+        shutdownTimeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure> {
+        startLanguageServer(
+            providerID: providerID, executableURL: executableURL, arguments: arguments, environment: environment,
+            rootURL: rootURL, workingDirectoryURL: rootURL, initializationOptions: initializationOptions,
+            runtimeExecutableURL: nil, jdtlsLaunchResources: nil, cacheDirectoryURL: nil,
+            workspaceFingerprint: nil, initializeTimeout: initializeTimeout,
+            requestTimeout: requestTimeout, shutdownTimeout: shutdownTimeout
+        )
+    }
+
+    func requestPluginFunction(
+        sessionID _: String,
+        pluginID _: String,
+        functionID _: String,
+        params _: ToolingJSONValue,
+        timeout _: TimeInterval
+    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
+        .failure(LanguageServerRuntimeFailure(
+            code: "not_supported",
+            message: "Plugin functions are not supported by this runtime."
+        ))
+    }
+}
+
+/// One progress report of a running plugin function, as Core normalized it.
+package struct PluginFunctionProgress: Equatable, Sendable {
+    package let message: String?
+    /// A whole number from 0 to 100.
+    package let percentage: Int?
+
+    package init(message: String?, percentage: Int?) {
+        self.message = message
+        self.percentage = percentage
+    }
+}
+
+/// A plugin function that ended without a result: Core's stable
+/// `plugin.function.*` or request code, and the backend's own code when it
+/// gave one. Cancellation is reported as `CancellationError` instead.
+package struct PluginFunctionFailure: LocalizedError, Equatable, Sendable {
+    package let code: String
+    package let message: String
+    package let pluginErrorCode: String?
+
+    package init(code: String, message: String, pluginErrorCode: String? = nil) {
+        self.code = code
+        self.message = message
+        self.pluginErrorCode = pluginErrorCode
+    }
+
+    package var errorDescription: String? { message }
 }
 
 @MainActor

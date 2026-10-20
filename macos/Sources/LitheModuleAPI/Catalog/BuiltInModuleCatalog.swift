@@ -123,8 +123,7 @@ public enum BuiltInModuleCatalog {
             ModuleContribution(id: "debug.session", kind: .toolWindow, title: "Debug", icon: "ladybug", order: 700, actionID: "debug.toggle", rendererID: "debug.session")
         ],
         .execution: [
-            ModuleContribution(id: "execution.maven", kind: .toolWindow, title: "Maven", icon: "shippingbox", placement: .rightSidebar, order: 100, actionID: "execution.maven.toggle", rendererID: "execution.maven", visibility: ["projectKind": "maven"]),
-            ModuleContribution(id: "execution.maven.output", kind: .toolWindow, title: "Maven Build", icon: "terminal", order: 400, actionID: "execution.maven.output.toggle", rendererID: "execution.maven.output"),
+            ModuleContribution(id: "execution.build.output", kind: .toolWindow, title: "Build Output", icon: "terminal", order: 410, actionID: "execution.build.output.toggle", rendererID: "execution.build.output"),
             ModuleContribution(id: "execution.run", kind: .toolWindow, title: "Run", icon: "play.rectangle", order: 500, actionID: "execution.run.toggle", rendererID: "execution.run"),
             ModuleContribution(id: "execution.tests", kind: .toolWindow, title: "Tests", icon: "checkmark.seal", order: 600, actionID: "execution.tests.toggle", rendererID: "execution.tests")
         ],
@@ -214,13 +213,19 @@ public enum BuiltInPluginCatalog {
 /// Official declarative plugins the host recognizes before they are installed.
 /// The host pins each plugin's trust policy so a package cannot downgrade the
 /// signature it must carry; the package's own `plugin.json` remains the source
-/// of its language and process declarations.
+/// of its language and process declarations. Retired official plugins stay
+/// listed so installed copies keep that pinned trust policy.
 public enum OfficialPluginCatalog {
     public enum Distribution: Equatable, Sendable {
         /// Shipped inside the application bundle and sealed by its signature.
         case bundled
         /// Downloaded on demand as a publisher-signed package.
         case download
+        /// No longer published as an official plugin; its successor is the
+        /// community plugin with this ID. An installed copy keeps its pinned
+        /// signature requirement and keeps loading, but receives no official
+        /// updates, so the host asks the user to replace it.
+        case migratedToCommunity(PluginID)
     }
 
     public struct Entry: Equatable, Sendable {
@@ -233,6 +238,12 @@ public enum OfficialPluginCatalog {
         /// Used to suggest the plugin for a project before it is installed.
         public let fileExtensions: [String]
         public let projectFileNames: [String]
+
+        /// The community plugin that replaces this retired official plugin.
+        public var communityReplacementID: PluginID? {
+            guard case .migratedToCommunity(let replacementID) = distribution else { return nil }
+            return replacementID
+        }
     }
 
     public static let phpPluginID = PluginID("dev.lithe.plugin.php-support")
@@ -254,7 +265,7 @@ public enum OfficialPluginCatalog {
             id: goPluginID,
             displayName: "Go Support",
             signatureRequirement: .publisherPackage,
-            distribution: .download,
+            distribution: .migratedToCommunity(PluginID("io.github.lithe-idea.go-support")),
             languageID: "go",
             languageDisplayName: "Go",
             fileExtensions: ["go"],
@@ -264,7 +275,7 @@ public enum OfficialPluginCatalog {
             id: phpPluginID,
             displayName: "PHP Support",
             signatureRequirement: .publisherPackage,
-            distribution: .download,
+            distribution: .migratedToCommunity(PluginID("io.github.lithe-idea.php-support")),
             languageID: "php",
             languageDisplayName: "PHP",
             fileExtensions: ["php", "phtml"],
@@ -274,6 +285,12 @@ public enum OfficialPluginCatalog {
 
     public static func entry(for id: PluginID) -> Entry? {
         entries.first { $0.id == id }
+    }
+
+    /// Entries still published as official plugins, which the host may
+    /// suggest and whose languages it ties to the official package.
+    public static var publishedEntries: [Entry] {
+        entries.filter { $0.communityReplacementID == nil }
     }
 }
 
@@ -311,6 +328,23 @@ public enum LanguageExtensionModuleManifests {
                 .languageExecutionExtension(languageID),
                 .languageTestingExtension(languageID)
             ]
+        )
+    }
+
+    /// One module for all build systems of a plugin. It owns no process of
+    /// its own: the execution module runs the commands while it is enabled.
+    public static func buildSystems(
+        pluginID: String,
+        displayName: String,
+        enabledByDefault: Bool = false
+    ) -> ModuleManifest {
+        ModuleManifest(
+            id: .buildSystemsExtension(pluginID),
+            displayName: "\(displayName) Build Systems",
+            scope: .workspace,
+            defaultState: enabledByDefault ? .enabled : .disabled,
+            activationPolicy: .onDemand,
+            dependencies: [.module(.workspace)]
         )
     }
 }

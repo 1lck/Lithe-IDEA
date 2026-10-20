@@ -10,12 +10,13 @@ use crate::git::{
     self, GitApplyRequest, GitBlameRequest, GitCheckoutPreflightRequest, GitCommandRequest,
     GitCommitFilesRequest, GitCommitRequest, GitComparisonRequest, GitConflictMarkerRequest,
     GitDiffRequest, GitHistoryCursorCloseRequest, GitHistoryPageRequest, GitHistoryRequest,
-    GitHistoryRewritePreviewRequest, GitIntegrationPreflightRequest, GitOperationStateRequest,
-    GitPullPreflightRequest, GitPullRequestContextRequest, GitPushPreviewRequest,
-    GitRebaseControlRequest, GitRebasePreviewRequest, GitRebaseSessionRequest,
-    GitRebaseStartRequest, GitReferencesRequest, GitRepositoryRootRequest, GitStashesRequest,
-    GitStatusRequest, GitWatchContextRequest, GitWorktreesRequest, GitWriteRequest,
-    PatchApplyRequest, PatchExportRequest, PatchPreviewRequest, WorkspaceRepositoriesRequest,
+    GitHistoryRewritePreviewRequest, GitIntegrationPreflightRequest, GitLineHistoryRequest,
+    GitOperationStateRequest, GitPullPreflightRequest, GitPullRequestContextRequest,
+    GitPushPreviewRequest, GitRebaseControlRequest, GitRebasePreviewRequest,
+    GitRebaseSessionRequest, GitRebaseStartRequest, GitReferencesRequest, GitRepositoryRootRequest,
+    GitStashesRequest, GitStatusRequest, GitWatchContextRequest, GitWorktreesRequest,
+    GitWriteRequest, PatchApplyRequest, PatchExportRequest, PatchPreviewRequest,
+    WorkspaceRepositoriesRequest,
 };
 use crate::github::{NormalizeResponseRequest, ParseRemoteRequest, RequestPlanRequest};
 use crate::languages::{
@@ -23,8 +24,9 @@ use crate::languages::{
     JavaSourceDefinitionRequest, JavaStructureRequest, MybatisIndexRequest, SpringIndexRequest,
 };
 use crate::project::{
-    self, DocumentLifecycleRequest, FileReadRequest, FileWriteRequest, ReplacementPreviewRequest,
-    SearchIndexRequest, SearchIndexUpdateRequest, SearchRequest, WorkspaceSnapshotRequest,
+    self, DirectoryListingRequest, DocumentLifecycleRequest, FileReadRequest, FileWriteRequest,
+    ReplacementPreviewRequest, SearchIndexRequest, SearchIndexUpdateRequest, SearchRequest,
+    WorkspaceSnapshotRequest,
 };
 use crate::project::{
     HistoryContentRequest, HistoryDeleteRequest, HistoryEntriesRequest, HistoryRecordRequest,
@@ -143,6 +145,16 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::McpParseConfiguration => {
+            match crate::mcp::parse_configuration(parsed.payload) {
+                Ok(data) => CoreResponse::success(id, data),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::McpPlanWrite => match crate::mcp::plan_write(parsed.payload) {
+            Ok(data) => CoreResponse::success(id, data),
+            Err(error) => CoreResponse::failure(id, error),
+        },
         CoreCommand::PluginsDeclarativeValidate => plugin_response(
             id,
             parsed.payload,
@@ -172,6 +184,66 @@ fn execute(request: &str) -> CoreResponse {
             id,
             parsed.payload,
             crate::plugins::declarative::check_runtime_version_command,
+        ),
+        CoreCommand::BuildDetect => {
+            plugin_response(id, parsed.payload, crate::build::build_detect_command)
+        }
+        CoreCommand::BuildInvocationPlan => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::build_invocation_plan_command,
+        ),
+        CoreCommand::BuildCheckToolVersion => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::build_check_tool_version_command,
+        ),
+        CoreCommand::BuildResolveOptions => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::build_resolve_options_command,
+        ),
+        CoreCommand::BuildModelPlan => {
+            plugin_response(id, parsed.payload, crate::build::build_model_plan_command)
+        }
+        CoreCommand::BuildTaskPlan => {
+            plugin_response(id, parsed.payload, crate::build::build_task_plan_command)
+        }
+        CoreCommand::BuildTestPlan => {
+            plugin_response(id, parsed.payload, crate::build::build_test_plan_command)
+        }
+        CoreCommand::BuildDependencyPlan => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::build_dependency_plan_command,
+        ),
+        CoreCommand::BuildDecodeModel => {
+            plugin_response(id, parsed.payload, crate::build::build_decode_model_command)
+        }
+        CoreCommand::BuildDecodeTestResults => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::build_decode_test_results_command,
+        ),
+        CoreCommand::BuildDecodeDiagnostics => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::build_decode_diagnostics_command,
+        ),
+        CoreCommand::BuildDecodeDependencies => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::build_decode_dependencies_command,
+        ),
+        CoreCommand::BuildSyncFingerprint => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::build_sync_fingerprint_command,
+        ),
+        CoreCommand::BuildLanguageImport => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::build_language_import_command,
         ),
         CoreCommand::PluginsMarketplaceValidateIndex => plugin_response(
             id,
@@ -329,6 +401,24 @@ fn execute(request: &str) -> CoreResponse {
                 Ok(data) => CoreResponse::success(
                     id,
                     serde_json::to_value(data).expect("snapshot should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::WorkspaceListDirectories => {
+            match serde_json::from_value::<DirectoryListingRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid directory listing request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(project::list_directories)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("directory listing should encode"),
                 ),
                 Err(error) => CoreResponse::failure(id, error),
             }
@@ -1448,6 +1538,36 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::LspBuildRequest => {
+            match serde_json::from_value::<crate::lsp::BuildProviderRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid build-provider request")
+                        .with_details(error.to_string())
+                })
+                .and_then(crate::lsp::build_provider_request)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Build-provider response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::LspFunctionRequest => {
+            match serde_json::from_value::<crate::lsp::PluginFunctionRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid plugin-function request")
+                        .with_details(error.to_string())
+                })
+                .and_then(crate::lsp::plugin_function_request)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Plugin-function response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::JavaNavigationMarkers => {
             match serde_json::from_value::<crate::lsp::JavaNavigationMarkersRequest>(parsed.payload)
                 .map_err(|error| {
@@ -2139,6 +2259,9 @@ fn execute(request: &str) -> CoreResponse {
                 ),
             }
         }
+        CoreCommand::GitExecutable => {
+            CoreResponse::success(id, git::configuration::locate_executable())
+        }
         CoreCommand::GitExecutionInspect | CoreCommand::GitExecutionConfigure => {
             match git::configuration::dispatch(
                 parsed.payload,
@@ -2459,6 +2582,24 @@ fn execute(request: &str) -> CoreResponse {
             ),
             Err(error) => CoreResponse::failure(id, error),
         },
+        CoreCommand::GitLineHistory => {
+            match serde_json::from_value::<GitLineHistoryRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid Git line history request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(git::line_history)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Git line history response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::GitHubParseRemote => {
             match serde_json::from_value::<ParseRemoteRequest>(parsed.payload)
                 .map_err(|error| {
@@ -2499,6 +2640,36 @@ fn execute(request: &str) -> CoreResponse {
             {
                 Ok(data) => CoreResponse::success(id, data),
                 Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::DiagnosticsPrepareLogEvent => {
+            match serde_json::from_value::<crate::diagnostics::logging::LogEventRequest>(
+                parsed.payload,
+            ) {
+                Ok(request) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(crate::diagnostics::logging::prepare_log_event(request))
+                        .expect("Log event should encode"),
+                ),
+                Err(_) => CoreResponse::failure(
+                    id,
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid log event request"),
+                ),
+            }
+        }
+        CoreCommand::DiagnosticsQueryLogs => {
+            match serde_json::from_value::<crate::diagnostics::logging::LogQueryRequest>(
+                parsed.payload,
+            ) {
+                Ok(request) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(crate::diagnostics::logging::query_logs(request))
+                        .expect("Log query should encode"),
+                ),
+                Err(_) => CoreResponse::failure(
+                    id,
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid log query request"),
+                ),
             }
         }
         CoreCommand::DiagnosticsRedactText => {
@@ -2583,6 +2754,24 @@ mod tests {
                     "operation": "completion",
                     "uri": "file:///tmp/main.go",
                     "position": { "line": 0, "utf16Column": 0 }
+                }
+            }),
+            json!({
+                "command": "lsp.buildRequest",
+                "payload": {
+                    "sessionId": unknown_session,
+                    "operationId": "build-1",
+                    "method": "lithe/build/model",
+                    "params": {}
+                }
+            }),
+            json!({
+                "command": "lsp.functionRequest",
+                "payload": {
+                    "sessionId": unknown_session,
+                    "operationId": "function-1",
+                    "function": { "pluginID": "dev.lithe.fixture.maven", "functionID": "snapshot.refresh" },
+                    "params": {}
                 }
             }),
             json!({

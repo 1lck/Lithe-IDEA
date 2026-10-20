@@ -38,7 +38,6 @@ jobs:
       rust_comments: ${{ steps.classify.outputs.rust_comments }}
       metadata: ${{ steps.classify.outputs.metadata }}
       git_validation: ${{ steps.classify.outputs.git_validation }}
-      macos_runners: ${{ steps.runners.outputs.runners }}
       run_swift: ${{ steps.reuse.outputs.run_swift }}
       run_rust: ${{ steps.reuse.outputs.run_rust }}
       run_release: ${{ steps.reuse.outputs.run_release }}
@@ -62,7 +61,7 @@ jobs:
             --test-reporter=junit --test-reporter-destination=.artifacts/test-stability/sparkle-baseline.junit.xml \
             scripts/test-download-sparkle-baseline.mjs scripts/test-publish-autobuild.mjs scripts/test-reuse-worktree-resources.mjs scripts/test-markdown-preview.mjs \
             scripts/test-codex-config-relay.mjs scripts/verify-release-signature.test.mjs \
-            scripts/select-macos-ci-runners.test.mjs scripts/plan-ci-lane-reuse.test.mjs scripts/verify-reused-ci-jobs.test.mjs
+            scripts/plan-ci-lane-reuse.test.mjs scripts/verify-reused-ci-jobs.test.mjs scripts/ci-workflow-gates.test.mjs scripts/cancel-closed-pr-runs.test.mjs
 
       - name: Generate Sparkle download timing report
         if: always()
@@ -159,8 +158,6 @@ jobs:
             exit 1
           fi
 
-      # runs-on is fixed when a job is created, so each selected lane picks the
-      # Mac mini or hosted pool here from the jobs already running or queued.
       # A lane already passed (or still running) on an earlier revision of this
       # pull request is reused when none of the pull request's own new changes
       # affect it; base-branch changes only count when they touch CI.
@@ -183,24 +180,6 @@ jobs:
             macos_release=${{ steps.classify.outputs.macos_release }}
         shell: bash
         run: node scripts/plan-ci-lane-reuse.mjs
-
-      - name: Choose macOS runners
-        id: runners
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          SWIFT: ${{ steps.reuse.outputs.run_swift }}
-          RUST_CORE: ${{ steps.reuse.outputs.run_rust }}
-          MACOS_RELEASE: ${{ steps.reuse.outputs.run_release }}
-          # Test isolation changes need the WindowServer alpha check, which
-          # the Mac minis' macOS 27 skips (#1278).
-          LITHE_HOSTED_ONLY_LANES: ${{ steps.classify.outputs.swift_hosted == 'true' && 'swift' || '' }}
-        shell: bash
-        run: |
-          lanes=()
-          if [[ "$SWIFT" == "true" ]]; then lanes+=(swift); fi
-          if [[ "$RUST_CORE" == "true" ]]; then lanes+=(rust); fi
-          if [[ "$MACOS_RELEASE" == "true" ]]; then lanes+=(release); fi
-          LITHE_MACOS_LANES="$(IFS=,; echo "${lanes[*]}")" node scripts/select-macos-ci-runners.mjs
 
       - name: Validate changed text
         if: steps.base.outputs.manual == 'false'
@@ -271,25 +250,17 @@ jobs:
     name: Swift tests
     needs: changes
     if: needs.changes.outputs.run_swift == 'true'
-    runs-on: ${{ fromJSON(needs.changes.outputs.macos_runners).swift }}
+    runs-on: macos-26
     timeout-minutes: 80
 
     steps:
       - name: Check out source
         uses: actions/checkout@v7
-        with:
-          # Self-hosted runners keep their build outputs between jobs; the
-          # runner preparation step removes every other untracked file.
-          clean: ${{ runner.environment != 'self-hosted' }}
-
-      - name: Prepare shared Mac mini runner
-        if: runner.environment == 'self-hosted'
-        uses: ./.github/actions/prepare-macos-ci-runner
 
       - name: Set up Swift 6.3.3 and Xcode
         uses: ./.github/actions/setup-macos-toolchain
 
-      # test-macos.sh links Rust Core; install it explicitly on every runner pool.
+      # test-macos.sh links Rust Core; install it explicitly.
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
@@ -312,7 +283,12 @@ jobs:
       - name: Run Swift unit tests
         if: needs.changes.outputs.swift == 'true'
         timeout-minutes: 17
+        env:
+          LITHE_AGENT_ACTIVITY_SCREENSHOTS: ${{ github.workspace }}/.artifacts/test-stability
+          LITHE_AGENT_SELECTOR_SCREENSHOTS: ${{ github.workspace }}/.artifacts/test-stability
+          LITHE_AGENT_EDITOR_LAYOUT_SCREENSHOTS: ${{ github.workspace }}/.artifacts/test-stability
         run: |
+          mkdir -p .artifacts/test-stability
           ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh \
             --report .artifacts/test-stability/macos-unit.json \
             --suite-timeout-seconds 960 -- --skip-build \
@@ -321,7 +297,7 @@ jobs:
             --skip GitStatusObservationTests \
             --skip LitheGitPerformanceTests \
             --skip '(LitheDatabaseModuleTests|LitheTests\.LitheCoreLogicTests/database)' \
-            --skip '([Pp]lugin|LitheGoSupportModuleTests|LinuxDo)'
+            --skip '([Pp]lugin|LinuxDo)'
 
       - name: Run stable rollback disk image integration test
         if: needs.changes.outputs.swift == 'true'
@@ -387,7 +363,7 @@ jobs:
     name: Rust Core tests
     needs: changes
     if: needs.changes.outputs.run_rust == 'true'
-    runs-on: ${{ fromJSON(needs.changes.outputs.macos_runners).rust }}
+    runs-on: macos-26
     # A cold Rust build without a compilation cache can take 20 minutes.
     # Individual test harness deadlines still bound the integration suites.
     timeout-minutes: 30
@@ -395,12 +371,6 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v7
-        with:
-          clean: ${{ runner.environment != 'self-hosted' }}
-
-      - name: Prepare shared Mac mini runner
-        if: runner.environment == 'self-hosted'
-        uses: ./.github/actions/prepare-macos-ci-runner
 
       - name: Set up Swift 6.3.3 and Xcode
         uses: ./.github/actions/setup-macos-toolchain
@@ -435,7 +405,7 @@ jobs:
     name: Release package verification (${{ matrix.architecture }})
     needs: changes
     if: needs.changes.outputs.run_release == 'true'
-    runs-on: ${{ fromJSON(needs.changes.outputs.macos_runners).release }}
+    runs-on: macos-26
     # A universal build without a Cargo compilation cache takes about 45
     # minutes: Rust and Swift compile once per slice before packaging twice.
     timeout-minutes: 60
@@ -450,12 +420,6 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v7
-        with:
-          clean: ${{ runner.environment != 'self-hosted' }}
-
-      - name: Prepare shared Mac mini runner
-        if: runner.environment == 'self-hosted'
-        uses: ./.github/actions/prepare-macos-ci-runner
 
       - name: Set up Bun for shared editor assets
         uses: oven-sh/setup-bun@v2
@@ -592,10 +556,8 @@ jobs:
       # it, so the next build resumes instead of starting cold again. Pull
       # requests restore preview's entries without saving: PR-scoped copies are
       # unreadable by preview and pushed its own entries past the cache quota.
-      # Self-hosted runners keep rust/target locally, and their macOS version
-      # makes a key that hosted runners would never restore.
       - name: Save Cargo compilation cache
-        if: always() && github.event_name != 'pull_request' && runner.environment != 'self-hosted'
+        if: always() && github.event_name != 'pull_request'
         uses: ./.github/actions/save-macos-cargo-build-cache
         with:
           key: ${{ steps.dependency_cache.outputs.cargo-build-key }}
@@ -609,7 +571,7 @@ jobs:
       - swift-tests
       - rust-core-tests
       - release-build
-    if: always()
+    if: always() && !cancelled()
     runs-on: ubuntu-latest
 
     steps:

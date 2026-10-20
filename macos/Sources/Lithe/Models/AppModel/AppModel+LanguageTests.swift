@@ -26,6 +26,7 @@ extension AppModel {
     }
 
     private func startLanguageTestDiscovery(workspaceURL: URL) {
+        guard let identity = currentWorkspaceIdentity, identity.url == workspaceURL.standardizedFileURL else { return }
         let operationID = javaTestWorkflowState.beginDiscovery()
         javaTestWorkflowState.discoveryTask = Task { [weak self] in
             guard let self else { return }
@@ -35,14 +36,14 @@ extension AppModel {
                       for: projectFiles,
                       testService: execution.tests
                   ),
-                  isCurrentLanguageTestDiscovery(operationID) else { return }
+                  isCurrentWorkspace(identity), isCurrentLanguageTestDiscovery(operationID) else { return }
             execution.tests.discover(workspaceURL: workspaceURL, files: projectFiles)
 
             let baseItems = execution.tests.itemsByProviderID["java"] ?? []
             let javaFiles = baseItems.filter { $0.kind == .file && $0.fileURL != nil }
             guard !javaFiles.isEmpty, !languageToolingFeature.isDisabled("java") else { return }
             do {
-                let sessions = try await languageSessionsForWorkspaceMaintenance()
+                let sessions = try await languageSessionsForWorkspaceMaintenance(for: identity)
                 guard !languageToolingFeature.isDisabled("java") else { return }
                 let projected = try await javaTestWorkflowState.projectDiscoveredItems(
                     baseItems,
@@ -77,6 +78,7 @@ extension AppModel {
 
     func runTest(providerID: String, scope: LanguageTestScope) {
         guard let workspaceURL else { return }
+        activeTestTarget = ActiveTestTarget(providerID: providerID, scope: scope)
         showToolWindow(.tests)
         Task { [weak self] in
             guard let self, let execution = await activateExecutionModule() else { return }
@@ -98,6 +100,7 @@ extension AppModel {
 
     func debugTest(providerID: String, scope: LanguageTestScope) {
         guard let workspaceURL else { return }
+        activeTestTarget = ActiveTestTarget(providerID: providerID, scope: scope)
         switch javaTestWorkflowState.resolveDebugRequest(providerID: providerID, scope: scope) {
         case .rejected(let message):
             showNotification(message)
@@ -111,6 +114,8 @@ extension AppModel {
         request: JavaTestDebugRequest,
         workspaceURL: URL
     ) {
+        guard let identity = currentWorkspaceIdentity, identity.url == workspaceURL.standardizedFileURL else { return }
+        let selectedTarget = activeTestTarget
         featureGraph.javaTestDebugWorkflow.start(
             request: request,
             state: javaTestWorkflowState,
@@ -131,7 +136,7 @@ extension AppModel {
                 if let selectedConfiguration = runFeature.selectedConfiguration {
                     runFeature.select(selectedConfiguration)
                 }
-                let sessions = try await self.languageSessionsForWorkspaceMaintenance()
+                let sessions = try await self.languageSessionsForWorkspaceMaintenance(for: identity)
                 return try await self.services.javaTestDebugLaunchService.prepare(
                     fileURL: request.fileURL,
                     testIdentifier: request.testIdentifier,
@@ -140,9 +145,12 @@ extension AppModel {
                 )
             },
             startDebug: { [weak self] prepared in
-                guard let self,
+                guard let self, self.isCurrentWorkspace(identity), !Task.isCancelled,
                       let genericDebugFeature = self.genericDebugFeatureIfActive else {
                     return false
+                }
+                if self.activeTestTarget == selectedTarget {
+                    self.activeTestTarget?.resolvedName = prepared.configuration.name
                 }
                 return genericDebugFeature.start(
                     fileURL: prepared.target.fileURL,
@@ -189,6 +197,7 @@ extension AppModel {
     }
 
     func cancelJavaWorkspaceWorkflows() {
+        javaLanguageServerPreparationCoordinator.cancelMavenConfigurationSynchronization()
         cancelJavaLanguageServerPreparation()
         cancelJavaTestWorkflows()
     }

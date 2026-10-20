@@ -1,0 +1,42 @@
+{
+  "id": "build-system-plugins",
+  "area": "扩展",
+  "group": "插件与主题",
+  "capability": "构建系统插件（API 3 buildSystems）：插件用 JSON 声明构建工具的识别、可执行文件、选项、任务、运行入口、测试和输出格式，或由插件自带、与语言服务器同类的 Provider 进程回答模型和依赖，Rust Core 统一校验、生成命令行或 Provider 请求并解码结果，宿主为每个构建系统打开一个按声明（icon、presentation、category）布局的工具窗口",
+  "macos": {
+    "evidence": [
+      "rust/lithe-core/src/build",
+      "shared/contracts/plugins/v1/fixtures/build-plans.json",
+      "macos/Sources/Lithe/Core/Rust/RustBuildSystemOperations.swift",
+      "macos/Sources/Lithe/Platform/MacOS/Build",
+      "macos/Sources/LitheExecutionModule/Services/BuildSystemService.swift",
+      "macos/Sources/Lithe/Views/Workbench/BuildSystemToolWindowRegistration.swift",
+      "macos/Sources/Lithe/Views/Run/BuildSystemToolWindowView.swift",
+      "macos/Sources/Lithe/Views/Run/BuildOutputView.swift",
+      "macos/Sources/Lithe/Models/AppModel/AppModel+BuildSystems.swift",
+      "macos/Sources/Lithe/Models/AppModel/AppModel+JavaIndex.swift",
+      "macos/Tests/LitheTests/RustBuildSystemOperationsTests.swift",
+      "macos/Tests/LitheExecutionModuleTests/BuildSystemServiceTests.swift",
+      "macos/Tests/LitheTests/BuildSystemToolWindowTests.swift",
+      "macos/Tests/LitheTests/PluginBuildOptionPersistenceTests.swift",
+      "macos/Tests/LitheLanguageIntelligenceModuleTests/LanguageIntelligenceModuleTests.swift",
+      "rust/lithe-core/src/lsp/interface/build_provider.rs",
+      "macos/Sources/Lithe/Platform/MacOS/Build/MacBuildProviderSessions.swift",
+      "macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginLanguageServerLaunchResolver.swift",
+      "macos/Tests/LitheTests/PluginMarketplaceServiceTests.swift"
+    ],
+    "implementationStatus": "partial",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "rust/lithe-core/src/build",
+      "shared/contracts/plugins/v1/fixtures/build-plans.json",
+      "shared/contracts/plugins/v1/fixtures/gradle-provider.plugin.json"
+    ],
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable"
+  },
+  "owner": "Extensions",
+  "verification": "macOS 已接入 static、command、hostIntegration、provider 四种模型来源：宿主向 Core 声明 buildSystems 与 buildProviders 能力，插件市场因此列出兼容的 API 3 声明式和 Provider 版本；Provider 进程按插件、构建系统和工作区各自独立，经各自 stdio 用 JSON-RPC（LSP 基础协议）与宿主通信，initialize 协商 capabilities.experimental.litheBuild 后宿主才经 lsp.buildRequest 发送 lithe/build/model、lithe/build/dependencies，回复交给 Core 解码；共享写法只复用同一插件的语言服务器会话；进程只在用户加载模型或依赖时启动，切换工作区、关闭项目窗口、停止执行模块、停用或更新插件、退出应用时停止；ExecutionFeatureGraph.stop 经 BuildSystemService.stop 同时回收已就绪和初始化中的 Provider，停止后的初始化完成也不得重新登记会话；状态写入插件状态目录；每个已启用的构建系统插件在打开工作区后各有一个右侧工具窗口（标题为 displayName、图标为 icon），不依赖识别结果，工作区没有对应工程时窗口内显示未检测到该构建系统，工具栏放运行、参数任务、刷新和 presentation=toolbar 的开关，树顶部是 presentation=tree 的勾选选项，工程下按 category（缺省按 group）分级列出任务，再列测试、目标和依赖；内置 Maven 窗口与共享 Build 窗口已删除，Build Output 显示输出、诊断与测试结果。窗口恢复先激活所属插件模块，激活中的命令面板项禁用；参数任务遵守 workspace/project/target 作用范围与目标标签，模型或工作区变化后清除旧选择。隔离回归覆盖这些边界、窗口布局恢复及包内图标读取前后文件清单与字节不变；多实例的根目录选择器保留每个实例的模型候选和生效值，编辑多选时保留兄弟实例独有的已选值；显式清空按实例根持久化为空覆盖，检测、同步指纹、任务计划和语言服务器导入使用同一覆盖，兄弟编辑或重开不会恢复非空默认值，非空编辑清当前实例标记而共享编辑/重置清该选项全部标记；真实 Core、生产存储与服务回归核对最终 argv 和导入值；列表单选与多选支持 allowCustom 原生输入和移除已选自定义值，文本/文件/目录清空提交显式空字符串，只有重置删除覆盖。插件选项在项目打开、选项修改和模型加载完成后通过 Core build.languageImport 归一化为 mavenContext/javaGradle，与构建计划使用同一生效值，并在 Java 启动前等待同一工作区代次的最新配置；运行时准备后再等一次，覆盖等待期间失效。唯一发布回调优先 Maven 原地热更新，被拒绝时串行恢复重启；停用最后一个 Maven 插件时，仅清除曾带 Maven 输入的同一会话，纯 Gradle 首次启动保持 nil。Gradle 在下次启动生效，取消/重置拒绝旧检测与恢复任务，被动工具路径发现不执行 Wrapper/版本探测；没有对应插件导入输入时兼容原 Maven 设置。模型 run 入口与 lithe/build/execute 尚未接入，Provider 无操作系统级沙盒；Windows 宿主尚未调用 build.* 命令。自动化：cargo test -p lithe-core --lib build_systems、cargo test -p lithe-core --lib lsp、scripts/verify-shared-contracts.sh、./scripts/test-macos.sh --filter 'BuildSystemToolWindowTests|RustBuildSystemOperationsTests|BuildSystemServiceTests|PluginMarketplaceServiceTests'。手动验证：安装 fixtures 中 cargo-build、go-build 形态的插件包，确认每个构建系统各出现一个工具窗口，列出工程、分级任务、选项和依赖，停用插件后窗口消失；执行任务与测试的 argv 与 build-plans.json 一致，停止与输出上限生效；JUnit 报告与 lineMatcher 诊断可跳转到源码；命令模型和项目内 Wrapper 只在用户点击加载或运行后启动；禁用插件后实例消失；Windows 接入后另需验证未信任工作区不启动任何模型命令或 Wrapper；gradle-provider 形态的自有 Provider 只在用户操作或工作区信任后启动、停用插件时停止，mix-provider 形态复用语言服务器会话而不启动第二个进程；运行前后 app bundle 文件清单不变（scripts/verify-runtime-bundle-immutability.sh）。"
+}

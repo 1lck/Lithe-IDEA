@@ -139,10 +139,10 @@ struct LSPControlCenterView: View {
             }
     }
 
-    // Languages owned by an official plugin are controlled here only once
+    // Languages owned by a published official plugin are controlled here only once
     // that plugin is installed, enabled, and loaded in this process.
     private func officialPluginEntry(languageID: String) -> OfficialPluginCatalog.Entry? {
-        OfficialPluginCatalog.entries.first { $0.languageID == languageID }
+        OfficialPluginCatalog.publishedEntries.first { $0.languageID == languageID }
     }
 
     private func pluginSnapshot(_ entry: OfficialPluginCatalog.Entry) -> PluginManagementSnapshot? {
@@ -163,9 +163,44 @@ struct LSPControlCenterView: View {
 
     private var pluginNotices: [String] {
         OfficialPluginCatalog.entries.compactMap { entry in
-            guard projectUses(entry), !pluginIsReady(entry) else { return nil }
+            guard projectUses(entry) else { return nil }
+            if let replacementID = entry.communityReplacementID {
+                return migratedPluginNotice(entry, replacementID: replacementID)
+            }
+            guard !pluginIsReady(entry) else { return nil }
             return pluginNotice(entry)
         }
+    }
+
+    /// Go and PHP moved to Lithe Store: point at the community plugin, and at
+    /// the uninstall-and-restart step while the retired official one remains.
+    private func migratedPluginNotice(_ entry: OfficialPluginCatalog.Entry, replacementID: PluginID) -> String? {
+        let name = entry.displayName
+        let language = entry.languageDisplayName
+        if let retired = pluginSnapshot(entry) {
+            if retired.installationStatus == .uninstallPending {
+                return usesChinese
+                    ? "重启 Lithe 以完成旧版 \(name) 的卸载，然后在插件市场的 Lithe Store 中安装社区版 \(name)。"
+                    : "Restart Lithe to finish uninstalling the old \(name), then install the community \(name) from Lithe Store in the Marketplace."
+            }
+            return usesChinese
+                ? "\(name) 已迁移为 Lithe Store 社区插件，旧官方版不再更新。请在插件管理中卸载旧版并重启 Lithe，再安装社区版。"
+                : "\(name) moved to Lithe Store as a community plugin, and the old official version gets no updates. Uninstall it from Plugin Management, restart Lithe, then install the community version."
+        }
+        guard let community = model.pluginSnapshots.first(where: { $0.id == replacementID }) else {
+            return usesChinese
+                ? "检测到 \(language) 项目，请在插件管理的插件市场中，从 Lithe Store 安装 \(name)。"
+                : "This \(language) project needs \(name). Install it from Lithe Store in the Plugin Management Marketplace."
+        }
+        if community.requiresRestart {
+            return usesChinese
+                ? "\(name) 已安装，重启 Lithe 后才能在这里控制语言服务器。"
+                : "\(name) is installed. Restart Lithe before controlling its language server here."
+        }
+        guard !community.isEnabled else { return nil }
+        return usesChinese
+            ? "\(name) 插件已禁用，请先在插件管理中启用。"
+            : "\(name) is disabled. Enable it from Plugin Management first."
     }
 
     private func pluginNotice(_ entry: OfficialPluginCatalog.Entry) -> String {
@@ -199,8 +234,13 @@ struct LSPControlCenterView: View {
     private func phpPluginNotice(_ message: String) -> some View {
         LitheBanner(status: .info) {
             Text(message).fixedSize(horizontal: false, vertical: true)
-            Button(usesChinese ? "打开插件管理" : "Open Plugin Management") {
-                model.showSettings(category: .plugins)
+            HStack(spacing: 8) {
+                Button(usesChinese ? "打开插件管理" : "Open Plugin Management") {
+                    model.showSettings(category: .plugins)
+                }
+                if model.pluginSnapshots.contains(where: \.hasChangesPendingRestart) {
+                    RestartLitheButton(prominent: false)
+                }
             }
         }
     }

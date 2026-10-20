@@ -50,7 +50,6 @@ java_jdt=false
 rust_comments=false
 metadata=false
 git_validation=false
-swift_hosted=false
 
 enable_all_validation() {
     swift=true
@@ -71,7 +70,7 @@ classify_path() {
     local lowercase_path="${path,,}"
 
     case "$lowercase_path" in
-        .github/workflows/ci-windows.yml|third_party/jdtls/*|third_party/jdk/*|scripts/prepare-jdtls.*|scripts/prepare-jdk.*|rust/lithe-core/src/lsp/interface/engine.rs|rust/lithe-core/src/lsp/interface/engine_real_jdt_tests.rs|rust/lithe-core/src/lsp/languages/java*|rust/lithe-core/src/lsp/languages/jdt*|macos/*java*|windows/*java*)
+        .github/workflows/ci-windows.yml|third_party/jdtls/*|third_party/jdk/*|scripts/prepare-jdtls.*|scripts/prepare-jdk.*|rust/lithe-core/src/lsp/interface/engine.rs|rust/lithe-core/src/lsp/interface/engine_real_jdt_tests.rs|rust/lithe-core/src/lsp/languages/java*|rust/lithe-core/src/lsp/languages/jdt*|windows/*java*)
             java_jdt=true
             ;;
     esac
@@ -116,7 +115,7 @@ classify_path() {
         .github/workflows/release-windows.yml|.github/workflows/release-preview-windows.yml)
             windows=true
             ;;
-        .github/actions/prepare-macos-dependency-cache/*|.github/actions/save-macos-cargo-build-cache/*|.github/actions/setup-macos-toolchain/*|.github/actions/prepare-macos-ci-runner/*|scripts/macos-swift-build-options.sh|scripts/macos-swift-build-options.test.mjs|scripts/reuse-macos-runner-build-state.sh|scripts/reuse-macos-runner-build-state.test.mjs|scripts/select-macos-ci-runners.mjs|scripts/select-macos-ci-runners.test.mjs|.swift-version)
+        .github/actions/prepare-macos-dependency-cache/*|.github/actions/save-macos-cargo-build-cache/*|.github/actions/setup-macos-toolchain/*|.swift-version)
             swift=true
             plugins=true
             swift_database=true
@@ -276,13 +275,6 @@ classify_path() {
             swift=true
             git_validation=true
             ;;
-        macos/tests/lithetestdesktopisolation/*|macos/tests/lithetestdesktopisolationtests/*)
-            # The WindowServer alpha check of the test isolation is skipped on
-            # the Mac minis' macOS 27 (#1278); changes to it must run Swift
-            # tests where that check executes, on hosted macOS 26 runners.
-            swift=true
-            swift_hosted=true
-            ;;
         macos/tests/*)
             swift=true
             ;;
@@ -422,6 +414,11 @@ classify_path() {
         infra/docker/*)
             rust_database=true
             ;;
+        sdk/*)
+            # Plugin backend SDKs are verified in the Rust Core lane, which runs
+            # their unit tests and drives their samples through Core sessions.
+            rust_core=true
+            ;;
         *)
             # New or unclassified repository areas are validated conservatively
             # until their ownership is made explicit above.
@@ -508,7 +505,6 @@ case "$ci_scope" in
         rust_comments=false
         metadata=false
         git_validation=false
-        swift_hosted=false
         ;;
     release_promotion)
         swift=false
@@ -523,7 +519,6 @@ case "$ci_scope" in
         rust_comments=false
         metadata=false
         git_validation=false
-        swift_hosted=false
         ;;
     *)
         printf '%s\n' "LITHE_CI_SCOPE must be pull_request, post_merge, or release_promotion" >&2
@@ -543,5 +538,4 @@ printf 'java_jdt=%s\n' "$java_jdt"
 printf 'rust_comments=%s\n' "$rust_comments"
 printf 'metadata=%s\n' "$metadata"
 printf 'git_validation=%s\n' "$git_validation"
-printf 'swift_hosted=%s\n' "$swift_hosted"
 printf 'ci_scope=%s\n' "$ci_scope"

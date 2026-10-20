@@ -1,3 +1,4 @@
+import { selectTreeEntries } from "@/features/sidebar/utils/tree-selection";
 import {
   DEFAULT_CHANGELIST,
   fileChangelist,
@@ -6,10 +7,12 @@ import {
 import {
   ArchiveIcon as Archive,
   ArrowCounterClockwiseIcon as RotateCcw,
-  CaretDownIcon as CaretDown,
   CaretRightIcon as CaretRight,
   CheckIcon as Check,
   EyeIcon as Eye,
+  DownloadIcon as Download,
+  RevertIcon as Revert,
+  DotsThreeIcon as More,
   FolderOpenIcon as FolderOpen,
   GitCommitIcon as GitCommit,
   GitDiffIcon as GitDiff,
@@ -33,13 +36,11 @@ import { useFileSystemStore } from "@/features/file-system/stores/file-system.st
 import { writeSidebarResourceDragData } from "@/features/sidebar/utils/sidebar-resource-drag";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { useTranslation } from "@/i18n/locale-provider";
-import { Button } from "@/ui/button";
-import { ButtonGroup, ButtonGroupSeparator } from "@/ui/button-group";
 import { Checkbox } from "@/ui/checkbox";
 import { Dropdown, useDropdownMenu, type MenuItem } from "@/ui/dropdown";
 import { ScrollArea } from "@/ui/scroll-area";
 import { showConfirmDialog } from "@/ui/dialog";
-import { SidebarHeaderIconButton, SidebarSectionHeader, SidebarToolbar } from "@/ui/sidebar";
+import { SidebarHeaderIconButton, SidebarToolbar } from "@/ui/sidebar";
 import { SidebarTree, SidebarTreeRow } from "@/features/sidebar/components/sidebar-tree";
 import {
   compactPathTreeBranch,
@@ -71,7 +72,6 @@ import {
   resolveGitFilesForStagedState,
   resolveGitStatusDeletionPaths,
   resolveGitStatusContextSelection,
-  updateGitStatusSelection,
 } from "../../utils/git-status-selection";
 import { StashMessageModal } from "../stash/git-stash-modal";
 import { GitFileItem } from "./git-status-file-item";
@@ -81,6 +81,9 @@ import { useTreeContentWidth } from "../../hooks/use-tree-content-width";
 import { showGitPatchDialog } from "../../services/git-patch-dialog-service";
 
 interface GitStatusPanelProps {
+  header?: React.ReactNode;
+  toolbarLeading?: React.ReactNode;
+  toolbarTrailing?: React.ReactNode;
   changelists?: LocalChangelists;
   onMoveToChangelist?: (files: GitFile[], id: string) => void;
   changelistsDisabled?: boolean;
@@ -92,6 +95,7 @@ interface GitStatusPanelProps {
   collapsedSections: ReadonlySet<string>;
   onCollapsedSectionsChange: (sections: Set<string>) => void;
   onFileSelect?: (path: string, staged: boolean) => void;
+  onPreviewFile?: (path: string, staged: boolean) => void;
   onOpenPath?: (path: string, isDirectory: boolean, repositoryPath?: string) => void;
   onViewDiff?: (scope?: GitStatusDiffScope) => void;
   onViewFilesDiff?: (filePaths: string[]) => void;
@@ -151,9 +155,8 @@ type GitStatusVirtualRow =
       size: number;
     };
 
-const GIT_STATUS_SECTION_HEADER_HEIGHT = 32;
-// IntelliJ lists "Changes" and "Unversioned Files" as top-level tree nodes, so their
-// files sit one level deeper than the node.
+// Match Swift ChangesSidebarView: repositories contain ChangeLists; their files
+// share one group regardless of tracked/untracked state.
 const GIT_STATUS_SECTION_CHILD_DEPTH = 1;
 
 /** Include-in-commit state of a group: all, none, or some of its eligible files. */
@@ -231,6 +234,9 @@ function logStagingFailure(
 }
 
 const GitStatusPanel = ({
+  header,
+  toolbarLeading,
+  toolbarTrailing,
   changelists,
   onMoveToChangelist,
   changelistsDisabled = false,
@@ -242,6 +248,7 @@ const GitStatusPanel = ({
   collapsedSections,
   onCollapsedSectionsChange,
   onFileSelect,
+  onPreviewFile,
   onOpenPath,
   onViewDiff,
   onViewFilesDiff,
@@ -274,12 +281,23 @@ const GitStatusPanel = ({
     onStagingPendingChange?.(stagePendingPaths.size > 0);
     return () => onStagingPendingChange?.(false);
   }, [stagePendingPaths, onStagingPendingChange]);
+  const selectionAnchor = useRef<string | null>(null);
   const [selectedEntryIds, setSelectedEntryIds] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    selectionAnchor.current = null;
+    setSelectedEntryIds(new Set());
+  }, [repoPath]);
   const activeCommitFile = useBufferStore((state) => {
     const buffer = getBufferById(state.buffers, state.activeBufferId);
     const data = buffer?.type === "diff" ? buffer.diffData : undefined;
-    if (!data || !("files" in data) || !data.commitPreview || data.commitHash !== "working-tree"
-      || data.isLoading) return null;
+    if (
+      !data ||
+      !("files" in data) ||
+      !data.commitPreview ||
+      data.commitHash !== "working-tree" ||
+      data.isLoading
+    )
+      return null;
     const key = data.initiallySelectedFileKey ?? data.initiallyExpandedFileKey;
     const target = key ? data.workingTreeTargets?.[key] : undefined;
     return target ? `${target.repoPath}\0${target.filePath}` : null;
@@ -336,27 +354,18 @@ const GitStatusPanel = ({
           const listFiles = group.files.filter(
             (file) => !changelists || fileChangelist(changelists, file, repoPath) === list.id,
           );
-          const presentation = buildGitStatusPresentation(listFiles);
-          return (list.id === DEFAULT_CHANGELIST ? ["tracked", "untracked"] : ["changelist"]).map(
-            (kind) => {
-              const sectionFiles =
-                kind === "tracked"
-                  ? presentation.trackedFiles
-                  : kind === "untracked"
-                    ? presentation.untrackedFiles
-                    : listFiles;
-              const grouped = buildGitStatusPresentation(sectionFiles);
-              return {
-                id: `${group.repoPath}:${list.id}:${kind}`,
-                repoPath: group.repoPath,
-                kind,
-                list,
-                files: sectionFiles,
-                grouped: { ...grouped.groupedTrackedFiles, untracked: grouped.untrackedFiles },
-                tree: gitChangesFolderView ? buildGitFolderTree(sectionFiles, true) : null,
-              };
+          const grouped = buildGitStatusPresentation(listFiles);
+          return [
+            {
+              id: group.repoPath + ":" + list.id + ":changelist",
+              repoPath: group.repoPath,
+              kind: "changelist",
+              list,
+              files: listFiles,
+              grouped: { ...grouped.groupedTrackedFiles, untracked: grouped.untrackedFiles },
+              tree: gitChangesFolderView ? buildGitFolderTree(listFiles, true) : null,
             },
-          );
+          ];
         });
       }),
     [repositoryGroups, gitChangesFolderView, changelists, repoPath],
@@ -515,7 +524,6 @@ const GitStatusPanel = ({
     getScrollElement: () => statusViewportRef.current,
     estimateSize: (index) => {
       const row = statusRows[index];
-      if (row?.kind === "repository") return GIT_STATUS_SECTION_HEADER_HEIGHT;
       if (row?.kind === "spacer") return row.size;
       return fileTreePresentation.rowHeight;
     },
@@ -530,9 +538,13 @@ const GitStatusPanel = ({
       return;
     }
     if (synchronizedCommitFile.current === activeCommitFile) return;
-    const file = visibleFiles.find(file =>
-      `${getGitFileRepositoryPath(file, repoPath)}\0${getGitFileRepositoryRelativePath(file)}` === activeCommitFile);
-    const section = file && sections.find(section => section.files.some(entry => entry.path === file.path));
+    const file = visibleFiles.find(
+      (file) =>
+        `${getGitFileRepositoryPath(file, repoPath)}\0${getGitFileRepositoryRelativePath(file)}` ===
+        activeCommitFile,
+    );
+    const section =
+      file && sections.find((section) => section.files.some((entry) => entry.path === file.path));
     if (!file || !section) {
       synchronizedCommitFile.current = null;
       pendingCommitReveal.current = null;
@@ -542,7 +554,7 @@ const GitStatusPanel = ({
     pendingCommitReveal.current = file.path;
     const id = getFileEntryId(file.path);
     // IDEA keeps an existing multi-selection when it already contains the previewed file.
-    setSelectedEntryIds(current => current.has(id) ? current : new Set([id]));
+    setSelectedEntryIds((current) => (current.has(id) ? current : new Set([id])));
     const nextSections = new Set(collapsedSections);
     nextSections.delete(`repository:${section.repoPath}`);
     nextSections.delete(section.id);
@@ -554,13 +566,21 @@ const GitStatusPanel = ({
       }
     }
     if (nextFolders.size !== collapsedFolders.size) onCollapsedFoldersChange(nextFolders);
-  }, [activeCommitFile, visibleFiles, sections, repoPath, collapsedSections, collapsedFolders,
-    onCollapsedSectionsChange, onCollapsedFoldersChange]);
+  }, [
+    activeCommitFile,
+    visibleFiles,
+    sections,
+    repoPath,
+    collapsedSections,
+    collapsedFolders,
+    onCollapsedSectionsChange,
+    onCollapsedFoldersChange,
+  ]);
 
   useEffect(() => {
     const path = pendingCommitReveal.current;
     if (!path) return;
-    const index = statusRows.findIndex(row => row.kind === "file" && row.file.path === path);
+    const index = statusRows.findIndex((row) => row.kind === "file" && row.file.path === path);
     if (index < 0) return; // Wait for collapsed ancestors to expand before scrolling the virtual tree.
     statusVirtualizer.scrollToIndex(index, { align: "auto" });
     pendingCommitReveal.current = null;
@@ -677,6 +697,7 @@ const GitStatusPanel = ({
   };
 
   const handleRollbackEntries = async (entries: GitStatusSelectionEntry[]) => {
+    if (stagingDisabled || isLoading || stagePendingPaths.size > 0) return;
     const trackedFilesToRollback = entries
       .flatMap((entry) => entry.files)
       .filter((file) => file.status !== "untracked");
@@ -894,13 +915,26 @@ const GitStatusPanel = ({
   };
 
   const handleSelectEntry = (event: React.MouseEvent, entry: GitStatusSelectionEntry) => {
-    setSelectedEntryIds((current) =>
-      updateGitStatusSelection(current, entry.id, event.ctrlKey || event.metaKey),
+    const next = selectTreeEntries(
+      selectedEntryIds,
+      entry.id,
+      statusRows.flatMap((row) =>
+        row.kind === "file"
+          ? [getFileEntryId(row.file.path)]
+          : row.kind === "folder"
+            ? [getFolderEntryId(row.section, row.branch.path)]
+            : [],
+      ),
+      selectionAnchor.current,
+      { additive: event.ctrlKey || event.metaKey, range: event.shiftKey },
     );
+    selectionAnchor.current = next.anchor;
+    setSelectedEntryIds(next.selected);
   };
 
   const handleContextMenu = (event: React.MouseEvent, entry: GitStatusSelectionEntry) => {
     const nextSelection = resolveGitStatusContextSelection(selectedEntryIds, entry.id);
+    if (!selectedEntryIds.has(entry.id)) selectionAnchor.current = entry.id;
     setSelectedEntryIds(nextSelection);
     contextMenu.open(event, { entryIds: [...nextSelection] });
   };
@@ -930,12 +964,9 @@ const GitStatusPanel = ({
     const sectionData = sectionById.get(section);
     if (!sectionData) return null;
     const title =
-      (sectionData.kind === "changelist"
-        ? sectionData.list.name
-        : t(sectionData.kind === "tracked" ? "git.changesNode" : "git.unversionedFilesNode")) +
-      (changelists && sectionData.list.id === changelists.activeId
-        ? t("git.changelists.activeSuffix")
-        : "");
+      sectionData.list.id === DEFAULT_CHANGELIST
+        ? t("git.changelists.default")
+        : sectionData.list.name;
     const inclusion = getCommitInclusionState(sectionData.files);
     const count = sectionData.files.length;
     const expanded = !collapsedSections.has(section);
@@ -949,7 +980,7 @@ const GitStatusPanel = ({
         onToggle={() => toggleSectionCollapsed(section)}
         onDoubleClick={() => toggleSectionCollapsed(section)}
         variant="idea"
-        label={<span className="font-medium">{title}</span>}
+        label={<span className="font-semibold">{title}</span>}
         // IntelliJ appends the grey "N files" count right after the node name.
         description={t("git.diffFileCount", { count, plural: count === 1 ? "" : "s" })}
         leadingAction={
@@ -1003,6 +1034,21 @@ const GitStatusPanel = ({
   };
 
   const handleStatusTreeKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a") {
+      event.preventDefault();
+      setSelectedEntryIds(
+        new Set(
+          statusRows.flatMap((row) =>
+            row.kind === "file"
+              ? [getFileEntryId(row.file.path)]
+              : row.kind === "folder"
+                ? [getFolderEntryId(row.section, row.branch.path)]
+                : [],
+          ),
+        ),
+      );
+      return;
+    }
     const target = event.target as HTMLElement;
     if (!target.closest("[role=treeitem]")) return;
     const rowElement = target.closest<HTMLElement>("[data-git-status-row-index]");
@@ -1084,6 +1130,28 @@ const GitStatusPanel = ({
 
     if (targetIndex < 0) return;
     event.preventDefault();
+    const targetRow = statusRows[targetIndex];
+    if (targetRow?.kind === "file" || targetRow?.kind === "folder") {
+      const id =
+        targetRow.kind === "file"
+          ? getFileEntryId(targetRow.file.path)
+          : getFolderEntryId(targetRow.section, targetRow.branch.path);
+      const next = selectTreeEntries(
+        selectedEntryIds,
+        id,
+        statusRows.flatMap((item) =>
+          item.kind === "file"
+            ? [getFileEntryId(item.file.path)]
+            : item.kind === "folder"
+              ? [getFolderEntryId(item.section, item.branch.path)]
+              : [],
+        ),
+        selectionAnchor.current,
+        { range: event.shiftKey },
+      );
+      selectionAnchor.current = next.anchor;
+      setSelectedEntryIds(next.selected);
+    }
     focusStatusRow(targetIndex);
   };
 
@@ -1092,37 +1160,49 @@ const GitStatusPanel = ({
     if (row.kind === "repository") {
       const groupFiles =
         repositoryGroups.find((group) => group.repoPath === row.repoPath)?.files ?? [];
-      const eligible = activeListFiles(groupFiles).filter(
-        (file) => file.canToggleStaging !== false,
-      );
-      const checked = eligible.length > 0 && eligible.every((file) => file.staged);
+      const inclusion = getCommitInclusionState(activeListFiles(groupFiles));
+      const name = getBaseName(row.repoPath, row.repoPath);
       return (
-        <div className="flex h-full items-center gap-1">
-          <SidebarSectionHeader
-            variant="surface"
-            count={row.count}
-            expanded={!collapsedSections.has(row.key)}
-            onToggle={() => toggleSectionCollapsed(row.key)}
-            className="h-full min-w-0 flex-1"
-            title={row.repoPath}
-          >
-            {row.repoPath}
-          </SidebarSectionHeader>
-          <Checkbox
-            className={IDEA_CHECKBOX_CLASS_NAME}
-            checked={checked}
-            onCheckedChange={(staged) => void handleSetFilesStaged(eligible, staged)}
-            disabled={
-              isLoading ||
-              stagingDisabled ||
-              eligible.length === 0 ||
-              groupFiles.some((file) => stagePendingPaths.has(file.path))
-            }
-            aria-label={t(checked ? "git.excludeFolderFromCommit" : "git.includeFolderInCommit", {
-              name: row.repoPath,
-            })}
-          />
-        </div>
+        <SidebarTreeRow
+          depth={0}
+          baseIndent={FILE_TREE_BASE_INDENT}
+          showGuides={false}
+          expanded={!collapsedSections.has(row.key)}
+          onToggle={() => toggleSectionCollapsed(row.key)}
+          onClick={() => toggleSectionCollapsed(row.key)}
+          variant="idea"
+          label={<span className="font-semibold">{name}</span>}
+          description={row.count}
+          leading={<FolderOpen className="file-tree-node-icon text-subtle-foreground" />}
+          className="h-full py-0.5"
+          style={{ height: fileTreePresentation.rowHeight }}
+          title={row.repoPath}
+          leadingAction={
+            <Checkbox
+              className={IDEA_CHECKBOX_CLASS_NAME}
+              checked={inclusion.checked}
+              indeterminate={inclusion.indeterminate}
+              onCheckedChange={(staged) =>
+                void handleSetFilesStaged(
+                  inclusion.eligible,
+                  inclusion.indeterminate ? true : staged,
+                )
+              }
+              disabled={
+                isLoading ||
+                stagingDisabled ||
+                inclusion.eligible.length === 0 ||
+                groupFiles.some((file) => stagePendingPaths.has(file.path))
+              }
+              aria-label={t(
+                inclusion.checked ? "git.excludeFolderFromCommit" : "git.includeFolderInCommit",
+                {
+                  name,
+                },
+              )}
+            />
+          }
+        />
       );
     }
     if (row.kind === "section") return renderSectionNode(row.section);
@@ -1136,7 +1216,7 @@ const GitStatusPanel = ({
           active={selectedEntryIds.has(entry.id)}
           onClick={(event) => {
             handleSelectEntry(event, entry);
-            if (!event.ctrlKey && !event.metaKey) {
+            if (!event.ctrlKey && !event.metaKey && !event.shiftKey) {
               // Commit review keeps HEAD -> worktree visible, including both
               // included and excluded blocks of a partially staged file.
               onFileSelect?.(row.file.path, false);
@@ -1182,7 +1262,7 @@ const GitStatusPanel = ({
         onToggle={() => toggleFolderCollapsed(row.section, row.branch.path)}
         onClick={(event) => {
           handleSelectEntry(event, entry);
-          if (!event.ctrlKey && !event.metaKey) {
+          if (!event.ctrlKey && !event.metaKey && !event.shiftKey) {
             onViewFilesDiff?.(entry.filePaths);
           }
         }}
@@ -1307,6 +1387,12 @@ const GitStatusPanel = ({
   const diffMenuItems = useMemo<MenuItem[]>(
     () => [
       {
+        id: "all",
+        label: t("git.viewDiff"),
+        disabled: !hasVisibleFiles || !onViewDiff || isLoading,
+        onClick: () => openScopedDiff("all"),
+      },
+      {
         id: "unstaged",
         label: t("git.unstaged"),
         disabled: !hasUnstagedDiffableFiles || isLoading,
@@ -1342,6 +1428,8 @@ const GitStatusPanel = ({
       },
     ],
     [
+      hasVisibleFiles,
+      onViewDiff,
       hasStagedDiffableFiles,
       hasUnstagedDiffableFiles,
       isLoading,
@@ -1361,7 +1449,7 @@ const GitStatusPanel = ({
 
   return (
     <div
-      className="flex h-full min-h-0 flex-col select-none"
+      className="git-status-panel flex h-full min-h-0 flex-col select-none"
       onContextMenu={(event) => contextMenu.open(event, { entryIds: [] })}
       onKeyDown={(event) => {
         if (
@@ -1378,138 +1466,128 @@ const GitStatusPanel = ({
         void handleDeleteEntries(selectedEntries);
       }}
     >
+      <SidebarToolbar className="h-10 gap-0.5 border-0 px-[7px] [&_button]:size-[22px] [&_svg]:size-4">
+        {toolbarLeading}
+        <SidebarHeaderIconButton
+          onClick={() => void handleRollbackEntries(selectedEntries)}
+          disabled={
+            isLoading ||
+            stagingDisabled ||
+            stagePendingPaths.size > 0 ||
+            !selectedEntries.some((entry) =>
+              entry.files.some((file) => file.status !== "untracked"),
+            )
+          }
+          tooltip={t("git.discardSelectedChanges")}
+          aria-label={t("git.discardSelectedChanges")}
+        >
+          <Revert />
+        </SidebarHeaderIconButton>
+        <SidebarHeaderIconButton
+          onClick={() => void handleStageAll()}
+          disabled={isLoading || stagingDisabled || activeListFiles(unstagedFiles).length === 0}
+          tooltip={t(changelists ? "git.changelists.stageActive" : "git.stageAllChanges")}
+          aria-label={t(changelists ? "git.changelists.stageActive" : "git.stageAllChanges")}
+        >
+          <Download />
+        </SidebarHeaderIconButton>
+        <SidebarHeaderIconButton
+          onClick={() => {
+            const first = visibleFiles[0];
+            if (first) onPreviewFile?.(first.path, false);
+          }}
+          disabled={isLoading || !onPreviewFile || visibleFiles.length === 0}
+          tooltip={t("git.previewFirstChange")}
+          aria-label={t("git.previewFirstChange")}
+        >
+          <Eye />
+        </SidebarHeaderIconButton>
+        <div ref={diffMenuAnchorRef} className="flex shrink-0">
+          <SidebarHeaderIconButton
+            onClick={() => setIsDiffMenuOpen((open) => !open)}
+            disabled={isLoading}
+            active={isDiffMenuOpen}
+            tooltip={t("git.chooseDiffSource")}
+            aria-label={t("git.chooseDiffSource")}
+            aria-haspopup="menu"
+            aria-expanded={isDiffMenuOpen}
+          >
+            <GitDiff />
+          </SidebarHeaderIconButton>
+        </div>
+        <Dropdown
+          isOpen={isDiffMenuOpen}
+          anchorRef={diffMenuAnchorRef}
+          anchorAlign="start"
+          onClose={() => setIsDiffMenuOpen(false)}
+          items={diffMenuItems}
+          className="min-w-37.5"
+        />
+        <div ref={viewOptionsAnchorRef} className="flex shrink-0">
+          <SidebarHeaderIconButton
+            onClick={() => setIsViewOptionsOpen((open) => !open)}
+            active={isViewOptionsOpen}
+            tooltip={t("git.viewOptions")}
+            aria-label={t("git.viewOptions")}
+            aria-haspopup="menu"
+            aria-expanded={isViewOptionsOpen}
+          >
+            <More />
+          </SidebarHeaderIconButton>
+        </div>
+        <Dropdown
+          isOpen={isViewOptionsOpen}
+          anchorRef={viewOptionsAnchorRef}
+          anchorAlign="end"
+          onClose={() => setIsViewOptionsOpen(false)}
+          className="min-w-37.5"
+          items={[
+            ...(
+              [
+                { id: "group-by-directory", folderView: true, label: t("git.groupByDirectory") },
+                { id: "flat-list", folderView: false, label: t("git.flatList") },
+              ] as const
+            ).map((option) => ({
+              id: option.id,
+              label: option.label,
+              icon:
+                gitChangesFolderView === option.folderView ? (
+                  <Check />
+                ) : (
+                  <span className="size-4" />
+                ),
+              onClick: () => {
+                setIsViewOptionsOpen(false);
+                if (gitChangesFolderView !== option.folderView)
+                  void updateSetting("gitChangesFolderView", option.folderView);
+              },
+            })),
+            { id: "sep-actions", label: "", separator: true, onClick: () => {} },
+            {
+              id: "unstage",
+              label: t(changelists ? "git.changelists.unstageActive" : "git.unstageAllChanges"),
+              icon: <Minus />,
+              disabled: isLoading || stagingDisabled || activeListFiles(stagedFiles).length === 0,
+              onClick: () => void handleUnstageAll(),
+            },
+            {
+              id: "stash",
+              label: t("git.stashAllUnstaged"),
+              icon: <Archive />,
+              disabled:
+                isLoading ||
+                stagingDisabled ||
+                stagePendingPaths.size > 0 ||
+                unstagedFiles.length === 0,
+              onClick: () => void handleStashAllUnstaged(),
+            },
+          ]}
+        />
+        <div className="ml-auto min-w-0 flex-1 text-right">{toolbarTrailing}</div>
+      </SidebarToolbar>
+      {header}
       {hasFiles ? (
         <>
-          <SidebarToolbar>
-            <div className="flex min-w-0 flex-1 items-center gap-1.5">
-              <ButtonGroup ref={diffMenuAnchorRef}>
-                <Button
-                  type="button"
-                  variant="default"
-                  size="xs"
-                  onClick={() => openScopedDiff("all")}
-                  disabled={!onViewDiff || isLoading}
-                  aria-label={t("git.viewDiff")}
-                >
-                  {t("git.viewDiff")}
-                </Button>
-                <ButtonGroupSeparator />
-                <Button
-                  type="button"
-                  variant="default"
-                  size="icon-xs"
-                  onClick={() => setIsDiffMenuOpen((open) => !open)}
-                  disabled={isLoading}
-                  active={isDiffMenuOpen}
-                  aria-label={t("git.chooseDiffSource")}
-                  aria-haspopup="menu"
-                  aria-expanded={isDiffMenuOpen}
-                >
-                  <CaretDown className="size-3" />
-                </Button>
-              </ButtonGroup>
-              <Dropdown
-                isOpen={isDiffMenuOpen}
-                anchorRef={diffMenuAnchorRef}
-                anchorAlign="start"
-                onClose={() => setIsDiffMenuOpen(false)}
-                items={diffMenuItems}
-                className="min-w-37.5"
-              />
-            </div>
-            <div className="flex shrink-0 items-center gap-1">
-              {/* IntelliJ's View Options: switch between the directory tree and a flat list. */}
-              <div ref={viewOptionsAnchorRef} className="flex">
-                <SidebarHeaderIconButton
-                  onClick={() => setIsViewOptionsOpen((open) => !open)}
-                  active={isViewOptionsOpen}
-                  tooltip={t("git.viewOptions")}
-                  tooltipSide="bottom"
-                  aria-label={t("git.viewOptions")}
-                  aria-haspopup="menu"
-                  aria-expanded={isViewOptionsOpen}
-                >
-                  <Eye />
-                </SidebarHeaderIconButton>
-              </div>
-              <Dropdown
-                isOpen={isViewOptionsOpen}
-                anchorRef={viewOptionsAnchorRef}
-                anchorAlign="end"
-                onClose={() => setIsViewOptionsOpen(false)}
-                className="min-w-37.5"
-                // One click picks the layout: both choices sit at the top level instead of
-                // behind IntelliJ's Group By submenu, with a check on the active one.
-                items={(
-                  [
-                    {
-                      id: "group-by-directory",
-                      folderView: true,
-                      label: t("git.groupByDirectory"),
-                    },
-                    { id: "flat-list", folderView: false, label: t("git.flatList") },
-                  ] as const
-                ).map((option) => ({
-                  id: option.id,
-                  label: option.label,
-                  icon:
-                    gitChangesFolderView === option.folderView ? (
-                      <Check />
-                    ) : (
-                      <span className="size-3.5" />
-                    ),
-                  onClick: () => {
-                    setIsViewOptionsOpen(false);
-                    if (gitChangesFolderView !== option.folderView) {
-                      void updateSetting("gitChangesFolderView", option.folderView);
-                    }
-                  },
-                }))}
-              />
-              {unstagedFiles.length > 0 && (
-                <SidebarHeaderIconButton
-                  onClick={handleStashAllUnstaged}
-                  disabled={isLoading || stagePendingPaths.size > 0}
-                  className="disabled:opacity-50"
-                  tooltip={t("git.stashAllUnstaged")}
-                  tooltipSide="bottom"
-                  aria-label={t("git.stashAllUnstaged")}
-                >
-                  <Archive />
-                </SidebarHeaderIconButton>
-              )}
-              {unstagedFiles.length > 0 && (
-                <SidebarHeaderIconButton
-                  onClick={handleStageAll}
-                  disabled={isLoading || stagingDisabled}
-                  className="disabled:opacity-50"
-                  tooltip={t(changelists ? "git.changelists.stageActive" : "git.stageAllChanges")}
-                  tooltipSide="bottom"
-                  aria-label={t(
-                    changelists ? "git.changelists.stageActive" : "git.stageAllChanges",
-                  )}
-                >
-                  <Plus />
-                </SidebarHeaderIconButton>
-              )}
-              {stagedFiles.length > 0 && (
-                <SidebarHeaderIconButton
-                  onClick={handleUnstageAll}
-                  disabled={isLoading || stagingDisabled}
-                  className="disabled:opacity-50"
-                  tooltip={t(
-                    changelists ? "git.changelists.unstageActive" : "git.unstageAllChanges",
-                  )}
-                  tooltipSide="bottom"
-                  aria-label={t(
-                    changelists ? "git.changelists.unstageActive" : "git.unstageAllChanges",
-                  )}
-                >
-                  <Minus />
-                </SidebarHeaderIconButton>
-              )}
-            </div>
-          </SidebarToolbar>
           <ScrollArea
             className="min-h-0 flex-1"
             orientation="both"
@@ -1638,7 +1716,11 @@ const GitStatusPanel = ({
                   id: "rollback-selection",
                   label: t("git.rollback"),
                   icon: <RotateCcw />,
-                  disabled: !contextMenuHasTrackedFiles || isLoading || stagePendingPaths.size > 0,
+                  disabled:
+                    !contextMenuHasTrackedFiles ||
+                    stagingDisabled ||
+                    isLoading ||
+                    stagePendingPaths.size > 0,
                   onClick: () => void handleRollbackEntries(contextMenuEntries),
                 },
                 {

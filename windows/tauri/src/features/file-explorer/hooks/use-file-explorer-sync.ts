@@ -42,30 +42,36 @@ export function useFileExplorerSync({
     updateActivePath?.(explorerTargetPath);
   }, [activePath, explorerTargetPath, updateActivePath]);
 
-  useEffect(() => {
-    const requestId = ++revealRequestIdRef.current;
-    if (!autoRevealActiveFile || !explorerTargetPath) {
+  const requestRevealPath = useCallback(
+    async (path: string) => {
+      const requestId = ++revealRequestIdRef.current;
       setRevealRequest(null);
-      return;
+      try {
+        await revealPathInTree(path);
+        if (requestId !== revealRequestIdRef.current) return;
+        setRevealRequest({ id: requestId, path });
+      } catch {
+        // A failed expansion must not scroll to a previous request's target.
+      }
+    },
+    [revealPathInTree],
+  );
+
+  useEffect(() => {
+    if (autoRevealActiveFile && explorerTargetPath) {
+      void requestRevealPath(explorerTargetPath);
+    } else {
+      setRevealRequest(null);
     }
 
-    setRevealRequest(null);
-    let active = true;
-    void revealPathInTree(explorerTargetPath)
-      .then(() => {
-        if (!active || requestId !== revealRequestIdRef.current) return;
-        setRevealRequest({ id: requestId, path: explorerTargetPath });
-      })
-      .catch(() => {});
-
     return () => {
-      active = false;
+      ++revealRequestIdRef.current;
     };
-  }, [autoRevealActiveFile, explorerTargetPath, revealPathInTree]);
+  }, [autoRevealActiveFile, explorerTargetPath, requestRevealPath]);
 
   const consumeRevealRequest = useCallback((requestId: number) => {
     setRevealRequest((current) => (current?.id === requestId ? null : current));
   }, []);
 
-  return { consumeRevealRequest, revealRequest };
+  return { consumeRevealRequest, explorerTargetPath, requestRevealPath, revealRequest };
 }

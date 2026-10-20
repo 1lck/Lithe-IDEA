@@ -3,8 +3,9 @@
 use super::search_index::{self, UpdateOutcome, WorkspaceSearchIndex};
 use crate::protocol::{invalid_relative_path, CoreError, ErrorCode};
 use crate::protocol::{
-    FileReadResponse, FileWriteResponse, ReplacementPreviewResponse, SearchMatch, SearchResponse,
-    WorkspaceNode, WorkspaceSnapshotResponse,
+    DirectoryListing, DirectoryListingResponse, FileReadResponse, FileWriteResponse,
+    ReplacementPreviewResponse, SearchMatch, SearchResponse, WorkspaceNode,
+    WorkspaceSnapshotResponse,
 };
 use regex::{Regex, RegexBuilder};
 use serde::{Deserialize, Serialize};
@@ -28,6 +29,7 @@ pub(crate) const BUILT_IN_HIDDEN_DIRECTORIES: &[&str] = &[
     "dist",
     "coverage",
     "design-qa-artifacts",
+    ".artifacts",
 ];
 /// File names omitted from workspace snapshots, search, and related scans.
 const BUILT_IN_HIDDEN_FILE_PATTERNS: &[&str] = &[".DS_Store"];
@@ -39,6 +41,29 @@ const MAX_OPEN_FILE_SIZE: u64 = 32 * 1024 * 1024;
 /// Workspace root and visibility overrides used to build a file-tree snapshot.
 pub struct WorkspaceSnapshotRequest {
     pub root: String,
+    #[serde(default)]
+    pub hidden_directory_names: Vec<String>,
+    #[serde(default)]
+    pub hidden_file_patterns: Vec<String>,
+    /// When false, the response keeps only the file list and returns `root`
+    /// without children; hosts that load the tree per directory skip encoding
+    /// and decoding a node for every path.
+    #[serde(default = "default_include_tree")]
+    pub include_tree: bool,
+}
+
+fn default_include_tree() -> bool {
+    true
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+/// Workspace-relative directories whose visible children a host is loading.
+pub struct DirectoryListingRequest {
+    pub root: String,
+    /// Workspace-relative directories; an empty string is the root itself.
+    #[serde(default)]
+    pub paths: Vec<String>,
     #[serde(default)]
     pub hidden_directory_names: Vec<String>,
     #[serde(default)]
@@ -163,8 +188,89 @@ pub fn snapshot(request: WorkspaceSnapshotRequest) -> Result<WorkspaceSnapshotRe
     search_index::invalidate_root(&root);
     let rules = VisibilityRules::new(request.hidden_directory_names, request.hidden_file_patterns);
     let mut files = Vec::new();
-    let node = scan_node(&root, &root, &rules, &mut files)?;
-    Ok(WorkspaceSnapshotResponse { root: node, files })
+    let mut nested_worktrees = Vec::new();
+    let node = if request.include_tree {
+        scan_node(&root, &root, &rules, &mut files, &mut nested_worktrees)?
+    } else {
+        collect_snapshot_files(&root, &root, &rules, &mut files, &mut nested_worktrees)?;
+        WorkspaceNode {
+            path: String::new(),
+            name: node_name(&root),
+            is_directory: true,
+            children: None,
+        }
+    };
+    Ok(WorkspaceSnapshotResponse {
+        root: node,
+        files,
+        nested_worktrees,
+    })
+}
+
+/// Lists the visible children of each requested directory, one level deep.
+///
+/// The project tree loads directories as they are expanded, so a workspace
+/// with many files no longer builds a node for each of them up front. Paths
+/// that no longer exist, are hidden, or lie inside a nested linked worktree
+/// are left out of the response instead of failing the whole request, because
+/// a directory can disappear between the host's expand and this call.
+pub fn list_directories(
+    request: DirectoryListingRequest,
+) -> Result<DirectoryListingResponse, CoreError> {
+    let root = existing_root(&request.root)?;
+    let rules = VisibilityRules::new(request.hidden_directory_names, request.hidden_file_patterns);
+    let mut directories = Vec::new();
+    for relative in request.paths {
+        crate::protocol::cancellation::check()?;
+        let Some(directory) = listable_directory(&root, &relative, &rules) else {
+            continue;
+        };
+        let Ok(listing) = visible_children(&directory, &root, &rules) else {
+            continue;
+        };
+        let children = listing
+            .children
+            .into_iter()
+            .map(|(path, is_directory)| WorkspaceNode {
+                path: relative_path(&path, &root),
+                name: node_name(&path),
+                is_directory,
+                children: None,
+            })
+            .collect();
+        directories.push(DirectoryListing {
+            path: relative_path(&directory, &root),
+            children,
+            nested_worktrees: listing
+                .nested_worktrees
+                .iter()
+                .map(|worktree| relative_path(worktree, &root))
+                .collect(),
+        });
+    }
+    Ok(DirectoryListingResponse { directories })
+}
+
+/// Resolves a requested directory without following symlinks, so a listing
+/// never reaches outside the workspace or into a directory scans skip.
+fn listable_directory(root: &Path, relative: &str, rules: &VisibilityRules) -> Option<PathBuf> {
+    if relative.is_empty() {
+        return Some(root.to_path_buf());
+    }
+    if Path::new(relative).is_absolute() || invalid_relative_path(relative) {
+        return None;
+    }
+    let mut current = root.to_path_buf();
+    for component in relative.split('/') {
+        current.push(component);
+        let metadata = fs::symlink_metadata(&current).ok()?;
+        if !metadata.is_dir() || rules.is_hidden(&relative_path(&current, root), true) {
+            return None;
+        }
+    }
+    let nested =
+        is_inside_nested_linked_worktree(root, relative) || is_nested_linked_worktree(&current);
+    (!nested).then_some(current)
 }
 
 /// Searches visible file paths and current file contents using the shared index.
@@ -571,6 +677,7 @@ fn scan_node(
     root: &Path,
     rules: &VisibilityRules,
     files: &mut Vec<String>,
+    nested_worktrees: &mut Vec<String>,
 ) -> Result<WorkspaceNode, CoreError> {
     crate::protocol::cancellation::check()?;
     let metadata = fs::symlink_metadata(path)?;
@@ -590,6 +697,79 @@ fn scan_node(
         });
     }
 
+    let listing = visible_children(path, root, rules)?;
+    nested_worktrees.extend(
+        listing
+            .nested_worktrees
+            .iter()
+            .map(|worktree| relative_path(worktree, root)),
+    );
+    let mut visible_children = Vec::new();
+    for (child_path, _) in listing.children {
+        crate::protocol::cancellation::check()?;
+        if let Ok(child) = scan_node(&child_path, root, rules, files, nested_worktrees) {
+            visible_children.push(child);
+        }
+    }
+    Ok(WorkspaceNode {
+        path: relative,
+        name,
+        is_directory: true,
+        children: Some(visible_children),
+    })
+}
+
+/// Collects the snapshot file list without building tree nodes.
+fn collect_snapshot_files(
+    path: &Path,
+    root: &Path,
+    rules: &VisibilityRules,
+    files: &mut Vec<String>,
+    nested_worktrees: &mut Vec<String>,
+) -> Result<(), CoreError> {
+    crate::protocol::cancellation::check()?;
+    let listing = visible_children(path, root, rules)?;
+    nested_worktrees.extend(
+        listing
+            .nested_worktrees
+            .iter()
+            .map(|worktree| relative_path(worktree, root)),
+    );
+    for (child_path, is_directory) in listing.children {
+        if is_directory {
+            // A directory that vanished mid-scan is skipped, as in `scan_node`.
+            let _ = collect_snapshot_files(&child_path, root, rules, files, nested_worktrees);
+        } else {
+            files.push(relative_path(&child_path, root));
+        }
+    }
+    Ok(())
+}
+
+fn node_name(path: &Path) -> String {
+    path.file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("Workspace")
+        .to_string()
+}
+
+/// Visible children of one directory in tree order, plus the nested linked
+/// worktrees that were left out of it.
+pub(crate) struct VisibleDirectory {
+    /// Child paths and whether each is a directory: directories first, then
+    /// case-insensitive names.
+    pub(crate) children: Vec<(PathBuf, bool)>,
+    pub(crate) nested_worktrees: Vec<PathBuf>,
+}
+
+/// Lists the children that workspace scans descend into. Snapshot and search
+/// share this so the tree, the file list, and the index always agree.
+pub(crate) fn visible_children(
+    path: &Path,
+    root: &Path,
+    rules: &VisibilityRules,
+) -> Result<VisibleDirectory, CoreError> {
+    let mut nested_worktrees = Vec::new();
     let mut children = fs::read_dir(path)
         .map_err(CoreError::from)?
         .filter_map(Result::ok)
@@ -601,6 +781,10 @@ fn scan_node(
             }
             let child_relative = relative_path(&child_path, root);
             if rules.is_hidden(&child_relative, metadata.is_dir()) {
+                return None;
+            }
+            if metadata.is_dir() && is_nested_linked_worktree(&child_path) {
+                nested_worktrees.push(child_path);
                 return None;
             }
             Some((child_path, metadata.is_dir()))
@@ -623,20 +807,83 @@ fn scan_node(
                 )
         })
     });
+    nested_worktrees.sort();
+    Ok(VisibleDirectory {
+        children,
+        nested_worktrees,
+    })
+}
 
-    let mut visible_children = Vec::new();
-    for (child_path, _) in children {
-        crate::protocol::cancellation::check()?;
-        if let Ok(child) = scan_node(&child_path, root, rules, files) {
-            visible_children.push(child);
+/// A `.git` pointer file is a single `gitdir:` line; anything larger is not one.
+const MAX_GIT_POINTER_FILE_SIZE: u64 = 4 * 1024;
+
+/// Returns whether `directory` is a linked worktree checked out inside the main
+/// worktree of the repository that owns it, such as `.claude/worktrees/<name>`.
+///
+/// Such a checkout repeats the project's own files, and agent tools can create
+/// several of them, so scanning them multiplies the tree, index, and watcher
+/// load. Git records a linked worktree as `<common>/.git/worktrees/<id>`;
+/// submodules (`.git/modules/...`), bare repositories, and worktrees placed
+/// outside their main checkout do not match and stay visible.
+pub(crate) fn is_nested_linked_worktree(directory: &Path) -> bool {
+    let marker = directory.join(".git");
+    let Ok(metadata) = fs::symlink_metadata(&marker) else {
+        return false;
+    };
+    if !metadata.is_file() || metadata.len() > MAX_GIT_POINTER_FILE_SIZE {
+        return false;
+    }
+    let Ok(text) = fs::read_to_string(&marker) else {
+        return false;
+    };
+    let Some(git_directory) = text
+        .lines()
+        .next()
+        .and_then(|line| line.strip_prefix("gitdir:"))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return false;
+    };
+    let git_directory = directory.join(git_directory);
+    let Some(worktrees) = git_directory.parent() else {
+        return false;
+    };
+    if worktrees.file_name().and_then(|name| name.to_str()) != Some("worktrees") {
+        return false;
+    }
+    let Some(common_directory) = worktrees.parent() else {
+        return false;
+    };
+    if common_directory.file_name().and_then(|name| name.to_str()) != Some(".git") {
+        return false;
+    }
+    let Some(main_worktree) = common_directory.parent() else {
+        return false;
+    };
+    let (Ok(main_worktree), Ok(directory)) =
+        (main_worktree.canonicalize(), directory.canonicalize())
+    else {
+        return false;
+    };
+    directory != main_worktree && directory.starts_with(&main_worktree)
+}
+
+/// Returns whether a workspace-relative path lies below a nested linked
+/// worktree. Used for watcher-reported paths that never went through a scan.
+pub(crate) fn is_inside_nested_linked_worktree(root: &Path, relative: &str) -> bool {
+    let components = relative
+        .split('/')
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>();
+    let mut directory = root.to_path_buf();
+    for component in components.iter().take(components.len().saturating_sub(1)) {
+        directory.push(component);
+        if is_nested_linked_worktree(&directory) {
+            return true;
         }
     }
-    Ok(WorkspaceNode {
-        path: relative,
-        name,
-        is_directory: true,
-        children: Some(visible_children),
-    })
+    false
 }
 
 fn existing_root(value: &str) -> Result<PathBuf, CoreError> {

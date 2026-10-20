@@ -46,6 +46,10 @@ pub enum CoreCommand {
     AgentInstallCli,
     /// Parses credential-free Agent provider metadata (`agent.parseProviderConfiguration`).
     AgentParseProviderConfiguration,
+    /// Parses one Agent MCP configuration file into normalized servers (`mcp.parseConfiguration`).
+    McpParseConfiguration,
+    /// Plans a format-preserving MCP entry write or removal (`mcp.planWrite`).
+    McpPlanWrite,
     /// Validates and normalizes a declarative plugin manifest (`plugins.declarative.validate`).
     PluginsDeclarativeValidate,
     /// Expands a declarative plugin's run template (`plugins.declarative.runPlan`).
@@ -58,6 +62,34 @@ pub enum CoreCommand {
     PluginsDeclarativeLanguageServerLaunchPlan,
     /// Compares a launch runtime's version output with its requirement (`plugins.declarative.checkRuntimeVersion`).
     PluginsDeclarativeCheckRuntimeVersion,
+    /// Finds the build-system instances of a workspace (`build.detect`).
+    BuildDetect,
+    /// Lists a build system's executable candidates and version probes (`build.invocationPlan`).
+    BuildInvocationPlan,
+    /// Compares a build tool's or runtime's version output with its minimum (`build.checkToolVersion`).
+    BuildCheckToolVersion,
+    /// Resolves stored build options against the declaration (`build.resolveOptions`).
+    BuildResolveOptions,
+    /// Expands the command that prints a build model (`build.modelPlan`).
+    BuildModelPlan,
+    /// Expands one build task into an argv plan (`build.taskPlan`).
+    BuildTaskPlan,
+    /// Expands a build test run and its result location (`build.testPlan`).
+    BuildTestPlan,
+    /// Expands the command that prints a project's dependencies (`build.dependencyPlan`).
+    BuildDependencyPlan,
+    /// Normalizes a build model and derives its run entries (`build.decodeModel`).
+    BuildDecodeModel,
+    /// Normalizes build test results (`build.decodeTestResults`).
+    BuildDecodeTestResults,
+    /// Normalizes build diagnostics from process output (`build.decodeDiagnostics`).
+    BuildDecodeDiagnostics,
+    /// Normalizes a project's dependency tree (`build.decodeDependencies`).
+    BuildDecodeDependencies,
+    /// Digests the files a build model depends on (`build.syncFingerprint`).
+    BuildSyncFingerprint,
+    /// Maps build options to the Java language server's project import (`build.languageImport`).
+    BuildLanguageImport,
     /// Validates and filters a marketplace index (`plugins.marketplace.validateIndex`).
     PluginsMarketplaceValidateIndex,
     /// Resolves a user-entered marketplace source URL (`plugins.marketplace.resolveSource`).
@@ -80,6 +112,8 @@ pub enum CoreCommand {
     CommunityDiscourseAuthRevoke,
     /// Builds the visible project tree (`workspace.snapshot`).
     WorkspaceSnapshot,
+    /// Lists the visible children of project directories (`workspace.listDirectories`).
+    WorkspaceListDirectories,
     /// Finds Git repositories that belong to an opened workspace (`workspace.repositories`).
     WorkspaceRepositories,
     /// Builds or reuses the workspace search index (`workspace.searchIndex.warm`).
@@ -215,6 +249,10 @@ pub enum CoreCommand {
     LspCloseDocument,
     /// Queues one semantic server request (`lsp.request`).
     LspRequest,
+    /// Queues one build-provider request (`lsp.buildRequest`).
+    LspBuildRequest,
+    /// Invokes one plugin function (`lsp.functionRequest`).
+    LspFunctionRequest,
     /// Queues shared Java gutter marker resolution (`java.navigationMarkers`).
     JavaNavigationMarkers,
     /// Queues click-time Java navigation resolution (`java.resolveNavigation`).
@@ -283,6 +321,8 @@ pub enum CoreCommand {
     GitRemoteUrl,
     /// Plans Fetch arguments without launching Git or changing configuration (`git.fetchPlan`).
     GitFetchPlan,
+    /// Resolves the executable Git will run without requiring a repository (`git.executable`).
+    GitExecutable,
     /// Inspects Git configuration and its sources (`git.executionInspect`).
     GitExecutionInspect,
     /// Saves one explicitly selected configuration field (`git.executionConfigure`).
@@ -345,6 +385,8 @@ pub enum CoreCommand {
     GitOperationState,
     /// Returns normalized line attribution (`git.blame`).
     GitBlame,
+    /// Traces which commits touched a snapshot line range (`git.lineHistory`).
+    GitLineHistory,
     /// Parses a GitHub repository identity from a Git remote URL (`github.parseRemote`).
     GitHubParseRemote,
     /// Builds a platform-executable GitHub HTTP request (`github.requestPlan`).
@@ -353,6 +395,10 @@ pub enum CoreCommand {
     GitHubNormalizeResponse,
     /// Redacts credentials, tokens, and home-directory paths from diagnostic text (`diagnostics.redactText`).
     DiagnosticsRedactText,
+    /// Normalizes a bounded, redacted application log event (`diagnostics.prepareLogEvent`).
+    DiagnosticsPrepareLogEvent,
+    /// Filters and merges bounded host-collected log tails (`diagnostics.queryLogs`).
+    DiagnosticsQueryLogs,
     /// Shapes a deterministic diagnostic bundle manifest from host-gathered facts (`diagnostics.buildManifest`).
     DiagnosticsBuildManifest,
 }
@@ -369,6 +415,8 @@ impl CoreCommand {
             "agent.uninstall" => Some(Self::AgentUninstall),
             "agent.installCli" => Some(Self::AgentInstallCli),
             "agent.parseProviderConfiguration" => Some(Self::AgentParseProviderConfiguration),
+            "mcp.parseConfiguration" => Some(Self::McpParseConfiguration),
+            "mcp.planWrite" => Some(Self::McpPlanWrite),
             "plugins.declarative.validate" => Some(Self::PluginsDeclarativeValidate),
             "plugins.declarative.runPlan" => Some(Self::PluginsDeclarativeRunPlan),
             "plugins.declarative.discoverTests" => Some(Self::PluginsDeclarativeDiscoverTests),
@@ -379,6 +427,20 @@ impl CoreCommand {
             "plugins.declarative.checkRuntimeVersion" => {
                 Some(Self::PluginsDeclarativeCheckRuntimeVersion)
             }
+            "build.detect" => Some(Self::BuildDetect),
+            "build.invocationPlan" => Some(Self::BuildInvocationPlan),
+            "build.checkToolVersion" => Some(Self::BuildCheckToolVersion),
+            "build.resolveOptions" => Some(Self::BuildResolveOptions),
+            "build.modelPlan" => Some(Self::BuildModelPlan),
+            "build.taskPlan" => Some(Self::BuildTaskPlan),
+            "build.testPlan" => Some(Self::BuildTestPlan),
+            "build.dependencyPlan" => Some(Self::BuildDependencyPlan),
+            "build.decodeModel" => Some(Self::BuildDecodeModel),
+            "build.decodeTestResults" => Some(Self::BuildDecodeTestResults),
+            "build.decodeDiagnostics" => Some(Self::BuildDecodeDiagnostics),
+            "build.decodeDependencies" => Some(Self::BuildDecodeDependencies),
+            "build.syncFingerprint" => Some(Self::BuildSyncFingerprint),
+            "build.languageImport" => Some(Self::BuildLanguageImport),
             "plugins.marketplace.validateIndex" => Some(Self::PluginsMarketplaceValidateIndex),
             "plugins.marketplace.resolveSource" => Some(Self::PluginsMarketplaceResolveSource),
             "plugins.marketplace.installReview" => Some(Self::PluginsMarketplaceInstallReview),
@@ -390,6 +452,7 @@ impl CoreCommand {
             "community.discourse.search" => Some(Self::CommunityDiscourseSearch),
             "community.discourse.auth.revoke" => Some(Self::CommunityDiscourseAuthRevoke),
             "workspace.snapshot" => Some(Self::WorkspaceSnapshot),
+            "workspace.listDirectories" => Some(Self::WorkspaceListDirectories),
             "workspace.repositories" => Some(Self::WorkspaceRepositories),
             "workspace.searchIndex.warm" => Some(Self::WorkspaceSearchIndexWarm),
             "workspace.searchIndex.update" => Some(Self::WorkspaceSearchIndexUpdate),
@@ -456,6 +519,8 @@ impl CoreCommand {
             "lsp.workspaceFilesChanged" => Some(Self::LspWorkspaceFilesChanged),
             "lsp.closeDocument" => Some(Self::LspCloseDocument),
             "lsp.request" => Some(Self::LspRequest),
+            "lsp.buildRequest" => Some(Self::LspBuildRequest),
+            "lsp.functionRequest" => Some(Self::LspFunctionRequest),
             "java.resolveNavigation" => Some(Self::JavaResolveNavigation),
             "lsp.cancelOperation" => Some(Self::LspCancelOperation),
             "lsp.pollEvents" => Some(Self::LspPollEvents),
@@ -490,6 +555,7 @@ impl CoreCommand {
             "git.consolePresentation" => Some(Self::GitConsolePresentation),
             "git.remoteUrl" => Some(Self::GitRemoteUrl),
             "git.fetchPlan" => Some(Self::GitFetchPlan),
+            "git.executable" => Some(Self::GitExecutable),
             "git.executionInspect" => Some(Self::GitExecutionInspect),
             "git.executionConfigure" => Some(Self::GitExecutionConfigure),
             "git.authRespond" => Some(Self::GitAuthRespond),
@@ -521,10 +587,13 @@ impl CoreCommand {
             "git.conflictMarkers" => Some(Self::GitConflictMarkers),
             "git.operationState" => Some(Self::GitOperationState),
             "git.blame" => Some(Self::GitBlame),
+            "git.lineHistory" => Some(Self::GitLineHistory),
             "github.parseRemote" => Some(Self::GitHubParseRemote),
             "github.requestPlan" => Some(Self::GitHubRequestPlan),
             "github.normalizeResponse" => Some(Self::GitHubNormalizeResponse),
             "diagnostics.redactText" => Some(Self::DiagnosticsRedactText),
+            "diagnostics.prepareLogEvent" => Some(Self::DiagnosticsPrepareLogEvent),
+            "diagnostics.queryLogs" => Some(Self::DiagnosticsQueryLogs),
             "diagnostics.buildManifest" => Some(Self::DiagnosticsBuildManifest),
             _ => None,
         }
@@ -545,6 +614,8 @@ mod tests {
             "lsp.syncDocument",
             "lsp.closeDocument",
             "lsp.request",
+            "lsp.buildRequest",
+            "lsp.functionRequest",
             "lsp.cancelOperation",
             "lsp.pollEvents",
             "lsp.waitEvents",

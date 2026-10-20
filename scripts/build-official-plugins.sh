@@ -10,7 +10,6 @@ set -euo pipefail
 # .agents/notes/implemented/architecture/2026-10-12-declarative-language-plugins.md.
 
 ROOT_DIR="${0:A:h:h}"
-source "$ROOT_DIR/scripts/macos-swift-build-options.sh"
 CONFIGURATION="debug"
 TRIPLE=""
 OUTPUT_DIR=""
@@ -110,15 +109,6 @@ for plugin_source in "$ROOT_DIR"/Plugins/mac/Official/*(/N); do
     rm -rf "$package_dir"
     mkdir -p "$package_dir"
     cp "$manifest" "$package_dir/plugin.json"
-    # A pinned language-server source is fetched, checksum-verified, and
-    # assembled at build time. The installed package is never modified.
-    language_server_manifest="$plugin_source/language-server.json"
-    if [[ -f "$language_server_manifest" ]]; then
-        cp "$language_server_manifest" "$package_dir/language-server.json"
-        "$ROOT_DIR/scripts/prepare-php-language-server.sh" \
-            --manifest "$language_server_manifest" \
-            --output "$package_dir/language-server" >&2
-    fi
 
     # A plugin that needs more than one pinned archive keeps its assembly
     # next to its manifest, so the steps that are specific to one plugin are
@@ -134,7 +124,6 @@ for plugin_source in "$ROOT_DIR"/Plugins/mac/Official/*(/N); do
     if [[ "$publisher_signed" == true ]]; then
         if [[ -z "$signer_binary" ]]; then
             swift build \
-                "${LITHE_SWIFT_BUILD_ARGS[@]}" \
                 "${SWIFT_LAYOUT_ARGS[@]}" \
                 --product LithePluginPackageSigner >&2
             signer_binary="$SWIFT_BIN_PATH/LithePluginPackageSigner"

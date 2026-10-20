@@ -376,8 +376,20 @@ async function main() {
       // and AutoBuild staging (including per-tag baselines and local/downloaded publication checkpoints), per-launch
       // Codex relays and isolated plugin packages take this rejection route, never a content-hash validator.
       // Identical bytes do not establish transferable execution ownership.
+      // Includes application-log-state: logs, confirmation snapshots and export ZIP
+      // staging belong to one runtime session; no validator or copy stage applies.
       // Includes test-jfr-recordings: worker-owned profiling output has no transferable build identity.
+      // Localized logging probes also reject their temporary SwiftPM UI hosts;
+      // the host belongs to one source/toolchain/localization verification run.
+      // Includes agent-ui-test-evidence: fixture screenshots belong to one test
+      // revision/theme/viewport, never to a reusable build or runtime resource.
       // Includes plugin-ui-icons: signed runtime packages are never build-cache inputs.
+      // Includes plugin-web-state: per-window/workspace user JSON has no build identity or copy stage.
+      // Includes plugin-disk-install-state: fileStorage temporary snapshots, install staging
+      // and active/previous approvals are runtime-owned. Reject before resolving worktrees
+      // or calling validatorArguments; a content digest is neither a build stamp nor consent.
+      // ZIP entry/path budgets also apply to implicit parents before extraction;
+      // passing runtime preflight never admits marketplace or disk snapshots to a copy stage.
       // Per-launch Codex helpers also own memory-only context replay tickets and
       // loopback capabilities; they stay on this exclusion route, never a copy stage.
       if (excludedResources.some((resource) => resource.id === identifier)) {

@@ -57,7 +57,17 @@ tests, packaging, plugin tests, Windows frontend, Windows Rust, real JDT):
   count, unless they touch CI infrastructure (workflows, actions, the
   classifier and runner scripts, test infrastructure, `Package.swift`,
   `Package.resolved`, every Cargo manifest and lock file including member
-  crates, Rust toolchain files); then every lane runs.
+  crates, Rust toolchain files) that the planned workflow reads; then every
+  lane of that workflow runs.
+- Infrastructure is scoped per workflow. Workflow files and local actions count
+  only for the workflow that references them, directly or through a composite
+  action. Windows crates, toolchain and frontend manifests and Windows scripts
+  count only for Windows CI. macOS Swift packages and build scripts count for
+  macOS CI and the plugin CI, which builds through the same actions and
+  `scripts/test-macos.sh`. Rust workspace manifests under `rust/`, the
+  classifier and planner, and the root Bun workspace count for every workflow.
+  The step summary lists the infrastructure paths that caused a rerun and those
+  ignored because they only reach other workflows.
 - A file counts as changed when its content or its mode differs, so an
   executable bit change alone reruns the lanes the file affects. Paths are read
   raw (NUL-separated), so Chinese and other escaped file names are compared
@@ -77,7 +87,17 @@ tests, packaging, plugin tests, Windows frontend, Windows Rust, real JDT):
 The **Lane reuse** section of the classify job summary lists each lane's
 decision and links to a reused job.
 A reused lane appears as skipped in the new run; its result is the linked
-job, which the gate checks.
+job, which the gate checks. If the current workflow is cancelled, its gate is
+skipped too, rather than adding a failure for the cancelled upstream jobs.
+Cancellation is not a passing validation: the replacement run still checks all
+selected lanes. An active run fails its gate when classification, a selected
+job, or a reused source fails; a cancelled reused source also fails the gate.
+
+The real-JDT lane runs on Windows and is selected by shared Java/JDT engine
+changes, bundled JDK/JDT resources, preparation scripts, and Windows Java
+consumers. Swift Java adapters and tests are covered by the Swift lane; a
+macOS path containing `Java` alone does not select Windows real-JDT. Shared Core
+and contract changes still select the relevant cross-platform checks.
 
 ### What runs after a pull request merges
 
@@ -97,89 +117,16 @@ The classifier implements this through `LITHE_CI_SCOPE` (`pull_request`,
 pushes, so its GitHub cache entries are refreshed only by pull requests; a
 `Cargo.lock` change makes the next pull requests restore an older prefix match.
 
-### Shared Mac mini runners
+### macOS runners
 
-**Swift tests**, **Rust Core tests**, **Release package verification**, and
-**Plugin tests and package verification** run on either
-`[self-hosted, macOS, ARM64, lithe-mac-mini]` or the GitHub-hosted `macos-26`
-pool, including pull requests from forks. Release workflows (stable, AutoBuild,
-and official plugin releases) always use GitHub-hosted runners because they hold
-signing material. The three Mac mini runner services share one M4 with 16 GB of
-memory; they provide three job slots, not three machines.
+Every macOS lane (**Swift tests**, **Rust Core tests**, **Release package
+verification**, and **Plugin tests and package verification**) runs on the
+GitHub-hosted `macos-26` runner, including pull requests from forks. Release
+workflows also use GitHub-hosted runners because they hold signing material.
 
-GitHub fixes `runs-on` when a job is created, so the Linux **Classify changes**
-job picks the pool for each selected lane with
-`scripts/select-macos-ci-runners.mjs`. It counts this repository's running and
-queued macOS jobs through the read-only `actions: read` token permission:
-
-- Pull requests take a free Mac mini slot first, then a free hosted slot. When
-  both pools are full, a lane joins the queue that is shorter relative to its
-  size.
-- Mac mini runners are grouped by the build outputs they keep:
-  `lithe-mac-mini-debug` (two runners: Swift, plugin, and Rust Core tests share
-  the debug SwiftPM test build and debug Rust Core) and `lithe-mac-mini-release`
-  (one runner: release packaging). A lane prefers its own group so the next job
-  on that runner builds incrementally, and borrows the other group's free runner
-  before falling back to hosted runners. Group labels and their runner counts
-  are set in `MAC_MINI_GROUPS`; a runner added later needs one of the labels.
-- Pushes to `preview` and manual runs always use the Mac minis, so post-merge
-  verification never takes a hosted slot that a pull request is waiting for.
-- If the API cannot be read, routing falls back to the fixed assignment: Rust
-  Core and packaging on the Mac minis, Swift and plugin tests on hosted runners.
-
-**Swift tests** run on the Mac minis like the other lanes, with one exception.
-The Mac minis run macOS 27, where `CGWindowListCopyWindowInfo` returns NULL, so
-`DesktopIsolationTests.windowServerPublishesTheIsolatedAlpha` cannot read its
-window's alpha from WindowServer and is reported as skipped there (#1278); the
-ordering and drawing checks of the test isolation still run. When a pull
-request changes `macos/Tests/LitheTestDesktopIsolation*`, the classifier sets
-`swift_hosted` and the Swift lane stays on hosted macOS 26 runners, where the
-alpha check runs. The runners' node binaries hold Screen Recording and the
-console stays unlocked; neither changes the macOS 27 result, but keep both for
-when the check can run there again.
-
-The job summary of **Classify changes** shows the counts and the chosen pool. The
-choice is made once: it does not see other repositories' use of the hosted pool,
-and two runs classified at the same moment can pick the same free slot.
-
-Each runner needs its own installation and work directory and the
-`lithe-mac-mini` label. Keep the service user logged in and the machine awake.
-Install and select Xcode 26.6 before starting the services. CI checks both Xcode
-and Swift 6.3.3 without changing the machine-wide Xcode selection, and sets
-`SDKROOT` to that Xcode's macOS SDK: the Mac minis also carry Command Line Tools
-with a newer macOS SDK, whose `libSystem` stubs the Xcode 26.6 linker cannot
-read when it links the `x86_64` slice. The runner
-also needs Git, Python 3, Ruby, and outbound access to dependency hosts. CI sets
-up Node 24, Rust, and (for packaging) Bun itself.
-
-The shared-runner setup limits Cargo and SwiftPM compilation to two jobs each.
-`LITHE_SWIFT_BUILD_JOBS` controls SwiftPM build/test entry points;
-`CARGO_BUILD_JOBS` controls Cargo compilation. Neither setting limits all child
-processes or changes existing test deadlines. Hosted and local builds keep their
-default compilation parallelism. Resource snapshots in the setup log show
-whole-machine memory, swap, CPU count, and available disk.
-
-#### Incremental builds on the Mac minis
-
-Self-hosted jobs check out with `clean: false`, then
-`scripts/reuse-macos-runner-build-state.sh` removes every untracked file except
-`.build`, `rust/target`, `.artifacts/cargo-home`, `.artifacts/swiftpm-cache`,
-`.artifacts/jdtls-downloads`, and `.artifacts/jdk-downloads`. The next job on
-the same runner compiles incrementally from those outputs. Compilation outputs
-are discarded when Xcode, Swift, or the CPU architecture changes, when they
-exceed 40 GB, or when less than 25 GB of disk is free. Kept download stores
-still pass the same validation as restored GitHub cache entries.
-
-Self-hosted jobs skip GitHub cache restore and save. Hosted runners keep using
-the GitHub cache exactly as before.
-
-Build state belongs to one runner's work directory. Do not symlink `.build`,
-`rust/target`, or the complete `.artifacts` directory between runners or
-worktrees. To reset a runner, stop its service and delete those directories from
-its work directory. Fork PR jobs retain the existing `pull_request` event and
-read-only repository permissions; this does not use `pull_request_target` or
-release secrets. Kept build outputs are not an isolation boundary against
-malicious fork code, which can already affect a persistent self-hosted runner.
+Self-hosted Mac mini runners were tried from 2026-10-16 to 2026-10-18 and have
+been retired. The reasons and the lessons for any future attempt are in
+[the rejected Agent Note](../.agents/notes/rejected/process/2026-10-18-self-hosted-mac-mini-ci-runners.md).
 
 #### Rust Core bridge checks reuse the Swift build
 
@@ -195,8 +142,7 @@ bridge checks, without the full Swift unit suites. Locally,
 ### macOS runner budget
 
 The `Lithe-IDEA` organization uses the GitHub Free plan, which runs at most
-five GitHub-hosted macOS jobs at a time across every workflow and pull request;
-the three self-hosted Mac mini slots are separate. Queued macOS
+five GitHub-hosted macOS jobs at a time across every workflow and pull request. Queued macOS
 jobs mean this pool is full; it is a concurrency limit, not a quota or abuse
 signal. Keep macOS jobs per push low:
 
@@ -287,7 +233,7 @@ gh workflow run release-preview-macos.yml \
 `Plugins/marketplace/official-plugins.json` 和 `index.json` 固定到本次临时目录，
 按数值语义版本选择每个已注册可下载插件的最新版本，保留全部下载变体并去重。
 只下载索引指向的 `Lithe-IDEA` 组织 GitHub Release ZIP；仓库重命名重定向由 gh
-处理。当前 PHP/Go 1.0.0 可下载，内置 Java 不属于镜像。先按索引 SHA-256
+处理。Go/PHP 已迁移为 Lithe Store 社区插件，当前没有可下载官方插件，内置 Java 也不属于镜像。先按索引 SHA-256
 验证原始 ZIP，再生成旁路 checksum；不构建、重签插件，也不需要插件私钥。
 索引和上游 canonical URL 不修改，AutoBuild 只是方便手动下载的镜像架。
 
@@ -430,6 +376,30 @@ macOS 的 Application Support 临时快照 `.lithe-dev-profile-import-<transacti
 这些目录没有可靠 identity stamp，不进入工作树缓存或安装包，不改变代码签名及增量更新基线。
 同一发行身份的多个源码工作树仍会使用同一用户域；本地测试应注入临时目录与独立偏好域。
 
+模块日志和诊断包暂存目录登记为 `application-log-state`，不允许跨工作树复用。
+日志根目录下的 `application`、`language`、`run`、`git`、`plugins`、`performance`
+子目录、旧版 `lithe.log`、macOS 缓存中的 `Lithe/diagnostics-export/<snapshot>/`
+以及导出目标旁的临时 ZIP（macOS 的 `.lithe-diagnostics-<snapshot>.zip`
+和 Windows 的 `<destination>.lithe-<process>-<snapshot>.tmp`）都属于本次运行的用户状态，没有可验证的版本、平台、
+架构或工具链 identity stamp。复用脚本在解析工作树与复制之前拒绝这些位置；
+不存在允许复制的阶段。Windows 的确认快照仅保存在内存中，最多四份、五分钟有效；
+macOS 的暂存目录由导出成功、失败或取消清理。测试必须注入各自的临时日志根目录，
+不要复用真实用户日志。这些数据不进入 app bundle、Windows 安装目录或签名基线。
+
+#### 日志与诊断的原生界面检查
+
+编译 macOS 测试后运行 `./scripts/probe-macos-logging-ui.sh --skip-build`，或省略
+`--skip-build` 先构建测试。脚本使用当前 Xcode 的 SwiftPM runner，在系统临时目录
+创建一次性的 `Lithe Logging UI.app`，并复用产品本地化打包脚本装入中英文字符串表。
+它运行真实原生页面的四种语言/明暗组合，生成 `.artifacts/test-stability/logging-*.png`
+和计时 HTML/JUnit；不会启动用户工作区，也不会改写 Xcode 或已安装的 Lithe。
+
+临时宿主由脚本创建并在退出时删除，截图留在当前工作树的测试报告中。
+`agent-ui-test-evidence` 将两者都列为不可复用资源：身份只覆盖当前源版本、Xcode
+runner、产品字符串表、外观和测试参数，没有可跨工作树迁移的可靠 identity stamp。
+复用脚本在复制前直接拒绝这类资源，不复制、不校验后发布，也不共享原生测试宿主。
+
+
 功能矩阵生成物 `.artifacts/platform-feature-matrix/`（CI Pages 使用
 `<runner-temp>/lithe-agent-notes-site/platform-feature-matrix/`）不允许跨工作树复用。
 它依赖当前 checkout 的能力记录、证据路径及提交信息，没有可靠的版本、平台、
@@ -494,9 +464,6 @@ SHA-256；Cargo、SwiftPM 和 Bun 使用各自的 lockfile、版本与完整性�
   worker 内存中存活，不增加下载目录，不写发行资源，也不影响签名或增量更新。
 - `.artifacts/jdtls-downloads/`：JDTLS、Lombok、Java Debug/Test 和 license。
 - `.artifacts/jdk-downloads/`：各平台与架构的 bundled JDK 下载归档。
-- `.artifacts/php-language-server-downloads/`：按
-  `Plugins/mac/Official/PhpSupport/language-server.json` 下载并校验的
-  Intelephense tarball；它只服务当前工作树的插件打包，不能复制解压结果。
 
 Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono 2.304 的 16 个静态 TTF、OFL 和作者信息位于 Git 跟踪的
 `macos/Resources/Fonts`。同目录增加 Nerd Fonts v3.5.1 的 JetBrains Mono Nerd Font Mono 四个完整 TTF（常规、粗体、斜体、粗斜体）及 OFL 许可，终端可直接选择这些字型而不依赖用户安装；来源、版本和固定 SHA-256 记录于 `NOTICE.txt`。它们与平台架构和工具链无关，随工作树检出，不从另一个
@@ -537,13 +504,39 @@ Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono
 - 插件市场运行时状态：拉取的索引缓存 `<app-cache>/Lithe/PluginMarketplace/<source-id>/index.json`、
   用户的插件仓库列表 `<app-support>/Lithe/PluginMarketplace/sources.json`，以及下载与解压
   插件归档的临时目录 `<system-temp>/lithe-plugin-transfer-*`、`<system-temp>/lithe-plugin-download-*`。
-  索引由 Rust Core 校验，归档按索引 SHA-256 校验，但这些都是每个用户、每次运行的状态，
+  索引由 Rust Core 校验，归档按索引 SHA-256 校验。市场和磁盘 ZIP 在解压前把唯一文件、
+  显式目录及隐式父目录统一计入条目上限；规范化路径的累计 UTF-8 字节上限取归档字节预算与
+  16 MiB 的较小值，避免中央目录中少量深层文件放大预检内存。通过预检不产生可复用身份。
+  这些都是每个用户、每次运行的状态，
   不是工作树构建产物，没有版本、平台、架构或工具链 identity stamp；
   `excludedResources.plugin-marketplace-state` 由复用脚本直接拒绝。官方索引只从 Git 跟踪的
   `Plugins/marketplace/index.json` 在打包阶段复制为只读的 `Contents/Resources/PluginMarketplace/index.json`，
   运行时刷新只写 Caches，不改写 app bundle，也不影响签名和 Sparkle delta。
   官方插件归档由 `.github/workflows/release-official-plugins.yml` 按插件独立 tag 发布，
   不进入 app 构建或工作树缓存。
+
+- 本地社区插件磁盘安装：`MacServiceContainer` 把 `fileStorage.temporaryDirectory()`
+  注入 `MacPluginDiskPackageImporter`，每次选择 ZIP 或解包目录后，先在该平台可写根下创建
+  私有的 `lithe-plugin-disk-<UUID>/`（权限 `0700`）。ZIP 的 `archive.zip` 和复制/解压后的
+  `package/` 只属于这次安装，原始输入保持只读；审查与安装针对快照，不重新从原始路径取包。
+  ZIP 摘要取自复制后的 `archive.zip`；目录没有归档摘要。内容 digest 与完整 canonical
+  `approvedPrograms` 绑定用户批准的字节，不能当作远端仓库/发布者认证，也没有可复用的
+  版本、平台、架构或工具链 identity stamp。
+  `excludedResources.plugin-disk-install-state` 同时排除快照、
+  `<app-support>/Lithe/Plugins/.staging/<transaction>/`、用户级版本目录和 `installation.json`
+  中当前/上一版本的磁盘审批；任何复制阶段都不共享、不打包、不软链接。复用脚本在解析
+  工作树及进入 validator 前拒绝该 ID，不能新增“摘要相同即可复用”的校验路由。
+  importer 负责复制失败和取消的清理；准备成功后 service 负责审查取消、安装成功/失败时
+  discard 本次快照；关闭插件页会结束安装 session 并清理已有及迟到的快照。
+  store 负责安装暂存和持久版本生命周期，并在 staging、扫描、回滚时
+  重验摘要。`PluginDiskProvenance` 与 marketplace provenance 分开，市场同 ID 条目不能
+  自动接管本地包的更新来源。本地磁盘社区首次安装、更新和同版本替换每次确认完整权限/程序，
+  官方固定 ID、命名空间及签名要求与 DEBUG 开发包例外不变。
+  验证运行 `node scripts/test-reuse-worktree-resources.mjs`，确认排除项不在 `--list` 且
+  混合复制请求在任何工作树访问前失败；运行 `./scripts/verify-runtime-bundle-immutability.sh`
+  检查两端发行资源路径。macOS 产品验收另比较典型安装/取消/失败工作流前后的发行 bundle
+  文件清单和哈希；运行时只写平台临时目录及 Application Support，不改变代码签名或
+  Sparkle delta。Windows 尚未实现此声明式磁盘安装流程，不能把边界说明视为实现证据。
 
 - Sparkle 差分基线的单次发布临时目录：
   `<system-temp>/<sparkle-run>/archives/.baseline-<attempt>/` 保存每次 `gh`
@@ -590,13 +583,21 @@ Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono
 - `.build` 中的 SwiftPM 构建状态；
 - `rust/target/` 中与当前源码、编译器或构建参数绑定的构建输出；
 - LSP workspace `-data`、运行时数据库、测试报告和其他会被进程修改的状态。
+- Agent 原生界面截图：macOS unit lane 通过已有的 `LITHE_AGENT_ACTIVITY_SCREENSHOTS`、
+  `LITHE_AGENT_SELECTOR_SCREENSHOTS` 与 `LITHE_AGENT_EDITOR_LAYOUT_SCREENSHOTS` 将夹具截图
+  写入 `.artifacts/test-stability/`，随 `test-stability-macos` 报告上传，覆盖输入区、
+  模型/Effort、任务/子代理/文件摘要及窄宽布局和主题。只用受控测试数据，不捕获用户桌面。
+  截图身份取决于源码 revision、平台、主题、视口和夹具参数，没有构建 identity stamp，
+  不允许任何阶段跨 worktree 复用。`excludedResources.agent-ui-test-evidence` 通过已有
+  排除路由拒绝；截图归测试与 CI artifact 保留策略所有，不打包、不写发行 bundle，
+  不影响代码签名或 Sparkle delta。
 - 平台缓存中 JDT `-data/.lithe/maven/` 的 settings 副本：按工作区隔离，可能含凭据，
   在缓存过期或重建索引时清理；文件内容哈希不是版本、平台、架构或工具链构建
   identity stamp，任何复制阶段都禁止共享。资源清单 `jdt-maven-settings` 显式排除，
   复用脚本直接拒绝该资源，不进入下载或生成物校验路由。
 
-官方插件包（Go、PHP）是声明式插件包（只含 `plugin.json` 和它声明的资源，不含宿主加载的代码，与架构无关；自带运行时的 Java Support 见下文），在 `.build/<triple>/<configuration>/OfficialPlugins` 中独立组装，`--triple` 只决定输出目录和签名工具的构建布局；组装后通过 `LitheOfficialPluginVerifier` 验证声明、打包的可执行文件和“Mach-O 原生代码只出现在清单声明的运行时目录内”；发布配置还要求 repository secret `LITHE_PLUGIN_PACKAGE_PRIVATE_KEY`，由 `LithePluginPackageSigner` 对完整包生成 `lithe-plugin-signature.json`，客户端按宿主内置官方插件策略和 publisher 公钥验证后才允许安装。该 secret 的值是与客户端内置公钥匹配的 base64 编码 32 字节 Ed25519 私钥，可用 `gh secret set LITHE_PLUGIN_PACKAGE_PRIVATE_KEY --repo 1lck/Lithe-IDEA < /secure/path/lithe-plugin-package-private-key.base64` 配置；私钥文件和 shell 历史都不得进入仓库或日志。没有该 key 时，普通 debug 全量构建会跳过 PHP 和 Go 包，指定其中一个包 ID 的构建会失败，不会留下缺少签名文档的目录。本地调试插件时可以显式传入 `--development-unsigned`（仅 debug 配置可用），生成不含签名文档的开发包，只能由 debug 构建的 Lithe 从磁盘安装；这类开发包同样不跨工作树复用。无可靠 identity stamp，不跨工作树复制。插件安装后的 Intelephense 位于
-`<app-support>/Lithe/Plugins/<plugin-id>/versions/<version>/language-server`，由插件版本目录拥有，运行时只读，重装、回滚和卸载随插件一起处理，不是工作树构建缓存。PHPUnit 测试夹具的 `shared/fixtures/phpunit-project/vendor` 也由当前工作树独立安装。以上项目在资源清单 `excludedResources` 中明确排除，复用脚本会拒绝显式复制请求。
+可下载的官方插件包是声明式插件包（只含 `plugin.json` 和它声明的资源，不含宿主加载的代码，与架构无关；自带运行时的 Java Support 见下文），在 `.build/<triple>/<configuration>/OfficialPlugins` 中独立组装，`--triple` 只决定输出目录和签名工具的构建布局；组装后通过 `LitheOfficialPluginVerifier` 验证声明、打包的可执行文件和“Mach-O 原生代码只出现在清单声明的运行时目录内”；发布配置还要求 repository secret `LITHE_PLUGIN_PACKAGE_PRIVATE_KEY`，由 `LithePluginPackageSigner` 对完整包生成 `lithe-plugin-signature.json`，客户端按宿主内置官方插件策略和 publisher 公钥验证后才允许安装。该 secret 的值是与客户端内置公钥匹配的 base64 编码 32 字节 Ed25519 私钥，可用 `gh secret set LITHE_PLUGIN_PACKAGE_PRIVATE_KEY --repo 1lck/Lithe-IDEA < /secure/path/lithe-plugin-package-private-key.base64` 配置；私钥文件和 shell 历史都不得进入仓库或日志。没有该 key 时，普通 debug 全量构建会跳过 publisher 签名包，指定其中一个包 ID 的构建会失败，不会留下缺少签名文档的目录。本地调试插件时可以显式传入 `--development-unsigned`（仅 debug 配置可用），生成不含签名文档的开发包，只能由 debug 构建的 Lithe 从磁盘安装；这类开发包同样不跨工作树复用。无可靠 identity stamp，不跨工作树复制。插件安装后打包的语言服务器位于
+`<app-support>/Lithe/Plugins/<plugin-id>/versions/<version>/language-server`，由插件版本目录拥有，运行时只读，重装、回滚和卸载随插件一起处理，不是工作树构建缓存。Go Support 和 PHP Support 已迁移为 Lithe Store 社区插件（`Lithe-IDEA/lithe-plugin-go`、`Lithe-IDEA/lithe-plugin-php`），不再由本仓库构建。PHPUnit 测试夹具的 `shared/fixtures/phpunit-project/vendor` 也由当前工作树独立安装。以上项目在资源清单 `excludedResources` 中明确排除，复用脚本会拒绝显式复制请求。
 
 Java Support（`dev.lithe.plugin.java-support`）是唯一随 Lithe.app 发行的官方插件包，
 也是唯一自带运行时的包，因此它与架构有关：
@@ -617,6 +618,14 @@ Java Support（`dev.lithe.plugin.java-support`）是唯一随 Lithe.app 发行�
   JDT LS 的工作区索引和 Equinox 配置区仍在 `<cache>/Lithe/language-servers/`（`jdtls/`、`jdtls-configuration/`），
   由 `jdt` 宿主集成在启动时发现没有未卸载的插件声明它后删除。两者都是单次安装的
   可变状态，任何阶段都不得复制或跨 worktree 共享。
+
+插件网页的宿主持久状态通过平台存储 adapter 写到
+`<app-support>/Lithe/PluginState/<plugin-id>/web-state/<window-id>/<workspace-digest>.json`，
+每个窗口和工作区最多 64 KiB。它属于当前安装中的插件，卸载时随 `PluginState` 清理；
+包内网页、脚本和 app bundle 始终只读，因此不改变签名或 Sparkle delta 的源基线。
+这类用户 JSON 没有版本、平台、架构或工具链 identity stamp，工作区摘要只是存储键，
+任何复制阶段都不得复用或共享。`excludedResources.plugin-web-state` 通过复用脚本的
+排除路由直接拒绝，由 `scripts/test-reuse-worktree-resources.mjs` 验证，不能给它增加缓存校验器。
 
 如果后续新增可复用资源，必须同步更新注册表、校验器、脚本测试和本节说明。
 生成资源只有在构建流程写入可验证的源码、配置、平台、架构和工具链 identity

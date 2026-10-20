@@ -46,6 +46,7 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
     private var terminationCleanupTask: Task<Void, Never>?
     private var terminationCleanupState: TerminationCleanupState = .idle
     private var isUpdateInstallTermination = false
+    private var relaunchesAfterTermination = false
     private var updateForceExitTask: Task<Void, Never>?
     weak var projectSessions: ProjectSessionManager? {
         didSet {
@@ -55,6 +56,7 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
             pendingURLs.forEach { projectSessions.openStandaloneFile($0) }
         }
     }
+    var flushApplicationLogs: (() async -> Void)?
     var prepareStableRollbackTermination: (() -> Bool)?
     var cancelStableRollbackTermination: (() -> Bool)?
     weak var settings: AppSettings? {
@@ -134,6 +136,16 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
         isUpdateInstallTermination = true
     }
 
+    /// "Restart Lithe": quits through the normal confirmations and opens Lithe
+    /// again once this process has exited. Cancelling any confirmation keeps
+    /// Lithe running and forgets the request.
+    func requestRestart() {
+        guard terminationCleanupState == .idle, terminationConfirmationTask == nil,
+              !isUpdateInstallTermination else { return }
+        relaunchesAfterTermination = true
+        NSApp.terminate(nil)
+    }
+
     func finishUpdateCycle() {
         if terminationCleanupState == .idle {
             isUpdateInstallTermination = false
@@ -155,7 +167,11 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let projectSessions else {
-            return (prepareStableRollbackTermination?() ?? true) ? .terminateNow : .terminateCancel
+            guard prepareStableRollbackTermination?() ?? true else {
+                relaunchesAfterTermination = false
+                return .terminateCancel
+            }
+            return .terminateNow
         }
 
         // AppKit may ask more than once while a previous asynchronous reply is
@@ -179,6 +195,7 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
                     self.isUpdateInstallTermination = false
                 }
                 self.terminationConfirmationTask = nil
+                self.relaunchesAfterTermination = false
                 sender.reply(toApplicationShouldTerminate: false)
                 return
             }
@@ -197,6 +214,7 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
                     self.isUpdateInstallTermination = false
                 }
                 self.cancelProcessExit()
+                self.relaunchesAfterTermination = false
                 sender.reply(toApplicationShouldTerminate: false)
                 return
             }
@@ -204,6 +222,7 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
                 guard self.prepareStableRollbackTermination?() ?? true else {
                     self.isUpdateInstallTermination = false
                     self.cancelProcessExit()
+                    self.relaunchesAfterTermination = false
                     sender.reply(toApplicationShouldTerminate: false)
                     return
                 }
@@ -241,6 +260,7 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
                 await projectSessions.stopAllSessions()
             }
             guard let self, self.terminationCleanupState == .cleaning else { return }
+            await self.flushApplicationLogs?()
             self.terminationCleanupTask = nil
             self.terminationCleanupState = .approved
             sender.reply(toApplicationShouldTerminate: true)
@@ -269,6 +289,9 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
         // is still alive must not outlive the IDE.
         MacLiveProcessGroups.application.terminateAllAndWait()
         sweepProcessScope()
+        if relaunchesAfterTermination, !isUpdateInstallTermination {
+            MacApplicationRelauncher.scheduleRelaunch()
+        }
         isUpdateInstallTermination = false
         updateForceExitTask?.cancel()
         updateForceExitTask = nil
@@ -472,18 +495,22 @@ struct LitheApp: App {
             store: store,
             logDirectoryProvider: MacServiceContainer.makeLogDirectoryProvider()
         )
-        let applicationLogWriter = MacServiceContainer.makeApplicationLogWriter()
+        let applicationLogWriter = MacServiceContainer.makeApplicationLogWriter {
+            Task { @MainActor [weak settings] in settings?.setCustomLogDirectory(nil) }
+        }
         if !Self.redirectApplicationLogs(applicationLogWriter, to: settings.logDirectory),
            settings.customLogDirectory != nil {
             settings.setCustomLogDirectory(nil)
             _ = Self.redirectApplicationLogs(applicationLogWriter, to: settings.defaultLogDirectory)
         }
         settings.addLogDirectoryObserver { [weak settings] directory in
-            guard !Self.redirectApplicationLogs(applicationLogWriter, to: directory),
-                  settings?.customLogDirectory != nil else { return }
-            settings?.setCustomLogDirectory(nil)
+            Task {
+                do { try await applicationLogWriter.redirectAsync(to: directory) }
+                catch { if settings?.customLogDirectory != nil { settings?.setCustomLogDirectory(nil) } }
+            }
         }
         self.applicationLogWriter = applicationLogWriter
+        applicationLogWriter.record(level: "info", scope: "session", message: "session started")
         let gitPerformanceLogger = MacGitPerformanceLogger(writer: applicationLogWriter)
         MacBundledFontRegistry.registerFonts { message in
             Self.appendApplicationLog(applicationLogWriter, message: message)
@@ -506,7 +533,8 @@ struct LitheApp: App {
                             ? .safeMode
                             : .normal,
                         moduleStore: moduleStore,
-                        gitPerformanceLogger: gitPerformanceLogger
+                        gitPerformanceLogger: gitPerformanceLogger,
+                        applicationLogging: applicationLogWriter
                     ).services
                 )
             },
@@ -537,6 +565,7 @@ struct LitheApp: App {
         })
         _updateChecker = StateObject(wrappedValue: updateChecker)
         appDelegate.projectSessions = projectSessions
+        appDelegate.flushApplicationLogs = { await applicationLogWriter.finishSession() }
         appDelegate.settings = settings
         let appDelegate = appDelegate
         updateChecker.willRelaunchForUpdate = { [weak appDelegate] in
@@ -577,14 +606,8 @@ struct LitheApp: App {
         _ writer: MacApplicationLogWriter,
         message: String
     ) {
-        do {
-            try writer.append(message)
-        } catch {
-            let fallback = "Could not write Lithe log: \(error.localizedDescription)\n"
-            if let data = fallback.data(using: .utf8) {
-                FileHandle.standardError.write(data)
-            }
-        }
+        writer.record(level: "info", scope: "application", message: message)
+
     }
 
     private static func emitPerformanceBaselineMarker(_ marker: String) {
@@ -595,6 +618,11 @@ struct LitheApp: App {
     }
 
     private var model: AppModel { projectSessions.activeModel }
+
+    private var restartApplication: ApplicationRestartAction {
+        let appDelegate = appDelegate
+        return ApplicationRestartAction { appDelegate.requestRestart() }
+    }
 
     var body: some Scene {
         WindowGroup(id: LitheWindowID.welcome) {
@@ -607,6 +635,7 @@ struct LitheApp: App {
                 .environmentObject(frameRateMonitor)
                 .environmentObject(updateChecker)
                 .environment(\.locale, settings.language.locale)
+                .environment(\.restartApplication, restartApplication)
                 .font(LitheTheme.uiFont(.body))
                 // SwiftUI does not consistently re-resolve every existing
                 // LocalizedStringKey when only the locale environment value
@@ -803,6 +832,7 @@ struct LitheApp: App {
                         .environmentObject(frameRateMonitor)
                         .environmentObject(updateChecker)
                         .environment(\.locale, settings.language.locale)
+                        .environment(\.restartApplication, restartApplication)
                         .font(LitheTheme.uiFont(.body))
                         .id("\(windowID.uuidString)-\(settings.language)")
                         .preferredColorScheme(settings.themePreference.preferredColorScheme)
@@ -821,6 +851,7 @@ struct LitheApp: App {
             .environmentObject(settings)
             .environmentObject(updateChecker)
             .environment(\.locale, settings.language.locale)
+            .environment(\.restartApplication, restartApplication)
             .font(LitheTheme.uiFont(.body))
         }
         .defaultSize(width: 900, height: 668)
@@ -832,6 +863,7 @@ struct LitheApp: App {
                 .environmentObject(model)
                 .environmentObject(updateChecker)
                 .environment(\.locale, settings.language.locale)
+                .environment(\.restartApplication, restartApplication)
                 .font(LitheTheme.uiFont(.body))
                 .id(settings.language)
                 .preferredColorScheme(settings.themePreference.preferredColorScheme)

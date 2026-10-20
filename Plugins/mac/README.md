@@ -11,53 +11,55 @@ does not need to be rebuilt for each Lithe release; compatibility is decided by
 
 | Package | Distribution | Language server |
 | --- | --- | --- |
-| `GoSupport` | Downloaded from Plugin Management, publisher-signed | `gopls` from the user's tools; needs Go |
-| `PhpSupport` | Downloaded from Plugin Management, publisher-signed | Intelephense packaged in the plugin; needs Node.js |
+| `JavaSupport` | Bundled in Lithe.app, same Team ID as the host | JDT LS packaged with Lithe |
 
-No official plugin is bundled in Lithe.app. Both packages are released through
-their own tag series (`plugin-go-support-v<version>`,
-`plugin-php-support-v<version>`) and listed in the official marketplace index;
-see `Plugins/marketplace/official-plugins.json`.
+## Go and PHP moved to Lithe Store
 
-Packages are architecture-neutral. `--triple` only selects the SwiftPM layout
-for the default output directory and the package signer.
+Go Support and PHP Support are no longer official plugins. They are community
+plugins in their own repositories and are listed in
+[Lithe Store](https://github.com/Lithe-IDEA/Lithe-store):
 
-## Building a downloadable plugin
+| Plugin ID | Repository | Language server |
+| --- | --- | --- |
+| `io.github.lithe-idea.go-support` | [lithe-plugin-go](https://github.com/Lithe-IDEA/lithe-plugin-go) | `gopls` from the user's tools; needs Go |
+| `io.github.lithe-idea.php-support` | [lithe-plugin-php](https://github.com/Lithe-IDEA/lithe-plugin-php) | Intelephense installed by the user (`npm install -g intelephense`); needs Node.js |
 
-Official plugins are built separately and are not included in Lithe.app. PHP
-Support is the example below; pass `dev.lithe.plugin.go-support` to build Go
-Support the same way (it packages only `plugin.json`, so no language-server
-download happens):
+The PHP plugin does not bundle Intelephense because the Intelephense licence
+does not allow redistribution.
 
-```sh
-LITHE_PLUGIN_PACKAGE_PRIVATE_KEY="$(cat /secure/path/lithe-plugin-package-private-key.base64)" \
-  scripts/build-official-plugins.sh --configuration release \
-  --triple arm64-apple-macosx --plugin-id dev.lithe.plugin.php-support
-```
+The retired official IDs `dev.lithe.plugin.go-support` and
+`dev.lithe.plugin.php-support` stay in `OfficialPluginCatalog` so an installed
+copy is still verified against its publisher signature. Plugin Management shows
+those copies as moved to the community, offers no official update, and asks the
+user to uninstall them before installing the community version. Their last
+manifests live in `macos/Tests/LitheTests/Fixtures/RetiredOfficialPlugins/` for
+tests only.
 
-The build downloads the Intelephense archive pinned by `language-server.json`,
-verifies its SHA-256, and assembles it under `language-server/` in the package
-before signing. Keep the resulting `dev.lithe.plugin.php-support` directory
-intact for offline recovery; normal users download, install, reinstall, and
-uninstall them from Plugin Management. A publisher-signed package requires
-`LITHE_PLUGIN_PACKAGE_PRIVATE_KEY`, a base64-encoded 32-byte Ed25519 private key
-whose public key matches the embedded publisher key; debug builds skip these
-packages when the key is absent, and a direct package build fails instead of
-producing an unsigned package. Keep the key in a protected file or environment variable and
-never commit it.
+## Downloadable official plugins
 
-Users who installed the retired native PHP package (0.3.0) see "Update required"
-in Plugin Management. Lithe no longer loads that package; Download and Install
-replaces it with the declarative package and keeps the user's enablement.
+No downloadable official plugin is configured right now:
+`Plugins/marketplace/official-plugins.json` and `Plugins/marketplace/index.json`
+are empty. The release flow (`scripts/build-official-plugins.sh`,
+`scripts/official-plugin-releases.mjs`, and
+`.github/workflows/release-official-plugins.yml`) is kept for future official
+plugins. A new one gets its own directory under `Official/`, its own tag series
+(`plugin-<name>-v<version>`), and an entry in `official-plugins.json`.
+
+A publisher-signed package requires `LITHE_PLUGIN_PACKAGE_PRIVATE_KEY`, a
+base64-encoded 32-byte Ed25519 private key whose public key matches the embedded
+publisher key; debug builds skip these packages when the key is absent, and a
+direct package build fails instead of producing an unsigned package. Keep the
+key in a protected file or environment variable and never commit it.
 
 ## Local development packages
 
 Plugin authors can test without the publisher key. Build an unsigned
-development package, then install it from disk in a debug build of Lithe:
+development package with `--development-unsigned`, then install it from disk in
+a debug build of Lithe:
 
 ```sh
 scripts/build-official-plugins.sh --configuration debug \
-  --triple arm64-apple-macosx --plugin-id dev.lithe.plugin.php-support \
+  --triple arm64-apple-macosx --plugin-id <plugin-id> \
   --development-unsigned --output /tmp/lithe-dev-plugins
 ```
 
@@ -67,7 +69,4 @@ installed again. Release builds of Lithe refuse to load it, and the flag is
 rejected for release plugin builds. A package that does contain a signature
 document is always verified, whichever way it was installed.
 
-Node.js is required at runtime because Intelephense is a Node.js program; Lithe
-discovers it and passes it as `LITHE_NODE_PATH`. Install PHP/Composer and project
-PHPUnit only when using run/test. Plugins never delete those user tools or
-project files.
+Plugins never delete user tools or project files.

@@ -94,9 +94,18 @@ export function invoke<T>(
     gitExecutionSource?: "user" | "background" | "unknown";
     // An adapter install reports npm transfer progress as `platform_invoke` events.
     agentEvents?: Channel<unknown>;
+    /**
+     * Returns the shared Core response unchanged instead of the compatibility
+     * shape `adaptCoreResult` builds. Byte-faithful consumers need it: the diff
+     * adapter re-parses `git.diff` patches for display and strips CR and
+     * end-of-file markers.
+     */
+    rawCoreResult?: boolean;
   },
 ): Promise<T> {
-  const { gitExecutionSource = "unknown", agentEvents, ...forwardedOptions } = options ?? {};
+  const { gitExecutionSource = "unknown", agentEvents, rawCoreResult = false, ...forwardedOptions } = options ?? {};
+  const adapt = (value: unknown): T =>
+    rawCoreResult ? (value as T) : adaptCoreResult<T>(command, args as Record<string, any> | undefined, value);
   // Execution provenance is local metadata; Tauri requires headers only when native options are supplied.
   const nativeOptions: InvokeOptions | undefined = Object.keys(forwardedOptions).length
     ? { ...forwardedOptions, headers: forwardedOptions.headers ?? {} }
@@ -124,9 +133,7 @@ export function invoke<T>(
         workingDirectory: event.workingDirectory ?? String(payload.repoPath ?? payload.root ?? "") });
     };
     return tauriInvoke<unknown>("platform_invoke", { command, args: payload, gitEvents: channel, gitExecution: { ...gitExecutionPreferences(), source: gitExecutionSource } }, nativeOptions).then(
-      (value) => {
-        return adaptCoreResult<T>(command, args as Record<string, any> | undefined, value);
-      },
+      adapt,
       rejectAsError,
     );
   }
@@ -135,7 +142,7 @@ export function invoke<T>(
     agentEvents === undefined ? { command, args: args ?? {} } : { command, args: args ?? {}, agentEvents },
     nativeOptions,
   ).then(
-    (value) => adaptCoreResult<T>(command, args as Record<string, any> | undefined, value),
+    adapt,
     rejectAsError,
   );
 }
@@ -179,12 +186,24 @@ function capabilityForCommand(command: string): BackendCapability | null {
     return "runActions";
   }
   if (
+    command === "agent.status" ||
+    command === "agent.install" ||
+    command === "agent.uninstall" ||
+    command === "agent.installCli" ||
+    command === "agent.parseProviderConfiguration"
+  ) {
+    return "agent";
+  }
+  if (
     command.includes("acp_") ||
     command.includes("ai_provider") ||
     command.includes("_chat") ||
     command === "get_available_agents"
   ) {
-    return "agent";
+    // The legacy `features/ai` chat has no Windows backend. It keeps its own
+    // gate so those commands still read "待开发" instead of reaching the
+    // dispatcher that answers "not implemented".
+    return "aiChat";
   }
   if (
     command.includes("extension_secret") ||

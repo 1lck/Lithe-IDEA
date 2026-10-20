@@ -1,0 +1,35 @@
+{
+  "id": "plugin-functions",
+  "area": "扩展",
+  "group": "插件与主题",
+  "capability": "插件私有函数：插件后端通过 litheFunctions v1 协商和注册，宿主按插件归属调用，接收结果与进度，并支持取消、超时和撤回；领域操作仍使用类型化契约；官方 Node 后端 SDK 实现后端一侧",
+  "macos": {
+    "implementationStatus": "partial",
+    "verificationStatus": "verified",
+    "evidence": [
+      "rust/lithe-core/src/lsp/interface/plugin_function.rs",
+      "rust/lithe-core/src/lsp/interface/engine.rs",
+      "shared/contracts/plugins/v1/fixtures/function-protocol.json",
+      "sdk/node/src/backend.mjs",
+      "rust/lithe-core/tests/plugin_sdk_node.rs",
+      "macos/Sources/Lithe/Application/Features/PluginWebBridge.swift",
+      "macos/Sources/Lithe/Platform/MacOS/Build/MacBuildProviderSessions.swift",
+      "macos/Sources/LitheLanguageIntelligenceModule/Runtime/LanguageServerSession.swift",
+      "macos/Tests/LitheTests/PluginWebBridgeTests.swift",
+      "macos/Tests/LitheTests/MacBuildProviderSessionsTests.swift"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
+    "evidence": [
+      "rust/lithe-core/src/lsp/interface/plugin_function.rs",
+      "rust/lithe-core/src/lsp/interface/engine.rs",
+      "shared/contracts/plugins/v1/README.md",
+      "sdk/node/src/backend.mjs"
+    ]
+  },
+  "owner": "Extensions",
+  "verification": "共享 Core：cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib plugin_function 及 --lib lsp::interface::engine，核对共享 fixture、初始化发现事件、动态增删、归属拒绝、结果与插件错误码、超时取消撤回。插件会话成功完成 initialize 函数协议协商后发布初始 functionsChanged（含空注册表），无 pluginId 的宿主会话不协商、不保留或广播函数。每次后端调用使用唯一且不透明的 operationID，进度转换回宿主 operationId，所有终止路径清除关联；复用宿主 ID 后，旧进度与撤回不得影响新函数或构建请求。后端请求 lithe/function/invoke 或 lithe/build/* 时拒绝递归派发，lithe/host/* 在 v1 全部拒绝。平台验收：宿主接入后，从同一插件的界面发现并调用函数，验证另一插件无法调用、终止后的旧进度不污染新调用，关闭项目和停用插件后不残留进程；分别在 macOS 和 Windows 完成原生验收后才标记 verified。 macOS 宿主：scripts/test-macos.sh --filter \"PluginWebBridgeTests|MacBuildProviderSessionsTests\"，覆盖插件网页只能访问本插件实例并经同意、结果/进度/pluginErrorCode 到达页面、取消与关闭页面取消函数、构建 Provider 以插件会话启动并带 pluginId、Core 拒绝码原样保留、停用插件停止 Provider。 macOS 原生验收：debug 应用安装带网页窗口的 sample-build（PR #1365）与另一个带构建系统的插件，在示例工作区的页面上依次调用 functions.list、functions.invoke（带 call 观察 functions.progress）、functions.cancel，核对结果与 pluginErrorCode；从另一插件页面访问该实例应得到 plugin.web.forbidden；调用进行中关闭项目、停用插件后用 pgrep 确认 Provider 与构建子进程不残留。 官方 Node SDK：node --test sdk/node/test/*.test.mjs，并以 LITHE_PLUGIN_SDK_NODE 指向 Node 运行 cargo test -p lithe-core --test plugin_sdk_node，示例插件经真实 Core 会话完成构建模型/依赖、函数结果/进度/失败/取消、重启恢复状态，且插件包文件清单不变。",
+  "notes": "macOS 已接入宿主入口：插件网页通过 functions.list / functions.invoke / functions.cancel 调用自己构建 Provider 进程的函数，共享语言服务器不提供函数；2026-10-20 已在 macOS debug 应用中用 sdk/node/examples/sample-build（PR #1365，加一个只用于验收的网页窗口）完成原生验收：functions.list/invoke 的结果、functions.progress、动态注册的 snapshot.clear、pluginErrorCode（sample.buildFailed）、取消后的 requestCancelled 都到达页面，取消会结束构建子进程；另一插件的页面访问该实例得到 plugin.web.forbidden；调用进行中关闭项目或停用插件后 Provider 及其子进程均不残留。Windows 尚无插件后端宿主；不能以共享测试通过替代平台功能验收。函数不新增清单字段，不改变 pluginAPIVersion 或 requires；litheBuild v1 与旧后端继续独立工作，lithe/host/* 暂不开放，协议不提供操作系统级沙盒。 官方 Node SDK（sdk/node）只实现契约、不新增线上字段，进程树清理在 POSIX 由端到端测试覆盖，Windows 的 taskkill 路径尚未在 Windows 上验证。"
+}

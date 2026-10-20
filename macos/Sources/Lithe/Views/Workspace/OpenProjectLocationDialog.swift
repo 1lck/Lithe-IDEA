@@ -1,71 +1,52 @@
 import SwiftUI
 
 struct OpenProjectLocationDialog: View {
-    @Environment(\.dismiss) private var dismiss
     let request: PendingProjectOpen
     let onResolve: (ProjectOpenPlacement, Bool) -> Void
+    let onCancel: () -> Void
     @State private var doNotAskAgain = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(alignment: .top, spacing: 13) {
-                Image(systemName: "questionmark.circle.fill")
-                    .font(LitheTheme.uiFont(size: 24))
-                    .foregroundStyle(LitheTheme.accent)
+        VStack(spacing: 16) {
+            HStack(alignment: .top, spacing: 12) {
+                LitheIDEAIcon(resourcePath: "expui/general/questionMark.svg", size: 16, preservesOriginalColors: true)
 
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Open Project")
-                        .font(LitheTheme.uiFont(size: 14, weight: .semibold))
-                        .foregroundStyle(LitheTheme.primaryText)
-
+                VStack(alignment: .leading, spacing: 12) {
                     Text("Where would you like to open the project ‘\(request.projectName)’?")
-                        .font(LitheTheme.uiFont(size: 12.5))
-                        .foregroundStyle(LitheTheme.secondaryText)
+                        .font(LitheTheme.uiFont(size: 13))
+                        .foregroundStyle(LitheTheme.primaryText)
                         .fixedSize(horizontal: false, vertical: true)
 
-                    Toggle("Don't ask again", isOn: $doNotAskAgain)
-                        .toggleStyle(.checkbox)
-                        .font(LitheTheme.uiFont(size: 12))
-                        .foregroundStyle(LitheTheme.primaryText)
-                        .lithePointer()
-                        .padding(.top, 4)
+                    LitheSettingsCheckbox(isOn: $doNotAskAgain, title: "Don't ask again")
                 }
-
                 Spacer(minLength: 0)
             }
-            .padding(20)
+            .padding(.horizontal, 3)
 
-            Rectangle()
-                .fill(LitheTheme.divider)
-                .frame(height: 1)
-
-            HStack(spacing: 9) {
+            HStack(spacing: 0) {
                 Spacer()
-
-                Button("Cancel") {
-                    dismiss()
-                }
-                .buttonStyle(.bordered)
-                .lithePointer()
+                Button("Cancel", action: onCancel)
+                    .buttonStyle(LitheActionButtonStyle())
+                    .keyboardShortcut(.cancelAction)
 
                 Button("New Window") {
                     onResolve(.newWindow, doNotAskAgain)
                 }
-                .buttonStyle(.bordered)
-                .lithePointer()
+                .buttonStyle(LitheActionButtonStyle())
 
                 Button("This Window") {
                     onResolve(.thisWindow, doNotAskAgain)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(LitheTheme.accent)
-                .lithePointer()
+                .buttonStyle(LitheActionButtonStyle(isPrimary: true))
+                .keyboardShortcut(.defaultAction)
             }
-            .controlSize(.regular)
-            .padding(14)
-            .background(LitheTheme.toolHeader)
         }
+        .padding(.horizontal, 17)
+        .padding(.vertical, 12)
         .frame(width: 470)
-        .background(LitheTheme.window)
+        .fixedSize(horizontal: false, vertical: true)
+        .background(LitheCommitDialogStyle.background)
+        .environment(\.lithePointingHandCursorEnabled, false)
+        .onExitCommand(perform: onCancel)
     }
 }

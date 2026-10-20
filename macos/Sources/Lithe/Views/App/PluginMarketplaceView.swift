@@ -167,13 +167,25 @@ struct PluginMarketplaceView: View {
                     .buttonStyle(.bordered)
                     .controlSize(.small)
             case .installed, .installedFromOtherSource, .managedOutsideMarketplace:
-                Text(LocalizedStringKey("Installed"))
-                    .font(LitheTheme.smallFont)
-                    .foregroundStyle(LitheTheme.secondaryText)
+                if feature.requiresRestart(pluginID) {
+                    RestartLitheButton(prominent: false)
+                } else {
+                    Text(LocalizedStringKey("Installed"))
+                        .font(LitheTheme.smallFont)
+                        .foregroundStyle(LitheTheme.secondaryText)
+                }
             case .unsupported:
                 Text(LocalizedStringKey("Not Supported"))
                     .font(LitheTheme.smallFont)
                     .foregroundStyle(LitheTheme.secondaryText)
+            case .blockedByRetiredPlugin(_, let uninstallPending):
+                if uninstallPending {
+                    RestartLitheButton(prominent: false)
+                } else {
+                    Text(LocalizedStringKey("Replaces an Installed Plugin"))
+                        .font(LitheTheme.smallFont)
+                        .foregroundStyle(LitheTheme.warning)
+                }
             }
         }
     }
@@ -187,7 +199,8 @@ struct PluginMarketplaceView: View {
                     feature: feature,
                     listing: listing,
                     offer: offer,
-                    install: { install(offer) }
+                    install: { install(offer) },
+                    uninstall: { uninstall(listing.pluginID) }
                 )
             }
             .litheScrollViewChrome()
@@ -211,6 +224,13 @@ struct PluginMarketplaceView: View {
         }
     }
 
+    private func uninstall(_ pluginID: PluginID) {
+        Task { @MainActor in
+            await model.uninstallPlugin(pluginID)
+            model.objectWillChange.send()
+        }
+    }
+
     private func sourceName(_ id: String) -> String {
         guard let source = feature.sources.first(where: { $0.id == id }) else { return id }
         return PluginMarketplacePresentation.sourceName(source, locale: locale)
@@ -226,6 +246,8 @@ private struct PluginMarketplaceDetail: View {
     let listing: PluginMarketplaceListing
     let offer: PluginMarketplaceOffer
     let install: () -> Void
+    let uninstall: () -> Void
+    @State private var confirmingUninstall = false
 
     private var entry: PluginMarketplaceEntry { offer.entry }
     private var state: PluginMarketplaceInstallState { feature.installState(for: offer) }
@@ -304,13 +326,40 @@ private struct PluginMarketplaceDetail: View {
                     .buttonStyle(.borderedProminent)
                     .tint(LitheTheme.accent)
             case .installed, .installedFromOtherSource, .managedOutsideMarketplace:
-                Button(LocalizedStringKey("Installed")) {}
-                    .buttonStyle(.bordered)
-                    .disabled(true)
+                HStack(spacing: 8) {
+                    if feature.requiresRestart(PluginID(entry.id)) {
+                        RestartLitheButton()
+                    } else {
+                        Button(LocalizedStringKey("Installed")) {}
+                            .buttonStyle(.bordered)
+                            .disabled(true)
+                    }
+                    if feature.canUninstall(PluginID(entry.id)) {
+                        Button(LocalizedStringKey("Uninstall")) { confirmingUninstall = true }
+                            .buttonStyle(.bordered)
+                    }
+                }
+                .confirmationDialog(
+                    String(format: PluginMarketplacePresentation.localized("Uninstall %@?", locale: locale), entry.name),
+                    isPresented: $confirmingUninstall,
+                    titleVisibility: .visible
+                ) {
+                    Button(LocalizedStringKey("Uninstall"), role: .destructive, action: uninstall)
+                    Button(LocalizedStringKey("Cancel"), role: .cancel) {}
+                } message: {
+                    Text(LocalizedStringKey("The plugin will be removed after restarting Lithe."))
+                }
             case .unsupported:
                 Button(LocalizedStringKey("Not Supported")) {}
                     .buttonStyle(.bordered)
                     .disabled(true)
+            case .blockedByRetiredPlugin(_, let uninstallPending):
+                HStack(spacing: 8) {
+                    Button(LocalizedStringKey("Install")) {}
+                        .buttonStyle(.bordered)
+                        .disabled(true)
+                    if uninstallPending { RestartLitheButton() }
+                }
             }
         }
     }
@@ -352,6 +401,21 @@ private struct PluginMarketplaceDetail: View {
 
     @ViewBuilder private var stateMessage: some View {
         switch state {
+        case .blockedByRetiredPlugin(let name, let uninstallPending):
+            Label(
+                String(
+                    format: PluginMarketplacePresentation.localized(
+                        uninstallPending
+                            ? "Restart Lithe to finish uninstalling %@, then install this plugin."
+                            : "Uninstall %@ from the Installed tab and restart Lithe first. It is the retired official version of this plugin and supports the same language.",
+                        locale: locale
+                    ),
+                    name
+                ),
+                systemImage: "arrow.triangle.branch"
+            )
+            .foregroundStyle(LitheTheme.warning)
+            .fixedSize(horizontal: false, vertical: true)
         case .unsupported(let message):
             Label(
                 PluginMarketplacePresentation.unsupportedMessage(entry: entry, platform: feature.platform, fallback: message, locale: locale),
@@ -371,11 +435,19 @@ private struct PluginMarketplaceDetail: View {
             )
             .foregroundStyle(LitheTheme.secondaryText)
         case .installed(let version):
-            Label(
-                String(format: PluginMarketplacePresentation.localized("Version %@ is installed.", locale: locale), version),
-                systemImage: "checkmark.circle.fill"
-            )
-            .foregroundStyle(LitheTheme.success)
+            if feature.requiresRestart(PluginID(entry.id)) {
+                Label(
+                    String(format: PluginMarketplacePresentation.localized("Version %@ is installed. Restart Lithe to load it.", locale: locale), version),
+                    systemImage: "arrow.clockwise.circle"
+                )
+                .foregroundStyle(LitheTheme.warning)
+            } else {
+                Label(
+                    String(format: PluginMarketplacePresentation.localized("Version %@ is installed.", locale: locale), version),
+                    systemImage: "checkmark.circle.fill"
+                )
+                .foregroundStyle(LitheTheme.success)
+            }
         case .updateAvailable(let installed, _):
             Label(
                 String(format: PluginMarketplacePresentation.localized("Version %@ is installed.", locale: locale), installed),
@@ -549,6 +621,8 @@ enum PluginMarketplacePresentation {
             PluginMarketplacePresentation.localized("Run your files", locale: locale)
         case "ui.contribute":
             PluginMarketplacePresentation.localized("Add tool windows and commands to the workbench", locale: locale)
+        case "ui.web":
+            PluginMarketplacePresentation.localized("Show its own page in a tool window", locale: locale)
         case "process.test":
             PluginMarketplacePresentation.localized("Run your tests", locale: locale)
         default:
@@ -603,8 +677,20 @@ enum PluginMarketplacePresentation {
                     labeled("One test: %@", [executable] + program.argumentTemplate("testCaseArguments")),
                 ].joined(separator: "\n")
             )
+        case .buildSystem:
+            var lines = [line([program.buildExecutables.joined(separator: " | ")])]
+            let tasks = program.buildTaskIDs
+            if !tasks.isEmpty {
+                lines.append(labeled("Tasks: %@", [tasks.joined(separator: ", ")]))
+            }
+            return (
+                String(format: localized("Builds %@ projects", locale: locale), program.buildSystemID ?? ""),
+                lines.joined(separator: "\n")
+            )
         case .unknown:
-            return (localized("Program", locale: locale), (try? program.canonicalJSON()) ?? "")
+            // The full declaration stays behind the disclosure below so an
+            // unfamiliar kind cannot push the sheet's buttons off screen.
+            return (localized("Program", locale: locale), program.rawKind ?? "")
         }
     }
 }
@@ -617,29 +703,61 @@ struct PluginInstallConfirmationSheet: View {
     let confirm: () -> Void
     let cancel: () -> Void
 
-    private var review: PluginInstallReview { confirmation.prepared.review }
+    private var review: PluginInstallReview { confirmation.review }
     private var newPrograms: Set<PluginProgram> { Set(review.newPrograms) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text(String(
                 format: PluginMarketplacePresentation.localized(confirmation.isUpdate ? "Update community plugin “%@”?" : "Install community plugin “%@”?", locale: locale),
-                confirmation.entry.name
+                confirmation.displayName
             ))
             .font(LitheTheme.uiFont(size: 16, weight: .semibold))
 
+            ScrollView {
+                confirmationDetails
+            }
+            .frame(maxHeight: 480)
+
+            HStack {
+                Spacer()
+                // Cancel is the default so pressing Return never installs.
+                Button(LocalizedStringKey("Cancel"), action: cancel)
+                    .keyboardShortcut(.defaultAction)
+                Button(LocalizedStringKey(confirmation.isUpdate ? "Update" : "Install"), action: confirm)
+            }
+        }
+        .padding(22)
+        .frame(width: 560)
+        .onExitCommand(perform: cancel)
+    }
+
+    private var confirmationDetails: some View {
+        VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 6) {
-                infoRow("Source Repository", PluginMarketplacePresentation.repositoryName(confirmation.entry.repository))
-                infoRow("Listed in", confirmation.sourceName)
-                infoRow("Author", confirmation.entry.author)
-                infoRow("Version", review.version)
-                HStack(spacing: 12) {
-                    Text(LocalizedStringKey("SHA-256"))
-                        .foregroundStyle(LitheTheme.secondaryText)
-                        .frame(width: 140, alignment: .leading)
-                    Label(LocalizedStringKey("Matches the plugin repository"), systemImage: "checkmark.circle.fill")
-                        .foregroundStyle(LitheTheme.success)
+                switch confirmation.package {
+                case .marketplace(_, let entry, let sourceName):
+                    infoRow("Source Repository", PluginMarketplacePresentation.repositoryName(entry.repository))
+                    infoRow("Listed in", sourceName)
+                    HStack(spacing: 12) {
+                        Text(LocalizedStringKey("SHA-256"))
+                            .foregroundStyle(LitheTheme.secondaryText)
+                            .frame(width: 140, alignment: .leading)
+                        Label(LocalizedStringKey("Matches the plugin repository"), systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(LitheTheme.success)
+                    }
+                case .disk(let prepared):
+                    infoRow("Local Package", prepared.provenance.fileName)
+                    if let checksum = prepared.provenance.archiveSHA256 {
+                        infoRow("Archive SHA-256", checksum)
+                    }
+                    infoRow("Content SHA-256", prepared.provenance.contentDigest)
+                    Text(LocalizedStringKey("Selected from disk. The publisher and repository have not been verified."))
+                        .foregroundStyle(LitheTheme.warning)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
+                infoRow("Author", confirmation.author)
+                infoRow("Version", review.version)
             }
             .font(LitheTheme.settingsFont)
 
@@ -667,6 +785,12 @@ struct PluginInstallConfirmationSheet: View {
                             .foregroundStyle(LitheTheme.secondaryText)
                             .fixedSize(horizontal: false, vertical: true)
                             .textSelection(.enabled)
+                        DisclosureGroup(LocalizedStringKey("Full Program Declaration")) {
+                            Text(verbatim: (try? program.canonicalJSON()) ?? "")
+                                .font(LitheTheme.uiFont(size: 11, design: .monospaced))
+                                .fixedSize(horizontal: false, vertical: true)
+                                .textSelection(.enabled)
+                        }
                     }
                 }
             }
@@ -678,18 +802,8 @@ struct PluginInstallConfirmationSheet: View {
             .font(LitheTheme.smallFont)
             .foregroundStyle(LitheTheme.warning)
             .fixedSize(horizontal: false, vertical: true)
-
-            HStack {
-                Spacer()
-                // Cancel is the default so pressing Return never installs.
-                Button(LocalizedStringKey("Cancel"), action: cancel)
-                    .keyboardShortcut(.defaultAction)
-                Button(LocalizedStringKey(confirmation.isUpdate ? "Update" : "Install"), action: confirm)
-            }
         }
-        .padding(22)
-        .frame(width: 520)
-        .onExitCommand(perform: cancel)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func infoRow(_ title: String, _ value: String) -> some View {

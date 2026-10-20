@@ -3,6 +3,7 @@ import { isJavaSourcePath, JAVA_LANGUAGE_ID, JAVA_PROVIDER_ID } from "./built-in
 import {
   resolveJavaLspLaunch,
   type JavaLspRuntime,
+  type JavaLspGradle,
   type JdtlsLaunchResources,
 } from "./java-lsp-host-api";
 import type { MavenLaunchContext } from "@/features/maven/types/maven.types";
@@ -26,6 +27,8 @@ export interface EditorLspLaunch {
   workspaceFingerprint?: string | null;
   mavenContext?: MavenLaunchContext | null;
   javaRuntimes?: JavaLspRuntime[];
+  /** Gradle import context forwarded to the Rust core. */
+  javaGradle?: JavaLspGradle | null;
 }
 
 export interface EditorLspLaunchDependencies {
@@ -74,6 +77,7 @@ export async function resolveEditorLspLaunch(
       workspaceFingerprint: launch.workspaceFingerprint,
       mavenContext,
       javaRuntimes: launch.javaRuntimes ?? [],
+      javaGradle: launch.javaGradle ?? null,
     };
   }
 

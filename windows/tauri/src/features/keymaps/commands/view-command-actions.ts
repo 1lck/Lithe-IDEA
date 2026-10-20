@@ -1,4 +1,5 @@
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
+import { toggleAgentToolWindow } from "@/features/agent/actions/agent-tool-window-actions";
 import { editorAPI } from "@/features/editor/extensions/api";
 import { toggleMavenToolWindow } from "@/features/maven/actions/maven-tool-window-actions";
 import { openNotificationsToolWindow } from "@/features/notifications/actions/notifications-tool-window-actions";
@@ -40,6 +41,10 @@ export function toggleRunPane(): void {
 
 export function toggleMavenPane(): void {
   toggleMavenToolWindow();
+}
+
+export function toggleAgentPane(): void {
+  toggleAgentToolWindow();
 }
 
 export function toggleTerminalPane(): void {

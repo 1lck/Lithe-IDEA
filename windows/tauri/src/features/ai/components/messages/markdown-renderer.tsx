@@ -1,7 +1,11 @@
 import {
   CaretDownIcon as ChevronDown,
   CaretRightIcon as ChevronRight,
+  CheckIcon as Check,
+  CodeIcon as Code,
   CopyIcon as Copy,
+  FileTextIcon as FileText,
+  GithubLogoIcon as GithubLogo,
   TerminalWindowIcon as Terminal,
   WarningCircleIcon as AlertCircle,
 } from "@/ui/icons";
@@ -29,7 +33,8 @@ import { normalizeCodeFenceLanguage } from "@/features/editor/markdown/language-
 import { Button } from "@/ui/button";
 import { useTranslation } from "@/i18n/locale-provider";
 import { Marker, MarkerContent, MarkerIcon } from "@/ui/marker";
-import { writeClipboardText } from "@/utils/clipboard";
+import { writeClipboardHtml, writeClipboardText } from "@/utils/clipboard";
+import { classifyMarkdownLink } from "@/utils/markdown-links";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { useProjectStore } from "@/features/window/stores/project.store";
 
@@ -353,9 +358,14 @@ const headerClasses: Record<number, string> = {
   6: "mt-1.5 mb-0.5 font-medium text-subtle-foreground ui-text-sm",
 };
 
-function renderHeader(level: number, text: string, key: string): React.ReactNode {
+function renderHeader(
+  level: number,
+  text: string,
+  key: string,
+  options: MarkdownInlineOptions,
+): React.ReactNode {
   const className = headerClasses[level] || headerClasses[6];
-  const content = renderInlineFormatting(text);
+  const content = renderInlineFormatting(text, options);
 
   switch (level) {
     case 1:
@@ -409,6 +419,27 @@ const INLINE_CODE_CLASS_NAME =
   "font-mono inline whitespace-break-spaces rounded bg-surface/80 px-1 py-0 text-[0.95em] leading-[inherit] text-foreground align-baseline";
 const INLINE_LINK_CLASS_NAME =
   "inline cursor-pointer wrap-break-word font-[inherit] leading-[inherit] text-primary hover:underline";
+
+interface MarkdownInlineOptions {
+  showLinkIcons: boolean;
+  onOpenLink?: (href: string, label: string) => boolean;
+}
+
+const DEFAULT_INLINE_OPTIONS: MarkdownInlineOptions = { showLinkIcons: false };
+
+/** File and GitHub links carry a small icon; plain web links stay bare, as on macOS. */
+function linkIcon(url: string, options: MarkdownInlineOptions): React.ReactNode {
+  if (!options.showLinkIcons) return null;
+  const target = classifyMarkdownLink(url);
+  if (target.kind === "github") {
+    return <GithubLogo className="mr-1 inline-block size-3 align-[-0.15em] text-primary" />;
+  }
+  if (target.kind === "file") {
+    const Icon = target.document ? FileText : Code;
+    return <Icon className="mr-1 inline-block size-3 align-[-0.15em] text-primary" />;
+  }
+  return null;
+}
 
 function splitMarkdownTableRow(line: string): string[] {
   let value = line.trim();
@@ -507,10 +538,43 @@ function getTableAlignmentClass(alignment: TableAlignment): string {
   }
 }
 
-function renderTable(table: MarkdownTable, key: string): React.ReactNode {
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function tableToHtml(table: MarkdownTable): string {
+  const cell = (tag: "th" | "td", value: string, index: number) => {
+    const alignment = table.alignments[index];
+    const style =
+      alignment === "center"
+        ? ` style="text-align: center"`
+        : alignment === "right"
+          ? ` style="text-align: right"`
+          : "";
+    return `<` + tag + style + `>` + escapeHtml(value) + `</` + tag + `>`;
+  };
+  const header = `<thead><tr>` + table.headers.map((value, index) => cell("th", value, index)).join("") + `</tr></thead>`;
+  const rows = table.rows
+    .map((row) => `<tr>` + row.map((value, index) => cell("td", value, index)).join("") + `</tr>`)
+    .join("");
+  return `<table>` + header + `<tbody>` + rows + `</tbody></table>`;
+}
+
+/** Tab-separated fallback for clipboards without HTML support. */
+function tableToPlainText(table: MarkdownTable): string {
+  return [table.headers, ...table.rows].map((row) => row.join("\t")).join("\n");
+}
+
+function tableElement(
+  table: MarkdownTable,
+  options: MarkdownInlineOptions,
+): React.ReactNode {
   return (
-    <div key={key} className="my-2 max-w-full overflow-x-auto">
-      <table className="w-full min-w-max border-collapse ui-text-sm">
+    <table className="w-full min-w-max border-collapse ui-text-sm">
         <thead>
           <tr className="border-border border-b">
             {table.headers.map((header, index) => (
@@ -518,7 +582,7 @@ function renderTable(table: MarkdownTable, key: string): React.ReactNode {
                 key={index}
                 className={`bg-surface px-2 py-1.5 font-medium text-foreground ${getTableAlignmentClass(table.alignments[index])}`}
               >
-                {renderInlineFormatting(header)}
+                {renderInlineFormatting(header, options)}
               </th>
             ))}
           </tr>
@@ -531,19 +595,99 @@ function renderTable(table: MarkdownTable, key: string): React.ReactNode {
                   key={cellIndex}
                   className={`px-2 py-1.5 text-muted-foreground align-top ${getTableAlignmentClass(table.alignments[cellIndex])}`}
                 >
-                  {renderInlineFormatting(cell)}
+                  {renderInlineFormatting(cell, options)}
                 </td>
               ))}
             </tr>
           ))}
         </tbody>
       </table>
+  );
+}
+
+function MarkdownTableBlock({
+  table,
+  source,
+  options,
+}: {
+  table: MarkdownTable;
+  source: string;
+  options: MarkdownInlineOptions;
+}) {
+  const { t } = useTranslation();
+  const [copied, setCopied] = useState<"markdown" | "html" | null>(null);
+
+  useEffect(() => {
+    if (copied === null) return;
+    const timer = setTimeout(() => setCopied(null), 1500);
+    return () => clearTimeout(timer);
+  }, [copied]);
+
+  const copy = async (kind: "markdown" | "html") => {
+    try {
+      if (kind === "html") {
+        await writeClipboardHtml(tableToHtml(table), tableToPlainText(table));
+      } else {
+        await writeClipboardText(source);
+      }
+      setCopied(kind);
+    } catch {
+      setCopied(null);
+    }
+  };
+
+  const buttonClass =
+    "flex items-center gap-1 rounded border border-border bg-surface px-1.5 py-0.5 text-subtle-foreground ui-text-caption hover:text-foreground";
+
+  return (
+    <div className="group relative my-2 max-w-full">
+      <div className="absolute top-1 right-1 z-10 flex gap-1 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
+        <button
+          type="button"
+          title={t("ai.copyTableMarkdown")}
+          className={buttonClass}
+          onClick={() => void copy("markdown")}
+        >
+          {copied === "markdown" ? <Check className="size-3" /> : <Copy className="size-3" />}
+          <span>MD</span>
+        </button>
+        <button
+          type="button"
+          title={t("ai.copyTableHtml")}
+          className={buttonClass}
+          onClick={() => void copy("html")}
+        >
+          {copied === "html" ? <Check className="size-3" /> : <Copy className="size-3" />}
+          <span>HTML</span>
+        </button>
+      </div>
+      <div className="overflow-x-auto">{tableElement(table, options)}</div>
+    </div>
+  );
+}
+
+function renderTable(
+  table: MarkdownTable,
+  key: string,
+  source: string,
+  copyable: boolean,
+  options: MarkdownInlineOptions,
+): React.ReactNode {
+  if (copyable) {
+    return <MarkdownTableBlock key={key} table={table} source={source} options={options} />;
+  }
+  return (
+    <div key={key} className="my-2 max-w-full overflow-x-auto">
+      {tableElement(table, options)}
     </div>
   );
 }
 
 // Cursor-based inline formatting parser
-function renderInlineFormatting(text: string): React.ReactNode {
+function renderInlineFormatting(
+  text: string,
+  options: MarkdownInlineOptions = DEFAULT_INLINE_OPTIONS,
+): React.ReactNode {
   const elements: React.ReactNode[] = [];
   let remaining = text;
   const getInlineKey = (kind: string, value: string) => {
@@ -627,10 +771,11 @@ function renderInlineFormatting(text: string): React.ReactNode {
           href={url}
           onClick={(e) => {
             e.preventDefault();
-            void openMarkdownLink(url, label);
+            if (!options.onOpenLink?.(url, label)) void openMarkdownLink(url, label);
           }}
           className={INLINE_LINK_CLASS_NAME}
         >
+          {linkIcon(url, options)}
           {label}
         </a>,
       );
@@ -652,6 +797,7 @@ function renderInlineFormatting(text: string): React.ReactNode {
           }}
           className={INLINE_LINK_CLASS_NAME}
         >
+          {linkIcon(url, options)}
           {url.length > 60 ? `${url.slice(0, 60)}...` : url}
         </a>,
       );
@@ -682,7 +828,9 @@ function renderInlineFormatting(text: string): React.ReactNode {
 // Line-by-line state machine markdown renderer
 function renderContent(
   text: string,
-  onApplyCode?: (code: string, language?: string) => void,
+  onApplyCode: ((code: string, language?: string) => void) | undefined,
+  options: MarkdownInlineOptions,
+  copyableTables: boolean,
 ): React.ReactNode[] {
   const lines = normalizeImplicitCodeFences(text).split("\n");
   const elements: React.ReactNode[] = [];
@@ -721,7 +869,7 @@ function renderContent(
           >
             {currentList.items.map((item, idx) => (
               <li key={idx} className="pl-1 text-foreground">
-                {renderInlineFormatting(item)}
+                {renderInlineFormatting(item, options)}
               </li>
             ))}
           </ol>,
@@ -734,7 +882,7 @@ function renderContent(
           >
             {currentList.items.map((item, idx) => (
               <li key={idx} className="pl-1 text-foreground">
-                {renderInlineFormatting(item)}
+                {renderInlineFormatting(item, options)}
               </li>
             ))}
           </ul>,
@@ -753,7 +901,7 @@ function renderContent(
             key={`p-${currentParagraphStartLine}-${paragraphText.length}`}
             className="my-1.5 leading-[1.6]"
           >
-            {renderInlineFormatting(paragraphText)}
+            {renderInlineFormatting(paragraphText, options)}
           </p>,
         );
       }
@@ -790,7 +938,16 @@ function renderContent(
     if (parsedTable) {
       flushList();
       flushParagraph();
-      elements.push(renderTable(parsedTable.table, `table-${i}-${parsedTable.endIndex}`));
+      const source = lines.slice(i, parsedTable.endIndex).join("\n");
+      elements.push(
+        renderTable(
+          parsedTable.table,
+          `table-${i}-${parsedTable.endIndex}`,
+          source,
+          copyableTables,
+          options,
+        ),
+      );
       i = parsedTable.endIndex - 1;
       continue;
     }
@@ -801,7 +958,7 @@ function renderContent(
       flushList();
       flushParagraph();
       const level = headerMatch[1].length;
-      elements.push(renderHeader(level, headerMatch[2], `h${level}-${i}`));
+      elements.push(renderHeader(level, headerMatch[2], `h${level}-${i}`, options));
       continue;
     }
 
@@ -823,7 +980,7 @@ function renderContent(
           key={`quote-${i}-${quoteContent.length}`}
           className="my-2 border-border border-l-2 pl-3 text-muted-foreground italic"
         >
-          {renderInlineFormatting(quoteContent)}
+          {renderInlineFormatting(quoteContent, options)}
         </blockquote>,
       );
       continue;
@@ -881,7 +1038,14 @@ function renderContent(
 }
 
 // Simple markdown renderer for AI responses
-export default function MarkdownRenderer({ content, onApplyCode, chatId }: MarkdownRendererProps) {
+export default function MarkdownRenderer({
+  content,
+  onApplyCode,
+  chatId,
+  showLinkIcons = false,
+  copyableTables = false,
+  onOpenLink,
+}: MarkdownRendererProps) {
   const normalizedContent = normalizePlainTextFence(content);
 
   // Check for error blocks first
@@ -892,5 +1056,5 @@ export default function MarkdownRenderer({ content, onApplyCode, chatId }: Markd
     }
   }
 
-  return <div>{renderContent(normalizedContent, onApplyCode)}</div>;
+  return <div>{renderContent(normalizedContent, onApplyCode, { showLinkIcons, onOpenLink }, copyableTables)}</div>;
 }

@@ -1,7 +1,12 @@
 import SwiftUI
 
-/// Shows the runtime a launch would use in place of "automatic" or "inherited",
-/// for example `Automatic → Temurin 21.0.4 · /Library/Java/… · from JAVA_HOME`.
+/// Shows the runtime a launch would use in place of "automatic" or "inherited".
+///
+/// The value is drawn as a compact card rather than one long monospaced line:
+/// the mode and where the runtime came from are badges, the runtime name is the
+/// title, and the path stays selectable underneath. Problems use the same card
+/// shape with a warning tint so they stand out without turning into plain red
+/// paragraphs.
 struct EffectiveRuntimeLabel: View {
     enum Kind { case java, maven }
     enum Mode { case automatic, inherited, projectJDK, configured }
@@ -16,76 +21,173 @@ struct EffectiveRuntimeLabel: View {
     var requirements: [String] = []
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            line(choice())
+        VStack(alignment: .leading, spacing: 6) {
+            content(choice())
             ForEach(requirements, id: \.self) { message in
-                Text(message)
-                    .font(LitheTheme.smallFont)
-                    .foregroundStyle(LitheTheme.error)
-                    .textSelection(.enabled)
+                Label {
+                    Text(message).fixedSize(horizontal: false, vertical: true)
+                } icon: {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                }
+                .font(LitheTheme.smallFont)
+                .foregroundStyle(LitheTheme.error)
+                .textSelection(.enabled)
             }
         }
     }
 
-    @ViewBuilder private func line(_ choice: RuntimeChoice?) -> some View {
+    @ViewBuilder private func content(_ choice: RuntimeChoice?) -> some View {
         switch choice {
         case nil:
+            detectingCard
+        case .found(let url, let source)?:
+            runtimeCard(url: url, source: source, mode: modeTitle)
+        case .warning(let url, let source, let message)?:
+            runtimeCard(url: url, source: source, mode: modeTitle, warning: message)
+        case .unavailable(let message)?:
+            problemCard(message)
+        case .fallback(let invalidPath, let replacement)?:
+            VStack(alignment: .leading, spacing: 6) {
+                problemCard(String(
+                    format: String(localized: "Cannot use %@; using the project JDK instead."),
+                    invalidPath
+                ))
+                fallbackCard(replacement)
+            }
+        case .invalid(let path)?:
+            problemCard(String(format: String(localized: "Cannot be used: %@"), path))
+        case .notFound?:
+            problemCard(kind == .java
+                ? String(localized: "No JDK found. Set JAVA_HOME, install a JDK, or choose a JDK directory.")
+                : String(localized: "No Maven found. Add a Maven Wrapper to the project or choose a Maven installation."))
+        }
+    }
+
+    @ViewBuilder
+    private func fallbackCard(_ replacement: RuntimeChoice) -> some View {
+        switch replacement {
+        case .found(let url, _):
+            runtimeCard(url: url, source: .projectJDK, mode: String(localized: "Use Project JDK"))
+        case .warning(let url, _, let message):
+            runtimeCard(url: url, source: .projectJDK, mode: String(localized: "Use Project JDK"), warning: message)
+        case .unavailable(let message):
+            problemCard(message)
+        case .invalid(let path), .fallback(let path, _):
+            problemCard(String(format: String(localized: "Cannot be used: %@"), path))
+        case .notFound:
+            problemCard(kind == .java
+                ? String(localized: "No JDK found. Set JAVA_HOME, install a JDK, or choose a JDK directory.")
+                : String(localized: "No Maven found. Add a Maven Wrapper to the project or choose a Maven installation."))
+        }
+    }
+
+    private var detectingCard: some View {
+        HStack(spacing: 10) {
+            ProgressView().controlSize(.small)
             Text("Detecting…")
                 .font(LitheTheme.smallFont)
                 .foregroundStyle(LitheTheme.secondaryText)
-        case .found(let url, let source)?:
-            Text(resolvedText(url: url, source: source, mode: modeTitle))
-                .font(LitheTheme.uiFont(size: 11.5, design: .monospaced))
-                .foregroundStyle(LitheTheme.primaryText)
-                .textSelection(.enabled)
-                .lineLimit(3)
-        case .warning(let url, let source, let message)?:
-            Text(resolvedText(url: url, source: source, mode: modeTitle))
-                .font(LitheTheme.smallFont).textSelection(.enabled)
-            Text(message).font(LitheTheme.smallFont).foregroundStyle(LitheTheme.error)
-        case .unavailable(let message)?:
-            Text(message).font(LitheTheme.smallFont).foregroundStyle(LitheTheme.error)
-        case .fallback(let invalidPath, let replacement)?:
-            VStack(alignment: .leading, spacing: 2) {
-                Text(String(format: String(localized: "Cannot use %@; using the project JDK instead."), invalidPath))
-                    .font(LitheTheme.smallFont)
-                    .foregroundStyle(LitheTheme.error)
-                // The project JDK chain yields a JDK, an unusable configured
-                // path, or nothing; each must stay visible after the fallback.
-                switch replacement {
-                case .found(let url, _):
-                    Text(resolvedText(url: url, source: .projectJDK, mode: String(localized: "Use Project JDK")))
-                        .font(LitheTheme.uiFont(size: 11.5, design: .monospaced))
-                        .foregroundStyle(LitheTheme.primaryText)
+            Spacer(minLength: 0)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .cardChrome()
+    }
+
+    private func runtimeCard(
+        url: URL,
+        source: RuntimeChoiceSource,
+        mode: String,
+        warning: String? = nil
+    ) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            iconTile(isWarning: warning != nil)
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Text(mode)
+                        .font(LitheTheme.uiFont(size: 10, weight: .semibold))
+                        .foregroundStyle(LitheTheme.accent)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(LitheTheme.accent.opacity(0.12))
+                        .clipShape(Capsule())
+                    if let source = sourceTitle(source) {
+                        Text(source)
+                            .font(LitheTheme.uiFont(size: 10.5))
+                            .foregroundStyle(LitheTheme.tertiaryText)
+                    }
+                }
+
+                Text(runtimeName(at: url))
+                    .font(LitheTheme.uiFont(size: 12.5, weight: .semibold))
+                    .foregroundStyle(LitheTheme.primaryText)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+
+                HStack(spacing: 4) {
+                    Image(systemName: "folder")
+                        .font(LitheTheme.uiFont(size: 9))
+                    Text(verbatim: url.path)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
                         .textSelection(.enabled)
-                case .warning(let url, _, let message):
-                    Text(resolvedText(url: url, source: .projectJDK, mode: String(localized: "Use Project JDK")))
-                        .font(LitheTheme.smallFont)
-                    Text(message).font(LitheTheme.smallFont).foregroundStyle(LitheTheme.error)
-                case .unavailable(let message):
-                    Text(message).font(LitheTheme.smallFont).foregroundStyle(LitheTheme.error)
-                case .invalid(let path), .fallback(let path, _):
-                    Text(String(format: String(localized: "Cannot be used: %@"), path))
-                        .font(LitheTheme.smallFont)
-                        .foregroundStyle(LitheTheme.error)
-                case .notFound:
-                    Text("No JDK found. Set JAVA_HOME, install a JDK, or choose a JDK directory.")
-                        .font(LitheTheme.smallFont)
-                        .foregroundStyle(LitheTheme.error)
+                        .help(Text(verbatim: url.path))
+                }
+                .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
+                .foregroundStyle(LitheTheme.secondaryText)
+
+                if let warning {
+                    Label {
+                        Text(warning).fixedSize(horizontal: false, vertical: true)
+                    } icon: {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                    }
+                    .font(LitheTheme.smallFont)
+                    .foregroundStyle(LitheTheme.warning)
+                    .textSelection(.enabled)
                 }
             }
-        case .invalid(let path)?:
-            Text(String(format: String(localized: "Cannot be used: %@"), path))
-                .font(LitheTheme.smallFont)
-                .foregroundStyle(LitheTheme.error)
-                .textSelection(.enabled)
-        case .notFound?:
-            Text(kind == .java
-                 ? LocalizedStringKey("No JDK found. Set JAVA_HOME, install a JDK, or choose a JDK directory.")
-                 : LocalizedStringKey("No Maven found. Add a Maven Wrapper to the project or choose a Maven installation."))
-                .font(LitheTheme.smallFont)
-                .foregroundStyle(LitheTheme.error)
+
+            Spacer(minLength: 0)
         }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .cardChrome()
+    }
+
+    private func problemCard(_ message: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            iconTile(isWarning: true, isError: true)
+            Text(message)
+                .font(LitheTheme.smallFont)
+                .foregroundStyle(LitheTheme.primaryText)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+            Spacer(minLength: 0)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(LitheTheme.error.opacity(0.06))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(LitheTheme.error.opacity(0.28), lineWidth: 1)
+        }
+    }
+
+    private func iconTile(isWarning: Bool, isError: Bool = false) -> some View {
+        let tint = isError ? LitheTheme.error : (isWarning ? LitheTheme.warning : LitheTheme.accent)
+        return RoundedRectangle(cornerRadius: 7, style: .continuous)
+            .fill(tint.opacity(0.12))
+            .frame(width: 30, height: 30)
+            .overlay {
+                Image(systemName: isWarning
+                    ? "exclamationmark.triangle.fill"
+                    : (kind == .java ? "cup.and.saucer.fill" : "shippingbox.fill"))
+                    .font(LitheTheme.uiFont(size: 13, weight: .semibold))
+                    .foregroundStyle(tint)
+            }
     }
 
     private var modeTitle: String {
@@ -97,15 +199,11 @@ struct EffectiveRuntimeLabel: View {
         }
     }
 
-    private func resolvedText(url: URL, source: RuntimeChoiceSource, mode: String) -> String {
-        let name: String
+    private func runtimeName(at url: URL) -> String {
         switch kind {
-        case .java: name = feature.javaRuntimeName(at: url) ?? "JDK"
-        case .maven: name = feature.mavenRuntimeName(at: url) ?? "Maven"
+        case .java: feature.javaRuntimeName(at: url) ?? "JDK"
+        case .maven: feature.mavenRuntimeName(at: url) ?? "Maven"
         }
-        var parts = [name, url.path]
-        if let source = sourceTitle(source) { parts.append(source) }
-        return "\(mode) → " + parts.joined(separator: " · ")
     }
 
     /// The mode already names configured and inherited values.
@@ -117,5 +215,16 @@ struct EffectiveRuntimeLabel: View {
         case .mavenWrapper: String(localized: "project Maven Wrapper")
         case .systemMaven: String(localized: "system Maven")
         }
+    }
+}
+
+private extension View {
+    func cardChrome() -> some View {
+        background(LitheTheme.settingsControlBackground)
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(LitheTheme.settingsControlBorder.opacity(0.8), lineWidth: 1)
+            }
     }
 }

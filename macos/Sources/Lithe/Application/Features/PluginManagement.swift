@@ -34,6 +34,11 @@ struct PluginManagementSnapshot: Equatable, Sendable, Identifiable {
     let marketplace: PluginMarketplaceProvenance?
     /// Options the plugin lets the user change; empty when it declares none.
     var settings: [PluginSettingState] = []
+    var disk: PluginDiskProvenance? = nil
+    /// Something changed in this session (install, update, uninstall, …) that
+    /// only a restart applies. Unlike `requiresRestart`, a bundled plugin the
+    /// user removed in an earlier session does not count.
+    var hasChangesPendingRestart = false
 
     var id: PluginID { manifest.id }
 }
@@ -54,6 +59,8 @@ protocol PluginManaging: AnyObject {
         origin: PluginInstallationOrigin,
         provenance: PluginMarketplaceProvenance
     ) throws
+    /// Installs the reviewed local snapshot after explicit user approval.
+    func installDiskPackage(at packageURL: URL, provenance: PluginDiskProvenance) throws
     func installPackage(at packageURL: URL) throws
     func rollback(_ pluginID: PluginID) throws
     func uninstall(_ pluginID: PluginID) async throws

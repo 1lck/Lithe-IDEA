@@ -99,11 +99,59 @@ fn update_probe_accepts_homebrew_outdated_exit_but_not_other_failures() {
             false,
         );
         assert_eq!(
-            update_available(&plan, "0.159.3", None, &|| false),
+            update_available(&plan, "0.159.3", None, &|| false)
+                .ok()
+                .flatten()
+                .map(|check| check.available),
             expected
         );
-        assert_eq!(update_available(&plan, "0.159.3", None, &|| true), None);
+        assert_eq!(
+            update_available(&plan, "0.159.3", None, &|| true)
+                .ok()
+                .flatten()
+                .map(|check| check.available),
+            None
+        );
     }
+}
+
+#[test]
+fn failed_update_probe_preserves_diagnostics_and_never_confirms_an_update() {
+    let fixture = Fixture::new();
+    for (output, diagnostics, exit, expected) in [
+        ("Registry unavailable", "", 1, "Registry unavailable"),
+        ("", "", 1, "without diagnostics"),
+        (
+            "",
+            "Network connection refused",
+            1,
+            "Network connection refused",
+        ),
+        ("invalid-json", "", 0, "invalid version response"),
+        ("\"3.0.0\"", "Permission denied", 1, "Permission denied"),
+    ] {
+        let executable = fixture.file(
+            "manager",
+            &format!(
+                "#!/bin/sh\nprintf '%s' '{output}'\nprintf '%s' '{diagnostics}' >&2\nexit {exit}\n"
+            ),
+        );
+        let plan = UpdatePlan::automatic(
+            CliSource::Npm,
+            String::new(),
+            &executable,
+            vec!["install".into(), "@example/future@latest".into()],
+            false,
+        );
+        let error = update_available(&plan, "2.0.0", None, &|| false).unwrap_err();
+        assert!(error.message().contains(expected), "{}", error.message());
+        assert_eq!(
+            update_available(&plan, "2.0.0", None, &|| true),
+            Err(ManagementError::Cancelled)
+        );
+    }
+    let plan = UpdatePlan::manual(CliSource::Native, MANUAL_HINT);
+    assert_eq!(update_available(&plan, "2.0.0", None, &|| false), Ok(None));
 }
 
 #[test]
@@ -138,11 +186,17 @@ esac
         .arguments
         .contains(&"@openai/codex@latest".to_string()));
     assert_eq!(
-        update_available(&plan, "0.159.3", None, &|| false),
+        update_available(&plan, "0.159.3", None, &|| false)
+            .ok()
+            .flatten()
+            .map(|check| check.available),
         Some(true)
     );
     assert_eq!(
-        update_available(&plan, "0.160.0", None, &|| false),
+        update_available(&plan, "0.160.0", None, &|| false)
+            .ok()
+            .flatten()
+            .map(|check| check.available),
         Some(false)
     );
 }
@@ -155,6 +209,7 @@ fn every_catalog_package_uses_its_verified_update_target() {
         name: "Future Agent",
         minimum_version: "1.0.0",
         path_env: "FUTURE_AGENT_PATH",
+        accepts_windows_shim: false,
         install_hint: "npm install -g @example/agent",
         package: "@example/agent",
         brew_packages: &["future-agent"],
@@ -199,7 +254,10 @@ fn every_catalog_package_uses_its_verified_update_target() {
                     false,
                 );
                 assert_eq!(
-                    update_available(&plan, "2.0.0", None, &|| false),
+                    update_available(&plan, "2.0.0", None, &|| false)
+                        .ok()
+                        .flatten()
+                        .map(|check| check.available),
                     Some(true),
                     "{} {package}",
                     cli.command
@@ -207,7 +265,10 @@ fn every_catalog_package_uses_its_verified_update_target() {
                 if source == CliSource::Npm {
                     for installed in ["3.0.0", "4.0.0"] {
                         assert_eq!(
-                            update_available(&plan, installed, None, &|| false),
+                            update_available(&plan, installed, None, &|| false)
+                                .ok()
+                                .flatten()
+                                .map(|check| check.available),
                             Some(false),
                             "{} {package}",
                             cli.command
@@ -220,7 +281,8 @@ fn every_catalog_package_uses_its_verified_update_target() {
                         &package,
                         "2.0.0",
                         r#"{"casks":[{"name":"unrelated"}],"formulae":[]}"#
-                    ),
+                    )
+                    .map(|check| check.available),
                     Some(false)
                 );
             }
@@ -240,7 +302,13 @@ fn every_catalog_package_uses_its_verified_update_target() {
         vec!["update".into()],
         false,
     );
-    assert_eq!(update_available(&plan, "2.0.0", None, &|| false), None);
+    assert_eq!(
+        update_available(&plan, "2.0.0", None, &|| false)
+            .ok()
+            .flatten()
+            .map(|check| check.available),
+        None
+    );
     assert!(
         !marker.exists(),
         "checking status must never execute the native updater"
