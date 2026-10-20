@@ -51,6 +51,11 @@ class SupportTest {
         return Arrays.asList("/bin/sh", "-c", script);
     }
 
+    /** The SDK gives each tool its own process group through the system perl. */
+    private static boolean hasProcessGroups() {
+        return new java.io.File("/usr/bin/perl").canExecute() || new java.io.File("/bin/perl").canExecute();
+    }
+
     private static boolean hasProcessHandle() {
         try {
             Class.forName("java.lang.ProcessHandle");
@@ -169,7 +174,8 @@ class SupportTest {
     @Test
     @DisabledOnOs(OS.WINDOWS)
     void cancellingACallEndsTheToolTreeItStarted() {
-        assumeTrue(hasProcessHandle(), "Java 8 ends only the direct child; the host scope ends the rest");
+        assumeTrue(hasProcessGroups() || hasProcessHandle(),
+                "without perl, Java 8 ends only the direct child; the host scope ends the rest");
         Path grandchildPid = directory.resolve("grandchild.pid");
         // The child starts a grandchild that ignores SIGTERM, so only the forced
         // stop can end it.
@@ -192,6 +198,50 @@ class SupportTest {
         Fixtures.eventually(() -> !Fixtures.isAlive(pid), "the grandchild to be stopped");
         Fixtures.eventually(() -> Processes.runningCount() == 0, "the registry to drain");
         host.close();
+    }
+
+    @Test
+    @DisabledOnOs(OS.WINDOWS)
+    void aToolThatExitsTakesItsBackgroundWorkersButNotAnotherCallsTool() throws Exception {
+        assumeTrue(hasProcessGroups(), "without perl the tool has no process group of its own");
+        Path workerPid = directory.resolve("worker.pid");
+        Path otherPid = directory.resolve("other.pid");
+        Cancellation other = new Cancellation();
+        CompletableFuture<Object> otherCall = CompletableFuture.supplyAsync(() -> {
+            try {
+                return Processes.run(shell("echo $$ > '" + otherPid + "'; exec sleep 600"),
+                        new Processes.Options().cancellation(other).killGraceMillis(50));
+            } catch (IOException | CancelledException error) {
+                return error;
+            }
+        });
+        long otherTool = Fixtures.awaitPid(otherPid);
+        // The tool succeeds at once and leaves a worker that holds no pipe.
+        Processes.Result result = Processes.run(shell(
+                "sleep 600 >/dev/null 2>&1 & echo $! > '" + workerPid + "'; exit 0"));
+        assertEquals(0, result.exitCode());
+        long worker = Fixtures.awaitPid(workerPid);
+        Fixtures.eventually(() -> !Fixtures.isAlive(worker), "the left worker to be killed");
+        assertTrue(Fixtures.isAlive(otherTool), "a concurrent call's tool keeps running");
+        other.cancel("done");
+        assertTrue(Fixtures.await(otherCall, "the other call") instanceof CancelledException);
+        Fixtures.eventually(() -> !Fixtures.isAlive(otherTool), "the other tool to be stopped");
+    }
+
+    @Test
+    @DisabledOnOs(OS.WINDOWS)
+    void aMissingExecutableFailsToStartAndPerlOptionsReachOnlyTheTool() throws IOException {
+        IOException missing = assertThrows(IOException.class,
+                () -> Processes.run(Arrays.asList(directory.resolve("missing").toString())));
+        assertTrue(missing.getMessage().contains("missing"), missing.getMessage());
+        Map<String, String> environment = new HashMap<>();
+        environment.put("PATH", System.getenv("PATH"));
+        // Perl would refuse to start with this; the tool only sees it.
+        environment.put("PERL5OPT", "-MLithe::Missing::Module");
+        Processes.Result result = Processes.run(shell("printf %s \"$PERL5OPT\""),
+                new Processes.Options().environment(environment));
+        assertEquals(0, result.exitCode(), result.stderr());
+        assertEquals("-MLithe::Missing::Module", result.stdout());
     }
 
     @Test

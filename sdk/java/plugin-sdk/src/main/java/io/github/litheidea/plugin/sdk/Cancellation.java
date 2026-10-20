@@ -6,7 +6,8 @@ import java.util.List;
 /**
  * Cancellation of one call, or of work a plugin manages itself. Listeners run
  * once, on the thread that cancels; a listener added after cancellation runs
- * immediately. Cancelling never interrupts threads, because an interrupt
+ * immediately. A listener that throws is logged to stderr and does not keep
+ * the others, or the thread that cancelled, from running on. Cancelling never interrupts threads, because an interrupt
  * closes NIO channels a handler may be writing state through; long work checks
  * {@link #isCancelled()} or {@link #throwIfCancelled()} instead.
  */
@@ -27,7 +28,7 @@ public final class Cancellation {
             listeners.clear();
         }
         for (Runnable listener : pending) {
-            listener.run();
+            runIsolated(listener);
         }
     }
 
@@ -63,7 +64,7 @@ public final class Cancellation {
                 };
             }
         }
-        listener.run();
+        runIsolated(listener);
         return () -> {};
     }
 
@@ -80,6 +81,14 @@ public final class Cancellation {
             second.remove();
         });
         return combined;
+    }
+
+    private static void runIsolated(Runnable listener) {
+        try {
+            listener.run();
+        } catch (RuntimeException error) {
+            System.err.println("A cancellation listener failed: " + error);
+        }
     }
 
     private String reasonOrDefault() {

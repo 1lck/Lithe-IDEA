@@ -679,16 +679,21 @@ public final class Backend {
                 }
                 error = toResponseError(failure, cancellation);
             }
-            if (onSettled != null) {
-                onSettled.run();
+            try {
+                if (onSettled != null) {
+                    onSettled.run();
+                }
+            } finally {
+                synchronized (lock) {
+                    incoming.remove(key);
+                }
+                // Work belongs to its call: tools still running when the handler
+                // returned end now. Other calls have their own cancellation.
+                cancellation.cancel("The call ended.");
+                // Answered whatever the clean-up did, so Lithe never waits for
+                // its timeout.
+                respond(id, result, error);
             }
-            synchronized (lock) {
-                incoming.remove(key);
-            }
-            // Work belongs to its call: tools still running when the handler
-            // returned end now. Other calls have their own cancellation.
-            cancellation.cancel("The call ended.");
-            respond(id, result, error);
         });
     }
 

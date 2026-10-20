@@ -122,10 +122,19 @@ In Java:
 5. **Work ends with its call.** Start processes with `context.run`, and check
    `isCancelled()` in long loops. On cancellation the SDK first asks the
    process to stop, then stops it forcibly after a grace period.
-   - **Java 9 or newer:** the SDK also stops the process's descendants.
-   - **Java 8:** the JVM cannot list descendants, so only the direct child is
-     stopped. Lithe's process scope ends whatever it left behind, together
-     with the backend.
+   - **macOS and Linux, every Java version:** each tool leads its own process
+     group, as in the Node SDK. The SDK starts it through the system `perl`,
+     which calls `setpgrp` and then becomes the tool. A stop reaches the whole
+     group, and when the tool exits on its own, whatever it left running in
+     its group is killed.
+   - **Windows, or no `perl`:** on Java 9 or newer the SDK stops the
+     descendants still attached to the tool; Java 8 stops only the direct
+     child.
+
+   A descendant that leaves the group (`setsid`) or that the fallback cannot
+   reach is ended by Lithe's process scope together with the backend.
+   A cancellation listener that throws is logged and does not keep the other
+   listeners or the reply from running.
 
    On `shutdown`, `exit`, or the end of input the SDK ends every process it
    started. `Processes.run` keeps Lithe's process-scope markers even when

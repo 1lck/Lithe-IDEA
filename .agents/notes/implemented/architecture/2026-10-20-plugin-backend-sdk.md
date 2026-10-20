@@ -59,7 +59,8 @@ Maven、Gradle 这类插件需要在后端里调用 JVM 生态的工具，并长
 - **零运行时依赖，自带最小 JSON 读写（`Json`）。** 插件要把 SDK shade（打进同一个 JAR）到自己的后端里。如果 SDK 依赖 Gson 或 lsp4j，就会和插件自己的同名依赖冲突，许可证审查范围也会变大。
 - **发布方式：主仓库打 `sdk-java-v<版本>` 标签，Release 附带 JAR 和 `.sha256`。** 工作流是 `.github/workflows/release-java-plugin-sdk.yml`，暂不发到 Maven 仓库。插件仓库在构建时按固定版本和 SHA-256 下载并校验，再 shade 进后端 JAR，运行时不下载任何东西。
 - **处理器各自跑在守护线程池上，读循环只负责分帧和派发。** 取消不打断（interrupt）线程，只置位取消令牌，并结束该调用启动的进程。这是因为中断会让处理器里正在进行的文件写入半途失败。
-- **进程树清理有版本边界。** Java 9+ 通过反射调用 `ProcessHandle.descendants()`，先给整棵树发 SIGTERM，宽限期后强制结束。Java 8 无法列出子孙进程，只结束直接子进程。剩下的由宿主按 `LITHE_PLUGIN_BACKEND_SCOPE` 标记兜底，与“后端被强杀”走同一条路径，不在 SDK 里另写 `ps` 解析。
+- **进程按调用清理，用进程组，与 Node SDK 一致。** 常驻后端不会因为一次调用结束而退出，宿主按 `LITHE_PLUGIN_BACKEND_SCOPE` 的清理要等会话结束才发生，所以 SDK 必须在调用结束或取消时自己结束工具留下的进程。Java 没有进程组 API，macOS 和 Linux 上 SDK 通过系统 `perl`（`setpgrp(0, 0)` 后 `exec` 成工具，PID 不变）让每个工具成为自己进程组的组长：取消时先给整组发 SIGTERM，宽限期后发 SIGKILL；工具正常退出后立即对整组发 SIGKILL，结束它留下的后台进程。信号经 `/bin/kill -- -<pgid>` 发出，因此 Java 8 和 Java 9+ 行为相同；只要组里还有成员，组 ID 就不会被复用，所以不会误伤其他并发调用。`PERL5OPT` 会让 perl 启动时加载模块，SDK 先从 perl 的环境里拿掉，再在 `exec` 前还给工具。启动失败时 launcher 以 127 退出并带固定前缀，SDK 仍抛 `IOException`，与 `ProcessBuilder` 一致。Windows 或没有 `perl` 时退回 `ProcessHandle.descendants()`（Java 9+，Windows 不会重挂父进程，工具退出后仍能找到子孙）；Java 8 只能结束直接子进程。用 `setsid` 脱离进程组的进程，以及退回路径够不到的进程，仍由宿主按后端标记在会话结束时兜底。
+- **取消监听器互相隔离。** 一个 `onCancel` 回调抛异常只记录到 stderr，不影响其余回调；调用收尾放在 `finally` 里，保证请求一定回复，宿主不会只等到超时。
 - **stdout 保护。** `listen()` 抓住真正的 stdout 只写协议帧，再把 `System.out` 指向 stderr，防止插件或第三方库 `println` 破坏帧。
 
 实现时发现并修复了 Core 的一个问题：运行时版本探测原来对所有工具都用 `--version`，Java 8 不认这个参数，后端会被判定为不可用。现在启动计划复用构建运行时的探测参数（`crate::build::host_runtime_version_arguments`：java 用 `-version`，node 用 `--version`）。宿主把 stdout 和 stderr 合在一起读，`1.8.0` 规范化为 8。
@@ -88,7 +89,15 @@ Maven、Gradle 这类插件需要在后端里调用 JVM 生态的工具，并长
 
 ### Java SDK 从 Java 11 起步，统一用 `ProcessHandle`
 
-被否：Java 8 项目的后端就要单独装一个新 JDK。Java 8 上进程清理的缺口，由宿主已有的后端进程标记兜底，不需要在 SDK 里补。
+被否：Java 8 项目的后端就要单独装一个新 JDK。而且 `ProcessHandle` 只能找到仍挂在工具下面的子孙，工具正常退出后被重挂到 init/launchd 的后台进程照样漏掉，升级版本也补不上这个缺口。
+
+### 只靠宿主的后端进程标记兜底调用级清理
+
+被否：宿主按 `LITHE_PLUGIN_BACKEND_SCOPE` 清理只在后端进程结束或会话释放时发生，常驻后端里一次调用遗留的进程会一直运行并继续改工作区。宿主标记只作为最后一道防线。
+
+### 每次调用设独立环境标记，结束时扫描进程环境
+
+被否：macOS 的 `ps -E` 已不显示其他进程的环境，读取需要 `KERN_PROCARGS2` 这类原生调用，纯 Java 做不到；只在 Linux 上用 `/proc` 扫描会让两个平台行为不一致。进程组方案只依赖系统自带的 `perl` 和 `kill`。
 
 ### 让 SDK 增加便利字段（如函数描述、参数 schema）
 

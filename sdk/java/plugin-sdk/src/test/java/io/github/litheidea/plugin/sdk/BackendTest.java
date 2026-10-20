@@ -224,6 +224,44 @@ class BackendTest {
     }
 
     @Test
+    void aFailingCancellationListenerNeitherSkipsTheOthersNorTheReply() {
+        CountDownLatch laterListenerRan = new CountDownLatch(1);
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch cancelled = new CountDownLatch(1);
+        Backend backend = Backend.create(null, null)
+                .function("listener.settles", (params, context) -> {
+                    context.cancellation().onCancel(() -> {
+                        throw new IllegalStateException("clean-up failed");
+                    });
+                    context.cancellation().onCancel(laterListenerRan::countDown);
+                    return "ok";
+                })
+                .function("listener.cancelled", (params, context) -> {
+                    context.cancellation().onCancel(() -> {
+                        throw new IllegalStateException("clean-up failed");
+                    });
+                    context.cancellation().onCancel(cancelled::countDown);
+                    started.countDown();
+                    Fixtures.await(cancelled, "the cancellation");
+                    context.throwIfCancelled();
+                    return "not reached";
+                });
+        TestHost host = new TestHost(backend);
+        host.initialize();
+        // The call ending runs the listeners before the reply.
+        assertEquals("ok", host.request("lithe/function/invoke", invoke("listener.settles", "s", null)).get("result"));
+        Fixtures.await(laterListenerRan, "the listener after the failing one");
+        // $/cancelRequest runs them on the read loop, which must keep reading.
+        CompletableFuture<Map<String, Object>> response = host.requestAsync("lithe/function/invoke",
+                invoke("listener.cancelled", "c", null), 42L);
+        Fixtures.await(started, "the handler to start");
+        host.notify("$/cancelRequest", map("id", 42L));
+        assertEquals(-32800L, errorCode(Fixtures.await(response, "the cancelled call")));
+        assertEquals("ok", host.request("lithe/function/invoke", invoke("listener.settles", "t", null)).get("result"));
+        host.close();
+    }
+
+    @Test
     void cancelRequestCancelsTheHandlerAndAnswersRequestCancelled() {
         CountDownLatch started = new CountDownLatch(1);
         CountDownLatch cancelled = new CountDownLatch(1);
