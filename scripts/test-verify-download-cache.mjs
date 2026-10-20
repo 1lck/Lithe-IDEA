@@ -334,6 +334,68 @@ try {
   await assert.rejects(fs.access(jdkArchive));
   assert.match(diagnostics(result), /JDK cache entry rejected.*SHA-256 mismatch/s);
 
+  // The ConPTY route accepts only the archive named by the pinned manifest; a
+  // stale download or a tampered file must be removed so the build re-fetches it.
+  const conptyCache = path.join(testRoot, "conpty-cache");
+  const conptyManifest = path.join(testRoot, "conpty-manifest.json");
+  const conptyPackage = path.join(conptyCache, "Microsoft.Windows.Console.ConPTY.1.0.0.nupkg");
+  const olderConptyPackage = path.join(
+    conptyCache,
+    "Microsoft.Windows.Console.ConPTY.0.9.0.nupkg",
+  );
+  await fs.mkdir(conptyCache, { recursive: true });
+  await fs.writeFile(
+    conptyManifest,
+    JSON.stringify({
+      version: "1.0.0",
+      packageSHA256: emptySha256,
+      platforms: {
+        "windows-x86_64": { conptyDLLSHA256: emptySha256, openConsoleSHA256: emptySha256 },
+      },
+    }),
+  );
+  await fs.writeFile(conptyPackage, "");
+  await fs.writeFile(olderConptyPackage, "older release");
+
+  const conptyArguments = [
+    "--cargo-cache",
+    cargoCache,
+    "--cargo-lock",
+    cargoLock,
+    "--conpty-cache",
+    conptyCache,
+    "--conpty-manifest",
+    conptyManifest,
+  ];
+
+  result = verify(conptyArguments);
+  assertSucceeded(result);
+  assert.equal(await fs.readFile(conptyPackage, "utf8"), "");
+  await assert.rejects(fs.access(olderConptyPackage));
+  assert.match(diagnostics(result), /not the pinned 1\.0\.0 package/);
+  assert.match(result.stdout, /ConPTY download cache verified: 1 artifact/);
+
+  await fs.writeFile(conptyPackage, "corrupted");
+  result = verify(conptyArguments);
+  assertSucceeded(result);
+  await assert.rejects(fs.access(conptyPackage));
+  assert.match(result.stdout, /ConPTY download cache verified: 0 artifact/);
+
+  // The reuse registry must route this cache to the validator that owns it.
+  const reuseScript = await fs.readFile(
+    path.join(repositoryRoot, "scripts", "reuse-worktree-resources.mjs"),
+    "utf8",
+  );
+  assert.match(reuseScript, /resource\.validator === "conpty"/, "ConPTY needs a reuse validator");
+  assert.match(reuseScript, /--conpty-manifest/, "ConPTY reuse must pass its manifest");
+  const worktreeRegistry = JSON.parse(
+    await fs.readFile(path.join(repositoryRoot, "scripts", "worktree-resources.json"), "utf8"),
+  );
+  const conptyResource = worktreeRegistry.resources.find((entry) => entry.id === "conpty");
+  assert.ok(conptyResource, "ConPTY download cache must be registered for reuse");
+  assert.equal(conptyResource.validator, "conpty");
+  assert.equal(conptyResource.path, ".artifacts/conpty-downloads");
+
   const fakeBin = path.join(testRoot, "bin");
   const fakeBun = path.join(fakeBin, "bun");
   const bunCache = path.join(testRoot, "bun-cache");
