@@ -21,6 +21,7 @@ Windows Agent 面板的一次启动只对应一个 ACP 进程，进程身份由�
 - `connect()` 用一个 `connectPromise` 去重：第二个调用直接加入进行中的启动。真正的启动逻辑移入私有 `openConnection()`，`stale` 仍由停止路径设置，启动完成发现 `stale` 时自行关闭刚打开的进程。
 - `stop()` 同时等待 `connection !== null` 的旧连接和进行中的启动承诺，并在等待期间占据 `closePromise`，使并发 `connect()` 得到“仍在停止”的明确错误。
 - 断连清理统一在 `detachConnection()` 完成：结束计时、把未完成工具标为 `interrupted`，并把附着、加载、响应、取消、配置等待和权限队列全部清空；消息、轮次统计和 `hasCompleteHistory` 保留，因为它们属于用户可见的历史，而不是进程状态。
+- 编辑区与侧栏同时请求相同连接身份时，共用同一个启动结果，两个调用者都在身份登记后得到完成通知；不同身份才取代旧请求。
 - 启动与停止共用串行队列，并用请求代次丢弃已被取代的启动。旧启动已经创建进程时，必须等待关闭它后再执行新请求；不能只跳过身份登记，否则新 Agent 会复用旧进程。停止也进入同一队列，避免紧随其后的重连越过清理。
 - 连接身份用 `launchKey(workspace, agentId, authentication, command, arguments)` 表示。工作区或身份变化时先 `stop()`、再 `reset()`、再重连；失败启动不写入身份，下次设置变化仍会重试。
 - 切走前用 `captureSnapshot()` 保存当前可见状态，切回时 `restoreSnapshot()` 放回。恢复会清掉全部进程相关标记，`prepareConversation()` 因此走 `loadSession` 重新附着，用户看到的仍是原会话；工作区切换清空全部保留状态，避免跨项目串台。

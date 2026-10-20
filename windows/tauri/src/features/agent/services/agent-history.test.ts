@@ -173,7 +173,12 @@ describe("History message count", () => {
 });
 
 describe("History markdown", () => {
-  const labels = { untitled: "Untitled conversation", you: "You", tool: "Tool" };
+  const labels = {
+    untitled: "Untitled conversation",
+    you: "You",
+    tool: "Tool",
+    thinking: "Thinking",
+  };
 
   test("renders a heading, the session id, and one block per message", () => {
     const markdown = historyMarkdown(
@@ -222,6 +227,30 @@ describe("History markdown", () => {
     expect(markdown).toBe(
       "# Untitled conversation\n\nSession ID: session-two\n\n## Tool\n\nread\n\n" +
         "Status: completed\n\n{\"path\":\"a.ts\"}\n\nfile contents\n\nline one\n",
+    );
+  });
+
+  test("reasoning is exported as a quote under Thinking", () => {
+    const markdown = historyMarkdown(
+      [
+        {
+          id: "session-three",
+          title: null,
+          messages: [
+            {
+              id: "r",
+              role: "reasoning",
+              text: "one\n\ntwo",
+              toolStatus: null,
+              toolDetails: emptyToolDetails(),
+            },
+          ],
+        },
+      ],
+      labels,
+    );
+    expect(markdown).toBe(
+      "# Untitled conversation\n\nSession ID: session-three\n\n## Thinking\n\n> one\n> \n> two\n",
     );
   });
 

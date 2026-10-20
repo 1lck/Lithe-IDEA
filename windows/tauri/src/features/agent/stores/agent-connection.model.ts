@@ -13,12 +13,14 @@
 import {
   addFileReferences,
   appendMessage,
+  applyCurrentMode,
   createConversation,
   currentPermission,
   enqueuePermission,
   finishActiveTurn,
   interruptPendingTools,
   parseContextUsage,
+  parsePlan,
   parseSessionConfigOptions,
   parseSubscriptionQuota,
   permissionPrompt,
@@ -936,6 +938,31 @@ export class AgentConnectionModel {
       case "config_option_update":
         this.applyConfiguration(update.configOptions, sessionID);
         return;
+      case "current_mode_update": {
+        const modeID = asString(update.currentModeId);
+        if (modeID === null || modeID.length === 0) return;
+        this.editConversation(sessionID, (current) =>
+          applyCurrentMode(current, modeID),
+        );
+        return;
+      }
+      case "plan": {
+        const plan = parsePlan(update);
+        if (plan === null) return;
+        this.editConversation(sessionID, (current) => ({ ...current, plan }));
+        return;
+      }
+      case "agent_thought_chunk": {
+        const text = updateText(update);
+        if (text === null) return;
+        // Reasoning and prose are separate rows; flush first so their order
+        // matches the stream instead of merging the thought into the reply.
+        this.flushPendingText();
+        this.editConversation(sessionID, (current) =>
+          appendMessage(current, "reasoning", text),
+        );
+        return;
+      }
       case "agent_message_chunk": {
         const text = updateText(update);
         if (text === null) return;

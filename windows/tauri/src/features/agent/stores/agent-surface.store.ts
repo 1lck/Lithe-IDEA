@@ -16,11 +16,14 @@ interface AgentSurfaceState {
   detailsOpen: boolean;
   /** Unsent text and attachments, keyed by the conversation they belong to. */
   drafts: Record<string, AgentComposerDraft>;
+  /** Manually expanded reasoning rows, keyed by session and message. */
+  reasoningExpanded: Record<string, boolean>;
   actions: {
     setDetailsOpen: (open: boolean) => void;
     setDraft: (key: string, draft: AgentComposerDraft) => void;
     setDraftText: (key: string, text: string) => void;
     setDraftFiles: (key: string, files: AgentFileReference[]) => void;
+    setReasoningExpanded: (key: string, expanded: boolean) => void;
     clearDraft: (key: string) => void;
     reset: () => void;
   };
@@ -38,6 +41,7 @@ export const useAgentSurfaceStore = createSelectors(
   create<AgentSurfaceState>()((set, get) => ({
     detailsOpen: false,
     drafts: {},
+    reasoningExpanded: {},
     actions: {
       setDetailsOpen: (open) => {
         if (get().detailsOpen !== open) set({ detailsOpen: open });
@@ -70,6 +74,12 @@ export const useAgentSurfaceStore = createSelectors(
         const draft = current ?? EMPTY_AGENT_DRAFT;
         set((state) => ({ drafts: { ...state.drafts, [key]: { ...draft, files } } }));
       },
+      setReasoningExpanded: (key, expanded) => {
+        if (get().reasoningExpanded[key] === expanded) return;
+        set((state) => ({
+          reasoningExpanded: { ...state.reasoningExpanded, [key]: expanded },
+        }));
+      },
       clearDraft: (key) => {
         if (get().drafts[key] === undefined) return;
         set((state) => {
@@ -78,7 +88,7 @@ export const useAgentSurfaceStore = createSelectors(
           return { drafts };
         });
       },
-      reset: () => set({ drafts: {}, detailsOpen: false }),
+      reset: () => set({ drafts: {}, reasoningExpanded: {}, detailsOpen: false }),
     },
   })),
 );

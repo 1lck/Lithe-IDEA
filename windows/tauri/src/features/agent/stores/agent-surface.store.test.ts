@@ -21,18 +21,34 @@ describe("agent surface placement", () => {
   });
 
   test("clears window-wide placement state when the workspace changes", () => {
-    const { reset, setDetailsOpen, setDraft } =
+    const { reset, setDetailsOpen, setDraft, setReasoningExpanded } =
       useAgentSurfaceStore.getState().actions;
 
     setDetailsOpen(true);
     setDraft("session-a", { text: "old project draft", files: [] });
     setDraft(NEW_AGENT_DRAFT_KEY, { text: "unsent new conversation", files: [] });
+    setReasoningExpanded("session-a:reasoning-1", true);
 
     reset();
 
     const state = useAgentSurfaceStore.getState();
     expect(state.detailsOpen).toBe(false);
     expect(state.drafts).toEqual({});
+    expect(state.reasoningExpanded).toEqual({});
+  });
+
+  test("reasoning expansion survives a filtered transcript remount", () => {
+    const { setReasoningExpanded } = useAgentSurfaceStore.getState().actions;
+
+    setReasoningExpanded("session-a:reasoning-1", true);
+    setReasoningExpanded("session-b:reasoning-1", false);
+
+    // Filtering unmounts the row; the preference remains owned by the surface
+    // store instead of dying with that component instance.
+    expect(useAgentSurfaceStore.getState().reasoningExpanded).toEqual({
+      "session-a:reasoning-1": true,
+      "session-b:reasoning-1": false,
+    });
   });
 
   test("clears a draft without disturbing the other conversation", () => {

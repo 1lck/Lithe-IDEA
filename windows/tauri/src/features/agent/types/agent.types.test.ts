@@ -3,6 +3,7 @@ import fixture from "../../../../../../shared/fixtures/agent/acp-events-v1.json"
 import {
   addFileReferences,
   AgentFileReferenceError,
+  applyCurrentMode,
   AgentFileReferenceLimitError,
   AGENT_FILE_LIMIT,
   appendMessage,
@@ -14,7 +15,9 @@ import {
   isQuotaStale,
   mostUsedQuotaWindow,
   parseContextUsage,
+  parsePlan,
   parseSessionConfigOptions,
+  planProgress,
   parseSubscriptionQuota,
   permissionPrompt,
   promptDisplayText,
@@ -26,6 +29,67 @@ import {
 
 const quotaSnapshot = fixture.events.quota.snapshot;
 
+
+describe("Agent plan and mode", () => {
+  test("reads the plan the agent reported and summarizes its progress", () => {
+    const plan = parsePlan(fixture.events.plan.update);
+    expect(plan).not.toBeNull();
+    expect(plan).toEqual([
+      { content: "Read the manifest", priority: "high", status: "completed" },
+      { content: "Run the tests", priority: "medium", status: "in_progress" },
+      { content: "Summarize the results", priority: "low", status: "pending" },
+    ]);
+    expect(planProgress(plan ?? [])).toEqual({
+      completed: 1,
+      total: 3,
+      current: "Run the tests",
+    });
+  });
+
+  test("an empty plan clears but a malformed update leaves it alone", () => {
+    expect(parsePlan({ entries: [] })).toEqual([]);
+    expect(parsePlan(null)).toBeNull();
+    expect(parsePlan({})).toBeNull();
+    expect(planProgress([])).toEqual({ completed: 0, total: 0, current: null });
+  });
+
+  test("entries without content or with an unknown status are dropped", () => {
+    expect(parsePlan({ entries: [{ status: "completed" }] })).toEqual([]);
+    expect(
+      parsePlan({ entries: [{ content: "Invented", status: "running" }] }),
+    ).toEqual([]);
+    expect(
+      parsePlan({ entries: [{ content: "Kept", status: "pending" }] }),
+    ).toEqual([{ content: "Kept", priority: null, status: "pending" }]);
+  });
+
+  test("only a mode the agent listed is applied", () => {
+    const conversation = {
+      ...createConversation(),
+      configOptions: parseSessionConfigOptions(
+        fixture.events.sessionConfigured.configOptions,
+      ),
+    };
+    const synced = applyCurrentMode(conversation, "auto");
+    expect(
+      synced.configOptions.find((option) => option.category === "mode")?.currentValue,
+    ).toBe("auto");
+    expect(applyCurrentMode(conversation, "invented")).toBe(conversation);
+    expect(applyCurrentMode(synced, "auto")).toBe(synced);
+  });
+
+  test("an option merely named mode is not the mode selector", () => {
+    const conversation = {
+      ...createConversation(),
+      configOptions: parseSessionConfigOptions(
+        fixture.events.sessionConfigured.configOptions,
+      ).map((option) =>
+        option.category === "mode" ? { ...option, category: "custom" } : option,
+      ),
+    };
+    expect(applyCurrentMode(conversation, "auto")).toBe(conversation);
+  });
+});
 describe("Agent context usage", () => {
   test("reads the occupancy the agent reported", () => {
     const usage = parseContextUsage(fixture.events.usageUpdate.update);
