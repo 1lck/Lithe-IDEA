@@ -492,6 +492,41 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         }
     }
 
+    package func buildRequest(
+        method: String,
+        params: ToolingJSONValue,
+        timeout: TimeInterval
+    ) async throws -> ToolingJSONValue {
+        guard let sessionID, state == .ready else {
+            throw LanguageServerRuntimeSessionError.notReady
+        }
+        let operation: LanguageServerRuntimeOperation
+        switch core.requestBuildProvider(sessionID: sessionID, method: method, params: params, timeout: timeout) {
+        case .success(let started): operation = started
+        case .failure(let error): throw LanguageServerRuntimeSessionError.requestRejected(error.userMessage)
+        }
+        // Registration happens before this actor can run the cancellation
+        // below, so a cancelled request always finds its pending entry and
+        // ends with the cancellation event Core publishes.
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                registerPendingOperation(operation, name: method) { result in
+                    continuation.resume(with: result.flatMap { event in
+                        guard case .object(let object)? = event.result, let value = object["value"] else {
+                            return .failure(LanguageServerRuntimeSessionError.missingResult)
+                        }
+                        return .success(value)
+                    })
+                }
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                guard let self, let sessionID = self.sessionID else { return }
+                self.core.cancelLanguageServerOperation(sessionID: sessionID, operationID: operation.operationID)
+            }
+        }
+    }
+
     /// Asks JDT, through Core, which classes in the workspace can be launched.
     package func javaEntrypoints(
         completion: @escaping (Result<JavaEntrypoints, Error>) -> Void

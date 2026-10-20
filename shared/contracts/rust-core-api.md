@@ -816,6 +816,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `lsp.workspaceFilesChanged` | Publish normalized created, changed, or deleted workspace files to one session |
 | `lsp.closeDocument` | Close a document and clear its diagnostics |
 | `lsp.request` | Submit a typed semantic request and return an opaque operation ID |
+| `lsp.buildRequest` | Forward one planned `lithe/build/*` request to a session that negotiated the build-provider protocol |
 | `java.navigationMarkers` | Resolve versioned Java gutter markers from bounded JDT LS semantic requests |
 | `java.resolveNavigation` | Resolve one Java gutter marker to normalized parent or implementation locations |
 | `lsp.cancelOperation` | Cancel one pending semantic operation |
@@ -2200,6 +2201,20 @@ document version. Downward markers use `textDocument/implementation`; upward
 markers use JDT LS `java/findLinks` with `superImplementation`. Its terminal
 result is `{ documentVersion, locations }`, using the same normalized physical
 and virtual-location representation as ordinary navigation.
+
+`lsp.buildRequest` accepts `{ sessionId, operationId?, method, params,
+timeoutMilliseconds? }` and returns `{ operationId }`. `method` and `params`
+are the `provider` field of a `build.modelPlan` or `build.dependencyPlan`
+result; only `lithe/build/model` and `lithe/build/dependencies` are accepted,
+and anything else is `invalid_request`. Every session offers
+`capabilities.experimental.litheBuild: { versions: [1] }` in `initialize`; a
+session whose process did not answer one of those versions rejects the request
+with `not_supported`, so a shared provider that does not speak the protocol
+still serves its language. `timeoutMilliseconds` replaces the session's request
+timeout for this request and is capped at one hour. The `requestCompleted`
+event carries the provider's reply unchanged as `result.value`, which the host
+passes to `build.decodeModel` or `build.decodeDependencies` as `result`;
+cancellation and late results follow `lsp.cancelOperation`.
 
 `lsp.request` accepts a semantic `operation` plus
 the operation-specific URI, position, range, diagnostics, item, action, or

@@ -293,6 +293,59 @@ struct PluginPackageStoreTests {
         }
     }
 
+    /// A provider's packaged executable is checked at installation, like a
+    /// language server's: it must be a regular, executable file reached
+    /// without a symbolic link, or the package is refused before its first
+    /// model load could fail.
+    @Test(arguments: ["missing", "notExecutable", "symbolicLink"])
+    func unusablePackagedBuildProviderIsRefused(_ defect: String) throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = makeStore(root: root)
+        let package = try makeProviderPackage(root: root, launch: ["kind": "packaged", "path": "provider/bin/provider"])
+        let executable = package.appendingPathComponent("provider/bin/provider")
+        switch defect {
+        case "missing":
+            try FileManager.default.removeItem(at: executable)
+        case "notExecutable":
+            try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: executable.path)
+        default:
+            try FileManager.default.removeItem(at: executable)
+            try FileManager.default.createSymbolicLink(atPath: executable.path, withDestinationPath: "/bin/sh")
+        }
+
+        let pluginID = PluginID("dev.lithe.fixture.gradle-provider")
+        #expect(throws: PluginPackageStoreError.invalidInstalledPlugin(
+            pluginID,
+            PluginPackageStoreError.buildProviderLaunchMissing(
+                pluginID, buildSystemID: "gradle", path: "provider/bin/provider"
+            ).localizedDescription
+        )) {
+            _ = try store.installPackage(from: package)
+        }
+    }
+
+    /// A runtime launch needs its packaged entry; the runtime itself is
+    /// discovered on the machine and is not part of the package.
+    @Test
+    func buildProviderRuntimeEntryMustBeInThePackage() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = makeStore(root: root)
+        let package = try makeProviderPackage(root: root, launch: nil)
+
+        #expect(throws: PluginPackageStoreError.self) {
+            _ = try store.installPackage(from: package)
+        }
+
+        let entry = package.appendingPathComponent("provider/gradle-tooling-provider.jar")
+        try FileManager.default.createDirectory(at: entry.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data().write(to: entry)
+        try Data().write(to: package.appendingPathComponent("provider/lithe-model.init.gradle"))
+        let installed = try store.installPackage(from: package)
+        #expect(installed.descriptor.buildSystems.map(\.declaresProvider) == [true])
+    }
+
     /// A plugin inside the application replaces a built-in feature, so it has
     /// to work on first launch. A downloaded plugin stays off until enabled.
     @Test
@@ -734,6 +787,39 @@ struct PluginPackageStoreTests {
             languageID: languageID,
             packagedLauncher: packagedLauncher
         )
+    }
+
+    /// The Gradle provider fixture, with its provider launch replaced when
+    /// `launch` is given. A packaged launch gets an executable script.
+    private func makeProviderPackage(root: URL, launch: [String: Any]?) throws -> URL {
+        let fixtureURL = DeclarativePluginTestSupport.repositoryRoot
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/gradle-provider.plugin.json")
+        var manifest = try #require(
+            try JSONSerialization.jsonObject(with: Data(contentsOf: fixtureURL)) as? [String: Any]
+        )
+        if let launch {
+            var buildSystems = try #require(manifest["buildSystems"] as? [[String: Any]])
+            buildSystems[0]["provider"] = [
+                "launch": launch,
+                "arguments": ["--stdio"],
+                "executesProjectCode": true,
+                "mayUseNetwork": true
+            ] as [String: Any]
+            manifest["buildSystems"] = buildSystems
+        }
+        let package = try DeclarativePluginTestSupport.writePackage(
+            at: root.appendingPathComponent("sources/provider", isDirectory: true),
+            manifest: manifest
+        )
+        if launch?["kind"] as? String == "packaged", let path = launch?["path"] as? String {
+            let executable = package.appendingPathComponent(path)
+            try FileManager.default.createDirectory(
+                at: executable.deletingLastPathComponent(), withIntermediateDirectories: true
+            )
+            try Data("#!/bin/sh\n".utf8).write(to: executable)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        }
+        return package
     }
 
     /// Writes a package directly into the installed layout, as an earlier
