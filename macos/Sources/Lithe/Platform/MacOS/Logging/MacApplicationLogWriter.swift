@@ -7,6 +7,8 @@ import LitheGitModule
 final class MacApplicationLogWriter: ApplicationLogging, @unchecked Sendable {
     static let fileName = "lithe.log" // Read-only compatibility with older releases.
     static let categories = ["application", "language", "run", "git", "plugins", "performance"]
+    private static let managedFilePattern = try! NSRegularExpression(
+        pattern: #"^lithe\.[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}\.[0-9]{3}Z\.[a-f0-9]{32}\.[0-9]{20}\.log\z"#)
     private let queue = DispatchQueue(label: "dev.lithe.application-logs", qos: .utility)
     private let lock = NSLock()
     private let core = RustCoreBridge()
@@ -186,7 +188,8 @@ final class MacApplicationLogWriter: ApplicationLogging, @unchecked Sendable {
             let name = url.lastPathComponent
             let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
             return values?.isRegularFile == true && values?.isSymbolicLink != true &&
-                (name == Self.fileName || (name.hasPrefix("lithe.") && name.hasSuffix(".log")))
+                (name == Self.fileName || Self.managedFilePattern.firstMatch(
+                    in: name, range: NSRange(name.startIndex..., in: name)) != nil)
         }.sorted { $0.lastPathComponent < $1.lastPathComponent }
     }
 
@@ -242,22 +245,26 @@ final class MacApplicationLogWriter: ApplicationLogging, @unchecked Sendable {
         try await perform { [self] in
             guard let root = lock.withLock({ directory }) else { throw CocoaError(.fileNoSuchFile) }
             try flushRepeatedEvents()
-            let candidates = Array(managedFiles(root: root).reversed().prefix(200))
-            let previousSession = candidates.compactMap { file -> String? in
+            let available = Array(managedFiles(root: root).reversed())
+            let previousSession = available.compactMap { file -> String? in
                 let parts = file.lastPathComponent.split(separator: ".")
                 guard parts.count >= 5 else { return nil }
                 let candidate = String(parts[parts.count - 3])
                 return candidate != sessionID ? candidate : nil
             }.first
             let selectedSession: String? = query.session == "current" ? sessionID : query.session == "previous" ? (previousSession ?? "missing") : nil
+            let eligible = available.filter { file in
+                let category = Self.categories.contains(file.deletingLastPathComponent().lastPathComponent) ? file.deletingLastPathComponent().lastPathComponent : "application"
+                return (query.category == nil || query.category == category) &&
+                    (selectedSession == nil || file.lastPathComponent.contains(selectedSession!))
+            }
+            let candidates = eligible.prefix(200)
             var budget = 10 * 1024 * 1024
             var files: [ApplicationLogFile] = []
             var sources: [RustCoreBridge.LogSource] = []
-            var truncated = false
+            var truncated = eligible.count > candidates.count
             for file in candidates {
                 let category = Self.categories.contains(file.deletingLastPathComponent().lastPathComponent) ? file.deletingLastPathComponent().lastPathComponent : "application"
-                if let filter = query.category, category != filter { continue }
-                if let selectedSession, !file.lastPathComponent.contains(selectedSession) { continue }
                 guard budget > 0 else { truncated = true; break }
                 let handle = try FileHandle(forReadingFrom: file)
                 defer { try? handle.close() }

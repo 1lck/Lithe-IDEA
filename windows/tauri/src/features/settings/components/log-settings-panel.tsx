@@ -70,7 +70,8 @@ export function LogSettingsPanel({ onClose }: { onClose: () => void }) {
       if (generation === queryGeneration.current)
         showToast({ message: errorMessage(error), type: "error" });
     } finally {
-      if (generation === queryGeneration.current) setBusy(false);
+      // Filter changes invalidate the result, but this request still owns busy.
+      setBusy(false);
     }
   };
 

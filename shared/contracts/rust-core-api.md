@@ -2808,8 +2808,11 @@ minimumLevel?,sessionId?,search?,since?,until?,limit?}`. It returns
 `{content,truncated,matchedLines}`: a stable merged timeline, inclusive severity
 and UTC time bounds, exact session filter, case-insensitive text search, and the
 last 1–10000 matching lines. Hosts resolve current/previous session selection,
-read bounded file tails, discard partial first lines, and report both native
-collection truncation and Core query truncation. Missing filters include all.
+apply the module/session filters before the file-count cap, read bounded file tails,
+discard partial first lines, and report both native
+collection truncation and Core query truncation, including files omitted by the cap.
+Time comparisons use parsed RFC3339 instants, so fractional precision and equivalent
+UTC offsets do not change ordering or inclusive boundaries. Missing filters include all.
 
 Diagnostic previews freeze the selected redacted bytes before confirmation.
 Windows returns a `snapshotId` from `preview_diagnostic_bundle`; export consumes

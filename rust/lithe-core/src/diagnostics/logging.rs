@@ -2,6 +2,7 @@
 //! Native adapters own queues, clocks, files, and snapshots; Core never opens a log.
 
 use super::redaction::{redact_text, RedactTextRequest};
+use chrono::{DateTime, FixedOffset};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -277,6 +278,8 @@ pub fn query_logs(request: LogQueryRequest) -> LogQueryResponse {
     let mut remaining = MAX_LOG_EXPORT_BYTES;
     let mut truncated = false;
     let needle = request.search.as_deref().unwrap_or("").to_lowercase();
+    let since = request.since.as_deref().and_then(parse_timestamp);
+    let until = request.until.as_deref().and_then(parse_timestamp);
     for source in request.sources {
         if request
             .category
@@ -311,10 +314,15 @@ pub fn query_logs(request: LogQueryRequest) -> LogQueryResponse {
             {
                 continue;
             }
-            if request.since.as_ref().is_some_and(|s| time < s.as_str())
-                || request.until.as_ref().is_some_and(|s| time > s.as_str())
-            {
-                continue;
+            if since.is_some() || until.is_some() {
+                let Some(timestamp) = parse_timestamp(time) else {
+                    continue;
+                };
+                if since.is_some_and(|bound| timestamp < bound)
+                    || until.is_some_and(|bound| timestamp > bound)
+                {
+                    continue;
+                }
             }
             if !needle.is_empty() && !line.to_lowercase().contains(&needle) {
                 continue;
@@ -322,11 +330,11 @@ pub fn query_logs(request: LogQueryRequest) -> LogQueryResponse {
             lines.push(line.to_owned());
         }
     }
-    // Native writers emit UTC RFC3339 timestamps. A stable tie preserves source
-    // ordering for legacy records; per-session sequence is included in new lines.
+    // Compare instants, including legacy offsets and varying fractional precision.
+    // Stable ties preserve source ordering for legacy records without a sequence.
     lines.sort_by(|left, right| {
-        fn key(line: &str) -> (&str, &str, u64) {
-            let timestamp = line.split_whitespace().next().unwrap_or("");
+        fn key(line: &str) -> (Option<DateTime<FixedOffset>>, &str, u64) {
+            let timestamp = parse_timestamp(line.split_whitespace().next().unwrap_or(""));
             let session = line
                 .split_once("[session=")
                 .and_then(|(_, tail)| tail.split_once(']'))
@@ -356,6 +364,10 @@ pub fn query_logs(request: LogQueryRequest) -> LogQueryResponse {
         truncated,
         matched_lines,
     }
+}
+
+fn parse_timestamp(value: &str) -> Option<DateTime<FixedOffset>> {
+    DateTime::parse_from_rfc3339(value).ok()
 }
 
 #[cfg(test)]
@@ -423,6 +435,23 @@ mod tests {
         let result = query_logs(serde_json::from_value(json!({"sources":[{"category":"run","text":
             "2026-10-20T00:00:00.001Z ERROR [session=a] finished sequence=0002\n2026-10-20T00:00:00.001Z INFO [session=a] started sequence=0001"}]})).unwrap());
         assert!(result.content.find("started").unwrap() < result.content.find("finished").unwrap());
+    }
+
+    #[test]
+    fn time_filters_and_ordering_compare_instants_from_the_shared_fixture() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../../shared/fixtures/diagnostics/logging-v1.json"
+        ))
+        .unwrap();
+        for case in fixture["timeQueries"].as_array().unwrap() {
+            let result = query_logs(serde_json::from_value(case["request"].clone()).unwrap());
+            let messages = result
+                .content
+                .lines()
+                .map(|line| line.split_whitespace().last().unwrap())
+                .collect::<Vec<_>>();
+            assert_eq!(serde_json::json!(messages), case["messages"], "{case}");
+        }
     }
 
     #[test]

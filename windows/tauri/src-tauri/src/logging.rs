@@ -888,9 +888,22 @@ impl LogManager {
             _ => Some(self.session_id.clone()),
         };
         let mut budget = policy::MAX_LOG_EXPORT_BYTES;
-        let mut truncated = false;
+        let eligible = available
+            .into_iter()
+            .filter(|(path, parsed)| {
+                let category = path
+                    .parent()
+                    .and_then(|p| p.file_name())
+                    .and_then(|n| n.to_str())
+                    .filter(|c| policy::LOG_CATEGORIES.contains(c))
+                    .unwrap_or("application");
+                selection.category.as_ref().is_none_or(|c| c == category)
+                    && session.as_ref().is_none_or(|s| s == &parsed.session_id)
+            })
+            .collect::<Vec<_>>();
+        let mut truncated = eligible.len() > 200;
         let mut collected = Vec::new();
-        for (path, parsed) in available.into_iter().take(200) {
+        for (path, _) in eligible.into_iter().take(200) {
             let category = path
                 .parent()
                 .and_then(|p| p.file_name())
@@ -898,11 +911,6 @@ impl LogManager {
                 .filter(|c| policy::LOG_CATEGORIES.contains(c))
                 .unwrap_or("application")
                 .to_string();
-            if selection.category.as_ref().is_some_and(|c| c != &category)
-                || session.as_ref().is_some_and(|s| s != &parsed.session_id)
-            {
-                continue;
-            }
             if budget == 0 {
                 truncated = true;
                 break;
@@ -2515,6 +2523,59 @@ pub(crate) fn start_test_writer(manager: &Arc<LogManager>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn collection_filters_before_file_limit_and_reports_omitted_matching_files() {
+        let directory = temporary_directory("collection-file-limit");
+        let manager = test_manager(&directory);
+        start_test_writer(&manager);
+        struct Cleanup(Arc<LogManager>, PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                self.0.shutdown();
+                let _ = fs::remove_dir_all(&self.1);
+            }
+        }
+        let _cleanup = Cleanup(manager.clone(), directory.clone());
+        (|| {
+            fs::create_dir_all(directory.join("git")).unwrap();
+            let old = "lithe.2026-10-19T00-00-00.000+0000.cafebabe.001.log";
+            fs::write(
+                directory.join("git").join(old),
+                "2026-10-19T00:00:00.000Z INFO git evidence\n",
+            )
+            .unwrap();
+            for index in 1..=201 {
+                let name = format!("lithe.2026-10-20T00-00-00.000+0000.cafebabe.{index:03}.log");
+                fs::write(
+                    directory.join("application").join(name),
+                    "2026-10-20T00:00:00.000Z INFO application evidence\n",
+                )
+                .unwrap();
+            }
+            let selection = LogSelection {
+                category: Some("git".into()),
+                session: Some("all".into()),
+                ..Default::default()
+            };
+            let (git, truncated) = manager.collect_logs(&selection)?;
+            assert!(!truncated);
+            assert!(git.iter().any(|log| log.text.contains("git evidence")));
+            let (previous, _) = manager.collect_logs(&LogSelection {
+                session: Some("previous".into()),
+                ..selection
+            })?;
+            assert!(previous.iter().any(|log| log.text.contains("git evidence")));
+            let (_, truncated) = manager.collect_logs(&LogSelection {
+                category: Some("application".into()),
+                session: Some("all".into()),
+                ..Default::default()
+            })?;
+            assert!(truncated);
+            Ok::<_, String>(())
+        })()
+        .unwrap();
+    }
 
     #[test]
     fn formats_single_line_and_redacts_sensitive_values() {

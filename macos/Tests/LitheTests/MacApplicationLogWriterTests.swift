@@ -12,6 +12,60 @@ private final class LogTestClock: @unchecked Sendable {
 @Suite("macOS application log writer")
 struct MacApplicationLogWriterTests {
     @Test
+    func collectionAndCleanupPreserveUnrelatedLogFiles() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let clock = LogTestClock()
+        let writer = MacApplicationLogWriter(now: clock.now)
+        try writer.redirect(to: root)
+        let unrelated = [root.appendingPathComponent("lithe.backup.log"),
+            root.appendingPathComponent("language/lithe.notes.log")]
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("language"), withIntermediateDirectories: true)
+        for file in unrelated {
+            try Data("unrelated evidence".utf8).write(to: file)
+            try FileManager.default.setAttributes([.modificationDate: clock.now().addingTimeInterval(-31 * 86400)], ofItemAtPath: file.path)
+        }
+        let legacy = root.appendingPathComponent("lithe.log")
+        try Data("legacy evidence\n".utf8).write(to: legacy)
+        writer.record(level: "info", scope: "application", message: "managed evidence")
+        let collection = try await writer.collect(query: ApplicationLogQuery(session: "all"))
+        #expect(collection.content.contains("legacy evidence"))
+        #expect(collection.content.contains("managed evidence"))
+        #expect(!collection.content.contains("unrelated evidence"))
+        try await writer.clear()
+        #expect(!FileManager.default.fileExists(atPath: legacy.path))
+        for file in unrelated { #expect(try String(contentsOf: file, encoding: .utf8) == "unrelated evidence") }
+    }
+
+    @Test
+    func filtersBeforeFileLimitAndReportsOmittedMatchingFiles() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let writer = MacApplicationLogWriter()
+        try writer.redirect(to: root)
+        let session = String(repeating: "a", count: 32)
+        for category in ["application", "git"] {
+            try FileManager.default.createDirectory(at: root.appendingPathComponent(category), withIntermediateDirectories: true)
+        }
+        let old = "lithe.2026-10-19T00-00-00.000Z.\(session).00000000000000000001.log"
+        try Data("2026-10-19T00:00:00.000Z INFO [session=\(session)] git evidence\n".utf8)
+            .write(to: root.appendingPathComponent("git/\(old)"))
+        for index in 1...201 {
+            let name = "lithe.2026-10-20T00-00-00.000Z.\(session).\(String(format: "%020d", index)).log"
+            try Data("2026-10-20T00:00:00.000Z INFO [session=\(session)] application evidence\n".utf8)
+                .write(to: root.appendingPathComponent("application/\(name)"))
+        }
+        let git = try await writer.collect(query: ApplicationLogQuery(category: "git", session: "all"))
+        #expect(git.content.contains("git evidence"))
+        #expect(!git.truncated)
+        let previous = try await writer.collect(query: ApplicationLogQuery(category: "git", session: "previous"))
+        #expect(previous.content.contains("git evidence"))
+        let application = try await writer.collect(query: ApplicationLogQuery(category: "application", session: "all"))
+        #expect(application.truncated)
+        #expect(application.files.contains { $0.relativePath == "collection-status.txt" && String(decoding: $0.data, as: UTF8.self).contains("truncated=true") })
+    }
+
+    @Test
     func changingDirectoryMovesCollectionToTheSelection() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }

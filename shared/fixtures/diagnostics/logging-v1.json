@@ -40,5 +40,40 @@
       "scope": "../../escape",
       "category": "application"
     }
+  ],
+  "timeQueries": [
+    {
+      "request": {
+        "sources": [
+          {
+            "category": "application",
+            "text": "2026-10-20T01:00:00.500Z INFO middle\n2026-10-20T01:00:01.000Z INFO later\n2026-10-20T01:00:00Z INFO start"
+          }
+        ],
+        "since": "2026-10-20T01:00:00Z",
+        "until": "2026-10-20T01:00:00.500000000+00:00"
+      },
+      "messages": [
+        "start",
+        "middle"
+      ]
+    },
+    {
+      "request": {
+        "sources": [
+          {
+            "category": "git",
+            "text": "2026-10-20T01:00:01Z INFO later\n2026-10-20T03:00:00.1+02:00 INFO fractional\n2026-10-20T01:00:00Z INFO start"
+          }
+        ],
+        "since": "2026-10-20T03:00:00+02:00",
+        "until": "2026-10-20T01:00:01.000Z"
+      },
+      "messages": [
+        "start",
+        "fractional",
+        "later"
+      ]
+    }
   ]
 }
