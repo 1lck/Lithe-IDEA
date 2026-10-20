@@ -14,7 +14,7 @@ pub(super) fn fixture() -> Value {
         .expect("fixture should be valid JSON")
 }
 
-pub(super) fn temporary_root(label: &str) -> PathBuf {
+pub(crate) fn temporary_root(label: &str) -> PathBuf {
     static NONCE: OnceLock<u128> = OnceLock::new();
     static SEQUENCE: AtomicU64 = AtomicU64::new(0);
     // A clock tick is not a unique ID: parallel fixtures must never share cleanup ownership.

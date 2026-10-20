@@ -1,0 +1,65 @@
+{
+  "hiddenFilePatterns": [
+    "cache/",
+    "**/.*/",
+    ".*/",
+    "*.log"
+  ],
+  "cases": [
+    {
+      "path": "cache",
+      "isDirectory": true,
+      "hidden": true
+    },
+    {
+      "path": "cache/deep/Name.swift",
+      "isDirectory": false,
+      "hidden": true
+    },
+    {
+      "path": "src/cache",
+      "isDirectory": true,
+      "hidden": false
+    },
+    {
+      "path": "src/cache/Name.swift",
+      "isDirectory": false,
+      "hidden": false
+    },
+    {
+      "path": ".cache",
+      "isDirectory": true,
+      "hidden": true
+    },
+    {
+      "path": "src/.cache",
+      "isDirectory": true,
+      "hidden": true
+    },
+    {
+      "path": "src/.cache/deep/Name.swift",
+      "isDirectory": false,
+      "hidden": true
+    },
+    {
+      "path": "src/Name.log",
+      "isDirectory": false,
+      "hidden": true
+    },
+    {
+      "path": "src/Name.log",
+      "isDirectory": true,
+      "hidden": false
+    },
+    {
+      "path": "src/.env",
+      "isDirectory": false,
+      "hidden": false
+    },
+    {
+      "path": "src/Name.swift",
+      "isDirectory": false,
+      "hidden": false
+    }
+  ]
+}

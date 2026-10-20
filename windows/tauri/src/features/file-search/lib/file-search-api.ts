@@ -69,6 +69,7 @@ export interface FffScanStatus {
 }
 
 interface CoreSearchMatch {
+  isIgnored?: boolean;
   kind: string;
   path: string;
   line: number | null;
