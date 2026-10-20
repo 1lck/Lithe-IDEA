@@ -13,6 +13,17 @@ export type TerminalKeyAction =
   | { type: "switchTab"; direction: "next" | "prev" }
   | { type: "write"; data: string };
 
+export interface TerminalKeyContext {
+  /**
+   * True when the terminal currently has selected text.
+   *
+   * Ctrl+C means two things in a terminal: with a selection it copies, without
+   * one it must reach the program as SIGINT so a running command can be
+   * interrupted. Defaulting to `false` keeps the previous behaviour exactly.
+   */
+  hasSelection?: boolean;
+}
+
 export function isTerminalAltGraphInput(event: TerminalKeyboardEvent): boolean {
   return (
     event.getModifierState?.("AltGraph") === true ||
@@ -29,8 +40,24 @@ export function isTerminalAltTextInput(event: TerminalKeyboardEvent): boolean {
 export function getTerminalKeyAction(
   event: TerminalKeyboardEvent,
   platform = "macos",
+  context: TerminalKeyContext = {},
 ): TerminalKeyAction {
   if (event.type !== "keydown") return { type: "passthrough" };
+
+  // IDEA and Windows Terminal both let plain Ctrl+C copy a selection and keep it
+  // as SIGINT otherwise. Only intercepting when text is selected is what keeps
+  // an interrupt available while a command is running.
+  if (
+    platform !== "macos" &&
+    event.ctrlKey &&
+    !event.shiftKey &&
+    !event.altKey &&
+    !event.metaKey &&
+    event.key.toLowerCase() === "c" &&
+    context.hasSelection
+  ) {
+    return { type: "copy" };
+  }
 
   if (platform !== "macos" && event.ctrlKey && event.shiftKey && !event.altKey && !event.metaKey) {
     const key = event.key.toLowerCase();

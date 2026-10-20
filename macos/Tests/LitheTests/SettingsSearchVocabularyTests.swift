@@ -52,11 +52,49 @@ struct SettingsSearchVocabularyTests {
         #expect(!SettingsSearchVocabulary.matches(query: "menlo", category: .editor))
     }
 
+    @Test func logsAndDiagnosticsShareOneSearchableToolsPage() throws {
+        let translations = try simplifiedChineseTranslations()
+        for query in ["Logs", "Log directory", "Log timeline", "Detailed diagnostics", "日志", "日志目录", "详细诊断"] {
+            #expect(SettingsSearchVocabulary.matches(query: query, category: .diagnostics, localize: { translations[$0] ?? $0 }))
+            #expect(!SettingsSearchVocabulary.matches(query: query, category: .general, localize: { translations[$0] ?? $0 }))
+        }
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let fixture = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: root.appendingPathComponent("shared/fixtures/diagnostics/logging-ui-v1.json"))) as? [String: Any])
+        let navigation = try #require(fixture["navigation"] as? [String: String])
+        #expect(SettingsCategory.diagnostics.title == navigation["title"])
+        #expect(SettingsCategory.diagnostics.group?.rawValue == navigation["group"])
+        #expect(SettingsCategory.diagnostics.rawValue == navigation["macosCategory"])
+        #expect(SettingsCategory.diagnostics.group == .tools)
+        #expect(SettingsCategory.diagnostics.rawValue == "Diagnostics", "Existing navigation identifiers remain compatible")
+    }
+
     @Test func emptyQueryMatchesEveryPage() {
         for category in SettingsCategory.allCases {
             #expect(SettingsSearchVocabulary.matches(query: "", category: category))
             #expect(SettingsSearchVocabulary.matches(query: "   ", category: category))
         }
+    }
+
+    /// The scrollback row initially shipped with "Scrollback lines" as its only
+    /// new term, so the label the page actually shows — "Terminal scrollback" —
+    /// could not find the page, neither in English nor in its translation.
+    @Test func terminalPageMatchesTheScrollbackQueries() {
+        #expect(SettingsSearchVocabulary.matches(query: "Scrollback", category: .terminal))
+        #expect(SettingsSearchVocabulary.matches(query: "Scrollback lines", category: .terminal))
+        #expect(SettingsSearchVocabulary.matches(query: "Terminal scrollback", category: .terminal))
+    }
+
+    @Test func simplifiedChineseScrollbackQueriesFindTheTerminalPage() throws {
+        let translations = try simplifiedChineseTranslations()
+        let localize: (String) -> String = { translations[$0] ?? $0 }
+
+        #expect(translations["Terminal scrollback"] == "终端回滚行数")
+
+        #expect(SettingsSearchVocabulary.matches(query: "终端回滚行数", category: .terminal, localize: localize))
+        #expect(SettingsSearchVocabulary.matches(query: "回滚行数", category: .terminal, localize: localize))
+        #expect(SettingsSearchVocabulary.matches(query: "回滚", category: .terminal, localize: localize))
+        #expect(SettingsSearchVocabulary.matches(query: "行数", category: .terminal, localize: localize))
+        #expect(!SettingsSearchVocabulary.matches(query: "终端回滚行数", category: .editor, localize: localize))
     }
 
     /// The visible Chinese label must keep its English key, otherwise typing what

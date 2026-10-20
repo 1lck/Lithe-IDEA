@@ -16,6 +16,13 @@ final class AppSettings: ObservableObject {
         set { defaults.set(newValue, forKey: Self.agentSelectionPreferenceKey) }
     }
 
+    nonisolated static let defaultTerminalScrollbackLines = 2_000
+    nonisolated static let terminalScrollbackLinesRange = 100...50_000
+
+    nonisolated static func normalizedTerminalScrollbackLines(_ value: Int) -> Int {
+        min(max(value, terminalScrollbackLinesRange.lowerBound), terminalScrollbackLinesRange.upperBound)
+    }
+
     private enum Key {
         static let colorTheme = "settings.colorTheme"
         static let themePreference = "settings.themePreference"
@@ -31,6 +38,7 @@ final class AppSettings: ObservableObject {
         static let autoSave = "settings.autoSave"
         static let autoSaveDelay = "settings.autoSaveDelay"
         static let terminalShell = "settings.terminalShell"
+        static let terminalScrollbackLines = "settings.terminalScrollbackLines"
         static let terminalShellPathOverride = "settings.terminalShellPathOverride"
         static let hiddenDirectories = "settings.hiddenDirectories"
         static let hiddenFilePatterns = "settings.hiddenFilePatterns"
@@ -110,6 +118,16 @@ final class AppSettings: ObservableObject {
     @Published var autoSaveDelay: Double { didSet { defaults.set(autoSaveDelay, forKey: Key.autoSaveDelay) } }
     @Published var terminalShellPathOverride: String { didSet { defaults.set(terminalShellPathOverride, forKey: Key.terminalShellPathOverride) } }
     @Published var terminalShell: TerminalShell { didSet { defaults.set(terminalShell.rawValue, forKey: Key.terminalShell) } }
+    @Published var terminalScrollbackLines: Int {
+        didSet {
+            let normalized = Self.normalizedTerminalScrollbackLines(terminalScrollbackLines)
+            guard normalized == terminalScrollbackLines else {
+                terminalScrollbackLines = normalized
+                return
+            }
+            defaults.set(terminalScrollbackLines, forKey: Key.terminalScrollbackLines)
+        }
+    }
     @Published var hiddenDirectoryNames: [String] {
         didSet {
             defaults.set(hiddenDirectoryNames, forKey: Key.hiddenDirectories)
@@ -242,6 +260,9 @@ final class AppSettings: ObservableObject {
         autoSaveDelay = defaults.object(forKey: Key.autoSaveDelay) as? Double ?? 1.5
         terminalShellPathOverride = defaults.string(forKey: Key.terminalShellPathOverride) ?? ""
         terminalShell = TerminalShell(rawValue: defaults.string(forKey: Key.terminalShell) ?? "") ?? .system
+        terminalScrollbackLines = Self.normalizedTerminalScrollbackLines(
+            defaults.object(forKey: Key.terminalScrollbackLines) as? Int ?? Self.defaultTerminalScrollbackLines
+        )
         hiddenDirectoryNames = defaults.stringArray(forKey: Key.hiddenDirectories)
             ?? FileVisibilityRules.default.hiddenDirectoryNames
         hiddenFilePatterns = defaults.stringArray(forKey: Key.hiddenFilePatterns)
@@ -429,6 +450,7 @@ final class AppSettings: ObservableObject {
         autoSave = true
         autoSaveDelay = 1.5
         terminalShell = .system
+        terminalScrollbackLines = Self.defaultTerminalScrollbackLines
         terminalShellPathOverride = ""
         hiddenDirectoryNames = FileVisibilityRules.default.hiddenDirectoryNames
         hiddenFilePatterns = FileVisibilityRules.default.hiddenFilePatterns

@@ -235,6 +235,10 @@
 "Shell" = "Shell";
 "Default shell" = "默认 Shell";
 "Used for new terminal sessions." = "用于新建的终端会话。";
+"Scrollback" = "回滚";
+"Terminal scrollback" = "终端回滚行数";
+"Lines kept for scrolling back in new terminal sessions." = "新建终端会话保留的可回滚行数。";
+"%lld lines" = "%lld 行";
 "Restore Defaults" = "恢复默认设置";
 "Done" = "完成";
 "Java SDK" = "Java SDK";
@@ -3471,3 +3475,61 @@
 "One pattern per line: `*.log`, `**/.*/`, `.*`, `cache/`. Only affects this Search Everywhere window." = "每行一个表达式：`*.log`、`**/.*/`、`.*`、`cache/`。仅影响当前双 Shift 搜索窗口。";
 
 "Edit search exclusions" = "编辑搜索排除规则";
+
+"All modules" = "全部模块";
+
+"Application" = "应用运行";
+
+"Editor and language services" = "编辑器与语言服务";
+
+"Build, run and debug" = "构建、运行与调试";
+
+"Current session" = "当前会话";
+
+"Previous session" = "上一次会话";
+
+"All sessions" = "全部会话";
+
+"Log filter" = "日志筛选";
+
+"Log level" = "日志级别";
+
+"Filter log messages" = "筛选日志内容";
+
+"From (UTC ISO 8601)" = "起始时间（UTC ISO 8601）";
+
+"Until (UTC ISO 8601)" = "结束时间（UTC ISO 8601）";
+
+"Refresh Logs" = "刷新日志";
+
+"Clear Logs" = "清空日志";
+
+"Detailed diagnostics for 15 minutes" = "详细诊断（15 分钟后关闭）";
+
+"No matching logs" = "没有匹配的日志";
+
+"Earlier log content omitted" = "较早的日志已省略";
+
+"Delete collected application logs?" = "删除已收集的应用日志？";
+
+/* Unified logs and diagnostics workflow. */
+"Logs and Diagnostics" = "日志与诊断";
+"Log locations" = "日志位置";
+"Log timeline" = "日志时间线";
+"Retention and cleanup" = "保留与清理";
+"Choose a module, enable detailed diagnostics, reproduce the problem, then preview and export a diagnostic bundle." = "选择模块，开启详细诊断并复现问题，然后预览并导出诊断包。";
+"Preview and export the selected logs with environment information. Credentials and home-directory paths are redacted; source code, editor buffers and terminal history are excluded." = "预览并导出筛选后的日志和环境信息。凭据和用户目录路径均会脱敏，不包含源码、编辑缓冲区或终端历史。";
+"Preview and Export…" = "预览并导出…";
+"Detailed diagnostics" = "详细诊断";
+"Detailed diagnostics cover the selected module and expire after 15 minutes. Refresh to see the current status." = "详细诊断仅覆盖所选模块，15 分钟后自动关闭。刷新可查看当前状态。";
+"Detailed diagnostics: On (%@)" = "详细诊断：已开启（%@）";
+"Detailed diagnostics: Off" = "详细诊断：已关闭";
+"Dropped: %lld; write failures: %lld" = "已丢弃：%lld；写入失败：%lld";
+"Earlier evidence was omitted by collection limits." = "部分较早的日志因收集上限被省略。";
+"Module logs rotate at 10 MiB and expire after 30 days. The combined budget is 100 MiB; performance logs have a separate 20 MiB budget." = "模块日志达到 10 MiB 后轮转，保留 30 天。总预算为 100 MiB，性能日志另有限额 20 MiB。";
+"Clear collected logs?" = "清空已收集的日志？";
+"Delete only Lithe-managed logs in the active directory across all modules and sessions. Filters do not limit this action. New events will continue to be recorded." = "仅删除生效目录中由 Lithe 管理的所有模块和会话日志。筛选条件不限制清理范围，后续事件仍会继续记录。";
+"Collected logs cleared." = "已清空收集的日志。";
+"Module: %@ · Session: %@ · Minimum level: %@" = "模块：%@ · 会话：%@ · 最低级别：%@";
+"Minimum level" = "最低级别";
+"Open Log Directory" = "打开日志目录";
