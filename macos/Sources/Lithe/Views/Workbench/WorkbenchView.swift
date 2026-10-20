@@ -115,7 +115,7 @@ private struct ProjectReplaceOverlay: View {
                             feature: feature,
                             session: session,
                             previewReplacement: { await model.previewProjectReplacement(query: $0, replacement: $1, options: $2) },
-                            loadPreviewDocument: { await model.documentFeature.previewDocument(at: $0) },
+                            loadPreviewDocument: { await model.documentFeature.previewDocument(at: $0, owner: .projectReplacement) },
                             close: { session.isProjectReplaceVisible = false },
                             openFile: { model.openFile($0, displayPath: $1) },
                             revealInFinder: { model.revealProjectItemInFinder($0) },
@@ -133,7 +133,7 @@ private struct ProjectReplaceOverlay: View {
                 }
             }
             .background(ProjectReplaceKeyMonitor(session: session))
-            .onDisappear { model.documentFeature.discardPreviewDocuments() }
+            .onDisappear { model.documentFeature.discardPreviewDocuments(owner: .projectReplacement) }
         }
     }
 
@@ -535,6 +535,7 @@ struct WorkbenchView: View {
                 SearchEverywhereView(
                     feature: feature,
                     session: model.searchSessionFeature,
+                    settings: model.settings,
                     actionMatches: { model.searchEverywhereActionMatches(query: $0) },
                     search: { await model.searchEverywhere(query: $0, options: $1) },
                     dismiss: { model.dismissSearchEverywhere() },
@@ -560,7 +561,9 @@ struct WorkbenchView: View {
                         guard let id = action.contributionID,
                               let contribution = model.workbenchContributions.first(where: { $0.id == id }) else { return nil }
                         return moduleUIRegistry.icon(for: contribution, role: .action)
-                    }
+                    },
+                    loadPreviewDocument: { await model.documentFeature.previewDocument(at: $0, owner: .searchEverywhere, requestID: $1) },
+                    releasePreviewDocument: { model.documentFeature.releasePreviewDocument(at: $0, owner: .searchEverywhere, requestID: $1) }
                 )
                     .transition(.opacity)
             }
@@ -782,7 +785,18 @@ struct WorkbenchView: View {
             }
             Spacer(minLength: 0)
                 .frame(maxWidth: WorkbenchTopBarMetrics.executionTrailingSpace)
-            settingsMenuButton
+            HStack(spacing: 0) {
+                Button { model.toggleSearchEverywhere() } label: {
+                    LitheIDEAIcon(resourcePath: "expui/general/search@20x20.svg", size: ActivityBarMetrics.iconSize)
+                        .foregroundStyle(LitheTheme.toolWindowButtonText)
+                }
+                .buttonStyle(LitheMainToolbarButtonStyle(isActive: model.isSearchEverywhereVisible))
+                .disabled(model.workspaceURL == nil)
+                .workbenchHoverHelp(Text("Search Everywhere (Double Shift)"), placement: .below)
+                .accessibilityLabel("Search Everywhere (Double Shift)")
+                .accessibilityIdentifier("workbench-search-everywhere")
+                settingsMenuButton
+            }
         }
         .padding(.leading, WorkbenchTopBarMetrics.leadingInset)
         .frame(height: LitheTheme.Metrics.toolbarHeight)
@@ -1177,12 +1191,8 @@ struct WorkbenchView: View {
         Button { isSettingsMenuPresented.toggle() } label: {
             LitheIDEAIcon(resourcePath: "expui/general/settings@20x20.svg", size: ActivityBarMetrics.iconSize)
                 .foregroundStyle(LitheTheme.toolWindowButtonText)
-                .frame(width: 30, height: 30)
-                .litheRowHover(isActive: isSettingsMenuPresented, cornerRadius: 6,
-                               activeBackground: LitheTheme.hoverBackground)
         }
-        .buttonStyle(.litheNoPress)
-        .frame(width: ActivityBarMetrics.rightWidth, height: LitheTheme.Metrics.toolbarHeight)
+        .buttonStyle(LitheMainToolbarButtonStyle(isActive: isSettingsMenuPresented))
         .workbenchHoverHelp(Text(LocalizedStringKey("Settings")), placement: .below)
         .accessibilityLabel(Text(LocalizedStringKey("Settings")))
         .accessibilityIdentifier("workbench-settings-menu")

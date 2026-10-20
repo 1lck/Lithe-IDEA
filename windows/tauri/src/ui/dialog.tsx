@@ -43,6 +43,8 @@ interface DialogProps {
   icon?: React.ForwardRefExoticComponent<
     Omit<AppIconProps, "ref"> & React.RefAttributes<SVGSVGElement>
   >;
+  /** Custom leading title content (e.g. the product logo); takes precedence over `icon`. */
+  iconNode?: ReactNode;
   headerActions?: ReactNode;
   footer?: ReactNode;
   size?: "sm" | "md" | "lg";
@@ -201,6 +203,7 @@ const AppDialog = ({
   onClose,
   title,
   icon: Icon,
+  iconNode,
   headerActions,
   footer,
   size = "md",
@@ -284,7 +287,7 @@ const AppDialog = ({
             )}
           >
             <div className={cn("flex min-w-0 items-center gap-2", classNames?.title)}>
-              {Icon && <Icon className="text-subtle-foreground" />}
+              {iconNode ?? (Icon && <Icon className="text-subtle-foreground" />)}
               <DialogPrimitive.Title className="min-w-0 font-sans ui-text-base font-medium text-foreground">
                 {title}
               </DialogPrimitive.Title>

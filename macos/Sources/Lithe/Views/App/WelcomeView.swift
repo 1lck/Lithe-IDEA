@@ -178,35 +178,35 @@ struct WelcomeView: View {
             Button {
                 if exists { model.openProject(project.url) }
             } label: {
-                HStack(spacing: 8) {
+                // Community RecentProjectComponent: icon (6,6,0,8), text (4,4,4,4), outer border 4.
+                HStack(alignment: .top, spacing: 12) {
                     ProjectAvatarBadge(
                         name: project.name,
                         colorIndex: ProjectIdentityAppearance.colorIndex(for: project.url),
                         size: 20,
                         isEnabled: exists
                     )
+                    .padding(.top, 2)
 
-                    // IDEA's welcome list keeps the name and path close and
-                    // rows contiguous; the previous 68pt row read as an empty
-                    // two-column layout rather than a project list.
-                    VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: 4) {
                         Text(project.name)
-                            .font(LitheTheme.uiFont(size: 13.5, weight: .regular))
+                            .font(LitheTheme.uiFont(size: 13, weight: .regular))
                             .foregroundStyle(exists ? textColor : mutedColor)
+                            .lineLimit(1)
                         Text(project.path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
-                            .font(LitheTheme.uiFont(size: 11.5))
+                            .font(LitheTheme.uiFont(size: 12))
                             .foregroundStyle(mutedColor)
                             .lineLimit(1)
                             .truncationMode(.middle)
                         if let branch = project.branch {
-                            HStack(spacing: 5) {
+                            HStack(spacing: 4) {
                                 LitheIDEAIcon(
-                                    resourcePath: "vcs/branch.svg",
-                                    size: 11,
+                                    resourcePath: "expui/general/vcs.svg",
+                                    size: 16,
                                     fallbackSystemImage: "arrow.triangle.branch"
                                 )
                                 Text(branch)
-                                    .font(LitheTheme.uiFont(size: 11.5))
+                                    .font(LitheTheme.uiFont(size: 12))
                                     .lineLimit(1)
                                     .truncationMode(.middle)
                             }
@@ -215,11 +215,12 @@ struct WelcomeView: View {
                     }
                     Spacer(minLength: 8)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.litheNoPress)
             .disabled(!exists)
+            .accessibilityIdentifier("welcome-project-\(project.id)")
 
             Spacer(minLength: 0)
 
@@ -254,8 +255,9 @@ struct WelcomeView: View {
             .allowsHitTesting(hoveredProjectID == project.id)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 12)
-        .frame(height: 56)
+        .padding(.leading, 10)
+        .padding(.trailing, 8)
+        .padding(.vertical, 8)
         .background(hoveredProjectID == project.id ? selectionColor : .clear)
         .clipShape(RoundedRectangle(cornerRadius: 4))
         .contentShape(Rectangle())
