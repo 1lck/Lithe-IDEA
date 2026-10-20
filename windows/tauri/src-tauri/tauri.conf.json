@@ -23,9 +23,7 @@
     "targets": ["nsis", "msi"],
     "resources": {
       "../src/extensions/bundled/**/*": "extensions/bundled/",
-      "helpers/": "helpers/",
-      "../../../.artifacts/conpty/conpty.dll": "",
-      "../../../.artifacts/conpty/OpenConsole.exe": ""
+      "helpers/": "helpers/"
     },
     "icon": ["icons/32x32.png", "icons/128x128.png", "icons/icon.ico"]
   },

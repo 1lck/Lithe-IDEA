@@ -877,7 +877,7 @@ const WSL_UNC_PREFIXES: [&str; 2] = ["\\\\wsl.localhost\\", "\\\\wsl$\\"];
 /// into a terminal, and a wrong prefix is no worse than a missing one while a
 /// hard error would block a paste that could otherwise work.
 #[tauri::command]
-pub fn wsl_automount_root(distro: String) -> String {
+pub async fn wsl_automount_root(distro: String) -> String {
     // A distribution name reaches a filesystem path here, so reject anything
     // that could escape the share instead of joining it blindly.
     if distro.is_empty()
@@ -888,12 +888,18 @@ pub fn wsl_automount_root(distro: String) -> String {
         return WSL_DEFAULT_AUTOMOUNT_ROOT.to_string();
     }
 
-    for prefix in WSL_UNC_PREFIXES {
-        let candidate = format!("{prefix}{distro}\\etc\\wsl.conf");
-        let Ok(contents) = std::fs::read_to_string(&candidate) else {
-            continue;
-        };
-        return parse_wsl_automount_root(&contents);
-    }
-    WSL_DEFAULT_AUTOMOUNT_ROOT.to_string()
+    // Reading a UNC path can stall on a stopped distribution while the user is
+    // inserting a path, so keep the read off the async runtime's worker threads.
+    tauri::async_runtime::spawn_blocking(move || {
+        for prefix in WSL_UNC_PREFIXES {
+            let candidate = format!("{prefix}{distro}\\etc\\wsl.conf");
+            let Ok(contents) = std::fs::read_to_string(&candidate) else {
+                continue;
+            };
+            return parse_wsl_automount_root(&contents);
+        }
+        WSL_DEFAULT_AUTOMOUNT_ROOT.to_string()
+    })
+    .await
+    .unwrap_or_else(|_| WSL_DEFAULT_AUTOMOUNT_ROOT.to_string())
 }

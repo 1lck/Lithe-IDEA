@@ -100,3 +100,21 @@ describe("TerminalKeyboardProtocolStream", () => {
     expect(stream.feed(`${CSI}?u`)).toBe(`${CSI}?0u`);
   });
 });
+
+// A PTY can split output at any byte, including right after `CSI`. Waiting for
+// the rest is what keeps a query at that boundary from being dropped.
+describe("chunk boundary after the CSI prefix", () => {
+  test("waits when a chunk ends between CSI and the prefix byte", () => {
+    const stream = new TerminalKeyboardProtocolStream();
+    // The chunk stops right after `ESC [`, so the prefix byte has not arrived yet.
+    expect(stream.feed(`${CSI}`)).toBeNull();
+    expect(stream.feed("?u")).toBe(`${CSI}?0u`);
+  });
+
+  test("applies a push split after CSI", () => {
+    const stream = new TerminalKeyboardProtocolStream();
+    stream.feed(`${CSI}`);
+    stream.feed(">1u");
+    expect(stream.flags).toBe(1);
+  });
+});

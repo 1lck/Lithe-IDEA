@@ -40,13 +40,17 @@ export async function resolveWslAutomountRoot(distro: string): Promise<string> {
  * Resolve the automount root for the shell a terminal is running, or the default
  * when the shell is not a WSL distribution.
  *
- * `shell` is the session shell id, so `wsl:Ubuntu` resolves to `/mnt` unless that
- * distribution's `wsl.conf` says otherwise.
+ * `shell` is the session shell id. Only `wsl:<distro>` carries a distribution;
+ * every other shell returns the default without touching the filesystem, because
+ * the lookup reads a UNC path and would otherwise delay unrelated pastes.
  */
 export async function resolveAutomountRootForShell(
   shell: string | null | undefined,
 ): Promise<string> {
-  const info: WslPathInfo | null = parseWslPath(`wsl://${(shell ?? "").slice("wsl:".length)}/`);
+  const value = (shell ?? "").trim();
+  if (!value.toLowerCase().startsWith("wsl:")) return WSL_DEFAULT_AUTOMOUNT_ROOT;
+
+  const info: WslPathInfo | null = parseWslPath(`wsl://${value.slice("wsl:".length)}/`);
   if (!info) return WSL_DEFAULT_AUTOMOUNT_ROOT;
   return resolveWslAutomountRoot(info.distro);
 }

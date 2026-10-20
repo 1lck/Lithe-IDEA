@@ -37,6 +37,34 @@ export function isTerminalAltTextInput(event: TerminalKeyboardEvent): boolean {
   return !event.ctrlKey || isTerminalAltGraphInput(event);
 }
 
+/**
+ * Encode a key whose legacy form collides with another key, in the form the kitty
+ * protocol's first bit promises.
+ *
+ * A legacy terminal sends the same byte for Tab and Ctrl+I (0x09), for Enter and
+ * Ctrl+M (0x0D), and for Escape and Ctrl+[ (0x1B), so a TUI cannot distinguish
+ * them. Once the program enables that bit it expects the distinct codepoint form
+ * for the combination that would otherwise alias.
+ *
+ * Only the aliasing combinations are re-encoded. The plain Tab, Enter, Escape and
+ * Backspace keys keep the terminal's usual bytes, which every program and shell
+ * still relies on.
+ *
+ * Returns null for keys with no ambiguous legacy form.
+ */
+function encodeDisambiguatedKey(event: TerminalKeyboardEvent): string | null {
+  if (event.ctrlKey && !event.shiftKey && !event.altKey && event.key.length === 1) {
+    const letter = event.key.toLowerCase();
+    if (letter === "i" || letter === "m" || letter === "[") {
+      // Ctrl+I, Ctrl+M and Ctrl+[ share their control byte with Tab, Enter and
+      // Escape; the codepoint form is what lets the program tell them apart.
+      const codepoint = letter === "[" ? 91 : letter.charCodeAt(0);
+      return `\x1b[${codepoint};5u`;
+    }
+  }
+  return null;
+}
+
 export interface TerminalKeyContext {
   /**
    * True when the running program negotiated the kitty keyboard protocol.
@@ -101,6 +129,15 @@ export function getTerminalKeyAction(
       type: "switchTab",
       direction: event.key === "PageDown" ? "next" : "prev",
     };
+  }
+
+  // The kitty "disambiguate escape codes" bit promises a distinct encoding for
+  // every key that a legacy terminal could not tell apart. Advertising the bit
+  // while only encoding Enter would make a TUI trust a guarantee that does not
+  // hold, so the ambiguous keys below are encoded together with it.
+  if (context.extendedKeyboardActive && !event.metaKey) {
+    const encoded = encodeDisambiguatedKey(event);
+    if (encoded) return { type: "write", data: encoded };
   }
 
   if (event.key === "Enter" && !event.metaKey) {

@@ -155,6 +155,11 @@ interface KittySequence {
  * wait for the rest, and `null` when the bytes are not a kitty sequence at all.
  */
 function parseKittySequence(buffer: string, start: number): KittySequence | "incomplete" | null {
+  // The chunk may end right after `CSI`, before the prefix byte arrives. That is
+  // a truncation, not a foreign sequence: waiting keeps a query split at this
+  // exact boundary from being dropped.
+  if (start >= buffer.length) return "incomplete";
+
   const prefix = buffer[start];
   if (prefix !== "?" && prefix !== ">" && prefix !== "<" && prefix !== "=") return null;
 
