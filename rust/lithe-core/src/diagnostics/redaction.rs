@@ -29,7 +29,7 @@ static AUTHORIZATION_HEADER: LazyLock<Regex> = LazyLock::new(|| {
 // trailing fragment past the first space.
 static SENSITIVE_ASSIGNMENT: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r#"(?i)\b(token|authorization|password|secret|api[_-]?key|cookie)["']?\s*[:=]\s*(?:"[^"]*"|'[^']*'|[^\s,;&]+)"#,
+        r#"(?i)\b((?:access[_-]?|refresh[_-]?)?token|authorization|password|secret|api[_-]?key|cookie)(?:\\?["'])?\s*[:=]\s*(?:\\"(?:\\.|[^"\\])*\\"|"(?:\\.|[^"\\])*(?:"|$)|'[^']*(?:'|$)|[^\s,;&]+)"#,
     )
     .expect("valid regex")
 });
@@ -170,6 +170,15 @@ mod tests {
             redact("plain diagnostic line with no secrets"),
             "plain diagnostic line with no secrets"
         );
+    }
+
+    #[test]
+    fn redacts_escaped_legacy_json_fields_and_token_variants() {
+        let text =
+            r#"context="{\"password\":\"fake password\",\"access_token\":\"fake-token-value\"}""#;
+        let result = redact(text);
+        assert!(!result.contains("fake password"), "{result}");
+        assert!(!result.contains("fake-token-value"), "{result}");
     }
 
     #[test]

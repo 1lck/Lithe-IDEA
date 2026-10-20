@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 /// Packages a staged directory into a zip using the macOS `ditto` tool. The
@@ -14,18 +15,25 @@ struct MacDittoArchiver: DiagnosticsArchiving {
     }
 
     func archive(directoryURL: URL, toZipURL destinationURL: URL) throws {
-        try? FileManager.default.removeItem(at: destinationURL)
+        let temporaryURL = destinationURL.deletingLastPathComponent()
+            .appendingPathComponent(".lithe-diagnostics-\(UUID().uuidString).zip")
+        defer { try? FileManager.default.removeItem(at: temporaryURL) }
         let result = processRunner.run(ProcessRequest(
             operationID: "diagnostics.export.archive",
             executablePath: Self.executablePath,
             arguments: [
                 "-c", "-k", "--sequesterRsrc", "--keepParent",
-                directoryURL.path, destinationURL.path
+                directoryURL.path, temporaryURL.path
             ],
             timeoutMilliseconds: 30_000
         ))
         guard result.succeeded else {
             throw DiagnosticsArchivingError.dittoFailed(exitCode: result.exitCode, output: result.output)
+        }
+        // Publish on the destination volume only after compression succeeds;
+        // failure must preserve an archive the user already has there.
+        guard Darwin.rename(temporaryURL.path, destinationURL.path) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
         }
     }
 }
