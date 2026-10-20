@@ -35,7 +35,7 @@ PLUGIN_ROOT=$(scripts/build-official-plugins.sh "${BUILD_ARGS[@]}")
     exit 1
 }
 # A verification that sees zero packages must fail, not pass vacuously.
-for official_plugin in dev.lithe.plugin.php-support dev.lithe.plugin.go-support dev.lithe.plugin.java-support; do
+for official_plugin in dev.lithe.plugin.java-support; do
     [[ -d "$PLUGIN_ROOT/$official_plugin" ]] || {
         print -u2 -- "Official plugin package was not built: $official_plugin"
         exit 1
@@ -45,17 +45,6 @@ plugins=("$PLUGIN_ROOT"/*(/N))
 package_signer_binary=""
 for plugin in "${plugins[@]}"; do
     swift run "${SWIFT_BUILD_ARGS[@]}" --skip-build LitheOfficialPluginVerifier "$plugin"
-    if [[ "$plugin:t" == "dev.lithe.plugin.php-support" ]]; then
-        [[ -f "$plugin/language-server.json" ]] || {
-            print -u2 -- "PHP plugin language-server manifest is missing: $plugin"
-            exit 1
-        }
-        php_launcher="$plugin/language-server/bin/intelephense"
-        [[ -x "$php_launcher" ]] || {
-            print -u2 -- "PHP plugin Intelephense launcher is missing: $php_launcher"
-            exit 1
-        }
-    fi
     # A package that ships inside the application is sealed by the app's code
     # signature instead of a publisher signature.
     signature_requirement=$(/usr/bin/plutil -extract vendor.signatureRequirement raw "$plugin/plugin.json")

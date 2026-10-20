@@ -419,13 +419,17 @@ final class PluginMarketplaceFeatureModel: ObservableObject {
 
     /// The marketplace source a plugin was installed from. Official packages
     /// installed before the marketplace existed belong to the official source.
+    /// An official plugin that moved to the community has no source left: the
+    /// official index no longer lists it, so it offers no update or reinstall.
     func installedSourceID(for pluginID: PluginID) -> String? {
         guard let snapshot = pluginManager.snapshots.first(where: { $0.id == pluginID }) else { return nil }
         guard snapshot.disk == nil else { return nil }
+        let official = OfficialPluginCatalog.entry(for: pluginID)
+        guard official?.communityReplacementID == nil else { return nil }
         if let provenance = snapshot.marketplace {
             return provenance.sourceID
         }
-        if snapshot.origin == .marketplace, OfficialPluginCatalog.entry(for: pluginID) != nil {
+        if snapshot.origin == .marketplace, official != nil {
             return PluginMarketplaceSource.officialID
         }
         return nil
@@ -586,7 +590,10 @@ final class PluginMarketplaceFeatureModel: ObservableObject {
         // Source order is the user's list order with the official source
         // first, so it is also the default choice for a shared ID.
         for source in sources where source.isEnabled {
-            for entry in indexes[source.id]?.plugins ?? [] {
+            // A cached official index from before a plugin moved to the
+            // community may still list it; its successor is installed instead.
+            for entry in indexes[source.id]?.plugins ?? []
+            where OfficialPluginCatalog.entry(for: PluginID(entry.id))?.communityReplacementID == nil {
                 offersByID[entry.id, default: []].append(PluginMarketplaceOffer(source: source, entry: entry))
             }
         }

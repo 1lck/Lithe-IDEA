@@ -295,6 +295,45 @@ struct PluginMarketplaceFeatureModelTests {
         #expect(feature.installState(for: offer) == .managedOutsideMarketplace(version: "0.9.0"))
     }
 
+    /// Go and PHP Support moved to Lithe Store. A cached official index that
+    /// still lists the old package must not offer it, and an installed copy
+    /// is no longer tied to the official source for updates or reinstall.
+    @Test
+    func officialPluginMovedToTheCommunityHasNoOfficialSource() throws {
+        let retiredID = OfficialPluginCatalog.phpPluginID
+        let (feature, _, manager) = try makeModel(staleOfficialIDs: [retiredID.rawValue])
+        let manifest = try DeclarativePluginTestSupport.officialDescriptor("PhpSupport").pluginManifest
+        manager.snapshots = [PluginManagementSnapshot(
+            manifest: manifest,
+            origin: .marketplace,
+            installationStatus: .installed,
+            isEnabled: true,
+            isRequired: false,
+            isRunning: false,
+            isQuarantined: false,
+            isSuppressedBySafeMode: false,
+            requiresRestart: false,
+            canRollback: false,
+            statusMessage: "Enabled",
+            marketplace: PluginMarketplaceProvenance(
+                sourceID: PluginMarketplaceSource.officialID,
+                sourceName: "Lithe",
+                repository: "https://github.com/Lithe-IDEA/Lithe-IDEA",
+                archiveSHA256: String(repeating: "1", count: 64),
+                contentDigest: String(repeating: "2", count: 64),
+                approvedPrograms: []
+            )
+        )]
+
+        #expect(OfficialPluginCatalog.entry(for: retiredID)?.communityReplacementID
+            == PluginID("io.github.lithe-idea.php-support"))
+        #expect(!feature.listings.contains { $0.pluginID == retiredID })
+        #expect(feature.listings.contains { $0.pluginID.rawValue == "dev.lithe.plugin.sample" })
+        #expect(feature.installedSourceID(for: retiredID) == nil)
+        #expect(feature.availableUpdate(for: retiredID) == nil)
+        #expect(feature.canUninstall(retiredID))
+    }
+
     @Test
     func aNewApprovalDiscardsThePreviousSnapshot() async throws {
         let (feature, service, _) = try makeModel()
@@ -334,12 +373,15 @@ struct PluginMarketplaceFeatureModelTests {
 
     private func makeModel(
         alsoListCommunityInOfficial: Bool = false,
+        staleOfficialIDs: [String] = [],
         communitySource community: PluginMarketplaceSource = Self.community
     ) throws -> (PluginMarketplaceFeatureModel, FakeMarketplaceService, FakePluginManager) {
         let official = MacPluginMarketplaceService.officialSource
         var officialEntries = [
             Self.entry(id: "dev.lithe.plugin.sample", date: "2026-09-01", platforms: ["darwin-arm64"])
-        ]
+        ] + staleOfficialIDs.map {
+            Self.entry(id: $0, date: "2026-10-13", platforms: ["darwin-arm64"])
+        }
         if alsoListCommunityInOfficial {
             officialEntries.append(Self.entry(id: "io.example.zig-support", date: "2026-10-01", platforms: ["darwin-arm64"]))
         }

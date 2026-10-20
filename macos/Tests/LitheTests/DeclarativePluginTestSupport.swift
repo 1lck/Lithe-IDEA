@@ -4,7 +4,9 @@ import LitheModuleAPI
 @testable import Lithe
 
 /// Loads official declarative plugins from the repository through the same
-/// Rust Core validation the application uses.
+/// Rust Core validation the application uses. Go and PHP Support moved to
+/// community plugins; their last official manifests stay as fixtures because
+/// installed copies keep the official trust policy.
 enum DeclarativePluginTestSupport {
     static let repositoryRoot = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent()
@@ -16,11 +18,19 @@ enum DeclarativePluginTestSupport {
         RustDeclarativePluginOperations(core: RustCoreBridge())
     }
 
-    static func officialManifestData(_ directoryName: String) throws -> Data {
-        try Data(contentsOf: repositoryRoot
-            .appendingPathComponent("Plugins/mac/Official", isDirectory: true)
+    static let retiredOfficialPackages: Set<String> = ["GoSupport", "PhpSupport"]
+
+    static func officialPackageURL(_ directoryName: String) -> URL {
+        let parent = retiredOfficialPackages.contains(directoryName)
+            ? "macos/Tests/LitheTests/Fixtures/RetiredOfficialPlugins"
+            : "Plugins/mac/Official"
+        return repositoryRoot
+            .appendingPathComponent(parent, isDirectory: true)
             .appendingPathComponent(directoryName, isDirectory: true)
-            .appendingPathComponent("plugin.json"))
+    }
+
+    static func officialManifestData(_ directoryName: String) throws -> Data {
+        try Data(contentsOf: officialPackageURL(directoryName).appendingPathComponent("plugin.json"))
     }
 
     static func officialDescriptor(_ directoryName: String) throws -> DeclarativePluginDescriptor {
@@ -122,7 +132,7 @@ enum DeclarativePluginTestSupport {
                 activeVersion: descriptor.pluginManifest.version,
                 origin: .bundled
             ),
-            packageURL: repositoryRoot.appendingPathComponent("Plugins/mac/Official/\(directoryName)")
+            packageURL: officialPackageURL(directoryName)
         )
         return MacServiceContainer.declarativePluginFactories(
             [installed],

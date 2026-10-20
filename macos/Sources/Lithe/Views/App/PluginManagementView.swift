@@ -451,6 +451,23 @@ private struct InstalledPluginsView: View {
                     }
                     .font(LitheTheme.smallFont)
                 }
+                if let replacementID = OfficialPluginCatalog.entry(for: plugin.id)?.communityReplacementID {
+                    Label(
+                        String(
+                            format: PluginMarketplacePresentation.localized(
+                                "%@ is no longer an official plugin. It moved to the community plugin %@ in Lithe Store and gets no further updates here. Uninstall it, then install the community version from the Marketplace.",
+                                locale: locale
+                            ),
+                            plugin.manifest.displayName,
+                            replacementID.rawValue
+                        ),
+                        systemImage: "arrow.triangle.branch"
+                    )
+                    .font(LitheTheme.smallFont)
+                    .foregroundStyle(LitheTheme.warning)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+                }
                 if plugin.origin == .community {
                     Label(
                         LocalizedStringKey(plugin.disk == nil
@@ -589,7 +606,7 @@ struct PluginManagementListContent {
             Presentation(
                 systemImage: "chevron.left.forwardslash.chevron.right",
                 tint: LitheTheme.accent,
-                summary: "Adds Go language-server integration through gopls, running, and test support. Install gopls and Go separately."
+                summary: "Retired official Go plugin. Go support is now the community plugin Go Support in Lithe Store."
             )
         case OfficialPluginCatalog.javaPluginID:
             Presentation(
@@ -601,7 +618,7 @@ struct PluginManagementListContent {
             Presentation(
                 systemImage: "globe",
                 tint: LitheTheme.success,
-                summary: "Adds PHP language-server integration, formatting, running, and test support."
+                summary: "Retired official PHP plugin. PHP support is now the community plugin PHP Support in Lithe Store."
             )
         default:
             nil

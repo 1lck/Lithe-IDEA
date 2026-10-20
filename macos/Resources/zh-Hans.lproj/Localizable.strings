@@ -2848,10 +2848,11 @@
 
 "Update required" = "需要更新";
 
-"Adds PHP language-server integration, formatting, running, and test support." = "提供 PHP 语言服务器集成、格式化、运行和测试支持。";
+"Retired official PHP plugin. PHP support is now the community plugin PHP Support in Lithe Store." = "已退役的官方 PHP 插件。PHP 支持现在由 Lithe Store 中的社区插件 PHP Support 提供。";
 "Adds Java language intelligence through the Eclipse JDT language server, with Lombok, debugging, and test support. Ships its own Java runtime." = "通过 Eclipse JDT 语言服务器提供 Java 代码智能，并支持 Lombok、调试和测试。自带 Java 运行时。";
 
-"Adds Go language-server integration through gopls, running, and test support. Install gopls and Go separately." = "通过 gopls 提供 Go 语言服务器集成、运行和测试支持。需要另行安装 gopls 和 Go。";
+"Retired official Go plugin. Go support is now the community plugin Go Support in Lithe Store." = "已退役的官方 Go 插件。Go 支持现在由 Lithe Store 中的社区插件 Go Support 提供。";
+"%@ is no longer an official plugin. It moved to the community plugin %@ in Lithe Store and gets no further updates here. Uninstall it, then install the community version from the Marketplace." = "%@ 已不再是官方插件，已迁移为 Lithe Store 中的社区插件 %@，这里不会再收到更新。请先卸载它，再从插件市场安装社区版本。";
 
 "Download PHP Support from the official signed plugin package." = "从官方签名的插件包下载 PHP 支持。";
 

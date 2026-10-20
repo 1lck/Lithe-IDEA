@@ -139,10 +139,10 @@ struct LSPControlCenterView: View {
             }
     }
 
-    // Languages owned by an official plugin are controlled here only once
+    // Languages owned by a published official plugin are controlled here only once
     // that plugin is installed, enabled, and loaded in this process.
     private func officialPluginEntry(languageID: String) -> OfficialPluginCatalog.Entry? {
-        OfficialPluginCatalog.entries.first { $0.languageID == languageID }
+        OfficialPluginCatalog.publishedEntries.first { $0.languageID == languageID }
     }
 
     private func pluginSnapshot(_ entry: OfficialPluginCatalog.Entry) -> PluginManagementSnapshot? {
@@ -162,7 +162,7 @@ struct LSPControlCenterView: View {
     }
 
     private var pluginNotices: [String] {
-        OfficialPluginCatalog.entries.compactMap { entry in
+        OfficialPluginCatalog.publishedEntries.compactMap { entry in
             guard projectUses(entry), !pluginIsReady(entry) else { return nil }
             return pluginNotice(entry)
         }

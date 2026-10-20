@@ -2,22 +2,17 @@
   "id": "php-optional-plugin",
   "area": "语言支持",
   "group": "PHP",
-  "capability": "PHP 按需安装与插件生命周期",
+  "capability": "PHP 插件按需安装与生命周期（macOS 为 Lithe Store 社区插件）",
   "macos": {
     "evidence": [
-      "Plugins/mac/Official/PhpSupport/plugin.json",
-      "Plugins/mac/Official/PhpSupport/language-server.json",
-      "scripts/official-plugin-distribution.mjs",
+      "macos/Tests/LitheTests/Fixtures/RetiredOfficialPlugins/PhpSupport/plugin.json",
+      "macos/Sources/LitheModuleAPI/Catalog/BuiltInModuleCatalog.swift",
       "macos/Sources/Lithe/Platform/MacOS/Plugins",
       "macos/Sources/Lithe/Views/App/PluginManagementView.swift",
       "macos/Sources/Lithe/Views/Language/LSPControlCenterView.swift",
-      ".github/workflows/release-macos.yml",
-      "macos/Sources/LithePluginPackageSigning/PluginPackageSignature.swift",
-      "macos/Tests/LitheTests/PluginPackageStoreTests.swift",
-      "macos/Tests/LitheTests/PluginLocalDevelopmentTests.swift",
-      "scripts/build-official-plugins.sh",
-      ".github/workflows/release-official-plugins.yml",
-      "Plugins/marketplace/official-plugins.json"
+      "macos/Sources/Lithe/Application/Features/PluginMarketplace.swift",
+      "macos/Tests/LitheTests/PluginMarketplaceFeatureModelTests.swift",
+      "macos/Tests/LitheTests/PluginPackageStoreTests.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -33,6 +28,6 @@
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
   },
-  "owner": "PHP Support",
-  "verification": "macOS 在干净安装上打开插件管理，确认 PHP 出现在插件市场的“Lithe 官方”源中，可按本机架构下载 `plugin-php-support-v<版本>` 标签发布的签名包并安装、失败时可从磁盘导入；安装后重启，在 LSP 界面只控制当前项目开关和状态，验证重装、卸载均在重启后生效且用户工具保留。对官方 PHP 包将 plugin.json 的 signatureRequirement 从 publisherPackage 篡改为 sameTeamAsHost，确认 MacPluginPackageStore 在调用包 verifier 前按宿主 OfficialPluginCatalog 拒绝策略降级；删除或篡改 lithe-plugin-signature.json、manifest、版本或任意签名覆盖文件时也必须拒绝。Windows 从独立 .lithe-extension 文件导入，默认禁用；启用后重启确认能恢复，卸载后重启确认不恢复。密钥重置后的 macOS 官方包使用 `lithe-official-plugins-v2` 信任根；验证必须确认旧 v1 签名被拒绝、新 v2 签名可安装，且新构建不会把旧客户端的更新兼容性误报为已验证。 macOS 本地开发包：用 `scripts/build-official-plugins.sh --configuration debug --plugin-id dev.lithe.plugin.php-support --development-unsigned` 在无私钥时生成不含签名文档的包，确认 debug 构建可从磁盘安装并标记为未签名开发包、同版本可重复安装，release 构建拒绝加载该来源，且带签名文档的包无论安装来源都必须验签；从 Dock 启动（精简 PATH）打开 PHP 项目并点开 `.php` 文件，确认 Intelephense 通过 `LITHE_NODE_PATH` 找到 Homebrew 或 nvm/volta/fnm 安装的 Node 并启动。 声明式插件包：PHP 插件只含 plugin.json 与打包的 Intelephense，不含原生代码；安装后启用、禁用无需重启。已安装旧版原生 PHP 包（0.3.0）的环境启动后，插件管理显示“需要更新”且不加载旧包代码，从插件市场安装或更新替换为声明式包并保留启用状态，回滚不能回到旧原生包。 发布：只有 PHP 插件目录变化并合入 preview 后，release-official-plugins 工作流才新建 `plugin-php-support-v<版本>` 标签与 Release，并自动开 PR 更新 Plugins/marketplace/index.json；版本未变而内容变化时 PR 检查失败。"
+  "owner": "PHP Support（macOS 社区插件 Lithe-IDEA/lithe-plugin-php）",
+  "verification": "macOS 在干净安装上打开插件管理，确认“Lithe 官方”源不再列出 PHP，Lithe Store 社区源列出 io.github.lithe-idea.php-support 0.1.0；安装后启用无需重启。社区包不打包 Intelephense（其许可证禁止再分发）：未安装时 LSP 显示缺失提示而不是崩溃；`npm install -g intelephense` 后从 Dock 启动（精简 PATH）打开 PHP 项目并点开 `.php` 文件，确认 intelephense 通过 `LITHE_NODE_PATH` 找到 Homebrew 或 nvm/volta/fnm 安装的 Node 并启动。已安装旧官方包 dev.lithe.plugin.php-support 的环境：插件管理显示“已迁移到社区插件”提示、没有官方更新、可以卸载；对旧官方包将 plugin.json 的 signatureRequirement 从 publisherPackage 篡改为 sameTeamAsHost，确认 MacPluginPackageStore 仍按宿主 OfficialPluginCatalog 拒绝降级；旧包与社区包同时安装时，社区包因语言冲突被拒绝，需先卸载旧包。Windows 从独立 .lithe-extension 文件导入，默认禁用；启用后重启确认能恢复，卸载后重启确认不恢复。"
 }
