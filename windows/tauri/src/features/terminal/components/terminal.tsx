@@ -163,15 +163,16 @@ export const XtermTerminal = ({
     workspaceRootRef.current = rootFolderPath;
   }, [rootFolderPath]);
 
-  const { currentConnectionIdRef, sendTerminalSize, writeBuffered } = useTerminalConnection({
-    connectionId,
-    getTerminalTheme,
-    initialCommand,
-    isInitialized,
-    onTerminalExit,
-    remoteConnectionId,
-    reuseExistingConnection: hadExistingConnectionOnMountRef.current,
-    sessionId,
+  const { currentConnectionIdRef, isExtendedKeyboardActive, sendTerminalSize, writeBuffered } =
+    useTerminalConnection({
+      connectionId,
+      getTerminalTheme,
+      initialCommand,
+      isInitialized,
+      onTerminalExit,
+      remoteConnectionId,
+      reuseExistingConnection: hadExistingConnectionOnMountRef.current,
+      sessionId,
     terminal: xtermRef.current,
     updateSession,
   });
@@ -350,6 +351,7 @@ export const XtermTerminal = ({
           // Read the live selection rather than the state captured at render time:
           // the user may have selected text since the last re-render.
           hasSelection: hasTerminalSelection(terminal),
+          extendedKeyboardActive: isExtendedKeyboardActive(),
         });
         if (action.type === "switchTab") {
           event.preventDefault();

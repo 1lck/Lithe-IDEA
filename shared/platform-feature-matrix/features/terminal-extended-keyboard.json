@@ -15,6 +15,9 @@
     "evidence": [
       "windows/tauri/src/features/terminal/utils/terminal-keyboard.ts",
       "windows/tauri/src/features/terminal/utils/terminal-keyboard.test.ts",
+      "windows/tauri/src/features/terminal/utils/terminal-keyboard-protocol.ts",
+      "windows/tauri/src/features/terminal/utils/terminal-keyboard-protocol.test.ts",
+      "windows/tauri/src/features/terminal/hooks/use-terminal-connection.ts",
       "windows/tauri/src-tauri/build.rs",
       "third_party/conpty/manifest.json",
       "windows/tauri/src-tauri/tauri.conf.json"
@@ -23,5 +26,5 @@
     "verificationStatus": "pending"
   },
   "owner": "Terminal",
-  "verification": "在运行 kimi 等 TUI 程序的终端里按 Shift+Enter，确认插入换行而不是提交；Ctrl+Enter、Alt+Enter 同样按 kitty 协议发送 CSI 13;<modifier>u。 macOS 由 SwiftTerm 1.15.0 实现该协议，Lithe 不拦截按键。Windows 必须使用随应用分发的 conpty.dll 与 OpenConsole.exe：系统 Windows 10 的 conhost 会丢弃该序列，因此安装目录需要这两个文件，且可执行文件同目录优先于系统宿主。核对卸载或手动删除这两个文件后 Shift+Enter 失效而终端其余功能正常，确认降级不崩溃。真实 Windows 与 macOS 产品交互验收 pending。"
+  "verification": "在运行 kimi 等 TUI 程序的终端里按 Shift+Enter，确认插入换行而不是提交；Ctrl+Enter、Alt+Enter 同样在程序协商成功后发送 CSI 13;<modifier>u。 键盘协议由 Lithe 在原始输出里回应：程序发 CSI > 7 u 与 CSI ? u 后应收到 CSI ? 1 u，只有收到答复后程序才启用增强按键。对未协商的程序（如 PowerShell、cmd 提示符），Shift+Enter 必须回落到终端自身的回车编码，不能把 [13;2u 当文本打在命令行上。 macOS 由 SwiftTerm 1.15.0 实现该协议，Lithe 不拦截按键。Windows 必须使用随应用分发的 conpty.dll 与 OpenConsole.exe：系统 Windows 10 的 conhost 会丢弃该序列，因此安装目录需要这两个文件，且可执行文件同目录优先于系统宿主。核对卸载或手动删除这两个文件后 Shift+Enter 失效而终端其余功能正常，确认降级不崩溃。真实 Windows 与 macOS 产品交互验收 pending。"
 }

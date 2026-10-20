@@ -37,6 +37,17 @@ export function isTerminalAltTextInput(event: TerminalKeyboardEvent): boolean {
   return !event.ctrlKey || isTerminalAltGraphInput(event);
 }
 
+export interface TerminalKeyContext {
+  /**
+   * True when the running program negotiated the kitty keyboard protocol.
+   *
+   * Modified Enter is only expressible through that protocol. Sending the
+   * sequence to a program that did not ask for it makes the terminal print the
+   * leftover bytes as text on the command line.
+   */
+  extendedKeyboardActive?: boolean;
+}
+
 export function getTerminalKeyAction(
   event: TerminalKeyboardEvent,
   platform = "macos",
@@ -95,7 +106,10 @@ export function getTerminalKeyAction(
   if (event.key === "Enter" && !event.metaKey) {
     const modifier =
       1 + (event.shiftKey ? 1 : 0) + (event.altKey ? 2 : 0) + (event.ctrlKey ? 4 : 0);
-    if (modifier > 1) {
+    // Only a program that negotiated the kitty protocol can decode this form; for
+    // everyone else the bytes are literal text and show up on the command line.
+    // Leaving the key alone lets the terminal send its usual carriage return.
+    if (modifier > 1 && context.extendedKeyboardActive) {
       return { type: "write", data: `\x1b[13;${modifier}u` };
     }
   }

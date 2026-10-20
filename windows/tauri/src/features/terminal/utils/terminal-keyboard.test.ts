@@ -118,4 +118,49 @@ describe("terminal keyboard actions", () => {
       ),
     ).toEqual({ type: "passthrough" });
   });
+
+  // The kitty encoding is only meaningful to a program that asked for it. Sending
+  // it unconditionally made a plain shell print the leftover `[13;2u` on the
+  // command line instead of treating the key as Enter.
+  test("sends the kitty encoding only while the program asked for it", () => {
+    const shiftEnter = {
+      type: "keydown" as const,
+      key: "Enter",
+      ctrlKey: false,
+      shiftKey: true,
+      altKey: false,
+      metaKey: false,
+    };
+
+    expect(getTerminalKeyAction(shiftEnter, "windows", { extendedKeyboardActive: true })).toEqual({
+      type: "write",
+      data: "\u001b[13;2u",
+    });
+    expect(
+      getTerminalKeyAction(shiftEnter, "windows", { extendedKeyboardActive: false }),
+    ).toEqual({ type: "passthrough" });
+    expect(getTerminalKeyAction(shiftEnter, "windows")).toEqual({ type: "passthrough" });
+  });
+
+  test("encodes the modifier set for modified enter", () => {
+    const base = {
+      type: "keydown" as const,
+      key: "Enter",
+      ctrlKey: false,
+      shiftKey: false,
+      altKey: false,
+      metaKey: false,
+    };
+
+    expect(
+      getTerminalKeyAction({ ...base, ctrlKey: true }, "windows", {
+        extendedKeyboardActive: true,
+      }),
+    ).toEqual({ type: "write", data: "\u001b[13;5u" });
+    expect(
+      getTerminalKeyAction({ ...base, altKey: true }, "windows", {
+        extendedKeyboardActive: true,
+      }),
+    ).toEqual({ type: "write", data: "\u001b[13;3u" });
+  });
 });
