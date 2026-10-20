@@ -2,7 +2,7 @@
   "id": "terminal-native-palette",
   "area": "工作台",
   "group": "终端",
-  "capability": "macOS 终端正文优先使用 Terminal.app 默认描述文件的文字与 ANSI 配色",
+  "capability": "macOS 终端 ANSI 配色逐项按与 Lithe 编辑器背景的 WCAG 对比度门控（至少 4.5）；通过门控时优先使用 Terminal.app 描述文件颜色，未通过时逐项回退到 Lithe ANSI 配色",
   "macos": {
     "implementationStatus": "implemented",
     "verificationStatus": "pending",
@@ -19,5 +19,5 @@
     ]
   },
   "owner": "Terminal",
-  "verification": "核对 macOS Terminal.app 默认描述文件的普通文字及 16 个 ANSI 颜色，确认终端提示符和 ANSI 输出优先使用这些颜色；描述文件或单项颜色缺失、无效时分别回退到 Lithe 主题文字色和现有 ANSI 默认值。背景、字体、字号、光标和选区保持原设置，保留 shell 的粗体与显式真彩色语义，不写入 Terminal.app 或 shell 配置。"
+  "verification": "核对 macOS Terminal.app 默认描述文件的普通文字及 16 个 ANSI 颜色：每个 ANSI 颜色分别根据其与 Lithe 编辑器背景的 WCAG 对比度（至少 4.5）决定是否导入；对比度不足或颜色缺失、无效时，仅该项回退到 Lithe 对应 ANSI 默认值，浅色编辑器背景使用高对比度浅色调色板。背景、字体、字号、光标和选区保持原设置，保留 shell 的粗体与显式真彩色语义，不写入 Terminal.app 或 shell 配置。"
 }

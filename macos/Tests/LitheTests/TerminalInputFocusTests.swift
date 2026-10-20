@@ -37,6 +37,63 @@ struct TerminalInputFocusTests {
     }
 
     @Test
+    func terminalPaletteAppliesContrastGatePerImportedEntry() throws {
+        func archive(_ color: NSColor) throws -> Data {
+            try NSKeyedArchiver.archivedData(withRootObject: color, requiringSecureCoding: true)
+        }
+        let paleCyan = NSColor(srgbRed: 0, green: 0.9, blue: 0.9, alpha: 1)
+        let darkGreen = NSColor(srgbRed: 0, green: 0.25, blue: 0.25, alpha: 1)
+        let preferences: [String: Any] = [
+            "Default Window Settings": "Selected",
+            "Window Settings": ["Selected": [
+                "ANSIBrightCyanColor": try archive(paleCyan),
+                "ANSIBrightGreenColor": try archive(darkGreen)
+            ]]
+        ]
+
+        let lightEditor = LitheTheme.nsColor(.editor, isDark: false)
+        let gated = MacTerminalPalette(preferences: preferences, backgroundColor: lightEditor)
+        #expect(gated.ansiColors[14] == nil)
+        #expect(gated.ansiColors[10]?.green == UInt16((darkGreen.greenComponent * 65535).rounded()))
+
+        let ungated = MacTerminalPalette(preferences: preferences)
+        #expect(ungated.ansiColors[14]?.green == UInt16((paleCyan.greenComponent * 65535).rounded()))
+    }
+
+    @Test
+    func lightFallbackANSIColorsMeetContrastInvariant() {
+        let editor = LitheTheme.nsColor(.editor, isDark: false)
+        let colors = MacTerminalPalette.fallbackANSIColors(isDark: false)
+        #expect(colors.count == 16)
+        for value in colors {
+            let color = NSColor(
+                srgbRed: CGFloat((value >> 16) & 0xff) / 255,
+                green: CGFloat((value >> 8) & 0xff) / 255,
+                blue: CGFloat(value & 0xff) / 255,
+                alpha: 1
+            )
+            #expect(contrastRatio(color, against: editor) >= 4.5)
+        }
+    }
+
+    private func contrastRatio(_ foreground: NSColor, against background: NSColor) -> CGFloat {
+        func luminance(_ color: NSColor) -> CGFloat {
+            let color = color.usingColorSpace(.sRGB)!
+            func linear(_ channel: CGFloat) -> CGFloat {
+                channel <= 0.04045 ? channel / 12.92 : pow((channel + 0.055) / 1.055, 2.4)
+            }
+            return 0.2126 * linear(color.redComponent)
+                + 0.7152 * linear(color.greenComponent)
+                + 0.0722 * linear(color.blueComponent)
+        }
+        let foregroundLuminance = luminance(foreground)
+        let backgroundLuminance = luminance(background)
+        let lighter = max(foregroundLuminance, backgroundLuminance)
+        let darker = min(foregroundLuminance, backgroundLuminance)
+        return (lighter + 0.05) / (darker + 0.05)
+    }
+
+    @Test
     func terminalCanvasLeavesSharedPaneBackgroundVisible() {
         let terminal = LitheTerminalView(frame: NSRect(x: 0, y: 0, width: 400, height: 200))
         terminal.applyThemeColors()

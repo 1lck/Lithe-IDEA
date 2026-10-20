@@ -7,7 +7,7 @@ pub mod ai;
 mod build;
 mod community;
 mod debug;
-mod diagnostics;
+pub mod diagnostics;
 mod editor;
 pub mod execution;
 mod git;

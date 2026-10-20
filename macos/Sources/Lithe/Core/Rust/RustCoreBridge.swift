@@ -250,6 +250,41 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let html: String
     }
 
+    struct PreparedLogEvent: Codable, Sendable {
+        let category: String
+        let scope: String
+        let message: String
+        let fields: [String: String]
+    }
+
+    struct LogSource: Encodable, Sendable {
+        let category: String
+        let text: String
+    }
+
+    struct LogQueryPayload: Decodable, Sendable {
+        let content: String
+        let truncated: Bool
+        let matchedLines: Int
+    }
+
+    private struct LogEventRequest: Encodable {
+        let scope: String
+        let message: String
+        let fields: [String: String]
+    }
+
+    private struct LogQueryRequest: Encodable {
+        let sources: [LogSource]
+        let category: String?
+        let minimumLevel: String?
+        let sessionId: String?
+        let search: String?
+        let since: String?
+        let until: String?
+        let limit: Int
+    }
+
     struct DiagnosticsRedactTextPayload: Decodable, Sendable {
         let redacted: String
     }
@@ -3346,6 +3381,17 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
 
     /// Redacts credentials, tokens, and home-directory paths from diagnostic
     /// text before it is staged for a diagnostic bundle export.
+    func prepareLogEvent(scope: String, message: String, fields: [String: String]) -> PreparedLogEvent? {
+        execute(command: "diagnostics.prepareLogEvent", payload: LogEventRequest(
+            scope: scope, message: message, fields: fields))
+    }
+
+    func queryLogs(sources: [LogSource], query: ApplicationLogQuery, sessionID: String?) -> LogQueryPayload? {
+        execute(command: "diagnostics.queryLogs", payload: LogQueryRequest(
+            sources: sources, category: query.category, minimumLevel: query.minimumLevel,
+            sessionId: sessionID, search: query.search, since: query.since, until: query.until, limit: 10000))
+    }
+
     func redactDiagnosticText(_ text: String) -> Result<DiagnosticsRedactTextPayload, CoreCallError> {
         executeResult(
             command: "diagnostics.redactText",

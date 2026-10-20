@@ -1,0 +1,79 @@
+{
+  "version": 1,
+  "categories": [
+    "application",
+    "language",
+    "run",
+    "git",
+    "plugins",
+    "performance"
+  ],
+  "limits": {
+    "fileBytes": 10485760,
+    "totalBytes": 104857600,
+    "performanceBytes": 20971520,
+    "exportBytes": 10485760,
+    "diagnosticDurationMilliseconds": 900000
+  },
+  "cases": [
+    {
+      "scope": "language.java",
+      "category": "language"
+    },
+    {
+      "scope": "git.fetch",
+      "category": "git"
+    },
+    {
+      "scope": "run.build",
+      "category": "run"
+    },
+    {
+      "scope": "plugins.activate",
+      "category": "plugins"
+    },
+    {
+      "scope": "perf.fps",
+      "category": "performance"
+    },
+    {
+      "scope": "../../escape",
+      "category": "application"
+    }
+  ],
+  "timeQueries": [
+    {
+      "request": {
+        "sources": [
+          {
+            "category": "application",
+            "text": "2026-10-20T01:00:00.500Z INFO middle\n2026-10-20T01:00:01.000Z INFO later\n2026-10-20T01:00:00Z INFO start"
+          }
+        ],
+        "since": "2026-10-20T01:00:00Z",
+        "until": "2026-10-20T01:00:00.500000000+00:00"
+      },
+      "messages": [
+        "start",
+        "middle"
+      ]
+    },
+    {
+      "request": {
+        "sources": [
+          {
+            "category": "git",
+            "text": "2026-10-20T01:00:01Z INFO later\n2026-10-20T03:00:00.1+02:00 INFO fractional\n2026-10-20T01:00:00Z INFO start"
+          }
+        ],
+        "since": "2026-10-20T03:00:00+02:00",
+        "until": "2026-10-20T01:00:01.000Z"
+      },
+      "messages": [
+        "start",
+        "fractional",
+        "later"
+      ]
+    }
+  ]
+}

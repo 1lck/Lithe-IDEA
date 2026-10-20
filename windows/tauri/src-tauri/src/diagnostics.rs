@@ -1,19 +1,23 @@
 //! Windows-owned diagnostic bundle preview and export (Issue #420).
 //!
-//! Every file that can enter a bundle comes from `LogManager::files_available_for_export`
-//! (application logs and panic sidecars only) plus two generated JSON documents.
+//! Every file that can enter a bundle comes from bounded `LogManager::collect_logs`
+//! module tails and panic sidecars, plus generated environment/completeness documents.
 //! Nothing else — workspace source, editor buffers, and terminal history are never
 //! read here. Redaction and manifest shaping are delegated to `lithe_core::execute_json`
 //! so both platforms apply the exact same rules.
 
-use crate::logging::LogManager;
+use crate::logging::{LogManager, LogSelection};
 use crate::memory;
 use serde::Serialize;
 use serde_json::{json, Value};
+use std::collections::VecDeque;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 use std::time::{SystemTime, UNIX_EPOCH};
 use sysinfo::{CpuRefreshKind, Disks, RefreshKind, System};
 use tauri::{AppHandle, State};
@@ -45,6 +49,7 @@ pub struct DiagnosticBundlePreview {
     /// The exact `diagnostics.buildManifest` response: `schemaVersion`,
     /// `generatedAtEpochMilliseconds`, `environment`, and sorted `files`.
     manifest: Value,
+    snapshot_id: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -55,33 +60,54 @@ pub struct DiagnosticBundleResult {
     total_size_bytes: u64,
 }
 
-/// One log or panic-sidecar file staged for the bundle, before its contents
-/// are read and redacted.
-struct StagedLogFile {
-    source_path: PathBuf,
-    relative_path: String,
-    description: String,
+/// Each preview owns immutable, redacted bytes. Bounded capacity and expiry
+/// release abandoned dialogs without a cleanup thread or persistent cache.
+#[derive(Default)]
+pub struct DiagnosticBundleStore(Mutex<VecDeque<(String, Instant, FrozenBundle)>>);
+
+struct FrozenBundle {
+    manifest: Value,
+    files: Vec<(String, Vec<u8>)>,
 }
 
-fn staged_log_files(manager: &LogManager) -> Vec<StagedLogFile> {
-    manager
-        .files_available_for_export()
-        .into_iter()
-        .filter_map(|path| {
-            let file_name = path.file_name()?.to_str()?.to_string();
-            let description = if file_name.starts_with("lithe.panic.") {
-                "Panic report".to_string()
-            } else {
-                "Application log".to_string()
-            };
-            Some(StagedLogFile {
-                relative_path: format!("logs/{file_name}"),
-                description,
-                source_path: path,
-            })
-        })
-        .collect()
+impl DiagnosticBundleStore {
+    fn insert(&self, snapshot: FrozenBundle) -> Result<DiagnosticBundlePreview, String> {
+        let mut snapshots = self
+            .0
+            .lock()
+            .map_err(|_| "Diagnostic snapshots unavailable")?;
+        snapshots.retain(|(_, created, _)| created.elapsed() < Duration::from_secs(300));
+        if snapshots.len() >= 4 {
+            snapshots.pop_front();
+        }
+        let id = format!(
+            "{}-{}",
+            std::process::id(),
+            SNAPSHOT_ID.fetch_add(1, Ordering::Relaxed)
+        );
+        let preview = DiagnosticBundlePreview {
+            manifest: snapshot.manifest.clone(),
+            snapshot_id: id.clone(),
+        };
+        snapshots.push_back((id, Instant::now(), snapshot));
+        Ok(preview)
+    }
+
+    fn take(&self, id: &str) -> Result<FrozenBundle, String> {
+        let mut snapshots = self
+            .0
+            .lock()
+            .map_err(|_| "Diagnostic snapshots unavailable")?;
+        snapshots.retain(|(_, created, _)| created.elapsed() < Duration::from_secs(300));
+        let index = snapshots
+            .iter()
+            .position(|(key, _, _)| key == id)
+            .ok_or("This diagnostic preview expired. Prepare a new preview.")?;
+        Ok(snapshots.remove(index).expect("snapshot exists").2)
+    }
 }
+
+static SNAPSHOT_ID: AtomicU64 = AtomicU64::new(1);
 
 fn gather_environment(app_version: String, log_directory: &Path) -> EnvironmentFacts {
     let mut system =
@@ -166,20 +192,31 @@ fn environment_file_entry(environment_json_bytes: &[u8]) -> StagedFile {
 /// into the bundle: `(relative_path, description, redacted_contents)`.
 type RedactedLog = (String, String, String);
 
-/// Reads and redacts every staged log/panic file.
-///
-/// Both the preview and the export go through here so the `sizeBytes` shown to
-/// the user for confirmation are the redacted byte counts actually written to
-/// the bundle, not the larger raw on-disk sizes.
-fn read_and_redact_logs(manager: &LogManager) -> Result<Vec<RedactedLog>, String> {
-    let mut redacted_logs = Vec::new();
-    for staged in staged_log_files(manager) {
-        let raw = fs::read_to_string(&staged.source_path)
-            .map_err(|error| format!("Unable to read {}: {error}", staged.source_path.display()))?;
-        let redacted = redact(&raw)?;
-        redacted_logs.push((staged.relative_path, staged.description, redacted));
-    }
-    Ok(redacted_logs)
+fn read_and_redact_logs(
+    manager: &LogManager,
+    selection: &LogSelection,
+) -> Result<Vec<RedactedLog>, String> {
+    let (logs, truncated) = manager.collect_logs(selection)?;
+    let mut result = logs
+        .into_iter()
+        .map(|log| {
+            Ok((
+                log.relative_path,
+                "Application log (redacted)".into(),
+                redact(&log.text)?,
+            ))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    let settings = manager.snapshot();
+    result.push((
+        "collection-status.txt".into(),
+        "Collection completeness".into(),
+        format!(
+            "truncated={truncated} dropped_events={} write_failures={}\n",
+            settings.dropped_events, settings.write_failures
+        ),
+    ));
+    Ok(result)
 }
 
 /// Builds the `StagedFile` list (redacted log sizes plus the environment
@@ -197,105 +234,151 @@ fn staged_files(redacted_logs: &[RedactedLog], environment_bytes: &[u8]) -> Vec<
     files
 }
 
+fn freeze_bundle(
+    app_version: String,
+    manager: &LogManager,
+    selection: &LogSelection,
+) -> Result<FrozenBundle, String> {
+    let log_directory = manager.export_log_directory();
+    let environment = gather_environment(app_version, &log_directory);
+    let environment_bytes = serde_json::to_vec_pretty(&environment).map_err(|e| e.to_string())?;
+    let redacted_logs = read_and_redact_logs(manager, selection)?;
+    let files = staged_files(&redacted_logs, &environment_bytes);
+    let manifest = build_manifest(&environment, &files)?;
+    let mut frozen_files = vec![
+        (
+            "manifest.json".into(),
+            serde_json::to_vec_pretty(&manifest).map_err(|e| e.to_string())?,
+        ),
+        ("environment.json".into(), environment_bytes),
+    ];
+    frozen_files.extend(
+        redacted_logs
+            .into_iter()
+            .map(|(path, _, text)| (path, text.into_bytes())),
+    );
+    Ok(FrozenBundle {
+        manifest,
+        files: frozen_files,
+    })
+}
+
+fn write_bundle(
+    snapshot: FrozenBundle,
+    destination_path: &str,
+) -> Result<DiagnosticBundleResult, String> {
+    let destination = PathBuf::from(destination_path);
+    let staging = destination.with_extension(format!(
+        "lithe-{}-{}.tmp",
+        std::process::id(),
+        SNAPSHOT_ID.fetch_add(1, Ordering::Relaxed)
+    ));
+    let result = (|| {
+        let zip_file = fs::OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&staging)
+            .map_err(|e| e.to_string())?;
+        let mut writer = ZipWriter::new(zip_file);
+        let options =
+            SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+        let mut included_relative_paths = Vec::new();
+        let mut total_size_bytes = 0;
+        for (path, bytes) in snapshot.files {
+            writer
+                .start_file(&path, options)
+                .map_err(|e| e.to_string())?;
+            writer.write_all(&bytes).map_err(|e| e.to_string())?;
+            included_relative_paths.push(path);
+            total_size_bytes += bytes.len() as u64;
+        }
+        writer.finish().map_err(|e| e.to_string())?;
+        crate::logging::replace_file_atomically(&staging, &destination)?;
+        Ok(DiagnosticBundleResult {
+            destination_path: destination_path.into(),
+            included_relative_paths,
+            total_size_bytes,
+        })
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(staging);
+    }
+    result
+}
+
+#[cfg(test)]
 fn build_preview(
     app_version: String,
     manager: &LogManager,
 ) -> Result<DiagnosticBundlePreview, String> {
-    let log_directory = manager.export_log_directory();
-    let environment = gather_environment(app_version, &log_directory);
-    let environment_bytes = serde_json::to_vec_pretty(&environment)
-        .map_err(|error| format!("Unable to encode the environment snapshot: {error}"))?;
-
-    // Read and redact so the preview reports the same sizes the export writes.
-    let redacted_logs = read_and_redact_logs(manager)?;
-    let files = staged_files(&redacted_logs, &environment_bytes);
-
-    let manifest = build_manifest(&environment, &files)?;
-    Ok(DiagnosticBundlePreview { manifest })
+    DiagnosticBundleStore::default().insert(freeze_bundle(
+        app_version,
+        manager,
+        &LogSelection {
+            session: Some("all".into()),
+            ..Default::default()
+        },
+    )?)
 }
 
+#[cfg(test)]
 fn build_and_write_bundle(
     app_version: String,
     manager: &LogManager,
     destination_path: &str,
 ) -> Result<DiagnosticBundleResult, String> {
-    let log_directory = manager.export_log_directory();
-
-    let redacted_logs = read_and_redact_logs(manager)?;
-
-    let environment = gather_environment(app_version, &log_directory);
-    let environment_bytes = serde_json::to_vec_pretty(&environment)
-        .map_err(|error| format!("Unable to encode the environment snapshot: {error}"))?;
-
-    let files = staged_files(&redacted_logs, &environment_bytes);
-
-    let manifest = build_manifest(&environment, &files)?;
-    let manifest_bytes = serde_json::to_vec_pretty(&manifest)
-        .map_err(|error| format!("Unable to encode the bundle manifest: {error}"))?;
-
-    let destination = PathBuf::from(destination_path);
-    let zip_file = fs::File::create(&destination)
-        .map_err(|error| format!("Unable to create {destination_path}: {error}"))?;
-    let mut writer = ZipWriter::new(zip_file);
-    let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
-
-    let mut included_relative_paths = Vec::with_capacity(files.len() + 1);
-    let mut total_size_bytes = 0u64;
-    let mut write_entry =
-        |writer: &mut ZipWriter<fs::File>, name: &str, bytes: &[u8]| -> Result<(), String> {
-            writer
-                .start_file(name, options)
-                .map_err(|error| format!("Unable to start {name} in the bundle: {error}"))?;
-            writer
-                .write_all(bytes)
-                .map_err(|error| format!("Unable to write {name} into the bundle: {error}"))?;
-            included_relative_paths.push(name.to_string());
-            total_size_bytes += bytes.len() as u64;
-            Ok(())
-        };
-
-    write_entry(&mut writer, "manifest.json", &manifest_bytes)?;
-    write_entry(&mut writer, "environment.json", &environment_bytes)?;
-    for (relative_path, _description, content) in &redacted_logs {
-        write_entry(&mut writer, relative_path, content.as_bytes())?;
-    }
-
-    writer
-        .finish()
-        .map_err(|error| format!("Unable to finalize the diagnostic bundle: {error}"))?;
-
-    Ok(DiagnosticBundleResult {
-        destination_path: destination.to_string_lossy().into_owned(),
-        included_relative_paths,
-        total_size_bytes,
-    })
+    write_bundle(
+        freeze_bundle(
+            app_version,
+            manager,
+            &LogSelection {
+                session: Some("all".into()),
+                ..Default::default()
+            },
+        )?,
+        destination_path,
+    )
 }
 
 #[tauri::command]
 pub async fn preview_diagnostic_bundle(
     app: AppHandle,
+    selection: Option<LogSelection>,
     manager: State<'_, Arc<LogManager>>,
+    store: State<'_, Arc<DiagnosticBundleStore>>,
 ) -> Result<DiagnosticBundlePreview, String> {
     let manager = manager.inner().clone();
-    let app_version = app.package_info().version.to_string();
-    tauri::async_runtime::spawn_blocking(move || build_preview(app_version, &manager))
-        .await
-        .map_err(|error| format!("Diagnostic bundle preview task failed: {error}"))?
+    let store = store.inner().clone();
+    let version = app.package_info().version.to_string();
+    tauri::async_runtime::spawn_blocking(move || {
+        store.insert(freeze_bundle(
+            version,
+            &manager,
+            &selection.unwrap_or_default(),
+        )?)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
 pub async fn export_diagnostic_bundle(
     destination_path: String,
-    app: AppHandle,
-    manager: State<'_, Arc<LogManager>>,
+    snapshot_id: String,
+    store: State<'_, Arc<DiagnosticBundleStore>>,
 ) -> Result<DiagnosticBundleResult, String> {
-    let manager = manager.inner().clone();
-    let app_version = app.package_info().version.to_string();
-    tauri::async_runtime::spawn_blocking(move || {
-        build_and_write_bundle(app_version, &manager, &destination_path)
-    })
-    .await
-    .map_err(|error| format!("Diagnostic bundle export task failed: {error}"))?
+    let snapshot = store.take(&snapshot_id)?;
+    tauri::async_runtime::spawn_blocking(move || write_bundle(snapshot, &destination_path))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub fn discard_diagnostic_bundle(
+    snapshot_id: String,
+    store: State<'_, Arc<DiagnosticBundleStore>>,
+) {
+    let _ = store.take(&snapshot_id);
 }
 
 #[cfg(test)]
@@ -317,10 +400,59 @@ mod tests {
         path
     }
 
+    struct WriterCleanup {
+        manager: Arc<LogManager>,
+        directory: PathBuf,
+    }
+    impl Drop for WriterCleanup {
+        fn drop(&mut self) {
+            self.manager.shutdown();
+            // Closing the file handles also makes Windows cleanup deterministic.
+            let _ = fs::remove_dir_all(&self.directory);
+        }
+    }
+
+    #[test]
+    fn confirmed_snapshot_does_not_reread_mutated_logs() {
+        let directory = temporary_directory("frozen-snapshot");
+        let manager = logging::test_manager(&directory);
+        logging::start_test_writer(&manager);
+        let _cleanup = WriterCleanup {
+            manager: manager.clone(),
+            directory: directory.clone(),
+        };
+        let source = directory.join("lithe.2024-01-01T00-00-00.000+0000.deadbeef.000.log");
+        fs::write(&source, "first evidence\n").unwrap();
+        let store = DiagnosticBundleStore::default();
+        let selection = LogSelection {
+            session: Some("all".into()),
+            ..Default::default()
+        };
+        let preview = store
+            .insert(freeze_bundle("1.2.3".into(), &manager, &selection).unwrap())
+            .unwrap();
+        fs::write(source, "later evidence\n").unwrap();
+        let frozen = store.take(&preview.snapshot_id).unwrap();
+        let text = frozen
+            .files
+            .iter()
+            .flat_map(|(_, bytes)| bytes.clone())
+            .collect::<Vec<_>>();
+        let text = String::from_utf8_lossy(&text);
+        assert!(text.contains("first evidence"));
+        assert!(!text.contains("later evidence"));
+        assert!(store.take(&preview.snapshot_id).is_err());
+    }
+
     #[test]
     fn build_and_write_bundle_redacts_a_planted_secret_and_includes_generated_files() {
         let directory = temporary_directory("export");
         let manager = logging::test_manager(&directory);
+        logging::start_test_writer(&manager);
+        let _cleanup = WriterCleanup {
+            manager: manager.clone(),
+            directory: directory.clone(),
+        };
         let planted_name = "lithe.2024-01-01T00-00-00.000+0000.deadbeef.000.log";
         fs::write(directory.join(planted_name), "line one\npassword=hunter2\n").unwrap();
 
@@ -383,6 +515,11 @@ mod tests {
         // sizes the user confirms match the bundle they receive.
         let directory = temporary_directory("preview-size");
         let manager = logging::test_manager(&directory);
+        logging::start_test_writer(&manager);
+        let _cleanup = WriterCleanup {
+            manager: manager.clone(),
+            directory: directory.clone(),
+        };
         let planted_name = "lithe.2024-01-01T00-00-00.000+0000.deadbeef.000.log";
         // The secret must be longer than the `<redacted>` placeholder so
         // redaction provably shrinks the content; that keeps the raw-size vs

@@ -2642,6 +2642,36 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::DiagnosticsPrepareLogEvent => {
+            match serde_json::from_value::<crate::diagnostics::logging::LogEventRequest>(
+                parsed.payload,
+            ) {
+                Ok(request) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(crate::diagnostics::logging::prepare_log_event(request))
+                        .expect("Log event should encode"),
+                ),
+                Err(_) => CoreResponse::failure(
+                    id,
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid log event request"),
+                ),
+            }
+        }
+        CoreCommand::DiagnosticsQueryLogs => {
+            match serde_json::from_value::<crate::diagnostics::logging::LogQueryRequest>(
+                parsed.payload,
+            ) {
+                Ok(request) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(crate::diagnostics::logging::query_logs(request))
+                        .expect("Log query should encode"),
+                ),
+                Err(_) => CoreResponse::failure(
+                    id,
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid log query request"),
+                ),
+            }
+        }
         CoreCommand::DiagnosticsRedactText => {
             match serde_json::from_value::<RedactTextRequest>(parsed.payload).map_err(|error| {
                 CoreError::new(

@@ -56,6 +56,7 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
             pendingURLs.forEach { projectSessions.openStandaloneFile($0) }
         }
     }
+    var flushApplicationLogs: (() async -> Void)?
     var prepareStableRollbackTermination: (() -> Bool)?
     var cancelStableRollbackTermination: (() -> Bool)?
     weak var settings: AppSettings? {
@@ -259,6 +260,7 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
                 await projectSessions.stopAllSessions()
             }
             guard let self, self.terminationCleanupState == .cleaning else { return }
+            await self.flushApplicationLogs?()
             self.terminationCleanupTask = nil
             self.terminationCleanupState = .approved
             sender.reply(toApplicationShouldTerminate: true)
@@ -493,18 +495,22 @@ struct LitheApp: App {
             store: store,
             logDirectoryProvider: MacServiceContainer.makeLogDirectoryProvider()
         )
-        let applicationLogWriter = MacServiceContainer.makeApplicationLogWriter()
+        let applicationLogWriter = MacServiceContainer.makeApplicationLogWriter {
+            Task { @MainActor [weak settings] in settings?.setCustomLogDirectory(nil) }
+        }
         if !Self.redirectApplicationLogs(applicationLogWriter, to: settings.logDirectory),
            settings.customLogDirectory != nil {
             settings.setCustomLogDirectory(nil)
             _ = Self.redirectApplicationLogs(applicationLogWriter, to: settings.defaultLogDirectory)
         }
         settings.addLogDirectoryObserver { [weak settings] directory in
-            guard !Self.redirectApplicationLogs(applicationLogWriter, to: directory),
-                  settings?.customLogDirectory != nil else { return }
-            settings?.setCustomLogDirectory(nil)
+            Task {
+                do { try await applicationLogWriter.redirectAsync(to: directory) }
+                catch { if settings?.customLogDirectory != nil { settings?.setCustomLogDirectory(nil) } }
+            }
         }
         self.applicationLogWriter = applicationLogWriter
+        applicationLogWriter.record(level: "info", scope: "session", message: "session started")
         let gitPerformanceLogger = MacGitPerformanceLogger(writer: applicationLogWriter)
         MacBundledFontRegistry.registerFonts { message in
             Self.appendApplicationLog(applicationLogWriter, message: message)
@@ -527,7 +533,8 @@ struct LitheApp: App {
                             ? .safeMode
                             : .normal,
                         moduleStore: moduleStore,
-                        gitPerformanceLogger: gitPerformanceLogger
+                        gitPerformanceLogger: gitPerformanceLogger,
+                        applicationLogging: applicationLogWriter
                     ).services
                 )
             },
@@ -558,6 +565,7 @@ struct LitheApp: App {
         })
         _updateChecker = StateObject(wrappedValue: updateChecker)
         appDelegate.projectSessions = projectSessions
+        appDelegate.flushApplicationLogs = { await applicationLogWriter.finishSession() }
         appDelegate.settings = settings
         let appDelegate = appDelegate
         updateChecker.willRelaunchForUpdate = { [weak appDelegate] in
@@ -598,14 +606,8 @@ struct LitheApp: App {
         _ writer: MacApplicationLogWriter,
         message: String
     ) {
-        do {
-            try writer.append(message)
-        } catch {
-            let fallback = "Could not write Lithe log: \(error.localizedDescription)\n"
-            if let data = fallback.data(using: .utf8) {
-                FileHandle.standardError.write(data)
-            }
-        }
+        writer.record(level: "info", scope: "application", message: message)
+
     }
 
     private static func emitPerformanceBaselineMarker(_ marker: String) {
