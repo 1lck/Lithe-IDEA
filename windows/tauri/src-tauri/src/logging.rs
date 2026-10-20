@@ -1,6 +1,7 @@
 //! Windows-owned application logging, retention, diagnostics, and settings commands.
 
-use chrono::{DateTime, Duration, FixedOffset, Local};
+use chrono::{DateTime, Duration, FixedOffset, Local, Utc};
+use lithe_core::diagnostics::logging as policy;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -17,12 +18,11 @@ use tauri_plugin_opener::OpenerExt;
 
 const LOG_CONFIG_FILE: &str = "lithe-log-settings.json";
 const CUSTOM_LOG_SUBDIRECTORY: [&str; 2] = ["Lithe", "logs"];
-const MAX_LOG_FILE_BYTES: u64 = 10 * 1024 * 1024;
+const MAX_LOG_FILE_BYTES: u64 = policy::MAX_LOG_FILE_BYTES;
 const MAX_LOG_FILES_PER_DAY: usize = 5;
-const MAX_LOG_LINE_BYTES: usize = 4 * 1024;
+const MAX_LOG_LINE_BYTES: usize = policy::MAX_LOG_LINE_BYTES;
 const MAX_LOG_READ_BYTES: u64 = 2 * 1024 * 1024;
 const LOG_RETENTION_HOURS: i64 = 30 * 24;
-const MAX_EXPORTED_LOG_FILES: usize = 5;
 const LOG_QUEUE_CAPACITY: usize = 8_000;
 const LOG_QUEUE_NORMAL_CAPACITY: usize = 6_000;
 const DIRECTORY_OPERATION_TIMEOUT: StdDuration = StdDuration::from_secs(2);
@@ -96,6 +96,7 @@ struct PreparedEvent {
     message: String,
     fields: BTreeMap<String, String>,
     key: String,
+    sequence: u64,
 }
 
 impl PreparedEvent {
@@ -106,8 +107,28 @@ impl PreparedEvent {
         fields: BTreeMap<String, String>,
         sanitizer: &LogSanitizer,
     ) -> Self {
-        let scope = sanitizer.sanitize_text(&scope.into());
-        let message = sanitizer.sanitize_free_text(&message.into());
+        let prepared = policy::prepare_log_event(policy::LogEventRequest {
+            scope: scope.into(),
+            message: message.into(),
+            fields: fields
+                .into_iter()
+                .map(|(key, text)| {
+                    let value = if text.starts_with('{') || text.starts_with('[') {
+                        serde_json::from_str(&text).unwrap_or(Value::String(text))
+                    } else {
+                        Value::String(text)
+                    };
+                    (key, value)
+                })
+                .collect(),
+        });
+        let scope = prepared.scope;
+        let message = sanitizer.sanitize_free_text(&prepared.message);
+        let fields = prepared
+            .fields
+            .into_iter()
+            .map(|(key, value)| (key, compact_json(&value)))
+            .collect::<BTreeMap<_, _>>();
         let fields = fields
             .into_iter()
             .map(|(key, value)| {
@@ -128,6 +149,7 @@ impl PreparedEvent {
             message,
             fields,
             key,
+            sequence: EVENT_SEQUENCE.fetch_add(1, Ordering::Relaxed),
         }
     }
 }
@@ -142,6 +164,7 @@ struct QueuedEvent {
 struct DroppedLines {
     debug: u64,
     info: u64,
+    high_priority: u64,
 }
 
 struct QueueState {
@@ -149,6 +172,8 @@ struct QueueState {
     controls: VecDeque<QueuedControl>,
     dropped: DroppedLines,
     write_failures: u64,
+    dropped_total: u64,
+    write_failures_total: u64,
     shutdown: bool,
 }
 
@@ -159,6 +184,8 @@ impl Default for QueueState {
             controls: VecDeque::new(),
             dropped: DroppedLines::default(),
             write_failures: 0,
+            dropped_total: 0,
+            write_failures_total: 0,
             shutdown: false,
         }
     }
@@ -279,6 +306,9 @@ pub struct LogSettingsSnapshot {
     pub effective_path: String,
     pub fallback_reason: Option<String>,
     pub diagnostic_enabled: bool,
+    pub diagnostic_category: Option<String>,
+    pub dropped_events: u64,
+    pub write_failures: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -288,6 +318,8 @@ struct RuntimeState {
     effective_path: PathBuf,
     fallback_reason: Option<String>,
     diagnostic_enabled: bool,
+    diagnostic_category: Option<String>,
+    diagnostic_deadline: Option<std::time::Instant>,
     active_file_path: PathBuf,
 }
 
@@ -298,7 +330,13 @@ impl RuntimeState {
             configured_path: self.configured_path.as_ref().map(|path| display_path(path)),
             effective_path: display_path(&self.effective_path),
             fallback_reason: self.fallback_reason.clone(),
-            diagnostic_enabled: self.diagnostic_enabled,
+            diagnostic_enabled: self.diagnostic_enabled
+                && self
+                    .diagnostic_deadline
+                    .is_some_and(|end| std::time::Instant::now() < end),
+            diagnostic_category: self.diagnostic_category.clone(),
+            dropped_events: 0,
+            write_failures: 0,
         }
     }
 }
@@ -344,6 +382,31 @@ struct HostLogConfig {
 struct StartupNotes {
     config_warning: Option<String>,
     cleanup_warnings: Vec<String>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LogSelection {
+    pub category: Option<String>,
+    pub minimum_level: Option<String>,
+    pub session: Option<String>,
+    pub search: Option<String>,
+    pub since: Option<String>,
+    pub until: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LogTimeline {
+    pub content: String,
+    pub truncated: bool,
+    pub matched_lines: usize,
+}
+
+pub struct CollectedLog {
+    pub relative_path: String,
+    pub category: String,
+    pub text: String,
 }
 
 pub struct LogManager {
@@ -397,6 +460,9 @@ impl LogManager {
 
         let session_id = create_session_id();
         let writer = ActiveWriter::open(effective_path.clone(), session_id.clone())?;
+        if let Err(reason) = writer.enforce_budget() {
+            notes.cleanup_warnings.push(reason);
+        }
         let active_file_path = writer.path().to_path_buf();
         let panic_path = panic_sidecar_path(&effective_path, &session_id);
         let shared = Arc::new(SharedState {
@@ -410,6 +476,8 @@ impl LogManager {
                 effective_path,
                 fallback_reason: fallback_reason.clone(),
                 diagnostic_enabled: false,
+                diagnostic_category: None,
+                diagnostic_deadline: None,
                 active_file_path,
             }),
             panic_path: RwLock::new(panic_path),
@@ -522,6 +590,8 @@ impl LogManager {
                 effective_path: default_path.clone(),
                 fallback_reason: Some("logging_unavailable".into()),
                 diagnostic_enabled: false,
+                diagnostic_category: None,
+                diagnostic_deadline: None,
                 active_file_path: unavailable_path,
             }),
             panic_path: RwLock::new(PathBuf::new()),
@@ -539,11 +609,17 @@ impl LogManager {
     }
 
     pub fn snapshot(&self) -> LogSettingsSnapshot {
-        self.shared
+        let mut snapshot = self
+            .shared
             .runtime
             .read()
             .map(|state| state.snapshot())
-            .unwrap_or_else(|poisoned| poisoned.into_inner().snapshot())
+            .unwrap_or_else(|poisoned| poisoned.into_inner().snapshot());
+        if let Ok(queue) = self.shared.queue.lock() {
+            snapshot.dropped_events = queue.dropped_total;
+            snapshot.write_failures = queue.write_failures_total;
+        }
+        snapshot
     }
 
     fn effective_path(&self) -> PathBuf {
@@ -561,11 +637,18 @@ impl LogManager {
         message: impl Into<String>,
         fields: BTreeMap<String, String>,
     ) {
+        let scope = scope.into();
         let diagnostic_enabled = self
             .shared
             .runtime
             .read()
-            .map(|state| state.diagnostic_enabled)
+            .map(|state| {
+                state.snapshot().diagnostic_enabled
+                    && state
+                        .diagnostic_category
+                        .as_ref()
+                        .is_none_or(|category| category == policy::log_category(&scope))
+            })
             .unwrap_or(false);
         if level == LogLevel::Debug && !diagnostic_enabled {
             return;
@@ -588,8 +671,21 @@ impl LogManager {
     }
 
     pub fn set_diagnostic_enabled(&self, enabled: bool) -> LogSettingsSnapshot {
+        self.set_diagnostic_category(enabled, None)
+    }
+
+    pub fn set_diagnostic_category(
+        &self,
+        enabled: bool,
+        category: Option<String>,
+    ) -> LogSettingsSnapshot {
         if let Ok(mut state) = self.shared.runtime.write() {
             state.diagnostic_enabled = enabled;
+            state.diagnostic_category =
+                category.filter(|category| policy::LOG_CATEGORIES.contains(&category.as_str()));
+            state.diagnostic_deadline = enabled.then(|| {
+                std::time::Instant::now() + StdDuration::from_millis(policy::DIAGNOSTIC_DURATION_MS)
+            });
         }
         self.emit(
             LogLevel::Info,
@@ -644,6 +740,7 @@ impl LogManager {
         }
 
         let prepared_writer = ActiveWriter::open(target_path.clone(), self.session_id.clone())?;
+        prepared_writer.enforce_budget()?;
         let previous_config = read_host_config(&self.config_path).0;
         let next_config = HostLogConfig {
             custom_root: custom_root.as_ref().map(|path| display_path(path)),
@@ -767,23 +864,121 @@ impl LogManager {
         })
     }
 
+    pub fn collect_logs(
+        &self,
+        selection: &LogSelection,
+    ) -> Result<(Vec<CollectedLog>, bool), String> {
+        self.ensure_available()?;
+        let (tx, rx) = mpsc::channel();
+        self.push_control(Control::Flush { reply: tx })?;
+        rx.recv_timeout(WRITER_CONTROL_TIMEOUT)
+            .map_err(|_| "Log snapshot timed out".to_string())?;
+        let root = self.effective_path();
+        let mut available = managed_log_files(&root);
+        available.sort_by(|left, right| right.1.timestamp.cmp(&left.1.timestamp));
+        let session = match selection.session.as_deref().unwrap_or("current") {
+            "all" => None,
+            "previous" => Some(
+                available
+                    .iter()
+                    .find(|(_, parsed)| parsed.session_id != self.session_id)
+                    .map(|(_, parsed)| parsed.session_id.clone())
+                    .unwrap_or_else(|| "missing".into()),
+            ),
+            _ => Some(self.session_id.clone()),
+        };
+        let mut budget = policy::MAX_LOG_EXPORT_BYTES;
+        let mut truncated = false;
+        let mut collected = Vec::new();
+        for (path, parsed) in available.into_iter().take(200) {
+            let category = path
+                .parent()
+                .and_then(|p| p.file_name())
+                .and_then(|n| n.to_str())
+                .filter(|c| policy::LOG_CATEGORIES.contains(c))
+                .unwrap_or("application")
+                .to_string();
+            if selection.category.as_ref().is_some_and(|c| c != &category)
+                || session.as_ref().is_some_and(|s| s != &parsed.session_id)
+            {
+                continue;
+            }
+            if budget == 0 {
+                truncated = true;
+                break;
+            }
+            let mut file = File::open(&path).map_err(|e| e.to_string())?;
+            let size = file.metadata().map_err(|e| e.to_string())?.len();
+            let count = budget.min(MAX_LOG_READ_BYTES as usize);
+            let offset = size.saturating_sub(count as u64);
+            file.seek(SeekFrom::Start(offset))
+                .map_err(|e| e.to_string())?;
+            let mut bytes = Vec::new();
+            file.take(count as u64)
+                .read_to_end(&mut bytes)
+                .map_err(|e| e.to_string())?;
+            if offset > 0 {
+                truncated = true;
+                if let Some(newline) = bytes.iter().position(|b| *b == b'\n') {
+                    bytes.drain(..=newline);
+                }
+            }
+            budget = budget.saturating_sub(bytes.len());
+            let text = policy::sanitize_log_text_unbounded(&String::from_utf8_lossy(&bytes));
+            let result = policy::query_logs(policy::LogQueryRequest {
+                sources: vec![policy::LogSource {
+                    category: category.clone(),
+                    text,
+                }],
+                category: selection.category.clone(),
+                minimum_level: selection.minimum_level.clone(),
+                session_id: None,
+                search: selection.search.clone(),
+                since: selection.since.clone(),
+                until: selection.until.clone(),
+                limit: Some(10000),
+            });
+            truncated |= result.truncated;
+            if !result.content.is_empty() {
+                let relative = path
+                    .strip_prefix(&root)
+                    .map_err(|_| "Invalid log path")?
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                collected.push(CollectedLog {
+                    relative_path: format!("logs/{relative}"),
+                    category,
+                    text: format!("{}\n", result.content),
+                });
+            }
+        }
+        Ok((collected, truncated))
+    }
+
+    pub fn query_logs(&self, selection: LogSelection) -> Result<LogTimeline, String> {
+        let (logs, truncated) = self.collect_logs(&selection)?;
+        let result = policy::query_logs(policy::LogQueryRequest {
+            sources: logs
+                .into_iter()
+                .map(|log| policy::LogSource {
+                    category: log.category,
+                    text: log.text,
+                })
+                .collect(),
+            limit: Some(2000),
+            ..Default::default()
+        });
+        Ok(LogTimeline {
+            content: result.content,
+            truncated: truncated || result.truncated,
+            matched_lines: result.matched_lines,
+        })
+    }
+
     /// Returns the directory a diagnostic bundle export should treat as the
     /// source of log and panic-sidecar files.
     pub(crate) fn export_log_directory(&self) -> PathBuf {
         self.effective_path()
-    }
-
-    /// Returns the log and panic-sidecar files eligible for a diagnostic
-    /// bundle export, newest first and bounded to a small cap so the bundle
-    /// cannot grow unbounded on a machine with a long-lived log directory.
-    pub(crate) fn files_available_for_export(&self) -> Vec<PathBuf> {
-        let mut files = managed_log_files(&self.effective_path());
-        files.sort_by(|left, right| right.1.timestamp.cmp(&left.1.timestamp));
-        files
-            .into_iter()
-            .take(MAX_EXPORTED_LOG_FILES)
-            .map(|(path, _)| path)
-            .collect()
     }
 
     fn flush(&self) {
@@ -961,7 +1156,7 @@ fn writer_loop(shared: Arc<SharedState>, session_id: String) {
 
         match work {
             WriterWork::Event(queued, dropped, write_failures) => {
-                if dropped.debug + dropped.info > 0 {
+                if dropped.debug + dropped.info + dropped.high_priority > 0 {
                     let event = PreparedEvent::new(
                         LogLevel::Warn,
                         "log.writer",
@@ -969,6 +1164,7 @@ fn writer_loop(shared: Arc<SharedState>, session_id: String) {
                         BTreeMap::from([
                             ("debug".into(), dropped.debug.to_string()),
                             ("info".into(), dropped.info.to_string()),
+                            ("warn_error".into(), dropped.high_priority.to_string()),
                         ]),
                         &shared.sanitizer,
                     );
@@ -1088,7 +1284,7 @@ fn writer_loop(shared: Arc<SharedState>, session_id: String) {
                 }
                 Control::Shutdown { reply } => {
                     if let Ok(mut writer) = shared.writer.lock() {
-                        let _ = writer.flush();
+                        let _ = writer.close();
                     }
                     shared.writer_alive.store(false, Ordering::Release);
                     if let Ok(mut queue) = shared.queue.lock() {
@@ -1140,71 +1336,55 @@ fn take_writer_work(queue: &mut QueueState) -> WriterWork {
 }
 
 fn enqueue_event(shared: &Arc<SharedState>, event: PreparedEvent) {
-    let mut direct = None;
-    {
-        let mut queue = match shared.queue.lock() {
-            Ok(queue) => queue,
-            Err(poisoned) => poisoned.into_inner(),
-        };
-        if queue.shutdown {
+    let mut queue = shared
+        .queue
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if queue.shutdown {
+        return;
+    }
+    let can_merge = queue
+        .controls
+        .back()
+        .is_none_or(|control| control.pending_events < queue.events.len());
+    if let Some(last) = queue.events.back_mut() {
+        if can_merge && last.event.key == event.key {
+            last.repeated = last.repeated.saturating_add(1);
+            last.event.fields.insert(
+                "first_timestamp".into(),
+                last.event.timestamp.with_timezone(&Utc).to_rfc3339(),
+            );
+            last.event.fields.insert(
+                "last_timestamp".into(),
+                event.timestamp.with_timezone(&Utc).to_rfc3339(),
+            );
             return;
         }
-        if let Some(last) = queue.events.back_mut() {
-            if last.event.key == event.key {
-                last.repeated = last.repeated.saturating_add(1);
-                return;
-            }
-        }
-
-        let capacity = if event.level >= LogLevel::Warn {
-            LOG_QUEUE_CAPACITY
-        } else {
-            LOG_QUEUE_NORMAL_CAPACITY
-        };
-        if queue.events.len() >= capacity {
+    }
+    let capacity = if event.level >= LogLevel::Warn {
+        LOG_QUEUE_CAPACITY
+    } else {
+        LOG_QUEUE_NORMAL_CAPACITY
+    };
+    if queue.events.len() >= capacity {
+        if event.level == LogLevel::Debug
+            || (!evict_oldest(&mut queue, LogLevel::Debug)
+                && !evict_oldest(&mut queue, LogLevel::Info)
+                && !(event.level == LogLevel::Error && evict_oldest(&mut queue, LogLevel::Warn)))
+        {
+            queue.dropped_total = queue.dropped_total.saturating_add(1);
+            // Error storms must not turn logging into synchronous UI disk I/O.
+            // Counts are exported even if no later record can be accepted.
             match event.level {
-                LogLevel::Debug => {
-                    queue.dropped.debug = queue.dropped.debug.saturating_add(1);
-                    return;
-                }
-                LogLevel::Info => {
-                    if !evict_oldest(&mut queue, LogLevel::Debug)
-                        && !evict_oldest(&mut queue, LogLevel::Info)
-                    {
-                        queue.dropped.info = queue.dropped.info.saturating_add(1);
-                        return;
-                    }
-                }
-                LogLevel::Warn | LogLevel::Error => {
-                    if !evict_oldest(&mut queue, LogLevel::Debug)
-                        && !evict_oldest(&mut queue, LogLevel::Info)
-                    {
-                        direct = Some(event.clone());
-                    }
-                }
+                LogLevel::Debug => queue.dropped.debug = queue.dropped.debug.saturating_add(1),
+                LogLevel::Info => queue.dropped.info = queue.dropped.info.saturating_add(1),
+                _ => queue.dropped.high_priority = queue.dropped.high_priority.saturating_add(1),
             }
-        }
-        if direct.is_none() {
-            queue.events.push_back(QueuedEvent { event, repeated: 0 });
-            shared.queue_ready.notify_one();
+            return;
         }
     }
-    if let Some(event) = direct {
-        let session_id = shared
-            .runtime
-            .read()
-            .map(|state| {
-                state
-                    .active_file_path
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .and_then(parse_log_file_name)
-                    .map(|parsed| parsed.session_id)
-                    .unwrap_or_else(|| "unknown".into())
-            })
-            .unwrap_or_else(|_| "unknown".into());
-        let _ = write_event(shared, &event, &session_id, true);
-    }
+    queue.events.push_back(QueuedEvent { event, repeated: 0 });
+    shared.queue_ready.notify_one();
 }
 
 fn evict_oldest(queue: &mut QueueState, level: LogLevel) -> bool {
@@ -1214,10 +1394,16 @@ fn evict_oldest(queue: &mut QueueState, level: LogLevel) -> bool {
         .position(|entry| entry.event.level == level)
     {
         if let Some(removed) = queue.events.remove(index) {
+            queue.dropped_total = queue.dropped_total.saturating_add(1);
+            for control in &mut queue.controls {
+                if index < control.pending_events {
+                    control.pending_events = control.pending_events.saturating_sub(1);
+                }
+            }
             match removed.event.level {
                 LogLevel::Debug => queue.dropped.debug = queue.dropped.debug.saturating_add(1),
                 LogLevel::Info => queue.dropped.info = queue.dropped.info.saturating_add(1),
-                _ => {}
+                _ => queue.dropped.high_priority = queue.dropped.high_priority.saturating_add(1),
             }
         }
         true
@@ -1235,7 +1421,9 @@ fn write_event(
     let line = format_event_line(event, session_id);
     let result = shared.writer.lock().map_err(|_| ()).and_then(|mut writer| {
         let previous_path = writer.path().to_path_buf();
-        writer.write_preformatted(&line, flush).map_err(|_| ())?;
+        writer
+            .write_routed(&line, policy::log_category(&event.scope), flush)
+            .map_err(|_| ())?;
         let next_path = writer.path().to_path_buf();
         if previous_path != next_path {
             if let Ok(mut runtime) = shared.runtime.write() {
@@ -1250,6 +1438,7 @@ fn write_event(
         }
         if let Ok(mut queue) = shared.queue.lock() {
             queue.write_failures = queue.write_failures.saturating_add(1);
+            queue.write_failures_total = queue.write_failures_total.saturating_add(1);
         }
         false
     } else {
@@ -1304,7 +1493,15 @@ fn fallback_runtime_to_default(
         return false;
     }
     if let Some(line) = pending_line {
-        if fallback_writer.write_preformatted(line, true).is_err() {
+        let scope = line
+            .split_once("[scope=")
+            .and_then(|(_, tail)| tail.split_once(']'))
+            .map(|(scope, _)| scope)
+            .unwrap_or("application");
+        if fallback_writer
+            .write_routed(line, policy::log_category(scope), true)
+            .is_err()
+        {
             return false;
         }
     }
@@ -1370,6 +1567,9 @@ struct ActiveWriter {
     bytes_written: u64,
     path: PathBuf,
     file: Option<BufWriter<File>>,
+    modules: BTreeMap<String, ActiveWriter>,
+    routes_modules: bool,
+    maintenance_bytes: u64,
 }
 
 impl ActiveWriter {
@@ -1382,17 +1582,41 @@ impl ActiveWriter {
             segment: 0,
             bytes_written: 0,
             file: None,
+            modules: BTreeMap::new(),
+            routes_modules: true,
+            maintenance_bytes: 0,
         }
     }
 
     fn open(directory: PathBuf, session_id: String) -> Result<Self, String> {
+        Self::open_at(directory, session_id, true)
+    }
+
+    fn open_at(
+        directory: PathBuf,
+        session_id: String,
+        routes_modules: bool,
+    ) -> Result<Self, String> {
+        let storage = if routes_modules {
+            directory.join("application")
+        } else {
+            directory.clone()
+        };
+        if storage
+            .symlink_metadata()
+            .is_ok_and(|m| m.file_type().is_symlink())
+        {
+            return Err("A module log directory cannot be a symbolic link".into());
+        }
+        fs::create_dir_all(&storage).map_err(|error| error.to_string())?;
+
         fs::create_dir_all(&directory)
             .map_err(|error| format!("Unable to create the log directory: {error}"))?;
         let now = Local::now();
         let created_date = now.format("%Y-%m-%d").to_string();
-        enforce_daily_limit(&directory, &created_date, None)?;
-        let segment = next_segment_number(&directory, &created_date, &session_id);
-        let path = regular_log_path(&directory, &session_id, segment, now);
+        enforce_daily_limit(&storage, &created_date, None)?;
+        let segment = next_segment_number(&storage, &created_date, &session_id);
+        let path = regular_log_path(&storage, &session_id, segment, now);
         let file = open_log_file(&path)?;
         Ok(Self {
             directory,
@@ -1402,7 +1626,73 @@ impl ActiveWriter {
             bytes_written: file.metadata().map(|metadata| metadata.len()).unwrap_or(0),
             path,
             file: Some(BufWriter::new(file)),
+            modules: BTreeMap::new(),
+            routes_modules,
+            maintenance_bytes: 0,
         })
+    }
+
+    fn write_routed(&mut self, line: &str, category: &str, flush: bool) -> Result<(), String> {
+        if category == "application" || !self.routes_modules {
+            self.write_preformatted(line, flush)?;
+        } else {
+            if !self.modules.contains_key(category) {
+                let writer = Self::open_at(
+                    self.directory.join(category),
+                    self.session_id.clone(),
+                    false,
+                )?;
+                self.modules.insert(category.into(), writer);
+            }
+            self.modules
+                .get_mut(category)
+                .expect("module was inserted")
+                .write_preformatted(line, flush)?;
+        }
+        self.maintenance_bytes += line.len() as u64;
+        if self.maintenance_bytes >= 1024 * 1024 {
+            self.maintenance_bytes = 0;
+            self.enforce_budget()?;
+        }
+        Ok(())
+    }
+
+    fn enforce_budget(&self) -> Result<(), String> {
+        let mut files = managed_log_files(&self.directory);
+        files.sort_by(|left, right| left.1.timestamp.cmp(&right.1.timestamp));
+        let mut total: u64 = files
+            .iter()
+            .map(|(p, _)| p.metadata().map(|m| m.len()).unwrap_or(0))
+            .sum();
+        let mut performance: u64 = files
+            .iter()
+            .filter(|(p, _)| p.parent() == Some(self.directory.join("performance").as_path()))
+            .map(|(p, _)| p.metadata().map(|m| m.len()).unwrap_or(0))
+            .sum();
+        let active = std::iter::once(&self.path)
+            .chain(self.modules.values().map(|w| &w.path))
+            .collect::<Vec<_>>();
+        for (path, parsed) in files {
+            if active.contains(&&path) {
+                continue;
+            }
+            let is_performance =
+                path.parent() == Some(self.directory.join("performance").as_path());
+            let expired = Utc::now().signed_duration_since(parsed.timestamp)
+                >= Duration::hours(LOG_RETENTION_HOURS);
+            if expired
+                || total > policy::MAX_LOG_TOTAL_BYTES
+                || (is_performance && performance > policy::MAX_PERFORMANCE_BYTES)
+            {
+                let bytes = path.metadata().map(|m| m.len()).unwrap_or(0);
+                fs::remove_file(&path).map_err(|e| e.to_string())?;
+                total = total.saturating_sub(bytes);
+                if is_performance {
+                    performance = performance.saturating_sub(bytes);
+                }
+            }
+        }
+        Ok(())
     }
 
     fn path(&self) -> &Path {
@@ -1431,7 +1721,9 @@ impl ActiveWriter {
     }
 
     fn rotate(&mut self) -> Result<(), String> {
-        self.close()?;
+        if let Some(mut file) = self.file.take() {
+            file.flush().map_err(|e| e.to_string())?;
+        }
         let now = Local::now();
         let date = now.format("%Y-%m-%d").to_string();
         self.segment = if date == self.created_date {
@@ -1440,14 +1732,23 @@ impl ActiveWriter {
             1
         };
         self.created_date = date;
-        enforce_daily_limit(&self.directory, &self.created_date, None)?;
-        self.path = regular_log_path(&self.directory, &self.session_id, self.segment, now);
+        let storage = if self.routes_modules {
+            self.directory.join("application")
+        } else {
+            self.directory.clone()
+        };
+        enforce_daily_limit(&storage, &self.created_date, None)?;
+        self.path = regular_log_path(&storage, &self.session_id, self.segment, now);
         self.file = Some(BufWriter::new(open_log_file(&self.path)?));
         self.bytes_written = 0;
         Ok(())
     }
 
     fn close(&mut self) -> Result<(), String> {
+        for writer in self.modules.values_mut() {
+            writer.close()?;
+        }
+        self.modules.clear();
         if let Some(mut file) = self.file.take() {
             file.flush()
                 .map_err(|error| format!("Unable to flush the log file: {error}"))?;
@@ -1456,6 +1757,9 @@ impl ActiveWriter {
     }
 
     fn flush(&mut self) -> Result<(), String> {
+        for writer in self.modules.values_mut() {
+            writer.flush()?;
+        }
         if let Some(file) = self.file.as_mut() {
             file.flush()
                 .map_err(|error| format!("Unable to flush the log file: {error}"))?;
@@ -1498,7 +1802,7 @@ fn log_file_regex() -> &'static Regex {
     static REGEX: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
     REGEX.get_or_init(|| {
         Regex::new(
-            r"^lithe\.(?:(panic)\.)?(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.\d{3}[+-]\d{4})\.([A-Fa-f0-9]+)(?:\.(\d{3}))?\.log$",
+            r"^lithe\.(?:(panic)\.)?(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.\d{3}[+-]\d{4})\.([A-Fa-f0-9]+)(?:\.(\d{3,5}))?\.log$",
         )
         .expect("the managed log filename regex is valid")
     })
@@ -1583,16 +1887,18 @@ fn enforce_daily_limit(
 }
 
 fn managed_log_files(directory: &Path) -> Vec<(PathBuf, ParsedLogFile)> {
-    fs::read_dir(directory)
-        .into_iter()
-        .flatten()
-        .flatten()
+    let folders = std::iter::once(directory.to_path_buf())
+        .chain(policy::LOG_CATEGORIES.iter().map(|c| directory.join(c)));
+    folders
+        .filter(|p| {
+            !p.symlink_metadata()
+                .is_ok_and(|m| m.file_type().is_symlink())
+        })
+        .flat_map(|p| fs::read_dir(p).into_iter().flatten().flatten())
+        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_file()))
         .filter_map(|entry| {
             let path = entry.path();
-            let parsed = path
-                .file_name()
-                .and_then(|name| name.to_str())
-                .and_then(parse_log_file_name)?;
+            let parsed = parse_log_file_name(path.file_name()?.to_str()?)?;
             Some((path, parsed))
         })
         .collect()
@@ -1671,7 +1977,15 @@ fn cleanup_aborted_writer(mut writer: ActiveWriter, custom_root: Option<&Path>) 
     let directory = writer.directory.clone();
     let _ = writer.close();
     drop(writer);
-    let _ = fs::remove_file(file_path);
+    let _ = fs::remove_file(&file_path);
+    // Module routing creates one owned application subdirectory. Remove it
+    // only when empty; never recursively delete a user-selected directory.
+    if let Some(parent) = file_path
+        .parent()
+        .filter(|parent| *parent != directory.as_path())
+    {
+        let _ = fs::remove_dir(parent);
+    }
     let _ = fs::remove_dir(&directory);
     if let Some(root) = custom_root {
         let _ = fs::remove_dir(root.join(CUSTOM_LOG_SUBDIRECTORY[0]));
@@ -1748,7 +2062,7 @@ fn write_host_config(path: &Path, config: &HostLogConfig) -> Result<(), String> 
 }
 
 #[cfg(target_os = "windows")]
-fn replace_file_atomically(source: &Path, destination: &Path) -> Result<(), String> {
+pub(crate) fn replace_file_atomically(source: &Path, destination: &Path) -> Result<(), String> {
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::Storage::FileSystem::{
         MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
@@ -1784,7 +2098,7 @@ fn replace_file_atomically(source: &Path, destination: &Path) -> Result<(), Stri
 }
 
 #[cfg(not(target_os = "windows"))]
-fn replace_file_atomically(source: &Path, destination: &Path) -> Result<(), String> {
+pub(crate) fn replace_file_atomically(source: &Path, destination: &Path) -> Result<(), String> {
     fs::rename(source, destination)
         .map_err(|error| format!("Unable to commit the log configuration: {error}"))
 }
@@ -1819,12 +2133,21 @@ fn compact_json(value: &Value) -> String {
 fn format_event_line(event: &PreparedEvent, session_id: &str) -> String {
     let mut line = format!(
         "{} {:<5} [session={}] [scope={}] {}",
-        event.timestamp.format("%Y-%m-%dT%H:%M:%S%.3f%:z"),
+        event
+            .timestamp
+            .with_timezone(&Utc)
+            .format("%Y-%m-%dT%H:%M:%S%.3fZ"),
         event.level.label(),
         session_id,
         event.scope,
         event.message
     );
+    line.push_str(&format!(
+        " schema_version=1 category={} sequence={:020} process_id={}",
+        policy::log_category(&event.scope),
+        event.sequence,
+        std::process::id()
+    ));
     for (key, value) in &event.fields {
         line.push(' ');
         line.push_str(key);
@@ -1855,10 +2178,10 @@ fn format_log_value(value: &str) -> String {
 
 fn truncate_log_line(mut line: String) -> String {
     const MARKER: &str = " truncated=true";
-    if line.len() <= MAX_LOG_LINE_BYTES {
+    if line.len() < MAX_LOG_LINE_BYTES {
         return line;
     }
-    let limit = MAX_LOG_LINE_BYTES.saturating_sub(MARKER.len());
+    let limit = MAX_LOG_LINE_BYTES.saturating_sub(MARKER.len() + 1);
     while line.len() > limit {
         line.pop();
     }
@@ -1915,7 +2238,8 @@ impl LogSanitizer {
     }
 
     fn sanitize_text(&self, value: &str) -> String {
-        let mut sanitized = value
+        let shared = policy::sanitize_log_text(value);
+        let mut sanitized = shared
             .replace("\r\n", "\\n")
             .replace('\n', "\\n")
             .replace('\r', "\\r");
@@ -2027,6 +2351,7 @@ fn create_session_id() -> String {
 }
 
 static SESSION_ID: AtomicU64 = AtomicU64::new(1);
+static EVENT_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
 fn display_path(path: &Path) -> String {
     path.to_string_lossy().into_owned()
@@ -2057,9 +2382,21 @@ pub async fn set_log_directory(
 #[tauri::command]
 pub fn set_diagnostic_logging(
     enabled: bool,
+    category: Option<String>,
     manager: State<'_, Arc<LogManager>>,
 ) -> LogSettingsSnapshot {
-    manager.set_diagnostic_enabled(enabled)
+    manager.set_diagnostic_category(enabled, category)
+}
+
+#[tauri::command]
+pub async fn query_lithe_logs(
+    selection: LogSelection,
+    manager: State<'_, Arc<LogManager>>,
+) -> Result<LogTimeline, String> {
+    let manager = manager.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || manager.query_logs(selection))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -2151,6 +2488,8 @@ pub(crate) fn test_manager(directory: &Path) -> Arc<LogManager> {
             effective_path: directory.to_path_buf(),
             fallback_reason: None,
             diagnostic_enabled: false,
+            diagnostic_category: None,
+            diagnostic_deadline: None,
             active_file_path,
         }),
         panic_path: RwLock::new(panic_sidecar_path(directory, &session_id)),
@@ -2165,6 +2504,12 @@ pub(crate) fn test_manager(directory: &Path) -> Arc<LogManager> {
         pending_previous_custom: Mutex::new(None),
         degraded_reason: None,
     })
+}
+
+#[cfg(test)]
+pub(crate) fn start_test_writer(manager: &Arc<LogManager>) {
+    spawn_writer(manager.shared.clone(), manager.session_id.clone())
+        .expect("test writer should start");
 }
 
 #[cfg(test)]
@@ -2349,6 +2694,74 @@ mod tests {
     }
 
     #[test]
+    fn eviction_after_a_control_boundary_does_not_advance_that_boundary() {
+        let sanitizer = LogSanitizer::new();
+        let first = PreparedEvent::new(
+            LogLevel::Info,
+            "queue",
+            "before",
+            BTreeMap::new(),
+            &sanitizer,
+        );
+        let later = PreparedEvent::new(
+            LogLevel::Debug,
+            "queue",
+            "after",
+            BTreeMap::new(),
+            &sanitizer,
+        );
+        let mut queue = QueueState::default();
+        queue.events.push_back(QueuedEvent {
+            event: first,
+            repeated: 0,
+        });
+        let (tx, _rx) = mpsc::channel();
+        queue.controls.push_back(QueuedControl {
+            control: Control::Flush { reply: tx },
+            pending_events: 1,
+        });
+        queue.events.push_back(QueuedEvent {
+            event: later,
+            repeated: 0,
+        });
+        assert!(evict_oldest(&mut queue, LogLevel::Debug));
+        assert_eq!(queue.controls.front().unwrap().pending_events, 1);
+        assert!(matches!(
+            take_writer_work(&mut queue),
+            WriterWork::Event(..)
+        ));
+        assert!(matches!(
+            take_writer_work(&mut queue),
+            WriterWork::Control(..)
+        ));
+    }
+
+    #[test]
+    fn identical_events_do_not_merge_across_a_flush_boundary() {
+        let directory = temporary_directory("dedup-boundary");
+        let manager = test_manager(&directory);
+        let event = || {
+            PreparedEvent::new(
+                LogLevel::Warn,
+                "language.java",
+                "same failure",
+                BTreeMap::new(),
+                &manager.shared.sanitizer,
+            )
+        };
+        enqueue_event(&manager.shared, event());
+        let (tx, _rx) = mpsc::channel();
+        manager.push_control(Control::Flush { reply: tx }).unwrap();
+        enqueue_event(&manager.shared, event());
+        let queue = manager.shared.queue.lock().unwrap();
+        assert_eq!(queue.events.len(), 2);
+        assert_eq!(queue.events.front().unwrap().repeated, 0);
+        drop(queue);
+        drop(manager);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
     fn normal_queue_pressure_evicts_debug_before_info() {
         let directory = temporary_directory("queue-pressure");
         let manager = test_manager(&directory);
@@ -2383,27 +2796,49 @@ mod tests {
     }
 
     #[test]
-    fn saturated_warning_queue_direct_writes_errors() {
-        let directory = temporary_directory("critical-direct-write");
+    fn saturated_warning_queue_reports_loss_without_writing_on_the_producer() {
+        let directory = temporary_directory("bounded-error-storm");
         let manager = test_manager(&directory);
         for index in 0..LOG_QUEUE_CAPACITY {
-            let event = PreparedEvent::new(
-                LogLevel::Warn,
+            enqueue_event(
+                &manager.shared,
+                PreparedEvent::new(
+                    LogLevel::Warn,
+                    "queue",
+                    format!("warning {index}"),
+                    BTreeMap::new(),
+                    &manager.shared.sanitizer,
+                ),
+            );
+        }
+        enqueue_event(
+            &manager.shared,
+            PreparedEvent::new(
+                LogLevel::Error,
                 "queue",
-                format!("warning {index}"),
+                "critical queued event",
                 BTreeMap::new(),
                 &manager.shared.sanitizer,
-            );
-            enqueue_event(&manager.shared, event);
-        }
-        let critical = PreparedEvent::new(
-            LogLevel::Error,
-            "queue",
-            "critical direct write",
-            BTreeMap::new(),
-            &manager.shared.sanitizer,
+            ),
         );
-        enqueue_event(&manager.shared, critical);
+        assert_eq!(
+            manager.shared.queue.lock().unwrap().events.len(),
+            LOG_QUEUE_CAPACITY
+        );
+        assert_eq!(manager.snapshot().dropped_events, 1);
+        assert_eq!(
+            manager
+                .shared
+                .queue
+                .lock()
+                .unwrap()
+                .events
+                .back()
+                .unwrap()
+                .event
+                .message,
+            "critical queued event"
+        );
         let active = manager
             .shared
             .runtime
@@ -2411,9 +2846,61 @@ mod tests {
             .unwrap()
             .active_file_path
             .clone();
-        assert!(fs::read_to_string(active)
-            .unwrap()
-            .contains("critical direct write"));
+        assert!(fs::read_to_string(active).unwrap().is_empty());
+        drop(manager);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn modules_keep_independent_files_and_nested_secrets_never_reach_disk() {
+        let directory = temporary_directory("module-routing");
+        let manager = test_manager(&directory);
+        let event = PreparedEvent::new(
+            LogLevel::Error,
+            "language.java",
+            "failed",
+            BTreeMap::from([(
+                "context".into(),
+                r#"{"password":"synthetic-secret","operationID":"op-a"}"#.into(),
+            )]),
+            &manager.shared.sanitizer,
+        );
+        assert!(write_event(
+            &manager.shared,
+            &event,
+            &manager.session_id,
+            true
+        ));
+        let files = managed_log_files(&directory);
+        let language = files
+            .iter()
+            .find(|(path, _)| path.parent() == Some(directory.join("language").as_path()))
+            .unwrap();
+        let text = fs::read_to_string(&language.0).unwrap();
+        assert!(!text.contains("synthetic-secret"));
+        assert!(text.contains("op-a"));
+        assert!(text.contains("schema_version=1"));
+        drop(manager);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn diagnostic_deadline_is_checked_before_accepting_debug_events() {
+        let directory = temporary_directory("diagnostic-expiry");
+        let manager = test_manager(&directory);
+        manager.set_diagnostic_category(true, Some("language".into()));
+        manager.emit_json("debug", "git.fetch".into(), "wrong module".into(), None);
+        manager.emit_json("debug", "language.java".into(), "included".into(), None);
+        manager.shared.runtime.write().unwrap().diagnostic_deadline =
+            Some(std::time::Instant::now());
+        manager.emit_json("debug", "language.java".into(), "expired".into(), None);
+        let queue = manager.shared.queue.lock().unwrap();
+        assert!(queue.events.iter().any(|e| e.event.message == "included"));
+        assert!(!queue
+            .events
+            .iter()
+            .any(|e| e.event.message == "expired" || e.event.message == "wrong module"));
+        drop(queue);
         drop(manager);
         fs::remove_dir_all(directory).unwrap();
     }
@@ -2650,6 +3137,17 @@ mod tests {
         assert!(!directory.join("next-parent").join("Lithe").exists());
         drop(manager);
         fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn an_aborted_writer_releases_its_empty_module_directory() {
+        let root = temporary_directory("aborted-module-directory");
+        let target = derive_custom_log_path(&root);
+        let writer = ActiveWriter::open(target.clone(), "deadbeef".into()).unwrap();
+        cleanup_aborted_writer(writer, Some(&root));
+        assert!(!target.exists());
+        assert!(root.exists());
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

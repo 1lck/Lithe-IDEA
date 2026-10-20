@@ -545,6 +545,7 @@ struct SettingsView: View {
             }
 
             group("Logs") {
+                ApplicationLogSettingsView(feature: model.diagnosticsFeature)
                 Text("Log directory")
                     .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
 

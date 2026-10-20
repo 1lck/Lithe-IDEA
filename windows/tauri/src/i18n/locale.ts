@@ -1,3 +1,4 @@
+import { modularLoggingEnglish, modularLoggingChinese } from "./modular-logging";
 import { panelParityEnglish, panelParityChinese } from "./panel-parity";
 import { javaEntryChinese, javaEntryEnglish } from "./java-entry-creation";
 import { changelistsChinese, changelistsEnglish } from "./git-changelists";
@@ -19,6 +20,7 @@ const catalogs = {
     ...workspaceCommitEnglish,
     ...changelistsEnglish,
     ...updateChannelEnglish,
+    ...modularLoggingEnglish,
     "git.console.details": "Command details",
     "git.console.historyTruncated": "Earlier Git commands were truncated to limit memory use.",
   "git.console.options": "Git command options",
@@ -2255,11 +2257,11 @@ const catalogs = {
     "settings.logs.diagnostics": "Diagnostics",
     "settings.logs.diagnosticMode": "Diagnostic logging for this session",
     "settings.logs.diagnosticModeDescription":
-      "Record DEBUG events and a low-frequency FPS heartbeat until Lithe restarts.",
+      "Record detailed events for the selected module for 15 minutes.",
     "settings.logs.diagnosticFailed": "Unable to change diagnostic logging: {error}",
     "settings.logs.retention": "Retention",
     "settings.logs.retentionDescription":
-      "Logs rotate at 10 MB, keep the newest five regular files per day, and are removed after 30 days when Lithe starts.",
+      "Module logs rotate at 10 MiB and expire after 30 days. The combined budget is 100 MiB; performance logs have a separate 20 MiB budget.",
     "settings.logs.clearCurrent": "Clear current directory logs",
     "settings.logs.clearCurrentDescription":
       "Delete only log files managed by Lithe in the active directory.",
@@ -4883,6 +4885,7 @@ const catalogs = {
     ...workspaceCommitChinese,
     ...changelistsChinese,
     ...updateChannelChinese,
+    ...modularLoggingChinese,
     "git.console.details": "命令详情",
     "git.console.historyTruncated": "为限制内存占用，较早的 Git 执行记录已截断，无法展开。",
   "git.console.options": "Git 命令选项",
@@ -7058,11 +7061,11 @@ const catalogs = {
     "settings.logs.diagnostics": "诊断",
     "settings.logs.diagnosticMode": "本次会话启用诊断日志",
     "settings.logs.diagnosticModeDescription":
-      "记录 DEBUG 事件和低频 FPS 心跳；Lithe 重启后自动恢复为 INFO。",
+      "所选模块记录详细事件，15 分钟后自动关闭。",
     "settings.logs.diagnosticFailed": "无法切换诊断日志：{error}",
     "settings.logs.retention": "保留策略",
     "settings.logs.retentionDescription":
-      "单个日志达到 10 MB 后轮转，每天保留最新五个常规日志，并在 Lithe 启动时删除超过 30 天的日志。",
+      "模块日志达到 10 MiB 后轮转，保留 30 天。总预算为 100 MiB，性能日志另有限额 20 MiB。",
     "settings.logs.clearCurrent": "清除当前目录日志",
     "settings.logs.clearCurrentDescription": "只删除当前目录中由 Lithe 管理的日志文件。",
     "settings.logs.clearLogs": "清除日志",

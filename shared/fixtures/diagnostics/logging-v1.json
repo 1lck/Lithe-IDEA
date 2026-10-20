@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "categories": [
+    "application",
+    "language",
+    "run",
+    "git",
+    "plugins",
+    "performance"
+  ],
+  "limits": {
+    "fileBytes": 10485760,
+    "totalBytes": 104857600,
+    "performanceBytes": 20971520,
+    "exportBytes": 10485760,
+    "diagnosticDurationMilliseconds": 900000
+  },
+  "cases": [
+    {
+      "scope": "language.java",
+      "category": "language"
+    },
+    {
+      "scope": "git.fetch",
+      "category": "git"
+    },
+    {
+      "scope": "run.build",
+      "category": "run"
+    },
+    {
+      "scope": "plugins.activate",
+      "category": "plugins"
+    },
+    {
+      "scope": "perf.fps",
+      "category": "performance"
+    },
+    {
+      "scope": "../../escape",
+      "category": "application"
+    }
+  ]
+}

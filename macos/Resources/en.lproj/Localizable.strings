@@ -1992,3 +1992,39 @@
 "All tasks completed" = "All tasks completed";
 "Modified files: %lld" = "Modified files: %lld";
 "Review changes" = "Review changes";
+
+"All modules" = "All modules";
+
+"Application" = "Application";
+
+"Editor and language services" = "Editor and language services";
+
+"Build, run and debug" = "Build, run and debug";
+
+"Current session" = "Current session";
+
+"Previous session" = "Previous session";
+
+"All sessions" = "All sessions";
+
+"Log filter" = "Log filter";
+
+"Log level" = "Log level";
+
+"Filter log messages" = "Filter log messages";
+
+"From (UTC ISO 8601)" = "From (UTC ISO 8601)";
+
+"Until (UTC ISO 8601)" = "Until (UTC ISO 8601)";
+
+"Refresh Logs" = "Refresh Logs";
+
+"Clear Logs" = "Clear Logs";
+
+"Detailed diagnostics for 15 minutes" = "Detailed diagnostics for 15 minutes";
+
+"No matching logs" = "No matching logs";
+
+"Earlier log content omitted" = "Earlier log content omitted";
+
+"Delete collected application logs?" = "Delete collected application logs?";

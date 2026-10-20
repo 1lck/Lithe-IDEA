@@ -376,6 +376,16 @@ macOS 的 Application Support 临时快照 `.lithe-dev-profile-import-<transacti
 这些目录没有可靠 identity stamp，不进入工作树缓存或安装包，不改变代码签名及增量更新基线。
 同一发行身份的多个源码工作树仍会使用同一用户域；本地测试应注入临时目录与独立偏好域。
 
+模块日志和诊断包暂存目录登记为 `application-log-state`，不允许跨工作树复用。
+日志根目录下的 `application`、`language`、`run`、`git`、`plugins`、`performance`
+子目录、旧版 `lithe.log`、macOS 缓存中的 `Lithe/diagnostics-export/<snapshot>/`
+以及导出目标旁的临时 ZIP（macOS 的 `.lithe-diagnostics-<snapshot>.zip`
+和 Windows 的 `<destination>.lithe-<process>-<snapshot>.tmp`）都属于本次运行的用户状态，没有可验证的版本、平台、
+架构或工具链 identity stamp。复用脚本在解析工作树与复制之前拒绝这些位置；
+不存在允许复制的阶段。Windows 的确认快照仅保存在内存中，最多四份、五分钟有效；
+macOS 的暂存目录由导出成功、失败或取消清理。测试必须注入各自的临时日志根目录，
+不要复用真实用户日志。这些数据不进入 app bundle、Windows 安装目录或签名基线。
+
 功能矩阵生成物 `.artifacts/platform-feature-matrix/`（CI Pages 使用
 `<runner-temp>/lithe-agent-notes-site/platform-feature-matrix/`）不允许跨工作树复用。
 它依赖当前 checkout 的能力记录、证据路径及提交信息，没有可靠的版本、平台、

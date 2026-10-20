@@ -19,8 +19,9 @@
 `~/Library/Logs/Lithe`；独立开发版使用
 `~/Library/Logs/app.lithe.desktop.dev/Lithe`，不继承正式版的自定义目录偏好。
 用户显式选择相同目录仍允许共享。设置页面展示解析后的真实绝对路径，不嵌入开发机
-路径。`LogDirectoryProviding` 统一提供目录和 `lithe.log` 文件路径，其他
-服务不重复拼接日志文件名。
+路径。`LogDirectoryProviding` 提供平台默认目录及旧版 `lithe.log` 的兼容路径。
+当前模块 writer 与收集端通过同一个 `ApplicationLogging` 实例访问实际生效目录，
+不能再把默认文件路径当作当前会话的来源。
 
 `AppSettings` 保存可选的自定义目录，并把有效日志目录定义为“自定义目录
 或默认目录”。用户从系统目录选择器选中目录后立即持久化，并通过已有观察
@@ -50,10 +51,12 @@
 
 ## 后果
 
-设置页、应用启动、诊断导出和实际日志写入都使用同一条目录解析路径；
+设置页和应用启动通过配置驱动 writer，诊断导出从 writer 收集实际生效目录；
 用户可以立即切换目录，重启后也能保持选择。目录不可用时会自动恢复可用
 默认值，代价是用户需要重新选择一个可用目录。
 
+模块日志与导出快照的后续决策见
+[双端模块日志与诊断快照](../architecture/2026-10-20-modular-application-logging.md)。
 日志 writer 仍然由 macOS 应用启动和设置观察机制驱动，目录配置本身不负责
 日志内容治理、轮换、清理或上传。未来如果改变日志文件名、诊断导出来源
 或 Windows 日志策略，需要重新检查 `LogDirectoryProviding` 与本 Note 的

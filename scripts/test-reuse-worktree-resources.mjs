@@ -79,6 +79,15 @@ try {
     assert.notEqual(refused.status, 0);
     assert.match(diagnostics(refused), /distribution-runtime-state is isolated/);
   });
+  await test("application log state and export snapshots cannot be reused", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const resource = registry.excludedResources.find(item => item.id === "application-log-state");
+    assert.equal(resource.reusable, false);
+    assert.ok(resource.locations.some(location => location.includes("diagnostics-export")));
+    const result = reuse(["--resource", resource.id]);
+    assert.notEqual(result.status, 0);
+    assert.match(diagnostics(result), /application-log-state.*cannot be reused/);
+  });
   await test("plugin UI icons remain owned by their verified installed package", { timeout: 15000 }, () => {
     const listed = run(process.execPath, [reuseScript, "--list"]);
     assertSucceeded(listed);

@@ -3460,3 +3460,39 @@
 "All tasks completed" = "所有任务已完成";
 "Modified files: %lld" = "修改了 %lld 个文件";
 "Review changes" = "查看文件修改";
+
+"All modules" = "全部模块";
+
+"Application" = "应用运行";
+
+"Editor and language services" = "编辑器与语言服务";
+
+"Build, run and debug" = "构建、运行与调试";
+
+"Current session" = "当前会话";
+
+"Previous session" = "上一次会话";
+
+"All sessions" = "全部会话";
+
+"Log filter" = "日志筛选";
+
+"Log level" = "日志级别";
+
+"Filter log messages" = "筛选日志内容";
+
+"From (UTC ISO 8601)" = "起始时间（UTC ISO 8601）";
+
+"Until (UTC ISO 8601)" = "结束时间（UTC ISO 8601）";
+
+"Refresh Logs" = "刷新日志";
+
+"Clear Logs" = "清除日志";
+
+"Detailed diagnostics for 15 minutes" = "详细诊断（15 分钟后关闭）";
+
+"No matching logs" = "没有匹配的日志";
+
+"Earlier log content omitted" = "较早的日志已省略";
+
+"Delete collected application logs?" = "删除已收集的应用日志？";
