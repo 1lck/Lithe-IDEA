@@ -188,6 +188,28 @@ describe("bounded automount root lookup", () => {
     expect(invoke.mock.calls).toHaveLength(2);
   });
 
+  // The host answers `null` when no UNC share could be read. That is a failure,
+  // not the statement "this distribution uses /mnt": caching it would ignore a
+  // custom root for the rest of the session, even after the share recovers.
+  test("does not cache an unreadable wsl.conf", async () => {
+    answer = async () => null as unknown as string;
+    expect(await resolveWslAutomountRoot("Ubuntu")).toBe(WSL_DEFAULT_AUTOMOUNT_ROOT);
+
+    // The distribution started and its wsl.conf is readable now.
+    answer = async () => "";
+    expect(await resolveWslAutomountRoot("Ubuntu")).toBe("");
+    expect(invoke.mock.calls).toHaveLength(2);
+  });
+
+  // An empty string is the host saying `root = /`, which is a real answer and
+  // must survive the next lookup instead of being treated as "no answer".
+  test("caches an empty root that means the filesystem root", async () => {
+    answer = async () => "";
+    expect(await resolveWslAutomountRoot("Ubuntu")).toBe("");
+    expect(await resolveWslAutomountRoot("Ubuntu")).toBe("");
+    expect(invoke.mock.calls).toHaveLength(1);
+  });
+
   test("caches a successful answer", async () => {
     answer = async () => "/windrives";
     expect(await resolveWslAutomountRoot("Ubuntu")).toBe("/windrives");

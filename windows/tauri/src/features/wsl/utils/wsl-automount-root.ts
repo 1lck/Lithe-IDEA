@@ -96,13 +96,19 @@ function readAutomountRoot(distro: string): Promise<string> {
   const existing = automountRootReads.get(distro);
   if (existing) return existing;
 
-  const read = invoke<string>("wsl_automount_root", { distro })
+  const read = invoke<string | null>("wsl_automount_root", { distro })
     .then((root) => {
-      const resolved = typeof root === "string" ? root : WSL_DEFAULT_AUTOMOUNT_ROOT;
+      // The host answers `null` when it could not read the distribution's
+      // wsl.conf at all. That is not knowledge worth remembering: caching it
+      // would pin `/mnt` for the rest of the session even after the read starts
+      // working again. A string — including the default — is a real answer.
+      if (typeof root !== "string") {
+        return WSL_DEFAULT_AUTOMOUNT_ROOT;
+      }
       // The answer arrives even if every caller already returned the default,
       // which is what lets the next paste use the real root.
-      automountRoots.set(distro, resolved);
-      return resolved;
+      automountRoots.set(distro, root);
+      return root;
     })
     .catch((error: unknown) => {
       // Do not cache a failure: a transient condition should not pin the default

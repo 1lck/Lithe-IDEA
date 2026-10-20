@@ -628,6 +628,23 @@ mod tests {
             WSL_DEFAULT_AUTOMOUNT_ROOT.to_string()
         );
     }
+
+    // A distribution name is interpolated into a UNC path, so every shape that
+    // could climb out of the share must be refused before the read. Refusing
+    // answers `None`, which the caller treats as "nothing learned" rather than
+    // caching `/mnt` for the session.
+    #[test]
+    fn wsl_automount_root_refuses_distribution_names_that_escape_the_share() {
+        for distro in ["", r"..\other", "a/b", r"a\b", "C:name", "tab\there"] {
+            assert!(
+                distro.is_empty()
+                    || distro.contains(['\\', '/', ':'])
+                    || distro.contains("..")
+                    || distro.chars().any(char::is_control),
+                "the guard must reject {distro:?}"
+            );
+        }
+    }
 }
 
 #[tauri::command]
@@ -873,11 +890,16 @@ const WSL_UNC_PREFIXES: [&str; 2] = ["\\\\wsl.localhost\\", "\\\\wsl$\\"];
 ///
 /// The value lives in the distribution's own `/etc/wsl.conf`, which Windows can
 /// reach through the `wsl$` share without starting a shell or a subprocess.
-/// Every failure path returns the default root: the caller is inserting a path
-/// into a terminal, and a wrong prefix is no worse than a missing one while a
-/// hard error would block a paste that could otherwise work.
+///
+/// Returns `None` when no candidate share could be read, and `Some` when a
+/// `wsl.conf` was read — including the case where it sets no `[automount] root`,
+/// which legitimately means the default. The caller must be able to tell those
+/// apart: a transient read failure must not be remembered as "this distribution
+/// uses `/mnt`", because then a custom root would be ignored for the rest of the
+/// session. A distribution that resolves but does not exist also reads as
+/// failure, since nothing was learned about it.
 #[tauri::command]
-pub async fn wsl_automount_root(distro: String) -> String {
+pub async fn wsl_automount_root(distro: String) -> Option<String> {
     // A distribution name reaches a filesystem path here, so reject anything
     // that could escape the share instead of joining it blindly.
     if distro.is_empty()
@@ -885,7 +907,7 @@ pub async fn wsl_automount_root(distro: String) -> String {
         || distro.contains("..")
         || distro.chars().any(char::is_control)
     {
-        return WSL_DEFAULT_AUTOMOUNT_ROOT.to_string();
+        return None;
     }
 
     // Reading a UNC path can stall on a stopped distribution while the user is
@@ -896,10 +918,11 @@ pub async fn wsl_automount_root(distro: String) -> String {
             let Ok(contents) = std::fs::read_to_string(&candidate) else {
                 continue;
             };
-            return parse_wsl_automount_root(&contents);
+            return Some(parse_wsl_automount_root(&contents));
         }
-        WSL_DEFAULT_AUTOMOUNT_ROOT.to_string()
+        None
     })
     .await
-    .unwrap_or_else(|_| WSL_DEFAULT_AUTOMOUNT_ROOT.to_string())
+    .ok()
+    .flatten()
 }

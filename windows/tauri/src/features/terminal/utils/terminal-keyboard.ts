@@ -44,7 +44,8 @@ export function isTerminalAltTextInput(event: TerminalKeyboardEvent): boolean {
  * A legacy terminal sends the same byte for Tab and Ctrl+I (0x09), for Enter and
  * Ctrl+M (0x0D), and for Escape and Ctrl+[ (0x1B), so a TUI cannot distinguish
  * them. Once the program enables that bit it expects the distinct codepoint form
- * for the combination that would otherwise alias.
+ * for the combination that would otherwise alias. Alt+Backspace is in the same
+ * position: the legacy mapping sends 0x17, which is also what Ctrl+W sends.
  *
  * Escape is encoded too, and for the reason the bit is named after: its bare byte
  * is identical to the prefix of every CSI and OSC sequence, so a program that has
@@ -55,10 +56,12 @@ export function isTerminalAltTextInput(event: TerminalKeyboardEvent): boolean {
  */
 function encodeDisambiguatedKey(event: TerminalKeyboardEvent): string | null {
   if (event.key === "Escape") {
-    const modifier =
-      1 + (event.shiftKey ? 1 : 0) + (event.altKey ? 2 : 0) + (event.ctrlKey ? 4 : 0);
-    // The protocol omits the modifier when it is the default.
-    return modifier === 1 ? "\x1b[27u" : `\x1b[27;${modifier}u`;
+    return encodeCodepoint(27, event);
+  }
+  // Only the modified form aliases a control byte; plain Backspace keeps 0x7f,
+  // which shells and readline rely on for single-character deletion.
+  if (event.key === "Backspace" && (event.altKey || event.ctrlKey)) {
+    return encodeCodepoint(127, event);
   }
   if (event.ctrlKey && !event.shiftKey && !event.altKey && event.key.length === 1) {
     const letter = event.key.toLowerCase();
@@ -70,6 +73,18 @@ function encodeDisambiguatedKey(event: TerminalKeyboardEvent): string | null {
     }
   }
   return null;
+}
+
+/**
+ * Encode a key press as `CSI <codepoint>[;<modifier>] u`.
+ *
+ * The protocol omits the modifier when it is the default, so an unmodified key
+ * still parses on the program side.
+ */
+function encodeCodepoint(codepoint: number, event: TerminalKeyboardEvent): string {
+  const modifier =
+    1 + (event.shiftKey ? 1 : 0) + (event.altKey ? 2 : 0) + (event.ctrlKey ? 4 : 0);
+  return modifier === 1 ? `\x1b[${codepoint}u` : `\x1b[${codepoint};${modifier}u`;
 }
 
 export interface TerminalKeyContext {
@@ -141,7 +156,9 @@ export function getTerminalKeyAction(
   // The kitty "disambiguate escape codes" bit promises a distinct encoding for
   // every key that a legacy terminal could not tell apart. Advertising the bit
   // while leaving those keys on the legacy path would make a TUI trust a
-  // guarantee that does not hold, so every aliasing key is encoded with it.
+  // guarantee that does not hold, so every aliasing key is encoded with it —
+  // including the control-letter aliases further down, which is why this runs
+  // before them.
   if (context.extendedKeyboardActive && !event.metaKey) {
     const encoded = encodeDisambiguatedKey(event);
     if (encoded) return { type: "write", data: encoded };

@@ -234,6 +234,33 @@ describe("disambiguated keys", () => {
     });
   });
 
+  // Alt+Backspace used to send 0x17, the same byte Ctrl+W sends, so a TUI could
+  // not tell them apart even after the program asked for disambiguation.
+  test("encodes Alt+Backspace instead of the Ctrl+W byte", () => {
+    const active = { extendedKeyboardActive: true };
+    expect(getTerminalKeyAction(key({ key: "Backspace", altKey: true }), "windows", active)).toEqual(
+      { type: "write", data: "\u001b[127;3u" },
+    );
+  });
+
+  test("keeps plain Backspace and Alt+W on their own paths", () => {
+    const active = { extendedKeyboardActive: true };
+    expect(getTerminalKeyAction(key({ key: "Backspace" }), "windows", active)).toEqual({
+      type: "passthrough",
+    });
+    // Ctrl+W still reaches the shell as the control byte it is.
+    expect(getTerminalKeyAction(key({ key: "w", ctrlKey: true }), "windows", active)).toEqual({
+      type: "passthrough",
+    });
+  });
+
+  test("keeps Alt+Backspace on the legacy mapping before negotiation", () => {
+    expect(getTerminalKeyAction(key({ key: "Backspace", altKey: true }), "windows")).toEqual({
+      type: "write",
+      data: "\u0017",
+    });
+  });
+
   test("does not encode the aliasing combinations before negotiation", () => {
     expect(getTerminalKeyAction(key({ key: "i", ctrlKey: true }), "windows")).toEqual({
       type: "passthrough",
