@@ -3522,3 +3522,95 @@
 "Module: %@ · Session: %@ · Minimum level: %@" = "模块：%@ · 会话：%@ · 最低级别：%@";
 "Minimum level" = "最低级别";
 "Open Log Directory" = "打开日志目录";
+/* Agent skill management */
+"Skills" = "技能";
+"Agent skills" = "Agent 技能";
+"Global skills" = "全局技能";
+"Project skills" = "项目技能";
+"Manage Skills…" = "管理技能…";
+"Search skills" = "搜索技能";
+"Skill files" = "技能文件";
+"All sources" = "全部来源";
+"Skill source" = "技能来源";
+"Skill project" = "当前项目";
+"Skill actions" = "技能操作";
+"Refresh skills" = "刷新技能";
+"New skill" = "新建技能";
+"Import skill" = "导入技能";
+"Import SKILL.md" = "导入 SKILL.md";
+"Import skill directory" = "导入技能目录";
+"View skill" = "查看";
+"Skill target Agent" = "适用 Agent";
+"Copy path" = "复制路径";
+"Open SKILL.md" = "打开 SKILL.md";
+"No skills in this scope." = "当前分类暂无技能。";
+"No matching skills." = "没有匹配的技能。";
+"Open a project to manage its skills." = "请先打开项目，再管理项目技能。";
+"Enabled in Agent" = "Agent 已启用";
+"Disabled in Agent" = "Agent 已禁用";
+"Built-in" = "内置";
+"Managed" = "托管";
+"Plugin" = "插件";
+"Import source" = "导入来源";
+"Create skill" = "创建技能";
+"Skill instructions" = "技能正文";
+"Skill name (lowercase-with-hyphens)" = "技能名称（小写字母与连字符）";
+"When should this skill be used?" = "什么情况下应使用这个技能？";
+"Skill saved. Refresh or reconnect the Agent if it does not appear in the conversation." = "技能已保存。如果对话中未显示，请刷新或重新连接 Agent。";
+"Codex reports its discovered skills. Claude lists files in the selected project and user directories; inherited and plugin skills may also be available in its sessions." = "Codex 显示官方发现的技能；Claude 显示所选项目和用户目录中的技能文件。Claude 会话还可能包含继承目录和插件提供的技能。";
+"File inventory only. Claude determines whether this skill is available in a session." = "此处仅列出技能文件。技能是否在会话中可用，由 Claude 决定。";
+"Directory imports preserve scripts, templates and other supporting files. Existing skills are never overwritten." = "导入目录会保留脚本、模板等配套文件，不会覆盖已有技能。";
+"Install Codex CLI to discover its skills." = "请先安装 Codex CLI，再查看它发现的技能。";
+"Codex skill discovery failed. Check the CLI and retry." = "Codex 技能发现失败，请检查 CLI 后重试。";
+"The skill file could not be opened." = "无法打开技能文件。";
+"The skill file could not be read." = "无法读取技能文件。";
+"The skill document is unavailable. Refresh and retry." = "技能文件当前不可用，请刷新后重试。";
+"SKILL.md must use UTF-8 text." = "SKILL.md 必须使用 UTF-8 编码。";
+"SKILL.md needs YAML frontmatter." = "SKILL.md 需要 YAML 格式的文件头。";
+"SKILL.md has invalid YAML frontmatter." = "SKILL.md 的 YAML 文件头格式不正确。";
+"SKILL.md needs a name and description." = "SKILL.md 需要技能名称和说明。";
+"SKILL.md frontmatter is not closed." = "SKILL.md 的文件头缺少结束标记。";
+"Enter a description and instructions." = "请填写技能说明和正文。";
+"Use up to 64 lowercase letters, digits and single hyphens for the skill name." = "技能名称最多 64 个字符，请使用小写字母、数字和单个连字符。";
+"Select SKILL.md or its containing directory." = "请选择 SKILL.md 文件或包含该文件的目录。";
+"A skill with this directory name already exists. Existing skills are never overwritten." = "同名技能目录已存在，不会覆盖已有技能。";
+"Skill imports cannot contain symbolic links or special files." = "导入的技能不能包含符号链接或特殊文件。";
+"Import a regular file or directory instead of a symbolic link." = "请导入普通文件或目录，而不是符号链接。";
+"The skill destination contains a symbolic link or non-directory. Choose a regular native skill directory." = "技能目标位置包含符号链接或非目录项目，请使用普通技能目录。";
+"The skill could not be published. Check permissions and existing skill names." = "无法保存技能，请检查目录权限以及是否存在同名技能。";
+"Codex reported skill discovery errors. Check the affected SKILL.md files and refresh." = "Codex 报告了技能发现错误，请检查 SKILL.md 文件并刷新。";
+"A skill was omitted because its native metadata is incomplete." = "有技能的原生信息不完整，未在列表中显示。";
+"A skill has an unknown scope and cannot be classified." = "有技能的作用范围未知，暂时无法分类。";
+"That skill name is reserved by Claude. Choose a different name." = "该技能名称为 Claude 保留，请使用其他名称。";
+"SKILL.md exceeds the 128 KiB limit." = "SKILL.md 超过了 128 KiB 的大小限制。";
+"SKILL.md needs instructions after its frontmatter." = "请在 SKILL.md 的文件头后添加技能正文。";
+
+"Enable skill" = "启用技能";
+
+"State unknown" = "状态未知";
+
+"Switches save native Agent settings. Reconnect existing conversations to refresh available skills." = "开关保存到 Agent 原生配置。已有对话需重新连接以刷新可用技能。";
+
+"Skill setting saved." = "技能设置已保存。";
+
+"Codex saves this setting by path for all projects using this skill." = "Codex 按路径保存此设置，影响使用该技能路径的所有项目。";
+
+"Claude saves visibility by name: global skills use user settings; project skills use project-local settings. Project and managed settings may override global settings. Skills with the same name share this setting." = "Claude 按名称保存可见性：全局技能写入用户配置，项目技能写入项目本地配置。项目及受管配置可能覆盖全局设置；同名技能共用此设置。";
+
+"Skill settings could not be updated. Check the settings file and refresh." = "无法更新技能设置，请检查配置文件后刷新。";
+
+"Claude skill settings could not be read. Fix invalid settings and refresh before toggling." = "无法读取 Claude 技能配置，请修复无效配置后刷新再操作开关。";
+
+"Choose whether to enable the skill." = "请选择启用或停用技能。";
+
+"Codex skill settings could not be confirmed. Refresh to check the current state." = "无法确认 Codex 技能设置，请刷新查看当前状态。";
+
+"The Agent did not apply the skill setting. Refresh and check project or managed configuration." = "Agent 未应用此技能设置，请刷新并检查项目或受管配置。";
+
+"The skill is no longer available in this scope. Refresh and retry." = "此技能已不在当前范围内，请刷新后重试。";
+
+"Claude plugin skills must be managed through Claude's plugin settings." = "Claude 插件技能需通过 Claude 的插件设置管理。";
+
+"Skill settings are busy. Retry after the other change finishes." = "技能配置正在被修改，请等待其他修改完成后重试。";
+
+"Skill settings changed elsewhere. Refresh and retry." = "技能配置已在其他位置更改，请刷新后重试。";

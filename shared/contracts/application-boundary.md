@@ -754,3 +754,12 @@ JDT-owned workspace build paths and the existing platform-owned JDT state.
 - 固定 codex-acp 的 `session_info_update._meta.codex.error.willRetry == true` 和非空 `turnId` 是 macOS 重试显示的证据；该通知可能没有 `title`。共享样例 `codexRetry` 由官方 ACP SDK 往返验证，Host 继续透传元数据，不新增请求/事件种类或网络重试策略。
 - 状态隔离到会话，新进度清除重试显示，完成/失败/断连清理本轮状态，正在停止时不因迟到进度回退；不得显示未经脱敏的原始错误或从文本猜测重试次数。请求仍等待上游完成/取消确认，既有十分钟 prompt 上限和十秒取消上限不变。
 - 这次交付 macOS 展示；Windows 对话 UI 的消费与真实验收仍待完成。展示状态只在内存中，不写入 bundle、安装目录或上游历史。
+
+
+Agent skill management groups files by Global/Project and retains their Agent
+provenance. Codex-reported capabilities and Claude's partial directory inventory
+are distinct; neither file presence nor a management-list row proves that the
+current conversation has used a skill. Explicit create/import operations write
+only to native user/project directories and preserve existing skills. Explicit toggles write native settings: Codex by discovered path via its official App Server API, Claude by name via skillOverrides in user or project-local settings. Claude states are configured visibility, not effective managed/session policy. Never persist a separate Lithe enabled flag, move packages to simulate disablement, or claim that a change revokes already loaded session content. File
+contents remain untrusted document data. Settings discovery and file management
+must not create conversations, send prompts, or interrupt existing Agent work.

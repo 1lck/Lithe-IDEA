@@ -63,6 +63,7 @@ struct SettingsView: View {
     let initialCategory: SettingsCategory
     /// Changes with every category request; see `WorkbenchFeatureModel.settingsCategoryRequest`.
     let categoryRequest: Int
+    private let skillProjects: [URL]
     private let onDismiss: (() -> Void)?
     static let categoryMinimumWidth: CGFloat = 234
     static let contentMinimumWidth: CGFloat = 500
@@ -73,12 +74,14 @@ struct SettingsView: View {
         viewState: SettingsViewState,
         initialCategory: SettingsCategory = .general,
         categoryRequest: Int = 0,
+        skillProjects: [URL] = [],
         onDismiss: (() -> Void)? = nil
     ) {
         self.settings = settings
         self.viewState = viewState
         self.initialCategory = initialCategory
         self.categoryRequest = categoryRequest
+        self.skillProjects = skillProjects
         self.onDismiss = onDismiss
     }
 
@@ -362,6 +365,14 @@ struct SettingsView: View {
                     case .agents:
                         AgentPanelSettingsView(model: model, settings: settings, feature: model.agentManagementFeature)
                             .id(model.settingsCategoryRequest)
+                    case .skills:
+                        AgentSkillsSettingsView(feature: model.agentSkillsFeature, workspace: model.workspaceURL,
+                            openProjects: skillProjects, preferredAgentID: model.selectedAgentConversationID,
+                            onOpen: { model.platformUI.open($0) }, onReveal: { model.platformUI.revealInFileBrowser($0) },
+                            onCopy: { model.platformUI.copyToClipboard($0) }, onChooseImport: { directory, title, prompt in
+                                directory ? model.platformUI.chooseDirectory(title: title, prompt: prompt)
+                                    : model.platformUI.chooseFile(title: title, prompt: prompt)
+                            })
                     case .providers: providersSettings
                     case .git:
                         VStack(alignment: .leading, spacing: 14) {

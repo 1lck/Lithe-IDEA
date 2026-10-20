@@ -38,6 +38,8 @@ pub enum CoreCommand {
     Ping,
     /// Detects Node.js and npm and lists catalog agent installs (`agent.status`).
     AgentStatus,
+    /// Lists native skills or creates/imports one explicitly (`agent.skills`).
+    AgentSkills,
     /// Installs a catalog ACP adapter with the user's npm (`agent.install`).
     AgentInstall,
     /// Removes a Lithe-managed ACP adapter install (`agent.uninstall`).
@@ -411,6 +413,7 @@ impl CoreCommand {
             "core.ping" => Some(Self::Ping),
             "ideHost.control" => Some(Self::IdeHostControl),
             "agent.status" => Some(Self::AgentStatus),
+            "agent.skills" => Some(Self::AgentSkills),
             "agent.install" => Some(Self::AgentInstall),
             "agent.uninstall" => Some(Self::AgentUninstall),
             "agent.installCli" => Some(Self::AgentInstallCli),

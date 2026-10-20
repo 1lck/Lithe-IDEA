@@ -2055,3 +2055,96 @@
 "Session" = "Session";
 "Minimum level" = "Minimum level";
 "Open Log Directory" = "Open Log Directory";
+/* Agent skill management */
+"Skills" = "Skills";
+"Agent skills" = "Agent skills";
+"Global skills" = "Global skills";
+"Project skills" = "Project skills";
+"Manage Skills…" = "Manage Skills…";
+"Search skills" = "Search skills";
+"Skill files" = "Skill files";
+"All sources" = "All sources";
+"Skill source" = "Skill source";
+"Skill project" = "Skill project";
+"Skill actions" = "Skill actions";
+"Refresh skills" = "Refresh skills";
+"New skill" = "New skill";
+"Import skill" = "Import skill";
+"Import SKILL.md" = "Import SKILL.md";
+"Import skill directory" = "Import skill directory";
+"View skill" = "View skill";
+"Skill target Agent" = "Skill target Agent";
+"Copy path" = "Copy path";
+"Open SKILL.md" = "Open SKILL.md";
+"Reveal in Finder" = "Reveal in Finder";
+"No skills in this scope." = "No skills in this scope.";
+"No matching skills." = "No matching skills.";
+"Open a project to manage its skills." = "Open a project to manage its skills.";
+"Enabled in Agent" = "Enabled in Agent";
+"Disabled in Agent" = "Disabled in Agent";
+"Built-in" = "Built-in";
+"Managed" = "Managed";
+"Plugin" = "Plugin";
+"Import source" = "Import source";
+"Create skill" = "Create skill";
+"Skill instructions" = "Skill instructions";
+"Skill name (lowercase-with-hyphens)" = "Skill name (lowercase-with-hyphens)";
+"When should this skill be used?" = "When should this skill be used?";
+"Skill saved. Refresh or reconnect the Agent if it does not appear in the conversation." = "Skill saved. Refresh or reconnect the Agent if it does not appear in the conversation.";
+"Codex reports its discovered skills. Claude lists files in the selected project and user directories; inherited and plugin skills may also be available in its sessions." = "Codex reports its discovered skills. Claude lists files in the selected project and user directories; inherited and plugin skills may also be available in its sessions.";
+"File inventory only. Claude determines whether this skill is available in a session." = "File inventory only. Claude determines whether this skill is available in a session.";
+"Directory imports preserve scripts, templates and other supporting files. Existing skills are never overwritten." = "Directory imports preserve scripts, templates and other supporting files. Existing skills are never overwritten.";
+"Install Codex CLI to discover its skills." = "Install Codex CLI to discover its skills.";
+"Codex skill discovery failed. Check the CLI and retry." = "Codex skill discovery failed. Check the CLI and retry.";
+"The skill file could not be opened." = "The skill file could not be opened.";
+"The skill file could not be read." = "The skill file could not be read.";
+"The skill document is unavailable. Refresh and retry." = "The skill document is unavailable. Refresh and retry.";
+"SKILL.md must use UTF-8 text." = "SKILL.md must use UTF-8 text.";
+"SKILL.md needs YAML frontmatter." = "SKILL.md needs YAML frontmatter.";
+"SKILL.md has invalid YAML frontmatter." = "SKILL.md has invalid YAML frontmatter.";
+"SKILL.md needs a name and description." = "SKILL.md needs a name and description.";
+"SKILL.md frontmatter is not closed." = "SKILL.md frontmatter is not closed.";
+"Enter a description and instructions." = "Enter a description and instructions.";
+"Use up to 64 lowercase letters, digits and single hyphens for the skill name." = "Use up to 64 lowercase letters, digits and single hyphens for the skill name.";
+"Select SKILL.md or its containing directory." = "Select SKILL.md or its containing directory.";
+"A skill with this directory name already exists. Existing skills are never overwritten." = "A skill with this directory name already exists. Existing skills are never overwritten.";
+"Skill imports cannot contain symbolic links or special files." = "Skill imports cannot contain symbolic links or special files.";
+"Import a regular file or directory instead of a symbolic link." = "Import a regular file or directory instead of a symbolic link.";
+"The skill destination contains a symbolic link or non-directory. Choose a regular native skill directory." = "The skill destination contains a symbolic link or non-directory. Choose a regular native skill directory.";
+"The skill could not be published. Check permissions and existing skill names." = "The skill could not be published. Check permissions and existing skill names.";
+"Codex reported skill discovery errors. Check the affected SKILL.md files and refresh." = "Codex reported skill discovery errors. Check the affected SKILL.md files and refresh.";
+"A skill was omitted because its native metadata is incomplete." = "A skill was omitted because its native metadata is incomplete.";
+"A skill has an unknown scope and cannot be classified." = "A skill has an unknown scope and cannot be classified.";
+"That skill name is reserved by Claude. Choose a different name." = "That skill name is reserved by Claude. Choose a different name.";
+"SKILL.md exceeds the 128 KiB limit." = "SKILL.md exceeds the 128 KiB limit.";
+"SKILL.md needs instructions after its frontmatter." = "SKILL.md needs instructions after its frontmatter.";
+
+"Enable skill" = "Enable skill";
+
+"State unknown" = "State unknown";
+
+"Switches save native Agent settings. Reconnect existing conversations to refresh available skills." = "Switches save native Agent settings. Reconnect existing conversations to refresh available skills.";
+
+"Skill setting saved." = "Skill setting saved.";
+
+"Codex saves this setting by path for all projects using this skill." = "Codex saves this setting by path for all projects using this skill.";
+
+"Claude saves visibility by name: global skills use user settings; project skills use project-local settings. Project and managed settings may override global settings. Skills with the same name share this setting." = "Claude saves visibility by name: global skills use user settings; project skills use project-local settings. Project and managed settings may override global settings. Skills with the same name share this setting.";
+
+"Skill settings could not be updated. Check the settings file and refresh." = "Skill settings could not be updated. Check the settings file and refresh.";
+
+"Claude skill settings could not be read. Fix invalid settings and refresh before toggling." = "Claude skill settings could not be read. Fix invalid settings and refresh before toggling.";
+
+"Choose whether to enable the skill." = "Choose whether to enable the skill.";
+
+"Codex skill settings could not be confirmed. Refresh to check the current state." = "Codex skill settings could not be confirmed. Refresh to check the current state.";
+
+"The Agent did not apply the skill setting. Refresh and check project or managed configuration." = "The Agent did not apply the skill setting. Refresh and check project or managed configuration.";
+
+"The skill is no longer available in this scope. Refresh and retry." = "The skill is no longer available in this scope. Refresh and retry.";
+
+"Claude plugin skills must be managed through Claude's plugin settings." = "Claude plugin skills must be managed through Claude's plugin settings.";
+
+"Skill settings are busy. Retry after the other change finishes." = "Skill settings are busy. Retry after the other change finishes.";
+
+"Skill settings changed elsewhere. Refresh and retry." = "Skill settings changed elsewhere. Refresh and retry.";

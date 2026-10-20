@@ -3277,3 +3277,55 @@ Core resolves its current stash position under the existing writer lease and rej
 an identity that is no longer present. Legacy positional references remain accepted.
 See `shared/fixtures/git/saved-stash-v1.json`. Native Shelf persistence is platform-owned;
 raw patch bytes are kept separately for index and working-tree versions.
+
+
+### Agent skill management
+
+`agent.skills` accepts explicit `action` values `list`, `directories`, `read`,
+`create`, `import`, and `setEnabled`, with `agentId` (`codex-acp` or `claude-acp`) and optional
+absolute `workspace`. These management operations never create an Agent session,
+send a prompt or stop a running conversation. Only an explicit `setEnabled` action changes native visibility settings.
+The shared fixture is `shared/fixtures/agent/skills-management-v1.json`.
+
+`list` returns `skills`, `source`, `issues`, and native `directories` (`user`,
+plus `repo` when a workspace is present). Each row has `name`, `description`,
+absolute `path`, native `scope` (`user`, `repo`, `system`, `admin`), optional
+`enabled` and optional `pluginId`. Paths are transient platform file-operation
+metadata, not portable persisted identifiers. Rows are sorted by lowercased name
+and path. Native Codex discovery uses the installed CLI's official `skills/list`
+with the selected cwd and `forceReload: true`, reusing the bounded App Server
+probe and process-tree cleanup. Unknown enablement remains null. Missing or
+malformed native results fail explicitly; refresh failure retains previous rows
+only within the same workspace and Agent.
+
+Claude `source: directory` is an explicitly partial inventory of
+`CLAUDE_CONFIG_DIR/skills` (default `~/.claude/skills`) and the selected workspace's
+`.claude/skills`. It does not emulate inherited-directory, plugin, policy or
+session discovery. Its `enabled` reports configured visibility: user rows read user settings; repo rows merge user, project shared and project-local settings. Absent overrides mean on, off means false, name-only/user-invocable-only mean true. Invalid or unreadable configuration leaves the affected state null. This is not effective managed policy or evidence of session availability. Codex `source: agent` is native discovery. Platform UI
+uses Global/Project as the main categories and Agent provenance as a filter.
+
+`setEnabled` requires an absolute discovered `source` path and boolean `enabled`; Claude also requires matching `scope`. It returns a fresh listing using the same shape as `list`. Codex validates the path with `skills/list`, calls official `skills/config/write`, then forces native readback and verifies the desired state. Its setting is global by path even for a project skill. Claude merges only the named `skillOverrides` on/off value into user `settings.json` for global skills, or project `.claude/settings.local.json` for project skills; it preserves unrelated JSON values and permissions, refuses malformed, linked or over-1-MiB files, uses a nonblocking cross-process lock and same-directory atomic replacement with a pre-publish snapshot check. Claude settings are by name, so same-named skills share a setting; project/managed settings can override user settings. Plugin skills are not managed through this operation. Existing session contents cannot be withdrawn: clients advise reconnecting, and never automatically interrupt a running conversation. No skill file is renamed or edited by toggling.
+
+`directories` returns only the native destination map and needs no installed
+CLI. `read` takes the selected absolute `source` path to a `SKILL.md`, reads at
+most 128 KiB of regular UTF-8 text and returns `content`. It never interprets or
+executes instructions, scripts or dynamic content in the document.
+
+`create` requires `scope` (`user` or `repo`), portable `name` (1–64 lowercase
+letters/digits separated by single hyphens), `description`, and `instructions`.
+`import` requires `scope` and an absolute, user-selected `source` (`SKILL.md` or
+its package directory). Writes return the resulting `path`. Codex targets
+`~/.agents/skills` or `<workspace>/.agents/skills`; Claude targets its native
+configuration directory or `<workspace>/.claude/skills`. Project writes require
+an opened workspace. Imports preserve package contents and file permissions,
+reject special files and symbolic links, and enforce 2,000 entries, 20 nested
+levels, 128 KiB per SKILL.md, 8 MiB per resource file and 32 MiB total. Hidden staging is removed on failure or
+cancellation; publication atomically refuses an existing target, including an
+empty directory. Existing skills and import sources are never overwritten.
+These are explicit user-owned documents, not downloaded/build/cache resources;
+no app bundle, installation resource or shared worktree cache is writable.
+
+The macOS settings surface offers search, refresh, file details, native open and
+reveal, creation and import. It keeps native loading separate from management
+and rejects stale results after project changes. Windows can use the same Core
+operations; the settings UI and Windows runtime validation remain pending.

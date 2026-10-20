@@ -931,7 +931,7 @@ private struct SettingsWindowHost: View {
 private struct SettingsWindow: View {
     @ObservedObject var model: AppModel
     @ObservedObject var settings: AppSettings
-    let projectSessions: ProjectSessionManager
+    @ObservedObject var projectSessions: ProjectSessionManager
     let bindingID: UUID
     @StateObject private var windowReference = SettingsWindowReference()
     @StateObject private var viewState: SettingsViewState
@@ -961,6 +961,7 @@ private struct SettingsWindow: View {
                 viewState: viewState,
                 initialCategory: model.requestedSettingsCategory,
                 categoryRequest: model.settingsCategoryRequest,
+                skillProjects: projectSessions.openProjects.compactMap(\.workspaceURL),
                 onDismiss: close
             )
             .environmentObject(model)

@@ -98,6 +98,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         service: services.agentManagement,
         dataDirectory: agentDataDirectory
     )
+    lazy var agentSkillsFeature = AgentSkillsFeatureModel(service: services.agentManagement)
     /// Settings › Plugins marketplace and plugin repositories, created when
     /// the page is first shown.
     lazy var pluginMarketplaceFeature = PluginMarketplaceFeatureModel(

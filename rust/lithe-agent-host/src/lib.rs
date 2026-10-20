@@ -20,6 +20,7 @@ mod prompt_retry;
 mod session_defaults;
 mod session_restore;
 mod session_routing;
+pub mod skills;
 mod steering;
 mod subagents;
 mod subscription;

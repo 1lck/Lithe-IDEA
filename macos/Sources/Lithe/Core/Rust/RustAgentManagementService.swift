@@ -7,6 +7,41 @@ import LitheRustCore
 struct RustAgentManagementService: AgentManagementService {
     let core: RustCoreBridge
 
+    private struct SkillsPayload: Encodable, Sendable {
+        var action = "list"
+        let agentId: String
+        let workspace: String?
+    }
+    private struct SkillDirectoriesResult: Decodable, Sendable { let directories: [String: String] }
+    func skillDirectories(agentID: String, workspace: URL?) async throws -> [String: String] {
+        let result: SkillDirectoriesResult = try await run("agent.skills", SkillsPayload(action: "directories", agentId: agentID, workspace: workspace?.path))
+        return result.directories
+    }
+    private struct SkillReadPayload: Encodable, Sendable {
+        let action = "read"
+        let agentId: String
+        let source: String
+    }
+    private struct SkillReadResult: Decodable, Sendable { let content: String }
+    func readSkill(at url: URL, agentID: String) async throws -> String {
+        let result: SkillReadResult = try await run("agent.skills", SkillReadPayload(agentId: agentID, source: url.path))
+        return result.content
+    }
+    private struct SkillWriteResult: Decodable, Sendable { let path: String }
+
+    func listSkills(agentID: String, workspace: URL?) async throws -> AgentSkillListing {
+        try await run("agent.skills", SkillsPayload(agentId: agentID, workspace: workspace?.path))
+    }
+
+    func writeSkill(_ request: AgentSkillWrite) async throws -> URL {
+        let result: SkillWriteResult = try await run("agent.skills", request)
+        return URL(fileURLWithPath: result.path)
+    }
+
+    func setSkillEnabled(_ request: AgentSkillEnablement) async throws -> AgentSkillListing {
+        try await run("agent.skills", request)
+    }
+
     private struct StatusPayload: Encodable { let dataDirectory: String }
     private struct AgentPayload: Encodable { let dataDirectory: String; let agentId: String }
     private struct InstallResult: Decodable { let installedVersion: String }
