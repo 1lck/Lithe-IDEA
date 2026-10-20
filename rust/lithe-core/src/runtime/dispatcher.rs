@@ -1553,6 +1553,21 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::LspFunctionRequest => {
+            match serde_json::from_value::<crate::lsp::PluginFunctionRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid plugin-function request")
+                        .with_details(error.to_string())
+                })
+                .and_then(crate::lsp::plugin_function_request)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Plugin-function response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::JavaNavigationMarkers => {
             match serde_json::from_value::<crate::lsp::JavaNavigationMarkersRequest>(parsed.payload)
                 .map_err(|error| {
@@ -2717,6 +2732,15 @@ mod tests {
                     "sessionId": unknown_session,
                     "operationId": "build-1",
                     "method": "lithe/build/model",
+                    "params": {}
+                }
+            }),
+            json!({
+                "command": "lsp.functionRequest",
+                "payload": {
+                    "sessionId": unknown_session,
+                    "operationId": "function-1",
+                    "function": { "pluginID": "dev.lithe.fixture.maven", "functionID": "snapshot.refresh" },
                     "params": {}
                 }
             }),

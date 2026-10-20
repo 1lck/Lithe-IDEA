@@ -2938,10 +2938,28 @@ private func makeRunService(
 }
 
 @MainActor
+func makeBuildSystemTestRuntime(
+    _ buildSystems: BuildSystemService
+) async throws -> (runtime: ModuleRuntime, graph: ExecutionFeatureGraph) {
+    let graph = makeTestGraph(buildSystems: buildSystems)
+    let runtime = ModuleRuntime()
+    try runtime.register(ModuleFactory(
+        manifest: ModuleManifest(id: .workspace, displayName: "Workspace", scope: .workspace)
+    ) { EmptyWorkspaceModule() })
+    try runtime.register(ModuleFactory(
+        manifest: ExecutionModule.moduleManifest,
+        contributions: ExecutionModule.moduleContributions
+    ) { ExecutionModule(makeGraph: { graph }) })
+    _ = try await runtime.activateCapability(.executionWorkspace)
+    return (runtime, graph)
+}
+
+@MainActor
 private func makeTestGraph(
     mavenOperations: any MavenProjectOperations = TestMavenOperations(),
     mavenService: MavenService? = nil,
-    runOperations: any RunConfigurationOperations = TestRunConfigurationOperations()
+    runOperations: any RunConfigurationOperations = TestRunConfigurationOperations(),
+    buildSystems: BuildSystemService? = nil
 ) -> ExecutionFeatureGraph {
     let runtime = TestRuntime()
     let resolver = TestExecutableResolver()
@@ -2969,7 +2987,7 @@ private func makeTestGraph(
         executableResolver: resolver,
         processFactory: { TestStreamingProcess() }
     )
-    return ExecutionFeatureGraph(maven: maven, run: run, tests: tests)
+    return ExecutionFeatureGraph(maven: maven, run: run, tests: tests, buildSystems: buildSystems)
 }
 
 @MainActor
