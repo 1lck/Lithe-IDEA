@@ -174,6 +174,17 @@ export function AgentPanel({
   const activeAgentId = boundAgentID ?? settings.agentId;
   const agentName = AGENT_NAMES[activeAgentId] ?? snapshot.agentName;
   const isConfigured = settings.enabled && rootFolderPath !== null;
+  // macOS refuses to change a provider while a connection could lose work.
+  const canChangeAuthentication =
+    snapshot.connectionState.status !== "connecting" &&
+    !snapshot.isCreatingSession &&
+    !Object.values(snapshot.conversations).some(
+      (conversation) =>
+        conversation.isResponding ||
+        conversation.isLoading ||
+        conversation.pendingConfigToken !== null ||
+        conversation.pendingPermissions.length > 0,
+    );
 
   const { ownsConnection: connectionMatchesWorkspace, claim } = useAgentConnectionOwnership({
     isActive,
@@ -182,6 +193,8 @@ export function AgentPanel({
   });
 
   const reconnect = useCallback(() => {
+    // Read the store at call time: a settings edit is committed before the
+    // reconnect request, while this render's `settings` is still the old value.
     const current = useSettingsStore.getState().settings.agentPanel;
     if (rootFolderPath === null) return;
     void closeAgentConnection()
@@ -454,6 +467,7 @@ export function AgentPanel({
             management={management}
             onChange={(next) => void updateSetting("agentPanel", next)}
             onReconnect={reconnect}
+            canChangeAuthentication={canChangeAuthentication}
           />
         </div>
       </PanelFrame>

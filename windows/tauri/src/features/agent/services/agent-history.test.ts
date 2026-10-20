@@ -187,8 +187,8 @@ describe("History markdown", () => {
           id: "session-one",
           title: "Rename the parser",
           messages: [
-            { id: "a", role: "user", text: "do it", toolStatus: null, toolDetails: emptyToolDetails() },
-            { id: "b", role: "agent", text: "done", toolStatus: null, toolDetails: emptyToolDetails() },
+            { id: "a", role: "user", text: "do it", delivery: null, toolStatus: null, toolDetails: emptyToolDetails() },
+            { id: "b", role: "agent", text: "done", delivery: null, toolStatus: null, toolDetails: emptyToolDetails() },
           ],
         },
       ],
@@ -210,6 +210,7 @@ describe("History markdown", () => {
               id: "a",
               role: "tool",
               text: "read",
+              delivery: null,
               toolStatus: "completed",
               toolDetails: {
                 kind: "read",
@@ -241,6 +242,7 @@ describe("History markdown", () => {
               id: "r",
               role: "reasoning",
               text: "one\n\ntwo",
+              delivery: null,
               toolStatus: null,
               toolDetails: emptyToolDetails(),
             },

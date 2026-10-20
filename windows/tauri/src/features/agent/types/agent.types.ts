@@ -91,10 +91,17 @@ export interface AgentToolDetails {
   content: AgentToolContent[];
 }
 
+/** Only supplementary input has a request-scoped delivery acknowledgement. */
+export type AgentMessageDelivery =
+  | "sending"
+  | "received"
+  | { failed: string };
+
 export interface AgentConversationMessage {
   id: string;
   role: AgentMessageRole;
   text: string;
+  delivery: AgentMessageDelivery | null;
   toolStatus: AgentToolStatus | null;
   toolDetails: AgentToolDetails;
 }
@@ -136,6 +143,8 @@ export interface AgentConversation {
   isResponding: boolean;
   isLoading: boolean;
   isCancelling: boolean;
+  /** The supplementary message the host has not acknowledged yet. */
+  pendingSteeringToken: string | null;
   configOptions: AgentSessionConfigOption[];
   pendingConfigToken: string | null;
   configurationError: string | null;
@@ -207,6 +216,7 @@ export function createConversation(): AgentConversation {
     isResponding: false,
     isLoading: false,
     isCancelling: false,
+    pendingSteeringToken: null,
     configOptions: [],
     pendingConfigToken: null,
     configurationError: null,
@@ -483,6 +493,7 @@ export function upsertToolMessage(
       id,
       role: "tool",
       text: title !== null && title.length > 0 ? title : "Tool call",
+      delivery: null,
       toolStatus: status ?? "pending",
       toolDetails: mergeToolDetails(emptyToolDetails(), update),
     });
@@ -505,6 +516,7 @@ export function appendMessage(
       id: crypto.randomUUID(),
       role,
       text,
+      delivery: null,
       toolStatus: null,
       toolDetails: emptyToolDetails(),
     });
@@ -523,7 +535,12 @@ export function finishActiveTurn(
 ): AgentConversation {
   const turn = conversation.activeTurn;
   if (turn === null) return conversation;
-  const ending = conversation.messages[conversation.messages.length - 1]?.id ?? turn.id;
+  // A rejected or unacknowledged supplement is not part of the turn's output.
+  const ending =
+    conversation.messages
+      .slice()
+      .reverse()
+      .find((message) => message.delivery === null || message.delivery === "received")?.id ?? turn.id;
   return {
     ...conversation,
     activeTurn: null,

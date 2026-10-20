@@ -44,23 +44,6 @@ export interface AgentPanelSettings {
   provider: AgentProviderSettings;
 }
 
-export const DEFAULT_AGENT_PROVIDER_SETTINGS: AgentProviderSettings = {
-  protocol: "responses",
-  baseUrl: "",
-  model: "",
-  name: "",
-  allowInsecureHttp: false,
-};
-
-export const DEFAULT_AGENT_PANEL_SETTINGS: AgentPanelSettings = {
-  enabled: false,
-  agentId: CODEX_AGENT_ID,
-  command: "",
-  arguments: "",
-  authentication: "apiKey",
-  provider: DEFAULT_AGENT_PROVIDER_SETTINGS,
-};
-
 /**
  * Protocol each built-in adapter speaks. The shared host rejects a mismatch, so
  * the panel derives the protocol from the selected agent instead of letting the
@@ -70,6 +53,56 @@ export const AGENT_PROTOCOL_BY_ID: Record<string, AgentProviderProtocol> = {
   "codex-acp": "responses",
   "claude-acp": "anthropicMessages",
   [CUSTOM_AGENT_ID]: "responses",
+};
+
+export const DEFAULT_AGENT_PROVIDER_SETTINGS: AgentProviderSettings = {
+  protocol: "responses",
+  baseUrl: "",
+  model: "",
+  name: "",
+  allowInsecureHttp: false,
+};
+
+/** Model a newly added built-in provider starts from, as macOS does. */
+export const DEFAULT_AGENT_MODELS: Record<string, string> = {
+  [CODEX_AGENT_ID]: "gpt-6.1-sol",
+  [CLAUDE_AGENT_ID]: "claude-fable-5-1",
+};
+
+export function defaultAgentModel(agentId: string): string {
+  return DEFAULT_AGENT_MODELS[agentId] ?? "";
+}
+
+export function defaultAgentProvider(agentId: string): AgentProviderSettings {
+  return {
+    ...DEFAULT_AGENT_PROVIDER_SETTINGS,
+    protocol: AGENT_PROTOCOL_BY_ID[agentId] ?? DEFAULT_AGENT_PROVIDER_SETTINGS.protocol,
+    model: defaultAgentModel(agentId),
+  };
+}
+
+/**
+ * Switching adapters keeps a model the user typed, and only replaces the
+ * previous adapter's own default. An empty field is a new provider.
+ */
+export function providerAfterAgentChange(
+  provider: AgentProviderSettings,
+  previousAgentId: string,
+  agentId: string,
+): AgentProviderSettings {
+  const model = provider.model.trim();
+  const previousDefault = defaultAgentModel(previousAgentId);
+  if (model.length > 0 && model !== previousDefault) return provider;
+  return { ...provider, model: defaultAgentModel(agentId) };
+}
+
+export const DEFAULT_AGENT_PANEL_SETTINGS: AgentPanelSettings = {
+  enabled: false,
+  agentId: CODEX_AGENT_ID,
+  command: "",
+  arguments: "",
+  authentication: "apiKey",
+  provider: defaultAgentProvider(CODEX_AGENT_ID),
 };
 
 /** Codex is the only adapter with an official ChatGPT subscription route. */
@@ -85,9 +118,9 @@ function asBoolean(value: unknown, fallback: boolean): boolean {
   return typeof value === "boolean" ? value : fallback;
 }
 
-function normalizeProvider(value: unknown): AgentProviderSettings {
+function normalizeProvider(value: unknown, agentId: string): AgentProviderSettings {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return { ...DEFAULT_AGENT_PROVIDER_SETTINGS };
+    return defaultAgentProvider(agentId);
   }
   const record = value as Record<string, unknown>;
   const protocol = record.protocol;
@@ -123,6 +156,7 @@ export function normalizeAgentPanelSettings(value: unknown): AgentPanelSettings 
       authentication === "codexSubscription" || authentication === "apiKey"
         ? authentication
         : DEFAULT_AGENT_PANEL_SETTINGS.authentication,
-    provider: normalizeProvider(record.provider),
+    // A persisted provider, including an intentionally empty model, is kept.
+    provider: normalizeProvider(record.provider, agentId),
   };
 }
