@@ -214,8 +214,6 @@ package final class BuildSystemService: ObservableObject {
     /// Forgets the previous workspace and detects the new one.
     package func reset(workspaceURL: URL?) {
         stop()
-        // A provider has loaded the previous workspace; none carries over.
-        providers?.retainProviders { _ in false }
         generation += 1
         detectionTask?.cancel(); detectionTask = nil
         redetectTask?.cancel(); redetectTask = nil
@@ -738,6 +736,8 @@ package final class BuildSystemService: ObservableObject {
         for task in dependencyTasks.values { task.cancel() }
         modelTasks = [:]
         dependencyTasks = [:]
+        // Providers outlive their requests and must also end with the project session.
+        providers?.retainProviders { _ in false }
         for index in entries.indices {
             if entries[index].modelState == .loading {
                 entries[index].modelState = entries[index].model == nil ? .notLoaded : .loaded

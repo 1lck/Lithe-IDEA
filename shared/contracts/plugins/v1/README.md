@@ -16,6 +16,7 @@ This directory is the cross-platform source of truth:
 | `fixtures/command-plans.json` | Golden run/test command expansions and language-server launch plans |
 | `fixtures/runtime-versions.json` | Golden outcomes of the launch runtime version check |
 | `fixtures/build-plans.json` | Golden build-system plans and decoded outputs |
+| `fixtures/function-protocol.json` | Golden plugin-function negotiation, registration, invocation, outcome, progress, and refusal cases |
 | `plugin-index.schema.json` | JSON shape of a marketplace source index |
 | `fixtures/marketplace/*.json` | Marketplace index, availability, source URL, and install review golden cases |
 
@@ -871,6 +872,173 @@ digests the watched files. A selection the declaration does not allow is
 `plugin.build.invalidSelection`; an operation it does not declare is
 `plugin.build.unavailable`.
 
+## Plugin functions
+
+A plugin backend (a language server or build provider process the plugin
+starts) can offer **plugin functions**: plugin-private actions with
+serializable params and results, which the host invokes on behalf of the same
+plugin, for example from that plugin's own window. Functions complement the
+typed domain protocols; they never replace them. Version 1 of the protocol is
+implemented in Rust Core (`rust/lithe-core/src/lsp/interface/plugin_function.rs`);
+no host invokes functions yet, and Windows has no plugin backend host.
+
+### Capability ownership
+
+Every capability has one owner, who defines its contract, and one direction:
+
+| Direction | Contract owner | Implemented by | Travels as | Examples |
+| --- | --- | --- | --- | --- |
+| Plugin provides a domain capability | Lithe: the typed domain contract | The plugin, declaratively or by its backend | A manifest `source`, Core plans and decodes, a typed `lithe/build/*` request | Build model, dependency tree; later task execution |
+| Plugin provides a plugin function | The plugin: its own params and results | The plugin's backend | `lithe/function/invoke` | Refresh a private snapshot, a step behind a button of the plugin's own UI |
+| Plugin calls a host capability | The host | The host | `lithe/host/*` requests, offered per protocol version | Run a process through the host's runner, write output, store state |
+
+Two rules keep these directions from forming a loop:
+
+- A backend never asks the host to dispatch a domain operation or a function.
+  The host could route that request to the same backend, whose handler would
+  then wait for itself. A backend request for `lithe/function/invoke` or any
+  `lithe/build/*` method is refused with `plugin.function.recursiveCall`.
+  A handler that needs, say, a Maven run asks for the host's process
+  capability, never for the task that its own plugin implements.
+- Host capabilities are primitive host services, never another entry into a
+  domain registry. Each is added to a protocol version together with its
+  params, permission, and the operation it must belong to. Version 1 offers
+  none: every `lithe/host/*` request is refused with `plugin.host.unavailable`.
+
+### Declarative or backend implementation
+
+- A domain operation has exactly one implementation, chosen in the manifest
+  (`source`: `static`, `command`, `hostIntegration`, or `provider`). Core plans
+  only that one. There is no runtime fallback from a backend to a template or
+  back: the two may differ in meaning, and a fallback would hide the failure.
+- A backend implements a domain operation through its typed method and Core's
+  plan and decode commands, never through a plugin function, so IDE
+  workflows, presentation, and other hosts keep a single contract.
+- Plugin functions need no manifest field. What a running process can answer
+  is negotiated, as for [build providers](#build-providers); so declaring,
+  adding, or removing functions changes neither `pluginAPIVersion` nor any
+  `requires` version.
+- A new kind of domain implementation, such as a provider for tasks, is a new
+  version of the capability that owns it (`buildProviders`), so only plugins
+  that use it are filtered from hosts that cannot run it.
+
+### Negotiation
+
+For a session owned by a plugin (`lsp.startServer.pluginId`), the host offers
+`capabilities.experimental.litheFunctions: { "versions": [1] }` in
+`initialize`, next to and independent of `litheBuild`. Host-owned sessions do
+not offer or accept this protocol, retain no plugin-function registry, and
+reject register/unregister with `-32601`. A plugin backend that offers
+functions answers:
+
+```json
+"experimental": { "litheFunctions": { "version": 1, "functions": [{ "id": "snapshot.refresh" }] } }
+```
+
+`functions` is optional and defaults to none. An answer with a version the
+host did not offer, or a malformed or duplicate function ID, does not
+negotiate the protocol at all, so a session never starts with half a
+registry. Unknown fields of the answer and of descriptors are ignored.
+After a plugin-owned session successfully negotiates the protocol in
+`initialize`, Core publishes its initial
+registry as `functionsChanged { functions: [<sorted IDs>], removed: [] }`,
+including when the negotiated registry is empty. Hosts can discover the
+functions from events without issuing an invocation first.
+
+### References and IDs
+
+A function reference is `{ "pluginID", "functionID" }`. The host routes by
+plugin first: only a session the plugin started (`lsp.startServer` with
+`pluginId`) serves its functions, and a reference to another plugin is
+`plugin.function.wrongPlugin`. Host-owned servers serve none.
+
+A function ID is dot-separated lowerCamelCase segments
+(`snapshot.refresh`), at most 128 bytes, unique within the session. A
+session holds at most 256 functions.
+
+### Registration and withdrawal
+
+After `initialize` a backend may send:
+
+| Request | Params | Effect |
+| --- | --- | --- |
+| `lithe/function/register` | `{ "functions": [{ "id" }] }`, nonempty | Adds the functions. |
+| `lithe/function/unregister` | `{ "ids": ["…"] }`, nonempty | Removes them and revokes their running calls. |
+
+Each request is all or nothing: a malformed ID, a function listed twice, an
+already registered ID, an unregistered ID, or exceeding the limit refuses the
+whole request with JSON-RPC error `-32602` and
+`data.code: "plugin.function.invalidRegistration"`. A successful change
+answers `null` and publishes `functionsChanged` with the sorted IDs. A
+backend that did not negotiate the protocol gets `-32601` for both.
+
+### Invocation
+
+`lsp.functionRequest { sessionId, operationId?, function, params?,
+timeoutMilliseconds? }` returns `{ operationId }` and sends:
+
+```json
+{ "method": "lithe/function/invoke", "params": { "functionID": "snapshot.refresh", "operationID": "…", "params": { … } } }
+```
+
+`params` must be a JSON object and defaults to `{}`. Core assigns every
+backend invocation a unique, opaque `operationID`. The backend must echo it
+unchanged in progress notifications; it must not derive it from the host's
+`operationId`. The host continues to cancel and receive events using its own
+`operationId`, which can be reused after a call ends. Core translates progress
+back to that host ID, including `requestProgress.result.operationID`. This
+prevents a late report for an earlier call from being attributed to a new call.
+Core checks, in this order, and refuses without writing anything:
+
+| Check | Core error | `details` |
+| --- | --- | --- |
+| Plugin or function ID malformed | `invalid_request` | `plugin.function.invalidReference` |
+| `params` not an object | `invalid_request` | `plugin.function.invalidParams` |
+| Session belongs to no plugin | `not_supported` | `plugin.function.unavailable` |
+| Session belongs to another plugin | `permission_denied` | `plugin.function.wrongPlugin` |
+| Protocol not negotiated | `not_supported` | `plugin.function.unavailable` |
+| Function not registered | `not_supported` | `plugin.function.unknown` |
+
+The call ends with exactly one `requestCompleted` event:
+
+| Outcome | Event |
+| --- | --- |
+| Result | `result: { "value": <result> }`; `null` is a result. |
+| Backend error | `error.code: "plugin.function.failed"`, the backend's `message` (at most 1024 bytes), and `error.pluginErrorCode` from `error.data.code` when it is an identifier of at most 64 bytes. The plugin code is for the plugin's own UI; Lithe never branches on it. |
+| No `result`, or a result over 1 MiB serialized | `plugin.function.invalidResult` |
+| Function withdrawn while running | `plugin.function.revoked`; the host also sends `$/cancelRequest` |
+| Cancelled through `lsp.cancelOperation` | `requestCancelled`; the host sends `$/cancelRequest` |
+| Deadline passed | `requestTimeout`; the host sends `$/cancelRequest`. `timeoutMilliseconds` is capped at one hour and defaults to the session's request timeout. |
+| Process exited or the transport failed | The session's terminal error, as for every pending request |
+
+After a call has ended, its late reply is ignored, and so is any progress
+report for it. Every terminal path removes its function/request association;
+withdrawing that function later cannot cancel a new operation reusing the
+host ID, including a build request. A backend should stop work on
+`$/cancelRequest`, but the host does not rely on it.
+
+### Progress
+
+A backend reports progress of a running call with the notification
+`lithe/function/progress { operationID, message?, percentage? }`, where
+`message` is cut to 1024 bytes and `percentage` is a whole number from 0 to
+100. Core publishes it as `requestProgress` with the operation ID and the
+normalized report. A malformed report, or one for an operation that is not
+running on that session, is dropped.
+
+### Compatibility
+
+- Packages of every API level are unchanged: functions add no manifest field.
+- A backend written before this protocol does not answer `litheFunctions`.
+  It keeps serving its language and its `litheBuild` requests, receives no
+  function calls, and its function requests are answered with `-32601`.
+- A new host capability or wire field the other side must not ignore needs a
+  new protocol version, offered next to the old one.
+- `fixtures/function-protocol.json` holds the golden cases. Rust Core tests run
+  them, and a scripted backend covers routing, result, failure, cancellation,
+  deadline, late reply, revocation, and compatibility with a build-only
+  backend.
+
 ## Outcomes and error codes
 
 `plugins.declarative.*`, `plugins.marketplace.*`, and `build.*` commands return `{"status": "ok", …}` or
@@ -914,6 +1082,11 @@ command payload is a Core `invalid_request` failure instead.
 | `plugin.web.unknownMethod` | Host | A plugin page called a bridge method the host does not implement |
 | `plugin.web.invalidRequest` | Host | A bridge call has malformed parameters |
 | `plugin.web.forbidden` | Host | A bridge call names an instance, run, or path outside the page's plugin or workspace, or the page is closed |
+| `plugin.function.invalidReference`, `plugin.function.invalidParams`, `plugin.function.unavailable`, `plugin.function.wrongPlugin`, `plugin.function.unknown` | Core | A [plugin-function](#plugin-functions) call is refused before it reaches the backend |
+| `plugin.function.failed`, `plugin.function.invalidResult`, `plugin.function.revoked` | Core | A plugin-function call ended without a usable result |
+| `plugin.function.invalidRegistration` | Core | A backend's register or unregister request was refused as a whole |
+| `plugin.function.recursiveCall` | Core | A backend asked the host to dispatch a domain operation or function |
+| `plugin.host.unavailable` | Core | A backend asked for a host capability the negotiated protocol does not offer |
 
 Host-facing plugin states are `notInstalled`, `installed` (enabled or
 disabled), `running`, `restartRequired`, `updateRequired`, and `failed`.

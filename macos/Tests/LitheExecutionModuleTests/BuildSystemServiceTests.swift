@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import LitheApplicationKernel
 @testable import LitheExecutionModule
 import LitheCoreContracts
 import Testing
@@ -1432,6 +1433,42 @@ struct BuildSystemServiceTests {
         #expect(providers.running.isEmpty)
     }
 
+    @Test(arguments: [false, true])
+    func moduleShutdownStopsInitializingAndReadyProviders(ready: Bool) async throws {
+        let planner = FakeBuildPlanner()
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "provider")])
+        planner.providerRequest = Self.providerRequest(method: "lithe/build/model")
+        let providers = FakeBuildProviders()
+        if !ready { providers.replyGate = BuildTestGate() }
+        let harness = Harness(planner: planner, providers: providers)
+        let (runtime, graph) = try await makeBuildSystemTestRuntime(harness.service)
+        defer {
+            graph.stop()
+            providers.replyGate?.open()
+        }
+        harness.service.reset(workspaceURL: Self.workspace)
+        try #require(await harness.waitForEntries { $0.first?.modelState == .notLoaded })
+        harness.service.loadModel(Self.instanceID)
+        try #require(await providers.requestStarted.waitUntilOpen())
+        let target = try #require(providers.sent.first?.target)
+        if ready {
+            try #require(await harness.waitForEntries { $0.first?.modelState == .loaded })
+        }
+        #expect(providers.running == [target])
+
+        try await runtime.shutdown(.execution)
+
+        #expect(providers.stopped == [target])
+        #expect(providers.running.isEmpty)
+        #expect(!graph.isActive)
+        #expect(runtime.capability(.executionWorkspace) == nil)
+        try #require(await providers.requestFinished.waitUntilOpen())
+        #expect(harness.service.entries.first?.modelState == (ready ? .loaded : .notLoaded))
+        try await runtime.shutdown(.execution)
+        #expect(providers.stopped == [target])
+        await runtime.shutdownAll()
+    }
+
     @Test
     func providerModelFailsWithoutAProviderHost() async throws {
         let planner = FakeBuildPlanner()
@@ -2255,6 +2292,9 @@ private final class FakeBuildProviders: BuildProviderRequesting {
 
     var reply: ToolingJSONValue = .object(["projects": .array([])])
     var failure: (any Error)?
+    var replyGate: BuildTestGate?
+    let requestStarted = BuildTestGate()
+    let requestFinished = BuildTestGate()
     private(set) var sent: [Sent] = []
     private(set) var running: Set<BuildProviderTarget> = []
     private(set) var stopped: [BuildProviderTarget] = []
@@ -2266,6 +2306,9 @@ private final class FakeBuildProviders: BuildProviderRequesting {
     ) async throws -> ToolingJSONValue {
         sent.append(Sent(request: request, target: target, timeout: timeout))
         running.insert(target)
+        requestStarted.open()
+        defer { requestFinished.open() }
+        if let replyGate, !(await replyGate.waitUntilOpen()) { throw CancellationError() }
         if let failure { throw failure }
         return reply
     }

@@ -11,9 +11,10 @@ import LitheModuleAPI
 /// channel, so no plugin can reach another plugin's provider.
 ///
 /// A process starts on the first request, which only a user action sends,
-/// and runs until `retainProviders` drops its target (a workspace switch, a
-/// disabled plugin, or the app quitting) or `stopProviders(ofPlugin:)` stops
-/// it before its package is replaced or removed. A change of the plugin's
+/// and runs until `retainProviders` drops its target (a workspace switch,
+/// project close, module shutdown, or a disabled plugin), or
+/// `stopProviders(ofPlugin:)` stops it before its package is replaced or
+/// removed. A change of the plugin's
 /// settings restarts it on the next request. Its writable state lives
 /// in the build system's plugin state directory, never in the app bundle or
 /// the plugin package.
@@ -71,6 +72,7 @@ final class MacBuildProviderSessions: BuildProviderRequesting {
         to target: BuildProviderTarget,
         timeout: Duration
     ) async throws -> ToolingJSONValue {
+        try Task.checkCancellation()
         let seconds = Self.seconds(timeout)
         let settings = launchResolver.settingValues(forPlugin: target.pluginID)
         if let session = try await runningSession(for: target, settings: settings) {
@@ -99,6 +101,7 @@ final class MacBuildProviderSessions: BuildProviderRequesting {
             )
         case .process(let process):
             let session = try await startSession(for: target, process: process)
+            try Task.checkCancellation()
             return try await session.buildRequest(method: request.method, params: request.params, timeout: seconds)
         }
     }
@@ -139,7 +142,10 @@ final class MacBuildProviderSessions: BuildProviderRequesting {
             running[target] = nil
             return nil
         }
-        return try await task.value
+        let session = try await task.value
+        try Task.checkCancellation()
+        guard running[target] === entry else { throw CancellationError() }
+        return session
     }
 
     private func startSession(
@@ -149,6 +155,7 @@ final class MacBuildProviderSessions: BuildProviderRequesting {
         // Another request may have started the process while this one
         // resolved the launch.
         if let session = try await runningSession(for: target, settings: process.settings) { return session }
+        try Task.checkCancellation()
         let entry = Running(settings: process.settings)
         running[target] = entry
         let task = Task { @MainActor [weak self] () throws -> LanguageServerRuntimeSession in
@@ -156,12 +163,16 @@ final class MacBuildProviderSessions: BuildProviderRequesting {
             return try await self.launch(process, for: target, entry: entry)
         }
         entry.task = task
+        let session: LanguageServerRuntimeSession
         do {
-            return try await task.value
+            session = try await task.value
         } catch {
             if running[target] === entry { running[target] = nil }
             throw error
         }
+        try Task.checkCancellation()
+        guard running[target] === entry else { throw CancellationError() }
+        return session
     }
 
     private func launch(
@@ -185,6 +196,9 @@ final class MacBuildProviderSessions: BuildProviderRequesting {
         )
         entry.session = session
         try await waitUntilReady(session, rootURL: target.workspaceURL)
+        // A queued ready event can race a stop while initialize is suspended.
+        try Task.checkCancellation()
+        guard running[target] === entry else { throw CancellationError() }
         return session
     }
 
