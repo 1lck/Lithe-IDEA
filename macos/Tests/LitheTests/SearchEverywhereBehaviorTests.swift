@@ -245,8 +245,12 @@ struct SearchEverywhereBehaviorTests {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(suite)
         let fixture = try #require(JSONSerialization.jsonObject(with: Data(contentsOf:
             DeclarativePluginTestSupport.repositoryRoot.appendingPathComponent("shared/fixtures/search/path-fallback.json"))) as? [String: Any])
+        let unicodeFixture = try #require(JSONSerialization.jsonObject(with: Data(contentsOf:
+            DeclarativePluginTestSupport.repositoryRoot.appendingPathComponent("shared/fixtures/search/unicode-contiguous.json"))) as? [String: Any])
+        let unicodeCases = try #require(unicodeFixture["cases"] as? [[String: Any]])
+        let unicodeFiles = try Set(unicodeCases.map { try #require($0["path"] as? String) })
         let pathFiles = try #require(fixture["files"] as? [String])
-        for path in ["Name.txt", "Name.log", ".build/NameGenerated.txt", "node_modules/NameDependency.txt"] + pathFiles {
+        for path in ["Name.txt", "Name.log", ".build/NameGenerated.txt", "node_modules/NameDependency.txt"] + pathFiles + unicodeFiles.sorted() {
             let file = root.appendingPathComponent(path)
             try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
             try "name".write(to: file, atomically: true, encoding: .utf8)
@@ -270,14 +274,21 @@ struct SearchEverywhereBehaviorTests {
                 bare = await model.agentFileMentions(matching: "")
                 named = await model.agentFileMentions(matching: "Name")
             }
-            #expect(Set(bare.map(\.path)) == Set(["Name.txt", "Name.log"] + pathFiles))
+            #expect(Set(bare.map(\.path)) == Set(["Name.txt", "Name.log"] + pathFiles + unicodeFiles.sorted()))
             #expect(Set(named.map(\.path)) == ["Name.txt", "Name.log"])
             for item in try #require(fixture["cases"] as? [[String: Any]]) {
                 let query = try #require(item["query"] as? String)
                 let paths = try #require(item["paths"] as? [String])
                 var mentions: [AgentFileMention] = []
                 try await scope.run("Agent @ path fallback") { mentions = await model.agentFileMentions(matching: query) }
-                #expect(mentions.map(\.path) == paths)
+                #expect(mentions.map(\.path).filter { !unicodeFiles.contains($0) } == paths)
+            }
+            for item in unicodeCases {
+                let query = try #require(item["query"] as? String)
+                let path = try #require(item["path"] as? String)
+                var mentions: [AgentFileMention] = []
+                try await scope.run("Agent Unicode lowercase expansion") { mentions = await model.agentFileMentions(matching: query) }
+                #expect(mentions.contains { $0.path == path })
             }
             model.searchSessionFeature.beginSearchEverywhere(query: "Name")
             try await scope.run("global generated-name search", timeout: .seconds(5)) { await model.searchEverywhere(query: "Name") }
@@ -317,7 +328,7 @@ struct SearchEverywhereBehaviorTests {
                 _ = await observedFeature.findFiles(at: root, query: "Name", visibilityRules: settings.fileVisibilityRules.searchRules)
             }
             #expect(model.workspaceSnapshotID == snapshotID, "Search exclusions must not rebuild the project tree")
-            #expect(Set(model.projectFiles.map(\.lastPathComponent)) == Set((["Name.txt", "Name.log"] + pathFiles).map { URL(fileURLWithPath: $0).lastPathComponent }))
+            #expect(Set(model.projectFiles.map(\.lastPathComponent)) == Set((["Name.txt", "Name.log"] + pathFiles + unicodeFiles.sorted()).map { URL(fileURLWithPath: $0).lastPathComponent }))
         }
     }
 

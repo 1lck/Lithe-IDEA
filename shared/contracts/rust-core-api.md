@@ -1753,6 +1753,11 @@ Name matches include optional `matchingDegree` and `nameMatchRanges` entries
 `symbolName`. Clients must not recompute different highlight fragments. Path-qualified
 queries may have no basename fragments. Explicit case/whole-word/regex options and
 content matches keep their literal search semantics.
+Case-insensitive contiguous fallback preserves whole-string Unicode lowercase
+matching, including expansions such as `İ` to `i` plus a combining dot. A partial
+match inside an expansion highlights the complete original character, not folded
+offsets. See `shared/fixtures/search/unicode-contiguous.json` (also used by Agent
+completion regressions).
 
 Returned Everywhere matches additionally expose optional `isIgnored`, resolved
 by one read-only Git `check-ignore --stdin -z` call for the bounded result set.

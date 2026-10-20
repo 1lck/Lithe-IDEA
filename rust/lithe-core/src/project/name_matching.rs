@@ -11,6 +11,52 @@ pub(crate) struct NameMatch {
 /// Implements case-insensitive contiguous and camel/word-hump matching.
 /// Gaps resume at word starts, not at arbitrary letters inside a word.
 pub(crate) fn match_name(pattern: &str, name: &str) -> Option<NameMatch> {
+    match_fragments(pattern, name).or_else(|| {
+        if pattern.is_ascii() && name.is_ascii() {
+            return None;
+        }
+        let needle = pattern.to_lowercase();
+        if needle.is_empty() {
+            return None;
+        }
+        // Preserve whole-string lowercase substring semantics, including expansions
+        // such as U+0130 and contextual Greek sigma. Folded byte offsets are not
+        // original UTF-16 offsets; highlight every original character they overlap.
+        let folded = name.to_lowercase();
+        let start = folded.find(&needle)?;
+        let end = start + needle.len();
+        let (mut byte_offset, mut utf16_offset) = (0, 0);
+        let mut range = SearchNameRange {
+            start: 0,
+            length: 0,
+        };
+        for c in name.chars() {
+            let next = byte_offset + c.to_lowercase().map(char::len_utf8).sum::<usize>();
+            if byte_offset < end && next > start {
+                if range.length == 0 {
+                    range.start = utf16_offset;
+                }
+                range.length += c.len_utf16();
+            }
+            byte_offset = next;
+            utf16_offset += c.len_utf16();
+        }
+        let stem = name.rsplit_once('.').map_or(name, |(stem, _)| stem);
+        let form = if folded == needle || stem.to_lowercase() == needle {
+            40000
+        } else if start == 0 {
+            30000
+        } else {
+            20000
+        };
+        Some(NameMatch {
+            degree: form,
+            ranges: vec![range],
+        })
+    })
+}
+
+fn match_fragments(pattern: &str, name: &str) -> Option<NameMatch> {
     let needle: Vec<char> = pattern.chars().collect();
     let text: Vec<char> = name.chars().collect();
     let equal = |a: char, b: char| a.to_lowercase().eq(b.to_lowercase());
@@ -142,6 +188,29 @@ pub(crate) fn match_name(pattern: &str, name: &str) -> Option<NameMatch> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unicode_contiguous_matches_map_back_to_original_utf16() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../shared/fixtures/search/unicode-contiguous.json"
+        ))
+        .unwrap();
+        for case in fixture["cases"].as_array().unwrap() {
+            let name = case["path"].as_str().unwrap().rsplit('/').next().unwrap();
+            let hit = match_name(case["query"].as_str().unwrap(), name)
+                .unwrap_or_else(|| panic!("missing Unicode match: {case}"));
+            assert_eq!(
+                serde_json::to_value(hit.ranges).unwrap(),
+                case["ranges"],
+                "{case}"
+            );
+        }
+        let pattern = format!("{}i", "a".repeat(256));
+        let name = format!("{}\u{130}.txt", "a".repeat(256));
+        assert_eq!(match_name(&pattern, &name).unwrap().ranges[0].length, 257);
+        assert!(match_name("", "\u{130}.txt").is_none());
+        assert!(match_name("unrelated", "\u{130}.txt").is_none());
+    }
 
     #[test]
     fn name_matches_the_reported_idea_word_fragments() {

@@ -147,6 +147,47 @@ fn search_everywhere_uses_git_ignore_rules_for_filename_foreground() {
 }
 
 #[test]
+fn search_everywhere_preserves_unicode_contiguous_filename_matches() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/search/unicode-contiguous.json"
+    ))
+    .unwrap();
+    let root = temporary_root("unicode-contiguous-names");
+    struct Cleanup(std::path::PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
+    for case in fixture["cases"].as_array().unwrap() {
+        let path = root.join(case["path"].as_str().unwrap());
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, "").unwrap();
+    }
+    for case in fixture["cases"].as_array().unwrap() {
+        let response: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "command": "workspace.searchEverywhere", "payload": {
+                    "root": root, "query": case["query"],
+                    "maxContentResults": 0, "maxSymbolResults": 0
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(response["ok"], true, "{response}");
+        let hit = response["data"]["matches"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["path"] == case["path"])
+            .unwrap();
+        assert_eq!(hit["nameMatchRanges"], case["ranges"], "{case}");
+    }
+}
+
+#[test]
 fn search_everywhere_preserves_directory_fallback_below_basename_matches() {
     let fixture: Value = serde_json::from_str(include_str!(
         "../../../../shared/fixtures/search/path-fallback.json"
