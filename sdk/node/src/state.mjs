@@ -79,10 +79,12 @@ class StateStore {
   /** Stores `value`, which must be JSON-serializable, replacing the previous one. */
   write(key, value) {
     const path = this.#path(key);
-    const body = JSON.stringify({ litheStateStore: STORE_FORMAT, value });
-    if (body === undefined) {
+    // `undefined`, a function, or a symbol would vanish from the envelope and
+    // silently replace the stored value with nothing; refuse it and keep the file.
+    if (JSON.stringify(value) === undefined) {
       throw new PluginSdkError('sdk.state.invalidValue', `The value for ${key} is not JSON-serializable.`);
     }
+    const body = JSON.stringify({ litheStateStore: STORE_FORMAT, value });
     const temporary = `${path}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`;
     try {
       writeFileSync(temporary, body, { encoding: 'utf8', mode: 0o600 });

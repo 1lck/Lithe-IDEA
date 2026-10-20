@@ -1,9 +1,12 @@
 // Child processes a backend starts for one call. Lithe's host offers no
 // process capability in protocol version 1, so a backend runs its tools
-// itself; this helper makes sure that cancelling the call, or the backend
-// shutting down, also ends the whole process tree it started.
+// itself; this helper makes sure that the call ending, cancelling it, or the
+// backend shutting down also ends the whole process tree it started. When the
+// backend itself is killed no JavaScript runs; the host then ends what is left
+// through its own process lifecycle, which owns that boundary.
 
 import { spawn } from 'node:child_process';
+import { StringDecoder } from 'node:string_decoder';
 
 const isWindows = process.platform === 'win32';
 
@@ -59,8 +62,15 @@ export function runProcess(command, args = [], options = {}) {
       settled = true;
       // A stopped tree stays registered until its forced stop: the leader
       // can exit on SIGTERM while a grandchild in its group ignores it.
-      if (!entry.stopping) running.delete(entry);
+      if (!entry.stopping) {
+        // The leader ended on its own; members it left behind in its group,
+        // such as a background worker, end with it.
+        signalTree(child, 'SIGKILL', { evenAfterExit: true });
+        running.delete(entry);
+      }
       signal?.removeEventListener('abort', onAbort);
+      stdout.end();
+      stderr.end();
       outcome();
     };
     child.once('error', (error) => finish(() => reject(error)));
@@ -135,11 +145,16 @@ function signalTree(child, signalName, { evenAfterExit = false } = {}) {
 
 function capture(limit, listener) {
   const chunks = [];
+  // Keeps a multi-byte character split across chunks whole in `listener`.
+  const decoder = new StringDecoder('utf8');
   let size = 0;
   let truncated = false;
+  const deliver = (text) => {
+    if (text) listener?.(text);
+  };
   return {
     push(chunk) {
-      listener?.(chunk.toString('utf8'));
+      deliver(decoder.write(chunk));
       if (size >= limit) {
         truncated = true;
         return;
@@ -149,6 +164,7 @@ function capture(limit, listener) {
       chunks.push(kept);
       size += kept.length;
     },
+    end: () => deliver(decoder.end()),
     text: () => Buffer.concat(chunks).toString('utf8'),
     truncated: () => truncated,
   };

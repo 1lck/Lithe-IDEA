@@ -75,9 +75,9 @@ Every handler receives a context:
 
 | Member | Meaning |
 | --- | --- |
-| `signal` | Aborted when Lithe cancels the call, its deadline passes, the function is withdrawn, or the session ends. |
+| `signal` | Aborted when Lithe cancels the call, its deadline passes, the function is withdrawn, or the session ends; also once the handler has settled, so work it left running stops. |
 | `throwIfCancelled()` | Throws the cancellation if `signal` is aborted. |
-| `run(command, args, options)` | `runProcess` bound to `signal`: cancelling the call ends the whole process tree. |
+| `run(command, args, options)` | `runProcess` bound to the call: cancelling or ending the call ends the whole process tree. |
 | `log(...)` | Same as `backend.log`. |
 | `functionID`, `operationID` | Functions only. `operationID` is opaque; never derive anything from it. |
 | `progress({ message?, percentage? })` | Functions only. The message is cut to 1024 bytes and the percentage clamped to 0–100; reports after the call ends are dropped. |
@@ -123,8 +123,13 @@ lifecycle unified. The SDK enforces the ones it can.
    deltas.
 5. **Work ends with its call.** Start processes with `context.run`, and check
    `signal` in long loops. On cancellation the SDK stops the process tree
-   politely, then forcibly; on `shutdown`, `exit`, or the end of input it ends
-   every process it started.
+   politely, then forcibly. When the handler returns or throws, tools of that
+   call still running (an unawaited `context.run`, the siblings of a failed
+   `Promise.all`) are stopped the same way. A tool that exits on its own takes
+   the workers it left in its process group with it. On `shutdown`, `exit`, or
+   the end of input the SDK ends every process it started. If the backend
+   itself is killed, no JavaScript runs; ending what it left is the host's
+   job, not the SDK's.
 6. **Errors stay presentable.** Throw `PluginError` for failures the user
    should see; every other exception is reported generically.
 

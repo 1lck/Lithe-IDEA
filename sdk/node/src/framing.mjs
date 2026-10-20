@@ -4,8 +4,14 @@
 
 const HEADER_END = Buffer.from('\r\n\r\n', 'ascii');
 
+/** Largest header block accepted from the host. */
+const MAX_HEADER_BYTES = 8192;
+
 /** Largest body accepted from the host. Larger frames end the session. */
 export const MAX_FRAME_BYTES = 64 * 1024 * 1024;
+
+/** Stands for a body that is not JSON; compared by identity, so no host message can mimic it. */
+export const MALFORMED = Object.freeze({ malformed: true });
 
 /** A framing error the session cannot recover from. */
 export class FramingError extends Error {}
@@ -16,7 +22,7 @@ export class FrameDecoder {
 
   /**
    * Appends `chunk` and returns every complete message it finished. A body
-   * that is not JSON is returned as `{ malformed: true }` so the caller can
+   * that is not JSON is returned as `MALFORMED` so the caller can
    * report it without losing the framing position.
    */
   push(chunk) {
@@ -24,12 +30,11 @@ export class FrameDecoder {
     const messages = [];
     for (;;) {
       const headerEnd = this.#buffer.indexOf(HEADER_END);
-      if (headerEnd < 0) {
-        if (this.#buffer.length > 8192) {
-          throw new FramingError('The message header is too long.');
-        }
-        return messages;
+      // The same bound whether the header arrived whole or in pieces.
+      if (headerEnd > MAX_HEADER_BYTES || (headerEnd < 0 && this.#buffer.length > MAX_HEADER_BYTES)) {
+        throw new FramingError('The message header is too long.');
       }
+      if (headerEnd < 0) return messages;
       const length = contentLength(this.#buffer.subarray(0, headerEnd).toString('ascii'));
       const bodyStart = headerEnd + HEADER_END.length;
       if (this.#buffer.length < bodyStart + length) {
@@ -40,7 +45,7 @@ export class FrameDecoder {
       try {
         messages.push(JSON.parse(body));
       } catch {
-        messages.push({ malformed: true });
+        messages.push(MALFORMED);
       }
     }
   }

@@ -8,7 +8,7 @@
 // "Plugin functions").
 
 import { format } from 'node:util';
-import { encodeFrame, FrameDecoder, FramingError } from './framing.mjs';
+import { encodeFrame, FrameDecoder, FramingError, MALFORMED } from './framing.mjs';
 import { PluginSdkError, toResponseError } from './errors.mjs';
 import { killAllProcesses, runProcess } from './process.mjs';
 import {
@@ -52,7 +52,7 @@ class Backend {
   #notificationHandlers = new Map();
   #initializeHooks = [];
   #shutdownHooks = [];
-  /** `idle` → `listening` → `ready` → `shuttingDown` → `exited`. */
+  /** `idle` → `listening` → `initializing` → `ready` → `shuttingDown` → `exited`. */
   #phase = 'idle';
   #negotiated = Object.freeze({ functions: false, build: false });
   #initializeParams = null;
@@ -264,8 +264,13 @@ class Backend {
   }
 
   #dispatch(message) {
-    if (message.malformed || typeof message !== 'object' || message === null) {
+    if (message === MALFORMED) {
       this.#respond(null, undefined, { code: ERROR_CODES.parseError, message: 'The message is not valid JSON.' });
+      return;
+    }
+    // Valid JSON that is not a message object, such as `null` or a batch.
+    if (typeof message !== 'object' || message === null || Array.isArray(message)) {
+      this.#respond(null, undefined, { code: ERROR_CODES.invalidRequest, message: 'The message is not a JSON-RPC object.' });
       return;
     }
     const hasID = message.id !== undefined && message.id !== null;
@@ -289,7 +294,7 @@ class Backend {
       void this.#shutdown(id);
       return;
     }
-    if (this.#phase === 'listening') {
+    if (this.#phase === 'listening' || this.#phase === 'initializing') {
       this.#respond(id, undefined, { code: ERROR_CODES.serverNotInitialized, message: 'The backend is not initialized.' });
       return;
     }
@@ -336,6 +341,7 @@ class Backend {
       this.#respond(id, undefined, { code: ERROR_CODES.invalidRequest, message: 'initialize was already received.' });
       return;
     }
+    this.#phase = 'initializing';
     this.#initializeParams = params;
     const offered = params.capabilities?.experimental ?? {};
     const offers = (entry, version) => Array.isArray(entry?.versions) && entry.versions.includes(version);
@@ -349,7 +355,14 @@ class Backend {
       }
     } catch (error) {
       this.log('initialize failed:', error);
+      if (this.#phase === 'initializing') this.#phase = 'listening';
       this.#respond(id, undefined, toResponseError(error));
+      return;
+    }
+    // A shutdown or exit that arrived while a hook ran ended the session;
+    // finishing initialize must not reopen it.
+    if (this.#phase !== 'initializing') {
+      this.#respond(id, undefined, { code: ERROR_CODES.invalidRequest, message: 'The session ended during initialize.' });
       return;
     }
     if (!this.#negotiated.functions && this.#functions.size > 0) {
@@ -371,7 +384,7 @@ class Backend {
   }
 
   async #shutdown(id) {
-    if (this.#phase !== 'ready' && this.#phase !== 'listening') {
+    if (this.#phase !== 'ready' && this.#phase !== 'listening' && this.#phase !== 'initializing') {
       this.#respond(id, undefined, { code: ERROR_CODES.invalidRequest, message: 'shutdown was already received.' });
       return;
     }
@@ -422,8 +435,16 @@ class Backend {
     const context = {
       signal,
       throwIfCancelled: () => signal.throwIfAborted(),
-      run: (command, args, options = {}) =>
-        runProcess(command, args, { ...options, signal: options.signal ? AbortSignal.any([signal, options.signal]) : signal }),
+      run: (command, args, options = {}) => {
+        const running = runProcess(command, args, {
+          ...options,
+          signal: options.signal ? AbortSignal.any([signal, options.signal]) : signal,
+        });
+        // A tool the handler did not await is stopped when the call ends; its
+        // rejection then must not end the backend as an unhandled rejection.
+        running.catch(() => {});
+        return running;
+      },
       log: (...parts) => this.log(...parts),
     };
     Promise.resolve()
@@ -446,6 +467,10 @@ class Backend {
       .then(({ result, error }) => {
         onSettled?.();
         this.#incoming.delete(key);
+        // Work belongs to its call: tools still running when the handler
+        // settled, such as the siblings of a failed `Promise.all`, end now.
+        // Other calls have their own controllers and keep running.
+        controller.abort(new PluginSdkError('sdk.call.ended', 'The call ended.'));
         this.#respond(id, result, error);
       });
   }
@@ -485,7 +510,7 @@ class Backend {
 
   /** True until the `initialize` answer fixes the initial function list. */
   #beforeAnswer() {
-    return this.#phase === 'idle' || this.#phase === 'listening';
+    return this.#phase === 'idle' || this.#phase === 'listening' || this.#phase === 'initializing';
   }
 
   #requireFunctions() {

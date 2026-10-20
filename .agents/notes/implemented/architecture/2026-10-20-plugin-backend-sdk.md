@@ -39,7 +39,8 @@ Lithe 的 `runtime` 启动方式已支持 `node` 和 `java`。Node 无需编译�
 | 不能回调宿主派发 | `sendRequest`/`sendNotification` 拒绝任何 `lithe/*` 方法；`onRequest` 拒绝保留方法；`capabilities` 里不能自己写 `litheBuild`/`litheFunctions` |
 | stdout 只给协议 | 用 stdio 服务时把 `console.log/info/debug` 改到 stderr |
 | 插件包只读 | `openStateStore` 先解析真实路径，目录在插件包内就拒绝，且在创建目录之前拒绝 |
-| 工作随调用结束 | `context.run` 绑定调用的取消信号；POSIX 用进程组，先 SIGTERM，宽限期后 SIGKILL；Windows 用 `taskkill /T /F`；会话结束时结束全部进程 |
+| 工作随调用结束 | `context.run` 绑定调用的取消信号；处理器返回或抛错时，该调用仍在运行的工具（未 await 的、`Promise.all` 失败后的兄弟）同样结束，不影响其他调用；POSIX 用进程组，先 SIGTERM，宽限期后 SIGKILL，工具正常退出时一并结束它留在组里的成员；Windows 用 `taskkill /T /F`；会话结束时结束全部进程 |
+| 后端被强杀时不在 SDK 内兜底 | 后端被 SIGKILL 时 JS 不再执行，SDK 无法清理。这条边界由宿主的统一进程生命周期负责（`LITHE_PROCESS_SCOPE` 标记与按精确身份结束进程），不在 SDK 里另起监督进程 |
 | 错误可展示、不泄漏 | 只有 `PluginError` 能带 `pluginErrorCode`；其他异常一律回通用文案，细节写 stderr |
 
 正确做法：Maven 插件的函数处理器用 `context.run('mvn', [...])` 跑命令，用户取消时 Maven 进程树会一起结束。

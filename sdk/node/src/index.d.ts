@@ -29,10 +29,10 @@ export interface ProcessResult {
 
 /** Shared by every handler. */
 export interface RequestContext {
-  /** Aborted when the host cancels the call, the call times out, or the session ends. */
+  /** Aborted when the host cancels the call, the call times out, the session ends, or the call has settled. */
   signal: AbortSignal;
   throwIfCancelled(): void;
-  /** `runProcess` bound to this call's `signal`. */
+  /** `runProcess` bound to this call: its tree ends when the call is cancelled or settles. */
   run(command: string, args?: string[], options?: RunProcessOptions): Promise<ProcessResult>;
   /** Writes a line to stderr, which the host keeps in its log. */
   log(...parts: unknown[]): void;
