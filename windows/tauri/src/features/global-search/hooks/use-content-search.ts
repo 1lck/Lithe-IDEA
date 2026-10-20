@@ -29,7 +29,8 @@ const canUseContentSearch = (rootPath: string | null | undefined): rootPath is s
   Boolean(rootPath) &&
   !rootPath?.startsWith("remote://") &&
   !rootPath?.startsWith("wsl://") &&
-  !rootPath?.startsWith("diff://");
+  !rootPath?.startsWith("diff://") &&
+  !rootPath?.startsWith("agent-conversation://");
 
 const canUseProviderContentSearch = (rootPath: string | null | undefined): rootPath is string =>
   typeof rootPath === "string" && rootPath.startsWith("wsl://");

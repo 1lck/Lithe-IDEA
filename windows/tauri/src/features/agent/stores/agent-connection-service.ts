@@ -22,6 +22,8 @@ import {
   type AgentConnectionSnapshot,
 } from "./agent-connection.model";
 
+import { useAgentSurfaceStore } from "./agent-surface.store";
+
 let model: AgentConnectionModel | null = null;
 let workspacePath: string | null = null;
 let dataDirectory: Promise<string> | null = null;
@@ -80,6 +82,15 @@ function launchKey(workspace: string, settings: AgentPanelSettings): string {
 
 let activeLaunchKey: string | null = null;
 
+/** True only after this workspace and launch have acquired the live connection. */
+export function agentConnectionMatches(
+  workspace: string | null,
+  settings: AgentPanelSettings,
+): boolean {
+  return workspace !== null && model !== null && workspacePath === workspace &&
+    activeLaunchKey === launchKey(workspace, settings) && model.hasActiveConnection;
+}
+
 /** Sessions kept per Agent, so switching back shows the same conversation. */
 const keptSnapshots = new Map<string, AgentConnectionSnapshot>();
 
@@ -107,6 +118,7 @@ async function openAgentConnectionNow(
 ): Promise<void> {
   const connection = agentConnection();
   if (workspacePath !== nextWorkspacePath) {
+    useAgentSurfaceStore.getState().actions.reset();
     // A different project starts from nothing; kept Agent sessions belong to
     // the previous workspace and must not leak into this one.
     await connection.stop();

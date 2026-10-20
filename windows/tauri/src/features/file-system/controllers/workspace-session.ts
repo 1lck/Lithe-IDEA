@@ -117,7 +117,8 @@ export function getEditorWorkspaceScope(
     filePath.startsWith("wsl://") ||
     filePath.startsWith("diff://") ||
     filePath.startsWith("terminal://") ||
-    filePath.startsWith("webview://")
+    filePath.startsWith("webview://") ||
+    filePath.startsWith("agent-conversation://")
   ) {
     return undefined;
   }
