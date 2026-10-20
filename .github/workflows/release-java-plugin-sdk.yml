@@ -19,7 +19,7 @@ concurrency:
 jobs:
   release:
     name: Release ${{ github.ref_name }}
-    if: github.repository == 'Lithe-IDEA/Lithe-IDEA'
+    if: github.repository == '1lck/Lithe-IDEA'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
