@@ -249,6 +249,8 @@ pub enum CoreCommand {
     LspCloseDocument,
     /// Queues one semantic server request (`lsp.request`).
     LspRequest,
+    /// Queues one build-provider request (`lsp.buildRequest`).
+    LspBuildRequest,
     /// Queues shared Java gutter marker resolution (`java.navigationMarkers`).
     JavaNavigationMarkers,
     /// Queues click-time Java navigation resolution (`java.resolveNavigation`).
@@ -511,6 +513,7 @@ impl CoreCommand {
             "lsp.workspaceFilesChanged" => Some(Self::LspWorkspaceFilesChanged),
             "lsp.closeDocument" => Some(Self::LspCloseDocument),
             "lsp.request" => Some(Self::LspRequest),
+            "lsp.buildRequest" => Some(Self::LspBuildRequest),
             "java.resolveNavigation" => Some(Self::JavaResolveNavigation),
             "lsp.cancelOperation" => Some(Self::LspCancelOperation),
             "lsp.pollEvents" => Some(Self::LspPollEvents),
@@ -602,6 +605,7 @@ mod tests {
             "lsp.syncDocument",
             "lsp.closeDocument",
             "lsp.request",
+            "lsp.buildRequest",
             "lsp.cancelOperation",
             "lsp.pollEvents",
             "lsp.waitEvents",

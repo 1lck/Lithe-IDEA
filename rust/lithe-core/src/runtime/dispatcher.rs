@@ -1538,6 +1538,21 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::LspBuildRequest => {
+            match serde_json::from_value::<crate::lsp::BuildProviderRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid build-provider request")
+                        .with_details(error.to_string())
+                })
+                .and_then(crate::lsp::build_provider_request)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Build-provider response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::JavaNavigationMarkers => {
             match serde_json::from_value::<crate::lsp::JavaNavigationMarkersRequest>(parsed.payload)
                 .map_err(|error| {
@@ -2694,6 +2709,15 @@ mod tests {
                     "operation": "completion",
                     "uri": "file:///tmp/main.go",
                     "position": { "line": 0, "utf16Column": 0 }
+                }
+            }),
+            json!({
+                "command": "lsp.buildRequest",
+                "payload": {
+                    "sessionId": unknown_session,
+                    "operationId": "build-1",
+                    "method": "lithe/build/model",
+                    "params": {}
                 }
             }),
             json!({

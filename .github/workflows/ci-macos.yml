@@ -297,7 +297,7 @@ jobs:
             --skip GitStatusObservationTests \
             --skip LitheGitPerformanceTests \
             --skip '(LitheDatabaseModuleTests|LitheTests\.LitheCoreLogicTests/database)' \
-            --skip '([Pp]lugin|LitheGoSupportModuleTests|LinuxDo)'
+            --skip '([Pp]lugin|LinuxDo)'
 
       - name: Run stable rollback disk image integration test
         if: needs.changes.outputs.swift == 'true'

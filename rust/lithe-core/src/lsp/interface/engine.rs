@@ -55,6 +55,10 @@ const DEFAULT_SERVICE_READY_IDLE_TIMEOUT_MS: u64 = 45_000;
 const DEFAULT_SERVICE_READY_ABSOLUTE_TIMEOUT_MS: u64 = 10 * 60_000;
 const DEFAULT_REQUEST_TIMEOUT_MS: u64 = 30_000;
 const DEFAULT_SHUTDOWN_TIMEOUT_MS: u64 = 2_000;
+/// Upper bound of one build-provider request. A model request can load a
+/// large build, so it may outlive the ordinary request timeout, but never
+/// stays pending without a deadline.
+const MAX_BUILD_PROVIDER_TIMEOUT_MS: u64 = 60 * 60_000;
 const MONITOR_INTERVAL_MS: u64 = 10;
 /// JSON-RPC method carrying Java Debug Server build commands.
 const JAVA_BUILD_METHOD: &str = "workspace/executeCommand";
@@ -354,6 +358,26 @@ pub struct SemanticRequest {
     pub code_action: Option<Value>,
     #[serde(default)]
     pub command: Option<Value>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+/// One build-provider request, forwarded as `build.modelPlan` or
+/// `build.dependencyPlan` planned it. The result arrives as a
+/// `requestCompleted` event whose `result.value` is the provider's reply,
+/// which the host passes to Core's decoder unchanged.
+pub struct BuildProviderRequest {
+    pub session_id: String,
+    #[serde(default)]
+    pub operation_id: Option<String>,
+    /// `lithe/build/model` or `lithe/build/dependencies`.
+    pub method: String,
+    /// The plan's `provider.params`, sent as is.
+    pub params: Value,
+    /// Deadline of this request, in milliseconds, capped at
+    /// `MAX_BUILD_PROVIDER_TIMEOUT_MS`; the session's request timeout when absent.
+    #[serde(default)]
+    pub timeout_milliseconds: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1004,6 +1028,20 @@ pub fn semantic_request(request: SemanticRequest) -> Result<OperationResponse, C
     engine()
         .session(&request.session_id)?
         .request(request, operation_id.clone())?;
+    Ok(OperationResponse { operation_id })
+}
+
+/// Sends one build-provider request to a session that negotiated the protocol.
+pub fn build_provider_request(
+    request: BuildProviderRequest,
+) -> Result<OperationResponse, CoreError> {
+    let operation_id = request
+        .operation_id
+        .clone()
+        .unwrap_or_else(|| engine().next_operation_id());
+    engine()
+        .session(&request.session_id)?
+        .build_request(request, operation_id.clone())?;
     Ok(OperationResponse { operation_id })
 }
 
@@ -1709,6 +1747,81 @@ impl RuntimeSession {
         self.request_with_kind(request, operation_id, pending_kind, document_version)
     }
 
+    /// Writes a build-provider request. It needs no open document, so it is
+    /// not a semantic feature request; only the negotiated protocol's methods
+    /// are accepted, so the host cannot use it as a generic JSON-RPC tunnel.
+    fn build_request(
+        &self,
+        request: BuildProviderRequest,
+        operation_id: String,
+    ) -> Result<(), CoreError> {
+        if !super::build_provider::is_build_method(&request.method) {
+            return Err(CoreError::new(
+                ErrorCode::InvalidRequest,
+                "This is not a build-provider request.",
+            )
+            .with_details(request.method));
+        }
+        let outbound_order = self.lock_outbound_order()?;
+        let (messages, request_id) = {
+            let mut state = self.lock_state()?;
+            if state.lifecycle != LspLifecycleState::Ready || !state.client.initialized {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Language server is not ready.",
+                ));
+            }
+            if state.request_by_operation.contains_key(&operation_id)
+                || state.java_builds.contains(&operation_id)
+            {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "The language-server operation ID is already pending.",
+                ));
+            }
+            if !state
+                .client
+                .server_capabilities
+                .iter()
+                .any(|feature| feature == super::build_provider::BUILD_PROVIDER_FEATURE)
+            {
+                return Err(CoreError::new(
+                    ErrorCode::NotSupported,
+                    "The process did not agree on a build-provider protocol version.",
+                )
+                .with_details(super::build_provider::BUILD_PROVIDER_FEATURE));
+            }
+            let timeout = request
+                .timeout_milliseconds
+                .map(|milliseconds| {
+                    Duration::from_millis(milliseconds.clamp(1, MAX_BUILD_PROVIDER_TIMEOUT_MS))
+                })
+                .unwrap_or(state.request_timeout);
+            let response =
+                allocate_raw_request(state.client.clone(), &request.method, request.params)?;
+            let request_id = (response.state.next_request_id - 1).to_string();
+            let now = Instant::now();
+            state.client = response.state;
+            state.pending.insert(
+                request_id.clone(),
+                PendingRequest {
+                    kind: PendingKind::Feature,
+                    operation_id: Some(operation_id.clone()),
+                    method: request.method,
+                    document_uri: None,
+                    document_version: None,
+                    created_at: now,
+                    deadline: now + timeout,
+                },
+            );
+            state
+                .request_by_operation
+                .insert(operation_id, request_id.clone());
+            (response.messages, request_id)
+        };
+        self.send_request_or_fail(&outbound_order, messages, &request_id)
+    }
+
     fn request_with_kind(
         &self,
         request: SemanticRequest,
@@ -1967,9 +2080,21 @@ impl RuntimeSession {
                 .insert(operation_id, request_id.clone());
             (response.messages, request_id)
         };
-        if let Err(error) = self.send_messages(&outbound_order, messages) {
+        self.send_request_or_fail(&outbound_order, messages, &request_id)
+    }
+
+    /// Writes an allocated request. A write failure completes the request
+    /// with an error and fails the session, because the server's view of the
+    /// conversation is no longer known.
+    fn send_request_or_fail(
+        &self,
+        outbound_order: &MutexGuard<'_, ()>,
+        messages: Vec<String>,
+        request_id: &str,
+    ) -> Result<(), CoreError> {
+        if let Err(error) = self.send_messages(outbound_order, messages) {
             self.complete_request_with_error(
-                &request_id,
+                request_id,
                 "transportFailed",
                 "request",
                 "Could not write the language-server request.",
@@ -10021,5 +10146,141 @@ public class Main {
             .expect("a stopping session cannot build");
         assert_eq!(error.code, "requestCancelled");
         assert!(harness.snapshot().pending_operation_ids.is_empty());
+    }
+
+    /// A process that answered build-provider protocol version 1.
+    fn negotiated_build_provider() -> Harness {
+        let mut harness = Harness::start(|_| {});
+        harness.server.complete_initialize(json!({
+            "experimental": { "litheBuild": { "version": 1 } }
+        }));
+        harness.await_state(LspLifecycleState::Ready);
+        harness
+    }
+
+    fn build_request(
+        harness: &Harness,
+        method: &str,
+        params: Value,
+        timeout_milliseconds: Option<u64>,
+    ) -> Result<String, CoreError> {
+        let operation_id = harness.engine.next_operation_id();
+        harness
+            .session()
+            .build_request(
+                BuildProviderRequest {
+                    session_id: harness.session_id.clone(),
+                    operation_id: Some(operation_id.clone()),
+                    method: method.to_string(),
+                    params,
+                    timeout_milliseconds,
+                },
+                operation_id.clone(),
+            )
+            .map(|()| operation_id)
+    }
+
+    /// Every session offers the protocol, but one whose process did not
+    /// choose a version must never receive a build request: a shared
+    /// language server keeps serving its language without it.
+    #[test]
+    fn build_requests_need_a_negotiated_protocol_version() {
+        let harness = Harness::ready();
+        let initialize = harness
+            .server
+            .messages()
+            .into_iter()
+            .find(|message| message["method"] == "initialize")
+            .expect("initialize should have been written");
+        assert_eq!(
+            initialize["params"]["capabilities"]["experimental"]["litheBuild"],
+            json!({ "versions": [1] })
+        );
+
+        let error = build_request(&harness, "lithe/build/model", json!({}), None)
+            .expect_err("an unnegotiated session must refuse build requests");
+        assert!(matches!(error.code, ErrorCode::NotSupported));
+        assert!(harness
+            .server
+            .messages()
+            .iter()
+            .all(|message| message["method"] != "lithe/build/model"));
+    }
+
+    #[test]
+    fn a_negotiated_build_request_forwards_the_plan_and_returns_the_reply() {
+        let mut harness = negotiated_build_provider();
+        let params = json!({
+            "buildSystemID": "gradle",
+            "root": "",
+            "options": { "offline": true },
+            "optionArguments": ["--offline"],
+            "environment": {}
+        });
+        let operation =
+            build_request(&harness, "lithe/build/model", params.clone(), None).expect("accepted");
+        let request_id = harness
+            .server
+            .await_request("lithe/build/model")
+            .expect("the request should reach the provider");
+        assert_eq!(harness.written_request(&request_id)["params"], params);
+
+        // A reply with a `locations` field proves no navigation normalizer
+        // rewrites the document Core decodes.
+        let reply = json!({ "format": "litheBuildModel", "version": 1, "locations": [] });
+        harness
+            .server
+            .send(json!({ "jsonrpc": "2.0", "id": request_id, "result": reply }));
+        let completed = harness
+            .await_event(|event| {
+                event.kind == "requestCompleted"
+                    && event.operation_id.as_deref() == Some(operation.as_str())
+            })
+            .clone();
+        assert!(completed.error.is_none());
+        assert_eq!(completed.result, Some(json!({ "value": reply })));
+        assert!(harness.snapshot().pending_operation_ids.is_empty());
+    }
+
+    /// Only the negotiated methods pass, so the build path cannot become a
+    /// generic JSON-RPC tunnel into a language server.
+    #[test]
+    fn build_requests_accept_only_the_protocol_methods() {
+        let harness = negotiated_build_provider();
+        for method in [
+            "workspace/executeCommand",
+            "lithe/build/execute",
+            "shutdown",
+        ] {
+            let error = build_request(&harness, method, json!({}), None)
+                .expect_err("only protocol methods are build requests");
+            assert!(matches!(error.code, ErrorCode::InvalidRequest), "{method}");
+        }
+        assert!(harness
+            .server
+            .messages()
+            .iter()
+            .all(|message| message["method"] != "workspace/executeCommand"));
+    }
+
+    /// A build request's own deadline replaces the session's request timeout,
+    /// here shortened, and the timed-out request is cancelled on the wire.
+    #[test]
+    fn a_build_request_times_out_on_its_own_deadline() {
+        let mut harness = negotiated_build_provider();
+        let operation = build_request(&harness, "lithe/build/dependencies", json!({}), Some(30))
+            .expect("accepted");
+        harness
+            .server
+            .await_request("lithe/build/dependencies")
+            .expect("the request should reach the provider");
+        let timeout = harness
+            .await_event(|event| event.operation_id.as_deref() == Some(operation.as_str()))
+            .clone();
+        assert_eq!(
+            timeout.error.as_ref().map(|error| error.code.as_str()),
+            Some("requestTimeout")
+        );
+        assert!(harness.server.await_notification("$/cancelRequest"));
     }
 }

@@ -131,6 +131,7 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
                 root: root,
                 output: output.text,
                 outputFile: output.filePath,
+                result: output.providerResult,
                 options: options
             )
         )
@@ -179,7 +180,8 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
                 root: root,
                 project: project,
                 output: output.text,
-                outputFile: output.filePath
+                outputFile: output.filePath,
+                result: output.providerResult
             )
         )
         return outcome.value.dependencies
@@ -367,6 +369,7 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
         let root: String
         let output: String?
         let outputFile: String?
+        let result: ToolingJSONValue?
         let options: [String: ToolingJSONValue]
     }
 
@@ -392,6 +395,7 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
         let project: String?
         let output: String?
         let outputFile: String?
+        let result: ToolingJSONValue?
     }
 
     private struct SyncRequest: Encodable {
@@ -522,6 +526,7 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
 
     private struct WireProvider: Decodable {
         let method: String
+        let params: ToolingJSONValue
     }
 
     /// A process plan, or the provider form of a model or dependency plan.
@@ -557,7 +562,15 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
         }
 
         func outputPlan() throws -> BuildOutputPlan {
-            if let provider { return .provider(method: provider.method) }
+            if let provider {
+                return .provider(BuildProviderRequest(
+                    method: provider.method,
+                    params: provider.params,
+                    optionFingerprint: optionFingerprint,
+                    executesProjectCode: executesProjectCode ?? false,
+                    mayUseNetwork: mayUseNetwork ?? false
+                ))
+            }
             return .process(try processPlan())
         }
     }
@@ -601,6 +614,11 @@ private extension BuildCommandOutput {
 
     var filePath: String? {
         if case .outputFile(let url) = self { return url.path }
+        return nil
+    }
+
+    var providerResult: ToolingJSONValue? {
+        if case .providerResult(let result) = self { return result }
         return nil
     }
 }

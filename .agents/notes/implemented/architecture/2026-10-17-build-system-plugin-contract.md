@@ -10,7 +10,7 @@ Rust Core 负责校验声明、识别工程、展开每一条命令行，并把�
 
 映射（`map`）只从解码后的文档里挑值。挑值以外的逻辑由插件自己处理：读 JSON、YAML 清单，从工具读任务，计算父子关系，这些都交给插件自带的脚本输出规范格式（第 6 节）。声明和规范格式都表达不了的工具（Gradle Tooling API 等），由插件自带的 Provider 进程回答。Provider 就是语言服务器那种进程：共用启动字段、校验和启动计划，只多回答 `lithe/build/model`、`lithe/build/dependencies`，回复仍由 Core 解码（第 9 节）。
 
-目前落地的是 Core、共享契约和 macOS 宿主（第 10 节）。macOS 为每个启用的构建系统各开一个工具窗口，并向 Core 声明 `buildSystems: [1]`；Windows 宿主还没有接入，两端都还不会向 Provider 发请求。API 3 的清单按能力分版本，声明式构建系统使用 `buildSystems`，两种写法的 Provider 都额外使用 `buildProviders: 1`，macOS 尚不声明它；插件市场只在宿主声明支持对应能力时才列出 API 3 的版本，见[声明式插件按能力分版本](2026-10-17-plugin-capability-versions.md)。宿主接入和 Maven 迁移的计划见[构建系统 Provider 提案](../../proposed/architecture/2026-10-17-build-system-provider-api.md)。
+目前落地的是 Core、共享契约和 macOS 宿主（第 10 节）。macOS 为每个启用的构建系统各开一个工具窗口，向 Core 声明 `buildSystems: [1]` 和 `buildProviders: [1]`，并在用户点击加载模型或依赖时启动 Provider、发送 `lithe/build/*`；Windows 宿主还没有接入。API 3 的清单按能力分版本，声明式构建系统使用 `buildSystems`，两种写法的 Provider 都额外使用 `buildProviders: 1`；插件市场只在宿主声明支持对应能力时才列出 API 3 的版本，见[声明式插件按能力分版本](2026-10-17-plugin-capability-versions.md)。宿主接入和 Maven 迁移的计划见[构建系统 Provider 提案](../../proposed/architecture/2026-10-17-build-system-provider-api.md)。
 
 ## 问题
 
@@ -150,7 +150,9 @@ Lithe 的插件逻辑跑在插件自己的进程里。声明和规范格式解�
 - **识别不启动进程。** `build.detect` 对 `provider` 来源只报告 `modelSource: "provider"`，不附带模型。
 - **安装审查。** 自有进程列为 `packagedBuildProvider`、`systemBuildProvider` 或 `runtimeBuildProvider`，带 `buildSystemID` 和两个标志，它需要的运行时另列 `runtime` 条目；共享写法写进该构建系统 `buildSystem` 条目的 `provider` 字段，因为它改变了语言服务器被要求做的事。任何一项变化都要用户重新确认。
 
-还没有实现：`lithe/build/execute`（Provider 自己执行任务并流式汇报进度和测试事件）、宿主一侧的 `capabilities.experimental.litheBuild` 协商（规则已写进契约 README），以及宿主 LSP 客户端发送 `lithe/build/*`，见提案第 4 节。测试结果目前仍来自声明的报告解码器或 `hostIntegration`，没有 `provider` 来源。
+- **协商与请求在 Core 的 LSP 客户端里。** `initialize` 在 `capabilities.experimental.litheBuild` 下发 `{"versions": [1]}`（`lsp/interface/build_provider.rs`），Provider 回答 `{"version": 1}` 后会话才记录 `litheBuild` 能力。宿主用 `lsp.buildRequest {sessionId, method, params, timeoutMilliseconds}` 发请求，Core 只接受协商出的版本里的两个方法；没有协商成功的会话直接返回失败，所以共享写法里不认识这套协议的语言服务器不会收到 `lithe/build/*`。结果和其他 LSP 操作一样经 `requestCompleted` 回到宿主。
+
+还没有实现：`lithe/build/execute`（Provider 自己执行任务并流式汇报进度和测试事件），见提案第 4 节。测试结果目前仍来自声明的报告解码器或 `hostIntegration`，没有 `provider` 来源。
 
 ### 10. macOS 宿主适配层
 
@@ -162,6 +164,7 @@ macOS 宿主接受级别 3，并在 `PluginManifest.hostCapabilities` 里声明 
 | --- | --- | --- |
 | Core 调用 | `macos/Sources/Lithe/Core/Rust/RustBuildSystemOperations.swift` | 把 13 个 `build.*` 命令包成 `BuildSystemPlanning`；契约类型在 `LitheCoreContracts/Execution/BuildSystemContracts.swift` |
 | 平台适配器（Platform Adapter，封装 macOS 系统调用的类） | `macos/Sources/Lithe/Platform/MacOS/Build/` | `MacBuildToolResolver` 按 Core 的候选顺序找可执行文件、探测版本、给宿主管理的运行时设置环境；`MacBuildCommandRunner` 在独立进程组里启动命令，登记进程账本，负责取消、期限和输出上限；`MacBuildOptionsStore` 保存选项；`MacBuildSystemStateLocator` 在插件状态目录下分配 `${workspaceStateDir}` 和 `${outputFile}` |
+| Provider 进程 | `macos/Sources/Lithe/Platform/MacOS/Build/MacBuildProviderSessions.swift` | 实现 `BuildProviderRequesting`：按需启动 Provider、复用或替换已退出的进程、按目标停止；启动计划由 `MacPluginLanguageServerLaunchResolver.resolveBuildProvider` 解析，进程会话复用 `LanguageServerRuntimeSession` |
 | 编排 | `macos/Sources/LitheExecutionModule/Services/BuildSystemService.swift` | 识别、加载模型、任务、测试、依赖、选项和过期提示，只负责按顺序调用上面两层 |
 | 界面 | `macos/Sources/Lithe/Views/Workbench/BuildSystemToolWindowRegistration.swift`、`macos/Sources/Lithe/Views/Run/BuildSystemToolWindowView.swift`、`BuildOutputView.swift` | 按声明注册的工具窗口、窗口内容和输出区 |
 
@@ -177,7 +180,11 @@ macOS 宿主接受级别 3，并在 `PluginManifest.hostCapabilities` 里声明 
 - **诊断和测试路径怎么打开。** Core 解码时已经丢弃最终指向工作区外的路径；Build Output 在导航前仍用 `BuildOutputSourcePath` 重新解析真实路径，因为解码和点击之间工作区内容可能变化。工作区内的符号链接保留被报告时的相对路径，越出工作区的链接不打开。输出正文里的链接（包括绝对路径）也走同一入口，只能打开工作区内的文件；正文里的相对路径按所有实际写入该输出的命令所在实例根解析，而不是工作区根，否则嵌套实例的 `src/main/java/...` 会被解析到另一个工程；同名相对路径在多个根下都存在时视为歧义，不生成链接，宁可没有链接也不打开另一个工程的文件。
 - **自定义运行时可以放在项目里。** 运行时候选支持 `projectFile`，例如项目虚拟环境里的 Python；它按项目代码处理，不做版本探测（探测就是执行仓库代码），只检查文件可执行和 `requires` 文件存在。只支持 `command` 或 `environment` 时，Core 允许的候选会在 macOS 上不可用。
 - **可写文件放在哪里。** 输出文件和状态目录都在插件状态目录下，读完就删；不写 app bundle、不写插件包，符合运行时只读规则。
-- **插件变化。** 启用、停用或卸载插件后，`pluginsChanged()` 先停止该插件已经启动的命令，再重新识别，它的实例随即从工具窗口消失。可用插件列表在启动时确定，新安装的插件和其他声明式插件一样，重启后才出现。
+- **插件变化。** 启用、停用或卸载插件后，`pluginsChanged()` 先停止该插件已经启动的命令和 Provider 进程，再重新识别，它的实例随即从工具窗口消失。可用插件列表在启动时确定，新安装的插件和其他声明式插件一样，重启后才出现。
+- **Provider 进程彼此隔离。** 进程按“插件 ID + 构建系统 ID + 工作区”一一对应（`BuildProviderTarget`），两个插件永远不共用一个进程。每个进程只通过自己的 stdio 与宿主说 JSON-RPC 2.0，宿主不在进程之间转发消息，所以一个插件够不到另一个插件的 Provider。可写状态放在该插件的构建系统状态目录（`<插件状态目录>/build-systems/<buildSystemID>`），设置也只读该插件自己的；插件包和 app bundle 只读。能跨进程共享的只有宿主统一读取的只读信息，例如工作区路径和 Core 解析好的计划。共享写法（`buildProvider.languageServer`）只允许复用**同一个插件**的语言服务器会话：`LanguageToolingSessionManager.requestBuildProvider` 在发送前核对该语言运行时的来源插件 ID，不同插件时拒绝。这是进程和通信层面的隔离，不是操作系统沙盒，Provider 仍以用户权限运行。
+- **Provider 什么时候启动、什么时候停止。** 和 `command` 模型一样，只在用户点击“加载模型”“重新加载”或加载依赖时启动；`executesProjectCode`、`mayUseNetwork` 随请求带到宿主，安装时已由用户确认。进程常驻到它的目标被丢弃：切换或关闭工作区（`reset`，退出应用也走这里）、停用插件（`pluginsChanged()`）。安装、同版本重装、回滚或卸载会替换或移走插件包，`MacPluginManager` 在动包之前调用 `beforePackageReplacement`，组合根在这里按插件 ID 直接停止该插件全部 Provider（`MacBuildProviderSessions.stopProviders(ofPlugin:)`）；不靠 `BuildSystemService` 的插件列表比较，因为那份列表是启动时的快照，看不到包已被替换。启动参数会展开插件设置（例如 `-Xmx${setting:providerHeapMB}m`），所以每个进程记下启动时的设置值，下一次请求发现当前设置不同就停掉旧进程按新值重启；“Restart Language Servers”不负责独立的 Provider。进程退出或崩溃后，下一次请求重新启动；同一目标的并发请求等待同一次启动。共享写法的语言模块还没激活时，宿主提示用户先打开该语言的文件，而不是另起一个进程。
+- **Provider 入口在安装时校验。** `MacPluginPackageStore.validateLaunchResources` 除了语言服务器，还对每个声明了 `provider` 的构建系统（`DeclarativeBuildSystem.declaresProvider`）用 Core 展开一次启动计划（状态目录用不会创建的临时路径，设置用默认值），要求 `requiredPackagePaths` 都在包内且不经过符号链接，包内可执行文件和打包运行时是普通可执行文件；不满足时安装失败（`buildProviderLaunchMissing`），而不是等到第一次“加载模型”才报错。共享写法跟着对应语言服务器校验。启动时 `MacPluginLanguageServerLaunchResolver.resolveBuildProvider` 仍做同样的检查，防止安装后包被改动。
+- **可执行文件怎么找。** 包内文件直接启动；`command` 和 `runtime` 启动方式合成一份 `BuildInvocation`，交给构建命令同一个 `MacBuildToolResolver`，所以 Provider 看到的运行时、`PATH` 和最低版本检查与构建命令一致。
 
 正确做法：Gradle 插件想在工程节点上多一个菜单项，就在清单里声明一个作用范围包含 `project` 的任务。宿主按作用范围生成菜单，不需要改 Swift 代码。
 
@@ -238,7 +245,8 @@ macOS 接入规则（2026-10-18）：
 ### 13. 还没有开放给用户的部分
 
 - Windows 宿主还不发送 `hostCapabilities`，不会列出级别 3 的版本，也没有 Build 工具窗口。
-- 两端宿主都还不会启动 Provider、发送 `lithe/build/*` 请求，`provider` 来源目前只由 Core 测试和标准答案验证。任一 `buildSystems[].provider` 都要求 `buildProviders: 1`，包括共享语言服务器；macOS 只声明 `buildSystems: [1]`，不声明 `buildProviders`，因此市场、清单校验和安装审查都会拒绝 Provider 插件，模板构建插件仍可安装。Core 支持校验和计划，不传宿主能力表时仍允许 Provider。不要为了让插件可安装而从 `requires` 省去 `buildProviders`，那会因能力未列全被拒绝。
+- Windows 宿主还不会启动 Provider，也不声明 `buildProviders`。任一 `buildSystems[].provider` 都要求 `buildProviders: 1`，包括共享语言服务器；不要为了让插件可安装而从 `requires` 省去它，那会因能力未列全被拒绝。
+- Provider 进程没有操作系统级沙盒（例如 `sandbox-exec` 或 App Sandbox 子进程），隔离只到进程和通信通道这一层；需要时作为后续工作单独设计。
 - 构建模型里的运行入口（`run`）还没有接入 macOS 的运行配置。
 - `runConfig.generate` 还没有接入构建模型。Cargo fixture 只证明了它产出的运行入口与内置探测器逐字一致，包括 `cargo.binary:<路径>` 这类 ID，迁移时用户的覆盖配置不会脱钩。
 
@@ -284,6 +292,10 @@ macOS 接入规则（2026-10-18）：
 
 例如新增 `buildProviders` 列表、单独的启动字段和 `build.providerLaunchPlan` 命令。最有吸引力的地方：字段可以按构建工具的需要裁剪，命名也更直白。不采用，因为 Provider 与语言服务器的启动方式、LSP 生命周期、宿主进程管理和用户需要同意的事完全相同；分成两份后，启动校验、安装审查和两端的 LSP 客户端会逐渐漂移。现在两者共用 `ServerProcess` 和同一条启动计划路径，以后真有第三类进程（例如调试适配器）时，再在新的 API 级别里把进程声明提升为独立列表。
 
+### 换一种比 JSON-RPC 更轻的协议，或让多个 Provider 共用一个代理进程
+
+最有吸引力的地方：二进制协议序列化更快；一个代理进程承载多个插件可以少开进程。不采用。模型和依赖请求由用户触发，一次加载只有几次往返，耗时由 Gradle、Mix 这些构建工具本身决定，JSON 编解码可以忽略；共享写法又必须和语言服务器说同一种 LSP 协议，另起一种协议就要两套客户端。共用代理进程则会让一个插件的崩溃、阻塞或恶意请求影响另一个插件，也需要在代理里重新实现权限隔离。以后 `lithe/build/execute` 的流式通知如果出现吞吐问题，先在协议内合并通知，大结果再考虑交给文件。
+
 ### 让 Provider 直接返回宿主使用的模型
 
 最有吸引力的地方：少一次 Core 调用。不采用，因为那样 ID 生成、路径越界检查和运行入口推导就要在两端宿主各写一份，Provider 回复里的错误也会直接进入界面。现在 Provider 只回复规范格式，宿主把它交给 `build.decodeModel`、`build.decodeDependencies`，与命令输出走同一套校验。
@@ -308,7 +320,8 @@ macOS 接入规则（2026-10-18）：
 - Maven 仍保留一块 Core 专用的集成代码，要等进程型 Provider 落地、两端宿主迁移完成后才能删除。
 - 标准答案固定了配置指纹。改动选项的序列化方式会让所有涉及指纹的标准答案一起变化，需要逐条确认。
 - `ServerProcess` 由语言服务器和 Provider 共用：改动其中任何字段或校验，两者会一起变化，需要同时检查两边的 fixture。
-- Windows 宿主还没有接入；macOS 上 Provider 和运行入口还不可用。
+- Windows 宿主还没有接入；macOS 上运行入口还不可用。
+- 每个 Provider 都是独立的常驻进程，多个构建系统插件同时加载时会多占内存；这是隔离的代价，进程只在用户加载后启动、随工作区关闭。
 
 ## 验证
 
@@ -316,6 +329,8 @@ macOS 接入规则（2026-10-18）：
 - `cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib build_systems` 还覆盖 Provider：`build-plans.json` 里 `gradle-provider`、`mix-provider` 的请求计划和 `result` 解码；`provider_processes_are_install_review_programs`（自有进程和共享写法在安装审查中的条目）；`launch_plans_name_exactly_one_process`；`provider_models_are_not_read_during_detection`。
 - `cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib declarative_plugins`：`invalid-manifests.json` 里的非法清单，包括社区插件声明 `hostIntegration`、未声明权限、路径越界、未保护的模板变量和选项重复放置，以及 Provider 的十种错误写法（没有来源使用、混写、缺少标志、缺少权限、入口越界、不支持的运行时、未声明的设置等），和裁剪后不再接受的九种写法（静态 `yaml`、命令 `json`、任务规则、顶层目标、`parent`、映射标签、`parentDirectory`、依赖 `children`、`layout.generated`）；`command-plans.json` 里按 `buildSystemID` 选中的启动计划。
 - `declarative_plugins::build_providers_require_their_own_host_capability` 与 `marketplace_plugins::build_provider_versions_require_host_support_before_download` 验证 Provider 能力与声明式构建分开，安装审查的共享 fixture 同时覆盖自有进程和共享写法。
+- `cargo test -p lithe-core --lib lsp`：`lsp/interface/build_provider.rs` 验证只有宿主提供过的版本算协商成功、版本 1 只接受两个方法；`engine.rs` 的测试验证协商后的会话写出 `lithe/build/*` 并返回结果，未协商或方法不在版本里时直接失败、不写入进程。
+- `./scripts/test-macos.sh --filter 'BuildSystemServiceTests'` 的 Provider 用例：`providerModelSendsThePlannedRequestAndDecodesItsReply`、`providerDependenciesDecodeTheProvidersReply` 验证请求原样发给按插件、构建系统和工作区确定的目标，回复作为 `providerResult` 交给 Core 解码且不启动命令；`workspaceSwitchAndDisabledPluginStopTheirProviders` 验证停用插件和切换工作区停止进程、插件列表不变时保留；`providerModelFailsWithoutAProviderHost`、`failedProviderRequestReportsItsMessage` 验证失败路径。`PluginMarketplaceServiceTests.buildProvidersAreAcceptedByTheMacOSHost` 验证 `gradle-provider`、`mix-provider` 能通过 macOS 的安装审查。`MacBuildProviderSessionsTests` 用真实的 `MacBuildProviderSessions` 和脚本化 Core 验证：重复请求复用进程，按插件停止后下一次请求重新启动；设置变化后按新参数重启；包内入口不可执行时不启动进程。`PluginPackageStoreTests.unusablePackagedBuildProviderIsRefused`、`buildProviderRuntimeEntryMustBeInThePackage` 验证安装时校验 Provider 的包内入口：缺失、不可执行、经过符号链接都被拒绝，运行时入口缺失也被拒绝。
 - `./scripts/verify-shared-contracts.sh`：schema 与 fixture 一致；`build-plans.json` 的用例名唯一、操作合法、拒绝码都有文档、不含机器路径；`command-plans.json` 的每个用例只给出 `languageID`、`buildSystemID` 之一。
 - `./scripts/verify-rust-core-comments.sh`：`build/` 模块的注释规范。
 - `./scripts/test-macos.sh --filter 'BuildSystemToolWindowTests'`：选项根选择保留各实例的候选和生效值，原生菜单动作覆盖自定义单选替换、多选追加及取消已选自定义值；原生 `NSTextField` 提交验证 text/file/directory 清空后提交 `""` 而非重置。设置 `LITHE_BUILD_CAPTURE_DIR` 后可导出选项行的明暗截图。`BuildSystemServiceTests.instanceOptionEditsPreserveSiblingOnlySelections` 验证编辑一个实例不会丢掉另一个实例独有的选择；`languageImportPublishesTheSameEffectiveOptionsAsBuildPlansAndClearsDisabledPlugins` 验证插件配置与构建计划使用同一份生效值、修改后重新发布、停用及重置清理；`RustBuildSystemOperationsTests.languageImportMapsPluginOptionIDsWithoutBuildSystemNameAssumptions` 验证真实 Core 的导入映射和 Maven 可选执行字段解码。本地 Maven、Gradle fixture 副本经真实 Core 校验后读出 `icon`、`presentation`、选项图标和 `category`；模型任务自带的 `category`；每个构建系统推导出的窗口和命令（ID、标题、停靠、命令与窗口分开的动作），以及注册表校验通过。补充回归覆盖窗口所属模块激活、命令 pending 状态、独立窗口停靠与显隐恢复、旧 Maven 贡献及命令移除、参数任务根工程与目标作用范围。临时插件包中的窗口与选项明暗 SVG 加载后，目录清单和每个文件的字节必须完全不变。

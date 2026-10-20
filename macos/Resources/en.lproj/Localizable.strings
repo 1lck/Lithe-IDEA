@@ -37,7 +37,6 @@
 "Uninstall" = "Uninstall";
 "Reinstall" = "Reinstall";
 "Restart required" = "Restart required";
-"Restart to Activate" = "Restart to Activate";
 "No %@ project was detected in this workspace." = "No %@ project was detected in this workspace.";
 "Version %@ is installed. Restart Lithe to load it." = "Version %@ is installed. Restart Lithe to load it.";
 "Removed. Restart Lithe to finish." = "Removed. Restart Lithe to finish.";
