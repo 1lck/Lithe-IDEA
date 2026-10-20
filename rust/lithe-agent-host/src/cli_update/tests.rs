@@ -209,6 +209,7 @@ fn every_catalog_package_uses_its_verified_update_target() {
         name: "Future Agent",
         minimum_version: "1.0.0",
         path_env: "FUTURE_AGENT_PATH",
+        accepts_windows_shim: false,
         install_hint: "npm install -g @example/agent",
         package: "@example/agent",
         brew_packages: &["future-agent"],
