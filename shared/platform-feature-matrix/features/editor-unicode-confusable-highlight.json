@@ -15,7 +15,7 @@
     "implementationStatus": "implemented",
     "verificationStatus": "pending",
     "evidence": [
-      "frontend/editor/src/workbench.ts"
+      "windows/tauri/src/features/editor/components/monaco-editor.tsx"
     ]
   },
   "verification": "双端打开含全角括号、全角逗号等中文标点的文档或代码文件，悬停这些字符不再出现 \"could be confused with the ASCII character\" 提示，也没有对应高亮标记；不可见字符检测等其他 Unicode 高亮行为保持不变。",
