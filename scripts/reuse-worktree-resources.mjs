@@ -62,7 +62,7 @@ async function readRegistry() {
     throw new Error(`Unsupported worktree resource registry: ${REGISTRY_PATH}`);
   }
   const identifiers = new Set();
-  const validators = new Set(["cargo", "swiftpm", "bun", "jdtls", "jdk"]);
+  const validators = new Set(["cargo", "swiftpm", "bun", "jdtls", "jdk", "conpty"]);
   for (const resource of registry.resources) {
     if (!resource?.id || identifiers.has(resource.id)) throw new Error(`Duplicate or missing resource id: ${resource?.id ?? "<missing>"}`);
     if (!validators.has(resource.validator)) throw new Error(`Unknown validator for ${resource.id}: ${resource.validator}`);
@@ -161,6 +161,9 @@ async function validatorArguments(resource, cachePath, targetRoot) {
   }
   if (resource.validator === "jdk") {
     return ["--skip-cargo", "--jdk-cache", cachePath, "--jdk-manifest", await requiredFile(targetRoot, "third_party/jdk/manifest.json", resource.id)];
+  }
+  if (resource.validator === "conpty") {
+    return ["--skip-cargo", "--conpty-cache", cachePath, "--conpty-manifest", await requiredFile(targetRoot, "third_party/conpty/manifest.json", resource.id)];
   }
   if (resource.validator === "swiftpm") {
     const swiftVersionPath = await requiredFile(targetRoot, ".swift-version", resource.id);

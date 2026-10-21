@@ -234,6 +234,7 @@ fn main() {
             host::clipboard_paste,
             host::clipboard_clear,
             host::clipboard_sequence_number,
+            host::wsl_automount_root,
             host::create_app_window,
             project_windows::claim_project_window,
             project_windows::release_project_window,

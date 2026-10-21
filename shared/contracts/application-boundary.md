@@ -35,6 +35,8 @@ with bounded process cleanup. Missing usage and unmeasured replayed history rema
 unknown. See the
 [Agent host contract](rust-core-api.md) and `fixtures/agent/acp-events-v1.json`.
 
+Agent history lists can expose matching summaries as pages arrive while the remaining scan stays loading. Partial results prove presence only; final snapshots reconcile removals, and later failures retain visible rows. History surfaces share connection-local recent snapshots and in-flight requests; manual refresh remains immediate. Workspace/Agent isolation, stale-token rejection and upstream history ownership apply to both partial and final results.
+
 An Agent that advertises steering can accept supplementary user input while its
 logical turn is active. Input delivery has a separate pending/received/failed
 outcome and does not replace turn ownership, permissions, timing, or Stop.

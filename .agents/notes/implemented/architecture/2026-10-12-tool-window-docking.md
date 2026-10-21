@@ -29,6 +29,12 @@ macOS 的工具窗口位置由工作台维护，功能模块继续维护自己�
 拖动复用编辑器标签的原生浮动预览方式：AppKit 捕获当前入口一次，非激活面板只跟随鼠标移动，工具状态与落点预览留在当前视图。入口按固定窗口坐标记录；拖动源的槽位高度归零，后续按钮立即补齐，但接收鼠标事件的原生视图保留到松开或取消。按钮命中使用补齐后的可见矩形；鼠标在蓝色插入槽的纵向范围内时保留当前目标；这同样适用于鼠标已水平移入内容区的情况，避免占位推动按钮后反复换目标。侧栏插入槽与内容区落点分别显示，空分组也保留落点槽。
 按 IDEA createStripeButtonDragImage 的顺序，先绘制浮动图标，再隐藏原入口。拖动预览单独使用已有 IDEA SVG、普通图标前景色和浮动按钮外框，不截取源按钮的选中或悬停底色。Community `SquareStripeButtonLook.paintDraggingButton` → `IdeaActionButtonLook` 分别绘制背景、图标和同色 1pt 圆角边框；Islands `ToolWindow.DragAndDrop.buttonFloatingBackground` 为深色 #40434A / 浅色 #DDDFE4。普通灰色浮动背景与激活蓝底是不同状态，不能为去掉蓝底而删除全部按钮表面。拖动覆盖层仅通过鼠标事件监听处理按下与拖动，命中测试透传，保留原按钮 hover 底色和提示。像素回归检查浮动图标内容及透明边角，不能只检查面板存在。
 工具入口按 `bounds.intersection(visibleRect)` 处理按下与非拖动释放，隐藏祖先不参与命中；拖动开始快照也只记录裁剪后的可见矩形，滚出 280pt 视口的图标不能截获另一组点击或成为插入落点。
+同窗口的后台项目通过透明度保留视图，原生鼠标监听器不会因此卸载。入口必须在每次事件时从
+`ProjectSessionManager.activeSessionID(in:)` 核对所属窗口选中的项目，后台项目返回原事件，
+不截获 Agent 等重叠按钮的点击。不能用全局 key window 代替每个窗口自己的项目选择。
+项目切换后，常规视图更新还要取消未完成的按下和浮动预览，旧项目不能在释放时提交移动。
+这一限制只加在已有工具入口的事件捕获层，保留 `RootView` 的 SwiftUI 结构、safe area、
+标题栏、项目标签、字体和停靠面板样式；不为修复点击替换整个项目的原生宿主。
 鼠标经过落点时不写业务位置；松开后原子移动并保存。Esc、无效落点、失去应用激活状态和卸载清理预览，窗口外释放不创建浮动窗口；Esc 后同次按住不能重新开始拖动。
 
 落点与蓝色遮罩共用一次拖动开始时捕获的真实面板和编辑区矩形。
@@ -78,6 +84,7 @@ macOS 的工具窗口位置由工作台维护，功能模块继续维护自己�
 - `./scripts/verify-runtime-bundle-immutability.sh`
 - `./scripts/verify-platform-feature-matrix.sh`
 - `./scripts/verify-agent-notes.sh`
+- `ToolWindowDockingTests.transparentProjectStripesOnlyCaptureTheSelectedProjectsClicks` 使用三个透明度不同、原生命中区域重叠的项目入口，验证反复切换后只有选中项目响应；`projectStripeOwnershipIsScopedToItsWindowInsteadOfTheKeyWindow` 验证两个窗口各自的首次点击；`switchingProjectsCancelsToolPressesAndFloatingDragPreviews` 验证按下后切换、无后续鼠标事件时取消预览以及旧释放不提交动作。
 - `LitheSplitPaneCollapseTests.releaseWaitsForCommittedSize` 使用原生按下、拖动、松开事件，故意延迟父布局回传，检查松开后的最终尺寸、回传后继续跟随父布局及内容不重新挂载；`ToolWindowDockingTests.narrowGroupFractionSurvivesCommitAndReload` 检查窄面板比例保存和恢复。
 - 实际工作台检查跨边缘移动、同组排序、双组打开、收起正确窗口、Esc/窗口外取消、窄窗口及重启恢复；模型检查不能替代原生拖放验收。
 
@@ -105,3 +112,31 @@ macOS 的工具窗口位置由工作台维护，功能模块继续维护自己�
 从四个按钮中的第二个水平拖入内容区，保留中间插槽；纵向越过按钮中点后才改变顺序，
 真正低于全部按钮时才追加到末尾。Swift 继续用既有稳定窗口 ID 表示插入点，不复制 Java 的
 Swing 容器或另建一份持久化顺序。
+
+## 工具窗口标题动作的悬停
+
+用户要求工具窗口的隐藏按钮在鼠标离开整个面板时隐藏，Project 的定位、刷新、全部展开和全部收起
+也使用同一范围。标题栏不再单独监听悬停，否则鼠标从目录移动到标题栏前看不到这些动作。
+`LitheToolWindowHoverRegion` 在每个工具内容的宿主根视图记录局部悬停，只向后代传递环境值，
+不写 `AppModel` 或重新构造目录行。Terminal 和 Git 保留独立 AppKit 宿主，悬停区域必须装在传入的
+内容内部，不能只在外层 SwiftUI 宿主注入一次，否则保留视图读不到变化。
+
+所有主工具窗口的隐藏按钮统一走 `LitheSidebarHideButton`；共享 Header 的 onMinimize 和原来
+Terminal/Git 的独立按钮也改走这个入口，保留原动作和位置。`LitheToolWindowHoverAction`
+统一控制透明度与鼠标命中，隐藏时保留槽位，避免工具栏跳动；键盘焦点或 VoiceOver 焦点进入按钮时
+仍显示，不能用 disabled 或 accessibilityHidden 阻止非鼠标用户访问。内部详情区的局部折叠不是隐藏
+整个工具窗口，不把这些内容切换按钮混进主窗口规则。
+
+图标沿 Community `e74205a077adefec3b3500499be794f8fafb8e2c` 的 PlatformActions.xml
+ProjectViewToolbar → ExpandAll/CollapseAll → PlatformIconMappings，使用原始
+`platform/icons/src/expui/general/{expandAll,collapseAll}.svg` 及 dark 变体，16pt 显示。
+刷新仍保留 Lithe 的现有刷新动作；不能因为 IDEA 同处有 ExpandRecursively 动作就只换它的图标，
+造成图标与实际行为不一致。资源来源记录在 IDEAIcons/NOTICE.txt。
+
+验证：`LitheToolWindowHoverTests` 在深浅模式渲染共享动作的显示/隐藏状态；
+实际检查 Project 正文、Terminal 正文及 Git 正文的进入/离开，保留工具栏布局与原动作。
+
+Project 标题动作按 ActionToolbarImpl 的默认 22pt 按钮和左右各 2pt 边框使用 26pt 槽位，
+不继承标题 HStack 的 8pt 间距。深色 Islands 的 SVG ColorPalette 会把 CED0D6 换成 gray-120
+（C3C5CB），浅色保留原始 6C707E 描边；单色标题动作使用共享 ActionToolbar.icon，
+不套用主工具栏的另一套颜色。目录箭头的 B4B8BF 不在这个替换项里，继续使用原始资源。

@@ -62,6 +62,7 @@ pub struct WorkspaceNode {
     pub path: String,
     pub name: String,
     pub is_directory: bool,
+    /// Omitted for unloaded directories/files; an empty array is a known directory leaf.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub children: Option<Vec<WorkspaceNode>>,
 }

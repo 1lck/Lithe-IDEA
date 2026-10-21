@@ -70,6 +70,8 @@ function parseArguments(argv) {
     else if (option === "--bun-version") options.bunVersion = value;
     else if (option === "--bun-lock") options.bunLock = value;
     else if (option === "--bun-cache") options.bunCache = value;
+    else if (option === "--conpty-cache") options.conptyCache = value;
+    else if (option === "--conpty-manifest") options.conptyManifest = value;
     else throw new Error(`Unknown option: ${option}`);
   }
 
@@ -263,6 +265,33 @@ async function verifyJdkCache(cacheRoot, manifestPath) {
     }
   }
   process.stdout.write(`JDK download cache verified: ${verified} artifact(s), ${removed} rejected.\n`);
+}
+
+async function verifyConptyCache(cacheRoot, manifestPath) {
+  if (!cacheRoot || !manifestPath) return;
+  if (!(await exists(cacheRoot))) return;
+  const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));
+  const expectedName = `Microsoft.Windows.Console.ConPTY.${manifest.version}.nupkg`;
+  const expectedHash = String(manifest.packageSHA256 ?? "").toLowerCase();
+  if (!expectedHash) throw new Error("ConPTY manifest is missing packageSHA256");
+  let verified = 0;
+  let removed = 0;
+  for (const artifact of await collectFiles(cacheRoot)) {
+    const artifactName = path.basename(artifact);
+    const matches = artifactName === expectedName && (await sha256(artifact)) === expectedHash;
+    if (matches) {
+      verified += 1;
+      continue;
+    }
+    warn(
+      "ConPTY cache entry rejected",
+      `${artifactName}: not the pinned ${manifest.version} package; it will be downloaded normally.`,
+    );
+    await fs.rm(artifact, { force: true });
+    removed += 1;
+  }
+  process.stdout.write(`ConPTY download cache verified: ${verified} artifact(s), ${removed} rejected.
+`);
 }
 
 function runGit(repository, argumentList) {
@@ -607,6 +636,10 @@ async function main() {
   await verifyJdkCache(
     options.jdkCache ? path.resolve(options.jdkCache) : null,
     options.jdkManifest ? path.resolve(options.jdkManifest) : null,
+  );
+  await verifyConptyCache(
+    options.conptyCache ? path.resolve(options.conptyCache) : null,
+    options.conptyManifest ? path.resolve(options.conptyManifest) : null,
   );
   await verifySwiftpmCache(
     options.swiftpmCache ? path.resolve(options.swiftpmCache) : null,

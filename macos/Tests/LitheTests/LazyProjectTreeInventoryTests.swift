@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import LitheCoreContracts
 import LitheWorkspaceModule
@@ -6,6 +7,171 @@ import Testing
 @Suite("Lazy project tree inventory")
 @MainActor
 struct LazyProjectTreeInventoryTests {
+    @Test
+    func expandAllLoadsEveryBranchWithoutRebuildingTheFileInventory() async throws {
+        let root = URL(fileURLWithPath: "/in-memory/expand-all")
+        let compactedAncestor = root.appendingPathComponent("first")
+        let first = compactedAncestor.appendingPathComponent("compacted")
+        let second = root.appendingPathComponent("second")
+        let nested = first.appendingPathComponent("nested")
+        let file = nested.appendingPathComponent("Guide.md")
+        let fixture = InventoryFixture(root: root, files: [file], rows: [
+            root.path: [
+                FileNode(url: first, isDirectory: true, children: nil, collapsedAncestorPaths: [compactedAncestor.path]),
+                FileNode(url: second, isDirectory: true, children: nil),
+            ],
+            first.path: [FileNode(url: nested, isDirectory: true, children: nil)],
+            second.path: [], nested.path: [FileNode(url: file, isDirectory: false, children: nil)],
+        ])
+        defer { fixture.close() }
+        await fixture.load()
+        let scans = fixture.disk.snapshotCount
+        let paths = try #require(await fixture.model.loadAllDirectories())
+        #expect(paths == [root.path, compactedAncestor.path, first.path, second.path, nested.path])
+        #expect(fixture.model.rootNode?.unloadedRows(expandedPaths: paths).isEmpty == true)
+        #expect(fixture.model.projectFiles == [file])
+        #expect(fixture.disk.snapshotCount == scans)
+        #expect(fixture.disk.listingCount(for: first) == 1)
+        #expect(fixture.disk.listingCount(for: second) == 1)
+        #expect(fixture.disk.listingCount(for: nested) == 1)
+    }
+
+    @Test(arguments: [false, true])
+    func cancelledOrResetExpandAllCannotReturnExpansionState(reset: Bool) async {
+        let root = URL(fileURLWithPath: "/in-memory/expand-all-cancel")
+        let child = root.appendingPathComponent("child")
+        let fixture = InventoryFixture(root: root, files: [], rows: [
+            root.path: [FileNode(url: child, isDirectory: true, children: nil)], child.path: [],
+        ])
+        defer { fixture.close() }
+        await fixture.load()
+        fixture.disk.blockNextListing()
+        let expansion = Task { await fixture.model.loadAllDirectories() }
+        defer { expansion.cancel(); fixture.disk.releaseListing.open() }
+        #expect(await fixture.disk.listingStarted.waitUntilOpen())
+        if reset { fixture.model.reset() } else { expansion.cancel() }
+        fixture.disk.releaseListing.open()
+        #expect(await expansion.value == nil)
+        #expect(!fixture.disk.listingTimedOut)
+    }
+
+    @Test
+    func slowDirectoryDoesNotDelayPublishingAnotherExpansion() async {
+        let root = URL(fileURLWithPath: "/in-memory/independent-expansions")
+        let slow = root.appendingPathComponent("slow")
+        let fast = root.appendingPathComponent("fast")
+        let file = fast.appendingPathComponent("Guide.md")
+        let fixture = InventoryFixture(root: root, files: [file], rows: [
+            root.path: [slow, fast].map { FileNode(url: $0, isDirectory: true, children: nil) },
+            slow.path: [],
+            fast.path: [FileNode(url: file, isDirectory: false, children: nil)],
+        ])
+        defer { fixture.close() }
+        await fixture.load()
+        fixture.disk.blockNextListing()
+        let first = Task { await fixture.model.loadExpandedDirectories([root.path, slow.path]) }
+        defer { first.cancel(); fixture.disk.releaseListing.open() }
+        #expect(await fixture.disk.listingStarted.waitUntilOpen())
+        let publishedFast = TestGate()
+        let observation = fixture.model.$rootNode.sink { tree in
+            if tree?.node(exactlyAt: file) != nil { publishedFast.open() }
+        }
+        defer { observation.cancel() }
+        let second = Task { await fixture.model.loadExpandedDirectories([root.path, slow.path, fast.path]) }
+        defer { second.cancel() }
+        #expect(await publishedFast.waitUntilOpen(), "Fast directory waited for the blocked sibling")
+        #expect(fixture.model.rootNode?.node(exactlyAt: slow)?.isUnloadedDirectory == true)
+        fixture.disk.releaseListing.open()
+        await first.value
+        await second.value
+        #expect(!fixture.disk.listingTimedOut)
+        #expect(fixture.disk.listingCount(for: slow) == 1)
+        #expect(fixture.disk.listingCount(for: fast) == 1)
+    }
+
+    @Test
+    func resettingWorkspaceRejectsInflightExpansion() async {
+        let root = URL(fileURLWithPath: "/in-memory/reset-expansion")
+        let docs = root.appendingPathComponent("docs")
+        let fixture = InventoryFixture(root: root, files: [], rows: [
+            root.path: [FileNode(url: docs, isDirectory: true, children: nil)],
+            docs.path: [],
+        ])
+        defer { fixture.close() }
+        await fixture.load()
+        fixture.disk.blockNextListing()
+        let expansion = Task { await fixture.model.loadExpandedDirectories([root.path, docs.path]) }
+        defer { expansion.cancel(); fixture.disk.releaseListing.open() }
+        #expect(await fixture.disk.listingStarted.waitUntilOpen())
+        fixture.model.reset()
+        fixture.disk.releaseListing.open()
+        await expansion.value
+        #expect(!fixture.disk.listingTimedOut)
+        #expect(fixture.model.rootNode == nil)
+        #expect(fixture.model.projectFiles.isEmpty)
+    }
+
+    @Test(arguments: [false, true])
+    func overlappingExpansionsShareListingEvenWhenOneCallerCancels(cancelFirst: Bool) async {
+        let root = URL(fileURLWithPath: "/in-memory/shared-expansion")
+        let docs = root.appendingPathComponent("docs")
+        let file = docs.appendingPathComponent("Guide.md")
+        let fixture = InventoryFixture(root: root, files: [file], rows: [
+            root.path: [FileNode(url: docs, isDirectory: true, children: nil)],
+            docs.path: [FileNode(url: file, isDirectory: false, children: nil)],
+        ])
+        defer { fixture.close() }
+        await fixture.load()
+        fixture.disk.blockNextListing()
+        let first = Task { await fixture.model.loadExpandedDirectories([root.path, docs.path]) }
+        defer { first.cancel(); fixture.disk.releaseListing.open() }
+        #expect(await fixture.disk.listingStarted.waitUntilOpen())
+        let secondStarted = TestGate()
+        let second = Task {
+            secondStarted.open()
+            await fixture.model.loadExpandedDirectories([root.path, docs.path])
+        }
+        defer { second.cancel() }
+        #expect(await secondStarted.waitUntilOpen())
+        if cancelFirst { first.cancel() }
+        fixture.disk.releaseListing.open()
+        await first.value
+        await second.value
+        #expect(!fixture.disk.listingTimedOut)
+        #expect(fixture.disk.listingCount(for: docs) == 1)
+        #expect(fixture.model.rootNode?.node(exactlyAt: file)?.url == file)
+    }
+
+    @Test
+    func watcherEventDiscardsInflightListingAndRetriesCurrentDirectory() async throws {
+        let root = URL(fileURLWithPath: "/in-memory/stale-expansion")
+        let docs = root.appendingPathComponent("docs")
+        let old = docs.appendingPathComponent("Old.md")
+        let added = docs.appendingPathComponent("New.md")
+        let fixture = InventoryFixture(root: root, files: [old], rows: [
+            root.path: [FileNode(url: docs, isDirectory: true, children: nil)],
+            docs.path: [FileNode(url: old, isDirectory: false, children: nil)],
+        ])
+        defer { fixture.close() }
+        await fixture.load()
+        fixture.disk.blockNextListing()
+        let expansion = Task { await fixture.model.loadExpandedDirectories([root.path, docs.path]) }
+        defer { expansion.cancel(); fixture.disk.releaseListing.open() }
+        #expect(await fixture.disk.listingStarted.waitUntilOpen())
+        fixture.disk.set(files: [old, added], rows: [
+            root.path: [FileNode(url: docs, isDirectory: true, children: nil)],
+            docs.path: [old, added].map { FileNode(url: $0, isDirectory: false, children: nil) },
+        ])
+        let refreshed = fixture.expectRefresh(for: added)
+        try fixture.emit([added])
+        #expect(await refreshed.waitUntilOpen())
+        fixture.disk.releaseListing.open()
+        await expansion.value
+        #expect(!fixture.disk.listingTimedOut)
+        #expect(fixture.disk.listingCount(for: docs) == 2)
+        #expect(Set(fixture.model.rootNode?.node(exactlyAt: docs)?.fileURLs ?? []) == Set([old, added]))
+    }
+
     @Test
     func directoryListingBeforeWatcherPreservesCreatedAndDeletedSignals() async throws {
         let root = URL(fileURLWithPath: "/in-memory/lazy-tree-inventory")
@@ -189,6 +355,7 @@ private final class InventoryDisk: WorkspaceOperations, WorkspaceFileOperations,
     private var shouldBlock = false
     private var timedOut = false
     private var scans = 0
+    private var listings: [String: Int] = [:]
     let listingStarted = TestGate()
     let releaseListing = TestGate()
 
@@ -199,6 +366,7 @@ private final class InventoryDisk: WorkspaceOperations, WorkspaceFileOperations,
 
     var snapshotCount: Int { lock.withLock { scans } }
     var listingTimedOut: Bool { lock.withLock { timedOut } }
+    func listingCount(for url: URL) -> Int { lock.withLock { listings[url.path, default: 0] } }
 
     func set(files: [URL], rows: [String: [FileNode]]) {
         lock.withLock { self.files = files; self.rows = rows }
@@ -216,6 +384,7 @@ private final class InventoryDisk: WorkspaceOperations, WorkspaceFileOperations,
     func childRows(of requested: [FileNode], at rootURL: URL,
                    visibilityRules: FileVisibilityRules) -> [String: [FileNode]]? {
         let (captured, blocks) = lock.withLock {
+            for row in requested { listings[row.url.path, default: 0] += 1 }
             let blocks = shouldBlock
             shouldBlock = false
             return (rows, blocks)

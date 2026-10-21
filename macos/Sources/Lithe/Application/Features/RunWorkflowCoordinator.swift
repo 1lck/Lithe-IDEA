@@ -215,7 +215,7 @@ final class RunWorkflowCoordinator {
             }
             return true
         } catch {
-            notify(error.localizedDescription)
+            if !error.isCancellation { notify(error.localizedDescription) }
             return false
         }
     }

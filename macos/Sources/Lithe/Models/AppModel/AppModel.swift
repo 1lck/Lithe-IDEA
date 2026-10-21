@@ -1357,6 +1357,9 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
                               self.openDocuments.contains(where: { $0 === document }) else { return }
                         _ = self.activateLanguageServerIfAvailable(for: document)
                     } catch {
+                        // Only an activation that is still wanted may report a failure.
+                        guard self.isCurrentWorkspace(identity),
+                              self.openDocuments.contains(where: { $0 === document }) else { return }
                         self.languageToolingFeature.markActivationFailed(
                             providerID: descriptor.id,
                             descriptor: descriptor,
@@ -1416,6 +1419,8 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
                           self.openDocuments.contains(where: { $0 === document }) else { return }
                     _ = self.activateLanguageServerIfAvailable(for: document)
                 } catch {
+                    guard self.isCurrentWorkspace(identity),
+                          self.openDocuments.contains(where: { $0 === document }) else { return }
                     self.languageToolingFeature.markActivationFailed(
                         providerID: descriptor.id,
                         descriptor: descriptor,

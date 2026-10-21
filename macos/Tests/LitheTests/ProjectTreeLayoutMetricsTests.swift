@@ -13,7 +13,7 @@ struct ProjectTreeLayoutMetricsTests {
     }
 
     @Test
-    func lightFolderAssetsKeepTheDarkFolderGeometry() throws {
+    func officialFolderAssetsProvideLightAndDarkVariants() throws {
         let iconRoot = repositoryRoot
             .appendingPathComponent("macos/Resources/IDEAIcons", isDirectory: true)
         let folderAssets = [
@@ -27,13 +27,16 @@ struct ProjectTreeLayoutMetricsTests {
 
         for assetPath in folderAssets {
             let baseURL = iconRoot.appendingPathComponent(assetPath)
-            let lightURL = iconRoot.appendingPathComponent(
-                LitheIcons.lightIdeaAssetPath(for: assetPath)
+            let darkURL = iconRoot.appendingPathComponent(
+                LitheIcons.darkIdeaAssetPath(for: assetPath)
             )
             let baseSVG = try String(contentsOf: baseURL, encoding: .utf8)
-            let lightSVG = try String(contentsOf: lightURL, encoding: .utf8)
+            let darkSVG = try String(contentsOf: darkURL, encoding: .utf8)
 
-            #expect(svgGeometry(in: baseSVG) == svgGeometry(in: lightSVG))
+            #expect(baseSVG.contains("viewBox=\"0 0 16 16\""))
+            #expect(darkSVG.contains("viewBox=\"0 0 16 16\""))
+            #expect(baseSVG.contains("JetBrains"))
+            #expect(darkSVG.contains("JetBrains"))
         }
     }
 
@@ -45,15 +48,6 @@ struct ProjectTreeLayoutMetricsTests {
         #expect(LitheIcons.kind(for: .excluded) == .excludedFolder)
         #expect(LitheIcons.kind(for: .module) == .moduleFolder)
         #expect(LitheIcons.kind(for: .package) == .packageFolder)
-    }
-
-    private func svgGeometry(in source: String) -> String {
-        source
-            .replacingOccurrences(
-                of: ##"(fill|stroke)="#[0-9A-Fa-f]{6}""##,
-                with: "$1=\"#COLOR\"",
-                options: .regularExpression
-            )
     }
 
     private var repositoryRoot: URL {

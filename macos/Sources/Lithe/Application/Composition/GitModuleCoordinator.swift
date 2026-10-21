@@ -52,7 +52,7 @@ final class GitModuleCoordinator {
             })
             return capability.feature
         } catch {
-            onError(error.localizedDescription)
+            if !error.isCancellation { onError(error.localizedDescription) }
             return nil
         }
     }
