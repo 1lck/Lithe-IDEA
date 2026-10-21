@@ -1206,6 +1206,9 @@ export function mountWorkbench(host: WorkbenchHost) {
     displayOptions = {
       model: null, automaticLayout: true, minimap: { enabled: true }, theme: bootstrapTheme, fontSize: 13,
       glyphMargin: !host.lineNumbersFirst, ...(host.lineNumbersFirst ? { guides: { bracketPairs: false, bracketPairsHorizontal: false, highlightActiveIndentation: false }, lineNumbersMinChars: 1, lineDecorationsWidth: nativeFoldingOffset, extraEditorClassName: "lithe-line-numbers-first" } : {}), scrollBeyondLastLine: false, fixedOverflowWidgets: true, "semanticHighlighting.enabled": true,
+      // Full-width punctuation is normal in Chinese prose; Monaco's confusable-character
+      // warning misfires there and its "Adjust settings" link has no target in embedded Monaco.
+      unicodeHighlight: { ambiguousCharacters: false },
     };
     editor = monaco.editor.create(document.querySelector("#editor") as HTMLElement, displayOptions);
     installWordHighlightLifecycle(editor);
