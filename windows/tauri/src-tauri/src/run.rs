@@ -3461,23 +3461,24 @@ mod tests {
     }
 
     #[cfg(windows)]
-    fn spawn_owned_process_tree(window: &str) -> (Child, u32) {
+    fn spawn_owned_process_tree(window: &str) -> (Child, std::process::ChildStdout, u32) {
         // cmd waits on ping, so the service has a descendant like mvn -> java.
         let mut command = Command::new("cmd");
-        command.args(["/C", "ping -n 30 127.0.0.1 >NUL"]);
+        command
+            .args(["/C", "ping -n 30 127.0.0.1"])
+            .stdout(Stdio::piped());
         apply_creation_flags(&mut command);
-        let child = command.spawn().expect("spawn service");
-        let deadline = Instant::now() + Duration::from_secs(10);
-        let descendant = loop {
-            if let Some(pid) = child_process_ids(child.id()).first() {
-                break *pid;
-            }
-            assert!(
-                Instant::now() < deadline,
-                "service descendant did not start"
-            );
-            thread::sleep(Duration::from_millis(50));
-        };
+        let mut child = command.spawn().expect("spawn service");
+        // cmd writes nothing itself; the first output byte comes from ping, so
+        // the descendant is running once it arrives. The pipe stays open for
+        // the test, otherwise ping would exit on its next write.
+        let mut stdout = child.stdout.take().expect("service output");
+        stdout
+            .read_exact(&mut [0; 1])
+            .expect("service descendant output");
+        let descendant = *child_process_ids(child.id())
+            .first()
+            .expect("service descendant");
         sessions().lock().unwrap().insert(
             run_session_key(window, "window-release-test"),
             RunningSession {
@@ -3486,7 +3487,7 @@ mod tests {
                 stdin: None,
             },
         );
-        (child, descendant)
+        (child, stdout, descendant)
     }
 
     #[cfg(windows)]
@@ -3513,8 +3514,10 @@ mod tests {
     fn window_release_ends_its_process_trees_and_keeps_other_windows() {
         // Regression for #1137: closing a window left Run services and their
         // descendants running. Another window's service must survive the close.
-        let (mut closed, closed_descendant) = spawn_owned_process_tree("release-closed-window");
-        let (mut kept, kept_descendant) = spawn_owned_process_tree("release-kept-window");
+        let (mut closed, _closed_output, closed_descendant) =
+            spawn_owned_process_tree("release-closed-window");
+        let (mut kept, _kept_output, kept_descendant) =
+            spawn_owned_process_tree("release-kept-window");
 
         terminate_run_processes(take_owned_processes(|key| {
             key.window_label == "release-closed-window"
