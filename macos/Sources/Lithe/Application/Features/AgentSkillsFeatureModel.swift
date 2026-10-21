@@ -13,6 +13,10 @@ final class AgentSkillsFeatureModel: ObservableObject {
         var agentName: String { agentID == "codex-acp" ? "Codex" : "Claude" }
     }
     enum Phase: Equatable { case idle, loading, ready, failed }
+    struct PendingEnablement {
+        let itemID: String
+        let enabled: Bool
+    }
     static let agents = ["codex-acp", "claude-acp"]
     @Published private(set) var phase: Phase = .idle
     @Published private(set) var listings: [String: AgentSkillListing] = [:]
@@ -21,7 +25,7 @@ final class AgentSkillsFeatureModel: ObservableObject {
     @Published private(set) var error: String?
     @Published private(set) var savedURL: URL?
     @Published private(set) var isWriting = false
-    @Published private(set) var togglingID: String?
+    @Published private(set) var pendingEnablement: PendingEnablement?
     @Published private(set) var didChangeEnablement = false
     @Published var query = ""
     @Published var scope = "user"
@@ -49,6 +53,11 @@ final class AgentSkillsFeatureModel: ObservableObject {
 
     func count(in scope: String) -> Int { matchingItems.filter { belongs($0, to: scope) }.count }
     var visibleItems: [Item] { matchingItems.filter { belongs($0, to: scope) } }
+    /// Display the user's choice immediately without replacing confirmed native state.
+    func displayedEnablement(for item: Item) -> Bool? {
+        if let pendingEnablement, pendingEnablement.itemID == item.id { return pendingEnablement.enabled }
+        return item.skill.enabled
+    }
     private func belongs(_ item: Item, to scope: String) -> Bool {
         scope == "repo" ? (context?.workspace != nil && item.skill.scope == "repo") : ["user", "system", "admin"].contains(item.skill.scope)
     }
@@ -70,7 +79,7 @@ final class AgentSkillsFeatureModel: ObservableObject {
         guard !isWriting || context != next else { return }
         if context != next {
             writeTask?.cancel(); writeTask = nil; isWriting = false
-            togglingID = nil; didChangeEnablement = false
+            pendingEnablement = nil; didChangeEnablement = false
             listings = [:]; directories = [:]; discoveryErrors = [:]; savedURL = nil
         }
         context = next
@@ -118,7 +127,8 @@ final class AgentSkillsFeatureModel: ObservableObject {
         guard !isWriting, phase != .loading, context == expected,
               item.skill.enabled != nil, item.skill.enabled != enabled,
               listings[item.agentID]?.skills.contains(item.skill) == true else { return }
-        isWriting = true; togglingID = item.id; error = nil; didChangeEnablement = false
+        pendingEnablement = .init(itemID: item.id, enabled: enabled)
+        isWriting = true; error = nil; didChangeEnablement = false
         let token = UUID(); revision = token
         let service = service
         let request = AgentSkillEnablement(agentID: item.agentID, workspace: expected.workspace, skill: item.skill, enabled: enabled)
@@ -128,11 +138,11 @@ final class AgentSkillsFeatureModel: ObservableObject {
                 guard let self, !Task.isCancelled, self.revision == token else { return }
                 self.listings[item.agentID] = listing
                 self.discoveryErrors[item.agentID] = nil
-                self.isWriting = false; self.togglingID = nil; self.didChangeEnablement = true; self.writeTask = nil
+                self.pendingEnablement = nil; self.isWriting = false; self.didChangeEnablement = true; self.writeTask = nil
             } catch {
                 guard let self, !Task.isCancelled, self.revision == token else { return }
                 self.error = error.localizedDescription
-                self.isWriting = false; self.togglingID = nil; self.writeTask = nil
+                self.pendingEnablement = nil; self.isWriting = false; self.writeTask = nil
             }
         }
     }
@@ -159,7 +169,7 @@ final class AgentSkillsFeatureModel: ObservableObject {
     func dismissResult() { savedURL = nil; error = nil; didChangeEnablement = false }
     func cancel() {
         revision = UUID(); writeTask?.cancel(); writeTask = nil; refreshTask?.cancel(); refreshTask = nil; isWriting = false
-        togglingID = nil; didChangeEnablement = false
+        pendingEnablement = nil; didChangeEnablement = false
         if phase == .loading { phase = .idle }
     }
 }

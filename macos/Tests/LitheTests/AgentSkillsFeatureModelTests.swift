@@ -125,7 +125,7 @@ struct AgentSkillsFeatureModelTests {
         #expect(!feature.isWriting)
     }
 
-    @Test func toggleWaitsForNativeReadbackAndSerializesChanges() async throws {
+    @Test func toggleImmediatelyShowsTheChoiceAndSerializesNativeConfirmation() async throws {
         let service = SkillsTestService()
         let feature = AgentSkillsFeatureModel(service: service)
         let context = AgentSkillsFeatureModel.Context(workspace: service.firstProject)
@@ -134,9 +134,11 @@ struct AgentSkillsFeatureModelTests {
         let item = try #require(feature.visibleItems.first)
         service.holdWrite = true
         feature.setEnabled(false, for: item, context: context)
+        #expect(feature.displayedEnablement(for: item) == false)
+        #expect(!feature.didChangeEnablement, "the immediate display is not a native confirmation")
         feature.setEnabled(false, for: item, context: context)
         #expect(await awaitChange(on: service) { service.toggleRequests.count == 1 })
-        #expect(feature.isWriting && feature.togglingID == item.id)
+        #expect(feature.isWriting && feature.pendingEnablement?.itemID == item.id)
         #expect(feature.visibleItems.first?.skill.enabled == true, "pending writes do not invent native state")
         await feature.refresh(context)
         #expect(feature.isWriting, "manual refresh cannot invalidate the write")
@@ -145,20 +147,26 @@ struct AgentSkillsFeatureModelTests {
         service.releaseWrite()
         #expect(await awaitChange(on: feature) { feature.didChangeEnablement && !feature.isWriting })
         #expect(feature.visibleItems.first?.skill.enabled == false)
+        #expect(feature.pendingEnablement == nil)
         #expect(service.toggleRequests.count == 1)
     }
 
-    @Test func failedToggleKeepsPreviousStateAndUnknownStateCannotBeChanged() async throws {
+    @Test func failedToggleRestoresConfirmedStateAndUnknownStateCannotBeChanged() async throws {
         let service = SkillsTestService()
         let feature = AgentSkillsFeatureModel(service: service)
         let context = AgentSkillsFeatureModel.Context(workspace: service.firstProject)
-        defer { feature.cancel() }
+        defer { service.releaseWrite(); feature.cancel() }
         await feature.refresh(context)
         let item = try #require(feature.visibleItems.first)
         service.failToggle = true
+        service.holdWrite = true
         feature.setEnabled(false, for: item, context: context)
+        #expect(feature.displayedEnablement(for: item) == false)
+        #expect(await awaitChange(on: service) { service.toggleRequests.count == 1 })
+        service.releaseWrite()
         #expect(await awaitChange(on: feature) { feature.error != nil && !feature.isWriting })
         #expect(feature.visibleItems.first?.skill.enabled == true)
+        #expect(feature.displayedEnablement(for: item) == true && feature.pendingEnablement == nil)
         #expect(!feature.didChangeEnablement)
         service.unknownEnablement = true
         await feature.refresh(context)
@@ -182,7 +190,7 @@ struct AgentSkillsFeatureModelTests {
         service.releaseWrite()
         #expect(await awaitChange(on: service) { service.finishedToggles == 1 })
         #expect(feature.listings == selected && !feature.didChangeEnablement)
-        #expect(feature.togglingID == nil && !feature.isWriting)
+        #expect(feature.pendingEnablement == nil && !feature.isWriting)
     }
 }
 
@@ -335,7 +343,15 @@ struct AgentSkillsAppearanceTests {
         feature.setEnabled(false, for: item, context: .init(workspace: service.firstProject))
         #expect(await awaitChange(on: service) { service.toggleRequests.count == 1 })
         layout(host)
-        #expect(try #require(switches(host).first).isEnabled == false, "a real pending write must still disable the control")
+        let pendingControl = try #require(switches(host).first)
+        #expect(pendingControl.state == .off, "the native switch reflects the choice before saving finishes")
+        #expect(!pendingControl.isEnabled, "a real pending write must still disable the control")
+        func progressIndicators(_ view: NSView) -> [NSProgressIndicator] {
+            if let indicator = view as? NSProgressIndicator { return [indicator] }
+            return view.subviews.flatMap(progressIndicators)
+        }
+        #expect(progressIndicators(host).isEmpty, "a skill toggle does not add a loading spinner")
+        try capture(host, name: "skills-toggle-pending")
     }
 
     @Test func scopedListsAndNativeDropdownAnchorsFitNarrowAndWideSettings() async throws {

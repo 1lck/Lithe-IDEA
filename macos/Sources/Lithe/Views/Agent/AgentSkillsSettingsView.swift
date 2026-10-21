@@ -137,7 +137,7 @@ struct AgentSkillsSettingsView: View {
                 }
                 Text(verbatim: item.skill.description).font(LitheTheme.smallFont).foregroundStyle(LitheTheme.secondaryText).lineLimit(2)
             }.frame(maxWidth: .infinity, alignment: .leading)
-            if let enabled = item.skill.enabled {
+            if let enabled = feature.displayedEnablement(for: item) {
                 Toggle("Enable skill", isOn: Binding(get: { enabled }, set: { feature.setEnabled($0, for: item, context: context) }))
                     .toggleStyle(.switch).controlSize(.small).labelsHidden()
                     .accessibilityLabel(Text(verbatim: text("Enable skill") + ": " + item.skill.name))
@@ -148,7 +148,6 @@ struct AgentSkillsSettingsView: View {
             } else {
                 Text("State unknown").font(LitheTheme.smallFont).foregroundStyle(LitheTheme.secondaryText)
             }
-            if feature.togglingID == item.id { ProgressView().controlSize(.small) }
             Button("View skill") { sheet = .details(item) }.buttonStyle(LitheSecondaryButtonStyle())
             LitheMenu {
                 LitheContextMenuItem.action("Open SKILL.md") { open(item.skill.path) }
