@@ -90,7 +90,7 @@ final class LanguageIntelligenceModuleCoordinator {
                     return false
                 }
             } catch {
-                notify(error.localizedDescription)
+                if !error.isCancellation { notify(error.localizedDescription) }
                 return false
             }
         }

@@ -159,7 +159,7 @@ extension AppModel {
                 objectWillChange.send()
                 connectAgentConversation()
             } catch {
-                showNotification(error.localizedDescription)
+                if !error.isCancellation { showNotification(error.localizedDescription) }
             }
         }
     }
