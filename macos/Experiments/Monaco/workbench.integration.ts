@@ -1361,15 +1361,15 @@ async function verify() {
     const service = StandaloneServices.get(IContextMenuService), original = service.showContextMenu;
     let actions: any[] = [];
     service.showContextMenu = delegate => { actions = [...delegate.getActions()]; };
-    const rightClick = () => {
+    const rightClick = (controlClick = false) => {
       editor.render(true);
       const node = [...editor.getDomNode()!.querySelectorAll(".line-numbers")]
         .find(element => element.getBoundingClientRect().width > 0 && element.textContent === "2")!;
       assert(!!node, "breakpoint line is not visible");
       const bounds = node.getBoundingClientRect();
-      const point = { bubbles: true, cancelable: true, button: 2,
+      const point = { bubbles: true, cancelable: true, button: controlClick ? 0 : 2, ctrlKey: controlClick,
         clientX: bounds.right - 4, clientY: bounds.top + bounds.height / 2 };
-      node.dispatchEvent(new MouseEvent("mousedown", { ...point, buttons: 2 }));
+      node.dispatchEvent(new MouseEvent("mousedown", { ...point, buttons: controlClick ? 1 : 2 }));
       node.dispatchEvent(new MouseEvent("mouseup", { ...point, buttons: 0 }));
       node.dispatchEvent(new MouseEvent("contextmenu", { ...point, buttons: 0 }));
     };
@@ -1385,6 +1385,10 @@ async function verify() {
       await Promise.resolve();
       assert((await send({ type: "debugRequests" })).requests.length === before,
         "right-click opened the breakpoint sheet before a menu action was chosen");
+      rightClick(true);
+      await Promise.resolve();
+      assert((await send({ type: "debugRequests" })).requests.length === before,
+        "Control-click toggled or edited a breakpoint before menu selection");
       assert(actions.some(action => action.id === "lithe.git.annotate"), "Blame action disappeared on a breakpoint");
       const edit = actions.find(action => action.id === "lithe.editBreakpoint");
       assert(edit?.enabled, "existing breakpoint has no explicit Edit Breakpoint action");

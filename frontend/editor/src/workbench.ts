@@ -505,6 +505,8 @@ export function mountWorkbench(host: WorkbenchHost) {
       });
     });
     view.onMouseDown(event => {
+      if (host.gitBlameMenu && isMacintosh && event.event.ctrlKey &&
+          event.target.type === monaco.editor.MouseTargetType.GUTTER_LINE_NUMBERS) return;
       if (event.event.leftButton && event.target.position && event.target.element?.closest(".lithe-blame")) {
         event.event.preventDefault(); event.event.stopPropagation();
         void showBlame(event.target.position.lineNumber);
@@ -788,7 +790,7 @@ export function mountWorkbench(host: WorkbenchHost) {
     return view.onMouseDown(event => {
       // The opted-in line-number menu owns right-clicks; only its explicit
       // Edit Breakpoint action may open the native editor sheet.
-      if (host.gitBlameMenu && host.lineNumbersFirst && event.event.rightButton &&
+      if (host.gitBlameMenu && host.lineNumbersFirst && (event.event.rightButton || isMacintosh && event.event.ctrlKey) &&
           event.target.type === monaco.editor.MouseTargetType.GUTTER_LINE_NUMBERS) return;
       if (event.target.element?.closest(".lithe-java-navigation, .lithe-java-run, .lithe-blame") ||
           host.lineNumbersFirst && typeof view.getRawOptions().lineNumbers === "function") return;
