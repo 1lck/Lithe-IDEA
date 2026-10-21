@@ -2,6 +2,7 @@
 
 mod document_lifecycle;
 pub(crate) mod files;
+pub use files::BUILT_IN_HIDDEN_DIRECTORIES;
 mod history;
 mod markdown;
 mod maven;

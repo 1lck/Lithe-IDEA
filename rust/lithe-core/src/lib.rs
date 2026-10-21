@@ -21,6 +21,7 @@ mod project;
 mod protocol;
 mod runtime;
 
+pub use project::BUILT_IN_HIDDEN_DIRECTORIES;
 pub use protocol::{
     CoreCommand, CoreError, CoreEvent, CoreRequest, CoreResponse, ErrorCode, ResponseData,
 };

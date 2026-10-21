@@ -2,6 +2,7 @@ pub mod document_file;
 pub mod document_watcher;
 use anyhow::{Context, Result, bail};
 pub mod git_watcher;
+use lithe_core::BUILT_IN_HIDDEN_DIRECTORIES;
 use notify::{
    Event, EventKind, RecommendedWatcher, RecursiveMode,
    event::{ModifyKind, RenameMode},
@@ -11,7 +12,7 @@ use notify_debouncer_full::{
 };
 use std::{
    collections::HashSet,
-   path::PathBuf,
+   path::{Path, PathBuf},
    sync::{Arc, Mutex},
    time::Duration,
 };
@@ -136,6 +137,16 @@ impl FileWatcher {
       watched_paths: &Arc<Mutex<HashSet<PathBuf>>>,
       watched_directories: &Arc<Mutex<HashSet<PathBuf>>>,
    ) {
+      let events = {
+         let watched_paths = watched_paths.lock().unwrap();
+         let watched_directories = watched_directories.lock().unwrap();
+         Self::retain_relevant_events(events, &watched_paths, &watched_directories)
+      };
+
+      if events.is_empty() {
+         return;
+      }
+
       if events.iter().any(|event| event.need_rescan()) {
          Self::emit_rescans(emitter, watched_directories);
          return;
@@ -173,6 +184,60 @@ impl FileWatcher {
             emitter.emit_file_change(&change_event);
          }
       }
+   }
+
+   /// Drops events from generated build output before the rescan decisions.
+   ///
+   /// An external Maven or Gradle build rewrites thousands of files under
+   /// directories such as `target`. Forwarding them floods the UI, and one large
+   /// batch would collapse into a full workspace rescan that re-indexes every
+   /// source file. Explicitly registered paths are always kept because a caller
+   /// that watches them has opted into their changes.
+   fn retain_relevant_events(
+      events: Vec<DebouncedEvent>,
+      watched_paths: &HashSet<PathBuf>,
+      watched_directories: &HashSet<PathBuf>,
+   ) -> Vec<DebouncedEvent> {
+      events
+         .into_iter()
+         .filter(|event| {
+            !Self::is_ignored_event(&event.event, watched_paths, watched_directories)
+         })
+         .collect()
+   }
+
+   fn is_ignored_event(
+      event: &Event,
+      watched_paths: &HashSet<PathBuf>,
+      watched_directories: &HashSet<PathBuf>,
+   ) -> bool {
+      !event.paths.is_empty()
+         && event.paths.iter().all(|path| {
+            !watched_paths.contains(path)
+               && Self::is_in_ignored_directory(path, watched_directories)
+         })
+   }
+
+   fn is_in_ignored_directory(path: &Path, watched_directories: &HashSet<PathBuf>) -> bool {
+      // Evaluate against the most specific registered root so a workspace folder
+      // that is itself named like build output keeps reporting its own files.
+      let Some(root) = watched_directories
+         .iter()
+         .filter(|root| path.starts_with(root))
+         .max_by_key(|root| root.components().count())
+      else {
+         return false;
+      };
+      let Ok(relative) = path.strip_prefix(root) else {
+         return false;
+      };
+      relative.components().any(|component| {
+         component.as_os_str().to_str().is_some_and(|name| {
+            BUILT_IN_HIDDEN_DIRECTORIES
+               .iter()
+               .any(|directory| name.eq_ignore_ascii_case(directory))
+         })
+      })
    }
 
    fn classify_event(event: &Event) -> Vec<(PathBuf, FileChangeType)> {
@@ -516,5 +581,135 @@ mod tests {
          }
       );
       assert!(matches!(receiver.try_recv(), Err(TryRecvError::Empty)));
+   }
+
+   fn collect_events(receiver: &Receiver<FileChangeEvent>) -> Vec<FileChangeEvent> {
+      let mut events = Vec::new();
+      while let Ok(event) = receiver.try_recv() {
+         events.push(event);
+      }
+      events
+   }
+
+   fn modify_event(path: PathBuf) -> DebouncedEvent {
+      DebouncedEvent::new(
+         Event::new(EventKind::Modify(ModifyKind::Any)).add_path(path),
+         Instant::now(),
+      )
+   }
+
+   fn handle_test_events(
+      events: Vec<DebouncedEvent>,
+      watched_paths: HashSet<PathBuf>,
+      watched_directories: HashSet<PathBuf>,
+   ) -> Vec<FileChangeEvent> {
+      let (sender, receiver) = mpsc::channel();
+      let emitter = ChannelEmitter(sender);
+      FileWatcher::handle_events(
+         events,
+         &emitter,
+         &Arc::new(Mutex::new(watched_paths)),
+         &Arc::new(Mutex::new(watched_directories)),
+      );
+      collect_events(&receiver)
+   }
+
+   #[test]
+   fn build_output_batches_do_not_force_a_workspace_rescan() {
+      let root = PathBuf::from("C:/workspace");
+      let events = (0..=MAX_DEBOUNCED_EVENTS_PER_BATCH)
+         .map(|index| {
+            DebouncedEvent::new(
+               Event::new(EventKind::Create(notify::event::CreateKind::File)).add_path(
+                  root.join("target")
+                     .join("classes")
+                     .join(format!("generated-{index}.class")),
+               ),
+               Instant::now(),
+            )
+         })
+         .collect();
+
+      let emitted = handle_test_events(
+         events,
+         HashSet::from([root.clone()]),
+         HashSet::from([root]),
+      );
+
+      assert!(emitted.is_empty(), "{emitted:?}");
+   }
+
+   #[test]
+   fn build_output_events_do_not_hide_source_changes() {
+      let root = PathBuf::from("C:/workspace");
+      let source = root.join("src").join("App.java");
+      let mut events: Vec<_> = (0..=MAX_DEBOUNCED_EVENTS_PER_BATCH)
+         .map(|index| {
+            modify_event(
+               root.join("target")
+                  .join("maven-status")
+                  .join(format!("status-{index}.txt")),
+            )
+         })
+         .collect();
+      events.push(modify_event(source.clone()));
+
+      let emitted = handle_test_events(
+         events,
+         HashSet::from([root.clone()]),
+         HashSet::from([root]),
+      );
+
+      assert_eq!(
+         emitted,
+         vec![FileChangeEvent {
+            path: source.to_string_lossy().to_string(),
+            event_type: FileChangeType::Reloaded,
+         }]
+      );
+   }
+
+   #[test]
+   fn explicitly_watched_directories_keep_events_with_an_ignored_name() {
+      let workspace = PathBuf::from("C:/workspace");
+      let build_root = workspace.join("build");
+      let file = build_root.join("src").join("App.java");
+
+      let emitted = handle_test_events(
+         vec![modify_event(file.clone())],
+         HashSet::from([workspace.clone(), build_root.clone()]),
+         HashSet::from([workspace, build_root]),
+      );
+
+      assert_eq!(
+         emitted,
+         vec![FileChangeEvent {
+            path: file.to_string_lossy().to_string(),
+            event_type: FileChangeType::Reloaded,
+         }]
+      );
+   }
+
+   #[test]
+   fn explicitly_watched_files_inside_build_output_keep_their_events() {
+      let root = PathBuf::from("C:/workspace");
+      let generated = root
+         .join("target")
+         .join("generated-sources")
+         .join("Version.java");
+
+      let emitted = handle_test_events(
+         vec![modify_event(generated.clone())],
+         HashSet::from([root.clone(), generated.clone()]),
+         HashSet::from([root]),
+      );
+
+      assert_eq!(
+         emitted,
+         vec![FileChangeEvent {
+            path: generated.to_string_lossy().to_string(),
+            event_type: FileChangeType::Reloaded,
+         }]
+      );
    }
 }

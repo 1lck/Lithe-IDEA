@@ -13,8 +13,12 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Default workspace exclusions, also used by Git discovery for generated directories.
-pub(crate) const BUILT_IN_HIDDEN_DIRECTORIES: &[&str] = &[
+/// Default workspace exclusions shared by snapshots, search, Git discovery, and
+/// native file watchers.
+///
+/// Generated build output changes constantly during an external build. Watchers
+/// must drop those paths before they can trigger a full workspace rescan.
+pub const BUILT_IN_HIDDEN_DIRECTORIES: &[&str] = &[
     ".git",
     ".worktree",
     ".worktrees",

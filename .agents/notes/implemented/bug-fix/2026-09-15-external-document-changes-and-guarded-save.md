@@ -45,6 +45,16 @@ macOS 文档观察端口覆盖项目文档和独立文件，普通事件只核�
 最多累计 128 个待刷新目录，超过后同样降级为根目录和已展开目录重扫。这里的
 重扫只恢复文件树一致性，打开文档仍由文档 watcher 和保存前校验负责。
 
+后续 [Issue #1176](https://github.com/1lck/Lithe-IDEA/issues/1176) 报告 Windows
+打开 Maven 项目时，外部 `mvn package` 持续写入 `target/`，事件洪峰反复超过
+512 条上限并触发整库重扫，Project 树和 Spring、MyBatis 索引因此不断重建。
+现在项目 watcher 在批次折叠和 rescan 判定之前，先按 Core 的
+`BUILT_IN_HIDDEN_DIRECTORIES`（快照、搜索和 Git 发现共用的隐藏目录表）丢弃
+相对监听根位于 `target`、`build`、`node_modules` 等目录内的事件。判断使用
+最具体的已监听根，显式注册的文件或目录始终保留，因此工作区文件夹本身叫
+`build`，或调用方显式监听 `target/generated-sources` 中的文件时，事件仍会上报。
+外部构建只改变生成物，不应让文件树和索引把它当成源码变化。
+
 搜索结果中的临时预览文档也纳入同一个文档观察集合，重新打开预览时可等待
 异步核对；预览晋升为标签页后继续保留同一正文与磁盘基线。关闭预览取消其
 读取任务和监听，迟到结果不得更新已经移除的预览。预览未成为标签页前，不向
@@ -139,6 +149,10 @@ Windows 是独立前端实现，写入进行中到期的那次延迟自动保存
 - 无界的全项目递归监听会让资源和事件量随整个项目增长，也无法解决漏通知后的
   覆盖。文件树后来需要递归监听，因此采用批量上限和重扫降级；打开文档仍不能
   依赖项目 watcher。
+- 只在前端丢弃 `target/` 事件不能阻止折叠：`lithe-project` 已经先按 512 条
+  上限发出整库 rescan，前端无法恢复被折叠掉的逐文件信息。给 JDT LS 增加导入
+  排除也不会停止 Eclipse 资源监听，文件树仍会收到洪峰。因此过滤必须放在项目
+  watcher 折叠之前。
 - 单文件句柄监听在替换式保存后可能继续关联旧对象；只在激活时核对又不够及时。
   因此采用父目录观察加激活恢复。
 - 时间戳、长度或保存后短暂忽略都不能判断真实内容；跨程序强制加锁则破坏协作，
@@ -173,6 +187,8 @@ Windows 使用 `./scripts/build-windows.ps1 -Configuration Release`，以及
 替换通知、多窗口释放、提交前变化与暂存清理，前端测试覆盖注册代次、保存延后
 核对和冲突选择。连续打断后的调度、保存等待和关闭取消使用手动调度器验证，
 不依赖真实计时器。项目 watcher 测试直接验证原生事件类型、递归创建和洪峰重扫；
+构建输出事件在折叠前被丢弃、混合源码事件不被吞掉以及显式监听路径优先，
+使用 `cargo test --manifest-path windows/tauri/crates/project/Cargo.toml` 验证。
 真实原生监听测试有五秒截止时间，不使用睡眠来猜事件顺序。
 关闭确认自动收起、旧确认迟到、保存中取消、项目关闭时新增输入和自动保存任务
 交替使用有界测试门控制顺序。Windows CI 显式运行文档监听控制器测试，并在
@@ -194,5 +210,6 @@ WindowsRust 范围单独运行 `lithe-project`；只运行宿主不会执行依�
 - `macos/Sources/Lithe/Application/Features/DocumentFeatureModel.swift`
 - `macos/Sources/Lithe/Platform/MacOS/FileWatching/MacDocumentObservation.swift`
 - `macos/Sources/Lithe/Platform/MacOS/FileSystem/MacWorkspaceFileOperations.swift`
+- `rust/lithe-core/src/project/files.rs`
 - `rust/lithe-core/src/project/document_lifecycle.rs`
 - `shared/contracts/application-boundary.md`
