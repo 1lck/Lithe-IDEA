@@ -1425,10 +1425,13 @@
 "Filter results" = "筛选结果";
 "Filter route, controller, or method" = "筛选路由、控制器或方法";
 "Find" = "查找";
+"Find Action" = "查找操作";
+"Find Action…" = "查找操作…";
 "Find Branch" = "查找分支";
 "Find Next" = "查找下一个";
 "Find Previous" = "查找上一个";
 "Find Usages" = "查找调用位置";
+"Find and execute a command" = "查找并执行命令";
 "Find files and actions" = "查找文件和操作";
 "Find in File" = "在文件中查找";
 "Find in Files" = "在项目中查找";
@@ -5649,6 +5652,9 @@
 "native.filterResults" = "筛选结果";
 "native.filterRouteControllerOrMethod" = "筛选路由、控制器或方法";
 "native.find" = "查找";
+"native.findAction" = "查找操作";
+"native.findAction.variant2" = "查找操作…";
+"native.findAndExecuteCommand" = "查找并执行命令";
 "native.findBranch" = "查找分支";
 "native.findFilesAndActions" = "查找文件和操作";
 "native.findInFile" = "在文件中查找";

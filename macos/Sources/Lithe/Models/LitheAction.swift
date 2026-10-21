@@ -85,6 +85,7 @@ enum LitheActionRegistry {
             action("rebuild-java-index", model: model) { model.rebuildJavaIndex() },
             action("save", model: model) { model.saveActiveDocument() },
             action("search-everywhere", model: model) { model.toggleSearchEverywhere() },
+            action("find-action", model: model) { model.openFindAction() },
             action("navigate-back", model: model) { model.navigateBack() },
             action("navigate-forward", model: model) { model.navigateForward() },
             action("find-next", model: model) { model.navigateFind(offset: 1) },
