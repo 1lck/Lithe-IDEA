@@ -63,6 +63,12 @@ describe("retired settings cleanup", () => {
     expect(findRetiredSettingsKeys(entries)).toEqual(["horizontalTabScroll"]);
   });
 
+  test("finds the removed file-tree auto reveal key in a persisted store", () => {
+    const entries = new Map<string, unknown>([["autoRevealActiveFileInFileTree", true]]);
+
+    expect(findRetiredSettingsKeys(entries)).toEqual(["autoRevealActiveFileInFileTree"]);
+  });
+
   test("ignores stores without retired keys", () => {
     expect(findRetiredSettingsKeys(new Map([["wordWrap", false]]))).toEqual([]);
   });

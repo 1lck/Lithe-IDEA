@@ -2426,8 +2426,6 @@ const catalogs = {
     "settings.files.showGitStatus": "Show Git Status",
     "settings.files.showGitStatusDescription": "Display Git color decorations beside changed files",
     "settings.files.behavior": "Behavior",
-    "settings.files.autoReveal": "Auto Reveal Active File",
-    "settings.files.autoRevealDescription": "Expand and scroll Files to the active editor file",
     "settings.files.confirmBeforeDelete": "Confirm Before Delete",
     "settings.files.confirmBeforeDeleteDescription":
       "Ask for confirmation before deleting a file or folder",
@@ -7230,8 +7228,6 @@ const catalogs = {
     "settings.files.showGitStatus": "显示 Git 状态",
     "settings.files.showGitStatusDescription": "在已更改文件旁显示 Git 颜色标记",
     "settings.files.behavior": "行为",
-    "settings.files.autoReveal": "自动显示活动文件",
-    "settings.files.autoRevealDescription": "展开并滚动文件视图至当前编辑器文件",
     "settings.files.confirmBeforeDelete": "删除前确认",
     "settings.files.confirmBeforeDeleteDescription": "删除文件或文件夹前请求确认",
     "settings.files.filters": "筛选",

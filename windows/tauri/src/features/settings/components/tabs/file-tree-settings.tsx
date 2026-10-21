@@ -13,7 +13,6 @@ export const FileTreeSettings = () => {
   const { t } = useTranslation();
   const settings = useSettingsStore(
     useShallow((state) => ({
-      autoRevealActiveFileInFileTree: state.settings.autoRevealActiveFileInFileTree,
       compactFoldersInFileTree: state.settings.compactFoldersInFileTree,
       confirmBeforeFileDelete: state.settings.confirmBeforeFileDelete,
       fileTreeIndentSize: state.settings.fileTreeIndentSize,
@@ -228,27 +227,6 @@ export const FileTreeSettings = () => {
       </Section>
 
       <Section title={t("settings.files.behavior")}>
-        <SettingRow
-          label={t("settings.files.autoReveal")}
-          description={t("settings.files.autoRevealDescription")}
-          onReset={() =>
-            updateSetting(
-              "autoRevealActiveFileInFileTree",
-              getDefaultSetting("autoRevealActiveFileInFileTree"),
-            )
-          }
-          canReset={
-            settings.autoRevealActiveFileInFileTree !==
-            getDefaultSetting("autoRevealActiveFileInFileTree")
-          }
-        >
-          <Switch
-            checked={settings.autoRevealActiveFileInFileTree}
-            onChange={(checked) => updateSetting("autoRevealActiveFileInFileTree", checked)}
-            size="sm"
-          />
-        </SettingRow>
-
         <SettingRow
           label={t("settings.files.confirmBeforeDelete")}
           description={t("settings.files.confirmBeforeDeleteDescription")}
