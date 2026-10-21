@@ -311,13 +311,16 @@ const BottomPane = () => {
   );
 
   const pane = isFullScreen ? (
-    <WorkbenchFullscreenSurface>{paneContent}</WorkbenchFullscreenSurface>
+    <WorkbenchFullscreenSurface hidden={!isBottomPaneVisible}>
+      {paneContent}
+    </WorkbenchFullscreenSurface>
   ) : (
     paneContent
   );
 
   if (isFullScreen) {
-    return isBottomPaneVisible ? pane : null;
+    // Keep terminal listeners and sessions mounted while a fullscreen panel is hidden.
+    return pane;
   }
 
   return (
