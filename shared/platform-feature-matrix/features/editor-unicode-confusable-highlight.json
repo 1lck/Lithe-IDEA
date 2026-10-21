@@ -14,7 +14,7 @@
   },
   "windows": {
     "implementationStatus": "implemented",
-    "verificationStatus": "pending",
+    "verificationStatus": "verified",
     "evidence": [
       "windows/tauri/src/features/editor/components/monaco-editor.tsx",
       "windows/tauri/src/features/editor/notebook/notebook-code-cell-editor.tsx",
