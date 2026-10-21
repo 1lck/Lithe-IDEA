@@ -13,6 +13,9 @@ struct PluginManagementView: View {
 
     static let minimumWidth: CGFloat = listMinimumWidth + SplitHandleView.thickness + detailMinimumWidth
     static let listMinimumWidth: CGFloat = 200
+    /// The split layout already reserves `detailMinimumWidth`, so the list
+    /// bound is a constant rather than read from live window geometry.
+    static let listMaximumWidth: CGFloat = 520
     static let detailMinimumWidth: CGFloat = 160
     @EnvironmentObject private var model: AppModel
     @ObservedObject var settingsState: SettingsViewState
@@ -58,6 +61,8 @@ private struct PluginManagementPage: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear { if settingsState.requestedPluginID != nil { tab = .installed } }
+        .onChange(of: settingsState.requestedPluginID) { if $0 != nil { tab = .installed } }
         .background(LitheTheme.settingsSurface)
         .onAppear { feature.loadIfNeeded() }
         .onDisappear {
@@ -159,6 +164,9 @@ private struct InstalledPluginsView: View {
     @State private var hoveredPluginID: PluginID?
     @State private var isManagingPackage = false
     @State private var confirmingUninstall: PluginManagementSnapshot?
+    @State private var confirmingRollback: PluginManagementSnapshot?
+    @State private var filter = PluginListFilter.all
+    @State private var detailTab = PluginDetailTab.overview
     @AppStorage("lithe.settings.pluginListWidth") private var pluginListWidth = 320.0
 
     private var pendingEnabledStates: [PluginID: Bool] { settingsState.pendingPluginEnabledStates }
@@ -168,17 +176,42 @@ private struct InstalledPluginsView: View {
         PluginManagementListContent(plugins: model.pluginSnapshots).plugins
     }
 
+    /// Typing `/` lists the filters instead of searching.
+    private var isChoosingFilter: Bool {
+        searchText.trimmingCharacters(in: .whitespaces).hasPrefix("/")
+    }
+
     private var filteredPlugins: [PluginManagementSnapshot] {
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !query.isEmpty else { return installedPlugins }
-        return installedPlugins.filter {
-            $0.manifest.displayName.lowercased().contains(query) ||
-                $0.manifest.vendor.displayName.lowercased().contains(query)
+        let query = isChoosingFilter ? "" : searchText
+        return installedPlugins.filter { plugin in
+            filter.matches(
+                plugin,
+                isEnabled: effectiveEnabledState(for: plugin),
+                hasUpdate: feature.availableUpdate(for: plugin.id) != nil
+            ) && PluginListFilter.matches(plugin, query: query)
         }
+    }
+
+    private var enabledPlugins: [PluginManagementSnapshot] {
+        filteredPlugins.filter { effectiveEnabledState(for: $0) }
+    }
+
+    private var disabledPlugins: [PluginManagementSnapshot] {
+        filteredPlugins.filter { !effectiveEnabledState(for: $0) }
     }
 
     private var selectedPlugin: PluginManagementSnapshot? {
         filteredPlugins.first { $0.id == selectedPluginID } ?? filteredPlugins.first
+    }
+
+    /// Opens the plugin another settings page pointed at, on its Settings tab.
+    private func showRequestedPlugin() {
+        guard let pluginID = settingsState.requestedPluginID else { return }
+        settingsState.requestedPluginID = nil
+        searchText = ""
+        filter = .all
+        selectedPluginID = pluginID
+        detailTab = .settings
     }
 
     private var enabledPluginCount: Int {
@@ -196,26 +229,23 @@ private struct InstalledPluginsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            GeometryReader { geometry in
-                LitheSplitPaneView(
-                    axis: .horizontal,
-                    placement: .leading,
-                    defaultSize: CGFloat(pluginListWidth),
-                    minimum: PluginManagementView.listMinimumWidth,
-                    maximum: max(
-                        PluginManagementView.listMinimumWidth,
-                        geometry.size.width - SplitHandleView.thickness - PluginManagementView.detailMinimumWidth
-                    ),
-                    flexibleMinimum: PluginManagementView.detailMinimumWidth,
-                    onCommit: { pluginListWidth = Double($0) },
-                    sized: { sidebar },
-                    flexible: { detail }
-                )
-            }
+            LitheSplitPaneView(
+                axis: .horizontal,
+                placement: .leading,
+                defaultSize: CGFloat(pluginListWidth),
+                minimum: PluginManagementView.listMinimumWidth,
+                maximum: PluginManagementView.listMaximumWidth,
+                flexibleMinimum: PluginManagementView.detailMinimumWidth,
+                onCommit: { pluginListWidth = Double($0) },
+                sized: { sidebar },
+                flexible: { detail }
+            )
             if !pendingEnabledStates.isEmpty || isApplyingChanges {
                 footer
             }
         }
+        .onAppear(perform: showRequestedPlugin)
+        .onChange(of: settingsState.requestedPluginID) { _ in showRequestedPlugin() }
         .confirmationDialog(
             Text(String(
                 format: PluginMarketplacePresentation.localized("Uninstall %@?", locale: locale),
@@ -236,14 +266,45 @@ private struct InstalledPluginsView: View {
         } message: {
             Text(LocalizedStringKey("The plugin will be removed after restarting Lithe."))
         }
+        .confirmationDialog(
+            Text(String(
+                format: PluginMarketplacePresentation.localized("Roll back %@ to %@?", locale: locale),
+                confirmingRollback?.manifest.displayName ?? "",
+                confirmingRollback?.previousVersion?.description ?? ""
+            )),
+            isPresented: Binding(
+                get: { confirmingRollback != nil },
+                set: { if !$0 { confirmingRollback = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button(LocalizedStringKey("Roll Back")) {
+                if let plugin = confirmingRollback {
+                    performPackageAction { model.rollbackPlugin(plugin.id) }
+                }
+            }
+            Button(LocalizedStringKey("Cancel"), role: .cancel) {}
+        } message: {
+            Text(LocalizedStringKey("The previous version is used after restarting Lithe. Your setting values are kept."))
+        }
     }
 
     private var sidebar: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 8) {
                 LitheSettingsSearchField("Type / to see options", text: $searchText)
+                filterChips
             }
-            .padding(.horizontal, 8).frame(height: 44)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 8)
+            .overlay(alignment: .topLeading) {
+                if isChoosingFilter {
+                    filterMenu
+                        .padding(.horizontal, 8)
+                        .offset(y: 40)
+                }
+            }
+            .zIndex(1)
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
             HStack {
                 Text(LocalizedStringKey("Installed (\(enabledPluginCount) of \(installedPlugins.count) enabled)"))
@@ -253,17 +314,101 @@ private struct InstalledPluginsView: View {
             .padding(.horizontal, 14).frame(height: 38).background(LitheTheme.settingsListSurface)
             ScrollView {
                 LazyVStack(spacing: 0) {
-                    ForEach(filteredPlugins) { plugin in
-                        pluginRow(plugin)
+                    if !enabledPlugins.isEmpty {
+                        groupHeader("Enabled")
+                        ForEach(enabledPlugins) { plugin in
+                            pluginRow(plugin)
+                        }
                     }
-                    ForEach(brokenPluginIssues) { issue in
-                        brokenPluginRow(issue)
+                    if !disabledPlugins.isEmpty {
+                        groupHeader("Disabled")
+                        ForEach(disabledPlugins) { plugin in
+                            pluginRow(plugin)
+                        }
+                    }
+                    if filteredPlugins.isEmpty {
+                        Text(LocalizedStringKey("No matching plugins"))
+                            .font(LitheTheme.smallFont)
+                            .foregroundStyle(LitheTheme.secondaryText)
+                            .padding(.vertical, 24)
+                    }
+                    if filter == .all {
+                        ForEach(brokenPluginIssues) { issue in
+                            brokenPluginRow(issue)
+                        }
                     }
                 }
             }
         }
         .frame(maxWidth: .infinity)
         .background(LitheTheme.settingsListSurface)
+    }
+
+    private var filterChips: some View {
+        // Wraps instead of scrolling so every filter stays visible in a
+        // narrow list.
+        PluginFilterChipLayout(spacing: 5) {
+            ForEach(PluginListFilter.allCases, id: \.self) { value in
+                let isSelected = filter == value
+                Button {
+                    filter = value
+                } label: {
+                    Text(LocalizedStringKey(value.title))
+                        .font(LitheTheme.uiFont(size: 11, weight: isSelected ? .semibold : .regular))
+                        .foregroundStyle(isSelected ? LitheTheme.settingsSelectionText : LitheTheme.secondaryText)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(Capsule().fill(isSelected ? LitheTheme.settingsSelection : Color.clear))
+                        .overlay(Capsule().stroke(isSelected ? Color.clear : LitheTheme.settingsControlBorder, lineWidth: 1))
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.litheNoPress)
+                .accessibilityAddTraits(isSelected ? .isSelected : [])
+            }
+        }
+    }
+
+    /// Shown while the search text starts with `/`; picking an option sets
+    /// the filter and clears the text.
+    private var filterMenu: some View {
+        let typed = searchText.trimmingCharacters(in: .whitespaces).dropFirst().lowercased()
+        let options = PluginListFilter.allCases.filter { $0 != .all && (typed.isEmpty || $0.token.hasPrefix(typed)) }
+        return VStack(alignment: .leading, spacing: 0) {
+            ForEach(options, id: \.self) { value in
+                Button {
+                    filter = value
+                    searchText = ""
+                } label: {
+                    HStack(spacing: 10) {
+                        Text(verbatim: "/\(value.token)")
+                            .font(LitheTheme.uiFont(size: 12, design: .monospaced))
+                            .frame(width: 92, alignment: .leading)
+                        Text(LocalizedStringKey(value.title))
+                            .font(LitheTheme.smallFont)
+                            .foregroundStyle(LitheTheme.secondaryText)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.litheNoPress)
+            }
+        }
+        .padding(.vertical, 4)
+        .background(RoundedRectangle(cornerRadius: 7).fill(LitheTheme.settingsPopupBackground))
+        .overlay(RoundedRectangle(cornerRadius: 7).stroke(LitheTheme.settingsPopupBorder, lineWidth: 1))
+        .shadow(color: LitheTheme.popupShadow, radius: 8, y: 3)
+    }
+
+    private func groupHeader(_ title: String) -> some View {
+        Text(LocalizedStringKey(title))
+            .font(LitheTheme.uiFont(size: 11, weight: .medium))
+            .foregroundStyle(LitheTheme.secondaryText)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 14)
+            .padding(.top, 10)
+            .padding(.bottom, 4)
     }
 
     private func pluginRow(_ plugin: PluginManagementSnapshot) -> some View {
@@ -275,8 +420,9 @@ private struct InstalledPluginsView: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(LocalizedStringKey(plugin.manifest.displayName)).lineLimit(1)
                     .font(LitheTheme.uiFont(size: 13, weight: .semibold))
-                Text(verbatim: "\(plugin.manifest.version)  \(plugin.manifest.vendor.displayName)")
+                Text(verbatim: rowSubtitle(plugin))
                     .font(LitheTheme.smallFont).foregroundStyle(LitheTheme.secondaryText)
+                    .lineLimit(1)
             }
             Spacer()
             if feature.availableUpdate(for: plugin.id) != nil {
@@ -342,11 +488,25 @@ private struct InstalledPluginsView: View {
 
     @ViewBuilder private var detail: some View {
         if let plugin = selectedPlugin {
-            ScrollView {
-                pluginDetail(plugin)
+            let sourceID = feature.installedSourceID(for: plugin.id)
+            let update = feature.availableUpdate(for: plugin.id)
+            PluginDetailView(
+                plugin: plugin,
+                summary: summary(for: plugin),
+                isEnabled: effectiveEnabledState(for: plugin),
+                hasPendingChange: pendingEnabledStates[plugin.id] != nil,
+                isBusy: isManagingPackage || feature.busyPluginIDs.contains(plugin.id),
+                isApplyingChanges: isApplyingChanges,
+                updateVersion: update.map { $0.entry.availability.download?.version ?? $0.entry.latestVersion },
+                sourceName: feature.sources.first { $0.id == sourceID }
+                    .map { PluginMarketplacePresentation.sourceName($0, locale: locale) },
+                error: feature.errors[plugin.id],
+                actions: actions(for: plugin, sourceID: sourceID, update: update),
+                tab: $detailTab
+            ) {
+                pluginIcon(plugin, size: 48)
             }
-            .litheScrollViewChrome()
-            .background(LitheTheme.settingsSurface)
+            .id(plugin.id)
         } else {
             VStack(spacing: 10) {
                 Image(systemName: "puzzlepiece.extension")
@@ -360,174 +520,39 @@ private struct InstalledPluginsView: View {
         }
     }
 
-    private func pluginDetail(_ plugin: PluginManagementSnapshot) -> some View {
+    private func actions(
+        for plugin: PluginManagementSnapshot,
+        sourceID: String?,
+        update: PluginMarketplaceOffer?
+    ) -> PluginDetailActions {
         let isEnabled = effectiveEnabledState(for: plugin)
-        let hasPendingChange = pendingEnabledStates[plugin.id] != nil
-        let sourceID = feature.installedSourceID(for: plugin.id)
-        let source = feature.sources.first { $0.id == sourceID }
-        let update = feature.availableUpdate(for: plugin.id)
-        let isBusy = isManagingPackage || feature.busyPluginIDs.contains(plugin.id)
-        return VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .top, spacing: 14) {
-                pluginIcon(plugin, size: 48)
-                VStack(alignment: .leading, spacing: 5) {
-                    HStack(spacing: 8) {
-                        Text(LocalizedStringKey(plugin.manifest.displayName))
-                            .font(LitheTheme.uiFont(size: 22, weight: .bold))
-                        if plugin.origin == .community {
-                            PluginTrustBadge(isOfficial: false)
-                        }
-                    }
-                    Text(verbatim: "\(plugin.manifest.vendor.displayName) · \(plugin.manifest.version)")
-                        .foregroundStyle(LitheTheme.secondaryText)
-                }
-                Spacer()
-            }
-            .padding(24)
-            Rectangle().fill(LitheTheme.divider).frame(height: 1)
-            HStack(spacing: 10) {
-                Button(LocalizedStringKey(isEnabled ? "Disable" : "Enable")) {
-                    stageEnabledState(!isEnabled, for: plugin)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(LitheTheme.accent)
-                .disabled(isApplyingChanges || isBusy || plugin.isRequired)
-                if let update {
-                    Button(String(
-                        format: PluginMarketplacePresentation.localized("Update to %@", locale: locale),
-                        update.entry.availability.download?.version ?? update.entry.latestVersion
-                    )) {
-                        performPackageAction { await feature.install(update) }
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(isApplyingChanges || isBusy)
-                }
-                if sourceID != nil {
-                    Button(LocalizedStringKey("Reinstall")) {
-                        performPackageAction { await feature.reinstall(plugin.id) }
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(isApplyingChanges || isBusy)
-                }
-                if plugin.installationStatus == .removed {
-                    Button(LocalizedStringKey("Restore")) {
-                        model.restorePlugin(plugin.id)
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(isApplyingChanges || isBusy)
-                } else if plugin.origin != .bundled || OfficialPluginCatalog.entry(for: plugin.id) != nil {
-                    // Built-in feature groups are listed as bundled too, but
-                    // only an official plugin package can be removed.
-                    Button(LocalizedStringKey("Uninstall")) {
-                        confirmingUninstall = plugin
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(isApplyingChanges || isBusy || plugin.isRequired)
-                }
-                if plugin.hasChangesPendingRestart {
-                    RestartLitheButton(prominent: false)
-                }
-                if isBusy {
-                    ProgressView().controlSize(.small)
-                }
-            }.padding(24)
-            Text(LocalizedStringKey("Overview")).font(LitheTheme.uiFont(size: 15, weight: .semibold)).padding(.horizontal, 24)
-            VStack(alignment: .leading, spacing: 12) {
-                Text(verbatim: summary(for: plugin))
-                    .foregroundStyle(LitheTheme.primaryText)
-                    .fixedSize(horizontal: false, vertical: true)
-                if let error = feature.errors[plugin.id] {
-                    Label(error, systemImage: "exclamationmark.triangle.fill")
-                        .font(LitheTheme.smallFont)
-                        .foregroundStyle(LitheTheme.warning)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Label(
-                    LocalizedStringKey(hasPendingChange ? "Pending confirmation" : plugin.statusMessage),
-                    systemImage: hasPendingChange ? "clock.badge.exclamationmark" : (isEnabled ? "checkmark.circle.fill" : "pause.circle")
-                )
-                    .font(LitheTheme.smallFont)
-                    .foregroundStyle(hasPendingChange ? LitheTheme.warning : (isEnabled ? LitheTheme.success : LitheTheme.secondaryText))
-                if let source {
-                    Label(
-                        String(
-                            format: PluginMarketplacePresentation.localized("Installed from %@", locale: locale),
-                            PluginMarketplacePresentation.sourceName(source, locale: locale)
-                        ),
-                        systemImage: "shippingbox"
-                    )
-                    .font(LitheTheme.smallFont)
-                    .foregroundStyle(LitheTheme.secondaryText)
-                }
-                if let disk = plugin.disk {
-                    Label(LocalizedStringKey("Installed from Disk"), systemImage: "externaldrive")
-                        .font(LitheTheme.smallFont)
-                    Text(verbatim: disk.fileName)
-                        .font(LitheTheme.smallFont)
-                        .foregroundStyle(LitheTheme.secondaryText)
-                        .textSelection(.enabled)
-                }
-                if let repository = plugin.marketplace?.repository, let url = URL(string: repository) {
-                    Link(destination: url) {
-                        Label(LocalizedStringKey("Source Repository"), systemImage: "arrow.up.right.square")
-                    }
-                    .font(LitheTheme.smallFont)
-                }
-                if let replacementID = OfficialPluginCatalog.entry(for: plugin.id)?.communityReplacementID {
-                    // The old package keeps its language until the next launch
-                    // removes it, so the community version is installed after
-                    // that restart, not beside the old one.
-                    let uninstalling = plugin.installationStatus == .uninstallPending
-                    Label(
-                        String(
-                            format: PluginMarketplacePresentation.localized(
-                                uninstalling
-                                    ? "Restart Lithe to finish uninstalling %@, then install the community plugin %@ from the Marketplace."
-                                    : "%@ is no longer an official plugin. It moved to the community plugin %@ in Lithe Store and gets no further updates here. Uninstall it, restart Lithe, then install the community version from the Marketplace.",
-                                locale: locale
-                            ),
-                            plugin.manifest.displayName,
-                            replacementID.rawValue
-                        ),
-                        systemImage: "arrow.triangle.branch"
-                    )
-                    .font(LitheTheme.smallFont)
-                    .foregroundStyle(LitheTheme.warning)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .textSelection(.enabled)
-                }
-                if plugin.origin == .community {
-                    Label(
-                        LocalizedStringKey(plugin.disk == nil
-                            ? "Community plugin maintained by a third party. Report plugin problems in its own repository."
-                            : "Community plugin installed from disk. Its publisher and repository have not been verified."),
-                        systemImage: "person.2"
-                    )
-                    .font(LitheTheme.smallFont)
-                    .foregroundStyle(LitheTheme.warning)
-                    .fixedSize(horizontal: false, vertical: true)
-                }
-                if plugin.origin == .localDevelopment {
-                    Label(
-                        LocalizedStringKey("Unsigned development package. Release builds of Lithe will not load it."),
-                        systemImage: "hammer"
-                    )
-                        .font(LitheTheme.smallFont)
-                        .foregroundStyle(LitheTheme.warning)
-                }
-            }
-            .padding(24)
-            if !plugin.settings.isEmpty {
-                PluginSettingsSection(
-                    settings: plugin.settings,
-                    onChange: { settingID, value in
-                        model.setPluginSetting(value, id: settingID, for: plugin.id)
-                    },
-                    onRestartLanguageServers: { model.restartLanguageServers() }
-                )
-            }
-            Spacer()
-        }
+        // Built-in feature groups are listed as bundled too, but only an
+        // official plugin package can be removed.
+        let canUninstall = plugin.origin != .bundled || OfficialPluginCatalog.entry(for: plugin.id) != nil
+        return PluginDetailActions(
+            toggleEnabled: { stageEnabledState(!isEnabled, for: plugin) },
+            update: update.map { update in { performPackageAction { await feature.install(update) } } },
+            reinstall: sourceID == nil ? nil : { performPackageAction { await feature.reinstall(plugin.id) } },
+            uninstall: canUninstall ? { confirmingUninstall = plugin } : nil,
+            restore: plugin.installationStatus == .removed ? { model.restorePlugin(plugin.id) } : nil,
+            rollback: plugin.canRollback && plugin.installationStatus == .installed
+                ? { confirmingRollback = plugin }
+                : nil,
+            settings: model.pluginSettingsHandlers(for: plugin.id),
+            hasProject: model.workspaceURL != nil,
+            openSettings: { settingsState.selection = $0 }
+        )
+    }
+
+    /// Version, vendor, and the main things the plugin provides.
+    private func rowSubtitle(_ plugin: PluginManagementSnapshot) -> String {
+        let highlighted: Set<PluginCapability.Kind> = [.languageServer, .buildSystem, .toolWindow]
+        var seen = Set<String>()
+        let provided = plugin.capabilities
+            .filter { highlighted.contains($0.kind) && seen.insert($0.title).inserted }
+            .map(\.title)
+        return ([ "\(plugin.manifest.version)  \(plugin.manifest.vendor.displayName)" ] + provided)
+            .joined(separator: " · ")
     }
 
     private var footer: some View {
@@ -615,6 +640,67 @@ private struct InstalledPluginsView: View {
     }
 }
 
+/// Filters of the Installed list; each also has a `/` token in the search
+/// field.
+enum PluginListFilter: String, CaseIterable {
+    case all
+    case languageServer
+    case buildSystem
+    case debug
+    case ui
+    case update
+    case community
+    case disabled
+
+    var title: String {
+        switch self {
+        case .all: "All"
+        case .languageServer: "Language Services"
+        case .buildSystem: "Build"
+        case .debug: "Debug"
+        case .ui: "Interface"
+        case .update: "Updates"
+        case .community: "Community / Disk"
+        case .disabled: "Disabled"
+        }
+    }
+
+    var token: String {
+        switch self {
+        case .all: "all"
+        case .languageServer: "lsp"
+        case .buildSystem: "build"
+        case .debug: "debug"
+        case .ui: "ui"
+        case .update: "update"
+        case .community: "community"
+        case .disabled: "disabled"
+        }
+    }
+
+    func matches(_ plugin: PluginManagementSnapshot, isEnabled: Bool, hasUpdate: Bool) -> Bool {
+        let kinds = Set(plugin.capabilities.map(\.kind))
+        return switch self {
+        case .all: true
+        case .languageServer: kinds.contains(.languageServer)
+        case .buildSystem: kinds.contains(.buildSystem)
+        case .debug: kinds.contains(.debug)
+        case .ui: !kinds.isDisjoint(with: [.toolWindow, .command])
+        case .update: hasUpdate
+        case .community: plugin.origin == .community || plugin.origin == .localDevelopment || plugin.disk != nil
+        case .disabled: !isEnabled
+        }
+    }
+
+    /// Name, vendor, and capability titles, case-insensitively.
+    static func matches(_ plugin: PluginManagementSnapshot, query: String) -> Bool {
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return true }
+        return ([plugin.manifest.displayName, plugin.manifest.vendor.displayName] + plugin.capabilities.map(\.title))
+            .contains { $0.localizedCaseInsensitiveContains(query) }
+    }
+}
+
 struct PluginManagementListContent {
     let plugins: [PluginManagementSnapshot]
 
@@ -657,5 +743,54 @@ struct PluginManagementListContent {
         default:
             nil
         }
+    }
+}
+
+/// Lays the filter chips out in rows, wrapping when the list is narrow.
+private struct PluginFilterChipLayout: Layout {
+    let spacing: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let rows = rows(width: proposal.width ?? .infinity, subviews: subviews)
+        let width = rows.map(\.width).max() ?? 0
+        let height = rows.map(\.height).reduce(0, +) + spacing * CGFloat(max(rows.count - 1, 0))
+        return CGSize(width: proposal.width ?? width, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var y = bounds.minY
+        for row in rows(width: bounds.width, subviews: subviews) {
+            var x = bounds.minX
+            for index in row.indices {
+                let size = subviews[index].sizeThatFits(.unspecified)
+                subviews[index].place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
+                x += size.width + spacing
+            }
+            y += row.height + spacing
+        }
+    }
+
+    private struct Row {
+        var indices: [Int] = []
+        var width: CGFloat = 0
+        var height: CGFloat = 0
+    }
+
+    private func rows(width: CGFloat, subviews: Subviews) -> [Row] {
+        var rows: [Row] = []
+        var current = Row()
+        for index in subviews.indices {
+            let size = subviews[index].sizeThatFits(.unspecified)
+            let proposed = current.indices.isEmpty ? size.width : current.width + spacing + size.width
+            if !current.indices.isEmpty, proposed > width {
+                rows.append(current)
+                current = Row()
+            }
+            current.width = current.indices.isEmpty ? size.width : current.width + spacing + size.width
+            current.height = max(current.height, size.height)
+            current.indices.append(index)
+        }
+        if !current.indices.isEmpty { rows.append(current) }
+        return rows
     }
 }

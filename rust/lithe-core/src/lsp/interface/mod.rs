@@ -3,7 +3,7 @@
 mod build_provider;
 mod client;
 mod engine;
-mod plugin_function;
+pub(crate) mod plugin_function;
 mod process;
 #[cfg(test)]
 mod scripted;

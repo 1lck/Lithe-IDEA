@@ -161,11 +161,13 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         transition(to: .startingProcess)
         var arguments = arguments
         var initializationOptions = initializationOptions
+        var workspaceConfiguration: ToolingJSONValue?
         if let launchResolver {
             do {
                 let resolved = try launchResolver(normalizedRoot)
                 arguments = resolved.arguments
                 initializationOptions = resolved.initializationOptions
+                workspaceConfiguration = resolved.workspaceConfiguration
             } catch {
                 let message = "Language server launch could not be prepared: \(error.localizedDescription)"
                 let failure = LanguageServerSessionFailure(
@@ -193,6 +195,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
                 environment: environment,
                 rootURL: normalizedRoot,
                 initializationOptions: initializationOptions,
+                workspaceConfiguration: workspaceConfiguration,
                 initializeTimeout: initializeTimeout,
                 requestTimeout: requestTimeout,
                 shutdownTimeout: shutdownTimeout
@@ -736,6 +739,21 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
             completion(result.flatMap {
                 Self.decodeEventResult($0, as: VirtualDocumentPayload.self)
             }.map(\.text))
+        }
+    }
+
+    /// Sends changed plugin configuration to the running server. Returns
+    /// false when there is no running session to receive it; the next start
+    /// resolves the configuration again.
+    @discardableResult
+    package func updateWorkspaceConfiguration(_ configuration: ToolingJSONValue) -> Bool {
+        guard let sessionID else { return false }
+        switch core.updateWorkspaceConfiguration(sessionID: sessionID, configuration: configuration) {
+        case .success:
+            return true
+        case .failure(let failure):
+            onLog?(.warning, "Language server configuration was not updated", failure.message, nil)
+            return false
         }
     }
 

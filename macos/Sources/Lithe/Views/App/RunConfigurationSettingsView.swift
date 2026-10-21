@@ -38,14 +38,14 @@ private struct RunConfigurationSettingsContent: View {
         } else {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("Select a service or task to configure its arguments, environment and project-environment overrides. Changes apply after Save.")
-                        .font(LitheTheme.smallFont)
-                        .foregroundStyle(LitheTheme.secondaryText)
-                    if feature.isLoadingProject || isGenerating {
-                        ProgressView("Identifying project…")
-                    } else {
-                        Button("Identify Again") { confirmGeneration = true }
-                            .disabled(feature.recoveryAction == .upgradeApplication)
+                    HStack(spacing: 6) {
+                        if feature.isLoadingProject || isGenerating {
+                            ProgressView("Identifying project…")
+                        } else {
+                            Button("Identify Again") { confirmGeneration = true }
+                                .disabled(feature.recoveryAction == .upgradeApplication)
+                        }
+                        LitheInfoTip("Select a service or task to configure its arguments, environment and project-environment overrides. Changes apply after Save.")
                     }
                     if let error = feature.configurationSaveError {
                         Text(error).foregroundStyle(LitheTheme.error)

@@ -87,7 +87,7 @@ final class MacBuildProviderSessions: BuildProviderRequesting {
     ) async throws -> ToolingJSONValue {
         try Task.checkCancellation()
         let seconds = Self.seconds(timeout)
-        let settings = launchResolver.settingValues(forPlugin: target.pluginID)
+        let settings = launchResolver.settingValues(forPlugin: target.pluginID, workspaceRootURL: target.workspaceURL)
         if let session = try await runningSession(for: target, settings: settings) {
             return try await session.buildRequest(method: request.method, params: request.params, timeout: seconds)
         }
@@ -142,7 +142,7 @@ final class MacBuildProviderSessions: BuildProviderRequesting {
     /// serves one plugin's functions.
     private func functionSession(for target: BuildProviderTarget) async throws -> LanguageServerRuntimeSession {
         try Task.checkCancellation()
-        let settings = launchResolver.settingValues(forPlugin: target.pluginID)
+        let settings = launchResolver.settingValues(forPlugin: target.pluginID, workspaceRootURL: target.workspaceURL)
         if let session = try await runningSession(for: target, settings: settings) { return session }
         switch try launchResolver.resolveBuildProvider(
             pluginID: target.pluginID,

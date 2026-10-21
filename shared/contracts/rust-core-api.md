@@ -828,6 +828,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `java.jdtWorkspaceFingerprint` | Reduce platform build-file observations to the portable JDT LS workspace fingerprint |
 | `java.jdtCacheRetention` | Select expired inactive JDT LS workspace-state keys from platform metadata |
 | `lsp.stopServer` | Gracefully shut down a session, with a bounded force-stop fallback |
+| `lsp.updateWorkspaceConfiguration` | Replace the plugin configuration a running plugin-owned session answers `workspace/configuration` with, and announce it |
 | `lsp.updateMavenConfiguration` | Send a changed Maven context to a running Java session, or force JDT LS to re-resolve its Maven projects |
 | `lsp.syncDocument` | Open a document or apply a full-text or incremental `didChange` with monotonic versions |
 | `lsp.workspaceFilesChanged` | Publish normalized created, changed, or deleted workspace files to one session |
@@ -910,6 +911,8 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `plugins.declarative.discoverTests` | List a declarative plugin's workspace and file test items |
 | `plugins.declarative.testPlan` | Expand a declarative plugin's test template for a workspace, file, or test case |
 | `plugins.declarative.languageServerLaunchPlan` | Expand a declarative plugin's language-server or build-provider launch with host directories and architecture |
+| `plugins.declarative.resolveSettings` | Merge a plugin's stored global and project setting layers into effective values with their source |
+| `plugins.declarative.workspaceConfiguration` | Expand a language server's `workspaceConfiguration` with the merged setting values |
 | `plugins.declarative.checkRuntimeVersion` | Decide whether a launch runtime's version output meets the declared minimum version |
 | `build.detect` | Find every build-system instance the enabled plugins declare in a workspace, with models that need no process |
 | `build.invocationPlan` | List a build system's executable candidates, runtime dependencies, and version probe for one platform |
@@ -2048,7 +2051,8 @@ commands are the semantic LSP runtime boundary. `lsp.startServer` accepts the
 provider ID, selected executable/arguments/environment, root URI, working
 directory, initialization options, optional runtime executable,
 `jdtlsLaunchResources`, cache directory, `workspaceFingerprint`, and the
-optional `pluginId` of the plugin that owns the process, plus
+optional `pluginId` of the plugin that owns the process, its optional
+`workspaceConfiguration` (an object, plugin-owned sessions only), plus
 initialize, post-initialize readiness, request, Java project build
 (`javaBuildTimeoutMilliseconds`), and shutdown deadlines.
 Java callers may also provide the versioned `mavenContext` accepted by
@@ -2310,6 +2314,16 @@ timeout for this request and is capped at one hour. The `requestCompleted`
 event carries the provider's reply unchanged as `result.value`, which the host
 passes to `build.decodeModel` or `build.decodeDependencies` as `result`;
 cancellation and late results follow `lsp.cancelOperation`.
+
+A plugin-owned session started with `workspaceConfiguration` answers each
+`workspace/configuration` item from it by `section` (an exact key wins over
+a dotted path; no section returns the whole object, a missing one `null`) and
+sends `workspace/didChangeConfiguration` with it after `initialized`.
+`lsp.updateWorkspaceConfiguration` accepts `{ sessionId, configuration }`
+(an object) and returns `{ sent }`: the new value replaces the stored one,
+and is announced at once when the client is initialized or with
+`initialized` otherwise. Host-owned sessions and stopping, stopped, or failed
+sessions refuse it with `invalid_request`.
 
 `lsp.functionRequest` accepts `{ sessionId, operationId?, function: { pluginID,
 functionID }, params?, timeoutMilliseconds? }` and returns `{ operationId }`.
@@ -2968,14 +2982,17 @@ Success returns `plan` (`executable`, `arguments`, `workingDirectory`, plus
 "request": object }` with exactly one of `languageID` (a language server) and
 `buildSystemID` (a build provider); naming neither or both is an
 `invalid_request` failure. The request is `{ pluginDirectory, stateDirectory,
-workspaceStateDirectory, architecture, settings? }`. The directories are absolute host paths used only
+workspaceStateDirectory, architecture, settings?, projectSettings? }`. The directories are absolute host paths used only
 as substitution text; the command does not read or create them. `settings` maps
-setting IDs to the values the user stored; a missing, unknown, or no longer
-acceptable value is ignored in favor of the declared default. Success returns
+setting IDs to the values the user stored for every project, and
+`projectSettings` to the open project's overrides; a project value counts only
+for a `scope: "project"` setting, and a missing, unknown, or no longer
+acceptable value falls back to the next layer and then the declared default. Success returns
 `plan` with `launch`, `arguments`, `validationArguments`,
 `runtimeRequirements`, `requiredDirectories`, `requiredPackagePaths`, and
-`initializationOptions`, `hostIntegration`, and `settings` (the effective
-values) when the plugin declares them. A `buildSystemID` plan adds
+`initializationOptions`, `hostIntegration`, `settings` (the effective
+values), and `workspaceConfiguration` (the server's expanded
+`workspaceConfiguration`, `languageServers` 2) when the plugin declares them. A `buildSystemID` plan adds
 `buildProvider: { buildSystemID, executesProjectCode, mayUseNetwork,
 languageServer? }`; with `languageServer` the plan is that language server's
 and the host reuses its session. An unknown
@@ -2983,6 +3000,15 @@ architecture or an empty directory is refused with
 `plugin.launch.invalidRequest`; a language without a server, an undeclared
 build system, and a build system without a provider with
 `plugin.launch.unavailable`.
+
+`plugins.declarative.resolveSettings` accepts
+`{ manifest, settings?, projectSettings? }` and returns `settings`: one
+`{ id, value, source }` per declared setting, `source` being `project`,
+`global`, or `default`. `plugins.declarative.workspaceConfiguration` accepts
+the same payload plus a required `languageID` and returns `configuration`,
+the expanded object, or `null` when that server declares none; a language
+without a server of the plugin is refused with `plugin.launch.unavailable`.
+Hosts never merge layers themselves.
 
 `plugins.declarative.checkRuntimeVersion` accepts
 `{ tool, minimumVersion, output }`, where `output` is what the runtime printed

@@ -104,6 +104,11 @@ pub struct StartServerRequest {
     pub working_directory: String,
     #[serde(default)]
     pub initialization_options: Option<Value>,
+    /// Settings a plugin-provided server reads through
+    /// `workspace/configuration`, already expanded from the plugin's
+    /// `workspaceConfiguration` template. Must be an object when present.
+    #[serde(default)]
+    pub workspace_configuration: Option<Value>,
     #[serde(default)]
     pub runtime_executable_path: Option<String>,
     /// Files discovered by the platform adapter for shell-free JDT LS startup.
@@ -669,6 +674,10 @@ struct RuntimeSession {
     /// Serializes configuration preparation and publication without blocking
     /// protocol processing on filesystem I/O. Never acquired by protocol workers.
     maven_update_order: Mutex<()>,
+    /// Plugin-declared settings answered to `workspace/configuration`.
+    /// Replaced as a whole by `lsp.updateWorkspaceConfiguration`; never held
+    /// across another lock.
+    plugin_configuration: Mutex<Option<Arc<Value>>>,
     /// JDKs JDT LS may bind projects to, one per execution environment.
     jdt_java_runtimes: Vec<JdtJavaRuntime>,
     /// Gradle import settings JDT LS holds. Fixed for the session's lifetime
@@ -719,6 +728,80 @@ fn default_java_build_timeout() -> u64 {
 
 fn default_shutdown_timeout() -> u64 {
     DEFAULT_SHUTDOWN_TIMEOUT_MS
+}
+
+/// Rejects plugin configuration that is not a JSON object, the only shape
+/// `workspace/configuration` sections can be looked up in.
+fn checked_workspace_configuration(
+    configuration: Option<Value>,
+) -> Result<Option<Value>, CoreError> {
+    match configuration {
+        None | Some(Value::Null) => Ok(None),
+        Some(configuration @ Value::Object(_)) => Ok(Some(configuration)),
+        Some(_) => Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "workspaceConfiguration must be a JSON object.",
+        )),
+    }
+}
+
+/// Answers one `workspace/configuration` item from plugin configuration.
+///
+/// A section names a dotted path (`python.analysis`); an exact top-level key
+/// wins over the path so servers that use dotted keys still match. A missing
+/// section answers `null`, which tells the server to use its own default.
+fn configuration_section(configuration: &Value, section: Option<&str>) -> Value {
+    let Some(section) = section.filter(|section| !section.is_empty()) else {
+        return configuration.clone();
+    };
+    if let Some(value) = configuration.get(section) {
+        return value.clone();
+    }
+    section
+        .split('.')
+        .try_fold(configuration, |value, key| value.get(key))
+        .cloned()
+        .unwrap_or(Value::Null)
+}
+
+/// `workspace/didChangeConfiguration` carrying the whole plugin configuration.
+fn plugin_configuration_notification(configuration: &Value) -> String {
+    json!({
+        "jsonrpc": "2.0",
+        "method": "workspace/didChangeConfiguration",
+        "params": { "settings": configuration }
+    })
+    .to_string()
+}
+
+/// Replaces the plugin configuration of a running plugin-provided session.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UpdateWorkspaceConfigurationRequest {
+    pub session_id: String,
+    pub configuration: Value,
+}
+
+/// Whether the change reached the server now or waits for `initialized`.
+#[derive(Debug, Serialize, Eq, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateWorkspaceConfigurationResponse {
+    pub sent: bool,
+}
+
+/// Applies a plugin setting with `effect: immediate` without a restart.
+///
+/// The stored configuration answers later `workspace/configuration` requests;
+/// an initialized server is also told through `workspace/didChangeConfiguration`
+/// so servers that pull configuration only on that signal refresh too.
+pub fn update_workspace_configuration(
+    request: UpdateWorkspaceConfigurationRequest,
+) -> Result<UpdateWorkspaceConfigurationResponse, CoreError> {
+    let configuration =
+        checked_workspace_configuration(Some(request.configuration))?.unwrap_or_else(|| json!({}));
+    engine()
+        .session(&request.session_id)?
+        .update_plugin_configuration(configuration)
 }
 
 /// Starts a managed language-server process and begins LSP initialization.
@@ -781,6 +864,56 @@ pub fn update_maven_configuration(
 }
 
 impl RuntimeSession {
+    /// Plugin configuration the server currently sees, if any.
+    fn plugin_configuration(&self) -> Option<Arc<Value>> {
+        self.plugin_configuration
+            .lock()
+            .map(|configuration| configuration.clone())
+            .unwrap_or_else(|poisoned| poisoned.into_inner().clone())
+    }
+
+    fn update_plugin_configuration(
+        &self,
+        configuration: Value,
+    ) -> Result<UpdateWorkspaceConfigurationResponse, CoreError> {
+        if self.plugin_id.is_none() {
+            return Err(CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Only plugin-provided language servers accept plugin configuration.",
+            ));
+        }
+        let configuration = Arc::new(configuration);
+        let outbound_order = self.lock_outbound_order()?;
+        let initialized = {
+            let state = self.lock_state()?;
+            if matches!(
+                state.lifecycle,
+                LspLifecycleState::Stopping
+                    | LspLifecycleState::Stopped
+                    | LspLifecycleState::Failed
+            ) {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "The language session is no longer running.",
+                ));
+            }
+            // Under `outbound_order`, an uninitialized client sends the stored
+            // configuration with its `initialized` notification instead.
+            state.client.initialized
+        };
+        *self
+            .plugin_configuration
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(configuration.clone());
+        let messages = if initialized {
+            vec![plugin_configuration_notification(&configuration)]
+        } else {
+            Vec::new()
+        };
+        self.send_messages_or_fail(&outbound_order, messages, "workspaceConfigurationUpdate")?;
+        Ok(UpdateWorkspaceConfigurationResponse { sent: initialized })
+    }
+
     /// The Maven import settings JDT LS currently holds.
     fn maven_configuration(&self) -> Option<Arc<JdtMavenConfiguration>> {
         self.jdt_maven_configuration
@@ -1372,6 +1505,8 @@ impl LspEngine {
         let java_build_timeout = Duration::from_millis(request.java_build_timeout_milliseconds);
         let shutdown_timeout = Duration::from_millis(request.shutdown_timeout_milliseconds);
         let jdt_java_runtimes = jdt_java_runtimes(&request.java_runtimes);
+        let workspace_configuration =
+            checked_workspace_configuration(request.workspace_configuration)?;
         let initialize = client_initialize_for_plugin(
             ClientInitializeRequest {
                 state: LspClientState::default(),
@@ -1411,6 +1546,7 @@ impl LspEngine {
             jdt_maven_configuration: Mutex::new(jdt_maven_configuration),
             maven_inputs,
             maven_update_order: Mutex::new(()),
+            plugin_configuration: Mutex::new(workspace_configuration.map(Arc::new)),
             jdt_java_runtimes,
             jdt_gradle_configuration: request.java_gradle,
             root_uri: request.root_uri,
@@ -3471,6 +3607,8 @@ impl RuntimeSession {
                     })
                     .to_string(),
                 );
+            } else if let Some(configuration) = self.plugin_configuration() {
+                outbound.push(plugin_configuration_notification(&configuration));
             }
             if !waits_for_service_ready(&self.provider_id) {
                 outbound.extend(self.flush_queued_documents()?);
@@ -3584,12 +3722,19 @@ impl RuntimeSession {
             })
             .collect();
         let maven = self.maven_configuration();
-        let Some(values) = workspace_configuration(
+        let values = match workspace_configuration(
             &self.provider_id,
             &items,
             self.jdt_settings(maven.as_deref()),
-        ) else {
-            return Ok(None);
+        ) {
+            Some(values) => values,
+            None => match self.plugin_configuration() {
+                Some(configuration) => items
+                    .iter()
+                    .map(|item| configuration_section(&configuration, item.section.as_deref()))
+                    .collect(),
+                None => return Ok(None),
+            },
         };
         Ok(Some(
             serde_json::to_string(&json!({
@@ -5822,6 +5967,7 @@ mod tests {
             root_uri: "file:///workspace".to_string(),
             working_directory: "/workspace".to_string(),
             initialization_options: None,
+            workspace_configuration: None,
             runtime_executable_path: None,
             jdtls_launch_resources: None,
             cache_directory: None,
@@ -9350,6 +9496,7 @@ public class Main {
                 root_uri,
                 working_directory: workspace.to_string_lossy().into_owned(),
                 initialization_options: None,
+                workspace_configuration: None,
                 runtime_executable_path: Some(java_path),
                 jdtls_launch_resources: None,
                 cache_directory: Some(root.join("cache").to_string_lossy().into_owned()),
@@ -10081,6 +10228,7 @@ public class Main {
             root_uri: "file:///workspace".to_string(),
             working_directory: "/workspace".to_string(),
             initialization_options: None,
+            workspace_configuration: None,
             runtime_executable_path: None,
             jdtls_launch_resources: None,
             cache_directory: None,
@@ -10763,6 +10911,81 @@ public class Main {
             thread::sleep(Duration::from_millis(2));
         }
         panic!("the engine never answered backend request {id}");
+    }
+
+    fn plugin_configured() -> Harness {
+        let mut harness = Harness::start(|request| {
+            request.plugin_id = Some("dev.lithe.go".to_string());
+            request.workspace_configuration = Some(json!({
+                "gopls": { "ui": { "staticcheck": true } },
+                "go.dotted": 7
+            }));
+        });
+        harness.server.complete_initialize(ready_capabilities());
+        harness.await_state(LspLifecycleState::Ready);
+        harness
+    }
+
+    #[test]
+    fn plugin_configuration_answers_sections_and_announces_itself() {
+        let harness = plugin_configured();
+        assert!(harness
+            .server
+            .await_notification("workspace/didChangeConfiguration"));
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "id": "cfg-1",
+            "method": "workspace/configuration",
+            "params": { "items": [
+                { "section": "gopls" },
+                { "section": "gopls.ui.staticcheck" },
+                { "section": "go.dotted" },
+                { "section": "missing.path" }
+            ] }
+        }));
+        let reply = await_reply(&harness, "cfg-1");
+        assert_eq!(
+            reply["result"],
+            json!([{ "ui": { "staticcheck": true } }, true, 7, null])
+        );
+    }
+
+    #[test]
+    fn plugin_configuration_updates_reach_a_running_server() {
+        let harness = plugin_configured();
+        let response = harness
+            .session()
+            .update_plugin_configuration(json!({ "gopls": { "ui": { "staticcheck": false } } }))
+            .expect("the update should be accepted");
+        assert!(response.sent);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < deadline {
+            let changes: Vec<Value> = harness
+                .server
+                .messages()
+                .into_iter()
+                .filter(|message| message["method"] == "workspace/didChangeConfiguration")
+                .collect();
+            if changes.len() == 2 {
+                assert_eq!(
+                    changes[1]["params"]["settings"]["gopls"]["ui"]["staticcheck"],
+                    json!(false)
+                );
+                return;
+            }
+            thread::sleep(Duration::from_millis(2));
+        }
+        panic!("the configuration change was never sent");
+    }
+
+    #[test]
+    fn host_servers_reject_plugin_configuration() {
+        let harness = Harness::ready();
+        assert!(harness
+            .session()
+            .update_plugin_configuration(json!({}))
+            .is_err());
+        assert!(checked_workspace_configuration(Some(json!([1]))).is_err());
     }
 
     fn completions(harness: &mut Harness, operation: &str) -> Vec<LspRuntimeEvent> {

@@ -1425,6 +1425,28 @@ package final class LanguageToolingSessionManager: ObservableObject,
         return try await session.buildRequest(method: method, params: params, timeout: timeout)
     }
 
+    /// Languages whose running server was started from `pluginID`'s package.
+    package func runningLanguageIDs(ofPlugin pluginID: String) -> [String] {
+        languageServers.compactMap { languageID, session in
+            session.isRunning
+                && runtimesByID[languageID]?.descriptor.languageServerLaunch?.launchSource?.pluginID == pluginID
+                ? languageID : nil
+        }.sorted()
+    }
+
+    /// Hands a new `workspace/configuration` value to the running server of
+    /// `languageID`; false when none of `pluginID`'s servers runs for it.
+    @discardableResult
+    package func updateWorkspaceConfiguration(
+        _ configuration: ToolingJSONValue,
+        languageID: String,
+        pluginID: String
+    ) -> Bool {
+        guard runtimesByID[languageID]?.descriptor.languageServerLaunch?.launchSource?.pluginID == pluginID,
+              let session = languageServers[languageID], session.isRunning else { return false }
+        return session.updateWorkspaceConfiguration(configuration)
+    }
+
     package func resolveVirtualDocument(
         providerID: String,
         uri: URL,

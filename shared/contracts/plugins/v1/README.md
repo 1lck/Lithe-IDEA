@@ -247,6 +247,75 @@ with `plugin.manifest.invalid` or `plugin.template.invalid`. The settings
 declaration is not part of an install review's program list, because no value
 can change what runs beyond what the templates already show.
 
+#### Settings v2: placement, scope, effect, and page buttons
+
+Version 2 of the `settings` capability (`requires.settings: 2`, level 3) lets
+a plugin place its options anywhere in the host's settings without the host
+knowing the plugin. Hosts keep only generic registration points: a page per
+language and per build system, sections, one control per setting type, a
+project/global layer switch, and buttons. What appears there comes from the
+manifest. Fixture: `fixtures/settings-v2.plugin.json`.
+
+```json
+"settings": [
+  { "id": "dialyzer", "type": "boolean", "title": "Dialyzer", "default": true,
+    "scope": "project", "effect": "immediate", "page": { "languageID": "elixir" } },
+  { "id": "mixEnv", "type": "text", "title": "MIX_ENV", "default": "dev", "pattern": "[a-z]+",
+    "scope": "project", "page": { "languageID": "elixir" }, "section": "Server" }
+],
+"settingActions": [
+  { "id": "rebuildPlt", "title": "Rebuild PLT", "function": "dialyzer.rebuild",
+    "page": { "languageID": "elixir" }, "confirm": true }
+]
+```
+
+| Field | Meaning |
+| --- | --- |
+| `type` | Adds `multiSelect` (one to 32 `options`; the value is an array of distinct option values), `text` (requires `pattern`, matched against the whole value; optional `maxLength`, default 256 and at most 1024; optional `placeholder`), `file` and `directory` (an absolute path of at most 1024 characters, or empty for "not set"; optional `placeholder`). Text and paths never start with `-` and contain no control characters. |
+| `scope` | `global` (default): one value for every project. `project`: the open project may override it. |
+| `effect` | When a change takes effect. `restart` (default): the next start of the plugin's processes. `immediate`: pushed to the running language server through `workspaceConfiguration`. `reload`: the next build-model reload; hosts reload the plugin's build models. `nextRun`: the next run or build command. |
+| `page` | `{ "languageID": … }` or `{ "buildSystemID": … }`: the settings page that shows the setting besides the plugin's own page. Any plugin may add to a page; the host shows the page while an enabled plugin contributes to it. |
+| `section` | Heading the setting is grouped under on its page. |
+
+`settingActions` (at most 16, sorted by unique `id`) are buttons the host
+draws on the plugin's page and on their `page`. Each invokes the plugin
+function `function` of the same plugin with empty params, served by the
+plugin's own provider process for the open project (see
+[plugin functions](#plugin-functions)). `confirm: true` makes the host ask
+first. The host owns the button and knows nothing about what the function
+does. Declaring actions counts as using `settings` and needs version 2.
+
+Placement and use rules, checked by Core at validation:
+
+- An `immediate` setting may appear only in a language server's
+  `workspaceConfiguration`; it never reaches a command line or
+  `initializationOptions`, so a change never needs a new process.
+- A `text`, `file`, or `directory` setting is a whole template value or the
+  value of one `name=` argument, never part of a longer argument.
+- Any v2 field or type, or any action, with `requires.settings` below 2 is
+  refused with `plugin.manifest.invalid`.
+
+**Layers.** Hosts store a global value per plugin and setting, and a project
+value in the project's `.lithe/plugin-settings.json`
+(`{pluginID: {settingID: value}}`, meant to be shared through version
+control). They send both as `settings` and `projectSettings`; Core merges
+them as project (for `scope: "project"` only), then global, then default,
+skipping a stored value the declaration no longer accepts.
+`plugins.declarative.resolveSettings` returns each effective value with
+its `source` (`project`, `global`, or `default`).
+
+#### Workspace configuration (`languageServers` 2)
+
+A language server may declare `workspaceConfiguration`, an object whose
+string leaves may be `${setting:<id>}` templates. With
+`requires.languageServers: 2`, Core expands it with the merged settings
+(`plugins.declarative.workspaceConfiguration`, and the launch plan's
+`workspaceConfiguration`), answers the server's `workspace/configuration`
+requests by section path from it, and sends
+`workspace/didChangeConfiguration` after `initialized`. Hosts send a new
+value with `lsp.updateWorkspaceConfiguration` when an `immediate` setting
+changes; the running server receives it without a restart.
+
 ### Execution providers
 
 `run` and `test` each name an `executable`: exactly one of a bare `command`
@@ -313,10 +382,10 @@ hosts. Level 3 versions each section on its own. A level 3 manifest lists in
 | Capability | Covers | Versions |
 | --- | --- | --- |
 | `languages` | `languages[]` | `1` |
-| `languageServers` | `languageServers[]` apart from their launch fields | `1` |
+| `languageServers` | `languageServers[]` apart from their launch fields | `1`, `2` (adds [`workspaceConfiguration`](#workspace-configuration-languageservers-2)) |
 | `serverProcess` | The launch fields of language servers and of build providers with a process of their own: `launch`, `arguments`, `validationArguments`, `runtimeDependencies`, `initializationOptions` | `1` |
 | `executionProviders` | `executionProviders[]` | `1` |
-| `settings` | `settings[]` | `1` |
+| `settings` | `settings[]` and `settingActions[]` | `1`, `2` (adds [placement, scope, effect, page buttons](#settings-v2-placement-scope-effect-and-page-buttons)) |
 | `ui` | `ui` | `1`, `2` (adds [web content](#web-content-ui-2)) |
 | `buildSystems` | Declarative build detection, models, and command plans | `1` |
 | `buildProviders` | `buildSystems[].provider`, including own-process and shared language-server providers | `1` |

@@ -172,12 +172,10 @@ struct McpSettingsView: View {
     private var configurationSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 12) {
-                Text("Paste this into your MCP client configuration.")
-                    .font(LitheTheme.smallFont)
-                    .foregroundStyle(LitheTheme.secondaryText)
-                Spacer(minLength: 12)
                 Button("Copy agent configuration") { feature.copyConfiguration() }
                     .buttonStyle(LitheSecondaryButtonStyle(horizontalPadding: 12, height: 28, fontSize: 12))
+                LitheInfoTip("Paste this into your MCP client configuration.")
+                Spacer(minLength: 12)
             }
 
             Text(feature.configuration)
