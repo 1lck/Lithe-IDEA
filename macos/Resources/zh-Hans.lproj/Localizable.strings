@@ -3539,3 +3539,9 @@
 "These defaults apply only to this project on this computer. Run configurations inherit them unless overridden. Use the Project save scope in a run configuration to share settings with your team." = "这些默认设置仅作用于这台电脑上的此项目。运行配置默认继承，单独设置时可覆盖。需要与团队共享的设置，请在运行配置中选择“项目”保存范围。";
 "Saved only for this project on this computer in .lithe/run/local.json and excluded from Git." = "仅为这台电脑上的此项目保存在 .lithe/run/local.json，并已从 Git 中排除。";
 "This computer" = "本机";
+
+"Deselect All" = "全不选";
+
+"%lld of %lld services selected" = "已选择 %2$lld 个服务中的 %1$lld 个";
+
+"Background Services" = "后台服务";
