@@ -3,7 +3,8 @@
   "id": "dev.lithe.plugin.java-support",
   "displayName": "Java Support",
   "version": "1.0.0",
-  "pluginAPIVersion": 2,
+  "pluginAPIVersion": 3,
+  "requires": {"languages": 1, "languageServers": 1, "serverProcess": 1, "settings": 2},
   "vendor": {
     "id": "dev.lithe",
     "displayName": "Lithe",
@@ -28,7 +29,9 @@
       "default": 2048,
       "minimum": 2048,
       "maximum": 16384,
-      "unit": "MB"
+      "unit": "MB",
+      "page": {"languageID": "java"},
+      "section": "Language server"
     },
     {
       "id": "logLevel",
@@ -41,7 +44,9 @@
         { "value": "INFO", "title": "Information" },
         { "value": "WARNING", "title": "Warnings" },
         { "value": "SEVERE", "title": "Errors only" }
-      ]
+      ],
+      "page": {"languageID": "java"},
+      "section": "Language server"
     }
   ],
   "languageServers": [

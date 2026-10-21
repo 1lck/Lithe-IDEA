@@ -475,6 +475,27 @@ package protocol LanguageServerRuntimeCore: Sendable {
         requestTimeout: TimeInterval,
         shutdownTimeout: TimeInterval
     ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure>
+    /// Starts a plugin-owned process whose server reads `workspaceConfiguration`
+    /// through `workspace/configuration` (plugin settings with `effect: immediate`).
+    func startPluginLanguageServer(
+        pluginID: String,
+        providerID: String,
+        executableURL: URL,
+        arguments: [String],
+        environment: [String: String],
+        rootURL: URL,
+        initializationOptions: ToolingJSONValue?,
+        workspaceConfiguration: ToolingJSONValue?,
+        initializeTimeout: TimeInterval,
+        requestTimeout: TimeInterval,
+        shutdownTimeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure>
+    /// Replaces the configuration a running plugin server reads and tells it
+    /// through `workspace/didChangeConfiguration`.
+    func updateWorkspaceConfiguration(
+        sessionID: String,
+        configuration: ToolingJSONValue
+    ) -> Result<Void, LanguageServerRuntimeFailure>
     /// Invokes a plugin function of `pluginID`. Progress arrives as
     /// `requestProgress` events and the outcome as one `requestCompleted`,
     /// with the result under `result.value`.
@@ -625,6 +646,37 @@ package extension LanguageServerRuntimeCore {
             workspaceFingerprint: nil, initializeTimeout: initializeTimeout,
             requestTimeout: requestTimeout, shutdownTimeout: shutdownTimeout
         )
+    }
+
+    /// Runtimes without plugin configuration support ignore it.
+    func startPluginLanguageServer(
+        pluginID: String,
+        providerID: String,
+        executableURL: URL,
+        arguments: [String],
+        environment: [String: String],
+        rootURL: URL,
+        initializationOptions: ToolingJSONValue?,
+        workspaceConfiguration _: ToolingJSONValue?,
+        initializeTimeout: TimeInterval,
+        requestTimeout: TimeInterval,
+        shutdownTimeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure> {
+        startPluginLanguageServer(
+            pluginID: pluginID, providerID: providerID, executableURL: executableURL, arguments: arguments,
+            environment: environment, rootURL: rootURL, initializationOptions: initializationOptions,
+            initializeTimeout: initializeTimeout, requestTimeout: requestTimeout, shutdownTimeout: shutdownTimeout
+        )
+    }
+
+    func updateWorkspaceConfiguration(
+        sessionID _: String,
+        configuration _: ToolingJSONValue
+    ) -> Result<Void, LanguageServerRuntimeFailure> {
+        .failure(LanguageServerRuntimeFailure(
+            code: "not_supported",
+            message: "Workspace configuration updates are not supported by this runtime."
+        ))
     }
 
     func requestPluginFunction(

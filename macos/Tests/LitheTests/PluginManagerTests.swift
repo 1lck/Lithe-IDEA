@@ -1,6 +1,7 @@
 import Foundation
 @testable import Lithe
 import LitheApplicationKernel
+import LitheCoreContracts
 import LitheModuleAPI
 import Testing
 
@@ -401,6 +402,81 @@ struct PluginManagerTests {
         let snapshot = try #require(manager.snapshots.first { $0.id == replacementID })
         #expect(snapshot.hasChangesPendingRestart)
         return snapshot
+    }
+
+    /// Settings › Plugins lists the installed package's declaration and the
+    /// programs Core's install review reports, reviewing each package once.
+    @Test
+    func snapshotDescribesDeclarationAndReviewsProgramsOnce() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let manifest = DeclarativePluginTestSupport.manifestObject(
+            id: "dev.example.review-plugin",
+            version: PluginVersion(major: 1, minor: 2, patch: 0)
+        )
+        let packageURL = try DeclarativePluginTestSupport.writePackage(
+            at: root.appendingPathComponent("package", isDirectory: true),
+            manifest: manifest
+        )
+        let descriptor = try DeclarativePluginTestSupport.descriptor(manifest)
+        let installed = InstalledPluginPackage(
+            descriptor: descriptor,
+            installation: PluginInstallationRecord(
+                pluginID: descriptor.id,
+                activeVersion: descriptor.pluginManifest.version,
+                origin: .community
+            ),
+            packageURL: packageURL
+        )
+        let program = PluginProgram(json: .object(["kind": .string("systemLanguageServer")]))
+        var reviews: [(PluginID, PluginVersion)] = []
+        let configuration = MacModuleConfigurationStore(store: PluginManagerKeyValueStore())
+        let manager = MacPluginManager(
+            packageStore: makeStore(root: root),
+            moduleRuntime: ModuleRuntime(configurationStore: configuration, recoveryStore: configuration),
+            configurationStore: configuration,
+            settings: InMemoryPluginSettings(),
+            launchMode: .normal,
+            startup: MacPluginStartupResult(installedPlugins: [installed], registeredPlugins: [], issues: []),
+            reviewPrograms: { data, id, version in
+                #expect(String(decoding: data, as: UTF8.self).contains("dev.example.review-plugin"))
+                reviews.append((id, version))
+                return [program]
+            }
+        )
+
+        let first = try #require(manager.snapshots.first)
+        let second = try #require(manager.snapshots.first)
+
+        #expect(reviews.count == 1)
+        #expect(reviews.first?.0 == descriptor.id)
+        #expect(first.programs == [program])
+        #expect(second.programs == [program])
+        #expect(first.permissions == ["languageServer.launch"])
+        #expect(first.capabilities.map(\.kind) == [.language, .languageServer])
+        #expect(first.previousVersion == nil)
+    }
+
+    /// A package Core refuses to review shows no program list rather than an
+    /// empty one, which would claim the plugin starts nothing.
+    @Test
+    func unreviewablePackageHasNoProgramList() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let installed = try installedPlugin()
+        let configuration = MacModuleConfigurationStore(store: PluginManagerKeyValueStore())
+        let manager = MacPluginManager(
+            packageStore: makeStore(root: root),
+            moduleRuntime: ModuleRuntime(configurationStore: configuration, recoveryStore: configuration),
+            configurationStore: configuration,
+            settings: InMemoryPluginSettings(),
+            launchMode: .normal,
+            startup: MacPluginStartupResult(installedPlugins: [installed], registeredPlugins: [], issues: []),
+            reviewPrograms: { _, _, _ in [] }
+        )
+
+        // `installedPlugin()` points at a directory without a plugin.json.
+        #expect(try #require(manager.snapshots.first).programs == nil)
     }
 
     private func temporaryRoot() -> URL {

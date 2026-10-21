@@ -12,12 +12,9 @@ struct ProcessTerminationSettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Choose what happens to programs started in Lithe when you quit or close a terminal. Programs started outside Lithe are never shown or stopped.")
-                .font(LitheTheme.smallFont)
-                .foregroundStyle(LitheTheme.secondaryText)
-                .fixedSize(horizontal: false, vertical: true)
-
-            LitheSettingsSection("When quitting Lithe") {
+            LitheSettingsSection(title: "When quitting Lithe", accessory: {
+                LitheInfoTip("Choose what happens to programs started in Lithe when you quit or close a terminal. Programs started outside Lithe are never shown or stopped.")
+            }) {
                 row(
                     "Terminals with running programs",
                     info: "A terminal is busy when a program other than the shell still runs in it, such as a Spring Boot app, npm run dev or a job you sent to the background. Idle terminals always close without asking. Ending a terminal ends every program started in it."

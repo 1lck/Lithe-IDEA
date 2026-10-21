@@ -975,10 +975,18 @@ package protocol LanguageServerSession: AnyObject {
     /// undecoded. Cancelling the task cancels the request in the process.
     func buildRequest(method: String, params: ToolingJSONValue, timeout: TimeInterval) async throws
         -> ToolingJSONValue
+    /// Replaces the configuration a plugin's server reads through
+    /// `workspace/configuration` and announces it; false when the session
+    /// cannot take it, so the caller offers a restart instead.
+    @discardableResult
+    func updateWorkspaceConfiguration(_ configuration: ToolingJSONValue) -> Bool
     func stop()
 }
 
 package extension LanguageServerSession {
+    @discardableResult
+    func updateWorkspaceConfiguration(_: ToolingJSONValue) -> Bool { false }
+
     func buildRequest(method _: String, params _: ToolingJSONValue, timeout _: TimeInterval) async throws
         -> ToolingJSONValue {
         throw LanguageServerRuntimeFailure(

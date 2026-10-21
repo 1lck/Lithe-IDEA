@@ -65,14 +65,15 @@ struct ApplicationLogDiagnosticsView: View {
     @ObservedObject var feature: DiagnosticsFeatureModel
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Toggle("Detailed diagnostics", isOn: Binding(
-                get: { feature.diagnosticEnabled },
-                set: { enabled in Task { await feature.setDiagnosticEnabled(enabled) } }
-            ))
-            .disabled(feature.isBusy)
-            .accessibilityIdentifier("logs.diagnostic-toggle")
-            Text("Detailed diagnostics cover the selected module and expire after 15 minutes. Refresh to see the current status.")
-                .font(LitheTheme.smallFont).foregroundStyle(LitheTheme.secondaryText)
+            HStack(spacing: 4) {
+                Toggle("Detailed diagnostics", isOn: Binding(
+                    get: { feature.diagnosticEnabled },
+                    set: { enabled in Task { await feature.setDiagnosticEnabled(enabled) } }
+                ))
+                .disabled(feature.isBusy)
+                .accessibilityIdentifier("logs.diagnostic-toggle")
+                LitheInfoTip("Detailed diagnostics cover the selected module and expire after 15 minutes. Refresh to see the current status.")
+            }
             if feature.diagnosticEnabled {
                 let module = String(localized: String.LocalizationValue(logCategoryTitle(feature.diagnosticCategory ?? "all")), locale: locale)
                 Text("Detailed diagnostics: On (\(module))")
@@ -88,8 +89,6 @@ struct ApplicationLogCleanupView: View {
     @State private var confirmsClear = false
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Module logs rotate at 10 MiB and expire after 30 days. The combined budget is 100 MiB; performance logs have a separate 20 MiB budget.")
-                .font(LitheTheme.smallFont).foregroundStyle(LitheTheme.secondaryText)
             Button("Clear Logs") { confirmsClear = true }
                 .buttonStyle(LitheSecondaryButtonStyle())
                 .disabled(feature.isBusy)
@@ -113,15 +112,17 @@ struct ApplicationLogDiagnosticsPage<Locations: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Choose a module, enable detailed diagnostics, reproduce the problem, then preview and export a diagnostic bundle.")
-                .font(LitheTheme.smallFont).foregroundStyle(LitheTheme.secondaryText)
-            LitheSettingsSection("Log timeline") { ApplicationLogSettingsView(feature: feature) }
+            LitheSettingsSection(title: "Log timeline", accessory: {
+                LitheInfoTip("Choose a module, enable detailed diagnostics, reproduce the problem, then preview and export a diagnostic bundle.")
+            }) { ApplicationLogSettingsView(feature: feature) }
             LitheSettingsSection("Diagnostics") { ApplicationLogDiagnosticsView(feature: feature) }
             LitheSettingsSection("Log locations", content: locations)
-            LitheSettingsSection("Retention and cleanup") { ApplicationLogCleanupView(feature: feature) }
-            LitheSettingsSection("Diagnostic bundle") {
-                Text("Preview and export the selected logs with environment information. Credentials and home-directory paths are redacted; source code, editor buffers and terminal history are excluded.")
-                    .font(LitheTheme.smallFont).foregroundStyle(LitheTheme.secondaryText)
+            LitheSettingsSection(title: "Retention and cleanup", accessory: {
+                LitheInfoTip("Module logs rotate at 10 MiB and expire after 30 days. The combined budget is 100 MiB; performance logs have a separate 20 MiB budget.")
+            }) { ApplicationLogCleanupView(feature: feature) }
+            LitheSettingsSection(title: "Diagnostic bundle", accessory: {
+                LitheInfoTip("Preview and export the selected logs with environment information. Credentials and home-directory paths are redacted; source code, editor buffers and terminal history are excluded.")
+            }) {
                 Button("Preview and Export…") { feature.presentExport() }
                     .buttonStyle(LitheSecondaryButtonStyle()).disabled(feature.isBusy)
                     .accessibilityIdentifier("logs.export")

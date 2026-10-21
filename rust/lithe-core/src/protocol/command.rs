@@ -62,6 +62,10 @@ pub enum CoreCommand {
     PluginsDeclarativeLanguageServerLaunchPlan,
     /// Compares a launch runtime's version output with its requirement (`plugins.declarative.checkRuntimeVersion`).
     PluginsDeclarativeCheckRuntimeVersion,
+    /// Merges a plugin's stored setting layers into effective values (`plugins.declarative.resolveSettings`).
+    PluginsDeclarativeResolveSettings,
+    /// Expands a language server's `workspaceConfiguration` (`plugins.declarative.workspaceConfiguration`).
+    PluginsDeclarativeWorkspaceConfiguration,
     /// Finds the build-system instances of a workspace (`build.detect`).
     BuildDetect,
     /// Lists a build system's executable candidates and version probes (`build.invocationPlan`).
@@ -241,6 +245,9 @@ pub enum CoreCommand {
     /// Sends a changed Maven configuration to a running Java session
     /// (`lsp.updateMavenConfiguration`).
     LspUpdateMavenConfiguration,
+    /// Replaces the plugin settings a plugin-provided server reads
+    /// (`lsp.updateWorkspaceConfiguration`).
+    LspUpdateWorkspaceConfiguration,
     /// Opens or updates a synchronized document (`lsp.syncDocument`).
     LspSyncDocument,
     /// Publishes external workspace file changes (`lsp.workspaceFilesChanged`).
@@ -427,6 +434,10 @@ impl CoreCommand {
             "plugins.declarative.checkRuntimeVersion" => {
                 Some(Self::PluginsDeclarativeCheckRuntimeVersion)
             }
+            "plugins.declarative.resolveSettings" => Some(Self::PluginsDeclarativeResolveSettings),
+            "plugins.declarative.workspaceConfiguration" => {
+                Some(Self::PluginsDeclarativeWorkspaceConfiguration)
+            }
             "build.detect" => Some(Self::BuildDetect),
             "build.invocationPlan" => Some(Self::BuildInvocationPlan),
             "build.checkToolVersion" => Some(Self::BuildCheckToolVersion),
@@ -515,6 +526,7 @@ impl CoreCommand {
             "lsp.stopServer" => Some(Self::LspStopServer),
             "lsp.retryMavenProfiles" => Some(Self::LspRetryMavenProfiles),
             "lsp.updateMavenConfiguration" => Some(Self::LspUpdateMavenConfiguration),
+            "lsp.updateWorkspaceConfiguration" => Some(Self::LspUpdateWorkspaceConfiguration),
             "lsp.syncDocument" => Some(Self::LspSyncDocument),
             "lsp.workspaceFilesChanged" => Some(Self::LspWorkspaceFilesChanged),
             "lsp.closeDocument" => Some(Self::LspCloseDocument),
@@ -611,6 +623,7 @@ mod tests {
             "lsp.jdtWorkspaceKey",
             "lsp.stopServer",
             "lsp.updateMavenConfiguration",
+            "lsp.updateWorkspaceConfiguration",
             "lsp.syncDocument",
             "lsp.closeDocument",
             "lsp.request",

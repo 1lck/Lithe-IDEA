@@ -185,6 +185,16 @@ fn execute(request: &str) -> CoreResponse {
             parsed.payload,
             crate::plugins::declarative::check_runtime_version_command,
         ),
+        CoreCommand::PluginsDeclarativeResolveSettings => plugin_response(
+            id,
+            parsed.payload,
+            crate::plugins::declarative::resolve_settings_command,
+        ),
+        CoreCommand::PluginsDeclarativeWorkspaceConfiguration => plugin_response(
+            id,
+            parsed.payload,
+            crate::plugins::declarative::workspace_configuration_command,
+        ),
         CoreCommand::BuildDetect => {
             plugin_response(id, parsed.payload, crate::build::build_detect_command)
         }
@@ -1464,6 +1474,27 @@ fn execute(request: &str) -> CoreResponse {
                     id,
                     serde_json::to_value(data)
                         .expect("Maven configuration update response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::LspUpdateWorkspaceConfiguration => {
+            match serde_json::from_value::<crate::lsp::UpdateWorkspaceConfigurationRequest>(
+                parsed.payload,
+            )
+            .map_err(|error| {
+                CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Invalid workspace configuration update request",
+                )
+                .with_details(error.to_string())
+            })
+            .and_then(crate::lsp::update_workspace_configuration)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data)
+                        .expect("workspace configuration update response should encode"),
                 ),
                 Err(error) => CoreResponse::failure(id, error),
             }

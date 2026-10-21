@@ -493,10 +493,10 @@ public struct PluginManifest: Equatable, Codable, Sendable {
         "buildProviders": [1],
         "buildSystems": [1],
         "executionProviders": [1],
-        "languageServers": [1],
+        "languageServers": [1, 2],
         "languages": [1],
         "serverProcess": [1],
-        "settings": [1],
+        "settings": [1, 2],
         "ui": [1, 2]
     ]
 
