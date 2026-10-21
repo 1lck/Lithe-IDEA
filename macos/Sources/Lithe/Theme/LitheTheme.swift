@@ -710,6 +710,24 @@ enum LitheTheme {
     }
 
     // MARK: - 浮层
+    // Community c7f91397: ManyIslands Popup.background/borderColor.
+    enum SearchEverywhere {
+        static let preferredWidth: CGFloat = 670
+        static let maxResultsHeight: CGFloat = 600
+        static var matchBackground: Color { controlColor(light: 0xFEE6B1, dark: 0xBA9752) }
+        static var matchForeground: Color { controlColor(light: 0x323232, dark: 0x000000) }
+        // DarculaScrollPaneBorder -> JBColor.border -> Islands Borders.color (layer-0-border).
+        static var filterBorder: Color {
+            activeTheme == .lithe ? controlColor(light: 0xD1D3D9, dark: 0x26282C) : panelBorder
+        }
+        static var background: Color {
+            activeTheme == .lithe ? controlColor(light: 0xF7F8F9, dark: 0x26282C) : popupBackground
+        }
+        static var border: Color {
+            activeTheme == .lithe ? controlColor(light: 0xDDDFE4, dark: 0x33353B) : panelBorder
+        }
+    }
+
     static var popupBackground: Color { adaptive(\.popupBackground) }
     static var popupShadow: Color { adaptive(\.popupShadow) }
     static var badgeBackground: Color { adaptive(\.badgeBackground) }
@@ -1004,6 +1022,8 @@ enum LitheTheme {
         static var fileDeleted: Color { controlColor(light: 0x616161, dark: 0x6F737A) }
         static var fileRenamed: Color { controlColor(light: 0x007C7C, dark: 0x70AEFF) }
         static var fileConflicted: Color { controlColor(light: 0xFF0000, dark: 0xDE6A66) }
+        // Islands Dark / Light editor schemes: FILESTATUS_IDEA_FILESTATUS_IGNORED.
+        static var fileIgnored: Color { controlColor(light: 0x8C4F00, dark: 0xD69A6B) }
         static var fileUntracked: Color { controlColor(light: 0x993300, dark: 0xE88F89) }
 
         static let toolbarHeight = Metrics.toolbarHeight

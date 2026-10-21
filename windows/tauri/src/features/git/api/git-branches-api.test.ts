@@ -4,7 +4,11 @@ import * as gitEvents from "../events/git-events";
 const invoke = mock(async (command: string): Promise<unknown> =>
   command === "git_discover_repo" ? "C:/repo" : null,
 );
-let gitWriteResult: { output?: string; exitCode?: number } | null = null;
+let gitWriteResult: {
+  output?: string;
+  exitCode?: number;
+  branchDeletion?: { name: string; deletedTarget: string };
+} | null = null;
 const emitGitChanged = spyOn(gitEvents, "emitGitChanged");
 
 const tauriCoreModule = await import("@/platform/tauri-core");
@@ -14,8 +18,10 @@ const {
   checkoutGitReference,
   checkoutRemoteBranch,
   createAndCheckoutBranch,
+  deleteLocalBranch,
   pushBranch,
   renameBranch,
+  restoreDeletedBranch,
   setBranchUpstream,
   unsetBranchUpstream,
   updateBranch,
@@ -179,5 +185,53 @@ describe("Git branch reference mutations", () => {
       behind: 2,
     })).rejects.toThrow("branch update diverged");
     expect(emitGitChanged).not.toHaveBeenCalled();
+  });
+
+  test("deletes a local branch without confirmation and returns the recovery record", async () => {
+    gitWriteResult = {
+      exitCode: 0,
+      branchDeletion: { name: "feature/old", deletedTarget: "abc123def456" },
+    };
+
+    await expect(deleteLocalBranch("C:/repo", "feature/old")).resolves.toEqual({
+      name: "feature/old",
+      deletedTarget: "abc123def456",
+    });
+    expect(invoke).toHaveBeenCalledWith("git.write", {
+      repoPath: "C:/repo",
+      operation: "deleteBranch",
+      reference: "refs/heads/feature/old",
+    });
+    expect(emitGitChanged).toHaveBeenCalledTimes(1);
+  });
+
+  test("surfaces Git's refusal to delete instead of reporting a bare failure", async () => {
+    invoke.mockImplementation(async (command: string) => {
+      if (command === "git_discover_repo") return "C:/repo";
+      throw new Error("The branch 'feature/old' is not fully merged");
+    });
+
+    await expect(deleteLocalBranch("C:/repo", "feature/old")).rejects.toThrow("not fully merged");
+    expect(emitGitChanged).not.toHaveBeenCalled();
+  });
+
+  test("restores a deleted branch at its recorded commit without checking it out", async () => {
+    await restoreDeletedBranch("C:/repo", { name: "feature/old", deletedTarget: "abc123def456" });
+
+    expect(invoke).toHaveBeenCalledWith("git.write", {
+      repoPath: "C:/repo",
+      operation: "createBranch",
+      name: "feature/old",
+      gitReference: { fullName: "abc123def456", shortName: "abc123def456", kind: "local" },
+      checkout: false,
+    });
+    expect(emitGitChanged).toHaveBeenCalledTimes(1);
+  });
+
+  test("refuses to restore a branch that has no recorded commit", async () => {
+    await expect(
+      restoreDeletedBranch("C:/repo", { name: "feature/old", deletedTarget: "" }),
+    ).rejects.toThrow("no recorded commit");
+    expect(invoke).not.toHaveBeenCalledWith("git.write", expect.anything());
   });
 });

@@ -16,6 +16,13 @@ final class AppSettings: ObservableObject {
         set { defaults.set(newValue, forKey: Self.agentSelectionPreferenceKey) }
     }
 
+    nonisolated static let defaultTerminalScrollbackLines = 2_000
+    nonisolated static let terminalScrollbackLinesRange = 100...50_000
+
+    nonisolated static func normalizedTerminalScrollbackLines(_ value: Int) -> Int {
+        min(max(value, terminalScrollbackLinesRange.lowerBound), terminalScrollbackLinesRange.upperBound)
+    }
+
     private enum Key {
         static let colorTheme = "settings.colorTheme"
         static let themePreference = "settings.themePreference"
@@ -31,9 +38,12 @@ final class AppSettings: ObservableObject {
         static let autoSave = "settings.autoSave"
         static let autoSaveDelay = "settings.autoSaveDelay"
         static let terminalShell = "settings.terminalShell"
+        static let terminalScrollbackLines = "settings.terminalScrollbackLines"
         static let terminalShellPathOverride = "settings.terminalShellPathOverride"
         static let hiddenDirectories = "settings.hiddenDirectories"
         static let hiddenFilePatterns = "settings.hiddenFilePatterns"
+        static let searchExcludedPathPatterns = "settings.searchExcludedPathPatterns"
+        static let searchExclusionsEnabled = "settings.searchExclusionsEnabled"
         static let gitExecutable = "settings.gitExecutable"
         static let gitUseCredentialHelper = "settings.gitUseCredentialHelper"
         static let gitFetchOptions = "settings.gitFetchOptions"
@@ -108,6 +118,16 @@ final class AppSettings: ObservableObject {
     @Published var autoSaveDelay: Double { didSet { defaults.set(autoSaveDelay, forKey: Key.autoSaveDelay) } }
     @Published var terminalShellPathOverride: String { didSet { defaults.set(terminalShellPathOverride, forKey: Key.terminalShellPathOverride) } }
     @Published var terminalShell: TerminalShell { didSet { defaults.set(terminalShell.rawValue, forKey: Key.terminalShell) } }
+    @Published var terminalScrollbackLines: Int {
+        didSet {
+            let normalized = Self.normalizedTerminalScrollbackLines(terminalScrollbackLines)
+            guard normalized == terminalScrollbackLines else {
+                terminalScrollbackLines = normalized
+                return
+            }
+            defaults.set(terminalScrollbackLines, forKey: Key.terminalScrollbackLines)
+        }
+    }
     @Published var hiddenDirectoryNames: [String] {
         didSet {
             defaults.set(hiddenDirectoryNames, forKey: Key.hiddenDirectories)
@@ -118,6 +138,18 @@ final class AppSettings: ObservableObject {
         didSet {
             defaults.set(hiddenFilePatterns, forKey: Key.hiddenFilePatterns)
             notifyFileVisibilityRulesObservers()
+        }
+    }
+    @Published var searchExcludedPathPatterns: [String] {
+        didSet {
+            defaults.set(searchExcludedPathPatterns, forKey: Key.searchExcludedPathPatterns)
+            if oldValue != searchExcludedPathPatterns { searchExclusionsDidChange.send() }
+        }
+    }
+    @Published var searchExclusionsEnabled: Bool {
+        didSet {
+            defaults.set(searchExclusionsEnabled, forKey: Key.searchExclusionsEnabled)
+            if oldValue != searchExclusionsEnabled { searchExclusionsDidChange.send() }
         }
     }
     let gitExecutionPreferences = GitExecutionPreferences()
@@ -228,10 +260,16 @@ final class AppSettings: ObservableObject {
         autoSaveDelay = defaults.object(forKey: Key.autoSaveDelay) as? Double ?? 1.5
         terminalShellPathOverride = defaults.string(forKey: Key.terminalShellPathOverride) ?? ""
         terminalShell = TerminalShell(rawValue: defaults.string(forKey: Key.terminalShell) ?? "") ?? .system
+        terminalScrollbackLines = Self.normalizedTerminalScrollbackLines(
+            defaults.object(forKey: Key.terminalScrollbackLines) as? Int ?? Self.defaultTerminalScrollbackLines
+        )
         hiddenDirectoryNames = defaults.stringArray(forKey: Key.hiddenDirectories)
             ?? FileVisibilityRules.default.hiddenDirectoryNames
         hiddenFilePatterns = defaults.stringArray(forKey: Key.hiddenFilePatterns)
             ?? FileVisibilityRules.default.hiddenFilePatterns
+        searchExcludedPathPatterns = defaults.stringArray(forKey: Key.searchExcludedPathPatterns) ?? []
+        // Existing saved exclusions stay active when upgrading from the inline editor.
+        searchExclusionsEnabled = defaults.object(forKey: Key.searchExclusionsEnabled) as? Bool ?? true
         gitExecutable = defaults.string(forKey: Key.gitExecutable) ?? ""
         gitUseCredentialHelper = defaults.object(forKey: Key.gitUseCredentialHelper) as? Bool ?? true
         var savedFetchOptions = defaults.data(forKey: Key.gitFetchOptions)
@@ -358,6 +396,21 @@ final class AppSettings: ObservableObject {
         return id
     }
 
+    private let searchExclusionsDidChange = PassthroughSubject<Void, Never>()
+    var searchExclusionsChanges: AnyPublisher<Void, Never> { searchExclusionsDidChange.eraseToAnyPublisher() }
+
+    /// Search Everywhere globs never change other search clients or project visibility.
+    var searchEverywhereVisibilityRules: FileVisibilityRules {
+        guard searchExclusionsEnabled else { return fileVisibilityRules }
+        let patterns = searchExcludedPathPatterns.flatMap { value -> [String] in
+            let pattern = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !pattern.isEmpty else { return [] }
+            return pattern.hasPrefix("**/") ? [pattern, String(pattern.dropFirst(3))] : [pattern]
+        }
+        return FileVisibilityRules(hiddenDirectoryNames: hiddenDirectoryNames,
+            hiddenFilePatterns: hiddenFilePatterns + patterns)
+    }
+
     var fileVisibilityRules: FileVisibilityRules {
         FileVisibilityRules(
             hiddenDirectoryNames: hiddenDirectoryNames,
@@ -397,9 +450,12 @@ final class AppSettings: ObservableObject {
         autoSave = true
         autoSaveDelay = 1.5
         terminalShell = .system
+        terminalScrollbackLines = Self.defaultTerminalScrollbackLines
         terminalShellPathOverride = ""
         hiddenDirectoryNames = FileVisibilityRules.default.hiddenDirectoryNames
         hiddenFilePatterns = FileVisibilityRules.default.hiddenFilePatterns
+        searchExcludedPathPatterns = []
+        searchExclusionsEnabled = true
         gitFetchOptions = GitFetchOptions()
         gitExecutable = ""
         gitUseCredentialHelper = true

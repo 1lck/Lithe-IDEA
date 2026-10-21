@@ -1893,6 +1893,37 @@ async function verify() {
       assert(model.getValue() === "alpha 1\nalpha 2\nALPHA 3", "widget replacement did not undo atomically");
     } finally { view.dispose(); model.dispose(); container.remove(); }
   });
+  await check("readonly search preview highlights matches without stealing query focus", async () => {
+    const id = "search-preview-find", text = "foo Foo food\nfoo1 foo2";
+    await send({ type: "open", id, text });
+    await window.lithe.activate({ id, text, revision: 0, language: "plaintext", readonly: true, focus: false });
+    // The probe reuses a view across cases; independent preview sessions start with no find widget.
+    (editor.getContribution("editor.contrib.findController") as any).getState()
+      .change({ isRevealed: false, isReplaceRevealed: false }, false);
+    const input = document.createElement("input");
+    input.style.cssText = "position:fixed;top:0;left:0;z-index:10000";
+    document.body.append(input); input.focus();
+    assert(document.activeElement === input, "query fixture did not receive focus");
+    const query = { id, token: "preview", visible: true, query: "foo", matchCase: false, wholeWord: false, regex: false };
+    try {
+      assert((await window.lithe.nativeFind(query)).count === 5, "preview did not highlight actual matches");
+      assert((await window.lithe.nativeFind({ ...query, matchCase: true })).count === 4, "case option ignored");
+      assert((await window.lithe.nativeFind({ ...query, wholeWord: true })).count === 2, "word option ignored");
+      assert((await window.lithe.nativeFind({ ...query, query: "foo[12]", regex: true })).count === 2, "regex option ignored");
+      const matches = editor.getModel()!.getAllDecorations().filter(item =>
+        item.options.className?.toLowerCase().includes("findmatch"));
+      assert(matches.length >= 2, "Monaco matches have no rendered highlight decorations");
+      assert(document.activeElement === input, "preview find stole focus from the query input");
+      assert(!(editor.getContribution("editor.contrib.findController") as any).getState().isRevealed, "preview opened find widget");
+      await window.lithe.nativeFind({ ...query, command: "replaceAll", replacement: "bad" });
+      assert(editor.getModel()!.getValue() === text, "preview search allowed editing");
+      await window.lithe.nativeFind({ ...query, visible: false });
+      assert(!editor.getModel()!.getAllDecorations().some(item => item.options.className?.toLowerCase().includes("findmatch")), "clear retained highlights");
+    } finally {
+      input.remove(); await window.lithe.nativeFind({ ...query, visible: false });
+      await window.lithe.freeze(id); await window.lithe.retain([]);
+    }
+  });
   await check("native find bar jumps while typing and replaces through Monaco undo", async () => {
     const id = "native-find", text = "public alpha\npublic beta\nPUBLIC gamma";
     await send({ type: "open", id, text });

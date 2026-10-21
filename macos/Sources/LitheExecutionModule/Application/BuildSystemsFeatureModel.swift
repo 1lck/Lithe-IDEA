@@ -46,7 +46,20 @@ package final class BuildSystemsFeatureModel: ObservableObject {
     package func reset(workspaceURL: URL?) { service.reset(workspaceURL: workspaceURL) }
     package func detect() { service.detect() }
     package func workspaceFilesChanged(_ urls: [URL]) { service.workspaceFilesChanged(urls) }
-    package func loadModel(_ entryID: String) { service.loadModel(entryID) }
+    package func loadModel(_ entryID: String, reason: BuildLoadReason = .initial) {
+        service.loadModel(entryID, reason: reason)
+    }
+    package func pluginFunctions(_ entryID: String) async throws -> [String] {
+        try await service.pluginFunctions(entryID)
+    }
+    package func invokePluginFunction(
+        _ entryID: String, functionID: String, params: ToolingJSONValue, timeout: Duration,
+        progress: @escaping @MainActor @Sendable (PluginFunctionProgress) -> Void
+    ) async throws -> ToolingJSONValue {
+        try await service.invokePluginFunction(
+            entryID, functionID: functionID, params: params, timeout: timeout, progress: progress
+        )
+    }
     @discardableResult
     package func runTask(_ entryID: String, request: BuildTaskRequest, title: String) -> UUID? {
         service.runTask(entryID, request: request, title: title)
@@ -55,8 +68,10 @@ package final class BuildSystemsFeatureModel: ObservableObject {
     package func runTests(_ entryID: String, request: BuildTestRequest, title: String) -> UUID? {
         service.runTests(entryID, request: request, title: title)
     }
-    package func loadDependencies(_ entryID: String, project: BuildModel.Project?) {
-        service.loadDependencies(entryID, project: project)
+    package func loadDependencies(
+        _ entryID: String, project: BuildModel.Project?, reason: BuildLoadReason = .initial
+    ) {
+        service.loadDependencies(entryID, project: project, reason: reason)
     }
     package func setOption(_ entryID: String, optionID: String, value: ToolingJSONValue?) {
         service.setOption(entryID, optionID: optionID, value: value)

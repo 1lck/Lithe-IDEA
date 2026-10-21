@@ -179,7 +179,7 @@ export function AppUpdateControl({ showWhenIdle = false }: { showWhenIdle?: bool
             </Button>
           </ButtonGroup>
         </ContextMenuTrigger>
-        <ContextMenuContent side="bottom" align="start" sideOffset={4} className="min-w-52">
+        <ContextMenuContent className="min-w-52">
           {updateMenuItems.map((item) => (
             <ContextMenuItem key={item.id} disabled={item.disabled} onClick={item.onClick}>
               {item.icon}

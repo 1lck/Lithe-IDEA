@@ -53,7 +53,7 @@ public final class SearchFeatureModel: ObservableObject {
     }
 
     public func invalidateIndex(at workspaceURL: URL, visibilityRules: SearchVisibilityRules) {
-        replaceIndexTask { operations in
+        replaceIndexTask(mustComplete: true) { operations in
             operations.invalidateSearchIndex(at: workspaceURL, visibilityRules: visibilityRules)
         }
     }
@@ -75,6 +75,7 @@ public final class SearchFeatureModel: ObservableObject {
     }
 
     private func replaceIndexTask(
+        mustComplete: Bool = false,
         operation: @escaping @Sendable (any SearchOperations) -> Void
     ) {
         let previousTask = indexTask
@@ -84,7 +85,7 @@ public final class SearchFeatureModel: ObservableObject {
         let generation = indexTaskGeneration
         let worker = Task.detached(priority: .utility) {
             await previousTask?.value
-            guard !Task.isCancelled else { return }
+            guard mustComplete || !Task.isCancelled else { return }
             // Search operations are synchronous ports. Run them on a GCD worker
             // so a slow indexer cannot occupy Swift's cooperative executor.
             await withCheckedContinuation { continuation in
@@ -123,6 +124,7 @@ public final class SearchFeatureModel: ObservableObject {
         }
 
         isSearching = true
+        await indexTask?.value
         let operations = self.operations
         let results = await Task.detached(priority: .userInitiated) {
             operations.search(
@@ -152,23 +154,27 @@ public final class SearchFeatureModel: ObservableObject {
         query: String,
         options: ProjectSearchOptions,
         visibilityRules: SearchVisibilityRules,
+        kinds: Set<SearchResultKind> = [.file, .type, .symbol, .content],
         isCurrent: @escaping @MainActor () -> Bool
     ) async {
         everywhereSearchGeneration += 1
         let generation = everywhereSearchGeneration
-        guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        guard !kinds.isEmpty, !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             clearSearchEverywhere()
             return
         }
 
         isSearchingEverywhere = true
+        await indexTask?.value
         let operations = self.operations
         let indexedResults = await Task.detached(priority: .userInitiated) {
             operations.searchEverywhere(
                 at: workspaceURL,
                 query: query,
                 options: options,
-                visibilityRules: visibilityRules
+                visibilityRules: visibilityRules,
+                includeGeneratedFileNames: true,
+                kinds: kinds
             ) ?? SearchEverywhereResults()
         }.value
 
@@ -192,13 +198,16 @@ public final class SearchFeatureModel: ObservableObject {
         query: String,
         visibilityRules: SearchVisibilityRules
     ) async -> [URL] {
+        await indexTask?.value
         let operations = self.operations
         let results = await Task.detached(priority: .userInitiated) {
             operations.searchEverywhere(
                 at: workspaceURL,
                 query: query,
                 options: .default,
-                visibilityRules: visibilityRules
+                visibilityRules: visibilityRules,
+                includeGeneratedFileNames: false,
+                kinds: [.file]
             )
         }.value
         return results?.fileMatches.map(\.url) ?? []
@@ -280,6 +289,7 @@ public final class SearchFeatureModel: ObservableObject {
         }
 
         isLoadingProjectReplacement = true
+        await indexTask?.value
         let operations = self.operations
         let results = await Task.detached(priority: .userInitiated) {
             operations.previewReplacement(

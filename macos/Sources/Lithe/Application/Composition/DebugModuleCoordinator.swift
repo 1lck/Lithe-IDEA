@@ -62,7 +62,7 @@ final class DebugModuleCoordinator {
             onChange()
             return feature
         } catch {
-            onError(error.localizedDescription)
+            if !error.isCancellation { onError(error.localizedDescription) }
             return nil
         }
     }

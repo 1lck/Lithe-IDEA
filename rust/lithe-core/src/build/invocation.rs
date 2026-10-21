@@ -65,10 +65,11 @@ fn candidates(candidates: &[ExecutableCandidate], root: &str, platform: Platform
 }
 
 /// Arguments that make a host-managed runtime print its version and exit.
-/// Core owns them so hosts use the same probe. Java needs `-version` for
+/// Core owns them so hosts use the same probe, for build runtimes and for
+/// plugin launch runtimes alike. Java needs `-version` for
 /// Java 8 compatibility; its version is printed to stderr, which hosts must
 /// capture together with stdout before checking the declared minimum.
-fn host_runtime_version_arguments(id: &str) -> Option<&'static [&'static str]> {
+pub(crate) fn host_runtime_version_arguments(id: &str) -> Option<&'static [&'static str]> {
     match id {
         "go" => Some(&["version"]),
         "java" => Some(&["-version"]),

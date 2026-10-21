@@ -3,7 +3,7 @@ import { persist } from "zustand/middleware";
 import { createSelectors } from "@/utils/zustand-selectors";
 import { createSafeJSONStorage } from "@/utils/zustand-storage";
 import { normalizeRepositoryPath } from "../api/git-repo-api";
-import type { GitReferenceKind } from "../types/git.types";
+import type { GitReference, GitReferenceKind } from "../types/git.types";
 import {
   GIT_LOG_COLUMN_DEFAULT_WIDTHS,
   clampGitLogColumnWidth,
@@ -31,8 +31,12 @@ interface GitLogPreferencesStore {
   collapsedReferenceSections: GitReferenceKind[];
   collapsedReferenceGroups: string[];
   markedReferenceFullNamesByRepository: Record<string, string[]>;
+  /** The Branch filter last applied in each repository, restored when the project reopens. */
+  selectedReferenceByRepository: Record<string, GitReference>;
   actions: {
     setFilterQuery: (query: string) => void;
+    /** Remembers the Branch filter of a repository; `null` forgets it ("All"). */
+    setSelectedReference: (repoPath: string, reference: GitReference | null) => void;
     setFilterScope: (scope: GitLogFilterScope) => void;
     setShowDecorations: (show: boolean) => void;
     setShowLongGraphEdges: (show: boolean) => void;
@@ -85,8 +89,19 @@ const useGitLogPreferencesStoreBase = create<GitLogPreferencesStore>()(
       collapsedReferenceSections: ["tag"],
       collapsedReferenceGroups: [],
       markedReferenceFullNamesByRepository: {},
+      selectedReferenceByRepository: {},
       actions: {
         setFilterQuery: (filterQuery) => set({ filterQuery }),
+        setSelectedReference: (repoPath, reference) =>
+          set((state) => {
+            const repositoryKey = normalizeRepositoryPath(repoPath);
+            const current = state.selectedReferenceByRepository[repositoryKey];
+            if ((current?.fullName ?? null) === (reference?.fullName ?? null)) return state;
+            const selectedReferenceByRepository = { ...state.selectedReferenceByRepository };
+            if (reference) selectedReferenceByRepository[repositoryKey] = reference;
+            else delete selectedReferenceByRepository[repositoryKey];
+            return { selectedReferenceByRepository };
+          }),
         setFilterScope: (filterScope) => set({ filterScope }),
         setShowDecorations: (showDecorations) => set({ showDecorations }),
         setShowLongGraphEdges: (showLongGraphEdges) => set({ showLongGraphEdges }),
@@ -169,6 +184,7 @@ const useGitLogPreferencesStoreBase = create<GitLogPreferencesStore>()(
           ...persistedPreferences,
           markedReferenceFullNamesByRepository:
             persistedPreferences.markedReferenceFullNamesByRepository ?? {},
+          selectedReferenceByRepository: persistedPreferences.selectedReferenceByRepository ?? {},
           showWorktreeRepositories: persistedPreferences.showWorktreeRepositories ?? true,
           showLongGraphEdges: persistedPreferences.showLongGraphEdges === true,
           authorColumnWidth: normalizeGitLogColumnWidth(

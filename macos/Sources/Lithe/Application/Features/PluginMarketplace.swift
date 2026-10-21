@@ -99,6 +99,10 @@ protocol PluginMarketplaceServicing: AnyObject {
     func cachedIndex(for source: PluginMarketplaceSource) -> PluginMarketplaceIndexSnapshot?
     func refreshIndex(for source: PluginMarketplaceSource) async throws -> PluginMarketplaceIndexSnapshot
     func removeCache(for source: PluginMarketplaceSource)
+    /// Downloads an index entry's `icon` and returns it only when it is a
+    /// static SVG or PNG the platform can decode within the icon limits.
+    /// Throws `PluginMarketplaceIconRejected` when retrying cannot help.
+    func iconData(from icon: String) async throws -> Data
     /// Downloads the archive, verifies the index checksum, validates the
     /// package and its trust for the source, and reviews its programs.
     func prepareInstall(
@@ -190,6 +194,92 @@ struct PluginInstallConfirmation: Equatable, Identifiable {
     }
 }
 
+/// The index `icon` cannot be shown and fetching the same URL again will not
+/// change that: it is outside the plugin's repository, missing, oversized, or
+/// not a static SVG/PNG. Any other failure is treated as transient.
+struct PluginMarketplaceIconRejected: Error, Equatable {}
+
+/// Validated index icon bytes for the marketplace views, in memory only.
+///
+/// Views read the bytes for the URL they currently show, so a slow request
+/// for a plugin the user has already left can never paint over another
+/// plugin. Rows asking for one URL share a request; a rejected icon is not
+/// retried per row, while a transient failure is retried the next time a view
+/// asks. Core accepts any ref in an icon URL, not only a commit, so an index
+/// refresh calls `invalidate()`: shown icons stay until their new bytes
+/// arrive, and every icon is requested again.
+@MainActor
+final class PluginMarketplaceIconStore: ObservableObject {
+    private enum Outcome {
+        case loaded(Data)
+        case rejected
+    }
+
+    private struct Load {
+        let generation: Int
+        let task: Task<Void, Never>
+    }
+
+    @Published private var outcomes: [String: Outcome] = [:]
+    /// Bumped by `invalidate()`; views key their load task on it.
+    @Published private(set) var generation = 0
+    /// URLs whose outcome predates the last refresh.
+    private var stale: Set<String> = []
+    private var loads: [String: Load] = [:]
+    private let fetch: @MainActor (String) async throws -> Data
+
+    init(fetch: @escaping @MainActor (String) async throws -> Data) {
+        self.fetch = fetch
+    }
+
+    /// Validated bytes for `icon`, or `nil` while loading or unavailable.
+    func data(for icon: String) -> Data? {
+        if case .loaded(let data) = outcomes[icon] { return data }
+        return nil
+    }
+
+    /// Starts fetching `icon` unless it has a current outcome, and returns
+    /// the request this generation shares for it, if any.
+    @discardableResult
+    func load(_ icon: String) -> Task<Void, Never>? {
+        if let load = loads[icon], load.generation == generation { return load.task }
+        guard outcomes[icon] == nil || stale.contains(icon) else { return nil }
+        let generation = generation
+        let task = Task { [weak self, fetch] in
+            let outcome: Outcome?
+            do {
+                outcome = .loaded(try await fetch(icon))
+            } catch is PluginMarketplaceIconRejected {
+                outcome = .rejected
+            } catch {
+                outcome = nil
+            }
+            self?.finish(icon, outcome, generation: generation)
+        }
+        loads[icon] = Load(generation: generation, task: task)
+        return task
+    }
+
+    /// Marks every icon for another fetch after an index refresh.
+    func invalidate() {
+        generation += 1
+        stale = Set(outcomes.keys)
+    }
+
+    private func finish(_ icon: String, _ outcome: Outcome?, generation: Int) {
+        if loads[icon]?.generation == generation { loads[icon] = nil }
+        // A request from before the last refresh may carry the old bytes.
+        guard generation == self.generation else { return }
+        stale.remove(icon)
+        switch (outcome, outcomes[icon]) {
+        case (let outcome?, _): outcomes[icon] = outcome
+        // Transient: keep an image already shown, retry an icon that had none.
+        case (nil, .loaded?): break
+        case (nil, _): outcomes[icon] = nil
+        }
+    }
+}
+
 /// State of Settings › Plugins › Marketplace and the plugin repository list.
 ///
 /// Nothing is fetched until the page first appears; the bundled official
@@ -228,10 +318,14 @@ final class PluginMarketplaceFeatureModel: ObservableObject {
     /// Late imports may finish after the settings page has closed; they must
     /// release their snapshot instead of reopening an approval or installing.
     private var installationSession = UUID()
+    /// Index icons, observed only by the icon views so a finished download
+    /// does not re-render the whole marketplace page.
+    let icons: PluginMarketplaceIconStore
 
     init(service: any PluginMarketplaceServicing, pluginManager: any PluginManaging) {
         self.service = service
         self.pluginManager = pluginManager
+        icons = PluginMarketplaceIconStore { [service] icon in try await service.iconData(from: icon) }
     }
 
     var platform: String { service.platform }
@@ -263,12 +357,20 @@ final class PluginMarketplaceFeatureModel: ObservableObject {
         loadIfNeeded()
         await withTaskGroup(of: Void.self) { group in
             for source in sources where source.isEnabled {
-                group.addTask { await self.refresh(sourceID: source.id) }
+                group.addTask { await self.refreshIndex(sourceID: source.id) }
             }
         }
+        icons.invalidate()
     }
 
+    /// Refreshing is also how the user retries icons: an icon on a branch
+    /// URL may have changed, and one that failed before may load now.
     func refresh(sourceID: String) async {
+        await refreshIndex(sourceID: sourceID)
+        icons.invalidate()
+    }
+
+    private func refreshIndex(sourceID: String) async {
         guard let source = sources.first(where: { $0.id == sourceID }),
               sourceStatuses[sourceID]?.isRefreshing != true else { return }
         sourceStatuses[sourceID, default: SourceStatus()].isRefreshing = true

@@ -5,9 +5,9 @@ protocol LogDirectoryProviding {
 }
 
 extension LogDirectoryProviding {
-    /// The single application log file callers read, tail, or stage for
-    /// export. Kept here so every layer resolves the same path instead of
-    /// duplicating the "lithe.log" file name.
+    /// Legacy application log retained for compatibility with older releases.
+    /// Production module collection resolves the writer's effective directory
+    /// through ApplicationLogging, including runtime fallback.
     var applicationLogFileURL: URL {
         defaultLogDirectory.appendingPathComponent("lithe.log", isDirectory: false)
     }

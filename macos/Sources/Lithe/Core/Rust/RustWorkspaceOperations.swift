@@ -104,7 +104,9 @@ struct RustWorkspaceOperations: WorkspaceOperations, Sendable {
         at rootURL: URL,
         query: String,
         options: ProjectSearchOptions,
-        visibilityRules: FileVisibilityRules
+        visibilityRules: FileVisibilityRules,
+        includeGeneratedFileNames: Bool = false,
+        kinds: Set<SearchResultKind> = [.file, .type, .symbol, .content]
     ) -> SearchEverywhereResults? {
         core.searchEverywhere(
             at: rootURL,
@@ -113,12 +115,13 @@ struct RustWorkspaceOperations: WorkspaceOperations, Sendable {
             wholeWords: options.wholeWords,
             regularExpression: options.regularExpression,
             maxResults: SearchEverywhereResults.matchLimit,
-            maxFileResults: 50,
-            maxContentResults: 50,
-            maxSymbolResults: 50,
+            maxFileResults: kinds.contains(.file) ? SearchEverywhereResults.providerLimit : 0,
+            maxContentResults: kinds.contains(.content) ? SearchEverywhereResults.providerLimit : 0,
+            maxSymbolResults: !kinds.isDisjoint(with: [.type, .symbol]) ? SearchEverywhereResults.providerLimit : 0,
             fileMask: options.fileMask,
             hiddenDirectoryNames: visibilityRules.hiddenDirectoryNames,
-            hiddenFilePatterns: visibilityRules.hiddenFilePatterns
+            hiddenFilePatterns: visibilityRules.hiddenFilePatterns,
+            includeGeneratedFileNames: includeGeneratedFileNames
         )?.makeEverywhereResults(at: rootURL)
     }
 
@@ -219,9 +222,11 @@ extension RustWorkspaceOperations: SearchOperations {
         at rootURL: URL,
         query: String,
         options: ProjectSearchOptions,
-        visibilityRules: SearchVisibilityRules
+        visibilityRules: SearchVisibilityRules,
+        includeGeneratedFileNames: Bool = false,
+        kinds: Set<SearchResultKind> = [.file, .type, .symbol, .content]
     ) -> SearchEverywhereResults? {
-        searchEverywhere(at: rootURL, query: query, options: options, visibilityRules: FileVisibilityRules(searchRules: visibilityRules))
+        searchEverywhere(at: rootURL, query: query, options: options, visibilityRules: FileVisibilityRules(searchRules: visibilityRules), includeGeneratedFileNames: includeGeneratedFileNames, kinds: kinds)
     }
 
     func previewReplacement(

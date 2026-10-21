@@ -65,7 +65,7 @@ extension AppModel {
                       self.services.moduleRuntime.availableContributions()[owner]?.contains(contribution) == true else { return }
                 self.workbenchFeature.setVisibility(window, isVisible: true)
             } catch {
-                if !Task.isCancelled && !(error is CancellationError) { self.showNotification(error.localizedDescription) }
+                if !error.isCancellation { self.showNotification(error.localizedDescription) }
             }
         }
         scheduleObjectWillChangeRelay()

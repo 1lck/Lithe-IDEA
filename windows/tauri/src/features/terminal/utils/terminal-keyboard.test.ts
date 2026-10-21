@@ -45,4 +45,77 @@ describe("terminal keyboard actions", () => {
       ),
     ).toEqual({ type: "passthrough" });
   });
+
+  // IDEA and Windows Terminal both bind plain Ctrl+C to copy when text is
+  // selected. Lithe only had Ctrl+Shift+C, so a copied selection required the
+  // extra modifier that the reference IDEs do not ask for.
+  test("copies with plain Ctrl+C when text is selected", () => {
+    expect(
+      getTerminalKeyAction(
+        {
+          type: "keydown",
+          key: "c",
+          ctrlKey: true,
+          shiftKey: false,
+          altKey: false,
+          metaKey: false,
+        },
+        "windows",
+        { hasSelection: true },
+      ),
+    ).toEqual({ type: "copy" });
+  });
+
+  // The interrupt must survive: without a selection Ctrl+C has to reach the
+  // program as SIGINT so a running command can still be stopped.
+  test("leaves Ctrl+C to the program when nothing is selected", () => {
+    const ctrlC = {
+      type: "keydown" as const,
+      key: "c",
+      ctrlKey: true,
+      shiftKey: false,
+      altKey: false,
+      metaKey: false,
+    };
+
+    expect(getTerminalKeyAction(ctrlC, "windows", { hasSelection: false })).toEqual({
+      type: "passthrough",
+    });
+    expect(getTerminalKeyAction(ctrlC, "windows")).toEqual({ type: "passthrough" });
+  });
+
+  test("keeps Ctrl+Shift+C working with no selection", () => {
+    expect(
+      getTerminalKeyAction(
+        {
+          type: "keydown",
+          key: "c",
+          ctrlKey: true,
+          shiftKey: true,
+          altKey: false,
+          metaKey: false,
+        },
+        "windows",
+        { hasSelection: false },
+      ),
+    ).toEqual({ type: "copy" });
+  });
+
+  // macOS keeps Cmd+C for the system; the plain Ctrl+C binding is Windows-only.
+  test("does not intercept plain Ctrl+C on macOS", () => {
+    expect(
+      getTerminalKeyAction(
+        {
+          type: "keydown",
+          key: "c",
+          ctrlKey: true,
+          shiftKey: false,
+          altKey: false,
+          metaKey: false,
+        },
+        "macos",
+        { hasSelection: true },
+      ),
+    ).toEqual({ type: "passthrough" });
+  });
 });

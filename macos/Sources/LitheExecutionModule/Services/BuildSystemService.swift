@@ -515,8 +515,9 @@ package final class BuildSystemService: ObservableObject {
     // MARK: Model
 
     /// Runs the model command of a command-sourced instance. Other sources
-    /// are read again by detection.
-    package func loadModel(_ entryID: String) {
+    /// are read again by detection. `reason` tells a provider whether it
+    /// may answer from its own snapshot.
+    package func loadModel(_ entryID: String, reason: BuildLoadReason = .initial) {
         guard let workspaceURL, let entry = entry(entryID) else { return }
         switch entry.instance.modelSource {
         case .static?, .hostIntegration?:
@@ -540,6 +541,7 @@ package final class BuildSystemService: ObservableObject {
             let result = await self.performModelLoad(
                 entry,
                 workspaceURL: workspaceURL,
+                reason: reason,
                 owner: .modelLoad(generation: generation, entryID: entryID, id: id)
             )
             guard self.generation == generation, self.modelTasks[entryID]?.id == id,
@@ -589,13 +591,17 @@ package final class BuildSystemService: ObservableObject {
     private func performModelLoad(
         _ entry: BuildSystemEntry,
         workspaceURL: URL,
+        reason: BuildLoadReason,
         owner: CommandOwner
     ) async -> Result<LoadedModel, Error> {
         do {
             let context = try planContext(entry, workspaceURL: workspaceURL)
             let outputFile = try context.workspaceStateDirectory.map { try stateLocator.allocateOutputFile(in: $0) }
             defer { if let outputFile { stateLocator.removeOutputFile(outputFile) } }
-            let plan = try planner.modelPlan(entry.target, context: context, outputFile: outputFile)
+            let planner = planner
+            let plan = try await outputPlan(entry, workspaceURL: workspaceURL, reason: reason, owner: owner) { hints in
+                try planner.modelPlan(entry.target, context: context, outputFile: outputFile, providerHints: hints)
+            }
             let title = String(localized: "Loading \(entry.instance.displayName) model")
             let output = try await captureOutput(
                 plan,
@@ -606,7 +612,6 @@ package final class BuildSystemService: ObservableObject {
                 timeout: Self.modelTimeout,
                 owner: owner
             )
-            let planner = planner
             let target = entry.target
             let root = entry.instance.root
             return .success(try await Task.detached(priority: .userInitiated) {
@@ -838,7 +843,9 @@ package final class BuildSystemService: ObservableObject {
     // MARK: Dependencies
 
     /// Lists the dependencies of one project, or of the instance.
-    package func loadDependencies(_ entryID: String, project: BuildModel.Project?) {
+    package func loadDependencies(
+        _ entryID: String, project: BuildModel.Project?, reason: BuildLoadReason = .initial
+    ) {
         guard let workspaceURL, let entry = entry(entryID) else { return }
         let key = project?.path ?? entry.instance.root
         let taskKey = entryID + Self.dependencyTaskSeparator + key
@@ -854,6 +861,7 @@ package final class BuildSystemService: ObservableObject {
                 entry,
                 project: project,
                 workspaceURL: workspaceURL,
+                reason: reason,
                 owner: .dependencyLoad(generation: generation, taskKey: taskKey, id: id)
             )
             guard self.generation == generation, self.dependencyTasks[taskKey]?.id == id,
@@ -886,18 +894,20 @@ package final class BuildSystemService: ObservableObject {
         _ entry: BuildSystemEntry,
         project: BuildModel.Project?,
         workspaceURL: URL,
+        reason: BuildLoadReason,
         owner: CommandOwner
     ) async -> Result<BuildDependencyTree, Error> {
         do {
             let context = try planContext(entry, workspaceURL: workspaceURL)
             let outputFile = try context.workspaceStateDirectory.map { try stateLocator.allocateOutputFile(in: $0) }
             defer { if let outputFile { stateLocator.removeOutputFile(outputFile) } }
-            let plan = try planner.dependencyPlan(
-                entry.target,
-                context: context,
-                project: project.map(BuildSelection.init(project:)),
-                outputFile: outputFile
-            )
+            let planner = planner
+            let selection = project.map(BuildSelection.init(project:))
+            let plan = try await outputPlan(entry, workspaceURL: workspaceURL, reason: reason, owner: owner) { hints in
+                try planner.dependencyPlan(
+                    entry.target, context: context, project: selection, outputFile: outputFile, providerHints: hints
+                )
+            }
             let name = project?.displayName ?? project?.name ?? entry.instance.displayName
             let output = try await captureOutput(
                 plan,
@@ -908,7 +918,6 @@ package final class BuildSystemService: ObservableObject {
                 timeout: Self.modelTimeout,
                 owner: owner
             )
-            let planner = planner
             let target = entry.target
             let root = entry.instance.root
             return .success(try await Task.detached(priority: .userInitiated) {
@@ -925,6 +934,53 @@ package final class BuildSystemService: ObservableObject {
 
     /// Stores one option value, or removes it with nil, for every instance
     /// of the build system in this workspace.
+    // MARK: Plugin functions
+
+    /// The plugin functions the instance's provider process registers now,
+    /// starting the process when none runs. Callers ask the user first, as
+    /// for any request that starts a build tool.
+    package func pluginFunctions(_ entryID: String) async throws -> [String] {
+        let (providers, target) = try functionTarget(entryID)
+        return try await providers.pluginFunctions(of: target)
+    }
+
+    /// Invokes a plugin function in the instance's provider process. The
+    /// function belongs to the instance's plugin, which Core checks again
+    /// against the process owner; cancelling the task cancels the call.
+    package func invokePluginFunction(
+        _ entryID: String,
+        functionID: String,
+        params: ToolingJSONValue,
+        timeout: Duration,
+        progress: @escaping @MainActor @Sendable (PluginFunctionProgress) -> Void
+    ) async throws -> ToolingJSONValue {
+        let (providers, target) = try functionTarget(entryID)
+        return try await providers.invokePluginFunction(
+            functionID, params: params, on: target, timeout: timeout, progress: progress
+        )
+    }
+
+    private func functionTarget(_ entryID: String) throws -> (any BuildProviderRequesting, BuildProviderTarget) {
+        guard let workspaceURL, let entry = entry(entryID) else {
+            throw PluginFunctionFailure(
+                code: "plugin.function.unavailable",
+                message: String(localized: "The build-system instance is no longer detected.")
+            )
+        }
+        guard let providers else { throw BuildSystemServiceError(Self.providerUnsupportedMessage) }
+        return (providers, Self.providerTarget(entry, workspaceURL: workspaceURL))
+    }
+
+    private static func providerTarget(_ entry: BuildSystemEntry, workspaceURL: URL) -> BuildProviderTarget {
+        BuildProviderTarget(
+            pluginID: entry.source.pluginID,
+            manifest: entry.source.manifest,
+            packageURL: entry.source.packageURL,
+            buildSystemID: entry.instance.buildSystemID,
+            workspaceURL: workspaceURL
+        )
+    }
+
     package func setOption(_ entryID: String, optionID: String, value: ToolingJSONValue?) {
         guard let workspaceURL, let entry = entry(entryID) else { return }
         let buildSystemID = entry.instance.buildSystemID
@@ -1185,7 +1241,53 @@ package final class BuildSystemService: ObservableObject {
         return CollectedOutput(text: collector.text, exitCode: exitCode)
     }
 
-    /// Runs a model or dependency command and returns what Core decodes.
+    /// Plans a model or dependency load. A provider request also carries the
+    /// load reason and the build tool the host resolved, so the provider
+    /// neither repeats the lookup nor answers a reload from a stale snapshot.
+    /// The tool is only resolved once Core says the source is a provider; a
+    /// command plan resolves it when it runs.
+    private func outputPlan(
+        _ entry: BuildSystemEntry,
+        workspaceURL: URL,
+        reason: BuildLoadReason,
+        owner: CommandOwner,
+        plan: (BuildProviderHints) throws -> BuildOutputPlan
+    ) async throws -> BuildOutputPlan {
+        let planned = try plan(BuildProviderHints(reason: reason))
+        guard case .provider = planned else { return planned }
+        guard let executable = try await providerTool(entry, workspaceURL: workspaceURL, owner: owner) else {
+            return planned
+        }
+        return try plan(BuildProviderHints(reason: reason, toolExecutable: executable))
+    }
+
+    /// The executable the build system's invocation resolves to, as a run
+    /// would use it. A failure is not the provider's: it still loads and
+    /// looks the tool up itself, so the reason only goes to Build Output.
+    private func providerTool(_ entry: BuildSystemEntry, workspaceURL: URL, owner: CommandOwner) async throws -> URL? {
+        let planner = planner
+        let target = entry.target
+        do {
+            let invocation = try planner.invocationPlan(target, root: entry.instance.root)
+            guard !invocation.executables.isEmpty else { return nil }
+            return try await tools.resolve(
+                invocation, displayName: entry.instance.displayName, workspaceURL: workspaceURL
+            ) { runtime, output in
+                try planner.checkToolVersion(target, runtime: runtime, output: output)
+            }.executableURL
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            if canAppend(owner) {
+                appendOutput(
+                    "\n" + String(localized: "The provider looks up the build tool itself: \(error.localizedDescription)") + "\n",
+                    in: outputDirectory(entry)
+                )
+            }
+            return nil
+        }
+    }
+
     /// Runs a model or dependency plan: its command, or its request to the
     /// plugin's provider process.
     private func captureOutput(
@@ -1208,13 +1310,7 @@ package final class BuildSystemService: ObservableObject {
             if canAppend(owner) {
                 appendOutput("\n▶ " + title + "\n→ " + request.method + "\n", in: outputDirectory(entry))
             }
-            let target = BuildProviderTarget(
-                pluginID: entry.source.pluginID,
-                manifest: entry.source.manifest,
-                packageURL: entry.source.packageURL,
-                buildSystemID: entry.instance.buildSystemID,
-                workspaceURL: workspaceURL
-            )
+            let target = Self.providerTarget(entry, workspaceURL: workspaceURL)
             return .providerResult(try await providers.send(request, to: target, timeout: timeout))
         }
     }
