@@ -130,6 +130,52 @@ pub(crate) struct OutputPlanRequest {
     /// Fresh absolute host-owned path, for `"output": "outputFile"`.
     #[serde(default)]
     pub(crate) output_file: Option<String>,
+    /// Provider sources only: the user asked to reload, or the host reloads
+    /// after a sync file changed, so the provider must not answer from a
+    /// snapshot of its own. Command sources ignore it.
+    #[serde(default)]
+    pub(crate) refresh: bool,
+    /// Provider sources only: the build tool the host resolved for this
+    /// build system's invocation. Absent when resolution failed; the provider
+    /// then looks the tool up itself. Command sources ignore it.
+    #[serde(default)]
+    pub(crate) tool: Option<ProviderTool>,
+}
+
+/// The build tool the host resolved for a provider request.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ProviderTool {
+    /// Absolute path of the executable, after the host applied wrappers,
+    /// environment variables, `PATH`, and the user's override.
+    pub(crate) executable: String,
+}
+
+/// Validates what the host adds to a provider request and returns the
+/// params it contributes: `refresh` only when set and `tool` only when
+/// resolved, so a request without them matches a host that predates both.
+fn provider_hints(request: &OutputPlanRequest) -> Validation<Map<String, Value>> {
+    let mut params = Map::new();
+    if request.refresh {
+        params.insert("refresh".to_string(), json!(true));
+    }
+    if let Some(tool) = &request.tool {
+        let executable = &tool.executable;
+        // The provider starts this file; surrounding whitespace or control
+        // characters would make it run something other than what the host
+        // resolved.
+        let usable = !executable.is_empty()
+            && executable.trim() == executable
+            && !executable.chars().any(char::is_control)
+            && Path::new(executable).is_absolute();
+        if !usable {
+            return Err(invalid_selection(
+                "tool.executable must be an absolute path.",
+            ));
+        }
+        params.insert("tool".to_string(), json!({ "executable": executable }));
+    }
+    Ok(params)
 }
 
 /// A selection resolved against the instance root.
@@ -301,7 +347,8 @@ impl<'a> PlanContext<'a> {
     /// to the workspace folder the host sent in `initialize`; options come
     /// as their effective values and as the arguments and environment they
     /// would contribute to a command line, so the provider can hand either
-    /// to the tool.
+    /// to the tool. `params` already holds the source's own fields and the
+    /// host's `refresh` and `tool` hints.
     fn provider_plan(
         &self,
         provider: &ProviderDeclaration,
@@ -643,7 +690,7 @@ pub(crate) fn model_plan(
             declared_provider(build_system)?,
             PROVIDER_MODEL_METHOD,
             "litheBuildModel",
-            Map::new(),
+            provider_hints(request)?,
         ));
     }
     let Some(ModelSource::Command {
@@ -745,7 +792,7 @@ pub(crate) fn dependency_plan(
         ),
         DependenciesSource::Provider { scopes } => {
             check_scope(scopes)?;
-            let mut params = Map::new();
+            let mut params = provider_hints(request)?;
             params.insert(
                 "project".to_string(),
                 project.as_ref().map_or(

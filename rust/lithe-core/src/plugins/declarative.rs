@@ -56,10 +56,6 @@ pub(crate) const KNOWN_RUNTIME_TOOLS_V2: &[&str] = &["go", "java", "node"];
 /// Runtimes that can start a packaged entry file themselves (`java -jar`,
 /// `node <script>`). `go` is only ever a dependency of a server.
 const LAUNCH_RUNTIME_TOOLS: &[&str] = &["java", "node"];
-/// Arguments that make a launch runtime print its version and exit. Both
-/// launch runtimes accept the same spelling; `java` supports it from Java 9,
-/// so an older JVM fails the probe and is treated as too old.
-const RUNTIME_VERSION_ARGUMENTS: &[&str] = &["--version"];
 /// Host integration that feeds JDT LS's project model, virtual class files,
 /// and Java test and debug support from the files a plugin declares.
 const HOST_INTEGRATION_JDT: &str = "jdt";
@@ -2639,7 +2635,10 @@ fn server_launch_plan(
             let mut launch = json!({ "kind": "runtime", "tool": tool, "entry": entry });
             if let Some(version) = minimum_version {
                 launch["minimumVersion"] = json!(version);
-                launch["versionArguments"] = json!(RUNTIME_VERSION_ARGUMENTS);
+                // The same probe as a build runtime: `java -version` also
+                // answers on Java 8, whose JVM rejects `--version`.
+                launch["versionArguments"] =
+                    json!(crate::build::host_runtime_version_arguments(tool));
             }
             if let Some(path) = packaged_runtime {
                 let path = path.replace("${arch}", values.architecture);
