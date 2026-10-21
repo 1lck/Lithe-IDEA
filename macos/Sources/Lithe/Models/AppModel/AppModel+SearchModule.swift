@@ -16,13 +16,24 @@ extension AppModel {
 
     func toggleSearchEverywhere() {
         guard workspaceURL != nil, !isSearchEverywhereVisible else { return }
+        openSearchEverywhere()
+    }
+
+    func openFindAction() {
+        guard canPerformShortcutCommand(id: "find-action") else { return }
+        openSearchEverywhere(query: "/")
+    }
+
+    private func openSearchEverywhere(query: String? = nil) {
+        let wasVisible = isSearchEverywhereVisible
         let root = workspaceURL
         searchSessionFeature.everywhereGitStatus = gitTreeStatusProjection
-        searchSessionFeature.beginSearchEverywhere()
+        searchSessionFeature.beginSearchEverywhere(query: query)
+        guard !wasVisible else { return }
         Task { [weak self] in
-            guard let self else { return }
+            guard let self, workspaceURL == root, isSearchEverywhereVisible else { return }
             if await activateSearchModule() == nil {
-                isSearchEverywhereVisible = false
+                if workspaceURL == root { dismissSearchEverywhere() }
                 return
             }
             guard workspaceURL == root, isSearchEverywhereVisible else { return }
@@ -36,6 +47,9 @@ extension AppModel {
     func dismissSearchEverywhere() {
         guard isSearchEverywhereVisible else { return }
         searchSessionFeature.endSearchEverywhere()
+        if searchSessionFeature.everywhereQuery.hasPrefix("/") {
+            searchSessionFeature.everywhereQuery = ""
+        }
         searchFeatureIfActive?.clearSearchEverywhere()
         documentFeature.discardPreviewDocuments(owner: .searchEverywhere)
     }

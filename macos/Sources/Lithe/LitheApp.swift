@@ -725,6 +725,12 @@ struct LitheApp: App {
 
                     Divider()
 
+                    Button("Find Action…") {
+                        model.openFindAction()
+                    }
+                    .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "find-action"))
+                    .disabled(!model.canPerformShortcutCommand(id: "find-action"))
+
                     Button("Search Everywhere…") {
                         model.toggleSearchEverywhere()
                     }

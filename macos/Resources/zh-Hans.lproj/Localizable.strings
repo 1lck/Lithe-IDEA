@@ -3652,3 +3652,7 @@
 "%lld of %lld services selected" = "已选择 %2$lld 个服务中的 %1$lld 个";
 
 "Background Services" = "后台服务";
+
+"Find Action" = "查找操作";
+"Find Action…" = "查找操作…";
+"Find and execute a command" = "查找并执行命令";
