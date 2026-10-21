@@ -38,6 +38,8 @@ export interface WorkbenchHost {
   javaRunIconsDark?: Partial<Record<RunMarkerIcon, string>>;
   /** Native IDEA order: line numbers, then action decorations. */
   lineNumbersFirst?: boolean;
+  /** Opt in only when the host handles setBlameVisibility for repository files. */
+  gitBlameMenu?: boolean;
   foldingIcons?: Record<"expanded" | "collapsed", { light: string; dark: string }>;
   keybindings?: { command: string; label: string; keybinding: number }[];
 }
@@ -411,7 +413,7 @@ export function mountWorkbench(host: WorkbenchHost) {
 
   const debugRunContexts = new WeakMap<monaco.editor.IStandaloneCodeEditor, monaco.editor.IContextKey<boolean>>();
   const gitStates = new WeakMap<Entry, { version: number; revision: number; markers: GitMarker[]; decorations: string[];
-    blameVisible?: boolean; blame?: BlameLine[] }>();
+    canAnnotate?: boolean; blameVisible?: boolean; blame?: BlameLine[] }>();
   const gitContextUpdates = new WeakMap<monaco.editor.IStandaloneCodeEditor, () => void>();
   function attachGitInteractions(view: monaco.editor.IStandaloneCodeEditor) {
     const blameKey = view.createContextKey("litheGit.blame", false);
@@ -475,6 +477,27 @@ export function mountWorkbench(host: WorkbenchHost) {
     view.onDidChangeCursorPosition(refresh);
     view.onDidChangeModel(refresh);
     view.onDidChangeModelContent(refresh);
+    if (host.gitBlameMenu) view.onContextMenu(event => {
+      if (event.target.type !== monaco.editor.MouseTargetType.GUTTER_LINE_NUMBERS) return;
+      const pair = [...entries].find(([, entry]) => entry.model === view.getModel());
+      if (!pair) return;
+      const [id, entry] = pair, state = gitStates.get(entry), version = entry.model.getVersionId();
+      const visible = state?.blameVisible === true;
+      const enabled = !!state && (visible || state.canAnnotate === true) &&
+        !entry.frozen && !entry.closingHolds && !failed;
+      event.event.preventDefault(); event.event.stopPropagation();
+      StandaloneServices.get(IContextMenuService).showContextMenu({
+        getAnchor: () => ({ x: event.event.posx, y: event.event.posy }),
+        getActions: () => [new Action("lithe.git.annotate", visible ? "Hide Git Blame" : "Annotate with Git Blame",
+          undefined, enabled, async () => {
+            // The menu can outlive a tab switch, edit, close or Git-state refresh.
+            if (!enabled || entries.get(id) !== entry || view.getModel() !== entry.model || entry.model.isDisposed() ||
+                gitStates.get(entry) !== state || version !== entry.model.getVersionId() || entry.frozen || entry.closingHolds || failed) return;
+            await languageRequest({ type: "setBlameVisibility", id, revision: entry.revision, visible: !visible });
+          })],
+        onHide: () => { if (view.getModel() === entry.model && !entry.model.isDisposed()) view.focus(); },
+      });
+    });
     view.onMouseDown(event => {
       if (event.event.leftButton && event.target.position && event.target.element?.closest(".lithe-blame")) {
         event.event.preventDefault(); event.event.stopPropagation();
@@ -780,7 +803,7 @@ export function mountWorkbench(host: WorkbenchHost) {
       await Promise.all([...entries].filter(([, entry]) => allEditors().some(view => view.getModel() === entry.model))
         .map(([id, entry]) => refreshNavigation(id, entry)));
     },
-    async gitState(id: string, state: { revision: number; markers: GitMarker[]; blameVisible?: boolean; blame?: BlameLine[] }) {
+    async gitState(id: string, state: { revision: number; markers: GitMarker[]; canAnnotate?: boolean; blameVisible?: boolean; blame?: BlameLine[] }) {
       await activation;
       const entry = entries.get(id);
       if (!entry) return;

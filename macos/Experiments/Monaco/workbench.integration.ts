@@ -1288,6 +1288,71 @@ async function verify() {
       assert(model.getValue().startsWith("X"), "permission refresh did not restore editing");
     } finally { await window.lithe.retain([]); }
   });
+  await check("line-number context menu opens and hides blame without changing source or selection", async () => {
+    const text = "first\nsecond\nthird", id = "annotate-menu";
+    await send({ type: "open", text });
+    await window.lithe.activate({ id, text, revision: 0, language: "plaintext", readonly: false });
+    await window.lithe.gitState(id, { revision: 0, markers: [], canAnnotate: true });
+    const service = StandaloneServices.get(IContextMenuService), original = service.showContextMenu;
+    let actions: any[] = [];
+    service.showContextMenu = delegate => { actions = [...delegate.getActions()]; };
+    const openMenu = () => {
+      editor.render(true);
+      const number = [...editor.getDomNode()!.querySelectorAll(".line-numbers")].find(element => element.getBoundingClientRect().width > 0)!;
+      assert(!!number, "no visible line-number element");
+      const rect = number.getBoundingClientRect();
+      const clientX = rect.right - 4, clientY = rect.top + rect.height / 2;
+      assert(editor.getTargetAtClientPoint(clientX, clientY)?.type === monacoEditor.MouseTargetType.GUTTER_LINE_NUMBERS,
+        `menu target=${JSON.stringify(editor.getTargetAtClientPoint(clientX, clientY)?.type)} rect=${JSON.stringify(rect.toJSON())} layout=${JSON.stringify(editor.getLayoutInfo())}`);
+      actions = [];
+      number.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2, clientX, clientY }));
+      assert(actions.length === 1 && actions[0].id === "lithe.git.annotate", "gutter menu did not use the shared presenter route");
+      return actions[0];
+    };
+    try {
+      editor.setSelection(new Selection(2, 1, 3, 2));
+      const before = editor.getSelection()!.toString(), model = editor.getModel()!;
+      const count = (await send({ type: "blameVisibilityRequests" })).requests.length;
+      const show = openMenu();
+      assert(show.enabled && show.label === "Annotate with Git Blame", "repository file has no annotate action");
+      await show.run();
+      let requests = (await send({ type: "blameVisibilityRequests" })).requests;
+      assert(requests.length === count + 1 && requests.at(-1).id === id && requests.at(-1).visible === true,
+        "annotate action lost its document identity");
+      await window.lithe.gitState(id, { revision: 0, markers: [], canAnnotate: true, blameVisible: true, blame: [
+        { line: 1, commit: "abc", author: "Author", date: "2026-01-01" },
+      ] });
+      const hide = openMenu();
+      assert(hide.enabled && hide.label === "Hide Git Blame", "visible blame has no hide action");
+      await hide.run();
+      requests = (await send({ type: "blameVisibilityRequests" })).requests;
+      assert(requests.length === count + 2 && requests.at(-1).visible === false, "hide toggled the wrong state");
+      assert(model.getValue() === text && !model.canUndo() && editor.getSelection()!.toString() === before,
+        "gutter menu modified source, undo history or selection");
+      await window.lithe.gitState(id, { revision: 0, markers: [], canAnnotate: false });
+      const disabled = openMenu();
+      assert(!disabled.enabled, "non-repository file can annotate");
+      await disabled.run();
+      assert((await send({ type: "blameVisibilityRequests" })).requests.length === count + 2, "disabled action reached host");
+      await window.lithe.gitState(id, { revision: 0, markers: [], canAnnotate: true });
+      const stale = openMenu();
+      await window.lithe.activate({ id: "annotate-other", text: "other", revision: 0, language: "plaintext", readonly: false });
+      await stale.run();
+      assert((await send({ type: "blameVisibilityRequests" })).requests.length === count + 2, "old menu annotated replacement tab");
+      await window.lithe.activate({ id, text, revision: 0, language: "plaintext", readonly: false });
+      const refreshed = openMenu();
+      await window.lithe.gitState(id, { revision: 0, markers: [], canAnnotate: true });
+      await refreshed.run();
+      assert((await send({ type: "blameVisibilityRequests" })).requests.length === count + 2, "obsolete Git state stayed actionable");
+      const closing = openMenu();
+      await window.lithe.retain([]);
+      await closing.run();
+      assert((await send({ type: "blameVisibilityRequests" })).requests.length === count + 2, "closed menu reached host");
+    } finally {
+      service.showContextMenu = original;
+      await window.lithe.retain([]);
+    }
+  });
   await check("blame metadata escapes authors and follows model and split lifecycles", async () => {
     const text = "first\nsecond\nthird";
     await send({ type: "open", text });

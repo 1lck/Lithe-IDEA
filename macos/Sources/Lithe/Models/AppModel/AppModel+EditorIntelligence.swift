@@ -64,6 +64,13 @@ extension AppModel {
         )
     }
 
+    func canShowBlame(for fileURL: URL) -> Bool {
+        guard let root = gitRepositoryRoot?.standardizedFileURL, fileURL.isFileURL else { return false }
+        let url = fileURL.standardizedFileURL
+        let prefix = root.path == "/" ? "/" : root.path + "/"
+        return url != root && url.path.hasPrefix(prefix) && gitChange(for: url)?.isUntracked != true
+    }
+
     func showBlame(for fileURL: URL) {
         let normalizedURL = fileURL.standardizedFileURL
         blameVisibleURL = blameVisibleURL == normalizedURL ? nil : normalizedURL

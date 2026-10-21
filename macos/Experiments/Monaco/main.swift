@@ -50,6 +50,7 @@ final class Probe: NSObject, NSApplicationDelegate, WKScriptMessageHandlerWithRe
     var codeVisionActions: [String] = []
     var gitLineActions: [String] = []
     var blameCommits: [String] = []
+    var blameVisibilityRequests: [[String: Any]] = []
     var javaNavigationActions: [String] = []
     var holdNavigation = false
     var heldNavigation: ((Any?, String?) -> Void)?
@@ -206,6 +207,10 @@ final class Probe: NSObject, NSApplicationDelegate, WKScriptMessageHandlerWithRe
                 javaNavigationActions.append(body["marker"] as? String ?? "")
                 replyHandler(["ok": true], nil)
             case "javaNavigationActions": replyHandler(["markers": javaNavigationActions], nil)
+            case "setBlameVisibility":
+                blameVisibilityRequests.append(body)
+                replyHandler(["ok": true], nil)
+            case "blameVisibilityRequests": replyHandler(["requests": blameVisibilityRequests], nil)
             case "blameCommit":
                 blameCommits.append(body["commit"] as? String ?? "")
                 replyHandler(["ok": true], nil)
