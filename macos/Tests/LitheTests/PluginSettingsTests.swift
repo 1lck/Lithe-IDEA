@@ -27,6 +27,19 @@ struct PluginSettingsTests {
         #expect(preferences.keys == ["lithe.plugins.dev.example.two.settings"])
     }
 
+    @Test
+    func textSettingLengthUsesUnicodeScalars() {
+        let setting = DeclarativePluginSetting(
+            id: "label",
+            title: "Label",
+            summary: nil,
+            kind: .text(pattern: ".*", maxLength: 2, placeholder: nil),
+            defaultValue: .string("")
+        )
+        #expect(setting.accepts(.string("e\u{301}")))
+        #expect(!setting.accepts(.string("e\u{301}x")))
+    }
+
     /// A damaged preference must never keep a language server from starting.
     @Test
     func anUnreadableRecordCountsAsEmptyAndTheNextChangeReplacesIt() {
@@ -134,10 +147,237 @@ struct PluginSettingsTests {
         #expect(plan.arguments.prefix(2) == ["-Xmx3072m", "-Dlog.level=WARNING"])
     }
 
-    private func makeManager(settings: InMemoryPluginSettings) throws -> MacPluginManager {
+    // MARK: Settings v2: layers, pages, and buttons
+
+    @Test
+    func projectValuesLiveInTheProjectAndAnEmptyDocumentLeavesNoFile() throws {
+        let project = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: project) }
+        let store = MacPluginSettingsStore(store: SettingsKeyValueStore())
+        let file = project.appendingPathComponent(".lithe/plugin-settings.json")
+
+        try store.setProjectValue(.string("prod"), forSetting: "mixEnv", plugin: "dev.example.one", projectRoot: project)
+        #expect(store.projectValues(forPlugin: "dev.example.one", projectRoot: project) == ["mixEnv": .string("prod")])
+        #expect(store.values(forPlugin: "dev.example.one").isEmpty)
+        let document = try JSONDecoder().decode([String: [String: ToolingJSONValue]].self, from: Data(contentsOf: file))
+        #expect(document == ["dev.example.one": ["mixEnv": .string("prod")]])
+
+        try store.setProjectValue(nil, forSetting: "mixEnv", plugin: "dev.example.one", projectRoot: project)
+        #expect(!FileManager.default.fileExists(atPath: file.path))
+    }
+
+    /// The project file is shared through version control: a file this host
+    /// cannot read must survive a change instead of being replaced or deleted.
+    @Test
+    func anUnreadableProjectFileIsRefusedAndKept() throws {
+        let project = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: project) }
+        let store = MacPluginSettingsStore(store: SettingsKeyValueStore())
+        let file = project.appendingPathComponent(".lithe/plugin-settings.json")
+        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let damaged = Data(#"{"version": 2, "dev.example.two": {"a": 1}}"#.utf8)
+        try damaged.write(to: file)
+
+        #expect(store.projectValues(forPlugin: "dev.example.two", projectRoot: project).isEmpty)
+        #expect(throws: (any Error).self) {
+            try store.setProjectValue(nil, forSetting: "mixEnv", plugin: "dev.example.one", projectRoot: project)
+        }
+        #expect(throws: (any Error).self) {
+            try store.setProjectValue(.string("prod"), forSetting: "mixEnv", plugin: "dev.example.one", projectRoot: project)
+        }
+        #expect(try Data(contentsOf: file) == damaged)
+    }
+
+    /// A checked-out symbolic link, even a dangling one, must not redirect
+    /// project settings outside the project.
+    @Test
+    func symbolicLinksAtTheProjectSettingsPathAreRefused() throws {
+        let project = try temporaryDirectory()
+        let outside = try temporaryDirectory()
+        defer {
+            try? FileManager.default.removeItem(at: project)
+            try? FileManager.default.removeItem(at: outside)
+        }
+        let store = MacPluginSettingsStore(store: SettingsKeyValueStore())
+        let directory = project.appendingPathComponent(".lithe")
+        let dangling = outside.appendingPathComponent("missing")
+        try FileManager.default.createSymbolicLink(at: directory, withDestinationURL: dangling)
+
+        #expect(throws: (any Error).self) {
+            try store.setProjectValue(.string("prod"), forSetting: "mixEnv", plugin: "dev.example.one", projectRoot: project)
+        }
+        #expect(!FileManager.default.fileExists(atPath: dangling.path))
+
+        try FileManager.default.removeItem(at: directory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let target = outside.appendingPathComponent("settings.json")
+        try Data(#"{"dev.example.one": {"mixEnv": "test"}}"#.utf8).write(to: target)
+        try FileManager.default.createSymbolicLink(
+            at: directory.appendingPathComponent("plugin-settings.json"),
+            withDestinationURL: target
+        )
+        #expect(store.projectValues(forPlugin: "dev.example.one", projectRoot: project).isEmpty)
+        #expect(throws: (any Error).self) {
+            try store.setProjectValue(nil, forSetting: "mixEnv", plugin: "dev.example.one", projectRoot: project)
+        }
+        #expect(FileManager.default.fileExists(atPath: target.path))
+    }
+
+    /// The page shows the value Rust Core launches with only if both sides
+    /// accept the same values; these cases differed before.
+    @Test
+    func valueChecksMatchRustCoreForTextAndPaths() {
+        let text = DeclarativePluginSetting(
+            id: "name", title: "Name", summary: nil,
+            kind: .text(pattern: ".+", maxLength: 3, placeholder: nil),
+            defaultValue: .string("a")
+        )
+        // One grapheme, two Unicode scalars each: Core counts scalars.
+        #expect(!text.accepts(.string("e\u{301}e\u{301}")))
+        // A zero-width joiner is a format character, not a control one.
+        #expect(text.accepts(.string("a\u{200D}b")))
+        #expect(!text.accepts(.string("a\u{7}")))
+
+        let path = DeclarativePluginSetting(
+            id: "home", title: "Home", summary: nil,
+            kind: .path(directory: true, placeholder: nil),
+            defaultValue: .string("")
+        )
+        #expect(path.accepts(.string("/opt/tool")))
+        #expect(path.accepts(.string("C:\\tools\\jdk")))
+        #expect(path.accepts(.string("d:/tools")))
+        #expect(!path.accepts(.string("tools/jdk")))
+        #expect(!path.accepts(.string("1:/tools")))
+    }
+
+    @Test
+    func projectSettingsRejectDanglingLitheSymlink() throws {
+        let project = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: project) }
+        let destination = project.appendingPathComponent("outside-missing", isDirectory: true)
+        let directory = project.appendingPathComponent(".lithe", isDirectory: true)
+        try FileManager.default.createSymbolicLink(at: directory, withDestinationURL: destination)
+        let store = MacPluginSettingsStore(store: SettingsKeyValueStore())
+
+        var rejected = false
+        do {
+            try store.setProjectValue(.string("prod"), forSetting: "mixEnv", plugin: "dev.example.one", projectRoot: project)
+        } catch {
+            rejected = true
+        }
+        #expect(rejected)
+        #expect(!FileManager.default.fileExists(atPath: destination.appendingPathComponent("plugin-settings.json").path))
+    }
+
+    @Test
+    func aProjectValueWinsOnlyForProjectScopedSettings() async throws {
+        try await withV2Manager { manager in
+            let project = try temporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: project) }
+            manager.settingsProjectRootURL = project
+            let pluginID = PluginID("dev.lithe.fixture.settings-v2")
+
+            try manager.setSetting(.string("test"), id: "mixEnv", for: pluginID, layer: .global)
+            try manager.setSetting(.string("prod"), id: "mixEnv", for: pluginID, layer: .project)
+            let mixEnv = try #require(setting("mixEnv", of: pluginID, in: manager))
+            #expect(mixEnv.value == .string("prod"))
+            #expect(mixEnv.source == .project)
+            #expect(mixEnv.globalValue == .string("test"))
+
+            // `checks` is global; a project cannot override it.
+            #expect(throws: PluginManagerError.projectSettingUnavailable(pluginID, "checks")) {
+                try manager.setSetting(.array([.string("credo")]), id: "checks", for: pluginID, layer: .project)
+            }
+            // A text value must match the declared pattern in whole.
+            #expect(throws: PluginManagerError.settingValueRejected(pluginID, "mixEnv")) {
+                try manager.setSetting(.string("Prod-1"), id: "mixEnv", for: pluginID, layer: .global)
+            }
+
+            manager.settingsProjectRootURL = nil
+            #expect(try #require(setting("mixEnv", of: pluginID, in: manager)).source == .global)
+        }
+    }
+
+    @Test
+    func pluginsRegisterLanguageAndBuildSystemPagesWithTheirOwnSectionsAndButtons() async throws {
+        try await withV2Manager { manager in
+            try await manager.setEnabled(true, for: PluginID("dev.lithe.fixture.settings-v2"))
+            let pages = PluginSettingsRegistry.pages(from: manager.snapshots)
+
+            #expect(pages.map(\.id) == ["buildSystem:mix", "language:elixir"])
+            let build = try #require(pages.first)
+            #expect(build.group == .build)
+            #expect(build.contributions.flatMap(\.settings).map(\.id) == ["checks"])
+            #expect(build.contributions.flatMap(\.actions).isEmpty)
+
+            let language = try #require(pages.last)
+            #expect(language.group == .languages)
+            #expect(language.title == "Elixir")
+            let contribution = try #require(language.contributions.first)
+            #expect(contribution.providesLanguageServer)
+            #expect(contribution.settings.map(\.id) == ["dialyzer", "mixEnv"])
+            #expect(contribution.settings.map(\.declaration.section) == [nil, "Server"])
+            #expect(contribution.actions.map(\.functionID) == ["dialyzer.rebuild"])
+            #expect(contribution.actions.first?.requiresConfirmation == true)
+            #expect(language.searchTerms.contains("Rebuild PLT"))
+        }
+    }
+
+    @Test
+    func aDisabledPluginRegistersNoPages() async throws {
+        try await withV2Manager { manager in
+            try await manager.setEnabled(false, for: PluginID("dev.lithe.fixture.settings-v2"))
+            #expect(PluginSettingsRegistry.pages(from: manager.snapshots).isEmpty)
+        }
+    }
+
+    @Test
+    func immediateSettingsExpandIntoTheServersWorkspaceConfiguration() async throws {
+        try await withV2Manager { manager in
+            let pluginID = PluginID("dev.lithe.fixture.settings-v2")
+            #expect(manager.workspaceConfiguration(forPlugin: pluginID, languageID: "elixir")
+                == .object(["elixirLS": .object(["dialyzerEnabled": .bool(true)])]))
+
+            try manager.setSetting(.bool(false), id: "dialyzer", for: pluginID, layer: .global)
+            #expect(manager.workspaceConfiguration(forPlugin: pluginID, languageID: "elixir")
+                == .object(["elixirLS": .object(["dialyzerEnabled": .bool(false)])]))
+        }
+    }
+
+    private func setting(_ id: String, of pluginID: PluginID, in manager: MacPluginManager) -> PluginSettingState? {
+        manager.snapshots.first { $0.id == pluginID }?.settings.first { $0.id == id }
+    }
+
+    private func temporaryDirectory() throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lithe-plugin-settings-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    /// The shared settings v2 fixture installed from a package directory
+    /// that holds its `plugin.json`, with Rust Core expanding configuration.
+    private func withV2Manager(_ body: (MacPluginManager) async throws -> Void) async throws {
+        let package = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: package) }
+        let manifest = try Data(contentsOf: DeclarativePluginTestSupport.repositoryRoot
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/settings-v2.plugin.json"))
+        try manifest.write(to: package.appendingPathComponent("plugin.json"))
+        try await body(makeManager(
+            settings: MacPluginSettingsStore(store: SettingsKeyValueStore()),
+            fixture: "settings-v2.plugin.json",
+            packageURL: package
+        ))
+    }
+
+    private func makeManager(
+        settings: any PluginSettingsStoring,
+        fixture: String = "node-runtime.plugin.json",
+        packageURL: URL = FileManager.default.temporaryDirectory
+    ) throws -> MacPluginManager {
         let descriptor = try DeclarativePluginTestSupport.operations.validate(
             manifest: Data(contentsOf: DeclarativePluginTestSupport.repositoryRoot
-                .appendingPathComponent("shared/contracts/plugins/v1/fixtures/node-runtime.plugin.json"))
+                .appendingPathComponent("shared/contracts/plugins/v1/fixtures/\(fixture)"))
         )
         let installed = InstalledPluginPackage(
             descriptor: descriptor,
@@ -146,7 +386,7 @@ struct PluginSettingsTests {
                 activeVersion: descriptor.pluginManifest.version,
                 origin: .marketplace
             ),
-            packageURL: FileManager.default.temporaryDirectory
+            packageURL: packageURL
         )
         let configuration = MacModuleConfigurationStore(store: SettingsKeyValueStore())
         return MacPluginManager(
@@ -159,7 +399,12 @@ struct PluginSettingsTests {
             configurationStore: configuration,
             settings: settings,
             launchMode: .normal,
-            startup: MacPluginStartupResult(installedPlugins: [installed], registeredPlugins: [], issues: [])
+            startup: MacPluginStartupResult(installedPlugins: [installed], registeredPlugins: [], issues: []),
+            expandWorkspaceConfiguration: { manifest, languageID, global, project in
+                try DeclarativePluginTestSupport.operations.workspaceConfiguration(
+                    manifest: manifest, languageID: languageID, settings: global, projectSettings: project
+                )
+            }
         )
     }
 }

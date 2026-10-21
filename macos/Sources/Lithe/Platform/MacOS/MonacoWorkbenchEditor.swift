@@ -457,7 +457,12 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
             if let preview, self.lastPreview != preview || self.previewDocumentID != document.id.uuidString {
                 self.lastPreview = preview
                 self.previewDocumentID = document.id.uuidString
-                if !self.isReadOnlyPreview {
+                if self.isReadOnlyPreview {
+                    self.call("window.lithe.nativeFind(payload)", arguments: ["payload": [
+                        "id": document.id.uuidString, "token": UUID().uuidString,
+                        "visible": !preview.query.isEmpty, "query": preview.query,
+                        "matchCase": preview.matchCase, "wholeWord": preview.wholeWord, "regex": preview.regex]])
+                } else {
                     self.call("window.lithe.find(payload)", arguments: ["payload": ["id": document.id.uuidString,
                         "query": preview.query, "matchCase": preview.matchCase, "wholeWord": preview.wholeWord, "regex": preview.regex]])
                 }
@@ -501,7 +506,8 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
     }
 
     private func synchronizeFind(command: String? = nil) {
-        guard ready, let model else { return }
+        // Independent previews own their query, not the main editor's find bar.
+        guard !isReadOnlyPreview, ready, let model else { return }
         let document = model.focusedEditorDocument ?? model.activeDocument
         let id = document?.id.uuidString ?? ""
         let visible = model.isFindBarVisible && !currentMountIsPreview && activeIDs.values.contains(id)
@@ -739,6 +745,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
             let change = model.gitChange(for: url)
             let working = change?.hasWorkingTreeChange == true
             let payload: [String: Any] = ["revision": revisions[id] ?? 0,
+                "canAnnotate": !isReadOnlyPreview && model.canShowBlame(for: url),
                 "blameVisible": blameVisible, "blame": blameVisible ? (model.gitBlameLines[url] ?? []).map { line in
                     ["line": line.line + 1, "commit": line.commitHash, "author": line.authorName, "date": line.date] as [String: Any]
                 } : [], "markers": (markers ?? []).map { marker in
@@ -1023,7 +1030,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
 
     func allowsMessage(_ type: String) -> Bool {
         !isReadOnlyPreview || !["format", "codeActions", "resolveCodeAction", "executeCodeAction",
-                               "rename", "resolveCompletion", "javaRunMarkerAction"].contains(type)
+                               "rename", "resolveCompletion", "javaRunMarkerAction", "setBlameVisibility"].contains(type)
     }
 
     func receive(_ message: WKScriptMessage, reply: @escaping (Any?, String?) -> Void) {
@@ -1168,6 +1175,18 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
             }
             model.editorDidFocus(document)
             model.resolveJavaNavigation(marker, in: document.url)
+            reply(["ok": true], nil)
+        case "setBlameVisibility":
+            guard let model, !failed, body["revision"] as? Int == revisions[id],
+                  let visible = body["visible"] as? Bool,
+                  !visible || model.canShowBlame(for: document.url) else {
+                reply(["cancelled": true], nil); return
+            }
+            if visible {
+                model.blameVisibleURL = document.url.standardizedFileURL
+            } else if model.blameVisibleURL == document.url.standardizedFileURL {
+                model.hideBlame()
+            }
             reply(["ok": true], nil)
         case "blameCommit":
             guard let model, !failed, body["revision"] as? Int == revisions[id],

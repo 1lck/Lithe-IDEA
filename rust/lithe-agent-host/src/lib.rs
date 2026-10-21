@@ -451,12 +451,13 @@ pub enum AgentCommand {
 }
 
 /// One entry of the agent-owned conversation history for the workspace.
-#[derive(Debug, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentSessionSummary {
     pub session_id: String,
     pub title: Option<String>,
-    /// ISO 8601 timestamp reported by the agent, if any.
+    /// ISO 8601 history timestamp, if known. Codex uses conversation activity,
+    /// never the metadata update caused by merely resuming a session.
     pub updated_at: Option<String>,
 }
 
@@ -527,6 +528,11 @@ pub enum AgentEvent {
     TurnActivity {
         session_id: String,
         quiet: bool,
+    },
+    /// Newly received nonterminal page; only `Sessions` replaces the full snapshot.
+    SessionsPage {
+        token: String,
+        sessions: Vec<AgentSessionSummary>,
     },
     Sessions {
         token: String,
@@ -1635,8 +1641,13 @@ where
                         let emit = emit.clone();
                         let cwd = cwd.clone();
                         let workspace = workspace.clone();
+                        let history = history.clone();
                         tasks.spawn(async move {
-                            emit(match list_sessions(&connection, cwd, &workspace).await {
+                            let result = match history {
+                                Some(history) => history.list_active(&workspace, &token, &emit).await,
+                                None => list_sessions(&connection, cwd, &workspace, &token, &emit).await,
+                            };
+                            emit(match result {
                                 Ok(sessions) => AgentEvent::Sessions { token, sessions },
                                 Err(message) => failed(Some(token), None, message),
                             });
@@ -2016,6 +2027,8 @@ async fn list_sessions(
     connection: &ConnectionTo<Agent>,
     cwd: PathBuf,
     workspace: &workspace_context::WorkspaceContext,
+    token: &str,
+    emit: &Emit,
 ) -> Result<Vec<AgentSessionSummary>, String> {
     let mut sessions = Vec::new();
     let mut cursor: Option<String> = None;
@@ -2031,15 +2044,31 @@ async fn list_sessions(
                 .block_task(),
         )
         .await?;
-        sessions.extend(page.sessions.into_iter().map(|session| {
-            AgentSessionSummary {
+        let entries: Vec<_> = page
+            .sessions
+            .into_iter()
+            .map(|session| AgentSessionSummary {
                 session_id: session.session_id.0.to_string(),
                 title: session
                     .title
                     .and_then(|title| workspace.present_title(&title)),
                 updated_at: session.updated_at,
-            }
-        }));
+            })
+            .collect();
+        // Keep the final aggregate compatible with clients that do not consume pages.
+        // Publish intermediate rows before requesting the next page, never a false empty list.
+        if page
+            .next_cursor
+            .as_ref()
+            .is_some_and(|next| !next.is_empty())
+            && !entries.is_empty()
+        {
+            emit(AgentEvent::SessionsPage {
+                token: token.to_owned(),
+                sessions: entries.clone(),
+            });
+        }
+        sessions.extend(entries);
         match page.next_cursor {
             Some(next) if !next.is_empty() => cursor = Some(next),
             _ => return Ok(sessions),

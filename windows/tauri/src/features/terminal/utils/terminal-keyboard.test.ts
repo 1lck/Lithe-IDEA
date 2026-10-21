@@ -118,4 +118,152 @@ describe("terminal keyboard actions", () => {
       ),
     ).toEqual({ type: "passthrough" });
   });
+
+  // The kitty encoding is only meaningful to a program that asked for it. Sending
+  // it unconditionally made a plain shell print the leftover `[13;2u` on the
+  // command line instead of treating the key as Enter.
+  test("sends the kitty encoding only while the program asked for it", () => {
+    const shiftEnter = {
+      type: "keydown" as const,
+      key: "Enter",
+      ctrlKey: false,
+      shiftKey: true,
+      altKey: false,
+      metaKey: false,
+    };
+
+    expect(getTerminalKeyAction(shiftEnter, "windows", { extendedKeyboardActive: true })).toEqual({
+      type: "write",
+      data: "\u001b[13;2u",
+    });
+    expect(
+      getTerminalKeyAction(shiftEnter, "windows", { extendedKeyboardActive: false }),
+    ).toEqual({ type: "passthrough" });
+    expect(getTerminalKeyAction(shiftEnter, "windows")).toEqual({ type: "passthrough" });
+  });
+
+  test("encodes the modifier set for modified enter", () => {
+    const base = {
+      type: "keydown" as const,
+      key: "Enter",
+      ctrlKey: false,
+      shiftKey: false,
+      altKey: false,
+      metaKey: false,
+    };
+
+    expect(
+      getTerminalKeyAction({ ...base, ctrlKey: true }, "windows", {
+        extendedKeyboardActive: true,
+      }),
+    ).toEqual({ type: "write", data: "\u001b[13;5u" });
+    expect(
+      getTerminalKeyAction({ ...base, altKey: true }, "windows", {
+        extendedKeyboardActive: true,
+      }),
+    ).toEqual({ type: "write", data: "\u001b[13;3u" });
+  });
+});
+
+// Advertising the disambiguation bit promises that the keys whose legacy bytes
+// collide stay distinguishable. Ctrl+I shares 0x09 with Tab and Ctrl+M shares
+// 0x0D with Enter, and Escape shares its single byte with the prefix of every
+// escape sequence, so those cases must use the codepoint form.
+describe("disambiguated keys", () => {
+  const key = (init: { key: string } & Record<string, unknown>) => ({
+    type: "keydown" as const,
+    altKey: false,
+    ctrlKey: false,
+    metaKey: false,
+    shiftKey: false,
+    ...init,
+  });
+
+  test("encodes Ctrl+I, Ctrl+M and Ctrl+[ distinctly", () => {
+    const active = { extendedKeyboardActive: true };
+    expect(getTerminalKeyAction(key({ key: "i", ctrlKey: true }), "windows", active)).toEqual({
+      type: "write",
+      data: "\u001b[105;5u",
+    });
+    expect(getTerminalKeyAction(key({ key: "m", ctrlKey: true }), "windows", active)).toEqual({
+      type: "write",
+      data: "\u001b[109;5u",
+    });
+    expect(getTerminalKeyAction(key({ key: "[", ctrlKey: true }), "windows", active)).toEqual({
+      type: "write",
+      data: "\u001b[91;5u",
+    });
+  });
+
+  // The plain Tab and Enter keys keep their usual bytes: shells and the many
+  // programs that read them as control characters depend on that. Escape cannot
+  // stay on the legacy path, though: its bare byte is the prefix of every escape
+  // sequence, which is exactly what this bit exists to disambiguate.
+  test("leaves plain Tab and Enter on the legacy path", () => {
+    const active = { extendedKeyboardActive: true };
+    expect(getTerminalKeyAction(key({ key: "Tab" }), "windows", active)).toEqual({
+      type: "passthrough",
+    });
+    expect(getTerminalKeyAction(key({ key: "Enter" }), "windows", active)).toEqual({
+      type: "passthrough",
+    });
+  });
+
+  test("encodes Escape once the program negotiated disambiguation", () => {
+    const active = { extendedKeyboardActive: true };
+    expect(getTerminalKeyAction(key({ key: "Escape" }), "windows", active)).toEqual({
+      type: "write",
+      data: "\u001b[27u",
+    });
+    expect(
+      getTerminalKeyAction(key({ key: "Escape", shiftKey: true }), "windows", active),
+    ).toEqual({ type: "write", data: "\u001b[27;2u" });
+    expect(getTerminalKeyAction(key({ key: "Escape", altKey: true }), "windows", active)).toEqual({
+      type: "write",
+      data: "\u001b[27;3u",
+    });
+    expect(getTerminalKeyAction(key({ key: "Escape", ctrlKey: true }), "windows", active)).toEqual({
+      type: "write",
+      data: "\u001b[27;5u",
+    });
+  });
+
+  test("keeps Escape on the legacy path before negotiation", () => {
+    expect(getTerminalKeyAction(key({ key: "Escape" }), "windows")).toEqual({
+      type: "passthrough",
+    });
+  });
+
+  // Alt+Backspace used to send 0x17, the same byte Ctrl+W sends, so a TUI could
+  // not tell them apart even after the program asked for disambiguation.
+  test("encodes Alt+Backspace instead of the Ctrl+W byte", () => {
+    const active = { extendedKeyboardActive: true };
+    expect(getTerminalKeyAction(key({ key: "Backspace", altKey: true }), "windows", active)).toEqual(
+      { type: "write", data: "\u001b[127;3u" },
+    );
+  });
+
+  test("keeps plain Backspace and Alt+W on their own paths", () => {
+    const active = { extendedKeyboardActive: true };
+    expect(getTerminalKeyAction(key({ key: "Backspace" }), "windows", active)).toEqual({
+      type: "passthrough",
+    });
+    // Ctrl+W still reaches the shell as the control byte it is.
+    expect(getTerminalKeyAction(key({ key: "w", ctrlKey: true }), "windows", active)).toEqual({
+      type: "passthrough",
+    });
+  });
+
+  test("keeps Alt+Backspace on the legacy mapping before negotiation", () => {
+    expect(getTerminalKeyAction(key({ key: "Backspace", altKey: true }), "windows")).toEqual({
+      type: "write",
+      data: "\u0017",
+    });
+  });
+
+  test("does not encode the aliasing combinations before negotiation", () => {
+    expect(getTerminalKeyAction(key({ key: "i", ctrlKey: true }), "windows")).toEqual({
+      type: "passthrough",
+    });
+  });
 });

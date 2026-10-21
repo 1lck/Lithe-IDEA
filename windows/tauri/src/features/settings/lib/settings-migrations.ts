@@ -19,6 +19,7 @@ export const RETIRED_SETTINGS_KEYS: readonly string[] = [
   "gitLastPanelMode",
   "gitSidebarTabOrder",
   "openFoldersInNewWindow",
+  "autoRevealActiveFileInFileTree",
 ];
 
 export const PROJECT_OPEN_DESTINATION_KEY = "projectOpenDefaultDestination";

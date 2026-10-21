@@ -38,6 +38,8 @@ export interface WorkbenchHost {
   javaRunIconsDark?: Partial<Record<RunMarkerIcon, string>>;
   /** Native IDEA order: line numbers, then action decorations. */
   lineNumbersFirst?: boolean;
+  /** Opt in only when the host handles setBlameVisibility for repository files. */
+  gitBlameMenu?: boolean;
   foldingIcons?: Record<"expanded" | "collapsed", { light: string; dark: string }>;
   keybindings?: { command: string; label: string; keybinding: number }[];
 }
@@ -410,8 +412,9 @@ export function mountWorkbench(host: WorkbenchHost) {
   }
 
   const debugRunContexts = new WeakMap<monaco.editor.IStandaloneCodeEditor, monaco.editor.IContextKey<boolean>>();
+  const debugGutterMenus = new WeakMap<monaco.editor.IStandaloneCodeEditor, (line: number) => IAction[]>();
   const gitStates = new WeakMap<Entry, { version: number; revision: number; markers: GitMarker[]; decorations: string[];
-    blameVisible?: boolean; blame?: BlameLine[] }>();
+    canAnnotate?: boolean; blameVisible?: boolean; blame?: BlameLine[] }>();
   const gitContextUpdates = new WeakMap<monaco.editor.IStandaloneCodeEditor, () => void>();
   function attachGitInteractions(view: monaco.editor.IStandaloneCodeEditor) {
     const blameKey = view.createContextKey("litheGit.blame", false);
@@ -475,7 +478,35 @@ export function mountWorkbench(host: WorkbenchHost) {
     view.onDidChangeCursorPosition(refresh);
     view.onDidChangeModel(refresh);
     view.onDidChangeModelContent(refresh);
+    if (host.gitBlameMenu) view.onContextMenu(event => {
+      if (event.target.type !== monaco.editor.MouseTargetType.GUTTER_LINE_NUMBERS) return;
+      const pair = [...entries].find(([, entry]) => entry.model === view.getModel());
+      if (!pair) return;
+      const [id, entry] = pair, state = gitStates.get(entry), version = entry.model.getVersionId();
+      const visible = state?.blameVisible === true;
+      const enabled = !!state && (visible || state.canAnnotate === true) &&
+        !entry.frozen && !entry.closingHolds && !failed;
+      event.event.preventDefault(); event.event.stopPropagation();
+      StandaloneServices.get(IContextMenuService).showContextMenu({
+        getAnchor: () => ({ x: event.event.posx, y: event.event.posy }),
+        getActions: () => {
+          const items: IAction[] = [new Action("lithe.git.annotate", visible ? "Hide Git Blame" : "Annotate with Git Blame",
+            undefined, enabled, async () => {
+              // The menu can outlive a tab switch, edit, close or Git-state refresh.
+              if (!enabled || entries.get(id) !== entry || view.getModel() !== entry.model || entry.model.isDisposed() ||
+                  gitStates.get(entry) !== state || version !== entry.model.getVersionId() || entry.frozen || entry.closingHolds || failed) return;
+              await languageRequest({ type: "setBlameVisibility", id, revision: entry.revision, visible: !visible });
+            })];
+          const debugItems = event.target.position ? debugGutterMenus.get(view)?.(event.target.position.lineNumber) : undefined;
+          if (debugItems?.length) items.push(new Separator(), ...debugItems);
+          return items;
+        },
+        onHide: () => { if (view.getModel() === entry.model && !entry.model.isDisposed()) view.focus(); },
+      });
+    });
     view.onMouseDown(event => {
+      if (host.gitBlameMenu && isMacintosh && event.event.ctrlKey &&
+          event.target.type === monaco.editor.MouseTargetType.GUTTER_LINE_NUMBERS) return;
       if (event.event.leftButton && event.target.position && event.target.element?.closest(".lithe-blame")) {
         event.event.preventDefault(); event.event.stopPropagation();
         void showBlame(event.target.position.lineNumber);
@@ -731,6 +762,18 @@ export function mountWorkbench(host: WorkbenchHost) {
         await send({ type, id, revision: entry.revision, line, column });
       }).catch(error => console.warn("Debug request failed", error));
     }
+    debugGutterMenus.set(view, line => {
+      const model = view.getModel(), pair = [...entries].find(([, entry]) => entry.model === model);
+      if (!pair || !model?.getLineDecorations(line)?.some(item => item.options.glyphMarginClassName?.includes("lithe-breakpoint"))) return [];
+      const [id, entry] = pair, version = model.getVersionId(), generation = entry.debugGeneration;
+      const enabled = !view.getOption(monaco.editor.EditorOption.readOnly) && entry.canToggleBreakpoints !== false &&
+        !entry.readonly && !entry.frozen && !entry.closingHolds && !failed;
+      return [new Action("lithe.editBreakpoint", "Edit Breakpoint…", undefined, enabled, async () => {
+        if (!enabled || entries.get(id) !== entry || view.getModel() !== model || model.isDisposed() ||
+            model.getVersionId() !== version || entry.debugGeneration !== generation) return;
+        await request("editBreakpoint", line);
+      })];
+    });
     view.addAction({ id: "lithe.runToCursor", label: "Run to Cursor",
       precondition: "litheCanRunToCursor", contextMenuGroupId: "debug", contextMenuOrder: 1,
       run: () => {
@@ -745,6 +788,10 @@ export function mountWorkbench(host: WorkbenchHost) {
     if (attached) scheduleNavigation(...attached);
     refresh();
     return view.onMouseDown(event => {
+      // The opted-in line-number menu owns right-clicks; only its explicit
+      // Edit Breakpoint action may open the native editor sheet.
+      if (host.gitBlameMenu && host.lineNumbersFirst && (event.event.rightButton || isMacintosh && event.event.ctrlKey) &&
+          event.target.type === monaco.editor.MouseTargetType.GUTTER_LINE_NUMBERS) return;
       if (event.target.element?.closest(".lithe-java-navigation, .lithe-java-run, .lithe-blame") ||
           host.lineNumbersFirst && typeof view.getRawOptions().lineNumbers === "function") return;
       if ((event.target.type !== monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN &&
@@ -780,7 +827,7 @@ export function mountWorkbench(host: WorkbenchHost) {
       await Promise.all([...entries].filter(([, entry]) => allEditors().some(view => view.getModel() === entry.model))
         .map(([id, entry]) => refreshNavigation(id, entry)));
     },
-    async gitState(id: string, state: { revision: number; markers: GitMarker[]; blameVisible?: boolean; blame?: BlameLine[] }) {
+    async gitState(id: string, state: { revision: number; markers: GitMarker[]; canAnnotate?: boolean; blameVisible?: boolean; blame?: BlameLine[] }) {
       await activation;
       const entry = entries.get(id);
       if (!entry) return;
@@ -1206,6 +1253,9 @@ export function mountWorkbench(host: WorkbenchHost) {
     displayOptions = {
       model: null, automaticLayout: true, minimap: { enabled: true }, theme: bootstrapTheme, fontSize: 13,
       glyphMargin: !host.lineNumbersFirst, ...(host.lineNumbersFirst ? { guides: { bracketPairs: false, bracketPairsHorizontal: false, highlightActiveIndentation: false }, lineNumbersMinChars: 1, lineDecorationsWidth: nativeFoldingOffset, extraEditorClassName: "lithe-line-numbers-first" } : {}), scrollBeyondLastLine: false, fixedOverflowWidgets: true, "semanticHighlighting.enabled": true,
+      // Full-width punctuation is normal in Chinese prose; Monaco's confusable-character
+      // warning misfires there and its "Adjust settings" link has no target in embedded Monaco.
+      unicodeHighlight: { ambiguousCharacters: false },
     };
     editor = monaco.editor.create(document.querySelector("#editor") as HTMLElement, displayOptions);
     installWordHighlightLifecycle(editor);

@@ -300,6 +300,39 @@ enum LitheTheme {
     static var settingsListSurface: Color { settingsSurface }
     static var settingsFont: Font { uiFont(size: 13) }
     static var settingsStrongFont: Font { uiFont(size: 13, weight: .semibold) }
+
+    // Settings window layers, after the macOS System Settings look: a tinted
+    // sidebar, a light page behind the content, and white cards that hold
+    // the rows. Values match design-mockups/plugin-settings.html.
+    static var settingsSidebar: Color { settingsColor(light: 0xECECEE, dark: 0x232427) }
+    static var settingsPage: Color { settingsColor(light: 0xF5F5F7, dark: 0x1C1D20) }
+    static var settingsCard: Color { settingsColor(light: 0xFFFFFF, dark: 0x2B2D30) }
+    static var settingsCardDivider: Color { settingsColor(light: 0xEDEDF0, dark: 0x34363A) }
+    static var settingsCardRing: Color { settingsColor(light: 0x000000, dark: 0xFFFFFF, alpha: 0.07) }
+    static var settingsRowHover: Color { settingsColor(light: 0x000000, dark: 0xFFFFFF, alpha: 0.025) }
+    static var settingsPill: Color { settingsColor(light: 0xF0F1F4, dark: 0x393B40) }
+    static var settingsPillText: Color { settingsColor(light: 0x6C707E, dark: 0x9DA0A8) }
+    static var settingsProjectPill: Color { settingsColor(light: 0xE6F4EA, dark: 0x22382A) }
+    static var settingsProjectPillText: Color { settingsColor(light: 0x208A3C, dark: 0x5FB865) }
+    static var settingsEffectPill: Color { settingsColor(light: 0xFFF1D6, dark: 0x3D3220) }
+    static var settingsEffectPillText: Color { settingsColor(light: 0xC27D00, dark: 0xE0A83E) }
+    static var settingsValuePill: Color { settingsColor(light: 0xE8F0FE, dark: 0x25324D) }
+    static var settingsValuePillText: Color { settingsColor(light: 0x3574F0, dark: 0x548AF7) }
+    static var settingsNoticeBackground: Color { settingsColor(light: 0xFFF6E0, dark: 0x3A301D) }
+    static var settingsNoticeText: Color { settingsColor(light: 0x7A5400, dark: 0xE8C47A) }
+
+    private static func settingsColor(light: UInt32, dark: UInt32, alpha: CGFloat = 1) -> Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            let hex = isDark ? dark : light
+            return NSColor(
+                srgbRed: CGFloat((hex >> 16) & 0xFF) / 255,
+                green: CGFloat((hex >> 8) & 0xFF) / 255,
+                blue: CGFloat(hex & 0xFF) / 255,
+                alpha: alpha
+            )
+        })
+    }
     static var settingsSearchBorder: Color {
         Color(nsColor: NSColor(name: nil) { appearance in
             let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
@@ -479,6 +512,10 @@ enum LitheTheme {
     }
 
     enum ActionToolbar {
+        // ActionToolbarImpl: 22pt button plus 2pt horizontal border on either side.
+        static let actionSpacing: CGFloat = 4
+        // Islands dark ColorPalette maps CED0D6 to gray-120; light keeps the SVG stroke.
+        static var icon: Color { controlColor(light: 0x6C707E, dark: 0xC3C5CB) }
         static var separator: Color {
             controlColor(light: 0x000000, dark: 0xFFFFFF, lightAlpha: 32/255, darkAlpha: 33/255)
         }
@@ -706,6 +743,24 @@ enum LitheTheme {
     }
 
     // MARK: - 浮层
+    // Community c7f91397: ManyIslands Popup.background/borderColor.
+    enum SearchEverywhere {
+        static let preferredWidth: CGFloat = 670
+        static let maxResultsHeight: CGFloat = 600
+        static var matchBackground: Color { controlColor(light: 0xFEE6B1, dark: 0xBA9752) }
+        static var matchForeground: Color { controlColor(light: 0x323232, dark: 0x000000) }
+        // DarculaScrollPaneBorder -> JBColor.border -> Islands Borders.color (layer-0-border).
+        static var filterBorder: Color {
+            activeTheme == .lithe ? controlColor(light: 0xD1D3D9, dark: 0x26282C) : panelBorder
+        }
+        static var background: Color {
+            activeTheme == .lithe ? controlColor(light: 0xF7F8F9, dark: 0x26282C) : popupBackground
+        }
+        static var border: Color {
+            activeTheme == .lithe ? controlColor(light: 0xDDDFE4, dark: 0x33353B) : panelBorder
+        }
+    }
+
     static var popupBackground: Color { adaptive(\.popupBackground) }
     static var popupShadow: Color { adaptive(\.popupShadow) }
     static var badgeBackground: Color { adaptive(\.badgeBackground) }
@@ -1000,6 +1055,8 @@ enum LitheTheme {
         static var fileDeleted: Color { controlColor(light: 0x616161, dark: 0x6F737A) }
         static var fileRenamed: Color { controlColor(light: 0x007C7C, dark: 0x70AEFF) }
         static var fileConflicted: Color { controlColor(light: 0xFF0000, dark: 0xDE6A66) }
+        // Islands Dark / Light editor schemes: FILESTATUS_IDEA_FILESTATUS_IGNORED.
+        static var fileIgnored: Color { controlColor(light: 0x8C4F00, dark: 0xD69A6B) }
         static var fileUntracked: Color { controlColor(light: 0x993300, dark: 0xE88F89) }
 
         static let toolbarHeight = Metrics.toolbarHeight

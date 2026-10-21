@@ -8,6 +8,7 @@ import {
   submitFrontendLog,
 } from "@/features/logging/frontend-log-runtime";
 import type { TerminalInput, TerminalSize } from "../types/terminal.types";
+import { TerminalKeyboardProtocolStream } from "@/features/terminal/utils/terminal-keyboard-protocol";
 import { TerminalOscStream } from "../utils/terminal-osc-stream";
 import {
   snapshotTerminalLayout,
@@ -69,6 +70,7 @@ export function useTerminalConnection({
   const outputPausedRef = useRef(false);
   const outputDecoderRef = useRef(new TextDecoder());
   const oscStreamRef = useRef(new TerminalOscStream());
+  const keyboardProtocolRef = useRef(new TerminalKeyboardProtocolStream());
   const diagnosticsRef = useRef<TerminalProtocolDiagnostics | null>(null);
   const terminalInputEncoder = useRef(new TextEncoder());
 
@@ -202,6 +204,7 @@ export function useTerminalConnection({
     outputPausedRef.current = false;
     outputDecoderRef.current = new TextDecoder();
     oscStreamRef.current.reset();
+    keyboardProtocolRef.current.reset();
     if (connectionId) updateSession(sessionId, { title: "" });
     void flush();
   }, [connectionId, flush, sessionId, updateSession]);
@@ -365,6 +368,16 @@ export function useTerminalConnection({
           updateSession(sessionId, oscUpdates);
         }
 
+        // Programs ask the terminal what keyboard protocol it supports and only
+        // enable enhanced keys after the answer arrives. xterm.js never replies,
+        // so answer here where the raw output is still observable.
+        const keyboardReply = keyboardProtocolRef.current.feed(decoded);
+        if (keyboardReply) {
+          void writeInput(connectionId, { kind: "text", data: keyboardReply }).catch((error) =>
+            console.error("Failed to answer the keyboard protocol query:", error),
+          );
+        }
+
         const flushedAtWatermark = outputWriteBuffer.enqueue(bytes, () => {
           queuedOutputBytesRef.current = Math.max(
             0,
@@ -471,5 +484,8 @@ export function useTerminalConnection({
     currentConnectionIdRef,
     sendTerminalSize,
     writeBuffered: write,
+    // Keys can only use the extended encoding while the running program has
+    // asked for it; anything else arrives as literal bytes it cannot parse.
+    isExtendedKeyboardActive: () => keyboardProtocolRef.current.flags > 0,
   };
 }

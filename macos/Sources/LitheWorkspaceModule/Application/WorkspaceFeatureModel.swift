@@ -50,6 +50,13 @@ package final class WorkspaceFeatureModel: ObservableObject {
     private var gitRefreshGeneration = 0
     private var workspaceSessionPersistenceTask: Task<Void, Never>?
     private var hasRestoredWorkspaceSession = false
+    private var directoryListingRevision = 0
+    private struct DirectoryLoad {
+        let id: UUID
+        let paths: [String]
+        let task: Task<Bool, Never>
+    }
+    private var directoryLoads: [String: DirectoryLoad] = [:]
 
     private var documentsProvider: (@MainActor () -> [WorkspaceDocumentState])?
     private var activeDocumentProvider: (@MainActor () -> WorkspaceDocumentState?)?
@@ -173,6 +180,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
     }
 
     package func reset() {
+        invalidateDirectoryListings()
         workspaceGeneration &+= 1
         directoryMarkRevision &+= 1
         if let workspaceURL {
@@ -209,6 +217,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
     }
 
     deinit {
+        for load in directoryLoads.values { load.task.cancel() }
         directoryWatcher?.stop()
         refreshTask?.cancel()
         gitRefreshTask?.cancel()
@@ -218,6 +227,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
     }
 
     package func beginWorkspace(at url: URL, visibilityRules: FileVisibilityRules) {
+        invalidateDirectoryListings()
         isPerformingProjectItemOperation = false
         workspaceGeneration &+= 1
         directoryMarkRevision &+= 1
@@ -284,6 +294,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         rules: FileVisibilityRules,
         isCurrent: @escaping @MainActor () -> Bool
     ) async -> WorkspaceRebuildResult {
+        invalidateDirectoryListings()
         let isInitialLoad = !hasSnapshot
         if isInitialLoad {
             isLoadingWorkspace = true
@@ -437,6 +448,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
     }
 
     package func updateVisibilityRules(_ rules: FileVisibilityRules) {
+        invalidateDirectoryListings()
         visibilityRulesRefreshTask?.cancel()
         refreshTask?.cancel()
         guard let workspaceURL else { return }
@@ -1063,6 +1075,10 @@ package final class WorkspaceFeatureModel: ObservableObject {
 
     private func scheduleDirectoryChange(_ batch: DirectoryChangeBatch) {
         guard !batch.isEmpty else { return }
+        if !batch.workspacePaths.isEmpty || batch.watchRootsChanged || batch.requiresFullRescan {
+            // Invalidate before debounce: an expansion must not consume pre-event lookahead.
+            invalidateDirectoryListings()
+        }
         if !batch.workspacePaths.isEmpty {
             pendingExternalPaths.formUnion(batch.workspacePaths)
             externalRefreshGeneration += 1
@@ -1406,9 +1422,10 @@ package final class WorkspaceFeatureModel: ObservableObject {
 
         guard reloadsTree, let workspaceURL else { return }
         let operations = self.operations
-        let rules = visibilityRules
         while workspaceGeneration == generation, self.workspaceURL == workspaceURL,
               let currentRoot = rootNode, let currentSnapshot = appliedSnapshot {
+            let revision = directoryListingRevision
+            let rules = visibilityRules
             let loaded = Self.loadedDirectoryPaths(in: currentRoot)
             let base = FileNode(url: currentRoot.url, isDirectory: true, children: nil)
             let relisted = await Task.detached(priority: .userInitiated) {
@@ -1418,7 +1435,8 @@ package final class WorkspaceFeatureModel: ObservableObject {
             // Cancelling the debounce task does not undo its committed events.
             // If another batch or expansion advanced the tree, relist that state
             // instead of losing this batch's compact-package layout change.
-            guard appliedSnapshot?.id == currentSnapshot.id, rootNode == currentRoot else { continue }
+            guard directoryListingRevision == revision,
+                  appliedSnapshot?.id == currentSnapshot.id, rootNode == currentRoot else { continue }
             guard let relisted else { return }
             rootNode = relisted
             appliedSnapshot = WorkspaceSnapshot(
@@ -1433,6 +1451,13 @@ package final class WorkspaceFeatureModel: ObservableObject {
 
     // MARK: - On-demand tree loading
 
+    private func invalidateDirectoryListings() {
+        directoryListingRevision &+= 1
+        for load in directoryLoads.values { load.task.cancel() }
+        directoryLoads.removeAll()
+        operations.invalidateDirectoryListings()
+    }
+
     /// Lists the expanded directories that are still unloaded, level by level,
     /// until every expanded row shows its children.
     ///
@@ -1440,28 +1465,88 @@ package final class WorkspaceFeatureModel: ObservableObject {
     /// revealing a file, or restoring expanded rows adds paths here; each pass
     /// lists one level in a single Core call, so the depth bounds the passes.
     package func loadExpandedDirectories(_ expandedPaths: Set<String>) async {
-        for _ in 0..<Self.maximumListingPasses {
-            guard let workspaceURL, let rows = rootNode?.unloadedRows(expandedPaths: expandedPaths),
+        listingPass: for _ in 0..<Self.maximumListingPasses {
+            guard !Task.isCancelled, let workspaceURL,
+                  let rows = rootNode?.unloadedRows(expandedPaths: expandedPaths),
                   !rows.isEmpty else { return }
             let generation = workspaceGeneration
-            let operations = self.operations
-            let rules = visibilityRules
-            let listed = await Task.detached(priority: .userInitiated) {
-                operations.childRows(of: rows, at: workspaceURL, visibilityRules: rules)
-            }.value
-            guard workspaceGeneration == generation, self.workspaceURL == workspaceURL,
-                  let listed, var root = rootNode else { return }
-            for row in rows {
-                // A rebuild during the listing may already have loaded the row.
-                guard case .displayed(let current, isExact: true) = root.placement(of: row.url),
-                      current.isUnloadedDirectory else { continue }
-                // A directory that vanished meanwhile shows as empty until the
-                // watcher's refresh removes it.
-                let children = listed[row.url.standardizedFileURL.path] ?? []
-                root = root.loadingChildren(children, intoRowAt: row.url) ?? root
+            let revision = directoryListingRevision
+            let missing = rows.filter { directoryLoads[$0.url.standardizedFileURL.path] == nil }
+            if !missing.isEmpty {
+                let operations = self.operations
+                let rules = visibilityRules
+                let id = UUID()
+                let paths = missing.map { $0.url.standardizedFileURL.path }
+                let worker = Task.detached(priority: .userInitiated) {
+                    guard !Task.isCancelled else { return nil as [String: [FileNode]]? }
+                    let result = operations.childRows(of: missing, at: workspaceURL, visibilityRules: rules)
+                    return Task.isCancelled ? nil : result
+                }
+                // Publish on completion, independently of callers waiting on other directories.
+                let task = Task { @MainActor [weak self] in
+                    let listed = await withTaskCancellationHandler {
+                        await worker.value
+                    } onCancel: {
+                        worker.cancel()
+                    }
+                    guard let self else { return false }
+                    for path in paths where self.directoryLoads[path]?.id == id {
+                        self.directoryLoads.removeValue(forKey: path)
+                    }
+                    guard !Task.isCancelled, self.workspaceGeneration == generation,
+                          self.workspaceURL == workspaceURL, self.directoryListingRevision == revision,
+                          let listed, var root = self.rootNode else { return false }
+                    var changed = false
+                    for row in missing {
+                        guard case .displayed(let current, isExact: true) = root.placement(of: row.url),
+                              current.isUnloadedDirectory else { continue }
+                        let children = listed[row.url.standardizedFileURL.path] ?? []
+                        if let updated = root.loadingChildren(children, intoRowAt: row.url) {
+                            root = updated
+                            changed = true
+                        }
+                    }
+                    if changed { self.rootNode = root }
+                    return true
+                }
+                let load = DirectoryLoad(id: id, paths: paths, task: task)
+                for path in load.paths { directoryLoads[path] = load }
             }
-            rootNode = root
+            var seen: Set<UUID> = []
+            let loads = rows.compactMap { row -> DirectoryLoad? in
+                guard let load = directoryLoads[row.url.standardizedFileURL.path],
+                      seen.insert(load.id).inserted else { return nil }
+                return load
+            }
+            for load in loads {
+                let succeeded = await load.task.value
+                guard !Task.isCancelled, workspaceGeneration == generation,
+                      self.workspaceURL == workspaceURL else { return }
+                // Another event can invalidate a listing without changing workspace identity.
+                guard directoryListingRevision == revision else { continue listingPass }
+                guard succeeded else { return }
+            }
         }
+    }
+
+    /// Explicit Expand All action. Ordinary expansion never materializes sibling subtrees.
+    package func loadAllDirectories() async -> Set<String>? {
+        let generation = workspaceGeneration
+        var expanded: Set<String> = []
+        for _ in 0..<Self.maximumListingPasses {
+            guard !Task.isCancelled, workspaceGeneration == generation, let root = rootNode else { return nil }
+            expanded.insert(root.url.path)
+            for row in root.loadedDirectoryRows {
+                expanded.formUnion(row.collapsedAncestorPaths)
+                expanded.formUnion((row.children ?? []).filter(\.isDirectory).map(\.url.path))
+            }
+            let pending = root.unloadedRows(expandedPaths: expanded).map(\.url.path)
+            if pending.isEmpty { return expanded }
+            await loadExpandedDirectories(expanded)
+            guard !Task.isCancelled, workspaceGeneration == generation, let current = rootNode else { return nil }
+            if current.unloadedRows(expandedPaths: expanded).map(\.url.path) == pending { return nil }
+        }
+        return nil
     }
 
     private nonisolated static let maximumListingPasses = 64
@@ -1530,7 +1615,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
                 let children = listed[row.url.standardizedFileURL.path] ?? []
                 guard let updated = tree.loadingChildren(children, intoRowAt: row.url) else { continue }
                 tree = updated
-                next += children.filter { $0.isDirectory && loaded.contains($0.url.standardizedFileURL.path) }
+                next += children.flatMap { $0.unloadedRows(expandedPaths: loaded) }
             }
             pending = next
         }

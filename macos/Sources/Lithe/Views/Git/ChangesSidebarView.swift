@@ -559,7 +559,7 @@ struct ChangesSidebarView: View {
                         .help(LocalizedStringKey(change.kind.title))
                     Text(changeDisplayName(change))
                         .font(LitheTheme.uiFont(size: 13, weight: .regular))
-                        .foregroundStyle(fileNameColor(change))
+                        .foregroundStyle(change.fileNameColor)
                         .lineLimit(1)
                         .layoutPriority(1)
                     if !change.canToggleStaging {
@@ -727,17 +727,6 @@ struct ChangesSidebarView: View {
     private func stagingState(for changes: [GitChange]) -> NSControl.StateValue {
         if allChangesStaged(changes) { return .on }
         return changes.contains(where: isEffectivelyStaged) ? .mixed : .off
-    }
-
-    private func fileNameColor(_ change: GitChange) -> Color {
-        if change.isUntracked { return LitheTheme.Commit.fileUntracked }
-        switch change.kind {
-        case .modified: return LitheTheme.Commit.fileModified
-        case .added, .copied: return LitheTheme.Commit.fileAdded
-        case .deleted: return LitheTheme.Commit.fileDeleted
-        case .moved: return LitheTheme.Commit.fileRenamed
-        case .conflicted: return LitheTheme.Commit.fileConflicted
-        }
     }
 
     private func selectRequestedStashIfNeeded() {
@@ -915,4 +904,18 @@ struct GitChangeInclusionCheckbox: View {
                 .accessibilityValue(Text(state == .mixed ? "Partially selected" : state == .on ? "Selected" : "Not selected"))
         }
     }
+}
+
+extension GitChange {
+    var fileNameColor: Color {
+        if isUntracked { return LitheTheme.Commit.fileUntracked }
+        switch kind {
+        case .modified: return LitheTheme.Commit.fileModified
+        case .added, .copied: return LitheTheme.Commit.fileAdded
+        case .deleted: return LitheTheme.Commit.fileDeleted
+        case .moved: return LitheTheme.Commit.fileRenamed
+        case .conflicted: return LitheTheme.Commit.fileConflicted
+        }
+    }
+
 }

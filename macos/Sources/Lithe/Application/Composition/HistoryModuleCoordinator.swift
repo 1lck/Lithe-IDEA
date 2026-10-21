@@ -62,7 +62,7 @@ final class HistoryModuleCoordinator {
             })
             return feature
         } catch {
-            notify(error.localizedDescription)
+            if !error.isCancellation { notify(error.localizedDescription) }
             return nil
         }
     }

@@ -1,21 +1,6 @@
 import SwiftUI
 import LitheGitModule
 
-struct GitFetchSettingsView: View {
-    @Binding var options: GitFetchOptions
-    var body: some View {
-        GitSettingsCard {
-            GitSettingsHeader(
-                icon: "arrow.down.circle",
-                title: "Fetch defaults",
-                info: "Set the defaults used by ordinary Fetch in every project. Credentials use your existing Git helper and SSH configuration."
-            )
-            GitFetchPolicyControls(options: $options)
-            Button("Reset Fetch defaults") { options = GitFetchOptions() }.lithePointer()
-        }
-    }
-}
-
 struct GitFetchPolicyControls: View {
     @Binding var options: GitFetchOptions
     var body: some View {

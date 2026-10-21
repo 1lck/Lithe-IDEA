@@ -271,7 +271,7 @@ struct PluginUIIconTests {
             LitheAction(id: $0, title: $0, subtitle: "", group: .window, isEnabled: $0 != "disabled", perform: {})
         }
         var executed: [String] = []
-        let view = SearchEverywhereView(feature: feature, session: session, actionMatches: { _ in actions },
+        let view = SearchEverywhereView(feature: feature, session: session, settings: AppSettings(store: MacUserDefaultsStore(defaults: UserDefaults(suiteName: UUID().uuidString)!)), actionMatches: { _ in actions },
             search: { _, _ in }, dismiss: {}, openResult: { _ in }, performAction: { executed.append($0.id) }, revealInFinder: { _ in },
             copyPath: { _, _ in }, relativePath: { _ in "" }, moduleLabel: { _ in "" },
             actionIcon: { _ in AnyView(WorkbenchContributionIcon(asset: asset, role: .action)) })
@@ -290,13 +290,18 @@ struct PluginUIIconTests {
         }
         var captured: NSBitmapImageRep?
         func colors() throws -> (NSColor, NSColor) {
-            host.layoutSubtreeIfNeeded()
-            let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-            host.cacheDisplay(in: host.bounds, to: bitmap)
+            window.childWindows?.first?.contentView?.layoutSubtreeIfNeeded()
+            guard let content = window.childWindows?.first?.contentView, content.bounds.height > 148 else {
+                let clear = NSColor(srgbRed: 0, green: 0, blue: 0, alpha: 0)
+                return (clear, clear)
+            }
+            content.layoutSubtreeIfNeeded()
+            let bitmap = try #require(content.bitmapImageRepForCachingDisplay(in: content.bounds))
+            content.cacheDisplay(in: content.bounds, to: bitmap)
             captured = bitmap
-            let scale = CGFloat(bitmap.pixelsWide) / 1000
+            let scale = CGFloat(bitmap.pixelsWide) / content.bounds.width
             func color(row: Int) throws -> NSColor {
-                try #require(bitmap.colorAt(x: Int(88 * scale), y: Int((185 + CGFloat(row) * 24) * scale))?.usingColorSpace(.deviceRGB))
+                try #require(bitmap.colorAt(x: Int(18 * scale), y: Int((100 + CGFloat(row) * 24) * scale))?.usingColorSpace(.deviceRGB))
             }
             return try (color(row: 0), color(row: 1))
         }
@@ -315,8 +320,9 @@ struct PluginUIIconTests {
         if mode == .template { #expect(first.redComponent > second.redComponent + 0.1) }
         else if dark { #expect(first.blueComponent > first.redComponent + 0.6) }
         else { #expect(first.redComponent > first.blueComponent + 0.6) }
+        let panel = try #require(window.childWindows?.first)
         NSApp.sendEvent(try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
-            windowNumber: window.windowNumber, context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: 125)))
+            windowNumber: panel.windowNumber, context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: 125)))
         let changedDeadline = clock.now.advanced(by: .seconds(2))
         repeat {
             await Task.yield()
@@ -330,15 +336,15 @@ struct PluginUIIconTests {
         }
         func key(_ code: UInt16) throws {
             NSApp.sendEvent(try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
-                windowNumber: window.windowNumber, context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: code)))
+                windowNumber: panel.windowNumber, context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: code)))
         }
         try key(125) // Select the disabled row after the enabled second row.
         try key(36)
         #expect(executed.isEmpty)
-        let location = NSPoint(x: 140, y: 400 - (185 + 2 * 24))
+        let location = NSPoint(x: 70, y: panel.frame.height - (100 + 2 * 24))
         for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
             NSApp.sendEvent(try #require(NSEvent.mouseEvent(with: type, location: location, modifierFlags: [], timestamp: 0,
-                windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)))
+                windowNumber: panel.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)))
         }
         #expect(executed.isEmpty)
         try key(126)

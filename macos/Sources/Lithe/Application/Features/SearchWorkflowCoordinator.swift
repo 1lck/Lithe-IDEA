@@ -67,13 +67,18 @@ final class SearchWorkflowCoordinator {
         guard let root = workspace() else { return }
         do {
             let feature = try await activate()
+            let rules = settings.searchEverywhereVisibilityRules.searchRules
+            let kinds = session.everywhereResultKinds
             await feature.searchEverywhere(
                 at: root,
                 query: query,
                 options: options,
-                visibilityRules: settings.fileVisibilityRules.searchRules,
+                visibilityRules: rules,
+                kinds: kinds,
                 isCurrent: { [weak session, workspace] in
                     session?.isSearchEverywhereVisible == true && workspace() == root
+                        && session?.everywhereResultKinds == kinds
+                        && self.settings.searchEverywhereVisibilityRules.searchRules == rules
                 }
             )
             markIdle()

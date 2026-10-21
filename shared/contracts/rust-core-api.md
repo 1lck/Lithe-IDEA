@@ -202,6 +202,23 @@ their camel-case field names, are fixed by
 can correlate concurrent requests. `stopReason` uses ACP wire names such as
 `end_turn` and `cancelled`.
 
+Codex `sessions` and `archivedSessions` use the installed official App Server's
+`thread/list` with matching provider, source-kind and workspace scope. The Host
+normalizes its `recencyAt` (conversation activity) into the existing optional
+ISO 8601 `updatedAt` history field, and sorts upstream pages by `recency_at`.
+`useStateDbOnly: true` avoids rollout-file scans/read-repair for this read-only
+listing. Merely loading a conversation or changing its metadata can advance
+Codex's raw `updatedAt`; that field is never a fallback for activity. Missing or
+invalid `recencyAt` yields `updatedAt: null`, so consumers omit the relative time
+and time-sorted history rows place unknown activity after known timestamps,
+breaking ties by session ID. The switcher's existing current-session pin is unchanged.
+Listing failure retains consumers' existing rows through `requestFailed`; it
+does not fabricate a local timestamp. Other Agents retain standard ACP listing.
+`shared/fixtures/agent/history-activity-v1.json` covers initial state, metadata-only
+viewing, and a new conversation turn. The history UI geometry is unchanged.
+
+Both native Codex App Server listing and standard ACP listing may emit additive `sessionsPage` events for nonterminal pages with matching rows. Each carries the original `listSessions` token and only that page’s summaries. Consumers merge these rows without pruning cached entries or completing the loading state. The existing terminal `sessions` event still carries the full snapshot; consumers that ignore `sessionsPage` remain compatible. A later `requestFailed` retains cached and already received rows. Ignore pages from superseded, completed, or disconnected requests. Empty filtered pages do not end a scan: follow the Agent’s cursor. Platform history surfaces may reuse successful connection-local snapshots (including empty results) for 30 seconds, with independent active/archive freshness; explicit refresh and post-unarchive reconciliation bypass freshness. Failed scans remain retryable and reconnection invalidates freshness. On macOS, a confirmed `turnFinished` invalidates active-list freshness, including for background sessions, without expiring the archive snapshot. A scan still in flight at that boundary may update displayed rows but cannot renew freshness when it completes; the next history open queries again after that scan finishes. Loading or viewing history alone does not invalidate freshness or synthesize activity timestamps. This adds no persisted history or runtime resource directory.
+
 `prompt` retains `text` and optionally carries ordered `files` entries with `uri`
 (a native `file://` URL) and `name` (the display filename). The host validates up to
 32 references and sends upstream ACP `resource_link` blocks after the text block;
@@ -757,7 +774,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `editor.lineEdit` | Apply a deterministic line-level text transform and return the replacement plus selection to restore |
 | `editor.lineCommentToken` | Resolve the line comment token for a file extension or language id |
 | `workspace.snapshot` | Enumerate visible workspace nodes and relative file paths; `nestedWorktrees` lists linked worktrees checked out inside their own repository, which are left out of the tree, files, and search index ; `includeTree: false` returns only `files` and a childless `root` |
-| `workspace.listDirectories` | Return one visible level of children for each requested workspace-relative directory (`""` is the root); missing, hidden, symlinked, or nested-worktree paths are omitted, and each listing reports the nested worktrees it left out |
+| `workspace.listDirectories` | Return one visible level of children for each requested workspace-relative directory (`""` is the root); missing, hidden, symlinked, or nested-worktree paths are omitted, and each listing reports the nested worktrees it left out. Child directories have `children: []` only when a shallow probe proves them visibly empty; otherwise children remain omitted (unloaded), with no recursive tree allocation |
 | `workspace.repositories` | Discover deterministic Git repository roots for an opened workspace |
 | `workspace.search` | Search visible file names and UTF-8 text files |
 | `workspace.searchEverywhere` | Search visible file names, Java types/methods, and UTF-8 text files |
@@ -811,6 +828,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `java.jdtWorkspaceFingerprint` | Reduce platform build-file observations to the portable JDT LS workspace fingerprint |
 | `java.jdtCacheRetention` | Select expired inactive JDT LS workspace-state keys from platform metadata |
 | `lsp.stopServer` | Gracefully shut down a session, with a bounded force-stop fallback |
+| `lsp.updateWorkspaceConfiguration` | Replace the plugin configuration a running plugin-owned session answers `workspace/configuration` with, and announce it |
 | `lsp.updateMavenConfiguration` | Send a changed Maven context to a running Java session, or force JDT LS to re-resolve its Maven projects |
 | `lsp.syncDocument` | Open a document or apply a full-text or incremental `didChange` with monotonic versions |
 | `lsp.workspaceFilesChanged` | Publish normalized created, changed, or deleted workspace files to one session |
@@ -893,6 +911,8 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `plugins.declarative.discoverTests` | List a declarative plugin's workspace and file test items |
 | `plugins.declarative.testPlan` | Expand a declarative plugin's test template for a workspace, file, or test case |
 | `plugins.declarative.languageServerLaunchPlan` | Expand a declarative plugin's language-server or build-provider launch with host directories and architecture |
+| `plugins.declarative.resolveSettings` | Merge a plugin's stored global and project setting layers into effective values with their source |
+| `plugins.declarative.workspaceConfiguration` | Expand a language server's `workspaceConfiguration` with the merged setting values |
 | `plugins.declarative.checkRuntimeVersion` | Decide whether a launch runtime's version output meets the declared minimum version |
 | `build.detect` | Find every build-system instance the enabled plugins declare in a workspace, with models that need no process |
 | `build.invocationPlan` | List a build system's executable candidates, runtime dependencies, and version probe for one platform |
@@ -1708,10 +1728,84 @@ need separate buckets may also provide `maxFileResults` and
 `maxContentResults`; each category is capped independently and the total cap
 still applies.
 
+Search index enumeration skips inaccessible or vanished descendant directories,
+logging workspace-relative diagnostic paths without discarding unrelated results.
+Workspace-root failures, cancellation, deadlines, and other errors still propagate.
+This applies to both the content and file-name indexes.
+
+macOS Search Everywhere funnel exclusions reuse `hiddenFilePatterns` only on
+Search Everywhere requests. They are remembered across popup openings, have no
+General Settings entry, and have a separately remembered enable toggle. Editing
+happens in a dialog; saving does not enable a disabled rule. They do not affect
+sidebar search, project replacement,
+Agent completion, or workspace tree visibility. The existing
+case-insensitive `*`/`?` matcher applies to a basename or root-relative path (`*`
+can span `/`). A trailing `/` explicitly marks a root-relative directory glob:
+match it before descending into a directory and against ancestors of directly
+reported file updates. The UI adds the root form for leading `**/`; ordinary
+file globs retain their file-only semantics. Empty user exclusions preserve the
+normal visibility rules. Search settings changes invalidate only the search
+cache, not the workspace tree. Each root retains at most one content and one
+names-only rule variant; superseded allocations are released when active
+requests finish. Watcher updates refresh the retained variants.
+Agent file completion uses project visibility and leaves generated names disabled;
+only the Search Everywhere UI explicitly enables them. Directory-versus-file
+matching examples are shared in `shared/fixtures/search/exclusions.json`.
+
 `workspace.searchEverywhere` uses the same query options and visibility fields,
-and additionally accepts `maxSymbolResults`. Results are ordered as file,
-type, symbol, and content matches. Java type and method results include a
-one-based line, `symbolName`, and the matching source line in `preview`.
+and additionally accepts `maxSymbolResults` and optional
+`includeGeneratedFileNames` (default `false`). Ordinary name queries match
+case-insensitive contiguous fragments and camel/word humps, rather than arbitrary
+subsequences. Each file/type/symbol bucket is ranked before its requested cap;
+the total cap still applies to the file, type, symbol, then content buckets.
+A zero `maxFileResults` skips the names-only index entirely; zero
+`maxContentResults` together with zero `maxSymbolResults` skips the content/symbol
+index. All three zero caps produce no index builds. Omitted caps retain their
+existing defaults. macOS forwards the selected workspace sources through these
+existing caps: Actions-only stays local, Text-only requests contents, Files and
+Agent completion request names, and Classes/Symbols share the symbol index.
+Search module activation does not eagerly build a content index.
+Basename matches rank above relative-path fallback matches, even when the query
+contains no slash (for example `src` matches `src/Foo.swift`). Path-only matches
+have `matchingDegree: -1` and no basename ranges; literal basename hits use degree
+zero when there is no fuzzy degree. See `shared/fixtures/search/path-fallback.json`.
+
+Name matches include optional `matchingDegree` and `nameMatchRanges` entries
+`{ start, length }`, measured in UTF-16 units in the displayed basename or
+`symbolName`. Clients must not recompute different highlight fragments. Path-qualified
+queries may have no basename fragments. Explicit case/whole-word/regex options and
+content matches keep their literal search semantics.
+Case-insensitive contiguous fallback preserves whole-string Unicode lowercase
+matching, including expansions such as `İ` to `i` plus a combining dot. A partial
+match inside an expansion highlights the complete original character, not folded
+offsets. See `shared/fixtures/search/unicode-contiguous.json` (also used by Agent
+completion regressions).
+
+Returned Everywhere matches additionally expose optional `isIgnored`, resolved
+by one read-only Git `check-ignore --stdin -z` call for the bounded result set.
+`true` means ignored; `false` means Git answered but did not ignore this path;
+absence means Git is unavailable, the workspace is not a repository, or the query
+failed. Tracked files are never inferred ignored from a matching ignore pattern.
+Git owns rule precedence, nested rules, negations, info/exclude and global excludes.
+Clients may use this status for filename foreground; it does not change matching,
+ranking, UTF-16 match backgrounds, or visibility. macOS uses the Islands editor
+scheme's ignored-file color; Windows tolerates the optional status but does not
+currently render this foreground.
+
+`includeGeneratedFileNames` opts into a separate in-memory names-only index:
+built-in build/dependency directory exclusions (including `.build` and `target`)
+do not suppress names, even when callers pass the same default exclusions.
+Git metadata and nested worktrees remain excluded; custom directory names and
+file/path globs still apply. It does not enable generated-file content or symbol
+indexing and does not change `workspace.search`, tree, watcher, or replacement
+visibility. Names share index invalidation and reported file updates; changes
+inside unwatched generated directories require workspace/index refresh. No index
+files or resources are written to disk. macOS requests 200 matches per bucket
+and 800 total; these are bounded candidate limits, not a claim of unbounded IDEA paging.
+Java type and method results still use the existing syntax index and include a
+one-based line, `symbolName`, and source line in `preview`; language-provider
+workspace-symbol integration and external-library search are not implied.
+The shared name/range examples are in `shared/fixtures/search/name-matching.json`.
 
 `workspace.replacePreview` accepts `root`, `query`, `replacement`, the same
 query options, optional workspace-relative `paths`, optional `textOverrides`
@@ -1957,7 +2051,8 @@ commands are the semantic LSP runtime boundary. `lsp.startServer` accepts the
 provider ID, selected executable/arguments/environment, root URI, working
 directory, initialization options, optional runtime executable,
 `jdtlsLaunchResources`, cache directory, `workspaceFingerprint`, and the
-optional `pluginId` of the plugin that owns the process, plus
+optional `pluginId` of the plugin that owns the process, its optional
+`workspaceConfiguration` (an object, plugin-owned sessions only), plus
 initialize, post-initialize readiness, request, Java project build
 (`javaBuildTimeoutMilliseconds`), and shutdown deadlines.
 Java callers may also provide the versioned `mavenContext` accepted by
@@ -2219,6 +2314,16 @@ timeout for this request and is capped at one hour. The `requestCompleted`
 event carries the provider's reply unchanged as `result.value`, which the host
 passes to `build.decodeModel` or `build.decodeDependencies` as `result`;
 cancellation and late results follow `lsp.cancelOperation`.
+
+A plugin-owned session started with `workspaceConfiguration` answers each
+`workspace/configuration` item from it by `section` (an exact key wins over
+a dotted path; no section returns the whole object, a missing one `null`) and
+sends `workspace/didChangeConfiguration` with it after `initialized`.
+`lsp.updateWorkspaceConfiguration` accepts `{ sessionId, configuration }`
+(an object) and returns `{ sent }`: the new value replaces the stored one,
+and is announced at once when the client is initialized or with
+`initialized` otherwise. Host-owned sessions and stopping, stopped, or failed
+sessions refuse it with `invalid_request`.
 
 `lsp.functionRequest` accepts `{ sessionId, operationId?, function: { pluginID,
 functionID }, params?, timeoutMilliseconds? }` and returns `{ operationId }`.
@@ -2877,14 +2982,17 @@ Success returns `plan` (`executable`, `arguments`, `workingDirectory`, plus
 "request": object }` with exactly one of `languageID` (a language server) and
 `buildSystemID` (a build provider); naming neither or both is an
 `invalid_request` failure. The request is `{ pluginDirectory, stateDirectory,
-workspaceStateDirectory, architecture, settings? }`. The directories are absolute host paths used only
+workspaceStateDirectory, architecture, settings?, projectSettings? }`. The directories are absolute host paths used only
 as substitution text; the command does not read or create them. `settings` maps
-setting IDs to the values the user stored; a missing, unknown, or no longer
-acceptable value is ignored in favor of the declared default. Success returns
+setting IDs to the values the user stored for every project, and
+`projectSettings` to the open project's overrides; a project value counts only
+for a `scope: "project"` setting, and a missing, unknown, or no longer
+acceptable value falls back to the next layer and then the declared default. Success returns
 `plan` with `launch`, `arguments`, `validationArguments`,
 `runtimeRequirements`, `requiredDirectories`, `requiredPackagePaths`, and
-`initializationOptions`, `hostIntegration`, and `settings` (the effective
-values) when the plugin declares them. A `buildSystemID` plan adds
+`initializationOptions`, `hostIntegration`, `settings` (the effective
+values), and `workspaceConfiguration` (the server's expanded
+`workspaceConfiguration`, `languageServers` 2) when the plugin declares them. A `buildSystemID` plan adds
 `buildProvider: { buildSystemID, executesProjectCode, mayUseNetwork,
 languageServer? }`; with `languageServer` the plan is that language server's
 and the host reuses its session. An unknown
@@ -2892,6 +3000,15 @@ architecture or an empty directory is refused with
 `plugin.launch.invalidRequest`; a language without a server, an undeclared
 build system, and a build system without a provider with
 `plugin.launch.unavailable`.
+
+`plugins.declarative.resolveSettings` accepts
+`{ manifest, settings?, projectSettings? }` and returns `settings`: one
+`{ id, value, source }` per declared setting, `source` being `project`,
+`global`, or `default`. `plugins.declarative.workspaceConfiguration` accepts
+the same payload plus a required `languageID` and returns `configuration`,
+the expanded object, or `null` when that server declares none; a language
+without a server of the plugin is refused with `plugin.launch.unavailable`.
+Hosts never merge layers themselves.
 
 `plugins.declarative.checkRuntimeVersion` accepts
 `{ tool, minimumVersion, output }`, where `output` is what the runtime printed
@@ -2954,7 +3071,7 @@ and the directories are absolute host paths used only as substitution text.
 | `build.invocationPlan` | `{ root, platform: "macos" \| "linux" \| "windows" }` | `invocation`: `{ buildSystemID, root, executables, environmentInputs, runtimeDependencies, version, minimumVersion }` with project-file paths joined to `root`; every runtime dependency with a known probe, host-managed ones included, carries `version: { arguments }` |
 | `build.checkToolVersion` | `{ runtime?, output }` | `version`: `{ satisfied, version? }`; `runtime` checks that runtime dependency instead of the tool |
 | `build.resolveOptions` | `{ options, modelValues? }` | `options`: `{ options: [{ id, displayName, kind, value, source, choices, allowCustom }], dropped, fingerprint }` |
-| `build.modelPlan`, `build.dependencyPlan` | plan fields plus `project?` (dependencies) and `outputFile?` | `plan`: `{ buildSystemID, root, arguments, environment, workingDirectory, execution, optionFingerprint, output, decoder, executesProjectCode, mayUseNetwork }`; for a `provider` source `{ buildSystemID, root, provider: { method, params }, decoder, executesProjectCode, mayUseNetwork, optionFingerprint }`, where `method` is `lithe/build/model` or `lithe/build/dependencies` and `params` is `{ buildSystemID, root, options, optionArguments, environment, project? }` |
+| `build.modelPlan`, `build.dependencyPlan` | plan fields plus `project?` (dependencies), `outputFile?`, and for provider sources `refresh?` (boolean) and `tool?: { executable }` (absolute path) | `plan`: `{ buildSystemID, root, arguments, environment, workingDirectory, execution, optionFingerprint, output, decoder, executesProjectCode, mayUseNetwork }`; for a `provider` source `{ buildSystemID, root, provider: { method, params }, decoder, executesProjectCode, mayUseNetwork, optionFingerprint }`, where `method` is `lithe/build/model` or `lithe/build/dependencies` and `params` is `{ buildSystemID, root, options, optionArguments, environment, project?, refresh?, tool? }`; `refresh` appears only when `true` and `tool` only when the host sent it |
 | `build.taskPlan` | plan fields plus `task`, `project?`, `target?`, `modelTask?`, `userArguments?` | `plan` with `arguments`, `environment`, `workingDirectory`, `execution`, and `optionFingerprint` |
 | `build.testPlan` | plan fields plus `project?`, `target?`, `suite?`, `case?`, `userArguments?`, `projects?` (the model's project directories) | `plan` with the task-plan fields and `results`: `null`, `{ decoder, reports }` with workspace-relative globs (for the selected project, or for the root and every listed project when none is selected), or `{ decoder: "hostIntegration" }`. A `suite` or `case` the templates cannot place on the command line under this selection, such as a case without its suite when the tool only addresses `Suite#case`, is `plugin.build.invalidSelection` rather than a wider run |
 | `build.decodeModel` | `{ workspaceRoot, root, output?, outputFile?, result?, options? }`; `result` is the provider's JSON answer | `model`: `{ projects, targets, tasks, contentRoots, optionValues, run }`; `run` entries carry `buildSystem: { id, root, projectID, targetID?, optionFingerprint }` |

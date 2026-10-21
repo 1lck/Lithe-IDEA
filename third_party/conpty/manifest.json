@@ -1,0 +1,22 @@
+{
+  "version": "1.25.2609.30003",
+  "releaseTag": "v1.25.2733.0",
+  "projectURL": "https://github.com/microsoft/terminal",
+  "license": "MIT",
+  "packageURL": "https://github.com/microsoft/terminal/releases/download/v1.25.2733.0/Microsoft.Windows.Console.ConPTY.1.25.260930003.nupkg",
+  "packageSHA256": "6d6f8b008c655d814c498d8205d4012dcd4d0b6dfc1096461d0a185d1e3caf03",
+  "platforms": {
+    "windows-x86_64": {
+      "conptyDLL": "runtimes/win-x64/native/conpty.dll",
+      "conptyDLLSHA256": "feeef341d891643c62d30b6b07800bc70f0bc148f44cb8c3bee84aa557ae805a",
+      "openConsole": "build/native/runtimes/x64/OpenConsole.exe",
+      "openConsoleSHA256": "3d66b23d0a71bb8eed2b77edc8b9df9bf54ce6c8fb74c863a30e760997f80586"
+    },
+    "windows-aarch64": {
+      "conptyDLL": "runtimes/win-arm64/native/conpty.dll",
+      "conptyDLLSHA256": "151a02355227710c20c9f8f1eaf68ac4668aa09cdc921adc7ec661804d8eb1bf",
+      "openConsole": "build/native/runtimes/arm64/OpenConsole.exe",
+      "openConsoleSHA256": "4313825a3ba634d113cc6ed3bc8ce735e3c19d360cecd985794787479469f91f"
+    }
+  }
+}

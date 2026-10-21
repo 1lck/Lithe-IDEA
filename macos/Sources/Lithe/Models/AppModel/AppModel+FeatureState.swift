@@ -58,6 +58,10 @@ extension AppModel {
         await workspaceFeature.loadExpandedDirectories(expandedPaths)
     }
 
+    func loadAllProjectDirectories() async -> Set<String>? {
+        await workspaceFeature.loadAllDirectories()
+    }
+
     func revealInProjectTree(_ url: URL, isDirectory: Bool = false) {
         guard let treeURL = projectTreeURL(for: url) else {
             showNotification("This file is not in the current workspace")

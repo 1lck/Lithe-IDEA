@@ -89,29 +89,38 @@ export function getWslDisplayPath(path: string): string {
 }
 
 /**
+ * Default prefix under which WSL exposes Windows drives.
+ *
+ * Mirrors `WSL_DEFAULT_AUTOMOUNT_ROOT` on the host side; a distribution can
+ * override it in `/etc/wsl.conf`.
+ */
+export const WSL_DEFAULT_AUTOMOUNT_ROOT = "/mnt";
+
+/**
  * Translate a Windows filesystem path into the path a WSL distribution can open.
  *
- * WSL mounts each drive under `/mnt/<letter>` by default, so `C:\work\a.txt`
- * becomes `/mnt/c/work/a.txt`. A shell inside the distribution cannot open the
- * Windows form at all: it treats the backslashes as ordinary characters in a
+ * `automountRoot` is where the distribution mounts Windows drives: `/mnt` by
+ * default, or whatever its `/etc/wsl.conf` sets. `C:\work\a.txt` becomes
+ * `<automountRoot>/c/work/a.txt`, so a distribution configured with
+ * `root = /` yields `/c/work/a.txt`. A shell inside the distribution cannot open
+ * the Windows form at all: it treats the backslashes as ordinary characters in a
  * relative filename. A path already written in Linux form needs no translation.
- *
- * Known limit: the `/mnt` root is the default, not a fact. A distribution whose
- * `/etc/wsl.conf` sets a different `[automount] root` expects another prefix, and
- * resolving that needs the distribution's own `wslpath`. Nothing in the frontend
- * can query it, so this translation assumes the default and the feature matrix
- * records the gap.
  *
  * Returns null when the path cannot be translated reliably — a UNC share is not
  * mounted at a predictable location — so callers can keep the original instead of
  * inserting a path that silently points nowhere.
  */
-export function windowsPathToWslPath(path: string): string | null {
+export function windowsPathToWslPath(
+  path: string,
+  automountRoot: string = WSL_DEFAULT_AUTOMOUNT_ROOT,
+): string | null {
   const driveMatch = /^([A-Za-z]):[\\/](.*)$/.exec(path);
   if (driveMatch) {
     const drive = driveMatch[1].toLowerCase();
     const rest = driveMatch[2].replace(/\\/g, "/");
-    return rest ? `/mnt/${drive}/${rest}` : `/mnt/${drive}`;
+    // An empty root means drives live at `/`, so `C:\x` is `/c/x`.
+    const prefix = automountRoot.replace(/\/+$/, "");
+    return rest ? `${prefix}/${drive}/${rest}` : `${prefix}/${drive}`;
   }
 
   if (path.startsWith("/")) return path;
@@ -127,13 +136,18 @@ export function windowsPathToWslPath(path: string): string | null {
  * - `wsl://Ubuntu/home/me/proj` — the workspace protocol path the explorer uses
  *   for a WSL root. Only the part inside the target distribution is usable, and
  *   only when it is the same distribution the shell runs.
- * - `C:\work\a.txt` — a local Windows drive, mounted as `/mnt/c/work/a.txt`.
+ * - `C:\work\a.txt` — a local Windows drive, mounted under the distribution's
+ *   automount root.
  * - `/home/me/a.txt` — already Linux, kept as written.
  *
  * Returns null when the path cannot be translated reliably, so callers keep the
  * original instead of inserting a path that silently points nowhere.
  */
-export function pathToWslPath(path: string, distro: string): string | null {
+export function pathToWslPath(
+  path: string,
+  distro: string,
+  automountRoot: string = WSL_DEFAULT_AUTOMOUNT_ROOT,
+): string | null {
   const info = parseWslPath(path);
   if (info) {
     // A path from another distribution is not reachable from this one; the
@@ -142,5 +156,5 @@ export function pathToWslPath(path: string, distro: string): string | null {
     return info.linuxPath;
   }
 
-  return windowsPathToWslPath(path);
+  return windowsPathToWslPath(path, automountRoot);
 }

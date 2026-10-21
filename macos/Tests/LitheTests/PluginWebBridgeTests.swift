@@ -59,6 +59,17 @@ struct PluginWebBridgeTests {
         #expect(try await harness.error("ui.getState") == "plugin.web.forbidden")
     }
 
+    /// A page's `build.refresh` is documented as a reload, so a provider
+    /// must not answer it from its own snapshot.
+    @Test func pageRefreshReloadsTheModel() async throws {
+        let harness = try BridgeHarness()
+        defer { harness.cleanUp() }
+
+        #expect(try await harness.ok("build.refresh", ["instance": .string("own")]) == .object([:]))
+        #expect(harness.build.modelLoads == ["own"])
+        #expect(harness.build.modelLoadReasons == [.refresh])
+    }
+
     @Test func functionsAreReachedOnlyThroughThePluginsOwnInstancesWithConsent() async throws {
         let harness = try BridgeHarness()
         defer { harness.cleanUp() }
@@ -986,6 +997,7 @@ private final class FakeBuildAccess: PluginWebBuildAccess {
     var onDetectionRead: (() -> Void)?
     var currentRunID: UUID?
     var modelLoads: [String] = []
+    var modelLoadReasons: [BuildLoadReason] = []
     var tasks: [BuildTaskRequest] = []
     var tests: [BuildTestRequest] = []
     var stopCount = 0
@@ -998,7 +1010,10 @@ private final class FakeBuildAccess: PluginWebBuildAccess {
 
     var changes: AnyPublisher<Void, Never> { changeSubject.eraseToAnyPublisher() }
     var runEnded: AnyPublisher<BuildRunEnd, Never> { endSubject.eraseToAnyPublisher() }
-    func loadModel(_ entryID: String) { modelLoads.append(entryID) }
+    func loadModel(_ entryID: String, reason: BuildLoadReason) {
+        modelLoads.append(entryID)
+        modelLoadReasons.append(reason)
+    }
     var acceptsRuns = true
     func runTask(_ entryID: String, request: BuildTaskRequest, title: String) -> UUID? {
         guard acceptsRuns else { return nil }
@@ -1020,7 +1035,7 @@ private final class FakeBuildAccess: PluginWebBuildAccess {
         currentRunID = id
         return id
     }
-    func loadDependencies(_ entryID: String, project: BuildModel.Project?) {}
+    func loadDependencies(_ entryID: String, project: BuildModel.Project?, reason: BuildLoadReason) {}
     func setOption(_ entryID: String, optionID: String, value: ToolingJSONValue?) {}
 
     var functionListings = 0

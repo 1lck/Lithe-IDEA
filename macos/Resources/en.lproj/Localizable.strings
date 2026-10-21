@@ -1967,6 +1967,12 @@
 "Allow" = "Allow";
 "Don’t Allow" = "Don’t Allow";
 "Restart Lithe to load the updated page." = "Restart Lithe to load the updated page.";
+"Search Everywhere (Double Shift)" = "Search Everywhere (Double Shift)";
+"Show Preview" = "Show Preview";
+"Filter results" = "Filter results";
+"Select a file to preview" = "Select a file to preview";
+"Read-only file preview" = "Read-only file preview";
+"Invert" = "Invert";
 
 "Subagent" = "Subagent";
 
@@ -1996,6 +2002,11 @@
 "All tasks completed" = "All tasks completed";
 "Modified files: %lld" = "Modified files: %lld";
 "Review changes" = "Review changes";
+
+"Search exclusions" = "Search exclusions";
+"One pattern per line: `*.log`, `**/.*/`, `.*`, `cache/`. Only affects this Search Everywhere window." = "One pattern per line: `*.log`, `**/.*/`, `.*`, `cache/`. Only affects this Search Everywhere window.";
+
+"Edit search exclusions" = "Edit search exclusions";
 
 "All modules" = "All modules";
 
@@ -2055,3 +2066,9 @@
 "Session" = "Session";
 "Minimum level" = "Minimum level";
 "Open Log Directory" = "Open Log Directory";
+
+/* Project-local toolchain scope. */
+"This computer · This project" = "This computer · This project";
+"These defaults apply only to this project on this computer. Run configurations inherit them unless overridden. Use the Project save scope in a run configuration to share settings with your team." = "These defaults apply only to this project on this computer. Run configurations inherit them unless overridden. Use the Project save scope in a run configuration to share settings with your team.";
+"Saved only for this project on this computer in .lithe/run/local.json and excluded from Git." = "Saved only for this project on this computer in .lithe/run/local.json and excluded from Git.";
+"This computer" = "This computer";

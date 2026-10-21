@@ -27,5 +27,5 @@
     "verificationStatus": "not-applicable"
   },
   "owner": "Plugin Platform",
-  "verification": "macOS：打开设置 › 插件，选中 Java Support，确认出现“设置”区，显示“最大内存”（默认 1024 MB）和“语言服务器日志级别”（默认全部消息）。把最大内存改成 3072：输入 3072 后点“重启语言服务器”，用 ps 查看 JDT LS 的 java 进程参数，确认 -Xmx3072m 且只出现一次；输入 100 时出现范围提示且没有保存，失焦后回到上一个合法值。把日志级别改成“仅错误”并重启，确认进程参数里是 -Dlog.level=SEVERE。点“恢复默认值”后重启，确认回到 -Xmx1024m 和 -Dlog.level=ALL。退出并重新打开 Lithe，确认修改过的值仍在。卸载并恢复 Java Support，值仍在。Windows：插件契约与设置页尚未接入。"
+  "verification": "macOS：打开设置 › 插件，选中 Java Support，切到“设置”页签，确认显示“最大内存”（默认 1024 MB）和“语言服务器日志级别”（默认全部消息）。把最大内存改成 3072：输入 3072 后点“重启语言服务器”，用 ps 查看 JDT LS 的 java 进程参数，确认 -Xmx3072m 且只出现一次；输入 100 时出现范围提示且没有保存，失焦后回到上一个合法值。把日志级别改成“仅错误”并重启，确认进程参数里是 -Dlog.level=SEVERE。点“恢复默认值”后重启，确认回到 -Xmx1024m 和 -Dlog.level=ALL。退出并重新打开 Lithe，确认修改过的值仍在。卸载并恢复 Java Support，值仍在。Windows：插件契约与设置页尚未接入。"
 }

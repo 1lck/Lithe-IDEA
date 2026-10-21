@@ -23,6 +23,14 @@ macOS 使用系统多文件拖动，工作区模块继续负责实际文件操�
 
 - 行高亮和右键目标只使用明确选择集合。⌘ 点击增减单项，Shift 只在需要范围时
   读取可见行顺序，⌘A 保留焦点项同级语义。
+- macOS 目录名称双击在第二次按下时触发展开，不等待松开；同一次松开不能再次切换。
+  ⌘、Shift 和 Control 点击仍保持选择与右键语义，文件双击动作仍在松开时处理，
+  双击次数使用按下事件的计数。重复选中相同行不写回同值状态，压缩包祖先的展开路径一次写回。
+  参考 Community `4b7301e1ae43acd14528f1d86b8b7ffaf3bba4d3` 的
+  [`Tree.processMouseEvent/getDragEnabled`](https://github.com/JetBrains/intellij-community/blob/4b7301e1ae43acd14528f1d86b8b7ffaf3bba4d3/platform/platform-api/src/com/intellij/ui/treeStructure/Tree.java)
+  对双击禁用拖动识别，以及
+  [`DefaultTreeUI`](https://github.com/JetBrains/intellij-community/blob/4b7301e1ae43acd14528f1d86b8b7ffaf3bba4d3/platform/ui.tree/src/com/intellij/ui/tree/ui/DefaultTreeUI.java)
+  复用 Swing 按下事件的展开入口。不要用只调用 `mouseUp` 的测试证明真实窗口双击流畅。
 - 文件树点击后的键盘归属由原生事件适配器维护，方向键被消费后不能继续送到编辑器；
   点击树外或后续键盘焦点改变时释放归属，搜索输入框仍处理自己的方向键与文字快捷键。
   上下移动只选择可见行，不打开文件；Shift 上下扩展范围，左右按显示层级处理压缩包，
@@ -57,10 +65,11 @@ macOS 使用系统多文件拖动，工作区模块继续负责实际文件操�
   例如 Linux 的 `src/a.ts` 与 `src/A.ts` 都保留，Windows 同名目标仍拒绝覆盖。
 - 可见树按显示层级展开成平面行列表，直接交给懒加载栈，保留压缩 Java 包的显示深度。
   不在每个目录下嵌套懒加载栈，以免滚动容器无法正确测量整棵递归子树。
-- Windows 手动定位当前文件与自动跟随共用 `useFileExplorerSync` 的定位请求。
-  展开、加载祖先目录后，视图根据可见行索引滚动虚拟列表，再消费请求；同一文件的
-  每次点击都产生新请求，过期完成不能覆盖新请求。手动定位清除树内搜索并切回 Project，
-  不依赖自动跟随开关。仅调用目录展开或选中动作不会让离屏行进入视口。
+- Windows 手动定位当前文件使用 `useFileExplorerSync` 的定位请求；编辑器切换页签不再
+  自动跟随滚动，原 `autoRevealActiveFileInFileTree` 设置已退役，settings-migrations 的
+  `RETIRED_SETTINGS_KEYS` 会删除旧持久化值。展开、加载祖先目录后，视图根据可见行索引
+  滚动虚拟列表，再消费请求；同一文件的每次点击都产生新请求，过期完成不能覆盖新请求。
+  手动定位清除树内搜索并切回 Project。仅调用目录展开或选中动作不会让离屏行进入视口。
 
 正确示例：同时选择 `src`、`src/A.java`、`README.md`，拖到 `archive`，实际只移动
 `src` 与 `README.md`，后代随目录移动。不要将 `src/A.java` 再移动一次，也不要为了
@@ -98,8 +107,8 @@ Windows 现已加入 Ctrl/Shift 可见范围多选、批量复制/剪切/删除�
   验证按键归属释放。
 - Windows 定位回归：
   `cd windows/tauri && bun test src/features/file-explorer/components/file-explorer-reveal.test.tsx`；
-  点击真实工具栏按钮，检查关闭自动跟随时的折叠祖先展开、离屏行呈现、重复定位、
-  延迟目录加载及过期请求；自动跟随仍需滚动。真实 WebView2 验收另行完成。
+  点击真实工具栏按钮，检查折叠祖先展开、离屏行呈现、重复定位、
+  延迟目录加载及过期请求；编辑器切换页签不得让树自动滚动。真实 WebView2 验收另行完成。
 - Windows 目录选择回归挂载真实 `FileExplorerPane`，连接侧栏与缓冲区 store，只替换磁盘副作用。
   编辑器保持 `README.md` 打开时选择 `src`，核对共享路径同步往返后的高亮、复制、剪切、
   键盘焦点及范围锚点；再核对实际编辑器切换的单选跟随和明确多选保留。

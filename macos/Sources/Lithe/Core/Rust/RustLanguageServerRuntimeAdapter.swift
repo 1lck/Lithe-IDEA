@@ -230,6 +230,27 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
         requestTimeout: TimeInterval,
         shutdownTimeout: TimeInterval
     ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure> {
+        startPluginLanguageServer(
+            pluginID: pluginID, providerID: providerID, executableURL: executableURL, arguments: arguments,
+            environment: environment, rootURL: rootURL, initializationOptions: initializationOptions,
+            workspaceConfiguration: nil, initializeTimeout: initializeTimeout,
+            requestTimeout: requestTimeout, shutdownTimeout: shutdownTimeout
+        )
+    }
+
+    func startPluginLanguageServer(
+        pluginID: String,
+        providerID: String,
+        executableURL: URL,
+        arguments: [String],
+        environment: [String: String],
+        rootURL: URL,
+        initializationOptions: ToolingJSONValue?,
+        workspaceConfiguration: ToolingJSONValue?,
+        initializeTimeout: TimeInterval,
+        requestTimeout: TimeInterval,
+        shutdownTimeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure> {
         lspStartServer(
             providerID: providerID,
             pluginID: pluginID,
@@ -239,12 +260,21 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
             rootURL: rootURL,
             workingDirectoryURL: rootURL,
             initializationOptions: initializationOptions,
+            workspaceConfiguration: workspaceConfiguration,
             initializeTimeout: initializeTimeout,
             requestTimeout: requestTimeout,
             shutdownTimeout: shutdownTimeout
         ).map {
             LanguageServerRuntimeStart(sessionID: $0.sessionId, state: $0.state, processID: $0.processId)
         }.mapError(Self.runtimeFailure)
+    }
+
+    func updateWorkspaceConfiguration(
+        sessionID: String,
+        configuration: ToolingJSONValue
+    ) -> Result<Void, LanguageServerRuntimeFailure> {
+        lspUpdateWorkspaceConfiguration(sessionID: sessionID, configuration: configuration)
+            .mapError(Self.runtimeFailure)
     }
 
     func requestPluginFunction(

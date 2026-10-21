@@ -152,6 +152,9 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let line: Int?
         let preview: String
         let symbolName: String?
+        let nameMatchRanges: [SearchNameRange]?
+        let matchingDegree: Int?
+        let isIgnored: Bool?
     }
 
     struct SearchResponsePayload: Decodable, Sendable {
@@ -164,7 +167,10 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                     line: match.line,
                     preview: match.preview,
                     kind: SearchResultKind(rawValue: match.kind) ?? .content,
-                    symbolName: match.symbolName
+                    symbolName: match.symbolName,
+                    nameMatchRanges: match.nameMatchRanges ?? [],
+                    matchingDegree: match.matchingDegree,
+                    isIgnored: match.isIgnored
                 )
             }
         }
@@ -1536,6 +1542,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let fileMask: String
         let hiddenDirectoryNames: [String]
         let hiddenFilePatterns: [String]
+        var includeGeneratedFileNames = false
     }
 
     private struct ReplacementPreviewRequest: Encodable {
@@ -1875,6 +1882,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let rootUri: String
         let workingDirectory: String
         let initializationOptions: ToolingJSONValue?
+        let workspaceConfiguration: ToolingJSONValue?
         let runtimeExecutablePath: String?
         let jdtlsLaunchResources: LspJdtlsLaunchResourcesRequest?
         let cacheDirectory: String?
@@ -2498,7 +2506,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         maxSymbolResults: Int? = 50,
         fileMask: String = "",
         hiddenDirectoryNames: [String] = [],
-        hiddenFilePatterns: [String] = []
+        hiddenFilePatterns: [String] = [],
+        includeGeneratedFileNames: Bool = false
     ) -> SearchResponsePayload? {
         execute(
             command: "workspace.searchEverywhere",
@@ -2514,7 +2523,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 maxSymbolResults: maxSymbolResults,
                 fileMask: fileMask,
                 hiddenDirectoryNames: hiddenDirectoryNames,
-                hiddenFilePatterns: hiddenFilePatterns
+                hiddenFilePatterns: hiddenFilePatterns,
+                includeGeneratedFileNames: includeGeneratedFileNames
             )
         )
     }
@@ -3590,6 +3600,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         rootURL: URL,
         workingDirectoryURL: URL,
         initializationOptions: ToolingJSONValue? = nil,
+        workspaceConfiguration: ToolingJSONValue? = nil,
         runtimeExecutableURL: URL? = nil,
         jdtlsLaunchResources: JDTLSLaunchResources? = nil,
         cacheDirectoryURL: URL? = nil,
@@ -3611,6 +3622,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 rootUri: rootURL.standardizedFileURL.absoluteString,
                 workingDirectory: workingDirectoryURL.standardizedFileURL.path,
                 initializationOptions: initializationOptions,
+                workspaceConfiguration: workspaceConfiguration,
                 runtimeExecutablePath: runtimeExecutableURL?.standardizedFileURL.path,
                 jdtlsLaunchResources: jdtlsLaunchResources.map {
                     LspJdtlsLaunchResourcesRequest(
@@ -3642,6 +3654,22 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             command: "lsp.stopServer",
             payload: LspSessionIdentifierRequest(sessionId: sessionID)
         )
+    }
+
+    /// Replaces the plugin configuration a running plugin server reads.
+    func lspUpdateWorkspaceConfiguration(
+        sessionID: String,
+        configuration: ToolingJSONValue
+    ) -> Result<Void, CoreCallError> {
+        executeVoid(
+            command: "lsp.updateWorkspaceConfiguration",
+            payload: LspUpdateWorkspaceConfigurationRequest(sessionId: sessionID, configuration: configuration)
+        )
+    }
+
+    private struct LspUpdateWorkspaceConfigurationRequest: Encodable {
+        let sessionId: String
+        let configuration: ToolingJSONValue
     }
 
     /// Retries Maven Profile application while retaining the running JDTLS process.
@@ -4099,7 +4127,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 timeoutMilliseconds: nil,
                 command: command,
                 payload: payload,
-                gitExecution: observesGit ? gitOptions : nil
+                gitExecution: (observesGit || command == "workspace.searchEverywhere") ? gitOptions : nil
             )
         ),
         let request = String(data: requestData, encoding: .utf8),

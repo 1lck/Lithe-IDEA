@@ -21,15 +21,29 @@ function ContextMenuTrigger({ className, ...props }: ContextMenuPrimitive.Trigge
   );
 }
 
+// IDEA shows a context menu with Swing's JPopupMenu.show(): the top-left corner sits on the
+// click point and a menu that does not fit slides back inside the window. It is never flipped
+// to the other side of the pointer, so a tall menu opened low in the window still grows
+// downward from the click instead of floating above and to the right of it.
+const POINTER_MENU_COLLISION = { side: "shift", align: "shift" } as const;
+// A submenu opens beside its parent row like JMenu: it may swap to the parent's other side
+// horizontally, but vertically it only slides to stay on screen.
+const SUBMENU_COLLISION = { side: "flip", align: "shift" } as const;
+
 function ContextMenuContent({
   className,
   align = "start",
-  alignOffset = 4,
+  alignOffset = 0,
   side = "right",
   sideOffset = 0,
+  collisionAvoidance = POINTER_MENU_COLLISION,
+  collisionPadding = 0,
   ...props
 }: ContextMenuPrimitive.Popup.Props &
-  Pick<ContextMenuPrimitive.Positioner.Props, "align" | "alignOffset" | "side" | "sideOffset">) {
+  Pick<
+    ContextMenuPrimitive.Positioner.Props,
+    "align" | "alignOffset" | "side" | "sideOffset" | "collisionAvoidance" | "collisionPadding"
+  >) {
   return (
     <ContextMenuPrimitive.Portal>
       <ContextMenuPrimitive.Positioner
@@ -38,6 +52,8 @@ function ContextMenuContent({
         alignOffset={alignOffset}
         side={side}
         sideOffset={sideOffset}
+        collisionAvoidance={collisionAvoidance}
+        collisionPadding={collisionPadding}
       >
         <ContextMenuPrimitive.Popup
           data-slot="context-menu-content"
@@ -126,6 +142,9 @@ function ContextMenuSubContent(props: ComponentProps<typeof ContextMenuContent>)
       data-slot="context-menu-sub-content"
       className="shadow-(--shadow-popover)"
       side="right"
+      // The popup's 4px padding would otherwise push its first row below the parent row.
+      alignOffset={-4}
+      collisionAvoidance={SUBMENU_COLLISION}
       {...props}
     />
   );

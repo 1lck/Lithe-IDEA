@@ -92,6 +92,7 @@ for (const scope of ["text", "author", "branch"] as const) {
             onRevert={noop}
             onCreateTag={noop}
             onLoadMore={noop}
+            onSelectReference={noop}
           />
         </LocaleProvider>,
       );

@@ -3435,6 +3435,12 @@
 "Allow" = "允许";
 "Don’t Allow" = "不允许";
 "Restart Lithe to load the updated page." = "重启 Lithe 以加载更新后的页面。";
+"Search Everywhere (Double Shift)" = "全局搜索（双击 Shift）";
+"Show Preview" = "显示预览";
+"Filter results" = "筛选结果";
+"Select a file to preview" = "选择文件以预览";
+"Read-only file preview" = "只读文件预览";
+"Invert" = "反选";
 
 "Subagent" = "子代理";
 
@@ -3464,6 +3470,11 @@
 "All tasks completed" = "所有任务已完成";
 "Modified files: %lld" = "修改了 %lld 个文件";
 "Review changes" = "查看文件修改";
+
+"Search exclusions" = "搜索排除规则";
+"One pattern per line: `*.log`, `**/.*/`, `.*`, `cache/`. Only affects this Search Everywhere window." = "每行一个表达式：`*.log`、`**/.*/`、`.*`、`cache/`。仅影响当前双 Shift 搜索窗口。";
+
+"Edit search exclusions" = "编辑搜索排除规则";
 
 "All modules" = "全部模块";
 
@@ -3522,3 +3533,122 @@
 "Module: %@ · Session: %@ · Minimum level: %@" = "模块：%@ · 会话：%@ · 最低级别：%@";
 "Minimum level" = "最低级别";
 "Open Log Directory" = "打开日志目录";
+
+/* Project-local toolchain scope. */
+"This computer · This project" = "本机 · 此项目";
+"These defaults apply only to this project on this computer. Run configurations inherit them unless overridden. Use the Project save scope in a run configuration to share settings with your team." = "这些默认设置仅作用于这台电脑上的此项目。运行配置默认继承，单独设置时可覆盖。需要与团队共享的设置，请在运行配置中选择“项目”保存范围。";
+"Saved only for this project on this computer in .lithe/run/local.json and excluded from Git." = "仅为这台电脑上的此项目保存在 .lithe/run/local.json，并已从 Git 中排除。";
+"This computer" = "本机";
+
+/* Settings › Plugins › Installed: detail tabs and list filters. */
+"Features" = "功能";
+"Permissions & Programs" = "权限与程序";
+"Versions & Source" = "版本与来源";
+"Takes effect after Lithe restarts" = "重启 Lithe 后生效";
+"Provides" = "提供";
+"Plugin Source" = "来源";
+"View" = "查看";
+"Configure in Settings" = "在设置中配置";
+"Language Services" = "语言服务";
+"Local development package" = "本地开发包";
+"Ships with Lithe" = "随 Lithe 发行";
+"Generated from the plugin's declaration." = "根据插件声明的能力自动生成。";
+"This plugin declares no features." = "该插件没有声明功能。";
+"Plugin disabled" = "插件已禁用";
+"Configure" = "配置";
+"Inside the plugin" = "插件内置";
+"Runs on %@ shipped with the plugin" = "使用插件自带的 %@ 运行";
+"Runs on %@ installed on this Mac" = "使用本机已安装的 %@ 运行";
+"Installed on this Mac: %@" = "本机已安装：%@";
+"Provided by Lithe for this language" = "由 Lithe 为该语言提供";
+"Tasks: %d" = "任务：%d";
+"Language Server" = "语言服务器";
+"Debugger" = "调试器";
+"Build System" = "构建系统";
+"Tool Window" = "工具窗口";
+"This plugin declares no settings." = "该插件没有声明设置。";
+"Valid values are saved as you type." = "值合法时立即保存。";
+"Needs no extra permissions." = "不需要额外权限。";
+"Starts no programs." = "不启动任何程序。";
+"Part of Lithe. It starts no programs of its own." = "属于 Lithe 自身功能，不会启动额外程序。";
+"Setting values only fill the places the program templates reserve for them, so changing a setting never changes the programs above." = "设置值只会填入程序模板预留的位置，不能改变上面列出的程序，所以修改设置不需要重新审查。";
+"Current Version" = "当前版本";
+"Previous Version" = "上一版本";
+"Roll Back…" = "回滚…";
+"Roll Back" = "回滚";
+"Roll back %@ to %@?" = "将 %1$@ 回滚到 %2$@？";
+"The previous version is used after restarting Lithe. Your setting values are kept." = "重启 Lithe 后使用上一版本，你修改过的设置值会保留。";
+"Managed outside the Marketplace; no update source." = "在插件市场之外管理，没有更新来源。";
+"Updated with Lithe" = "随 Lithe 一起更新";
+"Checked again every time Lithe loads the plugin." = "每次加载插件时都会重新校验。";
+"Signature" = "签名";
+"Lithe publisher signature verified" = "已验证 Lithe 发布者签名";
+"Plugin ID" = "插件 ID";
+"Interface" = "界面";
+"Community / Disk" = "社区 / 磁盘";
+
+/* Plugin-registered settings pages */
+"Overridden in this project" = "已被此项目覆盖";
+"This project" = "此项目";
+"All projects" = "所有项目";
+"Applies immediately" = "立即生效";
+"Needs restart" = "需重启";
+"Reloads project" = "重新加载项目";
+"Next run" = "下次运行";
+"This value is not allowed." = "该值不被允许。";
+"Plugin Details" = "插件详情";
+"This plugin adds no options to this page." = "该插件未在此页添加选项。";
+"Open a project to see its language service." = "打开项目后可查看其语言服务。";
+"Starting" = "正在启动";
+"Initializing project index" = "正在初始化项目索引";
+"Stopping" = "正在停止";
+"Off for this project" = "已在此项目关闭";
+"Starts on demand when a matching file is opened" = "按需启动，打开对应文件时运行";
+"Failed to start; check the language server configuration" = "启动失败，请检查语言服务器配置";
+"Language service for this project" = "为此项目启用语言服务";
+"Added by plugins" = "由插件添加";
+
+/* Settings window: Git page and plugin settings pages */
+"Git Program and Credentials" = "Git 程序与凭据";
+"Sync with Remote" = "同步远程";
+"Lithe Fetch Defaults" = "Lithe 获取默认值";
+"Local Changes" = "本地更改";
+"Pull" = "拉取";
+"Email" = "邮箱";
+"Write to this repository" = "写入当前仓库";
+"Write to global config" = "写入全局配置";
+"Reload Configuration" = "重新加载配置";
+"Open Remote ↗" = "打开远程仓库 ↗";
+"→ %@" = "→ %@";
+"Git not found" = "未找到 Git";
+"Looking for Git…" = "正在查找 Git…";
+"In effect: " = "生效：";
+"Clear the override and inherit" = "清除覆盖并恢复继承";
+"The value Git uses now" = "Git 当前使用的值";
+"The value Git uses now and where it comes from" = "Git 当前使用的值及其来源";
+"Where the rows below that are backed by Git configuration are written." = "下方由 Git 配置支持的选项写入的位置。";
+"Reading Git configuration…" = "正在读取 Git 配置…";
+"Lithe default" = "Lithe 默认";
+"System Git" = "系统 Git";
+"No project is open. Rows backed by Git configuration write to the global Git configuration; commit identity needs a repository." = "当前没有打开项目。由 Git 配置支持的选项会写入全局 Git 配置；提交身份需要打开仓库。";
+"Lithe does not save passwords. Credentials are stored by the Git credential helper you choose." = "Lithe 不保存密码，凭据由你选择的 Git 凭据助手保存。";
+"Name and email are written to the global Git configuration. Existing commits do not change." = "姓名和邮箱写入全局 Git 配置，已有提交不会改变。";
+"Name and email are written to this repository's Git configuration and override the global values. Existing commits do not change." = "姓名和邮箱写入当前仓库的 Git 配置并覆盖全局值，已有提交不会改变。";
+"Pull and Push settings are written to the selected Git configuration. Fetch settings apply to both manual and background fetches." = "拉取和推送设置写入所选的 Git 配置；获取设置同时作用于手动获取和后台获取。";
+"Defaults for ordinary Fetch in every project. A repository's own Git configuration above still wins where it is set." = "所有项目普通获取的默认值。仓库自身的 Git 配置一旦设置，仍以其为准。";
+"How uncommitted changes are put aside before switching branches or pulling." = "切换分支或拉取前，如何暂存未提交的更改。";
+"Changes are written to" = "更改写入";
+"All projects · project can override" = "所有项目 · 项目可覆盖";
+"Provided by" = "由以下插件提供";
+"Language Service" = "语言服务";
+"Enable for this project" = "在本项目启用";
+"Preview background image" = "预览背景图片";
+"Annotate with Git Blame" = "使用 Git Blame 显示注释";
+"Hide Git Blame" = "隐藏 Git Blame 注释";
+"Edit Breakpoint…" = "编辑断点…";
+
+"Deselect All" = "全不选";
+
+"%lld of %lld services selected" = "已选择 %2$lld 个服务中的 %1$lld 个";
+
+"Background Services" = "后台服务";

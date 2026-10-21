@@ -653,6 +653,7 @@ final class MacServiceContainer {
             prompt: MacPluginWebConsentPrompt.confirm
         )
         pluginWebPageLifecycle.register(pluginWebPages)
+        let pluginMarketplaceEvaluator = RustPluginMarketplaceOperations(core: rustCore)
         let pluginManager = MacPluginManager(
             packageStore: pluginPackageStore,
             moduleRuntime: moduleRuntime,
@@ -669,6 +670,19 @@ final class MacServiceContainer {
                 // build systems' plugin list is a startup snapshot and does
                 // not see the replacement.
                 buildProviderSessions.stopProviders(ofPlugin: id.rawValue)
+            },
+            reviewPrograms: { [pluginMarketplaceEvaluator] manifest, id, version in
+                try pluginMarketplaceEvaluator.installReview(
+                    manifest: manifest,
+                    expectedID: id.rawValue,
+                    expectedVersion: version.description,
+                    approvedPrograms: nil
+                ).programs
+            },
+            expandWorkspaceConfiguration: { manifest, languageID, global, project in
+                try declarativePluginOperations.workspaceConfiguration(
+                    manifest: manifest, languageID: languageID, settings: global, projectSettings: project
+                )
             }
         )
         let pluginMarketplaceTransport: any MacPluginMarketplaceTransport
@@ -679,7 +693,7 @@ final class MacServiceContainer {
         pluginMarketplaceTransport = MacURLSessionPluginMarketplaceTransport()
         #endif
         let pluginMarketplace = MacPluginMarketplaceService(
-            evaluator: RustPluginMarketplaceOperations(core: rustCore),
+            evaluator: pluginMarketplaceEvaluator,
             packageStore: pluginPackageStore,
             downloader: MacPluginPackageDownloader(
                 transport: pluginMarketplaceTransport,

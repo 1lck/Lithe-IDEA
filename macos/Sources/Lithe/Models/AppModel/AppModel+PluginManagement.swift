@@ -4,7 +4,11 @@ import LitheModuleAPI
 
 extension AppModel {
     var pluginSnapshots: [PluginManagementSnapshot] {
-        services.pluginManager.snapshots
+        // Project-scoped plugin settings show the open project's overrides.
+        if services.pluginManager.settingsProjectRootURL != workspaceURL {
+            services.pluginManager.settingsProjectRootURL = workspaceURL
+        }
+        return services.pluginManager.snapshots
     }
 
     var pluginManagementIssues: [PluginManagementIssue] {
@@ -72,17 +76,6 @@ extension AppModel {
         }
         objectWillChange.send()
         return appliedPluginIDs
-    }
-
-    /// Stores the user's value of a plugin setting; `nil` restores the plugin's
-    /// default. The plugin's language servers read it when they next start.
-    func setPluginSetting(_ value: ToolingJSONValue?, id settingID: String, for pluginID: PluginID) {
-        do {
-            try services.pluginManager.setSetting(value, id: settingID, for: pluginID)
-            objectWillChange.send()
-        } catch {
-            showNotification(error.localizedDescription)
-        }
     }
 
     func rollbackPlugin(_ pluginID: PluginID) {

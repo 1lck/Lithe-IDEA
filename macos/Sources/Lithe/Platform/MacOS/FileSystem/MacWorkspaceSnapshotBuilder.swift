@@ -34,14 +34,11 @@ struct FileSystemWorkspaceSnapshotBuilder {
                       options: []
                   ) else { continue }
             let entries = childURLs.compactMap { url -> ProjectDirectoryEntry? in
-                guard let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]),
-                      values.isSymbolicLink != true else { return nil }
-                let isDirectory = values.isDirectory == true
-                guard !visibilityRules.isHidden(url, relativeTo: rootURL, isDirectory: isDirectory),
-                      !(isDirectory && isNestedLinkedWorktree(url)) else { return nil }
+                guard let isDirectory = visibleEntry(url, rootURL: rootURL, visibilityRules: visibilityRules) else { return nil }
                 return ProjectDirectoryEntry(
                     url: directory.appendingPathComponent(url.lastPathComponent),
-                    isDirectory: isDirectory
+                    isDirectory: isDirectory,
+                    isEmptyDirectory: isDirectory && isVisiblyEmpty(url, rootURL: rootURL, visibilityRules: visibilityRules)
                 )
             }.sorted {
                 if $0.isDirectory != $1.isDirectory { return $0.isDirectory }
@@ -50,6 +47,28 @@ struct FileSystemWorkspaceSnapshotBuilder {
             result[directory.standardizedFileURL.path] = entries
         }
         return result
+    }
+
+    private func visibleEntry(_ url: URL, rootURL: URL, visibilityRules: FileVisibilityRules) -> Bool? {
+        guard let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]),
+              values.isSymbolicLink != true else { return nil }
+        let isDirectory = values.isDirectory == true
+        guard !visibilityRules.isHidden(url, relativeTo: rootURL, isDirectory: isDirectory),
+              !(isDirectory && isNestedLinkedWorktree(url)) else { return nil }
+        return isDirectory
+    }
+
+    /// Stop at the first visible child; do not build or sort another directory listing.
+    private func isVisiblyEmpty(_ url: URL, rootURL: URL, visibilityRules: FileVisibilityRules) -> Bool {
+        var failed = false
+        guard let entries = fileManager.enumerator(
+            at: url, includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
+            options: [.skipsSubdirectoryDescendants], errorHandler: { _, _ in failed = true; return false }
+        ) else { return false }
+        while let child = entries.nextObject() as? URL {
+            if visibleEntry(child, rootURL: rootURL, visibilityRules: visibilityRules) != nil { return false }
+        }
+        return !failed
     }
 
     private func scan(_ url: URL, rootURL: URL, visibilityRules: FileVisibilityRules, nestedWorktrees: inout [URL], isRoot: Bool = false) -> FileNode? {
