@@ -5,6 +5,8 @@ import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { useEditorAppStore } from "@/features/editor/stores/editor-app.store";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { isEditorContent } from "@/features/panes/types/pane-content.types";
+import { activeRunServices, type ActiveRunService } from "@/features/run/stores/run.store";
+import RunningServicesDialog from "@/features/window/components/running-services-dialog";
 import UnsavedChangesDialog from "@/features/window/components/unsaved-changes-dialog";
 import { REQUEST_WINDOW_CLOSE_EVENT } from "@/features/window/utils/request-window-close";
 import { useActiveWorkspaceId } from "@/features/workspace/stores/create-workspace-scoped-store";
@@ -26,6 +28,8 @@ function getBlockingDirtyBuffer(workspaceId: string, discardedBufferIds: Set<str
 export function WindowCloseGuard() {
   const workspaceId = useActiveWorkspaceId();
   const [pendingClose, setPendingClose] = useState<PendingWindowClose | null>(null);
+  const [runningServices, setRunningServices] = useState<ActiveRunService[] | null>(null);
+  const [stoppingServices, setStoppingServices] = useState(false);
   const closeInProgressRef = useRef(false);
   const discardedBufferIdsRef = useRef(new Set<string>());
   const persistActiveProjectSession = useFileSystemStore(
@@ -45,6 +49,14 @@ export function WindowCloseGuard() {
         bufferId: dirtyBuffer.id,
         fileName: dirtyBuffer.name,
       });
+      return;
+    }
+
+    // Asked after unsaved files: saving may still be cancelled, and services
+    // must keep running until the window is really going to close.
+    const services = activeRunServices();
+    if (services.length > 0) {
+      setRunningServices(services);
       return;
     }
 
@@ -70,16 +82,23 @@ export function WindowCloseGuard() {
         }
 
         const dirtyBuffer = getBlockingDirtyBuffer(workspaceId, discardedBufferIdsRef.current);
-        if (!dirtyBuffer) {
-          persistSessionSnapshot();
+        if (dirtyBuffer) {
+          event.preventDefault();
+          setPendingClose({
+            bufferId: dirtyBuffer.id,
+            fileName: dirtyBuffer.name,
+          });
           return;
         }
 
-        event.preventDefault();
-        setPendingClose({
-          bufferId: dirtyBuffer.id,
-          fileName: dirtyBuffer.name,
-        });
+        const services = activeRunServices();
+        if (services.length > 0) {
+          event.preventDefault();
+          setRunningServices(services);
+          return;
+        }
+
+        persistSessionSnapshot();
       });
 
       unlistenQuit = await currentWebviewWindow.listen("menu_quit_app", () => {
@@ -133,7 +152,35 @@ export function WindowCloseGuard() {
     discardedBufferIdsRef.current.clear();
     closeInProgressRef.current = false;
     setPendingClose(null);
+    setRunningServices(null);
   }, []);
+
+  const handleStopServicesAndClose = useCallback(async () => {
+    if (!runningServices || stoppingServices) return;
+
+    setStoppingServices(true);
+    try {
+      // Each stop waits for the native process tree to end. The host still
+      // reaps anything left when the window is destroyed.
+      await Promise.all(runningServices.map((service) => service.stop()));
+    } finally {
+      setStoppingServices(false);
+      setRunningServices(null);
+    }
+    // Asks again if a service was started while the others were stopping.
+    await continueCloseOrPrompt();
+  }, [continueCloseOrPrompt, runningServices, stoppingServices]);
+
+  if (runningServices) {
+    return (
+      <RunningServicesDialog
+        serviceTitles={runningServices.map((service) => service.title)}
+        stopping={stoppingServices}
+        onStopAndClose={() => void handleStopServicesAndClose()}
+        onCancel={handleCancel}
+      />
+    );
+  }
 
   if (!pendingClose) {
     return null;

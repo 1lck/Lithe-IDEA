@@ -23,12 +23,15 @@
   "windows": {
     "evidence": [
       "windows/tauri/src-tauri/src/main.rs",
-      "windows/tauri/src-tauri/src/run.rs"
+      "windows/tauri/src-tauri/src/run.rs",
+      "windows/tauri/src/features/run/stores/run.store.ts",
+      "windows/tauri/src/features/window/components/window-close-guard.tsx",
+      "windows/tauri/src/features/run/stores/run.store.active-services.test.ts"
     ],
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable"
+    "implementationStatus": "partial",
+    "verificationStatus": "pending"
   },
   "owner": "Run",
   "verification": "运行一个长驻服务（如 Spring Boot）、一个 setsid 脱离的后台进程和一个忽略终止信号的程序，分别通过菜单退出、更新重启和对主进程 kill -9 关闭 IDE，确认除用户选择保留的项目外，带本实例 LITHE_PROCESS_SCOPE 的进程全部退出、端口已释放；主进程和监护进程同时被结束后再次启动，确认残留进程出现在启动清扫确认中。",
-  "notes": "macOS 用 LITHE_PROCESS_SCOPE 标记本实例启动的进程，退出时做最终清扫；崩溃由随应用启动的监护进程兜底（Agent 任务和后台服务留到下次启动再确认）。分类规则在 Rust Core（processLifecycle.inventory），Windows 可直接复用；Windows 的退出处理目前只关闭语言工具和调试会话，未停止运行会话，运行进程也未放入 Job Object。"
+  "notes": "macOS 用 LITHE_PROCESS_SCOPE 标记本实例启动的进程，退出时做最终清扫；崩溃由随应用启动的监护进程兜底（Agent 任务和后台服务留到下次启动再确认）。分类规则在 Rust Core（processLifecycle.inventory），Windows 可直接复用；Windows 在窗口销毁时用 taskkill /T 结束该窗口拥有的运行进程树，应用退出时结束全部剩余运行进程，关闭窗口前提示停止仍在运行的服务；运行进程尚未放入 Job Object，IDE 崩溃或被强制结束时仍会残留。"
 }

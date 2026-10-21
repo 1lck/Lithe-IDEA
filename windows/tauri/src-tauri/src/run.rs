@@ -136,9 +136,73 @@ fn run_session_key(window_label: &str, session_id: &str) -> RunSessionKey {
     }
 }
 
-pub fn cancel_window_prelaunches(window_label: &str) {
-    if let Ok(mut pending) = pending_launches().lock() {
-        pending.retain(|key, _| key.window_label != window_label);
+// Window cleanups still terminating process trees; application exit waits for
+// them so a quit right after the last window closes cannot orphan a service.
+fn window_cleanups() -> &'static Mutex<Vec<thread::JoinHandle<()>>> {
+    static CLEANUPS: OnceLock<Mutex<Vec<thread::JoinHandle<()>>>> = OnceLock::new();
+    CLEANUPS.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+/// Ends every Run process a destroyed window owns, including launches still
+/// being prepared, without blocking the event loop. Other windows keep theirs.
+pub fn release_window_processes(window_label: &str) {
+    let pids = take_owned_processes(|key| key.window_label == window_label);
+    if pids.is_empty() {
+        return;
+    }
+    let cleanup = thread::spawn(move || terminate_run_processes(pids));
+    let mut cleanups = window_cleanups()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    cleanups.retain(|cleanup| !cleanup.is_finished());
+    cleanups.push(cleanup);
+}
+
+/// Ends every remaining Run process and waits for earlier window cleanups, so
+/// no service Lithe started outlives the application.
+pub fn shutdown() {
+    terminate_run_processes(take_owned_processes(|_| true));
+    let cleanups = std::mem::take(
+        &mut *window_cleanups()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()),
+    );
+    for cleanup in cleanups {
+        let _ = cleanup.join();
+    }
+}
+
+fn take_owned_processes(owned: impl Fn(&RunSessionKey) -> bool) -> Vec<u32> {
+    // Same lock order as publication: once the reservation is gone, a launch
+    // still in preparation can no longer publish a process after this cleanup.
+    // A poisoned lock is recovered because this is the last chance to reap.
+    let mut pending = pending_launches()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    pending.retain(|key, _| !owned(key));
+    let mut current = sessions()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let keys = current
+        .keys()
+        .filter(|key| owned(key))
+        .cloned()
+        .collect::<Vec<_>>();
+    keys.iter()
+        .filter_map(|key| current.remove(key))
+        .map(|session| session.pid)
+        .collect()
+}
+
+fn terminate_run_processes(pids: Vec<u32>) {
+    // taskkill /T walks each tree separately; run them side by side so closing
+    // a window with several services is not delayed by their sum.
+    let terminations = pids
+        .into_iter()
+        .map(|pid| thread::spawn(move || terminate_run_process(pid)))
+        .collect::<Vec<_>>();
+    for termination in terminations {
+        let _ = termination.join();
     }
 }
 
@@ -2442,7 +2506,7 @@ mod tests {
     fn prelaunch_window_close_cancels_without_affecting_other_windows() {
         let (args, reservation) = prelaunch_fixture("prelaunch-close-window");
         let (_, other) = prelaunch_fixture("prelaunch-other-window");
-        cancel_window_prelaunches("prelaunch-close-window");
+        release_window_processes("prelaunch-close-window");
         assert!(other.is_current(&pending_launches().lock().unwrap()));
         let outcome = execute_prelaunch(args, reservation, Duration::from_secs(2));
         assert_eq!(outcome.exit_code, -1);
@@ -3394,6 +3458,80 @@ mod tests {
         let right = run_session_key("project-b", "primary");
         assert_ne!(left, right);
         assert_eq!(left, run_session_key("project-a", "primary"));
+    }
+
+    #[cfg(windows)]
+    fn spawn_owned_process_tree(window: &str) -> (Child, u32) {
+        // cmd waits on ping, so the service has a descendant like mvn -> java.
+        let mut command = Command::new("cmd");
+        command.args(["/C", "ping -n 30 127.0.0.1 >NUL"]);
+        apply_creation_flags(&mut command);
+        let child = command.spawn().expect("spawn service");
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let descendant = loop {
+            if let Some(pid) = child_process_ids(child.id()).first() {
+                break *pid;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "service descendant did not start"
+            );
+            thread::sleep(Duration::from_millis(50));
+        };
+        sessions().lock().unwrap().insert(
+            run_session_key(window, "window-release-test"),
+            RunningSession {
+                pid: child.id(),
+                execution_id: None,
+                stdin: None,
+            },
+        );
+        (child, descendant)
+    }
+
+    #[cfg(windows)]
+    fn child_process_ids(parent: u32) -> Vec<u32> {
+        let mut system = sysinfo::System::new();
+        system.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+        system
+            .processes()
+            .values()
+            .filter(|process| process.parent() == Some(sysinfo::Pid::from_u32(parent)))
+            .map(|process| process.pid().as_u32())
+            .collect()
+    }
+
+    #[cfg(windows)]
+    fn process_is_alive(pid: u32) -> bool {
+        let mut system = sysinfo::System::new();
+        system.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+        system.process(sysinfo::Pid::from_u32(pid)).is_some()
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn window_release_ends_its_process_trees_and_keeps_other_windows() {
+        // Regression for #1137: closing a window left Run services and their
+        // descendants running. Another window's service must survive the close.
+        let (mut closed, closed_descendant) = spawn_owned_process_tree("release-closed-window");
+        let (mut kept, kept_descendant) = spawn_owned_process_tree("release-kept-window");
+
+        terminate_run_processes(take_owned_processes(|key| {
+            key.window_label == "release-closed-window"
+        }));
+        assert!(closed.wait().is_ok());
+        assert!(!process_is_alive(closed_descendant));
+        assert!(kept.try_wait().unwrap().is_none());
+        assert!(process_is_alive(kept_descendant));
+
+        // A second destroy/exit pass finds nothing left and must not reap again.
+        assert!(take_owned_processes(|key| key.window_label == "release-closed-window").is_empty());
+
+        terminate_run_processes(take_owned_processes(|key| {
+            key.window_label == "release-kept-window"
+        }));
+        assert!(kept.wait().is_ok());
+        assert!(!process_is_alive(kept_descendant));
     }
 
     #[test]

@@ -144,7 +144,7 @@ fn main() {
         })
         .on_window_event(|window, event| {
             if matches!(event, tauri::WindowEvent::Destroyed) {
-                run::cancel_window_prelaunches(window.label());
+                run::release_window_processes(window.label());
                 core::close_ide_hosts(window.label());
                 agent::close_window_connections(window.label());
                 project_windows::release_window(window.app_handle(), window.label().to_owned());
@@ -277,6 +277,7 @@ fn main() {
     application.run(|app, event| {
         if matches!(event, tauri::RunEvent::Exit) {
             language_tools::shutdown();
+            run::shutdown();
             debug::shutdown();
             agent::shutdown();
             if let Some(manager) = app.try_state::<Arc<logging::LogManager>>() {
