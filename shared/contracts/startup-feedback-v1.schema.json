@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lithe.dev/contracts/startup-feedback-v1.schema.json",
+  "title": "Lithe Startup Feedback v1",
+  "description": "Portable contract for the startup feedback layer both products render while the workbench is not ready yet.",
+  "type": "object",
+  "required": [
+    "version",
+    "minimumVisibleDurationMs",
+    "fadeOutDurationMs",
+    "outcomes",
+    "stages",
+    "failureCodes",
+    "messages"
+  ],
+  "properties": {
+    "version": { "const": 1 },
+    "minimumVisibleDurationMs": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 5000,
+      "description": "A product that becomes ready within this window after the feedback surface appears never shows the startup animation."
+    },
+    "fadeOutDurationMs": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 2000,
+      "description": "Shared fade-out duration used when the startup outcome turns terminal."
+    },
+    "outcomes": {
+      "type": "array",
+      "items": { "enum": ["idle", "loading", "ready", "failed"] },
+      "minItems": 4,
+      "maxItems": 4,
+      "uniqueItems": true
+    },
+    "stages": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "order", "labelKey", "labels"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z][A-Za-z]*$" },
+          "order": { "type": "integer", "minimum": 1 },
+          "labelKey": { "type": "string", "minLength": 1 },
+          "labels": {
+            "type": "object",
+            "required": ["en", "zhHans"],
+            "properties": {
+              "en": { "type": "string", "minLength": 1 },
+              "zhHans": { "type": "string", "minLength": 1 }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "failureCodes": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[a-z][A-Za-z]*$" },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "messages": {
+      "type": "object",
+      "required": ["failureTitle", "failureContinue"],
+      "properties": {
+        "failureTitle": { "$ref": "#/$defs/localizedMessage" },
+        "failureContinue": { "$ref": "#/$defs/localizedMessage" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "localizedMessage": {
+      "type": "object",
+      "required": ["labelKey", "labels"],
+      "properties": {
+        "labelKey": { "type": "string", "minLength": 1 },
+        "labels": {
+          "type": "object",
+          "required": ["en", "zhHans"],
+          "properties": {
+            "en": { "type": "string", "minLength": 1 },
+            "zhHans": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

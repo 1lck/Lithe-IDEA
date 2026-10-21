@@ -45,6 +45,7 @@ export interface Settings {
   // General
   autoSave: boolean;
   quickOpenPreview: boolean;
+  showStartupAnimation: boolean;
   // Editor
   fontFamily: string;
   fontSize: number;

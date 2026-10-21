@@ -3,6 +3,7 @@ import { MotionConfig } from "motion/react";
 import { closeMcpConnections } from "@/features/host-api/mcp-connection";
 import { FontStyleInjector } from "@/features/settings/components/font-style-injector";
 import { initializeAppBootstrap } from "@/features/bootstrap/initialize-app-bootstrap";
+import { reportStartupReady } from "@/features/bootstrap/startup-animation/startup-feedback.store";
 import {
   recordStartupMilestone,
   recordStartupMilestoneAfterFrame,
@@ -44,6 +45,8 @@ function WorkbenchApp() {
       durationMs: Math.round((performance.now() - mountedAt) * 100) / 100,
     }));
     const cleanupStartupMilestone = recordStartupMilestoneAfterFrame("workbench:first-frame");
+    // The workbench is on screen, so the startup feedback can fade out.
+    reportStartupReady();
 
     return () => {
       cleanupTrace();

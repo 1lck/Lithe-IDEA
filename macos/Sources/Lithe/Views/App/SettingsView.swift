@@ -466,6 +466,13 @@ struct SettingsView: View {
                 }
             }
 
+            group("Startup", info: "Show the Lithe logo and the current startup phase while the product is starting.") {
+                LitheSettingsCheckbox(
+                    isOn: $settings.startupAnimationEnabled,
+                    title: "Show startup animation"
+                )
+            }
+
             group("Language") {
                 row("Language", info: "The interface language changes immediately. English is the default.") {
                     LitheSettingsSelect(

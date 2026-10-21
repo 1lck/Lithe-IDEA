@@ -138,6 +138,7 @@ fn main() {
             if let Some(window) = app.get_webview_window("main") {
                 host::apply_window_taskbar_icon(&window);
             }
+            reveal_main_window_after_delay(app.handle().clone());
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -213,6 +214,7 @@ fn main() {
             logging::record_startup_milestone,
             host::get_system_theme,
             host::set_native_window_appearance,
+            host::show_main_window,
             fonts::get_system_fonts,
             fonts::get_monospace_fonts,
             fonts::validate_font,
@@ -282,5 +284,23 @@ fn main() {
 fn window_state_flags() -> StateFlags {
     let mut flags = StateFlags::all();
     flags.remove(StateFlags::DECORATIONS);
+    // The main window starts hidden and is revealed once the frontend painted
+    // its first frame. Restoring the saved visibility would show the empty
+    // WebView surface before the startup animation can explain the wait.
+    flags.remove(StateFlags::VISIBLE);
     flags
+}
+
+/// Reveals the main window when the frontend did not do it.
+///
+/// The frontend reveals the window as soon as the startup animation is on
+/// screen. A frontend that fails before that point would leave an invisible
+/// window, so the shell reveals it after a delay without stealing the focus.
+fn reveal_main_window_after_delay(app: tauri::AppHandle) {
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_secs(8));
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.show();
+        }
+    });
 }

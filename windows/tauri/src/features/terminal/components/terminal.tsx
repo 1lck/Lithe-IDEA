@@ -63,7 +63,10 @@ import { resolveTerminalFont } from "../utils/resolve-font";
 import { getTerminalKeyAction } from "../utils/terminal-keyboard";
 import { getTerminalCompatibilityOptions } from "../utils/terminal-options";
 import { createTerminalEventChannel, getTerminalSize } from "../utils/terminal-protocol";
-import { getFrontendTerminalSessionArgs } from "../utils/frontend-terminal-session";
+import {
+  ensureFrontendTerminalSessionReady,
+  getFrontendTerminalSessionArgs,
+} from "../utils/frontend-terminal-session";
 import { TerminalSearch, type TerminalSearchOptions } from "./terminal-search";
 import "@xterm/xterm/css/xterm.css";
 import "../styles/terminal.css";
@@ -447,6 +450,10 @@ export const XtermTerminal = ({
         activeRemoteConnectionId = activeRemoteConnectionId || remoteInfo?.connectionId;
         const size = getTerminalSize(terminal);
         const events = createTerminalEventChannel();
+
+        // The backend registers a terminal only under an accepted frontend
+        // session, and the first frame does not wait for that session.
+        await ensureFrontendTerminalSessionReady();
 
         activeConnectionId = activeRemoteConnectionId
           ? await (async () => {

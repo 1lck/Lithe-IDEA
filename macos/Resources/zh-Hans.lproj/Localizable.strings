@@ -1,4 +1,13 @@
 /* Core interface strings for Simplified Chinese. */
+"Preparing Lithe" = "正在准备 Lithe";
+"Loading plugins" = "正在加载插件";
+"Initializing language services" = "正在初始化语言服务";
+"Opening workspace" = "正在打开工作区";
+"Restoring your last session" = "正在恢复上次会话";
+"Lithe could not finish starting" = "Lithe 未能完成启动";
+"Startup" = "启动";
+"Show startup animation" = "显示启动动画";
+"Show the Lithe logo and the current startup phase while the product is starting." = "启动过程中显示 Lithe 标志与当前启动阶段。";
 "Some MCP configuration files could not be restored: %@. Refresh and check these files before retrying." = "部分 MCP 配置文件未能恢复：%@。请刷新并检查这些文件后重试。";
 "Settings" = "设置";
 "Close Settings" = "关闭设置";

@@ -671,6 +671,25 @@ pub fn set_native_window_appearance(
     window.set_theme(theme).map_err(|error| error.to_string())
 }
 
+/// Reveals the main window once the frontend painted its first frame.
+///
+/// The main window is created hidden so the user never sees the empty WebView
+/// surface while the frontend boots. The frontend calls this after the startup
+/// animation is on screen; the shell also reveals the window on a timer so a
+/// frontend failure cannot leave an invisible window behind.
+///
+/// `focus` is false for the shell fallback: a startup that failed in the
+/// background must not steal the focus from whatever the user is doing.
+#[tauri::command]
+pub fn show_main_window(window: WebviewWindow, focus: Option<bool>) -> Result<(), String> {
+    window.show().map_err(|error| error.to_string())?;
+    if focus.unwrap_or(true) {
+        // The window was hidden, so it does not own the keyboard yet.
+        let _ = window.set_focus();
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub fn get_bundled_extensions_path(app: AppHandle) -> Result<String, String> {
     app.path()

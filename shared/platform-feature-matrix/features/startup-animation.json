@@ -1,0 +1,38 @@
+{
+  "id": "startup-animation",
+  "area": "启动与窗口",
+  "group": "启动反馈",
+  "capability": "启动阶段反馈：显示 Lithe 标志与当前启动阶段文案，启动很快时跳过，就绪后淡出，失败时显示失败阶段与原因",
+  "macos": {
+    "evidence": [
+      "shared/contracts/startup-feedback-v1.md",
+      "shared/fixtures/settings/startup-feedback-v1.json",
+      "macos/Sources/Lithe/Application/Lifecycle/StartupFeedback",
+      "macos/Sources/Lithe/Views/App/StartupAnimationView.swift",
+      "macos/Sources/Lithe/Views/App/RootView.swift",
+      "macos/Sources/Lithe/Application/Features/WorkspaceSessionCoordinator.swift",
+      "macos/Sources/Lithe/Application/Composition/WorkspaceProjectionComposition.swift",
+      "macos/Sources/Lithe/Models/Settings/AppSettings.swift",
+      "macos/Tests/LitheTests/StartupFeedbackTests.swift"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "shared/contracts/startup-feedback-v1.md",
+      "shared/fixtures/settings/startup-feedback-v1.json",
+      "windows/tauri/src/features/bootstrap/startup-animation",
+      "windows/tauri/src/features/bootstrap/bootstrap-async.ts",
+      "windows/tauri/src/features/layout/components/main-layout.tsx",
+      "windows/tauri/src/features/settings/components/settings-panels.tsx",
+      "windows/tauri/src-tauri/src/host.rs",
+      "windows/tauri/src-tauri/src/main.rs"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Workbench",
+  "notes": "两端共享启动阶段契约 shared/contracts/startup-feedback-v1.md 与 shared/fixtures/settings/startup-feedback-v1.json，阶段 ID、顺序、中英文案与时间常量由 scripts/verify-startup-feedback-contract.mjs 强制一致。契约阶段是产品级粗粒度步骤，语言服务器内部的细粒度阶段继续使用 shared/fixtures/lsp/project-preparation-v1.json 的词汇，两套词汇不互相替代。Windows 在原生窗口层消除白屏：tauri.windows.conf.json 设置 visible:false，tauri-plugin-window-state 的 StateFlags::VISIBLE 被移除以免恢复上次状态时直接显示，首帧绘制完成后由 show_main_window 命令显示窗口，并保留 8 秒超时兜底显示；macOS 不改窗口创建流程，改用主窗口内覆盖层。macOS 的加载插件阶段当前不可观测，因为插件扫描在 LitheApp.init() 同步完成、早于窗口出现，两端阶段覆盖范围因此并不完全相同。开关默认开启，关闭后既不显示动画也不引入额外延迟。",
+  "verification": "两端各按同一套步骤验证：冷启动一个工作区较大的项目，确认启动期间显示 Lithe 标志与当前阶段文案，阶段随加载插件、初始化语言服务、打开工作区、恢复上次会话推进；启动很快时确认完全跳过动画且不引入可感知延迟；就绪后确认淡出并进入工作台；在深色与浅色外观下核对标志与文案可读；关闭设置中的启动动画开关后重启，确认不显示动画且启动速度无变化。Windows 另外确认原生窗口在首帧绘制前不可见、不出现白屏、失败时窗口仍能显示并给出原因。macOS 另外确认失败态持续显示直到点击继续，且失败提示不阻塞工作台操作。启动快慢判定依赖可控时钟的自动化测试，Windows 见 startup-feedback-controller.test.ts，macOS 见 StartupFeedbackTests.swift；真实运行时长仍需在目标平台实机确认。"
+}

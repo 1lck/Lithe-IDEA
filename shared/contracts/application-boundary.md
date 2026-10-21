@@ -524,6 +524,25 @@ locators, Git command runners, or persistence stores. Platform-specific actions
 such as directory picking, file-browser reveal, clipboard access, and native
 shortcut monitoring are capability ports, not application logic.
 
+## Startup Feedback Contract
+
+[`startup-feedback-v1.schema.json`](startup-feedback-v1.schema.json) and
+[`startup-feedback-v1.md`](startup-feedback-v1.md) define the portable startup
+feedback layer both products render while the workbench is not ready yet. The
+contract owns the phase vocabulary (`preparing`, `loadingPlugins`,
+`initializingLanguageServices`, `openingWorkspace`, `restoringSession`), the
+outcome vocabulary (`idle`, `loading`, `ready`, `failed`), the skip threshold
+`minimumVisibleDurationMs`, the shared fade-out duration, and the exact wording
+both products display for a phase.
+
+The feedback layer is a presentation of startup work, not the work itself. It
+never delays readiness and never starts plugins, language services, or
+workspace opening. A product that reaches `ready` inside the skip window does
+not show the animation at all, so a fast start adds no visible delay. The
+detailed language service preparation phases keep their own vocabulary in
+`shared/fixtures/lsp/project-preparation-v1.json`; the startup phase
+`initializingLanguageServices` summarizes them and does not replace them.
+
 ## Workbench Background Contract
 
 [`workbench-background-v1.schema.json`](workbench-background-v1.schema.json)

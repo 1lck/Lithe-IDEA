@@ -11,6 +11,17 @@ export type DisplayLanguage = (typeof DISPLAY_LANGUAGES)[number];
 
 const catalogs = {
   "en-US": {
+    "startup.stage.preparing": "Preparing Lithe",
+    "startup.stage.loadingPlugins": "Loading plugins",
+    "startup.stage.initializingLanguageServices": "Initializing language services",
+    "startup.stage.openingWorkspace": "Opening workspace",
+    "startup.stage.restoringSession": "Restoring your last session",
+    "startup.failure.title": "Lithe could not finish starting",
+    "startup.failure.continue": "Continue",
+    "settings.general.startup": "Startup",
+    "settings.general.showStartupAnimation": "Show startup animation",
+    "settings.general.showStartupAnimationDescription":
+      "Show the startup animation with the current startup phase while Lithe starts. A fast startup skips the animation.",
     "agent.quietNotice": "No recent progress has been received. The task is still active.",
     "agent.continueWaiting": "Continue waiting",
     "agent.stop": "Stop",
@@ -4896,6 +4907,17 @@ const catalogs = {
     "welcome.backToProjects": "Back to projects",
   },
   "zh-CN": {
+    "startup.stage.preparing": "正在准备 Lithe",
+    "startup.stage.loadingPlugins": "正在加载插件",
+    "startup.stage.initializingLanguageServices": "正在初始化语言服务",
+    "startup.stage.openingWorkspace": "正在打开工作区",
+    "startup.stage.restoringSession": "正在恢复上次会话",
+    "startup.failure.title": "Lithe 未能完成启动",
+    "startup.failure.continue": "继续",
+    "settings.general.startup": "启动",
+    "settings.general.showStartupAnimation": "显示启动动画",
+    "settings.general.showStartupAnimationDescription":
+      "启动过程中显示启动动画和当前启动阶段。启动很快时会跳过动画。",
     "agent.quietNotice": "暂未收到新的进度，任务仍在进行。",
     "agent.continueWaiting": "继续等待",
     "agent.stop": "停止",

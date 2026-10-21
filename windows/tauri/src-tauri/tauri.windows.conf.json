@@ -13,7 +13,8 @@
         "hiddenTitle": true,
         "transparent": false,
         "resizable": true,
-        "center": true
+        "center": true,
+        "visible": false
       }
     ]
   }

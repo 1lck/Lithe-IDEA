@@ -147,6 +147,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     private var featureObservationBinder: AppModelObservationBinder?
     private var fileVisibilityRulesObserverID: UUID?
     private var searchExclusionsObservation: AnyCancellable?
+    private var startupFeedbackObservations: [AnyCancellable] = []
     private var requestProjectOpen: ((URL) -> Void)?
     private var requestProjectOpenAtPlacement: ((URL, ProjectOpenPlacement) -> Void)?
     private var didCloseProject: (() -> Void)?
@@ -185,6 +186,8 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     var workbenchBackgroundFeature: WorkbenchBackgroundFeatureModel { featureGraph.workbenchBackground }
     var runtimeFeature: RuntimeSettingsFeatureModel { featureGraph.runtime }
     var languageToolingFeature: LanguageToolingFeatureModel { featureGraph.languageTooling }
+    /// Startup feedback drives the launch animation shown above the workbench.
+    var startupFeedback: StartupFeedbackCoordinator { featureGraph.startupFeedback }
     let debugLaunchConfigurationResolver: DebugLaunchConfigurationResolver
     let debugPortAvailabilityChecker: any DebugPortAvailabilityChecking
     var workspaceFeature: WorkspaceFeatureModel { featureGraph.workspace }
@@ -540,6 +543,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
             }
         }
         WorkspaceProjectionComposition.configure(model: self)
+        configureStartupFeedback()
         documentLanguageCoordinator = DocumentFeatureComposition.configure(model: self)
         springFeatureObservation = springFeature.objectWillChange.sink { [weak self] _ in
             self?.refreshEditorDiagnosticsStore()
@@ -604,6 +608,38 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
             settings: settings,
             services: services,
             featureGraph: AppModelFeatureGraph(settings: settings, services: services)
+        )
+    }
+
+    /// Connects the startup feedback to the settings switch and to the
+    /// language tooling state, so the launch animation reports the phase the
+    /// product is really working on.
+    private func configureStartupFeedback() {
+        let feedback = startupFeedback
+        feedback.setEnabled(settings.startupAnimationEnabled)
+        startupFeedbackObservations.append(
+            settings.$startupAnimationEnabled
+                .removeDuplicates()
+                .sink { [weak feedback] isEnabled in
+                    feedback?.setEnabled(isEnabled)
+                }
+        )
+        startupFeedbackObservations.append(
+            languageToolingFeature.$projectPreparation
+                .compactMap { $0 }
+                .sink { [weak feedback] preparation in
+                    switch preparation.status {
+                    case "loading":
+                        feedback?.setStage(.initializingLanguageServices)
+                    case "failed":
+                        feedback?.markFailed(
+                            code: .languageServiceInitializationFailed,
+                            message: StartupStage.initializingLanguageServices.englishLabel
+                        )
+                    default:
+                        break
+                    }
+                }
         )
     }
 

@@ -6,6 +6,7 @@ import {
   clearProjectPreparation,
   type ProjectPreparation,
 } from "@/features/run/stores/project-preparation.store";
+import { reportStartupStage } from "@/features/bootstrap/startup-animation/startup-feedback.store";
 import { emit } from "@tauri-apps/api/event";
 import { executeCore, type CoreResponse } from "@/core/lithe-core-client";
 import { readJavaBuildFailure, type JavaBuildReport } from "@/platform/java-launch-readiness";
@@ -839,6 +840,9 @@ async function createSession(args: JsonRecord, key: string): Promise<Session> {
   };
   sessions.set(key, session);
   if (session.languageId === "java") beginProjectPreparation(session.workspacePath, session.id);
+  // A language server session is the language services phase of the startup
+  // feedback. The feedback ignores the report once the startup finished.
+  reportStartupStage("initializingLanguageServices");
   persistSessions();
   try {
     await waitUntilReady(session);

@@ -26,6 +26,10 @@ import { toast } from "sonner";
 import { useTranslation } from "@/i18n/locale-provider";
 import { frontendTrace } from "@/utils/frontend-trace";
 import { recordStartupMilestone } from "@/features/bootstrap/startup-performance";
+import {
+  reportStartupFailed,
+  reportStartupStage,
+} from "@/features/bootstrap/startup-animation/startup-feedback.store";
 import { prewarmCommonLanguageTokenizers } from "@/features/editor/engines/monaco/language-contributions";
 import { ReferencesPopover } from "@/features/references/components/references-popover";
 import { closeNotificationsToolWindow } from "@/features/notifications/actions/notifications-tool-window-actions";
@@ -238,6 +242,11 @@ export function MainLayout() {
         // Set flag BEFORE calling switchToProject to prevent tab bar from hiding
         setIsSwitchingProject(true);
 
+        // Restoring the previous session is the session phase of the startup
+        // feedback. A failure here is a startup failure, so it stays readable
+        // even when the workbench already painted its first frame.
+        reportStartupStage("restoringSession");
+
         try {
           await switchToProject(activeTab.id);
           frontendTrace("info", "workspace-open", "startupRestore:end", {
@@ -251,6 +260,10 @@ export function MainLayout() {
             tabPath: activeTab.path,
           });
           recordStartupMilestone("workspace:error");
+          reportStartupFailed(
+            "sessionRestoreFailed",
+            error instanceof Error ? error.message : String(error),
+          );
           // Make sure to clear the flag even if restoration fails
           setIsSwitchingProject(false);
         }

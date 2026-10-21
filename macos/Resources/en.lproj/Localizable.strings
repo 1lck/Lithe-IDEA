@@ -1,4 +1,13 @@
 /* English is the default UI language. */
+"Preparing Lithe" = "Preparing Lithe";
+"Loading plugins" = "Loading plugins";
+"Initializing language services" = "Initializing language services";
+"Opening workspace" = "Opening workspace";
+"Restoring your last session" = "Restoring your last session";
+"Lithe could not finish starting" = "Lithe could not finish starting";
+"Startup" = "Startup";
+"Show startup animation" = "Show startup animation";
+"Show the Lithe logo and the current startup phase while the product is starting." = "Show the Lithe logo and the current startup phase while the product is starting.";
 "Some MCP configuration files could not be restored: %@. Refresh and check these files before retrying." = "Some MCP configuration files could not be restored: %@. Refresh and check these files before retrying.";
 "Workbench background" = "Workbench background";
 "Built-in backgrounds" = "Built-in backgrounds";

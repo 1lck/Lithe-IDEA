@@ -61,6 +61,7 @@ final class AppSettings: ObservableObject {
         static let workbenchBackground = "settings.workbenchBackground"
         static let javaBuildFailurePolicies = "settings.javaBuildFailurePolicies"
         static let processTermination = "settings.processTermination"
+        static let startupAnimationEnabled = "settings.startupAnimationEnabled"
     }
 
     private struct KeyboardShortcutOverridesPayload: Codable {
@@ -225,6 +226,12 @@ final class AppSettings: ObservableObject {
             saveWorkbenchBackgroundConfiguration()
         }
     }
+    /// Whether the launch animation is shown while the product starts. The
+    /// animation is a feedback layer only: a quick start skips it and it never
+    /// delays the moment the workbench becomes usable.
+    @Published var startupAnimationEnabled: Bool {
+        didSet { defaults.set(startupAnimationEnabled, forKey: Key.startupAnimationEnabled) }
+    }
 
     private var fileVisibilityRulesObservers: [UUID: () -> Void] = [:]
     private var logDirectoryObservers: [UUID: (URL) -> Void] = [:]
@@ -257,6 +264,7 @@ final class AppSettings: ObservableObject {
         ) ?? .singleLine
         showCodeVision = defaults.object(forKey: Key.showCodeVision) as? Bool ?? true
         autoSave = defaults.object(forKey: Key.autoSave) as? Bool ?? true
+        startupAnimationEnabled = defaults.object(forKey: Key.startupAnimationEnabled) as? Bool ?? true
         autoSaveDelay = defaults.object(forKey: Key.autoSaveDelay) as? Double ?? 1.5
         terminalShellPathOverride = defaults.string(forKey: Key.terminalShellPathOverride) ?? ""
         terminalShell = TerminalShell(rawValue: defaults.string(forKey: Key.terminalShell) ?? "") ?? .system
@@ -448,6 +456,7 @@ final class AppSettings: ObservableObject {
         editorTabLayoutMode = .singleLine
         showCodeVision = true
         autoSave = true
+        startupAnimationEnabled = true
         autoSaveDelay = 1.5
         terminalShell = .system
         terminalScrollbackLines = Self.defaultTerminalScrollbackLines
