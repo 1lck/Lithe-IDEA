@@ -82,6 +82,9 @@ export function NotebookCodeCellEditor({
       bracketPairColorization: { enabled: editorBracketPairColorization },
       smoothScrolling: editorSmoothScrolling,
       mouseWheelScrollSensitivity: EDITOR_CONSTANTS.MOUSE_WHEEL_SCROLL_SENSITIVITY,
+      // Full-width punctuation is normal Chinese prose; see frontend/editor
+      // workbench.ts for the rationale behind disabling the confusable warning.
+      unicodeHighlight: { ambiguousCharacters: false },
       scrollBeyondLastLine: editorScrollBeyondLastLine,
       cursorStyle: editorCursorStyle,
       cursorBlinking: editorCursorBlinking,
@@ -110,6 +113,9 @@ export function NotebookCodeCellEditor({
       scrollbar: {
         vertical: "hidden",
         horizontal: "auto",
+        // Reserve the shared slim-scrollbar track so the rounded slider in
+        // monaco-editor.css renders at the same 5px/11px geometry as the main editor.
+        horizontalScrollbarSize: EDITOR_CONSTANTS.SCROLLBAR_TRACK_SIZE,
         alwaysConsumeMouseWheel: false,
       },
     });

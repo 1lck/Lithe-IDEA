@@ -4,6 +4,8 @@ export const EDITOR_CONSTANTS = {
   MOUSE_WHEEL_SCROLL_SENSITIVITY: 2,
   // Monaco scrollbar track width matching --app-scrollbar-size in styles/scrollbars.css;
   // monaco-editor.css slims and rounds the slider to match app scrollbars like the file tree.
+  // Set wherever an editor lives under .monaco-editor-shell: monaco-editor.tsx and
+  // notebook-code-cell-editor.tsx. The commit diff preview keeps its own slider design.
   SCROLLBAR_TRACK_SIZE: 11,
   // Line height calculation
   LINE_HEIGHT_MULTIPLIER: 1.4,

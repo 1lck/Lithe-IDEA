@@ -131,6 +131,9 @@ export function mountIndependentCommitDiff(host: HTMLElement, options: Options) 
       model: models[index],
       readOnly: true,
       domReadOnly: true,
+      // Full-width punctuation is normal Chinese prose; see frontend/editor
+      // workbench.ts for the rationale behind disabling the confusable warning.
+      unicodeHighlight: { ambiguousCharacters: false },
       lineNumbers: "off",
       // The center column's tearline borders sit directly at each editor's edge;
       // reserve 1px so the first text column does not touch them.

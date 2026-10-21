@@ -10,8 +10,15 @@
 
 /* Match the app-wide slim rounded scrollbar (styles/scrollbars.css): the transparent
    border plus content-box clipping paints a ~5px rounded thumb inside the track width
-   reserved by EDITOR_CONSTANTS.SCROLLBAR_TRACK_SIZE in monaco-editor.tsx. */
-.monaco-editor-shell .monaco-editor .monaco-scrollable-element > .scrollbar > .slider {
+   reserved by EDITOR_CONSTANTS.SCROLLBAR_TRACK_SIZE in monaco-editor.tsx and
+   notebook-code-cell-editor.tsx. The commit diff preview keeps its own slider design
+   (commit-file-diff-preview.css), including the split view's change-mark rail, so its
+   shell class is excluded here. */
+.monaco-editor-shell:not(.commit-file-diff-preview)
+  .monaco-editor
+  .monaco-scrollable-element
+  > .scrollbar
+  > .slider {
   box-sizing: border-box;
   border: 3px solid transparent;
   border-radius: var(--app-scrollbar-radius);

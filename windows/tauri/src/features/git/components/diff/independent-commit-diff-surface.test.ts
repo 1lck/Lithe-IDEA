@@ -514,6 +514,13 @@ test("explicit difference navigation reveals both boundaries before resuming ver
   expect(f.viewStates.map((state) => state.top)).toEqual([80, 278]);
 });
 
+test("both panes disable the confusable-character warning for Chinese prose", async () => {
+  const f = fixture();
+  await owner!.update(f.rows, "plaintext", false, false);
+  expect(
+    f.viewStates.every((state) => state.options.unicodeHighlight?.ambiguousCharacters === false),
+  ).toBe(true);
+});
 test("Passive preview positions the first difference without taking focus; explicit navigation still focuses", async () => {
   const f = fixture();
   await owner!.update(f.rows, "plaintext", false, false);
