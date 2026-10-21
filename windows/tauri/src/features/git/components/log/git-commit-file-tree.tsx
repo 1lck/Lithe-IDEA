@@ -18,6 +18,7 @@ import { ScrollArea } from "@/ui/scroll-area";
 import { useTreeContentWidth } from "../../hooks/use-tree-content-width";
 import type { GitCommitFile } from "../../types/git.types";
 import { getCommitFileStatusColorClassName } from "../../utils/git-file-status-visuals";
+import { compareGitFileNames } from "../../utils/natural-file-name-compare";
 
 export function countCommitFileTreeLeaves(node: PathTreeNode<GitCommitFile>): number {
   if (node.type === "leaf") return 1;
@@ -39,6 +40,7 @@ export function getFirstCommitFilePath(files: readonly GitCommitFile[]): string 
     buildPathTree([...files], {
       getPath: (file) => file.path,
       getKey: (file) => file.path,
+      compareNames: compareGitFileNames,
     }),
   );
 }
@@ -171,6 +173,7 @@ export function GitCommitFileTree({
       buildPathTree(files, {
         getPath: (file) => file.path,
         getKey: (file) => file.path,
+        compareNames: compareGitFileNames,
       }),
     [files],
   );

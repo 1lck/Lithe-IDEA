@@ -65,10 +65,11 @@ macOS 使用系统多文件拖动，工作区模块继续负责实际文件操�
   例如 Linux 的 `src/a.ts` 与 `src/A.ts` 都保留，Windows 同名目标仍拒绝覆盖。
 - 可见树按显示层级展开成平面行列表，直接交给懒加载栈，保留压缩 Java 包的显示深度。
   不在每个目录下嵌套懒加载栈，以免滚动容器无法正确测量整棵递归子树。
-- Windows 手动定位当前文件与自动跟随共用 `useFileExplorerSync` 的定位请求。
-  展开、加载祖先目录后，视图根据可见行索引滚动虚拟列表，再消费请求；同一文件的
-  每次点击都产生新请求，过期完成不能覆盖新请求。手动定位清除树内搜索并切回 Project，
-  不依赖自动跟随开关。仅调用目录展开或选中动作不会让离屏行进入视口。
+- Windows 手动定位当前文件使用 `useFileExplorerSync` 的定位请求；编辑器切换页签不再
+  自动跟随滚动，原 `autoRevealActiveFileInFileTree` 设置已退役，settings-migrations 的
+  `RETIRED_SETTINGS_KEYS` 会删除旧持久化值。展开、加载祖先目录后，视图根据可见行索引
+  滚动虚拟列表，再消费请求；同一文件的每次点击都产生新请求，过期完成不能覆盖新请求。
+  手动定位清除树内搜索并切回 Project。仅调用目录展开或选中动作不会让离屏行进入视口。
 
 正确示例：同时选择 `src`、`src/A.java`、`README.md`，拖到 `archive`，实际只移动
 `src` 与 `README.md`，后代随目录移动。不要将 `src/A.java` 再移动一次，也不要为了
@@ -106,8 +107,8 @@ Windows 现已加入 Ctrl/Shift 可见范围多选、批量复制/剪切/删除�
   验证按键归属释放。
 - Windows 定位回归：
   `cd windows/tauri && bun test src/features/file-explorer/components/file-explorer-reveal.test.tsx`；
-  点击真实工具栏按钮，检查关闭自动跟随时的折叠祖先展开、离屏行呈现、重复定位、
-  延迟目录加载及过期请求；自动跟随仍需滚动。真实 WebView2 验收另行完成。
+  点击真实工具栏按钮，检查折叠祖先展开、离屏行呈现、重复定位、
+  延迟目录加载及过期请求；编辑器切换页签不得让树自动滚动。真实 WebView2 验收另行完成。
 - Windows 目录选择回归挂载真实 `FileExplorerPane`，连接侧栏与缓冲区 store，只替换磁盘副作用。
   编辑器保持 `README.md` 打开时选择 `src`，核对共享路径同步往返后的高亮、复制、剪切、
   键盘焦点及范围锚点；再核对实际编辑器切换的单选跟随和明确多选保留。

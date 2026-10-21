@@ -28,6 +28,10 @@ interface PathTreeBuildNode<T> extends PathTreeBranch<T> {
 interface BuildPathTreeOptions<T> {
   getKey: (item: T) => string;
   getPath: (item: T) => string;
+  // Optional sibling-name ordering; defaults to localeCompare. Git views pass the
+  // intellij-community-aligned comparator from
+  // features/git/utils/natural-file-name-compare.ts.
+  compareNames?: (left: string, right: string) => number;
 }
 
 function createBranch<T>(name: string, path: string): PathTreeBuildNode<T> {
@@ -49,18 +53,22 @@ function getPathSegments(path: string): string[] {
     .filter(Boolean);
 }
 
-function sortPathTree<T>(nodes: PathTreeNode<T>[]): void {
+function sortPathTree<T>(
+  nodes: PathTreeNode<T>[],
+  compareNames: (left: string, right: string) => number,
+): void {
   nodes.sort((left, right) => {
     if (left.type !== right.type) return left.type === "branch" ? -1 : 1;
-    return left.name.localeCompare(right.name);
+    return compareNames(left.name, right.name);
   });
-  for (const node of nodes) sortPathTree(node.children);
+  for (const node of nodes) sortPathTree(node.children, compareNames);
 }
 
 export function buildPathTree<T>(
   items: T[],
-  { getKey, getPath }: BuildPathTreeOptions<T>,
+  { getKey, getPath, compareNames }: BuildPathTreeOptions<T>,
 ): PathTreeNode<T>[] {
+  const sortNames = compareNames ?? ((left: string, right: string) => left.localeCompare(right));
   const root = createBranch<T>("", "");
 
   for (const item of items) {
@@ -91,7 +99,7 @@ export function buildPathTree<T>(
     });
   }
 
-  sortPathTree(root.children);
+  sortPathTree(root.children, sortNames);
   return root.children;
 }
 
