@@ -270,13 +270,13 @@ public struct DeclarativePluginSetting: Equatable, Identifiable, Sendable {
                 return seen.insert(text).inserted
             }
         case (.text(let pattern, let maxLength, _), .string(let text)):
-            return text.count <= maxLength
+            return text.unicodeScalars.count <= maxLength
                 && !text.hasPrefix("-")
                 && Self.isPrintable(text)
                 && Self.matchesWhole(text, pattern: pattern)
         case (.path, .string(let text)):
             return text.isEmpty
-                || (text.hasPrefix("/") && text.count <= 1024 && Self.isPrintable(text))
+                || (text.hasPrefix("/") && text.unicodeScalars.count <= 1024 && Self.isPrintable(text))
         default:
             return false
         }

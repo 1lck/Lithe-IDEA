@@ -27,6 +27,19 @@ struct PluginSettingsTests {
         #expect(preferences.keys == ["lithe.plugins.dev.example.two.settings"])
     }
 
+    @Test
+    func textSettingLengthUsesUnicodeScalars() {
+        let setting = DeclarativePluginSetting(
+            id: "label",
+            title: "Label",
+            summary: nil,
+            kind: .text(pattern: ".*", maxLength: 2, placeholder: nil),
+            defaultValue: .string("")
+        )
+        #expect(setting.accepts(.string("e\u{301}")))
+        #expect(!setting.accepts(.string("e\u{301}x")))
+    }
+
     /// A damaged preference must never keep a language server from starting.
     @Test
     func anUnreadableRecordCountsAsEmptyAndTheNextChangeReplacesIt() {
@@ -151,6 +164,25 @@ struct PluginSettingsTests {
 
         try store.setProjectValue(nil, forSetting: "mixEnv", plugin: "dev.example.one", projectRoot: project)
         #expect(!FileManager.default.fileExists(atPath: file.path))
+    }
+
+    @Test
+    func projectSettingsRejectDanglingLitheSymlink() throws {
+        let project = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: project) }
+        let destination = project.appendingPathComponent("outside-missing", isDirectory: true)
+        let directory = project.appendingPathComponent(".lithe", isDirectory: true)
+        try FileManager.default.createSymbolicLink(at: directory, withDestinationURL: destination)
+        let store = MacPluginSettingsStore(store: SettingsKeyValueStore())
+
+        var rejected = false
+        do {
+            try store.setProjectValue(.string("prod"), forSetting: "mixEnv", plugin: "dev.example.one", projectRoot: project)
+        } catch {
+            rejected = true
+        }
+        #expect(rejected)
+        #expect(!FileManager.default.fileExists(atPath: destination.appendingPathComponent("plugin-settings.json").path))
     }
 
     @Test

@@ -25,6 +25,8 @@ pub struct ScriptedServer {
 struct ScriptedShared {
     /// Bytes the engine has written, kept raw so framing itself can be asserted.
     written: Mutex<Vec<u8>>,
+    /// Signals a test waiter whenever the engine writes another frame.
+    written_changed: Condvar,
     /// Bytes the test has queued for the engine to read, with `ready` signalling
     /// arrival so the reader thread blocks instead of spinning.
     pending_output: Mutex<Vec<u8>>,
@@ -61,6 +63,7 @@ impl ScriptedServer {
         Self {
             shared: Arc::new(ScriptedShared {
                 written: Mutex::new(Vec::new()),
+                written_changed: Condvar::new(),
                 pending_output: Mutex::new(Vec::new()),
                 ready: Condvar::new(),
                 exit: Mutex::new(None),
@@ -178,31 +181,53 @@ impl ScriptedServer {
             .collect()
     }
 
+    /// Blocks until the engine writes a response with the given JSON-RPC id.
+    pub fn await_response(&self, id: &str) -> Option<Value> {
+        self.await_written_message(|messages| {
+            messages
+                .iter()
+                .find(|message| message["id"] == id && message.get("method").is_none())
+                .cloned()
+        })
+    }
+
+    /// Blocks until the indexed notification for `method` is written.
+    pub fn await_notification_at(&self, method: &str, index: usize) -> Option<Value> {
+        self.await_written_message(|messages| {
+            messages
+                .iter()
+                .filter(|message| message.get("method").and_then(Value::as_str) == Some(method))
+                .nth(index)
+                .cloned()
+        })
+    }
+
+    fn await_written_message(&self, find: impl Fn(&[Value]) -> Option<Value>) -> Option<Value> {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut written = self.shared.written.lock().unwrap();
+        loop {
+            if let Some(message) = find(&parse_messages(&written)) {
+                return Some(message);
+            }
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return None;
+            }
+            let (guard, timeout) = self
+                .shared
+                .written_changed
+                .wait_timeout(written, remaining)
+                .unwrap();
+            written = guard;
+            if timeout.timed_out() {
+                return find(&parse_messages(&written));
+            }
+        }
+    }
+
     /// Every JSON-RPC message the engine has written, unframed.
     pub fn messages(&self) -> Vec<Value> {
-        let written = self.shared.written.lock().unwrap().clone();
-        let mut messages = Vec::new();
-        let mut rest = written.as_slice();
-        while let Some(header_end) = rest.windows(4).position(|window| window == b"\r\n\r\n") {
-            let header = String::from_utf8_lossy(&rest[..header_end]).to_string();
-            let Some(length) = header
-                .lines()
-                .find_map(|line| line.strip_prefix("Content-Length: "))
-                .and_then(|value| value.trim().parse::<usize>().ok())
-            else {
-                break;
-            };
-            let body_start = header_end + 4;
-            let body_end = body_start + length;
-            if rest.len() < body_end {
-                break;
-            }
-            if let Ok(value) = serde_json::from_slice::<Value>(&rest[body_start..body_end]) {
-                messages.push(value);
-            }
-            rest = &rest[body_end..];
-        }
-        messages
+        parse_messages(&self.shared.written.lock().unwrap())
     }
 
     /// The raw bytes the engine wrote, for asserting frame headers.
@@ -276,6 +301,31 @@ impl ScriptedServer {
     }
 }
 
+fn parse_messages(written: &[u8]) -> Vec<Value> {
+    let mut messages = Vec::new();
+    let mut rest = written;
+    while let Some(header_end) = rest.windows(4).position(|window| window == b"\r\n\r\n") {
+        let header = String::from_utf8_lossy(&rest[..header_end]).to_string();
+        let Some(length) = header
+            .lines()
+            .find_map(|line| line.strip_prefix("Content-Length: "))
+            .and_then(|value| value.trim().parse::<usize>().ok())
+        else {
+            break;
+        };
+        let body_start = header_end + 4;
+        let body_end = body_start + length;
+        if rest.len() < body_end {
+            break;
+        }
+        if let Ok(value) = serde_json::from_slice::<Value>(&rest[body_start..body_end]) {
+            messages.push(value);
+        }
+        rest = &rest[body_end..];
+    }
+    messages
+}
+
 struct ScriptedLauncher {
     shared: Arc<ScriptedShared>,
 }
@@ -327,7 +377,10 @@ impl LspProcessHandle for ScriptedProcess {
                 "Language-server stdin is closed.",
             ));
         }
-        self.shared.written.lock().unwrap().extend_from_slice(frame);
+        let mut written = self.shared.written.lock().unwrap();
+        written.extend_from_slice(frame);
+        drop(written);
+        self.shared.written_changed.notify_all();
         Ok(())
     }
 
