@@ -1353,6 +1353,68 @@ async function verify() {
       await window.lithe.retain([]);
     }
   });
+  await check("breakpoint line right-click only opens the menu and edits on explicit selection", async () => {
+    const id = "annotate-breakpoint", text = "class Demo {\n  int value = 1;\n}";
+    (editor.getContribution("editor.contrib.findController") as any)?.closeFindWidget();
+    await send({ type: "open", text });
+    await window.lithe.activate({ id, text, revision: 0, language: "java", readonly: false });
+    const service = StandaloneServices.get(IContextMenuService), original = service.showContextMenu;
+    let actions: any[] = [];
+    service.showContextMenu = delegate => { actions = [...delegate.getActions()]; };
+    const rightClick = () => {
+      editor.render(true);
+      const node = [...editor.getDomNode()!.querySelectorAll(".line-numbers")]
+        .find(element => element.getBoundingClientRect().width > 0 && element.textContent === "2")!;
+      assert(!!node, "breakpoint line is not visible");
+      const bounds = node.getBoundingClientRect();
+      const point = { bubbles: true, cancelable: true, button: 2,
+        clientX: bounds.right - 4, clientY: bounds.top + bounds.height / 2 };
+      node.dispatchEvent(new MouseEvent("mousedown", { ...point, buttons: 2 }));
+      node.dispatchEvent(new MouseEvent("mouseup", { ...point, buttons: 0 }));
+      node.dispatchEvent(new MouseEvent("contextmenu", { ...point, buttons: 0 }));
+    };
+    try {
+      await window.lithe.gitState(id, { revision: 0, markers: [], canAnnotate: true });
+      await window.lithe.debugState(id, { muted: false, canToggleBreakpoints: true, revision: 0,
+        breakpoints: [{ line: 2, enabled: true, verified: true, logpoint: false }] });
+      editor.setSelection(new Selection(1, 1, 1, 3));
+      const selection = editor.getSelection()!.toString(), model = editor.getModel()!, version = model.getVersionId();
+      const before = (await send({ type: "debugRequests" })).requests.length;
+      rightClick();
+      // Drain the known edit chain before observing bridge requests from mousedown.
+      await Promise.resolve();
+      assert((await send({ type: "debugRequests" })).requests.length === before,
+        "right-click opened the breakpoint sheet before a menu action was chosen");
+      assert(actions.some(action => action.id === "lithe.git.annotate"), "Blame action disappeared on a breakpoint");
+      const edit = actions.find(action => action.id === "lithe.editBreakpoint");
+      assert(edit?.enabled, "existing breakpoint has no explicit Edit Breakpoint action");
+      await edit.run();
+      editor.updateOptions({ inlayHints: { enabled: "off" }, codeLens: false });
+      for (const dark of [true, false]) {
+        window.lithe.configure({ dark, fontFamily: "monospace", fontSize: 13, minimap: false, wrap: false });
+        editor.render(true);
+        await withDeadline(send({ type: "reviewScreenshot", name: `blame-hidden-${dark ? "dark" : "light"}` }), "hidden Blame screenshot timed out");
+        await window.lithe.gitState(id, { revision: 0, markers: [], canAnnotate: true, blameVisible: true, blame: [
+          { line: 1, commit: "abc12345", author: "Alex", date: "2026-10-21" },
+          { line: 2, commit: "abc12345", author: "Alex", date: "2026-10-21" },
+          { line: 3, commit: "def67890", author: "Sam", date: "2026-10-20" },
+        ] });
+        editor.render(true);
+        await withDeadline(send({ type: "reviewScreenshot", name: `blame-shown-${dark ? "dark" : "light"}` }), "shown Blame screenshot timed out");
+        await window.lithe.gitState(id, { revision: 0, markers: [], canAnnotate: true, blameVisible: false });
+      }
+      const requests = (await send({ type: "debugRequests" })).requests;
+      assert(requests.length === before + 1 && requests.at(-1).type === "editBreakpoint" &&
+        requests.at(-1).id === id && requests.at(-1).line === 2, "explicit edit lost its clicked line");
+      assert(editor.getSelection()!.toString() === selection && model.getVersionId() === version && model.getValue() === text,
+        "gutter menu changed selection or document history");
+      rightClick();
+      const stale = actions.find(action => action.id === "lithe.editBreakpoint");
+      await window.lithe.activate({ id: "annotate-breakpoint-other", text: "other", revision: 0, language: "plaintext", readonly: false });
+      await stale.run();
+      assert((await send({ type: "debugRequests" })).requests.length === before + 1, "retained edit targeted a replacement tab");
+    } finally { service.showContextMenu = original; await window.lithe.retain([]); editor.updateOptions({ inlayHints: { enabled: "on" }, codeLens: true }); window.lithe.configure({ dark: true }); }
+  });
   await check("blame metadata escapes authors and follows model and split lifecycles", async () => {
     const text = "first\nsecond\nthird";
     await send({ type: "open", text });

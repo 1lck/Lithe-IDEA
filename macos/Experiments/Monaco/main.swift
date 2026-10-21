@@ -211,6 +211,28 @@ final class Probe: NSObject, NSApplicationDelegate, WKScriptMessageHandlerWithRe
                 blameVisibilityRequests.append(body)
                 replyHandler(["ok": true], nil)
             case "blameVisibilityRequests": replyHandler(["requests": blameVisibilityRequests], nil)
+            case "reviewScreenshot":
+                guard ProcessInfo.processInfo.environment["LITHE_MONACO_REVIEW_SCREENSHOTS"] == "1" else {
+                    replyHandler(["skipped": true], nil); return
+                }
+                guard let name = body["name"] as? String,
+                      ["blame-hidden-dark", "blame-shown-dark", "blame-hidden-light", "blame-shown-light"].contains(name) else {
+                    throw ProbeError.invalid("Invalid review screenshot name")
+                }
+                let snapshot = WKSnapshotConfiguration()
+                snapshot.rect = NSRect(x: 0, y: 0, width: min(780, webView.bounds.width), height: min(160, webView.bounds.height))
+                webView.takeSnapshot(with: snapshot) { [weak self] image, error in
+                    do {
+                        if let error { throw error }
+                        guard let self, let data = image?.tiffRepresentation,
+                              let png = NSBitmapImageRep(data: data)?.representation(using: .png, properties: [:]) else {
+                            throw ProbeError.invalid("Review snapshot unavailable")
+                        }
+                        try png.write(to: self.output.appendingPathComponent(name + ".png"))
+                        replyHandler(["ok": true], nil)
+                    } catch { replyHandler(nil, "Review snapshot failed: \(error.localizedDescription)") }
+                }
+
             case "blameCommit":
                 blameCommits.append(body["commit"] as? String ?? "")
                 replyHandler(["ok": true], nil)

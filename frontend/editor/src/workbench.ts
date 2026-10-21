@@ -412,6 +412,7 @@ export function mountWorkbench(host: WorkbenchHost) {
   }
 
   const debugRunContexts = new WeakMap<monaco.editor.IStandaloneCodeEditor, monaco.editor.IContextKey<boolean>>();
+  const debugGutterMenus = new WeakMap<monaco.editor.IStandaloneCodeEditor, (line: number) => IAction[]>();
   const gitStates = new WeakMap<Entry, { version: number; revision: number; markers: GitMarker[]; decorations: string[];
     canAnnotate?: boolean; blameVisible?: boolean; blame?: BlameLine[] }>();
   const gitContextUpdates = new WeakMap<monaco.editor.IStandaloneCodeEditor, () => void>();
@@ -488,13 +489,18 @@ export function mountWorkbench(host: WorkbenchHost) {
       event.event.preventDefault(); event.event.stopPropagation();
       StandaloneServices.get(IContextMenuService).showContextMenu({
         getAnchor: () => ({ x: event.event.posx, y: event.event.posy }),
-        getActions: () => [new Action("lithe.git.annotate", visible ? "Hide Git Blame" : "Annotate with Git Blame",
-          undefined, enabled, async () => {
-            // The menu can outlive a tab switch, edit, close or Git-state refresh.
-            if (!enabled || entries.get(id) !== entry || view.getModel() !== entry.model || entry.model.isDisposed() ||
-                gitStates.get(entry) !== state || version !== entry.model.getVersionId() || entry.frozen || entry.closingHolds || failed) return;
-            await languageRequest({ type: "setBlameVisibility", id, revision: entry.revision, visible: !visible });
-          })],
+        getActions: () => {
+          const items: IAction[] = [new Action("lithe.git.annotate", visible ? "Hide Git Blame" : "Annotate with Git Blame",
+            undefined, enabled, async () => {
+              // The menu can outlive a tab switch, edit, close or Git-state refresh.
+              if (!enabled || entries.get(id) !== entry || view.getModel() !== entry.model || entry.model.isDisposed() ||
+                  gitStates.get(entry) !== state || version !== entry.model.getVersionId() || entry.frozen || entry.closingHolds || failed) return;
+              await languageRequest({ type: "setBlameVisibility", id, revision: entry.revision, visible: !visible });
+            })];
+          const debugItems = event.target.position ? debugGutterMenus.get(view)?.(event.target.position.lineNumber) : undefined;
+          if (debugItems?.length) items.push(new Separator(), ...debugItems);
+          return items;
+        },
         onHide: () => { if (view.getModel() === entry.model && !entry.model.isDisposed()) view.focus(); },
       });
     });
@@ -754,6 +760,18 @@ export function mountWorkbench(host: WorkbenchHost) {
         await send({ type, id, revision: entry.revision, line, column });
       }).catch(error => console.warn("Debug request failed", error));
     }
+    debugGutterMenus.set(view, line => {
+      const model = view.getModel(), pair = [...entries].find(([, entry]) => entry.model === model);
+      if (!pair || !model?.getLineDecorations(line)?.some(item => item.options.glyphMarginClassName?.includes("lithe-breakpoint"))) return [];
+      const [id, entry] = pair, version = model.getVersionId(), generation = entry.debugGeneration;
+      const enabled = !view.getOption(monaco.editor.EditorOption.readOnly) && entry.canToggleBreakpoints !== false &&
+        !entry.readonly && !entry.frozen && !entry.closingHolds && !failed;
+      return [new Action("lithe.editBreakpoint", "Edit Breakpoint…", undefined, enabled, async () => {
+        if (!enabled || entries.get(id) !== entry || view.getModel() !== model || model.isDisposed() ||
+            model.getVersionId() !== version || entry.debugGeneration !== generation) return;
+        await request("editBreakpoint", line);
+      })];
+    });
     view.addAction({ id: "lithe.runToCursor", label: "Run to Cursor",
       precondition: "litheCanRunToCursor", contextMenuGroupId: "debug", contextMenuOrder: 1,
       run: () => {
@@ -768,6 +786,10 @@ export function mountWorkbench(host: WorkbenchHost) {
     if (attached) scheduleNavigation(...attached);
     refresh();
     return view.onMouseDown(event => {
+      // The opted-in line-number menu owns right-clicks; only its explicit
+      // Edit Breakpoint action may open the native editor sheet.
+      if (host.gitBlameMenu && host.lineNumbersFirst && event.event.rightButton &&
+          event.target.type === monaco.editor.MouseTargetType.GUTTER_LINE_NUMBERS) return;
       if (event.target.element?.closest(".lithe-java-navigation, .lithe-java-run, .lithe-blame") ||
           host.lineNumbersFirst && typeof view.getRawOptions().lineNumbers === "function") return;
       if ((event.target.type !== monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN &&

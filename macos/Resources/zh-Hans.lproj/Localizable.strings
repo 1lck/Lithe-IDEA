@@ -3541,3 +3541,4 @@
 "This computer" = "本机";
 "Annotate with Git Blame" = "使用 Git Blame 显示注释";
 "Hide Git Blame" = "隐藏 Git Blame 注释";
+"Edit Breakpoint…" = "编辑断点…";
