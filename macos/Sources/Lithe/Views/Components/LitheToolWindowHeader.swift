@@ -61,11 +61,7 @@ struct LitheToolWindowHeader<Actions: View>: View {
             Spacer(minLength: 12)
             actions
             if let onMinimize {
-                Button(action: onMinimize) {
-                    Image(systemName: "minus")
-                }
-                .litheIconButton()
-                .help("Hide \(title) tool window")
+                LitheSidebarHideButton(title: title, action: onMinimize)
             }
         }
         .padding(.leading, 12)
@@ -119,11 +115,52 @@ struct LitheSidebarHideButton: View {
                 resourcePath: "expui/general/hide.svg",
                 size: LitheTheme.Metrics.toolbarIconSize,
                 fallbackSystemImage: "minus",
-                preservesOriginalColors: true
+                preservesOriginalColors: false
             )
+            .foregroundStyle(LitheTheme.ActionToolbar.icon)
         }
         .litheToolbarIconButton()
+        .foregroundStyle(LitheTheme.ActionToolbar.icon)
         .help("Hide \(title) tool window")
         .accessibilityLabel("Hide \(title) tool window")
+        .modifier(LitheToolWindowHoverAction())
+    }
+}
+
+private struct ToolWindowHoveredKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var isToolWindowHovered: Bool {
+        get { self[ToolWindowHoveredKey.self] }
+        set { self[ToolWindowHoveredKey.self] = newValue }
+    }
+}
+
+/// Applied inside each tool's hosting root, including retained AppKit panes.
+struct LitheToolWindowHoverRegion: ViewModifier {
+    @State private var isHovered = false
+
+    func body(content: Content) -> some View {
+        content
+            .environment(\.isToolWindowHovered, isHovered)
+            .contentShape(Rectangle())
+            .onHover { isHovered = $0 }
+    }
+}
+
+/// Keep layout and keyboard/VoiceOver access while hiding inactive mouse actions.
+struct LitheToolWindowHoverAction: ViewModifier {
+    @Environment(\.isToolWindowHovered) private var isHovered
+    @FocusState private var isFocused: Bool
+    @AccessibilityFocusState private var isAccessibilityFocused: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .focused($isFocused)
+            .accessibilityFocused($isAccessibilityFocused)
+            .opacity(isHovered || isFocused || isAccessibilityFocused ? 1 : 0)
+            .allowsHitTesting(isHovered || isFocused || isAccessibilityFocused)
     }
 }

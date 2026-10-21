@@ -240,7 +240,7 @@ struct GitModuleTests {
     }
 
     @Test
-    func treeStatusProjectsExactFilesAndHighestPriorityDirectories() {
+    func treeStatusUsesExactNodeStatusWithoutInheritingDescendantColors() {
         let root = URL(fileURLWithPath: "/workspace")
         let projection = GitTreeStatusProjection(changes: [
             GitChange(
@@ -267,10 +267,11 @@ struct GitModuleTests {
         ])
 
         #expect(projection.kind(relativePath: "Sources/Modified.swift", isDirectory: false) == .modified)
-        #expect(projection.kind(relativePath: "Sources/Feature", isDirectory: true) == .conflicted)
-        #expect(projection.kind(relativePath: "Sources", isDirectory: true) == .conflicted)
+        #expect(projection.kind(relativePath: "Sources/Feature/Conflict.swift", isDirectory: false) == .conflicted)
+        #expect(projection.kind(relativePath: "Sources/Feature", isDirectory: true) == nil)
+        #expect(projection.kind(relativePath: "Sources", isDirectory: true) == nil)
         #expect(projection.kind(relativePath: "Tests", isDirectory: true) == nil)
-        #expect(projection.kind(relativePath: "", isDirectory: true) == .conflicted)
+        #expect(projection.kind(relativePath: "", isDirectory: true) == nil)
     }
 
     @Test

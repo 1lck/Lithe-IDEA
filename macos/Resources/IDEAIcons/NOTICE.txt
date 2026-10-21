@@ -357,3 +357,52 @@ Editor intention bulbs use unmodified expui/codeInsight/intentionBulb{,_dark}.sv
 from Community idea/262.9437.185 (b75ab523e6adbe1d26112219729eacbcfd24daa0).
 IntentionHintComponent.LightBulbUtil assigns the original IntentionBulb resource.
 Copyright 2000-2023 JetBrains s.r.o. and contributors; Apache License 2.0.
+
+Project tree and shared file/folder catalog refresh (supersedes older copies above):
+IntelliJ Community e8d21e84ee23f99ae7237fbb4530ff2e7c3b47c5; original SVG bytes and copyright notices retained.
+Source paths (dark siblings included where supplied upstream):
+- platform/icons/src/expui/nodes/class.svg
+- platform/icons/src/expui/nodes/interface.svg
+- platform/icons/src/expui/nodes/enum.svg
+- platform/icons/src/expui/nodes/record.svg
+- platform/icons/src/expui/nodes/annotation.svg
+- platform/icons/src/expui/fileTypes/java.svg
+- platform/icons/src/expui/fileTypes/swiftLang.svg
+- platform/icons/src/expui/fileTypes/groovy.svg
+- platform/icons/src/expui/fileTypes/c.svg
+- platform/icons/src/expui/fileTypes/h.svg
+- platform/icons/src/expui/fileTypes/cpp.svg
+- platform/icons/src/expui/fileTypes/Csharp.svg
+- platform/icons/src/expui/fileTypes/shell.svg
+- platform/icons/src/expui/fileTypes/javaScript.svg
+- platform/icons/src/expui/fileTypes/css.svg
+- platform/icons/src/expui/fileTypes/html.svg
+- platform/icons/src/expui/fileTypes/gradle.svg
+- platform/icons/src/expui/fileTypes/xml.svg
+- platform/icons/src/expui/fileTypes/properties.svg
+- platform/icons/src/expui/fileTypes/editorConfig.svg
+- platform/icons/src/expui/fileTypes/yaml.svg
+- platform/icons/src/expui/fileTypes/json.svg
+- platform/icons/src/expui/fileTypes/toml.svg
+- platform/icons/src/expui/fileTypes/csv.svg
+- platform/icons/src/expui/fileTypes/docker.svg
+- platform/icons/src/expui/fileTypes/sql.svg
+- platform/icons/src/expui/fileTypes/markdown.svg
+- platform/icons/src/expui/fileTypes/text.svg
+- platform/icons/src/expui/fileTypes/image.svg
+- platform/icons/src/expui/fileTypes/archive.svg
+- platform/icons/src/expui/fileTypes/unknown.svg
+- platform/icons/src/expui/nodes/folder.svg
+- platform/icons/src/expui/nodes/sourceRoot.svg
+- platform/icons/src/expui/nodes/resourcesRoot.svg
+- platform/icons/src/expui/nodes/excludeRoot.svg
+- platform/icons/src/expui/nodes/moduleJava.svg
+- platform/icons/src/expui/nodes/package.svg
+- platform/icons/src/expui/general/chevronRight.svg
+- platform/icons/src/expui/general/chevronDown.svg
+Locally recolored nodes/*_light.svg and hand-drawn file/folder fallbacks were removed.
+
+Project toolbar: locate, refresh, hide, expandAll and collapseAll (including dark
+siblings) verified against unmodified platform/icons/src/expui/general assets at
+Community e74205a077adefec3b3500499be794f8fafb8e2c. Expand/Collapse action mapping
+is from PlatformActions.xml and PlatformIconMappings.json at that revision.

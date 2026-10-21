@@ -24,6 +24,11 @@ struct LitheCoreLogicTests {
             ("docs/README.md", .markdown),
             (".gitignore", .gitignore),
             ("Dockerfile", .docker),
+            ("infra/compose.yaml", .docker),
+            ("compose.yml", .docker),
+            ("docker-compose.yaml", .docker),
+            ("docker-compose.yml", .docker),
+            ("settings.yaml", .yaml),
             ("assets/unknown.custom", .generic),
             ("LICENSE", .generic)
         ]
@@ -7201,7 +7206,8 @@ struct EditorDocumentTests {
             .makeSnapshot(at: root).root
 
         var listingCalls = 0
-        let loader = ProjectTreeLoader { directories in
+        let cache = ProjectDirectoryListingCache()
+        let loader = ProjectTreeLoader(cache: cache, generation: cache.prepare(at: root, rules: .default)) { directories in
             listingCalls += 1
             return Dictionary(directories.compactMap { url in
                 plain.node(exactlyAt: url)?.children.map { children in

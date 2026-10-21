@@ -912,44 +912,17 @@ package enum GitChangeKind: String, Sendable {
 }
 
 /// Projects repository-relative Git changes onto file and directory rows.
-/// Directory status uses the most urgent descendant state so conflicts and
-/// deletions are never hidden behind a lower-priority modification.
+/// Each node uses its own status; descendant changes do not recolor ancestors.
 package struct GitTreeStatusProjection: Equatable, Sendable {
     private let changesByPath: [String: GitChange]
-    private let directoryKinds: [String: GitChangeKind]
 
     package init(changes: [GitChange], absolutePaths: Bool = false) {
         var changesByPath: [String: GitChange] = [:]
-        var directoryKinds: [String: GitChangeKind] = [:]
         for change in changes {
-            // Do not mix relative and absolute keys in one namespace.
             let path = Self.normalized(absolutePaths ? change.url.standardizedFileURL.path : change.path)
-            if changesByPath[path] == nil {
-                changesByPath[path] = change
-            }
-            var remainder = path
-            while let slash = remainder.lastIndex(of: "/") {
-                remainder = String(remainder[..<slash])
-                if let current = directoryKinds[remainder] {
-                    if Self.priority(change.kind) > Self.priority(current) {
-                        directoryKinds[remainder] = change.kind
-                    }
-                } else {
-                    directoryKinds[remainder] = change.kind
-                }
-            }
-            if !path.isEmpty {
-                if let current = directoryKinds[""] {
-                    if Self.priority(change.kind) > Self.priority(current) {
-                        directoryKinds[""] = change.kind
-                    }
-                } else {
-                    directoryKinds[""] = change.kind
-                }
-            }
+            if changesByPath[path] == nil { changesByPath[path] = change }
         }
         self.changesByPath = changesByPath
-        self.directoryKinds = directoryKinds
     }
 
     package func change(relativePath: String) -> GitChange? {
@@ -957,22 +930,8 @@ package struct GitTreeStatusProjection: Equatable, Sendable {
     }
 
     package func kind(relativePath: String, isDirectory: Bool) -> GitChangeKind? {
-        let normalized = Self.normalized(relativePath)
-        if !isDirectory {
-            return changesByPath[normalized]?.kind
-        }
-        return directoryKinds[normalized]
-    }
-
-    private static func priority(_ kind: GitChangeKind) -> Int {
-        switch kind {
-        case .modified: 0
-        case .copied: 1
-        case .moved: 2
-        case .added: 3
-        case .deleted: 4
-        case .conflicted: 5
-        }
+        // Project nodes use their own status, not the highest-priority descendant's status.
+        changesByPath[Self.normalized(relativePath)]?.kind
     }
 
     private static func normalized(_ path: String) -> String {

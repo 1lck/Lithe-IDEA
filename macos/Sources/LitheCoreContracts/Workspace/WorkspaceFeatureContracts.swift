@@ -69,6 +69,8 @@ package protocol WorkspaceSessionStoring: AnyObject {
 }
 
 package protocol WorkspaceOperations: Sendable {
+    /// Drops package-compaction lookahead after workspace or filesystem changes.
+    func invalidateDirectoryListings()
     func snapshot(at rootURL: URL, visibilityRules: FileVisibilityRules) -> WorkspaceSnapshot?
     func warmSearchIndex(at rootURL: URL, visibilityRules: FileVisibilityRules)
     func updateSearchIndex(at rootURL: URL, changedPaths: [String], visibilityRules: FileVisibilityRules)
@@ -86,6 +88,8 @@ package protocol WorkspaceOperations: Sendable {
 }
 
 extension WorkspaceOperations {
+    package func invalidateDirectoryListings() {}
+
     /// Operations whose snapshots already carry the whole tree never leave a
     /// directory unloaded, so they have nothing to list.
     package func childRows(

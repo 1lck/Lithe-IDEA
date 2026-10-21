@@ -526,14 +526,10 @@ struct GitLogView: View {
             .padding(.horizontal, 2)
             .help("Git tool window actions")
 
-            Button {
+            LitheSidebarHideButton(title: "Git") {
                 workbench.setVisibility(.gitLog, isVisible: false)
-            } label: {
-                LitheIDEAIcon(resourcePath: "expui/general/hide.svg", size: 16, fallbackSystemImage: "minus", preservesOriginalColors: true)
             }
-            .litheToolbarIconButton()
             .padding(.horizontal, 2)
-            .help("Hide Git tool window")
         }
         .padding(.leading, 12)
         .padding(.trailing, 8)
