@@ -132,7 +132,9 @@ export function mountIndependentCommitDiff(host: HTMLElement, options: Options) 
       readOnly: true,
       domReadOnly: true,
       lineNumbers: "off",
-      lineDecorationsWidth: 0,
+      // The center column's tearline borders sit directly at each editor's edge;
+      // reserve 1px so the first text column does not touch them.
+      lineDecorationsWidth: 1,
       glyphMargin: false,
       minimap: { enabled: false },
       overviewRulerLanes: 0,
