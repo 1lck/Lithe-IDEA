@@ -233,6 +233,22 @@ struct WorkspaceLanguageServerPreferencesTests {
         #expect(feature.shouldRetryCandidate(providerID: descriptor.id))
     }
 
+    @Test
+    func failureOfADisabledServerIsNotReported() throws {
+        let feature = makeFeature(store: LanguagePreferencesTestStore())
+        feature.reloadCatalog(for: workspace)
+        let descriptor = try #require(feature.catalog.provider(for: document("Main.java").url))
+        var notifications: [String] = []
+        feature.configure(documentsProvider: { [] }, activateDocument: { _ in false }, notify: { notifications.append($0) })
+
+        // The user turns the server off while its activation is still pending.
+        feature.setEnabled(false, providerID: descriptor.id)
+        feature.markActivationFailed(providerID: descriptor.id, descriptor: descriptor, error: LanguageActivationTestFailure())
+
+        #expect(notifications.isEmpty)
+        #expect(!feature.shouldRetryCandidate(providerID: descriptor.id))
+    }
+
     private func document(_ name: String) -> EditorDocument {
         EditorDocument(url: workspace.appendingPathComponent(name), text: "", modificationDate: nil)
     }

@@ -116,9 +116,11 @@ final class LanguageToolingFeatureModel: ObservableObject {
     }
 
     func markActivationFailed(providerID: String, descriptor: LanguageProviderDescriptor, error: Error) {
-        // Teardown interrupts activation while the module graph is rebuilt;
-        // that is neither a startup failure to retry nor something to report.
-        guard !error.isCancellation else { return }
+        // A failure is reported only while the server is still wanted. Teardown
+        // cancels activation when the module graph is rebuilt, and the user may
+        // disable the server before a pending activation fails; neither is a
+        // startup failure to retry or something to report.
+        guard !error.isCancellation, !isDisabled(providerID) else { return }
         let message = error.localizedDescription
         guard startupFailures[providerID] != message else { return }
         startupFailures[providerID] = message
