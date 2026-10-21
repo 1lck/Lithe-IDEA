@@ -104,9 +104,9 @@ struct AgentSkillsSettingsView: View {
         if feature.phase == .loading { ProgressView().controlSize(.small) }
         Text("Switches save native Agent settings. Reconnect existing conversations to refresh available skills.")
             .font(LitheTheme.smallFont).foregroundStyle(LitheTheme.secondaryText)
-        if feature.didChangeEnablement {
-            Text("Skill setting saved.").font(LitheTheme.smallFont).foregroundStyle(LitheTheme.secondaryText)
-        }
+        Text("Skill setting saved.").font(LitheTheme.smallFont).foregroundStyle(LitheTheme.secondaryText)
+            .opacity(feature.didChangeEnablement ? 1 : 0)
+            .accessibilityHidden(!feature.didChangeEnablement)
         if feature.savedURL != nil {
             Text("Skill saved. Refresh or reconnect the Agent if it does not appear in the conversation.")
                 .font(LitheTheme.smallFont).foregroundStyle(LitheTheme.secondaryText)

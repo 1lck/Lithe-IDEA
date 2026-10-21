@@ -285,6 +285,50 @@ struct AgentSkillsRustBridgeTests {
 
 @MainActor
 struct AgentSkillsAppearanceTests {
+    @Test(arguments: [false, true], [500, 760])
+    func toggleFeedbackKeepsRowsInPlace(dark: Bool, width: Int) async throws {
+        let service = SkillsTestService()
+        let feature = AgentSkillsFeatureModel(service: service)
+        let context = AgentSkillsFeatureModel.Context(workspace: service.firstProject)
+        await feature.refresh(context)
+        let host = NSHostingView(rootView: SettingsAppearanceContainer(themePreference: dark ? .dark : .light) {
+            ScrollView {
+                AgentSkillsSettingsView(feature: feature, workspace: service.firstProject,
+                    onOpen: { _ in }, onReveal: { _ in }, onCopy: { _ in }, onChooseImport: { _, _, _ in nil })
+                    .padding(16)
+            }
+        }.environment(\.locale, Locale(identifier: "zh-Hans")))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: CGFloat(width), height: 640),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = host; window.orderFront(nil)
+        defer { service.releaseWrite(); feature.cancel(); window.contentView = nil; window.close() }
+        layout(host)
+        try #require(await awaitChange(on: feature) { feature.phase == .ready && service.listRequests >= 4 })
+        let initial = try await renderedSwitches(host, state: .on, enabled: true)
+        let originalFrames = initial.map { $0.convert($0.bounds, to: host) }
+        let name = "skills-stable-feedback-\(dark ? "dark" : "light")-\(width)"
+        try capture(host, name: name + "-initial")
+
+        // Hold each native write so both the first save and the next click are observable.
+        for (index, enabled) in [false, true].enumerated() {
+            service.holdWrite = true
+            let item = try #require(feature.visibleItems.first)
+            feature.setEnabled(enabled, for: item, context: context)
+            try #require(await awaitChange(on: service) { service.toggleRequests.count == index + 1 })
+            #expect(!feature.didChangeEnablement, "success is hidden until native confirmation")
+            let pending = try await renderedSwitches(host, state: enabled ? .on : .off, enabled: false)
+            #expect(pending.map { $0.convert($0.bounds, to: host) } == originalFrames,
+                    "starting another save must not collapse the success message's space")
+            try capture(host, name: name + "-\(index)-pending")
+            service.releaseWrite()
+            try #require(await awaitChange(on: feature) { !feature.isWriting && feature.didChangeEnablement })
+            let saved = try await renderedSwitches(host, state: enabled ? .on : .off, enabled: true)
+            #expect(saved.map { $0.convert($0.bounds, to: host) } == originalFrames,
+                    "showing save confirmation must not shift any skill row")
+            try capture(host, name: name + "-\(index)-saved")
+        }
+    }
+
     @Test func openingAnActionMenuPreservesTheNativeSwitchStateAndAppearance() async throws {
         let service = SkillsTestService()
         let feature = AgentSkillsFeatureModel(service: service)
@@ -426,6 +470,23 @@ struct AgentSkillsAppearanceTests {
             }
         }
         feature.cancel()
+    }
+
+    private func renderedSwitches(_ host: NSView, state: NSControl.StateValue, enabled: Bool) async throws -> [NSSwitch] {
+        func switches(_ view: NSView) -> [NSSwitch] {
+            if let control = view as? NSSwitch { return [control] }
+            return view.subviews.flatMap(switches)
+        }
+        let clock = ContinuousClock(), deadline = clock.now.advanced(by: .seconds(2))
+        var controls: [NSSwitch] = []
+        while clock.now < deadline {
+            layout(host)
+            controls = switches(host)
+            if controls.count == 2 && controls.first?.state == state && controls.allSatisfy({ $0.isEnabled == enabled }) { return controls }
+            await Task.yield()
+        }
+        Issue.record("Native skill switches did not render the expected state before the local deadline")
+        throw CancellationError()
     }
 
     private func layout(_ host: NSView) {

@@ -5,6 +5,8 @@
 
 use std::path::PathBuf;
 
+pub(crate) mod instructions;
+
 use serde::Deserialize;
 use serde_json::Value;
 

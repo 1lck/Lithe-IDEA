@@ -13,6 +13,7 @@ mod codex_history;
 mod codex_retry;
 pub mod environment;
 pub mod install;
+pub mod instructions;
 mod model_calls;
 mod model_proxy;
 mod prompt;

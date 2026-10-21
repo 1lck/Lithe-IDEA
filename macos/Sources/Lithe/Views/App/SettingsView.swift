@@ -362,6 +362,8 @@ struct SettingsView: View {
                     case .project: EmptyView()
                     case .run: EmptyView()
                     case .ai: aiSettings
+                    case .instructions:
+                        AgentInstructionsSettingsView(feature: model.agentInstructionsFeature)
                     case .agents:
                         AgentPanelSettingsView(model: model, settings: settings, feature: model.agentManagementFeature)
                             .id(model.settingsCategoryRequest)

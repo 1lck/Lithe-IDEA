@@ -2066,6 +2066,30 @@
 "Session" = "Session";
 "Minimum level" = "Minimum level";
 "Open Log Directory" = "Open Log Directory";
+
+"Instructions" = "Instructions";
+"Global instructions" = "Global instructions";
+"Instruction Agent" = "Instruction Agent";
+"Global instructions apply to all projects using this Agent. Each Agent keeps its own native file." = "Global instructions apply to all projects using this Agent. Each Agent keeps its own native file.";
+"The file will be created when you save." = "The file will be created when you save.";
+"Codex is using AGENTS.override.md. Clearing it restores the base AGENTS.md instructions." = "Codex is using AGENTS.override.md. Clearing it restores the base AGENTS.md instructions.";
+"Save instructions" = "Save instructions";
+"Reload from disk" = "Reload from disk";
+"Instructions saved." = "Instructions saved.";
+"Unsaved changes" = "Unsaved changes";
+"Start a new conversation after saving to load the updated instructions. Project instructions still apply." = "Start a new conversation after saving to load the updated instructions. Project instructions still apply.";
+"Discard draft and reload?" = "Discard draft and reload?";
+"Reloading replaces this draft with the current file contents." = "Reloading replaces this draft with the current file contents.";
+"Global instructions must be no larger than 1 MiB." = "Global instructions must be no larger than 1 MiB.";
+"Cannot access the global instruction file. Check its permissions and try again." = "Cannot access the global instruction file. Check its permissions and try again.";
+"Global instructions are available for Codex and Claude Code." = "Global instructions are available for Codex and Claude Code.";
+"Cannot locate the Agent user directory." = "Cannot locate the Agent user directory.";
+"The Agent user directory must be an absolute path. Check CODEX_HOME or CLAUDE_CONFIG_DIR." = "The Agent user directory must be an absolute path. Check CODEX_HOME or CLAUDE_CONFIG_DIR.";
+"The instruction path must be a regular file, not a symbolic link or directory." = "The instruction path must be a regular file, not a symbolic link or directory.";
+"The global instruction file must use UTF-8 encoding." = "The global instruction file must use UTF-8 encoding.";
+"Another instruction save is running. Try again." = "Another instruction save is running. Try again.";
+"The instruction directory changed. Reload before saving." = "The instruction directory changed. Reload before saving.";
+"Global instructions changed outside this editor. Your draft is kept; reload before saving." = "Global instructions changed outside this editor. Your draft is kept; reload before saving.";
 /* Agent skill management */
 "Skills" = "Skills";
 "Agent skills" = "Agent skills";

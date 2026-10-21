@@ -11,6 +11,12 @@ import Testing
 @Suite("Settings search vocabulary")
 @MainActor
 struct SettingsSearchVocabularyTests {
+    @Test func globalInstructionsAreSearchableByNativeFileAndChineseName() throws {
+        let translations = try simplifiedChineseTranslations()
+        for query in ["Global instructions", "AGENTS.md", "AGENTS.override.md", "CLAUDE.md", "全局指令"] {
+            #expect(SettingsSearchVocabulary.matches(query: query, category: .instructions, localize: { translations[$0] ?? $0 }))
+        }
+    }
     @Test func everySettingsPageKeepsSearchTerms() {
         for category in SettingsCategory.allCases {
             #expect(

@@ -3533,6 +3533,30 @@
 "Module: %@ · Session: %@ · Minimum level: %@" = "模块：%@ · 会话：%@ · 最低级别：%@";
 "Minimum level" = "最低级别";
 "Open Log Directory" = "打开日志目录";
+
+"Instructions" = "指令";
+"Global instructions" = "全局指令";
+"Instruction Agent" = "指令所属 Agent";
+"Global instructions apply to all projects using this Agent. Each Agent keeps its own native file." = "全局指令适用于使用此 Agent 的所有项目。每个 Agent 使用各自的原生文件。";
+"The file will be created when you save." = "保存时将创建此文件。";
+"Codex is using AGENTS.override.md. Clearing it restores the base AGENTS.md instructions." = "Codex 正在使用 AGENTS.override.md。清空后将恢复基础 AGENTS.md 中的指令。";
+"Save instructions" = "保存指令";
+"Reload from disk" = "从磁盘重新加载";
+"Instructions saved." = "指令已保存。";
+"Unsaved changes" = "有未保存的修改";
+"Start a new conversation after saving to load the updated instructions. Project instructions still apply." = "保存后请新建对话以加载更新后的指令。项目指令仍然有效。";
+"Discard draft and reload?" = "放弃草稿并重新加载？";
+"Reloading replaces this draft with the current file contents." = "重新加载将使用磁盘文件的当前内容替换此草稿。";
+"Global instructions must be no larger than 1 MiB." = "全局指令不能超过 1 MiB。";
+"Cannot access the global instruction file. Check its permissions and try again." = "无法访问全局指令文件，请检查文件权限后重试。";
+"Global instructions are available for Codex and Claude Code." = "Codex 和 Claude Code 支持全局指令。";
+"Cannot locate the Agent user directory." = "无法定位 Agent 的用户目录。";
+"The Agent user directory must be an absolute path. Check CODEX_HOME or CLAUDE_CONFIG_DIR." = "Agent 用户目录必须为绝对路径，请检查 CODEX_HOME 或 CLAUDE_CONFIG_DIR。";
+"The instruction path must be a regular file, not a symbolic link or directory." = "指令路径必须为普通文件，不能为符号链接或目录。";
+"The global instruction file must use UTF-8 encoding." = "全局指令文件必须使用 UTF-8 编码。";
+"Another instruction save is running. Try again." = "另一项指令保存正在进行，请重试。";
+"The instruction directory changed. Reload before saving." = "指令目录已变更，请重新加载后再保存。";
+"Global instructions changed outside this editor. Your draft is kept; reload before saving." = "全局指令已被其他程序修改。草稿已保留，请重新加载后再保存。";
 /* Agent skill management */
 "Skills" = "技能";
 "Agent skills" = "Agent 技能";

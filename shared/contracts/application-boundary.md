@@ -20,6 +20,20 @@ verification scripts are the executable source of boundary checks.
 
 ## Feature Contracts
 
+Global Agent instructions edit each upstream Agent's native user file, independently
+of the current project and provider. Opening settings is read-only. Codex uses
+`CODEX_HOME` (otherwise the user home `.codex`) and its first non-empty
+`AGENTS.override.md` / `AGENTS.md`; Claude uses `CLAUDE_CONFIG_DIR` (otherwise
+the user home `.claude`) and `CLAUDE.md`. The host resolves these locations;
+UI supplies no arbitrary read/write destination. Absolute native paths in snapshots
+are display and optimistic-write guards, not portable identifiers. A save checks
+the snapshot's path and revision, replaces the file atomically, and reads the
+effective source back. Failures retain the draft; reloading explicitly discards it
+only after a successful read. Drafts stay separate by Agent. Updated instructions
+load in a new native conversation; existing sessions are not rewritten or stopped.
+Project instructions retain the upstream Agent's precedence rules. See
+`fixtures/agent/agent-instructions-v1.json`.
+
 Shared Monaco highlighting is owned by the current view/model pair. A queued
 callback for a closed or replaced model must finish without running against the
 new model or locking surviving documents. Primary, split and diff views share

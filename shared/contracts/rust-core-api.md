@@ -683,6 +683,24 @@ and the 64 KiB limit still fail with redacted errors. Omitting this flag keeps
 the existing parser behavior; saving still requires all fields, a compatible
 protocol and explicit consent for HTTP.
 
+`agent.instructions.read` takes `{agentId}` (`codex-acp` or `claude-acp`) and
+returns `{agentId, path, content, exists, revision}`. It does not create files.
+`agent.instructions.save` takes `{agentId, content, expectedPath, expectedRevision}`.
+The host resolves the native user profile again and rejects a changed effective
+path or byte revision before replacing the file. The result is a fresh effective
+snapshot: clearing a Codex override may return the base `AGENTS.md` instead.
+No prompt injection, account settings, repository files, or native history are
+modified. Files must be regular UTF-8 files at most 1 MiB; terminal symlinks are
+rejected. Read-only files cannot be overwritten. Existing file permissions are
+preserved; Unix new files use `0600` and new directories use `0700`.
+Save staging is a sibling temporary file removed on completion/failure.
+Other Lithe saves are serialized by a non-waiting lock; external writers do not
+share it, so revision checks are optimistic rather than an OS-wide transaction.
+Errors use the existing envelope codes with stable `details` reasons including
+`unsupported_agent`, `file_access`, `unsafe_file`, `file_changed`, `file_too_large`,
+`invalid_utf8`, `profile_missing`, `profile_relative`, and `busy`.
+The fixture is `shared/fixtures/agent/agent-instructions-v1.json`.
+
 `agent.status`, `agent.install`, `agent.uninstall`, and `agent.installCli` manage ACP adapters in
 `<dataDirectory>/agents/<agentId>`, using the Node.js and npm the user installed.
 Lithe never installs Node.js or npm; the agents' own command-line tools are installed only through `agent.installCli` on an explicit user action. `agent.status`

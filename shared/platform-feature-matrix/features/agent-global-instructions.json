@@ -1,0 +1,33 @@
+{
+  "id": "agent-global-instructions",
+  "area": "AI",
+  "group": "Agent 对话",
+  "capability": "全局指令：在 AI 设置中分别编辑 Codex、Claude 原生用户文件，显示有效来源、保留独立草稿，校验外部修改后原子保存并读取实际结果，支持显式重新加载与中英文检索",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "macos/Sources/Lithe/Views/Agent/AgentInstructionsSettingsView.swift",
+      "macos/Sources/Lithe/Application/Features/AgentInstructionsFeatureModel.swift",
+      "macos/Sources/Lithe/Core/Rust/RustAgentInstructionsService.swift",
+      "macos/Tests/LitheTests/AgentInstructionsFeatureModelTests.swift",
+      "macos/Tests/LitheTests/AgentInstructionsAppearanceTests.swift",
+      "rust/lithe-agent-host/src/instructions.rs",
+      "macos/Sources/Lithe/Views/App/SettingsView.swift",
+      "macos/Tests/LitheTests/SettingsSidebarLayoutTests.swift"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
+    "evidence": [
+      "rust/lithe-agent-host/src/instructions.rs",
+      "rust/lithe-core/src/agent/instructions.rs",
+      "windows/tauri/src-tauri/src/platform.rs",
+      "shared/fixtures/agent/agent-instructions-v1.json"
+    ]
+  },
+  "owner": "Agent",
+  "verification": "在同一份 macOS 预览的 AI 分组中同时检查「指令」与「技能」入口，来回切换确认两个功能都可加载。macOS：打开设置 AI > 指令，分别查看 Codex、Claude 的实际用户路径，编辑保存后新建对话验证原生加载；确认 CODEX_HOME/CLAUDE_CONFIG_DIR、自定义目录、Codex 非空 override 优先和清空 override 后返回基础文件；切换 Agent 和设置页保留未保存草稿，文件被外部修改时拒绝覆盖并保留草稿，显式重新加载需确认且读取失败不丢草稿；回归中文/英文、深浅主题和窄宽窗口的原生编辑器、选择器、搜索及保存状态。运行 AgentInstructionsFeatureModelTests、AgentInstructionsAppearanceTests、AgentInstructionsContractTests、SettingsSidebarLayoutTests、SettingsSearchVocabularyTests，以及 Host/Core 计时测试；Windows 共享文件命令可经通用 platform_invoke 分派，设置页与 Windows 原生运行验收待完成。",
+  "notes": "复用上游原生指令发现，不额外拼接提示词，不自动重启会话或改写项目指令；新会话加载更新。只在用户保存时写原生用户目录，临时文件随保存清理，不写发行资源或新增工作树复用资源。"
+}

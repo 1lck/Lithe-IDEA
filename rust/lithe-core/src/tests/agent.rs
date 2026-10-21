@@ -1,6 +1,34 @@
 use crate::execute_json;
 use serde_json::{json, Value};
 
+#[test]
+fn global_instruction_contract_dispatches_and_rejects_unknown_agents_without_file_access() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/agent/agent-instructions-v1.json"
+    ))
+    .unwrap();
+    for key in ["readRequest", "saveRequest"] {
+        let command = fixture[key]["command"].as_str().unwrap();
+        assert!(crate::protocol::CoreCommand::parse(command).is_some());
+        let mut payload = fixture[key]["payload"].clone();
+        payload["agentId"] = json!("unknown-agent");
+        let response = run(command, payload);
+        assert_eq!(response["ok"], false);
+        assert_eq!(response["error"]["code"], "not_supported");
+        assert_eq!(response["error"]["details"], "unsupported_agent");
+    }
+    let response = run(
+        "agent.instructions.save",
+        json!({"agentId":"codex-acp","content":"no guard"}),
+    );
+    assert_eq!(response["error"]["code"], "invalid_request");
+    let response = run(
+        "agent.instructions.read",
+        json!({"agentId":"codex-acp","path":"/untrusted/arbitrary.md"}),
+    );
+    assert_eq!(response["error"]["code"], "invalid_request");
+}
+
 fn run(command: &str, payload: Value) -> Value {
     let request = json!({ "id": "agent-test", "command": command, "payload": payload });
     serde_json::from_str(&execute_json(&request.to_string())).expect("core response JSON")

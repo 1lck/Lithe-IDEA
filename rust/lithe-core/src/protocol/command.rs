@@ -38,6 +38,10 @@ pub enum CoreCommand {
     Ping,
     /// Detects Node.js and npm and lists catalog agent installs (`agent.status`).
     AgentStatus,
+    /// Reads the effective native global instruction file (`agent.instructions.read`).
+    AgentInstructionsRead,
+    /// Saves a guarded native global instruction draft (`agent.instructions.save`).
+    AgentInstructionsSave,
     /// Lists native skills or creates/imports one explicitly (`agent.skills`).
     AgentSkills,
     /// Installs a catalog ACP adapter with the user's npm (`agent.install`).
@@ -413,6 +417,8 @@ impl CoreCommand {
             "core.ping" => Some(Self::Ping),
             "ideHost.control" => Some(Self::IdeHostControl),
             "agent.status" => Some(Self::AgentStatus),
+            "agent.instructions.read" => Some(Self::AgentInstructionsRead),
+            "agent.instructions.save" => Some(Self::AgentInstructionsSave),
             "agent.skills" => Some(Self::AgentSkills),
             "agent.install" => Some(Self::AgentInstall),
             "agent.uninstall" => Some(Self::AgentUninstall),
