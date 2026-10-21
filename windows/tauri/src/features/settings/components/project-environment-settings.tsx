@@ -232,6 +232,7 @@ function ProjectEnvironmentForm({ root, workspaceId }: { root: string; workspace
 
   return (
     <div className="space-y-4">
+      <p className="font-medium ui-text-sm">{t("settings.project.scopeTitle")}</p>
       <p className="break-all font-mono ui-text-sm">{root}</p>
       <p className="text-subtle-foreground ui-text-sm">{t("settings.project.scope")}</p>
       {environment?.discoveryError && (
