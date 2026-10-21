@@ -29,6 +29,12 @@ macOS 的工具窗口位置由工作台维护，功能模块继续维护自己�
 拖动复用编辑器标签的原生浮动预览方式：AppKit 捕获当前入口一次，非激活面板只跟随鼠标移动，工具状态与落点预览留在当前视图。入口按固定窗口坐标记录；拖动源的槽位高度归零，后续按钮立即补齐，但接收鼠标事件的原生视图保留到松开或取消。按钮命中使用补齐后的可见矩形；鼠标在蓝色插入槽的纵向范围内时保留当前目标；这同样适用于鼠标已水平移入内容区的情况，避免占位推动按钮后反复换目标。侧栏插入槽与内容区落点分别显示，空分组也保留落点槽。
 按 IDEA createStripeButtonDragImage 的顺序，先绘制浮动图标，再隐藏原入口。拖动预览单独使用已有 IDEA SVG、普通图标前景色和浮动按钮外框，不截取源按钮的选中或悬停底色。Community `SquareStripeButtonLook.paintDraggingButton` → `IdeaActionButtonLook` 分别绘制背景、图标和同色 1pt 圆角边框；Islands `ToolWindow.DragAndDrop.buttonFloatingBackground` 为深色 #40434A / 浅色 #DDDFE4。普通灰色浮动背景与激活蓝底是不同状态，不能为去掉蓝底而删除全部按钮表面。拖动覆盖层仅通过鼠标事件监听处理按下与拖动，命中测试透传，保留原按钮 hover 底色和提示。像素回归检查浮动图标内容及透明边角，不能只检查面板存在。
 工具入口按 `bounds.intersection(visibleRect)` 处理按下与非拖动释放，隐藏祖先不参与命中；拖动开始快照也只记录裁剪后的可见矩形，滚出 280pt 视口的图标不能截获另一组点击或成为插入落点。
+同窗口的后台项目通过透明度保留视图，原生鼠标监听器不会因此卸载。入口必须在每次事件时从
+`ProjectSessionManager.activeSessionID(in:)` 核对所属窗口选中的项目，后台项目返回原事件，
+不截获 Agent 等重叠按钮的点击。不能用全局 key window 代替每个窗口自己的项目选择。
+项目切换后，常规视图更新还要取消未完成的按下和浮动预览，旧项目不能在释放时提交移动。
+这一限制只加在已有工具入口的事件捕获层，保留 `RootView` 的 SwiftUI 结构、safe area、
+标题栏、项目标签、字体和停靠面板样式；不为修复点击替换整个项目的原生宿主。
 鼠标经过落点时不写业务位置；松开后原子移动并保存。Esc、无效落点、失去应用激活状态和卸载清理预览，窗口外释放不创建浮动窗口；Esc 后同次按住不能重新开始拖动。
 
 落点与蓝色遮罩共用一次拖动开始时捕获的真实面板和编辑区矩形。
@@ -78,6 +84,7 @@ macOS 的工具窗口位置由工作台维护，功能模块继续维护自己�
 - `./scripts/verify-runtime-bundle-immutability.sh`
 - `./scripts/verify-platform-feature-matrix.sh`
 - `./scripts/verify-agent-notes.sh`
+- `ToolWindowDockingTests.transparentProjectStripesOnlyCaptureTheSelectedProjectsClicks` 使用三个透明度不同、原生命中区域重叠的项目入口，验证反复切换后只有选中项目响应；`projectStripeOwnershipIsScopedToItsWindowInsteadOfTheKeyWindow` 验证两个窗口各自的首次点击；`switchingProjectsCancelsToolPressesAndFloatingDragPreviews` 验证按下后切换、无后续鼠标事件时取消预览以及旧释放不提交动作。
 - `LitheSplitPaneCollapseTests.releaseWaitsForCommittedSize` 使用原生按下、拖动、松开事件，故意延迟父布局回传，检查松开后的最终尺寸、回传后继续跟随父布局及内容不重新挂载；`ToolWindowDockingTests.narrowGroupFractionSurvivesCommitAndReload` 检查窄面板比例保存和恢复。
 - 实际工作台检查跨边缘移动、同组排序、双组打开、收起正确窗口、Esc/窗口外取消、窄窗口及重启恢复；模型检查不能替代原生拖放验收。
 

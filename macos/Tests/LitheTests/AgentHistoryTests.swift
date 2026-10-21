@@ -9,6 +9,48 @@ import LitheCoreContracts
 @MainActor
 struct AgentHistoryTests {
     @Test
+    func viewingAndAnnotatingHistoryPreserveActivityUntilANewTurn() async throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let data = try Data(contentsOf: root.appendingPathComponent("shared/fixtures/agent/history-activity-v1.json"))
+        let cases = try #require(JSONSerialization.jsonObject(with: data) as? [String: [String: Any]])
+        try await HistoryFixture().run { fixture in
+            @MainActor func refresh(_ stage: String) throws {
+                fixture.feature.refreshSessions()
+                var event = try #require(cases[stage]?["event"] as? [String: Any])
+                event["token"] = fixture.transport.connection.commands.last?["token"]
+                try fixture.emit(event)
+            }
+            @MainActor func rows() -> [AgentSessionSummary] {
+                AgentHistoryPresentation.managementSessions(fixture.feature.sessions,
+                    openSessionIDs: fixture.feature.openSessionIDs, conversations: fixture.feature.conversations,
+                    metadata: fixture.history.metadata, query: "", filter: .all)
+            }
+            try refresh("initial")
+            let originalDates = fixture.feature.sessions.map(\.updatedAt)
+            #expect(rows().map(\.id) == ["session-b", "session-a", "unknown-activity"])
+
+            fixture.feature.selectSession("session-a")
+            let load = try #require(fixture.transport.connection.commands.last)
+            #expect(load["kind"] as? String == "loadSession")
+            try fixture.emit(["kind": "sessionLoaded", "sessionId": "session-a", "token": load["token"] as Any])
+            #expect(fixture.history.rename("session-a", title: "Browsed conversation"))
+            #expect(fixture.history.setFavorite(["session-a"], true))
+            try refresh("afterViewing")
+            #expect(fixture.feature.sessions.map(\.updatedAt) == originalDates)
+            #expect(rows().map(\.id) == ["session-b", "session-a", "unknown-activity"])
+            #expect(fixture.transport.connection.commands.allSatisfy { $0["kind"] as? String != "prompt" })
+
+            // Only new upstream conversation activity advances the displayed time and ordering.
+            try refresh("afterMessage")
+            #expect(rows().map(\.id) == ["session-a", "session-b", "unknown-activity"])
+            #expect(rows().first?.updatedAt == "2026-09-20T12:30:00Z")
+            #expect(rows().last?.updatedAt == nil)
+        }
+    }
+
+    @Test
     func missingGeneratedTitlesKeepHistoryPromptAndExportFallbacks() async throws {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
@@ -138,6 +180,181 @@ struct AgentHistoryTests {
         #expect(AgentHistoryPresentation.messageCount(conversation) == 2)
         conversation.isLoading = true
         #expect(AgentHistoryPresentation.messageCount(conversation) == nil)
+    }
+
+    @Test
+    func firstHistoryPageIsVisibleBeforeTheFullSnapshot() async throws {
+        try await HistoryFixture().run(seedHistory: false) { fixture in
+            let token = try #require(fixture.transport.connection.commands.last?["token"] as? String)
+            #expect(fixture.feature.sessions.isEmpty)
+            var page = try Self.fixtureEvent("sessionsPage")
+            page["token"] = token
+            try fixture.emit(page)
+            #expect(fixture.feature.sessions.map(\.id) == ["session-1"])
+            #expect(fixture.feature.isRefreshingSessions, "An early page must not end the remaining scan")
+            fixture.feature.refreshSessionsIfNeeded()
+            #expect(fixture.transport.connection.commands.count == 1, "Opening history coalesces the in-flight scan")
+            var complete = try Self.fixtureEvent("sessions")
+            complete["token"] = token
+            try fixture.emit(complete)
+            #expect(fixture.feature.sessions.map(\.id) == ["session-1", "session-2"])
+            #expect(!fixture.feature.isRefreshingSessions)
+            page["sessions"] = [["sessionId": "late"]]
+            try fixture.emit(page)
+            #expect(!fixture.feature.sessions.contains { $0.id == "late" })
+        }
+    }
+
+    @Test
+    func incrementalHistoryKeepsCachedRowsAndRejectsStalePagesThroughFailureAndRetry() async throws {
+        try await HistoryFixture().run { fixture in
+            fixture.feature.refreshSessions()
+            let token = try #require(fixture.transport.connection.commands.last?["token"] as? String)
+            try fixture.emit(["kind": "sessionsPage", "token": "stale", "sessions": [["sessionId": "wrong"]]])
+            #expect(fixture.feature.sessions.map(\.id) == ["session-a", "session-b"])
+            try fixture.emit(["kind": "sessionsPage", "token": token,
+                              "sessions": [["sessionId": "new", "title": "New result"], ["sessionId": "new"]]])
+            #expect(fixture.feature.sessions.map(\.id) == ["session-a", "session-b", "new"])
+            #expect(fixture.feature.isRefreshingSessions)
+            try fixture.emit(["kind": "requestFailed", "token": token, "message": "Second page unavailable"])
+            #expect(fixture.feature.sessions.count == 3, "Failure must retain both cached and newly received rows")
+            fixture.feature.refreshSessionsIfNeeded()
+            let retry = try #require(fixture.transport.connection.commands.last?["token"] as? String)
+            #expect(retry != token, "A failed scan is immediately retryable")
+            try fixture.emit(["kind": "sessionsPage", "token": token, "sessions": [["sessionId": "wrong"]]])
+            try fixture.emit(["kind": "sessions", "token": retry, "sessions": [["sessionId": "new"]]])
+            #expect(fixture.feature.sessions.map(\.id) == ["new"], "Only the final snapshot can prune old rows")
+            #expect(fixture.feature.sessions.first?.title == "New result")
+            #expect(fixture.feature.historyError == nil)
+        }
+    }
+
+    @Test
+    func historySurfacesReuseFreshEmptySnapshotsAndManualRefreshBypassesTheClock() async throws {
+        let clock = HistoryClock()
+        try await HistoryFixture(now: { clock.instant }).run(seedHistory: false, archived: true) { fixture in
+            @MainActor
+            func finishLists() throws {
+                for command in fixture.transport.connection.commands.suffix(2) {
+                    let kind = command["kind"] as? String == "listSessions" ? "sessions" : "archivedSessions"
+                    try fixture.emit(["kind": kind, "token": command["token"] as Any, "sessions": [], "complete": true])
+                }
+            }
+            try finishLists()
+            fixture.feature.refreshSessionsIfNeeded()
+            clock.instant = clock.instant.advanced(by: .seconds(29))
+            fixture.feature.refreshSessionsIfNeeded()
+            #expect(fixture.transport.connection.commands.count == 2, "An empty snapshot is still reusable")
+            clock.instant = clock.instant.advanced(by: .seconds(1))
+            fixture.feature.refreshSessionsIfNeeded()
+            #expect(fixture.transport.connection.commands.count == 4)
+            fixture.feature.refreshSessionsIfNeeded()
+            #expect(fixture.transport.connection.commands.count == 4, "Repeated views cannot duplicate pending queries")
+            try finishLists()
+            fixture.feature.refreshSessions()
+            #expect(fixture.transport.connection.commands.count == 6, "The refresh button always queries both lists")
+            try finishLists()
+            await fixture.feature.stop()
+            try fixture.emit(["kind": "sessionsPage", "token": fixture.transport.connection.commands.last?["token"] as Any,
+                              "sessions": [["sessionId": "late-after-disconnect"]]])
+            #expect(fixture.feature.sessions.isEmpty)
+            try fixture.connect()
+            try fixture.emit(["kind": "ready", "canListSessions": true, "canListArchivedSessions": true])
+            #expect(fixture.transport.connection.commands.count == 8, "Reconnect invalidates freshness")
+        }
+    }
+
+    @Test
+    func completedTurnsInvalidateFreshActiveHistoryWithoutRefreshingArchives() async throws {
+        let clock = HistoryClock()
+        try await HistoryFixture(now: { clock.instant }).run(archived: true) { fixture in
+            try fixture.emit(["kind": "archivedSessions", "token": fixture.transport.connection.commands[0]["token"] as Any,
+                              "sessions": [], "complete": true])
+            fixture.feature.selectSession("session-b")
+            let load = try #require(fixture.transport.connection.commands.last)
+            try fixture.emit(["kind": "sessionLoaded", "sessionId": "session-b", "token": load["token"] as Any])
+            let cachedCount = fixture.transport.connection.commands.count
+            fixture.feature.refreshSessionsIfNeeded()
+            #expect(fixture.transport.connection.commands.count == cachedCount, "Viewing history preserves freshness")
+
+            try fixture.feature.send("A new turn")
+            // Finishing a background conversation must invalidate the same connection's list.
+            fixture.feature.selectSession("session-a")
+            clock.instant = clock.instant.advanced(by: .seconds(1))
+            try fixture.emit(["kind": "turnFinished", "sessionId": "session-b", "stopReason": "end_turn"])
+            let beforeRefresh = fixture.transport.connection.commands.count
+            fixture.feature.refreshSessionsIfNeeded()
+            let requests = Array(fixture.transport.connection.commands.dropFirst(beforeRefresh))
+            #expect(requests.map { $0["kind"] as? String } == ["listSessions"])
+            let token = try #require(requests.first?["token"] as? String)
+            try fixture.emit(["kind": "sessions", "token": token,
+                "sessions": [["sessionId": "session-a", "updatedAt": "2026-09-26T10:00:00Z"],
+                             ["sessionId": "session-b", "updatedAt": "2026-09-27T10:00:00Z"]]])
+            let rows = AgentHistoryPresentation.sessions(fixture.feature.sessions, metadata: [:], query: "", filter: .all)
+            #expect(rows.map(\.id) == ["session-b", "session-a"])
+            #expect(rows.first?.updatedAt == "2026-09-27T10:00:00Z")
+            #expect(fixture.feature.selectedSessionID == "session-a")
+            let refreshedCount = fixture.transport.connection.commands.count
+            fixture.feature.refreshSessionsIfNeeded()
+            #expect(fixture.transport.connection.commands.count == refreshedCount, "The post-turn snapshot is reusable")
+        }
+    }
+
+    @Test(arguments: [false, true])
+    func historyScanOverlappingATurnDoesNotRestoreFreshness(listFinishesAfterTurn: Bool) async throws {
+        let clock = HistoryClock()
+        try await HistoryFixture(now: { clock.instant }).run { fixture in
+            fixture.feature.selectSession("session-a")
+            let load = try #require(fixture.transport.connection.commands.last)
+            try fixture.emit(["kind": "sessionLoaded", "sessionId": "session-a", "token": load["token"] as Any])
+            try fixture.feature.send("A new turn")
+            fixture.feature.refreshSessions()
+            let list = try #require(fixture.transport.connection.commands.last)
+            let snapshot: [String: Any] = ["kind": "sessions", "token": list["token"] as Any,
+                                           "sessions": [["sessionId": "session-a"]]]
+            if !listFinishesAfterTurn { try fixture.emit(snapshot) }
+            try fixture.emit(["kind": "turnFinished", "sessionId": "session-a", "stopReason": "end_turn"])
+            let count = fixture.transport.connection.commands.count
+            if listFinishesAfterTurn {
+                fixture.feature.refreshSessionsIfNeeded()
+                #expect(fixture.transport.connection.commands.count == count, "The pending scan remains coalesced")
+                try fixture.emit(snapshot)
+            }
+            fixture.feature.refreshSessionsIfNeeded()
+            #expect(fixture.transport.connection.commands.count == count + 1,
+                    "A snapshot that may precede the completed turn cannot renew freshness")
+            #expect(fixture.transport.connection.commands.last?["kind"] as? String == "listSessions")
+        }
+    }
+
+    @Test
+    func archiveFailureRetriesIndependentlyOfTheFreshActiveSnapshot() async throws {
+        try await HistoryFixture().run(archived: true) { fixture in
+            let token = try #require(fixture.transport.connection.commands.first?["token"] as? String)
+            try fixture.emit(["kind": "requestFailed", "token": token, "message": "Archive unavailable"])
+            fixture.feature.refreshSessionsIfNeeded()
+            #expect(fixture.transport.connection.commands.count == 3)
+            #expect(fixture.transport.connection.commands.last?["kind"] as? String == "listArchivedSessions")
+            #expect(!fixture.feature.isRefreshingSessions)
+            #expect(fixture.feature.isRefreshingArchivedSessions)
+        }
+    }
+
+    @Test(arguments: [false, true])
+    func partialActiveHistoryDoesNotLoseAnArchivedConversation(archiveFirst: Bool) async throws {
+        try await HistoryFixture().run(archived: true) { fixture in
+            let archiveToken = try #require(fixture.transport.connection.commands.first?["token"] as? String)
+            fixture.feature.refreshSessions()
+            let token = try #require(fixture.transport.connection.commands.last?["token"] as? String)
+            let archive: [String: Any] = ["kind": "archivedSessions", "token": archiveToken,
+                "sessions": [["sessionId": "session-a"]], "complete": true]
+            let page: [String: Any] = ["kind": "sessionsPage", "token": token, "sessions": [["sessionId": "new"]]]
+            try fixture.emit(archiveFirst ? archive : page)
+            try fixture.emit(archiveFirst ? page : archive)
+            try fixture.emit(["kind": "sessions", "token": token, "sessions": [["sessionId": "new"]]])
+            #expect(fixture.feature.sessions.map(\.id) == ["new"])
+            #expect(fixture.feature.archivedSessions.map(\.id) == ["session-a"])
+        }
     }
 
     @Test
@@ -408,8 +625,10 @@ struct AgentHistoryTests {
             try await fixture.feature.unarchiveSession("restore-me")
             let newTokens = fixture.transport.connection.commands.suffix(2).compactMap { $0["token"] as? String }
             for token in oldTokens {
+                try fixture.emit(["kind": "sessionsPage", "token": token, "sessions": [["sessionId": "obsolete"]]])
                 try fixture.emit(["kind": "requestFailed", "token": token, "message": "Obsolete list request failed."])
             }
+            #expect(!fixture.feature.sessions.contains { $0.id == "obsolete" })
             #expect(fixture.feature.errorMessage == nil, "An obsolete query must not surface as a conversation error")
             #expect(fixture.feature.historyError == nil && fixture.feature.archivedHistoryError == nil)
             #expect(fixture.feature.isRefreshingSessions && fixture.feature.isRefreshingArchivedSessions)
@@ -737,25 +956,22 @@ private final class HistoryFixture {
     let workspace = URL(fileURLWithPath: "/example/project")
     lazy var history = makeHistory()
 
-    init() { feature = AgentConnectionModel(transport: transport) }
+    init(now: @escaping () -> ContinuousClock.Instant = { .now }) {
+        feature = AgentConnectionModel(transport: transport, now: now)
+    }
 
     func makeHistory() -> AgentHistoryFeatureModel {
         AgentHistoryFeatureModel(connection: feature, workspaceURL: workspace, agentID: "codex",
                                  persistence: persistence, exporter: exporter)
     }
 
-    func run(archived: Bool = false, _ operation: (HistoryFixture) async throws -> Void) async throws {
+    func run(seedHistory: Bool = true, archived: Bool = false, _ operation: (HistoryFixture) async throws -> Void) async throws {
         do {
-            try feature.connect(configuration: AgentLaunchConfiguration(
-                agentID: "example", command: "example", arguments: [], workspaceURL: workspace,
-                dataDirectory: URL(fileURLWithPath: "/example/data"), providerProtocol: "responses",
-                providerEndpoint: "https://example.invalid", apiKey: "test", providerName: "Example",
-                model: "", allowsInsecureHTTP: false
-            ))
+            try connect()
             try emit(["kind": "ready", "canListSessions": true, "canLoadSessions": true, "canListArchivedSessions": archived])
-            try emit(["kind": "sessions", "token": transport.connection.commands.last?["token"] as Any,
+            if seedHistory { try emit(["kind": "sessions", "token": transport.connection.commands.last?["token"] as Any,
                 "sessions": [["sessionId": "session-a", "title": "Original title", "updatedAt": "2026-09-26T10:00:00Z"],
-                             ["sessionId": "session-b", "title": "Another conversation", "updatedAt": "2026-09-25T10:00:00Z"]]])
+                             ["sessionId": "session-b", "title": "Another conversation", "updatedAt": "2026-09-25T10:00:00Z"]]]) }
             try await operation(self)
         } catch {
             history.cancelExport()
@@ -768,11 +984,25 @@ private final class HistoryFixture {
         await history.stop()
     }
 
+    func connect() throws {
+        try feature.connect(configuration: AgentLaunchConfiguration(
+            agentID: "example", command: "example", arguments: [], workspaceURL: workspace,
+            dataDirectory: URL(fileURLWithPath: "/example/data"), providerProtocol: "responses",
+            providerEndpoint: "https://example.invalid", apiKey: "test", providerName: "Example",
+            model: "", allowsInsecureHTTP: false
+        ))
+    }
+
     func emit(_ event: [String: Any]) throws { feature.receive(Self.json(event)) }
     static func json(_ event: [String: Any]) -> String {
         // All callers supply fixed JSON-compatible fake events.
         String(decoding: try! JSONSerialization.data(withJSONObject: event), as: UTF8.self)
     }
+}
+
+@MainActor
+private final class HistoryClock {
+    var instant = ContinuousClock.now
 }
 
 @MainActor

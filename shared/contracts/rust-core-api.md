@@ -202,6 +202,23 @@ their camel-case field names, are fixed by
 can correlate concurrent requests. `stopReason` uses ACP wire names such as
 `end_turn` and `cancelled`.
 
+Codex `sessions` and `archivedSessions` use the installed official App Server's
+`thread/list` with matching provider, source-kind and workspace scope. The Host
+normalizes its `recencyAt` (conversation activity) into the existing optional
+ISO 8601 `updatedAt` history field, and sorts upstream pages by `recency_at`.
+`useStateDbOnly: true` avoids rollout-file scans/read-repair for this read-only
+listing. Merely loading a conversation or changing its metadata can advance
+Codex's raw `updatedAt`; that field is never a fallback for activity. Missing or
+invalid `recencyAt` yields `updatedAt: null`, so consumers omit the relative time
+and time-sorted history rows place unknown activity after known timestamps,
+breaking ties by session ID. The switcher's existing current-session pin is unchanged.
+Listing failure retains consumers' existing rows through `requestFailed`; it
+does not fabricate a local timestamp. Other Agents retain standard ACP listing.
+`shared/fixtures/agent/history-activity-v1.json` covers initial state, metadata-only
+viewing, and a new conversation turn. The history UI geometry is unchanged.
+
+Both native Codex App Server listing and standard ACP listing may emit additive `sessionsPage` events for nonterminal pages with matching rows. Each carries the original `listSessions` token and only that page’s summaries. Consumers merge these rows without pruning cached entries or completing the loading state. The existing terminal `sessions` event still carries the full snapshot; consumers that ignore `sessionsPage` remain compatible. A later `requestFailed` retains cached and already received rows. Ignore pages from superseded, completed, or disconnected requests. Empty filtered pages do not end a scan: follow the Agent’s cursor. Platform history surfaces may reuse successful connection-local snapshots (including empty results) for 30 seconds, with independent active/archive freshness; explicit refresh and post-unarchive reconciliation bypass freshness. Failed scans remain retryable and reconnection invalidates freshness. On macOS, a confirmed `turnFinished` invalidates active-list freshness, including for background sessions, without expiring the archive snapshot. A scan still in flight at that boundary may update displayed rows but cannot renew freshness when it completes; the next history open queries again after that scan finishes. Loading or viewing history alone does not invalidate freshness or synthesize activity timestamps. This adds no persisted history or runtime resource directory.
+
 `prompt` retains `text` and optionally carries ordered `files` entries with `uri`
 (a native `file://` URL) and `name` (the display filename). The host validates up to
 32 references and sends upstream ACP `resource_link` blocks after the text block;
