@@ -31,6 +31,23 @@ describe("windowsPathToWslPath", () => {
 });
 
 describe("pathToWslPath", () => {
+  // Regression: the `/mnt` prefix is the default, not a fact. A distribution whose
+  // wsl.conf sets `[automount] root = /` exposes `C:\work\a.txt` at
+  // `/c/work/a.txt`, so the resolver has to receive the real root.
+  test("uses the automount root the distribution reports", () => {
+    expect(windowsPathToWslPath("C:\\work\\a.txt", "")).toBe("/c/work/a.txt");
+    expect(windowsPathToWslPath("C:\\work\\a.txt", "/custom")).toBe("/custom/c/work/a.txt");
+    expect(pathToWslPath("C:\\work\\a.txt", "Ubuntu", "")).toBe("/c/work/a.txt");
+  });
+
+  test("tolerates a trailing slash on the automount root", () => {
+    expect(windowsPathToWslPath("C:\\work\\a.txt", "/mnt/")).toBe("/mnt/c/work/a.txt");
+  });
+
+  test("falls back to the default root when none is given", () => {
+    expect(windowsPathToWslPath("C:\\work\\a.txt")).toBe("/mnt/c/work/a.txt");
+  });
+
   // Regression: the explorer's WSL root uses the `wsl://<distro>/<path>` protocol
   // form, which the plain Windows translator reports as untranslatable. The
   // original value was then inserted and Linux could not reach the directory.

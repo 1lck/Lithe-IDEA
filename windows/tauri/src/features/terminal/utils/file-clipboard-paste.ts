@@ -5,6 +5,7 @@ import {
 } from "@/features/file-explorer/lib/clipboard-entry-paths";
 import { useFileClipboardStore } from "@/features/file-explorer/stores/file-explorer-clipboard.store";
 import { readClipboardText } from "@/utils/clipboard";
+import { resolveAutomountRootForPaths } from "@/features/wsl/utils/wsl-automount-root";
 import { quoteTerminalPaths } from "./terminal-file-drop";
 
 /**
@@ -14,6 +15,10 @@ import { quoteTerminalPaths } from "./terminal-file-drop";
  * Copying files in the explorer only fills the in-app clipboard, which no other
  * application can read. Translating it here means pasting keeps working for the
  * user without the copy having to overwrite the system clipboard.
+ *
+ * The automount root is resolved here rather than by the caller because it is
+ * only needed for a Windows drive path, and the paths are only known once the
+ * in-app clipboard has been read.
  *
  * When `allowStale` is true the clipboard-recency check is skipped, so the caller
  * can offer an explicit action that always pastes the copied paths.
@@ -49,7 +54,8 @@ async function fileClipboardPasteText(
 
   const paths = clipboardEntryPaths(entries);
   if (paths.length === 0) return null;
-  return quoteTerminalPaths(paths, shell, { remoteConnectionId });
+  const automountRoot = await resolveAutomountRootForPaths(shell, paths);
+  return quoteTerminalPaths(paths, shell, { remoteConnectionId, automountRoot });
 }
 
 /**
@@ -60,11 +66,7 @@ export async function readTerminalPasteText(
   shell?: string | null,
   remoteConnectionId?: string | null,
 ): Promise<string> {
-  const filePaths = await fileClipboardPasteText(
-    shell ?? null,
-    remoteConnectionId ?? null,
-    false,
-  );
+  const filePaths = await fileClipboardPasteText(shell ?? null, remoteConnectionId ?? null, false);
   if (filePaths !== null) return filePaths;
   return readClipboardText();
 }

@@ -178,3 +178,18 @@ test("native headers survive Git provenance forwarding", async () => {
   expect(calls[0]![1].gitExecution?.source).toBe("user");
   expect(calls[0]![2]).toEqual({ headers });
 });
+
+// Regression: the router classified every `wsl_` command as the `wsl` backend
+// capability, which is unavailable on Windows. `wsl_automount_root` was therefore
+// rejected before IPC, so inserting a Windows path into a WSL prompt always fell
+// back to `/mnt` and produced a path a custom `[automount] root` cannot open.
+test("reading the WSL automount root reaches the host as a terminal command", async () => {
+  await invoke("wsl_automount_root", { distro: "Ubuntu" });
+
+  expect(tauriInvoke).toHaveBeenCalledWith("wsl_automount_root", { distro: "Ubuntu" }, undefined);
+});
+
+test("other WSL commands stay behind the unavailable wsl capability", async () => {
+  await expect(invoke("wsl_list_distributions")).rejects.toThrow(/wsl \(wsl_list_distributions\)/);
+  expect(tauriInvoke).not.toHaveBeenCalled();
+});

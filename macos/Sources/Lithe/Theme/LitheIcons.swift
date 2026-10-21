@@ -66,8 +66,7 @@ enum LitheIconKind: Hashable {
 enum LitheIcons {
     // MARK: - 分类
 
-    /// Reused IntelliJ Platform assets. The custom SwiftUI drawings below remain
-    /// the fallback for file kinds that are not covered by the imported set.
+    /// Reused IntelliJ Platform assets; unknown file kinds use the upstream unknown icon.
     private static let ideaAssetPaths: [LitheIconKind: String] = [
         .javaClass: "nodes/class.svg",
         .javaInterface: "nodes/interface.svg",
@@ -193,18 +192,6 @@ enum LitheIcons {
         return directory.isEmpty ? darkFilename : "\(directory)/\(darkFilename)"
     }
 
-    /// Returns the light-theme sibling for folder assets whose base SVG uses
-    /// IntelliJ's dark palette. The sibling keeps the original path data so
-    /// switching appearance changes only color, never silhouette.
-    static func lightIdeaAssetPath(for resourcePath: String) -> String {
-        let path = resourcePath as NSString
-        let directory = path.deletingLastPathComponent
-        let filename = path.lastPathComponent as NSString
-        let resourceName = filename.deletingPathExtension
-        let lightFilename = "\(resourceName)_light.\(filename.pathExtension.isEmpty ? "svg" : filename.pathExtension)"
-        return directory.isEmpty ? lightFilename : "\(directory)/\(lightFilename)"
-    }
-
     /// Maps the editor gutter breakpoint state to the matching IntelliJ
     /// debugger glyph. The catalog keeps the red set/verified marks and the
     /// muted/disabled state visually distinct, just like IDEA's gutter.
@@ -267,7 +254,8 @@ enum LitheIcons {
         if name == ".gitignore" || name == ".gitattributes" || name == ".dockerignore" { return .gitignore }
         if name == ".classpath" || name == ".project" || name == ".factorypath" { return .xml }
         if name == ".editorconfig" { return .editorConfig }
-        if name == "dockerfile" || name.hasPrefix("dockerfile.") { return .docker }
+        if name == "dockerfile" || name.hasPrefix("dockerfile.")
+            || ["compose.yaml", "compose.yml", "docker-compose.yaml", "docker-compose.yml"].contains(name) { return .docker }
         // build.gradle.kts 是构建脚本，扩展名 kts 会被 Kotlin 抢走。
         if name.hasSuffix(".gradle.kts") { return .gradle }
         // .env.local、.env.production 的扩展名不是 env。
@@ -368,87 +356,6 @@ enum LitheIcons {
 
     // MARK: - 外观定义
 
-    /// 每个 kind 归到一种画法。几何只写一次，SwiftUI 和 AppKit 共用。
-    enum Appearance {
-        /// 彩色圆形 + 白色字母（Java 符号，仿 IDEA 的 C/I/E/R/A 徽章）
-        case letterBadge(String, Color)
-        /// 文档轮廓（折角）+ 可选类型标识
-        case document(accent: Color, mark: DocumentMark)
-        /// 文件夹形状
-        case folder(Color, hasBadge: Bool)
-    }
-
-    enum DocumentMark: Hashable {
-        case none
-        case letter(String)
-        /// 三条横线，用于 properties / plainText
-        case lines
-        /// 尖括号，用于 xml
-        case angleBrackets
-        /// 花括号，用于 json
-        case braces
-        /// 山与太阳，用于图片
-        case picture
-        /// 三层圆柱，用于数据库
-        case cylinder
-    }
-
-    static func appearance(for kind: LitheIconKind) -> Appearance {
-        switch kind {
-        case .javaClass: .letterBadge("C", Color(red: 0.29, green: 0.62, blue: 0.86))
-        case .javaInterface: .letterBadge("I", Color(red: 0.30, green: 0.70, blue: 0.48))
-        case .javaEnum: .letterBadge("E", Color(red: 0.79, green: 0.55, blue: 0.24))
-        case .javaRecord: .letterBadge("R", Color(red: 0.45, green: 0.56, blue: 0.86))
-        case .javaAnnotation: .letterBadge("@", Color(red: 0.79, green: 0.66, blue: 0.28))
-        case .javaGeneric: .letterBadge("J", Color(red: 0.29, green: 0.62, blue: 0.86))
-
-        case .swiftSource: .document(accent: Color(red: 0.94, green: 0.44, blue: 0.24), mark: .letter("S"))
-        case .kotlinSource: .document(accent: Color(red: 0.63, green: 0.42, blue: 0.90), mark: .letter("K"))
-        case .rustSource: .document(accent: Color(red: 0.78, green: 0.49, blue: 0.33), mark: .letter("R"))
-        case .goSource: .document(accent: Color(red: 0.33, green: 0.54, blue: 0.97), mark: .letter("G"))
-        case .pythonSource: .document(accent: Color(red: 0.95, green: 0.77, blue: 0.36), mark: .letter("P"))
-        case .rubySource: .document(accent: Color(red: 0.86, green: 0.36, blue: 0.36), mark: .letter("R"))
-        case .scalaSource: .document(accent: Color(red: 0.86, green: 0.36, blue: 0.36), mark: .letter("S"))
-        case .groovySource: .document(accent: Color(red: 0.34, green: 0.59, blue: 0.36), mark: .letter("G"))
-        case .phpSource: .document(accent: Color(red: 0.33, green: 0.54, blue: 0.97), mark: .letter("P"))
-        case .cSource: .document(accent: Color(red: 0.71, green: 0.54, blue: 0.93), mark: .letter("C"))
-        case .cHeader: .document(accent: Color(red: 0.78, green: 0.49, blue: 0.33), mark: .letter("h"))
-        case .cppSource: .document(accent: Color(red: 0.71, green: 0.54, blue: 0.93), mark: .letter("C"))
-        case .csharpSource: .document(accent: Color(red: 0.37, green: 0.68, blue: 0.40), mark: .letter("C"))
-        case .scriptSource: .document(accent: Color(red: 0.85, green: 0.76, blue: 0.32), mark: .braces)
-        case .powershellSource: .document(accent: Color(red: 0.33, green: 0.63, blue: 0.86), mark: .none)
-        case .javaScript: .document(accent: Color(red: 0.95, green: 0.77, blue: 0.36), mark: .letter("J"))
-        case .css: .document(accent: Color(red: 0.33, green: 0.54, blue: 0.97), mark: .letter("C"))
-        case .html: .document(accent: Color(red: 0.34, green: 0.59, blue: 0.36), mark: .angleBrackets)
-
-        case .maven: .document(accent: Color(red: 0.36, green: 0.60, blue: 0.90), mark: .letter("m"))
-        case .gradle: .document(accent: Color(red: 0.30, green: 0.66, blue: 0.68), mark: .letter("G"))
-        case .xml: .document(accent: Color(red: 0.72, green: 0.55, blue: 0.88), mark: .angleBrackets)
-        case .properties: .document(accent: Color(red: 0.60, green: 0.64, blue: 0.72), mark: .lines)
-        case .editorConfig: .document(accent: Color(red: 0.60, green: 0.64, blue: 0.72), mark: .lines)
-        case .yaml: .document(accent: Color(red: 0.55, green: 0.72, blue: 0.55), mark: .lines)
-        case .json: .document(accent: Color(red: 0.82, green: 0.70, blue: 0.36), mark: .braces)
-        case .toml: .document(accent: Color(red: 0.33, green: 0.54, blue: 0.97), mark: .lines)
-        case .csv: .document(accent: Color(red: 0.34, green: 0.59, blue: 0.36), mark: .lines)
-        case .docker: .document(accent: Color(red: 0.33, green: 0.54, blue: 0.97), mark: .none)
-        case .database: .document(accent: Color(red: 0.52, green: 0.68, blue: 0.84), mark: .cylinder)
-        case .gitignore: .document(accent: Color(red: 0.85, green: 0.44, blue: 0.32), mark: .lines)
-
-        case .markdown: .document(accent: Color(red: 0.45, green: 0.72, blue: 0.88), mark: .letter("M"))
-        case .plainText: .document(accent: Color(red: 0.58, green: 0.62, blue: 0.68), mark: .lines)
-        case .image: .document(accent: Color(red: 0.48, green: 0.72, blue: 0.62), mark: .picture)
-        case .binary: .document(accent: Color(red: 0.52, green: 0.55, blue: 0.60), mark: .none)
-        case .generic: .document(accent: Color(red: 0.56, green: 0.60, blue: 0.66), mark: .none)
-
-        case .folder: .folder(Color(red: 0.52, green: 0.62, blue: 0.76), hasBadge: false)
-        case .sourceFolder: .folder(Color(red: 0.42, green: 0.66, blue: 0.90), hasBadge: true)
-        case .resourceFolder: .folder(Color(red: 0.82, green: 0.68, blue: 0.36), hasBadge: true)
-        case .excludedFolder: .folder(Color(red: 0.85, green: 0.53, blue: 0.28), hasBadge: false)
-        case .moduleFolder: .folder(Color(red: 0.56, green: 0.70, blue: 0.86), hasBadge: true)
-        case .packageFolder: .folder(Color(red: 0.60, green: 0.64, blue: 0.70), hasBadge: false)
-        }
-    }
-
     // MARK: - AppKit 消费入口
 
     /// 渲染好的图标按 kind+size 缓存，避免每次滚动都重画。
@@ -463,26 +370,11 @@ enum LitheIcons {
     @MainActor
     static func ideaImage(for kind: LitheIconKind, isDark: Bool = false) -> NSImage? {
         guard let assetPath = ideaAssetPaths[kind] else { return nil }
-        if !isDark,
-           isFolderKind(kind),
-           let lightImage = ideaImage(resourcePath: lightIdeaAssetPath(for: assetPath)) {
-            return lightImage
-        }
         if isDark,
            let darkImage = ideaImage(resourcePath: darkIdeaAssetPath(for: assetPath)) {
             return darkImage
         }
         return ideaImage(resourcePath: assetPath)
-    }
-
-    private static func isFolderKind(_ kind: LitheIconKind) -> Bool {
-        switch kind {
-        case .folder, .sourceFolder, .resourceFolder,
-             .excludedFolder, .moduleFolder, .packageFolder:
-            true
-        default:
-            false
-        }
     }
 
     /// Loads an arbitrary imported IntelliJ SVG. This is used for chrome icons
@@ -503,8 +395,34 @@ enum LitheIcons {
         ), let image = NSImage(contentsOf: url) else {
             return nil
         }
-        ImageCache.shared.storage[cacheKey] = image
-        return image
+        let rendered = antialiasedIDEAImage(image)
+        ImageCache.shared.storage[cacheKey] = rendered
+        return rendered
+    }
+
+    /// CoreSVG's direct 1x rendering loses edge coverage on small diagonal strokes.
+    /// Keep the upstream geometry and rasterize once before AppKit/SwiftUI downsamples it.
+    @MainActor
+    static func antialiasedIDEAImage(_ original: NSImage) -> NSImage {
+        // ponytail: 4x covers current icon/display sizes; rerasterize for the target
+        // scale if a future caller needs icons larger than four times their SVG size.
+        let scale: CGFloat = 4
+        let size = original.size
+        guard let bitmap = NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: Int(ceil(size.width * scale)),
+            pixelsHigh: Int(ceil(size.height * scale)), bitsPerSample: 8,
+            samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
+        ), let context = NSGraphicsContext(bitmapImageRep: bitmap) else { return original }
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = context
+        original.draw(in: NSRect(origin: .zero, size: NSSize(width: size.width * scale, height: size.height * scale)),
+                      from: .zero, operation: .copy, fraction: 1)
+        NSGraphicsContext.restoreGraphicsState()
+        bitmap.size = size
+        let result = NSImage(size: size)
+        result.addRepresentation(bitmap)
+        return result
     }
 
     /// gutter、OutputTextView 等 AppKit 侧使用。通过 ImageRenderer 复用
@@ -569,20 +487,14 @@ struct LitheIcon: View {
     var size: CGFloat = 14
 
     var body: some View {
-        if let image = LitheIcons.ideaImage(for: kind, isDark: colorScheme == .dark) {
+        if let image = LitheIcons.ideaImage(for: kind, isDark: colorScheme == .dark)
+            ?? LitheIcons.ideaImage(for: .generic, isDark: colorScheme == .dark) {
             Image(nsImage: image)
                 .resizable()
                 .interpolation(.high)
                 .frame(width: size, height: size)
         } else {
-            switch LitheIcons.appearance(for: kind) {
-            case .letterBadge(let letter, let color):
-                LetterBadgeIcon(letter: letter, color: color, size: size)
-            case .document(let accent, let mark):
-                DocumentIcon(accent: accent, mark: mark, size: size)
-            case .folder(let color, let hasBadge):
-                FolderIcon(color: color, hasBadge: hasBadge, size: size)
-            }
+            Color.clear.frame(width: size, height: size)
         }
     }
 }
@@ -657,184 +569,6 @@ struct LitheSystemIcon: View {
                 .font(LitheTheme.uiFont(size: size, weight: .medium))
                 .frame(width: size, height: size)
         }
-    }
-}
-
-private struct LetterBadgeIcon: View {
-    let letter: String
-    let color: Color
-    let size: CGFloat
-
-    var body: some View {
-        ZStack {
-            Circle()
-                .fill(color.opacity(0.20))
-            Circle()
-                .strokeBorder(color.opacity(0.85), lineWidth: max(1, size / 14))
-            Text(letter)
-                .font(LitheTheme.uiFont(size: size * 0.60, weight: .bold, design: .rounded))
-                .foregroundStyle(color)
-        }
-        .frame(width: size, height: size)
-    }
-}
-
-private struct DocumentIcon: View {
-    let accent: Color
-    let mark: LitheIcons.DocumentMark
-    let size: CGFloat
-
-    var body: some View {
-        ZStack {
-            DocumentShape()
-                .fill(accent.opacity(0.17))
-            DocumentShape()
-                .stroke(accent.opacity(0.80), lineWidth: max(1, size / 16))
-            markView
-        }
-        .frame(width: size, height: size)
-    }
-
-    @ViewBuilder
-    private var markView: some View {
-        switch mark {
-        case .none:
-            EmptyView()
-        case .letter(let letter):
-            Text(letter)
-                .font(LitheTheme.uiFont(size: size * 0.44, weight: .bold, design: .rounded))
-                .foregroundStyle(accent)
-                .offset(y: size * 0.11)
-        case .lines:
-            VStack(spacing: size * 0.11) {
-                ForEach(0..<3, id: \.self) { index in
-                    Capsule()
-                        .fill(accent.opacity(0.85))
-                        .frame(width: size * (index == 2 ? 0.28 : 0.42), height: max(1, size * 0.075))
-                }
-            }
-            .frame(width: size * 0.46, alignment: .leading)
-            .offset(y: size * 0.10)
-        case .angleBrackets:
-            Text("< >")
-                .font(LitheTheme.uiFont(size: size * 0.34, weight: .heavy, design: .monospaced))
-                .foregroundStyle(accent)
-                .offset(y: size * 0.11)
-        case .braces:
-            Text("{ }")
-                .font(LitheTheme.uiFont(size: size * 0.34, weight: .heavy, design: .monospaced))
-                .foregroundStyle(accent)
-                .offset(y: size * 0.11)
-        case .picture:
-            PictureMarkShape()
-                .fill(accent.opacity(0.90))
-                .frame(width: size * 0.50, height: size * 0.34)
-                .offset(y: size * 0.13)
-        case .cylinder:
-            VStack(spacing: size * 0.055) {
-                ForEach(0..<3, id: \.self) { _ in
-                    Ellipse()
-                        .stroke(accent.opacity(0.88), lineWidth: max(1, size * 0.055))
-                        .frame(height: size * 0.13)
-                }
-            }
-            .frame(width: size * 0.46)
-            .offset(y: size * 0.11)
-        }
-    }
-}
-
-/// 文档轮廓：右上角折角。坐标按 0...1 归一化后乘以 rect，便于任意尺寸复用。
-private struct DocumentShape: Shape {
-    func path(in rect: CGRect) -> Path {
-        let width = rect.width
-        let height = rect.height
-        let inset = width * 0.13
-        let fold = width * 0.28
-        let radius = width * 0.06
-
-        var path = Path()
-        path.move(to: CGPoint(x: inset + radius, y: 0))
-        path.addLine(to: CGPoint(x: width - inset - fold, y: 0))
-        path.addLine(to: CGPoint(x: width - inset, y: fold))
-        path.addLine(to: CGPoint(x: width - inset, y: height - radius))
-        path.addQuadCurve(
-            to: CGPoint(x: width - inset - radius, y: height),
-            control: CGPoint(x: width - inset, y: height)
-        )
-        path.addLine(to: CGPoint(x: inset + radius, y: height))
-        path.addQuadCurve(to: CGPoint(x: inset, y: height - radius), control: CGPoint(x: inset, y: height))
-        path.addLine(to: CGPoint(x: inset, y: radius))
-        path.addQuadCurve(to: CGPoint(x: inset + radius, y: 0), control: CGPoint(x: inset, y: 0))
-        path.closeSubpath()
-        return path
-    }
-}
-
-/// 图片标识：一座山 + 一个太阳。
-private struct PictureMarkShape: Shape {
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        path.move(to: CGPoint(x: 0, y: rect.maxY))
-        path.addLine(to: CGPoint(x: rect.width * 0.36, y: rect.height * 0.32))
-        path.addLine(to: CGPoint(x: rect.width * 0.62, y: rect.maxY))
-        path.closeSubpath()
-        path.addEllipse(in: CGRect(
-            x: rect.width * 0.68,
-            y: rect.height * 0.08,
-            width: rect.width * 0.24,
-            height: rect.width * 0.24
-        ))
-        return path
-    }
-}
-
-private struct FolderIcon: View {
-    let color: Color
-    let hasBadge: Bool
-    let size: CGFloat
-
-    var body: some View {
-        ZStack {
-            FolderShape()
-                .fill(color.opacity(0.22))
-            FolderShape()
-                .stroke(color.opacity(0.85), lineWidth: max(1, size / 16))
-            if hasBadge {
-                Circle()
-                    .fill(color)
-                    .frame(width: size * 0.26, height: size * 0.26)
-                    .offset(x: size * 0.28, y: size * 0.24)
-            }
-        }
-        .frame(width: size, height: size)
-    }
-}
-
-private struct FolderShape: Shape {
-    func path(in rect: CGRect) -> Path {
-        let width = rect.width
-        let height = rect.height
-        let top = height * 0.18
-        let tabWidth = width * 0.42
-        let radius = width * 0.07
-
-        var path = Path()
-        path.move(to: CGPoint(x: radius, y: height * 0.90))
-        path.addLine(to: CGPoint(x: 0 + radius * 0, y: top + radius))
-        path.addQuadCurve(to: CGPoint(x: radius, y: top), control: CGPoint(x: 0, y: top))
-        path.addLine(to: CGPoint(x: tabWidth * 0.60, y: top))
-        path.addLine(to: CGPoint(x: tabWidth * 0.80, y: top - height * 0.10))
-        path.addLine(to: CGPoint(x: width - radius, y: top - height * 0.10))
-        path.addQuadCurve(
-            to: CGPoint(x: width, y: top - height * 0.10 + radius),
-            control: CGPoint(x: width, y: top - height * 0.10)
-        )
-        path.addLine(to: CGPoint(x: width, y: height * 0.90 - radius))
-        path.addQuadCurve(to: CGPoint(x: width - radius, y: height * 0.90), control: CGPoint(x: width, y: height * 0.90))
-        path.addLine(to: CGPoint(x: radius, y: height * 0.90))
-        path.closeSubpath()
-        return path
     }
 }
 

@@ -464,6 +464,16 @@ SHA-256；Cargo、SwiftPM 和 Bun 使用各自的 lockfile、版本与完整性�
   worker 内存中存活，不增加下载目录，不写发行资源，也不影响签名或增量更新。
 - `.artifacts/jdtls-downloads/`：JDTLS、Lombok、Java Debug/Test 和 license。
 - `.artifacts/jdk-downloads/`：各平台与架构的 bundled JDK 下载归档。
+- `.artifacts/conpty-downloads/`：Windows Terminal 发布的
+  `Microsoft.Windows.Console.ConPTY` NuGet 包，按
+  `third_party/conpty/manifest.json` 固定版本与 SHA-256。包内 x64/arm64 的
+  `conpty.dll` 与 `OpenConsole.exe` 解出后写入 `.artifacts/conpty/`，供
+  `build.rs` 复制到可执行文件同目录，并由 `tauri.conf.json` 的 bundle
+  resources 打进安装包。该校验只接受 manifest 指定版本的那一个归档，
+  其余文件直接删除并重新下载。
+- `.artifacts/php-language-server-downloads/`：按
+  `Plugins/mac/Official/PhpSupport/language-server.json` 下载并校验的
+  Intelephense tarball；它只服务当前工作树的插件打包，不能复制解压结果。
 
 Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono 2.304 的 16 个静态 TTF、OFL 和作者信息位于 Git 跟踪的
 `macos/Resources/Fonts`。同目录增加 Nerd Fonts v3.5.1 的 JetBrains Mono Nerd Font Mono 四个完整 TTF（常规、粗体、斜体、粗斜体）及 OFL 许可，终端可直接选择这些字型而不依赖用户安装；来源、版本和固定 SHA-256 记录于 `NOTICE.txt`。它们与平台架构和工具链无关，随工作树检出，不从另一个

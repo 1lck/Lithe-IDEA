@@ -25,6 +25,11 @@
       "id": "jdk",
       "path": ".artifacts/jdk-downloads",
       "validator": "jdk"
+    },
+    {
+      "id": "conpty",
+      "path": ".artifacts/conpty-downloads",
+      "validator": "conpty"
     }
   ],
   "excludedResources": [
