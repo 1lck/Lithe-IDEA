@@ -7,6 +7,16 @@ use tauri::Manager;
 
 static REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 
+// Only open uses the strict camelCase request struct. closeOwner retains its
+// existing ownerID contract, and the native window supplies the trusted owner.
+fn bind_ide_host_owner(command: &str, args: &mut Value, owner: &str) -> bool {
+    if command != "ideHost.control" || args["action"] != "open" {
+        return false;
+    }
+    args["arguments"]["ownerId"] = json!(owner);
+    true
+}
+
 #[tauri::command]
 pub async fn platform_invoke(
     webview: tauri::Webview,
@@ -22,9 +32,8 @@ pub async fn platform_invoke(
         .map(|state| state.inner().clone());
     let log_window = webview.window().label().to_string();
     let log_started = std::time::Instant::now();
-    let ide_owner = if command == "ideHost.control" && args["action"] == "open" {
+    let ide_owner = if bind_ide_host_owner(&command, &mut args, webview.window().label()) {
         let owner = webview.window().label().to_owned();
-        args["arguments"]["ownerID"] = json!(owner);
         Some((webview.app_handle().clone(), owner))
     } else {
         None
@@ -921,6 +930,57 @@ fn take_text(payload: &mut Map<String, Value>, field: &str) -> Result<String, St
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn mcp_open_owner_passes_the_real_host_request_decoder() {
+        let mut args = serde_json::json!({"action":"open","arguments":{
+            "directory":"relative-fixture", "workspaceKey":"fixture",
+            "helperPath":"relative-helper", "permissions":{"configure":false,"execute":false},
+            "ownerId":"untrusted-client"
+        }});
+        assert!(super::bind_ide_host_owner(
+            "ideHost.control",
+            &mut args,
+            "fixture-window"
+        ));
+        assert_eq!(args["arguments"]["ownerId"], "fixture-window");
+        let (command, payload) = super::translate("ideHost.control", args).unwrap();
+        let response: serde_json::Value = serde_json::from_str(&lithe_core::execute_json(
+            &serde_json::json!({"command":command,"payload":payload}).to_string(),
+        ))
+        .unwrap();
+        // Relative fixture paths intentionally fail after decoding, without opening
+        // a listener or touching disk. A misspelled owner field fails earlier.
+        assert_eq!(response["ok"], false);
+        assert!(
+            response
+                .to_string()
+                .contains("absolute writable storage and helper paths"),
+            "{response}"
+        );
+    }
+
+    #[test]
+    fn mcp_owner_binding_leaves_close_owner_and_other_commands_unchanged() {
+        for (command, mut args) in [
+            (
+                "ideHost.control",
+                serde_json::json!({"action":"closeOwner","arguments":{"ownerID":"fixture-window"}}),
+            ),
+            (
+                "git.status",
+                serde_json::json!({"action":"open","arguments":{}}),
+            ),
+        ] {
+            let original = args.clone();
+            assert!(!super::bind_ide_host_owner(
+                command,
+                &mut args,
+                "other-window"
+            ));
+            assert_eq!(args, original);
+        }
+    }
+
     #[test]
     fn all_shared_git_entry_points_are_observed_without_a_ui_action_allowlist() {
         for command in [

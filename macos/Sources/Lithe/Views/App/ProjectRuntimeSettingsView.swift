@@ -45,6 +45,11 @@ struct ProjectRuntimeSettingsView: View {
 
     private var header: some View {
         HStack {
+            if model.workspaceURL != nil {
+                Text("This computer · This project")
+                    .font(LitheTheme.smallFont)
+                    .foregroundStyle(LitheTheme.secondaryText)
+            }
             Spacer()
             if feature.isDiscovering {
                 ProgressView()
@@ -145,6 +150,11 @@ struct ProjectRuntimeSettingsView: View {
     private var detail: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 8) {
+                Text("These defaults apply only to this project on this computer. Run configurations inherit them unless overridden. Use the Project save scope in a run configuration to share settings with your team.")
+                    .font(LitheTheme.smallFont)
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.vertical, 8)
                 if let subproject = selectedSubproject {
                     Text(subproject.title)
                         .font(LitheTheme.uiFont(size: 13, weight: .semibold))

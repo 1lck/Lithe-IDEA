@@ -2066,3 +2066,9 @@
 "Session" = "Session";
 "Minimum level" = "Minimum level";
 "Open Log Directory" = "Open Log Directory";
+
+/* Project-local toolchain scope. */
+"This computer · This project" = "This computer · This project";
+"These defaults apply only to this project on this computer. Run configurations inherit them unless overridden. Use the Project save scope in a run configuration to share settings with your team." = "These defaults apply only to this project on this computer. Run configurations inherit them unless overridden. Use the Project save scope in a run configuration to share settings with your team.";
+"Saved only for this project on this computer in .lithe/run/local.json and excluded from Git." = "Saved only for this project on this computer in .lithe/run/local.json and excluded from Git.";
+"This computer" = "This computer";
