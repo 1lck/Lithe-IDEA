@@ -288,7 +288,7 @@ struct SettingsView: View {
                 .padding(.trailing, 8)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .frame(height: nested ? 26 : 30)
-                .background(sidebarSelection(isSelected))
+                .litheSelectionRow(isSelected: isSelected, isFocused: categoryListActive, cornerRadius: 6)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.litheNoPress)
@@ -321,19 +321,11 @@ struct SettingsView: View {
             .padding(.trailing, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
             .frame(height: 26)
-            .background(sidebarSelection(isSelected))
+            .litheSelectionRow(isSelected: isSelected, isFocused: categoryListActive, cornerRadius: 6)
             .contentShape(Rectangle())
         }
         .buttonStyle(.litheNoPress)
         .help(Text(LocalizedStringKey("Added by plugins")))
-    }
-
-    @ViewBuilder
-    private func sidebarSelection(_ isSelected: Bool) -> some View {
-        if isSelected {
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(LitheTheme.settingsSidebarSelection)
-        }
     }
 
     private var contributedPages: [ContributedSettingsPage] {

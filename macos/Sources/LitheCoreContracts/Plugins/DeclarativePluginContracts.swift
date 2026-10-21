@@ -276,7 +276,7 @@ public struct DeclarativePluginSetting: Equatable, Identifiable, Sendable {
                 && Self.matchesWhole(text, pattern: pattern)
         case (.path, .string(let text)):
             return text.isEmpty
-                || (text.hasPrefix("/") && text.unicodeScalars.count <= 1024 && Self.isPrintable(text))
+                || (Self.isAbsolutePath(text) && text.unicodeScalars.count <= 1024 && Self.isPrintable(text))
         default:
             return false
         }
@@ -288,8 +288,20 @@ public struct DeclarativePluginSetting: Equatable, Identifiable, Sendable {
         return defaultValue
     }
 
+    /// Rust's `char::is_control`: general category Cc only, not format
+    /// characters such as the zero-width joiner.
     private static func isPrintable(_ text: String) -> Bool {
-        !text.unicodeScalars.contains { CharacterSet.controlCharacters.contains($0) }
+        !text.unicodeScalars.contains { $0.properties.generalCategory == .control }
+    }
+
+    /// `/…`, or `C:\…` / `C:/…`, as Rust Core accepts on every host.
+    private static func isAbsolutePath(_ text: String) -> Bool {
+        if text.hasPrefix("/") { return true }
+        let bytes = Array(text.utf8.prefix(3))
+        guard bytes.count == 3 else { return false }
+        let isLetter = (UInt8(ascii: "a")...UInt8(ascii: "z")).contains(bytes[0] | 0x20)
+        return isLetter && bytes[1] == UInt8(ascii: ":")
+            && (bytes[2] == UInt8(ascii: "\\") || bytes[2] == UInt8(ascii: "/"))
     }
 
     private static func matchesWhole(_ text: String, pattern: String) -> Bool {

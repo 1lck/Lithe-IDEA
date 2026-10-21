@@ -100,7 +100,7 @@ struct PluginSettingsSection: View {
                     LitheInfoTip(LocalizedStringKey("Valid values are saved as you type."))
                     Button(LocalizedStringKey("Restore Defaults"), action: restoreDefaults)
                         .buttonStyle(LitheSecondaryButtonStyle())
-                        .disabled(settings.allSatisfy { $0.globalValue == nil && $0.projectValue == nil })
+                        .disabled(!settings.contains { hasStoredValue($0, in: editedLayer(of: $0)) })
                 }
                 .padding(.horizontal, 6)
                 .padding(.bottom, 12)
@@ -108,10 +108,25 @@ struct PluginSettingsSection: View {
         }
     }
 
+    /// The layer a row edits: the page's layer for a project-scoped
+    /// setting in an open project, otherwise the global one.
+    private func editedLayer(of setting: PluginSettingState) -> PluginSettingLayer {
+        setting.declaration.scope == .project && hasProject ? editedLayer.wrappedValue : .global
+    }
+
+    private func hasStoredValue(_ setting: PluginSettingState, in layer: PluginSettingLayer) -> Bool {
+        switch layer {
+        case .project: setting.projectValue != nil
+        case .global: setting.globalValue != nil
+        }
+    }
+
+    /// Clears only the layer each row edits, so restoring this project's
+    /// overrides never discards the values chosen for every project.
     private func restoreDefaults() {
         for setting in settings {
-            if setting.projectValue != nil { record(handlers.setValue(setting.id, nil, .project)) }
-            if setting.globalValue != nil { record(handlers.setValue(setting.id, nil, .global)) }
+            let layer = editedLayer(of: setting)
+            if hasStoredValue(setting, in: layer) { record(handlers.setValue(setting.id, nil, layer)) }
         }
     }
 
@@ -203,6 +218,17 @@ private struct PluginSettingRow: View {
 
     private func write(_ value: ToolingJSONValue) { onChange(value, layer) }
 
+    /// A value that only marks a restart or the next run can be saved on
+    /// every keystroke; one that reloads a build model or reaches a running
+    /// server waits for Return or for the field to lose focus, so typing
+    /// "1024" does not apply 1, 10, and 102 first.
+    private var savesWhileTyping: Bool {
+        switch declaration.effect {
+        case .restart, .nextRun: true
+        case .immediate, .reload: false
+        }
+    }
+
     @ViewBuilder private var control: some View {
         switch declaration.kind {
         case .integer(let minimum, let maximum, let unit):
@@ -211,6 +237,7 @@ private struct PluginSettingRow: View {
                 range: minimum...maximum,
                 unit: unit,
                 accessibilityLabel: declaration.title,
+                savesWhileTyping: savesWhileTyping,
                 onChange: write
             )
         case .choice(let options):
@@ -245,6 +272,7 @@ private struct PluginSettingRow: View {
                 placeholder: placeholder,
                 width: 200,
                 accessibilityLabel: declaration.title,
+                savesWhileTyping: savesWhileTyping,
                 accepts: { declaration.accepts(.string($0)) },
                 onChange: { write(.string($0)) }
             )
@@ -255,6 +283,7 @@ private struct PluginSettingRow: View {
                     placeholder: placeholder,
                     width: 220,
                     accessibilityLabel: declaration.title,
+                    savesWhileTyping: savesWhileTyping,
                     accepts: { declaration.accepts(.string($0)) },
                     onChange: { write(.string($0)) }
                 )
@@ -424,6 +453,7 @@ private struct PluginTextSettingField: View {
     let placeholder: String?
     let width: CGFloat
     let accessibilityLabel: String
+    let savesWhileTyping: Bool
     let accepts: (String) -> Bool
     let onChange: (String) -> Void
     @State private var text = ""
@@ -438,10 +468,11 @@ private struct PluginTextSettingField: View {
                 .accessibilityLabel(Text(verbatim: accessibilityLabel))
                 .onSubmit(commit)
                 .onChange(of: text) { _ in
-                    if isFocused, accepts(text), text != value { onChange(text) }
+                    if savesWhileTyping, isFocused, accepts(text), text != value { onChange(text) }
                 }
                 .onChange(of: isFocused) { focused in
-                    if !focused { text = value }
+                    guard !focused else { return }
+                    if savesWhileTyping { text = value } else { commit() }
                 }
             if !accepts(text) {
                 Image(systemName: "exclamationmark.triangle.fill")
@@ -471,6 +502,7 @@ private struct PluginIntegerSettingField: View {
     let range: ClosedRange<Int>
     let unit: String?
     let accessibilityLabel: String
+    let savesWhileTyping: Bool
     let onChange: (ToolingJSONValue) -> Void
     @State private var text = ""
     @FocusState private var isFocused: Bool
@@ -497,7 +529,8 @@ private struct PluginIntegerSettingField: View {
                 .onChange(of: isFocused) { focused in
                     // Leaving the field with a value that was never accepted
                     // shows the stored one again.
-                    if !focused { text = storedNumber.map(String.init) ?? text }
+                    guard !focused else { return }
+                    if savesWhileTyping { text = storedNumber.map(String.init) ?? text } else { commit() }
                 }
             if let unit {
                 Text(verbatim: unit)
@@ -521,7 +554,7 @@ private struct PluginIntegerSettingField: View {
     }
 
     private func commitWhileTyping() {
-        guard isFocused, isAcceptable, let number = Int(text.trimmingCharacters(in: .whitespaces)),
+        guard savesWhileTyping, isFocused, isAcceptable, let number = Int(text.trimmingCharacters(in: .whitespaces)),
               number != storedNumber else { return }
         onChange(.integer(number))
     }

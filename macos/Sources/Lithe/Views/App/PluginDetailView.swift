@@ -265,7 +265,7 @@ struct PluginDetailView<Icon: View>: View {
         let value: Int = switch tab {
         case .overview, .versions: 0
         case .features: plugin.capabilities.count
-        case .settings: plugin.settings.count
+        case .settings: plugin.settings.count + plugin.contributions.actions.count
         case .permissions: plugin.permissions.count + (plugin.programs?.count ?? 0)
         }
         return value > 0 ? value : nil
@@ -331,11 +331,12 @@ struct PluginDetailView<Icon: View>: View {
                 }
                 infoRow("Plugin Source") { sourceDescription }
                 infoRow("Settings") {
-                    if plugin.settings.isEmpty {
+                    let settingCount = plugin.settings.count + plugin.contributions.actions.count
+                    if settingCount == 0 {
                         Text(LocalizedStringKey("None"))
                     } else {
                         HStack(spacing: 6) {
-                            Text(verbatim: "\(plugin.settings.count)")
+                            Text(verbatim: "\(settingCount)")
                             linkButton("View") { tab = .settings }
                         }
                     }
@@ -430,9 +431,10 @@ struct PluginDetailView<Icon: View>: View {
 
     private var features: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(LocalizedStringKey("Generated from the plugin's declaration."))
-                .font(LitheTheme.smallFont)
-                .foregroundStyle(LitheTheme.secondaryText)
+            HStack(spacing: 4) {
+                Spacer(minLength: 0)
+                LitheInfoTip(LocalizedStringKey("Generated from the plugin's declaration."))
+            }
             if plugin.capabilities.isEmpty {
                 emptyTab("This plugin declares no features.")
             } else {

@@ -309,7 +309,6 @@ enum LitheTheme {
     static var settingsCard: Color { settingsColor(light: 0xFFFFFF, dark: 0x2B2D30) }
     static var settingsCardDivider: Color { settingsColor(light: 0xEDEDF0, dark: 0x34363A) }
     static var settingsCardRing: Color { settingsColor(light: 0x000000, dark: 0xFFFFFF, alpha: 0.07) }
-    static var settingsSidebarSelection: Color { settingsColor(light: 0xD6E3FB, dark: 0x2E436E) }
     static var settingsRowHover: Color { settingsColor(light: 0x000000, dark: 0xFFFFFF, alpha: 0.025) }
     static var settingsPill: Color { settingsColor(light: 0xF0F1F4, dark: 0x393B40) }
     static var settingsPillText: Color { settingsColor(light: 0x6C707E, dark: 0x9DA0A8) }

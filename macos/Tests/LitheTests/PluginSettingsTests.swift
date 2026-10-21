@@ -166,6 +166,90 @@ struct PluginSettingsTests {
         #expect(!FileManager.default.fileExists(atPath: file.path))
     }
 
+    /// The project file is shared through version control: a file this host
+    /// cannot read must survive a change instead of being replaced or deleted.
+    @Test
+    func anUnreadableProjectFileIsRefusedAndKept() throws {
+        let project = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: project) }
+        let store = MacPluginSettingsStore(store: SettingsKeyValueStore())
+        let file = project.appendingPathComponent(".lithe/plugin-settings.json")
+        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let damaged = Data(#"{"version": 2, "dev.example.two": {"a": 1}}"#.utf8)
+        try damaged.write(to: file)
+
+        #expect(store.projectValues(forPlugin: "dev.example.two", projectRoot: project).isEmpty)
+        #expect(throws: (any Error).self) {
+            try store.setProjectValue(nil, forSetting: "mixEnv", plugin: "dev.example.one", projectRoot: project)
+        }
+        #expect(throws: (any Error).self) {
+            try store.setProjectValue(.string("prod"), forSetting: "mixEnv", plugin: "dev.example.one", projectRoot: project)
+        }
+        #expect(try Data(contentsOf: file) == damaged)
+    }
+
+    /// A checked-out symbolic link, even a dangling one, must not redirect
+    /// project settings outside the project.
+    @Test
+    func symbolicLinksAtTheProjectSettingsPathAreRefused() throws {
+        let project = try temporaryDirectory()
+        let outside = try temporaryDirectory()
+        defer {
+            try? FileManager.default.removeItem(at: project)
+            try? FileManager.default.removeItem(at: outside)
+        }
+        let store = MacPluginSettingsStore(store: SettingsKeyValueStore())
+        let directory = project.appendingPathComponent(".lithe")
+        let dangling = outside.appendingPathComponent("missing")
+        try FileManager.default.createSymbolicLink(at: directory, withDestinationURL: dangling)
+
+        #expect(throws: (any Error).self) {
+            try store.setProjectValue(.string("prod"), forSetting: "mixEnv", plugin: "dev.example.one", projectRoot: project)
+        }
+        #expect(!FileManager.default.fileExists(atPath: dangling.path))
+
+        try FileManager.default.removeItem(at: directory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let target = outside.appendingPathComponent("settings.json")
+        try Data(#"{"dev.example.one": {"mixEnv": "test"}}"#.utf8).write(to: target)
+        try FileManager.default.createSymbolicLink(
+            at: directory.appendingPathComponent("plugin-settings.json"),
+            withDestinationURL: target
+        )
+        #expect(store.projectValues(forPlugin: "dev.example.one", projectRoot: project).isEmpty)
+        #expect(throws: (any Error).self) {
+            try store.setProjectValue(nil, forSetting: "mixEnv", plugin: "dev.example.one", projectRoot: project)
+        }
+        #expect(FileManager.default.fileExists(atPath: target.path))
+    }
+
+    /// The page shows the value Rust Core launches with only if both sides
+    /// accept the same values; these cases differed before.
+    @Test
+    func valueChecksMatchRustCoreForTextAndPaths() {
+        let text = DeclarativePluginSetting(
+            id: "name", title: "Name", summary: nil,
+            kind: .text(pattern: ".+", maxLength: 3, placeholder: nil),
+            defaultValue: .string("a")
+        )
+        // One grapheme, two Unicode scalars each: Core counts scalars.
+        #expect(!text.accepts(.string("e\u{301}e\u{301}")))
+        // A zero-width joiner is a format character, not a control one.
+        #expect(text.accepts(.string("a\u{200D}b")))
+        #expect(!text.accepts(.string("a\u{7}")))
+
+        let path = DeclarativePluginSetting(
+            id: "home", title: "Home", summary: nil,
+            kind: .path(directory: true, placeholder: nil),
+            defaultValue: .string("")
+        )
+        #expect(path.accepts(.string("/opt/tool")))
+        #expect(path.accepts(.string("C:\\tools\\jdk")))
+        #expect(path.accepts(.string("d:/tools")))
+        #expect(!path.accepts(.string("tools/jdk")))
+        #expect(!path.accepts(.string("1:/tools")))
+    }
+
     @Test
     func projectSettingsRejectDanglingLitheSymlink() throws {
         let project = try temporaryDirectory()
