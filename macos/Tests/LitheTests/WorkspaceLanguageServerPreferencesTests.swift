@@ -215,6 +215,24 @@ struct WorkspaceLanguageServerPreferencesTests {
         await model.shutdownProjectSession()
     }
 
+    @Test
+    func cancelledActivationIsNeitherReportedNorRecordedAsAStartupFailure() throws {
+        let feature = makeFeature(store: LanguagePreferencesTestStore())
+        feature.reloadCatalog(for: workspace)
+        let descriptor = try #require(feature.catalog.provider(for: document("Main.java").url))
+        var notifications: [String] = []
+        feature.configure(documentsProvider: { [] }, activateDocument: { _ in false }, notify: { notifications.append($0) })
+
+        feature.markActivationFailed(providerID: descriptor.id, descriptor: descriptor, error: CancellationError())
+        #expect(notifications.isEmpty)
+        #expect(!feature.shouldRetryCandidate(providerID: descriptor.id))
+
+        feature.markActivationFailed(providerID: descriptor.id, descriptor: descriptor, error: LanguageActivationTestFailure())
+        #expect(notifications.count == 1)
+        #expect(notifications.first?.hasSuffix(LanguageActivationTestFailure.message) == true)
+        #expect(feature.shouldRetryCandidate(providerID: descriptor.id))
+    }
+
     private func document(_ name: String) -> EditorDocument {
         EditorDocument(url: workspace.appendingPathComponent(name), text: "", modificationDate: nil)
     }
@@ -284,4 +302,9 @@ private final class LanguagePreferencesTestStore: KeyValueStore {
     func string(forKey key: String) -> String? { values[key] as? String }
     func stringArray(forKey key: String) -> [String]? { values[key] as? [String] }
     func set(_ value: Any?, forKey key: String) { values[key] = value }
+}
+
+private struct LanguageActivationTestFailure: LocalizedError {
+    static let message = "Language server executable is unavailable"
+    var errorDescription: String? { Self.message }
 }
