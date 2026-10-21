@@ -26,5 +26,5 @@
     "verificationStatus": "not-applicable"
   },
   "owner": "Plugin Platform",
-  "verification": "macOS：安装一个声明了 settings 2 页面（page/section/scope/effect/settingActions）的插件并启用，确认设置侧栏的对应分组下出现该语言或构建系统页，页内按插件和 section 分组显示设置与按钮；搜索设置标题能定位到该页。打开项目后把 scope 为 project 的设置切到“此项目”并修改，确认项目下生成 .lithe/plugin-settings.json 且显示“已在此项目覆盖”，恢复默认后文件被删除。修改 effect 为 immediate 的设置，确认语言服务器不重启而配置生效；修改 restart 设置时出现重启提示。点击带 confirm 的按钮先弹确认，再调用插件函数并给出结果通知。停用插件后页面消失。Windows：宿主仍只声明 settings/languageServers 1，需要 v2 的插件在市场中隐藏。"
+  "verification": "macOS：先使用 Swift 6.3.3 构建 Release，确认插件页选择回调不触发编译器崩溃；在 Release 应用中选择插件设置页，确认其侧栏分组自动展开。macOS：安装一个声明了 settings 2 页面（page/section/scope/effect/settingActions）的插件并启用，确认设置侧栏的对应分组下出现该语言或构建系统页，页内按插件和 section 分组显示设置与按钮；搜索设置标题能定位到该页。打开项目后把 scope 为 project 的设置切到“此项目”并修改，确认项目下生成 .lithe/plugin-settings.json 且显示“已在此项目覆盖”，恢复默认后文件被删除。修改 effect 为 immediate 的设置，确认语言服务器不重启而配置生效；修改 restart 设置时出现重启提示。点击带 confirm 的按钮先弹确认，再调用插件函数并给出结果通知。停用插件后页面消失。Windows：宿主仍只声明 settings/languageServers 1，需要 v2 的插件在市场中隐藏。"
 }
