@@ -1,6 +1,6 @@
 import { parseDroppedPaths } from "@/features/file-system/utils/file-system-dropped-paths";
 import { parseRemotePath } from "@/features/remote/utils/remote-path";
-import { pathToWslPath } from "@/features/wsl/utils/wsl-path";
+import { pathToWslPath, WSL_DEFAULT_AUTOMOUNT_ROOT } from "@/features/wsl/utils/wsl-path";
 
 /**
  * Shells Lithe can launch on Windows. They disagree on what counts as an escape,
@@ -107,6 +107,7 @@ function shellPath(
   path: string,
   distro: string | null,
   remoteConnectionId: string | null,
+  automountRoot: string,
 ): string | null {
   const remote = parseRemotePath(path);
   if (remote) {
@@ -114,7 +115,7 @@ function shellPath(
     return remote.remotePath;
   }
 
-  if (distro) return pathToWslPath(path, distro);
+  if (distro) return pathToWslPath(path, distro, automountRoot);
   return path;
 }
 
@@ -132,15 +133,16 @@ function shellPath(
 export function quoteTerminalPaths(
   paths: readonly string[],
   shell?: string | null,
-  options: { remoteConnectionId?: string | null } = {},
+  options: { remoteConnectionId?: string | null; automountRoot?: string | null } = {},
 ): string {
   const family = terminalShellFamily(shell);
   const distro = (shell ?? "").toLowerCase().startsWith("wsl:")
     ? (shell ?? "").slice("wsl:".length)
     : null;
   const remoteConnectionId = options.remoteConnectionId ?? null;
+  const automountRoot = options.automountRoot ?? WSL_DEFAULT_AUTOMOUNT_ROOT;
   return paths
-    .map((path) => shellPath(path, distro, remoteConnectionId))
+    .map((path) => shellPath(path, distro, remoteConnectionId, automountRoot))
     .map((path) => (path === null ? null : quotePathForShell(path, family)))
     .filter((quoted): quoted is string => quoted !== null)
     .join(" ");
@@ -152,10 +154,16 @@ export function quoteTerminalPaths(
  */
 export function formatPathsForTerminal(
   paths: readonly string[],
-  options: { shell?: string | null; remoteConnectionId?: string | null; trailingSpace?: boolean } = {},
+  options: {
+    shell?: string | null;
+    remoteConnectionId?: string | null;
+    automountRoot?: string | null;
+    trailingSpace?: boolean;
+  } = {},
 ): string {
   const text = quoteTerminalPaths(paths, options.shell, {
     remoteConnectionId: options.remoteConnectionId,
+    automountRoot: options.automountRoot,
   });
   if (!text) return "";
   return options.trailingSpace ? `${text} ` : text;
@@ -165,12 +173,13 @@ export function formatDroppedPathsForTerminal(
   rawPaths: string[],
   shell?: string | null,
   remoteConnectionId?: string | null,
+  automountRoot?: string | null,
 ): string {
   const paths = parseDroppedPaths(rawPaths);
   if (paths.length === 0) return "";
   // Quoting can drop every path (a name the shell cannot represent literally),
   // which would otherwise emit a lone trailing space.
-  const quoted = quoteTerminalPaths(paths, shell, { remoteConnectionId });
+  const quoted = quoteTerminalPaths(paths, shell, { remoteConnectionId, automountRoot });
   if (!quoted) return "";
   return `${quoted} `;
 }
