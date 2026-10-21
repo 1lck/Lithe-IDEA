@@ -139,7 +139,6 @@ beforeEach(async () => {
   useSettingsStore.setState({
     settings: {
       ...settings,
-      autoRevealActiveFileInFileTree: false,
       compactFoldersInFileTree: false,
       showFileIconsInFileTree: false,
       confirmBeforeFileDelete: false,

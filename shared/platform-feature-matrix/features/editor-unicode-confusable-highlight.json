@@ -1,0 +1,27 @@
+{
+  "id": "editor-unicode-confusable-highlight",
+  "area": "编辑器",
+  "group": "文本编辑",
+  "capability": "编辑器不把中文全角标点标记为易混淆字符",
+  "owner": "Editor",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "frontend/editor/src/workbench.ts",
+      "frontend/editor/src/diff-review.ts"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "verified",
+    "evidence": [
+      "windows/tauri/src/features/editor/components/monaco-editor.tsx",
+      "windows/tauri/src/features/editor/notebook/notebook-code-cell-editor.tsx",
+      "windows/tauri/src/features/git/components/diff/independent-commit-diff-surface.ts",
+      "frontend/editor/src/diff-review.ts"
+    ]
+  },
+  "verification": "双端打开含全角括号、全角逗号等中文标点的文档或代码文件，并覆盖 Notebook 代码单元与提交差异视图（拆分与统一），悬停这些字符不再出现 \"could be confused with the ASCII character\" 提示，也没有对应高亮标记；不可见字符检测等其他 Unicode 高亮行为保持不变。",
+  "notes": "关闭 Monaco unicodeHighlight.ambiguousCharacters 默认值：中文行内全角标点是正常输入而非误敲，且提示中的 Adjust settings 链接在嵌入场景没有可跳转的设置页。"
+}

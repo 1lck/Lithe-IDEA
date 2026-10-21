@@ -370,6 +370,13 @@ struct LitheCoreLogicTests {
             didCloseSettings = true
         }
         #expect(!didCloseSettings)
+
+        manager.bindSettings(to: dedicatedID)
+        let latestBindingID = manager.settingsBindingID
+        manager.closeSettingsIfCurrent(for: dedicatedID, bindingID: latestBindingID) {
+            didCloseSettings = true
+        }
+        #expect(didCloseSettings)
         manager.releaseSettings(for: dedicatedID)
         #expect(manager.settingsModel == nil)
     }

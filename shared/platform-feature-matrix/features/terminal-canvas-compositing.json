@@ -1,0 +1,23 @@
+{
+  "id": "terminal-canvas-compositing",
+  "area": "工作台",
+  "group": "终端",
+  "capability": "macOS 终端 Metal 画布按预乘语义清屏：无壁纸时画布自身承载不透明编辑器底色，有壁纸时清屏为透明 (0,0,0,0) 由壁纸透出；OSC 11 应答与画布清屏色一致（无壁纸报告编辑器底色，有壁纸报告黑色）",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "macos/Sources/Lithe/Platform/MacOS/Terminal/MacTerminalTransport.swift",
+      "macos/Tests/LitheTests/TerminalInputFocusTests.swift"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "platform-specific",
+    "verificationStatus": "not-applicable",
+    "evidence": [
+      "windows/tauri/src/features/terminal"
+    ]
+  },
+  "owner": "Terminal",
+  "verification": "亮色主题无壁纸时确认终端字缘无白色小框、正文不发浅，画布不透明且底色随明暗外观切换；开启壁纸后确认壁纸正常透出且字缘干净。OSC 11 探针无壁纸应答编辑器底色（亮色 rgb:ffff/ffff/ffff），有壁纸应答 rgb:0000/0000/0000。已知取舍：SwiftTerm 1.15 的 nativeBackgroundColor 同时用作 Metal 清屏色与 OSC 11 应答值且无法拆分，有壁纸时报告黑色；若上游改为预乘清屏可恢复报告编辑器底色。"
+}

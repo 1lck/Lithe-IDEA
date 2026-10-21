@@ -1,5 +1,6 @@
 import { buildPathTree, type PathTreeNode } from "@/features/sidebar/lib/path-tree";
 import type { GitFile } from "../types/git.types";
+import { compareGitFileNames } from "./natural-file-name-compare";
 
 export type GitStatusGroup = "added" | "modified" | "deleted" | "renamed" | "untracked";
 
@@ -72,10 +73,13 @@ function coalesceWholePathStatuses(files: readonly GitFile[]): GitFile[] {
 }
 
 export function buildGitFolderTree(fileList: GitFile[], repositoryRelative = false): GitFolderTree {
+  // Sibling ordering mirrors the intellij-community commit dialog (TreeModelBuilder):
+  // directory nodes before file nodes, names compared by FileNameComparator semantics.
   const nodes = buildPathTree(fileList, {
     getKey: (file) => `${file.path}:${file.staged ? "staged" : "unstaged"}:${file.status}`,
     getPath: (file) =>
       repositoryRelative ? (file.repositoryRelativePath ?? file.path) : file.path,
+    compareNames: compareGitFileNames,
   });
   const folderStateById = new Map<string, GitFolderState>();
 

@@ -1,0 +1,27 @@
+{
+  "id": "editor-scrollbar-style",
+  "area": "编辑器",
+  "group": "界面样式",
+  "capability": "编辑器滚动条与文件树一致的细圆头样式",
+  "owner": "Editor",
+  "macos": {
+    "implementationStatus": "platform-specific",
+    "verificationStatus": "not-applicable",
+    "evidence": [
+      ".agents/notes/implemented/feature/2026-10-02-macos-shared-scrollbar.md"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "verified",
+    "evidence": [
+      "windows/tauri/src/features/editor/components/monaco-editor.tsx",
+      "windows/tauri/src/features/editor/notebook/notebook-code-cell-editor.tsx",
+      "windows/tauri/src/features/editor/styles/monaco-editor.css",
+      "windows/tauri/src/features/editor/config/constants.ts",
+      "windows/tauri/src/styles/scrollbars.css"
+    ]
+  },
+  "verification": "Windows 深浅主题下打开超出视口的文件，核对主编辑器与 Notebook 代码单元的 Monaco 滚动条为约 5px 圆头滑块、11px 轨道，颜色与文件树滚动条一致；hover 与按下的颜色变化一致，横向滚动条同样生效。提交差异预览（统一与拆分视图）保留其自有滑块与变更标记轨道设计，不在本条目对齐范围。真实 WebView2 深浅主题下已核对。",
+  "notes": "macOS 编辑器滚动条走 WebKit/Monaco 默认外观及 macOS 共享滚动条体系（见 macos-shared-scrollbar-style），不随本条目对齐。"
+}

@@ -35,6 +35,9 @@ export interface MonacoDiffHunkOperations {
   unstage: HunkOperation;
   /** Reverse-applies the block to the working tree. */
   discard?: HunkOperation;
+  /** Asks the user to confirm a discard when the setting is enabled; the
+   * component supplies the dialog and pending gate. */
+  confirmDiscard?: (path: string) => Promise<boolean>;
   /** Pre-write staleness probe for zero-context hunks (`rawPatch`): resolves
    * false when the patch the hunk was sliced from no longer matches the
    * repository. `git apply --unidiff-zero` has no surrounding context to
@@ -84,10 +87,18 @@ export function createMonacoDiffHunkActions(
       const hunk = monacoDiffHunk(diff, hunkID);
       if (!hunk) return "ignored";
       const requested = requestedAction as HunkActionID;
-      // Block arrows are direct actions, separate from file/repository discard
-      // confirmation. Keep duplicate clicks locked until the write completes.
+      // Duplicate clicks stay locked from here until the write completes.
       pending = true;
       try {
+        if (requested === "discard" && operations.confirmDiscard) {
+          const confirmed = await operations.confirmDiscard(
+            diff.new_path || diff.file_path || "",
+          );
+          // The diff may have been replaced while the dialog was open; the
+          // owning effect disposes this instance, so never apply afterwards.
+          if (disposed) return "ignored";
+          if (!confirmed) return "cancelled";
+        }
         // A zero-context discard has no git-apply context check, so it writes
         // only after the probe confirms its source patch is still current. A
         // failed or missing probe refuses rather than risk the wrong lines.

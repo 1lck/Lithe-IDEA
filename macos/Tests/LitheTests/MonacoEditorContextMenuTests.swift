@@ -146,6 +146,47 @@ struct MonacoEditorContextMenuTests {
         }
     }
 
+    @Test(arguments: [NSAppearance.Name.aqua, .darkAqua], [false, true])
+    func blameAndBreakpointMenuShareChinesePresentation(appearance: NSAppearance.Name, visible: Bool) throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let localization = try #require(Bundle(url: root.appendingPathComponent("macos/Resources/zh-Hans.lproj")))
+        let title = visible ? "Hide Git Blame" : "Annotate with Git Blame"
+        let translated = localization.localizedString(forKey: title, value: nil, table: nil)
+        #expect(translated != title)
+        let request = try MonacoEditorContextMenu.Request.decode(["x": 40, "y": 50, "items": [
+            ["key": "0", "id": "lithe.git.annotate", "title": translated, "enabled": true, "checked": false],
+            ["key": "1", "id": "separator", "title": "", "enabled": true, "checked": false, "separator": true],
+            ["key": "2", "id": "lithe.editBreakpoint", "title": localization.localizedString(forKey: "Edit Breakpoint…", value: nil, table: nil), "enabled": true, "checked": false]
+        ]])
+        var selected: String?
+        let items = MonacoEditorContextMenu.menuItems(request.items) { selected = $0 }
+        #expect(items[0].icon == nil && items[2].icon == nil)
+        let presenter = LitheContextMenuPresenter()
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 300),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { presenter.dismiss(); window.close() }
+        presenter.show(items: items, at: NSPoint(x: 100, y: 200), appearance: NSAppearance(named: appearance),
+                       locale: Locale(identifier: "zh-Hans"), parentWindow: window)
+        let panel = try #require(window.childWindows?.first)
+        #expect(panel.animationBehavior == .none)
+        #expect(panel.frame.height == LitheDropdownMetrics.verticalPadding + 2 * LitheDropdownMetrics.rowHeight + LitheDropdownMetrics.separatorHeight)
+        if ProcessInfo.processInfo.environment["LITHE_MONACO_REVIEW_SCREENSHOTS"] == "1" {
+            let content = try #require(panel.contentView)
+            content.layoutSubtreeIfNeeded()
+            let bitmap = try #require(content.bitmapImageRepForCachingDisplay(in: content.bounds))
+            content.cacheDisplay(in: content.bounds, to: bitmap)
+            let png = try #require(bitmap.representation(using: .png, properties: [:]))
+            let directory = root.appendingPathComponent(".artifacts/monaco-menu-review", isDirectory: true)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let name = "menu-zh-\(visible ? "hide" : "show")-\(appearance == .darkAqua ? "dark" : "light").png"
+            try png.write(to: directory.appendingPathComponent(name))
+        }
+        items[2].action()
+        #expect(selected == "2")
+    }
+
     private func waitForReplies(_ count: Int, in replies: () -> [String?]) async throws {
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: .seconds(1))

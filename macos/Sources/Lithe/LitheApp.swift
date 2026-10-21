@@ -932,6 +932,8 @@ private struct SettingsWindow: View {
     @ObservedObject var model: AppModel
     @ObservedObject var settings: AppSettings
     let projectSessions: ProjectSessionManager
+    /// Binding of the opening that created this view; close callbacks from an
+    /// earlier opening are rejected by `closeSettingsIfCurrent`.
     let bindingID: UUID
     @StateObject private var windowReference = SettingsWindowReference()
     @StateObject private var viewState: SettingsViewState
@@ -1020,10 +1022,16 @@ final class SettingsTitlebarBackgroundView: NSView {
 
 private final class SettingsWindowProbe: NSView {
     var onEffectiveAppearanceChange: (() -> Void)?
+    var onWindowChange: (() -> Void)?
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         onEffectiveAppearanceChange?()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        onWindowChange?()
     }
 }
 
@@ -1036,12 +1044,14 @@ private struct SettingsWindowAccessor: NSViewRepresentable {
     func makeNSView(context: Context) -> SettingsWindowProbe {
         let view = SettingsWindowProbe(frame: .zero)
         bindAppearanceUpdates(to: view)
+        bindWindowUpdates(to: view)
         configureWindow(for: view)
         return view
     }
 
     func updateNSView(_ view: SettingsWindowProbe, context: Context) {
         bindAppearanceUpdates(to: view)
+        bindWindowUpdates(to: view)
         configureWindow(for: view)
     }
 
@@ -1062,6 +1072,13 @@ private struct SettingsWindowAccessor: NSViewRepresentable {
                 themePreference: themePreference,
                 closeEnabled: closeEnabled
             )
+        }
+    }
+
+    private func bindWindowUpdates(to view: SettingsWindowProbe) {
+        view.onWindowChange = { [weak view] in
+            guard let view else { return }
+            configureWindow(for: view)
         }
     }
 }

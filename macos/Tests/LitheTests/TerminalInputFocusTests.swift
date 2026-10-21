@@ -94,18 +94,6 @@ struct TerminalInputFocusTests {
     }
 
     @Test
-    func terminalCanvasLeavesSharedPaneBackgroundVisible() {
-        let terminal = LitheTerminalView(frame: NSRect(x: 0, y: 0, width: 400, height: 200))
-        terminal.applyThemeColors()
-        #expect(terminal.nativeBackgroundColor.alphaComponent == 0)
-        #expect(terminal.layer?.isOpaque == false)
-        let renderer = MTKView(frame: terminal.bounds, device: nil)
-        terminal.addSubview(renderer)
-        terminal.hasFocus = false
-        #expect(renderer.layer?.isOpaque == false)
-    }
-
-    @Test
     func terminalTabFocusNotificationTracksResponderAndWindow() throws {
         let window = CursorFocusTestWindow(
             contentRect: NSRect(x: 0, y: 0, width: 400, height: 250),
@@ -324,6 +312,94 @@ struct TerminalInputFocusTests {
         editor.needsDisplay = false
         #expect(window.makeFirstResponder(editor))
         #expect(editor.needsDisplay, "Returning to the editor must restore its caret")
+    }
+}
+
+@Suite("Terminal canvas compositing")
+@MainActor
+struct TerminalCanvasCompositingTests {
+    @Test
+    func canvasLeavesSharedPaneBackgroundVisibleWithWallpaper() {
+        let terminal = LitheTerminalView(frame: NSRect(x: 0, y: 0, width: 400, height: 200))
+        terminal.appearance = NSAppearance(named: .aqua)
+        terminal.setWorkbenchBackgroundVisible(true)
+        terminal.applyThemeColors()
+        #expect(terminal.nativeBackgroundColor.alphaComponent == 0)
+        // Metal clear colors are premultiplied, so a transparent canvas clears to black rather than the workbench color.
+        let clearColor = terminal.nativeBackgroundColor.usingColorSpace(.sRGB)
+        #expect(clearColor?.redComponent == 0)
+        #expect(clearColor?.greenComponent == 0)
+        #expect(clearColor?.blueComponent == 0)
+        // The layer must stay clear as well: the Core Graphics fallback paints its background from this layer.
+        #expect(terminal.layer?.backgroundColor == NSColor.clear.cgColor)
+        #expect(terminal.layer?.isOpaque == false)
+        let renderer = MTKView(frame: terminal.bounds, device: nil)
+        terminal.addSubview(renderer)
+        terminal.applyThemeColors()
+        #expect(renderer.layer?.isOpaque == false)
+        // Focus changes repaint the paused Metal surface, so the decision must survive them too.
+        terminal.hasFocus = false
+        #expect(renderer.layer?.isOpaque == false)
+    }
+
+    @Test
+    func canvasOwnsOpaqueBackgroundWithoutWallpaper() {
+        for name in [NSAppearance.Name.aqua, .darkAqua] {
+            let terminal = LitheTerminalView(frame: NSRect(x: 0, y: 0, width: 400, height: 200))
+            terminal.appearance = NSAppearance(named: name)
+            terminal.applyThemeColors()
+            let editorColor = LitheTheme.nsColor(.editor, isDark: name == .darkAqua)
+            #expect(terminal.nativeBackgroundColor.alphaComponent == 1)
+            #expect(terminal.nativeBackgroundColor.isEqual(editorColor))
+            #expect(terminal.layer?.backgroundColor == editorColor.cgColor)
+            #expect(terminal.layer?.isOpaque == true)
+            let renderer = MTKView(frame: terminal.bounds, device: nil)
+            terminal.addSubview(renderer)
+            terminal.applyThemeColors()
+            #expect(renderer.layer?.isOpaque == true)
+        }
+    }
+
+    @Test
+    func canvasFollowsWorkbenchBackgroundChanges() {
+        let terminal = LitheTerminalView(frame: NSRect(x: 0, y: 0, width: 400, height: 200))
+        terminal.appearance = NSAppearance(named: .aqua)
+        terminal.applyThemeColors()
+        let renderer = MTKView(frame: terminal.bounds, device: nil)
+        terminal.addSubview(renderer)
+
+        terminal.setWorkbenchBackgroundVisible(true)
+        #expect(terminal.nativeBackgroundColor.alphaComponent == 0)
+        #expect(terminal.nativeBackgroundColor.usingColorSpace(.sRGB)?.redComponent == 0)
+        #expect(terminal.layer?.backgroundColor == NSColor.clear.cgColor)
+        #expect(terminal.layer?.isOpaque == false)
+        #expect(renderer.layer?.isOpaque == false)
+
+        terminal.setWorkbenchBackgroundVisible(false)
+        #expect(terminal.nativeBackgroundColor.alphaComponent == 1)
+        #expect(terminal.layer?.isOpaque == true)
+        #expect(renderer.layer?.isOpaque == true)
+    }
+
+    @Test
+    func osc11ReportedBackgroundMatchesCanvasClearColor() throws {
+        // SwiftTerm answers OSC 11 from the terminal background color, which mirrors the canvas clear color.
+        // Reporting black while a wallpaper is visible is the documented tradeoff of the premultiplied clear.
+        let terminal = LitheTerminalView(frame: NSRect(x: 0, y: 0, width: 400, height: 200))
+        terminal.appearance = NSAppearance(named: .aqua)
+        terminal.applyThemeColors()
+        let editorColor = LitheTheme.nsColor(.editor, isDark: false).usingColorSpace(.sRGB)
+        let expected = try #require(editorColor)
+        let reported = terminal.terminal.backgroundColor
+        #expect(reported.red == UInt16((expected.redComponent * 65535).rounded()))
+        #expect(reported.green == UInt16((expected.greenComponent * 65535).rounded()))
+        #expect(reported.blue == UInt16((expected.blueComponent * 65535).rounded()))
+
+        terminal.setWorkbenchBackgroundVisible(true)
+        let transparent = terminal.terminal.backgroundColor
+        #expect(transparent.red == 0)
+        #expect(transparent.green == 0)
+        #expect(transparent.blue == 0)
     }
 }
 
