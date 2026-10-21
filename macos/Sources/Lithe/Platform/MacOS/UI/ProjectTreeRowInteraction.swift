@@ -10,6 +10,7 @@ struct ProjectTreeRowInteraction: NSViewRepresentable {
     var disclosureInset: CGFloat = 0
     let select: (NSEvent.ModifierFlags) -> Void
     let activate: () -> Void
+    var doubleClickOnMouseDown = false
     var doubleClick: () -> Void = {}
     let dragURLs: () -> [URL]
     let move: ([URL], URL) -> Void
@@ -26,6 +27,7 @@ struct ProjectTreeRowInteraction: NSViewRepresentable {
         view.disclosureInset = disclosureInset
         view.select = select
         view.activate = activate
+        view.doubleClickOnMouseDown = doubleClickOnMouseDown
         view.doubleClick = doubleClick
         view.dragURLs = dragURLs
         view.move = move
@@ -38,6 +40,7 @@ final class ProjectTreeRowInteractionView: NSView, NSDraggingSource {
     var disclosureInset: CGFloat = 0
     var select: ((NSEvent.ModifierFlags) -> Void)?
     var activate: (() -> Void)?
+    var doubleClickOnMouseDown = false
     var doubleClick: (() -> Void)?
     var dragURLs: (() -> [URL])?
     var move: (([URL], URL) -> Void)?
@@ -59,6 +62,13 @@ final class ProjectTreeRowInteractionView: NSView, NSDraggingSource {
     override func mouseDown(with event: NSEvent) {
         guard !event.modifierFlags.contains(.control) else { return }
         mouseDownEvent = event
+        if doubleClickOnMouseDown, event.clickCount == 2,
+           event.modifierFlags.intersection([.command, .shift]).isEmpty {
+            // Tree expansion starts at the second press, before release/drag tracking.
+            mouseDownEvent = nil
+            activate?()
+            doubleClick?()
+        }
     }
 
     override func mouseUp(with event: NSEvent) {
@@ -71,7 +81,7 @@ final class ProjectTreeRowInteractionView: NSView, NSDraggingSource {
             select?(start.modifierFlags)
         } else {
             activate?()
-            if event.clickCount == 2 { doubleClick?() }
+            if start.clickCount == 2 { doubleClick?() }
         }
     }
 

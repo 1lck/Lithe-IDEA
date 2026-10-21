@@ -91,15 +91,10 @@ struct TerminalView: View {
             .padding(.horizontal, 2)
             .help("Terminal actions")
 
-            Button {
+            LitheSidebarHideButton(title: "Terminal") {
                 model.workbenchFeature.setVisibility(.terminal, isVisible: false)
-            } label: {
-                LitheIDEAIcon(resourcePath: "expui/general/hide.svg", size: 16,
-                              fallbackSystemImage: "minus", preservesOriginalColors: true)
             }
-            .litheToolbarIconButton()
             .padding(.horizontal, 2)
-            .help("Hide Terminal tool window")
         }
         .padding(.leading, 12)
         .padding(.trailing, 8)
