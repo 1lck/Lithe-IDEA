@@ -187,7 +187,6 @@ export interface Settings {
   fileTreeIndentSize: number;
   compactFoldersInFileTree: boolean;
   hideRootFolderInFileTree: boolean;
-  autoRevealActiveFileInFileTree: boolean;
   showFileIconsInFileTree: boolean;
   showIndentGuidesInFileTree: boolean;
   confirmBeforeFileDelete: boolean;

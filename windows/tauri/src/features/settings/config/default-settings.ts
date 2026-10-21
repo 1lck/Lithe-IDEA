@@ -189,7 +189,6 @@ export const defaultSettings: Settings = {
   fileTreeIndentSize: 16,
   compactFoldersInFileTree: true,
   hideRootFolderInFileTree: false,
-  autoRevealActiveFileInFileTree: true,
   showFileIconsInFileTree: true,
   showIndentGuidesInFileTree: true,
   confirmBeforeFileDelete: true,

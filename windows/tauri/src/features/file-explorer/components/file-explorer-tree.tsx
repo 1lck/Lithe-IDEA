@@ -11,7 +11,6 @@ import {
 import { isTreeDomEvent } from "../lib/tree-dom-event";
 import ignore from "ignore";
 import {
-  CursorClickIcon as CursorClick,
   EyeIcon as Eye,
   FadersHorizontalIcon as Preferences,
   ListBulletsIcon as ListBullets,
@@ -218,7 +217,6 @@ function FileExplorerTreeComponent({
 
   const fileTreeSettings = useSettingsStore(
     useShallow((state) => ({
-      autoRevealActiveFileInFileTree: state.settings.autoRevealActiveFileInFileTree,
       compactFoldersInFileTree: state.settings.compactFoldersInFileTree,
       confirmBeforeFileDelete: state.settings.confirmBeforeFileDelete,
       fileTreeIndentSize: state.settings.fileTreeIndentSize,
@@ -445,7 +443,6 @@ function FileExplorerTreeComponent({
   const { consumeRevealRequest, explorerTargetPath, requestRevealPath, revealRequest } =
     useFileExplorerSync({
       activePath,
-      autoRevealActiveFile: fileTreeSettings.autoRevealActiveFileInFileTree,
       updateActivePath,
       revealPathInTree,
     });
@@ -1670,16 +1667,6 @@ function FileExplorerTreeComponent({
               </DropdownMenuSubContent>
             </DropdownMenuSub>
             <DropdownMenuSeparator />
-            <DropdownMenuCheckboxItem
-              checked={fileTreeSettings.autoRevealActiveFileInFileTree}
-              closeOnClick={false}
-              onCheckedChange={(checked) =>
-                void updateSetting("autoRevealActiveFileInFileTree", checked)
-              }
-            >
-              <CursorClick />
-              {t("settings.files.autoReveal")}
-            </DropdownMenuCheckboxItem>
             <DropdownMenuCheckboxItem
               checked={fileTreeSettings.confirmBeforeFileDelete}
               closeOnClick={false}
