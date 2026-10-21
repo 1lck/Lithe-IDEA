@@ -158,7 +158,7 @@ struct SettingsView: View {
             }
         }
         .onChange(of: viewState.contributedPageID) { _ in
-            if let group = selectedContributedPage?.group { expandedSidebarGroups.insert(group.rawValue) }
+            expandSelectedContributedPageGroup()
         }
         .environment(\.locale, settings.language.locale)
         .font(LitheTheme.settingsFont)
@@ -345,6 +345,14 @@ struct SettingsView: View {
                 term.localizedStandardContains(query) || localizedSearchValue(term).localizedStandardContains(query)
             }
         }
+    }
+
+    private func expandSelectedContributedPageGroup() {
+        guard let page = selectedContributedPage else { return }
+        // Keep the selected page lifetime outside SwiftUI's onChange closure;
+        // Swift 6.3.3 crashes optimizing an optional group projection there.
+        let groupID = page.group.rawValue
+        expandedSidebarGroups.insert(groupID)
     }
 
     private func expandGroup(containing category: SettingsCategory) {
