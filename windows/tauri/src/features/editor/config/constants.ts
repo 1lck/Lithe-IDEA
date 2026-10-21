@@ -2,6 +2,9 @@
 export const EDITOR_CONSTANTS = {
   // Match the Windows diff editor's wheel response through Monaco's own handler.
   MOUSE_WHEEL_SCROLL_SENSITIVITY: 2,
+  // Monaco scrollbar track width matching --app-scrollbar-size in styles/scrollbars.css;
+  // monaco-editor.css slims and rounds the slider to match app scrollbars like the file tree.
+  SCROLLBAR_TRACK_SIZE: 11,
   // Line height calculation
   LINE_HEIGHT_MULTIPLIER: 1.4,
   DEFAULT_LINE_HEIGHT: 20,

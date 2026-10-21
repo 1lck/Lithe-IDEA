@@ -8,6 +8,16 @@
   background-color: var(--background, #0f1117);
 }
 
+/* Match the app-wide slim rounded scrollbar (styles/scrollbars.css): the transparent
+   border plus content-box clipping paints a ~5px rounded thumb inside the track width
+   reserved by EDITOR_CONSTANTS.SCROLLBAR_TRACK_SIZE in monaco-editor.tsx. */
+.monaco-editor-shell .monaco-editor .monaco-scrollable-element > .scrollbar > .slider {
+  box-sizing: border-box;
+  border: 3px solid transparent;
+  border-radius: var(--app-scrollbar-radius);
+  background-clip: content-box;
+}
+
 /* IntelliJ Islands draws the search bar as a floating card (arc 12, 6px below the
    tab strip) instead of a panel hanging from the editor's top edge. */
 .monaco-editor-shell .monaco-editor .find-widget {

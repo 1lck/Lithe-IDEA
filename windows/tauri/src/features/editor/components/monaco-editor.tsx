@@ -1103,6 +1103,8 @@ export function MonacoEditor({
         horizontal: scrollable ? "auto" : "hidden",
         handleMouseWheel: scrollable,
         alwaysConsumeMouseWheel: scrollable && alwaysConsumeMouseWheel,
+        verticalScrollbarSize: EDITOR_CONSTANTS.SCROLLBAR_TRACK_SIZE,
+        horizontalScrollbarSize: EDITOR_CONSTANTS.SCROLLBAR_TRACK_SIZE,
       },
     });
     const restoreFindWidgetCloseButtonHover = suppressFindWidgetCloseButtonHover(container);
@@ -2375,6 +2377,8 @@ export function MonacoEditor({
         horizontal: scrollable ? "auto" : "hidden",
         handleMouseWheel: scrollable,
         alwaysConsumeMouseWheel: scrollable && alwaysConsumeMouseWheel,
+        verticalScrollbarSize: EDITOR_CONSTANTS.SCROLLBAR_TRACK_SIZE,
+        horizontalScrollbarSize: EDITOR_CONSTANTS.SCROLLBAR_TRACK_SIZE,
       },
     });
     if (container) syncContainedEditorFontOptions(container, fontOptions);
