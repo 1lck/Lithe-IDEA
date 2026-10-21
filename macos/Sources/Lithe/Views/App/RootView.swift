@@ -60,6 +60,73 @@ enum ProjectWindowAppKitDismisser {
     }
 }
 
+/// Restores native fullscreen capability on the hosting window. SwiftUI marks
+/// hiddenTitleBar windows `fullScreenNone` by default on current macOS, which
+/// turns the zoom button into a plain maximize and refuses
+/// `toggleFullScreen:`; Lithe follows IDEA and keeps its main windows in the
+/// native fullscreen Space. SwiftUI reapplies the flag during scene updates,
+/// so the host view keeps re-stripping it for as long as this window lives.
+struct WindowFullScreenCapabilityGuard: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        WindowFullScreenCapabilityView()
+    }
+
+    func updateNSView(_ view: NSView, context: Context) {}
+}
+
+final class WindowFullScreenCapabilityView: NSView {
+    override func viewDidMoveToWindow() {
+        NotificationCenter.default.removeObserver(
+            self,
+            name: NSWindow.didUpdateNotification,
+            object: nil
+        )
+        guard window != nil else { return }
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(windowDidUpdate(_:)),
+            name: NSWindow.didUpdateNotification,
+            object: window
+        )
+        refreshFullScreenCapability()
+    }
+
+    @objc private func windowDidUpdate(_ notification: Notification) {
+        refreshFullScreenCapability()
+    }
+
+    /// Zoom-button entry point: clears the refusal, then toggles native
+    /// fullscreen, so the click cannot land while SwiftUI's flag is set.
+    /// The view and the button share the window's lifetime, which keeps the
+    /// unretained NSButton.target valid.
+    @objc func zoomButtonClicked(_ sender: NSButton?) {
+        stripFullScreenRefusal(from: window)
+        window?.toggleFullScreen(sender)
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    private func refreshFullScreenCapability() {
+        guard let window, window.collectionBehavior.contains(.fullScreenNone) else { return }
+        stripFullScreenRefusal(from: window)
+        // AppKit wires the zoom button's target and action while the window is
+        // created, so a button configured while the refusal was still set keeps
+        // maximizing until it is rewired to the guarded fullscreen toggle.
+        if let zoomButton = window.standardWindowButton(.zoomButton) {
+            zoomButton.target = self
+            zoomButton.action = #selector(zoomButtonClicked(_:))
+        }
+    }
+
+    private func stripFullScreenRefusal(from window: NSWindow?) {
+        guard let window, window.collectionBehavior.contains(.fullScreenNone) else { return }
+        window.collectionBehavior.remove(.fullScreenNone)
+        window.collectionBehavior.insert(.fullScreenPrimary)
+    }
+}
+
 struct RootView: View {
     let scope: ProjectWindowScope
     @EnvironmentObject private var projectSessions: ProjectSessionManager
@@ -91,6 +158,7 @@ struct RootView: View {
             minWidth: windowLayout.minimumContentSize.width,
             minHeight: windowLayout.minimumContentSize.height
         )
+        .background(WindowFullScreenCapabilityGuard())
         .background(LitheTheme.window)
         .tint(LitheTheme.accent)
         .background {
