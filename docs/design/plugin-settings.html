@@ -1,0 +1,1539 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Lithe 设置 · 插件与能力配置交互原型</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root{
+  --bg:#f7f8fa; --surface:#ffffff; --side:#f2f3f5; --sel:#dfe7f8; --hover:#eceef1;
+  --text:#1f2329; --sub:#6c707e; --faint:#9aa0ab; --line:#e4e6ea; --accent:#3574f0;
+  --ok:#208a3c; --warn:#c27d00; --err:#d1453b; --pill:#eef1f6; --chip:#e8f0fe;
+  --note:#ffd75e; --shadow:0 8px 28px rgba(0,0,0,.14); --hl:#fff3c4;
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC",sans-serif;
+  font-size:13px; color:var(--text);
+}
+html.dark{
+  --bg:#1e1f22; --surface:#2b2d30; --side:#26282b; --sel:#2e436e; --hover:#33363a;
+  --text:#dfe1e5; --sub:#9da0a8; --faint:#6f737a; --line:#3a3d41; --accent:#548af7;
+  --ok:#5fb865; --warn:#e0a83e; --err:#f0716a; --pill:#393b40; --chip:#25324d;
+  --shadow:0 8px 28px rgba(0,0,0,.5); --hl:#4a4220;
+}
+*{box-sizing:border-box}
+body{margin:0;background:#c9ccd3;min-height:100vh;display:flex;flex-direction:column;align-items:center}
+html.dark body{background:#111214}
+button,input,select,textarea{font:inherit;color:inherit}
+code,.mono{font-family:"SF Mono",Menlo,monospace;font-size:11.5px}
+.demobar{width:100%;min-width:1120px;white-space:nowrap;display:flex;gap:12px;align-items:center;padding:8px 16px;background:#24262b;color:#ddd;font-size:12px}
+.demobar b{color:#fff}.demobar label{display:flex;gap:5px;align-items:center;cursor:pointer}.demobar .sp{flex:1}
+.demobar select{background:#34373d;border:1px solid #484b52;border-radius:5px;padding:2px 6px;color:#eee}
+.win{margin:18px;min-width:1100px;width:min(1400px,calc(100vw - 36px));height:min(860px,calc(100vh - 80px));min-height:640px;background:var(--surface);border-radius:12px;box-shadow:var(--shadow);display:flex;flex-direction:column;overflow:hidden;position:relative}
+.titlebar{height:38px;display:flex;align-items:center;padding:0 14px;gap:8px;border-bottom:1px solid var(--line);background:var(--side);flex:none}
+.dot{width:12px;height:12px;border-radius:50%}
+.titlebar .t{flex:1;text-align:center;font-weight:600;color:var(--sub);margin-right:52px}
+.body{flex:1;display:flex;min-height:0}
+.side{width:240px;flex:none;background:var(--side);border-right:1px solid var(--line);display:flex;flex-direction:column}
+.side .search{margin:10px;padding:6px 9px;border:1px solid var(--line);border-radius:7px;background:var(--surface);display:flex;gap:6px;align-items:center}
+.side .search input{border:0;outline:0;background:transparent;width:100%}
+.nav{overflow:auto;padding:0 6px 10px;flex:1}
+.nav .grp{display:flex;align-items:center;gap:4px;padding:5px 8px;border-radius:6px;cursor:pointer}
+.nav .grp:hover,.nav .item:hover{background:var(--hover)}
+.nav .caret{width:12px;color:var(--faint);font-size:9px;transition:transform .15s;flex:none}
+.nav .open>.caret{transform:rotate(90deg)}
+.nav .item{padding:5px 8px 5px 26px;border-radius:6px;cursor:pointer;display:flex;align-items:center;gap:6px}
+.nav .item.l2{padding-left:42px}
+.nav .sel{background:var(--sel)!important}
+.nav .from{margin-left:auto;font-size:10px;color:var(--faint);white-space:nowrap}
+.nav .new{font-size:9px;color:var(--accent);border:1px solid var(--accent);border-radius:3px;padding:0 3px;margin-left:2px}
+.main{flex:1;display:flex;flex-direction:column;min-width:0;background:var(--surface)}
+.crumb{height:42px;flex:none;display:flex;align-items:center;gap:8px;padding:0 18px;border-bottom:1px solid var(--line)}
+.crumb .c{color:var(--sub)} .crumb .c.last{color:var(--text);font-weight:600}
+.crumb .sp{flex:1}
+.content{flex:1;overflow:auto;min-height:0;position:relative}
+.page{padding:16px 20px 30px;max-width:860px}
+.footer{height:50px;flex:none;border-top:1px solid var(--line);display:flex;align-items:center;justify-content:flex-end;gap:8px;padding:0 16px;background:var(--surface)}
+.footer .msg{margin-right:auto;color:var(--sub);font-size:12px}
+.footer .msg.warn{color:var(--warn)}
+.btn{border:1px solid var(--line);background:var(--surface);padding:4px 12px;border-radius:6px;cursor:pointer;white-space:nowrap}
+.btn:hover{background:var(--hover)}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.pri:hover{filter:brightness(1.08)}
+.btn.sm{padding:2px 9px;font-size:12px}
+.btn.ghost{border-color:transparent;background:transparent;color:var(--accent)}
+.btn.danger{color:var(--err)}
+.btn.pri.danger{background:var(--err);border-color:var(--err);color:#fff}
+.btn[disabled]{opacity:.45;cursor:default}
+.icon-btn{border:0;background:transparent;cursor:pointer;width:26px;height:26px;border-radius:6px;color:var(--sub);font-size:14px}
+.icon-btn:hover{background:var(--hover)}
+.seg{display:inline-flex;background:var(--pill);border-radius:7px;padding:2px}
+.seg button{border:0;background:transparent;padding:4px 12px;border-radius:5px;cursor:pointer;color:var(--sub)}
+.seg button.on{background:var(--surface);color:var(--text);box-shadow:0 1px 2px rgba(0,0,0,.12)}
+.seg button[disabled]{opacity:.4;cursor:default}
+.inp{border:1px solid var(--line);border-radius:6px;padding:4px 8px;background:var(--surface);outline:0;min-width:0}
+.inp:focus{border-color:var(--accent)}
+.inp.bad{border-color:var(--err)}
+select.inp{padding:3px 6px}
+textarea.inp{width:100%;resize:vertical;font-family:"SF Mono",Menlo,monospace;font-size:11.5px}
+.chips{display:flex;flex-wrap:wrap;gap:5px}
+.chip{padding:2px 9px;border-radius:999px;background:var(--pill);cursor:pointer;font-size:12px;color:var(--sub);border:1px solid transparent;user-select:none}
+.chip.on{background:var(--chip);color:var(--accent);border-color:var(--accent)}
+.tag{font-size:10px;padding:1px 6px;border-radius:4px;background:var(--pill);color:var(--sub);white-space:nowrap}
+.tag.upd{background:#e5f3e8;color:var(--ok)} html.dark .tag.upd{background:#20372a}
+.tag.comm{background:#fdf1dc;color:var(--warn)} html.dark .tag.comm{background:#3b3020}
+.tag.off{background:#f7e3e1;color:var(--err)} html.dark .tag.off{background:#40292a}
+.tag.blue{background:var(--chip);color:var(--accent)}
+.sw{width:30px;height:18px;border-radius:9px;background:#c4c7cd;position:relative;cursor:pointer;flex:none;border:0;padding:0;transition:background .15s}
+html.dark .sw{background:#55585e}
+.sw::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff;transition:left .15s}
+.sw.on{background:var(--accent)} .sw.on::after{left:14px}
+.sw.pending{outline:2px solid var(--warn);outline-offset:1px}
+.sw[disabled]{opacity:.45;cursor:default}
+.st{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--sub)}
+.st::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--faint);flex:none}
+.st.run::before{background:var(--ok)} .st.err::before{background:var(--err)} .st.warn::before{background:var(--warn)}
+.st.err{color:var(--err)}
+.link{color:var(--accent);cursor:pointer;font-size:12px}
+.link:hover{text-decoration:underline}
+.muted{color:var(--sub);font-size:12px}.faint{color:var(--faint);font-size:11.5px}
+h3{font-size:14px;margin:18px 0 8px} h3:first-child{margin-top:0}
+.kv{display:grid;grid-template-columns:130px 1fr;gap:7px 12px;color:var(--sub)} .kv b{color:var(--text);font-weight:500;min-width:0;overflow-wrap:anywhere}
+.box{border-radius:8px;padding:8px 10px;font-size:12px;line-height:1.55;display:flex;gap:8px;align-items:flex-start}
+.box.warn{border:1px solid #f1d29a;background:#fdf6e7;color:#7a5400} html.dark .box.warn{background:#3a301d;border-color:#5c4a24;color:#e8c47a}
+.box.info{border:1px solid var(--line);background:var(--pill);color:var(--sub)}
+.box.err{border:1px solid #f0c4c0;background:#fdf0ef;color:#8a2a22} html.dark .box.err{background:#3d2524;border-color:#5f3532;color:#f2a39c}
+.box .grow{flex:1}
+.code{font-family:"SF Mono",Menlo,monospace;font-size:11.5px;background:var(--pill);border-radius:6px;padding:7px 9px;white-space:pre-wrap;word-break:break-all}
+.code.new{outline:1px solid var(--ok);background:#e9f6ec} html.dark .code.new{background:#1f3527}
+.sec{border:1px solid var(--line);border-radius:10px;margin-bottom:12px;background:var(--surface)}
+.sec>.sh{display:flex;align-items:center;gap:6px;padding:10px 12px 4px;font-weight:600}
+.sec>.sh .acc{margin-left:auto;display:flex;gap:6px;align-items:center;font-weight:400}
+.sec>.sb{padding:2px 6px 8px}
+.srow{display:flex;align-items:center;gap:10px;min-height:34px;padding:3px 8px;border-radius:7px;position:relative}
+.srow:hover{background:var(--hover)}
+.srow .lab{width:220px;flex:none;display:flex;align-items:center;gap:5px}
+.srow .mod{width:6px;height:6px;border-radius:50%;background:var(--accent);position:absolute;left:-1px}
+.srow .ctl{display:flex;align-items:center;gap:6px;flex:1;min-width:0;flex-wrap:wrap}
+.srow .badges{display:flex;gap:4px;margin-left:auto;flex:none;align-items:center}
+.srow.hit{background:var(--hl)}
+i.info{width:15px;height:15px;border-radius:50%;border:1px solid var(--faint);color:var(--faint);font-size:9.5px;font-weight:600;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;flex:none;position:relative;font-style:normal}
+i.info:hover{border-color:var(--accent);color:var(--accent)}
+.pop{position:absolute;z-index:30;top:20px;left:-10px;width:300px;background:var(--surface);border:1px solid var(--line);box-shadow:var(--shadow);border-radius:8px;padding:9px 11px;color:var(--text);font-size:12px;line-height:1.55;font-weight:400;cursor:default;text-align:left;white-space:pre-line}
+.cap2{font-size:10.5px;padding:1px 7px;border-radius:999px;background:var(--pill);color:var(--sub);white-space:nowrap}
+.cap2.proj{background:#e6f4ea;color:var(--ok)} html.dark .cap2.proj{background:#22382a}
+.cap2.eff{background:#fff1d6;color:var(--warn)} html.dark .cap2.eff{background:#3d3220}
+.cap2.val{background:var(--chip);color:var(--accent);font-family:"SF Mono",Menlo,monospace}
+.eff-label{font-size:11.5px;color:var(--sub);padding:0 8px 4px 238px;display:flex;gap:6px;align-items:center}
+.eff-label b{color:var(--text);font-weight:500}
+.reset{border:0;background:transparent;color:var(--faint);cursor:pointer;font-size:13px;padding:0 3px}
+.reset:hover{color:var(--accent)}
+.banner{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:9px;background:var(--pill);margin-bottom:12px;font-size:12px;color:var(--sub);flex-wrap:wrap}
+.banner b{color:var(--text)}
+.provider{display:inline-flex;align-items:center;gap:5px;padding:2px 8px 2px 3px;border-radius:999px;background:var(--surface);border:1px solid var(--line);cursor:pointer;font-size:12px;color:var(--text);white-space:nowrap}
+.provider .picon{width:16px;height:16px;border-radius:4px;font-size:8.5px}
+.restartbar{display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:8px;background:#fff6e0;color:#7a5400;margin-bottom:12px;font-size:12px}
+html.dark .restartbar{background:#3a301d;color:#e8c47a}
+table.t{width:100%;border-collapse:collapse}
+table.t th{text-align:left;font-weight:600;font-size:11px;color:var(--faint);padding:6px 8px;border-bottom:1px solid var(--line)}
+table.t td{padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:middle}
+table.t tr:hover td{background:var(--hover)}
+.split{display:flex;height:100%}
+.lpane{width:330px;flex:none;border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+.lpane .tools{padding:10px;display:flex;flex-direction:column;gap:8px;border-bottom:1px solid var(--line)}
+.lpane .rows{overflow:auto;flex:1}
+.sechead{padding:10px 12px 4px;font-size:11px;color:var(--faint);font-weight:600;display:flex;gap:6px;align-items:center}
+.prow{display:flex;gap:10px;padding:8px 12px;cursor:pointer;align-items:center}
+.prow:hover{background:var(--hover)} .prow.sel{background:var(--sel)}
+.picon{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:12px;flex:none}
+.prow .nm{font-weight:600;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.prow .meta{font-size:11px;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.prow .grow{flex:1;min-width:0}
+.rpane{flex:1;display:flex;flex-direction:column;min-width:0}
+.dhead{padding:18px 22px 0;display:flex;gap:14px;align-items:flex-start}
+.dhead .picon{width:48px;height:48px;font-size:17px;border-radius:12px}
+.dhead h2{margin:0;font-size:20px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.dhead .sub{color:var(--sub);margin-top:4px;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.dhead .acts{margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+.dtabs{display:flex;gap:2px;padding:12px 22px 0;border-bottom:1px solid var(--line);align-items:flex-end}
+.dtabs button{border:0;background:transparent;padding:7px 12px;cursor:pointer;color:var(--sub);border-bottom:2px solid transparent;margin-bottom:-1px}
+.dtabs button.on{color:var(--text);border-bottom-color:var(--accent);font-weight:600}
+.dtabs .cnt{font-size:10px;background:var(--pill);border-radius:8px;padding:0 5px;margin-left:4px}
+.dbody{flex:1;overflow:auto;padding:16px 22px 30px}
+.card{border:1px solid var(--line);border-radius:10px;padding:11px 13px;background:var(--surface)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px}
+.cap{display:flex;flex-direction:column;gap:5px}
+.cap .k{font-size:11px;color:var(--faint);font-weight:600}
+.cap .v{font-weight:600}
+.cap .d{color:var(--sub);font-size:12px}
+.cap .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:auto;padding-top:4px}
+details summary{cursor:pointer;color:var(--accent);font-size:12px;margin:6px 0}
+.mask{position:absolute;inset:0;background:rgba(0,0,0,.3);display:flex;align-items:center;justify-content:center;z-index:50}
+.modal{width:600px;max-height:86%;overflow:auto;background:var(--surface);border-radius:12px;box-shadow:var(--shadow);padding:18px 20px}
+.modal h3{margin-top:0;font-size:15px}
+.modal .foot{display:flex;justify-content:flex-end;gap:8px;margin-top:16px;align-items:center}
+.modal .foot .sp{flex:1}
+.menu{position:absolute;z-index:45;background:var(--surface);border:1px solid var(--line);border-radius:8px;box-shadow:var(--shadow);padding:4px;min-width:220px}
+.menu div{padding:5px 10px;border-radius:5px;cursor:pointer}
+.menu div:hover{background:var(--sel)}
+.menu hr{border:0;border-top:1px solid var(--line);margin:4px 0}
+.nb{display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;border-radius:50%;background:var(--note);color:#3a2d00;font-size:10px;font-weight:700;cursor:pointer;flex:none;box-shadow:0 0 0 2px rgba(255,215,94,.35);vertical-align:middle;font-style:normal}
+.notes{width:310px;flex:none;background:var(--side);border-left:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+.notes .h{padding:11px 14px;border-bottom:1px solid var(--line);font-weight:600;display:flex;align-items:center;gap:6px}
+.notes .l{overflow:auto;padding:10px 14px;display:flex;flex-direction:column;gap:11px}
+.notes .n{display:flex;gap:8px;line-height:1.55;font-size:12px}
+.notes .n.hl{background:var(--hl);border-radius:6px;padding:4px}
+.notes .ported{font-size:12px;line-height:1.55;color:var(--sub);background:var(--surface);border:1px dashed var(--line);border-radius:8px;padding:8px 10px}
+.empty{color:var(--faint);text-align:center;padding:60px 20px;line-height:1.7}
+.toast{position:absolute;bottom:64px;left:50%;transform:translateX(-50%);background:#2b2d30;color:#fff;padding:7px 14px;border-radius:8px;font-size:12px;z-index:60;box-shadow:var(--shadow);max-width:70%}
+.preview{font-family:"SF Mono",Menlo,monospace;background:var(--pill);border-radius:8px;padding:10px 12px;font-size:12px}
+.kbd{font-family:"SF Mono",Menlo,monospace;font-size:11px;border:1px solid var(--line);border-radius:4px;padding:0 5px;background:var(--pill)}
+.tree .tr{display:flex;align-items:center;gap:6px;padding:4px 8px;border-radius:6px;cursor:pointer}
+.tree .tr:hover{background:var(--hover)} .tree .tr.sel{background:var(--sel)}
+.subhead{font-size:11.5px;font-weight:600;color:var(--sub);padding:8px 8px 2px}
+/* 变更标记 */
+.mk{display:inline-flex;align-items:center;font-size:9.5px;font-weight:600;padding:0 5px;border-radius:3px;cursor:pointer;white-space:nowrap;line-height:15px;font-style:normal;flex:none;vertical-align:middle;margin-left:2px}
+.mk.dev{background:#efe7fd;color:#7048c8} html.dark .mk.dev{background:#352a4d;color:#c3a8ff}
+.mk.chg{background:#e3eefc;color:#2f6ad6} html.dark .mk.chg{background:#23344f;color:#8db4ff}
+.mk.mov{background:#e2f3f1;color:#167a6e} html.dark .mk.mov{background:#1f3835;color:#7fd3c6}
+.mk.del{background:#fbe5e3;color:#c0392b} html.dark .mk.del{background:#45282a;color:#f0948b}
+.mk.q{background:#fff0d4;color:#a86a00} html.dark .mk.q{background:#43361d;color:#f1c470}
+.ghostrow{opacity:.6} .ghostrow .gt{text-decoration:line-through}
+.chg-item{border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-bottom:6px;cursor:pointer;background:var(--surface)}
+.chg-item:hover{background:var(--hover)}
+.chg-item .h{display:flex;gap:6px;align-items:center;font-weight:600;font-size:12.5px}
+.chg-item .b{font-size:12px;color:var(--sub);line-height:1.55;margin-top:4px}
+.chg-item.hl{outline:2px solid var(--note)}
+.flash{animation:flash 1.8s}
+/* ===== 视觉打磨：macOS 系统设置风格 ===== */
+:root{--bg:#f5f5f7;--side:#ececee;--sel:#d6e3fb;--line:#e3e4e8;--line2:#ededf0;--pill:#f0f1f4;--card-sh:0 0 0 .5px rgba(0,0,0,.06),0 1px 2px rgba(0,0,0,.04)}
+html.dark{--bg:#1c1d20;--side:#232427;--line2:#34363a;--card-sh:0 0 0 .5px rgba(255,255,255,.06)}
+body{background:linear-gradient(160deg,#c9cfdb,#d9d3e3)} html.dark body{background:#0d0e10}
+.win{border-radius:14px;box-shadow:0 24px 60px rgba(20,24,40,.28),0 0 0 .5px rgba(0,0,0,.25)}
+.titlebar{background:var(--side);border-bottom-color:var(--line2)}
+.side{background:var(--side);border-right-color:var(--line2)}
+.side .search{border-radius:8px;background:rgba(0,0,0,.045);border-color:transparent} html.dark .side .search{background:rgba(255,255,255,.06)}
+.nav .grp{padding:6px 8px;gap:8px;font-weight:500;margin-top:2px}
+.nav .gi{width:20px;height:20px;border-radius:5px;display:inline-flex;align-items:center;justify-content:center;color:#fff;font-size:11px;flex:none;box-shadow:inset 0 -1px 0 rgba(0,0,0,.12)}
+.nav .grp .caret{order:3;margin-left:auto}
+.nav .item{padding:5px 8px 5px 36px;font-size:12.5px;color:var(--sub)}
+.nav .item.sel{color:var(--text);font-weight:500}
+.nav .item.l2{padding-left:50px}
+.nav .sel{background:var(--sel)!important}
+.main{background:var(--bg)}
+.crumb{background:var(--surface);border-bottom-color:var(--line2);height:46px}
+.crumb .c.last{font-size:14px}
+.page{padding:20px 26px 36px;max-width:900px}
+.footer{border-top-color:var(--line2)}
+.sec{border:0;background:transparent;margin-bottom:18px}
+.sec>.sh{padding:0 6px 6px;font-size:12px;color:var(--sub);font-weight:600;letter-spacing:.2px}
+.sec>.sb{background:var(--surface);border-radius:10px;box-shadow:var(--card-sh);padding:0;overflow:visible}
+.sec>.sb>.srow{border-radius:0;padding:5px 14px;min-height:40px}
+.sec>.sb>.srow+.srow,.sec>.sb>.subhead+.srow{border-top:1px solid var(--line2)}
+.sec>.sb>.srow:first-child{border-radius:10px 10px 0 0}.sec>.sb>.srow:last-child{border-radius:0 0 10px 10px}
+.sec>.sb>.srow:only-child{border-radius:10px}
+.sec>.sb>.subhead{padding:12px 14px 5px;font-size:11px;color:var(--faint);text-transform:none;border-top:1px solid var(--line2);display:flex;gap:6px;align-items:center}
+.sec>.sb>.subhead:first-child{border-top:0}
+.sec>.sb>.eff-label{padding:0 14px 8px 254px;margin-top:-4px}
+.sec>.sb>.muted,.sec>.sb>.faint{display:block}
+.sec>.sb>div:not(.srow):not(.subhead):not(.eff-label){padding-left:14px;padding-right:14px}
+.sec>.sb>div:not(.srow):not(.subhead):not(.eff-label):first-child{padding-top:10px}
+.sec>.sb>div:not(.srow):not(.subhead):not(.eff-label):last-child{padding-bottom:10px}
+.sec>.sb>table.t{box-shadow:none;border-radius:10px}
+.srow .lab{width:230px;color:var(--text)}
+.srow:hover{background:rgba(0,0,0,.022)} html.dark .srow:hover{background:rgba(255,255,255,.03)}
+.srow .mod{left:4px}
+table.t{background:var(--surface);border-radius:10px;box-shadow:var(--card-sh);border-collapse:separate;border-spacing:0;overflow:hidden}
+table.t th{background:transparent;border-bottom-color:var(--line2);padding:8px 12px}
+table.t td{border-bottom-color:var(--line2);padding:8px 12px}
+table.t tr:last-child td{border-bottom:0}
+.banner{background:var(--surface);box-shadow:var(--card-sh);border-radius:10px;padding:10px 14px}
+.btn{border-radius:6px;box-shadow:0 .5px 1px rgba(0,0,0,.08);border-color:#d8dadf} html.dark .btn{border-color:#45484d}
+.btn.ghost{box-shadow:none}
+.btn.pri{box-shadow:0 1px 2px rgba(53,116,240,.35)}
+select.inp{appearance:none;-webkit-appearance:none;padding:4px 26px 4px 9px;background:var(--surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath d='M2.5 3.8 5 1.5l2.5 2.3M2.5 6.2 5 8.5l2.5-2.3' fill='none' stroke='%238a8f98' stroke-width='1.2'/%3E%3C/svg%3E") no-repeat right 8px center;box-shadow:0 .5px 1px rgba(0,0,0,.06);cursor:pointer}
+.inp{border-color:#d8dadf;border-radius:6px} html.dark .inp{border-color:#45484d}
+.inp:focus{box-shadow:0 0 0 3px rgba(53,116,240,.18)}
+.sw{width:34px;height:20px;border-radius:10px} .sw::after{width:16px;height:16px;box-shadow:0 1px 2px rgba(0,0,0,.25)} .sw.on::after{left:16px}
+.cap2{font-size:10.5px;padding:2px 8px}
+.seg{background:rgba(0,0,0,.055);border-radius:8px} html.dark .seg{background:rgba(255,255,255,.07)}
+.seg button{font-size:12px;padding:3px 11px}
+.lpane{background:var(--surface);border-right-color:var(--line2)}
+.lpane .tools{border-bottom-color:var(--line2)}
+.prow{margin:1px 6px;border-radius:8px;padding:8px 10px}
+.rpane{background:var(--bg)}
+.dhead{background:var(--surface);padding-bottom:4px}
+.dtabs{background:var(--surface);border-bottom-color:var(--line2)}
+.card{border:0;box-shadow:var(--card-sh);border-radius:10px}
+.box.info{background:var(--surface);box-shadow:var(--card-sh);border-color:transparent}
+.notes{background:var(--side);border-left-color:var(--line2)}
+.chg-item{border:0;box-shadow:var(--card-sh)}
+.repo-card{display:flex;gap:12px;align-items:center;background:var(--surface);box-shadow:var(--card-sh);border-radius:12px;padding:12px 14px;margin-bottom:18px}
+.repo-ic{width:36px;height:36px;border-radius:9px;background:linear-gradient(160deg,#ff7a59,#f05133);color:#fff;display:flex;align-items:center;justify-content:center;font-size:18px;flex:none}
+.tree .tr{margin:1px 6px}
+
+@keyframes flash{0%,45%{background:var(--hl)}100%{background:transparent}}
+</style>
+</head>
+<body>
+<div class="demobar">
+  <b>Lithe 设置 · 插件与能力配置原型</b><span style="color:#999">数据为演示，改动只在页面内</span>
+  <span class="sp"></span>
+  <label><input type="checkbox" id="optNotes" checked> 设计标注</label>
+  <label><input type="checkbox" id="optMarks" checked> 变更标记</label>
+  <button class="btn sm" id="optChanges" style="background:#5b3fb0;color:#fff;border-color:#5b3fb0">变更清单</button>
+  <label><input type="checkbox" id="optDark"> 深色</label>
+  <label>当前项目
+    <select id="optProject">
+      <option value="shop">demo-shop（Maven 多模块 + 前端）</option>
+      <option value="poly">polyglot（Go + Rust + PHP + Python）</option>
+      <option value="none">未打开项目</option>
+    </select>
+  </label>
+  <button class="btn sm" id="optReset" style="background:#34373d;color:#eee;border-color:#484b52">重置演示</button>
+</div>
+<div class="win" id="win">
+  <div class="titlebar"><span class="dot" style="background:#ff5f57"></span><span class="dot" style="background:#febc2e"></span><span class="dot" style="background:#28c840"></span><span class="t">设置</span></div>
+  <div class="body">
+    <div class="side">
+      <div class="search">🔍<input id="navSearch" placeholder="搜索设置"></div>
+      <div class="nav" id="nav"></div>
+    </div>
+    <div class="main">
+      <div class="crumb" id="crumb"></div>
+      <div class="content" id="content"></div>
+      <div class="footer" id="footer"></div>
+    </div>
+    <div id="notesHost" style="display:contents"></div>
+  </div>
+  <div id="overlay"></div>
+</div>
+
+<script>
+/* ===================== 演示数据 ===================== */
+const PROJECTS = {
+  shop: { name:"demo-shop", languages:["java","typescript"],
+    subprojects:[
+      {id:"shop-service", path:"shop-service", kind:"java", detail:"Maven 模块"},
+      {id:"shop-web", path:"shop-web", kind:"java", detail:"Maven 模块"},
+      {id:"frontend", path:"frontend", kind:"other", detail:"package.json"} ],
+    builds:[
+      {id:"maven:root", system:"maven", root:"pom.xml", detail:"Reactor · 3 个模块", state:"ready"},
+      {id:"maven:shop-service", system:"maven", root:"shop-service/pom.xml", detail:"模块", state:"ready", parent:"maven:root"},
+      {id:"maven:shop-web", system:"maven", root:"shop-web/pom.xml", detail:"模块", state:"ready", parent:"maven:root"} ],
+    runs:[ {id:"r1", name:"ShopServiceApplication", kind:"Spring Boot", from:"Java Support"}, {id:"r2", name:"shop-web: jetty:run", kind:"Maven 任务", from:"Maven"}, {id:"r3", name:"frontend: npm run dev", kind:"npm script", from:"内置探测"} ] },
+  poly: { name:"polyglot", languages:["go","rust","php","python"],
+    subprojects:[
+      {id:"api", path:"api", kind:"go", detail:"go.mod"},
+      {id:"tools-cli", path:"tools/cli", kind:"rust", detail:"Cargo workspace"},
+      {id:"legacy-web", path:"legacy-web", kind:"php", detail:"composer.json"},
+      {id:"ml", path:"ml", kind:"python", detail:"pyproject.toml"} ],
+    builds:[
+      {id:"go:api", system:"gomod", root:"api/go.mod", detail:"go 1.24 · 6 个包", state:"ready"},
+      {id:"cargo:cli", system:"cargo", root:"tools/cli/Cargo.toml", detail:"workspace · 3 个 crate", state:"ready"},
+      {id:"cargo:wasm", system:"cargo", root:"web/wasm/Cargo.toml", detail:"1 个 crate", state:"syncing"} ],
+    runs:[ {id:"r1", name:"api: go run ./cmd/server", kind:"Go main 包", from:"Go Support"}, {id:"r2", name:"cli: cargo run --bin lithe-cli", kind:"Cargo bin", from:"Rust Analyzer"} ] },
+  none: { name:null, languages:[], subprojects:[], builds:[], runs:[] }
+};
+
+const PLUGINS_INIT = [
+  { id:"dev.lithe.plugin.java-support", short:"java", name:"Java Support", vendor:"Lithe", version:"1.4.0", prev:"1.3.2", color:"#e76f00", letter:"J",
+    origin:"official", bundled:true, source:"official", repo:"https://github.com/Lithe-IDEA/Lithe-IDEA",
+    summary:"通过 Eclipse JDT 语言服务器提供 Java 代码智能，并支持 Lombok、调试和测试。自带 Java 运行时。",
+    caps:[
+      {kind:"language", id:"java", title:"Java", detail:".java · jdt:// 只读类文件"},
+      {kind:"languageServer", id:"jdtls", title:"Eclipse JDT LS 1.43", detail:"补全、诊断、跳转、重构 · 宿主集成 jdt", lang:"java", hostIntegration:"jdt", program:"packaged"},
+      {kind:"buildSystem", id:"maven", title:"Maven", detail:"pom.xml · Reactor、Profile、生命周期、依赖树、Surefire"},
+      {kind:"buildSystem", id:"gradle", title:"Gradle", detail:"settings.gradle(.kts) · 由 Buildship 导入"},
+      {kind:"test", id:"junit", title:"JUnit 4/5、TestNG", detail:"经 JDT 发现测试"},
+      {kind:"debugAdapter", id:"java-debug", title:"Java Debug", detail:"DAP，使用运行 JDK"},
+      {kind:"runtime", id:"jdk", title:"内置 JDK 21", detail:"只用于运行 JDT LS，不作为项目 JDK"} ],
+    permissions:["languageServer.launch"],
+    programs:[{t:"Eclipse JDT LS 语言服务器（插件内置）", c:"${pluginDir}/jdk/bin/java -Xmx${setting:heapMaxMB}m -Dlog.level=${setting:logLevel} -jar ${pluginDir}/jdtls/plugins/org.eclipse.equinox.launcher.jar"},{t:"检查：java -version", c:"${pluginDir}/jdk/bin/java -version"}] },
+  { id:"dev.lithe.plugin.php-support", short:"phpOld", name:"PHP Support", vendor:"Lithe", version:"0.6.0", color:"#777bb3", letter:"P",
+    origin:"official", retired:true, replacement:"io.lithestore.php-support", source:"official",
+    summary:"已退役的官方 PHP 插件。PHP 支持现在由 Lithe Store 中的社区插件 PHP Support 提供。",
+    caps:[{kind:"language", id:"php", title:"PHP", detail:".php"},{kind:"languageServer", id:"intelephense-old", title:"Intelephense 1.10（旧版）", detail:"不再更新", lang:"php", program:"packaged"}],
+    permissions:["languageServer.launch","execution.run"], programs:[{t:"Intelephense 语言服务器（插件内置）", c:"node ${pluginDir}/intelephense/lib/intelephense.js --stdio"}] },
+  { id:"io.lithestore.go-support", short:"go", name:"Go Support", vendor:"lithe-store", version:"0.9.2", prev:"0.9.1", color:"#00add8", letter:"Go",
+    origin:"community", source:"store", repo:"https://github.com/Lithe-IDEA/go-support", update:"0.10.0", updateNewPrograms:true,
+    summary:"使用本机 Go 工具链与 gopls，提供 Go 模块识别、运行和测试。",
+    caps:[
+      {kind:"language", id:"go", title:"Go", detail:".go · go.mod · go.work"},
+      {kind:"languageServer", id:"gopls", title:"gopls（本机已安装）", detail:"需要 Go ≥ 1.22", lang:"go", program:"system"},
+      {kind:"buildSystem", id:"gomod", title:"Go Modules", detail:"go list -json 读取包结构"},
+      {kind:"test", id:"gotest", title:"go test -json", detail:"测试发现与结果"} ],
+    permissions:["languageServer.launch","execution.run","execution.test"],
+    programs:[{t:"gopls 语言服务器（本机已安装）", c:"gopls serve"},{t:"运行 Go 文件", c:"go run ${file}"},{t:"全部测试：go test -json ./...", c:"go test -json ./..."}] },
+  { id:"io.lithestore.rust-analyzer", short:"rust", name:"Rust Analyzer", vendor:"rust-lithe", version:"0.3.1", color:"#b7410e", letter:"R",
+    origin:"community", source:"store", repo:"https://github.com/rust-lithe/rust-analyzer-lithe",
+    summary:"rust-analyzer 语言服务与 Cargo 构建系统声明。社区维护。",
+    caps:[
+      {kind:"language", id:"rust", title:"Rust", detail:".rs · Cargo.toml"},
+      {kind:"languageServer", id:"rust-analyzer", title:"rust-analyzer（本机已安装）", detail:"通过 rustup 组件安装", lang:"rust", program:"system"},
+      {kind:"buildSystem", id:"cargo", title:"Cargo", detail:"cargo metadata 读取 workspace、target、features"},
+      {kind:"test", id:"cargotest", title:"cargo test", detail:"libtest 文本结果"} ],
+    permissions:["languageServer.launch","build.systems","execution.test"],
+    programs:[{t:"rust-analyzer 语言服务器（本机已安装）", c:"rust-analyzer"},{t:"构建 Cargo 项目", c:"cargo build --message-format=json ${optionArguments}"}] },
+  { id:"com.example.http-client", short:"http", name:"HTTP Client", vendor:"devtools-cn", version:"1.1.0", color:"#2f9e72", letter:"H",
+    origin:"disk", disabled:true, disk:{file:"http-client-1.1.0.zip", archive:"4be1…c90d", content:"77a0…31fe"},
+    summary:"打开 .http 文件发送请求。响应历史窗口使用插件自带网页（可选方式）。",
+    caps:[
+      {kind:"language", id:"http", title:"HTTP Request", detail:".http · .rest"},
+      {kind:"toolWindow", id:"http.responses", title:"响应历史", detail:"插件包内网页 · 宿主管理停靠"},
+      {kind:"command", id:"http.send", title:"发送请求", detail:"编辑器上下文菜单 ⌘↩"} ],
+    permissions:["ui.toolWindows","ui.web"], programs:[] },
+  { id:"dev.local.lua-support", short:"lua", name:"Lua Support", vendor:"本地开发", version:"0.0.1-dev", color:"#2c2d72", letter:"Lu",
+    origin:"localDevelopment", disabled:true,
+    summary:"按 Lua 模板创建的本地开发插件。", caps:[{kind:"language", id:"lua", title:"Lua", detail:".lua"},{kind:"languageServer", id:"lua-ls", title:"lua-language-server", detail:"本机已安装", lang:"lua", program:"system"}],
+    permissions:["languageServer.launch"], programs:[{t:"lua-language-server（本机已安装）", c:"lua-language-server"}] },
+  { id:"dev.lithe.feature.database", short:"database", name:"Database Tools", vendor:"Lithe", version:"内置", color:"#5b6b84", letter:"D",
+    origin:"builtin", builtinGroup:true,
+    summary:"数据库连接、查询控制台和 Services 视图。内置功能组，可以禁用但不能卸载。",
+    caps:[{kind:"toolWindow", id:"database.workspace", title:"数据库", detail:"原生工具窗口"},{kind:"service", id:"db", title:"数据源", detail:"Services 视图"}],
+    permissions:[], programs:[] },
+  { id:"dev.lithe.feature.git", short:"git", name:"Git", vendor:"Lithe", version:"内置", color:"#f05133", letter:"G",
+    origin:"builtin", required:true, builtinGroup:true,
+    summary:"Git 版本控制、提交、日志与分支。必需的内置功能组。",
+    caps:[{kind:"toolWindow", id:"git.commit", title:"提交", detail:"原生工具窗口"},{kind:"toolWindow", id:"git.log", title:"Git 日志", detail:"原生工具窗口"}],
+    permissions:[], programs:[] }
+];
+
+const SOURCES_INIT = [
+  {id:"official", name:"Lithe 官方", url:"Plugins/marketplace/index.json", builtin:true, refreshed:"10:42", ignored:0},
+  {id:"store", name:"Lithe Store", url:"https://github.com/Lithe-IDEA/Lithe-store", refreshed:"10:42", ignored:1},
+  {id:"acme", name:"acme-internal", url:"https://plugins.acme.dev/lithe-plugin-index.json", refreshed:null, ignored:0}
+];
+
+const MARKET = [
+  {id:"dev.lithe.plugin.java-support", name:"Java Support", author:"Lithe", source:"official", repo:"Lithe-IDEA/Lithe-IDEA", color:"#e76f00", letter:"J", version:"1.4.0", date:"2026-10-16", license:"EPL-2.0", platforms:["darwin-arm64","darwin-x64"],
+    desc:"通过 Eclipse JDT 语言服务器提供 Java 代码智能，并支持 Lombok、调试和测试。自带 Java 运行时。", provides:["语言：Java","语言服务器：JDT LS","构建系统：Maven、Gradle","测试：JUnit","调试：Java Debug"], updated:5},
+  {id:"io.lithestore.php-support", name:"PHP Support", author:"lithe-store", source:"store", repo:"Lithe-IDEA/php-support", color:"#777bb3", letter:"P", version:"1.0.0", date:"2026-10-12", license:"MIT", platforms:["darwin-arm64","darwin-x64","win32-x64"], replaces:"dev.lithe.plugin.php-support",
+    desc:"内置 Intelephense，PHP 运行与 PHPUnit 测试。", provides:["语言：PHP","语言服务器：Intelephense（插件内置）","运行时：Node.js（本机已安装）","测试：PHPUnit"], updated:3,
+    perms:["打开对应语言的文件时启动语言服务器","运行你的文件","运行你的测试"], programs:[{t:"Intelephense 语言服务器（插件内置）",c:"node ${pluginDir}/intelephense/lib/intelephense.js --stdio"},{t:"单个文件：php ${file}",c:"php ${file}"},{t:"单个测试：vendor/bin/phpunit --filter ${testCase}",c:"vendor/bin/phpunit --filter ${testCase}"}]},
+  {id:"io.lithestore.go-support", name:"Go Support", author:"lithe-store", source:"store", repo:"Lithe-IDEA/go-support", color:"#00add8", letter:"Go", version:"0.10.0", date:"2026-10-19", license:"MIT", platforms:["darwin-arm64","darwin-x64","win32-x64"],
+    desc:"使用本机 Go 工具链与 gopls，提供 Go 模块识别、运行和测试。", provides:["语言：Go","语言服务器：gopls（本机已安装）","构建系统：Go Modules","测试：go test"], updated:1},
+  {id:"io.lithestore.rust-analyzer", name:"Rust Analyzer", author:"rust-lithe", source:"store", repo:"rust-lithe/rust-analyzer-lithe", color:"#b7410e", letter:"R", version:"0.3.1", date:"2026-10-02", license:"Apache-2.0", platforms:["darwin-arm64","darwin-x64"],
+    desc:"rust-analyzer 语言服务与 Cargo 构建系统声明。", provides:["语言：Rust","语言服务器：rust-analyzer","构建系统：Cargo"], updated:9},
+  {id:"io.lithestore.python-support", name:"Python Support", author:"pylithe", source:"store", repo:"pylithe/python-support", color:"#3776ab", letter:"Py", version:"0.5.0", date:"2026-10-18", license:"MIT", platforms:["darwin-arm64","darwin-x64","win32-x64"],
+    desc:"basedpyright 语言服务，uv / venv 解释器识别与 pytest。", provides:["语言：Python","语言服务器：basedpyright（插件内置）","构建系统：uv","测试：pytest"], updated:2,
+    perms:["打开对应语言的文件时启动语言服务器","构建 uv 项目","运行你的测试"], programs:[{t:"basedpyright 语言服务器（插件内置）",c:"node ${pluginDir}/basedpyright/langserver.index.js --stdio"},{t:"任务：uv sync",c:"uv sync ${optionArguments}"},{t:"全部测试：pytest",c:"uv run pytest -q"}],
+    settings:[{id:"typeChecking",title:"类型检查强度",type:"enum",def:"standard",options:[["off","关闭"],["basic","基础"],["standard","标准"],["strict","严格"]],scope:"workspace",effect:"immediate",cap:"languageServer:basedpyright"}]},
+  {id:"dev.lithe.plugin.kotlin", name:"Kotlin", author:"Lithe", source:"official", repo:"Lithe-IDEA/Lithe-IDEA", color:"#7f52ff", letter:"K", version:"0.2.0", latestNote:"0.3.0（当前 Lithe 或这台 Mac 无法使用）", date:"2026-10-01", license:"Apache-2.0", platforms:["darwin-arm64","darwin-x64"],
+    desc:"Kotlin 语言服务，构建复用 Java Support 的 Gradle。", provides:["语言：Kotlin","语言服务器：kotlin-lsp","复用：Java Support 的 Gradle"], updated:20},
+  {id:"io.lithestore.cmake", name:"CMake & clangd", author:"cpp-lithe", source:"store", repo:"cpp-lithe/cmake-clangd", color:"#064f8c", letter:"C", version:"0.4.0", date:"2026-09-28", license:"MIT", platforms:["darwin-arm64","darwin-x64"],
+    desc:"读取 CMakePresets.json，生成 compile_commands.json 给 clangd。", provides:["语言：C/C++","语言服务器：clangd","构建系统：CMake 预设"], updated:23},
+  {id:"io.lithestore.dotnet", name:".NET", author:"dotnet-lithe", source:"store", repo:"dotnet-lithe/dotnet", color:"#512bd4", letter:"N", version:"0.1.0", date:"2026-09-20", license:"MIT", platforms:["win32-x64"], unsupported:"暂不支持 macOS (Apple Silicon) 平台",
+    desc:"解决方案与项目识别、dotnet test --list-tests。", provides:["语言：C#","语言服务器：Roslyn","构建系统：dotnet / sln"], updated:31},
+  {id:"io.lithestore.legacy-tool", name:"Legacy Formatter", author:"old-dev", source:"store", repo:"old-dev/legacy-formatter", color:"#888", letter:"LF", version:"0.9.0", date:"2026-06-01", license:"MIT", platforms:["darwin-arm64"], apiUnsupported:true,
+    desc:"按更高插件 API 编写的格式化插件。", provides:["格式化"], updated:120},
+  {id:"com.acme.internal-rpc", name:"ACME RPC Tools", author:"ACME 平台组", source:"acme", repo:"acme/internal-rpc-lithe", color:"#444", letter:"A", version:"2.1.0", date:"2026-10-10", license:"Proprietary", platforms:["darwin-arm64"],
+    desc:"内部 RPC IDL 语言支持与代码生成任务。", provides:["语言：ACME IDL","构建任务：idl-gen"], updated:11,
+    perms:["构建项目、读取任务与依赖"], programs:[{t:"任务：idl-gen",c:"idl-gen --out build/gen ${optionArguments}"}]}
+];
+
+/* 统一设置声明：cap 指向能力；scope application / workspace / buildInstance */
+const SETTINGS = [
+  {id:"heapMaxMB", plugin:"java", cap:"languageServer:jdtls", section:"内存与日志", title:"最大堆内存", type:"integer", def:2048, min:2048, max:16384, unit:"MB", scope:"application", projectOverride:true, effect:"restart",
+   info:"JDT LS 的 -Xmx。不超过 1.5 GB 时 JDT LS 会改走分批导入，模块坐标重复会让整个 Java 服务失败，所以下限是 2048。"},
+  {id:"logLevel", plugin:"java", cap:"languageServer:jdtls", section:"内存与日志", title:"日志级别", type:"enum", def:"ALL", options:[["ALL","全部"],["INFO","信息"],["WARNING","警告"],["ERROR","错误"]], scope:"application", effect:"restart", info:"写入插件状态目录，不写 app bundle。"},
+  {id:"lombok", plugin:"java", cap:"languageServer:jdtls", section:"代码分析", title:"Lombok 支持", type:"boolean", def:true, scope:"application", projectOverride:true, effect:"restart", info:"以 -javaagent 加载插件包内固定版本的 Lombok。"},
+  {id:"nullAnalysis", plugin:"java", cap:"languageServer:jdtls", section:"代码分析", title:"空值注解分析", type:"enum", def:"automatic", options:[["disabled","关闭"],["interactive","询问"],["automatic","自动"]], scope:"workspace", effect:"immediate", info:"通过 workspace/didChangeConfiguration 下发，不需要重启。"},
+  {id:"profiles", plugin:"java", cap:"buildSystem:maven", section:"Profile 与导入", title:"激活的 Profile", type:"multiSelect", def:[], choicesFromModel:["dev","test","prod","native"], scope:"buildInstance", effect:"reload",
+   info:"候选值来自构建模型。同时传给 Maven 命令行（-P）和 JDT LS 的 Maven 导入（languageImport）。"},
+  {id:"settingsFile", plugin:"java", cap:"buildSystem:maven", section:"Profile 与导入", title:"settings.xml", type:"file", def:"", placeholder:"~/.m2/settings.xml", scope:"workspace", effect:"reload", info:"整段作为一个参数传入（-s ${value}），不能拼进其他参数。同时传给 JDT LS。"},
+  {id:"localRepo", plugin:"java", cap:"buildSystem:maven", section:"Profile 与导入", title:"本地仓库", type:"directory", def:"", placeholder:"~/.m2/repository", scope:"workspace", effect:"reload", info:"-Dmaven.repo.local"},
+  {id:"mvnOffline", plugin:"java", cap:"buildSystem:maven", section:"执行", title:"离线模式", type:"boolean", def:false, scope:"buildInstance", effect:"nextRun", toolbar:true, info:"-o。同时显示在 Maven 工具窗口工具栏。"},
+  {id:"mvnSkipTests", plugin:"java", cap:"buildSystem:maven", section:"执行", title:"跳过测试", type:"boolean", def:false, scope:"buildInstance", effect:"nextRun", toolbar:true, info:"-DskipTests"},
+  {id:"mvnThreads", plugin:"java", cap:"buildSystem:maven", section:"执行", title:"并行线程", type:"enum", def:"1", options:[["1","1"],["1C","每核 1 个"],["4","4"]], scope:"buildInstance", effect:"nextRun", info:"-T"},
+  {id:"gradleOffline", plugin:"java", cap:"buildSystem:gradle", section:"执行", title:"离线模式", type:"boolean", def:false, scope:"buildInstance", effect:"reload", info:"--offline，也传给 Buildship 导入。"},
+  {id:"gradleHome", plugin:"java", cap:"buildSystem:gradle", section:"执行", title:"Gradle 用户目录", type:"directory", def:"", placeholder:"~/.gradle", scope:"application", effect:"reload", info:"GRADLE_USER_HOME"},
+  {id:"staticcheck", plugin:"go", cap:"languageServer:gopls", section:"分析", title:"staticcheck", type:"boolean", def:false, scope:"application", projectOverride:true, effect:"immediate", info:"gopls 的 ui.diagnostic.staticcheck。"},
+  {id:"gofumpt", plugin:"go", cap:"languageServer:gopls", section:"格式化", title:"使用 gofumpt", type:"boolean", def:false, scope:"workspace", effect:"immediate", info:"更严格的 gofmt。"},
+  {id:"buildTags", plugin:"go", cap:"buildSystem:gomod", section:"构建", title:"Build tags", type:"text", def:"", placeholder:"integration,linux", pattern:"^[a-z0-9_,.]*$", scope:"buildInstance", effect:"reload", info:"文本类型必须声明 pattern，只能作为单个参数值（-tags=${value}）。也传给 gopls 的 buildFlags。"},
+  {id:"goRace", plugin:"go", cap:"buildSystem:gomod", section:"测试", title:"测试时开启 -race", type:"boolean", def:false, scope:"buildInstance", effect:"nextRun", toolbar:true, info:"go test -race"},
+  {id:"checkCmd", plugin:"rust", cap:"languageServer:rust-analyzer", section:"保存时检查", title:"检查命令", type:"enum", def:"check", options:[["check","cargo check"],["clippy","cargo clippy"]], scope:"workspace", effect:"immediate", info:"rust-analyzer.check.command"},
+  {id:"procMacro", plugin:"rust", cap:"languageServer:rust-analyzer", section:"保存时检查", title:"展开过程宏", type:"boolean", def:true, scope:"application", effect:"restart", info:"会执行依赖里的过程宏代码。"},
+  {id:"features", plugin:"rust", cap:"buildSystem:cargo", section:"Features", title:"启用的 features", type:"multiSelect", def:[], choicesFromModel:["default","serde","tokio","wasm","bench"], scope:"buildInstance", effect:"reload", info:"候选值来自 cargo metadata。也传给 rust-analyzer 的 cargo.features。"},
+  {id:"release", plugin:"rust", cap:"buildSystem:cargo", section:"Profile", title:"Release 构建", type:"boolean", def:false, scope:"buildInstance", effect:"nextRun", toolbar:true, info:"--release"},
+  {id:"timeout", plugin:"http", cap:"plugin", section:"请求", title:"请求超时", type:"integer", def:30, min:1, max:600, unit:"秒", scope:"application", effect:"immediate", info:"没有挂在语言或构建能力上的设置，只出现在插件自己的设置页签。"},
+  {id:"followRedirects", plugin:"http", cap:"plugin", section:"请求", title:"自动跟随重定向", type:"boolean", def:true, scope:"application", effect:"immediate", info:""},
+  {id:"mvnSources", plugin:"java", cap:"buildSystem:maven", section:"Profile 与导入", title:"下载源码和文档", type:"boolean", def:false, scope:"workspace", effect:"reload", info:"导入时下载依赖的 sources / javadoc，跳转到库代码时显示源码。", mk:"c-build-sources"},
+  {id:"queryTimeout", plugin:"database", cap:"plugin", section:"查询", title:"查询超时", type:"integer", def:60, min:1, max:3600, unit:"秒", scope:"application", effect:"immediate", info:"", mk:"c-db-settings"},
+  {id:"maxRows", plugin:"database", cap:"plugin", section:"查询", title:"结果最大行数", type:"enum", def:"500", options:[["100","100"],["500","500"],["1000","1000"],["5000","5000"]], scope:"application", effect:"immediate", info:"", mk:"c-db-settings"},
+  {id:"driversDir", plugin:"database", cap:"plugin", section:"驱动", title:"驱动目录", type:"directory", def:"", placeholder:"~/Library/Application Support/Lithe/drivers", scope:"application", effect:"immediate", info:"下载的 JDBC 驱动保存在平台存储，不写 app bundle。", mk:"c-db-settings"}
+];
+
+const RUNTIMES = {
+  java:{title:"Java SDK", info:"除非子项目或运行配置另行指定，Maven、运行和调试都会使用此 JDK。", requiredBy:["Maven","Gradle","运行","调试"], plugin:"java",
+        detected:[["auto","检测到的 JDK · Temurin 21.0.4","来自 JAVA_HOME"],["/Library/Java/JavaVirtualMachines/zulu-17.jdk","Zulu 17.0.12","本机检测到"],["/opt/homebrew/opt/openjdk@11","OpenJDK 11.0.24","本机检测到"]], kinds:["java"]},
+  node:{title:"Node.js", info:"PHP Support 的 Intelephense 需要 Node ≥ 18。", requiredBy:["PHP 语言服务器"], plugin:"php", detected:[["auto","检测到的 Node · 22.9.0","来自 PATH"],["~/.nvm/versions/node/v20.17.0","Node 20.17.0","本机检测到"]], kinds:["php"]},
+  go:{title:"Go 工具链", info:"gopls、构建和测试共用。", requiredBy:["gopls","Go Modules"], plugin:"go", detected:[["auto","检测到的 Go · 1.24.2","来自 PATH"],["/usr/local/go","Go 1.23.6","本机检测到"]], kinds:["go"]},
+  rust:{title:"Rust 工具链", info:"默认遵循项目的 rust-toolchain.toml。", requiredBy:["rust-analyzer","Cargo"], plugin:"rust", detected:[["auto","遵循 rust-toolchain.toml · stable 1.82","rustup"],["nightly","nightly-2026-10-01","rustup"]], kinds:["rust"]}
+};
+
+const BUILD_INVOCATION = {
+  maven:{title:"Maven 来源", info:"自动模式会优先使用项目 mvnw，其次使用检测到的 Maven，最后使用 mvnd。", options:[["automatic","自动"],["wrapper","Maven Wrapper"],["custom","自定义 Maven 主目录"]], effective:{automatic:"项目 Maven Wrapper · ./mvnw（3.9.9）",wrapper:"项目 Maven Wrapper · ./mvnw（3.9.9）",custom:"已选择"}, runtime:"java", runtimeLabel:"Maven JDK", customLabel:"Maven 主目录", customPh:"选择 Maven 或 mvnd 的主目录、bin 目录或可执行文件"},
+  gradle:{title:"Gradle 来源", info:"自动模式优先使用项目 gradlew。", options:[["automatic","自动"],["wrapper","Gradle Wrapper"],["custom","自定义 Gradle 主目录"]], effective:{automatic:"系统 Gradle · 9.1",wrapper:"项目 Gradle Wrapper",custom:"已选择"}, runtime:"java", runtimeLabel:"Gradle JDK", customLabel:"Gradle 主目录", customPh:"选择 Gradle 主目录"},
+  gomod:{title:"Go 命令", info:"使用“项目运行时”中选择的 Go 工具链。", options:[["automatic","自动"]], effective:{automatic:"go 1.24.2 · 来自 PATH"}, runtime:"go", runtimeLabel:"Go 工具链"},
+  cargo:{title:"Cargo 来源", info:"自动模式使用 rustup 代理，遵循 rust-toolchain.toml。", options:[["automatic","自动"],["custom","自定义 cargo"]], effective:{automatic:"rustup · stable 1.82",custom:"已选择"}, runtime:"rust", runtimeLabel:"Rust 工具链", customLabel:"cargo 路径", customPh:"选择 cargo 可执行文件"}
+};
+
+const LANG_NAMES = {java:"Java", go:"Go", php:"PHP", rust:"Rust", http:"HTTP Request", lua:"Lua", python:"Python", typescript:"TypeScript"};
+const BUILD_NAMES = {maven:"Maven", gradle:"Gradle", gomod:"Go Modules", cargo:"Cargo"};
+const KIND_NAMES = {language:"语言", languageServer:"语言服务器", buildSystem:"构建系统", test:"测试", debugAdapter:"调试器", runtime:"运行时", toolWindow:"工具窗口", command:"命令", service:"服务", plugin:"插件"};
+const PERM_TEXT = {"languageServer.launch":"打开对应语言的文件时启动语言服务器","execution.run":"运行你的文件","execution.test":"运行你的测试","ui.toolWindows":"向工作台添加工具窗口和命令","ui.web":"在工具窗口中显示插件自带的页面","build.systems":"构建项目、读取任务与依赖"};
+
+/* ===================== 设计标注 ===================== */
+const NOTES = {
+  plugins:[
+    "插件页只负责“装了什么、开没开、谁提供、可不可信”。插件带来的选项按能力分发到对应的设置分组；详情里的“设置”页签是同一份值的另一个入口。",
+    "保留原来“输入 / 查看选项”的搜索：输入 / 会弹出过滤项。下面的芯片按能力过滤（语言服务、构建、调试、界面），不按语言写死。",
+    "行内启用开关先暂存，底部有“取消 / 确定”；确定后提示“插件变更将在重启 Lithe 后生效”。沿用现有的待确认状态和重启生效语义。",
+    "详情拆成页签：概览 / 功能 / 设置 / 权限与程序 / 版本与来源。原来在一列里堆叠的来源、信任提示和设置各归各的页签，设置再多也不会挤压概览。",
+    "信任与迁移提示（社区插件、磁盘安装未验证、开发包、退役官方插件）固定在头部下方，切换页签时不会消失。",
+    "“功能”页签由清单声明的能力自动生成，每张卡片显示该能力在当前项目中的状态，并提供“配置 →”跳转。宿主不按插件名写分支。"
+  ],
+  pluginSettings:[
+    "按能力分组（语言服务器 · JDT LS、构建系统 · Maven……），每组标明“也显示在 …”，两处改的是同一份值。",
+    "每行依次是标签、ⓘ（说明收起在里面）、控件，以及几个胶囊：实际生效值、作用域、何时生效。改过的项左侧有蓝点，↺ 可以单独恢复默认值。",
+    "作用域分三层：全局 → 本项目 → 构建实例（某个 pom.xml / Cargo.toml）。合并规则只在 Rust Core 里实现一次，宿主只负责存储各层的值。",
+    "生效时机由声明给出：立即（didChangeConfiguration）、重启语言服务器、重新同步构建模型、下次运行。沿用原有的“下次启动语言服务器时生效”提示和“重启语言服务器”按钮。"
+  ],
+  market:[
+    "保留原有的列表 + 详情布局、仓库筛选、排序、按钮状态（安装 / 更新 / 已安装 / 不支持 / 需先卸载旧版）、版本与平台说明，以及信任文案。",
+    "新增“安装后提供”：列出插件提供的能力和会出现在哪个设置页面，安装前就知道它会带来什么。",
+    "社区插件的安装和更新仍然经过完整的安装审查：所在仓库、SHA-256 一致性、作者、权限、可以运行的程序（新增项高亮）和完整程序声明。"
+  ],
+  lsp:[
+    "“语言服务”取代原来的 LSP 控制中心，保留它的规则：只显示当前项目用到的语言，开关按项目自动保存，关闭即停止语言服务器并释放资源。",
+    "每行新增提供方、内存，以及重启、日志、设置入口。",
+    "缺插件、插件已禁用、需要重启、已迁移、被隔离这些原有提示都原样保留，并带“打开插件管理”。检测到语言但没有对应插件时（例如 Python），直接引导到市场里对应的插件。"
+  ],
+  lang:[
+    "“语言与框架 › <语言>”由声明生成：这门语言所有语言服务器的设置都汇总在这里，顶部写明由哪个插件提供，点击可回到插件详情。",
+    "可以在“全局 / 本项目”之间切换。本项目视图里，没覆盖的项显示“继承”，覆盖后出现“本项目”胶囊。只有声明了 projectOverride 或 scope=workspace 的项能按项目修改。",
+    "当一种语言有多个插件提供语言服务器时，顶部会出现“使用哪个语言服务器”的选择。演示数据中 Java 只有一个提供方，所以没有显示。"
+  ],
+  buildIndex:[
+    "构建工具首页列出当前项目识别到的所有构建实例：多模块项目显示父子关系，多种构建系统可以并存。",
+    "“构建文件变化后”是宿主的通用设置，对所有构建系统生效，对应工具窗口里的“构建文件已更改 · 重新加载”。"
+  ],
+  build:[
+    "原来“项目 · JDK 与 Maven”页里的 Maven 来源、Maven 主目录、Maven JDK、settings.xml、本地仓库都搬到了这里。来源和 JDK 属于所有构建系统共有的“调用方式”段，由 invocation 和 runtimeDependencies 生成，Cargo、Go 也是同样的结构。",
+    "构建系统的 options 和插件的 settings 合并成同一套声明，类型统一为 boolean / integer / enum / multiSelect / text / file / directory。",
+    "“作用于”可以选全局、本项目或某个构建实例（包括子模块，对应原来子项目的“继承项目 Maven”）。带 toolbar 标记的选项同时出现在工具窗口工具栏，两边是同一份值。",
+    "multiSelect 的候选值可以来自构建模型（Maven Profile、Cargo features）；模型还在同步时显示等待提示。"
+  ],
+  runtimes:[
+    "原来的“项目 · JDK 与 Maven”拆成两块：运行时（JDK、Node、Go、Rust……）留在这里，Maven 等构建工具的设置移到“构建工具”。这里只显示已启用插件声明需要、且当前项目用到的运行时，不再只有 Java。",
+    "保留左侧“项目默认值 + 子项目”的结构和“继承项目 JDK”的语义；非 Java 子项目只显示它实际用到的运行时。",
+    "每项下方显示实际生效值和来源（来自 JAVA_HOME / 本机检测到 / 已选择 / 继承项目），沿用 EffectiveRuntimeLabel。"
+  ]
+};
+const PORTED = {
+  general:"SettingsView.generalSettings", updates:"SettingsView.updatesSettings", editor:"SettingsView.editorSettings", keymap:"KeyboardShortcutSettingsView",
+  processTermination:"ProcessTerminationSettingsView", git:"GitExecutionSettingsView · GitFetchSettingsView · GitIdentitySettingsView", run:"RunConfigurationSettingsView（运行时覆盖项改为引用“项目运行时”）",
+  terminal:"SettingsView.terminalSettings", diagnostics:"SettingsView.diagnosticsSettings（诊断包新增插件清单）", mcp:"McpSettingsView · McpServerLibraryView（“Maven 配置”改称“构建配置”）", ai:"SettingsView.aiSettings",
+  agents:"AgentPanelSettingsView", providers:"SettingsView.providersSettings"
+};
+
+/* ===================== 变更清单（供后续拆 PR） =====================
+   [id, 类型, 页面, 标题, 现在, 改成, PR 分组, 优先级, 跳转状态]
+   类型：dev 待开发 / chg 改动 / mov 移动 / del 删除 / q 待确认 */
+const MK={dev:"待开发",chg:"改动",mov:"移动",del:"删除",q:"待确认"};
+const MK_DESC={dev:"现在没有这个功能，需要新提 PR 实现（界面 + Core / 宿主）。",chg:"功能已存在，交互、位置或行为要改。",mov:"功能已存在，只是换了位置。",del:"现有页面或控件会被删掉，内容并入别处。",q:"我不确定现有代码里有没有这个功能；请你确认，已有就改成“改动”或去掉标记。"};
+const PRS={A:"设置声明统一与三层作用域（契约 + Rust Core）",B:"插件页重构",C:"语言服务与语言页",D:"构建工具与项目运行时",E:"文件类型、格式化与编辑器",F:"网络代理与可信项目",G:"调试与测试设置",H:"其他补充（通知、终端、Git、快捷键、导入导出）"};
+const CHANGES=[
+ ["c-set-unify","chg","plugins","插件 settings 与构建 options 合并为同一套声明","插件 settings（API 2）只支持 integer / enum / boolean，存一份全局值；构建系统 options 是另一套声明，按构建实例存储，两边互不相通。","在契约里定义统一的 settings 声明（挂在某个能力上），由 Rust Core 校验、合并与下发，宿主只渲染。旧字段保留读取兼容。","A","P1",{detailTab:"settings"}],
+ ["c-set-scope","dev","lang:*","三层作用域：全局 → 本项目 → 构建实例","插件设置所有项目共用一份。","每项声明 scope 与 projectOverride；本项目和构建实例可以覆盖。Core 按“实例 → 父模块 → 项目 → 全局 → 默认”合并，界面显示实际生效值和来源。","A","P1"],
+ ["c-set-effect","dev","lang:*","声明生效时机，支持立即生效","插件设置一律在下次启动语言服务器时生效。","声明 effect：immediate（workspace/didChangeConfiguration）、restart、reload（重新同步构建模型）、nextRun。界面用胶囊显示，restart 类保留“重启语言服务器”提示条。","A","P1"],
+ ["c-set-types","dev","build:*","设置类型扩展：multiSelect / text(pattern) / file / directory / 候选值来自模型","插件 settings 不支持这些类型；构建 options 只支持其中一部分。","统一类型集合。text 必须声明 pattern，且只能作为单个参数值，保持防注入约束。","A","P1"],
+ ["c-set-search","q","plugins","设置搜索能搜到插件设置并高亮定位","不确定现在的“搜索设置”是否覆盖插件里的设置。","搜索索引包含所有已加载插件声明的设置，回车后跳到对应能力页面并高亮该行（可以在左上角搜索框试“堆内存”）。","A","P2"],
+ ["c-tool-plugin","dev","tool:*","工具 › <插件>：插件自身的设置页","没有挂在语言或构建能力上的插件设置，只能在插件详情里找到。","为这类插件（HTTP Client、Database Tools 等）在“工具”分组下生成页面。","A","P2"],
+ ["c-plg-tabs","chg","plugins","插件详情改为页签","详情页是一列：概览、来源、信任提示、设置依次堆叠，设置多了会很长。","拆成 概览 / 功能 / 设置 / 权限与程序 / 版本与来源；信任与迁移提示固定在头部。","B","P1"],
+ ["c-plg-filter","chg","plugins","已安装列表按能力过滤","只有搜索框（输入 / 查看选项）。","增加能力过滤芯片（语言服务 / 构建 / 调试 / 界面 / 有更新 / 社区 / 已禁用），与 / 选项共用同一套过滤。","B","P2"],
+ ["c-plg-features","dev","plugins","“功能”页签：按声明列出能力和当前项目状态","看不到一个插件到底提供了哪些能力。","Core 输出能力清单（语言、语言服务器、构建系统、测试、调试、工具窗口……）及其在当前项目中的状态，卡片上提供“配置 →”跳转。","B","P1",{detailTab:"features"}],
+ ["c-plg-perm","dev","plugins","安装后仍可查看权限与程序","权限和可运行的程序只在安装审查弹窗里出现一次。","“权限与程序”页签常驻显示，内容与安装审查一致。","B","P2",{detailTab:"trust"}],
+ ["c-plg-rollback","dev","plugins","回滚到上一版本","更新后不保留旧版本。","保留上一版本的插件包，可在“版本与来源”中回滚，重启后生效。","B","P3",{detailTab:"versions"}],
+ ["c-plg-clear","dev","plugins","清除插件状态","语言服务器的索引或 workspace 损坏时，只能手动删除 Application Support 下的目录。","“版本与来源”提供“清除插件状态”：先停止相关语言服务器，再删除该插件在平台存储里的索引与 workspace，不动插件包本身。","B","P2",{detailTab:"versions"}],
+ ["c-plg-autoupdate","dev","updates","自动检查插件更新","只能在插件页手动“刷新插件仓库”。","“更新”页分成“应用更新”和“插件更新”两段；插件更新可选检查间隔，只检查不自动安装，社区插件的更新仍要经过安装审查。","B","P2"],
+ ["c-plg-devmode","q","plugins","开发者模式：加载本地开发包","正式版不会加载未签名的开发包。不确定现在是否已有开关，还是只能用开发构建。","如果要做：默认关闭，打开时显示明显警告，仅对这台 Mac 生效。也可以不做，维持现状。","B","P3",{menu:"plugin"}],
+ ["c-mkt-provides","dev","plugins","市场详情显示“安装后提供”和出现位置","市场详情只有描述、版本、平台等信息。","插件索引增加能力摘要；详情页显示插件提供的能力和安装后会出现的设置页面。","B","P2",{pluginTab:"marketplace"}],
+ ["d-plg-settings-section","del","plugins","删除详情底部的“设置”段","插件设置以“设置”段的形式出现在插件详情底部。","移到“设置”页签，并按能力分发到语言、构建、工具页面。","B","P1",{detailTab:"settings"}],
+ ["c-lsp-replace","chg","lsp","LSP 控制中心改为“语言服务”","LSP 控制中心只有每种语言的开关和状态。","保留全部规则和提示，增加提供方、内存、重启、日志、设置入口；页面改名为“语言服务”。","C","P1"],
+ ["c-lsp-mem","dev","lsp","显示语言服务器内存占用","不显示。","宿主定期采样语言服务器进程树的常驻内存。","C","P3"],
+ ["c-lsp-idle","dev","lsp","空闲自动停止语言服务器","语言服务器启动后一直运行，直到关闭项目或手动关闭。","N 分钟内没有打开该语言的文件时自动停止，再次打开文件时按需启动。","C","P2"],
+ ["c-lsp-trace","dev","lsp","LSP 通信日志级别","不确定能否调整 JSON-RPC 的 trace 级别。","全局选择 off / messages / verbose，日志写入平台日志目录。","C","P3"],
+ ["c-lsp-max","dev","lsp","语言服务器总内存预算","每个语言服务器各自配置内存，彼此不知道对方占用多少。","设置总预算，超出时提示停止最久未用的语言服务器。","C","P3"],
+ ["c-lang-pages","dev","lang:*","按声明生成“语言与框架 › <语言>”页面","语言服务器的设置只能在插件详情里找到。","每种有设置的语言生成一页，汇总所有提供方的设置；插件停用后页面消失。","C","P1"],
+ ["c-lang-choose","dev","lang:*","一种语言有多个提供方时选择语言服务器","不支持多个插件同时提供同一种语言。","页面顶部出现“使用哪个语言服务器”，按项目保存。","C","P3"],
+ ["c-build-index","dev","buildTools","构建工具首页","没有统一入口：Maven 设置在“项目 · JDK 与 Maven”，其他构建系统只出现在工具窗口里。","列出当前项目识别到的所有构建实例和已安装的构建系统。","D","P1"],
+ ["c-build-pages","mov","build:*","Maven 来源 / 主目录 / Maven JDK / settings.xml / 本地仓库移到构建工具 › Maven","这些设置在“项目 · JDK 与 Maven”页。","移到构建工具 › Maven；来源与 JDK 作为所有构建系统共有的“调用方式”段。","D","P1"],
+ ["c-build-inv","dev","build:*","非 Maven 构建系统也有“调用方式”段","Gradle、Cargo、Go 没有来源和运行时选择。","由 invocation 与 runtimeDependencies 声明生成。","D","P2",{page:"build:gradle"}],
+ ["c-build-toolbar","chg","build:*","工具栏开关和设置页是同一份值","工具窗口里的选项开关只能在工具窗口里看到。","声明了 presentation: toolbar 的选项同时出现在设置页，两边读写同一份值。","D","P2"],
+ ["c-build-sources","dev","build:*","下载依赖源码和文档","不确定 JDT LS 是否已开启 Maven 源码下载。","Maven 选项增加“下载源码和文档”，同时传给 JDT LS 导入。","D","P3"],
+ ["c-build-reload","q","buildTools","构建文件变化后的处理方式","工具窗口里会提示“构建文件已更改 · 重新加载”，不确定能否设成自动。","通用设置：自动重新加载 / 提示 / 手动，对所有构建系统生效。","D","P2"],
+ ["c-build-loadonopen","dev","buildTools","打开项目时是否加载项目模型","一打开项目就会运行构建工具读取模型。","可以关闭；并与“可信项目”联动，不受信任的项目不会自动加载。","D","P2"],
+ ["c-runtime-split","chg","runtimes","“项目 · JDK 与 Maven”改为“项目运行时”","这个页面只管 JDK 和 Maven。","这里只放运行时（JDK、Node、Go、Rust……），Maven 移到构建工具。","D","P1"],
+ ["c-runtime-generic","dev","runtimes","运行时泛化，由插件的 runtimeDependencies 驱动","只能为项目选择 JDK；Node、Go 虽然由宿主发现，但不能按项目选择。","已启用插件声明需要、且当前项目用到的运行时都出现在这里，可以按子项目覆盖。","D","P1",{project:"poly"}],
+ ["c-runtime-download","dev","runtimes","下载 JDK","找不到 JDK 时只能提示用户自己安装。","提供“下载 JDK…”，选择发行版与版本，下载到平台缓存目录（不写 app bundle）。","D","P3",{project:"shop"}],
+ ["d-proj-page","del","runtimes","删除“项目 · JDK 与 Maven”页面","构建、执行、部署 › 项目 · JDK 与 Maven。","内容拆到“项目运行时”和“构建工具 › Maven”。","D","P1",{project:"shop"}],
+ ["d-subproject-maven","del","runtimes","子项目里的“继承项目 Maven / Maven JDK”移走","子项目详情里可以设置 Maven 和 Maven JDK 是否继承项目。","改为在构建工具 › Maven 中选中该模块的构建实例后设置。","D","P1",{project:"shop",runtimeSel:"shop-service"}],
+ ["c-run-rt","chg","run","运行配置的运行时覆盖改为引用项目运行时","运行配置里覆盖的是 JDK。","改为选择“继承项目运行时”或某个已检测到的运行时，不限于 JDK。","D","P2"],
+ ["c-run-env","dev","run",".env 文件与运行前任务","运行配置支持参数和环境变量；不确定是否支持 .env 和运行前构建。","增加 .env 文件选择和“运行前”任务（例如先执行一次构建）。","D","P3"],
+ ["c-mcp-wording","chg","mcp","“Maven 配置”改称“构建配置”","MCP 权限文案写的是“项目环境和 Maven 配置”。","泛化为“项目环境和构建配置”，覆盖所有构建系统。","D","P3"],
+ ["c-filetypes","dev","filetypes","文件类型：扩展名与语言的映射","由插件的 languages 声明决定，用户不能改。","列出每种语言的扩展名和提供方，允许用户添加映射（例如 *.jenkinsfile → Groovy）。","E","P2"],
+ ["c-format","dev","format","格式化与保存时操作","只有自动保存；不确定保存时是否会格式化。","保存时格式化（仅改动的行 / 整个文件）、整理导入、去除行尾空格、末尾换行、遵循 .editorconfig；每种语言可选格式化器（语言服务器或外部工具）。","E","P2"],
+ ["c-inlay","dev","editor","嵌入提示（inlay hints）","不确定是否支持。","参数名、推断类型提示的开关，通过 LSP inlayHint 实现，对所有语言通用。","E","P2"],
+ ["c-ed-display","dev","editor","编辑器显示补充","只有字体、字号、行高、引用数量、缩略图。","软换行、显示空白字符、缩进参考线、行号样式、括号对着色、字体连字、光标样式。","E","P2"],
+ ["c-ed-colors","dev","editor","编辑器语法配色方案","语法颜色跟随界面主题。","可以单独选择编辑器配色方案。","E","P3"],
+ ["c-ed-large","dev","editor","大文件阈值","不确定大文件是否有保护。","超过阈值的文件关闭语法高亮和语言服务，避免卡顿。","E","P3"],
+ ["c-proxy","dev","network","网络与代理","没有代理设置，依赖系统环境。","系统代理 / 手动 HTTP(S) / 不使用，排除主机，测试连接；作用于插件市场和更新检查，并传给 Maven、Gradle 和语言服务器进程。","F","P1"],
+ ["c-trusted","dev","trusted","可信项目","打开任何项目都会运行构建工具和插件程序。","首次打开项目时询问是否信任；不信任的项目进入安全模式：不加载构建模型、不启动插件程序、不执行运行配置。","F","P1"],
+ ["c-debug","dev","debug","调试设置页","调试相关行为没有设置入口。","断点命中时激活 Lithe、行内显示变量值、热替换、默认异常断点；插件提供的调试器在这里列出。","G","P2"],
+ ["c-test","dev","test","测试运行设置页","测试结果的展示方式不能配置。","运行后打开测试结果、只显示失败、保留历史次数、失败后自动重跑一次。","G","P3"],
+ ["c-notify","dev","notifications","通知设置","不能按类型关闭通知。","每类通知可以选择 气泡 / 仅记录 / 关闭；Lithe 在后台时，构建完成或测试失败会发系统通知。","H","P3"],
+ ["c-reopen","q","general","启动时重新打开上次的项目","不确定现在有没有这个选项。","在通用 › 项目中增加开关。","H","P3"],
+ ["c-uifont","dev","general","界面字号","界面字号是固定的。","小 / 标准 / 大。","H","P3"],
+ ["c-export","dev","general","导入 / 导出设置","不能把设置迁移到另一台 Mac。","导出为 JSON（不含 API 密钥和凭据），导入前预览差异。","H","P3"],
+ ["c-km-preset","dev","keymap","快捷键方案","只有一套默认快捷键，可以逐个修改。","预置 Lithe / IntelliJ IDEA / VS Code / Xcode 方案，在方案基础上再自定义。","H","P2"],
+ ["c-git-checks","dev","git","提交前检查","提交时不做检查。","在“提交”段下加一组：格式化改动的文件、有错误诊断时提醒、运行指定的测试任务。","H","P3"],
+ ["c-git-sign","q","git","提交签名","也许可以通过 Git 配置设置 commit.gpgsign，但不确定是否有独立入口。","在“提交”段增加“签名（GPG / SSH）”。","H","P3"],
+ ["c-term-more","dev","terminal","终端补充设置","只有默认 Shell 和回滚行数。","终端字体（跟随编辑器）、光标样式、选中即复制、启动目录、额外环境变量、把项目运行时加入 PATH。","H","P2"],
+ ["c-diag-bundle","q","diagnostics","诊断包包含插件清单","不确定是否已有导出诊断包的功能。","导出日志、设置摘要、插件清单和语言服务器状态，脱敏后打包。","H","P2"],
+ ["c-diag-lsplog","dev","diagnostics","语言服务器日志保留","不确定日志会不会无限增长。","设置保留天数或总大小。","H","P3"],
+ ["c-db-settings","dev","tool:*","Database Tools 设置","数据库功能组没有设置项。","查询超时、结果最大行数、驱动目录（放在平台存储）。","H","P3"],
+ ["m-gitsave","mov","git","“本地更改保存方式”从通用移到 Git","在 外观与行为 › 通用 › Git 段。","移到 版本控制 › Git › 本地更改；通用页删除 Git 段。","H","P2"],
+ ["q-git-prune","q","git","“Fetch 默认行为”并入 Git 配置的获取设置","两处都能设置清理远程分支：Git 行为与配置里的 fetch.prune，和 Fetch 默认行为里的“清理失效的远程跟踪引用”；标签也是两项（fetch.pruneTags + 获取标签）。","合并成“同步远程 › 获取”一组，每项只出现一次并显示生效值。待确认：如果 Lithe 的 Fetch 默认值只影响 Lithe 自己发起的 Fetch（不写 Git 配置），告诉我，我改成在这一组里加“仅 Lithe 使用”的说明。","H","P2"],
+ ["c-git-reorg","chg","git","Git 页按任务重新分组","6 段：Git 执行 / 本地更改 / 提交 / Git 行为与配置 / Fetch 默认行为 / 提交身份，同一类设置分散在多段。","顶部仓库卡片 + 4 段：Git 程序与凭据 → 提交 → 同步远程（拉取 / 获取 / 推送）→ 本地更改。每个写 Git 配置的设置都显示“生效：值 · 来源”。","H","P2"],
+ ["c-git-scope","chg","git","配置范围只选一次","“Git 行为与配置”和“提交身份”各有一个配置范围选择，且提交身份的姓名、邮箱各自有保存和清除覆盖按钮。","页面顶部统一选择“写入当前仓库 / 全局配置”，下方所有带配置键的设置都写到这里；值改完即保存，用“继承”代替“清除覆盖”。","H","P2"],
+ ["m-git-ctx","mov","git","分支上下文移到顶部仓库卡片","在“Git 行为与配置”底部，与重新加载、打开远程仓库按钮放在一起。","放到页面顶部，一眼看到当前仓库、分支、上游和远程地址。","H","P3"],
+ ["m-git-cred","mov","git","“凭据使用完整 HTTP 路径”移到程序与凭据","凭据助手在“Git 执行”，useHttpPath 在“Git 行为与配置 › 凭据”。","两项放在一起，改名为“凭据匹配”。","H","P3"],
+ ["m-git-identity","mov","git","提交身份并入“提交”段","独立的“提交身份”段，自带配置范围、保存和清除覆盖按钮。","姓名、邮箱、签名、提交前检查放在同一段。","H","P3"],
+ ["m-git-tags","mov","git","“清理失效的标签”并入“标签”","fetch.pruneTags 开关和“获取标签”下拉是两项，后者已有“同步并删除本地标签”选项。","合并为一个“标签”下拉。","H","P3"],
+ ["c-upd-split","chg","updates","“更新”页拆成应用更新与插件更新","只有应用版本一段。","增加“插件更新”段：显示可更新的插件数并跳到插件页。","B","P2"],
+ ["c-ed-tab-lang","chg","format","Tab 宽度移到格式化，并可以按语言覆盖","编辑器 › 缩进 › Tab 宽度，对所有语言统一。","移到“格式化与保存”，增加“使用空格 / Tab”，并允许按语言覆盖（例如 Go 用 Tab、YAML 用 2 空格）；.editorconfig 优先。","E","P2"]
+];
+const CHANGES_O=CHANGES.map(a=>({id:a[0],type:a[1],page:a[2],title:a[3],now:a[4],next:a[5],pr:a[6],prio:a[7],state:a[8]||null}));
+const CH=Object.fromEntries(CHANGES_O.map(c=>[c.id,c]));
+const PAGE_MK={buildTools:"c-build-index",runtimes:"c-runtime-split",lsp:"c-lsp-replace",network:"c-proxy",trusted:"c-trusted",notifications:"c-notify",filetypes:"c-filetypes",format:"c-format",debug:"c-debug",test:"c-test"};
+const FT_DEFAULT=[{pat:"*.jenkinsfile",lang:"Groovy"},{pat:"Dockerfile.*",lang:"Dockerfile"}];
+
+/* ===================== 状态 ===================== */
+const clone = o=>JSON.parse(JSON.stringify(o));
+function initial(){ return {
+  page:"plugins", pluginTab:"installed", selected:"java", detailTab:"overview", filter:"all", query:"",
+  mSelected:"io.lithestore.php-support", mQuery:"", mSource:"all", mSort:"name",
+  values:{}, project:{}, instance:{}, misc:{}, langScope:"application", buildScope:{}, runtimeSel:"__defaults",
+  plugins:clone(PLUGINS_INIT), sources:clone(SOURCES_INIT),
+  loaded:{}, pending:{}, nextLaunch:null, uninstalling:{}, installedNext:{},
+  pendingRestart:{}, navOpen:{appearance:false, vcs:false, build:true, lang:true, tools:false, ai:false},
+  popover:null, notesOpen:window.innerWidth>=1450, modal:null, menu:null, lspOff:{}, toast:null, hit:null, runSel:"r1"
+};}
+let S = initial();
+S.plugins.forEach(p=>S.loaded[p.short]=!p.disabled);
+let projectKey = "shop";
+const $ = s=>document.querySelector(s);
+const esc = s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const P = short=>S.plugins.find(p=>p.short===short);
+const PById = id=>S.plugins.find(p=>p.id===id);
+const proj = ()=>PROJECTS[projectKey];
+const loaded = p=>!!p && S.loaded[p.short] && !p.removed;
+const baseline = p=>S.nextLaunch && p.short in S.nextLaunch ? S.nextLaunch[p.short] : S.loaded[p.short];
+const staged = p=>p.short in S.pending ? S.pending[p.short] : baseline(p);
+const notesOn = ()=>$("#optNotes").checked;
+function nb(page,n){ return notesOn()&&NOTES[page] ? `<i class="nb" data-note="${page}:${n}" title="${esc(NOTES[page][n-1])}">${n}</i>` : ""; }
+function info(id,text){ if(!text) return ""; return `<i class="info" data-info="${esc(id)}">i${S.popover===id?`<span class="pop">${esc(text)}</span>`:""}</i>`; }
+
+/* 通用控件：值存在 S.misc */
+const mv=(k,d)=>k in S.misc?S.misc[k]:d;
+const W={
+  tg:(k,d)=>`<button class="sw ${mv(k,d)?"on":""}" data-misc="${k}" data-def="${d}"></button>`,
+  sel:(k,opts,d,w)=>`<select class="inp" style="${w?`width:${w}px`:""}" data-misc="${k}">${opts.map(o=>{const [v,l]=Array.isArray(o)?o:[o,o];return `<option value="${esc(v)}" ${String(mv(k,d))===String(v)?"selected":""}>${esc(l)}</option>`}).join("")}</select>`,
+  txt:(k,d,ph,w)=>`<input class="inp" style="width:${w||260}px" data-misc="${k}" value="${esc(mv(k,d))}" placeholder="${esc(ph||"")}">`,
+  path:(k,ph,btn)=>`<input class="inp" style="flex:1;min-width:200px;max-width:360px" data-misc="${k}" value="${esc(mv(k,""))}" placeholder="${esc(ph||"")}"><button class="btn sm" data-pickmisc="${k}">${btn||"选择…"}</button>`
+};
+function section(title, infoText, body, acc="", id="", m=""){ return `<div class="sec"><div class="sh">${esc(title)} ${mk(m)} ${info("sec:"+title+id,infoText)}${acc?`<span class="acc">${acc}</span>`:""}</div><div class="sb">${body}</div></div>`; }
+function row(label, infoText, ctl, extra="", m=""){ return `<div class="srow" data-search="${esc(label)}"><div class="lab">${esc(label)} ${mk(m)} ${info("row:"+label,infoText)}</div><div class="ctl">${ctl}</div>${extra?`<div class="badges">${extra}</div>`:""}</div>`; }
+const marksOn=()=>$("#optMarks").checked;
+const mkStatic=t=>`<i class="mk ${t}" style="cursor:default">${MK[t]}</i>`;
+function mk(id){ if(!id||!marksOn()) return ""; const c=CH[id]; return `<i class="mk ${c.type}" data-chg="${id}" title="${esc(MK[c.type]+"："+c.title)}">${MK[c.type]}</i>`; }
+function ghost(label,id,where){ return marksOn()?`<div class="srow ghostrow"><div class="lab"><span class="gt">${esc(label)}</span> ${mk(id)}</div><div class="ctl faint">${esc(where)}</div></div>`:""; }
+const pageMatch=(p,pg)=>p===pg||(p.endsWith("*")&&pg.startsWith(p.slice(0,-1)));
+function pageLabel(c){ const p=c.page; if(p==="lang:*") return "语言与框架 › 各语言页"; if(p==="build:*") return "构建工具 › 各构建系统页"; if(p==="tool:*") return "工具 › 插件生成的页面"; const g=GROUPS.find(g=>g.pages&&g.pages.includes(p)); return (g?g.title+" › ":"")+(PAGE_TITLES[p]||p); }
+function chgItem(c,inNotes){ return `<div class="chg-item ${S.chgHl===c.id?"hl":""}" ${inNotes?`id="note-chg-${c.id}"`:""} data-gochg="${c.id}"><div class="h">${mkStatic(c.type)}<span>${esc(c.title)}</span><span class="cap2" style="margin-left:auto">${c.prio} · PR-${c.pr}</span></div><div class="b"><b>现在：</b>${esc(c.now)}<br><b>改成：</b>${esc(c.next)}${inNotes?"":`<br><span class="link">${esc(pageLabel(c))} →</span>`}</div></div>`; }
+function changesMarkdown(){ return Object.keys(PRS).map(k=>{const items=CHANGES_O.filter(c=>c.pr===k); return items.length?`## PR-${k} ${PRS[k]}\n\n`+items.map(c=>`- [${MK[c.type]}][${c.prio}] ${c.title}（${pageLabel(c)}）\n  - 现在：${c.now}\n  - 改成：${c.next}`).join("\n")+"\n":""}).join("\n"); }
+
+/* ===================== 三层合并（模拟 Rust Core） ===================== */
+const projectable = s=>s.projectOverride||s.scope!=="application";
+function effective(s, instanceID){
+  if(s.scope==="buildInstance" && instanceID){
+    let cur=instanceID;
+    while(cur){ const k=`${projectKey}|${cur}|${s.id}`; if(k in S.instance) return {value:S.instance[k], layer:cur===instanceID?"instance":"parent"}; cur=proj().builds.find(b=>b.id===cur)?.parent; }
+  }
+  if(proj().name && projectable(s)){ const k=`${projectKey}|${s.plugin}.${s.id}`; if(k in S.project) return {value:S.project[k], layer:"project"}; }
+  const g=`${s.plugin}.${s.id}`; if(g in S.values) return {value:S.values[g], layer:"application"};
+  return {value:s.def, layer:"default"};
+}
+function setValue(s,value,layer,inst){
+  if(layer==="instance") S.instance[`${projectKey}|${inst}|${s.id}`]=value;
+  else if(layer==="project") S.project[`${projectKey}|${s.plugin}.${s.id}`]=value;
+  else { S.values[`${s.plugin}.${s.id}`]=value; if(JSON.stringify(value)===JSON.stringify(s.def)) delete S.values[`${s.plugin}.${s.id}`]; }
+  if(s.effect==="restart") S.pendingRestart[s.cap]=true;
+  if(s.effect==="reload") toast(`已保存 · ${capTitle(s.cap)} 将重新同步项目模型`);
+}
+function resetValue(s,layer,inst){
+  if(layer==="instance") delete S.instance[`${projectKey}|${inst}|${s.id}`];
+  else if(layer==="project") delete S.project[`${projectKey}|${s.plugin}.${s.id}`];
+  else delete S.values[`${s.plugin}.${s.id}`];
+  if(s.effect==="restart") S.pendingRestart[s.cap]=true;
+}
+function fmt(s,v){
+  if(s.type==="boolean") return v?"开":"关";
+  if(s.type==="multiSelect") return v.length?v.join(", "):"无";
+  if(s.type==="integer") return `${v} ${s.unit||""}`.trim();
+  if(s.type==="enum") return (s.options.find(o=>o[0]===v)||[v,v])[1];
+  return v||"默认";
+}
+function capOwner(cap){ const [kind,id]=cap.split(":"); return S.plugins.find(p=>!p.removed&&p.caps.some(c=>c.kind===kind&&c.id===id)); }
+function capTitle(cap){ const [kind,id]=cap.split(":"); for(const p of S.plugins){const c=p.caps.find(c=>c.kind===kind&&c.id===id); if(c) return c.title.replace(/（.*）/,"");} return "插件"; }
+function capLocation(cap,pluginShort){
+  const [kind,id]=cap.split(":");
+  if(kind==="languageServer"){ for(const p of S.plugins){const c=p.caps.find(c=>c.id===id&&c.kind===kind); if(c&&SETTINGS.some(s=>s.cap===cap)) return {page:`lang:${c.lang}`, label:`语言与框架 › ${LANG_NAMES[c.lang]}`};} return null; }
+  if(kind==="buildSystem") return {page:`build:${id}`, label:`构建、执行、部署 › 构建工具 › ${BUILD_NAMES[id]}`};
+  if(kind==="runtime") return {page:"runtimes", label:"构建、执行、部署 › 项目运行时"};
+  if(kind==="plugin"&&pluginShort&&loaded(P(pluginShort))) return {page:`tool:${pluginShort}`, label:`工具 › ${P(pluginShort).name}`};
+  return null;
+}
+
+function settingRow(s, mode){
+  const eff=effective(s, mode.instanceID);
+  let layer="application", editable=true, note="";
+  if(s.scope==="buildInstance"){ layer = mode.instanceID?"instance":mode.layer==="project"?"project":"application"; }
+  else if(mode.layer==="instance"||mode.layer==="project"){ if(projectable(s)&&proj().name) layer="project"; else if(mode.layer==="project"){ editable=false; note="只能全局设置"; } }
+  const own=eff.layer===layer;
+  const v=eff.value, key=`${s.plugin}.${s.id}`;
+  const dis=editable?"":"disabled";
+  const on=`data-set="${key}" data-layer="${layer}" data-inst="${mode.instanceID||""}"`;
+  let ctl="";
+  if(s.type==="boolean") ctl=`<button class="sw ${v?"on":""}" ${on} data-kind="bool" ${dis}></button>`;
+  else if(s.type==="integer") ctl=`<input class="inp" style="width:90px" type="number" value="${v}" ${on} data-kind="int" ${dis}><span class="faint">${s.unit||""}</span>`;
+  else if(s.type==="enum") ctl=`<select class="inp" ${on} data-kind="enum" ${dis}>${s.options.map(o=>`<option value="${o[0]}" ${o[0]===v?"selected":""}>${o[1]}</option>`).join("")}</select>`;
+  else if(s.type==="multiSelect"){
+    const syncing=mode.instanceID && proj().builds.find(b=>b.id===mode.instanceID)?.state==="syncing";
+    ctl = syncing?`<span class="st warn">项目模型同步中，候选值稍后出现</span>`:`<div class="chips">${s.choicesFromModel.map(c=>`<span class="chip ${v.includes(c)?"on":""}" ${editable?`${on} data-kind="multi" data-choice="${c}"`:""}>${c}</span>`).join("")}</div>`;
+  }
+  else if(s.type==="file"||s.type==="directory") ctl=`<input class="inp" style="flex:1;min-width:180px;max-width:320px" value="${esc(v)}" placeholder="${esc(s.placeholder||"")}" ${on} data-kind="text" ${dis}><button class="btn sm" ${dis} data-pick="${key}" data-layer="${layer}" data-inst="${mode.instanceID||""}">选择…</button>`;
+  else if(s.type==="text") ctl=`<input class="inp" style="width:240px" value="${esc(v)}" placeholder="${esc(s.placeholder||"")}" ${on} data-kind="text" data-pattern="${esc(s.pattern||"")}" ${dis}>`;
+  const scopeCap = s.scope==="buildInstance"?`<span class="cap2 proj">${eff.layer==="parent"?"继承父模块":"构建实例"}</span>`
+    : eff.layer==="project"?`<span class="cap2 proj">本项目</span>` : projectable(s)?`<span class="cap2">全局 · 项目可覆盖</span>`:`<span class="cap2">全局</span>`;
+  const effCap={restart:`<span class="cap2 eff">重启语言服务器生效</span>`,reload:`<span class="cap2 eff">重新同步模型</span>`,nextRun:`<span class="cap2">下次运行生效</span>`,immediate:`<span class="cap2">立即生效</span>`}[s.effect];
+  const inh = note?`<span class="faint">${note}</span>` : (!own&&layer!=="application"&&editable)?`<span class="faint">继承：${({default:"默认值",application:"全局",project:"本项目",parent:"父模块"})[eff.layer]}</span>`:"";
+  return `<div class="srow ${S.hit===key?"hit":""}" data-search="${esc(s.title+" "+s.id+" "+(s.info||""))}">${own&&eff.layer!=="default"?`<span class="mod"></span>`:""}
+    <div class="lab">${esc(s.title)} ${mk(s.mk)} ${info(key,(s.info||"")+`\nID：${s.plugin}.${s.id} · 类型：${s.type}${s.toolbar?" · 也显示在工具窗口工具栏":""}`)}</div>
+    <div class="ctl">${ctl}${inh}</div>
+    <div class="badges"><span class="cap2 val" title="Core 合并后的实际生效值">= ${esc(fmt(s,v))}</span>${scopeCap}${effCap}${own&&eff.layer!=="default"?`<button class="reset" title="${layer==="application"?"恢复默认值":"清除覆盖"}" data-reset="${key}" data-layer="${layer}" data-inst="${mode.instanceID||""}">↺</button>`:""}</div></div>`;
+}
+function settingGroups(list,mode){
+  const by={}; list.forEach(s=>(by[s.section]=by[s.section]||[]).push(s));
+  return Object.entries(by).map(([sec,items])=>`<div class="subhead">${esc(sec)}</div>${items.map(s=>settingRow(s,mode)).join("")}`).join("");
+}
+function restartBars(caps){
+  return caps.filter(c=>S.pendingRestart[c]).map(c=>`<div class="restartbar">⟳ ${esc(capTitle(c))}：下次启动语言服务器时生效。<span style="flex:1"></span><button class="btn sm" data-restart="${c}">重启语言服务器</button><button class="btn sm ghost" data-dismiss="${c}">稍后</button></div>`).join("");
+}
+function providerPill(p){ return p?`<span class="provider" data-goplugin="${p.short}"><span class="picon" style="background:${p.color}">${p.letter}</span>${esc(p.name)} ${esc(p.version)}</span>`:""; }
+
+/* ===================== 导航 ===================== */
+function dynamicPages(){
+  const langs=[], builds=[];
+  S.plugins.filter(loaded).forEach(p=>p.caps.forEach(c=>{
+    if(c.kind==="languageServer" && SETTINGS.some(s=>s.cap===`languageServer:${c.id}`) && !langs.some(l=>l.id===c.lang)) langs.push({id:c.lang, from:p});
+    if(c.kind==="buildSystem") builds.push({id:c.id, from:p});
+  }));
+  const tools=S.plugins.filter(loaded).filter(p=>SETTINGS.some(s=>s.plugin===p.short&&s.cap==="plugin"));
+  return {langs,builds,tools};
+}
+const PAGE_TITLES={general:"通用",updates:"更新",editor:"编辑器",keymap:"快捷键",processTermination:"进程结束策略",git:"Git",buildTools:"构建工具",runtimes:"项目运行时",run:"运行配置",lsp:"语言服务",terminal:"终端",diagnostics:"日志与诊断",mcp:"MCP 配置",ai:"AI 与提交",agents:"Agent 管理",providers:"AI 服务商",plugins:"插件",format:"格式化与保存",filetypes:"文件类型",network:"网络与代理",trusted:"可信项目",notifications:"通知",debug:"调试",test:"测试",changes:"变更清单"};
+const GROUPS=[
+  {key:"appearance", title:"外观与行为", pages:["general","updates","editor","format","filetypes","keymap","notifications","network","trusted","processTermination"]},
+  {key:"plugins", top:true},
+  {key:"vcs", title:"版本控制", pages:["git"]},
+  {key:"build", title:"构建、执行、部署", pages:["buildTools","*builds","runtimes","run","debug","test"]},
+  {key:"lang", title:"语言与框架", pages:["lsp","*langs"]},
+  {key:"tools", title:"工具", pages:["terminal","diagnostics","*tools"]},
+  {key:"ai", title:"AI", pages:["mcp","ai","agents","providers"]}
+];
+function groupOf(page){
+  if(page.startsWith("build:")) return "build"; if(page.startsWith("lang:")) return "lang"; if(page.startsWith("tool:")) return "tools";
+  return GROUPS.find(g=>g.pages&&g.pages.includes(page))?.key;
+}
+const GICON={appearance:["◐","#5e5ce6"],plugins:["⧉","#ff9f0a"],vcs:["⑂","#f05133"],build:["▶","#34a853"],lang:["{ }","#0a84ff"],tools:["⌘","#8e8e93"],ai:["✦","#bf5af2"],changes:["✎","#5b3fb0"]};
+const gi=k=>`<span class="gi" style="background:${GICON[k][1]};${k==="lang"?"font-size:8.5px":""}">${GICON[k][0]}</span>`;
+function renderNav(){
+  const {langs,builds,tools}=dynamicPages();
+  const it=(page,label,cls="",extra="")=>`<div class="item ${cls} ${S.page===page?"sel":""}" data-page="${page}">${esc(label)}${extra}</div>`;
+  $("#nav").innerHTML = GROUPS.map(g=>{
+    if(g.top) return `<div class="grp ${S.page==="plugins"?"sel":""}" data-page="plugins">${gi("plugins")}插件</div>`;
+    const open=S.navOpen[g.key];
+    const inner=g.pages.map(pg=>{
+      if(pg==="*builds") return builds.map(b=>it(`build:${b.id}`,BUILD_NAMES[b.id],"l2",`<span class="from">${esc(b.from.name)}</span>`)).join("");
+      if(pg==="*langs") return langs.map(l=>it(`lang:${l.id}`,LANG_NAMES[l.id],"",`${mk("c-lang-pages")}<span class="from">${esc(l.from.name)}</span>`)).join("");
+      if(pg==="*tools") return tools.map(p=>it(`tool:${p.short}`,p.name,"",`${mk("c-tool-plugin")}<span class="from">插件</span>`)).join("");
+      return it(pg,PAGE_TITLES[pg],"",mk(PAGE_MK[pg]));
+    }).join("");
+    return `<div class="grp ${open?"open":""}" data-toggle="${g.key}">${gi(g.key)}${g.title}<span class="caret">▶</span></div>${open?inner:""}`;
+  }).join("") + `<div class="grp ${S.page==="changes"?"sel":""}" data-page="changes" style="margin-top:12px">${gi("changes")}变更清单 <span class="cap2" style="margin-left:auto">${CHANGES_O.length}</span></div><div style="padding:10px 10px 14px;font-size:11px;color:var(--faint);line-height:1.6">右侧小字表示该页由哪个插件的声明生成；插件停用并重启后页面消失。${marksOn()?`<br>${Object.keys(MK).map(mkStatic).join(" ")}<br>点击任意标记查看“现在 → 改成”。`:""}</div>`;
+}
+function crumb(parts,right=""){ $("#crumb").innerHTML=parts.map((p,i)=>`<span class="c ${i===parts.length-1?"last":""}">${esc(p)}</span>`).join(`<span class="c">›</span>`)+`<span class="sp"></span>${right}`; }
+
+/* ===================== 插件 ===================== */
+function pagePlugins(){
+  crumb(["插件"], `<div class="seg">${[["marketplace","插件市场"],["installed","已安装"]].map(([k,l])=>`<button class="${S.pluginTab===k?"on":""}" data-ptab="${k}">${l}</button>`).join("")}</div><button class="icon-btn" data-menu="plugin" title="插件设置">⚙︎</button>`);
+  const pendingNext = S.nextLaunch||Object.keys(S.uninstalling).length||Object.keys(S.installedNext).length;
+  const banner = pendingNext
+    ? `<div style="padding:10px 14px 0"><div class="box warn"><span class="grow">插件变更将在重启 Lithe 后生效。${Object.keys(S.uninstalling).map(id=>` 待移除：${esc(P(id).name)}。`).join("")}${Object.keys(S.installedNext).map(n=>` 待加载：${esc(n)}。`).join("")}</span><button class="btn sm pri" data-restartlithe>重启 Lithe（演示）</button></div></div>` : "";
+  return `<div style="display:flex;flex-direction:column;height:100%">${banner}<div style="flex:1;min-height:0">${S.pluginTab==="marketplace"?pageMarket():pageInstalled()}</div></div>`;
+}
+const FILTERS=[["all","全部"],["languageServer","语言服务"],["buildSystem","构建"],["debugAdapter","调试"],["toolWindow","界面"],["update","有更新"],["community","社区 / 磁盘"],["disabled","已禁用"]];
+function pageInstalled(){
+  const q=S.query.trim().toLowerCase(), slash=q.startsWith("/");
+  const match=p=>(slash||!q||(p.name+p.summary+p.caps.map(c=>c.title).join()).toLowerCase().includes(q)) &&
+    (S.filter==="all"||(S.filter==="update"?!!p.update:S.filter==="community"?["community","disk","localDevelopment"].includes(p.origin):S.filter==="disabled"?!staged(p):p.caps.some(c=>c.kind===S.filter)));
+  const all=S.plugins.filter(p=>!p.removed), list=all.filter(match);
+  const enabledCount=all.filter(staged).length;
+  const groups=[["已启用",list.filter(p=>staged(p)&&!p.builtinGroup)],["已禁用",list.filter(p=>!staged(p)&&!p.builtinGroup)],["内置功能",list.filter(p=>p.builtinGroup)]];
+  const rowh=p=>`<div class="prow ${S.selected===p.short?"sel":""}" data-sel="${p.short}">
+      <div class="picon" style="background:${p.color};${staged(p)?"":"opacity:.4"}">${p.letter}</div>
+      <div class="grow"><div class="nm">${esc(p.name)}${p.origin==="community"?`<span class="tag comm">社区</span>`:""}${p.origin==="disk"?`<span class="tag comm">磁盘</span>`:""}${p.origin==="localDevelopment"?`<span class="tag off">开发包</span>`:""}${p.retired?`<span class="tag off">已退役</span>`:""}${p.update?`<span class="tag upd">有可用更新</span>`:""}${S.uninstalling[p.short]?`<span class="tag off">重启后移除</span>`:""}</div>
+      <div class="meta">${esc(p.version)}  ${esc(p.vendor)} · ${p.caps.filter(c=>["languageServer","buildSystem","debugAdapter","toolWindow"].includes(c.kind)).map(c=>c.title.replace(/（.*）| \d[\d.]*$/,"")).join(" · ")}</div></div>
+      <button class="sw ${staged(p)?"on":""} ${p.short in S.pending?"pending":""}" data-enable="${p.short}" ${p.required||S.uninstalling[p.short]?"disabled":""} title="${p.required?"必需插件":staged(p)?"禁用":"启用"}"></button></div>`;
+  const cur=P(S.selected); const p=cur&&!cur.removed?cur:list[0];
+  const slashMenu = slash?`<div class="card" style="position:absolute;top:44px;left:10px;right:10px;z-index:20;padding:4px">${FILTERS.slice(1).map(([k,l])=>`<div class="prow" style="padding:5px 8px" data-filter="${k}" data-clearq="1"><span class="mono">/${k}</span><span class="muted">${l}</span></div>`).join("")}</div>`:"";
+  return `<div class="split">
+    <div class="lpane">
+      <div class="tools" style="position:relative">
+        <div style="display:flex;gap:6px;align-items:center"><input class="inp" style="flex:1" id="pq" placeholder="输入 / 查看选项" value="${esc(S.query)}">${nb("plugins",2)}</div>
+        ${slashMenu}
+        <div class="chips">${FILTERS.map(([k,l])=>`<span class="chip ${S.filter===k?"on":""}" data-filter="${k}">${l}</span>`).join("")}${mk("c-plg-filter")}</div>
+      </div>
+      <div class="sechead">已安装（${enabledCount} / ${all.length} 已启用） ${nb("plugins",3)}</div>
+      <div class="rows">${groups.filter(g=>g[1].length).map(([t,ps])=>`<div class="sechead">${t}</div>${ps.map(rowh).join("")}`).join("")||`<div class="empty">暂无插件</div>`}</div>
+    </div>
+    ${p?pluginDetail(p):`<div class="rpane"><div class="empty">暂无插件</div></div>`}
+  </div>`;
+}
+function trustBoxes(p){
+  const out=[];
+  if(p.retired){ const repl=MARKET.find(m=>m.id===p.replacement);
+    out.push(S.uninstalling[p.short]
+      ? `<div class="box warn"><span class="grow">请重启 Lithe 以完成 ${esc(p.name)} 的卸载，然后从插件市场安装社区插件 ${esc(repl.name)}。</span><button class="btn sm" data-gomarket="${repl.id}">打开插件市场</button></div>`
+      : `<div class="box warn"><span class="grow">${esc(p.name)} 已不再是官方插件，已迁移为 Lithe Store 中的社区插件 ${esc(repl.name)}，这里不会再收到更新。请先卸载它并重启 Lithe，再从插件市场安装社区版本。</span></div>`); }
+  if(p.origin==="community") out.push(`<div class="box warn">社区插件由第三方维护，插件问题请到它自己的仓库反馈。</div>`);
+  if(p.origin==="disk") out.push(`<div class="box warn">从磁盘安装的社区插件，尚未验证发布者与源码仓库。</div>`);
+  if(p.origin==="localDevelopment") out.push(`<div class="box err">未签名的开发包，正式版 Lithe 不会加载。</div>`);
+  return out.length?`<div style="padding:10px 22px 0;display:flex;flex-direction:column;gap:6px">${out.join("")}<div>${nb("plugins",5)}</div></div>`:"";
+}
+function pluginDetail(p){
+  const settings=SETTINGS.filter(s=>s.plugin===p.short);
+  const tabs=[["overview","概览"],["features","功能",p.caps.length],["settings","设置",settings.length],["trust","权限与程序",p.permissions.length+p.programs.length],["versions","版本与来源"]];
+  const isOn=staged(p);
+  return `<div class="rpane">
+    <div class="dhead">
+      <div class="picon" style="background:${p.color}">${p.letter}</div>
+      <div style="min-width:0">
+        <h2>${esc(p.name)} ${p.origin==="official"&&!p.retired?`<span class="tag blue">官方</span>`:""}${p.origin==="community"?`<span class="tag comm">社区</span>`:""}</h2>
+        <div class="sub"><span>${esc(p.vendor)} · ${esc(p.version)}</span>${p.short in S.pending?`<span class="st warn">等待确认</span>`:isOn?`<span class="st run">已启用</span>`:`<span class="st">已禁用</span>`}${S.loaded[p.short]!==isOn&&!(p.short in S.pending)?`<span class="faint">重启 Lithe 后生效</span>`:""}</div>
+      </div>
+      <div class="acts">
+        <button class="btn sm pri" data-enable="${p.short}" ${p.required||S.uninstalling[p.short]?"disabled":""}>${isOn?"禁用":"启用"}</button>
+        ${p.update?`<button class="btn sm" data-update="${p.short}">更新到 ${esc(p.update)}</button>`:""}
+        ${p.source&&!p.retired?`<button class="btn sm" data-reinstall="${p.short}">重新安装</button>`:""}
+        ${!p.builtinGroup?`<button class="btn sm" data-uninstall="${p.short}" ${S.uninstalling[p.short]?"disabled":""}>卸载</button>`:""}
+      </div>
+    </div>
+    ${trustBoxes(p)}
+    <div class="dtabs">${tabs.map(([k,l,c])=>`<button class="${S.detailTab===k?"on":""}" data-dtab="${k}">${l}${c?`<span class="cnt">${c}</span>`:""}</button>`).join("")}<span style="margin:0 0 8px 8px">${nb("plugins",4)} ${mk("c-plg-tabs")}</span></div>
+    <div class="dbody">${detailBody(p,settings)}</div></div>`;
+}
+function capStatus(p,c){
+  if(!loaded(p)) return `<span class="st">${staged(p)?"重启 Lithe 后启用":"插件已禁用"}</span>`;
+  const pr=proj();
+  if(c.kind==="languageServer"){
+    if(!pr.name) return `<span class="st">未打开项目</span>`;
+    if(S.lspOff[`${projectKey}|${c.lang}`]) return `<span class="st">本项目已关闭</span>`;
+    return pr.languages.includes(c.lang)?`<span class="st run">运行中</span>`:`<span class="st">按需启动，打开对应文件时运行</span>`;
+  }
+  if(c.kind==="buildSystem"){ const n=pr.builds.filter(b=>b.system===c.id).length; return n?`<span class="st run">识别到 ${n} 个实例</span>`:`<span class="st">当前项目未识别</span>`; }
+  if(c.kind==="language") return pr.languages.includes(c.id)?`<span class="st run">当前项目使用中</span>`:`<span class="st">当前项目未使用</span>`;
+  return `<span class="st run">可用</span>`;
+}
+function detailBody(p,settings){
+  const src=S.sources.find(s=>s.id===p.source);
+  if(S.detailTab==="overview"){
+    const used=p.caps.some(c=>(c.kind==="language"&&proj().languages.includes(c.id))||(c.kind==="buildSystem"&&proj().builds.some(b=>b.system===c.id)));
+    const locs=p.caps.filter(c=>capLocation(`${c.kind}:${c.id}`));
+    const toolLoc=SETTINGS.some(s=>s.plugin===p.short&&s.cap==="plugin")?capLocation("plugin",p.short):null;
+    return `<p style="margin-top:0;line-height:1.6">${esc(p.summary)}</p>
+      <div class="kv">
+        <span>状态</span><b>${p.short in S.pending?"等待确认":staged(p)?"已启用":"已禁用"}</b>
+        <span>提供</span><b>${[...new Set(p.caps.map(c=>KIND_NAMES[c.kind]))].join("、")}</b>
+        <span>当前项目</span><b>${proj().name?`${esc(proj().name)} · ${used?"已激活":"未激活"}`:"未打开项目"}</b>
+        <span>来源</span><b>${src?`安装自 ${esc(src.name)}`:p.disk?`从磁盘安装 · <span class="mono">${esc(p.disk.file)}</span>`:p.origin==="builtin"?"内置功能组":p.origin==="localDevelopment"?"本地开发目录":"随应用发行"}${p.repo?` · <span class="link">源码仓库 ↗</span>`:""}</b>
+        ${p.caps.some(c=>c.hostIntegration)?`<span>宿主集成</span><b>jdt：Java 工程模型、jdt:// 虚拟文档、测试与调试由宿主实现，插件按名字启用</b>`:""}
+        <span>设置</span><b>${settings.length?`${settings.length} 项 · <span class="link" data-dtab="settings">查看</span>`:"无"}</b>
+      </div>
+      ${locs.length||toolLoc?`<h3>在设置中配置</h3><div class="grid">${locs.map(c=>{const l=capLocation(`${c.kind}:${c.id}`);return `<div class="card cap"><span class="k">${KIND_NAMES[c.kind]}</span><span class="v">${esc(c.title)}</span><span class="link" data-page="${l.page}">${esc(l.label)} →</span></div>`}).join("")}${toolLoc?`<div class="card cap"><span class="k">插件选项 ${mk("c-tool-plugin")}</span><span class="v">${esc(p.name)}</span><span class="link" data-page="${toolLoc.page}">${esc(toolLoc.label)} →</span></div>`:""}</div>`:""}`;
+  }
+  if(S.detailTab==="features"){
+    return `<div class="muted" style="margin-bottom:10px;display:flex;gap:6px;align-items:center">按插件清单声明的能力自动生成，状态以当前项目为准。${nb("plugins",6)} ${mk("c-plg-features")}</div>
+      <div class="grid">${p.caps.map(c=>{const l=capLocation(`${c.kind}:${c.id}`);return `<div class="card cap"><span class="k">${KIND_NAMES[c.kind]}${c.program==="packaged"?" · 插件内置":c.program==="system"?" · 本机已安装":""}</span><span class="v">${esc(c.title)}</span><span class="d">${esc(c.detail)}</span>
+        <div class="row">${capStatus(p,c)}<span style="flex:1"></span>${l&&loaded(p)?`<span class="link" data-page="${l.page}">配置 →</span>`:""}${c.kind==="languageServer"&&loaded(p)?`<span class="link" data-page="lsp">状态 →</span>`:""}${c.kind==="toolWindow"&&loaded(p)?`<span class="link" data-toast="已在工作台打开「${esc(c.title)}」">打开</span>`:""}</div></div>`}).join("")}</div>`;
+  }
+  if(S.detailTab==="settings"){
+    if(!settings.length) return `<div class="empty">该插件没有声明设置。</div>`;
+    const by={}; settings.forEach(s=>(by[s.cap]=by[s.cap]||[]).push(s));
+    return `<div style="max-width:900px">${restartBars(Object.keys(by))}
+      ${marksOn()?`<div style="display:flex;gap:6px;align-items:center;margin-bottom:10px;flex-wrap:wrap">${mk("c-set-unify")} ${mk("d-plg-settings-section")} ${mk("c-set-search")}<span class="faint">设置从详情底部移到这个页签，并和构建选项共用一套声明</span></div>`:""}
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px"><input class="inp" style="width:260px" placeholder="在此插件的设置中搜索" id="sq">${nb("pluginSettings",1)}${nb("pluginSettings",2)}<span style="flex:1"></span><span class="faint">这里改的是全局值；项目与实例级的值在对应页面修改 ${nb("pluginSettings",3)}</span></div>
+      ${Object.entries(by).map(([cap,list])=>{const l=loaded(p)?capLocation(cap,p.short):null;return section(cap==="plugin"?"插件选项":`${KIND_NAMES[cap.split(":")[0]]} · ${capTitle(cap)}`,"",settingGroups(list,{layer:"application"}), l?`<span class="faint">也显示在</span> <span class="link" data-page="${l.page}">${esc(l.label)}</span>`:"", cap)}).join("")}
+      <div class="faint" style="display:flex;gap:6px;align-items:center">${nb("pluginSettings",4)} 值合法时立即保存；数字超出范围时提示“请输入 2048 到 16384 之间的整数”，并保留上一个合法值。<span style="flex:1"></span><button class="btn sm" data-resetplugin="${p.short}">恢复默认值</button></div></div>`;
+  }
+  if(S.detailTab==="trust"){
+    return `<h3>权限 ${mk("c-plg-perm")}</h3>${p.permissions.length?`<ul style="margin:0;padding-left:18px;line-height:1.9">${p.permissions.map(x=>`<li>${esc(PERM_TEXT[x]||x)} <span class="faint mono">${esc(x)}</span></li>`).join("")}</ul>`:`<span class="muted">不需要额外权限。</span>`}
+      <h3>可以运行的程序</h3>${p.programs.length?p.programs.map(x=>`<div style="margin-bottom:8px"><div class="muted" style="margin-bottom:3px">${esc(x.t)}</div><div class="code">${esc(x.c)}</div></div>`).join("")+`<details><summary>完整程序声明</summary><div class="code">${esc(JSON.stringify({programs:p.programs.map(x=>({arguments:x.c.split(" ")}))},null,2))}</div></details>`:`<span class="muted">不启动任何进程。</span>`}
+      <h3>说明</h3><p class="muted" style="line-height:1.6;margin:0">设置值只能落在模板划定的位置（\${setting:…} / \${optionArguments}），不能改变这里列出的程序，所以修改设置不需要重新审查。</p>`;
+  }
+  return `<div class="kv">
+      <span>当前版本</span><b>${esc(p.version)}</b>
+      <span>上一版本</span><b>${p.prev?`${esc(p.prev)} · <span class="link" data-toast="演示：已回滚到 ${esc(p.prev)}，重启 Lithe 后生效">回滚</span>`:"—"} ${mk("c-plg-rollback")}</b>
+      <span>更新来源</span><b>${src?`${esc(src.name)}，更新只会来自该仓库`:p.disk?"市场外管理，没有更新源":p.origin==="builtin"?"随应用更新":"—"}</b>
+      ${p.disk?`<span>本地插件包</span><b class="mono">${esc(p.disk.file)}</b><span>归档 SHA-256</span><b class="mono">${esc(p.disk.archive)}</b>`:""}
+      ${p.origin!=="builtin"?`<span>内容 SHA-256</span><b class="mono">${p.disk?esc(p.disk.content):"9f3c…a71e"} · 每次扫描重新校验</b>`:""}
+      ${p.origin==="official"&&!p.retired?`<span>签名</span><b>Lithe 发布者签名已验证</b>`:""}
+      <span>支持平台</span><b>macOS (Apple Silicon)、macOS (Intel)</b>
+      <span>插件 ID</span><b class="mono">${esc(p.id)}</b>
+      ${p.caps.some(c=>c.kind==="languageServer")?`<span>插件状态</span><b><span class="link" data-toast="演示：已停止语言服务器并清除索引与 workspace">清除插件状态…</span> ${mk("c-plg-clear")}<div class="faint">删除 Application Support 下该插件的索引和 workspace，不动插件包</div></b>`:""}</div>`;
+}
+
+/* 插件市场 */
+function marketState(m){
+  const inst=S.plugins.find(p=>p.id===m.id&&!p.removed);
+  if(m.apiUnsupported) return {label:"不支持", dis:true, why:"该插件需要更新版本的 Lithe。"};
+  if(m.unsupported) return {label:"不支持", dis:true, why:m.unsupported};
+  if(S.installedNext[m.name]) return {label:"已安装", dis:true, why:`已安装版本 ${m.version}，重启 Lithe 后生效。`};
+  if(m.replaces){ const old=PById(m.replaces); if(old&&!old.removed){ return S.uninstalling[old.short]?{label:"需先卸载旧版",dis:true,why:`请重启 Lithe 以完成 ${old.name} 的卸载，然后再安装此插件。`}:{label:"需先卸载旧版",dis:true,why:`请先在“已安装”中卸载 ${old.name} 并重启 Lithe。它是此插件已退役的官方版本，支持同一种语言。`}; } }
+  if(inst&&inst.update) return {label:"更新", update:true, why:`从 ${S.sources.find(s=>s.id===inst.source)?.name} 安装，更新只会来自该仓库。`};
+  if(inst) return {label:"已安装", dis:true, why: inst.bundled?`版本 ${inst.version} 为内置或从磁盘安装。`:`已安装版本 ${inst.version}。`};
+  return {label:"安装"};
+}
+function pageMarket(){
+  const q=S.mQuery.toLowerCase();
+  let list=MARKET.filter(m=>S.sources.some(s=>s.id===m.source)&&(S.mSource==="all"||m.source===S.mSource)&&(!q||(m.name+m.desc+m.provides.join()).toLowerCase().includes(q)));
+  list.sort(S.mSort==="name"?(a,b)=>a.name.localeCompare(b.name):(a,b)=>a.updated-b.updated);
+  const m=list.find(x=>x.id===S.mSelected)||list[0];
+  return `<div class="split">
+    <div class="lpane"><div class="tools">
+      <div style="display:flex;gap:6px"><input class="inp" style="flex:1" id="mq" placeholder="搜索插件" value="${esc(S.mQuery)}">${nb("market",1)}</div>
+      <div style="display:flex;gap:6px"><select class="inp" style="flex:1" id="mSource" title="插件仓库"><option value="all">全部仓库</option>${S.sources.map(s=>`<option value="${s.id}" ${S.mSource===s.id?"selected":""}>${esc(s.name)}</option>`).join("")}</select>
+      <select class="inp" id="mSort" title="插件排序"><option value="name" ${S.mSort==="name"?"selected":""}>按名称排序</option><option value="updated" ${S.mSort==="updated"?"selected":""}>按最近更新排序</option></select></div></div>
+      <div class="rows">${list.length?list.map(x=>{const st=marketState(x);return `<div class="prow ${m&&m.id===x.id?"sel":""}" data-msel="${x.id}"><div class="picon" style="background:${x.color}">${x.letter}</div><div class="grow"><div class="nm">${esc(x.name)}${x.source==="official"?`<span class="tag blue">官方</span>`:`<span class="tag comm">社区</span>`}</div><div class="meta">${esc(x.author)} · ${esc(x.version)}</div></div>
+        ${st.update?`<button class="btn sm pri" data-minstall="${x.id}">更新</button>`:st.dis?`<span class="faint" style="white-space:nowrap">${st.label}</span>`:`<button class="btn sm" data-minstall="${x.id}">安装</button>`}</div>`}).join(""):`<div class="empty">${q?"没有匹配的插件":"暂无可用插件"}</div>`}</div>
+    </div>
+    ${m?marketDetail(m):`<div class="rpane"><div class="empty">选择一个插件</div></div>`}</div>`;
+}
+function marketDetail(m){
+  const st=marketState(m), src=S.sources.find(s=>s.id===m.source);
+  const inst=S.plugins.find(p=>p.id===m.id&&!p.removed);
+  const locs=[]; m.provides.forEach(t=>{ const v=t.replace(/^.*?：/,"").split("（")[0]; if(t.startsWith("语言服务器")) locs.push(`语言与框架 › 语言服务`); if(t.startsWith("构建系统")) locs.push(`构建工具 › ${v}`); if(t.startsWith("运行时")) locs.push("项目运行时"); });
+  return `<div class="rpane"><div class="dhead"><div class="picon" style="background:${m.color}">${m.letter}</div><div><h2>${esc(m.name)} ${m.source==="official"?`<span class="tag blue">官方</span>`:`<span class="tag comm">社区</span>`}</h2><div class="sub">${esc(m.author)} · ${esc(m.repo)}</div></div>
+    <div class="acts">${st.update?`<button class="btn sm pri" data-minstall="${m.id}">更新到 ${esc(inst.update)}</button>`:st.dis?`<button class="btn sm" disabled>${st.label}</button>`:`<button class="btn sm pri" data-minstall="${m.id}">从仓库安装</button>`}${inst&&!inst.bundled?`<button class="btn sm" data-uninstall="${inst.short}">卸载</button>`:""}</div></div>
+    <div class="dbody">
+      ${st.why?`<div class="box ${st.dis&&st.label!=="已安装"?"warn":"info"}" style="margin-bottom:12px">${esc(st.why)}</div>`:""}
+      <p style="margin-top:0;line-height:1.6">${esc(m.desc)}</p>
+      <h3>安装后提供 ${nb("market",2)} ${mk("c-mkt-provides")}</h3>
+      <div class="chips" style="margin-bottom:6px">${m.provides.map(t=>`<span class="tag" style="font-size:11.5px;padding:2px 8px">${esc(t)}</span>`).join("")}</div>
+      ${locs.length?`<div class="faint">将出现在：${[...new Set(locs)].map(esc).join("、")}</div>`:""}
+      <h3>信息</h3><div class="kv">
+        <span>仓库</span><b>${esc(src?.name)}</b>
+        <span>版本</span><b>${esc(m.version)}</b>
+        ${m.latestNote?`<span>最新版本</span><b>${esc(m.latestNote)}</b>`:""}
+        <span>发布日期</span><b>${esc(m.date)}</b><span>许可证</span><b>${esc(m.license)}</b>
+        <span>支持平台</span><b>${m.platforms.map(x=>({"darwin-arm64":"macOS (Apple Silicon)","darwin-x64":"macOS (Intel)","win32-x64":"Windows (x64)"})[x]).join("，")}</b></div>
+      <h3>信任 ${nb("market",3)}</h3><div class="box ${m.source==="official"?"info":"warn"}">${m.source==="official"?"该插件由 Lithe 维护并签名，问题请在源码仓库反馈。":"插件由社区开发者维护，并非 Lithe 官方出品。Lithe 已校验下载内容与插件仓库一致，并会在安装前列出插件能运行的程序。插件问题请到插件自己的仓库反馈。"}</div>
+      <div style="margin-top:10px;display:flex;gap:14px"><span class="link">源码仓库 ↗</span><span class="link">主页 ↗</span></div>
+    </div></div>`;
+}
+
+/* ===================== 语言服务与语言页 ===================== */
+function lspRows(){
+  const pr=proj(), rows=[];
+  pr.languages.forEach(lang=>{
+    const providers=S.plugins.filter(p=>!p.removed&&p.caps.some(c=>c.kind==="languageServer"&&c.lang===lang));
+    const live=providers.find(p=>loaded(p)&&!p.retired);
+    const retired=providers.find(p=>p.retired);
+    if(live){ rows.push({lang, p:live, c:live.caps.find(c=>c.kind==="languageServer"&&c.lang===lang)}); return; }
+    let hint, action;
+    const market=MARKET.find(m=>m.provides.includes(`语言：${LANG_NAMES[lang]}`));
+    if(lang==="typescript"){ rows.push({lang, hint:"由内置 TypeScript 支持提供（不经插件），不在这里显示开关。", builtin:true}); return; }
+    if(retired && S.uninstalling[retired.short]) hint=`请重启 Lithe 以完成旧版 ${retired.name} 的卸载，然后从插件市场安装社区插件 ${market.name}。`;
+    else if(retired) hint=`${retired.name} 已迁移为 Lithe Store 社区插件，旧官方版不再更新。请在插件管理中卸载旧版并重启 Lithe，再安装社区版。`;
+    else if(providers.length && staged(providers[0])) hint=`${providers[0].name} 已安装，重启 Lithe 后才能在这里控制语言服务器。`;
+    else if(providers.length) hint=`${providers[0].name} 插件已禁用，请先在插件管理中启用。`;
+    else if(market && S.installedNext[market.name]) hint=`${market.name} 已安装，重启 Lithe 后才能在这里控制语言服务器。`;
+    else if(market) { hint=`检测到 ${LANG_NAMES[lang]} 项目，请在插件管理的插件市场中，从 Lithe Store 安装 ${market.name}。`; action=market.id; }
+    else hint=`检测到 ${LANG_NAMES[lang]} 文件，暂无提供语言服务的插件。`;
+    rows.push({lang, hint, action:action||(retired&&S.uninstalling[retired.short]?market.id:null), owner:retired||providers[0]});
+  });
+  return rows;
+}
+function pageLsp(){
+  crumb(["语言与框架","语言服务"]);
+  const pr=proj();
+  if(!pr.name) return `<div class="page"><div class="empty">当前项目没有可配置的语言服务器<br><span class="faint">识别到支持的源码语言后，会在这里显示对应设置。</span></div></div>`;
+  const mem={jdtls:"612 MB",gopls:"148 MB","rust-analyzer":"390 MB",intelephense:"96 MB",basedpyright:"180 MB"};
+  const off=r=>S.lspOff[`${projectKey}|${r.lang}`];
+  const status=r=>{ if(off(r)) return `<span class="st">已关闭</span>`;
+    if(r.c.id==="jdtls") return S.misc.mavenFailed?`<span class="st warn">部分模块失败（1/3），语言服务仍可用</span>`:`<span class="st run">运行中</span>`;
+    if(r.lang==="rust") return `<span class="st warn">正在初始化项目索引</span>`; return `<span class="st run">运行中</span>`; };
+  return `<div class="page" style="max-width:1000px">
+    ${marksOn()?`<div style="margin-bottom:8px">${mk("c-lsp-replace")} <span class="faint">原“LSP 控制中心”：保留规则和提示，新增提供方、内存、重启、日志和设置入口</span></div>`:""}
+    <div class="banner"><b>${esc(pr.name)}</b> 仅显示当前项目使用的语言。开关状态会自动为此项目保存，关闭后会停止语言服务器并释放资源，下次打开仍保持关闭。 ${nb("lsp",1)}</div>
+    <table class="t"><tr><th>语言</th><th>语言服务器</th><th>提供方 ${nb("lsp",2)}</th><th>状态</th><th>内存 ${mk("c-lsp-mem")}</th><th>启用</th><th></th></tr>
+    ${lspRows().map(r=>r.c?`<tr><td><b>${LANG_NAMES[r.lang]}</b></td><td>${esc(r.c.title)}<div class="faint">${esc(r.c.detail)}</div></td><td>${providerPill(r.p)}</td><td>${status(r)}${r.c.id==="jdtls"&&!off(r)?`<div class="faint">${S.misc.mavenFailed?`<span class="link" data-toggle-maven>重试 Maven 配置</span>`:`语言服务已连接，Maven 配置已应用 · <span class="link" data-toggle-maven>模拟失败</span>`}</div>`:""}</td>
+        <td>${off(r)?"—":(mem[r.c.id]||"—")}</td>
+        <td><button class="sw ${off(r)?"":"on"}" data-lspoff="${r.lang}" title="启用 ${esc(r.c.title)} 语言服务器"></button></td>
+        <td style="white-space:nowrap">${off(r)?"":`<span class="link" data-restart="languageServer:${r.c.id}">重启</span> · <span class="link" data-toast="已在“语言服务器日志”工具窗口打开 ${esc(r.c.title)}">日志</span> · `}${SETTINGS.some(s=>s.cap===`languageServer:${r.c.id}`)?`<span class="link" data-page="lang:${r.lang}">设置</span>`:`<span class="faint">无设置</span>`}</td></tr>`
+      : r.builtin?`<tr><td><b>${LANG_NAMES[r.lang]}</b></td><td colspan="6" class="muted">${esc(r.hint)}</td></tr>`
+      : `<tr><td><b>${LANG_NAMES[r.lang]}</b></td><td colspan="5"><div class="box warn" style="padding:5px 8px"><span class="grow">${esc(r.hint)} ${nb("lsp",3)}</span></div></td><td><span class="link" ${r.action?`data-gomarket="${r.action}"`:`data-goplugin="${r.owner?.short||""}"`}>打开插件管理</span></td></tr>`).join("")}
+    </table>
+    <div style="margin-top:14px">${section("通用","对所有语言服务器生效。",row("空闲时自动停止","没有打开该语言的文件超过这个时间后停止语言服务器，再次打开文件时按需启动。",W.sel("lsp.idle",["从不","10 分钟","30 分钟","1 小时"],"从不",120),"","c-lsp-idle")+row("语言服务器总内存预算","超出时提示停止最久未用的语言服务器。",W.sel("lsp.max",["不限制","4 GB","8 GB","16 GB"],"不限制",120),"","c-lsp-max")+row("LSP 通信日志级别","",W.sel("lsptrace",["off","messages","verbose"],"off",120),"","c-lsp-trace"))}</div>
+    <div class="faint" style="margin-top:10px">其他状态文案沿用原控制中心：正在启动 / 正在停止 / 启动失败，请检查 LSP 运行 JDK / 启动失败，请检查语言服务器配置 / 因上次启动异常被隔离，请先在插件管理中重新启用。</div></div>`;
+}
+function pageLang(lang){
+  crumb(["语言与框架",LANG_NAMES[lang]]);
+  const servers=[]; S.plugins.filter(loaded).forEach(p=>p.caps.forEach(c=>{if(c.kind==="languageServer"&&c.lang===lang)servers.push({p,c})}));
+  const can=!!proj().name, layer=S.langScope==="project"&&can?"project":"application";
+  return `<div class="page">
+    <div class="banner">由 ${servers.map(({p})=>providerPill(p)).join(" ")} 提供 ${nb("lang",1)} ${mk("c-lang-pages")}<span style="flex:1"></span>${nb("lang",2)} ${mk("c-set-scope")} ${mk("c-set-effect")}
+      <div class="seg"><button class="${layer==="application"?"on":""}" data-lscope="application">全局默认</button><button class="${layer==="project"?"on":""}" data-lscope="project" ${can?"":"disabled title='未打开项目'"}>本项目${can?`（${esc(proj().name)}）`:""}</button></div></div>
+    ${restartBars(servers.map(s=>`languageServer:${s.c.id}`))}
+    ${servers.map(({p,c})=>section(c.title,"",settingGroups(SETTINGS.filter(s=>s.cap===`languageServer:${c.id}`),{layer}),`${capStatus(p,c)} <span class="link" data-page="lsp">语言服务状态 →</span>`)).join("")}
+    ${lang==="java"?section("相关设置","",`<div class="muted" style="padding:4px 8px;line-height:1.6">Maven / Gradle 的导入选项（Profile、settings.xml、离线）会同时传给 JDT LS，在 <span class="link" data-page="build:maven">构建工具 › Maven</span> 配置；项目 JDK 在 <span class="link" data-page="runtimes">项目运行时</span> 配置。JDT LS 自己运行时用的是插件内置 JDK，不受项目 JDK 影响。</div>`):""}
+    <div class="faint">${nb("lang",3)} ${mk("c-lang-choose")} 只有一个插件提供 ${LANG_NAMES[lang]} 语言服务器，所以没有显示“使用哪个语言服务器”。</div></div>`;
+}
+
+/* ===================== 构建工具与项目运行时 ===================== */
+function pageBuildTools(){
+  crumb(["构建、执行、部署","构建工具"]);
+  const pr=proj(), {builds}=dynamicPages();
+  const rows=pr.builds.map(b=>{const owner=builds.find(x=>x.id===b.system);return `<tr><td style="padding-left:${b.parent?28:8}px"><b>${BUILD_NAMES[b.system]}</b></td><td class="mono">${esc(b.root)}</td><td>${esc(b.detail)}</td><td>${!owner?`<span class="st warn">插件未启用</span>`:b.state==="syncing"?`<span class="st warn">同步中</span>`:`<span class="st run">已同步</span>`}</td><td>${owner?`<span class="link" data-page="build:${b.system}" data-binst="${b.id}">配置 →</span>`:""}</td></tr>`}).join("");
+  return `<div class="page" style="max-width:960px">
+    <h3>当前项目识别到的构建实例 ${nb("buildIndex",1)} ${mk("c-build-index")}</h3>
+    ${pr.builds.length?`<table class="t"><tr><th>构建系统</th><th>根文件</th><th>结构</th><th>状态</th><th></th></tr>${rows}</table>`:`<div class="empty" style="padding:24px">${pr.name?"此工作区未检测到构建系统。":"打开项目后即可查看识别到的构建系统。"}</div>`}
+    <h3>已安装的构建系统</h3><div class="grid">${builds.map(b=>`<div class="card cap"><span class="k">${esc(b.from.name)}</span><span class="v">${BUILD_NAMES[b.id]}</span><span class="d">${esc(b.from.caps.find(c=>c.id===b.id).detail)}</span><div class="row"><span class="link" data-page="build:${b.id}">配置 →</span></div></div>`).join("")}</div>
+    <h3>通用 ${nb("buildIndex",2)}</h3>
+    ${section("同步","构建文件（pom.xml、Cargo.toml……）变化后如何更新项目模型。",row("构建文件变化后","",W.sel("buildReload",[["auto","自动重新加载"],["ask","提示我重新加载"],["manual","手动"]],"ask",200),"","c-build-reload")+row("打开项目时加载项目模型","可能会执行构建工具；关闭后需要在工具窗口中点击“加载项目模型”。不受信任的项目不会自动加载。",W.tg("buildLoadOnOpen",true),"","c-build-loadonopen"))}
+  </div>`;
+}
+function pageBuild(sys){
+  const pr=proj(), owner=capOwner(`buildSystem:${sys}`);
+  const inst=pr.builds.filter(b=>b.system===sys);
+  let scope=S.buildScope[sys];
+  if(!pr.name) scope="__app";
+  else if(scope===undefined||(scope!=="__app"&&scope!=="__project"&&!inst.some(i=>i.id===scope))) scope="__project";
+  S.buildScope[sys]=scope;
+  const mode = scope==="__app"?{layer:"application"}:scope==="__project"?{layer:"project"}:{layer:"instance",instanceID:scope};
+  crumb(["构建、执行、部署","构建工具",BUILD_NAMES[sys]]);
+  const inv=BUILD_INVOCATION[sys], rt=RUNTIMES[inv.runtime];
+  const key=`inv.${sys}.${scope}`;
+  const inheritOpt = scope==="__app"?null:scope==="__project"?"继承全局":"继承项目";
+  const invSel=mv(`${key}.source`, inheritOpt?"inherit":"automatic");
+  const rtSel=mv(`${key}.rt`,"project");
+  const invBody = row(inv.title, inv.info, W.sel(`${key}.source`, (inheritOpt?[["inherit",inheritOpt]]:[]).concat(inv.options), inheritOpt?"inherit":"automatic", 220))
+    + (invSel==="custom"?row(inv.customLabel,"",W.path(`${key}.home`,inv.customPh,"选择…")):"")
+    + `<div class="eff-label">实际使用：<b>${esc(invSel==="inherit"?inv.effective.automatic:inv.effective[invSel]||inv.effective.automatic)}</b><span class="cap2">${invSel==="inherit"?inheritOpt:invSel==="custom"?"已选择":"自动"}</span></div>`
+    + row(inv.runtimeLabel,"", W.sel(`${key}.rt`, [["project",`使用项目 ${rt.title}`]].concat(rt.detected.slice(1).map(d=>[d[0],d[1]])), "project", 260))
+    + `<div class="eff-label">实际使用：<b>${esc(rtSel==="project"?rt.detected[0][1].replace(/^检测到的 \S+ · /,""):rt.detected.find(d=>d[0]===rtSel)?.[1])}</b><span class="cap2">${rtSel==="project"?"继承项目":"已选择"}</span></div>`;
+  const list=SETTINGS.filter(s=>s.cap===`buildSystem:${sys}`);
+  return `<div class="page">
+    <div class="banner">由 ${providerPill(owner)} 提供 ${nb("build",2)}<span style="flex:1"></span>作用于 ${nb("build",3)}
+      <select class="inp" id="bscope" data-sys="${sys}"><option value="__app" ${scope==="__app"?"selected":""}>全局默认（所有项目）</option>${pr.name?`<option value="__project" ${scope==="__project"?"selected":""}>本项目（${esc(pr.name)}）</option>`:""}${inst.map(i=>`<option value="${i.id}" ${scope===i.id?"selected":""}>${i.parent?"　└ ":""}${esc(i.root)}</option>`).join("")}</select></div>
+    ${!inst.length&&pr.name?`<div class="box info" style="margin-bottom:10px">此工作区未检测到 ${BUILD_NAMES[sys]} 工程。实例级选项需要在识别到实例后设置。</div>`:""}
+    ${section("调用方式","来源和运行时是所有构建系统共有的部分，由声明的 invocation 与 runtimeDependencies 生成。",invBody,nb("build",1),"",sys==="maven"?"c-build-pages":"c-build-inv")}
+    ${section(`${BUILD_NAMES[sys]} 选项`,"",settingGroups(list,mode)+`<div class="faint" style="padding:6px 8px">${nb("build",4)} 带“构建实例”胶囊的选项要选中某个实例才能修改；子模块没有设置时继承父模块。</div>`,"","","c-set-types")}
+    ${section("工具窗口工具栏预览","",`<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:4px 8px"><span class="btn sm">⟳ 重新加载 ${BUILD_NAMES[sys]} 项目</span><span class="btn sm">▶ 运行所选任务</span>${list.filter(s=>s.toolbar).map(s=>{const v=effective(s,mode.instanceID).value;return `<span class="chip ${v?"on":""}">${esc(s.title)}：${v?"开启":"关闭"}</span>`}).join("")}<span class="faint">与上方是同一份值</span></div>`,"","","c-build-toolbar")}
+    <div class="faint">项目级与实例级设置会保存在本机的项目配置中。</div></div>`;
+}
+function pageRuntimes(){
+  crumb(["构建、执行、部署","项目运行时"], `${mk("c-runtime-split")} ${mk("d-proj-page")}<button class="icon-btn" title="刷新运行时检测结果" data-toast="正在检测…">⟳</button>`);
+  const pr=proj();
+  if(!pr.name) return `<div class="page"><div class="empty">打开项目后即可配置项目运行时。<br><span class="faint">应用级编辑器和终端设置仍可在其他分类中使用。</span></div></div>`;
+  const needed=Object.entries(RUNTIMES).filter(([k,r])=>loaded(P(r.plugin))&&pr.subprojects.some(sp=>r.kinds.includes(sp.kind)));
+  const sel=S.runtimeSel, sp=pr.subprojects.find(x=>x.id===sel);
+  const label=r=>r.replace(/^检测到的 \S+ · /,"");
+  let detail;
+  if(!sp){
+    detail = needed.map(([k,r])=>{ const key=`rt.${projectKey}.${k}`, v=mv(key,"auto");
+      return section(r.title, r.info, row(`项目 ${r.title}`,"",W.sel(key, r.detected.map(d=>[d[0],d[1]]), "auto", 300)+`<button class="btn sm" data-pickmisc="${key}">选择目录…</button>`+(k==="java"?`<button class="btn sm" data-toast="演示：选择发行版与版本，下载到 ~/Library/Caches/Lithe/jdks">下载 JDK…</button>${mk("c-runtime-download")}`:""))
+        +`<div class="eff-label">实际使用：<b>${esc(label(r.detected.find(d=>d[0]===v)?.[1]||"已选择"))}</b><span class="cap2">${v==="auto"?esc(r.detected[0][2]):"已选择"}</span></div>`,
+        `<span class="faint">用于：${r.requiredBy.join("、")} · 由 ${esc(P(r.plugin).name)} 声明</span>`,"",k==="java"?"":"c-runtime-generic"); }).join("")
+      + (needed.length?"":`<div class="empty">已启用的插件没有为当前项目声明需要的运行时。</div>`)
+      + `<div class="faint">项目运行时设置会保存在本机的项目配置中。</div>`;
+  } else {
+    const rs=needed.filter(([k,r])=>r.kinds.includes(sp.kind));
+    detail = !rs.length ? `<div class="box info">此子项目不使用以上运行时。前端和其他根目录沿用工作区的编辑器和终端设置。</div>`
+      : rs.map(([k,r])=>{ const key=`rt.${projectKey}.${sp.id}.${k}`, v=mv(key,"inherit");
+        return section(r.title,"此子项目可以使用与同一工作区中其他子项目不同的运行时。",row(`项目 ${r.title}`,"",W.sel(key,[["inherit",`继承项目 ${r.title}`]].concat(r.detected.slice(1).map(d=>[d[0],d[1]])),"inherit",300)+`<button class="btn sm" data-pickmisc="${key}">选择目录…</button>`)
+        +`<div class="eff-label">实际使用：<b>${esc(v==="inherit"?label(r.detected[0][1]):r.detected.find(d=>d[0]===v)?.[1]||"已选择")}</b><span class="cap2">${v==="inherit"?"继承项目":"已选择"}</span></div>`); }).join("")
+      + (sp.kind==="java"?`${ghost("继承项目 Maven / Maven JDK","d-subproject-maven","→ 构建工具 › Maven（选中该模块的构建实例）")}<div class="faint">此子项目的 Maven 来源、Maven JDK 在 <span class="link" data-page="build:maven" data-binst="maven:${sp.id}">构建工具 › Maven › ${esc(sp.path)}/pom.xml</span> 中覆盖。</div>`:"");
+  }
+  return `<div class="split"><div class="lpane" style="width:260px"><div class="sechead">${esc(pr.name)} ${nb("runtimes",2)}</div><div class="tree">
+      <div class="tr ${!sp?"sel":""}" data-rtsel="__defaults">📦 项目默认值</div>
+      ${pr.subprojects.map(x=>`<div class="tr ${sel===x.id?"sel":""}" data-rtsel="${x.id}" style="padding-left:22px">📁 ${esc(x.path)} <span class="faint" style="margin-left:auto">${esc(x.detail)}</span></div>`).join("")}</div></div>
+    <div class="rpane"><div class="dbody" style="max-width:860px"><div style="font-weight:600;margin-bottom:8px;display:flex;gap:6px">${sp?esc(sp.path):"项目默认值"} ${nb("runtimes",1)} ${nb("runtimes",3)}</div>${detail}</div></div></div>`;
+}
+
+/* ===================== 原样搬入的页面 ===================== */
+function pageGeneral(){
+  crumb(["外观与行为","通用"]);
+  return `<div class="page">
+    ${section("外观","选择配色主题，并设置是否跟随系统外观。", row("配色主题","",W.sel("theme",["Lithe","Codex","Linear"],"Lithe",200))+row("外观模式","",W.sel("appearance",[["system","跟随系统"],["light","浅色"],["dark","深色"]],"system",200))
+      +row("工作台背景","显示在整个工作台内，包括工具栏、项目文件树、编辑区、标签栏、终端和状态栏。",`<span class="muted">未选择背景图片</span><button class="btn sm">选择图片…</button>`)+row("工作台不透明度","",`<input type="range" min="0" max="100" value="${mv("opacity",100)}" data-misc="opacity"> <span class="faint">${mv("opacity",100)}%</span>`)+row("界面字号","",W.sel("uifont",["小","标准","大"],"标准",120),"","c-uifont"))}
+    ${section("语言","界面语言会立即生效。默认语言为英文。",row("语言","",W.sel("lang",["英文","简体中文"],"简体中文",200)))}
+    ${section("项目","",row("项目打开方式","选择打开其他项目时是每次询问、保留在此窗口，还是创建新窗口。",W.sel("openIn",["每次询问","此窗口","新窗口"],"每次询问",200))+row("启动时重新打开上次的项目","",W.tg("reopen",true),"","c-reopen"))}
+    ${section("文件","",row("自动保存已修改的文件","",W.tg("autosave",true))+(mv("autosave",true)?row("保存延迟","",W.sel("saveAfter",["0.5 秒","1.5 秒","3 秒"],"1.5 秒",140)):""))}
+    ${marksOn()?section("Git","",ghost("本地更改保存方式","m-gitsave","→ 版本控制 › Git › 本地更改")):""}
+    ${section("隐藏路径","每行输入一项。目录名用于隐藏匹配的文件夹；文件条目支持 * 和 ?。",`<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:4px 8px"><div><div class="muted">目录</div><textarea class="inp" rows="4">.git\nnode_modules\n.idea</textarea></div><div><div class="muted">文件模式</div><textarea class="inp" rows="4">.DS_Store\n*.swp</textarea></div></div><div style="text-align:right;padding:0 8px"><button class="btn sm">应用</button></div>`)}
+    ${section("导入与导出","不包含 API 密钥、凭据和插件包本身。",`<div style="padding:4px 8px;display:flex;gap:6px"><button class="btn sm" data-toast="演示：导出设置">导出设置…</button><button class="btn sm" data-toast="演示：导入前会显示差异">导入设置…</button></div>`,"","","c-export")}
+    <div style="text-align:right"><button class="btn sm">恢复默认设置</button></div>
+  </div>`;
+}
+function pageUpdates(){
+  crumb(["外观与行为","更新"]);
+  return `<div class="page">${section("应用版本","Lithe 会检查 GitHub Releases 中发布的更新。",row("当前版本","",`<span class="mono">1.18.0 (preview)</span>`)+row("更新渠道","",W.sel("channel",["稳定版","预览版","AutoBuild"],"预览版",160))+row("更新状态","",`<span class="muted">${esc(mv("upd","尚未执行更新检查。"))}</span>`)+`<div style="padding:4px 8px"><button class="btn sm" data-misc-set="upd" data-val="Lithe 已是最新版本 1.18.0。">检查更新</button></div>`,"","","c-upd-split")}
+    ${section("插件更新","",row("自动检查插件更新","只检查，不自动安装。社区插件更新前仍会显示安装审查。",W.sel("pupd",["每天","每周","从不"],"每天",120),"","c-plg-autoupdate")+row("可更新的插件","",`<span>${S.plugins.filter(p=>p.update&&!p.removed).length} 个</span><span class="link" data-filter="update" data-page="plugins">在插件页查看 →</span>`),"","","c-upd-split")}</div>`;
+}
+function pageEditor(){
+  crumb(["外观与行为","编辑器"]);
+  return `<div class="page">${section("显示","",row("字体","",W.sel("font",["JetBrains Mono","SF Mono","Menlo","Fira Code"],"JetBrains Mono",220))+row("字体大小","",W.sel("fsize",["12 pt","13 pt","14 pt","15 pt"],"13 pt",120))+row("文件树行高","",W.sel("rowh",["24 pt","26 pt","28 pt"],"26 pt",120))+row("显示引用数量和 Git 作者","",W.tg("usages",true))+row("显示代码缩略图","",W.tg("minimap",false))
+    +row("字体连字","",W.tg("ligature",true),"","c-ed-display")+row("软换行","",W.sel("wrap",["关闭","按窗口宽度","按列数"],"关闭",140),"","c-ed-display")+row("显示空白字符","",W.sel("ws",["不显示","仅选中时","总是"],"不显示",140),"","c-ed-display")+row("缩进参考线","",W.tg("guides",true),"","c-ed-display")+row("括号对着色","",W.tg("brackets",false),"","c-ed-display")+row("光标样式","",W.sel("caret",["竖线","方块","下划线"],"竖线",120),"","c-ed-display")
+    +row("编辑器配色方案","",W.sel("scheme",["跟随界面主题","Lithe Light","Lithe Dark","Solarized"],"跟随界面主题",180),"","c-ed-colors")
+    +`<div class="preview" style="margin:6px 8px">func greet(name: String) -> String { "Hello, \\(name)!" } // 0O Il1</div>`)}
+    ${section("编辑器标签栏","",row("布局","",W.sel("tabs",["单行","多行展开"],"单行",160)))}
+    ${section("嵌入提示","由语言服务器的 inlayHint 提供，对所有语言生效；语言页可以单独关闭。",row("参数名","",W.tg("ih.param",true),"","c-inlay")+row("推断类型","",W.tg("ih.type",false),"","c-inlay")+row("按住 ⌥ 时才显示","",W.tg("ih.alt",false),"","c-inlay"),"","","c-inlay")}
+    ${section("性能","",row("大文件阈值","超过后关闭语法高亮和语言服务。",W.sel("large",["2 MB","5 MB","20 MB"],"5 MB",100),"","c-ed-large"))}
+    ${marksOn()?section("缩进","",ghost("Tab 宽度","c-ed-tab-lang","→ 外观与行为 › 格式化与保存（可按语言覆盖）")):section("缩进","",row("Tab 宽度","",W.sel("tabw",["2 空格","4 空格","8 空格"],"4 空格",120)))}</div>`;
+}
+function pageKeymap(){
+  crumb(["外观与行为","快捷键"],`<button class="btn sm">全部恢复默认</button>`);
+  const rows=[["编辑器","查找","⌘F"],["编辑器","替换","⌘R"],["导航","转到文件","⇧⌘O"],["导航","转到符号","⌥⌘O"],["运行","运行","⌃R"],["运行","调试","⌃D"],["Git","提交","⌘K"],["Git","推送","⇧⌘K"],["插件 · HTTP Client","发送请求","⌘↩"],["工作台","打开设置","⌘,"],["工作台","切换终端","未分配"]];
+  return `<div class="page" style="max-width:900px">${row("快捷键方案","在方案的基础上逐个修改；切换方案前会提示保留还是丢弃已有修改。",W.sel("kmp",["Lithe 默认","IntelliJ IDEA","VS Code","Xcode"],"Lithe 默认",180),"","c-km-preset")}<div style="display:flex;gap:8px;margin:10px 0"><input class="inp" style="flex:1" placeholder="搜索操作或快捷键"><button class="btn sm">全部展开</button><button class="btn sm">全部折叠</button></div>
+    <table class="t"><tr><th>分组</th><th>操作</th><th>快捷键</th><th></th></tr>${rows.map(r=>`<tr><td class="muted">${r[0]}</td><td>${r[1]}</td><td>${r[2]==="未分配"?`<span class="faint">未分配</span>`:`<span class="kbd">${r[2]}</span>`}</td><td><span class="link">添加快捷键</span> · <span class="link">恢复默认</span></td></tr>`).join("")}</table>
+    <div class="faint" style="margin-top:8px">插件声明的命令以“插件 · 插件名”分组出现在这里（宿主管理的命令注册表）。</div></div>`;
+}
+function pageProcess(){
+  crumb(["外观与行为","进程结束策略"]);
+  return `<div class="page"><div class="muted" style="margin-bottom:10px;line-height:1.6">选择退出 Lithe 或关闭终端时，如何处理在 Lithe 中启动的程序。在 Lithe 之外启动的程序不会被列出，也不会被结束。</div>
+    ${section("退出 Lithe 时","",row("运行中的终端","终端里除了 Shell 本身还有程序在运行（例如 Spring Boot 应用、npm run dev 或放到后台的任务）时，就算“运行中”。空闲终端总是直接关闭，不会询问。结束一个终端会结束其中启动的所有程序。",W.sel("pt.term",["逐个确认","直接结束"],"逐个确认",180))
+      +row("Agent 任务","AI Agent 启动后仍在运行的命令，例如部署、数据库迁移或开发服务器。每个任务都会单独确认。",W.sel("pt.agent",["逐个确认","继续运行","直接结束"],"逐个确认",180))
+      +(mv("pt.agent","逐个确认")==="直接结束"?`<div class="box warn" style="margin:4px 8px">Agent 任务将不经确认直接结束。仍在进行的部署或迁移会被中断。</div>`:"")
+      +row("后台服务","在 Lithe 中启动、但已脱离终端或工具独立运行的程序。退出时会把它们列在一起，由你选择结束哪些。",W.sel("pt.bg",["统一列表确认","全部结束"],"统一列表确认",180)))}
+    ${section("关闭终端标签页","",row("关闭仍有程序运行的标签页前先确认","关闭标签页会结束其中启动的所有程序，包括放到后台的任务。已脱离终端的后台服务不会在这里结束，而是在退出 Lithe 时再询问。",W.tg("pt.tab",true)))}
+    ${section("Lithe 意外关闭后","",row("遗留的程序","如果 Lithe 崩溃或被强制退出，一个小型辅助进程会立即结束它的终端和工具进程。Agent 任务和后台服务会保留到下次启动。",W.sel("pt.crash",["下次启动时询问","下次启动时结束"],"下次启动时询问",180)))}
+    ${section("结束程序","",row("等待退出时间","Lithe 会先请求每个程序停止，并给它这么长的时间保存工作并退出。超时后仍在运行的程序会被强制结束。",W.sel("pt.time",["3 秒","5 秒","10 秒","30 秒"],"5 秒",120)))}
+    ${section("已记住的选择","",`<div class="muted" style="padding:4px 8px">暂无已记住的选择。在退出对话框中勾选“记住对这类服务的选择”后，下次遇到同类服务就不再询问。</div>`)}</div>`;
+}
+function pageGit(){
+  crumb(["版本控制","Git"],`<label class="faint" style="display:flex;gap:6px;align-items:center">显示配置键名 ${W.tg("git.keys",false)}</label>`);
+  const scope=mv("git.scope","repo"), keys=mv("git.keys",false), pr=proj();
+  const K=k=>keys?` <span class="mono faint">${k}</span>`:"";
+  const src=(v,from)=>`<span class="cap2" title="Git 当前生效的值与来源">生效：${esc(v)} · ${from}</span>`;
+  const where=scope==="repo"?"当前仓库":"全局";
+  const ctx = pr.name
+    ? `<div class="repo-card">
+        <div class="repo-ic">⑂</div>
+        <div style="min-width:0;flex:1"><div style="font-weight:600;display:flex;gap:8px;align-items:center">${esc(pr.name)} <span class="cap2 val">main</span><span class="faint">→ origin/main · 已同步</span> ${mk("m-git-ctx")}</div>
+          <div class="faint mono" style="margin-top:3px">git@github.com:acme/demo-shop.git</div></div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+          <div class="seg" title="下方带 Git 配置键的设置写到哪里">${[["repo","写入当前仓库"],["global","写入全局配置"]].map(([k,l])=>`<button class="${scope===k?"on":""}" data-misc-set="git.scope" data-val="${k}">${l}</button>`).join("")}</div>
+          <div style="display:flex;gap:10px;align-items:center">${mk("c-git-scope")}<span class="link" data-toast="已重新加载 Git 配置">重新加载配置</span><span class="link">打开远程仓库 ↗</span></div></div>
+      </div>`
+    : `<div class="box info" style="margin-bottom:14px">未打开项目：带 Git 配置键的设置会写入全局 Git 配置；提交身份需要打开项目后才能按仓库设置。</div>`;
+  return `<div class="page">
+    ${marksOn()?`<div style="margin-bottom:10px">${mk("c-git-reorg")} <span class="faint">按“装好 Git → 提交 → 同步远程 → 本地更改”的顺序重排，原 6 段合并为 4 段</span></div>`:""}
+    ${ctx}
+    ${section("Git 程序与凭据","Lithe 不保存密码，凭据由所选的 Git 凭据助手存储。",
+      row("Git 可执行文件","",W.path("git.exe","使用 PATH 中的 Git","选择…"),`<span class="st run">/usr/bin/git 2.47.0</span>`)
+      +row("使用凭据助手","Git 可以在 Lithe 中请求凭据。",W.tg("git.helper",true))
+      +row("凭据匹配"+K("credential.useHttpPath"),"Git 查找 HTTP 凭据时，是否把 URL 路径也纳入匹配。同一主机上有多个账号时选“主机和路径”。",W.sel("git.cred",[["inherit","继承"],["path","主机和 URL 路径"],["host","仅主机"]],"inherit",170),src("仅主机","默认"),"m-git-cred"))}
+    ${section("提交",`姓名、邮箱和签名写入${where}的 Git 配置，不会修改已有提交。`,
+      row("姓名"+K("user.name"),"",W.txt("id.name","","Yao Jingxi",200),src("Yao Jingxi","全局"),"m-git-identity")
+      +row("邮箱"+K("user.email"),"",W.txt("id.mail","","yao@example.com",200),src("yao@example.com","全局"),"m-git-identity")
+      +row("签名"+K("commit.gpgsign"),"",W.sel("gc.sign",[["inherit","继承"],["gpg","GPG"],["ssh","SSH"],["off","不签名"]],"inherit",170),src("不签名","默认"),"c-git-sign")
+      +`<div class="subhead">提交前检查 ${mk("c-git-checks")}</div>`
+      +row("格式化改动的文件","",W.tg("gc.fmt",false))
+      +row("有错误诊断时提醒","",W.tg("gc.diag",true))
+      +row("运行任务","",W.sel("gc.task",["不运行","单元测试（当前模块）","自定义任务…"],"不运行",200)))}
+    ${section("同步远程",`Pull / Push 写入${where}的 Git 配置；Fetch 同时用于手动获取和后台定时获取。`,
+      `<div class="subhead">拉取</div>`
+      +row("Pull 方式"+K("pull.rebase"),"合并远程提交，或把本地提交变基到远程提交之后。",W.sel("git.pull",["继承","合并","变基","变基并保留合并"],"继承",170),src("合并","默认"))
+      +row("分叉时"+K("pull.ff"),"本地分支和远程分支分叉时 Pull 的处理方式。",W.sel("git.ff",["继承","允许快进","仅允许快进","总是创建合并提交"],"继承",170),src("允许快进","默认"))
+      +`<div class="subhead">获取 ${mk("q-git-prune")}</div>`
+      +row("清理已删除的远程分支"+K("fetch.prune"),"远程已删除的分支，其本地跟踪引用（origin/xxx）也一并删除。",W.sel("git.prune",["继承","开启","关闭"],"继承",170),src("开启","全局"))
+      +row("标签"+K("fetch.pruneTags"),"",W.sel("f.tags",["继承","获取所有标签","不获取标签","获取并清理远程已删除的标签"],"继承",230),src("获取所有标签","默认"),"m-git-tags")
+      +row("子模块"+K("fetch.recurseSubmodules"),"",W.sel("f.sub",["继承","不获取","按需获取","全部获取"],"继承",170),src("按需获取","默认"))
+      +`<div class="subhead">推送</div>`
+      +row("默认推送到"+K("push.default"),"未指定目标分支时，Push 推送到哪个分支。",W.sel("git.push",["继承","当前分支（带安全检查）","匹配的分支","不推送"],"继承",230),src("当前分支（带安全检查）","默认")),
+      `<button class="btn sm ghost">恢复为继承</button>`)}
+    ${section("本地更改","切换分支或拉取前，临时保存未提交更改的方式。",row("保存方式","",W.sel("gitSave",[["stash","Git Stash"],["shelve","Lithe Shelf"]],"shelve",170),`<span class="faint">${mv("gitSave","shelve")==="stash"?"保存到 Git 的 Stash 列表":"保存为 Lithe 补丁，不写入 Git"}</span>`,"m-gitsave"))}
+    ${ghost("Fetch 默认行为（独立分组）","q-git-prune","→ 合并进“同步远程 › 获取”")}
+    ${ghost("Git 行为与配置 · 分支上下文","m-git-ctx","→ 页面顶部的仓库卡片")}
+    ${ghost("提交身份 · 配置范围","c-git-scope","→ 顶部统一“写入当前仓库 / 全局配置”")}
+  </div>`;
+}
+function pageRun(){
+  crumb(["构建、执行、部署","运行配置"],`<button class="btn sm" data-modal="rescan">重新识别</button>`);
+  const pr=proj();
+  if(!pr.name) return `<div class="page"><div class="empty">打开项目后即可编辑运行配置。</div></div>`;
+  const r=pr.runs.find(x=>x.id===S.runSel)||pr.runs[0];
+  return `<div class="split"><div class="lpane" style="width:280px"><div class="sechead">${esc(pr.name)}</div><div class="tree">${pr.runs.map(x=>`<div class="tr ${r&&r.id===x.id?"sel":""}" data-runsel="${x.id}">▶ ${esc(x.name)}</div>`).join("")}</div></div>
+    <div class="rpane"><div class="dbody" style="max-width:820px"><div class="muted" style="margin-bottom:10px">选择服务或任务，配置启动参数、环境变量和项目环境覆盖项；点击保存后生效。</div>
+    ${r?section(r.name,"",row("类型","",`<span>${esc(r.kind)}</span>`,`<span class="cap2">由 ${esc(r.from)} 识别</span>`)+row("程序参数","",W.txt(`run.${r.id}.args`,"","--spring.profiles.active=dev",360))+row("运行时参数","",W.txt(`run.${r.id}.vm`,"","-Xmx1g",360))+row("环境变量","",W.txt(`run.${r.id}.env`,"","KEY=value;OTHER=value",360))+row("运行时","覆盖“项目运行时”中的设置。",W.sel(`run.${r.id}.rt`,["继承项目运行时","Zulu 17.0.12","OpenJDK 11.0.24"],"继承项目运行时",240),"","c-run-rt")+row(".env 文件","",W.path(`run.${r.id}.dotenv`,"未选择","选择…"),"","c-run-env")+row("运行前","",W.sel(`run.${r.id}.before`,["无","构建当前模块","运行任务…"],"无",200),"","c-run-env")+`<div style="text-align:right;padding:4px 8px"><button class="btn sm pri" data-toast="已保存">保存</button></div>`):""}</div></div></div>`;
+}
+function pageTerminal(){
+  crumb(["工具","终端"]);
+  return `<div class="page">${section("Shell","",row("默认 Shell","用于新建的终端会话。",W.sel("shell",["系统默认 · zsh（/bin/zsh）","bash（/bin/bash）","fish（/opt/homebrew/bin/fish）"],"系统默认 · zsh（/bin/zsh）",280)+`<button class="btn sm">检测已安装的 Shell</button>`))}
+    ${section("回滚","",row("终端回滚行数","新建终端会话保留的可回滚行数。",W.sel("scroll",["1000 行","5000 行","10000 行","50000 行"],"10000 行",140)))}
+    ${section("外观与行为","",row("字体","",W.sel("tfont",["跟随编辑器","SF Mono","Menlo"],"跟随编辑器",160),"","c-term-more")+row("光标样式","",W.sel("tcaret",["方块","竖线","下划线"],"方块",120),"","c-term-more")+row("选中即复制","",W.tg("tcopy",false),"","c-term-more")+row("启动目录","",W.sel("tcwd",["项目根目录","当前文件所在目录","主目录"],"项目根目录",180),"","c-term-more"),"","","c-term-more")}
+    ${section("环境","",row("额外环境变量","",W.txt("tenv","","KEY=value;OTHER=value",300),"","c-term-more")+row("把项目运行时加入 PATH","新终端中 java、go、cargo 指向“项目运行时”中选择的版本。",W.tg("tpath",true),"","c-term-more"),"","","c-term-more")}</div>`;
+}
+function pageDiagnostics(){
+  crumb(["工具","日志与诊断"]);
+  return `<div class="page">${section("日志目录","",row("日志目录","",`<span class="mono">~/Library/Logs/Lithe</span><span class="cap2">默认目录</span>`)+`<div style="padding:4px 8px;display:flex;gap:6px"><button class="btn sm">选择日志目录</button><button class="btn sm">恢复默认</button><button class="btn sm">打开日志目录</button><button class="btn sm">复制路径</button></div>`)}
+    ${section("日志保留","",row("语言服务器日志","",W.sel("lsplog",["保留 7 天","保留 30 天","最多 200 MB"],"保留 7 天",160),"","c-diag-lsplog")+row("LSP 通信日志级别","verbose 会记录完整的 JSON-RPC 消息，只在排查问题时开启。",W.sel("lsptrace",["off","messages","verbose"],"off",120),"","c-lsp-trace"))}
+    ${section("诊断包","导出包含日志、设置摘要和插件清单的诊断包，敏感信息会被脱敏。",`<div style="padding:4px 8px"><button class="btn sm">导出诊断包…</button></div><div class="faint" style="padding:2px 8px">插件清单包括每个插件的 ID、版本、来源和内容摘要，以及各语言服务器的状态。</div>`,"","","c-diag-bundle")}</div>`;
+}
+function pageMcp(){
+  crumb(["AI","MCP 配置"]);
+  const on=mv("mcp.on",false), pr=proj();
+  return `<div class="page">${section("Lithe IDE 访问","授权此项目向已连接的 Agent 公开环境、构建、运行配置和输出。输出可能包含敏感的项目数据。项目或 Lithe 关闭时访问结束。",
+      pr.name?`<div class="box ${on?"info":"warn"}" style="margin:4px 8px"><span class="grow">${on?"此项目的 MCP 已开启。项目打开期间，已连接的 Agent 可以使用下方配置。":"此项目的 MCP 已关闭。开启 MCP 后会生成供 Agent 使用的配置。"}</span><button class="btn sm ${on?"":"pri"}" data-misc-set="mcp.on" data-val="${!on}">${on?"关闭 MCP":"开启 MCP"}</button></div>`
+        +row("允许修改项目环境和构建配置","已连接的 Agent 可以修改项目运行时、构建工具和运行配置设置。",W.tg("mcp.cfg",false),"","c-mcp-wording")+row("允许运行、构建、重载和停止（会执行项目代码）","已连接的 Agent 可以运行、构建、重载和停止项目。这些命令会执行项目代码，请只对信任的项目开启。",W.tg("mcp.run",false))
+        :`<div class="empty" style="padding:20px">未打开项目<br><span class="faint">打开项目后，已连接的 Agent 才能检查和控制它。</span></div>`)}
+    ${section("MCP 服务器","管理 Codex 与 Claude Code 可以启动的服务器。保存时只写入修改的条目，并在 Application Support 中保留备份。",`<table class="t"><tr><th>名称</th><th>传输方式</th><th>命令</th><th>可用的 Agent</th></tr><tr><td>lithe-ide <span class="tag blue">Lithe</span></td><td>stdio</td><td class="mono">lithe-mcp --project demo-shop</td><td>Codex、Claude Code</td></tr><tr><td>github <span class="tag">项目</span></td><td>http</td><td class="mono">https://api.githubcopilot.com/mcp/</td><td>Claude Code</td></tr><tr><td>context7 <span class="tag off">冲突</span></td><td>stdio</td><td class="mono">npx -y @upstash/context7-mcp</td><td>Codex</td></tr></table><div style="padding:6px 8px;display:flex;gap:6px"><button class="btn sm">服务器资源库</button><button class="btn sm">添加服务器</button></div>`)}</div>`;
+}
+function pageAI(){
+  crumb(["AI","AI 与提交"]);
+  return `<div class="page">${section("提交信息生成","为了快速生成提交信息，建议使用低推理强度和较小的输出限制。",row("提交信息使用","",W.sel("ai.prov",["OpenAI · gpt-5-mini","Anthropic · claude-haiku-5-5"],"Anthropic · claude-haiku-5-5",260)+`<span class="link" data-page="providers">管理 AI 服务商…</span>`)+row("格式","",W.sel("ai.fmt",["Conventional Commits","Gitmoji","简洁"],"Conventional Commits",220))+row("推理强度","",W.sel("ai.eff",["低","中","高"],"低",120))+row("输出语言","",W.sel("ai.lang",["跟随界面","英文","简体中文"],"跟随界面",140))+row("有必要时包含简短正文","",W.tg("ai.body",true))+row("标题最大长度","",W.sel("ai.len",["50 字符","72 字符","100 字符"],"72 字符",140))+row("Diff 字符限制","",W.sel("ai.diff",["20000","50000","100000"],"50000",140))+row("自定义指令","",W.txt("ai.custom","","",360)))}
+    ${section("拉取请求描述生成","生成拉取请求描述时，会使用上方选择的服务商、语言、推理强度和 Diff 字符限制。",row("描述格式","",W.sel("ai.pr",["Markdown 模板","简要说明"],"Markdown 模板",200))+`<div style="padding:4px 8px"><textarea class="inp" rows="4">## Summary\n{summary}\n\n## Changes\n{changes}</textarea><div class="faint">支持的占位符：{summary}、{changes}、{testing}、{risks}。生成时，所选分支的差异内容会发送给当前 AI 服务商。</div><button class="btn sm" style="margin-top:4px">恢复默认模板</button></div>`)}</div>`;
+}
+function pageAgents(){
+  crumb(["AI","Agent 管理"]);
+  return `<div class="page"><div class="muted" style="margin-bottom:10px">安装 ACP 适配器、检查运行环境，管理本机配置或自定义供应商。</div>
+    ${section("Agent 对话","",row("启用 Agent 对话","关闭后会停止所有 Agent 进程。",W.tg("ag.on",true))+row("模型调用统计","通过这台 Mac 上的本地代理转发 API 密钥和 Codex 订阅请求，以显示模型调用、首字时间、输出速度和上下文构成。",W.tg("ag.stat",false)))}
+    ${section("Agent","",`<table class="t"><tr><th>Agent</th><th>ACP 适配器</th><th>版本状态</th><th></th></tr><tr><td>Claude Code</td><td>@zed-industries/claude-code-acp</td><td>当前版本：0.9.1 · 已核验目标：0.9.1</td><td><button class="btn sm">卸载</button></td></tr><tr><td>Codex <span class="tag">预览</span></td><td>codex-acp</td><td>可更新至：0.4.0</td><td><button class="btn sm pri">更新</button></td></tr><tr><td>Gemini CLI</td><td>—</td><td class="muted">尚未安装。安装后即可使用该 Agent。</td><td><button class="btn sm">安装</button></td></tr></table><div style="padding:6px 8px"><button class="btn sm">自定义 Agent</button> <button class="btn sm">重新检查</button></div>`)}</div>`;
+}
+function pageProviders(){
+  crumb(["AI","AI 服务商"]);
+  return `<div class="page">${section("AI 服务商","API 密钥会保存在 Lithe 的本地应用数据中，不会写入 Lithe 设置。",`<table class="t"><tr><th>服务商</th><th>模型 · 地址</th><th>使用者</th></tr><tr><td>Anthropic</td><td class="mono">claude-haiku-5-5 · api.anthropic.com</td><td>提交信息</td></tr><tr><td>OpenAI</td><td class="mono">gpt-5-mini · api.openai.com</td><td class="muted">尚未被使用。</td></tr></table>`,`<button class="btn sm">重新加载识别</button><button class="btn sm pri">添加服务商</button>`)}
+    <div class="faint">Lithe 会在此 Mac 上查找 Codex 和 Claude 的本地配置文件。</div></div>`;
+}
+
+/* ===================== 规划中的新页面（全部为“待开发”） ===================== */
+function planBanner(id,extra=""){ return marksOn()?`<div class="box info" style="margin-bottom:12px;background:#f6f1ff;border-color:#d9c9fb"><span class="grow">${mk(id)} <b>整页规划中</b>：${esc(CH[id].next)}${extra}</span></div>`:""; }
+function pageTool(short){
+  const p=P(short); crumb(["工具",p.name]);
+  const list=SETTINGS.filter(s=>s.plugin===short&&s.cap==="plugin");
+  return `<div class="page">${planBanner("c-tool-plugin")}<div class="banner">由 ${providerPill(p)} 提供<span style="flex:1"></span><span class="link" data-goplugin="${short}">插件详情 →</span></div>
+    ${section("插件选项","",settingGroups(list,{layer:"application"}))}
+    <div class="faint">没有挂在语言、构建等能力上的插件设置都放在“工具”分组下，页面随插件启用出现、停用后消失。</div></div>`;
+}
+function pageFormat(){
+  crumb(["外观与行为","格式化与保存"]);
+  const langs=["Java","Go","Rust","TypeScript","YAML","Markdown"];
+  return `<div class="page">${planBanner("c-format")}
+    ${section("保存时","",row("保存时格式化","",W.sel("fmt.onsave",[["off","关闭"],["changed","仅格式化改动的行"],["file","整个文件"]],"off",200),"","c-format")
+      +row("保存时整理导入","通过语言服务器的 source.organizeImports 实现。",W.tg("fmt.imports",false),"","c-format")
+      +row("去除行尾空格","",W.sel("fmt.trail",[["changed","仅改动的行"],["all","所有行"],["off","关闭"]],"changed",160),"","c-format")
+      +row("文件末尾保留一个换行","",W.tg("fmt.eol",true),"","c-format")
+      +row("遵循 .editorconfig",".editorconfig 中的设置优先于这里和按语言的覆盖。",W.tg("fmt.ec",true),"","c-format"))}
+    ${section("缩进","",row("Tab 宽度","",W.sel("tabw",["2 空格","4 空格","8 空格"],"4 空格",120),"","c-ed-tab-lang")+row("缩进使用","",W.sel("fmt.indent",["空格","Tab"],"空格",120),"","c-ed-tab-lang"))}
+    ${section("按语言","格式化器由语言插件声明：可以是语言服务器的 formatting，也可以是外部工具（gofmt、rustfmt、prettier）。",`<table class="t"><tr><th>语言</th><th>格式化器</th><th>缩进</th><th>保存时格式化</th></tr>${langs.map(l=>`<tr><td>${l}</td><td>${W.sel(`fmt.${l}.f`,l==="Go"?["gofmt（插件声明）","gopls"]:l==="Rust"?["rustfmt（插件声明）","rust-analyzer"]:l==="Java"?["JDT LS","google-java-format（未安装）"]:["语言服务器","prettier（未安装）"],"",180)}</td><td>${W.sel(`fmt.${l}.i`,["跟随全局",l==="Go"?"Tab":"2 空格","4 空格"],"跟随全局",120)}</td><td>${W.sel(`fmt.${l}.s`,["跟随全局","开启","关闭"],"跟随全局",110)}</td></tr>`).join("")}</table>`,"","","c-format")}</div>`;
+}
+function pageFileTypes(){
+  crumb(["外观与行为","文件类型"]);
+  const builtin=[["Java","*.java","Java Support"],["Go","*.go · go.mod","Go Support"],["Rust","*.rs · Cargo.toml","Rust Analyzer"],["TypeScript","*.ts · *.tsx","内置"],["HTTP 请求","*.http · *.rest","HTTP Client（已禁用）"]];
+  const user=mv("ft.user",FT_DEFAULT);
+  return `<div class="page" style="max-width:900px">${planBanner("c-filetypes")}
+    ${section("插件声明的文件类型","来自各插件 languages 声明，不能在这里修改；停用插件后对应条目消失。",`<table class="t"><tr><th>语言</th><th>匹配</th><th>提供方</th></tr>${builtin.map(r=>`<tr><td>${r[0]}</td><td class="mono">${r[1]}</td><td class="muted">${r[2]}</td></tr>`).join("")}</table>`)}
+    ${section("自定义映射","优先于插件声明。",`<table class="t"><tr><th>文件名模式</th><th>按此语言打开</th><th></th></tr>${user.map((r,i)=>`<tr><td class="mono">${esc(r.pat)}</td><td>${esc(r.lang)}</td><td><span class="link" data-toast="演示：已移除">移除</span></td></tr>`).join("")}</table><div style="padding:6px 8px"><button class="btn sm" data-toast="演示：添加映射">添加映射</button></div>`,"","","c-filetypes")}</div>`;
+}
+function pageNetwork(){
+  crumb(["外观与行为","网络与代理"]);
+  const mode=mv("net.mode","system");
+  return `<div class="page">${planBanner("c-proxy")}
+    ${section("HTTP 代理","",row("代理","",W.sel("net.mode",[["system","使用系统代理"],["manual","手动配置"],["none","不使用代理"]],"system",200),"","c-proxy")
+      +(mode==="manual"?row("地址","",W.txt("net.host","","proxy.corp.example",220)+W.txt("net.port","","8080",80))+row("需要认证","用户名和密码保存在钥匙串中。",W.tg("net.auth",false)):"")
+      +row("不经过代理的主机","逗号分隔，支持 *.example.com。",W.txt("net.no","localhost, 127.0.0.1, *.local","",320))
+      +`<div class="eff-label">实际使用：<b>${mode==="system"?"系统代理 · 未设置":mode==="none"?"直接连接":"手动代理"}</b><span class="cap2">${mode==="system"?"跟随系统":"已选择"}</span></div>`
+      +`<div style="padding:4px 8px"><button class="btn sm" data-toast="演示：已连接 api.github.com（212 ms）">测试连接</button></div>`)}
+    ${section("应用到","代理同时作用于下列进程；构建工具和语言服务器通过环境变量与各自的参数接收。",row("插件市场与更新检查","",W.tg("net.app",true))+row("构建工具（Maven、Gradle、Cargo、Go）","传入 -Dhttps.proxyHost 等参数，或 HTTPS_PROXY 环境变量。",W.tg("net.build",true))+row("语言服务器","",W.tg("net.lsp",true))+row("终端","在新终端中设置 HTTPS_PROXY / NO_PROXY。",W.tg("net.term",false)),"","","c-proxy")}</div>`;
+}
+function pageTrusted(){
+  crumb(["外观与行为","可信项目"]);
+  return `<div class="page">${planBanner("c-trusted")}
+    ${section("打开项目时","",row("打开新项目时","",W.sel("tr.ask",[["ask","询问是否信任"],["trust","总是信任"]],"ask",200),"","c-trusted")
+      +row("不受信任的项目","安全模式下只能浏览和编辑文件。",`<span class="muted">不加载构建模型 · 不启动插件程序 · 不执行运行配置和任务</span>`))}
+    ${section("可信位置","这些目录下的项目自动信任。",`<table class="t"><tr><th>目录</th><th></th></tr><tr><td class="mono">~/Dev/OpenRes</td><td><span class="link">移除</span></td></tr><tr><td class="mono">~/work</td><td><span class="link">移除</span></td></tr></table><div style="padding:6px 8px"><button class="btn sm" data-pickmisc="tr.add">添加目录…</button></div>`)}
+    ${section("已信任的项目","",`<table class="t"><tr><th>项目</th><th>信任时间</th><th></th></tr><tr><td>demo-shop</td><td class="muted">2026-10-02</td><td><span class="link">取消信任</span></td></tr><tr><td>polyglot-mono</td><td class="muted">2026-10-18</td><td><span class="link">取消信任</span></td></tr></table>`)}</div>`;
+}
+function pageNotifications(){
+  crumb(["外观与行为","通知"]);
+  const kinds=[["构建完成","提示"],["测试失败","提示"],["语言服务器启动失败","提示"],["插件有可用更新","仅记录"],["Git 推送 / 拉取完成","仅记录"],["Agent 需要确认","提示"]];
+  return `<div class="page" style="max-width:860px">${planBanner("c-notify")}
+    ${section("通知类型","",`<table class="t"><tr><th>类型</th><th>显示方式</th></tr>${kinds.map(([k,d])=>`<tr><td>${k}</td><td>${W.sel(`nt.${k}`,["提示","仅记录","关闭"],d,120)}</td></tr>`).join("")}</table>`)}
+    ${section("系统通知","",row("Lithe 在后台时发送系统通知","",W.tg("nt.sys",true))+row("播放提示音","",W.tg("nt.sound",false)))}</div>`;
+}
+function pageDebug(){
+  crumb(["构建、执行、部署","调试"]);
+  const dbg=[];S.plugins.filter(loaded).forEach(p=>p.caps.forEach(c=>{if(c.kind==="debugAdapter")dbg.push({p,c})}));
+  return `<div class="page">${planBanner("c-debug")}
+    ${section("断点","",row("命中断点时激活 Lithe","",W.tg("db.focus",true))+row("在行内显示变量值","",W.tg("db.inline",true))+row("默认在未捕获的异常处暂停","",W.tg("db.uncaught",true)))}
+    ${section("代码热替换","",row("保存后热替换修改的代码","调试器支持时才会生效（例如 JDWP）。",W.sel("db.hot",["询问","总是","从不"],"询问",120)))}
+    ${section("调试器","由插件的 debugAdapters 声明提供。",dbg.length?`<table class="t"><tr><th>调试器</th><th>提供方</th></tr>${dbg.map(({p,c})=>`<tr><td>${esc(c.title)}</td><td>${providerPill(p)}</td></tr>`).join("")}</table>`:`<div class="muted" style="padding:4px 8px">已启用的插件没有提供调试器。</div>`)}</div>`;
+}
+function pageTest(){
+  crumb(["构建、执行、部署","测试"]);
+  return `<div class="page">${planBanner("c-test")}
+    ${section("测试结果","",row("运行测试后打开测试结果","",W.sel("ts.open",["总是","仅失败时","从不"],"仅失败时",140))+row("默认只显示失败的测试","",W.tg("ts.failed",false))+row("保留历史运行","",W.sel("ts.hist",["5 次","10 次","20 次"],"10 次",100)))}
+    ${section("重跑","",row("失败后自动重跑一次","用于排查偶发失败；重跑结果会单独标注。",W.tg("ts.rerun",false)))}
+    <div class="faint">测试框架（JUnit、go test、cargo test、pytest……）由插件的 test 能力提供，这里只放与框架无关的通用设置。</div></div>`;
+}
+
+/* 变更清单 */
+function pageChanges(){
+  crumb(["变更清单"],`<button class="btn sm pri" data-chgexport>导出 Markdown</button>`);
+  const view=S.chgView||"pr";
+  const cnt=t=>CHANGES_O.filter(c=>c.type===t).length;
+  const groups = view==="pr" ? Object.keys(PRS).map(k=>[`PR-${k} · ${PRS[k]}`,CHANGES_O.filter(c=>c.pr===k)])
+    : view==="prio" ? ["P1","P2","P3"].map(k=>[{P1:"P1 · 设计成立的前提",P2:"P2 · 应该有",P3:"P3 · 可以以后再做"}[k],CHANGES_O.filter(c=>c.prio===k)])
+    : Object.keys(MK).map(k=>[`${MK[k]} · ${MK_DESC[k]}`,CHANGES_O.filter(c=>c.type===k)]);
+  return `<div class="page" style="max-width:1000px">
+    <div class="banner" style="flex-wrap:wrap;gap:10px">${Object.keys(MK).map(t=>`<span>${mkStatic(t)} ${cnt(t)}</span>`).join("")}<span style="flex:1"></span>
+      <div class="seg">${[["pr","按 PR"],["prio","按优先级"],["type","按类型"]].map(([k,l])=>`<button class="${view===k?"on":""}" data-chgview="${k}">${l}</button>`).join("")}</div></div>
+    <div class="muted" style="margin:0 0 12px;line-height:1.7">${Object.keys(MK).map(t=>`${mkStatic(t)} ${esc(MK_DESC[t])}`).join("<br>")}<br>点击条目会跳到它在原型里的位置并高亮；“待确认”请你核对现有功能后告诉我结论。</div>
+    ${groups.filter(g=>g[1].length).map(([t,items])=>`<h3>${esc(t)} <span class="faint">（${items.length}）</span></h3>${items.map(c=>chgItem(c,false)).join("")}`).join("")}</div>`;
+}
+
+/* ===================== 弹窗与菜单 ===================== */
+function modalHtml(){
+  const m=S.modal; if(!m) return "";
+  const wrap=(inner,w)=>`<div class="mask" data-closemask><div class="modal" style="${w?`width:${w}px`:""}">${inner}</div></div>`;
+  if(m.type==="install"){
+    const x=MARKET.find(i=>i.id===m.id), inst=S.plugins.find(p=>p.id===m.id&&!p.removed), isUpdate=!!inst;
+    const src=S.sources.find(s=>s.id===x.source);
+    const programs=x.programs||(inst?inst.programs:[]).concat(isUpdate&&inst.updateNewPrograms?[{t:"任务：go generate ./...",c:"go generate ./...",isNew:true}]:[]);
+    const perms=x.perms||(inst?inst.permissions.map(p=>PERM_TEXT[p]||p):[]);
+    return wrap(`<h3>${isUpdate?`更新社区插件“${esc(x.name)}”？`:`安装社区插件“${esc(x.name)}”？`}</h3>
+      <div class="kv"><span>所在插件仓库</span><b>${esc(src.name)}</b><span>SHA-256</span><b class="mono">c41e…09ab <span class="st run">与插件仓库一致</span></b><span>作者</span><b>${esc(x.author)}</b><span>版本</span><b>${esc(isUpdate?inst.update:x.version)}</b></div>
+      <h3 style="margin-top:14px">权限</h3><ul style="margin:0;padding-left:18px;line-height:1.8">${perms.map(t=>`<li>${esc(t)}</li>`).join("")}</ul>
+      <h3 style="margin-top:14px">${isUpdate?"可以运行的程序（变化已高亮）":"可以运行的程序"}</h3>${programs.map(p=>`<div style="margin-bottom:6px"><div class="muted">${esc(p.t)} ${p.isNew?`<span class="tag upd">新增</span>`:""}</div><div class="code ${p.isNew?"new":""}">${esc(p.c)}</div></div>`).join("")}
+      <details><summary>完整程序声明</summary><div class="code">${esc(JSON.stringify(programs.map(p=>({arguments:p.c.split(" ")})),null,2))}</div></details>
+      ${x.settings?`<h3 style="margin-top:14px">安装后会出现的设置</h3><div class="muted">${x.settings.map(s=>`${esc(s.title)}（语言与框架 › Python）`).join("、")}</div>`:""}
+      <div class="box warn" style="margin-top:12px">社区插件由第三方维护，可以在你的 Mac 上运行上面列出的程序。请只安装你信任的插件。</div>
+      <div class="foot"><button class="btn" data-closemodal>取消</button><button class="btn pri" data-confirminstall="${x.id}">${isUpdate?"更新":"安装"}</button></div>`);
+  }
+  if(m.type==="disk"){
+    return wrap(`<h3>安装社区插件“Lua Support”？</h3>
+      <div class="kv"><span>本地插件包</span><b class="mono">lua-support-0.1.0.zip</b><span>归档 SHA-256</span><b class="mono">a90c…77e2</b><span>内容 SHA-256</span><b class="mono">3be1…f004</b><span>作者</span><b>lua-community</b></div>
+      <div class="box warn" style="margin-top:10px">从本地磁盘选择，尚未验证发布者与源码仓库。</div>
+      <h3 style="margin-top:14px">权限</h3><ul style="margin:0;padding-left:18px"><li>打开对应语言的文件时启动语言服务器</li></ul>
+      <h3 style="margin-top:14px">可以运行的程序</h3><div class="muted">lua-language-server 语言服务器（本机已安装）</div><div class="code">lua-language-server --stdio</div>
+      <details><summary>完整程序声明</summary><div class="code">{"kind":"systemLanguageServer","arguments":["lua-language-server","--stdio"]}</div></details>
+      <div class="box warn" style="margin-top:12px">社区插件由第三方维护，可以在你的 Mac 上运行上面列出的程序。请只安装你信任的插件。</div>
+      <div class="foot"><button class="btn" data-closemodal>取消</button><button class="btn pri" data-closemodal data-toast="演示：已从磁盘安装，重启 Lithe 后生效">安装</button></div>`);
+  }
+  if(m.type==="uninstall"){ const p=P(m.id); return wrap(`<h3>卸载 ${esc(p.name)}？</h3><p class="muted" style="line-height:1.6">插件将在重启 Lithe 后移除。它提供的 ${p.caps.map(c=>esc(c.title.replace(/（.*）/,""))).join("、")} 会一并停用；你改过的设置值会保留，重新安装后恢复。</p><div class="foot"><button class="btn" data-closemodal>取消</button><button class="btn pri danger" data-confirmuninstall="${p.short}">卸载</button></div>`,460); }
+  if(m.type==="repos"){
+    return wrap(`<h3>插件仓库</h3><div class="muted" style="margin-bottom:8px">粘贴 https 插件索引地址或 GitHub 仓库地址。GitHub 仓库的根目录需要包含 lithe-plugin-index.json。</div>
+      <div style="display:flex;gap:6px;margin-bottom:12px"><input class="inp" style="flex:1" id="repoUrl" placeholder="https://github.com/owner/repository"><button class="btn" data-addrepo>添加</button></div>
+      <table class="t">${S.sources.map(s=>`<tr><td><b>${esc(s.name)}</b><div class="faint mono">${esc(s.url)}</div><div class="faint">${s.refreshed?`已于 ${s.refreshed} 刷新`:"尚未刷新"}${s.ignored?` · 已忽略条目：${s.ignored}`:""}</div></td><td style="text-align:right;white-space:nowrap"><button class="btn sm" data-refreshrepo="${s.id}">刷新</button> ${s.builtin?`<span class="faint">默认</span>`:`<button class="btn sm danger" data-removerepo="${s.id}">移除</button>`}</td></tr>`).join("")}</table>
+      <div class="foot"><button class="btn" data-refreshall>全部刷新</button><span class="sp"></span><button class="btn pri" data-closemodal>完成</button></div>`);
+  }
+  if(m.type==="export") return wrap(`<h3>导出变更清单（Markdown）</h3><div class="muted" style="margin-bottom:6px">按 PR 分组，可以直接贴进 Issue 或 PR 描述。</div><textarea class="inp" id="chgmd" rows="18" style="width:100%;font-family:var(--mono);font-size:11.5px">${esc(changesMarkdown())}</textarea><div class="foot"><button class="btn" data-closemodal>关闭</button><button class="btn pri" id="copymd">复制</button></div>`,760);
+  if(m.type==="rescan") return wrap(`<h3>重新识别运行配置？</h3><p class="muted">Lithe 将重新查找服务并刷新 .lithe/run/generated.json。项目与本机的覆盖配置不会被修改。</p><div class="foot"><button class="btn" data-closemodal>取消</button><button class="btn pri" data-closemodal data-toast="正在识别项目…">重新识别</button></div>`,460);
+  return "";
+}
+function menuHtml(){
+  if(S.menu!=="plugin") return "";
+  return `<div class="menu" style="right:${notesOn()&&S.notesOpen?330:18}px;top:78px"><div data-modal="repos">管理插件仓库…</div><div data-refreshall>刷新插件仓库</div><hr><div data-modal="disk">从磁盘安装插件…</div><hr><div data-toast="演示：开发者模式（规划中）">加载本地开发包… ${mk("c-plg-devmode")}</div></div>`;
+}
+
+/* ===================== 渲染 ===================== */
+function notesFor(page){
+  if(page==="plugins") return S.pluginTab==="marketplace"?["market"]:S.detailTab==="settings"?["plugins","pluginSettings"]:["plugins"];
+  if(page.startsWith("lang:")) return ["lang","pluginSettings"];
+  if(page.startsWith("build:")) return ["build","pluginSettings"];
+  return {lsp:["lsp"], buildTools:["buildIndex"], runtimes:["runtimes"]}[page]||[];
+}
+const PAGES={plugins:pagePlugins,lsp:pageLsp,buildTools:pageBuildTools,runtimes:pageRuntimes,general:pageGeneral,updates:pageUpdates,editor:pageEditor,keymap:pageKeymap,processTermination:pageProcess,git:pageGit,run:pageRun,terminal:pageTerminal,diagnostics:pageDiagnostics,mcp:pageMcp,ai:pageAI,agents:pageAgents,providers:pageProviders,format:pageFormat,filetypes:pageFileTypes,network:pageNetwork,trusted:pageTrusted,notifications:pageNotifications,debug:pageDebug,test:pageTest,changes:pageChanges};
+function render(){
+  document.documentElement.classList.toggle("dark",$("#optDark").checked);
+  if(S.page.startsWith("lang:")&&!dynamicPages().langs.some(l=>`lang:${l.id}`===S.page)) S.page="lsp";
+  if(S.page.startsWith("build:")&&!dynamicPages().builds.some(b=>`build:${b.id}`===S.page)) S.page="buildTools";
+  if(S.page.startsWith("tool:")&&!dynamicPages().tools.some(p=>`tool:${p.short}`===S.page)) S.page="terminal";
+  const g=groupOf(S.page); if(g) S.navOpen[g]=true;
+  renderNav();
+  const pg=S.page, content=$("#content"), top=content.scrollTop;
+  content.innerHTML = pg.startsWith("lang:")?pageLang(pg.slice(5)):pg.startsWith("build:")?pageBuild(pg.slice(6)):pg.startsWith("tool:")?pageTool(pg.slice(5)):PAGES[pg]();
+  content.scrollTop=top;
+  const pend=Object.keys(S.pending).length;
+  $("#footer").innerHTML = pg==="plugins"&&pend
+    ? `<span class="msg warn">待确认的插件变更：${pend}（${Object.entries(S.pending).map(([id,v])=>`${v?"启用":"禁用"} ${esc(P(id).name)}`).join("、")}）</span><button class="btn" data-cancelpend>取消</button><button class="btn pri" data-applypend>确定</button>`
+    : `<span class="msg">设置改动即时保存</span><button class="btn" data-toast="演示：关闭设置窗口">关闭</button>`;
+  const keys=notesFor(pg), show=notesOn()&&S.notesOpen, ported=PORTED[pg];
+  const pageChanges=pg==="changes"?[]:CHANGES_O.filter(c=>pageMatch(c.page,pg)||(pg==="plugins"&&c.page==="plugins"));
+  $("#notesHost").innerHTML = show ? `<div class="notes"><div class="h">设计标注<span style="flex:1"></span><button class="btn sm ghost" data-closenotes>收起</button></div><div class="l">
+      ${ported?`<div class="ported"><b>来源</b>：<span class="mono">${esc(ported)}</span>。${pageChanges.length?"下面列出本页相对现状的改动；没列出的控件保持原样。":"本页保持原样。"}</div>`:""}
+      ${pageChanges.length?`<div style="font-weight:600;font-size:12px;display:flex;gap:6px;align-items:center">本页变更（${pageChanges.length}）<span style="flex:1"></span><span class="link" data-page="changes">全部 →</span></div>${pageChanges.map(c=>chgItem(c,true)).join("")}${keys.length?`<div style="font-weight:600;font-size:12px">交互说明</div>`:""}`:""}
+      ${keys.map(k=>NOTES[k].map((t,i)=>`<div class="n" id="note-${k}-${i+1}"><i class="nb">${i+1}</i><div>${k==="pluginSettings"&&keys.length>1?"<b>设置行</b> · ":""}${esc(t)}</div></div>`).join("")).join(`<hr style="border:0;border-top:1px solid var(--line);width:100%;margin:0">`)}
+      ${!ported&&!keys.length&&!pageChanges.length?`<div class="muted">这个页面没有标注。</div>`:""}</div></div>` : "";
+  $("#overlay").innerHTML = (notesOn()&&!S.notesOpen?`<button class="btn sm" style="position:absolute;right:16px;bottom:62px;z-index:40;box-shadow:0 4px 14px rgba(0,0,0,.15)" data-opennotes>📝 设计标注</button>`:"") + menuHtml() + modalHtml() + (S.toast?`<div class="toast">${esc(S.toast)}</div>`:"");
+  const sq=$("#sq"); if(sq) sq.oninput=()=>document.querySelectorAll(".dbody .srow").forEach(r=>r.style.display=r.dataset.search.toLowerCase().includes(sq.value.toLowerCase())?"":"none");
+}
+function goChange(id){
+  const c=CH[id]; let pg=c.page;
+  if(pg==="lang:*") pg="lang:java"; else if(pg==="build:*") pg="build:maven"; else if(pg==="tool:*") pg="tool:database";
+  if(c.state&&c.state.project&&c.state.project!==projectKey){ projectKey=c.state.project; $("#optProject").value=projectKey; S.runtimeSel="__defaults"; }
+  if(c.state&&c.state.page) pg=c.state.page;
+  S.page=pg; if(pg==="plugins"){ S.pluginTab=(c.state&&c.state.pluginTab)||"installed"; if(S.pluginTab==="installed") S.selected="java"; }
+  if(c.state){ ["detailTab","runtimeSel"].forEach(k=>{ if(c.state[k]) S[k]=c.state[k]; }); }
+  S.chgHl=id; S.notesOpen=true; S.modal=null; S.menu=(c.state&&c.state.menu)||null; render();
+  const el=$(`#content [data-chg="${id}"]`)||$(`#crumb [data-chg="${id}"]`)||$(`.menu [data-chg="${id}"]`);
+  if(el){ const box=el.closest(".srow,.sec,.card,tr,.dtabs,.banner,h3,.item")||el; box.scrollIntoView({block:"center"}); box.classList.remove("flash"); void box.offsetWidth; box.classList.add("flash"); }
+  const n=document.getElementById(`note-chg-${id}`); if(n) n.scrollIntoView({block:"nearest"});
+}
+let toastTimer;
+function toast(t){ S.toast=t; clearTimeout(toastTimer); toastTimer=setTimeout(()=>{S.toast=null;render();},2200); }
+function findSetting(key){ const i=key.indexOf("."); return SETTINGS.find(s=>s.plugin===key.slice(0,i)&&s.id===key.slice(i+1)); }
+function goPlugins(tab){ S.page="plugins"; S.pluginTab=tab; }
+
+function restartLithe(){
+  Object.assign(S.loaded,S.nextLaunch||{}); S.nextLaunch=null;
+  Object.keys(S.uninstalling).forEach(id=>P(id).removed=true); S.uninstalling={};
+  Object.keys(S.installedNext).forEach(name=>{
+    const x=MARKET.find(m=>m.name===name);
+    if(x.id==="io.lithestore.python-support"&&!P("python")){
+      S.plugins.push({id:x.id,short:"python",name:x.name,vendor:x.author,version:x.version,color:x.color,letter:x.letter,origin:"community",source:x.source,summary:x.desc,
+        caps:[{kind:"language",id:"python",title:"Python",detail:".py · pyproject.toml"},{kind:"languageServer",id:"basedpyright",title:"basedpyright（插件内置）",detail:"需要 Node ≥ 18",lang:"python",program:"packaged"},{kind:"test",id:"pytest",title:"pytest",detail:"JUnit XML 结果"}],
+        permissions:["languageServer.launch","build.systems","execution.test"],programs:x.programs});
+      S.loaded.python=true; SETTINGS.push(Object.assign({plugin:"python",section:"类型检查",info:"basedpyright.analysis.typeCheckingMode"},x.settings[0]));
+    } else if(x.id==="io.lithestore.php-support"&&!P("php")){
+      S.plugins.push({id:x.id,short:"php",name:x.name,vendor:x.author,version:x.version,color:x.color,letter:x.letter,origin:"community",source:x.source,summary:x.desc,
+        caps:[{kind:"language",id:"php",title:"PHP",detail:".php"},{kind:"languageServer",id:"intelephense",title:"Intelephense 1.12（插件内置）",detail:"需要 Node ≥ 18",lang:"php",program:"packaged"},{kind:"test",id:"phpunit",title:"PHPUnit",detail:"JUnit XML 结果"}],
+        permissions:["languageServer.launch","execution.run","execution.test"],programs:x.programs});
+      S.loaded.php=true;
+      SETTINGS.push({id:"phpVersion",plugin:"php",cap:"languageServer:intelephense",section:"语言服务",title:"目标 PHP 版本",type:"enum",def:"8.3",options:[["8.2","8.2"],["8.3","8.3"],["8.4","8.4"]],scope:"workspace",effect:"immediate",info:"intelephense.environment.phpVersion"});
+    }
+  });
+  S.installedNext={}; toast("Lithe 已重启，插件变更已生效");
+}
+
+/* ===================== 事件 ===================== */
+const CLICK_SEL="[data-chg],[data-gochg],[data-chgview],[data-chgexport],[data-note],[data-info],[data-page],[data-toggle],[data-ptab],[data-sel],[data-enable],[data-filter],[data-dtab],[data-reset],[data-restart],[data-dismiss],[data-goplugin],[data-gomarket],[data-lscope],[data-lspoff],[data-msel],[data-minstall],[data-confirminstall],[data-uninstall],[data-confirmuninstall],[data-closemodal],[data-closemask],[data-menu],[data-modal],[data-update],[data-reinstall],[data-cancelpend],[data-applypend],[data-restartlithe],[data-closenotes],[data-opennotes],[data-toast],[data-pick],[data-pickmisc],[data-misc-set],[data-addrepo],[data-refreshrepo],[data-removerepo],[data-refreshall],[data-rtsel],[data-runsel],[data-resetplugin],[data-toggle-maven],.sw[data-set],.chip[data-set],.sw[data-misc]";
+document.addEventListener("click",e=>{
+  if(e.target.closest("select,input,textarea")) return;
+  const t=e.target.closest(CLICK_SEL);
+  const hadMenu=!!S.menu; S.menu=null;
+  if(!t){ if(S.popover||hadMenu){S.popover=null;render();} return; }
+  const d=t.dataset;
+  if(d.closemask!==undefined){ if(e.target===t){ S.modal=null; render(); } return; }
+  if(t.disabled) return;
+  if(d.note){ const [k,n]=d.note.split(":"); S.notesOpen=true; render(); const el=document.getElementById(`note-${k}-${n}`); if(el){el.classList.add("hl");el.scrollIntoView({block:"center"});} return; }
+  if(d.info){ S.popover=S.popover===d.info?null:d.info; render(); return; }
+  if(d.chg){ e.stopPropagation(); S.chgHl=d.chg; S.notesOpen=true; if(!$("#optNotes").checked) $("#optNotes").checked=true; render(); const el=document.getElementById(`note-chg-${d.chg}`); if(el) el.scrollIntoView({block:"center"}); else toast(`${MK[CH[d.chg].type]}：${CH[d.chg].title}`); return; }
+  if(d.gochg){ goChange(d.gochg); return; }
+  if(d.chgview){ S.chgView=d.chgview; render(); return; }
+  if(d.chgexport!==undefined){ S.modal={type:"export"}; render(); return; }
+  S.popover=null;
+  if(d.enable){ const p=P(d.enable); if(p.required) return; const target=!staged(p); if(target===baseline(p)) delete S.pending[p.short]; else S.pending[p.short]=target; }
+  else if(d.set&&t.classList.contains("sw")){ const s=findSetting(d.set); setValue(s,!effective(s,d.inst||null).value,d.layer,d.inst||null); }
+  else if(d.set&&d.kind==="multi"){ const s=findSetting(d.set); const v=[...effective(s,d.inst||null).value]; const i=v.indexOf(d.choice); i>=0?v.splice(i,1):v.push(d.choice); setValue(s,v,d.layer,d.inst||null); }
+  else if(d.misc&&t.classList.contains("sw")){ S.misc[d.misc]=!mv(d.misc,d.def==="true"); }
+  else if(d.miscSet){ S.misc[d.miscSet]= d.val==="true"?true:d.val==="false"?false:d.val; }
+  else if(d.page){ S.page=d.page; if(d.binst) S.buildScope[d.page.slice(6)]=d.binst; S.hit=null; }
+  else if(d.toggle){ S.navOpen[d.toggle]=!S.navOpen[d.toggle]; }
+  else if(d.ptab){ S.pluginTab=d.ptab; }
+  else if(d.sel){ S.selected=d.sel; }
+  else if(d.filter){ S.filter=d.filter; if(d.clearq) S.query=""; }
+  else if(d.dtab){ S.detailTab=d.dtab; }
+  else if(d.reset){ resetValue(findSetting(d.reset),d.layer,d.inst||null); }
+  else if(d.resetplugin){ SETTINGS.filter(s=>s.plugin===d.resetplugin).forEach(s=>resetValue(s,"application")); toast("已恢复默认值"); }
+  else if(d.restart){ delete S.pendingRestart[d.restart]; toast(`正在重启 ${capTitle(d.restart)}…`); }
+  else if(d.dismiss){ delete S.pendingRestart[d.dismiss]; }
+  else if(d.goplugin!==undefined){ goPlugins("installed"); if(d.goplugin){S.selected=d.goplugin; S.detailTab="overview";} }
+  else if(d.gomarket){ goPlugins("marketplace"); S.mSelected=d.gomarket; S.mSource="all"; S.mQuery=""; }
+  else if(d.lscope){ S.langScope=d.lscope; }
+  else if(d.lspoff){ const k=`${projectKey}|${d.lspoff}`; if(S.lspOff[k]) delete S.lspOff[k]; else S.lspOff[k]=true; toast(S.lspOff[k]?"已停止语言服务器并释放资源":"正在启动"); }
+  else if(d.toggleMaven!==undefined){ S.misc.mavenFailed=!S.misc.mavenFailed; }
+  else if(d.msel){ S.mSelected=d.msel; }
+  else if(d.minstall){ const x=MARKET.find(i=>i.id===d.minstall); if(x.source==="official"&&!S.plugins.find(p=>p.id===x.id)){ S.installedNext[x.name]=true; toast(`已安装版本 ${x.version}，重启 Lithe 后生效。`);} else S.modal={type:"install",id:x.id}; }
+  else if(d.confirminstall){ const x=MARKET.find(i=>i.id===d.confirminstall), inst=S.plugins.find(p=>p.id===x.id&&!p.removed); S.modal=null; if(inst){ inst.prev=inst.version; inst.version=inst.update; delete inst.update; toast(`已安装版本 ${inst.version}，重启 Lithe 后生效。`);} else { S.installedNext[x.name]=true; toast(`已安装版本 ${x.version}，重启 Lithe 后生效。`);} }
+  else if(d.uninstall){ S.modal={type:"uninstall",id:d.uninstall}; }
+  else if(d.confirmuninstall){ S.uninstalling[d.confirmuninstall]=true; delete S.pending[d.confirmuninstall]; S.modal=null; }
+  else if(d.menu){ S.menu=hadMenu?null:d.menu; }
+  else if(d.modal){ S.modal={type:d.modal}; }
+  else if(d.update){ const p=P(d.update); if(p.origin==="community") S.modal={type:"install",id:p.id}; else { p.prev=p.version; p.version=p.update; delete p.update; } }
+  else if(d.reinstall){ toast(`正在从 ${S.sources.find(s=>s.id===P(d.reinstall).source)?.name} 重新安装…`); }
+  else if(d.cancelpend!==undefined){ S.pending={}; }
+  else if(d.applypend!==undefined){ S.nextLaunch=Object.assign(S.nextLaunch||{},S.pending); S.pending={}; }
+  else if(d.restartlithe!==undefined){ restartLithe(); }
+  else if(d.closenotes!==undefined){ S.notesOpen=false; }
+  else if(d.opennotes!==undefined){ S.notesOpen=true; }
+  else if(d.pick){ const s=findSetting(d.pick); setValue(s,s.type==="file"?"~/work/maven/settings-corp.xml":"~/work/cache",d.layer,d.inst||null); }
+  else if(d.pickmisc){ if(!d.pickmisc.startsWith("rt.")) S.misc[d.pickmisc]="~/opt/tool"; toast("演示：这里会打开系统选择器"); }
+  else if(d.addrepo!==undefined){ const v=$("#repoUrl").value.trim(); if(!/^https:\/\//.test(v)){ toast("请输入 https 插件索引地址或 GitHub 仓库地址"); render(); return; } S.sources.push({id:"u"+Date.now(),name:v.replace(/^https:\/\/(github\.com\/)?/,"").split("/").slice(0,2).join("/"),url:v,refreshed:null,ignored:0}); }
+  else if(d.refreshrepo){ S.sources.find(s=>s.id===d.refreshrepo).refreshed="刚刚"; }
+  else if(d.removerepo){ S.sources=S.sources.filter(s=>s.id!==d.removerepo); if(S.mSource===d.removerepo) S.mSource="all"; }
+  else if(d.refreshall!==undefined){ S.sources.forEach(s=>s.refreshed="刚刚"); toast("已刷新全部插件仓库"); }
+  else if(d.rtsel){ S.runtimeSel=d.rtsel; }
+  else if(d.runsel){ S.runSel=d.runsel; }
+  if(d.closemodal!==undefined) S.modal=null;
+  if(d.toast) toast(d.toast);
+  render();
+});
+document.addEventListener("change",e=>{
+  const t=e.target, d=t.dataset;
+  if(t.id==="bscope"){ S.buildScope[d.sys]=t.value; render(); return; }
+  if(t.id==="mSource"){ S.mSource=t.value; render(); return; }
+  if(t.id==="mSort"){ S.mSort=t.value; render(); return; }
+  if(t.id==="navSearch"||t.id==="pq"||t.id==="mq"||t.id==="sq"||t.id==="repoUrl") return;
+  if(d.misc){ S.misc[d.misc]=t.value; render(); return; }
+  if(!d.set) return;
+  const s=findSetting(d.set);
+  if(d.kind==="int"){ const n=Number(t.value); if(!Number.isInteger(n)||n<s.min||n>s.max){ t.classList.add("bad"); toast(`请输入 ${s.min} 到 ${s.max} 之间的整数。`); return; } setValue(s,n,d.layer,d.inst||null); }
+  else if(d.kind==="enum") setValue(s,t.value,d.layer,d.inst||null);
+  else if(d.kind==="text"){ if(d.pattern&&!new RegExp(d.pattern).test(t.value)){ t.classList.add("bad"); toast("格式不符合声明的 pattern，未保存"); return; } setValue(s,t.value,d.layer,d.inst||null); }
+  render();
+});
+function keepFocus(id,fn){ const el=$("#"+id), pos=el.selectionStart; fn(el.value); render(); const n=$("#"+id); if(n){ n.focus(); n.setSelectionRange(pos,pos);} }
+document.addEventListener("input",e=>{
+  if(e.target.id==="pq") keepFocus("pq",v=>S.query=v);
+  if(e.target.id==="mq") keepFocus("mq",v=>S.mQuery=v);
+});
+function navSearch(q){
+  q=q.trim().toLowerCase(); if(!q) return;
+  const hit=SETTINGS.find(s=>loaded(P(s.plugin))&&(s.title+s.id).toLowerCase().includes(q));
+  if(hit){ const l=capLocation(hit.cap,hit.plugin); if(l) S.page=l.page; else { goPlugins("installed"); S.selected=hit.plugin; S.detailTab="settings"; } S.hit=`${hit.plugin}.${hit.id}`; render(); return; }
+  const pg=Object.entries(PAGE_TITLES).find(([k,v])=>v.toLowerCase().includes(q));
+  if(pg){ S.page=pg[0]; render(); } else toast("未找到设置 · 请尝试其他搜索词。");
+}
+$("#navSearch").addEventListener("keydown",e=>{ if(e.key==="Enter") navSearch(e.target.value); });
+$("#optChanges").addEventListener("click",()=>{ S.page="changes"; render(); });
+["optNotes","optDark","optMarks"].forEach(id=>$("#"+id).addEventListener("change",render));
+$("#optProject").addEventListener("change",e=>{ projectKey=e.target.value; S.runtimeSel="__defaults"; S.runSel="r1"; render(); });
+document.addEventListener("click",e=>{ if(e.target.id==="copymd"){ const t=$("#chgmd"); t.select(); navigator.clipboard?.writeText(t.value).catch(()=>{}); try{document.execCommand("copy")}catch(_){} toast("已复制"); } },true);
+$("#optReset").addEventListener("click",()=>location.reload());
+render();
+</script>
+</body>
+</html>

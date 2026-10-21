@@ -1,4 +1,5 @@
 import Testing
+import LitheCoreContracts
 import LitheModuleAPI
 @testable import Lithe
 
@@ -54,6 +55,81 @@ struct PluginManagementPresentationTests {
         let shouldCloseAfterRetry = await state.applyPluginChanges { _ in [pluginID] }
         #expect(shouldCloseAfterRetry)
         #expect(state.pendingPluginEnabledStates.isEmpty)
+    }
+
+    @Test
+    func capabilitiesComeFromTheValidatedDeclaration() throws {
+        let descriptor = try DeclarativePluginTestSupport.descriptor(
+            DeclarativePluginTestSupport.manifestObject(version: PluginVersion(major: 1, minor: 0, patch: 0))
+        )
+
+        let capabilities = PluginCapability.capabilities(of: descriptor.pluginManifest, descriptor: descriptor)
+
+        #expect(capabilities == [
+            PluginCapability(kind: .language, subject: "fixture", title: "Fixture", detail: .fileTypes([".fixture"])),
+            PluginCapability(
+                kind: .languageServer, subject: "fixture", title: "Fixture",
+                detail: .systemServer(commands: ["fixture-language-server"])
+            ),
+        ])
+    }
+
+    /// Java's run, test, and debug support is Lithe's own JDT integration;
+    /// the Features tab says so instead of listing a plugin module.
+    @Test
+    func javaFeaturesIncludeHostIntegratedCapabilities() throws {
+        let java = try DeclarativePluginTestSupport.officialDescriptor("JavaSupport")
+
+        let capabilities = PluginCapability.capabilities(of: java.pluginManifest, descriptor: java)
+        let kinds = Set(capabilities.map(\.kind))
+
+        #expect(kinds.isSuperset(of: [.language, .languageServer, .run, .test, .debug]))
+        let server = try #require(capabilities.first { $0.kind == .languageServer && $0.subject == "java" })
+        if case .runtimeServer(let tool, let packagedRuntime) = server.detail {
+            #expect(tool == "java")
+            #expect(packagedRuntime)
+        } else {
+            Issue.record("Expected the Java server to run on the packaged runtime, got \(server.detail)")
+        }
+        for capability in capabilities where [.run, .test, .debug].contains(capability.kind) {
+            #expect(capability.detail == .hostIntegration)
+        }
+    }
+
+    @Test
+    func installedListFiltersByCapabilityStateAndQuery() throws {
+        let descriptor = try DeclarativePluginTestSupport.descriptor(
+            DeclarativePluginTestSupport.manifestObject(
+                id: "io.example.zig-support",
+                version: PluginVersion(major: 1, minor: 0, patch: 0),
+                signatureRequirement: .unsigned
+            )
+        )
+        let plugin = snapshot(descriptor.pluginManifest, origin: .community).withDeclaration(
+            capabilities: PluginCapability.capabilities(of: descriptor.pluginManifest, descriptor: descriptor),
+            permissions: descriptor.permissions,
+            programs: [],
+            previousVersion: nil
+        )
+
+        #expect(PluginListFilter.languageServer.matches(plugin, isEnabled: true, hasUpdate: false))
+        #expect(!PluginListFilter.buildSystem.matches(plugin, isEnabled: true, hasUpdate: false))
+        #expect(!PluginListFilter.ui.matches(plugin, isEnabled: true, hasUpdate: false))
+        #expect(PluginListFilter.community.matches(plugin, isEnabled: true, hasUpdate: false))
+        #expect(PluginListFilter.update.matches(plugin, isEnabled: true, hasUpdate: true))
+        #expect(!PluginListFilter.update.matches(plugin, isEnabled: true, hasUpdate: false))
+        #expect(PluginListFilter.disabled.matches(plugin, isEnabled: false, hasUpdate: false))
+        #expect(!PluginListFilter.disabled.matches(plugin, isEnabled: true, hasUpdate: false))
+        // Capability titles are searchable, not only the plugin's name.
+        #expect(PluginListFilter.matches(plugin, query: "fixture"))
+        #expect(PluginListFilter.matches(plugin, query: "  EXAMPLE "))
+        #expect(!PluginListFilter.matches(plugin, query: "kotlin"))
+    }
+
+    @Test
+    func everyFilterHasAUniqueSlashToken() {
+        let tokens = PluginListFilter.allCases.map(\.token)
+        #expect(Set(tokens).count == tokens.count)
     }
 
     private func snapshot(

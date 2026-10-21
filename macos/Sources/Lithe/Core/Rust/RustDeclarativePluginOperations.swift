@@ -6,7 +6,7 @@ import LitheModuleAPI
 /// validation and template expansion for both products; this adapter only
 /// translates payloads and outcomes.
 struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, DeclarativeExecutionPlanning,
-    DeclarativeLanguageServerLaunchPlanning, LanguageServerRuntimeVersionChecking {
+    DeclarativeLanguageServerLaunchPlanning, DeclarativePluginSettingsResolving, LanguageServerRuntimeVersionChecking {
     let core: RustCoreBridge
 
     func validate(manifest: Data) throws -> DeclarativePluginDescriptor {
@@ -128,7 +128,7 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
             payload: payload
         )
         let plan = outcome.value.plan
-        return DeclarativeLanguageServerLaunchPlan(
+        var result = DeclarativeLanguageServerLaunchPlan(
             arguments: plan.arguments,
             validationArguments: plan.validationArguments,
             initializationOptions: plan.initializationOptions,
@@ -161,6 +161,46 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
                 )
             }
         )
+        result.workspaceConfiguration = plan.workspaceConfiguration
+        return result
+    }
+
+    func resolveSettings(
+        manifest: Data,
+        settings: [String: ToolingJSONValue],
+        projectSettings: [String: ToolingJSONValue]
+    ) throws -> [ResolvedPluginSetting] {
+        let outcome: Outcome<ResolvedSettingsResult> = try execute(
+            "plugins.declarative.resolveSettings",
+            payload: SettingsPayload(
+                manifest: try Self.json(manifest),
+                settings: settings,
+                projectSettings: projectSettings,
+                languageID: nil
+            )
+        )
+        return outcome.value.settings.map {
+            ResolvedPluginSetting(id: $0.id, value: $0.value, source: PluginSettingSource(rawValue: $0.source) ?? .default)
+        }
+    }
+
+    func workspaceConfiguration(
+        manifest: Data,
+        languageID: String,
+        settings: [String: ToolingJSONValue],
+        projectSettings: [String: ToolingJSONValue]
+    ) throws -> ToolingJSONValue? {
+        let outcome: Outcome<WorkspaceConfigurationResult> = try execute(
+            "plugins.declarative.workspaceConfiguration",
+            payload: SettingsPayload(
+                manifest: try Self.json(manifest),
+                settings: settings,
+                projectSettings: projectSettings,
+                languageID: languageID
+            )
+        )
+        let configuration = outcome.value.configuration
+        return configuration == .null ? nil : configuration
     }
 
     func checkRuntimeVersion(
@@ -254,6 +294,7 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
         let workspaceStateDirectory: String
         let architecture: String
         let settings: [String: ToolingJSONValue]
+        let projectSettings: [String: ToolingJSONValue]
 
         init(_ request: DeclarativeLanguageServerLaunchRequest) {
             pluginDirectory = request.pluginDirectory.path
@@ -261,6 +302,7 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
             workspaceStateDirectory = request.workspaceStateDirectory.path
             architecture = request.architecture
             settings = request.settings
+            projectSettings = request.projectSettings
         }
     }
 
@@ -323,6 +365,7 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
         let arguments: [String]
         let validationArguments: [String]
         let initializationOptions: ToolingJSONValue?
+        let workspaceConfiguration: ToolingJSONValue?
         let runtimeRequirements: [RuntimeRequirement]
         let requiredDirectories: [String]
         let requiredPackagePaths: [String]
@@ -334,6 +377,27 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
             let mayUseNetwork: Bool
             let languageServer: String?
         }
+    }
+
+    private struct SettingsPayload: Encodable {
+        let manifest: ToolingJSONValue
+        let settings: [String: ToolingJSONValue]
+        let projectSettings: [String: ToolingJSONValue]
+        let languageID: String?
+    }
+
+    private struct ResolvedSettingsResult: Decodable {
+        struct Setting: Decodable {
+            let id: String
+            let value: ToolingJSONValue
+            let source: String
+        }
+
+        let settings: [Setting]
+    }
+
+    private struct WorkspaceConfigurationResult: Decodable {
+        let configuration: ToolingJSONValue?
     }
 
     /// Names the process by exactly one of its language and its build system.

@@ -340,7 +340,7 @@ fn descriptor_ids(
 }
 
 /// Dot-separated lowerCamelCase segments, for example `snapshot.refresh`.
-fn is_function_id(value: &str) -> bool {
+pub(crate) fn is_function_id(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= MAX_FUNCTION_ID_BYTES
         && value.split('.').all(|segment| {

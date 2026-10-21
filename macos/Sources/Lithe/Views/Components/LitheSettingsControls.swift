@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-private enum SettingsSelectMetrics {
+enum SettingsSelectMetrics {
     static let controlHeight: CGFloat = 28
     static let controlCornerRadius: CGFloat = 4
     static let fontSize: CGFloat = LitheDropdownMetrics.fontSize
@@ -61,20 +61,21 @@ struct LitheSettingsSection<Content: View, Accessory: View>: View {
     @ViewBuilder let content: Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
                 Text(LocalizedStringKey(title))
-                    .font(LitheTheme.uiFont(size: 12, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 12, weight: .semibold))
                     .foregroundStyle(LitheTheme.secondaryText)
                     .fixedSize()
                 accessory
-                Rectangle().fill(LitheTheme.divider).frame(height: 1)
+                Spacer(minLength: 0)
             }
-            content
+            .padding(.horizontal, 6)
+            LitheSettingsCard { content }
         }
         .font(LitheTheme.settingsFont)
         .foregroundStyle(LitheTheme.primaryText)
-        .padding(.top, 10)
+        .padding(.bottom, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
@@ -82,6 +83,228 @@ struct LitheSettingsSection<Content: View, Accessory: View>: View {
 extension LitheSettingsSection where Accessory == EmptyView {
     init(_ title: String, @ViewBuilder content: () -> Content) {
         self.init(title: title, accessory: { EmptyView() }, content: content)
+    }
+}
+
+/// The white rounded card a settings section draws its rows on. Each direct
+/// child becomes one line of the card with a hairline between lines, the way
+/// macOS System Settings groups its rows.
+struct LitheSettingsCard<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        _VariadicView.Tree(LitheSettingsCardLines()) { content }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            // The hairline ring stands in for a drop shadow: a shadow on the
+            // card would re-render every row offscreen on each resize frame.
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(LitheTheme.settingsCard)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(LitheTheme.settingsCardRing, lineWidth: 0.5)
+            )
+    }
+}
+
+private struct LitheSettingsCardLines: _VariadicView_UnaryViewRoot {
+    func body(children: _VariadicView.Children) -> some View {
+        let firstID = children.first?.id
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(children) { child in
+                if child.id != firstID {
+                    Rectangle()
+                        .fill(LitheTheme.settingsCardDivider)
+                        .frame(height: 1)
+                }
+                child
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+}
+
+/// One setting: a fixed label column, the control after it, and optional
+/// status pills on the trailing edge (effective value, scope, when it takes
+/// effect). Matches the `.srow` row of the settings mockup.
+struct LitheSettingsRow<Control: View, Badges: View>: View {
+    static var labelWidth: CGFloat { 230 }
+
+    private let title: LocalizedStringKey
+    private let info: LocalizedStringKey?
+    private let isModified: Bool
+    private let control: Control
+    private let badges: Badges
+
+    init(
+        _ title: LocalizedStringKey,
+        info: LocalizedStringKey? = nil,
+        isModified: Bool = false,
+        @ViewBuilder control: () -> Control,
+        @ViewBuilder badges: () -> Badges
+    ) {
+        self.title = title
+        self.info = info
+        self.isModified = isModified
+        self.control = control()
+        self.badges = badges()
+    }
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 10) {
+            HStack(spacing: 5) {
+                Text(title)
+                    .foregroundStyle(LitheTheme.primaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let info { LitheInfoTip(info) }
+            }
+            .frame(width: Self.labelWidth, alignment: .leading)
+            HStack(spacing: 6) { control }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 4) { badges }
+                .fixedSize()
+        }
+        .frame(minHeight: 30)
+        .overlay(alignment: .leading) {
+            if isModified {
+                Circle()
+                    .fill(LitheTheme.accent)
+                    .frame(width: 6, height: 6)
+                    .offset(x: -10)
+                    .accessibilityHidden(true)
+            }
+        }
+    }
+}
+
+extension LitheSettingsRow where Badges == EmptyView {
+    init(
+        _ title: LocalizedStringKey,
+        info: LocalizedStringKey? = nil,
+        isModified: Bool = false,
+        @ViewBuilder control: () -> Control
+    ) {
+        self.init(title, info: info, isModified: isModified, control: control, badges: { EmptyView() })
+    }
+}
+
+/// A small capsule that reports a fact about a setting, such as the value in
+/// effect or whether this project overrides it.
+struct LitheSettingsPill: View {
+    enum Kind {
+        case neutral, project, effect, value
+    }
+
+    private let text: Text
+    private let kind: Kind
+
+    init(_ title: LocalizedStringKey, kind: Kind = .neutral) {
+        self.text = Text(title)
+        self.kind = kind
+    }
+
+    init(verbatim title: String, kind: Kind = .neutral) {
+        self.text = Text(verbatim: title)
+        self.kind = kind
+    }
+
+    var body: some View {
+        text
+            .font(kind == .value
+                  ? LitheTheme.uiFont(size: 10.5, design: .monospaced)
+                  : LitheTheme.uiFont(size: 10.5))
+            .lineLimit(1)
+            .foregroundStyle(foreground)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 2)
+            .background(Capsule().fill(background))
+            .fixedSize()
+    }
+
+    private var foreground: Color {
+        switch kind {
+        case .neutral: LitheTheme.settingsPillText
+        case .project: LitheTheme.settingsProjectPillText
+        case .effect: LitheTheme.settingsEffectPillText
+        case .value: LitheTheme.settingsValuePillText
+        }
+    }
+
+    private var background: Color {
+        switch kind {
+        case .neutral: LitheTheme.settingsPill
+        case .project: LitheTheme.settingsProjectPill
+        case .effect: LitheTheme.settingsEffectPill
+        case .value: LitheTheme.settingsValuePill
+        }
+    }
+}
+
+/// A quiet heading inside a card that splits its rows into named groups.
+struct LitheSettingsSubheading: View {
+    private let title: Text
+
+    init(_ title: LocalizedStringKey) { self.title = Text(title) }
+    init(verbatim title: String) { self.title = Text(verbatim: title) }
+
+    var body: some View {
+        title
+            .font(LitheTheme.uiFont(size: 11, weight: .semibold))
+            .foregroundStyle(LitheTheme.tertiaryText)
+            .padding(.top, 4)
+    }
+}
+
+/// A card-styled strip at the top of a page, for who provides the page and
+/// which layer the page edits.
+struct LitheSettingsBanner<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        HStack(spacing: 10) { content }
+            .font(LitheTheme.uiFont(size: 12))
+            .foregroundStyle(LitheTheme.secondaryText)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 9)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(LitheTheme.settingsCard)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(LitheTheme.settingsCardRing, lineWidth: 0.5)
+            )
+            .padding(.bottom, 12)
+    }
+}
+
+/// The amber bar that says a change waits for a restart, with the action.
+struct LitheSettingsNotice<Actions: View>: View {
+    private let message: Text
+    @ViewBuilder private let actions: Actions
+
+    init(_ message: LocalizedStringKey, @ViewBuilder actions: () -> Actions) {
+        self.message = Text(message)
+        self.actions = actions()
+    }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "arrow.clockwise")
+            message.fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 8)
+            actions
+        }
+        .font(LitheTheme.uiFont(size: 12))
+        .foregroundStyle(LitheTheme.settingsNoticeText)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(RoundedRectangle(cornerRadius: 8).fill(LitheTheme.settingsNoticeBackground))
+        .padding(.bottom, 12)
     }
 }
 

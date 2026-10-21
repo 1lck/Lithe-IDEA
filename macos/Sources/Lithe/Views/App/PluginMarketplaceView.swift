@@ -33,22 +33,17 @@ struct PluginMarketplaceView: View {
     }
 
     var body: some View {
-        GeometryReader { geometry in
-            LitheSplitPaneView(
-                axis: .horizontal,
-                placement: .leading,
-                defaultSize: CGFloat(listWidth),
-                minimum: PluginManagementView.listMinimumWidth,
-                maximum: max(
-                    PluginManagementView.listMinimumWidth,
-                    geometry.size.width - SplitHandleView.thickness - PluginManagementView.detailMinimumWidth
-                ),
-                flexibleMinimum: PluginManagementView.detailMinimumWidth,
-                onCommit: { listWidth = Double($0) },
-                sized: { sidebar.background(LitheToolWindowActivityTracker(isActive: $pluginListActive)) },
-                flexible: { detail }
-            )
-        }
+        LitheSplitPaneView(
+            axis: .horizontal,
+            placement: .leading,
+            defaultSize: CGFloat(listWidth),
+            minimum: PluginManagementView.listMinimumWidth,
+            maximum: PluginManagementView.listMaximumWidth,
+            flexibleMinimum: PluginManagementView.detailMinimumWidth,
+            onCommit: { listWidth = Double($0) },
+            sized: { sidebar.background(LitheToolWindowActivityTracker(isActive: $pluginListActive)) },
+            flexible: { detail }
+        )
         .task { await feature.refreshIfNeeded() }
     }
 

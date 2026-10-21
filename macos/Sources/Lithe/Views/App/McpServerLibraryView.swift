@@ -77,9 +77,6 @@ struct McpServerLibraryView: View {
                         .foregroundStyle(LitheTheme.primaryText)
                     LitheInfoTip("Lithe reads the servers registered in your Codex and Claude Code configuration. Saving writes only the changed entry, keeps backups in Application Support, and never overwrites an entry created outside Lithe. Agents read MCP configuration when a session starts, so restart a session to apply changes.")
                 }
-                Text("Manage the servers Codex and Claude Code can start.")
-                    .font(LitheTheme.smallFont)
-                    .foregroundStyle(LitheTheme.secondaryText)
             }
 
             Spacer(minLength: 12)

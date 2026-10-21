@@ -100,10 +100,15 @@ struct MacPluginLanguageServerLaunchResolver {
         self.fileManager = fileManager
     }
 
-    /// The plugin's stored setting values a launch expands with now. A
-    /// provider started with other values is out of date.
-    func settingValues(forPlugin pluginID: String) -> [String: ToolingJSONValue] {
-        settings.values(forPlugin: pluginID)
+    /// The plugin's stored setting values a launch in `workspaceRootURL`
+    /// expands with now, both layers in one map (project values under a
+    /// `project:` prefix). A provider started with other values is out of date.
+    func settingValues(forPlugin pluginID: String, workspaceRootURL: URL) -> [String: ToolingJSONValue] {
+        var values = settings.values(forPlugin: pluginID)
+        for (id, value) in settings.projectValues(forPlugin: pluginID, projectRoot: workspaceRootURL) {
+            values["project:\(id)"] = value
+        }
+        return values
     }
 
     static var hostArchitecture: String {
@@ -134,7 +139,8 @@ struct MacPluginLanguageServerLaunchResolver {
         }
         return ResolvedLanguageServerLaunch(
             arguments: plan.arguments,
-            initializationOptions: plan.initializationOptions
+            initializationOptions: plan.initializationOptions,
+            workspaceConfiguration: plan.workspaceConfiguration
         )
     }
 
@@ -178,7 +184,7 @@ struct MacPluginLanguageServerLaunchResolver {
         packageURL: URL,
         workspaceRootURL: URL
     ) throws -> BuildProviderLaunch {
-        let settingValues = settings.values(forPlugin: pluginID)
+        let launchSettings = self.settingValues(forPlugin: pluginID, workspaceRootURL: workspaceRootURL)
         let request = DeclarativeLanguageServerLaunchRequest(
             pluginDirectory: packageURL.standardizedFileURL,
             stateDirectory: directories.buildSystemStateDirectory(pluginID: pluginID, buildSystemID: buildSystemID),
@@ -188,7 +194,8 @@ struct MacPluginLanguageServerLaunchResolver {
                 workspaceRootURL: workspaceRootURL
             ),
             architecture: Self.hostArchitecture,
-            settings: settingValues
+            settings: settings.values(forPlugin: pluginID),
+            projectSettings: settings.projectValues(forPlugin: pluginID, projectRoot: workspaceRootURL)
         )
         let plan = try planner.buildProviderLaunchPlan(
             manifest: manifest,
@@ -236,7 +243,7 @@ struct MacPluginLanguageServerLaunchResolver {
             runtimeTools: plan.runtimeRequirements.map(\.tool),
             executesProjectCode: provider.executesProjectCode,
             mayUseNetwork: provider.mayUseNetwork,
-            settings: settingValues
+            settings: launchSettings
         ))
     }
 
@@ -312,7 +319,8 @@ struct MacPluginLanguageServerLaunchResolver {
                 workspaceRootURL: workspaceRootURL
             ),
             architecture: Self.hostArchitecture,
-            settings: settings.values(forPlugin: source.pluginID)
+            settings: settings.values(forPlugin: source.pluginID),
+            projectSettings: settings.projectValues(forPlugin: source.pluginID, projectRoot: workspaceRootURL)
         )
     }
 
