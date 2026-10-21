@@ -40,7 +40,9 @@ extension AppModel {
                 showNotification(String(localized: "Files added. Save your editor changes before sending so the Agent can read them."))
             }
         } catch {
-            showNotification(String(localized: String.LocalizationValue(error.localizedDescription)))
+            if !error.isCancellation {
+                showNotification(String(localized: String.LocalizationValue(error.localizedDescription)))
+            }
         }
     }
 
@@ -159,7 +161,7 @@ extension AppModel {
                 objectWillChange.send()
                 connectAgentConversation()
             } catch {
-                showNotification(error.localizedDescription)
+                if !error.isCancellation { showNotification(error.localizedDescription) }
             }
         }
     }

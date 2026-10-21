@@ -45,7 +45,7 @@ final class DatabaseModuleCoordinator {
             })
             return capability.feature
         } catch {
-            onError(error.localizedDescription)
+            if !error.isCancellation { onError(error.localizedDescription) }
             return nil
         }
     }
@@ -55,7 +55,7 @@ final class DatabaseModuleCoordinator {
             try await runtime.sleep(.database)
             store.clear(for: .database)
         } catch {
-            onError(error.localizedDescription)
+            if !error.isCancellation { onError(error.localizedDescription) }
         }
     }
 }
