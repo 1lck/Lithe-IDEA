@@ -2072,3 +2072,7 @@
 "These defaults apply only to this project on this computer. Run configurations inherit them unless overridden. Use the Project save scope in a run configuration to share settings with your team." = "These defaults apply only to this project on this computer. Run configurations inherit them unless overridden. Use the Project save scope in a run configuration to share settings with your team.";
 "Saved only for this project on this computer in .lithe/run/local.json and excluded from Git." = "Saved only for this project on this computer in .lithe/run/local.json and excluded from Git.";
 "This computer" = "This computer";
+
+"Find Action" = "Find Action";
+"Find Action…" = "Find Action…";
+"Find and execute a command" = "Find and execute a command";

@@ -141,6 +141,7 @@ private struct SearchEverywhereContent: View {
     let availableSize: CGSize
     @Environment(\.locale) private var locale
     @State private var searchFocused = false
+    @State private var inputFocusRequest = 0
     @State private var draftQuery: String?
     private var query: String {
         get { draftQuery ?? session.everywhereQuery }
@@ -252,6 +253,13 @@ private struct SearchEverywhereContent: View {
             installKeyMonitor()
         }
         .onDisappear { removeKeyMonitor() }
+        // beginSearchEverywhere publishes even when the popup is already visible.
+        // Read the seeded query, then ask AppKit to focus the existing input again.
+        .onReceive(session.$isSearchEverywhereVisible) { visible in
+            guard visible else { return }
+            draftQuery = session.everywhereQuery
+            inputFocusRequest &+= 1
+        }
         .onChange(of: query) { _ in
             selectedIndex = 0
             selectionRevealRevision &+= 1
@@ -326,6 +334,7 @@ private struct SearchEverywhereContent: View {
         HStack(spacing: 6) {
             LitheIDEAIcon(resourcePath: "expui/general/search.svg", size: 16, preservesOriginalColors: true)
             LitheSearchTextField("", text: Binding(get: { query }, set: { query = $0 }))
+                .background(SearchEverywhereInputFocus(request: inputFocusRequest))
                 .accessibilityLabel("Search Everywhere")
                 .background(LitheToolWindowActivityTracker(isActive: $searchFocused))
             if feature.isSearchingEverywhere {
@@ -925,5 +934,64 @@ struct SearchEverywhereSourcePreview: View {
         guard let request = previewRequest else { return }
         previewRequest = nil
         releaseDocument(request.url, request.id)
+    }
+}
+
+/// Focuses the Search Everywhere input each time the popup is shown or reseeded.
+/// The popup panel selects restored text when it takes focus; for the seeded
+/// command prefix the caret goes after "/" so typing filters commands.
+private struct SearchEverywhereInputFocus: NSViewRepresentable {
+    let request: Int
+
+    func makeNSView(context: Context) -> SearchEverywhereInputFocusView { SearchEverywhereInputFocusView() }
+
+    func updateNSView(_ view: SearchEverywhereInputFocusView, context: Context) {
+        view.request(request)
+    }
+}
+
+final class SearchEverywhereInputFocusView: NSView {
+    private var pending = 0
+    private var handled = 0
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    func request(_ value: Int) {
+        pending = value
+        schedule()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        schedule()
+    }
+
+    private func schedule() {
+        guard pending != handled, window != nil else { return }
+        // Run after the popup finishes presenting, so its own focus and selection come first.
+        DispatchQueue.main.async { [weak self] in self?.apply() }
+    }
+
+    private func apply() {
+        guard pending != handled, let window,
+              let field = Self.textField(in: window.contentView,
+                                         containing: convert(NSPoint(x: bounds.midX, y: bounds.midY), to: nil))
+        else { return }
+        handled = pending
+        if field.currentEditor() == nil || window.firstResponder !== field.currentEditor() {
+            window.makeFirstResponder(field)
+        }
+        if field.stringValue == "/", let editor = field.currentEditor() {
+            editor.selectedRange = NSRange(location: 1, length: 0)
+        }
+    }
+
+    private static func textField(in view: NSView?, containing point: NSPoint) -> NSTextField? {
+        guard let view else { return nil }
+        if let field = view as? NSTextField, field.isEditable,
+           field.convert(field.bounds, to: nil).contains(point) {
+            return field
+        }
+        return view.subviews.lazy.compactMap { textField(in: $0, containing: point) }.first
     }
 }
