@@ -782,6 +782,7 @@ impl DeclarativePluginManifest {
             .copied()
             .unwrap_or(1);
         let mut server_languages = BTreeSet::new();
+        let mut referenced_immediate_settings = BTreeSet::new();
         for (index, server) in self.language_servers.iter_mut().enumerate() {
             let field = format!("languageServers[{index}]");
             if let Some(integration) = &mut server.host_integration {
@@ -800,6 +801,9 @@ impl DeclarativePluginManifest {
                     "A language declares more than one language server.",
                 ));
             }
+            if let Some(configuration) = &server.workspace_configuration {
+                collect_setting_references(configuration, &mut referenced_immediate_settings);
+            }
             server.validate(
                 &field,
                 self.plugin_api_version,
@@ -807,6 +811,14 @@ impl DeclarativePluginManifest {
                 is_official_namespace(&self.id),
                 &declared_settings,
             )?;
+        }
+        if let Some(id) =
+            declared_settings.first_unreferenced_immediate(&referenced_immediate_settings)
+        {
+            return Err(invalid(
+                "settings",
+                format!("The immediate setting {id} must be used by workspaceConfiguration."),
+            ));
         }
         self.language_servers
             .sort_by(|left, right| left.language_id.cmp(&right.language_id));
@@ -1891,6 +1903,32 @@ fn validate_launch_templates(
         )?;
     }
     Ok(())
+}
+
+/// Collects setting IDs referenced by every template string in a JSON value.
+fn collect_setting_references(value: &Value, references: &mut BTreeSet<String>) {
+    match value {
+        Value::String(text) => {
+            if let Some(parts) = parse_template_with(text, LaunchVariable::parse) {
+                for part in parts {
+                    if let TemplatePart::Variable(LaunchVariable::Setting(id)) = part {
+                        references.insert(id);
+                    }
+                }
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                collect_setting_references(item, references);
+            }
+        }
+        Value::Object(members) => {
+            for item in members.values() {
+                collect_setting_references(item, references);
+            }
+        }
+        _ => {}
+    }
 }
 
 /// Checks every string inside a JSON value as a start-time launch template.

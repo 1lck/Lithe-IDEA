@@ -1434,17 +1434,17 @@ package final class LanguageToolingSessionManager: ObservableObject,
         }.sorted()
     }
 
-    /// Hands a new `workspace/configuration` value to the running server of
-    /// `languageID`; false when none of `pluginID`'s servers runs for it.
+    /// Sends a changed configuration off the main actor through the session's
+    /// bounded write path.
     @discardableResult
     package func updateWorkspaceConfiguration(
         _ configuration: ToolingJSONValue,
         languageID: String,
         pluginID: String
-    ) -> Bool {
+    ) async -> WorkspaceConfigurationUpdateResult {
         guard runtimesByID[languageID]?.descriptor.languageServerLaunch?.launchSource?.pluginID == pluginID,
-              let session = languageServers[languageID], session.isRunning else { return false }
-        return session.updateWorkspaceConfiguration(configuration)
+              let session = languageServers[languageID], session.isRunning else { return .failed }
+        return await session.updateWorkspaceConfigurationAsync(configuration)
     }
 
     package func resolveVirtualDocument(

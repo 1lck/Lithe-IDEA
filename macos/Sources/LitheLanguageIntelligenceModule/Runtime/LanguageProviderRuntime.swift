@@ -137,7 +137,8 @@ package final class StdioLanguageProviderRuntime: LanguageProviderRuntime {
             cacheDirectoryURL: languageServerCacheDirectory,
             core: languageServerCore,
             processRegistry: processRegistry,
-            moduleID: moduleID
+            moduleID: moduleID,
+            pluginID: languageServerLaunch.launchSource?.pluginID
         )
     }
 

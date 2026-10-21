@@ -50,7 +50,7 @@ macOS 设置窗口现在可以由插件“注册”页面：插件在 `plugin.js
 - 全局值：应用偏好，`lithe.plugins.<id>.settings`。
 - 项目值：`<项目>/.lithe/plugin-settings.json`，按插件 ID 分组；文档为空时删除文件，`.lithe` 是指向项目外的符号链接时拒绝写入。
 
-宿主把两层原样交给 Core（`plugins.declarative.resolveSettings`、启动计划的 `projectSettings`），由 Core 合并。Swift 侧的 `PluginSettingState.resolve` 只用于界面即时显示，规则与 Core 一致，并由测试固定。
+宿主把两层原样交给 Core（`plugins.declarative.resolveSettings`、启动计划的 `projectSettings`），由 Core 合并。Swift 侧的 `PluginSettingState.resolve` 只用于界面即时显示，规则与 Core 一致；文本和路径的 `maxLength` 按 Unicode scalar 计数，避免组合字符在宿主接受后被 Core 回退默认值。
 
 这两个位置都不在 app bundle 内，不影响代码签名和 Sparkle 增量更新。
 
@@ -59,7 +59,7 @@ macOS 设置窗口现在可以由插件“注册”页面：插件在 `plugin.js
 | `effect` | 宿主改完后做什么 |
 | --- | --- |
 | `restart`（默认） | 有该插件的语言服务器在运行时，页面提示并提供“重启语言服务器” |
-| `immediate` | 让 Core 展开 `workspaceConfiguration`，用 `lsp.updateWorkspaceConfiguration` 推给该插件正在运行的服务器 |
+| `immediate` | 让 Core 展开 `workspaceConfiguration`，用 `lsp.updateWorkspaceConfiguration` 推给该插件正在运行的服务器；清单校验会拒绝没有被任何 `workspaceConfiguration` 引用的 immediate 设置。连续编辑时，已被新值淘汰的旧发送静默结束，只有真实发送失败才提示重启。 |
 | `reload` | 重新加载该插件的构建模型 |
 | `nextRun` | 不做任何事，下次运行或构建读取 |
 

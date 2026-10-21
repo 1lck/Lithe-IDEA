@@ -1,7 +1,6 @@
 import LitheCoreContracts
 import SwiftUI
 
-// Note: 声明式插件设置的归属与取值规则见 .agents/notes/implemented/feature/2026-10-14-declarative-plugin-settings.md
 // Note: 插件设置注册面与生效方式见 .agents/notes/implemented/architecture/2026-10-21-plugin-settings-surfaces.md
 
 /// What a plugin settings surface asks the host to do. The views never know
@@ -364,29 +363,56 @@ private struct PluginMultiSelectField: View {
         return titles.joined(separator: ", ")
     }
 
+    @State private var isPresented = false
+
     var body: some View {
-        Menu {
-            ForEach(options, id: \.value) { option in
-                Toggle(isOn: Binding(
-                    get: { selected.contains(option.value) },
-                    set: { isOn in
-                        var next = Set(selected)
-                        if isOn { next.insert(option.value) } else { next.remove(option.value) }
-                        onChange(options.map(\.value).filter(next.contains))
+        Button { isPresented.toggle() } label: {
+            HStack(spacing: 8) {
+                Text(verbatim: summary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.down")
+                    .font(LitheTheme.uiFont(size: 9, weight: .semibold))
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .rotationEffect(.degrees(isPresented ? 180 : 0))
+            }
+            .padding(.horizontal, 9)
+            .frame(width: 200, height: SettingsSelectMetrics.controlHeight, alignment: .leading)
+            .litheSettingsControlChrome(
+                background: LitheTheme.settingsSelectBackground,
+                border: isPresented ? LitheTheme.settingsControlAccent : LitheTheme.settingsControlBorder,
+                lineWidth: isPresented ? 2 : 1
+            )
+        }
+        .buttonStyle(.litheNoPress)
+        .lithePointer()
+        .accessibilityLabel(Text(verbatim: accessibilityLabel))
+        .litheDropdown(isPresented: $isPresented) {
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(options, id: \.value) { option in
+                        Button { toggle(option.value) } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: selected.contains(option.value) ? "checkmark" : "")
+                                    .frame(width: 16)
+                                Text(verbatim: option.title)
+                                Spacer(minLength: 12)
+                            }
+                        }
+                        .buttonStyle(LitheDropdownRowStyle(isSelected: false))
                     }
-                )) {
-                    Text(verbatim: option.title)
                 }
             }
-        } label: {
-            Text(verbatim: summary)
-                .lineLimit(1)
-                .truncationMode(.tail)
+            .frame(width: 200)
+            .frame(maxHeight: SettingsSelectMetrics.maximumPopupHeight)
         }
-        .menuStyle(.borderlessButton)
-        .fixedSize(horizontal: false, vertical: true)
-        .frame(maxWidth: 200, alignment: .trailing)
-        .accessibilityLabel(Text(verbatim: accessibilityLabel))
+    }
+
+    private func toggle(_ value: String) {
+        var next = Set(selected)
+        if next.contains(value) { next.remove(value) } else { next.insert(value) }
+        onChange(options.map(\.value).filter(next.contains))
     }
 }
 

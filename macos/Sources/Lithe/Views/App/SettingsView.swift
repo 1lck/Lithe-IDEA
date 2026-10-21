@@ -1845,7 +1845,7 @@ private struct WorkbenchBackgroundThumbnail: View {
             .disabled(thumbnail == nil)
             .help(Text("Preview background image"))
             .accessibilityLabel(Text("Preview background image"))
-            .popover(isPresented: $showsPreview, arrowEdge: .bottom) {
+            .litheDropdown(isPresented: $showsPreview) {
                 if let preview {
                     Image(nsImage: preview)
                         .resizable()

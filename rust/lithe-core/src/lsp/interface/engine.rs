@@ -10898,19 +10898,10 @@ public class Main {
     /// The engine's reply to a request the scripted backend sent, waited for
     /// with a bounded deadline because the reply is written by the reader thread.
     fn await_reply(harness: &Harness, id: &str) -> Value {
-        let deadline = Instant::now() + Duration::from_secs(5);
-        while Instant::now() < deadline {
-            if let Some(reply) = harness
-                .server
-                .messages()
-                .into_iter()
-                .find(|message| message["id"] == id && message.get("method").is_none())
-            {
-                return reply;
-            }
-            thread::sleep(Duration::from_millis(2));
-        }
-        panic!("the engine never answered backend request {id}");
+        harness
+            .server
+            .await_response(id)
+            .unwrap_or_else(|| panic!("the engine never answered backend request {id}"))
     }
 
     fn plugin_configured() -> Harness {
@@ -10958,24 +10949,14 @@ public class Main {
             .update_plugin_configuration(json!({ "gopls": { "ui": { "staticcheck": false } } }))
             .expect("the update should be accepted");
         assert!(response.sent);
-        let deadline = Instant::now() + Duration::from_secs(5);
-        while Instant::now() < deadline {
-            let changes: Vec<Value> = harness
-                .server
-                .messages()
-                .into_iter()
-                .filter(|message| message["method"] == "workspace/didChangeConfiguration")
-                .collect();
-            if changes.len() == 2 {
-                assert_eq!(
-                    changes[1]["params"]["settings"]["gopls"]["ui"]["staticcheck"],
-                    json!(false)
-                );
-                return;
-            }
-            thread::sleep(Duration::from_millis(2));
-        }
-        panic!("the configuration change was never sent");
+        let change = harness
+            .server
+            .await_notification_at("workspace/didChangeConfiguration", 1)
+            .expect("the configuration change was never sent");
+        assert_eq!(
+            change["params"]["settings"]["gopls"]["ui"]["staticcheck"],
+            json!(false)
+        );
     }
 
     #[test]

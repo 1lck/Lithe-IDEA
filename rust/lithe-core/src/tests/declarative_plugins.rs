@@ -657,6 +657,16 @@ fn settings_v2_manifest() -> Value {
 }
 
 #[test]
+fn immediate_settings_must_be_used_by_workspace_configuration() {
+    let mut manifest = settings_v2_manifest();
+    manifest["languageServers"][0]["workspaceConfiguration"] = json!({
+        "elixirLS": { "dialyzerEnabled": true }
+    });
+    let rejection = validate(manifest);
+    assert_eq!(rejection["status"], "rejected");
+    assert!(rejection.to_string().contains("immediate setting dialyzer"));
+}
+#[test]
 fn settings_v2_manifests_validate_and_resolve_by_layer() {
     let manifest = settings_v2_manifest();
     assert_eq!(

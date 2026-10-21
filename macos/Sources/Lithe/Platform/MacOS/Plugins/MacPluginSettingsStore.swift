@@ -1,7 +1,8 @@
 import Foundation
+import Darwin
 import LitheCoreContracts
 
-// Note: 声明式插件设置的归属与取值规则见 .agents/notes/implemented/feature/2026-10-14-declarative-plugin-settings.md
+// Note: 插件设置注册面与生效方式见 .agents/notes/implemented/architecture/2026-10-21-plugin-settings-surfaces.md
 
 /// Keeps the user's values for declarative plugin settings: global values in
 /// the app's preferences, one record per plugin; project values in the
@@ -78,6 +79,13 @@ final class MacPluginSettingsStore: PluginSettingsStoring, @unchecked Sendable {
     private static func projectFile(at projectRoot: URL) throws -> URL {
         let root = projectRoot.standardizedFileURL.resolvingSymlinksInPath()
         let directory = root.appendingPathComponent(".lithe", isDirectory: true)
+        var metadata = stat()
+        if lstat(directory.path, &metadata) == 0 {
+            let mode = metadata.st_mode & S_IFMT
+            guard mode != S_IFLNK else { throw CocoaError(.fileWriteNoPermission) }
+        } else if errno != ENOENT {
+            throw CocoaError(.fileWriteNoPermission)
+        }
         let resolved = directory.resolvingSymlinksInPath()
         guard resolved.path == directory.path || !FileManager.default.fileExists(atPath: directory.path) else {
             throw CocoaError(.fileWriteNoPermission)

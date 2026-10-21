@@ -271,7 +271,7 @@ manifest. Fixture: `fixtures/settings-v2.plugin.json`.
 
 | Field | Meaning |
 | --- | --- |
-| `type` | Adds `multiSelect` (one to 32 `options`; the value is an array of distinct option values), `text` (requires `pattern`, matched against the whole value; optional `maxLength`, default 256 and at most 1024; optional `placeholder`), `file` and `directory` (an absolute path of at most 1024 characters, or empty for "not set"; optional `placeholder`). Text and paths never start with `-` and contain no control characters. |
+| `type` | Adds `multiSelect` (one to 32 `options`; the value is an array of distinct option values), `text` (requires `pattern`, matched against the whole value; optional `maxLength`, default 256 and at most 1024 Unicode scalars; optional `placeholder`), `file` and `directory` (an absolute path of at most 1024 Unicode scalars, or empty for "not set"; optional `placeholder`). Text and paths never start with `-` and contain no control characters. |
 | `scope` | `global` (default): one value for every project. `project`: the open project may override it. |
 | `effect` | When a change takes effect. `restart` (default): the next start of the plugin's processes. `immediate`: pushed to the running language server through `workspaceConfiguration`. `reload`: the next build-model reload; hosts reload the plugin's build models. `nextRun`: the next run or build command. |
 | `page` | `{ "languageID": … }` or `{ "buildSystemID": … }`: the settings page that shows the setting besides the plugin's own page. Any plugin may add to a page; the host shows the page while an enabled plugin contributes to it. |

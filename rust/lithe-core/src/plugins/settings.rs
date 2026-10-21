@@ -272,6 +272,13 @@ impl DeclaredSettings {
         self.whole_value.contains(id)
     }
 
+    pub(crate) fn first_unreferenced_immediate(
+        &self,
+        references: &BTreeSet<String>,
+    ) -> Option<String> {
+        self.immediate.difference(references).next().cloned()
+    }
+
     /// The settings `workspaceConfiguration` may name: every one, since
     /// the host re-expands it whenever a value changes.
     pub(crate) fn for_configuration(&self) -> Self {
@@ -751,6 +758,12 @@ mod tests {
             "a value never starts like a flag"
         );
         assert!(!text.accepts(&json!("toolongvalue")));
+        let combining = setting(json!({
+            "id": "profile", "type": "text", "title": "Profile", "default": "",
+            "pattern": ".*", "maxLength": 2
+        }));
+        assert!(combining.accepts(&json!("e\u{301}")));
+        assert!(!combining.accepts(&json!("e\u{301}x")));
         let missing_pattern = setting(json!({
             "id": "profile", "type": "text", "title": "Profile", "default": "dev"
         }));

@@ -52,14 +52,24 @@ extension AppModel {
         switch effect {
         case .immediate:
             guard let sessions = languageToolingSessionsIfActive else { return .applied }
-            for languageID in running {
+            let updates = running.compactMap { languageID -> (String, ToolingJSONValue)? in
                 guard let configuration = services.pluginManager.workspaceConfiguration(
                     forPlugin: pluginID, languageID: languageID
-                ) else { continue }
-                if !sessions.updateWorkspaceConfiguration(
-                    configuration, languageID: languageID, pluginID: pluginID.rawValue
-                ) {
-                    return .restartRequired
+                ) else { return nil }
+                return (languageID, configuration)
+            }
+            guard !updates.isEmpty else { return .applied }
+            Task { @MainActor [weak self] in
+                for (languageID, configuration) in updates {
+                    switch await sessions.updateWorkspaceConfiguration(
+                        configuration, languageID: languageID, pluginID: pluginID.rawValue
+                    ) {
+                    case .applied, .superseded:
+                        continue
+                    case .failed:
+                        self?.showNotification(String(localized: "The language server could not apply this setting. Restart it to use the new value."))
+                        return
+                    }
                 }
             }
             return .applied
@@ -81,12 +91,21 @@ extension AppModel {
     /// The host knows nothing about what the function does.
     func runPluginSettingAction(_ action: DeclarativePluginSettingAction, of pluginID: PluginID) async {
         let chinese = settings.language == .simplifiedChinese
-        guard workspaceURL != nil, let access = await activateExecutionModule(),
+        guard let workspaceURL, let access = await activateExecutionModule(),
               let feature = access.buildSystems else {
             showNotification(chinese ? "请先打开使用该插件的项目" : "Open a project that uses this plugin first.")
             return
         }
         loadBuildSystems(access)
+        do {
+            _ = try await feature.prepareLanguageImport(workspaceURL: workspaceURL)
+        } catch is CancellationError {
+            return
+        } catch {
+            showNotification(error.localizedDescription)
+            return
+        }
+        guard self.workspaceURL?.standardizedFileURL == workspaceURL.standardizedFileURL else { return }
         let candidates = feature.entries.filter { $0.source.pluginID == pluginID.rawValue }
         let preferred: BuildSystemEntry? = if case .buildSystem(let id) = action.page {
             candidates.first { $0.instance.buildSystemID == id }

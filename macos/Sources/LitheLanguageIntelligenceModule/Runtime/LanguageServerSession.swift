@@ -61,6 +61,10 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     /// never arrives before its operation is registered.
     private var sendsInFlight = 0
     private var stopWatchdog: SendWatchdog?
+    /// Immediate setting updates are serialized per session so an older
+    /// detached write cannot overtake a newer edit or cross a restart.
+    private var configurationUpdateTask: Task<WorkspaceConfigurationUpdateResult, Never>?
+    private var configurationUpdateGeneration: UInt64 = 0
 
     /// How long a write may stay blocked after its call was cancelled or the
     /// session was stopped before the process is ended to free it.
@@ -742,22 +746,55 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         }
     }
 
-    /// Sends changed plugin configuration to the running server. Returns
-    /// false when there is no running session to receive it; the next start
-    /// resolves the configuration again.
+    /// Sends changed plugin configuration without blocking the main actor. Core's
+    /// synchronous stdin write runs on a detached task; updates are serialized
+    /// per session and a stale generation is discarded before writing.
     @discardableResult
-    package func updateWorkspaceConfiguration(_ configuration: ToolingJSONValue) -> Bool {
-        guard let sessionID else { return false }
-        switch core.updateWorkspaceConfiguration(sessionID: sessionID, configuration: configuration) {
-        case .success:
-            return true
-        case .failure(let failure):
-            onLog?(.warning, "Language server configuration was not updated", failure.message, nil)
-            return false
+    package func updateWorkspaceConfigurationAsync(_ configuration: ToolingJSONValue) async
+        -> WorkspaceConfigurationUpdateResult {
+        guard let sessionID, isRunning else { return .failed }
+        configurationUpdateGeneration &+= 1
+        let generation = configurationUpdateGeneration
+        let previous = configurationUpdateTask
+        let task = Task { @MainActor [weak self] () -> WorkspaceConfigurationUpdateResult in
+            _ = await previous?.value
+            guard let self,
+                  self.configurationUpdateGeneration == generation,
+                  self.sessionID == sessionID,
+                  self.isRunning else { return .superseded }
+            self.sendsInFlight += 1
+            let core = self.core
+            let sending = Task.detached(priority: .userInitiated) {
+                core.updateWorkspaceConfiguration(sessionID: sessionID, configuration: configuration)
+            }
+            let watchdog = SendWatchdog()
+            let grace = self.stuckSendGrace
+            let endStuck: @MainActor () -> Void = { [weak self] in self?.endStuckSend() }
+            watchdog.arm(after: .seconds(max(self.requestTimeout, 0)), endStuck)
+            let result = await withTaskCancellationHandler {
+                await sending.value
+            } onCancel: {
+                Task { @MainActor in watchdog.arm(after: grace, endStuck) }
+            }
+            watchdog.disarm()
+            self.sendsInFlight -= 1
+            switch result {
+            case .success:
+                return .applied
+            case .failure(let failure):
+                self.onLog?(.warning, "Language server configuration was not updated", failure.message, nil)
+                return .failed
+            }
         }
+        configurationUpdateTask = task
+        let result = await task.value
+        if configurationUpdateGeneration == generation { configurationUpdateTask = nil }
+        return result
     }
 
     package func stop() {
+        configurationUpdateGeneration &+= 1
+        configurationUpdateTask = nil
         guard let sessionID else {
             failPendingOperations(with: LanguageServerRuntimeSessionError.sessionStopped)
             transition(to: .stopped)

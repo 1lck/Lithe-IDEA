@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-private enum SettingsSelectMetrics {
+enum SettingsSelectMetrics {
     static let controlHeight: CGFloat = 28
     static let controlCornerRadius: CGFloat = 4
     static let fontSize: CGFloat = LitheDropdownMetrics.fontSize
