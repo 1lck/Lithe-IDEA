@@ -1736,6 +1736,202 @@
       }
     },
     {
+      "name": "gradle provider model reload carries refresh and the resolved tool",
+      "plugin": "gradle-provider.plugin.json",
+      "buildSystemID": "gradle",
+      "operation": "modelPlan",
+      "request": {
+        "root": ".",
+        "options": {
+          "offline": true
+        },
+        "refresh": true,
+        "tool": {
+          "executable": "${workspace}/tools/gradle/bin/gradle"
+        }
+      },
+      "expected": {
+        "status": "ok",
+        "plan": {
+          "buildSystemID": "gradle",
+          "root": ".",
+          "provider": {
+            "method": "lithe/build/model",
+            "params": {
+              "refresh": true,
+              "tool": {
+                "executable": "${workspace}/tools/gradle/bin/gradle"
+              },
+              "buildSystemID": "gradle",
+              "root": ".",
+              "options": {
+                "offline": true
+              },
+              "optionArguments": [
+                "--offline"
+              ],
+              "environment": {}
+            }
+          },
+          "decoder": "litheBuildModel",
+          "executesProjectCode": true,
+          "mayUseNetwork": true,
+          "optionFingerprint": "352a3ccd7eb04a8babcfabaa3b76304c71e0f28d6de841e417266aadd183ab39"
+        }
+      }
+    },
+    {
+      "name": "gradle provider model without a reload leaves refresh out",
+      "plugin": "gradle-provider.plugin.json",
+      "buildSystemID": "gradle",
+      "operation": "modelPlan",
+      "request": {
+        "root": ".",
+        "options": {
+          "offline": true
+        },
+        "refresh": false
+      },
+      "expected": {
+        "status": "ok",
+        "plan": {
+          "buildSystemID": "gradle",
+          "root": ".",
+          "provider": {
+            "method": "lithe/build/model",
+            "params": {
+              "buildSystemID": "gradle",
+              "root": ".",
+              "options": {
+                "offline": true
+              },
+              "optionArguments": [
+                "--offline"
+              ],
+              "environment": {}
+            }
+          },
+          "decoder": "litheBuildModel",
+          "executesProjectCode": true,
+          "mayUseNetwork": true,
+          "optionFingerprint": "352a3ccd7eb04a8babcfabaa3b76304c71e0f28d6de841e417266aadd183ab39"
+        }
+      }
+    },
+    {
+      "name": "gradle provider dependency reload carries refresh and the resolved tool",
+      "plugin": "gradle-provider.plugin.json",
+      "buildSystemID": "gradle",
+      "operation": "dependencyPlan",
+      "request": {
+        "root": ".",
+        "project": {
+          "path": "app",
+          "name": "app",
+          "properties": {
+            "taskPrefix": ":app:"
+          }
+        },
+        "refresh": true,
+        "tool": {
+          "executable": "${workspace}/tools/gradle/bin/gradle"
+        }
+      },
+      "expected": {
+        "status": "ok",
+        "plan": {
+          "buildSystemID": "gradle",
+          "root": ".",
+          "provider": {
+            "method": "lithe/build/dependencies",
+            "params": {
+              "refresh": true,
+              "tool": {
+                "executable": "${workspace}/tools/gradle/bin/gradle"
+              },
+              "project": {
+                "name": "app",
+                "path": "app"
+              },
+              "buildSystemID": "gradle",
+              "root": ".",
+              "options": {},
+              "optionArguments": [],
+              "environment": {}
+            }
+          },
+          "decoder": "litheDependencies",
+          "executesProjectCode": true,
+          "mayUseNetwork": true,
+          "optionFingerprint": "412601eb5af95d4cd3c162065322aaec6b3d65fda1f35257942f5d8b8a0f5a9e"
+        }
+      }
+    },
+    {
+      "name": "gradle provider tool must be an absolute path",
+      "plugin": "gradle-provider.plugin.json",
+      "buildSystemID": "gradle",
+      "operation": "modelPlan",
+      "request": {
+        "root": ".",
+        "options": {
+          "offline": true
+        },
+        "tool": {
+          "executable": "tools/gradle/bin/gradle"
+        }
+      },
+      "expected": {
+        "status": "rejected",
+        "error": {
+          "code": "plugin.build.invalidSelection",
+          "message": "tool.executable must be an absolute path."
+        }
+      }
+    },
+    {
+      "name": "gradle model command ignores the provider refresh and tool",
+      "plugin": "gradle-build.plugin.json",
+      "buildSystemID": "gradle",
+      "operation": "modelPlan",
+      "request": {
+        "root": ".",
+        "pluginDirectory": "${workspace}/plugins/gradle",
+        "outputFile": "${workspace}/state/model.json",
+        "options": {
+          "offline": true
+        },
+        "refresh": true,
+        "tool": {
+          "executable": "${workspace}/tools/gradle/bin/gradle"
+        }
+      },
+      "expected": {
+        "status": "ok",
+        "plan": {
+          "buildSystemID": "gradle",
+          "root": ".",
+          "arguments": [
+            "--console=plain",
+            "--offline",
+            "-q",
+            "--init-script",
+            "${workspace}/plugins/gradle/lithe-model.init.gradle",
+            "litheModel",
+            "-PlitheModelOutput=${workspace}/state/model.json"
+          ],
+          "environment": {},
+          "workingDirectory": ".",
+          "execution": "task",
+          "optionFingerprint": "352a3ccd7eb04a8babcfabaa3b76304c71e0f28d6de841e417266aadd183ab39",
+          "output": "outputFile",
+          "decoder": "litheBuildModel",
+          "executesProjectCode": true,
+          "mayUseNetwork": true
+        }
+      }
+    },
+    {
       "name": "gradle provider model result becomes projects, tasks, and run entries",
       "plugin": "gradle-provider.plugin.json",
       "buildSystemID": "gradle",

@@ -29,6 +29,8 @@ enum LitheDropdownMetrics {
 struct LitheDropdownRowStyle: ButtonStyle {
     var isSelected = false
     var tracksHover = true
+    var horizontalPadding: CGFloat = LitheDropdownMetrics.itemHorizontalPadding
+    var hoverBackground: Color = LitheTheme.settingsSelection
     @State private var isHovered = false
     @Environment(\.isEnabled) private var isEnabled
 
@@ -38,11 +40,11 @@ struct LitheDropdownRowStyle: ButtonStyle {
             .font(LitheTheme.uiFont(size: LitheDropdownMetrics.fontSize))
             .foregroundStyle(highlighted ? LitheTheme.settingsSelectionText : LitheTheme.primaryText,
                              highlighted ? LitheTheme.settingsSelectionText : LitheTheme.secondaryText)
-            .padding(.horizontal, LitheDropdownMetrics.itemHorizontalPadding)
+            .padding(.horizontal, horizontalPadding)
             .frame(maxWidth: .infinity, minHeight: LitheDropdownMetrics.rowHeight, alignment: .leading)
             .background {
                 RoundedRectangle(cornerRadius: LitheDropdownMetrics.rowCornerRadius)
-                    .fill(highlighted ? LitheTheme.settingsSelection : .clear)
+                    .fill(isEnabled && isSelected ? LitheTheme.settingsSelection : highlighted ? hoverBackground : .clear)
             }
             .contentShape(Rectangle())
             .onHover { if tracksHover, isHovered != $0 { isHovered = $0 } }
@@ -725,6 +727,7 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
         panel.appearance = appearance
         panel.animationBehavior = .none
         panel.backgroundColor = .clear
+        panel.colorSpace = .sRGB
         panel.isOpaque = false
         panel.hasShadow = true
         panel.level = .popUpMenu

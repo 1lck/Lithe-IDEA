@@ -115,8 +115,10 @@ the host's probe of the runtime is its version check. The launch plan carries
 the probe's `versionArguments`; the host runs the candidate with them and
 passes the output to `plugins.declarative.checkRuntimeVersion`, which returns
 `{satisfied, version?}`. A candidate that does not satisfy the requirement is
-not used, the same as a candidate that fails a validation probe. A `java`
-older than 9 does not accept the probe and is therefore treated as too old.
+not used, the same as a candidate that fails a validation probe. The probe
+is `-version` for `java`, which every JDK including Java 8 accepts and which
+prints to stderr (hosts capture it together with stdout), and `--version` for
+`node`. Java 8 and older report `1.<major>`, which is read as `<major>`.
 The reported version is the first dotted number in the probe output, ignoring
 lines that start with `Picked up ` (a JVM announcing `JAVA_TOOL_OPTIONS`
 before its version); see `fixtures/runtime-versions.json`.
@@ -806,6 +808,15 @@ with `buildSystemID`. For a provider source, `build.modelPlan` and
 | `options` | Effective option values by option ID. |
 | `optionArguments`, `environment` | What the options contribute, for a provider that runs the tool. |
 | `project` | Dependencies only: `{ name, path }` of the selected project, or `null` for the workspace. |
+| `refresh` | Optional; `true` when the user asked to reload (Reload, Retry, a page's `build.refresh`) or the host reloads after a `sync` file changed. The provider must then recompute instead of answering from a cache or snapshot of its own. Absent or `false` for a first load, which a provider may answer from a snapshot it still trusts. |
+| `tool` | Optional; `{ executable }`, the absolute path of the build tool the host resolved from the build system's `invocation` the same way a task run does (project wrapper, environment variable, `PATH`, the user's override), so the provider need not repeat the lookup. Absent when the host could not resolve it; the provider then looks the tool up itself. It is never a reason to fail the request. |
+
+The host passes `refresh` and `tool` in the `build.modelPlan` and
+`build.dependencyPlan` requests; Core validates `tool.executable` as an
+absolute path (`plugin.build.invalidSelection` otherwise) and copies both into
+`params` only when they are set, so a request without them is the same as
+before they existed. Command sources ignore both. Both are optional data
+within protocol version 1.
 
 The host passes the JSON result of the request as `result` to
 `build.decodeModel` or `build.decodeDependencies`, which decode it like the
@@ -1055,8 +1066,19 @@ carries only protocol frames, `PluginError` is the only way to set a
 store refuses the plugin package. Its sample plugin
 (`sdk/node/examples/sample-build`) is driven through a real Core session by
 `rust/lithe-core/tests/plugin_sdk_node.rs`, which the Rust Core lane runs with
-`LITHE_PLUGIN_SDK_NODE` set. The SDK adds no wire field: a backend written
-without it is equally valid.
+`LITHE_PLUGIN_SDK_NODE` set.
+
+[`sdk/java`](../../../../sdk/java/README.md) is the Java twin for backends
+started through a `java` runtime launch. It needs Java 8 or newer, has no
+runtime dependencies, and is released as a JAR with its SHA-256 for plugins
+to shade into their backend. It enforces the same rules with the same error
+mapping, with one difference: on Java 8 it stops only a cancelled tool's
+direct child, and the host's process scope ends the rest. Its sample plugin
+(`sdk/java/examples/sample-build`) runs the same Core scenario through
+`rust/lithe-core/tests/plugin_sdk_java.rs`.
+
+Neither SDK adds a wire field: a backend written without one is equally
+valid.
 
 ## Outcomes and error codes
 

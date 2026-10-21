@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import LitheCoreContracts
 import LitheModuleAPI
@@ -425,5 +426,62 @@ struct PluginMarketplaceServiceTests {
         #expect(throws: DeclarativePluginRejection.self) {
             _ = try PluginMarketplaceTestSupport.evaluator.resolveSource("http://example.com/index.json")
         }
+    }
+
+    /// Index icons are SVG more often than not; AsyncImage could not decode
+    /// them, so every listed plugin showed the fallback icon.
+    @Test
+    func indexIconsAcceptStaticSVGAndPNGAndRejectEverythingElse() async throws {
+        let root = PluginMarketplaceTestSupport.temporaryRoot("icons")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let base = "https://raw.githubusercontent.com/example/lithe-zig/0123456789abcdef0123456789abcdef01234567/icons/"
+        // The shape published by Simple Icons: a role attribute, a title, a
+        // comment and a root fill colour.
+        let svg = """
+        <!-- From Simple Icons (CC0-1.0). -->
+        <svg role="img" fill="#00ADD8" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><title>Go</title><path d="M1 1h22v22H1z"/></svg>
+        """
+        let scripted = #"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" onload="alert(1)"><path d="M0 0h1v1z"/></svg>"#
+        let bitmap = try #require(NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: 4, pixelsHigh: 4, bitsPerSample: 8, samplesPerPixel: 4,
+            hasAlpha: true, isPlanar: false, colorSpaceName: .calibratedRGB, bytesPerRow: 0, bitsPerPixel: 0
+        ))
+        let files: [String: Data] = [
+            "go.svg": Data(svg.utf8),
+            "logo.png": try #require(bitmap.representation(using: .png, properties: [:])),
+            "scripted.svg": Data(scripted.utf8),
+            "page.html": Data("<html><body>not an icon</body></html>".utf8),
+        ]
+        var served: [String: URL] = [:]
+        for (name, data) in files {
+            let file = root.appendingPathComponent(name)
+            try data.write(to: file)
+            served[base + name] = file
+        }
+        let transport = PluginMarketplaceTestSupport.LocalFileTransport(files: served)
+        let service = MacPluginMarketplaceService(
+            evaluator: PluginMarketplaceTestSupport.evaluator,
+            packageStore: MacPluginPackageStore(rootURL: root, validator: DeclarativePluginTestSupport.operations),
+            downloader: MacPluginPackageDownloader(transport: transport),
+            transport: transport,
+            applicationSupportDirectory: root.appendingPathComponent("support", isDirectory: true),
+            cacheDirectory: root.appendingPathComponent("cache", isDirectory: true),
+            bundledOfficialIndexURL: nil
+        )
+
+        #expect(try await service.iconData(from: base + "go.svg") == files["go.svg"])
+        #expect(try await service.iconData(from: base + "logo.png") == files["logo.png"])
+        // Retrying cannot fix these (the missing file answers 404), so the
+        // icon store remembers them instead of requesting them per row.
+        let rejected = ["scripted.svg", "page.html", "missing.svg"].map { base + $0 } + ["http://example.com/icon.svg"]
+        for icon in rejected {
+            await #expect(throws: PluginMarketplaceIconRejected.self) {
+                _ = try await service.iconData(from: icon)
+            }
+        }
+        // Icons stay in memory: neither storage directory is created.
+        #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("cache").path))
+        #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("support").path))
     }
 }

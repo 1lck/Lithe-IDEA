@@ -7,6 +7,7 @@ mod markdown;
 mod maven;
 mod maven_dependency_tree;
 mod maven_test_reports;
+mod name_matching;
 mod search_index;
 
 pub(crate) use document_lifecycle::*;

@@ -7,6 +7,60 @@ import LitheCoreContracts
 @Suite("Centered product popup", .serialized)
 struct LitheCenteredPopupTests {
     @MainActor
+    @Test
+    func dragAreaHandsTheOriginalMouseEventToTheWindowServer() throws {
+        let window = PopupDragRecordingWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 42),
+            styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let dragArea = LithePopupDragArea.DragView(frame: NSRect(x: 0, y: 0, width: 200, height: 42))
+        window.contentView = dragArea
+        window.orderFront(nil)
+        defer { window.contentView = nil; window.close() }
+        let event = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: NSPoint(x: 80, y: 20),
+            modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil,
+            eventNumber: 0, clickCount: 1, pressure: 1))
+        #expect(dragArea.hitTest(NSPoint(x: 80, y: 20)) === dragArea)
+        window.sendEvent(event)
+        #expect(window.dragEvent === event)
+    }
+
+    @MainActor
+    @Test
+    func draggedPopupKeepsItsTopLeftDuringLayoutAndResetsOnReopen() {
+        let parent = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 1000, height: 800),
+            styleMask: [.borderless], backing: .buffered, defer: false)
+        parent.isReleasedWhenClosed = false
+        let presenter = LitheCenteredPopupPresenter()
+        presenter.topInset = 84
+        let content = NSViewController()
+        content.view = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 84))
+        // A deterministic native fitting size avoids waiting for SwiftUI's layout transaction.
+        let fitting = PopupFittingView(frame: content.view.frame)
+        content.view = fitting
+        defer { presenter.close(); parent.close() }
+        presenter.show(contentController: content, parent: parent, onDismiss: {})
+        guard let popup = content.view.window else { Issue.record("Popup was not attached"); return }
+        let initial = popup.frame
+        presenter.preservePosition()
+        // The Window Server owns the drag; emulate only its resulting native frame here.
+        popup.setFrameOrigin(NSPoint(x: initial.minX + 80, y: initial.minY - 50))
+        let topLeft = NSPoint(x: popup.frame.minX, y: popup.frame.maxY)
+        fitting.size = NSSize(width: 450, height: 350)
+        presenter.center()
+        #expect(popup.frame.minX == topLeft.x)
+        #expect(popup.frame.maxY == topLeft.y)
+        #expect(popup.frame.size == fitting.size)
+        parent.setContentSize(NSSize(width: 1100, height: 850))
+        presenter.center()
+        #expect(popup.frame.minX == topLeft.x)
+        #expect(popup.frame.maxY == topLeft.y)
+        presenter.close()
+        presenter.show(contentController: content, parent: parent, onDismiss: {})
+        #expect(content.view.window?.frame.midX == parent.frame.midX)
+        #expect(content.view.window?.frame.maxY == parent.frame.maxY - 84)
+    }
+
+    @MainActor
     @Test(arguments: [ColorScheme.dark, .light], ["en", "zh-Hans"])
     func projectOpenDialogUsesSharedTitledPopup(scheme: ColorScheme, language: String) async throws {
         MacBundledFontRegistry.registerFonts()
@@ -139,7 +193,8 @@ struct LitheCenteredPopupTests {
         let parent = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 600, height: 400),
                               styleMask: [.borderless], backing: .buffered, defer: false)
         parent.isReleasedWhenClosed = false
-        parent.contentViewController = NSHostingController(rootView: PopupHarness(controls: controls).environment(\.locale, Locale(identifier: "zh-Hans")))
+        parent.contentViewController = NSHostingController(rootView: PopupHarness(controls: controls)
+            .environment(\.locale, Locale(identifier: "zh-Hans")).environment(\.controlActiveState, .inactive))
         parent.orderFront(nil)
         defer {
             controls.close?()
@@ -160,6 +215,10 @@ struct LitheCenteredPopupTests {
         #expect(await waitFor { panels().count == 1 }, "Opening must react to @State alone")
         #expect(await waitFor { controls.renderedLocale == "zh-Hans" }, "Detached forms must inherit the app locale")
         let first = try #require(panels().first)
+        let presenter = try #require(first.delegate as? LitheCenteredPopupPresenter)
+        // Isolated tests do not activate the desktop app; deliver the native key-window callback directly.
+        presenter.windowDidBecomeKey(Notification(name: NSWindow.didBecomeKeyNotification, object: first))
+        #expect(await waitFor { controls.renderedControlState == .key }, "Popup selection follows its own key window, not the inactive owner")
         open()
         #expect(panels().count == 1)
         close()
@@ -271,6 +330,7 @@ private final class PopupControls {
     var open: (() -> Void)?
     var close: (() -> Void)?
     var renderedLocale: String?
+    var renderedControlState: ControlActiveState?
 }
 
 private struct PopupHarness: View {
@@ -292,9 +352,14 @@ private struct PopupHarness: View {
 private struct PopupLocaleContent: View {
     let controls: PopupControls
     @Environment(\.locale) private var locale
+    @Environment(\.controlActiveState) private var controlActiveState
     var body: some View {
         Text("Popup").frame(width: 340, height: 78).litheContextMenuSurface()
-            .onAppear { controls.renderedLocale = locale.identifier }
+            .onAppear {
+                controls.renderedLocale = locale.identifier
+                controls.renderedControlState = controlActiveState
+            }
+            .onChange(of: controlActiveState) { controls.renderedControlState = $0 }
     }
 }
 
@@ -303,4 +368,16 @@ private final class PopupClickView: NSView {
     var clicks = 0
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override func mouseDown(with event: NSEvent) { clicks += 1 }
+}
+
+@MainActor
+private final class PopupDragRecordingWindow: NSWindow {
+    var dragEvent: NSEvent?
+    override func performDrag(with event: NSEvent) { dragEvent = event }
+}
+
+@MainActor
+private final class PopupFittingView: NSView {
+    var size = NSSize(width: 400, height: 84)
+    override var fittingSize: NSSize { size }
 }

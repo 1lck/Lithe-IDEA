@@ -716,7 +716,7 @@
             "entry": "provider/gradle-tooling-provider.jar",
             "minimumVersion": "17",
             "versionArguments": [
-              "--version"
+              "-version"
             ]
           },
           "arguments": [

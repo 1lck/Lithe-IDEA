@@ -31,6 +31,24 @@ struct MacBuildProviderSessionsTests {
         #expect(fixture.core.startCalls.count == 2)
     }
 
+    /// The host's `refresh` and `tool` hints are part of the params Core
+    /// planned; the session forwards them to the process unchanged.
+    @Test
+    func providerHintsReachTheProcessUnchanged() async throws {
+        let fixture = try ProviderFixture()
+        defer { fixture.remove() }
+        let params: ToolingJSONValue = .object([
+            "buildSystemID": .string("gradle"),
+            "root": .string("."),
+            "refresh": .bool(true),
+            "tool": .object(["executable": .string("/opt/tools/gradle/bin/gradle")]),
+        ])
+
+        _ = try await fixture.load(params: params)
+
+        #expect(fixture.core.buildParams == [params])
+    }
+
     /// Launch arguments come from the plugin's settings, so a changed value
     /// replaces the running process instead of reusing its old arguments.
     @Test
@@ -389,10 +407,10 @@ private struct ProviderFixture {
         )
     }
 
-    func load() async throws -> ToolingJSONValue {
+    func load(params: ToolingJSONValue = .object([:])) async throws -> ToolingJSONValue {
         try await sessions.send(
             BuildProviderRequest(
-                method: "lithe/build/model", params: .object([:]), optionFingerprint: "",
+                method: "lithe/build/model", params: params, optionFingerprint: "",
                 executesProjectCode: true, mayUseNetwork: true
             ),
             to: BuildProviderTarget(
@@ -430,6 +448,7 @@ private final class ScriptedProviderCore: LanguageServerRuntimeCore, @unchecked 
     private var _startCalls: [StartCall] = []
     private var _stopCalls: [String] = []
     private var _buildRequests: [String] = []
+    private var _buildParams: [ToolingJSONValue] = []
     private var _functionRequests: [FunctionCall] = []
 
     init(initialState: String = "ready", readyAfterStop: Bool = false) {
@@ -440,6 +459,7 @@ private final class ScriptedProviderCore: LanguageServerRuntimeCore, @unchecked 
     var startCalls: [StartCall] { lock.withLock { _startCalls } }
     var stopCalls: [String] { lock.withLock { _stopCalls } }
     var buildRequests: [String] { lock.withLock { _buildRequests } }
+    var buildParams: [ToolingJSONValue] { lock.withLock { _buildParams } }
     var functionRequests: [FunctionCall] { lock.withLock { _functionRequests } }
 
     func startLanguageServer(
@@ -591,10 +611,11 @@ private final class ScriptedProviderCore: LanguageServerRuntimeCore, @unchecked 
     }
 
     func requestBuildProvider(
-        sessionID: String, method: String, params _: ToolingJSONValue, timeout _: TimeInterval
+        sessionID: String, method: String, params: ToolingJSONValue, timeout _: TimeInterval
     ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
         lock.withLock {
             _buildRequests.append(method)
+            _buildParams.append(params)
             let operationID = "\(sessionID)-\(_buildRequests.count)"
             events[sessionID, default: []].append(LanguageServerRuntimeEvent(
                 type: "requestCompleted",

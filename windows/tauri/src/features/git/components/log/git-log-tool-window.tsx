@@ -8,6 +8,7 @@ import { Button } from "@/ui/button";
 import { showConfirmDialog, showPromptDialog } from "@/ui/dialog";
 import { Dropdown, useDropdownMenu } from "@/ui/dropdown";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/ui/resizable";
+import { showIdeaNotification } from "@/ui/idea-notification";
 import { tryWriteClipboardText } from "@/utils/clipboard";
 import { useTranslation } from "@/i18n/locale-provider";
 import { useProjectStore } from "@/features/window/stores/project.store";
@@ -18,10 +19,11 @@ import { useGitWorkspaceReferences } from "../../hooks/use-git-workspace-referen
 import { useGitDiffActions } from "../../hooks/use-git-diff-actions";
 import {
   checkoutGitReference,
-  createAndCheckoutBranch,
-  deleteBranch,
+  deleteLocalBranch,
+  type GitBranchDeletion,
   localBranchReference,
   renameBranch,
+  restoreDeletedBranch,
   setBranchUpstream,
   unsetBranchUpstream,
 } from "../../api/git-branches-api";
@@ -65,10 +67,14 @@ import type {
 import { GitCommitInspector } from "./git-commit-inspector";
 import { GitCommitTable } from "./git-commit-table";
 import { GitLogTitleBar } from "./git-log-title-bar";
+import { GitCreateBranchDialog } from "./git-create-branch-dialog";
 import { GitCreateTagDialog } from "./git-create-tag-dialog";
 import { GitReferenceTree } from "./git-reference-tree";
 import GitRemoteManager from "../git-remote-manager";
 import { GitRepositoryEmptyState } from "../git-repository-empty-state";
+
+// How long the "Deleted branch" notice stays up so the Restore action remains reachable.
+const RESTORE_NOTICE_MS = 15_000;
 
 type DirectReferenceAction = Extract<
   GitReferenceAction,
@@ -104,6 +110,15 @@ export function GitLogToolWindow() {
   const setIsBottomPaneVisible = useUIState((state) => state.setIsBottomPaneVisible);
   const openSettingsDialog = useUIState((state) => state.openSettingsDialog);
   const pendingReferenceSelectionRef = useRef<GitReference | null>(null);
+  // The Branch filter is restored once per repository open; later renders must not reuse it.
+  const restoredRepoPathRef = useRef<string | null>(null);
+  const preferredReference =
+    pendingReferenceSelectionRef.current ??
+    (repoPath && restoredRepoPathRef.current !== repoPath
+      ? (useGitLogPreferencesStore.getState().selectedReferenceByRepository[
+          normalizeRepositoryPath(repoPath)
+        ] ?? null)
+      : null);
   const {
     history,
     repositoryCommits,
@@ -115,7 +130,7 @@ export function GitLogToolWindow() {
     forgetReference,
     refresh,
     loadMore,
-  } = useGitLogController(repoPath, pendingReferenceSelectionRef.current);
+  } = useGitLogController(repoPath, preferredReference);
   const { referencesByRepository, errorsByRepository, ensureRepository, retryRepository } =
     useGitWorkspaceReferences(availableRepoPaths, repoPath);
   const pullWorkflow = useGitPullWorkflow({ repoPath: repoPath ?? "", refresh });
@@ -128,6 +143,11 @@ export function GitLogToolWindow() {
   const latestBranchUpdateScopeRef = useRef(branchUpdateScope);
   latestBranchUpdateScopeRef.current = branchUpdateScope;
   const branchUpdateRequestRef = useRef<symbol | null>(null);
+  // Notification actions outlive the render that created them, so they read the live values.
+  const latestRepoPathRef = useRef(repoPath);
+  latestRepoPathRef.current = repoPath;
+  const latestRefreshRef = useRef(refresh);
+  latestRefreshRef.current = refresh;
   const [pendingBranchUpdateScope, setPendingBranchUpdateScope] = useState<string | null>(null);
   useEffect(() => {
     setPendingBranchUpdateScope(null);
@@ -142,10 +162,15 @@ export function GitLogToolWindow() {
     repoPath: string;
     commit: GitCommit;
   } | null>(null);
+  const [branchRequest, setBranchRequest] = useState<{
+    workspaceId: string;
+    repoPath: string;
+    reference: GitReference;
+  } | null>(null);
   const emptyContextMenu = useDropdownMenu();
   const selectionAnchorRef = useRef<string | null>(null);
   const mainPanelLayout = useGitLogPreferencesStore.use.mainPanelLayout();
-  const { setFilterQuery, setMainPanelLayout, renameMarkedReference } =
+  const { setFilterQuery, setMainPanelLayout, renameMarkedReference, setSelectedReference } =
     useGitLogPreferencesStore.use.actions();
   const currentReference = useMemo(
     () => history.references.find((reference) => reference.isCurrent) ?? null,
@@ -169,10 +194,12 @@ export function GitLogToolWindow() {
     selectionAnchorRef.current = null;
     setShowFetchOptions(false);
     setTagRequest(null);
+    setBranchRequest(null);
   }, [repoPath]);
 
   useEffect(() => {
     setTagRequest(null);
+    setBranchRequest(null);
   }, [workspaceId]);
 
   useEffect(() => {
@@ -190,6 +217,16 @@ export function GitLogToolWindow() {
     // repository switch; clear it so a later switch cannot reuse it.
     pendingReferenceSelectionRef.current = null;
   }, [repoPath]);
+
+  useEffect(() => {
+    restoredRepoPathRef.current = repoPath;
+  }, [repoPath]);
+
+  // Persist only once the load settled: by then a branch that no longer exists has already
+  // fallen back to "All", so a stale name is never written back.
+  useEffect(() => {
+    if (repoPath && loadState === "ready") setSelectedReference(repoPath, selectedReference);
+  }, [loadState, repoPath, selectedReference, setSelectedReference]);
 
   const clearHistorySelection = useCallback(async () => {
     setSelectedCommitHashes(new Set());
@@ -330,20 +367,7 @@ export function GitLogToolWindow() {
       return;
     }
     if (action === "createBranch") {
-      const name = await showPromptDialog(t("git.log.branchNamePrompt"), {
-        title: t("git.log.createBranchFromTitle", { reference: reference.shortName }),
-      });
-      if (!name?.trim()) return;
-      setIsReferenceOperating(true);
-      try {
-        await createAndCheckoutBranch(repoPath, name.trim(), reference);
-        toast.success(t("git.log.branchCreated", { name: name.trim() }));
-        await refresh();
-      } catch (error) {
-        toast.error(error instanceof Error ? error.message : t("git.log.branchCreateFailed"));
-      } finally {
-        setIsReferenceOperating(false);
-      }
+      setBranchRequest({ workspaceId, repoPath, reference });
       return;
     }
 
@@ -360,13 +384,9 @@ export function GitLogToolWindow() {
     setIsReferenceOperating(true);
     try {
       if (action === "checkout") {
+        // Like IDEA, a successful checkout is shown by the branch label switching, not a popup.
         const result = await checkoutGitReference(repoPath, reference);
-        if (result.success) {
-          toast.success(t("git.log.actionSucceeded", {
-            action: t("git.log.action.checkout"),
-            reference: reference.shortName,
-          }));
-        } else {
+        if (!result.success) {
           showCheckoutFailure(t, reference.shortName, result.message);
         }
       } else {
@@ -434,12 +454,18 @@ export function GitLogToolWindow() {
     return reason || t("git.actionFailed", { action });
   };
 
-  const runReferenceMutation = async (action: string, mutation: () => Promise<void>) => {
+  // A mutation may return its own success notice (for example one with a Restore action)
+  // that replaces the generic "action completed" toast.
+  const runReferenceMutation = async (
+    action: string,
+    mutation: () => Promise<void | (() => void)>,
+  ) => {
     if (!repoPath || isReferenceMutationPending) return;
     setIsReferenceOperating(true);
     try {
-      await mutation();
-      toast.success(t("git.actionCompleted", { action }));
+      const notify = await mutation();
+      if (notify) notify();
+      else toast.success(t("git.actionCompleted", { action }));
       await refresh();
     } catch (error) {
       toast.error(referenceActionErrorMessage(action, error));
@@ -498,18 +524,79 @@ export function GitLogToolWindow() {
     });
   };
 
+  // Like IDEA, deleting a local branch needs no confirmation: it is undone from the
+  // "Restore" action on the notification that follows.
+  const restoreDeletedReference = async (
+    deletedRepoPath: string,
+    deletion: GitBranchDeletion,
+    upstream: GitReference | undefined,
+  ) => {
+    try {
+      await restoreDeletedBranch(deletedRepoPath, deletion);
+    } catch (error) {
+      toast.error(referenceActionErrorMessage(t("git.log.restoreBranch"), error));
+      return;
+    }
+    // Deleting a branch drops its tracking configuration; bring it back when the remote
+    // branch is still known. A tracking failure is only a partial success: the branch is
+    // already back, so report it as a warning instead of failing the whole restore and
+    // inviting the user to create a duplicate branch.
+    let trackingFailure: { upstream: GitReference; error: unknown } | undefined;
+    if (upstream) {
+      try {
+        await setBranchUpstream(deletedRepoPath, deletion.name, upstream);
+      } catch (error) {
+        trackingFailure = { upstream, error };
+      }
+    }
+    if (trackingFailure) {
+      toast.warning(
+        t("git.log.branchRestoredUpstreamFailed", {
+          name: deletion.name,
+          upstream: trackingFailure.upstream.shortName,
+        }),
+        {
+          description: referenceActionErrorMessage(
+            t("git.log.restoreUpstreamTracking"),
+            trackingFailure.error,
+          ),
+        },
+      );
+    } else {
+      toast.success(t("git.log.branchRestored", { name: deletion.name }));
+    }
+    // `refresh` reports its own load failures; the branch is restored regardless.
+    if (latestRepoPathRef.current === deletedRepoPath) await latestRefreshRef.current();
+  };
+
   const deleteLocalReference = async (reference: GitReference) => {
     if (!repoPath) return;
-    const confirmed = await showConfirmDialog(
-      t("git.deleteBranchConfirm", { branch: reference.shortName }),
-      { title: t("git.deleteBranch"), confirmLabel: t("git.delete") },
-    );
-    if (!confirmed) return;
+    const deletedRepoPath = repoPath;
+    const upstream = reference.upstreamShortName
+      ? history.references.find(
+          (candidate) =>
+            candidate.kind === "remote" && candidate.shortName === reference.upstreamShortName,
+        )
+      : undefined;
     await runReferenceMutation(t("git.deleteBranch"), async () => {
-      if (!(await deleteBranch(repoPath, reference.shortName))) {
-        throw new Error(t("git.actionFailed", { action: t("git.deleteBranch") }));
-      }
+      const deletion = await deleteLocalBranch(deletedRepoPath, reference.shortName);
       forgetReference(reference);
+      // Without a recorded commit there is nothing to restore, so no action is offered.
+      const actions = deletion.deletedTarget
+        ? [
+            {
+              label: t("git.log.restoreBranch"),
+              onClick: () => void restoreDeletedReference(deletedRepoPath, deletion, upstream),
+            },
+          ]
+        : [];
+      return () =>
+        showIdeaNotification({
+          title: t("git.log.branchDeletedTitle"),
+          message: deletion.name,
+          actions,
+          duration: RESTORE_NOTICE_MS,
+        });
     });
   };
 
@@ -605,7 +692,21 @@ export function GitLogToolWindow() {
     );
   };
 
-  const handleReferenceAction = (action: GitReferenceAction, reference: GitReference) => {
+  const handleReferenceSelect = (reference: GitReference | null) => {
+    setSelectedCommit(null);
+    if (
+      repoPath &&
+      reference?.repositoryPath &&
+      normalizeRepositoryPath(reference.repositoryPath) !== normalizeRepositoryPath(repoPath)
+    ) {
+      pendingReferenceSelectionRef.current = reference;
+      selectRepository(reference.repositoryPath);
+      return;
+    }
+    selectReference(reference);
+  };
+
+  const handleReferenceAction =(action: GitReferenceAction, reference: GitReference) => {
     if (pullWorkflow.isPullLocked && isGitReferencePullAction(action, reference)) return;
     switch (action) {
       case "checkout":
@@ -753,19 +854,7 @@ export function GitLogToolWindow() {
               repositoryPaths={availableRepoPaths}
               activeRepoPath={repoPath}
               selectedReference={selectedReference}
-              onSelect={(reference) => {
-                setSelectedCommit(null);
-                if (
-                  reference?.repositoryPath &&
-                  normalizeRepositoryPath(reference.repositoryPath) !==
-                    normalizeRepositoryPath(repoPath)
-                ) {
-                  pendingReferenceSelectionRef.current = reference;
-                  selectRepository(reference.repositoryPath);
-                  return;
-                }
-                selectReference(reference);
-              }}
+              onSelect={handleReferenceSelect}
               isMutating={isReferenceMutationPending}
               isPullLocked={pullWorkflow.isPullLocked}
               onReferenceAction={handleReferenceAction}
@@ -832,6 +921,7 @@ export function GitLogToolWindow() {
                 }
               }}
               onLoadMore={() => void loadMore()}
+              onSelectReference={handleReferenceSelect}
             />
           </ResizablePanel>
           <ResizableHandle />
@@ -862,6 +952,19 @@ export function GitLogToolWindow() {
         </ResizablePanelGroup>
       )}
       </>}
+      {branchRequest?.repoPath === repoPath && branchRequest.workspaceId === workspaceId ? (
+        <GitCreateBranchDialog
+          key={`${branchRequest.repoPath}\0${branchRequest.reference.fullName}`}
+          repoPath={branchRequest.repoPath}
+          reference={branchRequest.reference}
+          references={history.references}
+          // Creating (and checking out) a branch needs no popup; only a failure is reported.
+          onCreated={async () => {
+            await refresh();
+          }}
+          onClose={() => setBranchRequest(null)}
+        />
+      ) : null}
       {tagRequest?.repoPath === repoPath && tagRequest.workspaceId === workspaceId ? (
         <GitCreateTagDialog
           key={`${tagRequest.repoPath}\0${tagRequest.commit.hash}`}
