@@ -3542,3 +3542,9 @@
 "Annotate with Git Blame" = "使用 Git Blame 显示注释";
 "Hide Git Blame" = "隐藏 Git Blame 注释";
 "Edit Breakpoint…" = "编辑断点…";
+
+"Deselect All" = "全不选";
+
+"%lld of %lld services selected" = "已选择 %2$lld 个服务中的 %1$lld 个";
+
+"Background Services" = "后台服务";
