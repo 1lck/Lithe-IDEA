@@ -158,19 +158,20 @@ final class LitheTerminalView: LocalProcessTerminalView {
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        applyThemeColors()
+        applyThemeColors(theme: LitheTheme.activeTheme)
     }
 
-    func applyThemeColors() {
-        // Outside a window, effectiveAppearance follows the system; the app theme decides the reported background.
+    func applyThemeColors(theme: AppColorTheme, isDark requestedIsDark: Bool? = nil) {
         let isDark: Bool
-        if window == nil, let preferredAppearanceIsDark {
+        if let requestedIsDark {
+            isDark = requestedIsDark
+        } else if window == nil, let preferredAppearanceIsDark {
             isDark = preferredAppearanceIsDark()
                 ?? (effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua)
         } else {
             isDark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
         }
-        let editorColor = LitheTheme.nsColor(.editor, isDark: isDark)
+        let editorColor = LitheTheme.nsColor(.editor, theme: theme, isDark: isDark)
         let palette = MacTerminalPalette(
             preferences: UserDefaults.standard.persistentDomain(forName: "com.apple.Terminal"),
             backgroundColor: editorColor
@@ -192,7 +193,7 @@ final class LitheTerminalView: LocalProcessTerminalView {
         // Terminal.app profiles may use a foreground color that assumes their
         // own opaque background. The terminal is composited over Lithe's
         // editor or wallpaper, so keep the default text tied to the app theme.
-        nativeForegroundColor = LitheTheme.nsColor(.primaryText, isDark: isDark)
+        nativeForegroundColor = LitheTheme.nsColor(.primaryText, theme: theme, isDark: isDark)
         caretColor = isDark
             ? NSColor(srgbRed: 0.35, green: 0.67, blue: 0.98, alpha: 1)
             : NSColor(srgbRed: 0.18, green: 0.43, blue: 0.79, alpha: 1)
@@ -220,12 +221,11 @@ final class LitheTerminalView: LocalProcessTerminalView {
         guard process.running else { return }
         terminal.sendResponse(text: MacTerminalBackgroundReporting.changeNotification(for: nativeBackgroundColor))
     }
-
-    func setWorkbenchBackgroundVisible(_ isVisible: Bool) {
-        guard showsWorkbenchBackground != isVisible else { return }
+    func updateWorkbenchSurface(isVisible: Bool, theme: AppColorTheme, isDark: Bool) {
         showsWorkbenchBackground = isVisible
-        applyThemeColors()
+        applyThemeColors(theme: theme, isDark: isDark)
     }
+
 
     override func requestOpenLink(source: SwiftTerm.TerminalView, link: String, params: [String: String]) {
         onOpenLink?(link, params)
@@ -241,7 +241,6 @@ final class LitheTerminalView: LocalProcessTerminalView {
     }
 }
 
-extension LitheTerminalView: WorkbenchBackgroundRendering {}
 
 /// Report pushed when the background changes: SwiftTerm's own OSC 11 answer plus the kitty DSR 997 notification.
 enum MacTerminalBackgroundReporting {
@@ -444,7 +443,7 @@ final class MacTerminalTransport: NSObject, TerminalTransport, @preconcurrency L
         }
         view.font = Self.preferredTerminalFont()
         view.preferredAppearanceIsDark = preferredAppearanceIsDark
-        view.applyThemeColors()
+        view.applyThemeColors(theme: LitheTheme.activeTheme)
         view.allowMouseReporting = true
         view.linkReporting = .implicit
         view.linkHighlightMode = .hoverWithModifier

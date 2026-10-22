@@ -259,7 +259,8 @@ struct TerminalPlacementFeatureModelTests {
             let feature = try #require(model.terminalFeature)
             let store = WorkbenchToolContentStore()
             let host = NSHostingView(rootView: RetainedTerminalReviewHost(state: state, store: store,
-                model: model, feature: feature).environment(\.colorScheme, scheme))
+                model: model, feature: feature).environmentObject(model).environmentObject(model.settings)
+                .environment(\.colorScheme, scheme))
             host.sizingOptions = []
             host.frame = NSRect(x: 0, y: 0, width: 480, height: 400)
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 440),
@@ -343,9 +344,9 @@ struct TerminalPlacementFeatureModelTests {
             model.selectTerminalSession(b)
             let store = WorkbenchToolContentStore()
             let host = NSHostingView(rootView: VStack(spacing: 0) {
-                TerminalSurfaceView(session: c).environmentObject(model).frame(height: 160)
+                TerminalSurfaceView(session: c).environmentObject(model).environmentObject(model.settings).frame(height: 160)
                 RetainedTerminalReviewHost(state: state, store: store, model: model, feature: feature)
-            })
+            }.environmentObject(model).environmentObject(model.settings))
             host.sizingOptions = []
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 440),
                                   styleMask: [.borderless], backing: .buffered, defer: false)
@@ -558,7 +559,7 @@ private struct RetainedTerminalReviewHost: View {
             Color(nsColor: NSColor(srgbRed: 0.8, green: 0.1, blue: 0.6, alpha: 1))
             if state.visible {
                 RetainedWorkbenchToolContent(store: store, tool: .terminal,
-                    content: TerminalView(feature: feature).environmentObject(model),
+                    content: TerminalView(feature: feature).environmentObject(model).environmentObject(model.settings),
                     onActivate: { model.activeToolTerminalSession?.focus() })
                     .environment(\.workbenchHasBackgroundImage, state.hasImage)
             }
