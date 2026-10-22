@@ -2929,7 +2929,6 @@
 "Manage Plugin Repositories…" = "管理插件仓库…";
 "Refresh Plugin Repositories" = "刷新插件仓库";
 "Paste an https plugin index URL or a GitHub repository URL. A GitHub repository must contain lithe-plugin-index.json at its root." = "粘贴 https 插件索引地址或 GitHub 仓库地址。GitHub 仓库的根目录需要包含 lithe-plugin-index.json。";
-"https://github.com/owner/repository" = "https://github.com/owner/repository";
 "Refresh All" = "全部刷新";
 "Refreshed %@" = "已于 %@ 刷新";
 "just now" = "刚刚";
