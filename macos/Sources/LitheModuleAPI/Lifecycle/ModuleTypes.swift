@@ -304,6 +304,11 @@ public extension ModuleID {
     static func buildSystemsExtension(_ pluginID: String) -> ModuleID {
         ModuleID("\(pluginID).build-systems")
     }
+
+    /// The VCS providers one declarative plugin declares, enabled together.
+    static func vcsProvidersExtension(_ pluginID: String) -> ModuleID {
+        ModuleID("\(pluginID).vcs-providers")
+    }
 }
 
 public extension ModuleCapabilityID {

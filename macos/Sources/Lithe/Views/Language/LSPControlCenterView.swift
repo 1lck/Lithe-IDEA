@@ -142,7 +142,7 @@ struct LSPControlCenterView: View {
     // Languages owned by a published official plugin are controlled here only once
     // that plugin is installed, enabled, and loaded in this process.
     private func officialPluginEntry(languageID: String) -> OfficialPluginCatalog.Entry? {
-        OfficialPluginCatalog.publishedEntries.first { $0.languageID == languageID }
+        OfficialPluginCatalog.publishedEntries.first { $0.language?.id == languageID }
     }
 
     private func pluginSnapshot(_ entry: OfficialPluginCatalog.Entry) -> PluginManagementSnapshot? {
@@ -154,29 +154,32 @@ struct LSPControlCenterView: View {
         return snapshot.isEnabled && !snapshot.requiresRestart && !snapshot.isQuarantined
     }
 
-    private func projectUses(_ entry: OfficialPluginCatalog.Entry) -> Bool {
+    private func projectUses(_ language: OfficialPluginCatalog.Entry.Language) -> Bool {
         model.projectFiles.contains { fileURL in
-            entry.fileExtensions.contains(fileURL.pathExtension.lowercased())
-                || entry.projectFileNames.contains(fileURL.lastPathComponent.lowercased())
+            language.fileExtensions.contains(fileURL.pathExtension.lowercased())
+                || language.projectFileNames.contains(fileURL.lastPathComponent.lowercased())
         }
     }
 
     private var pluginNotices: [String] {
         OfficialPluginCatalog.entries.compactMap { entry in
-            guard projectUses(entry) else { return nil }
+            guard let language = entry.language, projectUses(language) else { return nil }
             if let replacementID = entry.communityReplacementID {
-                return migratedPluginNotice(entry, replacementID: replacementID)
+                return migratedPluginNotice(entry, language: language.displayName, replacementID: replacementID)
             }
             guard !pluginIsReady(entry) else { return nil }
-            return pluginNotice(entry)
+            return pluginNotice(entry, language: language.displayName)
         }
     }
 
     /// Go and PHP moved to Lithe Store: point at the community plugin, and at
     /// the uninstall-and-restart step while the retired official one remains.
-    private func migratedPluginNotice(_ entry: OfficialPluginCatalog.Entry, replacementID: PluginID) -> String? {
+    private func migratedPluginNotice(
+        _ entry: OfficialPluginCatalog.Entry,
+        language: String,
+        replacementID: PluginID
+    ) -> String? {
         let name = entry.displayName
-        let language = entry.languageDisplayName
         if let retired = pluginSnapshot(entry) {
             if retired.installationStatus == .uninstallPending {
                 return usesChinese
@@ -203,9 +206,8 @@ struct LSPControlCenterView: View {
             : "\(name) is disabled. Enable it from Plugin Management first."
     }
 
-    private func pluginNotice(_ entry: OfficialPluginCatalog.Entry) -> String {
+    private func pluginNotice(_ entry: OfficialPluginCatalog.Entry, language: String) -> String {
         let name = entry.displayName
-        let language = entry.languageDisplayName
         guard let snapshot = pluginSnapshot(entry) else {
             return usesChinese
                 ? "检测到 \(language) 项目，请先在插件管理中下载并安装 \(name)。"

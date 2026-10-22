@@ -559,6 +559,8 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
     public let languageServers: [DeclarativeLanguageServer]
     public let executionProviders: [DeclarativeExecutionProvider]
     public let buildSystems: [DeclarativeBuildSystem]
+    /// VCS providers the plugin adds (`vcsProviders` capability).
+    public let vcsProviders: [DeclarativeVcsProvider]
     public let settings: [DeclarativePluginSetting]
     /// Buttons the plugin adds to settings pages (settings capability 2).
     public let settingActions: [DeclarativePluginSettingAction]
@@ -604,6 +606,7 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
             )
         }
         buildSystems = decoded.buildSystems.map { $0.declaration() }
+        vcsProviders = decoded.vcsProviders.map { DeclarativeVcsProvider(id: $0.id, displayName: $0.displayName) }
         ui = decoded.ui
         settings = try decoded.settings.map { try $0.declaration() }
         settingActions = decoded.settingActions.map { $0.declaration() }
@@ -652,6 +655,17 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 contributions: buildSystems.enumerated().flatMap { index, buildSystem in
                     buildSystem.contributions(pluginID: decoded.id, order: index)
                 }
+            ))
+        }
+        if !vcsProviders.isEmpty {
+            // Root detection, launch, and replies belong to Rust Core; the
+            // module only carries the plugin's enablement.
+            modules.append(PluginModuleDeclaration(
+                manifest: LanguageExtensionModuleManifests.vcsProviders(
+                    pluginID: decoded.id,
+                    displayName: decoded.displayName,
+                    enabledByDefault: enabledByDefault
+                )
             ))
         }
         if let ui = decoded.ui {
@@ -920,6 +934,13 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
         struct JSONPresence: Decodable {
             init(from decoder: Decoder) throws {}
         }
+        /// The parts of a VCS provider the host shows. Root detection,
+        /// commands, and reply checks stay with Rust Core.
+        struct VcsProvider: Decodable {
+            let id: String
+            let displayName: String
+        }
+
         /// The parts of a build system the tool window lists. Detection,
         /// commands, and decoders stay with Rust Core.
         struct BuildSystem: Decodable {
@@ -1037,6 +1058,7 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
         let languageServers: [LanguageServer]
         let executionProviders: [ExecutionProvider]
         let buildSystems: [BuildSystem]
+        let vcsProviders: [VcsProvider]
         let ui: DeclarativeUIContributions?
         let settings: [Setting]
         let settingActions: [SettingAction]
@@ -1055,13 +1077,14 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
             languageServers = try values.decodeIfPresent([LanguageServer].self, forKey: .languageServers) ?? []
             executionProviders = try values.decodeIfPresent([ExecutionProvider].self, forKey: .executionProviders) ?? []
             buildSystems = try values.decodeIfPresent([BuildSystem].self, forKey: .buildSystems) ?? []
+            vcsProviders = try values.decodeIfPresent([VcsProvider].self, forKey: .vcsProviders) ?? []
             settings = try values.decodeIfPresent([Setting].self, forKey: .settings) ?? []
             settingActions = try values.decodeIfPresent([SettingAction].self, forKey: .settingActions) ?? []
         }
 
         private enum CodingKeys: String, CodingKey {
             case id, displayName, version, pluginAPIVersion, vendor, permissions, activationEvents
-            case languages, languageServers, executionProviders, buildSystems, ui, settings, settingActions
+            case languages, languageServers, executionProviders, buildSystems, vcsProviders, ui, settings, settingActions
         }
     }
 }

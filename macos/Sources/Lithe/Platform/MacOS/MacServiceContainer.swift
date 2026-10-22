@@ -867,10 +867,13 @@ final class MacServiceContainer {
                     )
                 }
             }
-            // The build-systems module also carries the enabled state; the
-            // execution module reads it before handing the plugin to Rust Core.
+            // The build-systems and VCS-providers modules also carry the
+            // enabled state; the host reads it before handing the plugin to
+            // Rust Core.
             let workbench = descriptor.pluginManifest.modules.filter {
-                !$0.contributions.isEmpty || $0.manifest.id == .buildSystemsExtension(descriptor.id.rawValue)
+                !$0.contributions.isEmpty
+                    || $0.manifest.id == .buildSystemsExtension(descriptor.id.rawValue)
+                    || $0.manifest.id == .vcsProvidersExtension(descriptor.id.rawValue)
             }.map { declaration in
                 ModuleFactory(manifest: declaration.manifest, contributions: declaration.contributions) {
                     DeclarativeWorkbenchModule(declaration: declaration)

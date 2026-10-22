@@ -44,10 +44,25 @@ struct PluginManagerTests {
         let officialLanguagePlugins = try ["GoSupport", "JavaSupport", "PhpSupport"].map {
             try DeclarativePluginTestSupport.officialDescriptor($0).pluginManifest
         }
-        #expect(Set(officialLanguagePlugins.map(\.id)) == Set(OfficialPluginCatalog.entries.map(\.id)))
+        #expect(Set(officialLanguagePlugins.map(\.id))
+            == Set(OfficialPluginCatalog.entries.filter { $0.language != nil }.map(\.id)))
         // Go and PHP moved to Lithe Store: installed copies keep their pinned
         // publisher signature, but the host no longer suggests them.
-        #expect(OfficialPluginCatalog.publishedEntries.map(\.id) == [OfficialPluginCatalog.javaPluginID])
+        #expect(OfficialPluginCatalog.publishedEntries.map(\.id)
+            == [OfficialPluginCatalog.javaPluginID, OfficialPluginCatalog.svnPluginID])
+        // Subversion Support adds a VCS provider, not a language: one module
+        // carries its enablement, and its package must carry the signature
+        // the host pins for it. This host does not declare `vcsProviders`
+        // yet, so the manifest is read as the release verifier reads it.
+        let svn = try DeclarativePluginDescriptor(
+            normalizedManifest: DeclarativePluginTestSupport.officialManifestData("SvnSupport")
+        )
+        let svnEntry = try #require(OfficialPluginCatalog.entry(for: svn.id))
+        #expect(svn.id == OfficialPluginCatalog.svnPluginID)
+        #expect(svn.vcsProviders == [DeclarativeVcsProvider(id: "svn", displayName: "Subversion")])
+        #expect(svn.pluginManifest.modules.map(\.manifest.id) == [.vcsProvidersExtension(svn.id.rawValue)])
+        #expect(svn.pluginManifest.vendor.signatureRequirement == svnEntry.signatureRequirement)
+        #expect(svnEntry.signatureRequirement == .publisherPackage && svnEntry.language == nil)
         #expect(OfficialPluginCatalog.entry(for: OfficialPluginCatalog.goPluginID)?.communityReplacementID
             == PluginID("io.github.lithe-idea.go-support"))
         #expect(OfficialPluginCatalog.entry(for: OfficialPluginCatalog.phpPluginID)?.communityReplacementID
@@ -55,13 +70,14 @@ struct PluginManagerTests {
         #expect([OfficialPluginCatalog.goPluginID, OfficialPluginCatalog.phpPluginID].allSatisfy {
             OfficialPluginCatalog.entry(for: $0)?.signatureRequirement == .publisherPackage
         })
-        #expect(officialLanguagePlugins.flatMap(\.modules).allSatisfy {
+        #expect((officialLanguagePlugins + [svn.pluginManifest]).flatMap(\.modules).allSatisfy {
             $0.manifest.defaultState == .disabled
         })
         _ = try ValidatedPluginCatalog(
             manifests: BuiltInPluginCatalog.manifests
                 + BundledLanguagePluginCatalog.manifests
-                + officialLanguagePlugins,
+                + officialLanguagePlugins
+                + [svn.pluginManifest],
             hostVersion: BuiltInPluginCatalog.hostVersion
         )
     }

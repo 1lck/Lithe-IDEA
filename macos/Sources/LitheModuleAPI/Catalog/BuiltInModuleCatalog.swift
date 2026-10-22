@@ -229,15 +229,21 @@ public enum OfficialPluginCatalog {
     }
 
     public struct Entry: Equatable, Sendable {
+        /// The language an official language plugin adds. The host uses it to
+        /// suggest the plugin for a project before it is installed.
+        public struct Language: Equatable, Sendable {
+            public let id: String
+            public let displayName: String
+            public let fileExtensions: [String]
+            public let projectFileNames: [String]
+        }
+
         public let id: PluginID
         public let displayName: String
         public let signatureRequirement: PluginSignatureRequirement
         public let distribution: Distribution
-        public let languageID: String
-        public let languageDisplayName: String
-        /// Used to suggest the plugin for a project before it is installed.
-        public let fileExtensions: [String]
-        public let projectFileNames: [String]
+        /// Nil for a plugin that adds no language, such as a VCS provider.
+        public let language: Language?
 
         /// The community plugin that replaces this retired official plugin.
         public var communityReplacementID: PluginID? {
@@ -249,6 +255,7 @@ public enum OfficialPluginCatalog {
     public static let phpPluginID = PluginID("dev.lithe.plugin.php-support")
     public static let goPluginID = PluginID("dev.lithe.plugin.go-support")
     public static let javaPluginID = PluginID("dev.lithe.plugin.java-support")
+    public static let svnPluginID = PluginID("dev.lithe.plugin.svn-support")
 
     public static let entries: [Entry] = [
         Entry(
@@ -256,30 +263,43 @@ public enum OfficialPluginCatalog {
             displayName: "Java Support",
             signatureRequirement: .sameTeamAsHost,
             distribution: .bundled,
-            languageID: "java",
-            languageDisplayName: "Java",
-            fileExtensions: ["java"],
-            projectFileNames: ["pom.xml", "build.gradle", "build.gradle.kts"]
+            language: Entry.Language(
+                id: "java",
+                displayName: "Java",
+                fileExtensions: ["java"],
+                projectFileNames: ["pom.xml", "build.gradle", "build.gradle.kts"]
+            )
         ),
         Entry(
             id: goPluginID,
             displayName: "Go Support",
             signatureRequirement: .publisherPackage,
             distribution: .migratedToCommunity(PluginID("io.github.lithe-idea.go-support")),
-            languageID: "go",
-            languageDisplayName: "Go",
-            fileExtensions: ["go"],
-            projectFileNames: ["go.mod", "go.work"]
+            language: Entry.Language(
+                id: "go",
+                displayName: "Go",
+                fileExtensions: ["go"],
+                projectFileNames: ["go.mod", "go.work"]
+            )
         ),
         Entry(
             id: phpPluginID,
             displayName: "PHP Support",
             signatureRequirement: .publisherPackage,
             distribution: .migratedToCommunity(PluginID("io.github.lithe-idea.php-support")),
-            languageID: "php",
-            languageDisplayName: "PHP",
-            fileExtensions: ["php", "phtml"],
-            projectFileNames: ["composer.json"]
+            language: Entry.Language(
+                id: "php",
+                displayName: "PHP",
+                fileExtensions: ["php", "phtml"],
+                projectFileNames: ["composer.json"]
+            )
+        ),
+        Entry(
+            id: svnPluginID,
+            displayName: "Subversion Support",
+            signatureRequirement: .publisherPackage,
+            distribution: .download,
+            language: nil
         )
     ]
 
@@ -341,6 +361,24 @@ public enum LanguageExtensionModuleManifests {
         ModuleManifest(
             id: .buildSystemsExtension(pluginID),
             displayName: "\(displayName) Build Systems",
+            scope: .workspace,
+            defaultState: enabledByDefault ? .enabled : .disabled,
+            activationPolicy: .onDemand,
+            dependencies: [.module(.workspace)]
+        )
+    }
+
+    /// One module for all VCS providers of a plugin. Like build systems, it
+    /// owns no process: the host starts a provider only for a root of its VCS
+    /// while the module is enabled.
+    public static func vcsProviders(
+        pluginID: String,
+        displayName: String,
+        enabledByDefault: Bool = false
+    ) -> ModuleManifest {
+        ModuleManifest(
+            id: .vcsProvidersExtension(pluginID),
+            displayName: "\(displayName) Version Control",
             scope: .workspace,
             defaultState: enabledByDefault ? .enabled : .disabled,
             activationPolicy: .onDemand,

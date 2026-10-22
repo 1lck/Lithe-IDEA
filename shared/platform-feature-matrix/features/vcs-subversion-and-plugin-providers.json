@@ -15,6 +15,12 @@
       "sdk/node/test/vcs.test.mjs",
       "sdk/node/examples/sample-vcs",
       "rust/lithe-core/tests/plugin_sdk/vcs.rs",
+      "Plugins/mac/Official/SvnSupport/provider/svn-provider.mjs",
+      "Plugins/mac/Official/SvnSupport/provider/svn-output.mjs",
+      "Plugins/mac/Official/SvnSupport/test/svn-output.test.mjs",
+      "Plugins/mac/Official/SvnSupport/test/fixtures",
+      "rust/lithe-core/tests/plugin_sdk/svn.rs",
+      "macos/Sources/LitheModuleAPI/Catalog/BuiltInModuleCatalog.swift",
       ".agents/notes/proposed/architecture/2026-10-22-unified-vcs-provider-model.md"
     ],
     "implementationStatus": "missing",
@@ -37,6 +43,6 @@
     "verificationStatus": "not-applicable"
   },
   "owner": "Git",
-  "verification": "Core 共享层自动化：cargo test -p lithe-core vcs、cargo test -p lithe-core --lib lsp、npm test --prefix sdk/node、LITHE_PLUGIN_SDK_NODE=$(command -v node) cargo test -p lithe-core --test plugin_sdk_node 与 scripts/verify-shared-contracts.sh，覆盖 vcsProviders 清单校验与 git 保留、onVcsRoot 激活、svn 根识别（嵌套、歧义目录与映射、git worktree 文件、工作区位于工作副本内部、剪枝目录、深度上限）、vcs.ownerOf 最深根归属、litheVcs 只向插件会话提供、协商缺必需能力时拒绝、lsp.vcsRequest 按操作生成请求与能力检查、Provider 错误码白名单、vcs.decodeReply 的回复校验用例，以及用 Node SDK 写的示例 Provider 经真实 Core 会话完成协商、全部 11 种操作和执行报告。宿主验收：安装 Subversion 官方插件后，在本地 svnadmin create 建立的 file:// 仓库检出的工作副本上验证根识别、文件状态颜色、gutter、提交、更新、回滚、add/move/delete 跟踪、文件历史、Annotate 和冲突显示；同时打开一个包含 Git 仓库与 SVN 工作副本的工作区，确认文件只归属最深的根，Git 行为不变；运行前后 app bundle 文件清单不变（scripts/verify-runtime-bundle-immutability.sh）。",
-  "notes": "Issue #827。Rust Core 已实现 vcs.detectRoots、vcs.ownerOf、vcs.decodeReply、lsp.vcsRequest 与 litheVcs 协商，Node SDK 已支持 litheVcs（P1）；两端宿主尚未声明 vcsProviders，也没有调用这些命令，所以仍记为未实现。分阶段计划见提议 Note。"
+  "verification": "Core 共享层自动化：cargo test -p lithe-core vcs、cargo test -p lithe-core --lib lsp、npm test --prefix sdk/node、LITHE_PLUGIN_SDK_NODE=$(command -v node) cargo test -p lithe-core --test plugin_sdk_node 与 scripts/verify-shared-contracts.sh，覆盖 vcsProviders 清单校验与 git 保留、onVcsRoot 激活、svn 根识别（嵌套、歧义目录与映射、git worktree 文件、工作区位于工作副本内部、剪枝目录、深度上限）、vcs.ownerOf 最深根归属、litheVcs 只向插件会话提供、协商缺必需能力时拒绝、lsp.vcsRequest 按操作生成请求与能力检查、Provider 错误码白名单、vcs.decodeReply 的回复校验用例，以及用 Node SDK 写的示例 Provider 经真实 Core 会话完成协商、全部 11 种操作和执行报告。Subversion 官方插件：node --test Plugins/mac/Official/SvnSupport/test/*.test.mjs 用 svn 1.15 录制的 status/info/log/blame --xml 与错误输出样例覆盖解析和错误码映射；LITHE_PLUGIN_SDK_NODE=$(command -v node) LITHE_SVN=$(command -v svn) cargo test -p lithe-core --test plugin_sdk_node 在 svnadmin create 建立的 file:// 仓库上经真实 Core 会话跑通状态、提交、过期提交、更新与冲突、resolve、回滚、移动、删除、历史分页、Annotate 和二进制文件；scripts/verify-official-plugins.sh 校验插件包与宿主固定的签名要求。宿主验收：安装 Subversion 官方插件后，在本地 svnadmin create 建立的 file:// 仓库检出的工作副本上验证根识别、文件状态颜色、gutter、提交、更新、回滚、add/move/delete 跟踪、文件历史、Annotate 和冲突显示；同时打开一个包含 Git 仓库与 SVN 工作副本的工作区，确认文件只归属最深的根，Git 行为不变；运行前后 app bundle 文件清单不变（scripts/verify-runtime-bundle-immutability.sh）。",
+  "notes": "Issue #827。Rust Core 已实现 vcs.detectRoots、vcs.ownerOf、vcs.decodeReply、lsp.vcsRequest 与 litheVcs 协商，Node SDK 已支持 litheVcs（P1）；Subversion 官方插件 Plugins/mac/Official/SvnSupport 已实现全部 11 种操作，macOS 官方插件目录已固定它的发布者签名要求（P2）。两端宿主尚未声明 vcsProviders，也没有调用这些命令，插件还不能安装，所以仍记为未实现。分阶段计划见提议 Note。"
 }
