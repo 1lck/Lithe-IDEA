@@ -27,3 +27,9 @@ CurrentBranchHighlighter, and ManyIslandsDark/ManyIslandsLight theme colors.
 Windows HEAD node ring and filled center follow Community
 33384d9bca79517f5d82ff75eac1d689e04a4544: HeadNodePainter and PaintParameters
 under platform/vcs-log/impl/src/com/intellij/vcs/log/paint/.
+
+Project tree sibling order (Rust Core file_name_order.rs and Swift NaturalNameOrder.swift)
+adapts NaturalComparator and FileNameComparator from intellij-community
+d8c6714c7a3c110c56994d6b0f10814f902100e7, Copyright 2000-2026 JetBrains s.r.o.
+and contributors, Apache License 2.0. See
+.agents/notes/implemented/bug-fix/2026-10-22-project-tree-natural-name-order.md.
