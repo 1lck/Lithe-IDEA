@@ -10,7 +10,7 @@
 //! this module.
 
 use super::scan::ScannedPackage;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -484,15 +484,6 @@ fn restore_plugin_id(host: &str) -> String {
     host.strip_suffix(".lithe-plugin")
         .unwrap_or(host)
         .to_string()
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PageRequest {
-    pub plugin_id: String,
-    pub window_id: String,
-    pub method: String,
-    pub params: Option<Value>,
 }
 
 #[cfg(test)]
