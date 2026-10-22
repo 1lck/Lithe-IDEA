@@ -4,6 +4,7 @@
 //! module only writes `.lithe` documents, finds local JDK/Maven installations,
 //! and streams child-process output to the workbench.
 
+use lithe_git_host::ProcessTree;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
@@ -12,6 +13,7 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::{
+    atomic::{AtomicU64, Ordering},
     mpsc::{self, Receiver, RecvTimeoutError, SyncSender},
     Arc, Mutex, OnceLock,
 };
@@ -30,6 +32,9 @@ const PRE_LAUNCH_TIMEOUT: Duration = Duration::from_secs(600);
 const RUN_OUTPUT_FLUSH_INTERVAL: Duration = Duration::from_millis(100);
 const RUN_OUTPUT_HIGH_WATER_BYTES: usize = 1_048_576;
 const RUN_OUTPUT_QUEUE_CAPACITY_CHUNKS: usize = 64;
+// A Job Object ends its processes at once; this only bounds a process stuck in
+// the kernel, which is then reported instead of being assumed stopped.
+const RUN_STOP_TIMEOUT: Duration = Duration::from_secs(10);
 const SKIPPED_DIRECTORIES: &[&str] = &[
     "target",
     "node_modules",
@@ -70,6 +75,31 @@ struct RunningSession {
     pid: u32,
     execution_id: Option<String>,
     stdin: Option<ChildStdin>,
+    /// Shown when closing the window would stop this session.
+    title: Option<String>,
+    /// Work Lithe started for itself, which ends without being asked about.
+    background: bool,
+    /// Start order, so confirmations list sessions as they were started.
+    sequence: u64,
+    /// Owns the root process and every descendant. Dropping it, including when
+    /// Lithe itself dies, ends them all.
+    tree: ProcessTree,
+}
+
+/// What `take_owned_session` needs to know about an entry of the session table.
+trait OwnedExecution {
+    fn execution_id(&self) -> Option<&str>;
+}
+
+impl OwnedExecution for RunningSession {
+    fn execution_id(&self) -> Option<&str> {
+        self.execution_id.as_deref()
+    }
+}
+
+fn next_sequence() -> u64 {
+    static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+    SEQUENCE.fetch_add(1, Ordering::Relaxed)
 }
 
 impl Default for RunProcessManager {
@@ -92,6 +122,9 @@ fn pending_launches() -> &'static Mutex<HashMap<RunSessionKey, PendingLaunch>> {
 struct PendingLaunch {
     identity: Arc<()>,
     execution_id: Option<String>,
+    title: Option<String>,
+    background: bool,
+    sequence: u64,
 }
 
 struct LaunchReservation {
@@ -136,21 +169,116 @@ fn run_session_key(window_label: &str, session_id: &str) -> RunSessionKey {
     }
 }
 
-// Window cleanups still terminating process trees; application exit waits for
-// them so a quit right after the last window closes cannot orphan a service.
+// Window cleanups still ending process trees; application exit waits for them
+// so a quit right after the last window closes cannot cut a cleanup short.
 fn window_cleanups() -> &'static Mutex<Vec<thread::JoinHandle<()>>> {
     static CLEANUPS: OnceLock<Mutex<Vec<thread::JoinHandle<()>>>> = OnceLock::new();
     CLEANUPS.get_or_init(|| Mutex::new(Vec::new()))
 }
 
+/// A Run session Lithe owns, as listed before a window closes or Lithe exits.
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct WindowRunProcess {
+    pub session_id: String,
+    pub execution_id: Option<String>,
+    pub title: Option<String>,
+    /// Work Lithe started for itself, such as resolving Maven dependencies.
+    /// It ends with the window but is not something the user is asked about.
+    pub background: bool,
+    /// The launch is still being prepared and has no process yet.
+    pub preparing: bool,
+}
+
+/// Lists every Run session one window owns, or every window when
+/// `window_label` is absent, including Maven goals and the sessions of
+/// projects that were closed while their process kept running. The native
+/// table is authoritative; webview stores only mirror it.
+#[tauri::command]
+pub fn run_list_owned_processes(
+    window_label: Option<String>,
+) -> Result<Vec<WindowRunProcess>, String> {
+    let pending = pending_launches()
+        .lock()
+        .map_err(|_| "Run launch state is unavailable".to_string())?;
+    let current = sessions()
+        .lock()
+        .map_err(|_| "Run process state is unavailable".to_string())?;
+    Ok(owned_processes(&pending, &current, window_label.as_deref()))
+}
+
+fn owned_processes(
+    pending: &HashMap<RunSessionKey, PendingLaunch>,
+    current: &HashMap<RunSessionKey, RunningSession>,
+    window_label: Option<&str>,
+) -> Vec<WindowRunProcess> {
+    let owned = |key: &RunSessionKey| window_label.is_none_or(|label| key.window_label == label);
+    let mut listed = current
+        .iter()
+        .filter(|(key, _)| owned(key))
+        .map(|(key, session)| {
+            (
+                session.sequence,
+                WindowRunProcess {
+                    session_id: key.session_id.clone(),
+                    execution_id: session.execution_id.clone(),
+                    title: session.title.clone(),
+                    background: session.background,
+                    preparing: false,
+                },
+            )
+        })
+        .chain(
+            pending
+                .iter()
+                .filter(|(key, _)| owned(key) && !current.contains_key(key))
+                .map(|(key, launch)| {
+                    (
+                        launch.sequence,
+                        WindowRunProcess {
+                            session_id: key.session_id.clone(),
+                            execution_id: launch.execution_id.clone(),
+                            title: launch.title.clone(),
+                            background: launch.background,
+                            preparing: true,
+                        },
+                    )
+                }),
+        )
+        .collect::<Vec<_>>();
+    listed.sort_by_key(|(sequence, _)| *sequence);
+    listed.into_iter().map(|(_, process)| process).collect()
+}
+
+/// Stops every Run session of one window, or of every window when
+/// `window_label` is absent, and waits until their process trees are gone.
+/// The window closes, or the update installs, only after this succeeds; a
+/// session whose tree could not be confirmed ended stays listed and is
+/// reported.
+#[tauri::command]
+pub async fn run_stop_owned_processes(window_label: Option<String>) -> Result<(), String> {
+    let owned = take_owned_sessions(|key| {
+        window_label
+            .as_deref()
+            .is_none_or(|label| key.window_label == label)
+    });
+    tauri::async_runtime::spawn_blocking(move || stop_sessions(owned, RUN_STOP_TIMEOUT))
+        .await
+        .map_err(|error| format!("Run stop failed: {error}"))?
+}
+
 /// Ends every Run process a destroyed window owns, including launches still
 /// being prepared, without blocking the event loop. Other windows keep theirs.
 pub fn release_window_processes(window_label: &str) {
-    let pids = take_owned_processes(|key| key.window_label == window_label);
-    if pids.is_empty() {
+    let owned = take_owned_sessions(|key| key.window_label == window_label);
+    if owned.is_empty() {
         return;
     }
-    let cleanup = thread::spawn(move || terminate_run_processes(pids));
+    let cleanup = thread::spawn(move || {
+        if let Err(error) = stop_sessions(owned, RUN_STOP_TIMEOUT) {
+            eprintln!("{error}");
+        }
+    });
     let mut cleanups = window_cleanups()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -158,10 +286,16 @@ pub fn release_window_processes(window_label: &str) {
     cleanups.push(cleanup);
 }
 
-/// Ends every remaining Run process and waits for earlier window cleanups, so
-/// no service Lithe started outlives the application.
+/// Ends every remaining Run process and waits for earlier window cleanups.
+///
+/// Runs on application exit and before the updater replaces the application,
+/// which exits the process without an exit event. A crash skips it; the Job
+/// Object of each session then ends the tree when Windows closes Lithe's
+/// handles.
 pub fn shutdown() {
-    terminate_run_processes(take_owned_processes(|_| true));
+    if let Err(error) = stop_sessions(take_owned_sessions(|_| true), RUN_STOP_TIMEOUT) {
+        eprintln!("{error}");
+    }
     let cleanups = std::mem::take(
         &mut *window_cleanups()
             .lock()
@@ -172,10 +306,12 @@ pub fn shutdown() {
     }
 }
 
-fn take_owned_processes(owned: impl Fn(&RunSessionKey) -> bool) -> Vec<u32> {
+fn take_owned_sessions(
+    owned: impl Fn(&RunSessionKey) -> bool,
+) -> Vec<(RunSessionKey, RunningSession)> {
     // Same lock order as publication: once the reservation is gone, a launch
     // still in preparation can no longer publish a process after this cleanup.
-    // A poisoned lock is recovered because this is the last chance to reap.
+    // A poisoned lock is recovered because this may be the last chance to reap.
     let mut pending = pending_launches()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -188,22 +324,53 @@ fn take_owned_processes(owned: impl Fn(&RunSessionKey) -> bool) -> Vec<u32> {
         .filter(|key| owned(key))
         .cloned()
         .collect::<Vec<_>>();
-    keys.iter()
-        .filter_map(|key| current.remove(key))
-        .map(|session| session.pid)
+    keys.into_iter()
+        .filter_map(|key| current.remove(&key).map(|session| (key, session)))
         .collect()
 }
 
-fn terminate_run_processes(pids: Vec<u32>) {
-    // taskkill /T walks each tree separately; run them side by side so closing
-    // a window with several services is not delayed by their sum.
-    let terminations = pids
-        .into_iter()
-        .map(|pid| thread::spawn(move || terminate_run_process(pid)))
-        .collect::<Vec<_>>();
-    for termination in terminations {
-        let _ = termination.join();
+/// Ends the sessions' process trees side by side, so stopping several
+/// services is not delayed by their sum. A session whose tree is still alive
+/// at the deadline goes back into the table, unless its slot was reused, so it
+/// stays visible and its exit is still reported; the error names it.
+fn stop_sessions(
+    owned: Vec<(RunSessionKey, RunningSession)>,
+    timeout: Duration,
+) -> Result<(), String> {
+    let unconfirmed = thread::scope(|scope| {
+        let stops = owned
+            .into_iter()
+            .map(|(key, session)| {
+                scope.spawn(move || match session.tree.terminate(timeout) {
+                    Ok(()) => None,
+                    Err(error) => Some((key, session, error)),
+                })
+            })
+            .collect::<Vec<_>>();
+        stops
+            .into_iter()
+            .filter_map(|stop| stop.join().ok().flatten())
+            .collect::<Vec<_>>()
+    });
+    if unconfirmed.is_empty() {
+        return Ok(());
     }
+    let mut details = Vec::new();
+    let mut current = sessions()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    for (key, session, error) in unconfirmed {
+        details.push(format!(
+            "{} (process {}): {error}",
+            session.title.as_deref().unwrap_or(&key.session_id),
+            session.pid
+        ));
+        current.entry(key).or_insert(session);
+    }
+    Err(format!(
+        "Could not confirm that these run processes stopped: {}",
+        details.join("; ")
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -307,6 +474,12 @@ pub struct StartProcessArgs {
     pub session_id: String,
     #[serde(default)]
     pub execution_id: Option<String>,
+    /// Name shown if closing the window would stop this process.
+    #[serde(default)]
+    pub title: Option<String>,
+    /// Work Lithe started for itself rather than a process the user launched.
+    #[serde(default)]
+    pub background: bool,
     pub executable: String,
     pub arguments: Vec<String>,
     pub working_directory: String,
@@ -320,6 +493,9 @@ pub struct ExecutePreLaunchArgs {
     pub window_label: String,
     pub session_id: String,
     pub execution_id: String,
+    /// Name shown if closing the window would stop this step.
+    #[serde(default)]
+    pub title: Option<String>,
     pub executable: String,
     pub arguments: Vec<String>,
     pub working_directory: String,
@@ -721,6 +897,9 @@ pub async fn run_execute_prelaunch(args: ExecutePreLaunchArgs) -> Result<PreLaun
             PendingLaunch {
                 identity: identity.clone(),
                 execution_id: Some(args.execution_id.clone()),
+                title: args.title.clone(),
+                background: false,
+                sequence: next_sequence(),
             },
         );
         LaunchReservation { key, identity }
@@ -784,11 +963,11 @@ pub async fn run_start_process(app: AppHandle, args: StartProcessArgs) -> Result
     if args.window_label.trim().is_empty() {
         return Err("A run process must be started from an active window.".into());
     }
-    let (reservation, previous_pid) = {
+    let (reservation, previous) = {
         let mut pending = pending_launches()
             .lock()
             .map_err(|_| "Run launch state is unavailable".to_string())?;
-        let previous_pid = take_running_pid(&args.window_label, &args.session_id, None);
+        let previous = take_running_session(&args.window_label, &args.session_id, None);
         let key = run_session_key(&args.window_label, &args.session_id);
         let identity = Arc::new(());
         pending.insert(
@@ -796,15 +975,20 @@ pub async fn run_start_process(app: AppHandle, args: StartProcessArgs) -> Result
             PendingLaunch {
                 identity: identity.clone(),
                 execution_id: args.execution_id.clone(),
+                title: args.title.clone(),
+                background: args.background,
+                sequence: next_sequence(),
             },
         );
-        (LaunchReservation { key, identity }, previous_pid)
+        (LaunchReservation { key, identity }, previous)
     };
     // Filesystem metadata, JAR writes and process creation may block. The worker
     // owns the reservation and temporary file even if the awaiting task ends.
     tauri::async_runtime::spawn_blocking(move || {
-        if let Some(pid) = previous_pid {
-            terminate_run_process(pid);
+        if let Some(previous) = previous {
+            // The replacement must not share the port or files with a
+            // predecessor that is still alive.
+            stop_sessions(vec![previous], RUN_STOP_TIMEOUT)?;
         }
         start_reserved_process(app, args, reservation)
     })
@@ -824,6 +1008,10 @@ fn start_reserved_process(
     if !reservation.is_current(&pending) {
         return Err("Run launch was stopped or replaced during preparation.".into());
     }
+    let sequence = pending
+        .get(&reservation.key)
+        .map(|launch| launch.sequence)
+        .unwrap_or_else(next_sequence);
     // Stop/restart cannot invalidate the reservation between this check and
     // publication in sessions(). Preparation never holds this lock.
     let mut command = command_for_executable(&args.executable, &arguments);
@@ -833,7 +1021,7 @@ fn start_reserved_process(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    apply_creation_flags(&mut command);
+    ProcessTree::prepare(&mut command);
     let mut current = sessions()
         .lock()
         .map_err(|_| "Run process state is unavailable".to_string())?;
@@ -842,6 +1030,17 @@ fn start_reserved_process(
         Err(error) => {
             drop(argfile);
             return Err(spawn_failure_message(&args.executable, &arguments, &error));
+        }
+    };
+    // The child is still suspended: it joins its tree before it can start a
+    // descendant, so no process of this session can escape a later stop.
+    let tree = match ProcessTree::adopt(&mut child) {
+        Ok(tree) => tree,
+        Err(error) => {
+            drop(argfile);
+            return Err(format!(
+                "Unable to start process: Lithe could not take ownership of its process tree: {error}"
+            ));
         }
     };
     let pid = child.id();
@@ -856,6 +1055,10 @@ fn start_reserved_process(
             pid,
             execution_id: args.execution_id,
             stdin,
+            title: args.title,
+            background: args.background,
+            sequence,
+            tree,
         },
     );
 
@@ -926,10 +1129,13 @@ pub async fn run_stop_process(
     session_id: String,
     execution_id: Option<String>,
 ) -> Result<(), String> {
-    if let Some(pid) = stop_session(&window_label, &session_id, execution_id.as_deref()) {
-        tauri::async_runtime::spawn_blocking(move || terminate_run_process(pid))
-            .await
-            .map_err(|error| format!("Run stop failed: {error}"))?;
+    if let Some(session) = stop_session(&window_label, &session_id, execution_id.as_deref()) {
+        let key = run_session_key(&window_label, &session_id);
+        tauri::async_runtime::spawn_blocking(move || {
+            stop_sessions(vec![(key, session)], RUN_STOP_TIMEOUT)
+        })
+        .await
+        .map_err(|error| format!("Run stop failed: {error}"))??;
     }
     Ok(())
 }
@@ -2314,7 +2520,7 @@ fn spawn_output_dispatcher(
                 // A stopped or replaced process no longer owns the panel, but
                 // its pipe must still be drained until the reader threads
                 // finish. Dropping the receiver could leave the child blocked
-                // on a full stdout pipe while taskkill is still completing.
+                // on a full stdout pipe while its process tree is still ending.
                 continue;
             }
             let _ = app.emit_to(
@@ -2344,6 +2550,21 @@ fn spawn_exit_waiter(
             .ok()
             .and_then(|status| status.code())
             .unwrap_or(-1);
+        let session_key = run_session_key(&window_label, &session_id);
+        // As on macOS, a launcher that exits must not leave descendants behind:
+        // they would run without an owner and keep the output pipes open, so
+        // the readers below would never finish. A stop already owns the tree
+        // of a session it took, so only the current session is ended here.
+        if let Ok(current) = sessions().lock() {
+            if let Some(session) = current
+                .get(&session_key)
+                .filter(|session| session.pid == pid)
+            {
+                if let Err(error) = session.tree.kill() {
+                    eprintln!("Could not end the descendants of run process {pid}: {error}");
+                }
+            }
+        }
         // The JVM reads the argument file while starting, so it is removed only
         // after the process it configured has ended.
         drop(argfile);
@@ -2352,7 +2573,6 @@ fn spawn_exit_waiter(
         // Preserve the console contract: the final output batch is observable
         // before the matching exit event marks the session as complete.
         let _ = output_dispatcher.join();
-        let session_key = run_session_key(&window_label, &session_id);
         let stale = match sessions().lock() {
             Ok(mut current) => match current.get(&session_key) {
                 Some(session) if session.pid == pid => {
@@ -2374,21 +2594,25 @@ fn spawn_exit_waiter(
     });
 }
 
-fn take_owned_session(
-    current: &mut HashMap<RunSessionKey, RunningSession>,
+fn take_owned_session<S: OwnedExecution>(
+    current: &mut HashMap<RunSessionKey, S>,
     key: &RunSessionKey,
     execution_id: Option<&str>,
-) -> Option<RunningSession> {
+) -> Option<S> {
     // Check and remove under the same lock; an old adapter must not reap a new Run.
     if let Some(expected) = execution_id {
-        if current.get(key)?.execution_id.as_deref() != Some(expected) {
+        if current.get(key)?.execution_id() != Some(expected) {
             return None;
         }
     }
     current.remove(key)
 }
 
-fn stop_session(window_label: &str, session_id: &str, execution_id: Option<&str>) -> Option<u32> {
+fn stop_session(
+    window_label: &str,
+    session_id: &str,
+    execution_id: Option<&str>,
+) -> Option<RunningSession> {
     // Use the same lock/order as publication, so a stop cannot miss a process
     // between its pending reservation and its running session.
     let Ok(mut pending) = pending_launches().lock() else {
@@ -2400,29 +2624,18 @@ fn stop_session(window_label: &str, session_id: &str, execution_id: Option<&str>
         &run_session_key(window_label, session_id),
         execution_id,
     );
-    take_running_pid(window_label, session_id, execution_id)
+    take_running_session(window_label, session_id, execution_id).map(|(_, session)| session)
 }
 
-fn take_running_pid(
+fn take_running_session(
     window_label: &str,
     session_id: &str,
     execution_id: Option<&str>,
-) -> Option<u32> {
+) -> Option<(RunSessionKey, RunningSession)> {
+    let key = run_session_key(window_label, session_id);
     sessions().lock().ok().and_then(|mut current| {
-        take_owned_session(
-            &mut current,
-            &run_session_key(window_label, session_id),
-            execution_id,
-        )
-        .map(|session| session.pid)
+        take_owned_session(&mut current, &key, execution_id).map(|session| (key, session))
     })
-}
-
-fn terminate_run_process(pid: u32) {
-    let mut command = Command::new("taskkill");
-    command.args(["/F", "/T", "/PID", &pid.to_string()]);
-    apply_creation_flags(&mut command);
-    let _ = command.output();
 }
 
 #[cfg(test)]
@@ -2442,9 +2655,24 @@ mod tests {
             PendingLaunch {
                 identity: identity.clone(),
                 execution_id: Some(execution.into()),
+                title: None,
+                background: false,
+                sequence: next_sequence(),
             },
         );
         LaunchReservation { key, identity }
+    }
+
+    /// Table entry for ownership rules that never touch a real process.
+    struct RecordedExecution {
+        pid: u32,
+        execution_id: Option<String>,
+    }
+
+    impl OwnedExecution for RecordedExecution {
+        fn execution_id(&self) -> Option<&str> {
+            self.execution_id.as_deref()
+        }
     }
 
     #[test]
@@ -2474,6 +2702,7 @@ mod tests {
             window_label: window.into(),
             session_id: reservation.key.session_id.clone(),
             execution_id: "prelaunch-test".into(),
+            title: None,
             executable: std::env::var("COMSPEC").unwrap(),
             arguments: vec![
                 "/d".into(),
@@ -2625,10 +2854,9 @@ mod tests {
         let mut current = HashMap::new();
         current.insert(
             key.clone(),
-            RunningSession {
+            RecordedExecution {
                 pid: 42,
                 execution_id: Some("replacement".into()),
-                stdin: None,
             },
         );
         assert!(take_owned_session(&mut current, &key, Some("old-debug")).is_none());
@@ -2648,10 +2876,9 @@ mod tests {
         let mut current = HashMap::new();
         current.insert(
             key.clone(),
-            RunningSession {
+            RecordedExecution {
                 pid: 42,
                 execution_id: None,
-                stdin: None,
             },
         );
         assert!(take_owned_session(&mut current, &key, Some("old-debug")).is_none());
@@ -3460,15 +3687,22 @@ mod tests {
         assert_eq!(left, run_session_key("project-a", "primary"));
     }
 
+    /// A Run session like `cmd -> mvn -> java`, owned the way
+    /// `start_reserved_process` owns one: the suspended root joins its tree
+    /// before ping can start.
     #[cfg(windows)]
-    fn spawn_owned_process_tree(window: &str) -> (Child, std::process::ChildStdout, u32) {
-        // cmd waits on ping, so the service has a descendant like mvn -> java.
+    fn spawn_owned_process_tree(
+        window: &str,
+        session: &str,
+        title: &str,
+    ) -> (Child, std::process::ChildStdout, u32) {
         let mut command = Command::new("cmd");
         command
             .args(["/C", "ping -n 30 127.0.0.1"])
             .stdout(Stdio::piped());
-        apply_creation_flags(&mut command);
+        ProcessTree::prepare(&mut command);
         let mut child = command.spawn().expect("spawn service");
+        let tree = ProcessTree::adopt(&mut child).expect("own service tree");
         // cmd writes nothing itself; the first output byte comes from ping, so
         // the descendant is running once it arrives. The pipe stays open for
         // the test, otherwise ping would exit on its next write.
@@ -3480,11 +3714,15 @@ mod tests {
             .first()
             .expect("service descendant");
         sessions().lock().unwrap().insert(
-            run_session_key(window, "window-release-test"),
+            run_session_key(window, session),
             RunningSession {
                 pid: child.id(),
-                execution_id: None,
+                execution_id: Some(format!("{session}-execution")),
                 stdin: None,
+                title: Some(title.into()),
+                background: false,
+                sequence: next_sequence(),
+                tree,
             },
         );
         (child, stdout, descendant)
@@ -3515,26 +3753,98 @@ mod tests {
         // Regression for #1137: closing a window left Run services and their
         // descendants running. Another window's service must survive the close.
         let (mut closed, _closed_output, closed_descendant) =
-            spawn_owned_process_tree("release-closed-window");
+            spawn_owned_process_tree("release-closed-window", "service", "Closed");
         let (mut kept, _kept_output, kept_descendant) =
-            spawn_owned_process_tree("release-kept-window");
+            spawn_owned_process_tree("release-kept-window", "service", "Kept");
 
-        terminate_run_processes(take_owned_processes(|key| {
-            key.window_label == "release-closed-window"
-        }));
+        stop_sessions(
+            take_owned_sessions(|key| key.window_label == "release-closed-window"),
+            RUN_STOP_TIMEOUT,
+        )
+        .expect("the closed window's trees end");
         assert!(closed.wait().is_ok());
         assert!(!process_is_alive(closed_descendant));
         assert!(kept.try_wait().unwrap().is_none());
         assert!(process_is_alive(kept_descendant));
 
         // A second destroy/exit pass finds nothing left and must not reap again.
-        assert!(take_owned_processes(|key| key.window_label == "release-closed-window").is_empty());
+        assert!(take_owned_sessions(|key| key.window_label == "release-closed-window").is_empty());
 
-        terminate_run_processes(take_owned_processes(|key| {
-            key.window_label == "release-kept-window"
-        }));
+        stop_sessions(
+            take_owned_sessions(|key| key.window_label == "release-kept-window"),
+            RUN_STOP_TIMEOUT,
+        )
+        .expect("the kept window's trees end");
         assert!(kept.wait().is_ok());
         assert!(!process_is_alive(kept_descendant));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn dropping_a_session_ends_its_tree_like_a_crashed_lithe() {
+        // When Lithe dies, Windows closes its job handles. Dropping the session
+        // closes the handle the same way, so no stop call is involved.
+        let (mut root, _output, descendant) =
+            spawn_owned_process_tree("crash-window", "service", "Crash");
+        let owned = take_owned_sessions(|key| key.window_label == "crash-window");
+        assert_eq!(owned.len(), 1);
+        drop(owned);
+        assert!(root.wait().is_ok());
+        assert!(!process_is_alive(descendant));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn owned_listing_includes_every_session_in_start_order() {
+        // Maven goals and services of closed projects have no webview store,
+        // so the close confirmation must come from the native table.
+        let window = "listing-window";
+        let (mut first, _first_output, _) =
+            spawn_owned_process_tree(window, "maven", "clean install");
+        let (mut second, _second_output, _) = spawn_owned_process_tree(window, "service", "Api");
+        let (mut other, _other_output, _) =
+            spawn_owned_process_tree("listing-other-window", "service", "Other");
+        let preparing = {
+            let mut pending = pending_launches().lock().unwrap();
+            let reservation = reserve_test_launch(&mut pending, window, "prepare");
+            pending.get_mut(&reservation.key).unwrap().title = Some("Worker".into());
+            reservation
+        };
+
+        let listed = run_list_owned_processes(Some(window.into())).expect("listing");
+        let titles = listed
+            .iter()
+            .map(|process| (process.title.as_deref(), process.preparing))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            titles,
+            vec![
+                (Some("clean install"), false),
+                (Some("Api"), false),
+                (Some("Worker"), true)
+            ]
+        );
+        assert_eq!(listed[1].execution_id.as_deref(), Some("service-execution"));
+        // An update install lists every window; other tests may add sessions
+        // concurrently, so only this test's sessions are checked.
+        let everywhere = run_list_owned_processes(None).expect("listing every window");
+        for title in ["clean install", "Api", "Worker", "Other"] {
+            assert!(everywhere
+                .iter()
+                .any(|process| process.title.as_deref() == Some(title)));
+        }
+
+        drop(preparing);
+        for label in [window, "listing-other-window"] {
+            stop_sessions(
+                take_owned_sessions(|key| key.window_label == label),
+                RUN_STOP_TIMEOUT,
+            )
+            .expect("listing fixtures end");
+        }
+        for root in [&mut first, &mut second, &mut other] {
+            assert!(root.wait().is_ok());
+        }
     }
 
     #[test]

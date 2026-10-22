@@ -1099,6 +1099,7 @@ export const createRunStore = (
             const outcome = await dependencies.executePreLaunchStep({
               sessionId,
               executionId,
+              title: configuration.name,
               executable: stepResolved.executable,
               arguments: stepArguments,
               workingDirectory: stepResolved.workingDirectory,
@@ -1114,6 +1115,7 @@ export const createRunStore = (
           await dependencies.startRunProcess({
             sessionId,
             executionId,
+            title: configuration.name,
             executable: resolved.executable,
             arguments: mainArguments,
             workingDirectory: resolved.workingDirectory,
@@ -1469,40 +1471,6 @@ export function runStoreForSession(sessionId: string) {
 export function releaseRunSessionWorkspace(sessionId: string): void {
   sessionWorkspaces.delete(sessionId);
   outputStampers.delete(sessionId);
-}
-
-/** A Run service started from this window that is still running or about to launch. */
-export interface ActiveRunService {
-  title: string;
-  stop: () => Promise<void>;
-}
-
-/**
- * Lists the Run services of every project open in this window. The native host
- * owns Run processes per window, so closing it ends all of them, not only the
- * active project's.
- */
-export function activeRunServices(): ActiveRunService[] {
-  return workspaceRuntimeRegistry.getExistingStores<RunState>("run").flatMap((store) => {
-    const state = store.getState();
-    const services: ActiveRunService[] = [];
-    if (state.primaryRunning || state.primaryPreparing) {
-      services.push({
-        title: state.primaryTitle ?? "",
-        stop: () =>
-          state.actions.stop(PRIMARY_SESSION_ID, state.primaryExecutionId ?? undefined),
-      });
-    }
-    for (const session of state.sessions) {
-      if (session.isRunning || session.isPreparing) {
-        services.push({
-          title: session.title,
-          stop: () => state.actions.stop(session.id, session.executionId),
-        });
-      }
-    }
-    return services;
-  });
 }
 
 export function runOptionsFor(configuration: RunConfiguration): RunOptions {

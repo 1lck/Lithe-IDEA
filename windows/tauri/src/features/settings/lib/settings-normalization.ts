@@ -163,6 +163,7 @@ const PROJECT_OPEN_DESTINATIONS = new Set<Settings["projectOpenDefaultDestinatio
   "new-window",
   "attach",
 ]);
+const RUN_SERVICES_ON_EXIT = new Set<Settings["runServicesOnExit"]>(["ask", "terminate"]);
 const EXTERNAL_EDITOR_MODES = new Set<Settings["externalEditor"]>([
   "none",
   "nvim",
@@ -302,6 +303,12 @@ function normalizeFileTreeSortOrder(value: unknown): Settings["fileTreeSortOrder
   return FILE_TREE_SORT_ORDERS.has(value as Settings["fileTreeSortOrder"])
     ? (value as Settings["fileTreeSortOrder"])
     : defaultSettings.fileTreeSortOrder;
+}
+
+function normalizeRunServicesOnExit(value: unknown): Settings["runServicesOnExit"] {
+  return RUN_SERVICES_ON_EXIT.has(value as Settings["runServicesOnExit"])
+    ? (value as Settings["runServicesOnExit"])
+    : defaultSettings.runServicesOnExit;
 }
 
 // Accepts the retired openFoldersInNewWindow boolean from legacy imports so an old export
@@ -568,6 +575,9 @@ export function normalizeSettings(settings: Settings): Settings {
     (normalizedSettings as { openFoldersInNewWindow?: unknown }).openFoldersInNewWindow,
   );
   delete (normalizedSettings as { openFoldersInNewWindow?: unknown }).openFoldersInNewWindow;
+  normalizedSettings.runServicesOnExit = normalizeRunServicesOnExit(
+    (normalizedSettings as { runServicesOnExit?: unknown }).runServicesOnExit,
+  );
   normalizedSettings.activityRailWidth = normalizeBoundedWidth(
     normalizedSettings.activityRailWidth,
     defaultSettings.activityRailWidth,
@@ -705,6 +715,10 @@ export function normalizeSettingValue<K extends keyof Settings>(
 
   if (key === "projectOpenDefaultDestination") {
     return normalizeProjectOpenDestination(value, undefined) as Settings[K];
+  }
+
+  if (key === "runServicesOnExit") {
+    return normalizeRunServicesOnExit(value) as Settings[K];
   }
 
   if (key === "activityRailWidth") {
