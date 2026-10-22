@@ -291,6 +291,87 @@ struct GitModuleTests {
     }
 
     @Test
+    func treeStatusTreatsFilesBelowAnUntrackedSummaryAsUntracked() {
+        // Project rows, editor gutters and Show Diff found a per-file record for
+        // these files before status summarized large untracked directories (#1385).
+        let root = URL(fileURLWithPath: "/workspace")
+        let summary = GitChange(repositoryRoot: root, path: "target/", originalPath: nil,
+                                indexStatus: "?", workTreeStatus: "?", untrackedFileCount: 5_273)
+        let projection = GitTreeStatusProjection(changes: [summary])
+
+        let file = projection.change(relativePath: "target/debug/app")
+        #expect(file?.path == "target/debug/app")
+        #expect(file?.isUntracked == true)
+        #expect(file?.isUntrackedDirectory == false)
+        #expect(projection.kind(relativePath: "target", isDirectory: true) == .added)
+        #expect(projection.change(relativePath: "targets/app") == nil)
+        let absolute = GitTreeStatusProjection(changes: [summary], absolutePaths: true)
+        #expect(absolute.change(relativePath: "/workspace/target/a.o")?.path == "target/a.o")
+        #expect(absolute.containingUntrackedDirectory(of: summary) == nil)
+    }
+
+    @Test
+    func untrackedDirectorySummaryListsItsContentsOnDemandAndAcrossRefreshes() async {
+        let root = URL(fileURLWithPath: "/workspace")
+        func untracked(_ path: String, count: Int? = nil) -> GitChange {
+            GitChange(repositoryRoot: root, path: path, originalPath: nil,
+                      indexStatus: "?", workTreeStatus: "?", untrackedFileCount: count)
+        }
+        let source = GitChange(repositoryRoot: root, path: "src/App.swift", originalPath: nil,
+                               indexStatus: " ", workTreeStatus: "M")
+        let target = untracked("target/", count: 5_273)
+        let debug = untracked("target/debug/", count: 5_272)
+        let snapshots = UntrackedDirectorySnapshots(
+            GitSnapshot(repositoryRoot: root, branch: "main", changes: [source, target])
+        )
+        let listing: [String: [GitChange]] = [
+            "target/": [untracked("target/.rustc_info.json"), debug],
+            "target/debug/": [untracked("target/debug/app")]
+        ]
+        let feature = GitFeatureModel(
+            service: GitService(operations: TestGitOperations()),
+            snapshotProvider: { _ in await snapshots.current() },
+            stashesProvider: { _ in [] },
+            operationStateProvider: { _ in nil },
+            repositoryRootsProvider: { _ in [] },
+            diffDocumentProvider: { _, _ in DiffDocument(rows: [], hunks: []) },
+            untrackedDirectoryChildrenProvider: { listing[$0.path] }
+        )
+        defer { feature.reset() }
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false },
+                          notify: { _ in }, onStateRefreshed: {})
+
+        await feature.refreshGit()
+        #expect(feature.gitChanges.map(\.path) == ["src/App.swift", "target/"])
+        #expect(feature.gitChangedFileCount == 5_274)
+
+        // A summary stands for thousands of files and has no diff of its own.
+        await feature.selectChange(target)
+        #expect(feature.selectedChange == nil)
+
+        let expanded = ["src/App.swift", "target/", "target/.rustc_info.json", "target/debug/", "target/debug/app"]
+        await feature.toggleUntrackedDirectory(target)
+        await feature.toggleUntrackedDirectory(debug)
+        #expect(feature.gitChanges.map(\.path) == expanded)
+        #expect(feature.gitChangedFileCount == 5_274)
+
+        // A watcher refresh lists expanded summaries again instead of collapsing them.
+        await feature.refreshGit()
+        #expect(feature.gitChanges.map(\.path) == expanded)
+
+        await feature.toggleUntrackedDirectory(target)
+        #expect(feature.gitChanges.map(\.path) == ["src/App.swift", "target/"])
+        #expect(feature.expandedUntrackedDirectoryIDs.isEmpty)
+
+        // Staging or deleting the directory removes its summary and its expansion.
+        await feature.toggleUntrackedDirectory(target)
+        await snapshots.replace(with: GitSnapshot(repositoryRoot: root, branch: "main", changes: [source]))
+        await feature.refreshGit()
+        #expect(feature.gitChanges.map(\.path) == ["src/App.swift"])
+        #expect(feature.expandedUntrackedDirectoryIDs.isEmpty)
+    }
+
+    @Test
     func lineChangeProjectionMapsAdditionsChangesAndMiddleDeletions() {
         let markers = GitLineChangeProjection.markers(from: [
             DiffRow(oldLine: 1, newLine: 1, left: "same", right: "same", kind: .context, hunkID: "h1"),
@@ -1821,6 +1902,109 @@ struct GitModuleTests {
         #expect(feature.gitConsoleEntries.map(\.arguments) == [["discard", "first.txt"], ["discard", "blocked.txt"]])
         #expect(feature.gitConsoleEntries.map(\.exitCode) == [0, 1])
         #expect(feature.gitConsoleEntries.allSatisfy { $0.state == .unconfirmed })
+    }
+
+    @Test
+    func collapsingASummaryWhileARefreshListsItKeepsItCollapsed() async {
+        let root = URL(fileURLWithPath: "/workspace")
+        let source = GitChange(repositoryRoot: root, path: "src/App.swift", originalPath: nil,
+                               indexStatus: " ", workTreeStatus: "M")
+        let target = GitChange(repositoryRoot: root, path: "target/", originalPath: nil,
+                               indexStatus: "?", workTreeStatus: "?", untrackedFileCount: 200)
+        let child = GitChange(repositoryRoot: root, path: "target/a.o", originalPath: nil,
+                              indexStatus: "?", workTreeStatus: "?")
+        let listing = UntrackedDirectoryListing(blockingFromCall: 2)
+        let feature = GitFeatureModel(
+            service: GitService(operations: TestGitOperations()),
+            snapshotProvider: { _ in GitSnapshot(repositoryRoot: root, branch: "main", changes: [source, target]) },
+            stashesProvider: { _ in [] },
+            operationStateProvider: { _ in nil },
+            repositoryRootsProvider: { _ in [] },
+            diffDocumentProvider: { _, _ in DiffDocument(rows: [], hunks: []) },
+            untrackedDirectoryChildrenProvider: { _ in await listing.list([child]) }
+        )
+        defer { feature.reset() }
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false },
+                          notify: { _ in }, onStateRefreshed: {})
+        await feature.refreshGit()
+        await feature.toggleUntrackedDirectory(target)
+        #expect(feature.gitChanges.map(\.path) == ["src/App.swift", "target/", "target/a.o"])
+
+        // The refresh lists `target/` again; the user collapses it meanwhile.
+        let refresh = Task { await feature.refreshGit() }
+        #expect(await listing.started.waitUntilOpen())
+        await feature.toggleUntrackedDirectory(target)
+        listing.release.open()
+        await refresh.value
+
+        #expect(feature.gitChanges.map(\.path) == ["src/App.swift", "target/"])
+        #expect(feature.expandedUntrackedDirectoryIDs.isEmpty)
+        #expect(feature.gitChangedFileCount == 201)
+    }
+
+    @Test
+    func shelvingStopsBeforeCleaningWhenAnUntrackedSummaryCannotBeExported() async {
+        // Shelve cleans `generated/` as a whole after saving, so a directory
+        // patch Git could not export must stop it instead of losing files.
+        let root = URL(fileURLWithPath: "/workspace")
+        let source = GitChange(repositoryRoot: root, path: "src/App.swift", originalPath: nil,
+                               indexStatus: " ", workTreeStatus: "M")
+        let generated = GitChange(repositoryRoot: root, path: "generated/", originalPath: nil,
+                                  indexStatus: "?", workTreeStatus: "?", untrackedFileCount: 101)
+        func shelve(exportingDirectory: Bool) async -> (cleaned: [String], notifications: [String]) {
+            let cleaned = CleanedPaths()
+            let service = GitService(operations: TestGitOperations(
+                snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: [source, generated]),
+                discardAllHandler: { change in
+                    cleaned.append(change.path)
+                    return GitProcessResult(arguments: ["clean", change.path], output: "", exitCode: 0)
+                },
+                diffPatchHandler: { pathspecs, _ in
+                    pathspecs == ["generated/"] && !exportingDirectory ? nil : "patch \(pathspecs)"
+                }
+            ))
+            let feature = GitFeatureModel(service: service,
+                                          shelveService: ShelveService(storage: TestShelfStorage()))
+            var notifications: [String] = []
+            feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false },
+                              notify: { notifications.append($0) }, onStateRefreshed: {})
+            await feature.refreshGit()
+            await feature.shelveWorkingTree(message: "WIP")
+            return (cleaned.paths, notifications)
+        }
+
+        let exported = await shelve(exportingDirectory: true)
+        #expect(exported.cleaned == ["src/App.swift", "generated/"])
+
+        let failed = await shelve(exportingDirectory: false)
+        #expect(failed.cleaned.isEmpty)
+        #expect(failed.notifications == ["Could not create a patch for generated/"])
+    }
+
+    @Test
+    func discardingAnUntrackedSummaryWithItsListedContentsCleansTheDirectoryOnce() async {
+        // Once `target/` is cleaned its listed files are gone, so discarding them
+        // again would fail and stop the batch after the directory was removed.
+        let root = URL(fileURLWithPath: "/workspace")
+        func untracked(_ path: String, count: Int? = nil) -> GitChange {
+            GitChange(repositoryRoot: root, path: path, originalPath: nil,
+                      indexStatus: "?", workTreeStatus: "?", untrackedFileCount: count)
+        }
+        let selection = [untracked("target/", count: 200), untracked("target/a.o"),
+                         untracked("target/debug/", count: 199), untracked("targets.txt")]
+        let service = GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: []),
+            discardHandler: { change in
+                GitProcessResult(arguments: ["discard", change.path], output: "", exitCode: 0)
+            }
+        ))
+        let feature = GitFeatureModel(service: service)
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false },
+                          notify: { _ in }, onStateRefreshed: {})
+        await feature.refreshGit()
+        feature.clearGitConsole()
+        await feature.discardChanges(selection)
+        #expect(feature.gitConsoleEntries.map(\.arguments) == [["discard", "target/"], ["discard", "targets.txt"]])
     }
 
     @Test
@@ -3934,6 +4118,45 @@ private func waitForGitCommitFilesOutcome(
     }
 }
 
+private final class CleanedPaths: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [String] = []
+    var paths: [String] { lock.withLock { values } }
+    func append(_ path: String) { lock.withLock { values.append(path) } }
+}
+
+/// Answers directory listings, holding the listing from `blockingFromCall`
+/// on until the test releases it.
+private final class UntrackedDirectoryListing: @unchecked Sendable {
+    let started = GitModuleTestGate()
+    let release = GitModuleTestGate()
+    private let lock = NSLock()
+    private let blockingFromCall: Int
+    private var calls = 0
+
+    init(blockingFromCall: Int) { self.blockingFromCall = blockingFromCall }
+
+    func list(_ children: [GitChange]) async -> [GitChange]? {
+        let call = lock.withLock {
+            calls += 1
+            return calls
+        }
+        guard call >= blockingFromCall else { return children }
+        started.open()
+        guard await release.waitUntilOpen() else { return nil }
+        return children
+    }
+}
+
+private actor UntrackedDirectorySnapshots {
+    private var snapshot: GitSnapshot
+
+    init(_ snapshot: GitSnapshot) { self.snapshot = snapshot }
+
+    func current() -> GitSnapshot { snapshot }
+    func replace(with snapshot: GitSnapshot) { self.snapshot = snapshot }
+}
+
 private func waitForGitTaskCompletion(
     _ task: Task<Void, Never>,
     timeout: Duration = .seconds(2)
@@ -4296,6 +4519,8 @@ private struct TestGitOperations: GitOperations {
     private let historyController: GitHistoryLoadController?
     private let snapshotGate: GitModuleTestGate?
     private let discardHandler: (@Sendable (GitChange) -> GitProcessResult?)?
+    private let discardAllHandler: (@Sendable (GitChange) -> GitProcessResult?)?
+    private let diffPatchHandler: (@Sendable ([String], Bool) -> String?)?
     private let applyPatchHandler: (@Sendable (String, URL, String) -> GitProcessResult?)?
     private let stageResult: GitProcessResult?
     private let commitResult: GitProcessResult?
@@ -4343,6 +4568,8 @@ private struct TestGitOperations: GitOperations {
         typedComparisonDiffDocumentValue: DiffDocument? = nil,
         snapshotGate: GitModuleTestGate? = nil,
         discardHandler: (@Sendable (GitChange) -> GitProcessResult?)? = nil,
+        discardAllHandler: (@Sendable (GitChange) -> GitProcessResult?)? = nil,
+        diffPatchHandler: (@Sendable ([String], Bool) -> String?)? = nil,
         applyPatchHandler: (@Sendable (String, URL, String) -> GitProcessResult?)? = nil,
         stageResult: GitProcessResult? = nil,
         commitResult: GitProcessResult? = nil,
@@ -4389,6 +4616,8 @@ private struct TestGitOperations: GitOperations {
         self.typedComparisonDiffDocumentValue = typedComparisonDiffDocumentValue
         self.snapshotGate = snapshotGate
         self.discardHandler = discardHandler
+        self.discardAllHandler = discardAllHandler
+        self.diffPatchHandler = diffPatchHandler
         self.applyPatchHandler = applyPatchHandler
         self.stageResult = stageResult
         self.commitResult = commitResult
@@ -4452,7 +4681,9 @@ private struct TestGitOperations: GitOperations {
     func diffDocument(at rootURL: URL, pathspecs: [String], staged: Bool, untracked: Bool, whitespace: GitDiffWhitespaceMode) -> DiffDocument? {
         untracked ? untrackedDiffDocumentValue : nil
     }
-    func diffPatch(at rootURL: URL, pathspecs: [String], staged: Bool, untracked: Bool, whitespace: GitDiffWhitespaceMode) -> String? { nil }
+    func diffPatch(at rootURL: URL, pathspecs: [String], staged: Bool, untracked: Bool, whitespace: GitDiffWhitespaceMode) -> String? {
+        diffPatchHandler?(pathspecs, staged)
+    }
     func commitDiffDocument(at rootURL: URL, commit: String, pathspecs: [String], whitespace: GitDiffWhitespaceMode) -> DiffDocument? { nil }
     func comparisonDiffDocument(at rootURL: URL, reference: String, pathspecs: [String], whitespace: GitDiffWhitespaceMode) -> DiffDocument? { comparisonDiffDocumentValue }
     func comparisonDiffDocument(at rootURL: URL, reference: GitReference, targetReference: GitReference?, pathspecs: [String], whitespace: GitDiffWhitespaceMode) -> DiffDocument? { typedComparisonDiffDocumentValue }
@@ -4538,7 +4769,7 @@ private struct TestGitOperations: GitOperations {
     }
     func unstage(_ change: GitChange) -> GitProcessResult? { nil }
     func discard(_ change: GitChange) -> GitProcessResult? { discardHandler?(change) }
-    func discardAll(_ change: GitChange) -> GitProcessResult? { nil }
+    func discardAll(_ change: GitChange) -> GitProcessResult? { discardAllHandler?(change) }
     func prepareWorkspaceCommit(_ request: GitWorkspaceCommitRequest) -> Result<GitWorkspaceCommitPreparation, GitWorkspaceCommitFailure> {
         workspaceCommitProbe.prepare(request)
     }

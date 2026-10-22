@@ -1413,6 +1413,25 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let untracked: Bool
         let submodule: GitSubmoduleStatus?
         let canToggleStaging: Bool?
+        let untrackedFileCount: Int?
+
+        func makeChange(repositoryRoot: URL) -> GitChange {
+            let status = Array(status)
+            return GitChange(
+                repositoryRoot: repositoryRoot,
+                path: path,
+                originalPath: originalPath,
+                indexStatus: status.first ?? " ",
+                workTreeStatus: status.dropFirst().first ?? " ",
+                submodule: submodule,
+                canToggleStaging: canToggleStaging ?? true,
+                untrackedFileCount: untrackedFileCount
+            )
+        }
+    }
+
+    struct GitUntrackedDirectoryPayload: Decodable, Sendable {
+        let changes: [GitChangePayload]
     }
 
     struct GitStatusPayload: Decodable, Sendable {
@@ -1428,18 +1447,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             return GitSnapshot(
                 repositoryRoot: root.standardizedFileURL,
                 branch: branch ?? "detached",
-                changes: changes.map { change in
-                    let status = Array(change.status)
-                    return GitChange(
-                        repositoryRoot: root.standardizedFileURL,
-                        path: change.path,
-                        originalPath: change.originalPath,
-                        indexStatus: status.first ?? " ",
-                        workTreeStatus: status.dropFirst().first ?? " ",
-                        submodule: change.submodule,
-                        canToggleStaging: change.canToggleStaging ?? true
-                    )
-                }
+                changes: changes.map { $0.makeChange(repositoryRoot: root.standardizedFileURL) }
             )
         }
     }
@@ -2222,6 +2230,13 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let repositoryRoots: [String]
         let root: String
         let includeIndexOnlyChanges = true
+        var summarizeUntrackedDirectories = false
+    }
+
+    private struct GitUntrackedDirectoryRequest: Encodable {
+        let root: String
+        let directory: String
+        let repositoryRoots: [String]
     }
 
     private struct WorkspaceRepositoriesRequest: Encodable {
@@ -2997,10 +3012,33 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         )
     }
 
-    func gitStatus(at rootURL: URL, repositoryRoots: [URL] = []) -> GitStatusPayload? {
+    func gitStatus(
+        at rootURL: URL,
+        repositoryRoots: [URL] = [],
+        summarizeUntrackedDirectories: Bool = false
+    ) -> GitStatusPayload? {
         execute(
             command: "git.status",
-            payload: GitStatusRequest(repositoryRoots: repositoryRoots.map { $0.standardizedFileURL.path }, root: rootURL.standardizedFileURL.path)
+            payload: GitStatusRequest(
+                repositoryRoots: repositoryRoots.map { $0.standardizedFileURL.path },
+                root: rootURL.standardizedFileURL.path,
+                summarizeUntrackedDirectories: summarizeUntrackedDirectories
+            )
+        )
+    }
+
+    func gitUntrackedDirectory(
+        at repositoryRoot: URL,
+        directory: String,
+        repositoryRoots: [URL]
+    ) -> GitUntrackedDirectoryPayload? {
+        execute(
+            command: "git.untrackedDirectory",
+            payload: GitUntrackedDirectoryRequest(
+                root: repositoryRoot.standardizedFileURL.path,
+                directory: directory,
+                repositoryRoots: repositoryRoots.map { $0.standardizedFileURL.path }
+            )
         )
     }
 

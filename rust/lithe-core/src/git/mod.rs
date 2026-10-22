@@ -21,8 +21,11 @@ mod progress;
 mod rebase_session;
 mod rewrite;
 mod setup;
+mod untracked_directories;
 
 pub use fetch::{plan as fetch_plan, GitFetchOptions, GitFetchPlanRequest};
+pub(crate) use untracked_directories::UNTRACKED_DIRECTORY_SUMMARY_THRESHOLD;
+pub use untracked_directories::{untracked_directory, GitUntrackedDirectoryRequest};
 
 pub use setup::{
     configure_identity, initialize as initialize_repository, inspect as repository_setup,
@@ -118,6 +121,11 @@ pub struct GitStatusRequest {
     /// Discovered native root bindings used to exclude independently owned untracked paths.
     #[serde(default)]
     pub repository_roots: Vec<String>,
+    /// Report large wholly untracked directories as one entry with
+    /// `untrackedFileCount` instead of one entry per file. Omission preserves
+    /// the file-level `--untracked-files=all` projection.
+    #[serde(default)]
+    pub summarize_untracked_directories: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1974,6 +1982,13 @@ pub fn diff(request: GitDiffRequest) -> Result<GitDiffResponse, CoreError> {
     }
 
     let include_untracked_with_reference = reference.is_some() && request.untracked;
+    // `diff --no-index` compares one file with another, so an untracked
+    // directory summary is diffed as the untracked files below it.
+    let expands_untracked_directories = reference.is_none()
+        && request.commit.is_none()
+        && request.untracked
+        && request.pathspecs.iter().any(|path| path.ends_with('/'));
+    let lists_untracked_paths = include_untracked_with_reference || expands_untracked_directories;
     let mut arguments = if let Some(commit) = request.commit {
         validate_revision(&commit)?;
         vec![
@@ -2019,8 +2034,16 @@ pub fn diff(request: GitDiffRequest) -> Result<GitDiffResponse, CoreError> {
     arguments.extend(request.pathspecs.clone());
 
     let root = validate_root(&request.root)?;
-    let mut output = capture_git_with_options(&root, &arguments, None, true)?;
-    if include_untracked_with_reference {
+    let mut output = if expands_untracked_directories {
+        GitProcessOutput {
+            stdout: Vec::new(),
+            stderr: Vec::new(),
+            exit_code: 0,
+        }
+    } else {
+        capture_git_with_options(&root, &arguments, None, true)?
+    };
+    if lists_untracked_paths {
         let untracked_paths = readonly_command(GitCommandRequest {
             root: root.clone(),
             arguments: vec![
@@ -2043,7 +2066,19 @@ pub fn diff(request: GitDiffRequest) -> Result<GitDiffResponse, CoreError> {
             .with_details(untracked_paths.output));
         }
         for path in untracked_paths.stdout.split('\0') {
-            if path.is_empty() || !is_safe_pathspec(path) {
+            if path.is_empty() {
+                continue;
+            }
+            if !is_safe_pathspec(path) {
+                // Shelve cleans a whole summarized directory after saving this
+                // patch, so a file it cannot export must fail the diff rather
+                // than be dropped from the patch and then deleted.
+                if expands_untracked_directories {
+                    return Err(CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Git diff cannot export an untracked file with an unsupported name",
+                    ));
+                }
                 continue;
             }
             let mut untracked_arguments = vec![
@@ -5539,7 +5574,13 @@ fn discard_all(root: &str, paths: &[String]) -> Result<GitCommandResponse, CoreE
         .filter_map(|record| record.strip_prefix("?? "))
         .collect::<HashSet<_>>();
     for path in paths {
-        if untracked_paths.contains(path.as_str()) {
+        // A summarized untracked directory (`dir/`) is reported file by file.
+        let is_untracked = untracked_paths.contains(path.as_str())
+            || (path.ends_with('/')
+                && untracked_paths
+                    .iter()
+                    .any(|untracked| untracked.starts_with(path.as_str())));
+        if is_untracked {
             untracked.push(path.clone());
         } else {
             tracked.push(path.clone());
@@ -7642,6 +7683,14 @@ pub fn status(request: GitStatusRequest) -> Result<GitStatusResponse, CoreError>
         .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
         .filter(|branch| !branch.is_empty())
         .or_else(|| Some("detached".to_string()));
+    // `normal` lets Git stop at each wholly untracked directory instead of
+    // enumerating every file below it; the projection below restores file
+    // entries for directories that are small or contain nested repositories.
+    let untracked_files = if request.summarize_untracked_directories {
+        "--untracked-files=normal"
+    } else {
+        "--untracked-files=all"
+    };
     let status_output = run_git(
         &repository_root,
         &[
@@ -7651,7 +7700,7 @@ pub fn status(request: GitStatusRequest) -> Result<GitStatusResponse, CoreError>
             "--porcelain=v2",
             "--ignore-submodules=none",
             "-z",
-            "--untracked-files=all",
+            untracked_files,
         ],
     )?;
     if !status_output.status.success() {
@@ -7661,23 +7710,14 @@ pub fn status(request: GitStatusRequest) -> Result<GitStatusResponse, CoreError>
         );
     }
     let mut changes = parse_status(&status_output.stdout, request.include_index_only_changes);
-    // Native bindings may use macOS /var aliases or Windows short/verbatim
-    // paths. Compare the same canonical identity as Git's reported root.
-    let known_roots = request
-        .repository_roots
-        .iter()
-        .map(|root| canonicalize_or_original(Path::new(root)).map_err(git_path_error))
-        .collect::<Result<Vec<_>, _>>()?;
-    // An embedded independent repository must not become a gitlink through a
-    // parent Stage All. Gitlinks already tracked by the parent remain visible.
-    changes.retain(|change| {
-        !change.untracked
-            || !known_roots.iter().any(|other| {
-                other != &repository_root
-                    && other.starts_with(&repository_root)
-                    && repository_root.join(&change.path).starts_with(other)
-            })
-    });
+    if request.summarize_untracked_directories {
+        changes = untracked_directories::expand_collapsed_directories(&repository_root, changes)?;
+    }
+    untracked_directories::retain_outside_known_roots(
+        &mut changes,
+        &repository_root,
+        &request.repository_roots,
+    )?;
     let (ahead, behind) = tracking_counts(&repository_root);
     Ok(GitStatusResponse {
         repository_root: Some(relative_or_absolute(&repository_root, &root)),
@@ -7883,6 +7923,7 @@ fn parse_status(output: &[u8], include_index_only_changes: bool) -> Vec<GitChang
             worktree: y != ' ' && y != '?',
             untracked: x == '?' && y == '?',
             submodule,
+            untracked_file_count: None,
         });
     }
     changes.sort_by(|left, right| left.path.cmp(&right.path));
