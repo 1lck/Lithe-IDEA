@@ -575,7 +575,7 @@ private struct DiffToolbarGitOperations: GitOperations {
     func abortOperation(at rootURL: URL) -> GitProcessResult? { nil }
     func skipOperationStep(at rootURL: URL) -> GitProcessResult? { nil }
     func checkoutRevision(_ revision: String, at rootURL: URL) -> GitProcessResult? { nil }
-    func push(_ reference: GitReference, at rootURL: URL) -> GitProcessResult? { nil }
+    func push(_ reference: GitReference, pushTarget: String?, at rootURL: URL) -> GitProcessResult? { nil }
     func cloneRepository(from remote: String, to destination: URL) -> GitProcessResult? { nil }
     func stash(message: String, includeUntracked: Bool, at rootURL: URL) -> GitProcessResult? { nil }
     func applyStash(_ stash: GitStash, at rootURL: URL) -> GitProcessResult? { nil }

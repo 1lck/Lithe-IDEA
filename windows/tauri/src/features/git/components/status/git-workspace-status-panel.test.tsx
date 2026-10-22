@@ -3,7 +3,7 @@ import {
   EMPTY_CHANGELISTS,
   type LocalChangelists,
 } from "../../utils/git-changelists";
-import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { act, useState } from "react";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { createPaneContent } from "@/features/editor/stores/buffer-content-factory";
@@ -14,6 +14,10 @@ import * as statusApi from "../../api/git-status-api";
 import { installHappyDom } from "@/test-utils/happy-dom";
 import { LocaleProvider } from "@/i18n/locale-provider";
 import GitStatusPanel from "./git-status-panel";
+import {
+  isUntrackedDirectoryExpanded,
+  setUntrackedDirectoryExpanded,
+} from "../../services/git-untracked-directory-expansions";
 import type { GitFile } from "../../types/git.types";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 
@@ -401,4 +405,113 @@ test("named group selection stays inside that group", async () => {
   );
   await act(async () => checkbox!.click());
   expect(staging).toHaveBeenCalledWith("C:/workspace/A", ["src/application.yaml"], true);
+});
+
+describe("untracked directory summaries", () => {
+  // Regression for #1385: an unignored build directory is one summary row.
+  const summary = (path: string, count: number): GitFile => ({
+    path: `A/${path}`,
+    repositoryPath: "C:/workspace/A",
+    repositoryRelativePath: path,
+    status: "untracked",
+    staged: false,
+    canToggleStaging: true,
+    untrackedFileCount: count,
+  });
+  const listed = (path: string): GitFile => {
+    const { untrackedFileCount: _count, ...file } = summary(path, 0);
+    return file;
+  };
+  const doubleClick = (element: Element) =>
+    act(async () => {
+      element.dispatchEvent(new window.MouseEvent("dblclick", { bubbles: true }));
+    });
+  afterEach(() => setUntrackedDirectoryExpanded("C:/workspace/A", "target/", false));
+
+  test("shows one row with the file count and lists it only on request", async () => {
+    const refreshes: string[] = [];
+    const onFileSelect = mock(() => {});
+    await act(async () =>
+      root.render(
+        <LocaleProvider language="en-US">
+          <GitStatusPanel
+            files={[file("A", "a.ts"), summary("target/", 5_273)]}
+            repositoryCount={2}
+            repoPath="C:/workspace/A"
+            collapsedFolders={new Set()}
+            onCollapsedFoldersChange={() => {}}
+            collapsedSections={new Set()}
+            onCollapsedSectionsChange={() => {}}
+            onFileSelect={onFileSelect}
+            onStagingRefresh={async () => {
+              refreshes.push("status");
+            }}
+          />
+        </LocaleProvider>,
+      ),
+    );
+    const row = container.querySelector('[role=treeitem][title^="target/"]')!;
+    // The leading dot is the indent guide every nested row renders.
+    expect(row.textContent).toBe("•target5273 files");
+    expect(row.getAttribute("aria-expanded")).toBe("false");
+    // Counts follow files, not rows.
+    expect(container.querySelector('[role=treeitem][title="C:/workspace/A"]')?.textContent).toBe(
+      "A5274",
+    );
+    expect(
+      container.querySelector('[data-git-status-section="changelist"]')?.textContent,
+    ).toContain("5274 files");
+
+    // Selecting a summary opens no diff for thousands of files.
+    await act(async () => (row as HTMLElement).click());
+    expect(onFileSelect).not.toHaveBeenCalled();
+
+    await doubleClick(row);
+    expect(isUntrackedDirectoryExpanded("C:/workspace/A", "target/")).toBe(true);
+    expect(refreshes).toEqual(["status"]);
+
+    const include = container.querySelector<HTMLElement>(
+      '[aria-label="Include folder target in commit"]',
+    );
+    await act(async () => include!.click());
+    expect(staging).toHaveBeenCalledWith("C:/workspace/A", ["target/"], true);
+  });
+
+  test("an expanded summary is its folder, and collapsing that folder collapses the summary", async () => {
+    setUntrackedDirectoryExpanded("C:/workspace/A", "target/", true);
+    const collapsedFolders: Set<string>[] = [];
+    await act(async () =>
+      root.render(
+        <LocaleProvider language="en-US">
+          <GitStatusPanel
+            files={[
+              summary("target/", 5_273),
+              listed("target/.rustc_info.json"),
+              summary("target/debug/", 5_272),
+            ]}
+            repositoryCount={2}
+            repoPath="C:/workspace/A"
+            // A collapse remembered for the folder must not hide the listed contents.
+            collapsedFolders={new Set(["C:/workspace/A:default:changelist:target"])}
+            onCollapsedFoldersChange={(folders) => collapsedFolders.push(folders)}
+            collapsedSections={new Set()}
+            onCollapsedSectionsChange={() => {}}
+            onStagingRefresh={async () => {}}
+          />
+        </LocaleProvider>,
+      ),
+    );
+    const rows = [...container.querySelectorAll('[role="treeitem"]')].map((row) => row.textContent);
+    expect(rows).toEqual([
+      "A5273",
+      "Default ChangeList5273 files",
+      "•target5273 files",
+      "•debug5272 files",
+      "•.rustc_info.json",
+    ]);
+
+    await doubleClick(container.querySelector('[role=treeitem][title="target"]')!);
+    expect(isUntrackedDirectoryExpanded("C:/workspace/A", "target/")).toBe(false);
+    expect(collapsedFolders).toEqual([]);
+  });
 });

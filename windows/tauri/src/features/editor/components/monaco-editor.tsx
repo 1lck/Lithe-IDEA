@@ -836,6 +836,9 @@ export function MonacoEditor({
       const relative = (file.repositoryRelativePath ?? file.path).replace(/\\/g, "/");
       const repository = file.repositoryPath?.replace(/\\/g, "/");
       const suffix = repository ? `${repository}/${relative}` : relative;
+      // A summarized untracked directory (`dir/`) covers every file below it.
+      if (file.untrackedFileCount !== undefined)
+        return normalized.startsWith(suffix) || normalized.includes(`/${suffix}`);
       return normalized === suffix || normalized.endsWith(`/${suffix}`);
     });
   });

@@ -1716,9 +1716,4 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         await gitFeature.checkoutRevision(rawRevision)
     }
 
-    func pushBranch(_ reference: GitReference) async {
-        guard let gitFeature = await activateGitModule() else { return }
-        await gitFeature.pushBranch(reference)
-    }
-
 }
