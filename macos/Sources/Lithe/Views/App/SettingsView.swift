@@ -9,8 +9,7 @@ import LitheModuleAPI
 final class SettingsViewState: ObservableObject {
     @Published var selection: SettingsCategory
     @Published var searchQuery = ""
-    @Published var hiddenDirectoriesDraft = ""
-    @Published var hiddenFilePatternsDraft = ""
+    @Published var hiddenPathPatternsDraft = ""
     @Published var aiAPIKeyDraft = ""
     /// Provider shown in Settings › AI Providers; independent of the one
     /// commit messages use.
@@ -129,8 +128,7 @@ struct SettingsView: View {
             model.refreshAIConfigurations()
             syncAIProviderDraft()
         }
-        .onChange(of: settings.hiddenDirectoryNames) { _ in syncVisibilityDrafts() }
-        .onChange(of: settings.hiddenFilePatterns) { _ in syncVisibilityDrafts() }
+        .onChange(of: settings.hiddenPathPatterns) { _ in syncVisibilityDrafts() }
         .onChange(of: settings.commitMessageAI.activeProviderID) { _ in syncAIProviderDraft() }
         .onChange(of: viewState.editingProviderID) { _ in syncAIProviderDraft() }
         .onChange(of: initialCategory) { category in
@@ -587,28 +585,36 @@ struct SettingsView: View {
                 }
             }
 
-            group("Hidden paths", info: "One entry per line. Directory names hide matching folders; file entries support * and ?.") {
-                Text("Directories")
-                    .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
-                TextEditor(text: $viewState.hiddenDirectoriesDraft)
-                    .litheSettingsTextEditor(height: 66)
-
-                Text("File patterns")
-                    .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
-                TextEditor(text: $viewState.hiddenFilePatternsDraft)
-                    .litheSettingsTextEditor(height: 52)
-
-                HStack(spacing: 8) {
-                    Spacer()
-                    Button("Apply") { applyVisibilityDrafts() }
-                        .buttonStyle(LithePrimaryButtonStyle(
-                            backgroundColor: LitheTheme.settingsPrimaryAction,
-                            restingOpacity: 1
-                        ))
-                }
+            group("Hidden paths", info: "One pattern per line, case-insensitive. Patterns use wildcards, a simplified form of regular expressions: `*` matches any characters and `?` matches one.\nEnd a pattern with `/` or `/*` to hide a folder and everything in it; start with `**/` to match at any depth. Other patterns hide matching files.\nExamples:\n`**/dist/` — every dist folder\n`.lithe/*` — the .lithe folder in the project root\n`*.log` — all log files\n`docs/*.md` — Markdown files in docs\nThe built-in patterns below always apply.") {
+                hiddenPathsEditor
             }
+        }
+    }
 
-
+    /// One pattern list with the built-in patterns echoed beneath it, so the
+    /// effective rules are visible without being editable.
+    private var hiddenPathsEditor: some View {
+        let builtIn = FileVisibilityRules.builtInPatterns
+        let shown = builtIn.prefix(3)
+        return VStack(alignment: .leading, spacing: 6) {
+            TextEditor(text: $viewState.hiddenPathPatternsDraft)
+                .litheSettingsTextEditor(height: 72)
+                .accessibilityLabel(Text("Hidden paths"))
+            HStack(spacing: 6) {
+                HStack(spacing: 6) {
+                    Text("Built-in")
+                        .font(LitheTheme.uiFont(size: 11))
+                        .foregroundStyle(LitheTheme.tertiaryText)
+                    ForEach(shown, id: \.self) { LitheSettingsPill(verbatim: $0, kind: .value) }
+                    if builtIn.count > shown.count {
+                        LitheSettingsPill(verbatim: "+\(builtIn.count - shown.count)")
+                    }
+                }
+                .help(Text(verbatim: builtIn.joined(separator: "   ")))
+                Spacer(minLength: 8)
+                Button("Apply") { applyVisibilityDrafts() }
+                    .buttonStyle(LitheSecondaryButtonStyle(horizontalPadding: 14, height: 26, fontSize: 12))
+            }
         }
     }
 
@@ -1729,13 +1735,11 @@ struct SettingsView: View {
     }
 
     private func syncVisibilityDrafts() {
-        viewState.hiddenDirectoriesDraft = settings.hiddenDirectoryNames.joined(separator: "\n")
-        viewState.hiddenFilePatternsDraft = settings.hiddenFilePatterns.joined(separator: "\n")
+        viewState.hiddenPathPatternsDraft = settings.hiddenPathPatterns.joined(separator: "\n")
     }
 
     private func applyVisibilityDrafts() {
-        settings.hiddenDirectoryNames = entries(from: viewState.hiddenDirectoriesDraft)
-        settings.hiddenFilePatterns = entries(from: viewState.hiddenFilePatternsDraft)
+        settings.hiddenPathPatterns = entries(from: viewState.hiddenPathPatternsDraft)
     }
 
     private func entries(from text: String) -> [String] {

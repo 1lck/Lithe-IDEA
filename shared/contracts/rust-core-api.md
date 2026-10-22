@@ -1742,8 +1742,16 @@ Agent completion, or workspace tree visibility. The existing
 case-insensitive `*`/`?` matcher applies to a basename or root-relative path (`*`
 can span `/`). A trailing `/` explicitly marks a root-relative directory glob:
 match it before descending into a directory and against ancestors of directly
-reported file updates. The UI adds the root form for leading `**/`; ordinary
-file globs retain their file-only semantics. Empty user exclusions preserve the
+reported file updates. A leading `**/` stands for zero or more folders in the
+matcher itself, so `**/dist/` covers a root-level `dist` as well as nested ones
+(no client has to add the root form). An entry ending in
+`/*` or `/**` is the same folder rule as one ending in `/`, so `.lithe/*` hides the
+folder and everything below it rather than leaving an empty folder; ordinary file globs
+and plain names (such as `.lithe`) retain their file-only semantics. The macOS file
+watcher is the one place that does not follow the hiding rules for the workspace-root `.lithe`
+folder: hiding it removes it from the tree and listings, but its file events are still
+delivered (except built-in noise such as `.lithe/run/local.json`) because editing its JSON
+files reloads project services. Empty user exclusions preserve the
 normal visibility rules. Search settings changes invalidate only the search
 cache, not the workspace tree. Each root retains at most one content and one
 names-only rule variant; superseded allocations are released when active
@@ -2471,7 +2479,10 @@ metadata never stores an absolute workspace or storage path. `history.record`
 accepts `workspaceRoot`, a relative `path`, a `reason`, and optional UTF-8
 `content`; when content is omitted the core reads the workspace file. Records
 are versioned, de-duplicated against the latest snapshot, capped at 100 entries
-per file, and pruned after 30 days. Invalid metadata and missing snapshot files
+per file, and pruned after 30 days. `history.record` and `history.entries` apply
+the same `hiddenDirectoryNames` / `hiddenFilePatterns` matcher as the workspace
+tree, so a hidden path (including folder patterns such as `**/generated/` or
+`.lithe/*`) is neither recorded nor listed. Invalid metadata and missing snapshot files
 are ignored. `history.entries` returns Unix-second timestamps and relative
 `contentPath` values. `history.content` rejects traversal,
 `history.relocate` updates metadata and storage paths, and `history.rename` and
