@@ -16,6 +16,9 @@ import { normalizeSettingValue } from "@/features/settings/lib/settings-normaliz
 import {
   debouncedSaveSettingsToStore,
   saveSettingsToStore,
+  commitAgentPanelSettings,
+  observeAgentPanelSettings,
+  type AgentCredentialChange,
 } from "@/features/settings/lib/settings-persistence";
 import { parseSettingsImportJson } from "@/features/settings/lib/settings-import-export";
 import { scoreSettingSearchRecord } from "@/features/settings/lib/settings-search";
@@ -24,6 +27,7 @@ import type { SearchResult, SearchState } from "../types/search.types";
 import type { Settings } from "../types/settings.types";
 import { useWorkspaceTabsStore } from "@/features/window/stores/workspace-tabs.store";
 import { createSelectors } from "@/utils/zustand-selectors";
+import type { AgentPanelSettings } from "@/features/agent/types/agent-settings.types";
 
 export type { Settings } from "../types/settings.types";
 
@@ -49,6 +53,7 @@ const useSettingsStoreBase = create(
       {
         settings: getDefaultSettingsSnapshot(),
         _lastAiChatToggleAt: 0,
+        agentSettingsError: null as string | null,
         search: {
           query: "",
           results: [] as SearchResult[],
@@ -58,6 +63,16 @@ const useSettingsStoreBase = create(
       },
       (set, get) => ({
         actions: {
+          commitAgentProvider: async (expected: AgentPanelSettings, next: AgentPanelSettings, credential?: AgentCredentialChange) => {
+            try {
+              const committed = await commitAgentPanelSettings(expected, next, credential);
+              set((state) => { state.agentSettingsError = null; });
+              return committed;
+            } catch (error) {
+              set((state) => { state.agentSettingsError = String(error).includes("agent.settings.conflict") ? "agent.settings.conflict" : "agent.settings.saveFailed"; });
+              throw error;
+            }
+          },
           updateSettingsFromJSON: (jsonString: string): boolean => {
             try {
               const validatedSettings = parseSettingsImportJson(jsonString);
@@ -115,6 +130,7 @@ const useSettingsStoreBase = create(
           },
 
           updateSetting: async <K extends keyof Settings>(key: K, value: Settings[K]) => {
+            const previousAgentPanel = get().settings.agentPanel;
             const normalizedValue = normalizeSettingValue(key, value);
             const savePatch: Partial<Settings> = { [key]: normalizedValue };
 
@@ -146,7 +162,14 @@ const useSettingsStoreBase = create(
               }
             }
 
-            debouncedSaveSettingsToStore(savePatch);
+            if (key === "agentPanel") {
+              try {
+                await commitAgentPanelSettings(previousAgentPanel, normalizedValue as AgentPanelSettings);
+                set((state) => { state.agentSettingsError = null; });
+              } catch (error) {
+                set((state) => { state.agentSettingsError = String(error).includes("agent.settings.conflict") ? "agent.settings.conflict" : "agent.settings.saveFailed"; });
+              }
+            } else debouncedSaveSettingsToStore(savePatch);
           },
 
           setSearchQuery: (query: string) => {
@@ -206,5 +229,9 @@ const useSettingsStoreBase = create(
 );
 
 export const useSettingsStore = createSelectors(useSettingsStoreBase);
+
+observeAgentPanelSettings((settings) => {
+  useSettingsStoreBase.setState((state) => { state.settings.agentPanel = settings; });
+});
 
 export { getDefaultSetting };

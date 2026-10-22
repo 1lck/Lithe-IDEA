@@ -83,6 +83,7 @@ import { Dropdown, type MenuItem } from "@/ui/dropdown";
 import Dialog, { showPromptDialog } from "@/ui/dialog";
 import { toast } from "sonner";
 import { useTranslation } from "@/i18n/locale-provider";
+import { useAgentFileContextMenu } from "@/features/agent/hooks/use-agent-file-context-menu";
 import { getBaseName, getDirName, getRelativePath, joinPath } from "@/utils/path-helpers";
 
 interface UseFileExplorerContextMenuOptions {
@@ -503,6 +504,7 @@ export function useFileExplorerContextMenu({
     setContextMenu({ x: e.clientX, y: e.clientY, path: filePath, isDir });
   }, []);
 
+  const agentFileMenu = useAgentFileContextMenu();
   const contextMenuItems = useMemo<MenuItem[]>(() => {
     if (!contextMenu) return [];
 
@@ -525,6 +527,7 @@ export function useFileExplorerContextMenu({
     };
     if (targets.length > 1)
       return [
+        ...agentFileMenu(targets.filter((entry) => !entry.is_dir).map((entry) => entry.path)),
         {
           id: "copy",
           label: t("files.copy"),
@@ -571,7 +574,7 @@ export function useFileExplorerContextMenu({
           },
         },
       ];
-    const items: MenuItem[] = [];
+    const items: MenuItem[] = contextMenu.isDir ? [] : agentFileMenu([contextMenu.path]);
 
     const directory = contextMenu.isDir ? contextMenu.path : getDirName(contextMenu.path);
     const newItems: MenuItem[] = [

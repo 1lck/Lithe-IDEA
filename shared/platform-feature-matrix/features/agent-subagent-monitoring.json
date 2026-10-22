@@ -21,11 +21,18 @@
   },
   "windows": {
     "evidence": [
-      "windows/tauri/src/features"
+      "rust/lithe-agent-host/src/lib.rs",
+      "windows/tauri/src/features/agent/services/agent-transport.ts",
+      "windows/tauri/src/features/agent/stores/agent-connection.model.ts",
+      "windows/tauri/src/features/agent/components/agent-transcript.tsx",
+      "windows/tauri/src/features/agent/types/agent-observations.ts",
+      "windows/tauri/src/features/agent/components/agent-observed-statistics.tsx",
+      "windows/tauri/src/features/agent/stores/agent-parity.test.ts"
     ],
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable"
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
   },
   "owner": "Agent",
-  "verification": "macOS：使用支持 AIR nativeSubagentSessions 的 Claude/Codex 在隔离项目中创建真实子代理，确认名称、任务、嵌套关系、运行/完成/失败/取消/断开状态与完成数/总数；展开详情查看实际输出和工具，状态刷新保持弹层。普通工具不产生子代理；子输出不拼入主回复、历史预览或复制。切换会话隔离，历史恢复同一子代理，停止主任务收尾子代理授权等待；父代理结束后未报告结果的子代理显示已断开。运行 AgentConversationFeatureModelTests 的 nativeSubagents/nativeChild 回归、AgentActivityPresentationTests.subagentsExpandDeliveredOutputAndRefreshWithoutDismissing 和 Host 的 native_subagents_keep_child_permissions_owned_by_the_root_turn。受控协议与原生 UI 测试不能替代真实供应商工作流，完成该实测前保持 pending。Windows 尚未实现 Agent 对话 UI。 macOS 窄宽面板：子代理入口在任务摘要右侧且与任务独立点击，无计划时仍可单独出现；数量为真实子会话总数，已完成/总数保留在可访问值与详情。子代理为空时不显示占位；保留深浅主题、展开输出、状态更新和弹层关闭验证。 终态授权清理：根 prompt 保持未结束，依次创建子代理、后代与同级代理并挂起授权；对子代理发送 completed/failed/cancelled/disconnected，确认只将其自身及后代请求回应 cancelled，根和同级请求仍可答复；终态后迟到请求不再入队。Swift 同步移除对应卡片、保留其他队列项，最后一项终止后注意状态解除、等待计时停止；虚拟时钟推进后 Host 静默提醒恢复，根轮次正常完成。"
+  "verification": "macOS：使用支持 AIR nativeSubagentSessions 的 Claude/Codex 在隔离项目中创建真实子代理，确认名称、任务、嵌套关系、运行/完成/失败/取消/断开状态与完成数/总数；展开详情查看实际输出和工具，状态刷新保持弹层。普通工具不产生子代理；子输出不拼入主回复、历史预览或复制。切换会话隔离，历史恢复同一子代理，停止主任务收尾子代理授权等待；父代理结束后未报告结果的子代理显示已断开。运行 AgentConversationFeatureModelTests 的 nativeSubagents/nativeChild 回归、AgentActivityPresentationTests.subagentsExpandDeliveredOutputAndRefreshWithoutDismissing 和 Host 的 native_subagents_keep_child_permissions_owned_by_the_root_turn。受控协议与原生 UI 测试不能替代真实供应商工作流，完成该实测前保持 pending。Windows launch 已启用 observeSubagents，连接模型与 transcript 已呈现子代理层级、状态、输出和工具。状态机回归覆盖后代清理和权限归属；本次真实 Tauri 验收使用受控 ACP fixture，真实 Claude/Codex 子代理仍待完成。 macOS 窄宽面板：子代理入口在任务摘要右侧且与任务独立点击，无计划时仍可单独出现；数量为真实子会话总数，已完成/总数保留在可访问值与详情。子代理为空时不显示占位；保留深浅主题、展开输出、状态更新和弹层关闭验证。 终态授权清理：根 prompt 保持未结束，依次创建子代理、后代与同级代理并挂起授权；对子代理发送 completed/failed/cancelled/disconnected，确认只将其自身及后代请求回应 cancelled，根和同级请求仍可答复；终态后迟到请求不再入队。Swift 同步移除对应卡片、保留其他队列项，最后一项终止后注意状态解除、等待计时停止；虚拟时钟推进后 Host 静默提醒恢复，根轮次正常完成。 Windows 回归：累计创建并结束 70 个子 Agent 后，在本轮或下一轮新增子 Agent，其授权仍进入主会话；同时运行 70 个子 Agent 时全部保留授权所有者，终止后只保留最近 64 条终态展示记录。",
+  "notes": "2026-10-22：Windows 已消费原生子代理事件并呈现层级、任务、状态、输出与工具；父子授权归属和终态清理由共享 Host 负责。真实供应商子代理流程仍待验收。 Windows 回归：累计创建并结束 70 个子 Agent 后，在本轮或下一轮新增子 Agent，其授权仍进入主会话；同时运行 70 个子 Agent 时全部保留授权所有者，终止后只保留最近 64 条终态展示记录。"
 }

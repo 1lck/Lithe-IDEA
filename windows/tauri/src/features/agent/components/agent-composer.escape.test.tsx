@@ -47,6 +47,7 @@ function Harness() {
       onDraftChange={setDraft}
       files={[]}
       onFilesChange={() => {}}
+      onAppendFiles={() => {}}
       onOpenSettings={() => {}}
       onError={() => {}}
     />

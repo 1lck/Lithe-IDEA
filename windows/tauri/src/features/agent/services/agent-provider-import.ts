@@ -4,8 +4,8 @@
  * The parse itself belongs to the shared Rust core
  * (`agent.parseProviderConfiguration`), which returns provider metadata only:
  * endpoint, model and wire protocol, with no credentials or credential
- * presence. Lithe therefore never copies a key out of the user's CLI files;
- * the panel asks for one separately when the endpoint needs it.
+ * presence. Explicit credentials are handled separately by the platform CLI
+ * snapshot or the editor's credential parser, never returned by the core parser.
  */
 
 import { invoke } from "@/platform/tauri-core";
@@ -14,6 +14,7 @@ import {
   CLAUDE_AGENT_ID,
   CODEX_AGENT_ID,
   type AgentProviderProtocol,
+  type AgentProviderSettings,
 } from "../types/agent-settings.types";
 
 /** CLI configuration formats the shared parser understands. */
@@ -43,13 +44,13 @@ function asString(value: unknown): string | null {
  * has no Agent settings equivalent, so it is rejected instead of being
  * silently rewritten into another protocol.
  */
-export function parseImportedAgentProvider(value: unknown): ImportedAgentProvider | null {
+export function parseImportedAgentProvider(value: unknown, allowIncomplete = false): ImportedAgentProvider | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
   const endpoint = (asString(record.endpoint) ?? "").trim();
   const model = (asString(record.model) ?? "").trim();
   const protocol = record.apiProtocol;
-  if (endpoint.length === 0 || model.length === 0) return null;
+  if (!allowIncomplete && (endpoint.length === 0 || model.length === 0)) return null;
   if (protocol !== "responses" && protocol !== "anthropicMessages") return null;
   return { protocol, baseUrl: endpoint, model };
 }
@@ -67,12 +68,21 @@ export function importedProviderMatchesAgent(
 export async function importAgentProviderConfiguration(
   source: AgentProviderConfigSource,
   configuration: string,
+  allowIncomplete = false,
 ): Promise<ImportedAgentProvider> {
   const response = await invoke<unknown>("agent.parseProviderConfiguration", {
     source,
     configuration,
+    allowIncomplete,
   });
-  const provider = parseImportedAgentProvider(response);
+  const provider = parseImportedAgentProvider(response, allowIncomplete);
   if (provider === null) throw new Error("The provider configuration could not be read.");
   return provider;
+}
+
+/** Editor-only text; callers must never persist it in ordinary settings. */
+export function agentProviderConfigurationText(source: AgentProviderConfigSource, provider: AgentProviderSettings, apiKey?: string): string {
+  if (source === "claude") return JSON.stringify({ env: { ANTHROPIC_BASE_URL: provider.baseUrl, ANTHROPIC_MODEL: provider.model,
+    ...(apiKey === undefined ? {} : { ANTHROPIC_API_KEY: apiKey }) } }, null, 2);
+  return `model_provider = "lithe"\nmodel = ${JSON.stringify(provider.model)}\n\n[model_providers.lithe]\nname = ${JSON.stringify(provider.name || "Lithe")}\nbase_url = ${JSON.stringify(provider.baseUrl)}\nwire_api = "responses"\n`;
 }
