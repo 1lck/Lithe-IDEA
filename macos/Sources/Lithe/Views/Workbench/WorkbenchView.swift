@@ -538,13 +538,9 @@ struct WorkbenchView: View {
             Text(model.pendingDiscardHunk?.change.path ?? "This action cannot be undone by Lithe.")
         }
         .sheet(item: $pendingTopBarPushReference) { reference in
-            GitPushDialog(
-                projectName: model.projectName,
-                reference: reference,
-                onPush: {
-                    Task { await model.pushBranch(reference) }
-                }
-            )
+            if let feature = model.gitFeatureIfActive {
+                GitPushDialog(feature: feature, projectName: model.projectName, reference: reference)
+            }
         }
         .confirmationDialog(
             "Delete branch?",
@@ -1850,7 +1846,7 @@ struct WorkbenchView: View {
             if model.workbenchFeature.isVisible(.references) {
                 Label("\(model.languageNavigationResults.count) usages", systemImage: "scope")
             }
-            Text(model.gitChanges.isEmpty ? "No changes" : "\(model.gitChanges.count) changes")
+            Text(model.gitChanges.isEmpty ? "No changes" : "\(model.gitChangedFileCount) changes")
             Image(systemName: "checkmark.circle.fill")
                 .foregroundStyle(LitheTheme.success)
         }

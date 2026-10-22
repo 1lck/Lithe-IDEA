@@ -35,14 +35,29 @@ function renamedSourcePath(file: GitFile): string | undefined {
 export function fileChangelist(state: LocalChangelists, file: GitFile, fallback?: string): string {
   const root = getGitFileRepositoryPath(file, fallback);
   if (!root) return DEFAULT_CHANGELIST;
-  const current =
-    state.assignments[changelistPathKey(root, getGitFileRepositoryRelativePath(file))];
+  const path = getGitFileRepositoryRelativePath(file);
+  const current = state.assignments[changelistPathKey(root, path)];
   const original = renamedSourcePath(file);
   return (
     (original ? state.assignments[changelistPathKey(root, original)] : undefined) ??
     current ??
+    directoryAssignment(state, root, path) ??
     DEFAULT_CHANGELIST
   );
+}
+
+/**
+ * An untracked directory summary (`dir/`) is assigned by its path; the files
+ * listed below it, and those staged from it, follow it.
+ */
+function directoryAssignment(state: LocalChangelists, root: string, path: string) {
+  // Each ancestor `a/b/` ends at a separator before the path's own end.
+  let end = path.endsWith("/") ? path.length - 1 : path.length;
+  while ((end = path.lastIndexOf("/", end - 1)) > 0) {
+    const list = state.assignments[changelistPathKey(root, path.slice(0, end + 1))];
+    if (list !== undefined) return list;
+  }
+  return undefined;
 }
 
 /** Carry both sides of a reported rename; moving lists never stages or unstages a file. */
@@ -90,6 +105,24 @@ export function changelistCommitScope(
     const [root, path] = JSON.parse(key) as [string, string];
     const id = ids.get(root);
     if (id === undefined || (include ? list !== state.activeId : list === DEFAULT_CHANGELIST))
+      continue;
+    (paths[id] ??= []).push(path);
+  }
+  // Core matches literal paths, so files that follow an assigned directory
+  // summary must be listed by their own paths.
+  for (const file of files) {
+    const root = getGitFileRepositoryPath(file, fallback);
+    const id = root === null ? undefined : ids.get(root);
+    if (id === undefined || root === null) continue;
+    const path = getGitFileRepositoryRelativePath(file);
+    const original = renamedSourcePath(file);
+    if (
+      snapshot.assignments[changelistPathKey(root, path)] !== undefined ||
+      (original && snapshot.assignments[changelistPathKey(root, original)] !== undefined)
+    )
+      continue;
+    const list = directoryAssignment(snapshot, root, path);
+    if (list === undefined || (include ? list !== state.activeId : list === DEFAULT_CHANGELIST))
       continue;
     (paths[id] ??= []).push(path);
   }

@@ -11,6 +11,7 @@ mod git_patch_exchange;
 mod git_remote_checkout;
 mod git_repository_discovery;
 mod git_repository_setup;
+mod git_untracked_directories;
 mod git_workspace_commit;
 mod github;
 mod languages;
