@@ -4,7 +4,7 @@
 
 ## 先说结论
 
-macOS 的 HTML 预览不再是“把 HTML 字符串塞进 WebView、点什么都取消”的静态画面，而是一个内嵌的单标签浏览器：有后退、前进、刷新/停止、可输入的地址栏、页面缩放（− / 百分比 / +）、常驻滚动条、系统浏览器按钮和开发者工具；页面里的链接、锚点、`alert`/`confirm`/`prompt`、文件选择、下载和 `window.open` 都按浏览器的方式工作；此外还有页内查找、右键菜单、打印 / 导出 PDF，以及页面申请摄像头 / 麦克风时的确认弹窗和地址栏右侧的“设备使用中”指示器。功能范围对标 VS Code 的 Simple Browser，多标签、书签、历史以后做成插件，不要加在这里。当前编辑的文档来自编辑器缓冲区（所以没保存的修改也能看到），其余资源按只读的静态网站从磁盘提供。开发者以后要改预览行为，改 `HTMLPreviewBrowserController` 和它旁边的纯规则文件，不要回到 `loadHTMLString` 加“取消全部导航”的做法。摄像头 / 麦克风这部分代码已经就位，但目前在运行的应用里是休眠的（Info.plist 没有用途说明，页面里没有 `navigator.mediaDevices`）；2026-10-22 决定继续保持休眠，因为 Lithe 启动的子孙进程会继承摄像头授权，不经过这里的任何弹窗，原因和以后启用的前提见“补用途说明之前必须知道的事”。
+macOS 的 HTML 预览不再是“把 HTML 字符串塞进 WebView、点什么都取消”的静态画面，而是一个内嵌的单标签浏览器：有后退、前进、刷新/停止、可输入的地址栏、页面缩放（− / 百分比 / +）、常驻滚动条、系统浏览器按钮和开发者工具；页面里的链接、锚点、`alert`/`confirm`/`prompt`、文件选择、下载和 `window.open` 都按浏览器的方式工作；此外还有页内查找、右键菜单、打印 / 导出 PDF，以及页面申请摄像头 / 麦克风时的确认弹窗和地址栏右侧的“设备使用中”指示器。功能范围对标 VS Code 的 Simple Browser，多标签、书签、历史以后做成插件，不要加在这里。当前编辑的文档来自编辑器缓冲区（所以没保存的修改也能看到），其余资源按只读的静态网站从磁盘提供。开发者以后要改预览行为，改 `HTMLPreviewBrowserController` 和它旁边的纯规则文件，不要回到 `loadHTMLString` 加“取消全部导航”的做法。页面（或其子视图）有焦点时，⌘F / ⌘G / ⇧⌘G、⌘P 和缩放快捷键归页面，应用键位监听器必须让路，否则默认键位会先把 ⌘F 交给编辑器（见“页面快捷键与应用键位的先后”）。摄像头 / 麦克风这部分代码已经就位，但目前在运行的应用里是休眠的（Info.plist 没有用途说明，页面里没有 `navigator.mediaDevices`）；2026-10-22 决定继续保持休眠，因为 Lithe 启动的子孙进程会继承摄像头授权，不经过这里的任何弹窗，原因和以后启用的前提见“补用途说明之前必须知道的事”。
 
 ## 问题
 
@@ -61,7 +61,7 @@ macOS 的 HTML 预览不再是“把 HTML 字符串塞进 WebView、点什么都
 `HTMLPreviewBrowserController`（`@MainActor`，`ObservableObject`）拥有 `WKWebView`，并向 SwiftUI 发布地址、可否后退/前进、是否加载中、错误文案和开发者工具状态。视图 `HTMLPreviewView` 只负责工具栏：
 
 - 后退、前进、刷新/停止（刷新时按住 Shift 为强制刷新）、地址栏、“在系统浏览器中打开”、开发者工具开关。
-- 页面缩放：“−”、百分比按钮（点击恢复 100%）、“+”，⌘+ / ⌘= / ⌘− / ⌘0 在页面获得焦点时同样生效。缩放用 `WKWebView.pageZoom`（与浏览器的页面缩放一致，布局宽度随之变化），按浏览器菜单的固定档位（25%、33%、50%、67%、75%、80%、90%、100%、110%、125%、150%、175%、200%、250%、300%、400%、500%）逐档调整，档位和快捷键映射在纯规则 `HTMLPreviewZoom` 中。缩放比例由控制器持有，在同一预览里跳转页面、后退前进、刷新后都保持，像浏览器标签一样只由使用者重置；恢复 100% 时一并复位捏合产生的 `magnification`，因为捏合缩放与页面缩放是两套独立的缩放，不会体现在百分比上。快捷键由 `WKWebView` 子类 `HTMLPreviewWebViewSurface` 处理，且只有页面（或其子视图）是第一响应者时才响应：快捷键会被派发给窗口里所有视图，预览与编辑器分屏时不能抢走编辑器里的 ⌘+。
+- 页面缩放：“−”、百分比按钮（点击恢复 100%）、“+”，⌘+ / ⌘= / ⌘− / ⌘0 在页面获得焦点时同样生效。缩放用 `WKWebView.pageZoom`（与浏览器的页面缩放一致，布局宽度随之变化），按浏览器菜单的固定档位（25%、33%、50%、67%、75%、80%、90%、100%、110%、125%、150%、175%、200%、250%、300%、400%、500%）逐档调整，档位和快捷键映射在纯规则 `HTMLPreviewZoom` 中。缩放比例由控制器持有，在同一预览里跳转页面、后退前进、刷新后都保持，像浏览器标签一样只由使用者重置；恢复 100% 时一并复位捏合产生的 `magnification`，因为捏合缩放与页面缩放是两套独立的缩放，不会体现在百分比上。快捷键由 `WKWebView` 子类 `HTMLPreviewWebViewSurface` 处理，且只有页面（或其子视图）是第一响应者时才响应：快捷键会被派发给窗口里所有视图，预览与编辑器分屏时不能抢走编辑器里的 ⌘+。反过来，页面有焦点时应用键位监听器也要对这些按键让路，见“页面快捷键与应用键位的先后”。
 - 地址栏显示“本地文件的 `file://` 路径”而不是内部协议；输入时不会被页面加载完成覆盖，按 Esc 还原；输入 `example.com` 补全为 `https://`，`localhost`/`127.0.0.1` 补全为 `http://`，普通单词不当作地址。
 - 编辑器切换到另一个 HTML 文件时预览视图会被复用：第一次渲染时 `HTMLPreviewContent` 还保存着上一个文件的文字，所以先向文档本身取文字（`html(for:)`）。控制器里，正在加载这个文档时再来的更新要重新发起加载，不能调用 `reload`：`reload` 作用于屏幕上已有的页面，会把上一个文档重新加载回来并取消新文档的加载。
 - WebKit 在独立进程里运行页面，系统可能因内存压力结束它，预览会一直空白到下一次编辑。`webViewWebContentProcessDidTerminate` 会重新加载页面；连续两次恢复后仍然崩溃的页面保持空白，不无限重试。
@@ -89,11 +89,37 @@ WebKit 默认画系统的叠加式（overlay）滚动条，只在滚动时短暂
 
 ⌘F 在工具栏下方打开查找条，⌘G / ⇧⌘G（或 Return / ⇧Return、条上的两个箭头）在匹配项之间前进 / 后退并回绕，Esc 或关闭按钮收起查找条并把键盘还给页面。查找本身交给 `WKWebView.find`：WebKit 在页面里选中并高亮匹配项，不区分大小写。
 
-- 快捷键映射放在纯规则 `HTMLPreviewFind.command(forKey:modifiers:)`，和缩放、打印一起由 `HTMLPreviewWebViewSurface.performKeyEquivalent` 处理，同样只在页面（或其子视图）是第一响应者时才响应：预览与编辑器分屏时，焦点在编辑器里的 ⌘F / ⌘G / ⌘P 仍属于编辑器。代价是焦点在查找条输入框里时 ⌘G 不会交给预览，那时用 Return / ⇧Return 或箭头按钮。
+- 快捷键映射放在纯规则 `HTMLPreviewFind.command(forKey:modifiers:)`，和缩放、打印一起由 `HTMLPreviewWebViewSurface.performKeyEquivalent` 处理，同样只在页面（或其子视图）是第一响应者时才响应：预览与编辑器分屏时，焦点在编辑器里的 ⌘F / ⌘G / ⌘P 仍属于编辑器。代价是焦点在查找条输入框里时（输入框不在页面里）⌘F / ⌘G / ⇧⌘G 不由预览处理，仍按应用键位走编辑器的查找命令，那时用 Return / ⇧Return 或箭头按钮。
 - WebKit 的回答只有“找到 / 没找到”（`WKFindResult.matchFound`），没有匹配总数和当前序号，所以查找条不显示“3 / 12”，只在没有匹配时显示“No matches”。不要为了计数自己往页面里注入脚本去数匹配项：它和 WebKit 的选中、高亮对不上。
 - `find` 从当前选中内容的末尾继续往后找。使用者多输入一个字母时，如果不处理，就会跳过仍然匹配的当前位置去找下一处。所以输入变化和重新打开查找条时，先在独立的内容世界 `LitheHTMLPreviewFind`（页面脚本看不到）里把选区折叠到开头，再查找；⌘G 这类“下一个”不折叠。
 - 每次查找带一个递增编号，较早的回答（输入太快、页面已换）直接丢弃；换页后清空结果，但保留查找条和里面的文字。`completedSearches` 记录 WebKit 已经回答的次数，测试靠它判断“这一步结束了”，因为连续两次都找到时 `status` 不会变。
 - 没有匹配、清空输入、关闭查找条时，通过私有方法 `_hideFindUI` 清掉 WebKit 画的黄色指示（调用前检查 `responds(to:)`，没有这个方法时指示自行淡出）。关闭查找条后最后一个匹配保持选中。
+
+### 页面快捷键与应用键位的先后
+
+页面（或其子视图）是第一响应者（当前接收键盘输入的对象）时，缩放（⌘+ / ⌘= / ⌘− / ⌘0）、查找（⌘F / ⌘G / ⇧⌘G）和打印（⌘P）归页面，应用键位不能先把它们拿走。按键的处理顺序决定了这件事不会自动成立：
+
+1. 应用级键盘监听器（`MacShortcutDetector` 里的本地 `NSEvent` 监听，负责把按键匹配到应用命令）最先看到按键，早于 AppKit 把按键交给任何视图；
+2. 然后 AppKit 把按键交给 key window（当前接收键盘输入的窗口），沿它的视图层级调用 `performKeyEquivalent`（“这个按键是不是你的快捷键”），页面的 `HTMLPreviewWebViewSurface` 在这里认领按键；
+3. 视图都没有认领，才轮到主菜单。
+
+第 2、3 步的先后在真实的 key window 里实测过：用一个只做验证、没有放进仓库的独立 AppKit 小程序，让一个视图和一个主菜单项绑同一个 ⌘F，视图先回答，菜单不再被问到。窗口不是 key window 时 AppKit 不问视图，直接问主菜单；这不影响本决策，因为按键总是发给 key window，监听器读到的 `event.window?.firstResponder` 就是正在接收输入的响应者。
+
+默认键位把 ⌘F / ⌘G / ⇧⌘G 绑给编辑器的“查找 / 查找下一个 / 查找上一个”，监听器匹配到就吞掉事件（返回 nil），第 2 步永远轮不到页面：在预览页面里按 ⌘F 会去驱动编辑器的查找，页面自己的查找条打不开。评审机器人在 PR 1421 上指出了这个问题（2026-10-22）；之前的测试直接调用 `performKeyEquivalent`，绕过了监听器，所以没有发现。
+
+决策：页面有焦点、并且按键正是页面认领的那几个时，监听器放行事件，交给 AppKit 继续派发。
+
+- “页面认领哪些按键”只有一个来源：`HTMLPreviewPageShortcut`，它把缩放、查找、打印三张纯规则表合并成一个识别器。页面自己的 `performKeyEquivalent` 和监听器的放行规则 `MacShortcutInputPolicy.shouldDeferToPreviewPage` 读同一个识别器，页面认领什么监听器就让什么，两边不会漂移。
+- “页面有焦点”用 `HTMLPreviewWebViewSurface.containing(_:)` 沿父视图链向上找：WebKit 通常把页面内部的某个子视图设为第一响应者，而不是 `WKWebView` 本身。
+- 这条放行规则和终端的纯 Control 按键、输入法组合文字这两条放行规则并列，都在监听器里先于键位匹配判断。
+- 这条判断在每次按键时都会执行，所以先判断按键是不是页面认领的（几次比较），只有是才沿视图层级向上找页面；普通打字不会为此遍历视图。
+- 对用户自定义键位同样成立：用户把 ⌘P 绑给别的命令时，焦点在预览页面里 ⌘P 仍是打印，焦点在其他位置时仍执行用户的绑定。页面不认领的按键（例如 ⇧⌘F、⌘S、不带修饰键的字母）照旧走应用键位。
+- 回归测试 `HTMLPreviewPageShortcutMonitorTests` 经 `NSApplication.sendEvent` 驱动真实监听器。测试宿主的窗口不会成为 key window，AppKit 不会把按键交给页面，所以测试把两半分开验证：页面自己的回答（直接调用 `performKeyEquivalent`，它只看第一响应者），以及监听器的让路。让路这一半先在页面有焦点时按页面认领的所有按键，再按只属于键位的 ⌘S，命令按按键顺序到达，所以 ⌘S 之前出现任何命令，就是监听器拿走了页面的按键；再把焦点移到页面外，同样的按键必须全部归键位，这证明碰撞是真实的，监听器也确实在工作。监听器只登记这几个按键，不会吞掉同一进程里别的测试发出的按键。
+
+对照：
+
+- 正确：焦点在预览页面里按 ⌘F，打开并驱动预览自己的查找条；焦点在编辑器里按 ⌘F，仍是编辑器的查找。
+- 错误：只用直接调用 `performKeyEquivalent` 的测试证明页面快捷键可用。它绕过了先于页面看到按键的监听器，测试全绿时用户按 ⌘F 仍然去了编辑器。
 
 ### 右键菜单
 
@@ -178,7 +204,7 @@ WebKit 没有公开的 Web Inspector 开关，所以：
 - 新增导航规则时，在 `HTMLPreviewNavigationPolicy` 增加一行并补 `HTMLPreviewNavigationTests`，不要在 `decidePolicyFor` 里直接写协议分支。
 - 新增服务端行为（例如新的类型、请求头）时，改 `HTMLPreviewResponder`（纯函数）并补 `HTMLPreviewResourcesTests`。
 - 新增页面能力（对话框、权限、下载）时，用 `HTMLPreviewDialogPresenting` 注入，测试里用记录型替身，不要在测试里弹真实面板。
-- 新增页面里的快捷键时，在纯规则里加 `command(forKey:modifiers:)` 并补测试，经 `HTMLPreviewWebViewSurface.performKeyEquivalent` 派发。不要另外注册全局或窗口级快捷键，它们会抢走编辑器的按键。
+- 新增页面里的快捷键时，在纯规则里加 `command(forKey:modifiers:)` 并补测试，再并入 `HTMLPreviewPageShortcut`，经 `HTMLPreviewWebViewSurface.performKeyEquivalent` 派发；页面的派发和应用键位监听器的放行规则读同一个识别器，所以新按键会同时被两边认得。回归测试要经 `NSApplication.sendEvent` 走真实监听器（见 `HTMLPreviewPageShortcutMonitorTests`）。不要另外注册全局或窗口级快捷键，它们会抢走编辑器的按键。
 - 调整右键菜单时改 `HTMLPreviewContextMenu.customize`，用记录下来的 WebKit 菜单布局补 `HTMLPreviewContextMenuTests`，不要在测试里弹真实菜单。
 - 新增读取 `WKWebView` 私有接口的代码时，先 `responds(to:)` 检查，缺失时退化为“功能不可用”而不是崩溃，并写进本笔记的私有接口清单（见“后果”）。
 
@@ -188,6 +214,8 @@ WebKit 没有公开的 Web Inspector 开关，所以：
 - 不要放宽 `HTMLPreviewAccessPolicy` 的隐藏文件/密钥拒绝，也不要去掉 `Referer`/主文档检查；它们是自定义协议提供同源服务时唯一的泄露防线。
 - 不要在 `updateNSView` 里无条件给 `@Published` 属性赋值（即使值相同也会触发 SwiftUI 的“视图更新期间发布变更”警告）；控制器用 `clearLoadError()` 只在有变化时赋值。
 - 不要把 `WKWebView` 直接作为 `NSViewRepresentable` 返回的视图，会破坏开发者工具停靠。
+- 不要在应用键位监听器里单独列一份页面快捷键清单。清单只在 `HTMLPreviewPageShortcut` 维护，否则页面改了而监听器没改，按键又会被监听器吞掉。
+- 不要只用直接调用 `performKeyEquivalent` 的测试证明页面快捷键可用：它绕过了先于页面看到按键的应用键位监听器。
 - 不要在生产代码里打开 `mediaDevicesEnabled`、`mockCaptureDevicesEnabled` 这类私有开关来“让摄像头可用”：没有用途说明却去访问摄像头 / 麦克风，macOS 会结束进程。要启用功能，先补 Info.plist 的用途说明（需要维护者确认，并且必须和子进程隔离在同一个 PR 里，见“补用途说明之前必须知道的事”），不要绕过。
 - 不要单独补 `NSCameraUsageDescription` / `NSMicrophoneUsageDescription`。例如只在 Info.plist 加两行，网页那道门写得再严，使用者点一次“Allow”之后，插件后端或终端里的 `ffmpeg` 也能不经任何弹窗打开摄像头。
 - 不要用 `posix_spawn` 的 disclaim（脱钩责任进程）来隔离子进程的摄像头授权：它同时切断文件夹、完全磁盘访问等所有授权，项目在 Documents / Desktop / Downloads 下时 `git`、`java`、`node`、`mvn` 全部受影响。只禁设备要用沙盒 deny。
@@ -220,7 +248,7 @@ WebKit 没有公开的 Web Inspector 开关，所以：
 - 收益：页面行为接近真实浏览器；使用者能直接在编辑器里调试前端页面；规则集中在可单测的纯函数中。
 - 代价：使用 `_WKInspector` 私有接口，需要在 macOS 大版本升级时回归；预览窗口不再是透明背景，页面背景由页面样式决定。
 - 私有接口清单（都先 `responds(to:)` 检查，缺失时功能退化而不崩溃，大版本升级时一起回归）：`_inspector` 与偏好 `developerExtrasEnabled`（开发者工具和“检查元素”）；`_hideFindUI`（清除查找高亮，缺失时高亮自行淡出）；`_setScreenCaptureEnabled:` 与偏好 `screenCaptureEnabled`（不向页面提供屏幕共享，缺失时保持 WebKit 默认）。`mediaDevicesEnabled`、`mockCaptureDevicesEnabled`、`getUserMediaRequiresFocus` 只在测试里设置。
-- 已知限制：查找条没有匹配计数（WebKit 不提供）；焦点在查找条输入框里时 ⌘G 不由预览处理；导出的 PDF 是一页连续的长页，分页版本要走打印面板；摄像头 / 麦克风确认弹窗没有 Esc 映射；页面不在焦点时 `getUserMedia` 要等页面获得焦点；停掉最后一个设备后指示器还会停留约 3 秒；摄像头 / 麦克风在补上 Info.plist 用途说明之前休眠（`navigator.mediaDevices` 不存在），这是 2026-10-22 维护者确认的状态，补上之后才能在运行的应用里端到端验收，ad-hoc 签名下系统授权记录是否跨更新保留未实测；系统授权按整个 Lithe 记，Lithe 的子孙进程会沿责任进程规则继承它（macOS 27.2 上实测），所以用途说明必须带子进程隔离一起补，而沙盒 deny 能否真的拦住采集还没有在真实设备上验证；插件页没有应用内使用指示器，也没有“记住选择”；WebKit 可能为同一文档里已批准的设备复用授权（见“测试”一节的实测与推测），插件弹窗里“隐藏窗口前它可以一直使用该设备”的说明因此可能少说了“隐藏后重新显示，同一页面可能不再询问就重新开始使用”，真实设备上确认之后再校对文案（隐藏时和设备在页面离开窗口后启动时，采集都会被立即停掉，这一点不受影响）。
+- 已知限制：查找条没有匹配计数（WebKit 不提供）；焦点在查找条输入框里时 ⌘F / ⌘G / ⇧⌘G 不由预览处理（输入框不在页面里，按应用键位走编辑器的查找命令）；导出的 PDF 是一页连续的长页，分页版本要走打印面板；摄像头 / 麦克风确认弹窗没有 Esc 映射；页面不在焦点时 `getUserMedia` 要等页面获得焦点；停掉最后一个设备后指示器还会停留约 3 秒；摄像头 / 麦克风在补上 Info.plist 用途说明之前休眠（`navigator.mediaDevices` 不存在），这是 2026-10-22 维护者确认的状态，补上之后才能在运行的应用里端到端验收，ad-hoc 签名下系统授权记录是否跨更新保留未实测；系统授权按整个 Lithe 记，Lithe 的子孙进程会沿责任进程规则继承它（macOS 27.2 上实测），所以用途说明必须带子进程隔离一起补，而沙盒 deny 能否真的拦住采集还没有在真实设备上验证；插件页没有应用内使用指示器，也没有“记住选择”；WebKit 可能为同一文档里已批准的设备复用授权（见“测试”一节的实测与推测），插件弹窗里“隐藏窗口前它可以一直使用该设备”的说明因此可能少说了“隐藏后重新显示，同一页面可能不再询问就重新开始使用”，真实设备上确认之后再校对文案（隐藏时和设备在页面离开窗口后启动时，采集都会被立即停掉，这一点不受影响）。
 - 已知限制：`showDirectoryPicker` 等只有 Chromium 才有的 Web API 在 WebKit 中不存在，依赖它们的页面（例如 `assets/agent-notes-board.html`）需要在 Chromium 内核浏览器中使用，可用“在系统浏览器中打开”。
 - Windows 端的 HTML 预览（iframe `srcDoc` 加 `<base>`）没有这些能力，已在功能矩阵中记录，另行跟进。
 - 需要重新评估的触发条件：Apple 提供公开的 Web Inspector 接口；预览需要多标签；需要持久登录状态（当前使用非持久数据存储）。
@@ -229,6 +257,7 @@ WebKit 没有公开的 Web Inspector 开关，所以：
 
 - `./scripts/test-macos.sh --filter HTMLPreview`
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter HTMLPreview`：带单测试计时运行。这些用例都跑真实 `WKWebView`，每项要在 1 秒告警线以内；模拟摄像头 / 麦克风那一组必须串行，原因见“摄像头和麦克风”。
+- `./scripts/test-macos.sh --filter HTMLPreviewPageShortcut`：页面快捷键的放行规则，以及经 `NSApplication.sendEvent` 驱动真实监听器的回归测试（先确认页面认领每个按键，再装上监听器确认页面有焦点时按键没有被键位拿走，最后把焦点移到页面外确认同样的按键归键位）。
 - `./scripts/test-macos.sh --filter AppLocalizationTests`
 - `./scripts/verify-runtime-bundle-immutability.sh`
 - `./scripts/verify-platform-feature-matrix.sh`
@@ -237,7 +266,7 @@ WebKit 没有公开的 Web Inspector 开关，所以：
 - 打开一个比预览区域宽且高的页面，确认右边缘和下边缘常驻滚动条，缩放到 500% 后滚动条仍是正常粗细，内容放得下的页面没有滚动条。
 - 点击指向压缩包的链接弹出保存面板、`<a download>` 保存、在地址栏输入带 `index.html` 的目录路径或点击不带斜杠的目录链接（包括 iframe 里的）能正常加载其中的脚本、缩放时 iframe 里的滚动条保持同样粗细、在分屏里切换到另一个 HTML 标签时预览显示新文件（对应 `HTMLPreviewBrowserTests` 里的同名用例）。
 - 在运行的应用中用 − / + / 百分比按钮和 ⌘+ / ⌘− / ⌘0 缩放，确认百分比与页面实际大小一致，跳转页面后缩放保持，分屏时在编辑器里按 ⌘+ 不会缩放预览。
-- 在运行的应用中按 ⌘F 打开查找条，输入文字确认页面里的匹配项被选中；⌘G / ⇧⌘G 与 Return / ⇧Return 前进、后退并回绕；输入页面里没有的文字显示 “No matches”；Esc 收起后键盘回到页面；分屏时焦点在编辑器里按 ⌘F / ⌘G / ⌘P 仍归编辑器。
+- 在运行的应用中按 ⌘F 打开查找条，输入文字确认页面里的匹配项被选中；⌘G / ⇧⌘G 与 Return / ⇧Return 前进、后退并回绕；输入页面里没有的文字显示 “No matches”；Esc 收起后键盘回到页面；用默认键位，焦点在预览页面里按 ⌘F / ⌘G / ⇧⌘G 打开并驱动的是预览的查找条而不是编辑器的查找；分屏时焦点在编辑器里按 ⌘F / ⌘G / ⌘P 仍归编辑器。
 - 在页面空白处、链接和图片上右键：没有“在新窗口中打开”，链接上有“拷贝链接”，空白处在“检查元素”上方有 Print… 和 Export as PDF…。⌘P 或 Print… 以窗口 sheet 打开系统打印面板；Export as PDF… 保存整页，文件名取页面标题。
 - 补上 Info.plist 用途说明之后，在运行的应用中打开调用 `getUserMedia` 的页面：弹窗写明页面名称，默认按钮是 Don’t Allow；允许后地址栏右侧出现指示器，菜单里的静音 / 停止生效；再次打开同一页面仍会询问；页面里没有 `getDisplayMedia`。再用一个调用 `getUserMedia` 的插件页确认：弹窗写“插件“X”……”并带插件 ID，点 Don’t Allow 页面收到 `NotAllowedError`，允许后隐藏该工具窗口，系统菜单栏的绿点 / 橙点随之消失；再显示窗口并让页面第二次调用 `getUserMedia`，记录是否再次询问，并据此校对插件弹窗里的说明。当前构建没有这些用途说明，这一步还不能做；补用途说明时还要同时验证子进程隔离（在 Lithe 的内置终端和插件后端里尝试打开摄像头应当失败），验收标准见提议 Note `2026-10-22-child-process-media-isolation.md`。
 - `./scripts/test-macos.sh --filter 'WebMedia|MockCapture|PluginMediaCapture|HTMLPreviewMediaCapture'`：门的决策、源码扫描、拒绝委托和两条端到端路径（HTML 预览、插件页）。
@@ -248,7 +277,8 @@ WebKit 没有公开的 Web Inspector 开关，所以：
 - `macos/Sources/Lithe/Platform/MacOS/HTMLPreviewResources.swift`
 - `macos/Sources/Lithe/Platform/MacOS/HTMLPreviewNavigation.swift`
 - `macos/Sources/Lithe/Platform/MacOS/HTMLPreviewDialogs.swift`
-- `macos/Sources/Lithe/Platform/MacOS/HTMLPreviewZoom.swift`
+- `macos/Sources/Lithe/Platform/MacOS/HTMLPreviewZoom.swift`（含页面快捷键识别器 `HTMLPreviewPageShortcut`）
+- `macos/Sources/Lithe/Platform/MacOS/UI/MacShortcutDetector.swift`（应用键位监听器对预览页面快捷键让路）
 - `macos/Sources/Lithe/Platform/MacOS/HTMLPreviewFind.swift`
 - `macos/Sources/Lithe/Platform/MacOS/HTMLPreviewPrint.swift`
 - `macos/Sources/Lithe/Platform/MacOS/HTMLPreviewMediaCapture.swift`

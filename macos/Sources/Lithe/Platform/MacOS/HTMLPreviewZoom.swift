@@ -50,9 +50,37 @@ enum HTMLPreviewZoom {
     }
 }
 
+/// A browser shortcut the preview page answers while it has focus: zoom, find or print.
+///
+/// The page's own key handling and the application keymap read key presses through
+/// this one recognizer. The keymap must step aside for exactly the chords the page
+/// claims, so a chord can never be recognized by one side and missed by the other.
+enum HTMLPreviewPageShortcut: Equatable {
+    case zoom(HTMLPreviewZoom.Command)
+    case find(HTMLPreviewFind.Command)
+    case print(HTMLPreviewPrint.Command)
+
+    init?(charactersIgnoringModifiers: String?, modifierFlags: NSEvent.ModifierFlags) {
+        let key = charactersIgnoringModifiers ?? ""
+        if let command = HTMLPreviewZoom.command(forKey: key, modifiers: modifierFlags) {
+            self = .zoom(command)
+        } else if let command = HTMLPreviewFind.command(forKey: key, modifiers: modifierFlags) {
+            self = .find(command)
+        } else if let command = HTMLPreviewPrint.command(forKey: key, modifiers: modifierFlags) {
+            self = .print(command)
+        } else {
+            return nil
+        }
+    }
+}
+
 /// Hands the page shortcuts (zoom, find, print) to the preview while the page
 /// itself has focus. Key equivalents are offered to every view of the window, so
 /// a preview shown beside the editor must not answer ⌘+ or ⌘F typed into the editor.
+///
+/// The application keymap sees a key press before AppKit offers it to any view
+/// (`MacShortcutDetector`), so it defers to the page for these chords as well;
+/// see `MacShortcutInputPolicy.shouldDeferToPreviewPage`.
 final class HTMLPreviewWebViewSurface: WKWebView {
     var onZoomCommand: ((HTMLPreviewZoom.Command) -> Void)?
     var onFindCommand: ((HTMLPreviewFind.Command) -> Void)?
@@ -60,25 +88,32 @@ final class HTMLPreviewWebViewSurface: WKWebView {
     /// Called with the context menu WebKit is about to show, before it appears.
     var onContextMenu: ((NSMenu, NSEvent?) -> Void)?
 
+    /// The preview page `responder` belongs to: the page itself, or a view WebKit
+    /// keeps inside it. WebKit usually makes one of those internal views the first
+    /// responder, so the superview chain has to be walked.
+    static func containing(_ responder: NSResponder?) -> HTMLPreviewWebViewSurface? {
+        var view = responder as? NSView
+        while let current = view {
+            if let surface = current as? HTMLPreviewWebViewSurface { return surface }
+            view = current.superview
+        }
+        return nil
+    }
+
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        guard let responder = window?.firstResponder as? NSView, responder.isDescendant(of: self) else {
+        guard Self.containing(window?.firstResponder) === self,
+              let shortcut = HTMLPreviewPageShortcut(
+                charactersIgnoringModifiers: event.charactersIgnoringModifiers,
+                modifierFlags: event.modifierFlags
+              ) else {
             return super.performKeyEquivalent(with: event)
         }
-        let key = event.charactersIgnoringModifiers ?? ""
-        let modifiers = event.modifierFlags
-        if let command = HTMLPreviewZoom.command(forKey: key, modifiers: modifiers) {
-            onZoomCommand?(command)
-            return true
+        switch shortcut {
+        case .zoom(let command): onZoomCommand?(command)
+        case .find(let command): onFindCommand?(command)
+        case .print(let command): onPrintCommand?(command)
         }
-        if let command = HTMLPreviewFind.command(forKey: key, modifiers: modifiers) {
-            onFindCommand?(command)
-            return true
-        }
-        if let command = HTMLPreviewPrint.command(forKey: key, modifiers: modifiers) {
-            onPrintCommand?(command)
-            return true
-        }
-        return super.performKeyEquivalent(with: event)
+        return true
     }
 
     override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {

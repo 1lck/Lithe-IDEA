@@ -161,6 +161,25 @@ enum MacShortcutInputPolicy {
         let flags = modifierFlags.intersection([.command, .control, .option, .shift])
         return flags == .control
     }
+
+    /// A focused HTML preview page answers its own browser shortcuts (find, zoom,
+    /// print) in `performKeyEquivalent`. The key monitor runs before AppKit offers
+    /// the key to any view, so consuming ⌘F here would hand it to the editor's
+    /// keymap and the page would never see it. Chords the page does not claim,
+    /// and any chord typed outside the page, keep their application meaning.
+    static func shouldDeferToPreviewPage(
+        _ responder: NSResponder?,
+        charactersIgnoringModifiers: String?,
+        modifierFlags: NSEvent.ModifierFlags
+    ) -> Bool {
+        // This runs for every key press. Ordinary typing fails the chord check, which is a
+        // few comparisons, so the walk up the view hierarchy is only paid for page chords.
+        guard HTMLPreviewPageShortcut(
+            charactersIgnoringModifiers: charactersIgnoringModifiers,
+            modifierFlags: modifierFlags
+        ) != nil else { return false }
+        return HTMLPreviewWebViewSurface.containing(responder) != nil
+    }
 }
 
 /// Matches ordinary key presses and double-modifier taps for application commands.
@@ -207,6 +226,16 @@ private final class MacShortcutDetector: ShortcutDetector, @unchecked Sendable {
             // Ctrl-D would start a debug session instead of ending input.
             if MacShortcutInputPolicy.shouldDeferToTerminal(
                 event.window?.firstResponder,
+                modifierFlags: event.modifierFlags
+            ) {
+                return event
+            }
+            // A focused HTML preview page owns its find, zoom and print
+            // chords; the keymap would otherwise take ⌘F before the page.
+            // Note: 预览页面快捷键的归属见 .agents/notes/implemented/feature/2026-10-22-html-preview-embedded-browser.md
+            if MacShortcutInputPolicy.shouldDeferToPreviewPage(
+                event.window?.firstResponder,
+                charactersIgnoringModifiers: event.charactersIgnoringModifiers,
                 modifierFlags: event.modifierFlags
             ) {
                 return event
