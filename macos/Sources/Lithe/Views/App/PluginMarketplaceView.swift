@@ -847,12 +847,13 @@ struct PluginInstallConfirmationSheet: View {
             }
             .frame(maxHeight: 480)
 
-            HStack {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Spacer()
                 // Cancel is the default so pressing Return never installs.
                 Button(LocalizedStringKey("Cancel"), action: cancel).buttonStyle(LitheActionButtonStyle(isPrimary: true))
                     .keyboardShortcut(.defaultAction)
                 Button(LocalizedStringKey(confirmation.isUpdate ? "Update" : "Install"), action: confirm)
+                    .buttonStyle(LitheActionButtonStyle())
             }
         }
         .padding(22)

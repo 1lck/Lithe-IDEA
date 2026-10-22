@@ -8,7 +8,9 @@
       "macos/Sources/Lithe/Views/Components/LitheActionButtonStyle.swift",
       "macos/Sources/Lithe/Theme/LitheTheme.swift",
       "macos/Sources/Lithe/Views/Editor/GoToLineDialog.swift",
-      "macos/Tests/LitheTests/CommitActionButtonStyleTests.swift"
+      "macos/Tests/LitheTests/CommitActionButtonStyleTests.swift",
+      "macos/Sources/Lithe/Views/Run/JavaLaunchDecisionDialog.swift",
+      "macos/Tests/LitheTests/RunEntryPointTests.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -23,5 +25,5 @@
   },
   "owner": "Workbench",
   "notes": "普通文字按钮以 macOS Welcome 的28高、4圆角、13常规字、14水平留白、72最小宽为准；普通文字动作取消紧凑/额外焦点留白/局部宽度覆盖，横竖相邻间距6，不设固定最大宽且按文案自然增长；图标/链接/菜单/选择器保留各自形态。主操作常态#2D62CC、hover#2453B3、按下#1D4699，不改变全局主题accent/primary；危险操作保留红色语义。组件检查不替代完整产品及Windows实机验收。 本次仅交付macOS；Windows保留原有按钮组件，尚未同步本条完整标准。",
-  "verification": "分别在macOS和Windows深浅主题检查Welcome、设置、插件管理、Git提交/推送/工作树、数据库和运行/调试表单的普通及主操作按钮；核对悬停、按下、禁用、加载、长中文文案、紧凑布局、Tab和Return/Esc，无点击焦点外框；确认列表选择、输入焦点、复选框及运行/停止颜色不变。Go To Line 输入无效值时OK禁用，Return不跳转，Esc取消。 检查短文案最小宽72、长中文/英文按钮随内容增长且不省略，水平留白14、可见边缘间距6；确认/取消组在窄窗口换行并保持完整内边距；选择器、标签和图标按钮不被扩大成文字按钮。"
+  "verification": "分别在macOS和Windows深浅主题检查Welcome、设置、插件管理、Git提交/推送/工作树、数据库和运行/调试表单的普通及主操作按钮；核对悬停、按下、禁用、加载、长中文文案、紧凑布局、Tab和Return/Esc，无点击焦点外框；确认列表选择、输入焦点、复选框及运行/停止颜色不变。Go To Line 输入无效值时OK禁用，Return不跳转，Esc取消。 检查短文案最小宽72、长中文/英文按钮随内容增长且不省略，水平留白14、可见边缘间距6；确认/取消组在窄窗口换行并保持完整内边距；选择器、标签和图标按钮不被扩大成文字按钮。 Java构建失败窗口在英文及中文、带/不带重建索引动作时所有按钮完整位于内容区；设置页短文案按钮最小宽72；插件安装确认两个按钮采用共享样式、间距6，Return仍取消。"
 }

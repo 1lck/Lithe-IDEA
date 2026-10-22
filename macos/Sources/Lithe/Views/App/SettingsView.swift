@@ -79,7 +79,6 @@ struct SettingsView: View {
     static let categoryMinimumWidth: CGFloat = 234
     static let contentMinimumWidth: CGFloat = 500
     static let categoryMaximumWidth: CGFloat = 480
-    private static let footerActionLabelWidth: CGFloat = 52
 
     init(
         settings: AppSettings,
@@ -1695,7 +1694,6 @@ struct SettingsView: View {
             HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Button { closeSettings() } label: {
                     Text("Cancel")
-                        .frame(minWidth: Self.footerActionLabelWidth)
                 }
                     .buttonStyle(LitheActionButtonStyle())
                     .keyboardShortcut(.cancelAction)
@@ -1708,7 +1706,6 @@ struct SettingsView: View {
                     }
                 } label: {
                     Text("OK")
-                        .frame(minWidth: Self.footerActionLabelWidth)
                 }
                     .buttonStyle(LitheActionButtonStyle(isPrimary: true))
                     .keyboardShortcut(.defaultAction)
