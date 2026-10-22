@@ -50,6 +50,12 @@ debug 版本同样复现。
 不使用轮询，也不阻塞主线程；`contains(_:)` 位检查在每次窗口 update 中的开销
 可以忽略。
 
+进入原生全屏后 macOS 会隐藏红绿灯按钮，但工作台顶栏仍按普通窗口预留 83pt
+（`WorkbenchTopBarMetrics.leadingInset`）的按钮空位，左上角出现一段空白。
+`WindowFullScreenStateReader` 用同一套 `didUpdateNotification` 机制把窗口的
+全屏状态同步到 SwiftUI（`@State isWindowFullScreen`），顶栏的全屏态下将
+leading padding 降为 0，退出全屏后自动恢复预留，行为对齐 IDEA。
+
 ## 考虑过的备选方案
 
 - 在 `LitheWindowCoordinator.attach` 中做一次性归一化：已否决。实测 SwiftUI
@@ -86,6 +92,7 @@ debug 版本同样复现。
 ## 适用范围
 
 - `macos/Sources/Lithe/Views/App/RootView.swift`
+- `macos/Sources/Lithe/Views/Workbench/WorkbenchView.swift`（工作台顶栏的全屏态留白）
 - `macos/Tests/LitheTests/WindowFullScreenCapabilityGuardTests.swift`
 - 仅覆盖经由 `RootView` 呈现的主窗口（欢迎页、项目工作台、独立文件窗口）。
   设置窗口与软件更新窗口不经过 `RootView`，不受本守卫影响。

@@ -63,3 +63,33 @@ struct WindowFullScreenCapabilityGuardTests {
         return window
     }
 }
+
+@Suite("Window fullscreen state reader")
+@MainActor
+struct WindowFullScreenStateReaderTests {
+    @Test
+    func readerTracksFullScreenTransitionsThroughWindowUpdates() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+
+        var reported: [Bool] = []
+        let reader = WindowFullScreenStateReader.ReaderView()
+        reader.onRefresh = { value in reported.append(value) }
+        window.contentView?.addSubview(reader)
+        #expect(reported == [false])
+
+        window.styleMask.insert(.fullScreen)
+        NotificationCenter.default.post(name: NSWindow.didUpdateNotification, object: window)
+        #expect(reported == [false, true])
+
+        window.styleMask.remove(.fullScreen)
+        NotificationCenter.default.post(name: NSWindow.didUpdateNotification, object: window)
+        #expect(reported == [false, true, false])
+    }
+}
