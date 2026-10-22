@@ -31,6 +31,11 @@ package protocol GitOperations: Sendable {
 
     func snapshot(at rootURL: URL) -> GitSnapshot?
     func snapshot(at rootURL: URL, repositoryRoots: [URL]) -> GitSnapshot?
+    /// Status for the changes panel: a large wholly untracked directory arrives
+    /// as one summary change instead of one change per file.
+    func changesSnapshot(at rootURL: URL, repositoryRoots: [URL]) -> GitSnapshot?
+    /// Immediate files and subdirectory summaries of an untracked directory summary.
+    func untrackedDirectoryChildren(of directory: GitChange, repositoryRoots: [URL]) -> [GitChange]?
     func repositories(in workspaceURL: URL) -> [URL]
     func watchContext(at rootURL: URL) -> GitWatchContext?
     func worktrees(at rootURL: URL) -> [GitWorktree]?
@@ -193,6 +198,10 @@ package extension GitOperations {
         .failure(GitWorkspaceCommitFailure("Workspace commit execution is unavailable"))
     }
     func snapshot(at rootURL: URL, repositoryRoots: [URL]) -> GitSnapshot? { snapshot(at: rootURL) }
+    func changesSnapshot(at rootURL: URL, repositoryRoots: [URL]) -> GitSnapshot? {
+        snapshot(at: rootURL, repositoryRoots: repositoryRoots)
+    }
+    func untrackedDirectoryChildren(of directory: GitChange, repositoryRoots: [URL]) -> [GitChange]? { nil }
 
     func consolePresentation(_ request: GitConsolePresentationRequest) -> GitConsolePresentation? { nil }
     func executableResolution() -> Result<GitExecutableResolution, GitFetchFailure> { .failure(GitFetchFailure("Git executable resolution is unavailable.")) }
@@ -388,6 +397,14 @@ package struct GitService: Sendable {
         await read(priority: .utility) { $0.snapshot(at: workspace, repositoryRoots: repositoryRoots) }
     }
 
+    func changesSnapshot(for workspace: URL, repositoryRoots: [URL]) async -> GitSnapshot? {
+        await read(priority: .utility) { $0.changesSnapshot(at: workspace, repositoryRoots: repositoryRoots) }
+    }
+
+    func untrackedDirectoryChildren(of directory: GitChange, repositoryRoots: [URL]) async -> [GitChange]? {
+        await read { $0.untrackedDirectoryChildren(of: directory, repositoryRoots: repositoryRoots) }
+    }
+
     func repositories(in workspace: URL) async -> [URL] {
         await read(priority: .utility) { $0.repositories(in: workspace) } ?? []
     }
@@ -504,10 +521,11 @@ package struct GitService: Sendable {
     /// Returns only the working-tree delta against the current index. This is
     /// kept separate from `diffPatch(for:)` so Shelve can preserve staged and
     /// unstaged edits independently for a file that has both.
+    /// Nil when Git could not export the change, which Shelve must not clean.
     func workingDiffPatch(
         for change: GitChange,
         whitespace: GitDiffWhitespaceMode = .doNotIgnore
-    ) async -> String {
+    ) async -> String? {
         await read {
             $0.diffPatch(
                 at: change.repositoryRoot,
@@ -516,7 +534,7 @@ package struct GitService: Sendable {
                 untracked: change.isUntracked,
                 whitespace: whitespace
             )
-        } ?? ""
+        }
     }
 
     /// Applies a complete patch outside the diff-hunk convenience methods.
@@ -540,10 +558,11 @@ package struct GitService: Sendable {
 
     /// Returns exactly what Git would include for this file in the next
     /// commit, even when the file also has unstaged working-tree changes.
+    /// Nil when Git could not export the staged change.
     func stagedDiffPatch(
         for change: GitChange,
         whitespace: GitDiffWhitespaceMode = .doNotIgnore
-    ) async -> String {
+    ) async -> String? {
         await read {
             $0.diffPatch(
                 at: change.repositoryRoot,
@@ -552,7 +571,7 @@ package struct GitService: Sendable {
                 untracked: false,
                 whitespace: whitespace
             )
-        } ?? ""
+        }
     }
 
     func stage(_ change: GitChange) async -> CommandResult {

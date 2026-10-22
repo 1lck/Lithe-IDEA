@@ -627,6 +627,8 @@
 "Show all changes" = "Show all changes";
 "Collapse section" = "Collapse section";
 "Expand section" = "Expand section";
+"Collapse directory" = "Collapse directory";
+"Expand directory" = "Expand directory";
 "Unstage all files" = "Unstage all files";
 "Stage all files" = "Stage all files";
 "Local changes were restored with conflicts" = "Local changes were restored with conflicts";

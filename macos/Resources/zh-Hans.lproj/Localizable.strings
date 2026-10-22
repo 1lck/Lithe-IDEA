@@ -1859,6 +1859,8 @@
 "Show all changes" = "显示所有更改";
 "Collapse section" = "折叠分组";
 "Expand section" = "展开分组";
+"Collapse directory" = "折叠目录";
+"Expand directory" = "展开目录";
 "Unstage all files" = "取消暂存所有文件";
 "Stage all files" = "暂存所有文件";
 "Local changes were restored with conflicts" = "本地更改已恢复，但存在冲突";

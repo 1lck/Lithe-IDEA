@@ -582,6 +582,11 @@ pub struct GitChange {
     pub submodule: Option<GitSubmoduleStatus>,
     /// False for parent gitlinks with only uncommitted child content.
     pub can_toggle_staging: bool,
+    /// Present only on a summarized untracked directory (`path` ends with `/`):
+    /// the number of non-ignored files below it. The directory contains no
+    /// nested repository, so staging or cleaning `path` acts on exactly these files.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub untracked_file_count: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -601,6 +606,13 @@ pub struct GitStatusResponse {
     pub branch: Option<String>,
     pub ahead: usize,
     pub behind: usize,
+    pub changes: Vec<GitChange>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// Immediate files and subdirectory summaries of one summarized untracked directory.
+pub struct GitUntrackedDirectoryResponse {
     pub changes: Vec<GitChange>,
 }
 
