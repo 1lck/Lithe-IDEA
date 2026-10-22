@@ -4,7 +4,7 @@
 
 ## 先说结论
 
-macOS 的 HTML 预览不再是“把 HTML 字符串塞进 WebView、点什么都取消”的静态画面，而是一个内嵌的单标签浏览器：有后退、前进、刷新/停止、可输入的地址栏、页面缩放（− / 百分比 / +）、常驻滚动条、系统浏览器按钮和开发者工具；页面里的链接、锚点、`alert`/`confirm`/`prompt`、文件选择、下载和 `window.open` 都按浏览器的方式工作；此外还有页内查找、右键菜单、打印 / 导出 PDF，以及页面申请摄像头 / 麦克风时的确认弹窗和地址栏右侧的“设备使用中”指示器。功能范围对标 VS Code 的 Simple Browser，多标签、书签、历史以后做成插件，不要加在这里。当前编辑的文档来自编辑器缓冲区（所以没保存的修改也能看到），其余资源按只读的静态网站从磁盘提供。开发者以后要改预览行为，改 `HTMLPreviewBrowserController` 和它旁边的纯规则文件，不要回到 `loadHTMLString` 加“取消全部导航”的做法。
+macOS 的 HTML 预览不再是“把 HTML 字符串塞进 WebView、点什么都取消”的静态画面，而是一个内嵌的单标签浏览器：有后退、前进、刷新/停止、可输入的地址栏、页面缩放（− / 百分比 / +）、常驻滚动条、系统浏览器按钮和开发者工具；页面里的链接、锚点、`alert`/`confirm`/`prompt`、文件选择、下载和 `window.open` 都按浏览器的方式工作；此外还有页内查找、右键菜单、打印 / 导出 PDF，以及页面申请摄像头 / 麦克风时的确认弹窗和地址栏右侧的“设备使用中”指示器。功能范围对标 VS Code 的 Simple Browser，多标签、书签、历史以后做成插件，不要加在这里。当前编辑的文档来自编辑器缓冲区（所以没保存的修改也能看到），其余资源按只读的静态网站从磁盘提供。开发者以后要改预览行为，改 `HTMLPreviewBrowserController` 和它旁边的纯规则文件，不要回到 `loadHTMLString` 加“取消全部导航”的做法。摄像头 / 麦克风这部分代码已经就位，但目前在运行的应用里是休眠的（Info.plist 没有用途说明，页面里没有 `navigator.mediaDevices`）；2026-10-22 决定继续保持休眠，因为 Lithe 启动的子孙进程会继承摄像头授权，不经过这里的任何弹窗，原因和以后启用的前提见“补用途说明之前必须知道的事”。
 
 ## 问题
 
@@ -141,9 +141,19 @@ HTML 预览里，`WKUIDelegate` 的 `requestMediaCapturePermissionFor` 把请求
 
 **为什么现在是休眠的**：WebKit 是否向页面提供 `navigator.mediaDevices`，默认取决于宿主应用的 Info.plist 有没有摄像头 / 麦克风用途说明。当前构建没有 `NSCameraUsageDescription` 和 `NSMicrophoneUsageDescription`，在本机实测页面里 `navigator.mediaDevices` 是 `undefined`，页面发不出请求，也不会出现系统权限框。这是想要的安全默认：macOS 会结束一个没有用途说明却去访问摄像头 / 麦克风的进程。`decide` 把同一个检查再做一遍（`WebMediaAccess.outcome`）：请求到了委托但缺少用途说明时，直接拒绝，不弹授权框；HTML 预览里还会提示一次“此版本无法让页面使用摄像头或麦克风”。生产代码不会去打开 WebKit 的私有开关 `mediaDevicesEnabled`，只有测试会。
 
-要让功能真正可用，需要在 `macos/Resources/Info.plist` 增加 `NSCameraUsageDescription` 和 `NSMicrophoneUsageDescription`（以及它们的本地化文案）。隐私用途说明和 entitlements 属于要先经维护者确认的改动，所以这次没有动它们，功能保持休眠。打包脚本 `scripts/package-app.sh` 用 `codesign --force --deep --sign "$SIGNING_IDENTITY"`，默认是 ad-hoc 签名（`-`），不带 `--options runtime`，也没有 entitlements 文件，没有启用 hardened runtime 或沙盒，所以只补用途说明就够；以后启用 hardened runtime 时还要加 `com.apple.security.device.camera` 和 `com.apple.security.device.audio-input`。ad-hoc 签名的应用，系统记录的摄像头 / 麦克风授权很可能跟着代码签名哈希走，应用更新后需要重新授权（未实测）。
+要让功能真正可用，需要在 `macos/Resources/Info.plist` 增加 `NSCameraUsageDescription` 和 `NSMicrophoneUsageDescription`（以及它们的本地化文案）。隐私用途说明和 entitlements 属于要先经维护者确认的改动，所以这次没有动它们，功能保持休眠。**2026-10-22 维护者的决定：继续保持休眠，不改 Info.plist 和 entitlements，不做真机验证，也不做子进程隔离**；原因是下一段的子进程继承问题，用途说明不能单独补，必须和子进程隔离一起上。打包脚本 `scripts/package-app.sh` 用 `codesign --force --deep --sign "$SIGNING_IDENTITY"`，默认是 ad-hoc 签名（`-`），不带 `--options runtime`，也没有 entitlements 文件，没有启用 hardened runtime 或沙盒，所以从系统要求看，补用途说明就能让功能跑起来（能不能补见下一段）；以后启用 hardened runtime 时还要加 `com.apple.security.device.camera` 和 `com.apple.security.device.audio-input`。ad-hoc 签名的应用，系统记录的摄像头 / 麦克风授权很可能跟着代码签名哈希走，应用更新后需要重新授权（未实测）。
 
-**补用途说明之前必须知道的事**：系统的摄像头 / 麦克风授权属于整个 Lithe，不属于某个页面或插件。使用者在任何一个弹窗里点过“Allow”并通过系统权限框之后，系统记下的是“Lithe 可以用摄像头”；按 macOS 的责任进程规则，Lithe 启动的子进程（插件后端、内置终端里的命令）访问设备时也算在 Lithe 名下，可能不经过 Lithe 的任何弹窗就拿到设备（没有实测）。网页这一侧有 `decide` 把关，子进程这一侧没有。目前没有用途说明，系统会直接拒绝这些访问，所以现在不存在这个口子；补用途说明就是把它引入的决定，要由维护者先确认。
+**补用途说明之前必须知道的事**：系统的摄像头 / 麦克风授权属于整个 Lithe，不属于某个页面或插件。使用者在任何一个弹窗里点过“Allow”并通过系统权限框之后，系统记下的是“Lithe 可以用摄像头”。网页这一侧有 `decide` 把关，但 Lithe 启动的子孙进程（插件后端、语言服务器、内置终端里的命令、Agent CLI 和它的 shell 工具）这一侧没有。目前没有用途说明，系统会直接拒绝这些访问，所以现在不存在这个口子；补用途说明就是把它打开。
+
+2026-10-22 在 macOS 27.2 上做过一次只读评估（只问系统的责任进程关系和沙盒策略，不碰摄像头、麦克风和系统隐私数据库），结论如下：
+
+- **责任进程（responsible process，系统决定把子进程的隐私请求算在哪个应用头上的那个进程）沿子孙链继承，这是实测，不是推测。** 探针自己的祖先链是 `probe → zsh → claude`，三者的责任进程都是 `claude`；探针 `posix_spawn` 出的 `sh`，以及 `sh` 再起的 `sleep`，责任进程也都是 `claude`，不是它们的直接父进程。所以只要 Lithe 拿到了摄像头授权，它的任何子孙进程访问摄像头时，系统都会把请求算在 Lithe 头上。
+- **脱钩责任进程（disclaim，`posix_spawn` 的私有属性 `responsibility_spawnattrs_setdisclaim`）能让子进程自成责任进程，并传给它的后代，这是实测，也有先例**（Claude 桌面应用用自带的 `Contents/Helpers/disclaimer` 启动 `claude` 命令行）。但它切断的是子进程与 Lithe 的**全部**系统授权：项目放在 Documents / Desktop / Downloads 时，`git`、`java`、`node`、`mvn` 会逐个弹文件夹授权或被拒，给了 Lithe 完全磁盘访问的使用者则整体失效。对 IDE 是回归，不选。
+- **只禁设备的办法是沙盒 deny（sandbox deny，给子进程套一份“不许碰摄像头和麦克风”的沙盒策略，其它授权照旧继承）。** 策略包括 `(deny device-camera)`、`(deny device-microphone)`、相机相关的 Mach 服务（`com.apple.applecamerad`、`com.apple.appleh13camerad`、`com.apple.cmio.registerassistantservice`、`com.apple.cmio.registerassistantservice.system-extensions`）和麦克风的 IOKit 类 `AppleHDAEngineInput`；音频**输出**需要的 `com.apple.audio.coreaudiod` 保持允许，子进程放声音不受影响。这些名字正是 App Sandbox 给摄像头 / 麦克风权限用的那一组（`/System/Library/Sandbox/Profiles/appsandbox-common.sb` 里的 `(camera)` 和 `(audio-input)`）。用 `sandbox_check` 验证过：操作存在、加 deny 后答案翻转、经 `sh` 再起的后代同样被拒。`sandbox-exec` 的手册标为 DEPRECATED（已弃用），27.2 上仍可用，启动开销约 5 毫秒。
+- **没有验证的部分**：沙盒 deny 是否真能让没有沙盒的进程采集失败（`sandbox_check` 只问策略引擎，要证明必须真的打开设备，需要使用者点一次系统弹窗、摄像头会短暂亮起，所以没有做）；tccd（系统的隐私授权守护进程）是否把命令行子进程的请求算到责任应用头上并复用它的授权（业界通行行为，Terminal、iTerm、VS Code 都如此，这里没有触发）；Apple Silicon 内置麦克风是否确实走 `AppleHDAEngineInput`，USB 和蓝牙设备可能走别的路径，而且麦克风 IOKit 这一条规则只确认了策略能解析，没有单独验证效果；`sandbox-exec` 在以后的 macOS 里还在不在。
+- **要覆盖三套启动栈，漏掉任何一套就是一个口子**：Swift 的 `MacManagedProcess.spawn`（运行、构建、测试、调试等，唯一的 `posix_spawn` 入口）；内置终端的 SwiftTerm（它自己 `openpty` 加 `posix_spawn`，Lithe 拿不到 spawn 属性，只能改被启动的可执行文件）；Rust Core 的 `SystemProcessLauncher`（插件后端和所有语言服务器）加 `lithe-agent-host`（Agent CLI）。Lithe 自己的重启和监督进程（`MacProcessSupervisor`、`MacApplicationRelauncher`、`MacStableRollback`）必须豁免，它们就是 Lithe。
+
+**决定（2026-10-22，维护者）：继续保持休眠。** 不改 Info.plist 和 entitlements，不做真机验证，也不做子进程隔离。以后有人要补 `NSCameraUsageDescription` / `NSMicrophoneUsageDescription` 时，用途说明和子进程隔离必须在同一个 PR 里一起上，并且隔离自检失败时 `WebMediaAccess.outcome` 像缺用途说明时一样返回 `.unavailable`，门直接拒绝、不弹系统授权框。方案比较、验收标准和动手前的真机验证步骤记在提议 Note `2026-10-22-child-process-media-isolation.md`（`proposed/architecture/`）。
 
 **测试**：`WebMediaCaptureTests` 覆盖门的决策（没回答前什么都没授权、只有明确的 yes 才授权、每次都重新问）、问题文字和 `displayText`、拒绝委托，以及上面的源码扫描。`HTMLPreviewMediaCaptureTests` 和 `PluginWebCaptureTests` 在真实 `WKWebView` 里用 WebKit 的模拟摄像头 / 麦克风做端到端：授权后指示器出现、静音 / 恢复 / 停止、摄像头和麦克风分开停止、拒绝时页面收到 `NotAllowedError`、屏幕共享不存在；插件页还覆盖没有窗口、没有用途说明、隐藏时结束采集、隐藏后才回答的 yes，以及点“Allow”之后页面才被隐藏时才启动的设备会被停掉。模拟设备需要私有偏好 `mediaDevicesEnabled`、`mockCaptureDevicesEnabled` 和 `getUserMediaRequiresFocus = false`，只通过 `configure` 回调在测试里设置（`MockCapture.configure`），缺任何一个就整组跳过。实测得到几条约束：
 
@@ -178,7 +188,9 @@ WebKit 没有公开的 Web Inspector 开关，所以：
 - 不要放宽 `HTMLPreviewAccessPolicy` 的隐藏文件/密钥拒绝，也不要去掉 `Referer`/主文档检查；它们是自定义协议提供同源服务时唯一的泄露防线。
 - 不要在 `updateNSView` 里无条件给 `@Published` 属性赋值（即使值相同也会触发 SwiftUI 的“视图更新期间发布变更”警告）；控制器用 `clearLoadError()` 只在有变化时赋值。
 - 不要把 `WKWebView` 直接作为 `NSViewRepresentable` 返回的视图，会破坏开发者工具停靠。
-- 不要在生产代码里打开 `mediaDevicesEnabled`、`mockCaptureDevicesEnabled` 这类私有开关来“让摄像头可用”：没有用途说明却去访问摄像头 / 麦克风，macOS 会结束进程。要启用功能，先补 Info.plist 的用途说明（需要维护者确认），不要绕过。
+- 不要在生产代码里打开 `mediaDevicesEnabled`、`mockCaptureDevicesEnabled` 这类私有开关来“让摄像头可用”：没有用途说明却去访问摄像头 / 麦克风，macOS 会结束进程。要启用功能，先补 Info.plist 的用途说明（需要维护者确认，并且必须和子进程隔离在同一个 PR 里，见“补用途说明之前必须知道的事”），不要绕过。
+- 不要单独补 `NSCameraUsageDescription` / `NSMicrophoneUsageDescription`。例如只在 Info.plist 加两行，网页那道门写得再严，使用者点一次“Allow”之后，插件后端或终端里的 `ffmpeg` 也能不经任何弹窗打开摄像头。
+- 不要用 `posix_spawn` 的 disclaim（脱钩责任进程）来隔离子进程的摄像头授权：它同时切断文件夹、完全磁盘访问等所有授权，项目在 Documents / Desktop / Downloads 下时 `git`、`java`、`node`、`mvn` 全部受影响。只禁设备要用沙盒 deny。
 - 不要在 `WebMediaCapture.decide` 之外返回 `.grant`，也不要新建 `WKWebView` 而不回答它的摄像头 / 麦克风请求；没人回答时 WebKit 会弹它自己的提示，等于绕开了 Lithe 的确认。
 - 不要让任何请求默认有权限：记住的偏好只能少问，不能让没有记录的请求通过；在有撤销入口之前不要开始记（见“记住选择”）。
 - 不要在宿主里按插件名或插件 ID 给摄像头 / 麦克风写特例；所有插件页走同一条询问路径，插件名只用于提问文字。
@@ -208,7 +220,7 @@ WebKit 没有公开的 Web Inspector 开关，所以：
 - 收益：页面行为接近真实浏览器；使用者能直接在编辑器里调试前端页面；规则集中在可单测的纯函数中。
 - 代价：使用 `_WKInspector` 私有接口，需要在 macOS 大版本升级时回归；预览窗口不再是透明背景，页面背景由页面样式决定。
 - 私有接口清单（都先 `responds(to:)` 检查，缺失时功能退化而不崩溃，大版本升级时一起回归）：`_inspector` 与偏好 `developerExtrasEnabled`（开发者工具和“检查元素”）；`_hideFindUI`（清除查找高亮，缺失时高亮自行淡出）；`_setScreenCaptureEnabled:` 与偏好 `screenCaptureEnabled`（不向页面提供屏幕共享，缺失时保持 WebKit 默认）。`mediaDevicesEnabled`、`mockCaptureDevicesEnabled`、`getUserMediaRequiresFocus` 只在测试里设置。
-- 已知限制：查找条没有匹配计数（WebKit 不提供）；焦点在查找条输入框里时 ⌘G 不由预览处理；导出的 PDF 是一页连续的长页，分页版本要走打印面板；摄像头 / 麦克风确认弹窗没有 Esc 映射；页面不在焦点时 `getUserMedia` 要等页面获得焦点；停掉最后一个设备后指示器还会停留约 3 秒；摄像头 / 麦克风在补上 Info.plist 用途说明之前休眠（`navigator.mediaDevices` 不存在），补上之后才能在运行的应用里端到端验收，ad-hoc 签名下系统授权记录是否跨更新保留未实测；系统授权按整个 Lithe 记，Lithe 的子进程是否能绕过 Lithe 的弹窗使用已授权的设备未实测；插件页没有应用内使用指示器，也没有“记住选择”；WebKit 可能为同一文档里已批准的设备复用授权（见“测试”一节的实测与推测），插件弹窗里“隐藏窗口前它可以一直使用该设备”的说明因此可能少说了“隐藏后重新显示，同一页面可能不再询问就重新开始使用”，真实设备上确认之后再校对文案（隐藏时和设备在页面离开窗口后启动时，采集都会被立即停掉，这一点不受影响）。
+- 已知限制：查找条没有匹配计数（WebKit 不提供）；焦点在查找条输入框里时 ⌘G 不由预览处理；导出的 PDF 是一页连续的长页，分页版本要走打印面板；摄像头 / 麦克风确认弹窗没有 Esc 映射；页面不在焦点时 `getUserMedia` 要等页面获得焦点；停掉最后一个设备后指示器还会停留约 3 秒；摄像头 / 麦克风在补上 Info.plist 用途说明之前休眠（`navigator.mediaDevices` 不存在），这是 2026-10-22 维护者确认的状态，补上之后才能在运行的应用里端到端验收，ad-hoc 签名下系统授权记录是否跨更新保留未实测；系统授权按整个 Lithe 记，Lithe 的子孙进程会沿责任进程规则继承它（macOS 27.2 上实测），所以用途说明必须带子进程隔离一起补，而沙盒 deny 能否真的拦住采集还没有在真实设备上验证；插件页没有应用内使用指示器，也没有“记住选择”；WebKit 可能为同一文档里已批准的设备复用授权（见“测试”一节的实测与推测），插件弹窗里“隐藏窗口前它可以一直使用该设备”的说明因此可能少说了“隐藏后重新显示，同一页面可能不再询问就重新开始使用”，真实设备上确认之后再校对文案（隐藏时和设备在页面离开窗口后启动时，采集都会被立即停掉，这一点不受影响）。
 - 已知限制：`showDirectoryPicker` 等只有 Chromium 才有的 Web API 在 WebKit 中不存在，依赖它们的页面（例如 `assets/agent-notes-board.html`）需要在 Chromium 内核浏览器中使用，可用“在系统浏览器中打开”。
 - Windows 端的 HTML 预览（iframe `srcDoc` 加 `<base>`）没有这些能力，已在功能矩阵中记录，另行跟进。
 - 需要重新评估的触发条件：Apple 提供公开的 Web Inspector 接口；预览需要多标签；需要持久登录状态（当前使用非持久数据存储）。
@@ -227,7 +239,7 @@ WebKit 没有公开的 Web Inspector 开关，所以：
 - 在运行的应用中用 − / + / 百分比按钮和 ⌘+ / ⌘− / ⌘0 缩放，确认百分比与页面实际大小一致，跳转页面后缩放保持，分屏时在编辑器里按 ⌘+ 不会缩放预览。
 - 在运行的应用中按 ⌘F 打开查找条，输入文字确认页面里的匹配项被选中；⌘G / ⇧⌘G 与 Return / ⇧Return 前进、后退并回绕；输入页面里没有的文字显示 “No matches”；Esc 收起后键盘回到页面；分屏时焦点在编辑器里按 ⌘F / ⌘G / ⌘P 仍归编辑器。
 - 在页面空白处、链接和图片上右键：没有“在新窗口中打开”，链接上有“拷贝链接”，空白处在“检查元素”上方有 Print… 和 Export as PDF…。⌘P 或 Print… 以窗口 sheet 打开系统打印面板；Export as PDF… 保存整页，文件名取页面标题。
-- 补上 Info.plist 用途说明之后，在运行的应用中打开调用 `getUserMedia` 的页面：弹窗写明页面名称，默认按钮是 Don’t Allow；允许后地址栏右侧出现指示器，菜单里的静音 / 停止生效；再次打开同一页面仍会询问；页面里没有 `getDisplayMedia`。再用一个调用 `getUserMedia` 的插件页确认：弹窗写“插件“X”……”并带插件 ID，点 Don’t Allow 页面收到 `NotAllowedError`，允许后隐藏该工具窗口，系统菜单栏的绿点 / 橙点随之消失；再显示窗口并让页面第二次调用 `getUserMedia`，记录是否再次询问，并据此校对插件弹窗里的说明。当前构建没有这些用途说明，这一步还不能做。
+- 补上 Info.plist 用途说明之后，在运行的应用中打开调用 `getUserMedia` 的页面：弹窗写明页面名称，默认按钮是 Don’t Allow；允许后地址栏右侧出现指示器，菜单里的静音 / 停止生效；再次打开同一页面仍会询问；页面里没有 `getDisplayMedia`。再用一个调用 `getUserMedia` 的插件页确认：弹窗写“插件“X”……”并带插件 ID，点 Don’t Allow 页面收到 `NotAllowedError`，允许后隐藏该工具窗口，系统菜单栏的绿点 / 橙点随之消失；再显示窗口并让页面第二次调用 `getUserMedia`，记录是否再次询问，并据此校对插件弹窗里的说明。当前构建没有这些用途说明，这一步还不能做；补用途说明时还要同时验证子进程隔离（在 Lithe 的内置终端和插件后端里尝试打开摄像头应当失败），验收标准见提议 Note `2026-10-22-child-process-media-isolation.md`。
 - `./scripts/test-macos.sh --filter 'WebMedia|MockCapture|PluginMediaCapture|HTMLPreviewMediaCapture'`：门的决策、源码扫描、拒绝委托和两条端到端路径（HTML 预览、插件页）。
 
 ## 适用范围
