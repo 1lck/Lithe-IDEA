@@ -34,6 +34,17 @@ load in a new native conversation; existing sessions are not rewritten or stoppe
 Project instructions retain the upstream Agent's precedence rules. See
 `fixtures/agent/agent-instructions-v1.json`.
 
+A user can also author one shared instruction text in platform-owned application
+support storage and opt each supported Agent into a delimited block in its native
+file. Synchronization preserves every byte outside that block. Turning a switch
+off removes only that block. Enabled, unknown and out-of-date states come from
+native snapshots, not a stored preference. Source saves and each target replacement
+are atomic individually, not a cross-file transaction: per-Agent conflicts remain
+visible and retryable while the saved shared draft and successful targets survive.
+No startup/background synchronization or extra prompt injection occurs. A malformed
+or duplicate marker is never repaired by overwriting it automatically. See
+`fixtures/agent/shared-instructions-v1.json`.
+
 Shared Monaco highlighting is owned by the current view/model pair. A queued
 callback for a closed or replaced model must finish without running against the
 new model or locking surviving documents. Primary, split and diff views share

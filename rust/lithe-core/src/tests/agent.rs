@@ -29,6 +29,21 @@ fn global_instruction_contract_dispatches_and_rejects_unknown_agents_without_fil
     assert_eq!(response["error"]["code"], "invalid_request");
 }
 
+#[test]
+fn shared_instruction_requests_have_strict_typed_dispatch_without_arbitrary_native_paths() {
+    assert!(crate::protocol::CoreCommand::parse("agent.instructions.shared").is_some());
+    for payload in [
+        json!({"dataDirectory":"relative", "action":"read"}),
+        json!({"dataDirectory":"/fixture", "action":"unknown"}),
+        json!({"dataDirectory":"/fixture", "action":"read", "path":"/arbitrary"}),
+        json!({"dataDirectory":"/fixture", "action":"setEnabled", "agentId":"codex-acp", "enabled":true}),
+    ] {
+        let response = run("agent.instructions.shared", payload);
+        assert_eq!(response["ok"], false, "{response}");
+        assert_eq!(response["error"]["code"], "invalid_request");
+    }
+}
+
 fn run(command: &str, payload: Value) -> Value {
     let request = json!({ "id": "agent-test", "command": command, "payload": payload });
     serde_json::from_str(&execute_json(&request.to_string())).expect("core response JSON")

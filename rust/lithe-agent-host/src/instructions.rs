@@ -9,6 +9,8 @@ use std::sync::Mutex;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+pub mod shared;
+
 const MAX_BYTES: usize = 1024 * 1024;
 static SAVE_LOCK: Mutex<()> = Mutex::new(());
 
@@ -25,7 +27,7 @@ pub struct InstructionFile {
 }
 
 /// A save must match both the selected native file and its previously read bytes.
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SaveRequest {
     pub agent_id: String,
@@ -199,6 +201,13 @@ fn save_in(request: SaveRequest, directory: &Path) -> Result<InstructionFile, In
     let _guard = SAVE_LOCK
         .try_lock()
         .map_err(|_| error("busy", "Another instruction save is running. Try again."))?;
+    save_unlocked(request, directory)
+}
+
+fn save_unlocked(
+    request: SaveRequest,
+    directory: &Path,
+) -> Result<InstructionFile, InstructionError> {
     if request.content.len() > MAX_BYTES {
         return Err(error(
             "file_too_large",
@@ -207,6 +216,30 @@ fn save_in(request: SaveRequest, directory: &Path) -> Result<InstructionFile, In
     }
     let previous = read_in(&request.agent_id, directory)?;
     check_revision(&previous, &request)?;
+    write_snapshot(&previous, &request.content, || {
+        read_in(&request.agent_id, directory)
+    })?;
+    // Clearing an override can make AGENTS.md effective again. Return that actual source.
+    read_in(&request.agent_id, directory)
+}
+
+// Both the shared library and native files use the same guarded atomic replacement.
+// The caller holds SAVE_LOCK; the recheck also protects native precedence changes.
+fn write_snapshot(
+    previous: &InstructionFile,
+    content: &str,
+    recheck: impl Fn() -> Result<InstructionFile, InstructionError>,
+) -> Result<(), InstructionError> {
+    if content.len() > MAX_BYTES {
+        return Err(error(
+            "file_too_large",
+            "Global instructions must be no larger than 1 MiB.",
+        ));
+    }
+    let directory = previous
+        .path
+        .parent()
+        .ok_or_else(|| io_error(std::io::Error::other("missing parent")))?;
     let permissions = if previous.exists {
         let permissions = fs::metadata(&previous.path)
             .map_err(io_error)?
@@ -240,8 +273,7 @@ fn save_in(request: SaveRequest, directory: &Path) -> Result<InstructionFile, In
         options.mode(0o600);
     }
     let mut file = options.open(&stage_path).map_err(io_error)?;
-    file.write_all(request.content.as_bytes())
-        .map_err(io_error)?;
+    file.write_all(content.as_bytes()).map_err(io_error)?;
     if let Some(permissions) = permissions {
         file.set_permissions(permissions).map_err(io_error)?;
     }
@@ -249,7 +281,15 @@ fn save_in(request: SaveRequest, directory: &Path) -> Result<InstructionFile, In
     drop(file);
     // Detect edits/profile precedence changes made while preparing the write.
     // Other applications do not share our lock, so this is an optimistic guard.
-    check_revision(&read_in(&request.agent_id, directory)?, &request)?;
+    check_revision(
+        &recheck()?,
+        &SaveRequest {
+            agent_id: previous.agent_id.clone(),
+            content: String::new(),
+            expected_path: previous.path.clone(),
+            expected_revision: previous.revision.clone(),
+        },
+    )?;
     if fs::canonicalize(directory).map_err(io_error)? != parent {
         return Err(error(
             "file_changed",
@@ -263,8 +303,7 @@ fn save_in(request: SaveRequest, directory: &Path) -> Result<InstructionFile, In
             .expect("native instruction filename"),
     );
     fs::rename(&stage.0, target).map_err(io_error)?;
-    // Clearing an override can make AGENTS.md effective again. Return that actual source.
-    read_in(&request.agent_id, directory)
+    Ok(())
 }
 
 fn check_revision(file: &InstructionFile, request: &SaveRequest) -> Result<(), InstructionError> {

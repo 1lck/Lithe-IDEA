@@ -3829,3 +3829,26 @@
 "Open pages, click, type and inspect a browser through its accessibility tree." = "打开网页、点击、输入，并通过无障碍树读取浏览器页面。";
 "Inspect Chrome pages, console messages, network requests and performance." = "检查 Chrome 页面、控制台消息、网络请求和性能。";
 "Search official Microsoft and Azure documentation and code samples." = "搜索微软与 Azure 的官方文档和代码示例。";
+
+/* Shared instruction library */
+"Shared instructions" = "共享指令";
+"Default instructions" = "默认指令";
+"Empty" = "空";
+"Save shared instructions" = "保存共享指令";
+"Shared instructions saved." = "共享指令已保存。";
+"Use shared instructions" = "使用共享指令";
+"Sync needed" = "待同步";
+"Sync again" = "重新同步";
+"%d lines of its own" = "%d 行自有内容";
+"Native instruction file" = "原生指令文件";
+"Write shared instructions once, then enable them for each Agent. Lithe only changes its marked block; the rest of each native file stays yours. Start a new conversation to load changes. Project instructions still apply." = "共享指令只需写一次，再为各 Agent 开启。Lithe 只修改标记区块，保留原生文件的其他内容。新建对话后加载更新，项目指令仍然生效。";
+"The switch controls the Lithe shared block, not the Agent or its own instructions. Save shared changes before switching. Open a row to edit the complete native file." = "开关控制是否使用 Lithe 共享区块，不会停用 Agent 或它的自有指令。请先保存共享修改再操作开关。点击行可编辑完整原生文件。";
+"This editor shows the complete native file, including any Lithe shared block. Editing shared text here can leave it out of sync; use the shared editor to update all enabled Agents." = "此处显示包含 Lithe 共享区块在内的完整原生文件。在此修改共享部分可能导致不同步；请在共享编辑器中更新所有已开启的 Agent。";
+"The shared instruction directory must be absolute." = "共享指令目录必须为绝对路径。";
+"Shared instructions changed outside this editor. Reload before saving." = "共享指令已被其他程序修改，请重新加载后再保存。";
+"Invalid shared instruction request." = "共享指令请求无效。";
+"Instruction synchronization was cancelled." = "指令同步已取消。";
+"Reload this Agent before synchronizing instructions." = "请重新加载此 Agent 的指令后再同步。";
+"The Lithe shared instruction markers were changed. Repair the native file before syncing." = "Lithe 共享指令标记已被修改，请先修复原生文件再同步。";
+"Shared instructions cannot contain Lithe synchronization markers." = "共享指令正文不能包含 Lithe 同步标记。";
+"Instruction Agents" = "Agent";

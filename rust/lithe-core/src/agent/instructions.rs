@@ -27,14 +27,25 @@ pub(crate) fn save(request: SaveRequest) -> Result<Value, CoreError> {
 fn encode(
     result: Result<instructions::InstructionFile, InstructionError>,
 ) -> Result<Value, CoreError> {
-    let file = result.map_err(|error| {
-        let code = match error.reason {
-            "unsupported_agent" => ErrorCode::NotSupported,
-            "file_access" | "unsafe_file" => ErrorCode::PermissionDenied,
-            _ => ErrorCode::InvalidRequest,
-        };
-        CoreError::new(code, error.message).with_details(error.reason)
-    })?;
+    let file = result.map_err(core_error)?;
     serde_json::to_value(file)
         .map_err(|error| CoreError::new(ErrorCode::Unknown, error.to_string()))
+}
+
+/// Reads or synchronizes a platform-owned shared instruction library.
+pub(crate) fn shared(request: instructions::shared::Request) -> Result<Value, CoreError> {
+    cancellation::check()?;
+    let result = instructions::shared::execute(request, &|| cancellation::check().is_err())
+        .map_err(core_error)?;
+    serde_json::to_value(result)
+        .map_err(|error| CoreError::new(ErrorCode::Unknown, error.to_string()))
+}
+
+fn core_error(error: InstructionError) -> CoreError {
+    let code = match error.reason {
+        "unsupported_agent" => ErrorCode::NotSupported,
+        "file_access" | "unsafe_file" => ErrorCode::PermissionDenied,
+        _ => ErrorCode::InvalidRequest,
+    };
+    CoreError::new(code, error.message).with_details(error.reason)
 }

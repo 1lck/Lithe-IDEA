@@ -11,6 +11,7 @@ struct AgentInstructionsAppearanceTests {
     func nativeEditorFitsSettingsAndPreservesUnicode(_ dark: Bool) async throws {
         let feature = AgentInstructionsFeatureModel(service: AppearanceInstructions())
         await feature.load()
+        feature.toggleEditor(.codex)
         for language in ["en", "zh-Hans"] {
             let resources = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
                 .deletingLastPathComponent().appendingPathComponent("Resources")
@@ -34,7 +35,7 @@ struct AgentInstructionsAppearanceTests {
                 while clock.now < deadline {
                     host.layoutSubtreeIfNeeded()
                     editors = textViews(host).filter { $0.string == AppearanceInstructions.text }
-                    if !editors.isEmpty { break }
+                    if !editors.isEmpty && feature.sharedLibrary != nil && !feature.isSharedBusy { break }
                     await Task.yield()
                 }
                 let editor = try #require(editors.first, "the shared editor must host native UTF-8 text")
@@ -75,10 +76,28 @@ private struct AppearanceInstructions: AgentInstructionsService {
                              content: Self.text, exists: true, revision: "fixture")
     }
     func save(file: AgentInstructionFile, content: String) async throws -> AgentInstructionFile { file }
+    func readShared() async throws -> SharedInstructionLibrary {
+        SharedInstructionLibrary(file: .init(agentId: "shared", path: "/fixture/library/Shared.md", content: "", exists: false, revision: "shared"),
+            agents: [SharedInstructionAgent(agentId: "codex-acp", file: try await read(agent: .codex), enabled: false,
+                                             needsSync: false, ownLineCount: 4, issue: nil),
+                     SharedInstructionAgent(agentId: "claude-acp", file: try await read(agent: .claude), enabled: false,
+                                             needsSync: false, ownLineCount: 4, issue: nil)])
+    }
 }
 
 @Suite("Global instruction contract")
 struct AgentInstructionsContractTests {
+    @Test func sharedLibraryDecodesActualUnknownAndEnabledTargets() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        struct Fixture: Decodable { let library: SharedInstructionLibrary }
+        let fixture = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: root.appendingPathComponent("shared/fixtures/agent/shared-instructions-v1.json")))
+        #expect(fixture.library.agents[0].enabled == true)
+        #expect(fixture.library.agents[1].enabled == nil)
+        #expect(fixture.library.agents[1].issue != nil)
+        #expect(fixture.library.file.agentId == "shared")
+    }
+
     @Test func sharedSnapshotsDecodeOnBothPlatforms() throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent()

@@ -725,6 +725,33 @@ Errors use the existing envelope codes with stable `details` reasons including
 `invalid_utf8`, `profile_missing`, `profile_relative`, and `busy`.
 The fixture is `shared/fixtures/agent/agent-instructions-v1.json`.
 
+`agent.instructions.shared` takes a platform-selected absolute `dataDirectory`
+from the writable application-support adapter plus one tagged action:
+
+- `read`: returns `{file, agents}` without creating files. `file` is the shared
+  `Shared.md` snapshot; each Agent reports `{agentId, file, enabled, needsSync,
+  ownLineCount, issue}`. A native read or marker failure sets `enabled: null` and
+  an actionable issue rather than claiming disabled.
+- `save`: takes `content`, `expectedRevision` for Shared.md and `files` guards
+  (`{agentId,path,revision}`) for targets. It saves the shared source, then updates
+  already-enabled native targets. A failed target retains its bytes and an issue;
+  other targets continue. `needsSync` compares the actual block with the saved source.
+- `setEnabled`: takes `agentId`, `enabled`, the shared `expectedRevision` and one
+  `file` guard. It inserts/replaces or removes only the Lithe-delimited block in the
+  effective native file; it never disables the Agent or removes its own instructions.
+
+Marker tokens are `<!-- LITHE:SHARED-INSTRUCTIONS:BEGIN -->` and
+`<!-- LITHE:SHARED-INSTRUCTIONS:END -->`. The owned range includes its separator
+newlines, so disabling restores the original bytes. Duplicate, incomplete or edited
+markers are rejected; shared content may not contain the marker tokens. Native
+source selection, size, permission, symlink and optimistic revision guards remain
+those of `agent.instructions.save`. A nonblocking OS file lock in `.sync.lock`
+serializes shared writes across app processes. Shared.md uses the same 1 MiB bound,
+private Unix modes and atomic replacement; source/target commits are individually
+atomic and partial success is explicit. Cancellation stops remaining targets and the
+next page read reconciles actual state. None of these files is a build cache or
+installed resource. The fixture is `fixtures/agent/shared-instructions-v1.json`.
+
 `agent.status`, `agent.install`, `agent.uninstall`, and `agent.installCli` manage ACP adapters in
 `<dataDirectory>/agents/<agentId>`, using the Node.js and npm the user installed.
 Lithe never installs Node.js or npm; the agents' own command-line tools are installed only through `agent.installCli` on an explicit user action. `agent.status`

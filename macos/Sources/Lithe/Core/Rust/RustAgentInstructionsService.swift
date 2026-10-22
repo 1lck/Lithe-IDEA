@@ -3,6 +3,7 @@ import LitheCoreContracts
 
 struct RustAgentInstructionsService: AgentInstructionsService {
     let core: RustCoreBridge
+    var sharedDirectory: URL? = nil
     private struct Read: Encodable, Sendable { let agentId: String }
     private struct Save: Encodable, Sendable {
         let agentId: String
@@ -20,7 +21,47 @@ struct RustAgentInstructionsService: AgentInstructionsService {
                       expectedPath: file.path, expectedRevision: file.revision))
     }
 
-    private func run<Payload: Encodable & Sendable>(_ command: String, _ payload: Payload) async throws -> AgentInstructionFile {
+    private struct SharedGuard: Encodable, Sendable {
+        let agentId: String
+        let path: String
+        let revision: String
+        init(_ file: AgentInstructionFile) { agentId = file.agentId; path = file.path; revision = file.revision }
+    }
+    private struct SharedRequest: Encodable, Sendable {
+        let dataDirectory: String
+        let action: String
+        var content: String? = nil
+        var expectedRevision: String? = nil
+        var files: [SharedGuard]? = nil
+        var agentId: String? = nil
+        var enabled: Bool? = nil
+        var file: SharedGuard? = nil
+    }
+
+    func readShared() async throws -> SharedInstructionLibrary {
+        try await run("agent.instructions.shared", SharedRequest(dataDirectory: try directory(), action: "read"))
+    }
+
+    func saveShared(content: String, library: SharedInstructionLibrary) async throws -> SharedInstructionLibrary {
+        try await run("agent.instructions.shared", SharedRequest(dataDirectory: try directory(), action: "save",
+            content: content, expectedRevision: library.file.revision,
+            files: library.agents.compactMap { $0.file.map(SharedGuard.init) }))
+    }
+
+    func setSharedEnabled(_ enabled: Bool, agent: AgentInstructionKind, library: SharedInstructionLibrary) async throws -> SharedInstructionLibrary {
+        guard let file = library.agents.first(where: { $0.agentId == agent.rawValue })?.file else {
+            throw CocoaError(.fileReadUnknown)
+        }
+        return try await run("agent.instructions.shared", SharedRequest(dataDirectory: try directory(), action: "setEnabled",
+            expectedRevision: library.file.revision, agentId: agent.rawValue, enabled: enabled, file: SharedGuard(file)))
+    }
+
+    private func directory() throws -> String {
+        guard let sharedDirectory else { throw CocoaError(.featureUnsupported) }
+        return sharedDirectory.path
+    }
+
+    private func run<Result: Decodable & Sendable, Payload: Encodable & Sendable>(_ command: String, _ payload: Payload) async throws -> Result {
         let core = core
         let operationID = UUID().uuidString
         return try await withTaskCancellationHandler {

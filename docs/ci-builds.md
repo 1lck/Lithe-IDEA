@@ -357,6 +357,12 @@ Swift 单元、插件和数据库 CI 通道复用已有 Cargo 下载缓存。先
 
 ### 独立工作树的本地编译
 
+共享指令的 `Lithe/AgentInstructions/Shared.md`、`.sync.lock` 和同目录原子保存暂存文件登记为
+`agent-instruction-library-state`，由平台 storage adapter 的 Application Support 根目录提供。
+它们是可变用户配置，不具有版本/平台/架构/工具链身份；所有工作树复用阶段均拒绝复制，
+不从其他工作树或发行包导入。原生 Agent 指令文件同样保留用户归属；暂存文件随保存完成或失败清理，
+空锁文件属于用户资料的生命周期。运行时不写 app bundle、安装目录或 Sparkle delta 基线。
+
 MCP 发现页读取的官方 Registry 在线响应登记为 `mcp-registry-metadata`，仅在当前进程内存中保存。
 响应最多 1 MiB，由 Rust Core 校验；按搜索、分页和取消请求管理生命周期，没有持久缓存、
 平台/架构/工具链身份或允许复制的阶段。资源复用脚本明确拒绝该项，不下载服务器包或图片，

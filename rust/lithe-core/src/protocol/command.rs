@@ -42,6 +42,8 @@ pub enum CoreCommand {
     AgentInstructionsRead,
     /// Saves a guarded native global instruction draft (`agent.instructions.save`).
     AgentInstructionsSave,
+    /// Synchronizes a marked shared block in native user files (`agent.instructions.shared`).
+    AgentInstructionsShared,
     /// Lists native skills or creates/imports one explicitly (`agent.skills`).
     AgentSkills,
     /// Installs a catalog ACP adapter with the user's npm (`agent.install`).
@@ -432,6 +434,7 @@ impl CoreCommand {
             "agent.status" => Some(Self::AgentStatus),
             "agent.instructions.read" => Some(Self::AgentInstructionsRead),
             "agent.instructions.save" => Some(Self::AgentInstructionsSave),
+            "agent.instructions.shared" => Some(Self::AgentInstructionsShared),
             "agent.skills" => Some(Self::AgentSkills),
             "agent.install" => Some(Self::AgentInstall),
             "agent.uninstall" => Some(Self::AgentUninstall),
