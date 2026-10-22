@@ -1293,6 +1293,15 @@ extension AppThemePreference {
         }
     }
 
+    /// Light/dark the app theme pins while a view is outside any window; nil follows the system appearance.
+    var preferredIsDark: Bool? {
+        switch self {
+        case .system: nil
+        case .light: false
+        case .dark: true
+        }
+    }
+
     var preferredColorScheme: ColorScheme? {
         switch self {
         case .system: nil

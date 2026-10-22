@@ -14,6 +14,16 @@ final class LitheTerminalView: LocalProcessTerminalView {
     private weak var metalActivationFailedWindow: NSWindow?
     private var metalFocusDelegates: [TerminalMetalFocusDelegate] = []
     private var shellShowsCursor = true
+    /// App theme light/dark preference while the view is not yet in a window; nil follows the system appearance.
+    var preferredAppearanceIsDark: (() -> Bool?)?
+
+    /// Whether the background the host reports is light: the app theme while outside any window, then the window's appearance.
+    var rendersLightBackground: Bool {
+        if window == nil, let preferredAppearanceIsDark, let pinned = preferredAppearanceIsDark() {
+            return !pinned
+        }
+        return effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) != .darkAqua
+    }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -390,10 +400,11 @@ final class MacTerminalTransport: NSObject, TerminalTransport, @preconcurrency L
     }
 
     var nativeView: AnyObject { view }
+    var reportsLightBackground: Bool? { view.rendersLightBackground }
 
     private let scrollbackLines: Int
 
-    init(scrollbackLines: Int = 2_000) {
+    init(scrollbackLines: Int = 2_000, preferredAppearanceIsDark: (() -> Bool?)? = nil) {
         self.scrollbackLines = scrollbackLines
         view = LitheTerminalView(frame: .zero)
         super.init()
@@ -406,6 +417,7 @@ final class MacTerminalTransport: NSObject, TerminalTransport, @preconcurrency L
             self?.onOutput?(data)
         }
         view.font = Self.preferredTerminalFont()
+        view.preferredAppearanceIsDark = preferredAppearanceIsDark
         view.applyThemeColors()
         view.allowMouseReporting = true
         view.linkReporting = .implicit

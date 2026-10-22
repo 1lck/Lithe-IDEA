@@ -66,6 +66,9 @@ public protocol TerminalTransport: AnyObject {
     var onTitle: ((String) -> Void)? { get set }
     var onDirectoryUpdate: ((String?) -> Void)? { get set }
     var onLink: ((String, [String: String]) -> Void)? { get set }
+    /// Whether the host terminal renders a light background, advertised through `COLORFGBG`
+    /// so TUIs pick a palette without querying; hosts that cannot tell keep it unset.
+    var reportsLightBackground: Bool? { get }
 
     func defaultShellPath() -> String
     func defaultEnvironment() -> [String: String]
@@ -89,4 +92,5 @@ public protocol TerminalTransport: AnyObject {
 public extension TerminalTransport {
     func stopAndWait() async { stop() }
     func runningPrograms() -> [TerminalRunningProgram] { [] }
+    var reportsLightBackground: Bool? { nil }
 }

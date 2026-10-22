@@ -178,6 +178,9 @@ public final class TerminalSession: ObservableObject, Identifiable {
         environment["TERM"] = "xterm-256color"
         environment["COLORTERM"] = "truecolor"
         environment["TERM_PROGRAM"] = "Lithe"
+        // fg;bg per the xterm convention; consumers like oh-my-pi read the bg field (<8 dark, >=8 light).
+        // Direct assignment drops any value inherited from the outer terminal when the host cannot report one.
+        environment["COLORFGBG"] = transport.reportsLightBackground.map { $0 ? "0;15" : "15;0" }
         for change in changes {
             if let value = change.value {
                 environment[change.name] = value

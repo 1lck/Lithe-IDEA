@@ -118,6 +118,53 @@ struct TerminalModuleTests {
     }
 
     @Test
+    func interactiveShellEnvironmentExportsColorFgbgForLightBackground() throws {
+        let transport = TestTransport()
+        transport.reportsLightBackground = true
+        let session = TerminalSession(transport: transport)
+        defer { session.stop() }
+        session.start(in: URL(fileURLWithPath: "/workspace"), shellPath: "/bin/zsh")
+
+        #expect(session.isRunning)
+        #expect(transport.shellEnvironments.first?["COLORFGBG"] == "0;15")
+    }
+
+    @Test
+    func interactiveShellEnvironmentExportsColorFgbgForDarkBackground() throws {
+        let transport = TestTransport()
+        transport.reportsLightBackground = false
+        let session = TerminalSession(transport: transport)
+        defer { session.stop() }
+        session.start(in: URL(fileURLWithPath: "/workspace"), shellPath: "/bin/zsh")
+
+        #expect(session.isRunning)
+        #expect(transport.shellEnvironments.first?["COLORFGBG"] == "15;0")
+    }
+
+    @Test
+    func interactiveShellEnvironmentOmitsColorFgbgWhenHostCannotTell() throws {
+        let transport = TestTransport()
+        let session = TerminalSession(transport: transport)
+        defer { session.stop() }
+        session.start(in: URL(fileURLWithPath: "/workspace"), shellPath: "/bin/zsh")
+
+        #expect(session.isRunning)
+        #expect(transport.shellEnvironments.first?["COLORFGBG"] == nil)
+    }
+
+    @Test
+    func interactiveShellEnvironmentClearsInheritedColorFgbgWhenHostCannotTell() throws {
+        let transport = TestTransport()
+        transport.inheritedEnvironment["COLORFGBG"] = "7;0"
+        let session = TerminalSession(transport: transport)
+        defer { session.stop() }
+        session.start(in: URL(fileURLWithPath: "/workspace"), shellPath: "/bin/zsh")
+
+        #expect(session.isRunning)
+        #expect(transport.shellEnvironments.first?["COLORFGBG"] == nil)
+    }
+
+    @Test
     func managedProcessForwardsInputToItsOwnPTY() throws {
         let transport = TestTransport()
         let feature = TerminalFeatureModel(terminalFactory: { transport })
@@ -209,6 +256,9 @@ private final class TestTransport: TerminalTransport {
     var processID: Int32? { isRunning ? 1234 : nil }
     var shellName = "Shell"
     var shellStarts: [String] = []
+    var shellEnvironments: [[String: String]] = []
+    var reportsLightBackground: Bool?
+    var inheritedEnvironment: [String: String] = ["REMOVE_ME": "old"]
     var startError: Error?
     var onTermination: ((Int32?) -> Void)?
     var onOutput: ((Data) -> Void)?
@@ -221,9 +271,10 @@ private final class TestTransport: TerminalTransport {
     var sentInputs: [String] = []
     var outputOnStart: String?
     func defaultShellPath() -> String { "/bin/zsh" }
-    func defaultEnvironment() -> [String: String] { ["REMOVE_ME": "old"] }
+    func defaultEnvironment() -> [String: String] { inheritedEnvironment }
     func start(workingDirectory: String, shellPath: String, environment: [String: String]) throws {
         shellStarts.append(shellPath)
+        shellEnvironments.append(environment)
         if let startError { throw startError }
         isRunning = true
     }
