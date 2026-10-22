@@ -170,6 +170,14 @@ Git 的补丁顺序和历史行号仍是事实来源，`planIndependentCommitDif
 单个 Git 块的控件仍只绘制一次并锚定在首个子块。原因是 JSONL 等文件插入若干行会让后续 `order` 全部变化，
 Git 会把几乎整个文件报告为一个修改块；直接按 Git 块着色时新增行与修改行同色，与 PyCharm 对照图中
 IDEA 仍把新增行标绿的结果不一致。
+2026-10-22 起，文件导航（左右文件箭头及上下差异箭头跨文件）按用户实际看到的列表顺序，而不是 Core 的路径序：
+Commit 面板的单文件与批量 Diff 使用仓库 → changelist →（文件夹树，或 added → modified → deleted → renamed →
+untracked 分组）的行顺序；Git Log 的单文件提交预览、完整提交 Diff、范围 Diff 与离散多选 Diff 使用提交文件树的
+顺序（目录节点先于文件，文件名用 IDEA 自然排序）。`orderGitStatusFilesForDisplay` 与 `gitFileTreeOrder` 是
+这两套展示顺序的唯一实现，面板与导航不得各写一份；未跟踪目录汇总行不是可导航文件，导航顺序跳过它但列表仍显示；
+Git Log 中重复路径（离散多选里同一文件的多个版本）按树顺序相邻，并保留原相对顺序。
+`workingTreeFileOrder` 仍是打开预览时的快照，状态变化后重新点击文件会按当前列表重建顺序；
+不在导航时额外读取 Git，交互预算不变。
 原生统一 Diff 通过公开 `renderIndicators: false` 关闭行号旁的增删符号；独立行号只绘数字。
 这是一项呈现增强，不将 Git 的行级脚本重新交给字符算法推断。锁文件固定来源和校验，未新增运行时下载、
 资源目录或可共享缓存；现有资源复用清单已覆盖 Bun 下载缓存，node_modules 仍是各工作树独立可变状态。

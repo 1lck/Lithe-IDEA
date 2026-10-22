@@ -140,12 +140,14 @@ test("disconnected commits retain every matching revision and its label", async 
     .mockResolvedValueOnce([diff(7)]);
   await preview({ kind: "selection", commits: [commit("C"), commit("A")] }, "a.ts");
   expect(published).toHaveLength(1);
-  expect(published[0].files.map((entry) => entry.additions)).toEqual([3, 20, 7]);
-  expect(published[0].fileLabels).toEqual(["C", "C", "A"]);
+  // Repeated paths stay adjacent in the Git Log tree order: a.ts revisions,
+  // then other.ts.
+  expect(published[0].files.map((entry) => entry.additions)).toEqual([3, 7, 20]);
+  expect(published[0].fileLabels).toEqual(["C", "A", "C"]);
   expect(published[0].fileRevisions).toEqual([
-    { before: null, after: "C" }, { before: null, after: "C" }, { before: null, after: "A" },
+    { before: null, after: "C" }, { before: null, after: "A" }, { before: null, after: "C" },
   ]);
-  expect(published[0].fileKeys).toEqual(["C:a.ts:0", "C:other.ts:1", "A:a.ts:0"]);
+  expect(published[0].fileKeys).toEqual(["C:a.ts:0", "A:a.ts:0", "C:other.ts:1"]);
   expect(published[0].totalFiles).toBe(3);
   expect(published[0].initiallySelectedFileKey).toBe("C:a.ts:0");
   expect(published[0].commitFilePreview).toBe(true);
