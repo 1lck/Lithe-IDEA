@@ -387,6 +387,7 @@ async function main() {
       // Includes agent-ui-test-evidence: fixture screenshots belong to one test
       // revision/theme/viewport, never to a reusable build or runtime resource.
       // Includes plugin-ui-icons: signed runtime packages are never build-cache inputs.
+      // Includes mcp-registry-metadata: fetched responses have no copy stage; featured.json follows Git source.
       // Includes plugin-web-state: per-window/workspace user JSON has no build identity or copy stage.
       // Includes plugin-disk-install-state: fileStorage temporary snapshots, install staging
       // and active/previous approvals are runtime-owned. Reject before resolving worktrees

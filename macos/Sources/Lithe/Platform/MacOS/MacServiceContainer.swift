@@ -756,6 +756,7 @@ final class MacServiceContainer {
             diagnosticsExportService: diagnosticsExportService,
             credentialResolver: credentialResolver,
             agentManagement: RustAgentManagementService(core: rustCore),
+            agentInstructions: RustAgentInstructionsService(core: rustCore),
             agentProviderConfigurationParser: MacAgentProviderConfigurationParser(core: rustCore),
             aiConfigurationSources: aiConfigurationSources,
             recentProjectsStore: RecentProjectsStore(store: store),
@@ -775,6 +776,7 @@ final class MacServiceContainer {
         services.mcpConfigurationStore = MacAgentMcpConfigurationStore(
             core: rustCore, storage: fileStorage
         )
+        services.mcpRegistry = MacMcpRegistry(core: rustCore)
         services.connectBuildProviderLanguageSessions = { sessions in
             buildProviderSessions.languageSessions = sessions
         }

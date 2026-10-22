@@ -603,6 +603,30 @@ stable error code and a user-facing message:
 
 ### MCP configuration
 
+`mcp.parseRegistry` accepts `{ content: string }` (at most 1 MiB UTF-8) and
+normalizes an official MCP Registry v0.1 response into `{ entries, nextCursor }`.
+Each entry has `id`, `title`, `summary`, `version`, nullable `publisher`,
+`source: "registry"`, nullable HTTPS `website` and
+nullable `draft: McpServer`. At most 100 input entries are accepted. Inactive
+records are skipped, pagination cursors remain opaque, and links containing
+credentials or unresolved variables are not offered. Only static HTTPS remote
+endpoints without header/variable inputs, or versioned npm/PyPI stdio packages
+without additional runtime/package/environment inputs, using the public default
+registry and runner, produce drafts. npm versions must be complete releases;
+mutable tags and major/minor ranges remain documentation-only. Other
+records remain documentation-only. This operation never fetches, installs or
+executes anything. Hosts own cancellable directory requests and require the
+user to review and save a draft before modifying Agent configurations.
+`shared/contracts/mcp-registry-page.json` is a portable synthetic response.
+
+`mcp.featuredRegistry` accepts `{}` and returns the same page shape with
+`source: "featured"` from the Git-owned, compile-time catalog at
+`rust/lithe-core/src/mcp/featured.json`. It performs no network, filesystem,
+package resolution or execution. Catalog package versions are pinned; remote
+requirements remain subject to the publisher's documentation. Hosts show this
+page without contacting the Registry, extend matching entries on explicit
+search, and retain available results when a directory request fails.
+
 `mcp.parseConfiguration` accepts `{ source: "codex" | "claude", scope:
 "global" | "project", content: string, projectPath?: string }` and returns
 `{ servers: McpServer[] }`. Claude project scope requires `projectPath` and reads
@@ -682,6 +706,24 @@ host-owned and may return an empty key only in this draft mode. Malformed text
 and the 64 KiB limit still fail with redacted errors. Omitting this flag keeps
 the existing parser behavior; saving still requires all fields, a compatible
 protocol and explicit consent for HTTP.
+
+`agent.instructions.read` takes `{agentId}` (`codex-acp` or `claude-acp`) and
+returns `{agentId, path, content, exists, revision}`. It does not create files.
+`agent.instructions.save` takes `{agentId, content, expectedPath, expectedRevision}`.
+The host resolves the native user profile again and rejects a changed effective
+path or byte revision before replacing the file. The result is a fresh effective
+snapshot: clearing a Codex override may return the base `AGENTS.md` instead.
+No prompt injection, account settings, repository files, or native history are
+modified. Files must be regular UTF-8 files at most 1 MiB; terminal symlinks are
+rejected. Read-only files cannot be overwritten. Existing file permissions are
+preserved; Unix new files use `0600` and new directories use `0700`.
+Save staging is a sibling temporary file removed on completion/failure.
+Other Lithe saves are serialized by a non-waiting lock; external writers do not
+share it, so revision checks are optimistic rather than an OS-wide transaction.
+Errors use the existing envelope codes with stable `details` reasons including
+`unsupported_agent`, `file_access`, `unsafe_file`, `file_changed`, `file_too_large`,
+`invalid_utf8`, `profile_missing`, `profile_relative`, and `busy`.
+The fixture is `shared/fixtures/agent/agent-instructions-v1.json`.
 
 `agent.status`, `agent.install`, `agent.uninstall`, and `agent.installCli` manage ACP adapters in
 `<dataDirectory>/agents/<agentId>`, using the Node.js and npm the user installed.
@@ -3462,3 +3504,55 @@ Core resolves its current stash position under the existing writer lease and rej
 an identity that is no longer present. Legacy positional references remain accepted.
 See `shared/fixtures/git/saved-stash-v1.json`. Native Shelf persistence is platform-owned;
 raw patch bytes are kept separately for index and working-tree versions.
+
+
+### Agent skill management
+
+`agent.skills` accepts explicit `action` values `list`, `directories`, `read`,
+`create`, `import`, and `setEnabled`, with `agentId` (`codex-acp` or `claude-acp`) and optional
+absolute `workspace`. These management operations never create an Agent session,
+send a prompt or stop a running conversation. Only an explicit `setEnabled` action changes native visibility settings.
+The shared fixture is `shared/fixtures/agent/skills-management-v1.json`.
+
+`list` returns `skills`, `source`, `issues`, and native `directories` (`user`,
+plus `repo` when a workspace is present). Each row has `name`, `description`,
+absolute `path`, native `scope` (`user`, `repo`, `system`, `admin`), optional
+`enabled` and optional `pluginId`. Paths are transient platform file-operation
+metadata, not portable persisted identifiers. Rows are sorted by lowercased name
+and path. Native Codex discovery uses the installed CLI's official `skills/list`
+with the selected cwd and `forceReload: true`, reusing the bounded App Server
+probe and process-tree cleanup. Unknown enablement remains null. Missing or
+malformed native results fail explicitly; refresh failure retains previous rows
+only within the same workspace and Agent.
+
+Claude `source: directory` is an explicitly partial inventory of
+`CLAUDE_CONFIG_DIR/skills` (default `~/.claude/skills`) and the selected workspace's
+`.claude/skills`. It does not emulate inherited-directory, plugin, policy or
+session discovery. Its `enabled` reports configured visibility: user rows read user settings; repo rows merge user, project shared and project-local settings. Absent overrides mean on, off means false, name-only/user-invocable-only mean true. Invalid or unreadable configuration leaves the affected state null. This is not effective managed policy or evidence of session availability. Codex `source: agent` is native discovery. Platform UI
+uses Global/Project as the main categories and Agent provenance as a filter.
+
+`setEnabled` requires an absolute discovered `source` path and boolean `enabled`; Claude also requires matching `scope`. It returns a fresh listing using the same shape as `list`. Codex validates the path with `skills/list`, calls official `skills/config/write`, then forces native readback and verifies the desired state. Its setting is global by path even for a project skill. Claude merges only the named `skillOverrides` on/off value into user `settings.json` for global skills, or project `.claude/settings.local.json` for project skills; it preserves unrelated JSON values and permissions, refuses malformed, linked or over-1-MiB files, uses a nonblocking cross-process lock and same-directory atomic replacement with a pre-publish snapshot check. Claude settings are by name, so same-named skills share a setting; project/managed settings can override user settings. Plugin skills are not managed through this operation. Existing session contents cannot be withdrawn: clients advise reconnecting, and never automatically interrupt a running conversation. No skill file is renamed or edited by toggling.
+
+`directories` returns only the native destination map and needs no installed
+CLI. `read` takes the selected absolute `source` path to a `SKILL.md`, reads at
+most 128 KiB of regular UTF-8 text and returns `content`. It never interprets or
+executes instructions, scripts or dynamic content in the document.
+
+`create` requires `scope` (`user` or `repo`), portable `name` (1–64 lowercase
+letters/digits separated by single hyphens), `description`, and `instructions`.
+`import` requires `scope` and an absolute, user-selected `source` (`SKILL.md` or
+its package directory). Writes return the resulting `path`. Codex targets
+`~/.agents/skills` or `<workspace>/.agents/skills`; Claude targets its native
+configuration directory or `<workspace>/.claude/skills`. Project writes require
+an opened workspace. Imports preserve package contents and file permissions,
+reject special files and symbolic links, and enforce 2,000 entries, 20 nested
+levels, 128 KiB per SKILL.md, 8 MiB per resource file and 32 MiB total. Hidden staging is removed on failure or
+cancellation; publication atomically refuses an existing target, including an
+empty directory. Existing skills and import sources are never overwritten.
+These are explicit user-owned documents, not downloaded/build/cache resources;
+no app bundle, installation resource or shared worktree cache is writable.
+
+The macOS settings surface offers search, refresh, file details, native open and
+reveal, creation and import. It keeps native loading separate from management
+and rejects stale results after project changes. Windows can use the same Core
+operations; the settings UI and Windows runtime validation remain pending.

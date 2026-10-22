@@ -299,6 +299,15 @@
       ],
       "identity": "Mutable distribution-, process-session- and operation-owned diagnostic evidence. No reliable version/platform/architecture/toolchain identity stamp; immutable previews contain redacted bytes for one explicit confirmation only.",
       "reason": "Native adapters create module logs in user log storage, expire at 30 days and enforce disk budgets. macOS owns one cache staging directory until export/cancel; Windows keeps at most four five-minute previews only in memory and atomically publishes a destination-owned temporary ZIP. Never reuse, copy or share at any worktree stage, and never write into signed packages or installed resources."
+    },
+    {
+      "id": "mcp-registry-metadata",
+      "reusable": false,
+      "locations": [
+        "<process-memory>/MCPRegistry/search-results"
+      ],
+      "identity": "Fetched public directory responses are bounded to 1 MiB, normalized by Rust Core and owned by one cancellable search; there is no persistent cache or build identity stamp. The separate featured.json catalog is Git-owned compile-time source, not a reusable generated or downloaded resource.",
+      "reason": "The macOS ephemeral URLSessions keep fetched directory metadata in memory only. Never copy, bundle or share fetched search responses between worktrees; query, pagination and the explicitly selected system/direct route belong to the current page. The static rust/lithe-core/src/mcp/featured.json catalog follows the source checkout and is compiled read-only into Core; never copy it from a runtime cache. No server packages or images are downloaded, and no runtime writes touch the installed bundle or Sparkle delta baseline."
     }
   ]
 }

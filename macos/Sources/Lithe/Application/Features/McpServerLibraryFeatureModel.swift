@@ -134,6 +134,17 @@ struct McpServerDraft: Equatable {
         headers = row.definition.headers
         enabledAgents = row.enabledGlobalAgents
     }
+
+    init(definition: McpServerDefinition) {
+        name = definition.name
+        transport = definition.transport
+        command = definition.command ?? ""
+        url = definition.url ?? ""
+        originalArguments = definition.args
+        argumentsText = definition.args.joined(separator: "\n")
+        env = definition.env
+        headers = definition.headers
+    }
 }
 
 /// Project-level Lithe registration outcome, shown next to the access section.
@@ -177,9 +188,14 @@ enum McpLibraryError: LocalizedError {
 /// Application dependencies used by the MCP library.
 @MainActor
 protocol McpServerLibraryActions: AnyObject {
+    var mcpRegistry: (any McpRegistryProviding)? { get }
     var mcpConfigurationStore: (any McpConfigurationStore)? { get }
     var mcpWorkspaceURL: URL? { get }
     var mcpLedgerStore: any KeyValueStore { get }
+}
+
+extension McpServerLibraryActions {
+    var mcpRegistry: (any McpRegistryProviding)? { nil }
 }
 
 /// Discovers, edits and removes MCP servers registered with Codex and Claude Code.
@@ -190,6 +206,7 @@ protocol McpServerLibraryActions: AnyObject {
 /// included in errors.
 @MainActor
 final class McpServerLibraryFeatureModel: ObservableObject {
+    let discovery: McpRegistryFeatureModel
     @Published private(set) var rows: [McpServerRow] = []
     @Published private(set) var isAvailable = false
     @Published private(set) var loadErrors: [String] = []
@@ -211,6 +228,7 @@ final class McpServerLibraryFeatureModel: ObservableObject {
 
     init(model: any McpServerLibraryActions) {
         self.model = model
+        discovery = McpRegistryFeatureModel(registry: model.mcpRegistry)
     }
 
     // MARK: - Discovery
@@ -295,6 +313,17 @@ final class McpServerLibraryFeatureModel: ObservableObject {
     // MARK: - Drafts
 
     func makeDraft() -> McpServerDraft { McpServerDraft() }
+
+    /// Import is a preview only. Existing Core parsing validates the JSON;
+    /// no configuration or ownership record changes until the editor saves.
+    func importedDrafts(_ json: String) throws -> [McpServerDraft] {
+        guard let store = model?.mcpConfigurationStore,
+              let file = store.configurationFiles(workspace: nil).first(where: { $0.agent == .claudeCode && $0.scope == .global })
+        else { throw McpLibraryError.unavailable }
+        let servers = try store.parse(file, content: json)
+        guard !servers.isEmpty else { throw McpLibraryError.invalidDraft(String(localized: "Paste a JSON object containing mcpServers.")) }
+        return servers.map(McpServerDraft.init(definition:))
+    }
 
     func draft(for row: McpServerRow) -> McpServerDraft { McpServerDraft(row: row) }
 

@@ -357,6 +357,14 @@ Swift 单元、插件和数据库 CI 通道复用已有 Cargo 下载缓存。先
 
 ### 独立工作树的本地编译
 
+MCP 发现页读取的官方 Registry 在线响应登记为 `mcp-registry-metadata`，仅在当前进程内存中保存。
+响应最多 1 MiB，由 Rust Core 校验；按搜索、分页和取消请求管理生命周期，没有持久缓存、
+平台/架构/工具链身份或允许复制的阶段。资源复用脚本明确拒绝该项，不下载服务器包或图片，
+也不写入 app bundle 或 Windows 安装目录，因此不改变签名和 Sparkle delta 基线。
+内置精选 `rust/lithe-core/src/mcp/featured.json` 属于 Git 跟踪的编译输入，随本工作树
+源码编译进 Core，运行时只读；不从缓存或其他工作树复制，不登记为下载/生成资源。
+查询路由默认使用系统代理，显式直连只改变当前页面的内存请求，不产生可复用状态。
+
 Cargo 社区插件在 [独立仓库](https://github.com/Lithe-IDEA/lithe-plugin-cargo) 中构建，
 最终 ZIP、摘要、vendored Node SDK 和集成测试产物由该仓库的 `dist/`、`.artifacts/` 持有，
 不作为 Lithe 主仓库的下载缓存或可复用资源。Cargo 专属清单、模型金样与兼容性测试也由

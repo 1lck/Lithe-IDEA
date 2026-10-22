@@ -1,0 +1,144 @@
+{
+  "requests": {
+    "list": {
+      "command": "agent.skills",
+      "payload": {
+        "action": "list",
+        "agentId": "codex-acp",
+        "workspace": "/fixture/workspace"
+      }
+    },
+    "directories": {
+      "command": "agent.skills",
+      "payload": {
+        "action": "directories",
+        "agentId": "claude-acp",
+        "workspace": "/fixture/workspace"
+      }
+    },
+    "create": {
+      "command": "agent.skills",
+      "payload": {
+        "action": "create",
+        "agentId": "codex-acp",
+        "workspace": "/fixture/workspace",
+        "scope": "repo",
+        "name": "example-skill",
+        "description": "Use for a specific workflow",
+        "instructions": "Inspect the project and explain the result."
+      }
+    },
+    "import": {
+      "command": "agent.skills",
+      "payload": {
+        "action": "import",
+        "agentId": "claude-acp",
+        "workspace": "/fixture/workspace",
+        "scope": "user",
+        "source": "/fixture/import/example-skill"
+      }
+    },
+    "read": {
+      "command": "agent.skills",
+      "payload": {
+        "action": "read",
+        "agentId": "codex-acp",
+        "source": "/fixture/home/.agents/skills/shared-checks/SKILL.md"
+      }
+    },
+    "setEnabled": {
+      "command": "agent.skills",
+      "payload": {
+        "action": "setEnabled",
+        "agentId": "codex-acp",
+        "workspace": "/fixture/workspace",
+        "source": "/fixture/workspace/.agents/skills/project-workflow/SKILL.md",
+        "enabled": false,
+        "scope": "repo"
+      }
+    }
+  },
+  "nativeCodex": {
+    "data": [
+      {
+        "cwd": "/fixture/workspace",
+        "skills": [
+          {
+            "name": "plugin-helper",
+            "description": "Use the plugin helper",
+            "path": "/fixture/plugins/helper/SKILL.md",
+            "scope": "user",
+            "enabled": true,
+            "pluginId": "helper@example"
+          },
+          {
+            "name": "project-workflow",
+            "description": "Use for this project",
+            "path": "/fixture/workspace/.agents/skills/project-workflow/SKILL.md",
+            "scope": "repo",
+            "enabled": false,
+            "pluginId": null
+          },
+          {
+            "name": "shared-checks",
+            "description": "Use for common checks",
+            "path": "/fixture/home/.agents/skills/shared-checks/SKILL.md",
+            "scope": "user",
+            "enabled": true,
+            "pluginId": null
+          }
+        ],
+        "errors": []
+      }
+    ]
+  },
+  "normalizedCodex": {
+    "skills": [
+      {
+        "name": "plugin-helper",
+        "description": "Use the plugin helper",
+        "path": "/fixture/plugins/helper/SKILL.md",
+        "scope": "user",
+        "enabled": true,
+        "pluginId": "helper@example"
+      },
+      {
+        "name": "project-workflow",
+        "description": "Use for this project",
+        "path": "/fixture/workspace/.agents/skills/project-workflow/SKILL.md",
+        "scope": "repo",
+        "enabled": false,
+        "pluginId": null
+      },
+      {
+        "name": "shared-checks",
+        "description": "Use for common checks",
+        "path": "/fixture/home/.agents/skills/shared-checks/SKILL.md",
+        "scope": "user",
+        "enabled": true,
+        "pluginId": null
+      }
+    ],
+    "source": "agent",
+    "issues": [],
+    "directories": {}
+  },
+  "claudeInventory": {
+    "skills": [
+      {
+        "name": "local-review",
+        "description": "Review this project's changes",
+        "path": "/fixture/workspace/.claude/skills/local-review/SKILL.md",
+        "scope": "repo",
+        "enabled": false,
+        "pluginId": null
+      }
+    ],
+    "source": "directory",
+    "issues": [],
+    "directories": {
+      "user": "/fixture/home/.claude/skills",
+      "repo": "/fixture/workspace/.claude/skills"
+    }
+  }
+}
