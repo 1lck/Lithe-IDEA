@@ -434,7 +434,7 @@ They must not derive these counters from context occupancy or subscription quota
 `acp-events-v1.json` covers completion both with and without usage.
 
 The launch JSON's optional `observeSubagents` (default `false`) negotiates the
-pinned adapters' AIR v1 `nativeSubagentSessions` capability. macOS enables it;
+pinned adapters' AIR v1 `nativeSubagentSessions` capability. macOS and Windows enable it;
 consumers without child-session UI omit it. Native execution and history remain
 upstream-owned. `update` preserves the immediate parent `sessionId` and the
 adapter's `subagent_spawned` payload (`subagentSessionId`, `name`, `task`,

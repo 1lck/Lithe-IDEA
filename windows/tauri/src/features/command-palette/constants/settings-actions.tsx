@@ -69,6 +69,7 @@ const settingsTabLabels: Record<SettingsTab, string> = {
   git: "Git",
   appearance: "Appearance",
   ai: "AI",
+  agents: "Agents",
   "ai-commit": "AI & Commit",
   keyboard: "Keybindings",
   language: "Editor",

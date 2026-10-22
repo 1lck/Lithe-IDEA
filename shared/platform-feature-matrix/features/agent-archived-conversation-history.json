@@ -17,11 +17,17 @@
   },
   "windows": {
     "evidence": [
-      "rust/lithe-agent-host/src/codex_history.rs"
+      "rust/lithe-agent-host/src/codex_history.rs",
+      "windows/tauri/src/features/agent/components/agent-history-list.tsx",
+      "windows/tauri/src/features/agent/stores/agent-connection.model.ts",
+      "windows/tauri/src/features/agent/services/agent-transport.ts",
+      "windows/tauri/src/features/agent/components/agent-archived-history.tsx",
+      "windows/tauri/src/features/agent/stores/agent-parity.test.ts"
     ],
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable"
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
   },
   "owner": "Agent",
-  "verification": "macOS：Codex（订阅与 API Key 两种模式）打开历史页，确认“已归档（N）”默认折叠、只含当前工作区（路径大小写/尾斜杠按 codex-acp 规则）的归档会话且带“已归档”标记，与 Lithe 本地“已移除”互不影响；搜索标题或 ID 能命中归档会话并自动展开，清空搜索后恢复折叠；超过 Host 分页上限时，即使当前工作区结果为空、分组折叠或搜索无命中也显示“仅显示最近的归档会话”，不误报没有历史/没有匹配；让归档和活跃响应分别先返回，已加载与未打开的活跃转归档会话都在本轮刷新后仅出现在归档分组；在“已移除”中恢复归档会话只清除本地隐藏标记，保留标题与收藏，不取消归档或加载；浏览、刷新、搜索不改变 ~/.codex 下的归档状态。点击归档会话先弹出确认，取消不发送任何请求，确认后会话移回活跃历史并打开，失败时保留在归档分组并显示错误。恢复成功先于此前活跃与归档列表响应时，两个旧响应均失效，重新查询双列表；旧响应无论何种先后顺序、紧接成功事件或异步等待返回后到达，都不能把已恢复会话重新放回归档、结束新刷新或覆盖完整性状态。切换工作区、切换 Agent 或断开连接后归档列表清空，不混入旧结果。Claude 连接显示“Claude 不支持归档会话”且不请求归档列表。Windows 共享 Host 已提供协议，页面待实现。 Codex 历史时间与排序使用上游 recencyAt：只查看/恢复旧会话、刷新、重命名或收藏后时间和顺序保持；新一轮对话活动出现后更新。活跃与归档一致，缺失活动时间不回退到元数据更新时间或当前时间；读取失败保留已有列表。保留历史页和弹框外观。"
+  "verification": "macOS：Codex（订阅与 API Key 两种模式）打开历史页，确认“已归档（N）”默认折叠、只含当前工作区（路径大小写/尾斜杠按 codex-acp 规则）的归档会话且带“已归档”标记，与 Lithe 本地“已移除”互不影响；搜索标题或 ID 能命中归档会话并自动展开，清空搜索后恢复折叠；超过 Host 分页上限时，即使当前工作区结果为空、分组折叠或搜索无命中也显示“仅显示最近的归档会话”，不误报没有历史/没有匹配；让归档和活跃响应分别先返回，已加载与未打开的活跃转归档会话都在本轮刷新后仅出现在归档分组；在“已移除”中恢复归档会话只清除本地隐藏标记，保留标题与收藏，不取消归档或加载；浏览、刷新、搜索不改变 ~/.codex 下的归档状态。点击归档会话先弹出确认，取消不发送任何请求，确认后会话移回活跃历史并打开，失败时保留在归档分组并显示错误。恢复成功先于此前活跃与归档列表响应时，两个旧响应均失效，重新查询双列表；旧响应无论何种先后顺序、紧接成功事件或异步等待返回后到达，都不能把已恢复会话重新放回归档、结束新刷新或覆盖完整性状态。切换工作区、切换 Agent 或断开连接后归档列表清空，不混入旧结果。Claude 连接显示“Claude 不支持归档会话”且不请求归档列表。共享 Host 与 Windows Tauri/React 已接入归档列表、分页/完整性状态、与活跃历史独立的新鲜度缓存和确认后恢复。独立状态机测试覆盖恢复与并发旧响应；本次真实 Tauri 验收使用受控 ACP fixture，真实 Codex 账户执行仍待完成。 Codex 历史时间与排序使用上游 recencyAt：只查看/恢复旧会话、刷新、重命名或收藏后时间和顺序保持；新一轮对话活动出现后更新。活跃与归档一致，缺失活动时间不回退到元数据更新时间或当前时间；读取失败保留已有列表。保留历史页和弹框外观。",
+  "notes": "2026-10-22：Windows 已接入 Codex 归档分组、历史页显示、恢复命令及并发响应保护。真实 Codex 账户端到端验收仍待完成。"
 }

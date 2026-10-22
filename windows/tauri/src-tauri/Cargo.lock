@@ -2937,6 +2937,7 @@ dependencies = [
  "notify-debouncer-mini",
  "serde",
  "sha2",
+ "windows 0.61.3",
  "windows-sys 0.61.2",
 ]
 
