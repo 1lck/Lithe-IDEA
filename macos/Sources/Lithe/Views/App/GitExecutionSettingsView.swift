@@ -8,7 +8,8 @@ import LitheGitModule
 /// repository and chooses whether Git-backed rows write to it or to the
 /// global Git configuration.
 struct GitSettingsPage: View {
-    @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var settingsContext: SettingsModelContext
+    private var model: AppModel { settingsContext.model }
     @ObservedObject var settings: AppSettings
     @State private var feature: GitFeatureModel?
 

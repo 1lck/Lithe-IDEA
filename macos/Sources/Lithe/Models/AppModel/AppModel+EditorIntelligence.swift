@@ -16,7 +16,8 @@ extension AppModel {
         )
         guard signature != languageSessionChromeSignature else { return }
         languageSessionChromeSignature = signature
-        scheduleObjectWillChangeRelay()
+        // Settings language pages observe `AppModel` directly for server status.
+        scheduleObjectWillChangeRelay(affectsSettings: false)
     }
 
     func refreshEditorDiagnosticsStore() {

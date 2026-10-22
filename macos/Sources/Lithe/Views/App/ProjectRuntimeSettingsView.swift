@@ -3,6 +3,8 @@ import SwiftUI
 import LitheCoreContracts
 
 struct ProjectRuntimeSettingsView: View {
+    /// Observes the model: this page shows live run and Maven feature state,
+    /// which the settings window's `SettingsModelContext` does not republish.
     @EnvironmentObject private var model: AppModel
     @ObservedObject var feature: RuntimeSettingsFeatureModel
     @State private var subprojectListActive = false
