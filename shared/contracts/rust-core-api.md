@@ -1743,7 +1743,12 @@ case-insensitive `*`/`?` matcher applies to a basename or root-relative path (`*
 can span `/`). A trailing `/` explicitly marks a root-relative directory glob:
 match it before descending into a directory and against ancestors of directly
 reported file updates. The UI adds the root form for leading `**/`; ordinary
-file globs retain their file-only semantics. Empty user exclusions preserve the
+file globs retain their file-only semantics, except that a plain name without
+`*`, `?` or `/` (such as `.lithe`) also hides same-named directories at any
+depth, so a folder typed into the file patterns is not left half visible. The macOS file watcher is the
+one place that does not follow this for the workspace-root `.lithe` folder: hiding it removes it from the
+tree and listings, but its file events are still delivered (except built-in noise such as
+`.lithe/run/local.json`) because editing its JSON files reloads project services. Empty user exclusions preserve the
 normal visibility rules. Search settings changes invalidate only the search
 cache, not the workspace tree. Each root retains at most one content and one
 names-only rule variant; superseded allocations are released when active

@@ -57,6 +57,15 @@ package struct FileVisibilityRules: Hashable, Sendable {
         }
 
         let directoryCount = isDirectory == false ? max(0, components.count - 1) : components.count
+        // A plain name such as `.lithe` cannot say whether it means a file or a
+        // folder, so it also hides same-named directories at any depth. Globs keep
+        // their file-only meaning and `/` marks a folder pattern, as pinned by
+        // `shared/fixtures/search/exclusions.json`.
+        let hidesFolder = hiddenFilePatterns.contains { pattern in
+            Self.isPlainName(pattern)
+                && components.prefix(directoryCount).contains { pattern.caseInsensitiveCompare($0) == .orderedSame }
+        }
+        if hidesFolder { return true }
         for pattern in hiddenFilePatterns where pattern.hasSuffix("/") {
             for count in 1..<(directoryCount + 1) {
                 if Self.globMatches(String(pattern.dropLast()), value: components.prefix(count).joined(separator: "/")) {
@@ -75,8 +84,28 @@ package struct FileVisibilityRules: Hashable, Sendable {
         isHidden(url, relativeTo: rootURL, isDirectory: nil)
     }
 
+    /// The project configuration folder at the workspace root. It is the only
+    /// folder a hidden-path rule may remove from the tree while its file events
+    /// stay watched, because edits to its JSON files reload project services.
+    package static let watchedConfigurationDirectory = ".lithe"
+
+    /// Whether file events at `url` must still be delivered although the rules
+    /// hide it. Only the built-in noise below the configuration folder, such as
+    /// `.lithe/run/local.json`, stays dropped.
+    package func isWatchedDespiteHiding(_ url: URL, relativeTo rootURL: URL) -> Bool {
+        let relativePath = relativePath(for: url, root: rootURL)
+        guard relativePath.split(separator: "/").first.map(String.init) == Self.watchedConfigurationDirectory
+        else { return false }
+        return !Self.default.isHiddenPath(url, relativeTo: rootURL)
+    }
+
     package func isHiddenDirectoryName(_ name: String) -> Bool {
         hiddenDirectoryNames.contains { $0.caseInsensitiveCompare(name) == .orderedSame }
+    }
+
+    /// A literal name: no glob wildcard and no path separator.
+    private static func isPlainName(_ pattern: String) -> Bool {
+        !pattern.contains { $0 == "*" || $0 == "?" || $0 == "/" }
     }
 
     private static func normalizedEntries(_ values: [String]) -> [String] {

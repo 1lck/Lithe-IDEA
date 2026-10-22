@@ -3,7 +3,8 @@
     "cache/",
     "**/.*/",
     ".*/",
-    "*.log"
+    "*.log",
+    "generated"
   ],
   "cases": [
     {
@@ -59,6 +60,36 @@
     {
       "path": "src/Name.swift",
       "isDirectory": false,
+      "hidden": false
+    },
+    {
+      "path": "generated",
+      "isDirectory": true,
+      "hidden": true
+    },
+    {
+      "path": "src/Generated",
+      "isDirectory": true,
+      "hidden": true
+    },
+    {
+      "path": "src/generated/Name.swift",
+      "isDirectory": false,
+      "hidden": true
+    },
+    {
+      "path": "src/generated",
+      "isDirectory": false,
+      "hidden": true
+    },
+    {
+      "path": "src/generated.txt",
+      "isDirectory": false,
+      "hidden": false
+    },
+    {
+      "path": "src/generated-docs",
+      "isDirectory": true,
       "hidden": false
     }
   ]

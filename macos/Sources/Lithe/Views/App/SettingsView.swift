@@ -602,29 +602,29 @@ struct SettingsView: View {
                 }
             }
 
-            group("Hidden paths", info: "One entry per line. Directory names hide matching folders; file entries support * and ?.") {
-                Text("Directories")
-                    .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
-                TextEditor(text: $viewState.hiddenDirectoriesDraft)
-                    .litheSettingsTextEditor(height: 66)
-
-                Text("File patterns")
-                    .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
-                TextEditor(text: $viewState.hiddenFilePatternsDraft)
-                    .litheSettingsTextEditor(height: 52)
-
-                HStack(spacing: 8) {
-                    Spacer()
+            group("Hidden paths", info: "One entry per line. A plain name hides matching files and folders at any depth; * and ? match files; end with / to match a folder path from the project root.") {
+                // One card line: the two lists side by side with Apply beneath.
+                VStack(alignment: .trailing, spacing: 6) {
+                    HStack(alignment: .top, spacing: 12) {
+                        hiddenPathsEditor("Directories", text: $viewState.hiddenDirectoriesDraft)
+                        hiddenPathsEditor("File patterns", text: $viewState.hiddenFilePatternsDraft)
+                    }
                     Button("Apply") { applyVisibilityDrafts() }
-                        .buttonStyle(LithePrimaryButtonStyle(
-                            backgroundColor: LitheTheme.settingsPrimaryAction,
-                            restingOpacity: 1
-                        ))
+                        .buttonStyle(LitheSecondaryButtonStyle(horizontalPadding: 14, height: 26, fontSize: 12))
                 }
             }
-
-
         }
+    }
+
+    private func hiddenPathsEditor(_ title: String, text: Binding<String>) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(LocalizedStringKey(title))
+                .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
+            TextEditor(text: text)
+                .litheSettingsTextEditor(height: 52)
+                .accessibilityLabel(Text(LocalizedStringKey(title)))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func autoSaveDelayTitle(_ delay: Double) -> String {

@@ -783,6 +783,22 @@ impl VisibilityRules {
             return true;
         }
         let directory_count = components.len().saturating_sub(usize::from(!is_directory));
+        // A plain name such as `.lithe` cannot say whether it means a file or a
+        // folder, so it also hides same-named directories at any depth. Globs keep
+        // their file-only meaning and `/` marks a folder pattern, as pinned by
+        // `shared/fixtures/search/exclusions.json`.
+        if self
+            .hidden_file_patterns
+            .iter()
+            .filter(|pattern| is_plain_name(pattern))
+            .any(|name| {
+                components[..directory_count]
+                    .iter()
+                    .any(|component| name.eq_ignore_ascii_case(component))
+            })
+        {
+            return true;
+        }
         for glob in self
             .hidden_file_patterns
             .iter()
@@ -801,6 +817,11 @@ impl VisibilityRules {
             .iter()
             .any(|pattern| glob_matches(pattern, last) || glob_matches(pattern, path))
     }
+}
+
+/// Whether a hidden-path entry is a literal name: no glob wildcard and no path separator.
+fn is_plain_name(pattern: &str) -> bool {
+    !pattern.contains(['*', '?', '/'])
 }
 
 fn scan_node(

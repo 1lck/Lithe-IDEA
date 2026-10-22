@@ -566,6 +566,21 @@ impl VisibilityRules {
         }) {
             return true;
         }
+        // Mirrors the project tree: a plain name in the file patterns, such as
+        // `.lithe`, also hides same-named folders and everything below them.
+        let directory_count = components.len().saturating_sub(usize::from(!is_directory));
+        if self
+            .files
+            .iter()
+            .filter(|pattern| !pattern.contains(['*', '?', '/']))
+            .any(|name| {
+                components[..directory_count]
+                    .iter()
+                    .any(|component| name.eq_ignore_ascii_case(component))
+            })
+        {
+            return true;
+        }
         if is_directory {
             return false;
         }
