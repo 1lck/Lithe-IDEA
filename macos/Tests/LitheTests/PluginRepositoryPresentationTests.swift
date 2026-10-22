@@ -91,4 +91,47 @@ struct PluginRepositoryPresentationTests {
         #expect(!text.contains("ago"))
         #expect(text == fetchedAt.formatted(Date.FormatStyle(date: .abbreviated, time: .shortened).locale(Self.locale)))
     }
+
+    /// The built-in source and the preset Lithe Store carry the "Official"
+    /// tag; a repository the user added, even another GitHub one, is
+    /// "Community".
+    @Test
+    func litheRunSourcesAreTaggedOfficialAndOthersCommunity() {
+        let official = Self.source(
+            id: PluginMarketplaceSource.officialID,
+            input: "https://raw.githubusercontent.com/Lithe-IDEA/Lithe-IDEA/HEAD/Plugins/marketplace/index.json",
+            indexURL: "https://raw.githubusercontent.com/Lithe-IDEA/Lithe-IDEA/HEAD/Plugins/marketplace/index.json"
+        )
+        let store = Self.source(
+            id: PluginMarketplaceSource.communityID,
+            input: "https://github.com/Lithe-IDEA/Lithe-store",
+            indexURL: PluginMarketplaceSource.communityIndexURL
+        )
+        let userAdded = Self.source(
+            id: PluginMarketplaceSource.id(forIndexURL: "https://raw.githubusercontent.com/someone/plugins/HEAD/lithe-plugin-index.json"),
+            input: "https://github.com/someone/plugins",
+            indexURL: "https://raw.githubusercontent.com/someone/plugins/HEAD/lithe-plugin-index.json"
+        )
+
+        #expect(PluginMarketplacePresentation.isLitheRun(official))
+        #expect(PluginMarketplacePresentation.isLitheRun(store))
+        #expect(!PluginMarketplacePresentation.isLitheRun(userAdded))
+    }
+
+    /// Formatters are shared per locale; a second call, and a call in another
+    /// locale between them, must still format in the locale asked for.
+    @Test
+    func sharedFormatterKeepsEachLocaleSeparate() {
+        let fetchedAt = Self.now.addingTimeInterval(-5 * 60)
+        let chinese = Locale(identifier: "zh_Hans")
+
+        let first = PluginMarketplacePresentation.refreshedTime(fetchedAt, now: Self.now, locale: Self.locale)
+        let other = PluginMarketplacePresentation.refreshedTime(fetchedAt, now: Self.now, locale: chinese)
+        let again = PluginMarketplacePresentation.refreshedTime(fetchedAt, now: Self.now, locale: Self.locale)
+
+        #expect(first == "5 minutes ago")
+        #expect(again == first)
+        #expect(other != first)
+        #expect(other.contains("5"))
+    }
 }

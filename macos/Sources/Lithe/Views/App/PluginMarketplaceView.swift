@@ -617,6 +617,27 @@ private enum PluginMarketplaceIconImages {
     }
 }
 
+/// One `RelativeDateTimeFormatter` per locale, shared by every caller.
+private final class RelativeTimeFormatters: @unchecked Sendable {
+    private let lock = NSLock()
+    private var formatters: [String: RelativeDateTimeFormatter] = [:]
+
+    func string(for date: Date, relativeTo now: Date, locale: Locale) -> String {
+        lock.lock()
+        defer { lock.unlock() }
+        let formatter: RelativeDateTimeFormatter
+        if let cached = formatters[locale.identifier] {
+            formatter = cached
+        } else {
+            formatter = RelativeDateTimeFormatter()
+            formatter.locale = locale
+            formatter.unitsStyle = .full
+            formatters[locale.identifier] = formatter
+        }
+        return formatter.localizedString(for: date, relativeTo: now)
+    }
+}
+
 enum PluginMarketplacePresentation {
     /// IDEA-style avatar text for a plugin without a usable icon. A name that
     /// starts with a CJK character shows that one character; otherwise the
@@ -683,6 +704,17 @@ enum PluginMarketplacePresentation {
         return path.isEmpty ? source.input : path.joined(separator: "/")
     }
 
+    /// Reused across rows and ticks: a formatter is costly to build, and the
+    /// sheet formats every listed repository on each clock tick.
+    private static let relativeFormatters = RelativeTimeFormatters()
+
+    /// Whether the repository is run by the Lithe team: the built-in source and
+    /// the preset Lithe Store. The repository list tags these "Official" and
+    /// every source the user added "Community".
+    static func isLitheRun(_ source: PluginMarketplaceSource) -> Bool {
+        source.isOfficial || source.id == PluginMarketplaceSource.communityID
+    }
+
     /// How long ago a repository was fetched, for "Refreshed %@": "just now"
     /// under a minute, a relative phrase up to a week, and the date after that,
     /// where "3 weeks ago" would hide the day the index was actually fetched.
@@ -691,10 +723,7 @@ enum PluginMarketplacePresentation {
         let age = now.timeIntervalSince(fetchedAt)
         if age < 60 { return localized("just now", locale: locale) }
         if age < 7 * 24 * 60 * 60 {
-            let formatter = RelativeDateTimeFormatter()
-            formatter.locale = locale
-            formatter.unitsStyle = .full
-            return formatter.localizedString(for: fetchedAt, relativeTo: now)
+            return relativeFormatters.string(for: fetchedAt, relativeTo: now, locale: locale)
         }
         return fetchedAt.formatted(Date.FormatStyle(date: .abbreviated, time: .shortened).locale(locale))
     }
@@ -954,14 +983,19 @@ struct PluginRepositoriesSheet: View {
                     .foregroundStyle(LitheTheme.warning)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            ScrollView {
-                LitheSettingsCard {
-                    ForEach(feature.sources) { source in
-                        sourceRow(source)
+            // One clock for the whole list: the refresh times are relative, so
+            // they re-read it while the sheet stays open instead of saying
+            // "just now" for an hour, and many repositories still share a timer.
+            TimelineView(.periodic(from: .now, by: 15)) { context in
+                ScrollView {
+                    LitheSettingsCard {
+                        ForEach(feature.sources) { source in
+                            sourceRow(source, now: context.date)
+                        }
                     }
                 }
+                .frame(maxHeight: 320)
             }
-            .frame(maxHeight: 320)
             HStack {
                 Button(LocalizedStringKey("Refresh All")) {
                     Task { await feature.refreshAll() }
@@ -1005,13 +1039,16 @@ struct PluginRepositoriesSheet: View {
         }
     }
 
-    private func sourceRow(_ source: PluginMarketplaceSource) -> some View {
+    private func sourceRow(_ source: PluginMarketplaceSource, now: Date) -> some View {
         let status = feature.sourceStatuses[source.id] ?? .init()
         return HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(verbatim: PluginMarketplacePresentation.sourceName(source, locale: locale))
-                    .font(LitheTheme.uiFont(size: 13, weight: .semibold))
-                    .foregroundStyle(LitheTheme.primaryText)
+                HStack(spacing: 6) {
+                    Text(verbatim: PluginMarketplacePresentation.sourceName(source, locale: locale))
+                        .font(LitheTheme.uiFont(size: 13, weight: .semibold))
+                        .foregroundStyle(LitheTheme.primaryText)
+                    PluginTrustBadge(isOfficial: PluginMarketplacePresentation.isLitheRun(source))
+                }
                 Text(verbatim: PluginMarketplacePresentation.sourceLocation(source))
                     .font(LitheTheme.uiFont(size: 12, design: .monospaced))
                     .foregroundStyle(LitheTheme.secondaryText)
@@ -1019,14 +1056,10 @@ struct PluginRepositoriesSheet: View {
                     .truncationMode(.middle)
                     .textSelection(.enabled)
                     .help(source.indexURL)
-                // The refresh time is relative, so it re-reads the clock while
-                // the sheet stays open instead of saying "just now" for an hour.
-                TimelineView(.periodic(from: .now, by: 15)) { context in
-                    Text(verbatim: statusText(status, source: source, now: context.date))
-                        .font(LitheTheme.smallFont)
-                        .foregroundStyle(status.error == nil ? LitheTheme.secondaryText : LitheTheme.warning)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+                Text(verbatim: statusText(status, source: source, now: now))
+                    .font(LitheTheme.smallFont)
+                    .foregroundStyle(status.error == nil ? LitheTheme.secondaryText : LitheTheme.warning)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 8)
             if status.isRefreshing {
