@@ -169,6 +169,15 @@ fn execute(request: &str) -> CoreResponse {
             Ok(data) => CoreResponse::success(id, data),
             Err(error) => CoreResponse::failure(id, error),
         },
+        CoreCommand::McpProbe => agent_response(id, parsed.payload, crate::mcp::probe),
+        CoreCommand::McpToolPolicy => match crate::mcp::tool_policy(parsed.payload) {
+            Ok(data) => CoreResponse::success(id, data),
+            Err(error) => CoreResponse::failure(id, error),
+        },
+        CoreCommand::McpCommandLine => match crate::mcp::command_line(parsed.payload) {
+            Ok(data) => CoreResponse::success(id, data),
+            Err(error) => CoreResponse::failure(id, error),
+        },
         CoreCommand::McpPlanWrite => match crate::mcp::plan_write(parsed.payload) {
             Ok(data) => CoreResponse::success(id, data),
             Err(error) => CoreResponse::failure(id, error),

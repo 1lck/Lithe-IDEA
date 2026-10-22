@@ -14,6 +14,7 @@ mod codex_retry;
 pub mod environment;
 pub mod install;
 pub mod instructions;
+pub mod mcp_probe;
 mod model_calls;
 mod model_proxy;
 mod prompt;

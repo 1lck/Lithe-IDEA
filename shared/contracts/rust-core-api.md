@@ -603,6 +603,44 @@ stable error code and a user-facing message:
 
 ### MCP configuration
 
+`mcp.probe` accepts a user-reviewed connection `{transport, command?, args?, env?,
+url?, headers?}` with only those fields. Agent Host uses the pinned official
+rmcp SDK for initialization, session handling and paginated `tools/list`; it
+never sends `tools/call`. Results are `{tools:[{name,description}]}`, sorted by
+name, deduplicated, bounded to 1000 tools/20 pages/2 MiB of metadata. stdio input
+and each HTTP response body are bounded before decoding. A probe has a
+30-second request budget plus bounded cleanup, cancellation is cooperative,
+and stdio children and their process groups are reaped on completion or cancel.
+HTTP accepts HTTPS and loopback HTTP, rejects credential-bearing URLs and
+redirects, preserves TLS verification and explicit headers, and uses no cookie
+store. It does not inherit another Agent's OAuth session or unmapped native
+configuration options. Legacy `sse` remains a configurable transport but this
+SDK probe returns `not_supported` rather than inventing a healthy status.
+The host must require an explicit detection action; launching local code or
+package runners also requires the product's execution confirmation.
+
+`mcp.toolPolicy` is a pure text operation with `{source,content,server,tools,
+owned?,tool?,enabled?}`. `source` is `codex` or `claude`; omission of `tool` and
+`enabled` reads current policy. It returns `{content,changed,owned,tools,
+hasRestrictions}`. The returned tools contain `{name,enabled,editable}`.
+Codex uses entry-local `disabled_tools`, preserving `enabled_tools`; Claude's
+input is its user `settings.json`, editing only `permissions.deny` with exact
+`mcp__<normalized-server>__<normalized-tool>` rules. Unknown settings/formatting
+outside the targeted value survive. Existing unowned denies, broad wildcard
+rules, allow-list exclusions and ambiguous normalized names are not relaxed.
+Hosts retain the exact added tool names by native path/server, validate full
+file snapshots before atomic writes, and never treat a read as ownership.
+Policies describe the user configuration; project/managed settings and live
+Agent sessions may differ. Claude server renames are refused while user MCP
+restrictions exist, to avoid re-enabling tools under a new name.
+
+`mcp.commandLine` accepts `{action:"format",command,args}` to return `{line}`,
+or `{action:"parse",line}` to return `{command,args}`. POSIX shell-style quoting
+is only a lossless text projection: hosts pass argv directly, never evaluate a
+shell, substitutions, pipes or redirects. Blank and embedded-newline arguments
+are preserved; malformed quoting is rejected. These operations and probe
+results use `shared/fixtures/mcp/tools-v1.json` as a synthetic contract fixture.
+
 `mcp.parseRegistry` accepts `{ content: string }` (at most 1 MiB UTF-8) and
 normalizes an official MCP Registry v0.1 response into `{ entries, nextCursor }`.
 Each entry has `id`, `title`, `summary`, `version`, nullable `publisher`,

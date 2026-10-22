@@ -3894,3 +3894,30 @@
 "Add at least one absolute folder path after the package argument, one per line. Filesystem can read and write only in the folders you allow. Requires Node.js 24 or later." = "在包参数后至少添加一个文件夹的绝对路径，每行一个。Filesystem 只可读写你允许的文件夹。需要 Node.js 24 或更高版本。";
 "Enter an Authorization header with Bearer and your GitHub token." = "请填写 Authorization 请求头，内容为 Bearer 加空格和 GitHub 令牌。";
 "Add at least one absolute allowed folder path after the Filesystem package argument." = "请在 Filesystem 包参数后至少添加一个允许访问的文件夹绝对路径。";
+
+/* MCP native tools inspection and compact editor */
+"Server tools" = "服务器工具";
+"%d tools" = "%d 个工具";
+"Not detected" = "未检测";
+"Detect again" = "重新检测";
+"Detect tools" = "检测工具";
+"Reload tool settings" = "重新加载工具设置";
+"This server reported no tools." = "服务器未提供工具。";
+"Run this MCP command?" = "运行此 MCP 命令？";
+"Run and detect" = "运行并检测";
+"Remove from library" = "从资源库移除";
+"Detection starts the configured executable and may download packages. Continue only if you trust this server. Lithe will list tools, then stop the probe process." = "检测会运行配置的程序，并可能下载软件包。请仅对信任的服务器继续。Lithe 会读取工具列表，然后停止检测进程。";
+"Detection connects to this server and lists tool metadata without calling any tool. Local commands may run code or download packages. Results describe this check, not the availability of an existing Agent session. Tool switches apply to the selected Agent's user configuration; project and managed policies can still restrict access. Start a new Agent session after changes." = "检测会连接服务器并读取工具信息，不会调用工具。本地命令可能执行代码或下载软件包。结果仅代表此次检测，不代表已有 Agent 会话的状态。工具开关作用于所选 Agent 的用户配置，项目或受管规则仍可能限制访问。修改后请新建 Agent 会话。";
+"This tool is restricted outside Lithe. Edit the native Agent policy to enable it." = "该工具已被 Lithe 之外的规则限制，请编辑 Agent 原生规则后再启用。";
+"Enter the executable and arguments as in a terminal. Quote paths with spaces. Lithe passes exact arguments without running a shell; pipes and redirects are not evaluated." = "按终端形式输入程序和参数，含空格的路径请加引号。Lithe 直接传递参数，不运行 Shell，也不解释管道或重定向。";
+"Could not read the command line." = "无法读取命令行。";
+"Check command-line quotes before saving." = "请检查命令行中的引号后再保存。";
+"Check the MCP command, URL and headers." = "请检查 MCP 命令、URL 和请求头。";
+"Legacy SSE probing is unavailable. Use the publisher's Streamable HTTP endpoint." = "暂不支持检测旧式 SSE 连接，请使用发布者提供的 Streamable HTTP 地址。";
+"Could not start the MCP command. Check its executable and runtime." = "无法启动 MCP 命令，请检查程序及所需运行时。";
+"MCP connection failed. Check the server, network and authentication." = "MCP 连接失败，请检查服务器、网络及认证。";
+"MCP tool metadata exceeded the inspection limit." = "MCP 工具信息超过检测上限。";
+"MCP detection timed out after 30 seconds." = "MCP 检测已超时（30 秒）。";
+"MCP detection was cancelled." = "MCP 检测已取消。";
+"Invalid MCP tool configuration" = "MCP 工具配置无效";
+"Claude Code has MCP tool restrictions. Update its native rules before renaming a server so disabled tools do not become available under a new name." = "Claude Code 存在 MCP 工具限制。重命名服务器前请先更新其原生规则，以免已禁用的工具在新名称下重新可用。";

@@ -59,7 +59,41 @@
 
 - env 和 header 值在编辑器中用 `SecureField` 遮蔽，但配置文件中仍是明文；页面明确写出这一点，不制造“已经加密”的错觉。列表摘要及其默认辅助功能文本不显示 stdio 参数，仅显示经过安全字符校验的可执行文件名；HTTP/SSE URL 会移除 userinfo、查询参数和 fragment，无效 URL 仅显示传输方式。例如 `--token=secret` 不能出现在摘要中，`https://user:secret@example.test/mcp?token=secret` 只能显示 `https://example.test/mcp`。
 - 错误消息、日志和 Core 返回值都不回显配置内容。解析失败只报告文件路径和错误类型。
-- 首版不自动启动 MCP 服务器做健康检查。启动服务器会执行用户配置的命令，资源库只负责配置，不在用户没有要求时执行项目代码。
+- 打开页面或展开工具区只读；只有点击“检测工具”才连接，stdio 还需确认执行通知。
+  检测会运行配置的命令，可能下载包，因此不能在导入、保存或展开时自动触发。
+
+### 紧凑编辑器与工具检测
+
+配置弹窗参考 Magpie `ccbc7278180e513bf95461c62eeb15729fc7cae7` 的
+`internal/gui/assets/plugins/library/client.js`；工具排除机制核对其
+`internal/library/mcp_tools_off.go`，并核对 Codex 原生 `disabled_tools` 与 Claude
+官方 permissions 文档。独立实现原生页面，不复制 Magpie 的网关和多 Agent 框架。
+命令与参数投影成一行，Rust Core 的 shell-words 1.1.1 只解析/引用 argv，保留空参数、
+内嵌换行和路径空格，不执行 Shell。Agent 用现有品牌图标的选择按钮，帮助仍放在 ⓘ。
+
+检测复用仓库已有的官方 rmcp 3.5.0 SDK，初始化、会话、SSE 响应和分页相关语义留给
+SDK；Agent Host 管理执行、取消和进程清理。只增加 client/streamable HTTP 能力，
+沿用 reqwest 0.12 的 TLS/网络栈；自定义字节 adapter 在 JSON、错误和 SSE 解码前
+限制 2 MiB，避免 SDK 默认 HTTP JSON 读取无上限。工具最多 1000 项、20 页，重复
+游标拒绝；请求期限 30 秒并有有界清理，stdio 子进程/进程组在结束、失败、取消后回收。
+不发送 tools/call，不处理 OAuth 登录、不读取其他 Agent 的登录令牌；不支持的旧式
+SSE 检测明确报错，仍允许用户编辑原有 SSE 配置。成功只代表这次检测，不能当成现有
+Agent 会话的连接保证。
+
+工具区按已注册的 Agent 独立切换。Codex 修改自身条目的 disabled_tools；Claude 修改
+用户 settings.json 的 permissions.deny，只写精确 mcp__规则。外部精确/通配 deny、
+Codex enabled_tools 以及名称规范化冲突保持不可放宽，页面显示只读限制；只移除本库
+登记过的精确禁用项，文件过期时保留外部修改。规则与全局原生文件由现有写入 adapter
+备份、条件替换，偏好只登记工具名所有权，不存令牌。Codex 更改规则会改变完整来源
+哈希，页面只推进此前匹配的服务器所有权，不能把一次工具操作当成接管外部服务器。
+
+工具规则按原生路径/服务器名保留，即使暂时关闭服务器也保留限制。Claude 的规则引用
+服务器名称，原生用户配置存在 MCP 限制时拒绝在本页重命名，避免旧限制未迁移而让
+工具重新可用；用户需先在原生规则中处理。项目/受管规则仍由上游 Agent 决定，页面
+不会显示为已解除全局之外的限制。生命周期退出会取消探测、丢弃迟到结果并释放内存
+快照；这些状态登记在 mcp-tool-probe-state，没有工作树复用阶段或发行目录运行时写入。
+
+检测的 macOS 适配器使用 8 MiB 栈的独立原生线程执行有界 C ABI 调用，避免阻塞 Swift 并发执行器，以及调试版 SDK/TLS 调用在小栈线程上溢出。取消请求在操作注册前可能到达，因此仅在取消后重试传递取消信号，工作线程返回即停止计时器；页面状态仍拒绝迟到结果。显式设置 `LITHE_MCP_PROBE_INTEGRATION=1` 可运行 Context7 的真实 HTTP 工具列表验证，普通测试不依赖公共网络。
 
 ### 发现市场与弹窗编辑
 
@@ -158,6 +192,9 @@ Windows 的 Agent 配置路径和 Tauri 侧文件访问模型不同，同步实�
 - 约束：运行时仍然不能向 app bundle、安装目录写入任何内容。备份、临时文件和锁只在 Application Support 或项目工作区中创建。
 
 ## 验证
+
+- `LITHE_MCP_PROBE_INTEGRATION=1 ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh --max-seconds 45 -- --filter McpArgumentRoundTripTests`（显式联网验收 Context7 的真实工具列表、原生大栈线程、取消前启动保护、精确参数、独立工具规则和过期文件保护；普通测试不依赖公网）
+- `node .agents/skills/write-stable-tests/scripts/run-rust-tests-with-timing.mjs --manifest rust/Cargo.toml --package lithe-agent-host --report .artifacts/test-stability/mcp-tools-host.json`（本地 stdio、HTTP JSON/SSE 响应、分页、超大响应拒绝、虚拟超时及取消后进程回收）
 
 - `./scripts/test-macos.sh --filter "McpRegistryTests|McpServerLibraryTests"`：离线首页零网络请求、失败保留精选、显式选择路由和路由间分页隔离、精选与在线连接去重，Registry 桥接、分页、取消、旧请求淘汰，JSON 预览不写文件也不取得所有权；原生卡片浅色/深色下在 420 与 780 点宽度重排，截图写入 `.artifacts/mcp-discovery/` 供人工检查。
 - `LITHE_RUN_MCP_REGISTRY_INTEGRATION=1 ./scripts/test-macos.sh --filter McpRegistryIntegrationTests`：可选联网集成，通过生产 adapter 显式直连官方目录并分页；普通单元测试不依赖公网。

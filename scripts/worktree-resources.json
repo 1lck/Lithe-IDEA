@@ -332,6 +332,17 @@
       ],
       "identity": "Mutable user-authored instruction text, native snapshots and nonblocking synchronization locks; no version/platform/architecture/toolchain build identity.",
       "reason": "The platform storage adapter supplies the writable application-support root. Agent Host owns bounded UTF-8 reads and guarded atomic saves; only explicit saves and switches write. Temporary siblings are removed after success/failure, the empty lock stays with the user library, and native files retain upstream ownership outside the Lithe block. Never copy, bundle, share or validate these as worktree build resources; installed packages and Sparkle baselines remain read-only."
+    },
+    {
+      "id": "mcp-tool-probe-state",
+      "reusable": false,
+      "locations": [
+        "<process-memory>/MCPTools/{connections,tool-descriptions,policy-snapshots}",
+        "<user-preferences>/settings.mcpToolExclusions.<native-path>.<server>",
+        "<native-agent-profile>/{config.toml,settings.json}"
+      ],
+      "identity": "User-requested, bounded SDK connections and mutable native exclusion rules. No generated build identity, version/platform/architecture/toolchain stamp or reusable artifact.",
+      "reason": "Probes run only after an explicit action, list metadata without tool calls, and cancel on page exit. Process trees and HTTP sessions are cleaned up; temporary policy snapshots stay in memory. Native rules use the existing platform atomic writer and Application Support backups. User preferences remember only exclusions Lithe added and never credentials. No copy stage, runtime bundle writes, or cross-worktree transfer is allowed. Upstream package caches created by an explicitly run command remain owned by that runtime, not Lithe build resources."
     }
   ]
 }

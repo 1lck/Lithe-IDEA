@@ -158,6 +158,12 @@ struct McpServerDraft: Equatable {
         headers = definition.headers
     }
 
+    mutating func setCommand(_ value: String, arguments: [String]) {
+        command = value
+        originalArguments = arguments
+        argumentsText = arguments.joined(separator: "\n")
+    }
+
     init?(entry: McpRegistryEntry) {
         guard let definition = entry.draft else { return nil }
         self.init(definition: definition)
@@ -209,6 +215,7 @@ enum McpLibraryError: LocalizedError {
 /// Application dependencies used by the MCP library.
 @MainActor
 protocol McpServerLibraryActions: AnyObject {
+    var mcpTools: (any McpToolsManaging)? { get }
     var mcpRegistry: (any McpRegistryProviding)? { get }
     var mcpConfigurationStore: (any McpConfigurationStore)? { get }
     var mcpWorkspaceURL: URL? { get }
@@ -216,6 +223,7 @@ protocol McpServerLibraryActions: AnyObject {
 }
 
 extension McpServerLibraryActions {
+    var mcpTools: (any McpToolsManaging)? { nil }
     var mcpRegistry: (any McpRegistryProviding)? { nil }
 }
 
@@ -227,6 +235,7 @@ extension McpServerLibraryActions {
 /// included in errors.
 @MainActor
 final class McpServerLibraryFeatureModel: ObservableObject {
+    let tools: McpToolsFeatureModel
     let discovery: McpRegistryFeatureModel
     @Published private(set) var rows: [McpServerRow] = []
     @Published private(set) var isAvailable = false
@@ -249,7 +258,11 @@ final class McpServerLibraryFeatureModel: ObservableObject {
 
     init(model: any McpServerLibraryActions) {
         self.model = model
+        tools = McpToolsFeatureModel(service: model.mcpTools)
         discovery = McpRegistryFeatureModel(registry: model.mcpRegistry)
+        tools.didChangePolicy = { [weak self] row, snapshot in
+            self?.recordToolPolicy(row: row, snapshot: snapshot)
+        }
     }
 
     // MARK: - Discovery
@@ -321,6 +334,15 @@ final class McpServerLibraryFeatureModel: ObservableObject {
             return left.definition.definitionHash < right.definition.definitionHash
         }
         hasLoaded = true
+        tools.reconcile(rows)
+    }
+
+    func catalogEntry(for definition: McpServerDefinition) -> McpRegistryEntry? {
+        discovery.entries.first { entry in
+            guard entry.source == .featured, let draft = entry.draft else { return false }
+            if definition.transport != .stdio { return draft.transport == definition.transport && draft.url == definition.url }
+            return draft.transport == .stdio && draft.command == definition.command && draft.args == Array(definition.args.prefix(draft.args.count))
+        }
     }
 
     /// Files a save writes to, shown in the editor before committing.
@@ -417,6 +439,12 @@ final class McpServerLibraryFeatureModel: ObservableObject {
         let targetFiles = files.filter { draft.enabledAgents.contains($0.agent) }
         let originalName = draft.originalName
         let originalSources = draft.originalSources
+        if let originalName, originalName != draft.name.trimmingCharacters(in: .whitespacesAndNewlines),
+           let original = rows.first(where: { $0.id == draft.originalRowID }) {
+            do {
+                try model?.mcpTools?.validateRename(McpToolTarget(definition: original.definition, files: originalSources.map(\.file)))
+            } catch { self.error = error.localizedDescription; return false }
+        }
 
         var definition = McpServerDefinition(
             name: draft.name.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -920,6 +948,20 @@ final class McpServerLibraryFeatureModel: ObservableObject {
 
     private func ledgerEntries(for file: McpConfigurationFile) -> [McpOwnedEntry] {
         ledgerSnapshot()[Self.identity(of: file)] ?? []
+    }
+
+    private func recordToolPolicy(row: McpServerRow, snapshot: McpToolPolicySnapshot) {
+        // Tool filters change Codex's full source hash, but not the connection
+        // identity. Advance only ownership that matched before our guarded edit.
+        if snapshot.agent == .codex, let previous = snapshot.previousSourceHash,
+           let next = snapshot.sourceHash, let source = row.globalSources.first(where: { $0.file.agent == .codex }) {
+            var entries = ledgerEntries(for: source.file)
+            if let index = entries.firstIndex(where: { $0.name == row.name && $0.sourceHash == previous }) {
+                entries[index] = McpOwnedEntry(name: row.name, definitionHash: row.definition.definitionHash, sourceHash: next)
+                setLedger(entries, for: source.file)
+            }
+        }
+        refresh()
     }
 
     /// Reads the shared ledger every time instead of caching it per window.

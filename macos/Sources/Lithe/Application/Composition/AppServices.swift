@@ -15,6 +15,7 @@ final class AppServices {
     /// composition, which leaves the settings page read-only.
     var mcpConfigurationStore: (any McpConfigurationStore)?
     var mcpRegistry: (any McpRegistryProviding)?
+    var mcpTools: (any McpToolsManaging)?
     /// Confirms closing terminals with running programs; `nil` closes directly.
     var processExitCoordinator: ProcessExitCoordinator?
     /// Gives build providers that share a language server the language

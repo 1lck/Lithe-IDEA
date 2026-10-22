@@ -62,6 +62,12 @@ pub enum CoreCommand {
     McpFeaturedRegistry,
     /// Plans a format-preserving MCP entry write or removal (`mcp.planWrite`).
     McpPlanWrite,
+    /// Probes an explicitly selected server without calling its tools.
+    McpProbe,
+    /// Reads or plans native per-tool exclusion lists.
+    McpToolPolicy,
+    /// Round-trips a quoted command line into exact argv boundaries.
+    McpCommandLine,
     /// Validates and normalizes a declarative plugin manifest (`plugins.declarative.validate`).
     PluginsDeclarativeValidate,
     /// Expands a declarative plugin's run template (`plugins.declarative.runPlan`).
@@ -444,6 +450,9 @@ impl CoreCommand {
             "mcp.parseRegistry" => Some(Self::McpParseRegistry),
             "mcp.featuredRegistry" => Some(Self::McpFeaturedRegistry),
             "mcp.planWrite" => Some(Self::McpPlanWrite),
+            "mcp.probe" => Some(Self::McpProbe),
+            "mcp.toolPolicy" => Some(Self::McpToolPolicy),
+            "mcp.commandLine" => Some(Self::McpCommandLine),
             "plugins.declarative.validate" => Some(Self::PluginsDeclarativeValidate),
             "plugins.declarative.runPlan" => Some(Self::PluginsDeclarativeRunPlan),
             "plugins.declarative.discoverTests" => Some(Self::PluginsDeclarativeDiscoverTests),

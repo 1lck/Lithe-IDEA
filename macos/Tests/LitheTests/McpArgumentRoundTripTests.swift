@@ -1,10 +1,131 @@
+import AppKit
 import Foundation
+import SwiftUI
 import Testing
 @testable import Lithe
 
 /// Exercise discovery -> draft -> feature save -> Core reparse using isolated real files.
 @MainActor
 struct McpArgumentRoundTripTests {
+    @Test func cancellingBeforeTheNativeWorkerStartsDoesNotConnect() async throws {
+        let fixture = try ArgumentFixture()
+        defer { fixture.cleanUp() }
+        let service = try #require(fixture.mcpTools)
+        let definition = McpServerDefinition(name: "cancelled", transport: .http, command: nil, args: [], env: [],
+            url: "https://example.invalid/mcp", headers: [], definitionHash: "fixture")
+        // Both tasks inherit MainActor: cancellation precedes the first probe
+        // instruction, without a scheduling delay or a public-network fixture.
+        let task = Task { try await service.probe(definition) }
+        task.cancel()
+        do {
+            _ = try await task.value
+            Issue.record("A cancelled probe must not publish a result")
+        } catch {
+            #expect(error is CancellationError)
+        }
+    }
+
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["LITHE_MCP_PROBE_INTEGRATION"] == "1"))
+    func publicContext7ProbeRunsOnTheNativeWorker() async throws {
+        let fixture = try ArgumentFixture()
+        defer { fixture.cleanUp() }
+        let service = try #require(fixture.mcpTools)
+        let definition = McpServerDefinition(name: "context7", transport: .http, command: nil, args: [], env: [],
+            url: "https://mcp.context7.com/mcp", headers: [], definitionHash: "integration")
+        // Explicit integration opt-in: verifies the real linked Swift/SDK path,
+        // including proxy/TLS stack depth, without calling any remote tool.
+        let result = try await service.probe(definition)
+        #expect(result.tools.contains { $0.name == "resolve-library-id" })
+        #expect(result.tools.contains { $0.name == "query-docs" })
+    }
+
+    @Test func renamingDoesNotBypassClaudeToolRestrictions() throws {
+        let fixture = try ArgumentFixture()
+        defer { fixture.cleanUp() }
+        try fixture.seed(.claudeCode, arguments: [])
+        try fixture.externalPolicyChange(.claudeCode)
+        let feature = fixture.feature(); feature.refresh()
+        let row = try #require(feature.rows.first)
+        var draft = feature.draft(for: row); draft.name = "renamed"
+        #expect(!feature.save(draft))
+        #expect(feature.error != nil)
+        #expect(try fixture.reparse(.claudeCode).name == "alpha")
+    }
+
+    @Test func compactEditorFitsBothNativeAppearances() throws {
+        let fixture = try ArgumentFixture()
+        defer { fixture.cleanUp() }
+        let feature = fixture.feature()
+        let entries = try MacMcpRegistry(core: RustCoreBridge()).featured().entries
+        let entry = try #require(entries.first { $0.id == "lithe.featured/playwright" })
+        var draft = try #require(McpServerDraft(entry: entry)); draft.enabledAgents = Set(McpAgent.allCases)
+        let directory = DeclarativePluginTestSupport.repositoryRoot.appendingPathComponent(".artifacts/mcp-tools")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        for dark in [false, true] {
+            let view = McpServerEditorView(feature: feature, draft: .constant(draft), onClose: {})
+                .padding(20).frame(width: 640, height: 500)
+                .environment(\.colorScheme, dark ? .dark : .light)
+                .background(LitheTheme.settingsSurface)
+            let host = NSHostingView(rootView: view)
+            host.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+            #expect(host.fittingSize == NSSize(width: 640, height: 500))
+            host.frame = NSRect(x: 0, y: 0, width: 640, height: 500); host.layoutSubtreeIfNeeded()
+            let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+            host.cacheDisplay(in: host.bounds, to: bitmap)
+            try #require(bitmap.representation(using: .png, properties: [:])).write(to: directory.appendingPathComponent("editor-\(dark ? "dark" : "light").png"))
+        }
+    }
+
+    @Test(arguments: McpAgent.allCases)
+    func toolExclusionsRoundTripAndKeepOwnedServerRemovalWorking(agent: McpAgent) throws {
+        let fixture = try ArgumentFixture()
+        defer { fixture.cleanUp() }
+        let feature = fixture.feature()
+        var draft = feature.makeDraft(); draft.name = "alpha"; draft.command = "/bin/echo"; draft.enabledAgents = [agent]
+        try #require(feature.save(draft))
+        let row = try #require(feature.rows.first)
+        let service = try #require(fixture.mcpTools)
+        let target = McpToolTarget(definition: row.definition, files: row.globalSources.map(\.file))
+        let policy = try service.policy(for: target, agent: agent, tools: ["read", "write"])
+        let off = try service.setEnabled(false, tool: "write", target: target, snapshot: policy)
+        #expect(off.tools.first { $0.name == "write" }?.enabled == false)
+        let reopened = try service.policy(for: target, agent: agent, tools: ["read", "write"])
+        #expect(reopened.tools.first { $0.name == "write" }?.enabled == false)
+        let on = try service.setEnabled(true, tool: "write", target: target, snapshot: reopened)
+        #expect(on.tools.allSatisfy { $0.enabled })
+        service.release([off, on])
+        feature.refresh()
+        // Direct adapter changes intentionally do not adopt server ownership.
+        // The page model advances the matching source hash after its own edit.
+        let current = try #require(feature.rows.first)
+        let page = feature.tools
+        page.didChangePolicy?(row, off)
+        page.didChangePolicy?(current, on)
+        #expect(feature.rows.first?.definition.name == "alpha")
+        try #require(feature.setAgent(agent, enabled: false, for: try #require(feature.rows.first)))
+        #expect(feature.rows.isEmpty)
+    }
+
+    @Test(arguments: McpAgent.allCases)
+    func staleToolPolicySnapshotPreservesExternalNativeEdits(agent: McpAgent) throws {
+        let fixture = try ArgumentFixture()
+        defer { fixture.cleanUp() }
+        try fixture.seed(agent, arguments: [])
+        let feature = fixture.feature(); feature.refresh()
+        let row = try #require(feature.rows.first)
+        let service = try #require(fixture.mcpTools)
+        let target = McpToolTarget(definition: row.definition, files: row.globalSources.map(\.file))
+        let snapshot = try service.policy(for: target, agent: agent, tools: ["read"])
+        try fixture.externalPolicyChange(agent)
+        #expect(throws: (any Error).self) {
+            try service.setEnabled(false, tool: "read", target: target, snapshot: snapshot)
+        }
+        let latest = try service.policy(for: target, agent: agent, tools: ["read"])
+        #expect(latest.tools.first?.enabled == false)
+        #expect(latest.tools.first?.editable == false)
+        service.release([snapshot, latest])
+    }
+
     @Test(arguments: McpAgent.allCases, ["github", "deepwiki", "exa", "filesystem", "fetch", "memory"])
     func featuredSetupIsExplicitAndRoundTripsThroughNativeConfiguration(agent: McpAgent, name: String) throws {
         let fixture = try ArgumentFixture()
@@ -130,7 +251,11 @@ private final class ArgumentFixture: McpServerLibraryActions {
     private let root: URL
     private let store: MacAgentMcpConfigurationStore
     private let ledger = ArgumentKeyValueStore()
+    private lazy var toolService = MacMcpTools(core: RustCoreBridge(), store: store, ledger: ledger,
+        storage: ArgumentFileStorage(root: root), environment: ["CLAUDE_CONFIG_DIR": root.appendingPathComponent("claude").path])
 
+    var mcpTools: (any McpToolsManaging)? { toolService }
+    var mcpRegistry: (any McpRegistryProviding)? { MacMcpRegistry(core: RustCoreBridge()) }
     var mcpConfigurationStore: (any McpConfigurationStore)? { store }
     var mcpWorkspaceURL: URL? { nil }
     var mcpLedgerStore: any KeyValueStore { ledger }
@@ -194,6 +319,18 @@ private final class ArgumentFixture: McpServerLibraryActions {
         let directory = root.appendingPathComponent("allowed folder", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory.path
+    }
+
+    func externalPolicyChange(_ agent: McpAgent) throws {
+        if agent == .codex {
+            let file = try file(for: agent)
+            let original = try #require(try store.read(file))
+            try Data((original + "\ndisabled_tools = ['read']\n").utf8).write(to: file.url)
+        } else {
+            let path = root.appendingPathComponent("claude/settings.json")
+            try FileManager.default.createDirectory(at: path.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data(#"{"keep":"external","permissions":{"deny":["mcp__alpha__read"]}}"#.utf8).write(to: path)
+        }
     }
 
     func reparse(_ agent: McpAgent, name: String = "alpha") throws -> McpServerDefinition {

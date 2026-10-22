@@ -778,6 +778,9 @@ final class MacServiceContainer {
             core: rustCore, storage: fileStorage
         )
         services.mcpRegistry = MacMcpRegistry(core: rustCore)
+        if let configuration = services.mcpConfigurationStore {
+            services.mcpTools = MacMcpTools(core: rustCore, store: configuration, ledger: services.store, storage: fileStorage)
+        }
         services.connectBuildProviderLanguageSessions = { sessions in
             buildProviderSessions.languageSessions = sessions
         }

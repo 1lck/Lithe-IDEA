@@ -2319,3 +2319,31 @@
 "Add at least one absolute folder path after the package argument, one per line. Filesystem can read and write only in the folders you allow. Requires Node.js 24 or later." = "Add at least one absolute folder path after the package argument, one per line. Filesystem can read and write only in the folders you allow. Requires Node.js 24 or later.";
 "Enter an Authorization header with Bearer and your GitHub token." = "Enter an Authorization header with Bearer and your GitHub token.";
 "Add at least one absolute allowed folder path after the Filesystem package argument." = "Add at least one absolute allowed folder path after the Filesystem package argument.";
+
+/* MCP native tools inspection and compact editor */
+"Server tools" = "Server tools";
+"Detecting…" = "Detecting…";
+"%d tools" = "%d tools";
+"Not detected" = "Not detected";
+"Detect again" = "Detect again";
+"Detect tools" = "Detect tools";
+"Reload tool settings" = "Reload tool settings";
+"This server reported no tools." = "This server reported no tools.";
+"Run this MCP command?" = "Run this MCP command?";
+"Run and detect" = "Run and detect";
+"Remove from library" = "Remove from library";
+"Detection starts the configured executable and may download packages. Continue only if you trust this server. Lithe will list tools, then stop the probe process." = "Detection starts the configured executable and may download packages. Continue only if you trust this server. Lithe will list tools, then stop the probe process.";
+"Detection connects to this server and lists tool metadata without calling any tool. Local commands may run code or download packages. Results describe this check, not the availability of an existing Agent session. Tool switches apply to the selected Agent's user configuration; project and managed policies can still restrict access. Start a new Agent session after changes." = "Detection connects to this server and lists tool metadata without calling any tool. Local commands may run code or download packages. Results describe this check, not the availability of an existing Agent session. Tool switches apply to the selected Agent's user configuration; project and managed policies can still restrict access. Start a new Agent session after changes.";
+"This tool is restricted outside Lithe. Edit the native Agent policy to enable it." = "This tool is restricted outside Lithe. Edit the native Agent policy to enable it.";
+"Enter the executable and arguments as in a terminal. Quote paths with spaces. Lithe passes exact arguments without running a shell; pipes and redirects are not evaluated." = "Enter the executable and arguments as in a terminal. Quote paths with spaces. Lithe passes exact arguments without running a shell; pipes and redirects are not evaluated.";
+"Could not read the command line." = "Could not read the command line.";
+"Check command-line quotes before saving." = "Check command-line quotes before saving.";
+"Check the MCP command, URL and headers." = "Check the MCP command, URL and headers.";
+"Legacy SSE probing is unavailable. Use the publisher's Streamable HTTP endpoint." = "Legacy SSE probing is unavailable. Use the publisher's Streamable HTTP endpoint.";
+"Could not start the MCP command. Check its executable and runtime." = "Could not start the MCP command. Check its executable and runtime.";
+"MCP connection failed. Check the server, network and authentication." = "MCP connection failed. Check the server, network and authentication.";
+"MCP tool metadata exceeded the inspection limit." = "MCP tool metadata exceeded the inspection limit.";
+"MCP detection timed out after 30 seconds." = "MCP detection timed out after 30 seconds.";
+"MCP detection was cancelled." = "MCP detection was cancelled.";
+"Invalid MCP tool configuration" = "Invalid MCP tool configuration";
+"Claude Code has MCP tool restrictions. Update its native rules before renaming a server so disabled tools do not become available under a new name." = "Claude Code has MCP tool restrictions. Update its native rules before renaming a server so disabled tools do not become available under a new name.";
