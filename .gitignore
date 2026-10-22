@@ -1,6 +1,8 @@
 .DS_Store
 .build/
 rust/target/
+rust/*/target/
+/.worktrees/
 .swiftpm/
 .idea/
 DerivedData/

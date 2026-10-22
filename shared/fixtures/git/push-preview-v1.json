@@ -3,6 +3,8 @@
   "localHead": "2222222222222222222222222222222222222222",
   "remote": "origin",
   "remoteBranch": "feature/core",
+  "targetKind": "tracking",
+  "createsRemoteBranch": false,
   "remoteTrackingOid": "1111111111111111111111111111111111111111",
   "upstream": "origin/feature/core",
   "tags": [

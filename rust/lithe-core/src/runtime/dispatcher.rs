@@ -14,9 +14,9 @@ use crate::git::{
     GitOperationStateRequest, GitPullPreflightRequest, GitPullRequestContextRequest,
     GitPushPreviewRequest, GitRebaseControlRequest, GitRebasePreviewRequest,
     GitRebaseSessionRequest, GitRebaseStartRequest, GitReferencesRequest, GitRepositoryRootRequest,
-    GitStashesRequest, GitStatusRequest, GitWatchContextRequest, GitWorktreesRequest,
-    GitWriteRequest, PatchApplyRequest, PatchExportRequest, PatchPreviewRequest,
-    WorkspaceRepositoriesRequest,
+    GitStashesRequest, GitStatusRequest, GitUntrackedDirectoryRequest, GitWatchContextRequest,
+    GitWorktreesRequest, GitWriteRequest, PatchApplyRequest, PatchExportRequest,
+    PatchPreviewRequest, WorkspaceRepositoriesRequest,
 };
 use crate::github::{NormalizeResponseRequest, ParseRemoteRequest, RequestPlanRequest};
 use crate::languages::{
@@ -1999,6 +1999,24 @@ fn execute(request: &str) -> CoreResponse {
             ),
             Err(error) => CoreResponse::failure(id, error),
         },
+        CoreCommand::GitUntrackedDirectory => {
+            match serde_json::from_value::<GitUntrackedDirectoryRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid Git untracked directory request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(git::untracked_directory)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Git untracked directory should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::GitWatchContext => {
             match serde_json::from_value::<GitWatchContextRequest>(parsed.payload)
                 .map_err(|error| {
