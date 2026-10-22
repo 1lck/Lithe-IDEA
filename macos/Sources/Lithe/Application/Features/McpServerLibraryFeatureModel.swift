@@ -104,6 +104,18 @@ struct McpServerDraft: Equatable {
     var env: [McpKeyValue] = []
     var headers: [McpKeyValue] = []
     var enabledAgents: Set<McpAgent> = []
+    /// Present only while reviewing an incomplete featured template.
+    var setup: McpRegistrySetup?
+
+    var setupMessage: String? {
+        switch setup {
+        case .bearerToken:
+            String(localized: "GitHub requires a personal access token. Set the Authorization header to Bearer followed by your token. It is stored in the Agent configuration file.")
+        case .allowedDirectories:
+            String(localized: "Add at least one absolute folder path after the package argument, one per line. Filesystem can read and write only in the folders you allow. Requires Node.js 24 or later.")
+        case nil: nil
+        }
+    }
 
     var isNew: Bool { originalRowID == nil }
 
@@ -144,6 +156,15 @@ struct McpServerDraft: Equatable {
         argumentsText = definition.args.joined(separator: "\n")
         env = definition.env
         headers = definition.headers
+    }
+
+    init?(entry: McpRegistryEntry) {
+        guard let definition = entry.draft else { return nil }
+        self.init(definition: definition)
+        if entry.source == .featured {
+            setup = entry.setup
+            if setup == .bearerToken { headers = [McpKeyValue(key: "Authorization", value: "")] }
+        }
     }
 }
 
@@ -359,6 +380,20 @@ final class McpServerLibraryFeatureModel: ObservableObject {
             guard let parsed = URL(string: url), parsed.scheme != nil, parsed.host != nil else {
                 return String(localized: "Enter a complete server URL.")
             }
+        }
+        switch draft.setup {
+        case .bearerToken:
+            let value = draft.headers.first { $0.key.lowercased() == "authorization" }?.value ?? ""
+            let parts = value.split(whereSeparator: \.isWhitespace)
+            if draft.transport == .stdio || parts.count != 2 || parts[0].lowercased() != "bearer" {
+                return String(localized: "Enter an Authorization header with Bearer and your GitHub token.")
+            }
+        case .allowedDirectories:
+            let folders = Array(draft.arguments.dropFirst(2))
+            if draft.transport != .stdio || folders.isEmpty || folders.contains(where: { !$0.hasPrefix("/") }) {
+                return String(localized: "Add at least one absolute allowed folder path after the Filesystem package argument.")
+            }
+        case nil: break
         }
         return nil
     }

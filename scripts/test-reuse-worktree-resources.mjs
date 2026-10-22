@@ -237,6 +237,15 @@ try {
       assert.match(diagnostics(refused), new RegExp(`${id}.*cannot be reused`));
     }
   });
+  await test("featured catalog and bundled MCP marks follow Git source instead of resource reuse", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const row = registry.excludedResources.find(item => item.id === "mcp-registry-metadata");
+    assert.ok(row.locations.includes("macos/Sources/Lithe/Resources/McpIcons"));
+    assert.ok(row.locations.includes("rust/lithe-core/src/mcp/featured.json"));
+    const refused = reuse(["--resource", row.id]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /mcp-registry-metadata.*cannot be reused/);
+  });
   await test("local disk snapshots and approvals are rejected before any worktree access", { timeout: 15000 }, async () => {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
     const resource = registry.excludedResources.find(item => item.id === "plugin-disk-install-state");

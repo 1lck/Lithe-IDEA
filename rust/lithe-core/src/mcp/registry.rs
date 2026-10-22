@@ -7,10 +7,35 @@ use serde_json::{json, Value};
 /// Returns the release-owned catalog without reading files or using the network.
 /// Entries pass through the same draft validation as public Registry responses.
 pub fn featured_registry() -> Result<Value, CoreError> {
-    let mut page = parse_registry(json!({"content": include_str!("featured.json")}))?;
+    let content = include_str!("featured.json");
+    let catalog: Value = serde_json::from_str(content)
+        .map_err(|_| CoreError::new(ErrorCode::InvalidRequest, "Invalid featured MCP catalog"))?;
+    let mut page = parse_registry(json!({"content": content}))?;
     if let Some(entries) = page.get_mut("entries").and_then(Value::as_array_mut) {
         for entry in entries {
             entry["source"] = json!("featured");
+            // Only the release-owned catalog may declare an incomplete template.
+            // Public Registry input must still contain a complete launch recipe.
+            let setup = catalog["servers"]
+                .as_array()
+                .and_then(|servers| {
+                    servers
+                        .iter()
+                        .find(|item| item["server"]["name"] == entry["id"])
+                })
+                .and_then(|item| item.get("setup"))
+                .and_then(Value::as_str);
+            if let Some(setup) = setup {
+                if !matches!(setup, "bearer-token" | "allowed-directories")
+                    || entry["draft"].is_null()
+                {
+                    return Err(CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid featured MCP setup",
+                    ));
+                }
+                entry["setup"] = json!(setup);
+            }
         }
     }
     Ok(page)
@@ -227,7 +252,7 @@ mod tests {
     fn featured_catalog_is_available_offline_with_pinned_reviewable_drafts() {
         let page = featured_registry().unwrap();
         let entries = page["entries"].as_array().unwrap();
-        assert_eq!(entries.len(), 4);
+        assert_eq!(entries.len(), 10);
         assert!(page["nextCursor"].is_null());
         assert!(entries
             .iter()
@@ -241,6 +266,40 @@ mod tests {
             entries[2]["draft"]["args"],
             json!(["-y", "chrome-devtools-mcp@1.11.0"])
         );
+        let find = |name: &str| entries.iter().find(|e| e["draft"]["name"] == name).unwrap();
+        assert_eq!(find("github")["setup"], "bearer-token");
+        assert_eq!(
+            find("github")["draft"]["url"],
+            "https://api.githubcopilot.com/mcp/"
+        );
+        assert_eq!(
+            find("deepwiki")["draft"]["url"],
+            "https://mcp.deepwiki.com/mcp"
+        );
+        assert_eq!(find("exa")["draft"]["url"], "https://mcp.exa.ai/mcp");
+        assert_eq!(find("filesystem")["setup"], "allowed-directories");
+        assert_eq!(
+            find("filesystem")["draft"]["args"],
+            json!(["-y", "@modelcontextprotocol/server-filesystem@2.0.0"])
+        );
+        assert_eq!(
+            find("memory")["draft"]["args"],
+            json!(["-y", "@modelcontextprotocol/server-memory@2.0.0"])
+        );
+        assert_eq!(
+            find("fetch")["draft"]["args"],
+            json!(["mcp-server-fetch==2026.10.19"])
+        );
+    }
+
+    #[test]
+    fn public_registry_cannot_declare_trusted_featured_setup() {
+        let page = parse_registry(json!({"content": json!({"servers": [{
+            "setup": "bearer-token", "server": {"name": "lithe.featured/github",
+                "setup": "bearer-token", "remotes": [{"type": "streamable-http", "url": "https://example.invalid/mcp"}]}
+        }]}).to_string()})).unwrap();
+        assert_eq!(page["entries"][0]["source"], "registry");
+        assert!(page["entries"][0].get("setup").is_none());
     }
 
     #[test]

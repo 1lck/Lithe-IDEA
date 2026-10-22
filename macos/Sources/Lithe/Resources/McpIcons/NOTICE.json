@@ -1,0 +1,46 @@
+{
+  "reviewed": "2026-10-22",
+  "purpose": "Publisher brand marks identify featured MCP services. All rights in the marks remain with their owners; no affiliation is implied. These fixed source assets are bundled read-only, never fetched at runtime.",
+  "assets": {
+    "context7.png": {
+      "source": "https://avatars.githubusercontent.com/u/74989412?v=4&s=96",
+      "publisher": "upstash",
+      "sha256": "076a02c39aee75f059d4ddd4fccac6350e601b32f8d0659c0cdc907cd7800f4b"
+    },
+    "chrome-devtools.png": {
+      "source": "https://avatars.githubusercontent.com/u/11260967?v=4&s=96",
+      "publisher": "ChromeDevTools",
+      "sha256": "be958c77f44d61b821ce9476c68a5d65a16b52430fafe7160ff1ac83e822caa6"
+    },
+    "microsoft-learn.png": {
+      "source": "https://avatars.githubusercontent.com/u/6154722?v=4&s=96",
+      "publisher": "microsoft",
+      "sha256": "5fd80b0c551b5ad5d40acde0604fc0866bed3cdb0371e10b6aa2930e57bfdf8f"
+    },
+    "github.png": {
+      "source": "https://avatars.githubusercontent.com/u/9919?v=4&s=96",
+      "publisher": "github",
+      "sha256": "4a309065f9744816e3bb1e3e002c4e947929a8d76aeb1acd6f99ec3a2834ffb9"
+    },
+    "deepwiki.png": {
+      "source": "https://avatars.githubusercontent.com/u/163493330?v=4&s=96",
+      "publisher": "CognitionAI",
+      "sha256": "4dd715338111d28fe1f3484a0bf73c04291b367511cd90630a20154b7739c1cd"
+    },
+    "exa.png": {
+      "source": "https://avatars.githubusercontent.com/u/77906174?v=4&s=96",
+      "publisher": "exa-labs",
+      "sha256": "c7fe707b4c5950fb00276bcab65ead9d7ce3c23c1e9e6adae1f0b40ebfd62e88"
+    },
+    "mcp.png": {
+      "source": "https://avatars.githubusercontent.com/u/182288589?v=4&s=96",
+      "publisher": "modelcontextprotocol",
+      "sha256": "a298f5068002e0f8c62e4cb6465f171b641111bc8cde9b8cb52055d1fc7cc102"
+    },
+    "playwright.svg": {
+      "source": "https://playwright.dev/img/playwright-logo.svg",
+      "publisher": "Microsoft",
+      "sha256": "6b0a4367bdeab10995bc239278f04c68c10e48adbec15e799e01909a0d66dcb9"
+    }
+  }
+}

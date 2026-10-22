@@ -84,6 +84,23 @@
 元数据核对后固定，远程地址按发布者文档核对；中文介绍随应用本地化。维护目录时
 必须重新核对包版本、远程地址和文档，不复制 Magpie Image 等产品专属能力。
 
+精选包含 Context7、Playwright、Chrome DevTools、Microsoft Learn、GitHub、DeepWiki、
+Exa、Filesystem、Fetch 和 Memory。2026-10-22 核对发布者文档与 npm/PyPI 元数据，
+Filesystem/Memory 固定为 2.0.0（需要 Node.js 24+），Fetch 固定为 2026.10.19
+（需要 uv 和 Python 3.10+）；GitHub、DeepWiki、Exa 使用发布者的 HTTPS 入口。
+GitHub 的令牌和 Filesystem 的允许目录不能猜测，因此只有版本内的精选可声明
+`setup`，让编辑器显示说明并阻止缺少必填内容的保存。GitHub 预置空 Authorization
+请求头，用户填写 Bearer 令牌；Filesystem 必须在包参数后逐行填写至少一个绝对目录，
+路径中的空格保留。公开 Registry 不能声明这一可信模板类型，原有复杂输入限制不变。
+
+卡片图标使用发布者的品牌标记，不再让所有远程服务都显示地球、所有命令都显示终端。
+图标源文件与来源、审核日期、SHA-256 清单位于 `Resources/McpIcons`，Playwright 的
+Apache-2.0 许可一同保留。它们是 Git 跟踪、SwiftPM 打包的固定输入；运行时只从资源
+bundle 读取并在内存缓存，不访问图片服务器、不下载头像、不写 bundle，因而不改变
+代码签名或 Sparkle delta。三个参考服务器共用 MCP 标记，未认识的条目保留传输方式
+图标。只按可信精选的完整 ID 选择有限文件名，公开条目即便伪装成同名也不使用品牌图标。
+深色页面的品牌标记放在白色小底板上，保留原始颜色和几何；不是工具栏动作图标。
+
 搜索时使用官方 `registry.modelcontextprotocol.io/v0.1/servers`，按名称搜索、只查最新
 版本，并使用返回的 opaque cursor（必须原样传回的分页标记）。这是一份目录，不是
 Lithe 的托管服务器或插件市场，也不把收录标成安全审核。Core 的 `mcp.parseRegistry`

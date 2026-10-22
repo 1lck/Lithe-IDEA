@@ -38,9 +38,7 @@ struct McpServerLibraryView: View {
             if let backup = feature.lastBackupURL {
                 backupLine(backup)
             }
-            McpDiscoveryView(feature: feature.discovery) { definition in
-                editing = McpServerDraft(definition: definition)
-            }
+            McpDiscoveryView(feature: feature.discovery) { editing = $0 }
             Divider()
             McpSettingsView(feature: access, library: feature, workspaceURL: workspaceURL)
         }
@@ -338,6 +336,9 @@ private struct McpServerEditorView: View {
             Divider()
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
+                    if let message = draft.setupMessage {
+                        Text(message).font(LitheTheme.smallFont).foregroundStyle(LitheTheme.secondaryText)
+                    }
                     serverSection
                     if draft.transport == .stdio {
                         environmentSection

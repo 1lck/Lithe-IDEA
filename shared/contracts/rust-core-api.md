@@ -626,6 +626,18 @@ package resolution or execution. Catalog package versions are pinned; remote
 requirements remain subject to the publisher's documentation. Hosts show this
 page without contacting the Registry, extend matching entries on explicit
 search, and retain available results when a directory request fails.
+The release catalog includes Context7, Playwright, Chrome DevTools, Microsoft
+Learn, GitHub, DeepWiki, Exa, Filesystem, Fetch and Memory. A featured entry may
+add `setup: "bearer-token" | "allowed-directories"`: its draft is an incomplete
+template, requiring an Authorization bearer value or at least one absolute
+directory argument after the fixed Filesystem package argument. Hosts must
+collect and validate these inputs before saving and must not select Agents by
+default. Public Registry parsing never copies `setup`, even when input uses a
+featured-looking ID. `shared/fixtures/mcp/featured-setup-v1.json` illustrates the
+optional field; ordinary entries omit it. Brand marks are platform-owned,
+read-only bundled assets, selected only for known featured IDs; public entries
+keep the transport fallback. No response can select arbitrary resources or
+cause remote image fetching.
 
 `mcp.parseConfiguration` accepts `{ source: "codex" | "claude", scope:
 "global" | "project", content: string, projectPath?: string }` and returns

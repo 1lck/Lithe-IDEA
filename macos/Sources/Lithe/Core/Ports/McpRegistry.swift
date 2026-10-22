@@ -10,6 +10,13 @@ struct McpRegistryEntry: Decodable, Identifiable, Sendable {
     let draft: McpServerDefinition?
     var publisher: String? = nil
     var source: McpRegistrySource? = nil
+    var setup: McpRegistrySetup? = nil
+}
+
+/// Incomplete, release-reviewed templates; never accepted from public metadata.
+enum McpRegistrySetup: String, Decodable, Sendable {
+    case bearerToken = "bearer-token"
+    case allowedDirectories = "allowed-directories"
 }
 
 enum McpRegistrySource: String, Decodable, Sendable { case featured, registry }

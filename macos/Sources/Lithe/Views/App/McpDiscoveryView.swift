@@ -4,7 +4,7 @@ import SwiftUI
 /// opens the normal editor and never starts a server or writes configuration.
 struct McpDiscoveryView: View {
     @ObservedObject var feature: McpRegistryFeatureModel
-    let add: (McpServerDefinition) -> Void
+    let add: (McpServerDraft) -> Void
     @State private var query = ""
     @State private var request = 0
     @State private var loadMore = false
@@ -80,7 +80,7 @@ struct McpDiscoveryView: View {
 
 struct McpRegistryCardsView: View {
     let entries: [McpRegistryEntry]
-    let add: (McpServerDefinition) -> Void
+    let add: (McpServerDraft) -> Void
 
     var body: some View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 300), spacing: 12)], alignment: .leading, spacing: 12) {
@@ -93,22 +93,30 @@ struct McpRegistryCardsView: View {
 /// Two lines let users compare servers without opening every documentation link.
 private struct McpRegistryCard: View {
     let entry: McpRegistryEntry
-    let add: (McpServerDefinition) -> Void
+    let add: (McpServerDraft) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
-                Image(systemName: entry.draft?.transport == .stdio ? "terminal" : "network")
-                    .font(LitheTheme.uiFont(size: 17))
-                    .foregroundStyle(LitheTheme.accent)
-                    .frame(width: 36, height: 36)
-                    .background(LitheTheme.accent.opacity(0.08))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                McpBrandIcon(entry: entry)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(verbatim: entry.title)
                         .font(LitheTheme.uiFont(size: 13, weight: .semibold)).lineLimit(2)
-                    Text(verbatim: entry.publisher ?? entry.id.components(separatedBy: "/").first ?? entry.id)
-                        .font(LitheTheme.smallFont).foregroundStyle(LitheTheme.secondaryText).lineLimit(1)
+                    HStack(spacing: 6) {
+                        Text(verbatim: entry.publisher ?? entry.id.components(separatedBy: "/").first ?? entry.id)
+                            .lineLimit(1)
+                        if let transportLabel {
+                            Text(transportLabel)
+                                .padding(.horizontal, 5).padding(.vertical, 2)
+                                .background(LitheTheme.settingsControlBorder.opacity(0.4))
+                                .clipShape(RoundedRectangle(cornerRadius: 4))
+                        }
+                        if let message = McpServerDraft(entry: entry)?.setupMessage {
+                            Image(systemName: entry.setup == .bearerToken ? "key" : "folder")
+                                .help(message)
+                        }
+                    }
+                    .font(LitheTheme.smallFont).foregroundStyle(LitheTheme.secondaryText)
                 }
                 Spacer(minLength: 0)
             }
@@ -127,9 +135,11 @@ private struct McpRegistryCard: View {
                 Spacer(minLength: 0)
                 if let website = entry.website {
                     Link("Documentation", destination: website).font(LitheTheme.smallFont)
+                        .fixedSize()
                 }
-                if let draft = entry.draft {
+                if let draft = McpServerDraft(entry: entry) {
                     Button("Configure…") { add(draft) }.buttonStyle(LitheSecondaryButtonStyle())
+                        .fixedSize()
                 }
             }
         }
@@ -142,6 +152,16 @@ private struct McpRegistryCard: View {
 
     private var summary: Text {
         entry.source == .featured ? Text(LocalizedStringKey(entry.summary)) : Text(verbatim: entry.summary)
+    }
+
+    private var transportLabel: String? {
+        guard let draft = entry.draft else { return nil }
+        guard draft.transport == .stdio else { return String(localized: "Remote") }
+        switch draft.command {
+        case "npx": return "npx"
+        case "uvx": return "uvx"
+        default: return String(localized: "Command")
+        }
     }
 }
 

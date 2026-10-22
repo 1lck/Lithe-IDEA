@@ -40,12 +40,38 @@ struct McpRegistryTests {
         registry.featuredEntries = try MacMcpRegistry(core: RustCoreBridge()).featured().entries
         registry.fail = true
         let feature = McpRegistryFeatureModel(registry: registry)
-        #expect(feature.entries.count == 4)
+        #expect(feature.entries.count == 10)
         #expect(feature.entries.allSatisfy { $0.source == .featured && $0.draft != nil })
         await feature.search("  ")
         #expect(registry.requests.isEmpty)
-        #expect(feature.entries.count == 4 && feature.error == nil)
+        #expect(feature.entries.count == 10 && feature.error == nil)
         #expect(!feature.isLoading && feature.nextCursor == nil)
+    }
+
+    @Test func featuredMarksLoadOfflineAndPublicEntriesUseTheFallback() throws {
+        let entries = try MacMcpRegistry(core: RustCoreBridge()).featured().entries
+        for entry in entries {
+            let image = try #require(McpBrandIconLoader.image(for: entry), "Missing bundled mark for \(entry.id)")
+            #expect(!image.isTemplate)
+            #expect(image.size == NSSize(width: 28, height: 28))
+            var publicCopy = entry
+            publicCopy.source = .registry
+            #expect(McpBrandIconLoader.filename(for: publicCopy) == nil)
+            #expect(McpBrandIconLoader.image(for: publicCopy) == nil)
+            publicCopy.setup = .bearerToken
+            #expect(McpServerDraft(entry: publicCopy)?.setup == nil)
+        }
+    }
+
+    @Test func sharedSetupFixtureDecodesWithoutSelectingAgentsOrInventingInputs() throws {
+        let path = DeclarativePluginTestSupport.repositoryRoot.appendingPathComponent("shared/fixtures/mcp/featured-setup-v1.json")
+        let page = try JSONDecoder().decode(McpRegistryPage.self, from: Data(contentsOf: path))
+        #expect(page.entries.map(\.setup) == [.bearerToken, .allowedDirectories])
+        let token = try #require(McpServerDraft(entry: page.entries[0]))
+        let folders = try #require(McpServerDraft(entry: page.entries[1]))
+        #expect(token.headers == [McpKeyValue(key: "Authorization", value: "")])
+        #expect(folders.arguments == ["-y", "@example/filesystem@1.2.3"])
+        #expect(token.enabledAgents.isEmpty && folders.enabledAgents.isEmpty)
     }
 
     @Test func connectionFailureKeepsMatchesAndDirectRetryMustBeExplicit() async throws {

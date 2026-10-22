@@ -2307,3 +2307,15 @@
 "The Lithe shared instruction markers were changed. Repair the native file before syncing." = "The Lithe shared instruction markers were changed. Repair the native file before syncing.";
 "Shared instructions cannot contain Lithe synchronization markers." = "Shared instructions cannot contain Lithe synchronization markers.";
 "Instruction Agents" = "Agents";
+
+/* Featured MCP publishers and setup */
+"Work with GitHub repositories, issues, pull requests and Actions. A personal access token is required." = "Work with GitHub repositories, issues, pull requests and Actions. A personal access token is required.";
+"Ask questions about public GitHub repositories and read their generated documentation." = "Ask questions about public GitHub repositories and read their generated documentation.";
+"Search the web and code, and retrieve page content for coding agents." = "Search the web and code, and retrieve page content for coding agents.";
+"Read, write and search files only in the directories you allow. Requires Node.js 24 or later." = "Read, write and search files only in the directories you allow. Requires Node.js 24 or later.";
+"Fetch web pages and convert their content to Markdown. Requires uv and Python 3.10 or later." = "Fetch web pages and convert their content to Markdown. Requires uv and Python 3.10 or later.";
+"Keep a persistent knowledge graph between conversations. Requires Node.js 24 or later." = "Keep a persistent knowledge graph between conversations. Requires Node.js 24 or later.";
+"GitHub requires a personal access token. Set the Authorization header to Bearer followed by your token. It is stored in the Agent configuration file." = "GitHub requires a personal access token. Set the Authorization header to Bearer followed by your token. It is stored in the Agent configuration file.";
+"Add at least one absolute folder path after the package argument, one per line. Filesystem can read and write only in the folders you allow. Requires Node.js 24 or later." = "Add at least one absolute folder path after the package argument, one per line. Filesystem can read and write only in the folders you allow. Requires Node.js 24 or later.";
+"Enter an Authorization header with Bearer and your GitHub token." = "Enter an Authorization header with Bearer and your GitHub token.";
+"Add at least one absolute allowed folder path after the Filesystem package argument." = "Add at least one absolute allowed folder path after the Filesystem package argument.";

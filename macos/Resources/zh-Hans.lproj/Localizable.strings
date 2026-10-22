@@ -3882,3 +3882,15 @@
 "The Lithe shared instruction markers were changed. Repair the native file before syncing." = "Lithe 共享指令标记已被修改，请先修复原生文件再同步。";
 "Shared instructions cannot contain Lithe synchronization markers." = "共享指令正文不能包含 Lithe 同步标记。";
 "Instruction Agents" = "Agent";
+
+/* Featured MCP publishers and setup */
+"Work with GitHub repositories, issues, pull requests and Actions. A personal access token is required." = "访问 GitHub 仓库、Issue、PR 和 Actions。需要个人访问令牌。";
+"Ask questions about public GitHub repositories and read their generated documentation." = "向公开 GitHub 仓库提问，阅读自动生成的项目文档。";
+"Search the web and code, and retrieve page content for coding agents." = "为编程 Agent 搜索网页和代码，获取页面内容。";
+"Read, write and search files only in the directories you allow. Requires Node.js 24 or later." = "读写、搜索你允许的目录中的文件。需要 Node.js 24 或更高版本。";
+"Fetch web pages and convert their content to Markdown. Requires uv and Python 3.10 or later." = "抓取网页并转换为 Markdown。需要 uv 和 Python 3.10 或更高版本。";
+"Keep a persistent knowledge graph between conversations. Requires Node.js 24 or later." = "跨对话保留知识图谱。需要 Node.js 24 或更高版本。";
+"GitHub requires a personal access token. Set the Authorization header to Bearer followed by your token. It is stored in the Agent configuration file." = "GitHub 需要个人访问令牌。请将 Authorization 请求头填写为 Bearer 加空格和令牌。令牌会保存在 Agent 配置文件中。";
+"Add at least one absolute folder path after the package argument, one per line. Filesystem can read and write only in the folders you allow. Requires Node.js 24 or later." = "在包参数后至少添加一个文件夹的绝对路径，每行一个。Filesystem 只可读写你允许的文件夹。需要 Node.js 24 或更高版本。";
+"Enter an Authorization header with Bearer and your GitHub token." = "请填写 Authorization 请求头，内容为 Bearer 加空格和 GitHub 令牌。";
+"Add at least one absolute allowed folder path after the Filesystem package argument." = "请在 Filesystem 包参数后至少添加一个允许访问的文件夹绝对路径。";

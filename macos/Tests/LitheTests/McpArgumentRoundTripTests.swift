@@ -5,6 +5,41 @@ import Testing
 /// Exercise discovery -> draft -> feature save -> Core reparse using isolated real files.
 @MainActor
 struct McpArgumentRoundTripTests {
+    @Test(arguments: McpAgent.allCases, ["github", "deepwiki", "exa", "filesystem", "fetch", "memory"])
+    func featuredSetupIsExplicitAndRoundTripsThroughNativeConfiguration(agent: McpAgent, name: String) throws {
+        let fixture = try ArgumentFixture()
+        defer { fixture.cleanUp() }
+        let feature = fixture.feature()
+        let entries = try MacMcpRegistry(core: RustCoreBridge()).featured().entries
+        let entry = try #require(entries.first { $0.id == "lithe.featured/\(name)" })
+        var draft = try #require(McpServerDraft(entry: entry))
+        #expect(draft.enabledAgents.isEmpty)
+        #expect(!feature.save(draft))
+        #expect(try fixture.hasConfiguration(agent) == false)
+        draft.enabledAgents = [agent]
+        switch draft.setup {
+        case .bearerToken:
+            #expect(!feature.save(draft))
+            draft.headers[0].value = "Bearer "
+            #expect(!feature.save(draft))
+            #expect(try fixture.hasConfiguration(agent) == false)
+            draft.headers[0].value = "Bearer fixture-token"
+        case .allowedDirectories:
+            #expect(!feature.save(draft))
+            draft.argumentsText += "\nrelative-folder"
+            #expect(!feature.save(draft))
+            #expect(try fixture.hasConfiguration(agent) == false)
+            draft.argumentsText = try #require(entry.draft).args.joined(separator: "\n") + "\n" + fixture.allowedFolder()
+        case nil: break
+        }
+        try #require(feature.save(draft))
+        let reparsed = try fixture.reparse(agent, name: name)
+        #expect(reparsed.args == draft.arguments)
+        #expect(reparsed.url == (draft.url.isEmpty ? nil : draft.url))
+        #expect(reparsed.headers == draft.headers)
+        #expect(feature.rows.first?.enabledGlobalAgents == [agent])
+    }
+
     @Test(
         arguments: McpAgent.allCases,
         [
@@ -151,12 +186,22 @@ private final class ArgumentFixture: McpServerLibraryActions {
         try Data(content.utf8).write(to: file.url)
     }
 
-    func reparse(_ agent: McpAgent) throws -> McpServerDefinition {
+    func hasConfiguration(_ agent: McpAgent) throws -> Bool {
+        try store.read(file(for: agent)) != nil
+    }
+
+    func allowedFolder() throws -> String {
+        let directory = root.appendingPathComponent("allowed folder", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory.path
+    }
+
+    func reparse(_ agent: McpAgent, name: String = "alpha") throws -> McpServerDefinition {
         let file = try file(for: agent)
         let content = try #require(try store.read(file))
         let definitions = try store.parse(file, content: content)
         try #require(definitions.count == 1)
-        return try #require(definitions.first { $0.name == "alpha" })
+        return try #require(definitions.first { $0.name == name })
     }
 
     func cleanUp() {
