@@ -312,8 +312,13 @@ struct AgentConversationSelectionTests {
                             URL(fileURLWithPath: directory).appendingPathComponent("\(editor ? "editor" : "panel")-\(scheme)-\(suffix).png"))
                     }
                     func historySearch(in view: NSView) -> NSTextField? {
-                        if let field = view as? NSTextField, field.isEditable,
-                           field.placeholderString?.contains("ID") == true { return field }
+                        // Shared search paints its prompt outside the native editor. Locate
+                        // its actual field above the conversation body, excluding the composer.
+                        if let field = view as? NSTextField, field.isEditable {
+                            let frame = field.convert(field.bounds, to: host)
+                            let top = host.isFlipped ? frame.minY : host.bounds.height - frame.maxY
+                            if top < host.bounds.height / 2 { return field }
+                        }
                         return view.subviews.lazy.compactMap { historySearch(in: $0) }.first
                     }
                     try capture("chat")
