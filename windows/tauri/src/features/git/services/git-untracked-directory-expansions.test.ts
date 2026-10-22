@@ -46,3 +46,25 @@ test("a summary expanded while a read runs survives that read", async () => {
   expect(files.map((file) => file.path)).toEqual(["target/", "target/a.o"]);
   expect(isUntrackedDirectoryExpanded(repo, "later/")).toBe(true);
 });
+
+test("a summary collapsed or expanded while a read waits is shown as it is now", async () => {
+  setUntrackedDirectoryExpanded(repo, "target/", true);
+  const listed: string[] = [];
+  const files = await listExpandedUntrackedDirectories(
+    repo,
+    [untracked("target/", 200), untracked("target2/", 300)],
+    async (directory) => {
+      listed.push(directory);
+      if (directory === "target/") {
+        // While `target/` is listed, the user collapses it and expands `target2/`.
+        setUntrackedDirectoryExpanded(repo, "target/", false);
+        setUntrackedDirectoryExpanded(repo, "target2/", true);
+      }
+      return [untracked(`${directory}a.o`)];
+    },
+  );
+  expect(files.map((file) => file.path)).toEqual(["target/", "target2/", "target2/a.o"]);
+  expect(listed).toEqual(["target/", "target2/"]);
+  expect(isUntrackedDirectoryExpanded(repo, "target/")).toBe(false);
+  expect(isUntrackedDirectoryExpanded(repo, "target2/")).toBe(true);
+});

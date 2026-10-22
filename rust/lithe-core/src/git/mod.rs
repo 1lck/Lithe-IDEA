@@ -2066,7 +2066,19 @@ pub fn diff(request: GitDiffRequest) -> Result<GitDiffResponse, CoreError> {
             .with_details(untracked_paths.output));
         }
         for path in untracked_paths.stdout.split('\0') {
-            if path.is_empty() || !is_safe_pathspec(path) {
+            if path.is_empty() {
+                continue;
+            }
+            if !is_safe_pathspec(path) {
+                // Shelve cleans a whole summarized directory after saving this
+                // patch, so a file it cannot export must fail the diff rather
+                // than be dropped from the patch and then deleted.
+                if expands_untracked_directories {
+                    return Err(CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Git diff cannot export an untracked file with an unsupported name",
+                    ));
+                }
                 continue;
             }
             let mut untracked_arguments = vec![

@@ -41,6 +41,11 @@ export function setUntrackedDirectoryExpanded(
  * Inserts the listed contents of every expanded summary still in `files`
  * directly after it. Nested expanded summaries are listed in the same pass.
  *
+ * A toggle while a listing is awaited changes what the result must show, so
+ * the result is rebuilt from the current expansions until none changed during
+ * a pass. Listings already read are reused, so a pass without new expansions
+ * does not wait and the loop ends.
+ *
  * Expansions whose summary is no longer reported (the directory was staged,
  * deleted, or now holds tracked files) are forgotten. A listing that fails
  * keeps its expansion so the next read retries, and leaves the summary
@@ -52,24 +57,35 @@ export async function listExpandedUntrackedDirectories(
   list: (directory: string) => Promise<GitFile[] | null>,
 ): Promise<GitFile[]> {
   const key = normalizeRepositoryPath(repoPath);
-  const requested = expandedDirectories.get(key);
-  if (!requested || requested.size === 0) return [...files];
-  const requestedDirectories = new Set(requested);
-  const result = [...files];
-  for (let index = 0; index < result.length; index += 1) {
-    const file = result[index]!;
-    if (!isUntrackedDirectorySummary(file) || !requestedDirectories.has(file.path)) continue;
-    const contents = await list(file.path);
-    if (contents) result.splice(index + 1, 0, ...contents);
-  }
-  const present = new Set(result.filter(isUntrackedDirectorySummary).map((file) => file.path));
-  // Keep expansions toggled while the listing ran; forget only those this read could check.
-  const current = expandedDirectories.get(key);
-  if (current) {
-    for (const directory of requestedDirectories) {
-      if (!present.has(directory)) current.delete(directory);
+  const listings = new Map<string, GitFile[]>();
+  // Only expansions this read was asked for can be confirmed gone; one made
+  // meanwhile may come from a newer status than `files`.
+  const checked = new Set(expandedDirectories.get(key));
+  for (;;) {
+    const requested = new Set(expandedDirectories.get(key));
+    if (requested.size === 0) return [...files];
+    const result = [...files];
+    for (let index = 0; index < result.length; index += 1) {
+      const file = result[index]!;
+      if (!isUntrackedDirectorySummary(file) || !requested.has(file.path)) continue;
+      if (!listings.has(file.path)) {
+        const contents = await list(file.path);
+        if (contents) listings.set(file.path, contents);
+      }
+      const contents = listings.get(file.path);
+      if (contents) result.splice(index + 1, 0, ...contents);
     }
-    if (current.size === 0) expandedDirectories.delete(key);
+    if (!sameDirectories(requested, expandedDirectories.get(key))) continue;
+    const present = new Set(result.filter(isUntrackedDirectorySummary).map((file) => file.path));
+    const current = expandedDirectories.get(key);
+    for (const directory of checked) {
+      if (!present.has(directory)) current?.delete(directory);
+    }
+    if (current?.size === 0) expandedDirectories.delete(key);
+    return result;
   }
-  return result;
+}
+
+function sameDirectories(left: ReadonlySet<string>, right: ReadonlySet<string> | undefined) {
+  return left.size === (right?.size ?? 0) && [...left].every((directory) => right?.has(directory));
 }

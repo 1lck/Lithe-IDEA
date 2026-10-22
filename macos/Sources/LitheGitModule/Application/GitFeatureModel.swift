@@ -825,23 +825,41 @@ package final class GitFeatureModel: ObservableObject {
 
     /// Lists the contents of every expanded summary still present in `changes`,
     /// directly after it. Nested expanded summaries are listed in the same pass.
+    ///
+    /// A toggle while a listing is awaited changes what the result must show,
+    /// so the result is rebuilt from the current expansions until none changed
+    /// during a pass. Listings already read are reused, so a pass without new
+    /// expansions does not suspend and the loop ends.
     private func listingExpandedUntrackedDirectories(in changes: [GitChange]) async -> [GitChange] {
-        let requested = expandedUntrackedDirectoryIDs
-        guard !requested.isEmpty else { return changes }
-        var result = changes
-        var index = 0
-        while index < result.count {
-            let change = result[index]
-            index += 1
-            guard change.isUntrackedDirectory, requested.contains(change.id), !Task.isCancelled,
-                  let children = await untrackedDirectoryChildrenProvider(change, availableRepositoryRoots)
-            else { continue }
-            result.insert(contentsOf: children, at: index)
+        var listings: [GitChange.ID: [GitChange]] = [:]
+        // Only expansions this read was asked for can be confirmed gone; one
+        // made meanwhile may come from a newer status than `changes`.
+        let checked = expandedUntrackedDirectoryIDs
+        while true {
+            let requested = expandedUntrackedDirectoryIDs
+            guard !requested.isEmpty else { return changes }
+            var result = changes
+            var index = 0
+            while index < result.count {
+                let change = result[index]
+                index += 1
+                guard change.isUntrackedDirectory, requested.contains(change.id) else { continue }
+                if listings[change.id] == nil, !Task.isCancelled {
+                    listings[change.id] = await untrackedDirectoryChildrenProvider(
+                        change,
+                        availableRepositoryRoots
+                    )
+                }
+                if let children = listings[change.id] {
+                    result.insert(contentsOf: children, at: index)
+                }
+            }
+            guard expandedUntrackedDirectoryIDs == requested else { continue }
+            // Forget expansions whose summary is gone.
+            let present = Set(result.map(\.id))
+            expandedUntrackedDirectoryIDs.subtract(checked.subtracting(present))
+            return result
         }
-        // Forget expansions whose summary is gone; keep ones toggled meanwhile.
-        let present = Set(result.map(\.id))
-        expandedUntrackedDirectoryIDs.subtract(requested.subtracting(present))
-        return result
     }
 
     /// Drops changes below a directory summary that is in the same set.
@@ -1295,11 +1313,10 @@ package final class GitFeatureModel: ObservableObject {
         var files: [CommitMessageFileInput] = []
         files.reserveCapacity(stagedChanges.count)
         for change in stagedChanges {
-            let patch = await service.stagedDiffPatch(
+            guard let patch = await service.stagedDiffPatch(
                 for: change,
                 whitespace: gitDiffWhitespaceMode
-            )
-            guard !patch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            ), !patch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 continue
             }
             files.append(
@@ -1632,17 +1649,24 @@ package final class GitFeatureModel: ObservableObject {
             return .failed("Resolve existing conflicts before shelving changes")
         }
 
+        // Every change is cleaned after the shelf is saved, so one that Git
+        // could not export aborts the shelf instead of being lost. A summarized
+        // directory is cleaned as a whole, including files its patch missed.
         var stagedPatches: [String] = []
         var workingPatches: [String] = []
         for change in changes {
             if change.isStaged {
-                let patch = await service.stagedDiffPatch(for: change)
+                guard let patch = await service.stagedDiffPatch(for: change) else {
+                    return .failed("Could not create a patch for \(change.path)")
+                }
                 if !patch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     stagedPatches.append(patch)
                 }
             }
             if change.hasWorkingTreeChange {
-                let patch = await service.workingDiffPatch(for: change)
+                guard let patch = await service.workingDiffPatch(for: change) else {
+                    return .failed("Could not create a patch for \(change.path)")
+                }
                 if !patch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     workingPatches.append(patch)
                 }

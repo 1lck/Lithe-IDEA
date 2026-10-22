@@ -521,10 +521,11 @@ package struct GitService: Sendable {
     /// Returns only the working-tree delta against the current index. This is
     /// kept separate from `diffPatch(for:)` so Shelve can preserve staged and
     /// unstaged edits independently for a file that has both.
+    /// Nil when Git could not export the change, which Shelve must not clean.
     func workingDiffPatch(
         for change: GitChange,
         whitespace: GitDiffWhitespaceMode = .doNotIgnore
-    ) async -> String {
+    ) async -> String? {
         await read {
             $0.diffPatch(
                 at: change.repositoryRoot,
@@ -533,7 +534,7 @@ package struct GitService: Sendable {
                 untracked: change.isUntracked,
                 whitespace: whitespace
             )
-        } ?? ""
+        }
     }
 
     /// Applies a complete patch outside the diff-hunk convenience methods.
@@ -557,10 +558,11 @@ package struct GitService: Sendable {
 
     /// Returns exactly what Git would include for this file in the next
     /// commit, even when the file also has unstaged working-tree changes.
+    /// Nil when Git could not export the staged change.
     func stagedDiffPatch(
         for change: GitChange,
         whitespace: GitDiffWhitespaceMode = .doNotIgnore
-    ) async -> String {
+    ) async -> String? {
         await read {
             $0.diffPatch(
                 at: change.repositoryRoot,
@@ -569,7 +571,7 @@ package struct GitService: Sendable {
                 untracked: false,
                 whitespace: whitespace
             )
-        } ?? ""
+        }
     }
 
     func stage(_ change: GitChange) async -> CommandResult {

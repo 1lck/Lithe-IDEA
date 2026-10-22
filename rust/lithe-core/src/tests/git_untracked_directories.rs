@@ -243,3 +243,26 @@ fn summarized_directory_supports_diff_stage_and_discard_as_a_unit() {
         [("generated/c.txt".to_string(), None)]
     );
 }
+
+// `:` cannot appear in a Windows file name.
+#[cfg(not(windows))]
+#[test]
+fn summarized_directory_diff_fails_instead_of_dropping_a_file_it_cannot_export() {
+    let repository = Repository::new("untracked-unexportable");
+    repository.write("generated/a.txt", "alpha\n");
+    repository.write("generated/bad:name.txt", "kept\n");
+
+    // Shelve would save the patch and then clean `generated/`, so a patch
+    // without `bad:name.txt` would delete that file without a copy.
+    let response: Value = serde_json::from_str(&execute_json(
+        &json!({
+            "command": "git.diff",
+            "timeoutMilliseconds": 10_000,
+            "payload": {"root": repository.0, "pathspecs": ["generated/"], "untracked": true},
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(response["ok"], false, "{response}");
+    assert!(repository.0.join("generated/bad:name.txt").exists());
+}

@@ -26,6 +26,8 @@
 **围绕汇总条目的操作也必须按目录工作**，否则会悄悄出错：
 
 - `git.diff` 带 `untracked` 且路径是目录时，展开成目录下的每个文件分别做 diff。如果不这样做，"搁置"（Shelve）功能会先给目录生成一个空补丁，然后又把目录清掉，造成数据丢失。
+- 目录 diff 遇到无法导出的文件（例如名字含 `:`，路径校验会拒绝）时，整个 diff 报错，不能跳过。Shelve 保存补丁后会把整个目录清掉，跳过的文件就会被删掉而且没有备份。逐文件操作时，这类文件会被路径校验直接拒绝，所以以前不会出问题。
+- macOS 的 Shelve 必须区分"读不到补丁"和"补丁为空"：`workingDiffPatch` / `stagedDiffPatch` 读不到时返回 nil，任何一条读不到，整个搁置就中止，不保存也不清理。以前把读取失败当成空补丁跳过，接着照样清理这条变更。
 - `discardAll` 能把 `dir/` 识别为未跟踪路径，用 `git clean` 删除，而不是对它执行 `git restore`。
 
 **macOS 端：**
@@ -36,6 +38,7 @@
 - 计数按文件统计（`gitChangedFileCount`）：一条汇总按它的文件数计；已展开的子项已经算在汇总里，不重复计数。
 - 逐条执行的写操作（Rollback、Shelve）先去掉同一批里被汇总覆盖的子项。否则同一个文件会在搁置补丁里写两次，恢复时 `git apply` 失败；或者汇总被清理后，子项的 `git restore` 报错并中断。
 - 把汇总移到 ChangeList 后，ChangeList 只记录 `dir/` 这一个键，目录下的文件继承它的归属。Core 的提交范围检查（`PathScope`）只按字面路径比较，所以 `commitScope` 会把继承归属的文件逐个列出。否则在该 ChangeList 中提交会被拒，而默认列表的提交会把这些文件一起带走。
+- 刷新在等待目录内容时，用户可能折叠或展开目录。列出结果后，如果展开集合变了，就按当前集合重建结果（已经读到的列表直接复用），不能用刷新开始时的旧集合覆盖用户的操作。只有本次读取一开始就请求过、但结果里已经没有的汇总，才会被忘掉。Windows 的 `listExpandedUntrackedDirectories` 遵循同样的规则。
 - `GitChangeSectionsCache.rows` 把仓库标题、ChangeList 标题和每一条变更拍平成一个行数组，`ForEach` 直接放在 `LazyVStack` 中。
 
 **Windows 端：**
