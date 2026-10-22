@@ -9,10 +9,14 @@
  */
 
 import { invoke } from "@/platform/tauri-core";
+import { readAgentCliSnapshot } from "@/platform/agent-cli-configuration";
+import { agentProviderConfigSource, importAgentProviderConfiguration, importedProviderMatchesAgent } from "./agent-provider-import";
+import { agentProviderCredential } from "./agent-provider-credentials";
 import {
   AGENT_PROTOCOL_BY_ID,
   CUSTOM_AGENT_ID,
   supportsCodexSubscription,
+  agentProviders,
   type AgentPanelSettings,
 } from "../types/agent-settings.types";
 import type { AgentLaunchConfiguration } from "./agent-transport";
@@ -23,6 +27,7 @@ export type AgentLaunchFailure =
   | "missingProvider"
   | "missingApiKey"
   | "missingCommand"
+  | "invalidCliConfiguration"
   | "subscriptionNeedsCodex";
 
 export class AgentLaunchError extends Error {
@@ -45,19 +50,19 @@ export interface AgentLaunchInputs {
 }
 
 /** Keychain entry holding one agent's provider key. */
-export function agentApiKeyName(agentId: string): string {
-  return `agent-provider-api-key/${agentId.trim() || CUSTOM_AGENT_ID}`;
+export function agentApiKeyName(agentId: string, providerId?: string): string {
+  return `agent-provider-api-key/${agentId.trim() || CUSTOM_AGENT_ID}${providerId ? `/${providerId}` : ""}`;
 }
 
-export async function readAgentApiKey(agentId: string): Promise<string> {
+export async function readAgentApiKey(agentId: string, providerId?: string): Promise<string> {
   const value = await invoke<string | null>("get_secure_secret", {
-    key: agentApiKeyName(agentId),
+    key: agentApiKeyName(agentId, providerId),
   });
   return (value ?? "").trim();
 }
 
-export async function storeAgentApiKey(agentId: string, apiKey: string): Promise<void> {
-  const key = agentApiKeyName(agentId);
+export async function storeAgentApiKey(agentId: string, apiKey: string, providerId?: string): Promise<void> {
+  const key = agentApiKeyName(agentId, providerId);
   const trimmed = apiKey.trim();
   if (trimmed.length === 0) {
     await invoke("remove_secure_secret", { key });
@@ -108,6 +113,7 @@ export function resolveAgentLaunch(inputs: AgentLaunchInputs): AgentLaunchConfig
       cwd: workspacePath,
       dataDirectory: inputs.dataDirectory,
       authentication: "codexSubscription",
+      observeModelCalls: settings.observeModelCalls ?? true,
       provider: null,
     };
   }
@@ -140,6 +146,7 @@ export function resolveAgentLaunch(inputs: AgentLaunchInputs): AgentLaunchConfig
     cwd: workspacePath,
     dataDirectory: inputs.dataDirectory,
     authentication: "apiKey",
+    observeModelCalls: settings.observeModelCalls ?? true,
     provider: {
       protocol: agentProtocolFor(settings.agentId),
       baseUrl,
@@ -153,8 +160,31 @@ export function resolveAgentLaunch(inputs: AgentLaunchInputs): AgentLaunchConfig
 
 /** Read the key, then resolve; rejects with `AgentLaunchError` when incomplete. */
 export async function loadAgentLaunch(inputs: Omit<AgentLaunchInputs, "apiKey">): Promise<AgentLaunchConfiguration> {
+  if (!inputs.settings.enabled) return resolveAgentLaunch({ ...inputs, apiKey: "" });
   if (inputs.settings.authentication === "codexSubscription") {
     return resolveAgentLaunch({ ...inputs, apiKey: "" });
   }
-  return resolveAgentLaunch({ ...inputs, apiKey: await readAgentApiKey(inputs.settings.agentId) });
+  const source = inputs.settings.provider.source;
+  if (source) {
+    try {
+      if (agentProviderConfigSource(inputs.settings.agentId) !== source) throw new Error();
+      const snapshot = await readAgentCliSnapshot(source);
+      const provider = await importAgentProviderConfiguration(source, snapshot.configuration);
+      if (!importedProviderMatchesAgent(inputs.settings.agentId, provider)) throw new Error();
+      const apiKey = agentProviderCredential(source, snapshot.configuration, snapshot.authentication);
+      return resolveAgentLaunch({ ...inputs, settings: { ...inputs.settings, provider: { ...inputs.settings.provider, ...provider } }, apiKey });
+    } catch {
+      throw new AgentLaunchError("invalidCliConfiguration", "The linked CLI configuration needs a valid endpoint, model and API key. Check local CLI settings, then reconnect.");
+    }
+  }
+  return resolveAgentLaunch({ ...inputs, apiKey: await readAgentApiKey(inputs.settings.agentId, inputs.settings.provider.id) });
+}
+
+/** Refresh display metadata while retaining the linked credential's owner and local choices. */
+export function settingsWithLinkedAgentProvider(settings: AgentPanelSettings, launch: AgentLaunchConfiguration): AgentPanelSettings {
+  const resolved = launch.provider;
+  if (!settings.provider.source || !resolved || resolved.protocol === "chatCompletions") return settings;
+  const provider = { ...settings.provider, protocol: resolved.protocol, baseUrl: resolved.baseUrl, model: resolved.model ?? "" };
+  if (provider.protocol === settings.provider.protocol && provider.baseUrl === settings.provider.baseUrl && provider.model === settings.provider.model) return settings;
+  return { ...settings, provider, providers: agentProviders(settings).map((entry) => entry.id === provider.id ? provider : entry) };
 }
