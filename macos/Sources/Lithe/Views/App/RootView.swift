@@ -403,6 +403,8 @@ protocol ProjectWindowSessionHandling: UnsavedDocumentHandling {
     func requestCloseActiveWorkbenchItem() -> Bool
     func requestCloseActiveSession() -> Bool
     func resetForProjectWindowClose() async
+    /// Whether closing the window may stop its projects' Run services.
+    func confirmRunServicesBeforeClose() async -> Bool
     func noteWindowBecameKey()
 }
 
@@ -543,6 +545,13 @@ final class LitheWindowCoordinator: NSObject, NSWindowDelegate {
             defer { preparation.release() }
             guard await confirmUnsavedDocuments(projectSessions), !Task.isCancelled,
                   preparation.matches(projectSessions.closingDocuments) else {
+                self?.nativeWindowCloseTask = nil
+                self?.pendingNativeWindowCloseIntent = nil
+                return
+            }
+            // Asked after the documents, which are not closed until the reset
+            // below, so a cancel here still leaves everything as it was.
+            guard await projectSessions.confirmRunServicesBeforeClose(), !Task.isCancelled else {
                 self?.nativeWindowCloseTask = nil
                 self?.pendingNativeWindowCloseIntent = nil
                 return

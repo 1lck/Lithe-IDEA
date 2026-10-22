@@ -312,6 +312,7 @@ describe("Standalone Java compile-then-run", () => {
     expect(executePreLaunchStep).toHaveBeenCalledWith({
       sessionId: configuration.id,
       executionId: store.getState().sessions[0].executionId,
+      title: configuration.name,
       executable: "C:/jdk8/bin/javac.exe",
       arguments: ["-d", ".lithe/run/classes/standalone", "Standalone.java"],
       workingDirectory: "D:/work",

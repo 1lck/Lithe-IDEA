@@ -8,6 +8,38 @@ import LitheModuleAPI
 extension AppModel {
     var mavenFeatureIfActive: MavenFeatureModel? { executionCapability?.mavenFeature }
     var runFeatureIfActive: RunFeatureModel? { executionCapability?.runFeature }
+
+    /// Run configurations and Maven goals still running in this project, for
+    /// the question before the project, its window or Lithe closes. Record IDs
+    /// carry the session ID so several projects can be listed together.
+    var runServiceExitCandidates: [RunServiceExitCandidate] {
+        let project = workspaceURL == nil ? "" : projectName
+        var candidates: [RunServiceExitCandidate] = []
+        if let run = runFeatureIfActive {
+            if run.isRunning {
+                candidates.append(RunServiceExitCandidate(
+                    id: "run:\(id.uuidString):primary",
+                    title: run.runningTitle ?? "",
+                    projectName: project
+                ))
+            }
+            candidates += run.moduleSessions.filter(\.isRunning).map { session in
+                RunServiceExitCandidate(
+                    id: "run:\(id.uuidString):\(session.executionID)",
+                    title: session.title,
+                    projectName: project
+                )
+            }
+        }
+        if let maven = mavenFeatureIfActive, maven.isRunning {
+            candidates.append(RunServiceExitCandidate(
+                id: "maven:\(id.uuidString)",
+                title: maven.runningTitle ?? "Maven",
+                projectName: project
+            ))
+        }
+        return candidates
+    }
     var genericDebugFeatureIfActive: GenericDebugFeatureModel? {
         debugCapability?.genericFeature as? GenericDebugFeatureModel
     }

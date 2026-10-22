@@ -35,6 +35,9 @@ pub enum LifecycleContext {
     /// background services must wait for startup confirmation unless their
     /// exact identities, or a setting, already approved ending them.
     FinalSweep,
+    /// The user closes a project or window while Lithe keeps running. Only
+    /// what that workspace owns ends; everything else is decided on quit.
+    CloseWorkspace,
 }
 
 /// Category of a ledger record; it selects the default policy.
@@ -107,6 +110,9 @@ pub enum LifecycleAction {
     Defer,
     /// Not owned by this instance; do not show or touch it.
     Ignore,
+    /// List it in one confirmation that stops every listed record or cancels
+    /// the close; there is no option to keep a single record running.
+    ConfirmStop,
 }
 
 /// Choice remembered for every record matched by one recognizer.
@@ -156,6 +162,20 @@ pub enum BackgroundResourcePolicy {
     Keep,
 }
 
+/// Exit behavior of Run sessions when their window or Lithe closes.
+///
+/// A Run session's output pipes and process tree belong to Lithe, so it cannot
+/// be kept running after its owner closes; the only question is whether to ask.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum RunServicePolicy {
+    /// List running services and stop them only after the user confirms.
+    #[default]
+    Ask,
+    /// Stop them without asking.
+    Terminate,
+}
+
 /// Handling of an earlier instance's leftovers found at startup.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -179,6 +199,8 @@ pub struct TerminationSettings {
     pub agent_tasks: AgentTaskPolicy,
     /// Daemons and containers when quitting.
     pub background_resources: BackgroundResourcePolicy,
+    /// Run sessions when quitting or closing the project or window they belong to.
+    pub run_services_on_exit: RunServicePolicy,
     /// Choices remembered from the background-resource dialog, by recognizer ID.
     pub remembered_choices: BTreeMap<String, RememberedChoice>,
     /// Leftovers of an earlier instance.
@@ -194,6 +216,7 @@ impl Default for TerminationSettings {
             confirm_terminal_tab_close: true,
             agent_tasks: AgentTaskPolicy::default(),
             background_resources: BackgroundResourcePolicy::default(),
+            run_services_on_exit: RunServicePolicy::default(),
             remembered_choices: BTreeMap::new(),
             startup_sweep: StartupSweepPolicy::default(),
             graceful_stop_seconds: 5,
@@ -389,9 +412,32 @@ fn apply_settings(
     policy: ExitPolicy,
     source: &'static str,
 ) -> (LifecycleAction, &'static str) {
-    use LifecycleAction::{Ask, Confirm, Defer, Retain, Terminate};
+    use LifecycleAction::{Ask, Confirm, ConfirmStop, Defer, Retain, Terminate};
+    // Only sessions the host launched and tracks itself; a `run` item that an
+    // inventory merely found in the instance scope keeps the default.
+    let tracked_run = record.kind == RecordKind::Run && record.ownership == Ownership::Launched;
+    if context == LifecycleContext::CloseWorkspace
+        && policy != ExitPolicy::Terminate
+        && policy != ExitPolicy::External
+    {
+        // Terminals, Agent tasks and background services have their own close
+        // or are decided when Lithe quits.
+        return (Defer, "decidedOnQuit");
+    }
     match policy {
         ExitPolicy::External => (LifecycleAction::Ignore, source),
+        ExitPolicy::Terminate
+            if tracked_run
+                && matches!(
+                    context,
+                    LifecycleContext::Quit | LifecycleContext::CloseWorkspace
+                ) =>
+        {
+            match settings.run_services_on_exit {
+                RunServicePolicy::Ask => (ConfirmStop, "runServicesSetting"),
+                RunServicePolicy::Terminate => (Terminate, "runServicesSetting"),
+            }
+        }
         ExitPolicy::Terminate => (Terminate, source),
         ExitPolicy::ConfirmEach if record.kind == RecordKind::AgentTask => match context {
             // Nobody can confirm after a crash, and an interrupted migration is
@@ -418,6 +464,7 @@ fn apply_settings(
             | LifecycleContext::AgentDisconnect
             | LifecycleContext::FinalSweep => (Terminate, source),
             LifecycleContext::StartupSweep => startup_sweep(settings),
+            LifecycleContext::CloseWorkspace => (Defer, "decidedOnQuit"),
         },
         ExitPolicy::AskOnExit => {
             let remembered = record
@@ -433,6 +480,7 @@ fn apply_settings(
                 (_, Some(RememberedChoice::Keep)) => (Retain, "rememberedChoice"),
                 (_, Some(RememberedChoice::Terminate)) => (Terminate, "rememberedChoice"),
                 (LifecycleContext::StartupSweep, None) => startup_sweep(settings),
+                (LifecycleContext::CloseWorkspace, _) => (Defer, "decidedOnQuit"),
                 (
                     LifecycleContext::Quit
                     | LifecycleContext::CrashRecovery
@@ -513,6 +561,8 @@ pub struct Settlement {
 /// A question without an answer keeps its record: the host only calls this
 /// once the user went through every question, so a missing answer means the
 /// prompt could not be shown, and keeping a process is the reversible choice.
+/// `confirmStop` records end: their confirmation has no keep option, and
+/// cancelling it cancels the whole close before anything is settled.
 /// Deferred and ignored records are in neither list.
 pub fn settle(request: &SettleRequest) -> Settlement {
     let mut settlement = Settlement {
@@ -522,7 +572,8 @@ pub fn settle(request: &SettleRequest) -> Settlement {
     };
     for decision in &request.decisions {
         let terminate = match decision.action {
-            LifecycleAction::Terminate => true,
+            // The host settles only after the user approved stopping the list.
+            LifecycleAction::Terminate | LifecycleAction::ConfirmStop => true,
             LifecycleAction::Retain => false,
             LifecycleAction::Confirm | LifecycleAction::Ask => {
                 let answer = request
