@@ -1,0 +1,157 @@
+{
+  "version": 1,
+  "status": "draft",
+  "contract": "shared/contracts/vcs-provider-v1.md",
+  "providers": [
+    {
+      "vcs": "git",
+      "displayName": "Git",
+      "origin": { "kind": "builtIn" },
+      "capabilities": {
+        "annotate": 1,
+        "baseContent": 1,
+        "checkin": 1,
+        "conflicts": 1,
+        "fileHistory": 1,
+        "history": 1,
+        "ignore": 1,
+        "push": 1,
+        "rollback": 1,
+        "staging": 1,
+        "status": 1,
+        "update": 1
+      }
+    },
+    {
+      "vcs": "svn",
+      "displayName": "Subversion",
+      "origin": { "kind": "plugin", "pluginID": "dev.lithe.plugin.svn-support" },
+      "capabilities": {
+        "annotate": 1,
+        "baseContent": 1,
+        "checkin": 1,
+        "cleanup": 1,
+        "conflicts": 1,
+        "fileHistory": 1,
+        "fileOperations": 1,
+        "history": 1,
+        "ignore": 1,
+        "lock": 1,
+        "rollback": 1,
+        "status": 1,
+        "update": 1
+      }
+    }
+  ],
+  "rootDetectionCases": [
+    {
+      "name": "nested Subversion working copy inside a Git repository",
+      "markers": [
+        { "directory": "", "name": ".git", "type": "directory" },
+        { "directory": "services/legacy", "name": ".svn", "type": "directory" }
+      ],
+      "expectedRoots": [
+        { "id": "", "vcs": "git" },
+        { "id": "services/legacy", "vcs": "svn" }
+      ],
+      "expectedOwnership": [
+        { "path": "README.md", "root": "" },
+        { "path": "services/legacy/src/Main.java", "root": "services/legacy" }
+      ],
+      "expectedAmbiguous": []
+    },
+    {
+      "name": "one directory with markers of two providers stays unmapped",
+      "markers": [
+        { "directory": "mixed", "name": ".git", "type": "directory" },
+        { "directory": "mixed", "name": ".svn", "type": "directory" }
+      ],
+      "expectedRoots": [],
+      "expectedOwnership": [{ "path": "mixed/a.txt", "root": null }],
+      "expectedAmbiguous": [{ "id": "mixed", "vcs": ["git", "svn"] }]
+    },
+    {
+      "name": "Git worktree file marker",
+      "markers": [{ "directory": "linked", "name": ".git", "type": "file" }],
+      "expectedRoots": [{ "id": "linked", "vcs": "git" }],
+      "expectedOwnership": [{ "path": "linked/src/lib.rs", "root": "linked" }],
+      "expectedAmbiguous": []
+    }
+  ],
+  "statusSnapshots": [
+    {
+      "name": "git root with staging dimension",
+      "vcs": "git",
+      "snapshot": {
+        "root": "",
+        "head": {
+          "revision": { "id": "4b825dc642cb6eb9a060e54bf8d69288fbee4904", "display": "4b825dc6", "kind": "hash" },
+          "branch": "preview",
+          "location": "https://github.example.invalid/owner/repo.git"
+        },
+        "changes": [
+          { "path": "docs/new.md", "oldPath": null, "status": "added", "flags": [], "staging": "staged" },
+          { "path": "src/lib.rs", "oldPath": null, "status": "modified", "flags": [], "staging": "partial" },
+          { "path": "src/renamed.rs", "oldPath": "src/old.rs", "status": "renamed", "flags": [], "staging": "staged" },
+          { "path": "vendor/module", "oldPath": null, "status": "modified", "flags": ["submodule"], "staging": "unstaged" }
+        ],
+        "truncated": false
+      }
+    },
+    {
+      "name": "svn root without staging, with Subversion-only flags",
+      "vcs": "svn",
+      "snapshot": {
+        "root": "services/legacy",
+        "head": {
+          "revision": { "id": "1234", "display": "r1234", "kind": "number" },
+          "branch": null,
+          "location": "https://svn.example.invalid/repo/trunk"
+        },
+        "changes": [
+          { "path": "build.xml", "oldPath": null, "status": "missing", "flags": [] },
+          { "path": "lib/vendor", "oldPath": null, "status": "unversioned", "flags": ["external"] },
+          { "path": "src/Main.java", "oldPath": null, "status": "modified", "flags": ["propertiesModified", "locked"] },
+          { "path": "src/Moved.java", "oldPath": "src/Old.java", "status": "renamed", "flags": [] },
+          { "path": "src/Shared.java", "oldPath": null, "status": "conflicted", "flags": ["treeConflict"] }
+        ],
+        "truncated": false
+      }
+    }
+  ],
+  "pluginReplyValidationCases": [
+    {
+      "name": "unknown status value is rejected",
+      "reply": { "changes": [{ "path": "a.txt", "oldPath": null, "status": "obstructed", "flags": [] }] },
+      "expectedError": "plugin.vcs.invalidOutput"
+    },
+    {
+      "name": "path escaping the root is rejected",
+      "reply": { "changes": [{ "path": "../outside.txt", "oldPath": null, "status": "modified", "flags": [] }] },
+      "expectedError": "plugin.vcs.invalidOutput"
+    },
+    {
+      "name": "unknown flag is dropped, change is kept",
+      "reply": { "changes": [{ "path": "a.txt", "oldPath": null, "status": "modified", "flags": ["futureFlag", "locked"] }] },
+      "expectedChanges": [{ "path": "a.txt", "oldPath": null, "status": "modified", "flags": ["locked"] }]
+    },
+    {
+      "name": "staging field from a provider without staging is rejected",
+      "reply": { "changes": [{ "path": "a.txt", "oldPath": null, "status": "modified", "flags": [], "staging": "staged" }] },
+      "expectedError": "plugin.vcs.invalidOutput"
+    },
+    {
+      "name": "unordered changes are sorted by path",
+      "reply": {
+        "changes": [
+          { "path": "b.txt", "oldPath": null, "status": "added", "flags": [] },
+          { "path": "a.txt", "oldPath": null, "status": "deleted", "flags": [] }
+        ]
+      },
+      "expectedChanges": [
+        { "path": "a.txt", "oldPath": null, "status": "deleted", "flags": [] },
+        { "path": "b.txt", "oldPath": null, "status": "added", "flags": [] }
+      ]
+    }
+  ]
+}
