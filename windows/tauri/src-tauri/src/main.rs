@@ -137,11 +137,9 @@ fn main() {
             app.manage(debug::DebugAdapterManager::default());
             run::cleanup_legacy_appdata(app.handle());
             maven::clear_dependency_outputs(app.handle());
-            // The splash window comes first so the user sees the startup
-            // animation instead of waiting for an invisible workbench.
-            if let Err(error) = host::create_startup_splash_window(app.handle()) {
-                eprintln!("[startup] failed to create the startup splash window: {error}");
-            }
+            // The splash window was already created at the start of the setup,
+            // so the user sees the startup animation instead of waiting for an
+            // invisible workbench.
             for config in initial_windows.iter().filter(|config| config.create) {
                 tauri::WebviewWindowBuilder::from_config(app.handle(), config)?.build()?;
             }
@@ -225,6 +223,7 @@ fn main() {
             host::get_system_theme,
             host::set_native_window_appearance,
             host::complete_startup,
+            host::reveal_startup_splash,
             host::publish_startup_stage,
             host::publish_startup_ready,
             host::publish_startup_failed,
@@ -312,7 +311,12 @@ fn window_state_flags() -> StateFlags {
 /// a delay.
 fn reveal_main_window_after_delay(app: tauri::AppHandle) {
     std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_secs(20));
+        // The splash page reveals the window once its card is painted. This is
+        // the safety net for a page that failed to load: without it the
+        // startup would stay invisible.
+        std::thread::sleep(std::time::Duration::from_millis(1200));
+        let _ = host::reveal_startup_splash(app.clone());
+        std::thread::sleep(std::time::Duration::from_secs(19));
         let _ = host::complete_startup(app);
     });
 }

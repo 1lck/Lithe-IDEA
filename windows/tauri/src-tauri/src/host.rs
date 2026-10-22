@@ -694,6 +694,10 @@ pub const STARTUP_READY_EVENT: &str = "lithe://startup-ready";
 /// compact layout instead of covering the workbench. The window itself is
 /// transparent and the frontend draws a rounded card inside it, so the card
 /// floats over the desktop instead of filling the whole window.
+///
+/// The window starts hidden. A transparent window that is shown before its page
+/// painted shows up as an empty frame, so the page reveals it once the card is
+/// on screen.
 pub fn create_startup_splash_window(app: &AppHandle) -> Result<WebviewWindow, String> {
     if let Some(existing) = app.get_webview_window(STARTUP_SPLASH_LABEL) {
         return Ok(existing);
@@ -713,9 +717,24 @@ pub fn create_startup_splash_window(app: &AppHandle) -> Result<WebviewWindow, St
     .always_on_top(true)
     .transparent(true)
     .background_color(tauri::window::Color(0, 0, 0, 0))
+    .visible(false)
     .center()
     .build()
     .map_err(|error| error.to_string())
+}
+
+/// Shows the startup splash window once its card is painted.
+///
+/// The command is idempotent: the splash page reveals itself after the first
+/// paint, and the shell reveals it again as a safety net when the page failed
+/// to load.
+#[tauri::command]
+pub fn reveal_startup_splash(app: AppHandle) -> Result<(), String> {
+    if let Some(splash) = app.get_webview_window(STARTUP_SPLASH_LABEL) {
+        let _ = splash.center();
+        splash.show().map_err(|error| error.to_string())?;
+    }
+    Ok(())
 }
 
 /// Closes the startup splash and hands the screen to the workbench.

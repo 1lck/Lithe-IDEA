@@ -109,6 +109,23 @@ function completeStartup(): void {
   });
 }
 
+/**
+ * Shows the window once the card is painted.
+ *
+ * The window is created hidden, because a transparent window that appears
+ * before its page painted shows up as an empty frame. Two animation frames
+ * guarantee the first paint happened.
+ */
+function revealSplashWhenPainted(): void {
+  window.requestAnimationFrame(() => {
+    window.requestAnimationFrame(() => {
+      void invoke("reveal_startup_splash").catch((error) => {
+        console.warn("Failed to reveal the startup splash:", error);
+      });
+    });
+  });
+}
+
 /** Shows the failed phase, the reason and the way back to the workbench. */
 function applyFailure(message: string | null): void {
   const definition = stageDefinition(currentStage);
@@ -133,6 +150,7 @@ async function main(): Promise<void> {
   applyCachedAppearance();
   // Paint the first phase right away so the window never shows an empty card.
   applyStage(currentStage);
+  revealSplashWhenPainted();
 
   if (!isAnimationEnabled()) {
     completeStartup();
