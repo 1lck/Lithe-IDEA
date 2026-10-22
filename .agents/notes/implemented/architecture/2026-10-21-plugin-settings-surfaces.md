@@ -88,6 +88,22 @@ Sparkle delta。通用夹具 `build-tool-path.plugin.json`、Core 校验、Swift
 
 macOS 的 `hostCapabilities` 声明 `settings: [1, 2]`、`languageServers: [1, 2]` 和 `buildSystems: [1, 2]`。Windows 还没有这些界面和推送，所以仍只声明 1，需要 v2 的插件在 Windows 上会被市场隐藏，而不是装上后行为不完整。
 
+### 7. 路径选择按钮保留完整宽度
+
+插件详情页比完整设置窗口窄。路径输入框若固定占用 220 点，同时右侧作用域和
+生效标签保持完整，SwiftUI 会把“选择…”按钮压成没有文字的灰条。通用路径
+控件因此固定按钮的自然宽度，让输入框随剩余空间缩短；共享设置行的标题列
+以原来的 230 点为上限，窄面板时也允许缩短。宽面板仍保持原来的列宽。
+缩放只调整布局，不替换输入框实例，以免丢失尚未提交的路径。
+
+这与 IDEA Community 的文本框加浏览按钮采用相同的空间分配：检查的版本是
+`c7f91397daa3a961b4e78bc634fe467a0a7d9ade`，源码为
+`platform/platform-api/src/com/intellij/openapi/ui/TextFieldWithBrowseButton.java`
+及 `ComponentWithBrowseButton.java`。后者把文本框放在 `BorderLayout.CENTER`，
+把 `FixedSizeButton` 放在 `BorderLayout.EAST`，让输入部分承担宽度变化。
+macOS 保留既有原生控件和主题，只在通用 owner 中修复压缩规则，不为 Cargo
+增加专门的宽度或页面。
+
 ## 考虑过的备选方案
 
 ### 宿主为常见工具内置设置页
@@ -116,6 +132,7 @@ Swift 和 Windows 各写一遍合并规则最直接，但两边一旦有细微�
 - `cargo test -p lithe-core --lib plugin_configuration`：会话按 section 应答、更新推送、宿主会话拒绝更新。
 - `./scripts/test-macos.sh --filter PluginSettingsTests`：项目层存储、作用域规则、页面注册、配置展开。
 - `./scripts/test-macos.sh --filter SettingsSidebarLayoutTests`：静态页面仍各归一个分组。
+- `./scripts/test-macos.sh --filter PluginSettingsLayoutTests`：480、640、900 点宽的深浅主题下，路径输入框和完整选择按钮都在容器内，按钮可调用选择器并写入所选路径。
 - 共享夹具：`shared/contracts/plugins/v1/fixtures/settings-v2.plugin.json`。
 
 ## 适用范围
@@ -127,5 +144,6 @@ Swift 和 Windows 各写一遍合并规则最直接，但两边一旦有细微�
 - `macos/Sources/Lithe/Models/AppModel/AppModel+PluginSettings.swift`
 - `macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginSettingsStore.swift`
 - `macos/Sources/Lithe/Views/App/PluginSettingsSection.swift`
+- `macos/Sources/Lithe/Views/Components/LitheSettingsControls.swift`
 - `macos/Sources/Lithe/Views/App/ContributedSettingsPageView.swift`
 - `shared/contracts/plugins/v1/README.md`
