@@ -17,8 +17,10 @@ import {
   PencilSimpleIcon,
   PulseIcon,
   WarningIcon,
+  XIcon,
 } from "@/ui/icons";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/ui/hover-card";
+import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/ui/popover";
 import { Spinner } from "@/ui/spinner";
 import MarkdownRenderer from "@/features/ai/components/messages/markdown-renderer";
 import { cn } from "@/utils/cn";
@@ -55,6 +57,11 @@ import {
   type AgentTurnUsage,
 } from "../types/agent-turn-statistics";
 import { AgentBrandIcon } from "./brand/agent-brand-icon";
+import { agentConnection } from "../stores/agent-connection-service";
+import type { AgentSubagent } from "../types/agent-observations";
+import { AgentObservedStatistics } from "./agent-observed-statistics";
+import { AgentContextUsageView } from "./agent-usage-panel";
+import { AgentEditReview } from "./agent-edit-review";
 
 type Translate = ReturnType<typeof useTranslation>["t"];
 
@@ -118,10 +125,16 @@ export function AgentHero({
   );
 }
 
-/** Tasks, running and edits below the transcript; visible even when empty. */
-export function AgentActivitySummaryBar({ messages }: { messages: AgentConversationMessage[] }) {
+/** Native children stay distinct from ordinary tool activity. */
+export function AgentActivitySummaryBar({ messages, subagents = [], sessionID = "", onOpenLocation }: {
+  messages: AgentConversationMessage[];
+  subagents?: AgentSubagent[];
+  sessionID?: string;
+  onOpenLocation?: (location: AgentToolLocation) => void;
+}) {
   const { t } = useTranslation();
   const counts = activitySummary(messages);
+  if (counts.tasks === 0 && counts.running === 0 && counts.edits === 0 && subagents.length === 0) return null;
   const segments: { icon: typeof ListChecksIcon; label: string; value: number; tint?: string }[] = [
     {
       icon: ListChecksIcon,
@@ -151,6 +164,21 @@ export function AgentActivitySummaryBar({ messages }: { messages: AgentConversat
           ) : null}
         </div>
       ))}
+      {subagents.length > 0 && onOpenLocation !== undefined ? (
+        <Popover>
+          <PopoverTrigger render={<button type="button" className="flex h-full shrink-0 items-center gap-1 border-l border-border px-2 text-foreground hover:bg-hover" />}>
+            <ListChecksIcon className="size-3" />
+            {t("agent.subagents.title")} {subagents.length}
+          </PopoverTrigger>
+          <PopoverContent side="top" align="end" className="max-h-[min(480px,70vh)] w-[440px] overflow-auto p-3">
+            <PopoverTitle>{t("agent.subagents.title")}</PopoverTitle>
+            <p className="mb-2 text-subtle-foreground ui-text-caption">{t("agent.subagents.progress", {
+              completed: subagents.filter((child) => child.state === "completed").length, total: subagents.length,
+            })}</p>
+            <SubagentTree children={subagents} parentID={sessionID} onOpenLocation={onOpenLocation} />
+          </PopoverContent>
+        </Popover>
+      ) : null}
     </div>
   );
 }
@@ -617,10 +645,12 @@ function ThinkingRow({
   isCancelling,
   startedAt,
   now,
+  conversation,
 }: {
   isCancelling: boolean;
   startedAt: number | null;
   now: () => number;
+  conversation: AgentConversation | null;
 }) {
   const { t } = useTranslation();
   const [, setTick] = useState(0);
@@ -629,13 +659,25 @@ function ThinkingRow({
     return () => clearInterval(handle);
   }, []);
   const elapsed = startedAt === null ? null : Math.max(0, (now() - startedAt) / 1000);
+  const last = conversation?.messages[conversation.messages.length - 1];
+  const retry = conversation?.retry;
+  const label = isCancelling ? t("agent.transcript.stopping")
+    : (conversation?.pendingPermissions.length ?? 0) > 0 ? t("agent.activity.permission")
+    : retry != null ? retry.maxAttempts === null
+      ? t("agent.activity.recovering", { attempt: retry.attempt })
+      : t("agent.activity.retrying", { attempt: retry.attempt, max: retry.maxAttempts })
+    : conversation?.quiet ? t("agent.activity.quiet")
+    : conversation?.messages.some((message) => message.role === "tool" && (message.toolStatus === "pending" || message.toolStatus === "in_progress")) ? t("agent.activity.executing")
+    : last?.role === "reasoning" ? t("agent.activity.reasoning")
+    : last?.role === "agent" ? t("agent.activity.responding")
+    : t("agent.activity.waiting");
   return (
     <div
       className="flex items-center gap-2 pl-0.5 text-subtle-foreground ui-text-sm"
       title={t("agent.turn.elapsedHint")}
     >
       <Spinner className="size-3.5" />
-      <span>{isCancelling ? t("agent.transcript.stopping") : t("agent.transcript.thinking")}</span>
+      <span role="status">{label}</span>
       {elapsed === null ? null : <span className="tabular-nums">{durationLabel(elapsed, t)}</span>}
     </div>
   );
@@ -756,6 +798,7 @@ function TurnStatistics({ turn, reply }: { turn: AgentTurnStatistics; reply: str
                 <div className="pt-1 text-subtle-foreground">{t("agent.turn.usageHint")}</div>
               </>
             )}
+            <AgentObservedStatistics calls={turn.modelCalls} />
           </div>
         </HoverCardContent>
       </HoverCard>
@@ -1033,6 +1076,7 @@ export function AgentTranscript({
                 isCancelling={conversation?.isCancelling === true}
                 startedAt={conversation?.activeTurn?.startedAt ?? pendingStartedAt}
                 now={now}
+                conversation={conversation}
               />
             ) : null}
             </div>
@@ -1055,10 +1099,36 @@ export function AgentTranscript({
           onOpenLocation={onOpenLocation}
         />
       )}
+      {(conversation?.notices ?? []).map((notice) => (
+        <div key={notice.id} role="status" className="mx-3 mb-2 flex items-start gap-2 rounded border border-border bg-muted p-2 ui-text-sm">
+          <WarningIcon className="mt-0.5 size-3.5 shrink-0" />
+          <div className="min-w-0 flex-1 break-words"><strong>{notice.title}</strong>{notice.description === null ? null : <p>{notice.description}</p>}</div>
+          <button type="button" aria-label={t("agent.notice.dismiss")} onClick={() => sessionID !== null && agentConnection().dismissNotice(sessionID, notice.id)}><XIcon className="size-3.5" /></button>
+        </div>
+      ))}
       {conversation === null ? null : (
         <AgentPlanPanel plan={conversation.plan} isResponding={isResponding} />
       )}
-      <AgentActivitySummaryBar messages={messages} />
+      <AgentActivitySummaryBar messages={messages} subagents={conversation?.subagents} sessionID={sessionID ?? ""} onOpenLocation={onOpenLocation} />
+      {conversation && sessionID ? <AgentEditReview key={sessionID} conversation={conversation} sessionID={sessionID} onOpenLocation={onOpenLocation} /> : null}
     </div>
   );
+}
+
+function SubagentTree({ children, parentID, onOpenLocation }: {
+  children: AgentSubagent[];
+  parentID: string;
+  onOpenLocation: (location: AgentToolLocation) => void;
+}) {
+  const { t } = useTranslation();
+  return <>{children.filter((child) => child.parentID === parentID).map((child) => (
+    <details key={child.id} className="border-l border-border pl-2 ui-text-sm">
+      <summary className="cursor-pointer py-1"><span>{child.name}</span> · {t(`agent.subagents.${child.state}`)}</summary>
+      {child.task.length === 0 ? null : <p className="mb-2 break-words text-subtle-foreground">{child.task}</p>}
+      <div className="flex flex-col gap-2">{child.messages.map((message) => <MessageRow key={message.id} message={message} sessionID={child.id} onOpenLocation={onOpenLocation} />)}</div>
+      {child.contextUsage === null ? null : <AgentContextUsageView usage={child.contextUsage} />}
+      <AgentPlanPanel plan={child.plan} isResponding={child.state === "running"} />
+      <SubagentTree children={children} parentID={child.id} onOpenLocation={onOpenLocation} />
+    </details>
+  ))}</>;
 }

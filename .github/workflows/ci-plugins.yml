@@ -123,7 +123,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.run_plugins == 'true'
     runs-on: macos-26
-    timeout-minutes: 55
+    timeout-minutes: 75
 
     steps:
       - name: Check out source
@@ -147,8 +147,10 @@ jobs:
           jdk-architecture: arm64
 
       # Compile and discover tests before starting the test execution deadline.
+      # A cold Rust/Swift build exceeded 20 minutes while still compiling Lithe
+      # in run 39741361768. Keep that budget separate from test execution.
       - name: Build Swift tests
-        timeout-minutes: 20
+        timeout-minutes: 40
         run: ./scripts/test-macos.sh list > /dev/null
 
       - name: Run plugin-focused Swift tests

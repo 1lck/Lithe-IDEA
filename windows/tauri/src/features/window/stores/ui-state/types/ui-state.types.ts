@@ -7,6 +7,7 @@ export type SettingsTab =
   | "git"
   | "appearance"
   | "ai"
+  | "agents"
   | "ai-commit"
   | "keyboard"
   | "language"
