@@ -14,8 +14,9 @@ final class AgentSkillsFeatureModel: ObservableObject {
     }
     enum Phase: Equatable { case idle, loading, ready, failed }
     struct PendingEnablement {
-        let itemID: String
+        let item: Item
         let enabled: Bool
+        var itemID: String { item.id }
     }
     static let agents = ["codex-acp", "claude-acp"]
     @Published private(set) var phase: Phase = .idle
@@ -25,7 +26,7 @@ final class AgentSkillsFeatureModel: ObservableObject {
     @Published private(set) var error: String?
     @Published private(set) var savedURL: URL?
     @Published private(set) var isWriting = false
-    @Published private(set) var pendingEnablement: PendingEnablement?
+    @Published private(set) var pendingEnablements: [PendingEnablement] = []
     @Published private(set) var didChangeEnablement = false
     @Published var query = ""
     @Published var scope = "user"
@@ -55,8 +56,12 @@ final class AgentSkillsFeatureModel: ObservableObject {
     var visibleItems: [Item] { matchingItems.filter { belongs($0, to: scope) } }
     /// Display the user's choice immediately without replacing confirmed native state.
     func displayedEnablement(for item: Item) -> Bool? {
-        if let pendingEnablement, pendingEnablement.itemID == item.id { return pendingEnablement.enabled }
+        if let pending = pendingEnablements.first(where: { $0.itemID == item.id }) { return pending.enabled }
         return item.skill.enabled
+    }
+    func canChangeEnablement(for item: Item) -> Bool {
+        phase != .loading && (!isWriting || !pendingEnablements.isEmpty)
+            && !pendingEnablements.contains(where: { $0.itemID == item.id })
     }
     private func belongs(_ item: Item, to scope: String) -> Bool {
         scope == "repo" ? (context?.workspace != nil && item.skill.scope == "repo") : ["user", "system", "admin"].contains(item.skill.scope)
@@ -79,7 +84,7 @@ final class AgentSkillsFeatureModel: ObservableObject {
         guard !isWriting || context != next else { return }
         if context != next {
             writeTask?.cancel(); writeTask = nil; isWriting = false
-            pendingEnablement = nil; didChangeEnablement = false
+            pendingEnablements = []; didChangeEnablement = false
             listings = [:]; directories = [:]; discoveryErrors = [:]; savedURL = nil
         }
         context = next
@@ -124,26 +129,34 @@ final class AgentSkillsFeatureModel: ObservableObject {
 
     /// Capture the project before awaiting; switching projects invalidates delayed results.
     func setEnabled(_ enabled: Bool, for item: Item, context expected: Context) {
-        guard !isWriting, phase != .loading, context == expected,
+        guard canChangeEnablement(for: item), context == expected,
               item.skill.enabled != nil, item.skill.enabled != enabled,
               listings[item.agentID]?.skills.contains(item.skill) == true else { return }
-        pendingEnablement = .init(itemID: item.id, enabled: enabled)
+        pendingEnablements.append(.init(item: item, enabled: enabled))
+        guard !isWriting else { return }
         isWriting = true; error = nil; didChangeEnablement = false
         let token = UUID(); revision = token
         let service = service
-        let request = AgentSkillEnablement(agentID: item.agentID, workspace: expected.workspace, skill: item.skill, enabled: enabled)
         writeTask = Task { [weak self] in
-            do {
-                let listing = try await service.setSkillEnabled(request)
-                guard let self, !Task.isCancelled, self.revision == token else { return }
-                self.listings[item.agentID] = listing
-                self.discoveryErrors[item.agentID] = nil
-                self.pendingEnablement = nil; self.isWriting = false; self.didChangeEnablement = true; self.writeTask = nil
-            } catch {
-                guard let self, !Task.isCancelled, self.revision == token else { return }
-                self.error = error.localizedDescription
-                self.pendingEnablement = nil; self.isWriting = false; self.writeTask = nil
+            // Serialize native read/write/read exchanges while only locking the rows awaiting confirmation.
+            while let pending = self?.pendingEnablements.first {
+                guard !Task.isCancelled, self?.revision == token else { return }
+                let item = pending.item
+                let request = AgentSkillEnablement(agentID: item.agentID, workspace: expected.workspace,
+                                                  skill: item.skill, enabled: pending.enabled)
+                do {
+                    let listing = try await service.setSkillEnabled(request)
+                    guard let self, !Task.isCancelled, self.revision == token else { return }
+                    self.listings[item.agentID] = listing
+                    self.discoveryErrors[item.agentID] = nil
+                } catch {
+                    guard let self, !Task.isCancelled, self.revision == token else { return }
+                    self.error = error.localizedDescription
+                }
+                self?.pendingEnablements.removeFirst()
             }
+            guard let self, !Task.isCancelled, self.revision == token else { return }
+            self.isWriting = false; self.didChangeEnablement = self.error == nil; self.writeTask = nil
         }
     }
 
@@ -169,7 +182,7 @@ final class AgentSkillsFeatureModel: ObservableObject {
     func dismissResult() { savedURL = nil; error = nil; didChangeEnablement = false }
     func cancel() {
         revision = UUID(); writeTask?.cancel(); writeTask = nil; refreshTask?.cancel(); refreshTask = nil; isWriting = false
-        pendingEnablement = nil; didChangeEnablement = false
+        pendingEnablements = []; didChangeEnablement = false
         if phase == .loading { phase = .idle }
     }
 }

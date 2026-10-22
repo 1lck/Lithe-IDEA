@@ -138,7 +138,7 @@ struct AgentSkillsFeatureModelTests {
         #expect(!feature.didChangeEnablement, "the immediate display is not a native confirmation")
         feature.setEnabled(false, for: item, context: context)
         #expect(await awaitChange(on: service) { service.toggleRequests.count == 1 })
-        #expect(feature.isWriting && feature.pendingEnablement?.itemID == item.id)
+        #expect(feature.isWriting && feature.pendingEnablements.first?.itemID == item.id)
         #expect(feature.visibleItems.first?.skill.enabled == true, "pending writes do not invent native state")
         await feature.refresh(context)
         #expect(feature.isWriting, "manual refresh cannot invalidate the write")
@@ -147,7 +147,7 @@ struct AgentSkillsFeatureModelTests {
         service.releaseWrite()
         #expect(await awaitChange(on: feature) { feature.didChangeEnablement && !feature.isWriting })
         #expect(feature.visibleItems.first?.skill.enabled == false)
-        #expect(feature.pendingEnablement == nil)
+        #expect(feature.pendingEnablements.isEmpty)
         #expect(service.toggleRequests.count == 1)
     }
 
@@ -166,13 +166,95 @@ struct AgentSkillsFeatureModelTests {
         service.releaseWrite()
         #expect(await awaitChange(on: feature) { feature.error != nil && !feature.isWriting })
         #expect(feature.visibleItems.first?.skill.enabled == true)
-        #expect(feature.displayedEnablement(for: item) == true && feature.pendingEnablement == nil)
+        #expect(feature.displayedEnablement(for: item) == true && feature.pendingEnablements.isEmpty)
         #expect(!feature.didChangeEnablement)
         service.unknownEnablement = true
         await feature.refresh(context)
         let unknown = try #require(feature.visibleItems.first)
         feature.setEnabled(true, for: unknown, context: context)
         #expect(!feature.isWriting && service.toggleRequests.count == 1)
+    }
+
+    @Test func otherRowsQueueTheirOwnChoiceWithoutOverwritingEarlierConfirmation() async throws {
+        let service = SkillsTestService()
+        service.additionalCodexSkill = true
+        let feature = AgentSkillsFeatureModel(service: service)
+        feature.agentFilter = "codex-acp"
+        let context = AgentSkillsFeatureModel.Context(workspace: service.firstProject)
+        defer { service.releaseWrite(); feature.cancel() }
+        await feature.refresh(context)
+        let first = try #require(feature.visibleItems.first), second = try #require(feature.visibleItems.last)
+        service.holdWrite = true
+        feature.setEnabled(false, for: first, context: context)
+        try #require(await awaitChange(on: service) { service.toggleRequests.count == 1 })
+        #expect(!feature.canChangeEnablement(for: first) && feature.canChangeEnablement(for: second))
+        #expect(feature.displayedEnablement(for: second) == true)
+        feature.setEnabled(false, for: second, context: context)
+        feature.setEnabled(false, for: second, context: context)
+        #expect(feature.pendingEnablements.count == 2 && service.toggleRequests.count == 1)
+        #expect(feature.displayedEnablement(for: second) == false)
+
+        service.releaseWrite(holdingNext: true)
+        try #require(await awaitChange(on: service) { service.toggleRequests.count == 2 })
+        #expect(feature.visibleItems.first?.skill.enabled == false)
+        #expect(feature.visibleItems.last?.skill.enabled == true, "the queued row still awaits native confirmation")
+        #expect(feature.canChangeEnablement(for: first) && !feature.canChangeEnablement(for: second))
+        #expect(feature.isWriting && !feature.didChangeEnablement)
+        let confirmedFirst = try #require(feature.visibleItems.first)
+        feature.setEnabled(true, for: confirmedFirst, context: context)
+        #expect(feature.displayedEnablement(for: confirmedFirst) == true)
+        service.releaseWrite(holdingNext: true)
+        try #require(await awaitChange(on: service) { service.toggleRequests.count == 3 })
+        #expect(feature.visibleItems.allSatisfy { $0.skill.enabled == false })
+        service.releaseWrite()
+        try #require(await awaitChange(on: feature) { !feature.isWriting })
+        #expect(feature.visibleItems.first?.skill.enabled == true && feature.visibleItems.last?.skill.enabled == false)
+        #expect(feature.pendingEnablements.isEmpty && feature.didChangeEnablement)
+        #expect(service.toggleRequests.map(\.source) == [first.skill.path, second.skill.path, first.skill.path])
+    }
+
+    @Test func aFailedRowRollsBackWhileTheNextQueuedRowCanStillSave() async throws {
+        let service = SkillsTestService()
+        let feature = AgentSkillsFeatureModel(service: service)
+        let context = AgentSkillsFeatureModel.Context(workspace: service.firstProject)
+        defer { service.releaseWrite(); feature.cancel() }
+        await feature.refresh(context)
+        let first = try #require(feature.visibleItems.first), second = try #require(feature.visibleItems.last)
+        service.holdWrite = true; service.failToggle = true
+        feature.setEnabled(false, for: first, context: context)
+        try #require(await awaitChange(on: service) { service.toggleRequests.count == 1 })
+        feature.setEnabled(false, for: second, context: context)
+        service.releaseWrite(holdingNext: true)
+        try #require(await awaitChange(on: service) { service.toggleRequests.count == 2 })
+        #expect(feature.error != nil && feature.visibleItems.first?.skill.enabled == true)
+        #expect(feature.displayedEnablement(for: first) == true && feature.displayedEnablement(for: second) == false)
+        service.failToggle = false
+        service.releaseWrite()
+        try #require(await awaitChange(on: feature) { !feature.isWriting })
+        #expect(feature.visibleItems.first?.skill.enabled == true && feature.visibleItems.last?.skill.enabled == false)
+        #expect(feature.error != nil && !feature.didChangeEnablement, "a later success must not hide an earlier failure")
+    }
+
+    @Test(arguments: [false, true])
+    func leavingTheContextDropsQueuedWritesAndRejectsLateConfirmation(switchProject: Bool) async throws {
+        let service = SkillsTestService()
+        let feature = AgentSkillsFeatureModel(service: service)
+        let context = AgentSkillsFeatureModel.Context(workspace: service.firstProject)
+        defer { service.releaseWrite(); feature.cancel() }
+        await feature.refresh(context)
+        service.holdWrite = true
+        let first = try #require(feature.visibleItems.first), second = try #require(feature.visibleItems.last)
+        feature.setEnabled(false, for: first, context: context)
+        try #require(await awaitChange(on: service) { service.toggleRequests.count == 1 })
+        feature.setEnabled(false, for: second, context: context)
+        if switchProject { await feature.refresh(.init(workspace: service.secondProject)) }
+        else { feature.cancel() }
+        let selected = feature.listings
+        service.releaseWrite()
+        try #require(await awaitChange(on: service) { service.finishedToggles == 1 })
+        #expect(service.toggleRequests.count == 1, "a queued write cannot start after leaving its project or page")
+        #expect(feature.listings == selected && !feature.didChangeEnablement)
+        #expect(feature.pendingEnablements.isEmpty && !feature.isWriting)
     }
 
     @Test func oldToggleCannotReplaceAnotherProjectsState() async throws {
@@ -190,7 +272,7 @@ struct AgentSkillsFeatureModelTests {
         service.releaseWrite()
         #expect(await awaitChange(on: service) { service.finishedToggles == 1 })
         #expect(feature.listings == selected && !feature.didChangeEnablement)
-        #expect(feature.pendingEnablement == nil && !feature.isWriting)
+        #expect(feature.pendingEnablements.isEmpty && !feature.isWriting)
     }
 }
 
@@ -199,6 +281,7 @@ private final class SkillsTestService: ObservableObject, AgentManagementService 
     let firstProject = URL(fileURLWithPath: "/fixture/first")
     let secondProject = URL(fileURLWithPath: "/fixture/second")
     var failCodex = false
+    var additionalCodexSkill = false
     var holdFirstProject = false
     var holdWrite = false
     @Published var held: [String: CheckedContinuation<Void, Never>] = [:]
@@ -220,10 +303,16 @@ private final class SkillsTestService: ObservableObject, AgentManagementService 
         }
         if failCodex && agentID == "codex-acp" { throw Failure() }
         let root = workspace?.path ?? "/fixture/global"
-        return .init(skills: [
+        var skills: [AgentSkill] = [
             .init(name: agentID + "-global", description: "Global test", path: root + "/user/" + agentID + "/SKILL.md", scope: "user", enabled: unknownEnablement ? nil : (enablements[root + "/user/" + agentID + "/SKILL.md"] ?? true)),
             .init(name: agentID + "-project", description: "Project test", path: root + "/project/" + agentID + "/SKILL.md", scope: "repo", enabled: unknownEnablement ? nil : (enablements[root + "/project/" + agentID + "/SKILL.md"] ?? true))
-        ], source: agentID == "codex-acp" ? "agent" : "directory")
+        ]
+        if additionalCodexSkill && agentID == "codex-acp" {
+            let path = root + "/user/codex-secondary/SKILL.md"
+            skills.append(.init(name: "codex-secondary", description: "Another skill in the same native settings",
+                                path: path, scope: "user", enabled: enablements[path] ?? true))
+        }
+        return .init(skills: skills, source: agentID == "codex-acp" ? "agent" : "directory")
     }
     func skillDirectories(agentID: String, workspace: URL?) async throws -> [String: String] {
         ["user": "/fixture/user/skills", "repo": (workspace?.path ?? "") + "/skills"]
@@ -247,7 +336,10 @@ private final class SkillsTestService: ObservableObject, AgentManagementService 
         return "---\nname: example\ndescription: A skill for testing\n---\n\n# Workflow\n\n1. Inspect the project.\n2. Explain the result."
     }
     func releaseLists() { let gates = held.values; held = [:]; for gate in gates { gate.resume() } }
-    func releaseWrite() { holdWrite = false; writeGate?.resume(); writeGate = nil }
+    func releaseWrite(holdingNext: Bool = false) {
+        holdWrite = holdingNext
+        let gate = writeGate; writeGate = nil; gate?.resume()
+    }
     func status(dataDirectory: URL) async throws -> AgentManagementStatus { throw Failure() }
     func install(agentID: String, dataDirectory: URL) async throws -> String { throw Failure() }
     func uninstall(agentID: String, dataDirectory: URL) async throws { throw Failure() }
@@ -360,8 +452,10 @@ struct AgentSkillsAppearanceTests {
             return Data(bytes: bytes, count: bitmap.bytesPerRow * bitmap.pixelsHigh)
         }
         let control = try #require(switches(host).first)
+        let otherControl = try #require(switches(host).last)
         #expect(control.state == .on && control.isEnabled)
         let originalPixels = try pixels(control)
+        let otherPixels = try pixels(otherControl)
         try capture(host, name: "skills-menu-before")
         let before = feature.listings
         var copies = 0
@@ -382,6 +476,13 @@ struct AgentSkillsAppearanceTests {
         }
         #expect(copies == 1, "arrow and Return navigation still execute the action once")
         #expect(window.childWindows?.contains(where: { $0.isVisible }) != true)
+        window.resignKey()
+        layout(host)
+        #expect(control.state == .on && otherControl.state == .on, "inactive window styling does not turn skills off")
+        #expect(feature.listings == before && service.toggleRequests.isEmpty)
+        window.makeKey()
+        layout(host)
+        #expect(try pixels(otherControl) == otherPixels, "reactivation restores the original native appearance")
         service.holdWrite = true
         let item = try #require(feature.visibleItems.first)
         feature.setEnabled(false, for: item, context: .init(workspace: service.firstProject))
@@ -390,6 +491,8 @@ struct AgentSkillsAppearanceTests {
         let pendingControl = try #require(switches(host).first)
         #expect(pendingControl.state == .off, "the native switch reflects the choice before saving finishes")
         #expect(!pendingControl.isEnabled, "a real pending write must still disable the control")
+        #expect(otherControl.state == .on && otherControl.isEnabled, "saving one row must not disable another skill")
+        #expect(try pixels(otherControl) == otherPixels, "an unrelated enabled switch must keep its appearance")
         func progressIndicators(_ view: NSView) -> [NSProgressIndicator] {
             if let indicator = view as? NSProgressIndicator { return [indicator] }
             return view.subviews.flatMap(progressIndicators)
@@ -482,7 +585,7 @@ struct AgentSkillsAppearanceTests {
         while clock.now < deadline {
             layout(host)
             controls = switches(host)
-            if controls.count == 2 && controls.first?.state == state && controls.allSatisfy({ $0.isEnabled == enabled }) { return controls }
+            if controls.count == 2 && controls.first?.state == state && controls.first?.isEnabled == enabled && controls.dropFirst().allSatisfy({ $0.isEnabled }) { return controls }
             await Task.yield()
         }
         Issue.record("Native skill switches did not render the expected state before the local deadline")

@@ -144,7 +144,7 @@ struct AgentSkillsSettingsView: View {
                     .help(item.agentID == "codex-acp"
                         ? "Codex saves this setting by path for all projects using this skill."
                         : "Claude saves visibility by name: global skills use user settings; project skills use project-local settings. Project and managed settings may override global settings. Skills with the same name share this setting.")
-                    .disabled(busy)
+                    .disabled(!feature.canChangeEnablement(for: item))
             } else {
                 Text("State unknown").font(LitheTheme.smallFont).foregroundStyle(LitheTheme.secondaryText)
             }
