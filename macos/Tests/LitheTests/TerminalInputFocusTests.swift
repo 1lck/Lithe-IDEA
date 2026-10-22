@@ -570,3 +570,39 @@ private final class CursorDrawingRecorder: NSObject, MTKViewDelegate {
 private final class TerminalOtherResponderView: NSView {
     override var acceptsFirstResponder: Bool { true }
 }
+
+/// Appearance resolution behind the exported COLORFGBG and the OSC 11 answer.
+@Suite("MacOS appearance resolution")
+@MainActor
+struct MacTerminalAppearanceResolutionTests {
+    @Test
+    func themePreferenceOverridesSystemAppearanceBeforeMount() {
+        let transport = MacTerminalTransport(preferredAppearanceIsDark: { true })
+        let view = transport.nativeView as! LitheTerminalView
+        view.appearance = NSAppearance(named: .aqua)
+        view.applyThemeColors(theme: LitheTheme.activeTheme)
+        #expect(transport.reportsLightBackground == false)
+    }
+
+    @Test
+    func effectiveAppearanceUsedWhenNoPreference() {
+        let transport = MacTerminalTransport(preferredAppearanceIsDark: { nil })
+        let view = transport.nativeView as! LitheTerminalView
+        view.appearance = NSAppearance(named: .aqua)
+        view.applyThemeColors(theme: LitheTheme.activeTheme)
+        #expect(transport.reportsLightBackground == true)
+    }
+
+    @Test
+    func wallpaperConfiguredBeforeSpawnReportsDarkAndAnswersBlack() {
+        let transport = MacTerminalTransport(preferredAppearanceIsDark: { nil })
+        let view = transport.nativeView as! LitheTerminalView
+        view.appearance = NSAppearance(named: .aqua)
+        view.applyThemeColors(theme: LitheTheme.activeTheme)
+        #expect(transport.reportsLightBackground == true)
+        transport.configureInitialSurface(showsWorkbenchBackground: true)
+        #expect(transport.reportsLightBackground == false)
+        // The canvas is transparent; OSC 11 answers this same black, so the env export stays consistent.
+        #expect(view.nativeBackgroundColor == NSColor.black.withAlphaComponent(0))
+    }
+}

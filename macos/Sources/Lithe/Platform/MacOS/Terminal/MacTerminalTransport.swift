@@ -18,6 +18,14 @@ final class LitheTerminalView: LocalProcessTerminalView {
     var preferredAppearanceIsDark: (() -> Bool?)?
     private var lastReportedBackgroundPayload: String?
 
+    /// Whether the background the host reports is light: the app theme while outside any window, then the window's appearance.
+    var rendersLightBackground: Bool {
+        if window == nil, let preferredAppearanceIsDark, let pinned = preferredAppearanceIsDark() {
+            return !pinned
+        }
+        return effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) != .darkAqua
+    }
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         configureRendererPolicy()
@@ -221,6 +229,12 @@ final class LitheTerminalView: LocalProcessTerminalView {
         guard process.running else { return }
         terminal.sendResponse(text: MacTerminalBackgroundReporting.changeNotification(for: nativeBackgroundColor))
     }
+
+    func updateWorkbenchSurface(isVisible: Bool) {
+        showsWorkbenchBackground = isVisible
+        applyThemeColors(theme: LitheTheme.activeTheme)
+    }
+
     func updateWorkbenchSurface(isVisible: Bool, theme: AppColorTheme, isDark: Bool) {
         showsWorkbenchBackground = isVisible
         applyThemeColors(theme: theme, isDark: isDark)
@@ -426,6 +440,12 @@ final class MacTerminalTransport: NSObject, TerminalTransport, @preconcurrency L
     }
 
     var nativeView: AnyObject { view }
+
+    func configureInitialSurface(showsWorkbenchBackground: Bool) {
+        view.updateWorkbenchSurface(isVisible: showsWorkbenchBackground)
+    }
+
+    var reportsLightBackground: Bool? { view.rendersLightBackground }
 
     private let scrollbackLines: Int
 
