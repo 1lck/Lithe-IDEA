@@ -2479,7 +2479,10 @@ metadata never stores an absolute workspace or storage path. `history.record`
 accepts `workspaceRoot`, a relative `path`, a `reason`, and optional UTF-8
 `content`; when content is omitted the core reads the workspace file. Records
 are versioned, de-duplicated against the latest snapshot, capped at 100 entries
-per file, and pruned after 30 days. Invalid metadata and missing snapshot files
+per file, and pruned after 30 days. `history.record` and `history.entries` apply
+the same `hiddenDirectoryNames` / `hiddenFilePatterns` matcher as the workspace
+tree, so a hidden path (including folder patterns such as `**/generated/` or
+`.lithe/*`) is neither recorded nor listed. Invalid metadata and missing snapshot files
 are ignored. `history.entries` returns Unix-second timestamps and relative
 `contentPath` values. `history.content` rejects traversal,
 `history.relocate` updates metadata and storage paths, and `history.rename` and

@@ -1245,6 +1245,60 @@ fn local_history_records_deduplicates_lists_and_relocates() {
 }
 
 #[test]
+fn local_history_honors_the_unified_hidden_path_patterns() {
+    let root = temporary_root("history-patterns");
+    fs::create_dir_all(&root).expect("history workspace should be creatable");
+    let storage = root.join("history-storage");
+    let patterns = serde_json::json!(["**/generated/", ".lithe/*", "*.log", "secret.txt"]);
+
+    let record = |path: &str| -> Value {
+        let request = serde_json::json!({
+            "id": "record",
+            "command": "history.record",
+            "payload": {
+                "workspaceRoot": root,
+                "storageRoot": storage,
+                "path": path,
+                "reason": "saved",
+                "content": "text\n",
+                "hiddenDirectoryNames": [],
+                "hiddenFilePatterns": patterns
+            }
+        });
+        serde_json::from_str(&execute_json(
+            &serde_json::to_string(&request).expect("history request should encode"),
+        ))
+        .expect("history response should be JSON")
+    };
+
+    // Folder rules stop snapshots below the folder at any depth (`**/`) or only
+    // at the project root, and file rules match by glob or exact name.
+    for hidden in [
+        "generated/Out.java",
+        "modules/a/generated/Out.java",
+        ".lithe/project.json",
+        "build.log",
+        "src/secret.txt",
+    ] {
+        let response = record(hidden);
+        assert_eq!(response["ok"], true, "{hidden}: {response}");
+        assert!(
+            response["data"].is_null(),
+            "{hidden} should not be recorded"
+        );
+    }
+    for visible in ["src/Main.java", "modules/.lithe/project.json"] {
+        let response = record(visible);
+        assert_eq!(response["ok"], true, "{visible}: {response}");
+        assert!(
+            response["data"]["id"].as_str().is_some(),
+            "{visible} should be recorded"
+        );
+    }
+    fs::remove_dir_all(root).expect("history workspace should be removable");
+}
+
+#[test]
 fn file_commands_round_trip_and_reject_traversal() {
     let root = temporary_root("file");
     let outside = temporary_root("outside");

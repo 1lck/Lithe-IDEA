@@ -753,7 +753,7 @@ pub(crate) struct VisibilityRules {
 }
 
 impl VisibilityRules {
-    fn new(hidden_directories: Vec<String>, hidden_files: Vec<String>) -> Self {
+    pub(crate) fn new(hidden_directories: Vec<String>, hidden_files: Vec<String>) -> Self {
         let mut directories = BUILT_IN_HIDDEN_DIRECTORIES
             .iter()
             .map(|value| (*value).to_string())
@@ -783,14 +783,22 @@ impl VisibilityRules {
             return true;
         }
         let directory_count = components.len().saturating_sub(usize::from(!is_directory));
-        for glob in self
+        let mut folder_globs = self
             .hidden_file_patterns
             .iter()
             .filter_map(|pattern| folder_glob(pattern))
-        {
-            if (1..=directory_count)
-                .any(|count| path_glob_matches(glob, &components[..count].join("/")))
-            {
+            .peekable();
+        if folder_globs.peek().is_some() {
+            // Each ancestor prefix is joined once and shared by every folder
+            // rule, instead of being rebuilt per rule.
+            let prefixes = (1..=directory_count)
+                .map(|count| components[..count].join("/"))
+                .collect::<Vec<_>>();
+            if folder_globs.any(|glob| {
+                prefixes
+                    .iter()
+                    .any(|prefix| path_glob_matches(glob, prefix))
+            }) {
                 return true;
             }
         }

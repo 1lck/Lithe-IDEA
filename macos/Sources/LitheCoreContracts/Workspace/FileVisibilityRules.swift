@@ -63,12 +63,17 @@ package struct FileVisibilityRules: Hashable, Sendable {
         }
 
         let directoryCount = isDirectory == false ? max(0, components.count - 1) : components.count
-        for glob in hiddenFilePatterns.compactMap(Self.folderGlob) {
-            for count in 1..<(directoryCount + 1) {
-                if Self.pathGlobMatches(glob, value: components.prefix(count).joined(separator: "/")) {
-                    return true
-                }
+        let folderGlobs = hiddenFilePatterns.compactMap(Self.folderGlob)
+        if !folderGlobs.isEmpty {
+            // Each ancestor prefix is joined once and shared by every folder
+            // rule, instead of being rebuilt per rule.
+            let prefixes = stride(from: 1, through: directoryCount, by: 1).map {
+                components.prefix($0).joined(separator: "/")
             }
+            let hidesFolder = folderGlobs.contains { glob in
+                prefixes.contains { Self.pathGlobMatches(glob, value: $0) }
+            }
+            if hidesFolder { return true }
         }
         guard isDirectory != true else { return false }
         return hiddenFilePatterns.contains { pattern in

@@ -263,7 +263,7 @@ final class AppSettings: ObservableObject {
             defaults.object(forKey: Key.terminalScrollbackLines) as? Int ?? Self.defaultTerminalScrollbackLines
         )
         hiddenPathPatterns = defaults.stringArray(forKey: Key.hiddenPathPatterns)
-            ?? Self.hiddenPathPatterns(migratingFrom: defaults)
+            ?? Self.migratedHiddenPathPatterns(from: defaults)
         searchExcludedPathPatterns = defaults.stringArray(forKey: Key.searchExcludedPathPatterns) ?? []
         // Existing saved exclusions stay active when upgrading from the inline editor.
         searchExclusionsEnabled = defaults.object(forKey: Key.searchExclusionsEnabled) as? Bool ?? true
@@ -689,7 +689,7 @@ final class AppSettings: ObservableObject {
     /// Built-in entries are dropped because `FileVisibilityRules` always adds
     /// them. The legacy keys are left untouched and stop being read once the
     /// new key is saved.
-    static func hiddenPathPatterns(migratingFrom defaults: any KeyValueStore) -> [String] {
+    static func migratedHiddenPathPatterns(from defaults: any KeyValueStore) -> [String] {
         let builtIn = FileVisibilityRules.default
         let directories = (defaults.stringArray(forKey: Key.legacyHiddenDirectories) ?? [])
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
