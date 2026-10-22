@@ -29,12 +29,10 @@ struct RestartLitheButton: View {
         if let restartApplication {
             if prominent {
                 Button(LocalizedStringKey("Restart Lithe")) { restartApplication() }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
+                    .buttonStyle(LitheActionButtonStyle(isPrimary: true))
             } else {
                 Button(LocalizedStringKey("Restart Lithe")) { restartApplication() }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
+                    .buttonStyle(LitheActionButtonStyle())
             }
         }
     }

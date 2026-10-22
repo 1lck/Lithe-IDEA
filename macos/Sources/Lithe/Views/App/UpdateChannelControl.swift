@@ -33,7 +33,7 @@ struct UpdateChannelControl: View {
                     ? "Open AutoBuild Downloads" : "Open Stable Downloads")) {
                     updateChecker.openRelease(updateChecker.selectedReleaseURL)
                 }
-                .buttonStyle(LitheSecondaryButtonStyle())
+                .buttonStyle(LitheActionButtonStyle())
                 .disabled(!updateChecker.canChangeChannel)
             }
         }

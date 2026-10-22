@@ -126,7 +126,7 @@ struct FindBarView: View {
     }
 
     private var replaceRow: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: LitheTheme.ActionButton.spacing) {
             Color.clear.frame(width: 20)
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass")
@@ -149,11 +149,11 @@ struct FindBarView: View {
             .modifier(FindInputChrome(isFocused: replaceFocused))
 
             Button("Replace") { model.replaceNextFindMatch() }
-                .buttonStyle(FindBarButtonStyle(isBordered: true))
+                .buttonStyle(LitheActionButtonStyle())
                 .disabled(chrome.findMatchCount == 0)
                 .help("Replace current match (Return)")
             Button("Replace All") { model.replaceAllFindMatches() }
-                .buttonStyle(FindBarButtonStyle(isBordered: true))
+                .buttonStyle(LitheActionButtonStyle())
                 .disabled(chrome.findMatchCount == 0)
                 .help("Replace all matches (Shift+Return)")
             Spacer(minLength: 0)
@@ -223,7 +223,6 @@ private struct FindInputChrome: ViewModifier {
 
 /// Compact toolbar controls keep disabled and cursor states independent of the editor underneath.
 private struct FindBarButtonStyle: ButtonStyle {
-    var isBordered = false
     var width: CGFloat = 28
     var height: CGFloat = 24
     @Environment(\.isEnabled) private var isEnabled
@@ -233,18 +232,11 @@ private struct FindBarButtonStyle: ButtonStyle {
         configuration.label
             .font(LitheTheme.uiFont(size: 11.5))
             .foregroundStyle(isEnabled ? LitheTheme.secondaryText : LitheTheme.secondaryText.opacity(0.4))
-            .padding(.horizontal, isBordered ? 12 : 0)
             .frame(minWidth: width, minHeight: height)
             .background {
                 RoundedRectangle(cornerRadius: 3)
                     .fill(isEnabled && (isHovering || configuration.isPressed)
                           ? LitheTheme.hoverBackground : Color.clear)
-            }
-            .overlay {
-                if isBordered {
-                    RoundedRectangle(cornerRadius: 3)
-                        .strokeBorder(LitheTheme.panelBorder.opacity(isEnabled ? 1 : 0.5), lineWidth: 1)
-                }
             }
             .contentShape(Rectangle())
             .onContinuousHover { phase in

@@ -138,31 +138,30 @@ struct PluginDetailView<Icon: View>: View {
     }
 
     private var actionButtons: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: LitheTheme.ActionButton.spacing) {
             Button(LocalizedStringKey(isEnabled ? "Disable" : "Enable"), action: actions.toggleEnabled)
-                .buttonStyle(.borderedProminent)
-                .tint(LitheTheme.accent)
+                .buttonStyle(LitheActionButtonStyle(isPrimary: true))
                 .disabled(isApplyingChanges || isBusy || plugin.isRequired)
             if let update = actions.update, let updateVersion {
                 Button(String(
                     format: PluginMarketplacePresentation.localized("Update to %@", locale: locale),
                     updateVersion
                 ), action: update)
-                .buttonStyle(.bordered)
+                .buttonStyle(LitheActionButtonStyle())
                 .disabled(isApplyingChanges || isBusy)
             }
             if let reinstall = actions.reinstall {
                 Button(LocalizedStringKey("Reinstall"), action: reinstall)
-                    .buttonStyle(.bordered)
+                    .buttonStyle(LitheActionButtonStyle())
                     .disabled(isApplyingChanges || isBusy)
             }
             if let restore = actions.restore {
                 Button(LocalizedStringKey("Restore"), action: restore)
-                    .buttonStyle(.bordered)
+                    .buttonStyle(LitheActionButtonStyle())
                     .disabled(isApplyingChanges || isBusy)
             } else if let uninstall = actions.uninstall {
                 Button(LocalizedStringKey("Uninstall"), action: uninstall)
-                    .buttonStyle(.bordered)
+                    .buttonStyle(LitheActionButtonStyle())
                     .disabled(isApplyingChanges || isBusy || plugin.isRequired)
             }
             if plugin.hasChangesPendingRestart {

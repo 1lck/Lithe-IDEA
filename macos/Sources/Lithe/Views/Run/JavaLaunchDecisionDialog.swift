@@ -48,11 +48,11 @@ struct JavaLaunchDecisionDialog: View {
                 .font(LitheTheme.uiFont(size: 12))
                 .foregroundStyle(LitheTheme.secondaryText)
 
-            HStack(spacing: 8) {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Button(chinese ? "仍然运行" : "Run Anyway") {
                     model.completeJavaLaunchDecision(.runOnce, requestID: request.id)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(LitheActionButtonStyle(isPrimary: true))
 
                 Button(chinese ? "对此工作区始终继续" : "Always Continue in This Workspace") {
                     model.completeJavaLaunchDecision(.alwaysContinue, requestID: request.id)
@@ -76,6 +76,7 @@ struct JavaLaunchDecisionDialog: View {
                 .keyboardShortcut(.cancelAction)
             }
         }
+        .buttonStyle(LitheActionButtonStyle())
         .padding(20)
         .frame(width: 590)
         .interactiveDismissDisabled()

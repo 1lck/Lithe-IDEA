@@ -114,7 +114,7 @@ struct ProcessTerminationSettingsView: View {
                             Button("Forget") {
                                 settings.processTermination.rememberedChoices[recognizer] = nil
                             }
-                            .buttonStyle(LitheSecondaryButtonStyle())
+                            .buttonStyle(LitheActionButtonStyle())
                         }
                     }
                 }

@@ -68,7 +68,7 @@ struct GitWorktreeCreateView: View {
                         guard let parent = actions.chooseParentDirectory() else { return }
                         destinationPath = parent.appendingPathComponent(suggestedDirectoryName).path
                         destinationWasEdited = true
-                    }.buttonStyle(LitheCommitDialogButtonStyle())
+                    }.buttonStyle(LitheActionButtonStyle())
                 }
                 .disabled(isSubmitting)
                 Toggle("Use temporary directory", isOn: $useTemporaryDirectory)
@@ -82,10 +82,10 @@ struct GitWorktreeCreateView: View {
             if let errorMessage {
                 Text(LocalizedStringKey(errorMessage)).font(LitheTheme.uiFont(size: 12)).foregroundStyle(LitheTheme.error).textSelection(.enabled)
             }
-            HStack {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 if isSubmitting { ProgressView().controlSize(.small) }
                 Spacer()
-                Button("Cancel") { dismiss() }.buttonStyle(LitheCommitDialogButtonStyle()).keyboardShortcut(.cancelAction).disabled(isSubmitting).lithePointer()
+                Button("Cancel") { dismiss() }.buttonStyle(LitheActionButtonStyle()).keyboardShortcut(.cancelAction).disabled(isSubmitting).lithePointer()
                 Button("Create") {
                     guard canSubmit else { return }
                     isSubmitting = true
@@ -105,7 +105,7 @@ struct GitWorktreeCreateView: View {
                         if errorMessage == nil { dismiss() }
                     }
                 }
-                .buttonStyle(LitheCommitDialogButtonStyle(primary: true))
+                .buttonStyle(LitheActionButtonStyle(isPrimary: true))
                 .keyboardShortcut(.defaultAction).disabled(isSubmitting || !canSubmit).lithePointer()
             }
         }

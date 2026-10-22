@@ -668,8 +668,7 @@ struct GitWorktreesView: View {
                                     Spacer()
                                 }
                             }
-                            .buttonStyle(LitheCommitDialogButtonStyle())
-                            .controlSize(.small)
+                            .buttonStyle(LitheActionButtonStyle())
                             .disabled(isLoadingMoreHistory)
                         }
                     }
@@ -774,7 +773,7 @@ struct GitWorktreesView: View {
                 .foregroundStyle(destructive ? LitheTheme.error : LitheTheme.primaryText)
                 .frame(maxWidth: .infinity)
         }
-        .buttonStyle(LitheCommitDialogButtonStyle())
+        .buttonStyle(LitheActionButtonStyle())
         .disabled(feature.isPerformingWorktreeOperation)
     }
 
