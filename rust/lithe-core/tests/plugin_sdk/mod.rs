@@ -13,6 +13,7 @@
 // Each test binary includes this module and uses only the helpers its SDK needs.
 #![allow(dead_code)]
 
+pub mod svn;
 pub mod vcs;
 
 use lithe_core::execute_json;
@@ -116,6 +117,26 @@ impl Session {
         arguments: &[Value],
         workspace: &Path,
     ) -> Self {
+        Self::start_provider_with_environment(
+            provider_id,
+            plugin_id,
+            executable,
+            arguments,
+            workspace,
+            json!({}),
+        )
+    }
+
+    /// Starts a plugin-owned session with `environment` added to the
+    /// backend's inherited environment.
+    fn start_provider_with_environment(
+        provider_id: &str,
+        plugin_id: &str,
+        executable: &str,
+        arguments: &[Value],
+        workspace: &Path,
+        environment: Value,
+    ) -> Self {
         let started = core(
             "lsp.startServer",
             json!({
@@ -123,6 +144,7 @@ impl Session {
                 "pluginId": plugin_id,
                 "executablePath": executable,
                 "arguments": arguments,
+                "environment": environment,
                 // Directory URI with a trailing slash, as the macOS host sends it.
                 "rootUri": format!("file://{}/", workspace.display()),
                 "workingDirectory": workspace,
@@ -270,6 +292,15 @@ pub fn node_from_environment(test: &str) -> Option<String> {
         return None;
     };
     Some(node.into_string().expect("UTF-8 Node.js path"))
+}
+
+/// The `svn` client from `LITHE_SVN`, or `None` with a skip notice.
+pub fn svn_from_environment(test: &str) -> Option<String> {
+    let Some(svn) = std::env::var_os("LITHE_SVN") else {
+        eprintln!("skipped: set LITHE_SVN to an svn 1.8 or newer client to run {test}");
+        return None;
+    };
+    Some(svn.into_string().expect("UTF-8 svn path"))
 }
 
 pub fn repository_path(relative: &str) -> PathBuf {

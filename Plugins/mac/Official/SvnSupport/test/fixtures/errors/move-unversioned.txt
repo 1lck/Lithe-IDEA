@@ -1,0 +1,1 @@
+svn: E155010: Path '/tmp/lab/wc/unversioned.txt' does not exist

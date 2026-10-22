@@ -1,0 +1,235 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<status>
+<target
+   path=".">
+<entry
+   path="a@b.txt">
+<wc-status
+   item="modified"
+   revision="12"
+   props="none">
+<commit
+   revision="2">
+<author>alice</author>
+<date>2026-10-22T17:38:40.160782Z</date>
+</commit>
+</wc-status>
+</entry>
+<entry
+   path="added.txt">
+<wc-status
+   item="added"
+   revision="-1"
+   props="none">
+</wc-status>
+</entry>
+<entry
+   path="after.txt">
+<wc-status
+   moved-to="moved.txt"
+   item="deleted"
+   revision="12"
+   props="none">
+<commit
+   revision="4">
+<author>alice</author>
+<date>2026-10-22T17:38:44.121528Z</date>
+</commit>
+</wc-status>
+</entry>
+<entry
+   path="copied.txt">
+<wc-status
+   props="none"
+   copied="true"
+   item="added">
+<commit
+   revision="2">
+<author>alice</author>
+<date>2026-10-22T17:38:40.160782Z</date>
+</commit>
+</wc-status>
+</entry>
+<entry
+   path="copy-of-template.txt">
+<wc-status
+   item="deleted"
+   revision="12"
+   props="none">
+<commit
+   revision="4">
+<author>alice</author>
+<date>2026-10-22T17:38:44.121528Z</date>
+</commit>
+</wc-status>
+</entry>
+<entry
+   path="docs/readme.txt">
+<wc-status
+   item="added"
+   props="none"
+   copied="true"
+   tree-conflicted="true">
+<commit
+   revision="2">
+<author>alice</author>
+<date>2026-10-22T17:38:40.160782Z</date>
+</commit>
+</wc-status>
+</entry>
+<entry
+   path="lib">
+<wc-status
+   props="none"
+   switched="true"
+   item="normal"
+   revision="12">
+<commit
+   revision="7">
+<author>alice</author>
+<date>2026-10-22T17:38:47.090276Z</date>
+</commit>
+</wc-status>
+</entry>
+<entry
+   path="locked.txt">
+<wc-status
+   props="none"
+   item="normal"
+   revision="12">
+<commit
+   revision="2">
+<author>alice</author>
+<date>2026-10-22T17:38:40.160782Z</date>
+</commit>
+<lock>
+<token>opaquelocktoken:9e065183-076c-4da9-9fd8-14d101b1c5fe</token>
+<owner>alice</owner>
+<created>2026-10-22T17:38:57.137090Z</created>
+</lock>
+</wc-status>
+</entry>
+<entry
+   path="lost.txt">
+<wc-status
+   item="missing"
+   revision="12"
+   props="none">
+<commit
+   revision="2">
+<author>alice</author>
+<date>2026-10-22T17:38:40.160782Z</date>
+</commit>
+</wc-status>
+</entry>
+<entry
+   path="moved.txt">
+<wc-status
+   moved-from="after.txt"
+   item="added"
+   props="none"
+   copied="true">
+<commit
+   revision="4">
+<author>alice</author>
+<date>2026-10-22T17:38:44.121528Z</date>
+</commit>
+</wc-status>
+</entry>
+<entry
+   path="replaced.txt">
+<wc-status
+   props="none"
+   item="replaced"
+   revision="12">
+</wc-status>
+</entry>
+<entry
+   path="src/main.c">
+<wc-status
+   item="modified"
+   revision="12"
+   props="none">
+<commit
+   revision="3">
+<author>bob</author>
+<date>2026-10-22T17:38:41.096089Z</date>
+</commit>
+</wc-status>
+</entry>
+<entry
+   path="src/util.c">
+<wc-status
+   props="none"
+   item="conflicted"
+   revision="12">
+<commit
+   revision="11">
+<author>bob</author>
+<date>2026-10-22T17:38:52.100708Z</date>
+</commit>
+</wc-status>
+</entry>
+<entry
+   path="src/util.c.mine">
+<wc-status
+   item="unversioned"
+   props="none">
+</wc-status>
+</entry>
+<entry
+   path="src/util.c.r10">
+<wc-status
+   item="unversioned"
+   props="none">
+</wc-status>
+</entry>
+<entry
+   path="src/util.c.r12">
+<wc-status
+   props="none"
+   item="unversioned">
+</wc-status>
+</entry>
+<entry
+   path="unversioned.txt">
+<wc-status
+   item="unversioned"
+   props="none">
+</wc-status>
+</entry>
+<entry
+   path="vendor-docs">
+<wc-status
+   item="external"
+   props="none">
+</wc-status>
+</entry>
+<entry
+   path="with space.txt">
+<wc-status
+   props="modified"
+   item="normal"
+   revision="12">
+<commit
+   revision="2">
+<author>alice</author>
+<date>2026-10-22T17:38:40.160782Z</date>
+</commit>
+</wc-status>
+</entry>
+<entry
+   path="ünïcödé.txt">
+<wc-status
+   item="modified"
+   revision="12"
+   props="none">
+<commit
+   revision="2">
+<author>alice</author>
+<date>2026-10-22T17:38:40.160782Z</date>
+</commit>
+</wc-status>
+</entry>
+</target>
+</status>

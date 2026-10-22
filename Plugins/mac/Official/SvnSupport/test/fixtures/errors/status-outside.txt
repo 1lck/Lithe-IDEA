@@ -1,0 +1,1 @@
+svn: warning: W155007: '/tmp/lab' is not a working copy

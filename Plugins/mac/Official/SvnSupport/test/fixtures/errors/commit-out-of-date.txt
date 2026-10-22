@@ -1,0 +1,3 @@
+svn: E155011: Commit failed (details follow):
+svn: E155011: File '/tmp/lab/wc/keep.txt' is out of date
+svn: E160028: File '/trunk/keep.txt' is out of date

@@ -354,8 +354,35 @@ must not contain credentials.
 
 ## Subversion provider notes
 
-The official Subversion plugin calls the user's `svn` client and parses its
-`--xml` output (`status`, `info`, `log`, `blame`). Every invocation uses
-`--non-interactive`, so only Subversion's own credential cache answers.
+The official Subversion plugin (`Plugins/mac/Official/SvnSupport`) calls the
+user's `svn` client, 1.8 or newer, and parses its `--xml` output (`status`,
+`info`, `log`, `blame`). Every invocation uses `--non-interactive`, so only
+Subversion's own credential cache answers, and runs with a UTF-8 `LC_CTYPE`
+and `LC_MESSAGES=C` so non-ASCII paths work and errors can be classified.
 Working copies older than format 1.7 (one `.svn` per directory) are reported
-as `vcs.workingCopy.unsupported`.
+as `vcs.workingCopy.unsupported`. How each operation maps to svn:
+
+| Operation | svn | Notes |
+| --- | --- | --- |
+| `status` | `info`, `status --ignore-externals` | `head.revision` is the root directory's own working revision, as `svn info` shows it: after a check-in it stays at the older revision until `update` (mixed revisions). Property changes of the root itself are not reported. An external is a root of its own. A move source is not listed; its destination is `renamed`. An unmodified locked file is not a change. |
+| `baseContent` | `cat -r BASE` | A NUL byte makes the content binary. Added, replaced, and unversioned files have no base. |
+| `history`, `fileHistory` | `log --verbose` | The root's history starts at `HEAD`, so a revision just committed is listed; a file's starts at its base. A page whose changed paths exceed the output limit is returned with `changesTruncated`. |
+| `annotate` | `blame`, then `log` for messages | Locally changed lines are `null`. Messages are left out when the log fails. |
+| `checkin` | `commit --depth empty` | Commits exactly the selected paths plus both halves of a move and added parent directories. Selected unversioned paths are added first, with everything below a new directory; selected missing paths are deleted. |
+| `rollback` | `revert` | A scheduled add, delete, or replace is reverted with everything below it. Undoing a moved file deletes the copy and restores the source; a moved directory's copy stays on disk unversioned, because svn would delete unversioned files inside it. |
+| `update` | `update --accept postpone` | Conflicts are read from status afterwards. |
+| `fileOperation` | `add --parents`, `delete --force`, `move --parents` | Moving an unversioned path renames it on disk. |
+| `resolve` | `resolve --accept working` | The user's working file is taken as the resolution. |
+| `cleanup` | `cleanup` | |
+
+Paths are passed with a trailing `@` so a name containing `@` is never read as
+a peg revision; a move destination is not a target and is passed as it is.
+svn errors map to contract codes by their first known code: `E155004` and
+`E155037` are `vcs.workingCopy.locked`; `E155036` and `E155021`
+`vcs.workingCopy.unsupported`; `E155011`, `E160028`, `E160024`, and `E170004`
+`vcs.outOfDate`; `E155015` `vcs.conflict`; `E170001`, `E215004`, and
+`E230001` `vcs.authentication.failed`. Any other failure reaches the host as
+`vcs.provider.failed` with svn's message, with paths inside the root shown
+relative to it. A command that changes working files waits up to a second
+afterwards so later edits get newer timestamps; hosts should not expect a
+write operation to finish faster.

@@ -1,0 +1,259 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<log>
+<logentry
+   revision="12">
+<author>bob</author>
+<date>2026-10-22T17:38:53.117139Z</date>
+<paths>
+<path
+   action="D"
+   prop-mods="false"
+   text-mods="false"
+   kind="file">/trunk/docs/readme.txt</path>
+</paths>
+<msg>Delete readme elsewhere</msg>
+</logentry>
+<logentry
+   revision="11">
+<author>bob</author>
+<date>2026-10-22T17:38:52.100708Z</date>
+<paths>
+<path
+   action="M"
+   prop-mods="false"
+   text-mods="true"
+   kind="file">/trunk/src/util.c</path>
+</paths>
+<msg>Change util from elsewhere</msg>
+</logentry>
+<logentry
+   revision="10">
+<author>alice</author>
+<date>2026-10-22T17:38:49.116300Z</date>
+<paths>
+<path
+   prop-mods="true"
+   text-mods="false"
+   kind="dir"
+   action="M">/trunk</path>
+</paths>
+<msg>Add an external</msg>
+</logentry>
+<logentry
+   revision="8">
+<author>alice</author>
+<date>2026-10-22T17:38:47.153220Z</date>
+<paths>
+<path
+   action="M"
+   prop-mods="false"
+   text-mods="true"
+   kind="file">/trunk/keep.txt</path>
+</paths>
+<msg></msg>
+</logentry>
+<logentry
+   revision="6">
+<author>alice</author>
+<date>2026-10-22T17:38:46.136482Z</date>
+<paths>
+<path
+   text-mods="true"
+   kind="file"
+   action="R"
+   prop-mods="false">/trunk/replaced.txt</path>
+</paths>
+<msg>Replace replaced.txt</msg>
+</logentry>
+<logentry
+   revision="5">
+<author>alice</author>
+<date>2026-10-22T17:38:45.119503Z</date>
+<paths>
+<path
+   action="D"
+   prop-mods="false"
+   text-mods="false"
+   kind="file">/trunk/gone.txt</path>
+</paths>
+<msg>Delete gone.txt</msg>
+</logentry>
+<logentry
+   revision="4">
+<author>alice</author>
+<date>2026-10-22T17:38:44.121528Z</date>
+<paths>
+<path
+   copyfrom-path="/trunk/before.txt"
+   copyfrom-rev="3"
+   action="A"
+   prop-mods="false"
+   text-mods="false"
+   kind="file">/trunk/after.txt</path>
+<path
+   text-mods="false"
+   kind="file"
+   action="D"
+   prop-mods="false">/trunk/before.txt</path>
+<path
+   text-mods="false"
+   kind="file"
+   copyfrom-path="/trunk/template.txt"
+   copyfrom-rev="2"
+   action="A"
+   prop-mods="false">/trunk/copy-of-template.txt</path>
+<path
+   text-mods="false"
+   kind="file"
+   action="M"
+   prop-mods="true">/trunk/keep.txt</path>
+</paths>
+<msg>Rename, copy, and set a property</msg>
+</logentry>
+<logentry
+   revision="3">
+<author>bob</author>
+<date>2026-10-22T17:38:41.096089Z</date>
+<paths>
+<path
+   action="M"
+   prop-mods="false"
+   text-mods="true"
+   kind="file">/trunk/src/main.c</path>
+</paths>
+<msg>Change main</msg>
+</logentry>
+<logentry
+   revision="2">
+<author>alice</author>
+<date>2026-10-22T17:38:40.160782Z</date>
+<paths>
+<path
+   action="M"
+   prop-mods="true"
+   text-mods="false"
+   kind="dir">/trunk</path>
+<path
+   action="A"
+   prop-mods="false"
+   text-mods="true"
+   kind="file">/trunk/a@b.txt</path>
+<path
+   action="A"
+   prop-mods="false"
+   text-mods="true"
+   kind="file">/trunk/before.txt</path>
+<path
+   action="A"
+   prop-mods="false"
+   text-mods="false"
+   kind="dir">/trunk/docs</path>
+<path
+   action="A"
+   prop-mods="false"
+   text-mods="true"
+   kind="file">/trunk/docs/readme.txt</path>
+<path
+   action="A"
+   prop-mods="false"
+   text-mods="true"
+   kind="file">/trunk/gone.txt</path>
+<path
+   action="A"
+   prop-mods="true"
+   text-mods="true"
+   kind="file">/trunk/image.bin</path>
+<path
+   kind="file"
+   action="A"
+   prop-mods="false"
+   text-mods="true">/trunk/keep.txt</path>
+<path
+   kind="dir"
+   action="A"
+   prop-mods="false"
+   text-mods="false">/trunk/lib</path>
+<path
+   kind="file"
+   action="A"
+   prop-mods="false"
+   text-mods="true">/trunk/lib/lib.c</path>
+<path
+   action="A"
+   prop-mods="false"
+   text-mods="true"
+   kind="file">/trunk/locked.txt</path>
+<path
+   action="A"
+   prop-mods="false"
+   text-mods="true"
+   kind="file">/trunk/lost.txt</path>
+<path
+   action="A"
+   prop-mods="false"
+   text-mods="true"
+   kind="file">/trunk/replaced.txt</path>
+<path
+   action="A"
+   prop-mods="false"
+   text-mods="false"
+   kind="dir">/trunk/src</path>
+<path
+   text-mods="true"
+   kind="file"
+   action="A"
+   prop-mods="false">/trunk/src/main.c</path>
+<path
+   text-mods="true"
+   kind="file"
+   action="A"
+   prop-mods="false">/trunk/src/util.c</path>
+<path
+   text-mods="true"
+   kind="file"
+   action="A"
+   prop-mods="false">/trunk/template.txt</path>
+<path
+   text-mods="true"
+   kind="file"
+   action="A"
+   prop-mods="false">/trunk/with space.txt</path>
+<path
+   text-mods="true"
+   kind="file"
+   action="A"
+   prop-mods="false">/trunk/ünïcödé.txt</path>
+</paths>
+<msg>Add sources
+
+Second paragraph with &lt;markup&gt; &amp; "quotes".</msg>
+</logentry>
+<logentry
+   revision="1">
+<author>alice</author>
+<date>2026-10-22T17:38:39.321932Z</date>
+<paths>
+<path
+   text-mods="false"
+   kind="dir"
+   action="A"
+   prop-mods="false">/branches</path>
+<path
+   text-mods="false"
+   kind="dir"
+   action="A"
+   prop-mods="false">/trunk</path>
+<path
+   prop-mods="false"
+   text-mods="false"
+   kind="dir"
+   action="A">/vendor</path>
+<path
+   prop-mods="false"
+   text-mods="false"
+   kind="dir"
+   action="A">/vendor/lib</path>
+</paths>
+<msg>Create layout</msg>
+</logentry>
+</log>

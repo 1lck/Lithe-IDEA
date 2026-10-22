@@ -1,0 +1,3 @@
+svn: E155004: Run 'svn cleanup' to remove locks (type 'svn help cleanup' for details)
+svn: E155004: Working copy '/tmp/lab/wc' locked.
+svn: E155004: '/tmp/lab/wc' is already locked.

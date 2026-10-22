@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<info>
+<entry
+   path="."
+   revision="12"
+   kind="dir">
+<url>file:///tmp/lab/repo/trunk</url>
+<relative-url>^/trunk</relative-url>
+<repository>
+<root>file:///tmp/lab/repo</root>
+<uuid>aae2bf71-d0cc-4bdb-af1f-4ea096c6b0ac</uuid>
+</repository>
+<wc-info>
+<wcroot-abspath>/tmp/lab/wc</wcroot-abspath>
+<wc-compatible-version>1.8</wc-compatible-version>
+<wc-format>31</wc-format>
+<store-pristine>yes</store-pristine>
+<schedule>normal</schedule>
+<depth>infinity</depth>
+</wc-info>
+<commit
+   revision="12">
+<author>bob</author>
+<date>2026-10-22T17:38:53.117139Z</date>
+</commit>
+</entry>
+</info>

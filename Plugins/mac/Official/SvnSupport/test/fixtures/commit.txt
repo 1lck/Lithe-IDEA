@@ -1,0 +1,4 @@
+Adding         added.txt
+Transmitting file data .done
+Committing transaction...
+Committed revision 14.

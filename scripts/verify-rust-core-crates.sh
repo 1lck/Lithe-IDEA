@@ -33,6 +33,10 @@ node --test scripts/test-ide-mcp.mjs
 node --test --test-reporter=spec --test-reporter-destination=stdout \
     --test-reporter=junit --test-reporter-destination=.artifacts/test-stability/plugin-sdk-node.xml \
     sdk/node/test/*.test.mjs
+# The Subversion plugin parses recorded `svn --xml` output; no svn needed.
+node --test --test-reporter=spec --test-reporter-destination=stdout \
+    --test-reporter=junit --test-reporter-destination=.artifacts/test-stability/svn-support-node.xml \
+    Plugins/mac/Official/SvnSupport/test/*.test.mjs
 # The Java plugin SDK compiles for Java 8 with any newer JDK. When
 # LITHE_PLUGIN_SDK_JAVA_RUNTIME names an older `java` (CI sets a Java 8 one),
 # its tests and the sample backend run on that runtime instead of the build JDK.
@@ -42,6 +46,13 @@ done
 java_runtime="${LITHE_PLUGIN_SDK_JAVA_RUNTIME:-$(command -v java)}"
 mvn -B -ntp -f sdk/java/pom.xml verify -Djvm="$java_runtime"
 cp sdk/java/plugin-sdk/target/surefire-reports/TEST-*.xml .artifacts/test-stability/
+# The Subversion plugin's end-to-end test needs a real svn client and
+# svnadmin, which not every machine has; it reports itself skipped without.
+if command -v svn >/dev/null && command -v svnadmin >/dev/null; then
+    export LITHE_SVN="$(command -v svn)"
+else
+    print "verify-rust-core-crates: svn is not installed; the Subversion plugin end-to-end test is skipped."
+fi
 # Opts the plugin SDK end-to-end tests in; they drive each sample backend
 # through Core's real plugin session.
 LITHE_PLUGIN_SDK_NODE="$(command -v node)" \

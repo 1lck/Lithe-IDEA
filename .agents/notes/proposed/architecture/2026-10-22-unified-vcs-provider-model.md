@@ -129,6 +129,16 @@ P1 已完成（2026-10-22）：
 - 会话：`litheVcs` 只提供给插件启动的会话；`lsp.vcsRequest` 按操作名生成 `lithe/vcs/*` 请求，未协商的能力在写出前就拒绝；Provider 只能使用契约列出的错误码，其余一律变成 `vcs.provider.failed`。`lithe/vcs/authenticate` 在宿主实现交互式认证前按未知请求回绝。
 - Node SDK：`backend.vcs(id, handlers, traits)` 按声明的处理函数协商能力，VCS 处理函数里的 `context.run` 会自动发出 `lithe/vcs/execution` 执行报告（只带命令行、退出码、耗时和截断后的 stderr，不带 stdout）。`sdk/node/examples/sample-vcs` 是一个把修订存在 JSON 文件里的玩具 VCS，Rust 端到端测试经真实 Core 会话跑通它的协商和全部 11 种操作。
 
+P2 已完成（2026-10-23）：
+
+- 插件在 `Plugins/mac/Official/SvnSupport/`，后端是 `provider/*.mjs`，不依赖 npm 包（XML 解析自带），打包时把 `sdk/node/src` 复制进 `provider/vendor/`。清单声明 `vcsProviders` 能力，但宿主还没声明这项能力，所以 P3 之前不会进插件目录和市场。每个命令到 svn 的对应关系写在契约的“Subversion provider notes”里。
+- `head` 用根目录自己的工作修订（`svn info` 的结果）。提交后根目录停在旧修订，要 `update` 才前进，这是 SVN 的混合修订语义，不是错误，宿主不要拿它判断“提交没成功”。根历史从 `HEAD` 开始，刚提交的修订仍能列出。
+- 回滚：移动的**文件**用 `revert --remove-added` 删掉副本、恢复源文件；移动的**目录**不带 `--remove-added`，副本留在磁盘上变成未版本化文件。实测 `--remove-added` 会连同目录里用户的未版本化文件一起删掉，宁可多留文件，也不删用户数据。
+- 提交：只提交选中的路径（`--depth empty`），自动带上移动的另一半和新增的父目录；选中的未版本化路径先 `svn add`，选中的缺失路径先 `svn delete`，界面上不需要先“添加到 VCS”再提交。
+- svn 每个写命令结束前会等约 1 秒，保证之后的修改时间戳不同。生产环境保留这个等待；测试通过 `lsp.startServer` 的 `environment` 传入 `SVN_I_LOVE_CORRUPTED_WORKING_COPIES_SO_DISABLE_SLEEP_FOR_TIMESTAMPS=yes` 关掉，否则端到端测试超过 20 秒。
+- 第一版 `status` 每次查整个根，契约 v1 也没有按路径查询的参数。增量查询等 P3 有了 `.svn/wc.db` 变化事件、量出大工作副本的实际耗时后再加，要加就按能力版本加参数。
+- 测试：`test/record-fixtures.sh` 在临时 `file://` 仓库里造出每一种状态（移动、复制、替换、切换、锁、外部定义、树冲突、内容冲突、非 ASCII 和带 `@` 的文件名），录下 `status/info/log/blame --xml` 和需要区分的错误输出（svn 1.15.0），`node --test` 用它们测解析；升级 svn 后重录并审查 diff。`rust/lithe-core/tests/plugin_sdk/svn.rs` 用真实 `svn` 和 Core 会话跑状态、提交、过期提交、更新、冲突与解决、回滚、移动、删除、历史分页、Annotate 和二进制文件。它由 `LITHE_SVN` 开启，`verify-rust-core-crates.sh` 在找到 `svn` 和 `svnadmin` 时设置；没装 svn 的机器跳过这个测试并打印原因。
+
 ### 10. Git 什么时候、怎样接入
 
 Git 接入不在本提案的范围内，这里只记下评审时已经确认的方向，供以后的提案使用：
@@ -182,7 +192,7 @@ Git 接入不在本提案的范围内，这里只记下评审时已经确认的�
 
 - **统一层只被一种 VCS 验证过。** 第一期只有 SVN 用统一层，模型里可能藏着 SVN 的偏见。缓解办法：模型只收第 2 节表里 Git 和 SVN 都成立的概念，Git 专属的暂存维度已经作为可选能力进入 fixtures；Git 接入时如果发现缺口，按能力版本加字段。
 - **Git 仍在快速变化。** Issue 评论里提到 Git 还没稳定。第一期不碰 Git，`git.*` 不冻结。
-- **状态读取是热路径。** SVN 在大工作副本上 `svn status` 较慢，由 Provider 按变化路径做增量查询，宿主合并刷新事件。
+- **状态读取是热路径。** SVN 在大工作副本上 `svn status` 较慢。第一版每次查整个根，宿主先合并刷新事件、限制刷新频率；实测太慢时再按能力版本加按路径的增量查询。
 - **混合根和嵌套根。** Git 仓库里嵌套 SVN 工作副本时，文件必须只归属一个根，否则会重复显示或重复提交。识别规则和用户映射都要有 fixture 覆盖。
 - **插件进程常驻的成本。** 只在识别到对应根时启动，关闭工作区即回收，规则与构建 Provider 相同。
 - **回退方式。** 每个阶段都只新增路径，停用 SVN 插件即回到现状。
@@ -193,6 +203,7 @@ Git 接入不在本提案的范围内，这里只记下评审时已经确认的�
 - `rust/lithe-core/src/plugins/`
 - `rust/lithe-core/src/lsp/interface/`
 - `sdk/node/`
+- `Plugins/mac/Official/SvnSupport/`
 - `rust/lithe-core/src/git/`
 - `rust/lithe-git-host/`
 - `macos/Sources/LitheGitModule/`

@@ -28,17 +28,18 @@ fn initial_revision() -> Value {
 }
 
 /// One provider session with what it negotiated and the host's resolved tool.
-struct Provider<'a> {
-    session: Session,
-    capabilities: Value,
-    root: &'a Path,
-    tool: &'a str,
-    sequence: usize,
+pub(super) struct Provider<'a> {
+    pub(super) session: Session,
+    pub(super) vcs: &'static str,
+    pub(super) capabilities: Value,
+    pub(super) root: &'a Path,
+    pub(super) tool: &'a str,
+    pub(super) sequence: usize,
 }
 
 impl Provider<'_> {
     /// Sends one operation and returns its `requestCompleted` event.
-    fn send(&mut self, operation: &str, arguments: &Value) -> Value {
+    pub(super) fn send(&mut self, operation: &str, arguments: &Value) -> Value {
         self.sequence += 1;
         let operation_id = format!("{operation}-{}", self.sequence);
         core(
@@ -46,7 +47,7 @@ impl Provider<'_> {
             json!({
                 "sessionId": self.session.id,
                 "operationId": operation_id,
-                "vcs": VCS,
+                "vcs": self.vcs,
                 "operation": operation,
                 "root": self.root,
                 "tool": self.tool,
@@ -57,7 +58,7 @@ impl Provider<'_> {
     }
 
     /// Sends one operation and returns the reply as `vcs.decodeReply` normalizes it.
-    fn request(&mut self, operation: &str, arguments: Value) -> Value {
+    pub(super) fn request(&mut self, operation: &str, arguments: Value) -> Value {
         let completed = self.send(operation, &arguments);
         assert!(
             completed.get("error").is_none(),
@@ -77,7 +78,7 @@ impl Provider<'_> {
     }
 
     /// `(path, status, oldPath)` of each change, in Core's order.
-    fn changes(&mut self) -> Vec<(String, String, Value)> {
+    pub(super) fn changes(&mut self) -> Vec<(String, String, Value)> {
         self.request("status", json!({}))["changes"]
             .as_array()
             .expect("decoded changes")
@@ -93,11 +94,11 @@ impl Provider<'_> {
     }
 }
 
-fn change(path: &str, status: &str) -> (String, String, Value) {
+pub(super) fn change(path: &str, status: &str) -> (String, String, Value) {
     (path.to_string(), status.to_string(), Value::Null)
 }
 
-fn revision_ids(entries: &Value) -> Vec<String> {
+pub(super) fn revision_ids(entries: &Value) -> Vec<String> {
     entries
         .as_array()
         .expect("entries")
@@ -192,6 +193,7 @@ pub fn run_vcs_scenario(node: &str) {
     );
     let mut provider = Provider {
         session,
+        vcs: VCS,
         capabilities,
         root: &workspace,
         tool: node,

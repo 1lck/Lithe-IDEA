@@ -1,0 +1,3 @@
+svn: warning: W200005: '/tmp/lab/wc/unversioned.txt' is not under version control
+svn: E200009: Could not cat all targets because some targets are not versioned
+svn: E200009: Illegal target for the requested operation

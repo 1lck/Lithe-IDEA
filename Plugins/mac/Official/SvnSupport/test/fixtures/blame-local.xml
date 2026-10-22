@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blame>
+<target
+   path="src/main.c">
+<entry
+   line-number="1">
+<commit
+   revision="2">
+<author>alice</author>
+<date>2026-10-22T17:38:40.160782Z</date>
+</commit>
+</entry>
+<entry
+   line-number="2">
+<commit
+   revision="3">
+<author>bob</author>
+<date>2026-10-22T17:38:41.096089Z</date>
+</commit>
+</entry>
+<entry
+   line-number="3">
+<commit
+   revision="2">
+<author>alice</author>
+<date>2026-10-22T17:38:40.160782Z</date>
+</commit>
+</entry>
+<entry
+   line-number="4">
+<commit
+   revision="3">
+<author>bob</author>
+<date>2026-10-22T17:38:41.096089Z</date>
+</commit>
+</entry>
+<entry
+   line-number="5">
+</entry>
+</target>
+</blame>

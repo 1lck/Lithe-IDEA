@@ -1,0 +1,1 @@
+svn: E195002: Path '/tmp/lab/wc/added.txt' has no committed revision
