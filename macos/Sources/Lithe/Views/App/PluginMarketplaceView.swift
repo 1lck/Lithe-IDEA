@@ -671,6 +671,34 @@ enum PluginMarketplacePresentation {
             : source.name
     }
 
+    /// The address a repository row shows under its name: what the user
+    /// entered, so Lithe Store reads as its GitHub repository rather than the
+    /// raw CDN index URL actually fetched. The built-in source shows its index
+    /// file's path inside the Lithe repository instead of the long raw URL.
+    static func sourceLocation(_ source: PluginMarketplaceSource) -> String {
+        guard source.isOfficial, let url = URL(string: source.indexURL),
+              url.host == "raw.githubusercontent.com" else { return source.input }
+        // raw.githubusercontent.com/<owner>/<repository>/<ref>/<path…>
+        let path = url.pathComponents.filter { $0 != "/" }.dropFirst(3)
+        return path.isEmpty ? source.input : path.joined(separator: "/")
+    }
+
+    /// How long ago a repository was fetched, for "Refreshed %@": "just now"
+    /// under a minute, a relative phrase up to a week, and the date after that,
+    /// where "3 weeks ago" would hide the day the index was actually fetched.
+    /// A fetch time ahead of `now` (clock change) also reads "just now".
+    static func refreshedTime(_ fetchedAt: Date, now: Date, locale: Locale) -> String {
+        let age = now.timeIntervalSince(fetchedAt)
+        if age < 60 { return localized("just now", locale: locale) }
+        if age < 7 * 24 * 60 * 60 {
+            let formatter = RelativeDateTimeFormatter()
+            formatter.locale = locale
+            formatter.unitsStyle = .full
+            return formatter.localizedString(for: fetchedAt, relativeTo: now)
+        }
+        return fetchedAt.formatted(Date.FormatStyle(date: .abbreviated, time: .shortened).locale(locale))
+    }
+
     /// `owner/repo` of a GitHub repository URL.
     static func repositoryName(_ repository: String) -> String {
         guard let url = URL(string: repository) else { return repository }
@@ -907,54 +935,43 @@ struct PluginRepositoriesSheet: View {
     @State private var isAdding = false
     @State private var error: String?
 
+    private var canAdd: Bool {
+        !isAdding && !newSource.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text(LocalizedStringKey("Plugin Repositories"))
                 .font(LitheTheme.uiFont(size: 16, weight: .semibold))
             Text(LocalizedStringKey("Paste an https plugin index URL or a GitHub repository URL. A GitHub repository must contain lithe-plugin-index.json at its root."))
-                .font(LitheTheme.smallFont)
+                .font(LitheTheme.settingsFont)
                 .foregroundStyle(LitheTheme.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
-            HStack(spacing: 8) {
-                TextField(
-                    LocalizedStringKey("https://github.com/owner/repository"),
-                    text: $newSource
-                )
-                .textFieldStyle(.roundedBorder)
-                .onSubmit(add)
-                Button {
-                    add()
-                } label: {
-                    if isAdding {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Text(LocalizedStringKey("Add"))
-                    }
-                }
-                .disabled(isAdding || newSource.trimmingCharacters(in: .whitespaces).isEmpty)
-            }
+            addRow
             if let error {
                 Label(error, systemImage: "exclamationmark.triangle.fill")
                     .font(LitheTheme.smallFont)
                     .foregroundStyle(LitheTheme.warning)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            Rectangle().fill(LitheTheme.divider).frame(height: 1)
             ScrollView {
-                VStack(spacing: 0) {
+                LitheSettingsCard {
                     ForEach(feature.sources) { source in
                         sourceRow(source)
-                        Rectangle().fill(LitheTheme.divider).frame(height: 1)
                     }
                 }
             }
-            .frame(minHeight: 160, maxHeight: 320)
+            .frame(maxHeight: 320)
             HStack {
                 Button(LocalizedStringKey("Refresh All")) {
                     Task { await feature.refreshAll() }
                 }
+                .buttonStyle(.bordered)
+                .disabled(!feature.sources.contains(where: \.isEnabled))
                 Spacer()
                 Button(LocalizedStringKey("Done"), action: close)
+                    .buttonStyle(.borderedProminent)
+                    .tint(LitheTheme.accent)
                     .keyboardShortcut(.defaultAction)
             }
         }
@@ -963,63 +980,106 @@ struct PluginRepositoriesSheet: View {
         .onAppear { feature.loadIfNeeded() }
     }
 
+    private var addRow: some View {
+        HStack(spacing: 8) {
+            // A verbatim prompt: as a LocalizedStringKey the example address
+            // is parsed as markdown and drawn as a blue underlined link.
+            TextField(
+                LocalizedStringKey("Plugin Repositories"),
+                text: $newSource,
+                prompt: Text(verbatim: "https://github.com/owner/repository").foregroundColor(LitheTheme.tertiaryText)
+            )
+            .litheSettingsTextField()
+            .onSubmit(add)
+            Button {
+                add()
+            } label: {
+                if isAdding {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Text(LocalizedStringKey("Add"))
+                }
+            }
+            .buttonStyle(.bordered)
+            .disabled(!canAdd)
+        }
+    }
+
     private func sourceRow(_ source: PluginMarketplaceSource) -> some View {
         let status = feature.sourceStatuses[source.id] ?? .init()
-        return HStack(alignment: .top, spacing: 10) {
-            Toggle("", isOn: Binding(
+        return HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(verbatim: PluginMarketplacePresentation.sourceName(source, locale: locale))
+                    .font(LitheTheme.uiFont(size: 13, weight: .semibold))
+                    .foregroundStyle(LitheTheme.primaryText)
+                Text(verbatim: PluginMarketplacePresentation.sourceLocation(source))
+                    .font(LitheTheme.uiFont(size: 12, design: .monospaced))
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .textSelection(.enabled)
+                    .help(source.indexURL)
+                // The refresh time is relative, so it re-reads the clock while
+                // the sheet stays open instead of saying "just now" for an hour.
+                TimelineView(.periodic(from: .now, by: 15)) { context in
+                    Text(verbatim: statusText(status, source: source, now: context.date))
+                        .font(LitheTheme.smallFont)
+                        .foregroundStyle(status.error == nil ? LitheTheme.secondaryText : LitheTheme.warning)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer(minLength: 8)
+            if status.isRefreshing {
+                ProgressView().controlSize(.small)
+            }
+            Toggle(LocalizedStringKey("Enabled"), isOn: Binding(
                 get: { source.isEnabled },
                 set: { enabled in
                     perform { try feature.setSourceEnabled(enabled, sourceID: source.id) }
                 }
             ))
             .labelsHidden()
-            .toggleStyle(.checkbox)
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
-                    Text(verbatim: PluginMarketplacePresentation.sourceName(source, locale: locale))
-                        .font(LitheTheme.uiFont(size: 13, weight: .semibold))
-                    PluginTrustBadge(isOfficial: source.isOfficial)
-                }
-                Text(verbatim: source.indexURL)
-                    .font(LitheTheme.smallFont)
-                    .foregroundStyle(LitheTheme.secondaryText)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .textSelection(.enabled)
-                Text(verbatim: statusText(status))
-                    .font(LitheTheme.smallFont)
-                    .foregroundStyle(status.error == nil ? LitheTheme.secondaryText : LitheTheme.warning)
-                    .fixedSize(horizontal: false, vertical: true)
+            .toggleStyle(.switch)
+            .controlSize(.mini)
+            .tint(LitheTheme.settingsControlAccent)
+            .help(LocalizedStringKey(source.isEnabled ? "Disable" : "Enable"))
+            Button(LocalizedStringKey("Refresh")) {
+                Task { await feature.refresh(sourceID: source.id) }
             }
-            Spacer(minLength: 8)
-            if status.isRefreshing {
-                ProgressView().controlSize(.small)
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .disabled(!source.isEnabled || status.isRefreshing)
+            if source.isOfficial {
+                // The built-in source can be disabled but never removed.
+                Text(LocalizedStringKey("Default"))
+                    .font(LitheTheme.smallFont)
+                    .foregroundStyle(LitheTheme.tertiaryText)
             } else {
                 Button {
-                    Task { await feature.refresh(sourceID: source.id) }
-                } label: {
-                    LitheIDEAIcon(resourcePath: "actions/refresh.svg", size: 16, fallbackSystemImage: "arrow.clockwise")
-                }
-                .litheToolbarIconButton(isEnabled: source.isEnabled)
-                .disabled(!source.isEnabled)
-                .help("Refresh")
-            }
-            if !source.isOfficial {
-                Button(LocalizedStringKey("Remove")) {
                     perform { try feature.removeSource(source.id) }
+                } label: {
+                    Text(LocalizedStringKey("Remove")).foregroundStyle(LitheTheme.error)
                 }
+                .buttonStyle(.bordered)
                 .controlSize(.small)
             }
         }
-        .padding(.vertical, 10)
+        .padding(.vertical, 4)
     }
 
-    private func statusText(_ status: PluginMarketplaceFeatureModel.SourceStatus) -> String {
+    private func statusText(
+        _ status: PluginMarketplaceFeatureModel.SourceStatus,
+        source: PluginMarketplaceSource,
+        now: Date
+    ) -> String {
         var parts: [String] = []
+        if !source.isEnabled {
+            parts.append(PluginMarketplacePresentation.localized("Disabled", locale: locale))
+        }
         if let fetchedAt = status.fetchedAt {
             parts.append(String(
                 format: PluginMarketplacePresentation.localized("Refreshed %@", locale: locale),
-                fetchedAt.formatted(Date.FormatStyle(date: .abbreviated, time: .shortened).locale(locale))
+                PluginMarketplacePresentation.refreshedTime(fetchedAt, now: now, locale: locale)
             ))
         } else {
             parts.append(PluginMarketplacePresentation.localized("Not refreshed yet", locale: locale))

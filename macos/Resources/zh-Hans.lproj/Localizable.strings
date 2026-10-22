@@ -2932,6 +2932,7 @@
 "https://github.com/owner/repository" = "https://github.com/owner/repository";
 "Refresh All" = "全部刷新";
 "Refreshed %@" = "已于 %@ 刷新";
+"just now" = "刚刚";
 "Not refreshed yet" = "尚未刷新";
 "Ignored entries: %lld" = "已忽略条目：%lld";
 "Uninstall %@?" = "卸载 %@？";
