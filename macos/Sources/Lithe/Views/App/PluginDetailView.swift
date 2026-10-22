@@ -59,14 +59,11 @@ struct PluginDetailView<Icon: View>: View {
             notices
             tabBar
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
-            ScrollView {
-                tabContent
-                    .padding(22)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .litheScrollViewChrome()
+            PluginDetailContent(scrollsHorizontally: tab == .settings, content: tabContent)
         }
+        .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .topLeading)
         .background(LitheTheme.settingsSurface)
+        .clipped()
     }
 
     // MARK: Header
@@ -86,6 +83,7 @@ struct PluginDetailView<Icon: View>: View {
         .padding(.horizontal, 22)
         .padding(.top, 20)
         .padding(.bottom, 12)
+        .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
     }
 
     private var identity: some View {
@@ -703,5 +701,27 @@ struct PluginDetailView<Icon: View>: View {
 
     private func localized(_ key: String) -> String {
         PluginMarketplacePresentation.localized(key, locale: locale)
+    }
+}
+
+/// Keep resize measurement local: the plugin's content is built before entering
+/// this reader. A native settings row retains its controls and can scroll when
+/// the detail pane is narrower than the complete form.
+private struct PluginDetailContent<Content: View>: View {
+    let scrollsHorizontally: Bool
+    let content: Content
+    private let inset: CGFloat = 22
+
+    var body: some View {
+        GeometryReader { geometry in
+            ScrollView(scrollsHorizontally ? [.horizontal, .vertical] : .vertical) {
+                content
+                    .frame(minWidth: max(0, geometry.size.width - 2 * inset),
+                           maxWidth: scrollsHorizontally ? nil : .infinity,
+                           minHeight: max(0, geometry.size.height - 2 * inset), alignment: .topLeading)
+                    .padding(inset)
+            }
+            .litheScrollViewChrome()
+        }
     }
 }

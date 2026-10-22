@@ -104,6 +104,22 @@ macOS 的 `hostCapabilities` 声明 `settings: [1, 2]`、`languageServers: [1, 2
 macOS 保留既有原生控件和主题，只在通用 owner 中修复压缩规则，不为 Cargo
 增加专门的宽度或页面。
 
+### 8. 插件详情不能越过分隔线
+
+分隔容器分配了确定矩形，不代表子内容一定接受这个宽度。插件详情的表单
+有自己的最小宽度；窗口缩小后，原来的根容器会按更宽的内容居中，导致名称、
+页签和卡片跨进左侧列表，分隔线看起来穿过了详情。
+
+详情根视图必须接受分隔容器给出的宽度，并在自己的边界内绘制。设置页的
+原生表单在宽面板填满可用宽度；面板不足以容纳完整设置行时，使用同一个
+滚动容器横向查看，保留输入框、选择器和右侧状态标签。只裁剪超出的表单会
+让部分设置无法访问；提高整个设置窗口的最小宽度又会限制其他页面，因此
+不采用这两种单独修补方式。
+
+宽度只在详情正文的小容器里读取，用于分配可见区域。已构建的正文作为值
+传入，不在几何回调里重新加载插件、重建列表或保存宽度。拖动和持久化仍由
+既有 `LitheSplitPaneView` 负责，窄宽切换不替换表单实例。
+
 ## 考虑过的备选方案
 
 ### 宿主为常见工具内置设置页
@@ -133,6 +149,7 @@ Swift 和 Windows 各写一遍合并规则最直接，但两边一旦有细微�
 - `./scripts/test-macos.sh --filter PluginSettingsTests`：项目层存储、作用域规则、页面注册、配置展开。
 - `./scripts/test-macos.sh --filter SettingsSidebarLayoutTests`：静态页面仍各归一个分组。
 - `./scripts/test-macos.sh --filter PluginSettingsLayoutTests`：480、640、900 点宽的深浅主题下，路径输入框和完整选择按钮都在容器内，按钮可调用选择器并写入所选路径。
+- `./scripts/test-macos.sh --filter PluginDetailLayoutTests`：实际 Java 插件表单在深浅主题中往返缩放，详情边界始终跟随分隔条，窄面板下右侧设置可经原生横向滚动到达。
 - 共享夹具：`shared/contracts/plugins/v1/fixtures/settings-v2.plugin.json`。
 
 ## 适用范围
