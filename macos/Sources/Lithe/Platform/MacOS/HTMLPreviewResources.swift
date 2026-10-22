@@ -17,19 +17,11 @@ struct HTMLPreviewScope: Equatable {
         let document = documentURL.standardizedFileURL.resolvingSymlinksInPath()
         self.documentURL = document
         if let workspace = workspaceURL?.standardizedFileURL.resolvingSymlinksInPath(),
-           Self.contains(workspace, document) {
+           LocalFileContainment.contains(workspace, document) {
             rootURL = workspace
         } else {
             rootURL = document.deletingLastPathComponent()
         }
-    }
-
-    /// Compares whole path components, so `/a/bc` is not inside `/a/b`.
-    static func contains(_ root: URL, _ candidate: URL) -> Bool {
-        let rootComponents = root.pathComponents
-        let candidateComponents = candidate.pathComponents
-        return candidateComponents.count >= rootComponents.count
-            && Array(candidateComponents.prefix(rootComponents.count)) == rootComponents
     }
 
     /// Path components of `file` below the root, for deny-list checks.
@@ -52,20 +44,33 @@ enum HTMLPreviewURL {
     /// The URL the web view loads to show a file inside the scope root.
     static func url(forFile fileURL: URL, in scope: HTMLPreviewScope) -> URL? {
         let file = fileURL.standardizedFileURL.resolvingSymlinksInPath()
-        guard HTMLPreviewScope.contains(scope.rootURL, file) else { return nil }
+        guard LocalFileContainment.contains(scope.rootURL, file) else { return nil }
         var components = URLComponents()
         components.scheme = scheme
         components.host = host
         var path = "/" + scope.relativeComponents(of: file).joined(separator: "/")
-        // A scheme handler cannot redirect `/docs` to `/docs/` the way a web
-        // server does, and without the slash the relative links in the folder's
-        // index page would resolve against its parent.
-        var isDirectory: ObjCBool = false
-        if !path.hasSuffix("/"), FileManager.default.fileExists(atPath: file.path, isDirectory: &isDirectory), isDirectory.boolValue {
-            path += "/"
-        }
+        // The slash a web server's redirect would add, so a folder typed into the
+        // address bar loads at once (`folderRedirect` covers links and scripts).
+        if !path.hasSuffix("/"), isDirectory(file) { path += "/" }
         components.path = path
         return components.url
+    }
+
+    /// Where a web server would redirect the address of a folder that lacks its
+    /// trailing slash, or nil for any other address. A scheme handler cannot
+    /// redirect, and without the slash the relative links and scripts in the
+    /// folder's index page would resolve against its parent folder.
+    static func folderRedirect(for url: URL, in scope: HTMLPreviewScope) -> URL? {
+        guard let file = fileURL(for: url, in: scope), isDirectory(file),
+              var components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              !components.path.hasSuffix("/") else { return nil }
+        components.path += "/"
+        return components.url
+    }
+
+    private static func isDirectory(_ file: URL) -> Bool {
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: file.path, isDirectory: &isDirectory) && isDirectory.boolValue
     }
 
     /// The file a request refers to, or nil when it is malformed or would leave
@@ -79,7 +84,7 @@ enum HTMLPreviewURL {
             .appendingPathComponent(String(relative))
             .standardizedFileURL
             .resolvingSymlinksInPath()
-        return HTMLPreviewScope.contains(scope.rootURL, candidate) ? candidate : nil
+        return LocalFileContainment.contains(scope.rootURL, candidate) ? candidate : nil
     }
 }
 
@@ -186,7 +191,7 @@ enum HTMLPreviewResponder {
     private static func indexFile(in directory: URL, scope: HTMLPreviewScope) -> URL? {
         for name in ["index.html", "index.htm"] {
             let candidate = directory.appendingPathComponent(name).standardizedFileURL.resolvingSymlinksInPath()
-            guard HTMLPreviewScope.contains(scope.rootURL, candidate) else { continue }
+            guard LocalFileContainment.contains(scope.rootURL, candidate) else { continue }
             if FileManager.default.fileExists(atPath: candidate.path) { return candidate }
         }
         return nil
@@ -327,19 +332,16 @@ final class HTMLPreviewSchemeHandler: NSObject, WKURLSchemeHandler, @unchecked S
     // Concurrent, so one large media file does not hold up the page's scripts and styles.
     private let queue = DispatchQueue(label: "lithe.html-preview.resources", qos: .userInitiated, attributes: .concurrent)
     private var snapshot: Snapshot?
-    private var liveTasks = Set<ObjectIdentifier>()
+    private let tasks = LocalFileSchemeTasks()
 
     func update(scope: HTMLPreviewScope, html: String) {
         lock.withLock { snapshot = Snapshot(scope: scope, html: html) }
     }
 
     func webView(_ webView: WKWebView, start urlSchemeTask: any WKURLSchemeTask) {
-        let id = ObjectIdentifier(urlSchemeTask)
+        let id = tasks.register(urlSchemeTask)
         let request = urlSchemeTask.request
-        let current = lock.withLock { () -> Snapshot? in
-            liveTasks.insert(id)
-            return snapshot
-        }
+        let current = lock.withLock { snapshot }
         queue.async { [weak self] in
             let response = current.map {
                 HTMLPreviewResponder.respond(to: request, scope: $0.scope, html: $0.html)
@@ -352,7 +354,7 @@ final class HTMLPreviewSchemeHandler: NSObject, WKURLSchemeHandler, @unchecked S
     }
 
     func webView(_ webView: WKWebView, stop urlSchemeTask: any WKURLSchemeTask) {
-        _ = lock.withLock { liveTasks.remove(ObjectIdentifier(urlSchemeTask)) }
+        tasks.stop(urlSchemeTask)
     }
 
     private func deliver(
@@ -362,7 +364,7 @@ final class HTMLPreviewSchemeHandler: NSObject, WKURLSchemeHandler, @unchecked S
         id: ObjectIdentifier
     ) {
         // A stopped task must not be touched again.
-        guard lock.withLock({ liveTasks.remove(id) != nil }) else { return }
+        guard tasks.claim(id) else { return }
         guard let url = request.url,
               let http = HTTPURLResponse(
                 url: url,

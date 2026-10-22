@@ -58,6 +58,14 @@ enum HTMLPreviewNavigationPolicy {
     }
 }
 
+enum HTMLPreviewScript {
+    /// A JavaScript string literal, so the text cannot break out of the script.
+    static func literal(_ text: String) -> String {
+        let data = (try? JSONEncoder().encode(text)) ?? Data("\"\"".utf8)
+        return String(decoding: data, as: UTF8.self)
+    }
+}
+
 /// Maps between what the address bar shows and the URL the web view loads.
 enum HTMLPreviewAddress {
     /// Local pages appear as the file they were read from, like in a browser

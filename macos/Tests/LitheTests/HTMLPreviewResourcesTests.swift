@@ -209,6 +209,27 @@ struct HTMLPreviewResourcesTests {
         #expect(HTMLPreviewURL.url(forFile: fixture.url("docs/index.html"), in: scope)?.absoluteString == "lithe-html://preview/docs/index.html")
     }
 
+    @Test func aFolderAddressWithoutASlashIsRedirectedToTheOneWithIt() throws {
+        let fixture = try HTMLPreviewFixture(files: ["docs/index.html": "x", "docs/a b/index.html": "x", "page.html": "x"])
+        let scope = fixture.scope(document: "page.html")
+        func redirect(_ address: String) -> String? {
+            HTMLPreviewURL.folderRedirect(for: URL(string: address)!, in: scope)?.absoluteString
+        }
+
+        #expect(redirect("lithe-html://preview/docs") == "lithe-html://preview/docs/")
+        // The query and fragment ride along, as with a server's redirect.
+        #expect(redirect("lithe-html://preview/docs?x=1#top") == "lithe-html://preview/docs/?x=1#top")
+        #expect(redirect("lithe-html://preview/docs/a%20b") == "lithe-html://preview/docs/a%20b/")
+        #expect(redirect("lithe-html://preview") == "lithe-html://preview/")
+
+        // Already slashed, files, missing entries and other hosts are left alone.
+        #expect(redirect("lithe-html://preview/docs/") == nil)
+        #expect(redirect("lithe-html://preview/docs/index.html") == nil)
+        #expect(redirect("lithe-html://preview/missing") == nil)
+        #expect(redirect("https://example.com/docs") == nil)
+        #expect(redirect("lithe-html://preview/../docs") == nil)
+    }
+
     @Test func savingAFileCopiesItAndReplacesAnExistingOne() throws {
         let fixture = try HTMLPreviewFixture(files: ["data.txt": "source", "taken.txt": "old"])
 

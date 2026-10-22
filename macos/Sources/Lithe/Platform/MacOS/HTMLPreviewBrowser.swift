@@ -33,6 +33,12 @@ final class HTMLPreviewBrowserController: NSObject, ObservableObject {
     /// browser tab's zoom, and is reset only by the user.
     @Published private(set) var zoomFactor = HTMLPreviewZoom.defaultLevel
 
+    private struct ScrollbarFrame {
+        let info: WKFrameInfo
+        /// Names the document that reported, to tell it from a later one in the same frame.
+        let token: String
+    }
+
     var canZoomIn: Bool { HTMLPreviewZoom.zoomedIn(from: zoomFactor) != nil }
     var canZoomOut: Bool { HTMLPreviewZoom.zoomedOut(from: zoomFactor) != nil }
 
@@ -49,6 +55,9 @@ final class HTMLPreviewBrowserController: NSObject, ObservableObject {
     private var scrollRestoration: (x: Double, y: Double)?
     private var loadCount = 0
     private var processTerminations = 0
+    /// Frames inside the page whose scroll bars follow the zoom.
+    private var scrollbarFrames: [ScrollbarFrame] = []
+    private static let maximumTrackedFrames = 128
     private static let maximumProcessRecoveries = 2
     private var cancellables = Set<AnyCancellable>()
 
@@ -90,6 +99,11 @@ final class HTMLPreviewBrowserController: NSObject, ObservableObject {
         webView.autoresizingMask = [.width, .height]
         containerView.addSubview(webView)
         isDeveloperToolsAvailable = inspector != nil
+        webView.configuration.userContentController.add(
+            HTMLPreviewScrollbarFrameReceiver(self),
+            contentWorld: HTMLPreviewScrollbars.contentWorld,
+            name: HTMLPreviewScrollbars.frameReportName
+        )
         installUserScripts()
         observeWebView()
     }
@@ -247,14 +261,24 @@ final class HTMLPreviewBrowserController: NSObject, ObservableObject {
         guard factor != zoomFactor else { return }
         zoomFactor = factor
         // Scroll bars are sized in CSS pixels, which the zoom scales; the page
-        // on screen and the ones loaded next both need the new size.
+        // on screen, its frames and the pages loaded next all need the new size.
         installUserScripts()
-        webView.evaluateJavaScript(
-            HTMLPreviewScrollbars.source(zoom: factor),
-            in: nil,
-            in: HTMLPreviewScrollbars.contentWorld,
-            completionHandler: nil
-        )
+        let update = HTMLPreviewScrollbars.updateScript(zoom: factor)
+        webView.evaluateJavaScript(update, in: nil, in: HTMLPreviewScrollbars.contentWorld, completionHandler: nil)
+        for frame in scrollbarFrames {
+            webView.evaluateJavaScript(update, in: frame.info, in: HTMLPreviewScrollbars.contentWorld) { [weak self] result in
+                // A frame that is gone, or shows another document now (which
+                // reported itself), is forgotten.
+                if case let .success(token) = result, token as? String == frame.token { return }
+                self?.scrollbarFrames.removeAll { $0.info === frame.info }
+            }
+        }
+    }
+
+    func trackScrollbarFrame(_ info: WKFrameInfo, token: String) {
+        guard !info.isMainFrame else { return }
+        scrollbarFrames.append(ScrollbarFrame(info: info, token: token))
+        if scrollbarFrames.count > Self.maximumTrackedFrames { scrollbarFrames.removeFirst() }
     }
 
     private func load(_ url: URL) {
@@ -361,6 +385,19 @@ final class HTMLPreviewBrowserController: NSObject, ObservableObject {
         }
     }
 
+    /// Repeats a navigation that was cancelled to add the slash a web server's
+    /// redirect would have added. A frame inside the page is pointed at the new
+    /// address by a script, the only way to navigate it without its own web view.
+    private func follow(_ url: URL, in frame: WKFrameInfo?) {
+        guard let frame, !frame.isMainFrame else { return load(url) }
+        webView.evaluateJavaScript(
+            "location.replace(\(HTMLPreviewScript.literal(url.absoluteString)));",
+            in: frame,
+            in: HTMLPreviewScrollbars.contentWorld,
+            completionHandler: nil
+        )
+    }
+
     private func apply(_ decision: HTMLPreviewNavigationDecision) {
         switch decision {
         case let .loadInPlace(url): load(url)
@@ -379,6 +416,12 @@ extension HTMLPreviewBrowserController: WKNavigationDelegate {
         decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
     ) {
         guard let url = navigationAction.request.url else { return decisionHandler(.cancel) }
+        if !navigationAction.shouldPerformDownload, let scope,
+           let redirected = HTMLPreviewURL.folderRedirect(for: url, in: scope) {
+            decisionHandler(.cancel)
+            follow(redirected, in: navigationAction.targetFrame)
+            return
+        }
         let target: HTMLPreviewNavigationRequest.Target
         if let frame = navigationAction.targetFrame {
             target = frame.isMainFrame ? .mainFrame : .subframe
@@ -439,6 +482,11 @@ extension HTMLPreviewBrowserController: WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         clearLoadError()
+    }
+
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        // The frames of the previous document are gone with it.
+        scrollbarFrames.removeAll()
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {

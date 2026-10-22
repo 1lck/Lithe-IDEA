@@ -143,6 +143,11 @@ private final class BrowserHarness {
     func evaluate(_ script: String) async throws -> Any? {
         try await webView.evaluateJavaScript(script)
     }
+
+    /// Runs a function body that may `await`, in the page's own world.
+    func evaluateAsync(_ body: String, arguments: [String: Any] = [:]) async throws -> Any? {
+        try await webView.callAsyncJavaScript(body, arguments: arguments, contentWorld: .page)
+    }
 }
 
 @MainActor
@@ -436,6 +441,47 @@ struct HTMLPreviewBrowserTests {
         #expect(abs(size.horizontal - HTMLPreviewScrollbars.thickness) <= 1, "Horizontal bar was \(size.horizontal)")
     }
 
+    /// The width of the scroll bar inside the page's frame, in the frame's CSS
+    /// pixels, once the frame has loaded. A frame is restyled by a message to its
+    /// own process, which the web process handles before the script run here.
+    private func frameScrollbar(_ harness: BrowserHarness) async throws -> Double {
+        let width = try await harness.evaluateAsync(
+            """
+            await frameReady;
+            const frame = document.getElementById('f').contentWindow;
+            return frame.innerWidth - frame.document.documentElement.clientWidth;
+            """
+        ) as? Double
+        return try #require(width)
+    }
+
+    @Test func scrollBarsInFramesKeepTheirSizeOnScreenWhenThePageIsZoomed() async throws {
+        let harness = try BrowserHarness(files: [
+            "site/page.html": "disk",
+            "site/inner.html": "<!doctype html><title>inner</title><body style=\"margin:0\"><div style=\"width:5000px;height:5000px\"></div></body>"
+        ])
+        defer { harness.tearDown() }
+        harness.show("""
+            <!doctype html><title>host</title>
+            <script>const frameReady = new Promise(resolve => { window.markFrameReady = resolve; });</script>
+            <body style="margin:0"><iframe id="f" src="inner.html" onload="markFrameReady()"
+              style="width:400px;height:300px;border:0"></iframe></body>
+            """)
+        #expect(await harness.waitForTitle("host"))
+        var width = try await frameScrollbar(harness)
+        #expect(abs(width - HTMLPreviewScrollbars.thickness) <= 1, "Frame bar was \(width)")
+
+        // At 200% the frame's bar must become 7 CSS pixels like the page's own.
+        for _ in 0..<5 { harness.controller.zoomIn() }
+        #expect(harness.controller.zoomFactor == 2)
+        width = try await frameScrollbar(harness)
+        #expect(abs(width - HTMLPreviewScrollbars.thickness / 2) <= 1, "Frame bar was \(width)")
+
+        harness.controller.resetZoom()
+        width = try await frameScrollbar(harness)
+        #expect(abs(width - HTMLPreviewScrollbars.thickness) <= 1, "Frame bar was \(width)")
+    }
+
     @Test func aPageStylingItsOwnScrollBarsKeepsThem() async throws {
         let harness = try BrowserHarness(files: ["site/page.html": "disk"])
         defer { harness.tearDown() }
@@ -449,7 +495,6 @@ struct HTMLPreviewBrowserTests {
         let size = try await scrollbarSize(harness)
         #expect(abs(size.vertical - 20) <= 1, "The page's own bar should win, vertical bar was \(size.vertical)")
     }
-
 
     @Test func switchingToAnotherDocumentShowsThatDocument() async throws {
         let harness = try BrowserHarness(files: ["site/a.html": "disk a", "site/b.html": "disk b"])
@@ -523,6 +568,51 @@ struct HTMLPreviewBrowserTests {
 
         // Without the folder's trailing slash `app.js` would be requested from the root.
         #expect(await harness.waitForTitle("docs:script-loaded"), "Title was \(harness.webView.title ?? "nil")")
+    }
+
+    @Test func aLinkToAFolderWithoutASlashLoadsItsIndexWithRelativeLinksIntact() async throws {
+        let harness = try BrowserHarness(files: [
+            "site/page.html": "disk",
+            "docs/index.html": "<title>docs</title><script src=\"app.js\"></script>",
+            "docs/app.js": "document.title = 'docs:script-loaded';"
+        ])
+        defer { harness.tearDown() }
+        harness.show("<title>first</title><a id=\"go\" href=\"/docs\">docs</a>")
+        #expect(await harness.waitForTitle("first"))
+
+        _ = try await harness.evaluate("document.getElementById('go').click()")
+
+        #expect(await harness.waitForTitle("docs:script-loaded"), "Title was \(harness.webView.title ?? "nil")")
+        #expect(harness.controller.address.hasSuffix("/workspace/docs/"), "Address was \(harness.controller.address)")
+        // The redirect replaces the link's navigation: one step back is the page it was on.
+        #expect(harness.controller.canGoBack)
+        harness.controller.goBack()
+        #expect(await harness.waitForTitle("first"), "Title was \(harness.webView.title ?? "nil")")
+    }
+
+    @Test func aFrameShowingAFolderWithoutASlashLoadsItsIndexWithRelativeLinksIntact() async throws {
+        let harness = try BrowserHarness(files: [
+            "site/page.html": "disk",
+            "docs/index.html": "<title>docs</title><script src=\"app.js\"></script>",
+            "docs/app.js": "document.documentElement.dataset.loaded = 'yes';"
+        ])
+        defer { harness.tearDown() }
+        harness.show("""
+            <title>host</title>
+            <script>const frameReady = new Promise(resolve => { window.markFrameReady = resolve; });</script>
+            <iframe id="f" src="/docs" onload="if (document.getElementById('f').contentWindow.location.pathname == '/docs/') markFrameReady()"></iframe>
+            """)
+        #expect(await harness.waitForTitle("host"))
+
+        // The frame is pointed at /docs/ by a script, so it loads a second time.
+        let loaded = try await harness.evaluateAsync(
+            """
+            await frameReady;
+            const frame = document.getElementById('f').contentWindow;
+            return [frame.location.pathname, frame.document.title, frame.document.documentElement.dataset.loaded];
+            """
+        ) as? [String]
+        #expect(loaded == ["/docs/", "docs", "yes"], "Frame was \(String(describing: loaded))")
     }
 
     @Test func developerToolsAreOfferedByTheSystemWebKit() throws {

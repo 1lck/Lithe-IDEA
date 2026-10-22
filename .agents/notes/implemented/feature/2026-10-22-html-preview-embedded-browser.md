@@ -26,8 +26,8 @@ macOS 的 HTML 预览不再是“把 HTML 字符串塞进 WebView、点什么都
 - 被预览的文档本身来自编辑器缓冲区；其它文件只读，不写回磁盘。
 - 响应规则放在纯函数 `HTMLPreviewResponder.respond` 中：只允许 `GET`/`HEAD`，支持单段 `Range`（视频、音频拖动进度需要），固定 `Cache-Control: no-store`（磁盘上的修改刷新后立刻可见），并为 `js`、`mjs`、`css`、`wasm`、`woff2` 等补充系统类型表缺失的 MIME 类型（WebKit 会拒绝类型错误的模块脚本和样式表）。
 - 请求按完整路径分量判断是否仍在服务根目录内，`..`、百分号编码的 `..` 和指向根目录外的符号链接都得到 404。
-- 目录请求返回其 `index.html`。Web 服务器会把 `/docs` 重定向到 `/docs/`，自定义协议的处理器做不到，所以地址栏里的目录地址由 `HTMLPreviewURL.url(forFile:in:)` 补上结尾斜杠，否则目录首页里的相对链接会按上一级解析。页面里不带斜杠的目录链接（`<a href="docs">`）仍然如此，这是已知限制。
-- 资源请求在并发队列上处理，一个大的媒体文件不会挡住同一页面的脚本和样式。
+- 目录请求返回其 `index.html`。Web 服务器会把 `/docs` 重定向到 `/docs/`，否则目录首页里的相对链接会按上一级解析。自定义协议的处理器没有公开的重定向 API，所以这件事放在导航层：`HTMLPreviewURL.folderRedirect(for:in:)` 判断一个不带斜杠的地址是不是目录，`decidePolicyFor navigationAction` 取消这次导航并改为加载带斜杠的地址（查询串和片段保留）。主框架直接 `load`；页面里的 iframe 没有自己的 web view，由控制器在该 frame 里执行 `location.replace`。地址栏输入目录时 `HTMLPreviewURL.url(forFile:in:)` 直接补上斜杠，省掉一次往返。
+- 资源请求在并发队列上处理，一个大的媒体文件不会挡住同一页面的脚本和样式。任务簿记（“WebKit 调用 `stop` 之后不能再碰这个任务”）和根目录包含检查与 Markdown 预览的资源处理器共用 `LocalFileSchemeSupport.swift` 里的 `LocalFileSchemeTasks` 和 `LocalFileContainment`：任务在 `start` 时登记，应答前必须 `claim`（只成功一次，`stop` 之后永远失败），并且在主线程上投递，这样 `stop` 不可能插在 claim 与投递之间。新增读本地文件的 scheme 处理器应复用它们，不要再各写一份。
 
 ### 页面不能借同源 `fetch` 读走本地机密
 
@@ -68,13 +68,14 @@ WebKit 默认画系统的叠加式（overlay）滚动条，只在滚动时短暂
 
 - 样式由 `HTMLPreviewScrollbars` 生成，通过 `WKUserScript`（文档开始时、所有 frame）注入，运行在独立的 `WKContentWorld.defaultClient` 里，页面脚本看不到它。使用可构造样式表（`adoptedStyleSheets`），不依赖内联 `<style>`，页面设置了 CSP 也不受影响；系统不支持时退回 `<style>`。
 - 规则放在 `@layer lithe-scrollbars` 里。任何页面自己的样式（哪怕优先级更低）都高于未命名层之外的层规则，所以页面自己写了 `::-webkit-scrollbar` 时保持页面的外观。
-- 样式单位是 CSS 像素，会被页面缩放放大，所以脚本按缩放比例反向换算（厚度恒为 14 pt）。缩放变化时用 `installUserScripts()` 重建脚本集合，并在当前页面里重新执行同一段源码替换样式表，这样当前页和之后加载的页面都是新尺寸。
+- 样式单位是 CSS 像素，会被页面缩放放大，所以样式表按缩放比例反向换算（厚度恒为 14 pt）。缩放变化时用 `installUserScripts()` 重建脚本集合（之后加载的页面用新尺寸），并更新已显示的页面：主框架由控制器直接执行 `updateScript`；页面里的 iframe 无法用公开 API 一次性批量执行脚本，所以每个子 frame 的脚本在启动时通过消息处理器 `litheScrollbarFrame` 上报自己（带一个标识当前文档的随机 token），控制器保存收到的 `WKFrameInfo`，缩放后逐个 `evaluateJavaScript(in:)`。返回的 token 与上报时不同或执行失败，说明该 frame 已经消失或换了文档，就从列表里删除；主框架每次提交新文档时清空列表，列表上限 128 个。
 - `WKUserContentController` 只能一次性移除全部脚本，所以脚本集合由控制器的状态重建（滚动条样式 + 重新加载期间的滚动位置恢复脚本），不要在别处直接 `addUserScript`/`removeAllUserScripts`。
 
 考虑过但没有采用的做法：
 
 - `WKWebView` 的私有方法 `_setAlwaysShowsHorizontalScroller:`/`_setAlwaysShowsVerticalScroller:`：实测在叠加式滚动条下没有任何可见变化。
 - 给应用设置 `AppleShowScrollBars = Always`：会让 Monaco、Markdown 预览、插件网页等所有 WebView 和未显式设置样式的 AppKit 滚动视图一起变成经典滚动条，影响面太大。
+- 让每个 frame 自己发现缩放变化：`resize` 事件在 CSS 尺寸固定的 iframe 里不可靠，`matchMedia('(resolution: …)')` 的 `change` 在 WebKit 缩放时实测不触发；定时轮询 `devicePixelRatio` 会让空闲的预览持续唤醒页面进程。所以改为原生端记录 frame、缩放时主动推送。
 
 ### 开发者工具使用 WebKit 私有接口
 
@@ -134,7 +135,7 @@ WebKit 没有公开的 Web Inspector 开关，所以：
 - `./scripts/verify-platform-feature-matrix.sh`
 - 在运行的应用中打开 HTML：用工具栏后退/前进/刷新，输入本地路径和网址，点击锚点和相对链接，触发 `alert`/`confirm`/`prompt`，打开开发者工具并确认停靠在页面下方。
 - 打开一个比预览区域宽且高的页面，确认右边缘和下边缘常驻滚动条，缩放到 500% 后滚动条仍是正常粗细，内容放得下的页面没有滚动条。
-- 点击指向压缩包的链接弹出保存面板、`<a download>` 保存、在地址栏输入带 `index.html` 的目录路径能正常加载其中的脚本、在分屏里切换到另一个 HTML 标签时预览显示新文件（对应 `HTMLPreviewBrowserTests` 里的同名用例）。
+- 点击指向压缩包的链接弹出保存面板、`<a download>` 保存、在地址栏输入带 `index.html` 的目录路径或点击不带斜杠的目录链接（包括 iframe 里的）能正常加载其中的脚本、缩放时 iframe 里的滚动条保持同样粗细、在分屏里切换到另一个 HTML 标签时预览显示新文件（对应 `HTMLPreviewBrowserTests` 里的同名用例）。
 - 在运行的应用中用 − / + / 百分比按钮和 ⌘+ / ⌘− / ⌘0 缩放，确认百分比与页面实际大小一致，跳转页面后缩放保持，分屏时在编辑器里按 ⌘+ 不会缩放预览。
 
 ## 适用范围
@@ -146,4 +147,6 @@ WebKit 没有公开的 Web Inspector 开关，所以：
 - `macos/Sources/Lithe/Platform/MacOS/HTMLPreviewZoom.swift`
 - `macos/Sources/Lithe/Platform/MacOS/HTMLPreviewScrollbars.swift`
 - `macos/Sources/Lithe/Platform/MacOS/HTMLPreviewWebView.swift`
+- `macos/Sources/Lithe/Platform/MacOS/LocalFileSchemeSupport.swift`
+- `macos/Sources/Lithe/Platform/MacOS/MarkdownPreviewWebView.swift`（共用任务簿记与包含检查）
 - `macos/Sources/Lithe/Views/Editor/HTMLPreviewView.swift`
