@@ -42,6 +42,7 @@ struct CommitAreaView: View {
                         draft.isGenerating
                 )
                 .help("Generate a commit message from staged diffs")
+                .accessibilityIdentifier("git-commit-ai")
                 Text("\(stagedChanges.count) staged")
                     .font(LitheTheme.uiFont(size: LitheTheme.Commit.metadataFontSize))
                     .foregroundStyle(LitheTheme.secondaryText)
@@ -50,7 +51,7 @@ struct CommitAreaView: View {
             .padding(.top, LitheTheme.Commit.messageVerticalGap)
 
             CommitMessageEditor(text: $draft.message, focused: $commitMessageFocused)
-            .frame(maxWidth: .infinity, minHeight: 50, maxHeight: .infinity, alignment: .topLeading)
+            .frame(maxWidth: .infinity, minHeight: LitheTheme.Commit.messageMinimumHeight, maxHeight: .infinity, alignment: .topLeading)
             .background {
                 RoundedRectangle(cornerRadius: LitheTheme.Commit.controlCornerRadius)
                     .fill(LitheTheme.editor)
@@ -103,6 +104,7 @@ struct CommitAreaView: View {
                 .buttonStyle(LitheIconButtonStyle(size: 22, cornerRadius: 4))
                 .workbenchHoverHelp(Text("Open AI & Commit settings"))
                 .accessibilityLabel("Open AI & Commit settings")
+                .accessibilityIdentifier("git-commit-settings")
             }
             .padding(.leading, LitheTheme.Commit.contentInset)
             .padding(.trailing, LitheTheme.Commit.contentInset)
@@ -150,12 +152,14 @@ struct CommitAreaView: View {
             }
         }
         .buttonStyle(LitheActionButtonStyle(isPrimary: true))
+        .accessibilityIdentifier("git-commit-submit")
         .disabled(!canCommit)
 
         Button("Commit and Push…") {
             Task { await commitWorkflow.commit(push: true) }
         }
         .buttonStyle(LitheActionButtonStyle())
+        .accessibilityIdentifier("git-commit-and-push")
         .disabled(!canCommit)
     }
 

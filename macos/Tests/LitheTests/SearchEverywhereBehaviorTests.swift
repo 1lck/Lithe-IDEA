@@ -445,7 +445,7 @@ struct SearchEverywhereBehaviorTests {
     func filterRowsAndBulkButtonsKeepTheirCheckedState(scheme: ColorScheme) async throws {
         let session = SearchSessionFeatureModel()
         let host = NSHostingView(rootView: ProviderFilterHarness(session: session).environment(\.colorScheme, scheme))
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 236, height: 200),
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 238, height: 200),
             styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
@@ -455,7 +455,7 @@ struct SearchEverywhereBehaviorTests {
         window.orderFront(nil)
         defer { window.contentView = nil; window.close() }
         host.layoutSubtreeIfNeeded()
-        #expect(host.fittingSize == NSSize(width: 236, height: 200))
+        #expect(host.fittingSize == NSSize(width: 238, height: 200))
         let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
         host.cacheDisplay(in: host.bounds, to: bitmap)
         let scale = CGFloat(bitmap.pixelsWide) / host.bounds.width

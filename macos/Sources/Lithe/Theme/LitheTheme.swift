@@ -1081,7 +1081,11 @@ enum LitheTheme {
 
         static let toolbarHeight = Metrics.toolbarHeight
         static let listMinimumHeight: CGFloat = 120
-        static let areaMinimumHeight: CGFloat = 124
+        static let messageMinimumHeight: CGFloat = 50
+        // Reserve two rows for the wrapping Amend header and two for the footer,
+        // plus the message editor and existing row/editor/button insets.
+        static let areaMinimumHeight: CGFloat = 4 * ActionButton.height + 4 * ActionButton.spacing
+            + messageMinimumHeight + 3 * messageVerticalGap
         // NonModalCommitPanel.UISpec (regular density) and CommitInputBorder.
         static let contentInset: CGFloat = 12
         static let messageHorizontalGap: CGFloat = 11
