@@ -689,6 +689,129 @@ fn matches_expected(
     }
 }
 
+/// Resolve parents inside the workspace while preserving the terminal object for link rejection.
+pub fn agent_document_path(workspace: &Path, path: &Path) -> io::Result<PathBuf> {
+    let root = workspace.canonicalize()?;
+    let candidate = if path.is_absolute() {
+        path.to_owned()
+    } else {
+        root.join(path)
+    };
+    let parent = candidate
+        .parent()
+        .ok_or_else(|| io::Error::other("Missing document parent"))?
+        .canonicalize()?;
+    let name = candidate
+        .file_name()
+        .ok_or_else(|| io::Error::other("Missing document name"))?;
+    let resolved = parent.join(name);
+    if !resolved.starts_with(&root) || resolved == root {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "Agent edit is outside the workspace",
+        ));
+    }
+    // read_document_bytes rejects terminal symlinks/reparse points and oversized/nonregular files.
+    read_document_bytes(&resolved)?;
+    Ok(resolved)
+}
+
+/// Guard recoverable removal with the document save lock and the exact byte identity.
+pub fn trash_agent_document(
+    workspace: &Path,
+    path: &Path,
+    expected_identity: &str,
+) -> io::Result<()> {
+    trash_agent_document_with(workspace, path, expected_identity, recycle_document)
+}
+
+fn trash_agent_document_with(
+    workspace: &Path,
+    path: &Path,
+    expected_identity: &str,
+    recycle: impl FnOnce(&Path) -> io::Result<()>,
+) -> io::Result<()> {
+    let _gate = WRITE_GATE
+        .lock()
+        .map_err(|_| io::Error::other("Document write gate failed"))?;
+    let path = agent_document_path(workspace, path)?;
+    let current = read_document_bytes(&path)?;
+    if current.as_deref().map(bytes_identity).as_deref() != Some(expected_identity) {
+        return Err(io::Error::other("Agent edit changed on disk"));
+    }
+    let recovery = path.with_file_name(format!(
+        ".lithe-agent-recovery-{}-{}-{}",
+        std::process::id(),
+        TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed),
+        path.file_name().unwrap().to_string_lossy()
+    ));
+    create_without_replacing(&path, &recovery)?;
+    #[cfg(not(windows))]
+    fs::remove_file(&path)?;
+    let moved = read_document_bytes(&recovery);
+    let matches = moved
+        .as_ref()
+        .ok()
+        .and_then(|bytes| bytes.as_deref())
+        .map(bytes_identity)
+        .as_deref()
+        == Some(expected_identity);
+    let result = if matches {
+        recycle(&recovery)
+    } else {
+        Err(io::Error::other("Moved document identity changed"))
+    };
+    if let Err(error) = result {
+        // Never overwrite a recreated path. The recovery name is included if manual action is needed.
+        if create_without_replacing(&recovery, &path).is_err() {
+            return Err(io::Error::other(format!(
+                "{error}; recover the document from {}",
+                recovery.display()
+            )));
+        }
+        #[cfg(not(windows))]
+        fs::remove_file(&recovery)?;
+        return Err(error);
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn recycle_document(path: &Path) -> io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows::{
+        Win32::UI::Shell::{
+            FO_DELETE, FOF_ALLOWUNDO, FOF_NO_UI, SHFileOperationW, SHFILEOPSTRUCTW,
+        },
+        core::PCWSTR,
+    };
+    // The Shell operation is synchronous and supports the user's Recycle Bin policy.
+    // Keep the source list double-NUL terminated as required by SHFileOperationW.
+    let wide: Vec<u16> = path.as_os_str().encode_wide().chain([0, 0]).collect();
+    let mut operation = SHFILEOPSTRUCTW {
+        wFunc: FO_DELETE,
+        pFrom: PCWSTR(wide.as_ptr()),
+        fFlags: (FOF_ALLOWUNDO.0 | FOF_NO_UI.0) as u16,
+        ..Default::default()
+    };
+    let result = unsafe { SHFileOperationW(&mut operation) };
+    if result != 0 {
+        return Err(io::Error::from_raw_os_error(result));
+    }
+    if operation.fAnyOperationsAborted.as_bool() || path.exists() {
+        return Err(io::Error::other("Recoverable removal did not complete"));
+    }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn recycle_document(_path: &Path) -> io::Result<()> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "Recoverable removal is unavailable",
+    ))
+}
+
 fn disk_conflict(bytes: Option<Vec<u8>>, encoding: DocumentEncoding) -> SaveOutcome {
     // An external encoding change still returns a conflict even if its bytes
     // cannot be decoded. Never substitute replacement characters or overwrite it.
@@ -826,6 +949,81 @@ fn is_transient_windows_replace_error(error: &io::Error) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn agent_paths_reject_workspace_escape_and_directories() {
+        let directory = Directory::new();
+        let workspace = directory.0.join("workspace");
+        fs::create_dir(&workspace).unwrap();
+        fs::write(directory.0.join("outside.txt"), "outside").unwrap();
+        assert!(agent_document_path(&workspace, Path::new("../outside.txt")).is_err());
+        assert!(agent_document_path(&workspace, &directory.0).is_err());
+        assert_eq!(
+            agent_document_path(&workspace, Path::new("new.txt")).unwrap(),
+            workspace.canonicalize().unwrap().join("new.txt")
+        );
+    }
+
+    #[test]
+    fn agent_recoverable_removal_checks_identity_before_moving() {
+        let directory = Directory::new();
+        let path = directory.0.join("sample.txt");
+        fs::write(&path, "external").unwrap();
+        assert!(
+            trash_agent_document_with(&directory.0, &path, &bytes_identity(b"agent"), |_| panic!(
+                "must not recycle"
+            ))
+            .is_err()
+        );
+        assert_eq!(fs::read_to_string(&path).unwrap(), "external");
+    }
+
+    #[test]
+    fn agent_recycle_failure_restores_original_without_leaving_staging() {
+        let directory = Directory::new();
+        let path = directory.0.join("sample.txt");
+        fs::write(&path, "agent").unwrap();
+        assert!(
+            trash_agent_document_with(&directory.0, &path, &bytes_identity(b"agent"), |_| Err(
+                io::Error::other("recycle refused")
+            ))
+            .is_err()
+        );
+        assert_eq!(fs::read_to_string(&path).unwrap(), "agent");
+        assert_eq!(fs::read_dir(&directory.0).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn agent_recycle_failure_preserves_recreated_path_and_reports_recovery() {
+        let directory = Directory::new();
+        let path = directory.0.join("sample.txt");
+        fs::write(&path, "agent").unwrap();
+        let mut recovery = None;
+        let error =
+            trash_agent_document_with(&directory.0, &path, &bytes_identity(b"agent"), |moved| {
+                recovery = Some(moved.to_path_buf());
+                fs::write(&path, "external").unwrap();
+                Err(io::Error::other("recycle refused"))
+            })
+            .unwrap_err();
+        let recovery = recovery.unwrap();
+        assert!(error.to_string().contains(&recovery.display().to_string()));
+        assert_eq!(fs::read_to_string(&recovery).unwrap(), "agent");
+        assert_eq!(fs::read_to_string(&path).unwrap(), "external");
+    }
+
+    #[test]
+    fn agent_recoverable_removal_publishes_only_the_expected_bytes() {
+        let directory = Directory::new();
+        let path = directory.0.join("sample.txt");
+        fs::write(&path, "agent").unwrap();
+        trash_agent_document_with(&directory.0, &path, &bytes_identity(b"agent"), |moved| {
+            assert_eq!(fs::read_to_string(moved).unwrap(), "agent");
+            fs::remove_file(moved)
+        })
+        .unwrap();
+        assert!(!path.exists());
+        assert_eq!(fs::read_dir(&directory.0).unwrap().count(), 0);
+    }
     struct Directory(PathBuf);
     impl Directory {
         fn new() -> Self {

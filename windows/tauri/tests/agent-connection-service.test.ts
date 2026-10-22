@@ -24,6 +24,7 @@ mock.module("@/platform/app-data-directory", () => ({
 mock.module("@/i18n/locale", () => ({ createTranslator: () => (key: string) => key }));
 mock.module("../src/features/agent/services/agent-launch", () => ({
   AgentLaunchError: class extends Error {},
+  settingsWithLinkedAgentProvider: (settings: typeof DEFAULT_AGENT_PANEL_SETTINGS) => settings,
   loadAgentLaunch: async ({ workspacePath, settings, dataDirectory }: {
     workspacePath: string;
     settings: typeof DEFAULT_AGENT_PANEL_SETTINGS;

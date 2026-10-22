@@ -587,6 +587,8 @@ Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono
   通用排除路由拒绝，应用 bundle、插件包、签名及 Sparkle 增量基线保持只读。
 - Agent 历史注释：平台偏好设置键 `lithe.agent-history.v1.<workspace-agent-digest>` 保存收藏、自定义标题和隐藏状态，按标准化工作区与 Agent ID 隔离。它是用户可变状态，不受版本、平台、架构或工具链构建身份约束，不存在可验证的构建 stamp；Markdown 导出写到用户选择的位置。两者都禁止在任何复制阶段跨工作树复用，`excludedResources.agent-history-metadata` 由资源脚本显式拒绝。
 
+- Agent 粘贴图片保存在 `<platform-app-cache>/agent/pasted-images/pasted-<UUID>.<扩展名>`；放弃的批次立即删除自身文件，已接受的附件保留供历史会话引用。撤销新建文件时，原生文件 adapter 先移动到同目录 `.lithe-agent-recovery-<pid>-<sequence>-<filename>` 再回收，失败则恢复；若原路径被重新创建，保留恢复文件并向用户报告位置。两类资源均是用户运行时可变状态，没有版本、平台、架构、工具链 identity stamp，任何复制阶段都禁止共享。清单 `agent-edit-and-paste-state` 和复用脚本的排除路由直接拒绝；应用安装资源保持只读，不影响签名和更新基线。
+
 - `.artifacts/bun-tmp/`、下载或解压过程中的临时目录；
 - `.artifacts/jdtls/`、`.artifacts/jdk-*` 等可以由已验证下载重新生成的解压输出；
 - `.artifacts/editor/macos/` 和官方插件等尚未写入构建身份 stamp 的生成资源；

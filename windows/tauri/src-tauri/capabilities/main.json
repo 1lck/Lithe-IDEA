@@ -43,6 +43,7 @@
     "fs:allow-write-file",
     "fs:allow-read-dir",
     "fs:allow-exists",
+    "fs:allow-stat",
     "fs:allow-mkdir",
     "fs:allow-write-text-file",
     "fs:allow-remove",

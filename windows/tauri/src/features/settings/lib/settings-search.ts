@@ -30,6 +30,7 @@ export const SETTINGS_SEARCH_TAB_LABELS: Record<SettingsTab, string> = {
   maven: "Maven",
   keyboard: "Keybindings",
   ai: "Agent",
+  agents: "Agent Codex Claude ACP Provider 智能体 提供商",
   "ai-commit": "AI & Commit",
   advanced: "Advanced",
 };
