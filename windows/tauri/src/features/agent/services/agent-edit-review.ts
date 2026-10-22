@@ -63,7 +63,7 @@ function uniqueTextReplacement(restored: string, newText: string, oldText: strin
   const diskOldText = withLineEnding(oldText, lineEnding);
   const exactIndex = restored.indexOf(diskNewText);
   if (exactIndex >= 0) {
-    if (restored.indexOf(diskNewText, exactIndex + diskNewText.length) >= 0) return null;
+    if (restored.indexOf(diskNewText, exactIndex + 1) >= 0) return null;
     return restored.slice(0, exactIndex) + diskOldText + restored.slice(exactIndex + diskNewText.length);
   }
 
@@ -72,7 +72,7 @@ function uniqueTextReplacement(restored: string, newText: string, oldText: strin
   const canonicalRestored = normalizeLineEndings(restored);
   const canonicalNewText = normalizeLineEndings(newText);
   const canonicalIndex = canonicalRestored.indexOf(canonicalNewText);
-  if (canonicalIndex < 0 || canonicalRestored.indexOf(canonicalNewText, canonicalIndex + canonicalNewText.length) >= 0) {
+  if (canonicalIndex < 0 || canonicalRestored.indexOf(canonicalNewText, canonicalIndex + 1) >= 0) {
     return null;
   }
   return withLineEnding(

@@ -10,7 +10,7 @@ function gate() {
 
 const opened: AgentLaunchConfiguration[] = [];
 const closed: string[] = [];
-const pending: Promise<void>[] = [];
+const pending: Promise<unknown>[] = [];
 let started = gate();
 let release = gate();
 let holdFirst = true;

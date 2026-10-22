@@ -777,17 +777,47 @@ fn trash_agent_document_with(
 }
 
 #[cfg(windows)]
+fn shell_recycle_path(path: &Path) -> io::Result<PathBuf> {
+    use std::ffi::OsString;
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+    use std::path::{Component, Prefix};
+
+    let wide: Vec<u16> = path.as_os_str().encode_wide().collect();
+    let wide = match path.components().next() {
+        Some(Component::Prefix(prefix)) if path.is_absolute() => match prefix.kind() {
+            Prefix::VerbatimDisk(_) => wide[4..].to_vec(),
+            Prefix::VerbatimUNC(_, _) => [vec![u16::from(b'\\'); 2], wide[8..].to_vec()].concat(),
+            Prefix::Disk(_) | Prefix::UNC(_, _) => wide,
+            _ => return Err(io::Error::other("Unsupported Shell document namespace")),
+        },
+        _ => return Err(io::Error::other("Shell document path must be absolute")),
+    };
+    // SHFileOperationW supports neither extended namespaces nor MAX_PATH-sized
+    // names. Refuse unsupported names so the staging owner can restore the file.
+    if wide.len() >= windows_sys::Win32::Foundation::MAX_PATH as usize || wide.contains(&0) {
+        return Err(io::Error::other("Unsupported Shell document path"));
+    }
+    Ok(PathBuf::from(OsString::from_wide(&wide)))
+}
+
+#[cfg(windows)]
 fn recycle_document(path: &Path) -> io::Result<()> {
     use std::os::windows::ffi::OsStrExt;
     use windows::{
         Win32::UI::Shell::{
-            FO_DELETE, FOF_ALLOWUNDO, FOF_NO_UI, SHFileOperationW, SHFILEOPSTRUCTW,
+            FO_DELETE, FOF_ALLOWUNDO, FOF_NO_UI, SHFILEOPSTRUCTW, SHFileOperationW,
         },
         core::PCWSTR,
     };
+    let shell_path = shell_recycle_path(path)?;
+    // Stripping verbatim syntax must not redirect to a DOS alias (for example a
+    // different file after trimming a terminal dot or space).
+    if shell_path.canonicalize()? != path.canonicalize()? {
+        return Err(io::Error::other("Shell document path changed its target"));
+    }
     // The Shell operation is synchronous and supports the user's Recycle Bin policy.
     // Keep the source list double-NUL terminated as required by SHFileOperationW.
-    let wide: Vec<u16> = path.as_os_str().encode_wide().chain([0, 0]).collect();
+    let wide: Vec<u16> = shell_path.as_os_str().encode_wide().chain([0, 0]).collect();
     let mut operation = SHFILEOPSTRUCTW {
         wFunc: FO_DELETE,
         pFrom: PCWSTR(wide.as_ptr()),
@@ -949,6 +979,78 @@ fn is_transient_windows_replace_error(error: &io::Error) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(windows)]
+    #[test]
+    fn shell_recycle_paths_support_disk_and_unc_without_changing_names() {
+        for (input, expected) in [
+            (r"\\?\C:\workspace\文件.txt", r"C:\workspace\文件.txt"),
+            (r"\\?\UNC\server\share\文件.txt", r"\\server\share\文件.txt"),
+            (r"C:\workspace\sample.txt", r"C:\workspace\sample.txt"),
+            (r"\\server\share\sample.txt", r"\\server\share\sample.txt"),
+        ] {
+            assert_eq!(
+                shell_recycle_path(Path::new(input)).unwrap(),
+                Path::new(expected)
+            );
+        }
+        for input in [
+            r"relative.txt",
+            r"C:relative.txt",
+            r"\\.\C:\sample.txt",
+            r"\\?\Volume{fixture}\sample.txt",
+        ] {
+            assert!(shell_recycle_path(Path::new(input)).is_err(), "{input}");
+        }
+        let long = format!(r"\\?\C:\{}\sample.txt", "a".repeat(260));
+        assert!(shell_recycle_path(Path::new(&long)).is_err());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn shell_recycle_rejects_verbatim_names_that_would_select_a_different_file() {
+        let directory = Directory::new();
+        let parent = directory.0.canonicalize().unwrap();
+        let verbatim = parent.join("sample.txt.");
+        let ordinary = parent.join("sample.txt");
+        fs::write(&verbatim, "agent").unwrap();
+        fs::write(&ordinary, "external").unwrap();
+        assert!(recycle_document(&verbatim).is_err());
+        assert_eq!(fs::read_to_string(&verbatim).unwrap(), "agent");
+        assert_eq!(fs::read_to_string(&ordinary).unwrap(), "external");
+    }
+
+    // This opt-in acceptance is owned by the PowerShell driver, including
+    // restoration and cleanup of only this fixture's Recycle Bin entry.
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "run scripts/test-windows-agent-recycle.ps1 in an interactive Windows session"]
+    fn agent_recycle_real_shell_acceptance() {
+        let workspace =
+            PathBuf::from(std::env::var_os("LITHE_AGENT_RECYCLE_ACCEPTANCE_ROOT").unwrap());
+        assert!(
+            workspace
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("lithe-agent-recycle-acceptance-")
+        );
+        assert_eq!(fs::read_dir(&workspace).unwrap().count(), 0);
+        let path = workspace.join("agent-created-文件.txt");
+        fs::write(&path, b"agent recycle acceptance").unwrap();
+        let resolved = agent_document_path(&workspace, &path).unwrap();
+        assert!(
+            matches!(resolved.components().next(), Some(std::path::Component::Prefix(prefix)) if prefix.kind().is_verbatim())
+        );
+        trash_agent_document(
+            &workspace,
+            &path,
+            &bytes_identity(b"agent recycle acceptance"),
+        )
+        .unwrap();
+        assert!(!path.exists());
+        assert_eq!(fs::read_dir(&workspace).unwrap().count(), 0);
+    }
+
     #[test]
     fn agent_paths_reject_workspace_escape_and_directories() {
         let directory = Directory::new();

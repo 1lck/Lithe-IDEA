@@ -54,9 +54,9 @@ export function useAgentFileContextMenu() {
         }
         if (useFileSystemStore.getState().rootFolderPath !== workspace ||
           useSettingsStore.getState().settings.agentPanel !== expected) throw new Error("agent.context.stale");
-        await openAgentConnection(workspace, expected);
+        const connected = await openAgentConnection(workspace, expected);
         if (useFileSystemStore.getState().rootFolderPath !== workspace ||
-          useSettingsStore.getState().settings.agentPanel !== expected) throw new Error("agent.context.stale");
+          connected === null || !isEqual(useSettingsStore.getState().settings.agentPanel, connected)) throw new Error("agent.context.stale");
         // Re-read the draft after asynchronous launch so concurrent typing is kept.
         const actions = useAgentSurfaceStore.getState().actions;
         actions.appendDraftFiles(key, uris);

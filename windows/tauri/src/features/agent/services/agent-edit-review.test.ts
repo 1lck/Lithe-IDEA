@@ -28,6 +28,15 @@ describe("Agent edit review", () => {
     expect(() => reverseAgentChange(change, "new new")).toThrow("agent.edits.changed");
     expect(() => reverseAgentChange(change, "unrelated")).toThrow("agent.edits.changed");
   });
+  test("rejects overlapping exact excerpts instead of reverting the wrong occurrence", () => {
+    const [change] = agentFileChanges(transcript([{ content: [diff("x", "aba")] }]));
+    expect(() => reverseAgentChange(change, "ababa")).toThrow("agent.edits.changed");
+  });
+  test("rejects overlapping excerpts after normalizing mixed line endings", () => {
+    const [change] = agentFileChanges(transcript([{ content: [diff("x", "a\nb\na")] }]));
+    // Mixed LF/CRLF prevents an exact match; the canonical matches overlap.
+    expect(() => reverseAgentChange(change, "a\nb\r\na\nb\r\na")).toThrow("agent.edits.changed");
+  });
   test("an insertion with no original content is not proof of file creation", () => {
     const [change] = agentFileChanges(transcript([{ content: [diff(null, "inserted")] }]));
     expect(canRevertAgentChange(change)).toBe(false);
