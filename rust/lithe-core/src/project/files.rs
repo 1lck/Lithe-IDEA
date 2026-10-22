@@ -1,5 +1,6 @@
 //! Workspace traversal, file operations, search, and replacement previews.
 
+use super::file_name_order::FileNameKey;
 use super::search_index::{self, UpdateOutcome, WorkspaceSearchIndex};
 use crate::protocol::{invalid_relative_path, CoreError, ErrorCode};
 use crate::protocol::{
@@ -922,8 +923,8 @@ fn node_name(path: &Path) -> String {
 /// Visible children of one directory in tree order, plus the nested linked
 /// worktrees that were left out of it.
 pub(crate) struct VisibleDirectory {
-    /// Child paths and whether each is a directory: directories first, then
-    /// case-insensitive names.
+    /// Child paths and whether each is a directory: directories first, then names in
+    /// IDEA's natural file-name order (see `file_name_order`).
     pub(crate) children: Vec<(PathBuf, bool)>,
     pub(crate) nested_worktrees: Vec<PathBuf>,
 }
@@ -953,22 +954,17 @@ pub(crate) fn visible_children(
         .filter_map(Result::ok)
         .filter_map(|entry| visible_child(entry, root, rules, &mut nested_worktrees))
         .collect::<Vec<_>>();
-    children.sort_by(|left, right| {
-        right.1.cmp(&left.1).then_with(|| {
-            left.0
-                .file_name()
-                .and_then(|value| value.to_str())
-                .unwrap_or_default()
-                .to_lowercase()
-                .cmp(
-                    &right
-                        .0
-                        .file_name()
-                        .and_then(|value| value.to_str())
-                        .unwrap_or_default()
-                        .to_lowercase(),
-                )
-        })
+    // Siblings follow IDEA's Project view: directories first, then natural file-name
+    // order, so `v0.1.4.md` precedes `v0.1.12.md`.
+    children.sort_by_cached_key(|(path, is_directory)| {
+        (
+            std::cmp::Reverse(*is_directory),
+            FileNameKey::new(
+                path.file_name()
+                    .and_then(|value| value.to_str())
+                    .unwrap_or_default(),
+            ),
+        )
     });
     nested_worktrees.sort();
     Ok(VisibleDirectory {

@@ -214,9 +214,9 @@ extension FileNode {
         }
     }
 
-    /// Matches the snapshot scan: directories first, then lowercased names.
+    /// Matches the snapshot scan: directories first, then IDEA's file-name order.
     private static func treeOrder(_ left: FileNode, before right: FileNode) -> Bool {
         if left.isDirectory != right.isDirectory { return left.isDirectory }
-        return left.firstPathComponent.lowercased() < right.firstPathComponent.lowercased()
+        return NaturalNameOrder.compareFileNames(left.firstPathComponent, right.firstPathComponent) < 0
     }
 }
