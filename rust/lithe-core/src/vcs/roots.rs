@@ -97,13 +97,19 @@ pub(crate) struct Detection {
     pub(crate) truncated: bool,
 }
 
+/// Whether `id` names a directory enclosing the workspace: only `..`
+/// segments. A directory inside the workspace may still be named `..repo`.
+fn is_enclosing(id: &str) -> bool {
+    !id.is_empty() && id.split('/').all(|segment| segment == "..")
+}
+
 /// Sort key that puts enclosing roots first, then inner roots by depth.
 pub(crate) fn depth(id: &str) -> i64 {
     if id.is_empty() {
         return 0;
     }
     let segments = id.split('/').count() as i64;
-    if id.starts_with("..") {
+    if is_enclosing(id) {
         -segments
     } else {
         segments
@@ -113,14 +119,14 @@ pub(crate) fn depth(id: &str) -> i64 {
 /// Whether `id` has the shape of a root or ambiguous-directory ID: `""`,
 /// only `..` segments, or a path inside the workspace.
 pub(crate) fn is_directory_id(id: &str) -> bool {
-    id.is_empty() || id.split('/').all(|segment| segment == "..") || is_root_relative(id)
+    id.is_empty() || is_enclosing(id) || is_root_relative(id)
 }
 
 /// Whether the root or ambiguous directory `id` contains the
 /// workspace-relative `path`.
 fn contains(id: &str, path: &str) -> bool {
     id.is_empty()
-        || id.starts_with("..")
+        || is_enclosing(id)
         || path == id
         || path
             .strip_prefix(id)
@@ -336,6 +342,19 @@ mod tests {
         // to the enclosing Git root.
         assert_eq!(owner_of("m/x.txt"), None);
         assert_eq!(owner_of("mx.txt"), Some(""));
+    }
+
+    #[test]
+    fn a_directory_named_like_dot_dot_is_inside_the_workspace() {
+        let roots = ids(&["", "..repo"]);
+        let owner_of = |path| owner(&roots, &[], path);
+        assert_eq!(owner_of("..repo/a.txt"), Some("..repo"));
+        assert_eq!(owner_of("README.md"), Some(""));
+        // Without a workspace root, `..repo` owns only its own files.
+        let inner = ids(&["..repo"]);
+        assert_eq!(owner(&inner, &[], "src/main.rs"), None);
+        assert_eq!(depth("..repo"), 1);
+        assert!(is_directory_id("..repo/x"));
     }
 
     #[test]

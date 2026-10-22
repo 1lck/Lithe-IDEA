@@ -289,6 +289,14 @@ pub fn run_vcs_scenario(node: &str) {
         )]
     );
     provider.request("resolve", json!({ "paths": ["docs/c.txt"] }));
+    // Rolling the move back restores the source and clears the rename.
+    provider.request("rollback", json!({ "paths": ["docs/c.txt"] }));
+    assert!(!workspace.join("docs/c.txt").exists());
+    assert_eq!(
+        fs::read_to_string(workspace.join("c.txt")).expect("restored c.txt"),
+        "sea\n"
+    );
+    assert!(provider.changes().is_empty());
 
     provider.session.stop();
     drop(provider);

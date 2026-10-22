@@ -126,6 +126,15 @@ function rollback(params) {
   const state = load(root);
   const committed = base(state.revisions);
   for (const path of params.paths) {
+    // Rolling back a move target puts the file back where it came from.
+    const source = state.pending.moved[path];
+    if (source) {
+      mkdirSync(dirname(join(root, source)), { recursive: true });
+      if (existsSync(join(root, path))) renameSync(join(root, path), join(root, source));
+      if (source in committed) writeFileSync(join(root, source), committed[source]);
+      delete state.pending.moved[path];
+      continue;
+    }
     if (path in committed) {
       mkdirSync(dirname(join(root, path)), { recursive: true });
       writeFileSync(join(root, path), committed[path]);
