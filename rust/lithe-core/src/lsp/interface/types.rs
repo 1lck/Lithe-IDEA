@@ -139,6 +139,10 @@ pub struct LspClientState {
     /// negotiated; empty otherwise.
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub plugin_functions: BTreeSet<String>,
+    /// The VCS and capabilities a plugin process answered under
+    /// `litheVcs`; `None` when the protocol was not negotiated.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vcs_provider: Option<super::vcs_provider::VcsNegotiation>,
 }
 
 impl Default for LspClientState {
@@ -156,6 +160,7 @@ impl Default for LspClientState {
             diagnostics: BTreeMap::new(),
             diagnostic_versions: BTreeMap::new(),
             plugin_functions: BTreeSet::new(),
+            vcs_provider: None,
         }
     }
 }

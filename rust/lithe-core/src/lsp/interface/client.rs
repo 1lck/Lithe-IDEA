@@ -593,6 +593,30 @@ pub(super) fn client_apply_server_message_for_plugin(
                         .server_capabilities
                         .retain(|feature| feature != plugin_function::FUNCTIONS_FEATURE);
                 }
+                // Only a plugin's own process may act as a VCS provider; a
+                // host-owned server that happens to answer is ignored.
+                state.vcs_provider = plugin_owned
+                    .then(|| {
+                        super::vcs_provider::negotiate(
+                            result.get("capabilities").unwrap_or(&Value::Null),
+                        )
+                    })
+                    .flatten();
+                match &state.vcs_provider {
+                    Some(negotiation) => events.push(LspClientEvent {
+                        kind: super::vcs_provider::NEGOTIATED_EVENT.to_string(),
+                        request_id: None,
+                        method: Some("initialize".to_string()),
+                        uri: None,
+                        version: None,
+                        diagnostics: None,
+                        result: Some(json!(negotiation)),
+                        error: None,
+                    }),
+                    None => state
+                        .server_capabilities
+                        .retain(|feature| feature != super::vcs_provider::VCS_PROVIDER_FEATURE),
+                }
                 state.text_document_sync =
                     text_document_sync_kind(result.get("capabilities").unwrap_or(&Value::Null));
                 if let Some(options) = result
@@ -619,6 +643,7 @@ pub(super) fn client_apply_server_message_for_plugin(
             state.diagnostics.clear();
             state.diagnostic_versions.clear();
             state.plugin_functions.clear();
+            state.vcs_provider = None;
             responses.push(json_rpc_message_without_params(None, "exit")?);
         }
         let result = if pending.as_deref() == Some("textDocument/semanticTokens/full") {
@@ -724,6 +749,8 @@ fn experimental_capabilities(plugin_owned: bool) -> Value {
     if plugin_owned {
         let (functions_key, functions_offer) = plugin_function::client_experimental_capabilities();
         experimental[functions_key] = functions_offer;
+        let (vcs_key, vcs_offer) = super::vcs_provider::client_experimental_capabilities();
+        experimental[vcs_key] = vcs_offer;
     }
     experimental
 }
@@ -1670,6 +1697,9 @@ fn feature_names_from_capabilities(capabilities: &Value) -> Vec<String> {
     }
     if plugin_function::negotiate(capabilities).is_some() {
         insert_unique(&mut values, plugin_function::FUNCTIONS_FEATURE);
+    }
+    if super::vcs_provider::negotiate(capabilities).is_some() {
+        insert_unique(&mut values, super::vcs_provider::VCS_PROVIDER_FEATURE);
     }
     values
 }

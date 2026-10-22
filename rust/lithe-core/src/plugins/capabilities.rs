@@ -41,6 +41,9 @@ pub(crate) const UI: &str = "ui";
 pub(crate) const BUILD_SYSTEMS: &str = "buildSystems";
 /// `buildSystems[].provider`, whether it owns or shares a language server process.
 pub(crate) const BUILD_PROVIDERS: &str = "buildProviders";
+/// `vcsProviders[]`: version control systems implemented by a plugin
+/// process; see `crate::vcs`.
+pub(crate) const VCS_PROVIDERS: &str = "vcsProviders";
 
 /// Capability versions this Core build validates and plans. Version 1 of a
 /// capability keeps the meaning its section had at API level 2.
@@ -53,6 +56,7 @@ pub const SUPPORTED_CAPABILITIES: &[(&str, &[u32])] = &[
     (SERVER_PROCESS, &[1]),
     (SETTINGS, &[1, 2]),
     (UI, &[1, 2]),
+    (VCS_PROVIDERS, &[1]),
 ];
 
 /// Longest capability ID, so a hostile index cannot grow host state.
