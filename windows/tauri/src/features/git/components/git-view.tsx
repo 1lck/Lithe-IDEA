@@ -71,6 +71,7 @@ import { useGitBlameStore } from "../stores/git-blame.store";
 import { useRepositoryStore } from "../stores/git-repository.store";
 import { useGitStore } from "../stores/git.store";
 import { buildVisibleGitFiles } from "../utils/git-status-model";
+import { orderGitStatusFilesForDisplay } from "../utils/git-status-display-order";
 import { isUntrackedDirectorySummary } from "../utils/git-untracked-directories";
 import {
   type WorkingTreeDiffEntry,
@@ -232,6 +233,16 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
   const changelists = useGitChangelistsStore((state) =>
     workspaceChangelists(state, changelistWorkspace),
   );
+  const gitChangesFolderView = useSettingsStore((state) => state.settings.gitChangesFolderView);
+  // Diff file navigation follows the rows the Commit panel actually shows.
+  const orderedWorkingTreeFiles = useMemo(
+    () => orderGitStatusFilesForDisplay(visibleGitFiles, {
+      repoPath: activeRepoPath ?? undefined,
+      changelists,
+      folderView: gitChangesFolderView,
+    }),
+    [visibleGitFiles, activeRepoPath, changelists, gitChangesFolderView],
+  );
   useEffect(() => {
     const reload = () => useGitChangelistsStore.getState().loadWorkspace(changelistWorkspace);
     const onStorage = (event: StorageEvent) => {
@@ -318,6 +329,7 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
     onFileSelect,
     gitFileByPath,
     workingTreeDiffEntriesByScope,
+    orderedWorkingTreeFiles,
     commitByHash,
     currentBranch: gitStatus?.branch,
     onBranchDiffOpened: handleBranchDiffOpened,

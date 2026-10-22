@@ -13,6 +13,14 @@ export const GIT_STATUS_ORDER: GitStatusGroup[] = [
   "untracked",
 ];
 
+/** Files in the flat Commit list's row order: IDEA status groups, input order
+ * preserved inside each group. Shared by the panel rows and diff navigation. */
+export function orderedGitStatusFiles(
+  groups: Record<GitStatusGroup, GitFile[]>,
+): GitFile[] {
+  return GIT_STATUS_ORDER.flatMap((status) => groups[status]);
+}
+
 export interface GitFolderState {
   descendantFilePaths: string[];
   areAllDescendantFilesStaged: boolean;

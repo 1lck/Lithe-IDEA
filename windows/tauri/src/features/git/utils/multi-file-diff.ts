@@ -1,6 +1,7 @@
 import type { DiffRevisionPair, MultiFileDiff } from "../types/git-diff.types";
 import type { GitCommit, GitDiff } from "../types/git.types";
 import { countDiffStats } from "./git-diff-helpers";
+import { gitFileTreeOrder, orderGitDiffsForTree } from "./git-file-tree-order";
 
 type MultiFileDiffMetadata = Pick<
   MultiFileDiff,
@@ -71,7 +72,7 @@ export function createCommitDiffBuffer({
     title,
     repoPath,
     commitHash,
-    diffs,
+    diffs: orderGitDiffsForTree(diffs),
     initialFilePath,
     metadata: {
       commitMessage: commit?.message,
@@ -119,6 +120,16 @@ export function createCommitFileDiffPreview({
     [diff.new_path, diff.file_path, diff.old_path].includes(filePath),
   );
   if (!selected) return null;
+  // Git Log navigation follows its commit-files tree; keep the parallel
+  // revision/key arrays on the same permutation.
+  const order = gitFileTreeOrder(diffs, (diff) =>
+    diff.new_path || diff.file_path || diff.old_path || "",
+  );
+  const orderedDiffs = order.map((index) => diffs[index]);
+  const aligned = <T>(values: readonly T[] | undefined): T[] | undefined =>
+    values && values.length === diffs.length
+      ? order.map((index) => values[index])
+      : values ? [...values] : undefined;
   const fileName = (selected.new_path || selected.file_path || selected.old_path || filePath)
     .split(/[\\/]/)
     .pop()!;
@@ -128,14 +139,14 @@ export function createCommitFileDiffPreview({
     commitHash,
     // Retain every revision and its key, including repeated paths. Only the selected
     // entry is rendered; file navigation must not refetch or lose revision identity.
-    diffs: [...diffs],
+    diffs: orderedDiffs,
     initialFilePath: filePath,
-    fileKeys,
-    fileLabels: fileLabels ?? diffs.map(() => label),
+    fileKeys: aligned(fileKeys),
+    fileLabels: aligned(fileLabels) ?? orderedDiffs.map(() => label),
   });
   diffData.hideFileList = true;
   diffData.commitFilePreview = true;
-  diffData.fileRevisions = fileRevisions;
+  diffData.fileRevisions = aligned(fileRevisions);
 
   return {
     virtualPath: COMMIT_FILE_PREVIEW_PATH,

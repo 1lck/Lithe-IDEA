@@ -69,6 +69,19 @@ export function getCommitPreviewFileName(diffData?: GitDiff | MultiFileDiff): st
   return filePath.split(/[\\/]/).pop() || filePath;
 }
 
+/** Title-driving file name for a reused diff tab. The Git Log commit-file
+ * preview keeps one tab path while arrows switch the selected comparison, so
+ * tab chrome must compare the selected file rather than the path alone. */
+export function getDiffTabFileName(diffData?: GitDiff | MultiFileDiff): string | null {
+  if (!diffData || !("files" in diffData)) return null;
+  if (diffData.commitFilePreview) {
+    const diff = diffData.files[selectedCommitFileIndex(diffData)];
+    const filePath = diff?.new_path || diff?.file_path || diff?.old_path;
+    return filePath ? filePath.split(/[\\/]/).pop() || filePath : null;
+  }
+  return getCommitPreviewFileName(diffData);
+}
+
 function deriveDiffLabelFromPath(path: string): string | null {
   const stagedMatch = path.match(/^diff:\/\/(staged|unstaged)\/(.+)$/);
   if (stagedMatch) {
