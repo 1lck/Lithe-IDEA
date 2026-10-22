@@ -36,9 +36,9 @@ test('UI lab exposes every declared action and exercises data mutations and reco
   assert.deepEqual(form.controls.slice(0, 3).map((control) => control.span), [6, 6, 6]);
   assert.ok(form.controls.every((control) => control.span >= 1 && control.span <= form.layout.columns));
   assert.equal(form.toolbar.length, 0, 'Form actions must remain separate from header actions');
-  assert.deepEqual(new Set(form.buttons.map((button) => button.width ?? 'content')), new Set(['content', 'fill']));
+  assert.deepEqual(new Set(form.buttons.map((button) => button.width ?? 'content')), new Set(['content']));
   assert.ok(form.controls.every((control) => control.info));
-  assert.equal(manifest.version, '0.3.1');
+  assert.equal(manifest.version, '0.3.2');
   assert.ok(form.controls.filter((control) => control.enabled === false).every((control) => control.info.includes('键盘')));
   assert.ok(form.buttons.filter((button) => button.enabled === false).every((button) => button.info));
   for (const button of form.buttons) assert.ok(form.actions.some((action) => action.id === button.action));

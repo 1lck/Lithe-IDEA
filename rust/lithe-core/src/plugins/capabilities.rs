@@ -24,13 +24,15 @@ pub(crate) const CAPABILITIES_API_VERSION: u32 = 3;
 
 /// `languages[]`: file types and project markers.
 pub(crate) const LANGUAGES: &str = "languages";
-/// `languageServers[]` apart from their launch fields.
+/// `languageServers[]` apart from their launch fields. Version 2 adds
+/// `workspaceConfiguration`.
 pub(crate) const LANGUAGE_SERVERS: &str = "languageServers";
 /// The launch fields language servers and own build providers share.
 pub(crate) const SERVER_PROCESS: &str = "serverProcess";
 /// `executionProviders[]`: run and test templates.
 pub(crate) const EXECUTION_PROVIDERS: &str = "executionProviders";
-/// `settings[]`.
+/// `settings[]`. Version 2 adds scopes, effects, settings pages, and the
+/// multiSelect, text, file, and directory types; see `super::settings`.
 pub(crate) const SETTINGS: &str = "settings";
 /// `ui`: tool windows and commands. Version 2 adds web content in a tool
 /// window.
@@ -46,10 +48,10 @@ pub const SUPPORTED_CAPABILITIES: &[(&str, &[u32])] = &[
     (BUILD_PROVIDERS, &[1]),
     (BUILD_SYSTEMS, &[1]),
     (EXECUTION_PROVIDERS, &[1]),
-    (LANGUAGE_SERVERS, &[1]),
+    (LANGUAGE_SERVERS, &[1, 2]),
     (LANGUAGES, &[1]),
     (SERVER_PROCESS, &[1]),
-    (SETTINGS, &[1]),
+    (SETTINGS, &[1, 2]),
     (UI, &[1, 2, 3]),
 ];
 

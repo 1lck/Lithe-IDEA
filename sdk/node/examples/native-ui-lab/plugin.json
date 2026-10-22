@@ -2,7 +2,7 @@
   "schemaVersion": 2,
   "id": "org.example.native-ui-lab",
   "displayName": "UI 验收实验室",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "pluginAPIVersion": 3,
   "requires": {
     "buildProviders": 1,
@@ -767,40 +767,31 @@
               "id": "secondary-content",
               "label": "普通按钮（内容宽度）",
               "action": "changed",
-              "width": "content",
-              "span": 6,
-              "info": "随文字宽度伸缩，保留公共最小宽度、外框和内边距。"
+              "info": "短文案使用共享最小宽度；鼠标、键盘和禁用状态都复用公共按钮。"
             },
             {
               "id": "secondary-fill",
-              "label": "普通按钮（填满栅格）",
+              "label": "普通按钮 · 较长文案自然增长",
               "action": "changed",
-              "width": "fill",
-              "span": 6,
-              "info": "填满剩余空间，样式和高度仍由公共按钮控制。"
+              "info": "按钮按文案自然增长，不填满栅格；颜色、字体和内边距均由宿主统一。"
             },
             {
               "id": "primary-content",
               "label": "主要按钮（内容宽度）",
               "action": "changed",
-              "primary": true,
-              "width": "content",
-              "span": 6
+              "primary": true
             },
             {
               "id": "primary-fill",
-              "label": "主要按钮（填满栅格）",
+              "label": "主要按钮 · 较长文案自然增长",
               "action": "changed",
-              "primary": true,
-              "width": "fill",
-              "span": 6
+              "primary": true
             },
             {
               "id": "disabled-button",
               "label": "禁用普通按钮",
               "action": "changed",
               "enabled": false,
-              "span": 6,
               "info": "禁用普通按钮：动作已禁用；说明仍可查看，点击此提示不会执行动作。"
             },
             {
@@ -809,22 +800,17 @@
               "action": "changed",
               "primary": true,
               "enabled": false,
-              "width": "fill",
-              "span": 6,
               "info": "禁用主要按钮：动作已禁用；说明仍可查看，点击此提示不会执行动作。"
             },
             {
               "id": "slow-button",
               "label": "慢提交（3秒，检查禁用/取消）",
-              "action": "form-slow",
-              "span": 6
+              "action": "form-slow"
             },
             {
               "id": "failure-button",
               "label": "模拟提交失败",
-              "action": "form-fail",
-              "width": "fill",
-              "span": 6
+              "action": "form-fail"
             }
           ]
         }

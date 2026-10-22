@@ -1,5 +1,6 @@
 import { buildPathTree, type PathTreeNode } from "@/features/sidebar/lib/path-tree";
 import type { GitFile } from "../types/git.types";
+import { isUntrackedDirectorySummary } from "./git-untracked-directories";
 import { compareGitFileNames } from "./natural-file-name-compare";
 
 export type GitStatusGroup = "added" | "modified" | "deleted" | "renamed" | "untracked";
@@ -12,6 +13,14 @@ export const GIT_STATUS_ORDER: GitStatusGroup[] = [
   "untracked",
 ];
 
+/** Files in the flat Commit list's row order: IDEA status groups, input order
+ * preserved inside each group. Shared by the panel rows and diff navigation. */
+export function orderedGitStatusFiles(
+  groups: Record<GitStatusGroup, GitFile[]>,
+): GitFile[] {
+  return GIT_STATUS_ORDER.flatMap((status) => groups[status]);
+}
+
 export interface GitFolderState {
   descendantFilePaths: string[];
   areAllDescendantFilesStaged: boolean;
@@ -20,6 +29,8 @@ export interface GitFolderState {
 export interface GitFolderTree {
   nodes: PathTreeNode<GitFile>[];
   folderStateById: Map<string, GitFolderState>;
+  /** Folders standing for an expanded untracked directory summary, by folder path. */
+  untrackedDirectoryByFolderPath: Map<string, GitFile>;
 }
 
 export interface GitStatusPresentation {
@@ -82,6 +93,32 @@ export function buildGitFolderTree(fileList: GitFile[], repositoryRelative = fal
     compareNames: compareGitFileNames,
   });
   const folderStateById = new Map<string, GitFolderState>();
+  const untrackedDirectoryByFolderPath = new Map<string, GitFile>();
+
+  // An expanded summary `dir/` lists its contents below it, which builds a
+  // folder of the same name. That folder stands for the summary, so the
+  // summary row is dropped instead of appearing beside its own contents. A
+  // collapsed summary is a directory too, so it sorts with the folders.
+  const summaryRank = (node: PathTreeNode<GitFile>) =>
+    node.type === "branch" ? 0 : isUntrackedDirectorySummary(node.item) ? 1 : 2;
+  const mergeExpandedSummaries = (children: PathTreeNode<GitFile>[]) => {
+    const folders = new Map(
+      children.flatMap((child) => (child.type === "branch" ? [[child.name, child] as const] : [])),
+    );
+    for (let index = children.length - 1; index >= 0; index -= 1) {
+      const child = children[index]!;
+      if (child.type !== "leaf" || !isUntrackedDirectorySummary(child.item)) continue;
+      const folder = folders.get(child.name);
+      if (!folder) continue;
+      untrackedDirectoryByFolderPath.set(folder.path, child.item);
+      children.splice(index, 1);
+    }
+    // Stable: names keep their comparator order within each rank.
+    children.sort((left, right) => summaryRank(left) - summaryRank(right));
+    for (const child of children)
+      if (child.type === "branch") mergeExpandedSummaries(child.children);
+  };
+  mergeExpandedSummaries(nodes);
 
   const collectDescendantFiles = (node: PathTreeNode<GitFile>): GitFile[] => {
     if (node.type === "leaf") return [node.item];
@@ -96,7 +133,7 @@ export function buildGitFolderTree(fileList: GitFile[], repositoryRelative = fal
   };
 
   for (const node of nodes) collectDescendantFiles(node);
-  return { nodes, folderStateById };
+  return { nodes, folderStateById, untrackedDirectoryByFolderPath };
 }
 
 export function buildGitStatusPresentation(files: GitFile[]): GitStatusPresentation {

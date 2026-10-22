@@ -293,7 +293,7 @@ struct AgentHistoryView: View {
             } label: {
                 Label(isSelecting ? "Done" : "Select", systemImage: "checklist")
                     .font(LitheTheme.uiFont(size: 11))
-            }.buttonStyle(LitheSecondaryButtonStyle())
+            }.buttonStyle(LitheActionButtonStyle())
                 .accessibilityIdentifier("agent-history-select")
             Button { feature.refreshSessions() } label: {
                 if feature.isRefreshingSessions { ProgressView().controlSize(.mini) }

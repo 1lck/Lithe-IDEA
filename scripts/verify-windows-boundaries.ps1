@@ -5,10 +5,8 @@ Set-Location $root
 node scripts/verify-java-semantic-ownership.mjs
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-$cppFiles = Get-ChildItem windows -Recurse -File -Include *.cpp,*.h |
-    Where-Object {
-        $_.FullName -notmatch '[\\/](node_modules|target|dist)[\\/]'
-    }
+$cppFiles = @(git ls-files --cached --others --exclude-standard -- windows |
+    Where-Object { $_ -match '\.(cpp|h)$' })
 if ($cppFiles.Count -gt 0) {
     throw "Windows product must not restore the retired Qt/C++ implementation."
 }

@@ -296,10 +296,42 @@ enum LitheTheme {
         green: 113.0 / 255.0,
         blue: 225.0 / 255.0
     )
-    static var settingsPrimaryAction: Color { settingsControlAccent }
     static var settingsListSurface: Color { settingsSurface }
     static var settingsFont: Font { uiFont(size: 13) }
     static var settingsStrongFont: Font { uiFont(size: 13, weight: .semibold) }
+
+    // Settings window layers, after the macOS System Settings look: a tinted
+    // sidebar, a light page behind the content, and white cards that hold
+    // the rows. Values match design-mockups/plugin-settings.html.
+    static var settingsSidebar: Color { settingsColor(light: 0xECECEE, dark: 0x232427) }
+    static var settingsPage: Color { settingsColor(light: 0xF5F5F7, dark: 0x1C1D20) }
+    static var settingsCard: Color { settingsColor(light: 0xFFFFFF, dark: 0x2B2D30) }
+    static var settingsCardDivider: Color { settingsColor(light: 0xEDEDF0, dark: 0x34363A) }
+    static var settingsCardRing: Color { settingsColor(light: 0x000000, dark: 0xFFFFFF, alpha: 0.07) }
+    static var settingsRowHover: Color { settingsColor(light: 0x000000, dark: 0xFFFFFF, alpha: 0.025) }
+    static var settingsPill: Color { settingsColor(light: 0xF0F1F4, dark: 0x393B40) }
+    static var settingsPillText: Color { settingsColor(light: 0x6C707E, dark: 0x9DA0A8) }
+    static var settingsProjectPill: Color { settingsColor(light: 0xE6F4EA, dark: 0x22382A) }
+    static var settingsProjectPillText: Color { settingsColor(light: 0x208A3C, dark: 0x5FB865) }
+    static var settingsEffectPill: Color { settingsColor(light: 0xFFF1D6, dark: 0x3D3220) }
+    static var settingsEffectPillText: Color { settingsColor(light: 0xC27D00, dark: 0xE0A83E) }
+    static var settingsValuePill: Color { settingsColor(light: 0xE8F0FE, dark: 0x25324D) }
+    static var settingsValuePillText: Color { settingsColor(light: 0x3574F0, dark: 0x548AF7) }
+    static var settingsNoticeBackground: Color { settingsColor(light: 0xFFF6E0, dark: 0x3A301D) }
+    static var settingsNoticeText: Color { settingsColor(light: 0x7A5400, dark: 0xE8C47A) }
+
+    private static func settingsColor(light: UInt32, dark: UInt32, alpha: CGFloat = 1) -> Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            let hex = isDark ? dark : light
+            return NSColor(
+                srgbRed: CGFloat((hex >> 16) & 0xFF) / 255,
+                green: CGFloat((hex >> 8) & 0xFF) / 255,
+                blue: CGFloat(hex & 0xFF) / 255,
+                alpha: alpha
+            )
+        })
+    }
     static var settingsSearchBorder: Color {
         Color(nsColor: NSColor(name: nil) { appearance in
             let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
@@ -615,6 +647,27 @@ enum LitheTheme {
         static var keyword: Color { activeTheme == .lithe ? controlColor(light: 0x0033B3, dark: 0xCF8E6D) : skill }
         static var number: Color { activeTheme == .lithe ? controlColor(light: 0x1750EB, dark: 0x2AACB8) : warning }
         static var string: Color { activeTheme == .lithe ? controlColor(light: 0x067D17, dark: 0x6AAB73) : success }
+    }
+
+    /// Product action buttons own their colors; selection and field focus keep the theme accent.
+    enum ActionButton {
+        static let cornerRadius: CGFloat = 4
+        static let primary = Color(red: 45 / 255, green: 98 / 255, blue: 204 / 255)
+        static let primaryHover = Color(red: 36 / 255, green: 83 / 255, blue: 179 / 255)
+        static let primaryPressed = Color(red: 29 / 255, green: 70 / 255, blue: 153 / 255)
+        static let spacing: CGFloat = 6
+        static let horizontalPadding: CGFloat = 14
+        static let minimumWidth: CGFloat = 72
+        static let height: CGFloat = 28
+        static func background(for colorScheme: ColorScheme) -> Color {
+            activeTheme == .lithe ? (colorScheme == .dark ? .clear : .white) : raised
+        }
+        static var disabledText: Color {
+            activeTheme == .lithe ? controlColor(light: 0x9FA2A8, dark: 0x4C4F56) : secondaryText
+        }
+        static var disabledBorder: Color {
+            activeTheme == .lithe ? controlColor(light: 0xDDDFE4, dark: 0x33353B) : divider
+        }
     }
 
     // MARK: - 输入控件
@@ -1033,25 +1086,17 @@ enum LitheTheme {
 
         static let toolbarHeight = Metrics.toolbarHeight
         static let listMinimumHeight: CGFloat = 120
-        static let areaMinimumHeight: CGFloat = 124
+        static let messageMinimumHeight: CGFloat = 50
+        static let resultsMaximumHeight: CGFloat = 90
+        // Reserve two rows for the wrapping Amend header and two for the footer,
+        // plus the message editor and existing row/editor/button insets.
+        static let areaMinimumHeight: CGFloat = 4 * ActionButton.height + 4 * ActionButton.spacing
+            + messageMinimumHeight + 3 * messageVerticalGap
         // NonModalCommitPanel.UISpec (regular density) and CommitInputBorder.
         static let contentInset: CGFloat = 12
         static let messageHorizontalGap: CGFloat = 11
         static let messageVerticalGap: CGFloat = 3
         static let controlCornerRadius: CGFloat = 4
-        static let buttonBorderInset: CGFloat = 3
-        static let buttonHorizontalPadding: CGFloat = 14
-        static let buttonMinimumWidth: CGFloat = 72
-        static let buttonHeight: CGFloat = 28
-        static func buttonBackground(for colorScheme: ColorScheme) -> Color {
-            activeTheme == .lithe ? (colorScheme == .dark ? .clear : .white) : raised
-        }
-        static var disabledText: Color {
-            activeTheme == .lithe ? controlColor(light: 0x9FA2A8, dark: 0x4C4F56) : secondaryText
-        }
-        static var disabledBorder: Color {
-            activeTheme == .lithe ? controlColor(light: 0xDDDFE4, dark: 0x33353B) : divider
-        }
         static let toolbarFontSize: CGFloat = 12.5
         // ContentLabel uses 12pt insets; Islands paints the tab 4pt inside its bounds.
         static let tabItemHorizontalPadding: CGFloat = 8
@@ -1062,9 +1107,6 @@ enum LitheTheme {
         // 3pt CommitInputBorder + the editor's 6pt emptyLeft border.
         static let editorHorizontalInset: CGFloat = 9
         static let editorVerticalInset: CGFloat = 3
-        static let compactButtonHeight: CGFloat = 24
-        static let compactButtonPadding: CGFloat = 7
-        static let compactButtonFontSize: CGFloat = 11
     }
 }
 
@@ -1252,56 +1294,7 @@ private struct LitheRowHoverModifier: ViewModifier {
     }
 }
 
-// MARK: - 按钮样式
-
-struct LithePrimaryButtonStyle: ButtonStyle {
-    var backgroundColor = LitheTheme.accent
-    var restingOpacity = 0.92
-    var horizontalPadding: CGFloat = 18
-    var height: CGFloat = 30
-    @State private var isHovering = false
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(LitheTheme.uiFont(size: 13, weight: .medium))
-            .foregroundStyle(.white)
-            .padding(.horizontal, horizontalPadding)
-            .frame(height: height)
-            .background(
-                RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
-                    .fill(backgroundColor.opacity(configuration.isPressed ? 0.78 : (isHovering ? 1 : restingOpacity)))
-            )
-            .contentShape(Rectangle())
-            .onHover { isHovering = $0 }
-            .lithePointer()
-    }
-}
-
-struct LitheSecondaryButtonStyle: ButtonStyle {
-    var horizontalPadding: CGFloat = 18
-    var height: CGFloat = 30
-    var fontSize: CGFloat = 13
-    @State private var isHovering = false
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(LitheTheme.uiFont(size: fontSize, weight: .medium))
-            .foregroundStyle(LitheTheme.primaryText)
-            .padding(.horizontal, horizontalPadding)
-            .frame(height: height)
-            .background(
-                RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
-                    .fill(configuration.isPressed ? LitheTheme.subtleSelection : (isHovering ? LitheTheme.raised : LitheTheme.raised.opacity(0.72)))
-            )
-            .overlay {
-                RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
-                    .strokeBorder(LitheTheme.panelBorder, lineWidth: 1)
-            }
-            .contentShape(Rectangle())
-            .onHover { isHovering = $0 }
-            .lithePointer()
-    }
-}
+// MARK: - Pointer
 
 private struct LithePointingHandCursorKey: EnvironmentKey {
     static let defaultValue = true
@@ -1321,6 +1314,8 @@ private struct LithePointerModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
+            // The outer pointer owns the cursor stack; nested styles must not push again.
+            .environment(\.lithePointingHandCursorEnabled, false)
             .onHover { isInside in
                 cursor.isHovered = isInside
                 cursor.update(isPointing: isInside && isEnabled && pointingHandCursorEnabled)

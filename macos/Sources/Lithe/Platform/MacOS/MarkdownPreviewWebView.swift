@@ -54,11 +54,7 @@ enum MarkdownPreviewAssetResolver {
             .appendingPathComponent(requestedPath, isDirectory: false)
             .standardizedFileURL
             .resolvingSymlinksInPath()
-        let rootPath = root.path
-        let candidatePath = candidate.path
-        guard candidatePath == rootPath || candidatePath.hasPrefix(rootPath + "/") else {
-            return nil
-        }
+        guard LocalFileContainment.contains(root, candidate) else { return nil }
         return candidate
     }
 }
@@ -72,7 +68,7 @@ final class MarkdownPreviewAssetSchemeHandler: NSObject, WKURLSchemeHandler, @un
     private let lock = NSLock()
     private let queue = DispatchQueue(label: "lithe.markdown.assets", qos: .userInitiated)
     private var scope: Scope?
-    private var taskStates: [ObjectIdentifier: Bool] = [:]
+    private let tasks = LocalFileSchemeTasks()
 
     func update(documentURL: URL, workspaceURL: URL?) {
         lock.withLock {
@@ -83,12 +79,9 @@ final class MarkdownPreviewAssetSchemeHandler: NSObject, WKURLSchemeHandler, @un
     }
 
     func webView(_ webView: WKWebView, start urlSchemeTask: any WKURLSchemeTask) {
-        let taskID = ObjectIdentifier(urlSchemeTask)
+        let taskID = tasks.register(urlSchemeTask)
         let requestURL = urlSchemeTask.request.url
-        let currentScope = lock.withLock { () -> Scope? in
-            taskStates[taskID] = true
-            return scope
-        }
+        let currentScope = lock.withLock { scope }
 
         queue.async { [weak self] in
             guard let self else { return }
@@ -129,12 +122,7 @@ final class MarkdownPreviewAssetSchemeHandler: NSObject, WKURLSchemeHandler, @un
     }
 
     func webView(_ webView: WKWebView, stop urlSchemeTask: any WKURLSchemeTask) {
-        lock.withLock {
-            let taskID = ObjectIdentifier(urlSchemeTask)
-            if taskStates[taskID] != nil {
-                taskStates[taskID] = false
-            }
-        }
+        tasks.stop(urlSchemeTask)
     }
 
     private func finish(
@@ -143,21 +131,20 @@ final class MarkdownPreviewAssetSchemeHandler: NSObject, WKURLSchemeHandler, @un
         response: URLResponse,
         data: Data
     ) {
-        let shouldDeliver = lock.withLock {
-            taskStates.removeValue(forKey: id) == true
+        // Delivered where `stop` arrives, so a stop cannot come after the claim.
+        DispatchQueue.main.async { [tasks] in
+            guard tasks.claim(id) else { return }
+            task.didReceive(response)
+            task.didReceive(data)
+            task.didFinish()
         }
-        guard shouldDeliver else { return }
-        task.didReceive(response)
-        task.didReceive(data)
-        task.didFinish()
     }
 
     private func finish(_ task: any WKURLSchemeTask, id: ObjectIdentifier, error: Error) {
-        let shouldDeliver = lock.withLock {
-            taskStates.removeValue(forKey: id) == true
+        DispatchQueue.main.async { [tasks] in
+            guard tasks.claim(id) else { return }
+            task.didFailWithError(error)
         }
-        guard shouldDeliver else { return }
-        task.didFailWithError(error)
     }
 
     private static func isSupportedMedia(_ type: UTType) -> Bool {
@@ -214,6 +201,7 @@ struct MarkdownPreviewWebView: NSViewRepresentable {
 
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = context.coordinator
+        webView.uiDelegate = WebMediaCaptureDenier.shared
         webView.allowsBackForwardNavigationGestures = false
         webView.allowsMagnification = true
         webView.setValue(false, forKey: "drawsBackground")

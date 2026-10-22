@@ -12,6 +12,11 @@
 //! payload is a Core `invalid_request` failure.
 
 use super::capabilities::{self, HostCapabilities, Requires, CAPABILITIES_API_VERSION};
+pub(crate) use super::settings::is_setting_identifier;
+use super::settings::{
+    DeclaredSettings, ResolvedSetting, SettingAction, SettingDeclaration, SettingLayers,
+    MAX_SETTING_ACTIONS,
+};
 use crate::protocol::{CoreError, ErrorCode};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -70,18 +75,8 @@ const HOST_CAPABILITY_RUN: &str = "run";
 const HOST_CAPABILITY_TESTING: &str = "testing";
 /// CPU architectures a host may report for `${arch}`.
 const KNOWN_ARCHITECTURES: &[&str] = &["arm64", "x86_64"];
-/// Setting kind: a whole number within a declared range.
-const SETTING_INTEGER: &str = "integer";
-/// Setting kind: one of a declared list of values.
-const SETTING_ENUM: &str = "enum";
-/// Setting kind: on or off.
-const SETTING_BOOLEAN: &str = "boolean";
-/// Most settings one plugin may declare, so its page stays a page.
+/// Most settings one plugin may declare, so its pages stay pages.
 const MAX_SETTINGS: usize = 32;
-/// Most choices one enum setting may offer.
-const MAX_SETTING_OPTIONS: usize = 16;
-/// Longest setting ID, option value, and title the host will show.
-const MAX_SETTING_TEXT: usize = 120;
 /// Prefix of a launch template variable that names a plugin setting.
 const SETTING_VARIABLE_PREFIX: &str = "setting:";
 
@@ -149,9 +144,14 @@ pub struct DeclarativePluginManifest {
     language_servers: Vec<LanguageServerDeclaration>,
     #[serde(default)]
     execution_providers: Vec<ExecutionProviderDeclaration>,
-    /// User-adjustable options of the plugin. API level 2.
+    /// User-adjustable options of the plugin. API level 2; see
+    /// `super::settings` for version 2 of the capability.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     settings: Vec<SettingDeclaration>,
+    /// Buttons on settings pages that invoke the plugin's functions.
+    /// `settings` 2.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    setting_actions: Vec<SettingAction>,
     /// Project-level build tools the plugin describes. API level 3; the
     /// shape and its validation live in `crate::build`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -388,6 +388,13 @@ struct LanguageServerDeclaration {
     /// consumes. API level 2, official plugins only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     host_integration: Option<HostIntegrationDeclaration>,
+    /// Settings the server reads through `workspace/configuration` and
+    /// receives again in `workspace/didChangeConfiguration` whenever one of
+    /// the settings it names changes. String values are templates like
+    /// `initializationOptions`, and may also name settings whose `effect`
+    /// is `immediate`. `languageServers` 2.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    workspace_configuration: Option<Value>,
 }
 
 /// How the host starts a process that speaks the LSP base protocol. A
@@ -461,196 +468,6 @@ impl ResourcePaths {
             Self::Many(paths) => paths,
         }
     }
-}
-
-/// One option the user may change, stored by the host once per plugin. The
-/// plugin names it in launch templates as `${setting:<id>}`; the value is
-/// always one of the declared shapes, so it cannot inject arbitrary text.
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct SettingDeclaration {
-    /// Identifier used in `${setting:<id>}` and as the stored key.
-    id: String,
-    /// One of `SETTING_INTEGER`, `SETTING_ENUM`, `SETTING_BOOLEAN`.
-    #[serde(rename = "type")]
-    kind: String,
-    /// Label shown next to the control.
-    title: String,
-    /// Explanation shown under the control.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    description: Option<String>,
-    /// Value used until the user changes it, and whenever a stored value is
-    /// no longer acceptable. Its JSON type follows `kind`.
-    default: Value,
-    /// Inclusive lower bound of an integer setting.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    minimum: Option<i64>,
-    /// Inclusive upper bound of an integer setting.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    maximum: Option<i64>,
-    /// Unit label of an integer setting, such as `MB`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    unit: Option<String>,
-    /// Choices of an enum setting, in display order.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    options: Vec<SettingOption>,
-}
-
-/// One choice of an enum setting.
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct SettingOption {
-    /// Text substituted into templates and stored.
-    value: String,
-    /// Label shown to the user.
-    title: String,
-}
-
-impl SettingDeclaration {
-    /// Whether `value` is a value this setting can hold.
-    fn accepts(&self, value: &Value) -> bool {
-        match self.kind.as_str() {
-            SETTING_INTEGER => value.as_i64().is_some_and(|number| {
-                self.minimum.is_none_or(|minimum| number >= minimum)
-                    && self.maximum.is_none_or(|maximum| number <= maximum)
-            }),
-            SETTING_ENUM => value
-                .as_str()
-                .is_some_and(|text| self.options.iter().any(|option| option.value == text)),
-            SETTING_BOOLEAN => value.is_boolean(),
-            _ => false,
-        }
-    }
-
-    fn validate(&self, field: &str) -> Validation<()> {
-        if !is_setting_identifier(&self.id) {
-            return Err(invalid(
-                format!("{field}.id"),
-                "A setting ID starts with a lowercase letter and contains only letters and digits.",
-            ));
-        }
-        if self.title.trim().is_empty() || self.title.chars().count() > MAX_SETTING_TEXT {
-            return Err(invalid(
-                format!("{field}.title"),
-                "A setting needs a short title.",
-            ));
-        }
-        let shape = |message: &str| invalid(format!("{field}.{}", self.id), message.to_string());
-        match self.kind.as_str() {
-            SETTING_INTEGER => {
-                let (Some(minimum), Some(maximum)) = (self.minimum, self.maximum) else {
-                    return Err(shape("An integer setting declares minimum and maximum."));
-                };
-                if minimum > maximum || !self.accepts(&self.default) {
-                    return Err(invalid(
-                        format!("{field}.default"),
-                        "The default must be a whole number between minimum and maximum.",
-                    ));
-                }
-                if !self.options.is_empty() {
-                    return Err(shape("An integer setting has no options."));
-                }
-                if self.unit.as_ref().is_some_and(|unit| {
-                    unit.trim().is_empty() || unit.chars().count() > MAX_SETTING_TEXT
-                }) {
-                    return Err(invalid(
-                        format!("{field}.unit"),
-                        "The unit is empty or too long.",
-                    ));
-                }
-            }
-            SETTING_ENUM => {
-                if self.options.is_empty() || self.options.len() > MAX_SETTING_OPTIONS {
-                    return Err(invalid(
-                        format!("{field}.options"),
-                        "An enum setting offers between one and sixteen options.",
-                    ));
-                }
-                let mut values = BTreeSet::new();
-                for (index, option) in self.options.iter().enumerate() {
-                    let option_field = format!("{field}.options[{index}]");
-                    if !is_setting_option_value(&option.value) {
-                        return Err(invalid(
-                            format!("{option_field}.value"),
-                            "An option value contains only letters, digits, '.', '_' and '-'.",
-                        ));
-                    }
-                    if option.title.trim().is_empty()
-                        || option.title.chars().count() > MAX_SETTING_TEXT
-                    {
-                        return Err(invalid(
-                            format!("{option_field}.title"),
-                            "An option needs a short title.",
-                        ));
-                    }
-                    if !values.insert(option.value.as_str()) {
-                        return Err(invalid(
-                            format!("{option_field}.value"),
-                            "An option value is declared more than once.",
-                        ));
-                    }
-                }
-                if !self.accepts(&self.default) {
-                    return Err(invalid(
-                        format!("{field}.default"),
-                        "The default must be one of the options.",
-                    ));
-                }
-                if self.minimum.is_some() || self.maximum.is_some() || self.unit.is_some() {
-                    return Err(shape("An enum setting has no range or unit."));
-                }
-            }
-            SETTING_BOOLEAN => {
-                if !self.accepts(&self.default) {
-                    return Err(invalid(
-                        format!("{field}.default"),
-                        "The default of a boolean setting is true or false.",
-                    ));
-                }
-                if self.minimum.is_some()
-                    || self.maximum.is_some()
-                    || self.unit.is_some()
-                    || !self.options.is_empty()
-                {
-                    return Err(shape("A boolean setting has no range, unit, or options."));
-                }
-            }
-            other => {
-                return Err(invalid(
-                    format!("{field}.type"),
-                    format!("The setting type {other} is not supported."),
-                ));
-            }
-        }
-        if self
-            .description
-            .as_ref()
-            .is_some_and(|description| description.chars().count() > MAX_SETTING_TEXT * 4)
-        {
-            return Err(invalid(
-                format!("{field}.description"),
-                "The description is too long.",
-            ));
-        }
-        Ok(())
-    }
-}
-
-pub(crate) fn is_setting_identifier(value: &str) -> bool {
-    let mut characters = value.chars();
-    characters
-        .next()
-        .is_some_and(|first| first.is_ascii_lowercase())
-        && characters.all(|character| character.is_ascii_alphanumeric())
-        && value.len() <= MAX_SETTING_TEXT
-}
-
-fn is_setting_option_value(value: &str) -> bool {
-    !value.is_empty()
-        && value.len() <= MAX_SETTING_TEXT
-        && value.chars().all(|character| {
-            character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | '-')
-        })
 }
 
 /// Where the language-server executable comes from.
@@ -968,7 +785,13 @@ impl DeclarativePluginManifest {
 
         let declared_settings = self.validate_settings()?;
 
+        let server_version = self
+            .requires
+            .get(capabilities::LANGUAGE_SERVERS)
+            .copied()
+            .unwrap_or(1);
         let mut server_languages = BTreeSet::new();
+        let mut referenced_immediate_settings = BTreeSet::new();
         for (index, server) in self.language_servers.iter_mut().enumerate() {
             let field = format!("languageServers[{index}]");
             if let Some(integration) = &mut server.host_integration {
@@ -987,12 +810,24 @@ impl DeclarativePluginManifest {
                     "A language declares more than one language server.",
                 ));
             }
+            if let Some(configuration) = &server.workspace_configuration {
+                collect_setting_references(configuration, &mut referenced_immediate_settings);
+            }
             server.validate(
                 &field,
                 self.plugin_api_version,
+                server_version,
                 is_official_namespace(&self.id),
                 &declared_settings,
             )?;
+        }
+        if let Some(id) =
+            declared_settings.first_unreferenced_immediate(&referenced_immediate_settings)
+        {
+            return Err(invalid(
+                "settings",
+                format!("The immediate setting {id} must be used by workspaceConfiguration."),
+            ));
         }
         self.language_servers
             .sort_by(|left, right| left.language_id.cmp(&right.language_id));
@@ -1100,7 +935,10 @@ impl DeclarativePluginManifest {
                 capabilities::EXECUTION_PROVIDERS,
                 !self.execution_providers.is_empty(),
             ),
-            (capabilities::SETTINGS, !self.settings.is_empty()),
+            (
+                capabilities::SETTINGS,
+                !self.settings.is_empty() || !self.setting_actions.is_empty(),
+            ),
             (capabilities::UI, self.ui.is_some()),
             (capabilities::BUILD_SYSTEMS, !self.build_systems.is_empty()),
             (
@@ -1363,9 +1201,10 @@ impl DeclarativePluginManifest {
 
     /// Checks the declared settings, sorts them by ID, and returns the IDs
     /// launch templates may refer to.
-    fn validate_settings(&mut self) -> Validation<BTreeSet<String>> {
+    fn validate_settings(&mut self) -> Validation<DeclaredSettings> {
+        self.validate_setting_actions()?;
         if self.settings.is_empty() {
-            return Ok(BTreeSet::new());
+            return Ok(DeclaredSettings::default());
         }
         if self.plugin_api_version < LAUNCH_TEMPLATES_API_VERSION {
             return Err(requires_api_2("settings".to_string()));
@@ -1376,10 +1215,16 @@ impl DeclarativePluginManifest {
                 "The plugin declares too many settings.",
             ));
         }
+        // Below level 3 there is no `requires`, and the section means `settings` 1.
+        let version = self
+            .requires
+            .get(capabilities::SETTINGS)
+            .copied()
+            .unwrap_or(1);
         let mut ids = BTreeSet::new();
         for (index, setting) in self.settings.iter().enumerate() {
             let field = format!("settings[{index}]");
-            setting.validate(&field)?;
+            setting.validate(&field, version)?;
             if !ids.insert(setting.id.clone()) {
                 return Err(invalid(
                     format!("{field}.id"),
@@ -1388,24 +1233,57 @@ impl DeclarativePluginManifest {
             }
         }
         self.settings.sort_by(|left, right| left.id.cmp(&right.id));
-        Ok(ids)
+        Ok(super::settings::declared(&self.settings))
     }
 
-    /// Value of every declared setting for one launch: the stored value when
-    /// the declaration still accepts it, otherwise the default. A stored
-    /// value can outlive the declaration that accepted it (a plugin update
-    /// may narrow a range), and a launch must not fail for that.
-    fn effective_settings(&self, stored: &BTreeMap<String, Value>) -> BTreeMap<String, Value> {
-        self.settings
-            .iter()
-            .map(|setting| {
-                let value = stored
-                    .get(&setting.id)
-                    .filter(|value| setting.accepts(value))
-                    .unwrap_or(&setting.default);
-                (setting.id.clone(), value.clone())
-            })
-            .collect()
+    /// Settings-page actions need `settings` 2; they are sorted by ID.
+    fn validate_setting_actions(&mut self) -> Validation<()> {
+        if self.setting_actions.is_empty() {
+            return Ok(());
+        }
+        if self
+            .requires
+            .get(capabilities::SETTINGS)
+            .copied()
+            .unwrap_or(1)
+            < 2
+        {
+            return Err(invalid(
+                "settingActions",
+                "Settings actions require version 2 of the settings capability.",
+            ));
+        }
+        if self.setting_actions.len() > MAX_SETTING_ACTIONS {
+            return Err(invalid(
+                "settingActions",
+                "The plugin declares too many settings actions.",
+            ));
+        }
+        let mut ids = BTreeSet::new();
+        for (index, action) in self.setting_actions.iter().enumerate() {
+            let field = format!("settingActions[{index}]");
+            action.validate(&field)?;
+            if !ids.insert(action.id.clone()) {
+                return Err(invalid(
+                    format!("{field}.id"),
+                    "An action is declared more than once.",
+                ));
+            }
+        }
+        self.setting_actions
+            .sort_by(|left, right| left.id.cmp(&right.id));
+        Ok(())
+    }
+
+    /// Effective value of every declared setting and the layer it came from.
+    pub(crate) fn resolve_settings(&self, layers: SettingLayers<'_>) -> Vec<ResolvedSetting> {
+        super::settings::resolve(&self.settings, layers)
+    }
+
+    /// Value of every declared setting for one launch; see
+    /// `super::settings::resolve` for the fallback order.
+    fn effective_settings(&self, layers: SettingLayers<'_>) -> BTreeMap<String, Value> {
+        super::settings::effective_values(&self.settings, layers)
     }
 
     /// Every program the host may start on this plugin's behalf, in a stable
@@ -1543,8 +1421,9 @@ impl LanguageServerDeclaration {
         &self,
         field: &str,
         api_version: u32,
+        capability_version: u32,
         official: bool,
-        declared_settings: &BTreeSet<String>,
+        declared_settings: &DeclaredSettings,
     ) -> Validation<()> {
         self.process.validate(
             field,
@@ -1552,6 +1431,31 @@ impl LanguageServerDeclaration {
             declared_settings,
             ServerRole::LanguageServer,
         )?;
+        if let Some(configuration) = &self.workspace_configuration {
+            let field = format!("{field}.workspaceConfiguration");
+            if capability_version < 2 {
+                return Err(invalid(
+                    field,
+                    "workspaceConfiguration requires version 2 of the languageServers capability.",
+                ));
+            }
+            if !configuration.is_object() {
+                return Err(invalid(field, "workspaceConfiguration is a JSON object."));
+            }
+            validate_launch_value(
+                configuration,
+                &declared_settings.for_configuration(),
+                &field,
+            )?;
+            // The host re-expands it on every change without a launch, so
+            // only setting values may vary.
+            if mentions_launch_directory(configuration) {
+                return Err(template(
+                    field,
+                    "workspaceConfiguration may only use ${setting:<id>} variables.",
+                ));
+            }
+        }
         if let Some(identifier) = &self.language_identifier {
             if identifier.trim().is_empty() {
                 return Err(invalid(
@@ -1695,7 +1599,7 @@ impl ServerProcess {
         &self,
         field: &str,
         api_version: u32,
-        declared_settings: &BTreeSet<String>,
+        declared_settings: &DeclaredSettings,
         role: ServerRole,
     ) -> Validation<()> {
         let templated = api_version >= LAUNCH_TEMPLATES_API_VERSION;
@@ -2025,7 +1929,7 @@ pub(crate) fn validate_minimum_version(value: &str, field: &str) -> Validation<(
 fn validate_launch_templates(
     values: &[String],
     context: LaunchTemplateContext,
-    declared_settings: &BTreeSet<String>,
+    declared_settings: &DeclaredSettings,
     field: &str,
 ) -> Validation<()> {
     for (index, value) in values.iter().enumerate() {
@@ -2039,10 +1943,36 @@ fn validate_launch_templates(
     Ok(())
 }
 
+/// Collects setting IDs referenced by every template string in a JSON value.
+fn collect_setting_references(value: &Value, references: &mut BTreeSet<String>) {
+    match value {
+        Value::String(text) => {
+            if let Some(parts) = parse_template_with(text, LaunchVariable::parse) {
+                for part in parts {
+                    if let TemplatePart::Variable(LaunchVariable::Setting(id)) = part {
+                        references.insert(id);
+                    }
+                }
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                collect_setting_references(item, references);
+            }
+        }
+        Value::Object(members) => {
+            for item in members.values() {
+                collect_setting_references(item, references);
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Checks every string inside a JSON value as a start-time launch template.
 fn validate_launch_value(
     value: &Value,
-    declared_settings: &BTreeSet<String>,
+    declared_settings: &DeclaredSettings,
     field: &str,
 ) -> Validation<()> {
     match value {
@@ -2062,7 +1992,7 @@ fn validate_launch_value(
 fn validate_launch_template(
     value: &str,
     context: LaunchTemplateContext,
-    declared_settings: &BTreeSet<String>,
+    declared_settings: &DeclaredSettings,
     field: &str,
 ) -> Validation<()> {
     if value.contains('\0') {
@@ -2089,11 +2019,36 @@ fn validate_launch_template(
                         "The validation probe cannot use settings.",
                     ));
                 }
+                if declared_settings.is_immediate(id) {
+                    return Err(template(
+                        field.to_string(),
+                        format!(
+                            "The setting {id} applies immediately, so only workspaceConfiguration may use it."
+                        ),
+                    ));
+                }
                 if !declared_settings.contains(id) {
                     return Err(template(
                         field.to_string(),
                         format!("The value refers to the undeclared setting {id}."),
                     ));
+                }
+                // Text and paths are a whole value, or the value of one
+                // `name=` argument, never part of a longer one.
+                if declared_settings.requires_whole_value(id) {
+                    let whole = match parts.as_slice() {
+                        [_] => true,
+                        [TemplatePart::Text(prefix), _] => prefix.ends_with('='),
+                        _ => false,
+                    };
+                    if !whole || index + 1 != parts.len() {
+                        return Err(template(
+                            field.to_string(),
+                            format!(
+                                "The text or path setting {id} must be a whole value or follow a name= prefix."
+                            ),
+                        ));
+                    }
                 }
                 if package_reference {
                     return Err(template(
@@ -2520,6 +2475,19 @@ pub struct LanguageServerLaunchPlanRequest {
     /// missing or no longer acceptable value falls back to the default.
     #[serde(default)]
     settings: BTreeMap<String, Value>,
+    /// The current workspace's overrides of project-scoped settings.
+    /// `settings` 2.
+    #[serde(default)]
+    project_settings: BTreeMap<String, Value>,
+}
+
+impl LanguageServerLaunchPlanRequest {
+    fn layers(&self) -> SettingLayers<'_> {
+        SettingLayers {
+            global: &self.settings,
+            project: &self.project_settings,
+        }
+    }
 }
 
 /// Validated substitution values of one launch plan.
@@ -2556,12 +2524,72 @@ fn language_server_launch_plan(
                 format!("The plugin does not provide a language server for {language_id}."),
             )
         })?;
-    server_launch_plan(
+    let mut plan = server_launch_plan(
         manifest,
         &server.process,
         server.host_integration.as_ref(),
         request,
-    )
+    )?;
+    if let Some(configuration) = &server.workspace_configuration {
+        plan["workspaceConfiguration"] = expand_configuration(
+            configuration,
+            &manifest.effective_settings(request.layers()),
+        );
+    }
+    Ok(plan)
+}
+
+/// Whether any string in a JSON value names a variable other than a setting.
+fn mentions_launch_directory(value: &Value) -> bool {
+    match value {
+        Value::String(text) => parse_template_with(text, LaunchVariable::parse)
+            .unwrap_or_default()
+            .iter()
+            .any(|part| {
+                matches!(part, TemplatePart::Variable(variable) if !matches!(variable, LaunchVariable::Setting(_)))
+            }),
+        Value::Array(items) => items.iter().any(mentions_launch_directory),
+        Value::Object(members) => members.values().any(mentions_launch_directory),
+        _ => false,
+    }
+}
+
+/// Expands a validated `workspaceConfiguration` with effective setting
+/// values. A string that is exactly one setting keeps the setting's JSON type.
+fn expand_configuration(value: &Value, settings: &BTreeMap<String, Value>) -> Value {
+    match value {
+        Value::String(text) => {
+            if let Some(id) = sole_setting_reference(text) {
+                return settings.get(&id).cloned().unwrap_or(Value::Null);
+            }
+            let parts = parse_template_with(text, LaunchVariable::parse).unwrap_or_default();
+            Value::String(
+                parts
+                    .into_iter()
+                    .map(|part| match part {
+                        TemplatePart::Text(text) => text,
+                        TemplatePart::Variable(LaunchVariable::Setting(id)) => {
+                            super::settings::setting_text(settings.get(&id))
+                        }
+                        TemplatePart::Variable(_) => String::new(),
+                    })
+                    .collect(),
+            )
+        }
+        Value::Array(items) => Value::Array(
+            items
+                .iter()
+                .map(|item| expand_configuration(item, settings))
+                .collect(),
+        ),
+        Value::Object(members) => Value::Object(
+            members
+                .iter()
+                .map(|(key, item)| (key.clone(), expand_configuration(item, settings)))
+                .collect(),
+        ),
+        other => other.clone(),
+    }
 }
 
 /// The launch plan of a build system's provider. A provider that shares a
@@ -2612,7 +2640,7 @@ fn server_launch_plan(
     host_integration: Option<&HostIntegrationDeclaration>,
     request: &LanguageServerLaunchPlanRequest,
 ) -> Validation<Value> {
-    let effective_settings = manifest.effective_settings(&request.settings);
+    let effective_settings = manifest.effective_settings(request.layers());
     let values = LaunchValues {
         plugin_directory: launch_directory(&request.plugin_directory, "pluginDirectory")?,
         state_directory: launch_directory(&request.state_directory, "stateDirectory")?,
@@ -2745,16 +2773,6 @@ fn launch_directory<'a>(value: &'a str, name: &str) -> Validation<&'a str> {
     Ok(trimmed)
 }
 
-/// Text a setting contributes to a template: the number, `true`/`false`, or
-/// the chosen option value.
-fn setting_text(value: Option<&Value>) -> String {
-    match value {
-        Some(Value::String(text)) => text.clone(),
-        Some(other) => other.to_string(),
-        None => String::new(),
-    }
-}
-
 /// The setting ID when the whole template is exactly one `${setting:<id>}`.
 /// Such a value keeps the setting's JSON type, so an LSP option can receive a
 /// number or a boolean rather than its text.
@@ -2817,7 +2835,7 @@ fn expand_launch_template(
             }
             TemplatePart::Variable(LaunchVariable::Arch) => expanded.push_str(values.architecture),
             TemplatePart::Variable(LaunchVariable::Setting(id)) => {
-                expanded.push_str(&setting_text(values.settings.get(&id)));
+                expanded.push_str(&super::settings::setting_text(values.settings.get(&id)));
             }
         }
     }
@@ -3272,6 +3290,81 @@ pub fn language_server_launch_plan_command(payload: Value) -> Result<Value, Core
             .map(|plan| ("plan", plan))
         },
     )))
+}
+
+/// Stored setting layers of one plugin, as a host sends them.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SettingsPayload {
+    manifest: Value,
+    #[serde(default)]
+    settings: BTreeMap<String, Value>,
+    #[serde(default)]
+    project_settings: BTreeMap<String, Value>,
+    /// Names the language server whose `workspaceConfiguration` to expand.
+    #[serde(default, rename = "languageID")]
+    language_id: Option<String>,
+}
+
+impl SettingsPayload {
+    fn layers(&self) -> SettingLayers<'_> {
+        SettingLayers {
+            global: &self.settings,
+            project: &self.project_settings,
+        }
+    }
+}
+
+/// `plugins.declarative.resolveSettings`: the effective value of every
+/// declared setting and the layer it came from (`default`, `global`, or
+/// `project`), so hosts show and launch with the same value.
+pub fn resolve_settings_command(payload: Value) -> Result<Value, CoreError> {
+    let payload: SettingsPayload = decode_payload(payload, "plugins.declarative.resolveSettings")?;
+    Ok(outcome(
+        validate_manifest_value(payload.manifest.clone()).and_then(|manifest| {
+            serde_json::to_value(manifest.resolve_settings(payload.layers()))
+                .map(|settings| ("settings", settings))
+                .map_err(|error| PluginRejection::new("plugin.manifest.invalid", error.to_string()))
+        }),
+    ))
+}
+
+/// `plugins.declarative.workspaceConfiguration`: a language server's
+/// `workspaceConfiguration` expanded with the current values, which the host
+/// sends to the running server after an `immediate` setting changed.
+/// `configuration` is `null` when the server declares none.
+pub fn workspace_configuration_command(payload: Value) -> Result<Value, CoreError> {
+    const COMMAND: &str = "plugins.declarative.workspaceConfiguration";
+    let payload: SettingsPayload = decode_payload(payload, COMMAND)?;
+    let Some(language_id) = payload.language_id.clone() else {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            format!("Invalid {COMMAND} payload"),
+        )
+        .with_details("languageID is required."));
+    };
+    Ok(outcome(
+        validate_manifest_value(payload.manifest.clone()).and_then(|manifest| {
+            let server = manifest
+                .language_servers
+                .iter()
+                .find(|server| server.language_id == language_id)
+                .ok_or_else(|| {
+                    PluginRejection::new(
+                        "plugin.launch.unavailable",
+                        format!("The plugin does not provide a language server for {language_id}."),
+                    )
+                })?;
+            let configuration = server
+                .workspace_configuration
+                .as_ref()
+                .map(|value| {
+                    expand_configuration(value, &manifest.effective_settings(payload.layers()))
+                })
+                .unwrap_or(Value::Null);
+            Ok(("configuration", configuration))
+        }),
+    ))
 }
 
 /// `plugins.declarative.checkRuntimeVersion`: decides whether a launch

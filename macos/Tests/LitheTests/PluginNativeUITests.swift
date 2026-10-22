@@ -273,6 +273,12 @@ struct PluginNativeUITests {
         for id in ["search", "notes", "mode", "concurrency"] {
             #expect(elements.contains { $0.accessibilityIdentifier?() == "native-control-" + id })
         }
+        let legacyFill = try #require(elements.first {
+            $0.accessibilityIdentifier?() == "native-button-secondary-fill" && $0.accessibilityRole?() == .button
+        })
+        let buttonFrame = try #require(legacyFill.accessibilityFrame?())
+        #expect(buttonFrame.height == 28, "Declarative actions must not reintroduce the old 3pt external inset")
+        #expect(buttonFrame.width >= 72 && buttonFrame.width < 300, "Legacy fill hints must not stretch shared buttons")
         let disabled = try #require(elements.first {
             $0.accessibilityIdentifier?() == "native-button-disabled-button" && $0.accessibilityRole?() == .button
         })

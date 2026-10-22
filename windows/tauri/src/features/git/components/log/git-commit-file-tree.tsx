@@ -18,6 +18,7 @@ import { ScrollArea } from "@/ui/scroll-area";
 import { useTreeContentWidth } from "../../hooks/use-tree-content-width";
 import type { GitCommitFile } from "../../types/git.types";
 import { getCommitFileStatusColorClassName } from "../../utils/git-file-status-visuals";
+import { gitFileTreeOrder } from "../../utils/git-file-tree-order";
 import { compareGitFileNames } from "../../utils/natural-file-name-compare";
 
 export function countCommitFileTreeLeaves(node: PathTreeNode<GitCommitFile>): number {
@@ -27,22 +28,8 @@ export function countCommitFileTreeLeaves(node: PathTreeNode<GitCommitFile>): nu
 
 /** Path of the first file in the order the tree renders, so previews match what the user sees. */
 export function getFirstCommitFilePath(files: readonly GitCommitFile[]): string | null {
-  const firstLeaf = (nodes: readonly PathTreeNode<GitCommitFile>[]): string | null => {
-    for (const node of nodes) {
-      if (node.type === "leaf") return node.path;
-      const nested = firstLeaf(node.children);
-      if (nested) return nested;
-    }
-    return null;
-  };
-
-  return firstLeaf(
-    buildPathTree([...files], {
-      getPath: (file) => file.path,
-      getKey: (file) => file.path,
-      compareNames: compareGitFileNames,
-    }),
-  );
+  const index = gitFileTreeOrder(files, (file) => file.path)[0];
+  return index === undefined ? null : files[index].path;
 }
 
 function FileNode({

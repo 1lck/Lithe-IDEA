@@ -14,9 +14,9 @@ use crate::git::{
     GitOperationStateRequest, GitPullPreflightRequest, GitPullRequestContextRequest,
     GitPushPreviewRequest, GitRebaseControlRequest, GitRebasePreviewRequest,
     GitRebaseSessionRequest, GitRebaseStartRequest, GitReferencesRequest, GitRepositoryRootRequest,
-    GitStashesRequest, GitStatusRequest, GitWatchContextRequest, GitWorktreesRequest,
-    GitWriteRequest, PatchApplyRequest, PatchExportRequest, PatchPreviewRequest,
-    WorkspaceRepositoriesRequest,
+    GitStashesRequest, GitStatusRequest, GitUntrackedDirectoryRequest, GitWatchContextRequest,
+    GitWorktreesRequest, GitWriteRequest, PatchApplyRequest, PatchExportRequest,
+    PatchPreviewRequest, WorkspaceRepositoriesRequest,
 };
 use crate::github::{NormalizeResponseRequest, ParseRemoteRequest, RequestPlanRequest};
 use crate::languages::{
@@ -189,6 +189,16 @@ fn execute(request: &str) -> CoreResponse {
             id,
             parsed.payload,
             crate::plugins::declarative::check_runtime_version_command,
+        ),
+        CoreCommand::PluginsDeclarativeResolveSettings => plugin_response(
+            id,
+            parsed.payload,
+            crate::plugins::declarative::resolve_settings_command,
+        ),
+        CoreCommand::PluginsDeclarativeWorkspaceConfiguration => plugin_response(
+            id,
+            parsed.payload,
+            crate::plugins::declarative::workspace_configuration_command,
         ),
         CoreCommand::BuildDetect => {
             plugin_response(id, parsed.payload, crate::build::build_detect_command)
@@ -1473,6 +1483,27 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::LspUpdateWorkspaceConfiguration => {
+            match serde_json::from_value::<crate::lsp::UpdateWorkspaceConfigurationRequest>(
+                parsed.payload,
+            )
+            .map_err(|error| {
+                CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Invalid workspace configuration update request",
+                )
+                .with_details(error.to_string())
+            })
+            .and_then(crate::lsp::update_workspace_configuration)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data)
+                        .expect("workspace configuration update response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::LspSyncDocument => {
             match serde_json::from_value::<crate::lsp::SyncDocumentRequest>(parsed.payload)
                 .map_err(|error| {
@@ -1973,6 +2004,24 @@ fn execute(request: &str) -> CoreResponse {
             ),
             Err(error) => CoreResponse::failure(id, error),
         },
+        CoreCommand::GitUntrackedDirectory => {
+            match serde_json::from_value::<GitUntrackedDirectoryRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid Git untracked directory request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(git::untracked_directory)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Git untracked directory should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::GitWatchContext => {
             match serde_json::from_value::<GitWatchContextRequest>(parsed.payload)
                 .map_err(|error| {

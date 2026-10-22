@@ -159,15 +159,16 @@ private struct PluginNativeForm: View {
                             .layoutValue(key: LitheFormGrid.Span.self, value: control.span ?? columns)
                             .accessibilityIdentifier("native-control-" + control.id)
                     }
-                    ForEach(feature.declaration.buttons ?? []) { button in
-                        formButton(button, width: grid.cellWidth(span: button.span ?? columns, width: width))
-                            .layoutValue(key: LitheFormGrid.Span.self, value: button.span ?? columns)
-                            .accessibilityIdentifier("native-button-" + button.id)
-                    }
                 }
                 .frame(width: width, alignment: .leading)
                 .padding(.horizontal, LitheTheme.Tree.horizontalInset)
                 .padding(.vertical, LitheTheme.Tree.verticalInset)
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: LitheTheme.ActionButton.spacing) { formActions }
+                    VStack(alignment: .leading, spacing: LitheTheme.ActionButton.spacing) { formActions }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, LitheTheme.Tree.horizontalInset)
             }
             .litheScrollViewChrome()
         }
@@ -238,20 +239,15 @@ private struct PluginNativeForm: View {
             })
     }
 
-    private func formButton(_ button: PluginNativeUI.Button, width: CGFloat) -> some View {
-        let infoWidth: CGFloat = button.info == nil ? 0 : LitheInfoTip.size + LitheInfoTip.labelSpacing
-        let available = max(0, width - infoWidth - 2 * LitheTheme.Commit.buttonBorderInset)
-        return HStack(spacing: LitheInfoTip.labelSpacing) {
-            Button { feature.perform(button) } label: {
-                Text(verbatim: button.label).lineLimit(1)
+    private var formActions: some View {
+        ForEach(feature.declaration.buttons ?? []) { button in
+            HStack(spacing: LitheInfoTip.labelSpacing) {
+                Button { feature.perform(button) } label: { Text(verbatim: button.label) }
+                    .disabled(!feature.canPerform(button))
+                    .buttonStyle(LitheActionButtonStyle(isPrimary: button.primary == true))
+                if let info = button.info { LitheInfoTip(verbatim: info) }
             }
-            .disabled(!feature.canPerform(button))
-            .buttonStyle(LitheActionButtonStyle(isPrimary: button.primary == true,
-                                                fillsWidth: button.width == .fill, maximumWidth: available))
-            if let info = button.info { LitheInfoTip(verbatim: info) }
-            if button.width != .fill { Spacer(minLength: 0) }
+            .accessibilityIdentifier("native-button-" + button.id)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
-
 }

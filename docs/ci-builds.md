@@ -357,6 +357,17 @@ Swift 单元、插件和数据库 CI 通道复用已有 Cargo 下载缓存。先
 
 ### 独立工作树的本地编译
 
+Cargo 社区插件在 [独立仓库](https://github.com/Lithe-IDEA/lithe-plugin-cargo) 中构建，
+最终 ZIP、摘要、vendored Node SDK 和集成测试产物由该仓库的 `dist/`、`.artifacts/` 持有，
+不作为 Lithe 主仓库的下载缓存或可复用资源。Cargo 专属清单、模型金样与兼容性测试也由
+插件仓库持有：其 CI 按 `sdk.lock.json` 固定的宿主提交检出独立的 `.artifacts/lithe-core`，
+用公开 JSON API 验证清单、安装审查、识别、解码与任务计划，并实际执行 Core 生成的 Cargo 命令。
+宿主依赖按其 Cargo.lock 下载，测试工程的 Cargo 命令使用离线模式；固定基线不代表持续验证未来 preview。
+`.artifacts/core-target` 是插件 checkout 私有可变编译状态，不进入主仓库资源复用清单，
+不跨 worktree 共享，也不进入发布 ZIP。主仓库保留通用插件契约回归，不下载或组装 Cargo 插件。
+插件仓库每次打包校验 `sdk.lock.json` 固定的 SDK 源码提交与文件 SHA-256，
+SDK 复制只发生在打包阶段，安装目录保持只读。
+
 `Lithe-Dev` 的运行时用户状态不属于可复用构建缓存。macOS 用
 `app.lithe.desktop.dev` 隔离偏好和钥匙串，并在系统 Application Support、Caches、
 Logs 及临时目录下使用同名子目录；Windows 用 `app.lithe.windows.dev` 隔离
@@ -586,6 +597,8 @@ Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono
   stamp，任何复制阶段都不共享。`excludedResources.test-jfr-recordings` 通过复用脚本的
   通用排除路由拒绝，应用 bundle、插件包、签名及 Sparkle 增量基线保持只读。
 - Agent 历史注释：平台偏好设置键 `lithe.agent-history.v1.<workspace-agent-digest>` 保存收藏、自定义标题和隐藏状态，按标准化工作区与 Agent ID 隔离。它是用户可变状态，不受版本、平台、架构或工具链构建身份约束，不存在可验证的构建 stamp；Markdown 导出写到用户选择的位置。两者都禁止在任何复制阶段跨工作树复用，`excludedResources.agent-history-metadata` 由资源脚本显式拒绝。
+
+- Agent 粘贴图片保存在 `<platform-app-cache>/agent/pasted-images/pasted-<UUID>.<扩展名>`；放弃的批次立即删除自身文件，已接受的附件保留供历史会话引用。撤销新建文件时，原生文件 adapter 先移动到同目录 `.lithe-agent-recovery-<pid>-<sequence>-<filename>` 再回收，失败则恢复；若原路径被重新创建，保留恢复文件并向用户报告位置。两类资源均是用户运行时可变状态，没有版本、平台、架构、工具链 identity stamp，任何复制阶段都禁止共享。清单 `agent-edit-and-paste-state` 和复用脚本的排除路由直接拒绝；应用安装资源保持只读，不影响签名和更新基线。
 
 - `.artifacts/bun-tmp/`、下载或解压过程中的临时目录；
 - `.artifacts/jdtls/`、`.artifacts/jdk-*` 等可以由已验证下载重新生成的解压输出；

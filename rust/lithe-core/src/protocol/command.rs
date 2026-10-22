@@ -64,6 +64,10 @@ pub enum CoreCommand {
     PluginsDeclarativeLanguageServerLaunchPlan,
     /// Compares a launch runtime's version output with its requirement (`plugins.declarative.checkRuntimeVersion`).
     PluginsDeclarativeCheckRuntimeVersion,
+    /// Merges a plugin's stored setting layers into effective values (`plugins.declarative.resolveSettings`).
+    PluginsDeclarativeResolveSettings,
+    /// Expands a language server's `workspaceConfiguration` (`plugins.declarative.workspaceConfiguration`).
+    PluginsDeclarativeWorkspaceConfiguration,
     /// Finds the build-system instances of a workspace (`build.detect`).
     BuildDetect,
     /// Lists a build system's executable candidates and version probes (`build.invocationPlan`).
@@ -243,6 +247,9 @@ pub enum CoreCommand {
     /// Sends a changed Maven configuration to a running Java session
     /// (`lsp.updateMavenConfiguration`).
     LspUpdateMavenConfiguration,
+    /// Replaces the plugin settings a plugin-provided server reads
+    /// (`lsp.updateWorkspaceConfiguration`).
+    LspUpdateWorkspaceConfiguration,
     /// Opens or updates a synchronized document (`lsp.syncDocument`).
     LspSyncDocument,
     /// Publishes external workspace file changes (`lsp.workspaceFilesChanged`).
@@ -299,6 +306,8 @@ pub enum CoreCommand {
     MybatisIndex,
     /// Reads normalized repository and working-tree state (`git.status`).
     GitStatus,
+    /// Lists one level of a summarized untracked directory (`git.untrackedDirectory`).
+    GitUntrackedDirectory,
     /// Reads HEAD and index preconditions for workspace commits (`git.commitState`).
     GitCommitState,
     /// Builds a reviewed multi-repository plan (`git.workspaceCommitPrepare`).
@@ -430,6 +439,10 @@ impl CoreCommand {
             "plugins.declarative.checkRuntimeVersion" => {
                 Some(Self::PluginsDeclarativeCheckRuntimeVersion)
             }
+            "plugins.declarative.resolveSettings" => Some(Self::PluginsDeclarativeResolveSettings),
+            "plugins.declarative.workspaceConfiguration" => {
+                Some(Self::PluginsDeclarativeWorkspaceConfiguration)
+            }
             "build.detect" => Some(Self::BuildDetect),
             "build.invocationPlan" => Some(Self::BuildInvocationPlan),
             "build.checkToolVersion" => Some(Self::BuildCheckToolVersion),
@@ -518,6 +531,7 @@ impl CoreCommand {
             "lsp.stopServer" => Some(Self::LspStopServer),
             "lsp.retryMavenProfiles" => Some(Self::LspRetryMavenProfiles),
             "lsp.updateMavenConfiguration" => Some(Self::LspUpdateMavenConfiguration),
+            "lsp.updateWorkspaceConfiguration" => Some(Self::LspUpdateWorkspaceConfiguration),
             "lsp.syncDocument" => Some(Self::LspSyncDocument),
             "lsp.workspaceFilesChanged" => Some(Self::LspWorkspaceFilesChanged),
             "lsp.closeDocument" => Some(Self::LspCloseDocument),
@@ -546,6 +560,7 @@ impl CoreCommand {
             "spring.index" => Some(Self::SpringIndex),
             "mybatis.index" => Some(Self::MybatisIndex),
             "git.status" => Some(Self::GitStatus),
+            "git.untrackedDirectory" => Some(Self::GitUntrackedDirectory),
             "git.commitState" => Some(Self::GitCommitState),
             "git.workspaceCommitPrepare" => Some(Self::GitWorkspaceCommitPrepare),
             "git.workspaceCommitStep" => Some(Self::GitWorkspaceCommitStep),
@@ -614,6 +629,7 @@ mod tests {
             "lsp.jdtWorkspaceKey",
             "lsp.stopServer",
             "lsp.updateMavenConfiguration",
+            "lsp.updateWorkspaceConfiguration",
             "lsp.syncDocument",
             "lsp.closeDocument",
             "lsp.request",

@@ -160,7 +160,7 @@ struct RunView: View {
                         Button("Regenerate") {
                             feature.requestRunConfigurationGeneration()
                         }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(LitheActionButtonStyle(isPrimary: true))
                     }
                 }
             } else if feature.recoveryAction == .upgradeApplication {
@@ -178,7 +178,7 @@ struct RunView: View {
                         systemImage: "arrow.clockwise"
                     )
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(LitheActionButtonStyle(isPrimary: true))
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -897,7 +897,7 @@ struct RunView: View {
                             Text("Edit Configuration…")
                         }
                     }
-                    .buttonStyle(LitheCommitDialogButtonStyle())
+                    .buttonStyle(LitheActionButtonStyle())
                     .disabled(feature.configurationStatus != .ready || feature.isLoadingProject)
                 }
 

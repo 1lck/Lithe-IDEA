@@ -22,7 +22,18 @@ final class MacPluginManager: PluginManaging {
     private let enableWebPages: (PluginID) -> Void
     /// Unlike disablement, package mutation blocks pages until process restart.
     private let beforePackageReplacement: (PluginID) -> Void
+    /// Rust Core's install review of a package's `plugin.json`, so Settings
+    /// shows the same programs the install confirmation listed.
+    private let reviewPrograms: (_ manifest: Data, _ id: PluginID, _ version: PluginVersion) throws -> [PluginProgram]
+    /// Reviewed programs per installed package directory, version, and
+    /// content digest; views read `snapshots` often, and a reinstall of the
+    /// same version changes the digest.
+    private var reviewedPrograms: [String: [PluginProgram]?] = [:]
+    /// Rust Core's expansion of a manifest's `workspaceConfiguration` with
+    /// the given global and project values.
+    private let expandWorkspaceConfiguration: WorkspaceConfigurationExpansion
     private var installedPlugins: [PluginID: InstalledPluginPackage]
+    var settingsProjectRootURL: URL?
     private var restartRequiredPluginIDs: Set<PluginID> = []
     private(set) var issues: [PluginManagementIssue]
 
@@ -39,8 +50,12 @@ final class MacPluginManager: PluginManaging {
             MacOfficialPluginSignatureVerifier.allowsLocalDevelopmentPackagesByDefault,
         invalidateWebPages: @escaping (PluginID) -> Void = { _ in },
         enableWebPages: @escaping (PluginID) -> Void = { _ in },
-        beforePackageReplacement: ((PluginID) -> Void)? = nil
+        beforePackageReplacement: ((PluginID) -> Void)? = nil,
+        reviewPrograms: @escaping (_ manifest: Data, _ id: PluginID, _ version: PluginVersion) throws -> [PluginProgram] = { _, _, _ in [] },
+        expandWorkspaceConfiguration: @escaping WorkspaceConfigurationExpansion = { _, _, _, _ in nil }
     ) {
+        self.reviewPrograms = reviewPrograms
+        self.expandWorkspaceConfiguration = expandWorkspaceConfiguration
         self.packageStore = packageStore
         self.allowsLocalDevelopmentPackages = allowsLocalDevelopmentPackages
         self.invalidateWebPages = invalidateWebPages
@@ -77,6 +92,13 @@ final class MacPluginManager: PluginManaging {
                     settings: $0.descriptor.settings,
                     runtimeSnapshots: runtimeSnapshots
                 )
+                .withDeclaration(
+                    capabilities: PluginCapability.capabilities(of: $0.manifest, descriptor: $0.descriptor),
+                    permissions: $0.descriptor.permissions,
+                    programs: programs(of: $0),
+                    previousVersion: $0.installation.previousVersion
+                )
+                .withContributions(Self.contributions(of: $0.descriptor))
             }
         let builtIn = managedBuiltInPlugins.map {
             snapshot(
@@ -88,6 +110,12 @@ final class MacPluginManager: PluginManaging {
                 disk: nil,
                 settings: [],
                 runtimeSnapshots: runtimeSnapshots
+            )
+            .withDeclaration(
+                capabilities: PluginCapability.capabilities(of: $0, descriptor: nil),
+                permissions: [],
+                programs: nil,
+                previousVersion: nil
             )
         }
         return (builtIn + native).sorted { $0.manifest.displayName < $1.manifest.displayName }
@@ -362,26 +390,89 @@ final class MacPluginManager: PluginManaging {
         )
     }
 
+    private func programs(of package: InstalledPluginPackage) -> [PluginProgram]? {
+        let digest = package.installation.marketplace?.contentDigest ?? package.installation.disk?.contentDigest ?? ""
+        let key = "\(package.packageURL.standardizedFileURL.path)@\(package.manifest.version)#\(digest)"
+        if let cached = reviewedPrograms[key] { return cached }
+        let programs = try? reviewPrograms(
+            Data(contentsOf: package.packageURL.appendingPathComponent("plugin.json")),
+            package.manifest.id,
+            package.manifest.version
+        )
+        reviewedPrograms[key] = .some(programs)
+        return programs
+    }
+
     private func settingStates(
         _ declarations: [DeclarativePluginSetting],
         pluginID: PluginID
     ) -> [PluginSettingState] {
         guard !declarations.isEmpty else { return [] }
         let stored = settings.values(forPlugin: pluginID.rawValue)
+        let project = settingsProjectRootURL.map {
+            settings.projectValues(forPlugin: pluginID.rawValue, projectRoot: $0)
+        } ?? [:]
         return declarations.map {
-            PluginSettingState(declaration: $0, value: $0.effectiveValue(stored: stored[$0.id]))
+            PluginSettingState.resolve($0, global: stored[$0.id], project: project[$0.id])
         }
     }
 
+    private static func contributions(of descriptor: DeclarativePluginDescriptor) -> PluginSettingsContributions {
+        PluginSettingsContributions(
+            languages: descriptor.languages,
+            languageServerIDs: descriptor.languageServers.map(\.languageID),
+            buildSystems: descriptor.buildSystems.map { .init(id: $0.id, displayName: $0.displayName) },
+            actions: descriptor.settingActions
+        )
+    }
+
+    typealias WorkspaceConfigurationExpansion = (
+        _ manifest: Data,
+        _ languageID: String,
+        _ global: [String: ToolingJSONValue],
+        _ project: [String: ToolingJSONValue]
+    ) throws -> ToolingJSONValue?
+
+    func workspaceConfiguration(forPlugin pluginID: PluginID, languageID: String) -> ToolingJSONValue? {
+        guard let package = installedPlugins[pluginID],
+              let manifest = try? Data(contentsOf: package.packageURL.appendingPathComponent("plugin.json"))
+        else { return nil }
+        let project = settingsProjectRootURL.map {
+            settings.projectValues(forPlugin: pluginID.rawValue, projectRoot: $0)
+        } ?? [:]
+        return try? expandWorkspaceConfiguration(
+            manifest, languageID, settings.values(forPlugin: pluginID.rawValue), project
+        )
+    }
+
     func setSetting(_ value: ToolingJSONValue?, id settingID: String, for pluginID: PluginID) throws {
+        try setSetting(value, id: settingID, for: pluginID, layer: .global)
+    }
+
+    func setSetting(
+        _ value: ToolingJSONValue?,
+        id settingID: String,
+        for pluginID: PluginID,
+        layer: PluginSettingLayer
+    ) throws {
         guard let declaration = installedPlugins[pluginID]?.descriptor.settings.first(where: { $0.id == settingID })
         else { throw PluginManagerError.unknownSetting(pluginID, settingID) }
         if let value, !declaration.accepts(value) {
             throw PluginManagerError.settingValueRejected(pluginID, settingID)
         }
-        // A value equal to the default is forgotten, so a later change of the
-        // declared default reaches users who never picked a value.
-        settings.setValue(value == declaration.defaultValue ? nil : value, forSetting: settingID, plugin: pluginID.rawValue)
+        switch layer {
+        case .global:
+            // A value equal to the default is forgotten, so a later change of the
+            // declared default reaches users who never picked a value.
+            settings.setValue(value == declaration.defaultValue ? nil : value, forSetting: settingID, plugin: pluginID.rawValue)
+        case .project:
+            guard declaration.scope == .project, let root = settingsProjectRootURL else {
+                throw PluginManagerError.projectSettingUnavailable(pluginID, settingID)
+            }
+            // A project override is kept even when it equals the default: it
+            // pins the value for the team regardless of their global choice.
+            try settings.setProjectValue(value, forSetting: settingID, plugin: pluginID.rawValue, projectRoot: root)
+        }
     }
 }
 
@@ -392,6 +483,7 @@ enum PluginManagerError: Error, Equatable, LocalizedError {
     case requiredPluginCannotBeUninstalled(PluginID)
     case unknownSetting(PluginID, String)
     case settingValueRejected(PluginID, String)
+    case projectSettingUnavailable(PluginID, String)
 
     var errorDescription: String? {
         switch self {
@@ -401,6 +493,7 @@ enum PluginManagerError: Error, Equatable, LocalizedError {
         case .requiredPluginCannotBeUninstalled(let id): "Required plugin \(id) cannot be uninstalled."
         case .unknownSetting(let id, let setting): "Plugin \(id) has no setting \(setting)."
         case .settingValueRejected(let id, let setting): "The value is not allowed for setting \(setting) of plugin \(id)."
+        case .projectSettingUnavailable(let id, let setting): "Setting \(setting) of plugin \(id) cannot be set for this project."
         }
     }
 }

@@ -1,6 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod agent;
+mod agent_clipboard;
+mod agent_provider_settings;
 mod ai_commit;
 mod core;
 mod date_time;
@@ -168,6 +170,9 @@ fn main() {
             document::read_document_file_details,
             document::read_document_file_change,
             document::save_document_file,
+            document::resolve_agent_document_path,
+            document::save_agent_document,
+            document::trash_agent_document,
             document::set_document_watches,
             core::core_execute,
             core::core_cancel,
@@ -200,6 +205,7 @@ fn main() {
             secure_storage::store_secure_secret,
             secure_storage::get_secure_secret,
             secure_storage::remove_secure_secret,
+            agent_provider_settings::commit_agent_panel_settings,
             logging::get_log_settings,
             logging::set_log_directory,
             logging::set_diagnostic_logging,
@@ -234,6 +240,7 @@ fn main() {
             host::clipboard_paste,
             host::clipboard_clear,
             host::clipboard_sequence_number,
+            agent_clipboard::agent_clipboard_file_paths,
             host::wsl_automount_root,
             host::create_app_window,
             project_windows::claim_project_window,

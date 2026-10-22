@@ -205,6 +205,11 @@ try {
     assert.notEqual(refused.status, 0);
     assert.match(diagnostics(refused), /agent-history-metadata.*lithe\.agent-history\.v1.*cannot be reused/);
   });
+  await test("Agent attachments and recoverable edits cannot enter a worktree copy stage", { timeout: 15000 }, () => {
+    const refused = reuse(["--resource", "agent-edit-and-paste-state"]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /agent-edit-and-paste-state.*pasted-images.*recovery.*cannot be reused/);
+  });
   await test("JDT Maven settings snapshots cannot be copied between worktrees", { timeout: 15000 }, () => {
     const refused = reuse(["--resource", "jdt-maven-settings"]);
     assert.notEqual(refused.status, 0);

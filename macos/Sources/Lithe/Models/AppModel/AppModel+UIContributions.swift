@@ -24,7 +24,7 @@ extension AppModel {
             workbenchFeature.setVisibility(window, isVisible: false)
             contributionActivationTasks.removeValue(forKey: target)?.cancel()
             contributionActivationTokens.removeValue(forKey: target)
-            scheduleObjectWillChangeRelay()
+            scheduleObjectWillChangeRelay(affectsSettings: false)
             return
         }
         if let pending = contributionActivationTasks[target] {
@@ -32,7 +32,7 @@ extension AppModel {
                 pending.cancel()
                 contributionActivationTasks.removeValue(forKey: target)
                 contributionActivationTokens.removeValue(forKey: target)
-                scheduleObjectWillChangeRelay()
+                scheduleObjectWillChangeRelay(affectsSettings: false)
             }
             return
         }
@@ -47,7 +47,7 @@ extension AppModel {
                 if self.contributionActivationTokens[target] == token {
                     self.contributionActivationTasks.removeValue(forKey: target)
                     self.contributionActivationTokens.removeValue(forKey: target)
-                    self.scheduleObjectWillChangeRelay()
+                    self.scheduleObjectWillChangeRelay(affectsSettings: false)
                 }
             }
             do {
@@ -68,14 +68,14 @@ extension AppModel {
                 if !error.isCancellation { self.showNotification(error.localizedDescription) }
             }
         }
-        scheduleObjectWillChangeRelay()
+        scheduleObjectWillChangeRelay(affectsSettings: false)
     }
 
     func cancelContributionActivations() {
         for task in contributionActivationTasks.values { task.cancel() }
         contributionActivationTasks.removeAll()
         contributionActivationTokens.removeAll()
-        scheduleObjectWillChangeRelay()
+        scheduleObjectWillChangeRelay(affectsSettings: false)
     }
 
     func restoreRegisteredToolWindows(_ ids: [String]) {

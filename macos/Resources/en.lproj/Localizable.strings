@@ -627,6 +627,8 @@
 "Show all changes" = "Show all changes";
 "Collapse section" = "Collapse section";
 "Expand section" = "Expand section";
+"Collapse directory" = "Collapse directory";
+"Expand directory" = "Expand directory";
 "Unstage all files" = "Unstage all files";
 "Stage all files" = "Stage all files";
 "Local changes were restored with conflicts" = "Local changes were restored with conflicts";
@@ -637,7 +639,6 @@
 "Date" = "Date";
 "Review" = "Review";
 "%@: %@" = "%@: %@";
-"Push '%@'?" = "Push '%@'?";
 "Deleted branch '%@'" = "Deleted branch '%@'";
 "Deleted tag '%@'" = "Deleted tag '%@'";
 "Delete tag '%@'?" = "Delete tag '%@'?";
@@ -647,8 +648,19 @@
 "Create on commit %@. Leave the message empty for a lightweight tag." = "Create on commit %@. Leave the message empty for a lightweight tag.";
 "Updating %@ (%lld incoming, %lld local)" = "Updating %@ (%lld incoming, %lld local)";
 "Push to %@" = "Push to %@";
-"Tracking %@" = "Tracking %@";
-"Publish %@ (Core selects default remote)" = "Publish %@ (Core selects default remote)";
+"Resolving push destination…" = "Resolving push destination…";
+"Branch '%@' tracks '%@', which has a different name. Choose which branch to update." = "Branch '%@' tracks '%@', which has a different name. Choose which branch to update.";
+"Publish to %@/%@" = "Publish to %@/%@";
+"Commits" = "Commits";
+"No new commits. Pushing creates the remote branch." = "No new commits. Pushing creates the remote branch.";
+"Nothing to push" = "Nothing to push";
+"Older commits are not listed." = "Older commits are not listed.";
+"Could not load the changed files." = "Could not load the changed files.";
+"Choose which branch to update before pushing." = "Choose which branch to update before pushing.";
+"Creates a new branch on %@" = "Creates a new branch on %@";
+"Sets %@ as the upstream" = "Sets %@ as the upstream";
+"Review commit and push" = "Review commit and push";
+"Commit and Push" = "Commit and Push";
 "Your changes to these files conflict with '%@':" = "Your changes to these files conflict with '%@':";
 "Diff: %@ with %@" = "Diff: %@ with %@";
 "File %lld of %lld" = "File %lld of %lld";
@@ -829,7 +841,6 @@
 "The repository will be opened in detached HEAD state." = "The repository will be opened in detached HEAD state.";
 "This removes the saved patch from Lithe and cannot be undone." = "This removes the saved patch from Lithe and cannot be undone.";
 "This removes the stash from Git and cannot be undone." = "This removes the stash from Git and cannot be undone.";
-"This sends the selected local branch to its configured remote." = "This sends the selected local branch to its configured remote.";
 "Title" = "Title";
 "Toggle preview" = "Toggle preview";
 "Tracking Branch" = "Tracking Branch";
@@ -1294,6 +1305,7 @@
 "Review remaining steps" = "Review remaining steps";
 "Review repository commits" = "Review repository commits";
 "Each repository has its own commit. Completed steps are kept if another repository fails." = "Each repository has its own commit. Completed steps are kept if another repository fails.";
+"Review and Retry…" = "Review and Retry…";
 "Review and Retry Unfinished Steps…" = "Review and Retry Unfinished Steps…";
 "Dismiss Results" = "Dismiss Results";
 "Update parent repository references" = "Update parent repository references";
@@ -2073,8 +2085,60 @@
 "Saved only for this project on this computer in .lithe/run/local.json and excluded from Git." = "Saved only for this project on this computer in .lithe/run/local.json and excluded from Git.";
 "This computer" = "This computer";
 
-/* Native plugin UI */
+/* Embedded HTML preview browser. */
+"Forward" = "Forward";
+"Stop Loading" = "Stop Loading";
+"Enter address" = "Enter address";
+"Open HTML in Browser" = "Open HTML in Browser";
+"Developer Tools" = "Developer Tools";
+"This page" = "This page";
+"“%@” says" = "“%@” says";
+"This address cannot be opened here." = "This address cannot be opened here.";
+"Zoom In" = "Zoom In";
+"Zoom Out" = "Zoom Out";
+"Reset Page Zoom (100%)" = "Reset Page Zoom (100%)";
+"Page Zoom" = "Page Zoom";
+
+/* Embedded HTML preview browser: camera and microphone. */
+"“%@” wants to use your camera." = "“%@” wants to use your camera.";
+"“%@” wants to use your microphone." = "“%@” wants to use your microphone.";
+"“%@” wants to use your camera and microphone." = "“%@” wants to use your camera and microphone.";
+"The plugin “%@” wants to use your camera." = "The plugin “%@” wants to use your camera.";
+"The plugin “%@” wants to use your microphone." = "The plugin “%@” wants to use your microphone.";
+"The plugin “%@” wants to use your camera and microphone." = "The plugin “%@” wants to use your camera and microphone.";
+"You can mute or stop the device from the address bar while the page is using it." = "You can mute or stop the device from the address bar while the page is using it.";
+"Plugin ID: %@. It can keep using the device until you close or hide its window." = "Plugin ID: %@. It can keep using the device until you close or hide its window.";
+"Lithe can’t give pages access to the camera or microphone in this version." = "Lithe can’t give pages access to the camera or microphone in this version.";
+"Camera in use" = "Camera in use";
+"Microphone in use" = "Microphone in use";
+"Camera and microphone in use" = "Camera and microphone in use";
+"Mute Camera" = "Mute Camera";
+"Unmute Camera" = "Unmute Camera";
+"Stop Camera" = "Stop Camera";
+"Mute Microphone" = "Mute Microphone";
+"Unmute Microphone" = "Unmute Microphone";
+"Stop Microphone" = "Stop Microphone";
+
+/* Embedded HTML preview browser: find in page. */
+"Find in page" = "Find in page";
+"Previous Match" = "Previous Match";
+"Next Match" = "Next Match";
+"Close Find" = "Close Find";
+
+/* Embedded HTML preview browser: context menu, print and PDF. */
+"Print…" = "Print…";
+"Export as PDF…" = "Export as PDF…";
+
+"Push '%@'?" = "Push '%@'?";
+
+"Tracking %@" = "Tracking %@";
+
+"Publish %@ (Core selects default remote)" = "Publish %@ (Core selects default remote)";
+
+"This sends the selected local branch to its configured remote." = "This sends the selected local branch to its configured remote.";
+
 "No items" = "No items";
+
 "This panel needs exactly one matching plugin instance in the workspace." = "This panel needs exactly one matching plugin instance in the workspace.";
 
 "The field value is invalid or exceeds 1024 UTF-8 bytes." = "The field value is invalid or exceeds 1024 UTF-8 bytes.";

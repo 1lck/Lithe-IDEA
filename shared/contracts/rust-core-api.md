@@ -434,7 +434,7 @@ They must not derive these counters from context occupancy or subscription quota
 `acp-events-v1.json` covers completion both with and without usage.
 
 The launch JSON's optional `observeSubagents` (default `false`) negotiates the
-pinned adapters' AIR v1 `nativeSubagentSessions` capability. macOS enables it;
+pinned adapters' AIR v1 `nativeSubagentSessions` capability. macOS and Windows enable it;
 consumers without child-session UI omit it. Native execution and history remain
 upstream-owned. `update` preserves the immediate parent `sessionId` and the
 adapter's `subagent_spawned` payload (`subagentSessionId`, `name`, `task`,
@@ -773,8 +773,8 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `community.discourse.search` | Search normalized topics and sanitized posts |
 | `editor.lineEdit` | Apply a deterministic line-level text transform and return the replacement plus selection to restore |
 | `editor.lineCommentToken` | Resolve the line comment token for a file extension or language id |
-| `workspace.snapshot` | Enumerate visible workspace nodes and relative file paths; `nestedWorktrees` lists linked worktrees checked out inside their own repository, which are left out of the tree, files, and search index ; `includeTree: false` returns only `files` and a childless `root` |
-| `workspace.listDirectories` | Return one visible level of children for each requested workspace-relative directory (`""` is the root); missing, hidden, symlinked, or nested-worktree paths are omitted, and each listing reports the nested worktrees it left out. Child directories have `children: []` only when a shallow probe proves them visibly empty; otherwise children remain omitted (unloaded), with no recursive tree allocation |
+| `workspace.snapshot` | Enumerate visible workspace nodes and relative file paths; `nestedWorktrees` lists linked worktrees checked out inside their own repository, which are left out of the tree, files, and search index ; `includeTree: false` returns only `files` and a childless `root`; `files` (and the tree, when included) keep the lowercase traversal order that bounded consumers such as Windows Quick Open rely on, not the natural display order of `workspace.listDirectories` |
+| `workspace.listDirectories` | Return one visible level of children for each requested workspace-relative directory (`""` is the root); missing, hidden, symlinked, or nested-worktree paths are omitted, and each listing reports the nested worktrees it left out. Child directories have `children: []` only when a shallow probe proves them visibly empty; otherwise children remain omitted (unloaded), with no recursive tree allocation. Children list directories first, then names in IDEA's natural file-name order (digit runs compare by value, case-insensitive, `-` next to `_`; fixture `shared/fixtures/workspace/file-name-order-v1.json`) |
 | `workspace.repositories` | Discover deterministic Git repository roots for an opened workspace |
 | `workspace.search` | Search visible file names and UTF-8 text files |
 | `workspace.searchEverywhere` | Search visible file names, Java types/methods, and UTF-8 text files |
@@ -828,6 +828,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `java.jdtWorkspaceFingerprint` | Reduce platform build-file observations to the portable JDT LS workspace fingerprint |
 | `java.jdtCacheRetention` | Select expired inactive JDT LS workspace-state keys from platform metadata |
 | `lsp.stopServer` | Gracefully shut down a session, with a bounded force-stop fallback |
+| `lsp.updateWorkspaceConfiguration` | Replace the plugin configuration a running plugin-owned session answers `workspace/configuration` with, and announce it |
 | `lsp.updateMavenConfiguration` | Send a changed Maven context to a running Java session, or force JDT LS to re-resolve its Maven projects |
 | `lsp.syncDocument` | Open a document or apply a full-text or incremental `didChange` with monotonic versions |
 | `lsp.workspaceFilesChanged` | Publish normalized created, changed, or deleted workspace files to one session |
@@ -862,6 +863,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `git.initialize` | Initialize a directory outside existing repositories without staging or committing |
 | `git.configureIdentity` | Save or clear one local/global `user.name` or `user.email` override |
 | `git.status` | Resolve the repository, current branch, and working-tree changes |
+| `git.untrackedDirectory` | List one level of a summarized untracked directory: its files and subdirectory summaries |
 | `git.commitState` | Read exact HEAD, symbolic branch and index preconditions for a workspace commit |
 | `git.watchContext` | Resolve the repository and absolute Git metadata roots needed by native file watchers |
 | `git.worktrees` | Return deterministic registered-worktree metadata without scanning each checkout |
@@ -910,6 +912,8 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `plugins.declarative.discoverTests` | List a declarative plugin's workspace and file test items |
 | `plugins.declarative.testPlan` | Expand a declarative plugin's test template for a workspace, file, or test case |
 | `plugins.declarative.languageServerLaunchPlan` | Expand a declarative plugin's language-server or build-provider launch with host directories and architecture |
+| `plugins.declarative.resolveSettings` | Merge a plugin's stored global and project setting layers into effective values with their source |
+| `plugins.declarative.workspaceConfiguration` | Expand a language server's `workspaceConfiguration` with the merged setting values |
 | `plugins.declarative.checkRuntimeVersion` | Decide whether a launch runtime's version output meets the declared minimum version |
 | `build.detect` | Find every build-system instance the enabled plugins declare in a workspace, with models that need no process |
 | `build.invocationPlan` | List a build system's executable candidates, runtime dependencies, and version probe for one platform |
@@ -1397,24 +1401,50 @@ an upstream. If the push fails, the local branch is intentionally retained so
 the user can fix credentials or connectivity and retry without losing commits.
 
 `git.pushPreview` accepts `root`, an optional complete local `gitReference` or
-legacy `reference`, an optional bounded `limit`, and `pushTags`. It returns `localBranch`,
-`localHead`, `remote`, `remoteBranch`, nullable `remoteTrackingOid`, nullable
-`upstream`, exact reviewed `tags`, `commits`, and `hasMore` using
-`shared/fixtures/git/push-preview-v1.json`. The push destination follows
+legacy `reference`, an optional bounded `limit`, `pushTags`, and an optional
+`pushTarget`. It returns `localBranch`,
+`localHead`, `remote`, `remoteBranch`, `targetKind`, `createsRemoteBranch`,
+nullable `remoteTrackingOid`, nullable `upstream`, exact reviewed `tags`,
+`commits`, and `hasMore` using `shared/fixtures/git/push-preview-v1.json`.
+`targetKind` describes how `remoteBranch` relates to the local branch:
+`tracking` when both names match, `publish` when the branch has no upstream on the
+selected remote and will be published under its own name, and `divergent` when the
+upstream branch has a different name. `createsRemoteBranch` reports whether
+`remoteBranch` is still absent on the remote. The push destination follows
 `branch.<name>.pushRemote`, then `remote.pushDefault`, the configured upstream
 remote, `branch.<name>.remote`, and finally `origin` or the first configured
-remote. A destination without a fetched tracking reference previews commits not
-reachable from that remote. A reviewed `push` mutation sends these resolved fields
-back as `expectedPush`; Core rejects a stale local tip, destination, or tracking OID
-before starting Git. `force` binds `--force-with-lease` to the reviewed destination
-OID when `expectedPush` is present, and Core also validates the reviewed tag
-identities; `pushTags` accepts `none`, `all`, or `reachable`
-and maps to no tag option, `--tags`, or `--follow-tags` respectively. Legacy push
-callers may omit `expectedPush`. A reviewed push uses the preview's immutable
-`localHead` OID as the refspec source, so a repository change after validation
-cannot add unreviewed commits to the operation. Because Git cannot infer an
-upstream from an OID source, Core explicitly configures the reviewed local
-branch after a successful first push.
+remote. An upstream only names the destination when it lives on the selected
+remote, so a `pushRemote` or `remote.pushDefault` override falls back to the
+same-named branch on that remote. A destination without a fetched tracking
+reference previews commits not reachable from that remote. A reviewed `push`
+mutation sends these resolved fields back as `expectedPush`; Core rejects a stale
+local tip, destination, or tracking OID before starting Git. An optional
+`expectedPush.targetKind` is compared only when the caller supplies it, so a
+caller that predates target kinds keeps its previous behaviour instead of being
+rejected as stale.
+
+A `divergent` destination is never pushed implicitly. `pushTarget` accepts
+`publish` (send the branch to its same-named remote branch and repoint the upstream
+there after a successful push) or `upstream` (keep the differently named upstream
+branch, which is the only case allowed to update it, and leave the tracking
+configuration untouched). `git.pushPreview` and `push` resolve the destination
+through the same function with the same `pushTarget`, so the preview describes the
+branch, tracking OID and commits that choice would update, and a reviewed push is
+validated against exactly that destination. A client therefore previews with the
+choice, shows the result, and pushes with the same `pushTarget` and the
+`expectedPush` taken from that preview; a tracking configuration that moves in
+between is rejected as stale. Without `pushTarget`, a `divergent` preview reports
+the same-named destination and `push` rejects the request with `invalid_request`.
+`pushTarget` is ignored for branches that are not `divergent`.
+`force` binds
+`--force-with-lease` to the reviewed destination OID when `expectedPush` is
+present, and Core also validates the reviewed tag identities; `pushTags` accepts
+`none`, `all`, or `reachable` and maps to no tag option, `--tags`, or
+`--follow-tags` respectively. Legacy push callers may omit `expectedPush`. A
+reviewed push uses the preview's immutable `localHead` OID as the refspec source,
+so a repository change after validation cannot add unreviewed commits to the
+operation. Because Git cannot infer an upstream from an OID source, Core
+explicitly configures the reviewed local branch after a successful first push.
 
 New reference-based workflows send `gitReference` as `{ "fullName": string,
 "shortName": string, "kind": "local" | "remote" | "tag" }`. Core verifies
@@ -1739,8 +1769,16 @@ Agent completion, or workspace tree visibility. The existing
 case-insensitive `*`/`?` matcher applies to a basename or root-relative path (`*`
 can span `/`). A trailing `/` explicitly marks a root-relative directory glob:
 match it before descending into a directory and against ancestors of directly
-reported file updates. The UI adds the root form for leading `**/`; ordinary
-file globs retain their file-only semantics. Empty user exclusions preserve the
+reported file updates. A leading `**/` stands for zero or more folders in the
+matcher itself, so `**/dist/` covers a root-level `dist` as well as nested ones
+(no client has to add the root form). An entry ending in
+`/*` or `/**` is the same folder rule as one ending in `/`, so `.lithe/*` hides the
+folder and everything below it rather than leaving an empty folder; ordinary file globs
+and plain names (such as `.lithe`) retain their file-only semantics. The macOS file
+watcher is the one place that does not follow the hiding rules for the workspace-root `.lithe`
+folder: hiding it removes it from the tree and listings, but its file events are still
+delivered (except built-in noise such as `.lithe/run/local.json`) because editing its JSON
+files reloads project services. Empty user exclusions preserve the
 normal visibility rules. Search settings changes invalidate only the search
 cache, not the workspace tree. Each root retains at most one content and one
 names-only rule variant; superseded allocations are released when active
@@ -2048,7 +2086,8 @@ commands are the semantic LSP runtime boundary. `lsp.startServer` accepts the
 provider ID, selected executable/arguments/environment, root URI, working
 directory, initialization options, optional runtime executable,
 `jdtlsLaunchResources`, cache directory, `workspaceFingerprint`, and the
-optional `pluginId` of the plugin that owns the process, plus
+optional `pluginId` of the plugin that owns the process, its optional
+`workspaceConfiguration` (an object, plugin-owned sessions only), plus
 initialize, post-initialize readiness, request, Java project build
 (`javaBuildTimeoutMilliseconds`), and shutdown deadlines.
 Java callers may also provide the versioned `mavenContext` accepted by
@@ -2311,6 +2350,16 @@ event carries the provider's reply unchanged as `result.value`, which the host
 passes to `build.decodeModel` or `build.decodeDependencies` as `result`;
 cancellation and late results follow `lsp.cancelOperation`.
 
+A plugin-owned session started with `workspaceConfiguration` answers each
+`workspace/configuration` item from it by `section` (an exact key wins over
+a dotted path; no section returns the whole object, a missing one `null`) and
+sends `workspace/didChangeConfiguration` with it after `initialized`.
+`lsp.updateWorkspaceConfiguration` accepts `{ sessionId, configuration }`
+(an object) and returns `{ sent }`: the new value replaces the stored one,
+and is announced at once when the client is initialized or with
+`initialized` otherwise. Host-owned sessions and stopping, stopped, or failed
+sessions refuse it with `invalid_request`.
+
 `lsp.functionRequest` accepts `{ sessionId, operationId?, function: { pluginID,
 functionID }, params?, timeoutMilliseconds? }` and returns `{ operationId }`.
 It sends `lithe/function/invoke` to a session started with
@@ -2457,7 +2506,10 @@ metadata never stores an absolute workspace or storage path. `history.record`
 accepts `workspaceRoot`, a relative `path`, a `reason`, and optional UTF-8
 `content`; when content is omitted the core reads the workspace file. Records
 are versioned, de-duplicated against the latest snapshot, capped at 100 entries
-per file, and pruned after 30 days. Invalid metadata and missing snapshot files
+per file, and pruned after 30 days. `history.record` and `history.entries` apply
+the same `hiddenDirectoryNames` / `hiddenFilePatterns` matcher as the workspace
+tree, so a hidden path (including folder patterns such as `**/generated/` or
+`.lithe/*`) is neither recorded nor listed. Invalid metadata and missing snapshot files
 are ignored. `history.entries` returns Unix-second timestamps and relative
 `contentPath` values. `history.content` rejects traversal,
 `history.relocate` updates metadata and storage paths, and `history.rename` and
@@ -2968,14 +3020,17 @@ Success returns `plan` (`executable`, `arguments`, `workingDirectory`, plus
 "request": object }` with exactly one of `languageID` (a language server) and
 `buildSystemID` (a build provider); naming neither or both is an
 `invalid_request` failure. The request is `{ pluginDirectory, stateDirectory,
-workspaceStateDirectory, architecture, settings? }`. The directories are absolute host paths used only
+workspaceStateDirectory, architecture, settings?, projectSettings? }`. The directories are absolute host paths used only
 as substitution text; the command does not read or create them. `settings` maps
-setting IDs to the values the user stored; a missing, unknown, or no longer
-acceptable value is ignored in favor of the declared default. Success returns
+setting IDs to the values the user stored for every project, and
+`projectSettings` to the open project's overrides; a project value counts only
+for a `scope: "project"` setting, and a missing, unknown, or no longer
+acceptable value falls back to the next layer and then the declared default. Success returns
 `plan` with `launch`, `arguments`, `validationArguments`,
 `runtimeRequirements`, `requiredDirectories`, `requiredPackagePaths`, and
-`initializationOptions`, `hostIntegration`, and `settings` (the effective
-values) when the plugin declares them. A `buildSystemID` plan adds
+`initializationOptions`, `hostIntegration`, `settings` (the effective
+values), and `workspaceConfiguration` (the server's expanded
+`workspaceConfiguration`, `languageServers` 2) when the plugin declares them. A `buildSystemID` plan adds
 `buildProvider: { buildSystemID, executesProjectCode, mayUseNetwork,
 languageServer? }`; with `languageServer` the plan is that language server's
 and the host reuses its session. An unknown
@@ -2983,6 +3038,15 @@ architecture or an empty directory is refused with
 `plugin.launch.invalidRequest`; a language without a server, an undeclared
 build system, and a build system without a provider with
 `plugin.launch.unavailable`.
+
+`plugins.declarative.resolveSettings` accepts
+`{ manifest, settings?, projectSettings? }` and returns `settings`: one
+`{ id, value, source }` per declared setting, `source` being `project`,
+`global`, or `default`. `plugins.declarative.workspaceConfiguration` accepts
+the same payload plus a required `languageID` and returns `configuration`,
+the expanded object, or `null` when that server declares none; a language
+without a server of the plugin is refused with `plugin.launch.unavailable`.
+Hosts never merge layers themselves.
 
 `plugins.declarative.checkRuntimeVersion` accepts
 `{ tool, minimumVersion, output }`, where `output` is what the runtime printed
@@ -3152,6 +3216,20 @@ repositories). Untracked paths owned by a nested root are excluded from the
 parent list. Each change returns `canToggleStaging`; platforms render that
 eligibility instead of reinterpreting submodule dirt.
 
+`git.status` accepts optional `summarizeUntrackedDirectories`. When true, Core
+reads Git's collapsed untracked view and reports a wholly untracked directory
+holding more than 100 non-ignored files as one change whose `path` ends with `/`
+and which carries `untrackedFileCount`. Smaller directories keep one change per
+file. A directory containing a nested repository is never summarized; it is
+split until each summary is free of nested repositories, so staging (`stage`),
+discarding (`discard`/`discardAll`) or diffing (`git.diff` with `untracked`) the
+summary path acts on exactly the counted files. Omission preserves the
+file-level projection. `git.untrackedDirectory` accepts `{ root, directory,
+repositoryRoots? }`, where `directory` is a summary path ending with `/`, and
+returns `{ changes }`: the directory's immediate untracked files plus each
+subdirectory as a summary, using the same change shape and nested-root
+exclusion as `git.status`.
+
 `git.workspaceCommitPrepare` owns the complete multi-repository policy. It accepts
 `repositories: [{ id, root }]`, `message`, `amend`, `push`,
 `includeParentReferences`, optional `previous` session for retry, and optional
@@ -3164,6 +3242,22 @@ execution binding, never a portable identity. The response is
 finds real gitlink relationships, includes clean parents when requested, orders
 children first, and adds push-only child work where needed. Cycles fail closed.
 A changed reviewed plan must be displayed and confirmed again before any step.
+
+When `push` is set, Core also checks whether any repository's branch tracks a
+differently named remote branch (a `divergent` push destination, see
+`git.pushPreview`). Those repositories are returned as `pushTargetQuestions: [{
+repositoryId, localBranch, remote, upstream, upstreamBranch }]` (omitted when
+empty) and the session must not be stepped: when a step reaches such a repository,
+Core refuses it before writing that repository's commit instead of committing
+something it cannot push. Clients answer by preparing again
+with `pushTargets: { <repository-id>: { choice, remote, remoteBranch } }`, where
+`choice` is `publish` (`remoteBranch` is `localBranch`) or `upstream`
+(`remoteBranch` is `upstreamBranch`). The answer names the remote and branch that
+were shown; if the tracking configuration moves before the push, the answer no
+longer matches and Core asks again. Each repository is answered and checked
+separately, answers are stored in `plan.pushTargets`, and a retry restores and
+re-validates them from `previous` without the client forwarding them. Routine
+pushes (`tracking` or `publish` destinations) never produce a question.
 
 An optional `pathScope: { include, paths: { <repository-id>: [<relative-path>] } }`
 restricts local changelist commits. With `include: true`, only the listed literal

@@ -77,15 +77,12 @@ struct McpServerLibraryView: View {
                         .foregroundStyle(LitheTheme.primaryText)
                     LitheInfoTip("Lithe reads the servers registered in your Codex and Claude Code configuration. Saving writes only the changed entry, keeps backups in Application Support, and never overwrites an entry created outside Lithe. Agents read MCP configuration when a session starts, so restart a session to apply changes.")
                 }
-                Text("Manage the servers Codex and Claude Code can start.")
-                    .font(LitheTheme.smallFont)
-                    .foregroundStyle(LitheTheme.secondaryText)
             }
 
             Spacer(minLength: 12)
 
             Button("Refresh") { feature.refresh() }
-                .buttonStyle(LitheSecondaryButtonStyle(horizontalPadding: 12, height: 26, fontSize: 11.5))
+                .buttonStyle(LitheActionButtonStyle())
         }
     }
 
@@ -115,7 +112,7 @@ struct McpServerLibraryView: View {
                         Label("Add server", systemImage: "plus")
                             .font(LitheTheme.uiFont(size: 12, weight: .medium))
                     }
-                    .buttonStyle(LitheSecondaryButtonStyle(horizontalPadding: 12, height: 28, fontSize: 12))
+                    .buttonStyle(LitheActionButtonStyle())
                 }
             }
         }
@@ -508,16 +505,16 @@ private struct McpServerEditorView: View {
     }
 
     private var footer: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: LitheTheme.ActionButton.spacing) {
             Spacer(minLength: 12)
             Button("Cancel", action: onClose)
-                .buttonStyle(LitheSecondaryButtonStyle(horizontalPadding: 12, height: 28, fontSize: 12))
+                .buttonStyle(LitheActionButtonStyle())
             Button("Save") {
                 didAttemptSave = true
                 guard feature.save(draft) else { return }
                 onClose()
             }
-            .buttonStyle(LithePrimaryButtonStyle(horizontalPadding: 14, height: 28))
+            .buttonStyle(LitheActionButtonStyle(isPrimary: true))
             .disabled(validationMessage != nil)
         }
         .padding(.top, 2)

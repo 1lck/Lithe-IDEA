@@ -1,6 +1,7 @@
 use crate::plugins::declarative::{
     check_runtime_version_command, discover_tests_command, language_server_launch_plan_command,
-    run_plan_command, test_plan_command, validate_command,
+    resolve_settings_command, run_plan_command, test_plan_command, validate_command,
+    workspace_configuration_command,
 };
 use serde_json::{json, Value};
 
@@ -26,6 +27,7 @@ const GRADLE_BUILD_FIXTURE: &str = contract_file!("fixtures/gradle-build.plugin.
 const MAVEN_BUILD_FIXTURE: &str = contract_file!("fixtures/maven-build.plugin.json");
 const GRADLE_PROVIDER_FIXTURE: &str = contract_file!("fixtures/gradle-provider.plugin.json");
 const MIX_PROVIDER_FIXTURE: &str = contract_file!("fixtures/mix-provider.plugin.json");
+const SETTINGS_V2_FIXTURE: &str = contract_file!("fixtures/settings-v2.plugin.json");
 const INVALID_MANIFESTS: &str = contract_file!("fixtures/invalid-manifests.json");
 const COMMAND_PLANS: &str = contract_file!("fixtures/command-plans.json");
 const RUNTIME_VERSIONS: &str = contract_file!("fixtures/runtime-versions.json");
@@ -48,6 +50,7 @@ fn fixture(name: &str) -> Value {
         "maven-build.plugin.json" => MAVEN_BUILD_FIXTURE,
         "gradle-provider.plugin.json" => GRADLE_PROVIDER_FIXTURE,
         "mix-provider.plugin.json" => MIX_PROVIDER_FIXTURE,
+        "settings-v2.plugin.json" => SETTINGS_V2_FIXTURE,
         other => panic!("unknown fixture {other}"),
     };
     serde_json::from_str(source).expect("fixture manifest is JSON")
@@ -871,4 +874,101 @@ fn native_public_controls_validate_types_ranges_info_and_buttons() {
     let mut button_only = manifest;
     button_only["ui"]["toolWindows"][0]["native"]["controls"] = json!([]);
     assert_eq!(validate(button_only)["status"], "ok");
+}
+
+/// A level 3 manifest using settings v2: scoped, page-placed settings with an
+/// `immediate` one that only the server's `workspaceConfiguration` may read.
+/// The shared settings v2 fixture: project and immediate settings on a
+/// language page, a multi-select on a build-system page, and a page button.
+fn settings_v2_manifest() -> Value {
+    fixture("settings-v2.plugin.json")
+}
+
+#[test]
+fn immediate_settings_must_be_used_by_workspace_configuration() {
+    let mut manifest = settings_v2_manifest();
+    manifest["languageServers"][0]["workspaceConfiguration"] = json!({
+        "elixirLS": { "dialyzerEnabled": true }
+    });
+    let rejection = validate(manifest);
+    assert_eq!(rejection["status"], "rejected");
+    assert!(rejection.to_string().contains("immediate setting dialyzer"));
+}
+#[test]
+fn settings_v2_manifests_validate_and_resolve_by_layer() {
+    let manifest = settings_v2_manifest();
+    assert_eq!(
+        validate(manifest.clone())["status"],
+        "ok",
+        "{}",
+        validate(manifest.clone())
+    );
+
+    let resolved = resolve_settings_command(json!({
+        "manifest": manifest,
+        "settings": { "dialyzer": false, "mixEnv": "test" },
+        "projectSettings": { "mixEnv": "prod", "checks": ["credo"] }
+    }))
+    .unwrap();
+    assert_eq!(resolved["status"], "ok", "{resolved}");
+    let by_id = |id: &str| {
+        resolved["settings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|setting| setting["id"] == id)
+            .cloned()
+            .unwrap()
+    };
+    assert_eq!(by_id("mixEnv")["value"], "prod");
+    assert_eq!(by_id("mixEnv")["source"], "project");
+    assert_eq!(by_id("dialyzer")["value"], false);
+    assert_eq!(by_id("dialyzer")["source"], "global");
+    // A global-scope setting ignores the project layer.
+    assert_eq!(by_id("checks")["value"], json!(["format"]));
+    assert_eq!(by_id("checks")["source"], "default");
+
+    let configuration = workspace_configuration_command(json!({
+        "manifest": manifest,
+        "settings": { "dialyzer": false },
+        "projectSettings": {},
+        "languageID": "elixir"
+    }))
+    .unwrap();
+    assert_eq!(
+        configuration["configuration"],
+        json!({ "elixirLS": { "dialyzerEnabled": false } })
+    );
+}
+
+#[test]
+fn settings_v2_rejects_unsafe_setting_use() {
+    let rejected = |manifest: Value| {
+        let outcome = validate(manifest);
+        assert_eq!(outcome["status"], "rejected", "{outcome}");
+    };
+    // An immediate setting cannot reach the process command line.
+    let mut immediate_argument = settings_v2_manifest();
+    immediate_argument["languageServers"][0]["arguments"] =
+        json!(["--stdio", "--dialyzer=${setting:dialyzer}"]);
+    rejected(immediate_argument);
+    // Free text must be a whole value or follow a `name=` prefix.
+    let mut spliced_text = settings_v2_manifest();
+    spliced_text["languageServers"][0]["arguments"] = json!(["--stdio", "x${setting:mixEnv}y"]);
+    rejected(spliced_text);
+    // Text settings need a pattern.
+    let mut unpatterned = settings_v2_manifest();
+    unpatterned["settings"][1]
+        .as_object_mut()
+        .unwrap()
+        .remove("pattern");
+    rejected(unpatterned);
+    // An action names a plugin function.
+    let mut bad_action = settings_v2_manifest();
+    bad_action["settingActions"][0]["function"] = json!("Not A Function");
+    rejected(bad_action);
+    // v2 fields need v2.
+    let mut v1 = settings_v2_manifest();
+    v1["requires"]["settings"] = json!(1);
+    rejected(v1);
 }

@@ -663,7 +663,9 @@
           "enum": [
             "content",
             "fill"
-          ]
+          ],
+          "deprecated": true,
+          "description": "Legacy placement hint accepted for compatibility. The host action group owns natural button widths, wrapping and spacing."
         },
         "primary": {
           "type": "boolean"
@@ -674,7 +676,9 @@
         "span": {
           "type": "integer",
           "minimum": 1,
-          "maximum": 12
+          "maximum": 12,
+          "deprecated": true,
+          "description": "Legacy placement hint accepted for compatibility. The host action group owns natural button widths, wrapping and spacing."
         },
         "info": {
           "type": "string",

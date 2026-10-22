@@ -71,6 +71,7 @@ public struct PluginNativeUI: Codable, Equatable, Sendable {
         public let id: String
         public let label: String
         public let action: String
+        /// Legacy layout hint; native actions now use the shared natural-width style.
         public let width: Width?
         public let primary: Bool?
         public let enabled: Bool?

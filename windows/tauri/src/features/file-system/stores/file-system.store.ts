@@ -3038,7 +3038,13 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
               ? await targetStore.handleOpenRemoteProject(remote.connectionId, name)
               : wsl
                 ? await targetStore.handleOpenWslProject(wsl.distro, wsl.linuxPath)
-                : await targetStore.handleOpenFolderByPath(path);
+                : await targetStore.initializeLocalWorkspace({
+                    workspaceId,
+                    path,
+                    traceLabel: "handleOpenFolderByPath",
+                    treeState: "collapse-all",
+                    restoreUiState: true,
+                  });
 
             targetStore.setIsSwitchingProject(false);
             return initialized;

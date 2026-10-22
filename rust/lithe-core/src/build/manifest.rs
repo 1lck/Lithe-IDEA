@@ -967,7 +967,7 @@ pub(crate) struct DeclarationContext<'a> {
     pub(crate) plugin_api_version: u32,
     pub(crate) official: bool,
     /// Setting IDs a provider's launch templates may name.
-    pub(crate) declared_settings: &'a BTreeSet<String>,
+    pub(crate) declared_settings: &'a crate::plugins::settings::DeclaredSettings,
     /// Language IDs the plugin declares a language server for.
     pub(crate) language_servers: &'a BTreeSet<String>,
 }

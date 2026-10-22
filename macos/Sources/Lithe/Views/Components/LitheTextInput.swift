@@ -37,13 +37,13 @@ struct LitheTextField: View {
         label = nil; info = nil; isEnabled = true
     }
 
-    init(verbatim placeholder: String, text: Binding<String>, label: String, info: String? = nil,
+    init(verbatim placeholder: String, text: Binding<String>, label: String? = nil, info: String? = nil,
          isEnabled: Bool = true, focus: FocusState<Bool>.Binding? = nil) {
         self.placeholder = Text(verbatim: placeholder)
         _text = text
         self.secure = false
         self.focus = focus
-        self.label = Text(verbatim: label)
+        self.label = label.map { Text(verbatim: $0) }
         self.info = info
         self.isEnabled = isEnabled
     }

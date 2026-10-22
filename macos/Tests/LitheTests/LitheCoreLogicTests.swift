@@ -2660,6 +2660,103 @@ struct LitheCoreLogicTests {
     }
 
     @Test
+    func hiddenProjectConfigurationFolderStaysWatchedButOtherHiddenPathsAreDropped() {
+        let workspace = URL(fileURLWithPath: "/tmp/lithe-visibility-watched-configuration")
+        let rules = FileVisibilityRules(hiddenDirectoryNames: [], hiddenFilePatterns: [".lithe/*", "**/.lithe/*"])
+        let configuration = DirectoryWatchConfiguration(workspaceRoot: workspace, gitContext: nil)
+        let watcher = MacDirectoryWatcher(configuration: configuration, visibilityRules: rules) { _ in }
+        let projectJSON = workspace.appendingPathComponent(".lithe/project.json").path
+        let dependencyIndex = workspace.appendingPathComponent(".lithe/dependencies/index.json").path
+        let source = workspace.appendingPathComponent("src/App.java").path
+        let ignored = [
+            workspace.appendingPathComponent(".lithe/run/local.json").path,
+            workspace.appendingPathComponent("modules/a/.lithe/project.json").path,
+            workspace.appendingPathComponent("dist/bundle.js").path,
+        ]
+        let paths = [projectJSON, dependencyIndex, source] + ignored
+
+        // Hiding `.lithe` removes it from the tree, yet its events still reach
+        // the workspace so edited run configurations reload project services.
+        let batch = watcher.classify(
+            paths: paths,
+            eventFlags: Array(repeating: FSEventStreamEventFlags(0), count: paths.count)
+        )
+        #expect(batch.workspacePaths == [dependencyIndex, projectJSON, source].sorted())
+
+        #expect(rules.isHiddenPath(workspace.appendingPathComponent(".lithe/project.json"), relativeTo: workspace))
+        #expect(rules.isWatchedDespiteHiding(workspace.appendingPathComponent(".lithe"), relativeTo: workspace))
+        #expect(!rules.isWatchedDespiteHiding(workspace.appendingPathComponent("src/App.java"), relativeTo: workspace))
+        #expect(!FileVisibilityRules.default.isHiddenPath(workspace.appendingPathComponent(".lithe"), relativeTo: workspace))
+
+        // By default `.lithe` follows the ordinary visibility logic (shown in the
+        // tree) and is watched; every way of hiding it only changes the display.
+        let variants: [FileVisibilityRules] = [
+            .default,
+            FileVisibilityRules(hiddenDirectoryNames: [".lithe"], hiddenFilePatterns: []),
+            FileVisibilityRules(hiddenDirectoryNames: [], hiddenFilePatterns: [".lithe/"]),
+            FileVisibilityRules(hiddenDirectoryNames: [], hiddenFilePatterns: [".lithe/*"]),
+            FileVisibilityRules(hiddenDirectoryNames: [], hiddenFilePatterns: [".lithe/**"]),
+            FileVisibilityRules(hiddenDirectoryNames: [], hiddenFilePatterns: [".*/"]),
+            FileVisibilityRules(hiddenDirectoryNames: [], hiddenFilePatterns: ["*.json"]),
+        ]
+        let rootConfiguration = [projectJSON, dependencyIndex]
+        for variant in variants {
+            let variantWatcher = MacDirectoryWatcher(configuration: configuration, visibilityRules: variant) { _ in }
+            let variantPaths = rootConfiguration + [workspace.appendingPathComponent(".lithe/run/local.json").path]
+            let variantBatch = variantWatcher.classify(
+                paths: variantPaths,
+                eventFlags: Array(repeating: FSEventStreamEventFlags(0), count: variantPaths.count)
+            )
+            #expect(variantBatch.workspacePaths == rootConfiguration.sorted(), "\(variant)")
+        }
+        #expect(!FileVisibilityRules.default.isHiddenPath(workspace.appendingPathComponent(".lithe/project.json"), relativeTo: workspace))
+    }
+
+    @Test
+    func folderPatternsHideWholeFoldersFromTheProjectRoot() {
+        let root = URL(fileURLWithPath: "/tmp/lithe-visibility-folder-pattern-tests")
+        func hidden(_ path: String, _ patterns: [String], isDirectory: Bool) -> Bool {
+            FileVisibilityRules(hiddenDirectoryNames: [], hiddenFilePatterns: patterns)
+                .isHidden(root.appendingPathComponent(path), relativeTo: root, isDirectory: isDirectory)
+        }
+
+        // `name/`, `name/*` and `name/**` all hide the root folder, its contents
+        // and nothing else: no empty folder row is left behind.
+        for pattern in [".lithe/", ".lithe/*", ".lithe/**"] {
+            #expect(hidden(".lithe", [pattern], isDirectory: true), "\(pattern)")
+            #expect(hidden(".lithe/dependencies", [pattern], isDirectory: true), "\(pattern)")
+            #expect(hidden(".lithe/dependencies/index.json", [pattern], isDirectory: false), "\(pattern)")
+            #expect(!hidden(".lithe", [pattern], isDirectory: false), "\(pattern)")
+            #expect(!hidden(".lithe-notes.md", [pattern], isDirectory: false), "\(pattern)")
+            #expect(!hidden("modules/a/.lithe", [pattern], isDirectory: true), "\(pattern)")
+        }
+        // A leading `**/` stands for zero or more folders, so it reaches the
+        // root copy as well as nested ones.
+        for pattern in ["**/.lithe/", "**/.lithe/*", "**/.lithe/**"] {
+            #expect(hidden(".lithe", [pattern], isDirectory: true), "\(pattern)")
+            #expect(hidden(".lithe/run.json", [pattern], isDirectory: false), "\(pattern)")
+            #expect(hidden("modules/a/.lithe", [pattern], isDirectory: true), "\(pattern)")
+            #expect(hidden("modules/a/.lithe/run.json", [pattern], isDirectory: false), "\(pattern)")
+            #expect(!hidden("modules/a/.lithe-notes", [pattern], isDirectory: true), "\(pattern)")
+            #expect(!hidden("modules/.lithe", [pattern], isDirectory: false), "\(pattern)")
+        }
+        // The same prefix applies to file patterns.
+        #expect(hidden("secret.txt", ["**/secret.txt"], isDirectory: false))
+        #expect(hidden("config/secret.txt", ["**/secret.txt"], isDirectory: false))
+        #expect(!hidden("config/secret.txt.bak", ["**/secret.txt"], isDirectory: false))
+        // Matching ignores case.
+        #expect(hidden("Modules/A/DIST", ["**/dist/"], isDirectory: true))
+        // A plain name or a glob without a folder suffix stays a file pattern.
+        #expect(hidden(".lithe", [".lithe"], isDirectory: false))
+        #expect(!hidden(".lithe", [".lithe"], isDirectory: true))
+        #expect(!hidden(".lithe/dependencies/index.json", [".lithe"], isDirectory: false))
+        #expect(hidden("src/Name.log", ["*.log"], isDirectory: false))
+        #expect(!hidden("src/Name.log", ["*.log"], isDirectory: true))
+        // The default rules leave `.lithe` visible.
+        #expect(!FileVisibilityRules.default.isHidden(root.appendingPathComponent(".lithe"), relativeTo: root, isDirectory: true))
+    }
+
+    @Test
     func diffParserPairsChangedRowsAndTracksHunk() {
         let patch = """
         diff --git a/README.md b/README.md
@@ -3695,16 +3792,65 @@ struct LitheCoreLogicTests {
 
         let firstID = settings.addFileVisibilityRulesObserver { firstObserverCalls += 1 }
         _ = settings.addFileVisibilityRulesObserver { secondObserverCalls += 1 }
-        settings.hiddenDirectoryNames.append("generated")
+        settings.hiddenPathPatterns.append("**/generated/")
 
         #expect(firstObserverCalls == 1)
         #expect(secondObserverCalls == 1)
 
         settings.removeFileVisibilityRulesObserver(firstID)
-        settings.hiddenFilePatterns.append("*.generated.swift")
+        settings.hiddenPathPatterns.append("*.generated.swift")
 
         #expect(firstObserverCalls == 1)
         #expect(secondObserverCalls == 2)
+    }
+
+    @Test
+    @MainActor
+    func hiddenPathsMigrateTheTwoLegacyListsIntoOnePatternList() {
+        let store = MutableKeyValueStore()
+        // Older versions saved the built-ins together with the user's entries.
+        store.set(FileVisibilityRules.builtInHiddenDirectories + ["generated", "Out"], forKey: "settings.hiddenDirectories")
+        store.set(FileVisibilityRules.builtInHiddenFilePatterns + ["*.generated.swift", "  "], forKey: "settings.hiddenFilePatterns")
+
+        let settings = AppSettings(store: store)
+
+        // A folder name keeps hiding at any depth, built-ins are not copied, and
+        // the file globs carry over unchanged.
+        #expect(settings.hiddenPathPatterns == ["**/generated/", "**/Out/", "*.generated.swift"])
+        let root = URL(fileURLWithPath: "/tmp/lithe-hidden-migration")
+        #expect(settings.fileVisibilityRules.isHidden(
+            root.appendingPathComponent("modules/generated"), relativeTo: root, isDirectory: true))
+        #expect(settings.fileVisibilityRules.isHidden(
+            root.appendingPathComponent("node_modules"), relativeTo: root, isDirectory: true))
+
+        // Once the new list is saved the legacy keys are no longer read.
+        settings.hiddenPathPatterns = ["docs/"]
+        #expect(AppSettings(store: store).hiddenPathPatterns == ["docs/"])
+        settings.hiddenPathPatterns = []
+        #expect(AppSettings(store: store).hiddenPathPatterns.isEmpty)
+        settings.hiddenPathPatterns = ["docs/"]
+        settings.restoreDefaults()
+        #expect(settings.hiddenPathPatterns.isEmpty)
+        #expect(AppSettings(store: EmptyKeyValueStore()).hiddenPathPatterns.isEmpty)
+    }
+
+    @Test
+    func builtInHiddenPatternsShowTheEffectiveRulesInPatternSyntax() {
+        // The settings page echoes the built-in rules as patterns: every folder
+        // name as `**/name/` (any depth) followed by the file patterns.
+        let patterns = FileVisibilityRules.builtInPatterns
+        #expect(patterns == FileVisibilityRules.builtInHiddenDirectories.map { "**/\($0)/" }
+            + FileVisibilityRules.builtInHiddenFilePatterns)
+        #expect(patterns.contains("**/node_modules/"))
+        #expect(patterns.contains(".DS_Store"))
+
+        // Built-in folders stay hidden at any depth without any user pattern.
+        let root = URL(fileURLWithPath: "/tmp/lithe-hidden-builtin-patterns")
+        let rules = FileVisibilityRules(hiddenDirectoryNames: [], hiddenFilePatterns: [])
+        for directory in FileVisibilityRules.builtInHiddenDirectories {
+            #expect(rules.isHidden(root.appendingPathComponent(directory), relativeTo: root, isDirectory: true), "\(directory)")
+            #expect(rules.isHidden(root.appendingPathComponent("a/b/\(directory)/x.txt"), relativeTo: root, isDirectory: false), "\(directory)")
+        }
     }
 
     @Test
@@ -5590,6 +5736,42 @@ struct EditorDocumentTests {
             WorkspaceFileChange(fileURL: source, kind: .changed),
         ])
         #expect(projectReloadCount == 1)
+    }
+
+    @Test
+    @MainActor
+    func hiddenProjectConfigurationEditsReloadProjectServicesWithoutEnteringTheTree() async throws {
+        let workspace = URL(fileURLWithPath: "/in-memory/lithe-hidden-configuration")
+        let source = workspace.appendingPathComponent("src/Main.java")
+        let configuration = workspace.appendingPathComponent(".lithe/run.json")
+        let rules = FileVisibilityRules(hiddenDirectoryNames: [], hiddenFilePatterns: [".lithe/*"])
+        let watcherFactory = TestDirectoryWatcherFactory()
+        var projectReloadCount = 0
+        var gitRefreshCount = 0
+        let model = makeWorkspaceObservationUnitModel(
+            operations: SequencedWorkspaceOperations(snapshotAvailability: [true], files: [source]),
+            fileOperations: ExistingWorkspaceFileOperations(paths: [source.path, configuration.path]),
+            provider: SequencedGitWatchContextProvider([nil]),
+            watcherFactory: watcherFactory,
+            refreshGit: { gitRefreshCount += 1 },
+            reloadProjectServices: { projectReloadCount += 1 },
+            observationDelay: { _ in }
+        )
+        defer { model.reset() }
+        model.beginWorkspace(at: workspace, visibilityRules: rules)
+        _ = await model.rebuild(at: workspace, rules: rules, isCurrent: { true })
+        let refreshesAfterLoad = gitRefreshCount
+        let watcher = try #require(watcherFactory.source)
+
+        // The watcher still delivers `.lithe` while the rules hide it, so an
+        // edited run configuration reloads services but never joins the tree.
+        watcher.emit([configuration.path])
+
+        #expect(await waitForWorkspaceObservation(timeout: .seconds(15)) {
+            projectReloadCount == 1 && gitRefreshCount > refreshesAfterLoad
+        }, "The configuration edit did not reload project services")
+        #expect(model.projectFiles == [source])
+        #expect(model.rootNode?.fileURLs == [source])
     }
 
     @Test

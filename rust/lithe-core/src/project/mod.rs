@@ -1,6 +1,7 @@
 //! Project files, search, local history, and document rendering services.
 
 mod document_lifecycle;
+pub(crate) mod file_name_order;
 pub(crate) mod files;
 mod history;
 mod markdown;

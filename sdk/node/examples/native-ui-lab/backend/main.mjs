@@ -2,7 +2,7 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import { createBackend, PluginError } from '../../../src/index.mjs';
 
-const backend = createBackend({ name: 'native-ui-lab', version: '0.3.1' });
+const backend = createBackend({ name: 'native-ui-lab', version: '0.3.2' });
 backend.build.model(() => ({ projects: [{ name: 'UI Lab', path: '.' }] }));
 backend.build.dependencies(() => ({ dependencies: [] }));
 
