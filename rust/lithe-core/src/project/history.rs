@@ -1,5 +1,6 @@
 //! Versioned local-history snapshots with bounded retention and storage validation.
 
+use crate::project::files::VisibilityRules;
 use crate::protocol::{invalid_relative_path, CoreError, ErrorCode};
 use crate::protocol::{HistoryEntriesResponse, HistoryEntryResponse};
 use serde::{Deserialize, Serialize};
@@ -535,43 +536,4 @@ fn parse_iso_timestamp(value: &str) -> i64 {
     let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
     let days = era * 146_097 + day_of_era - 719_468;
     days * 86_400 + hour * 3_600 + minute * 60 + second
-}
-
-struct VisibilityRules {
-    directories: Vec<String>,
-    files: Vec<String>,
-}
-
-impl VisibilityRules {
-    fn new(hidden_directories: Vec<String>, hidden_files: Vec<String>) -> Self {
-        let mut directories = vec![".git", ".build", ".swiftpm", "node_modules", "target"]
-            .into_iter()
-            .map(String::from)
-            .collect::<Vec<_>>();
-        directories.extend(hidden_directories);
-        let mut files = vec![".DS_Store".to_string()];
-        files.extend(hidden_files);
-        Self { directories, files }
-    }
-
-    fn is_hidden(&self, path: &str, is_directory: bool) -> bool {
-        let components = path
-            .split('/')
-            .filter(|value| !value.is_empty())
-            .collect::<Vec<_>>();
-        if components.iter().any(|component| {
-            self.directories
-                .iter()
-                .any(|hidden| hidden.eq_ignore_ascii_case(component))
-        }) {
-            return true;
-        }
-        if is_directory {
-            return false;
-        }
-        let last = components.last().copied().unwrap_or_default();
-        self.files
-            .iter()
-            .any(|pattern| pattern.eq_ignore_ascii_case(last))
-    }
 }

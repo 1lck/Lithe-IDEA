@@ -40,8 +40,10 @@ final class AppSettings: ObservableObject {
         static let terminalShell = "settings.terminalShell"
         static let terminalScrollbackLines = "settings.terminalScrollbackLines"
         static let terminalShellPathOverride = "settings.terminalShellPathOverride"
-        static let hiddenDirectories = "settings.hiddenDirectories"
-        static let hiddenFilePatterns = "settings.hiddenFilePatterns"
+        static let hiddenPathPatterns = "settings.hiddenPathPatterns"
+        /// Older versions kept folder names and file globs in two lists.
+        static let legacyHiddenDirectories = "settings.hiddenDirectories"
+        static let legacyHiddenFilePatterns = "settings.hiddenFilePatterns"
         static let searchExcludedPathPatterns = "settings.searchExcludedPathPatterns"
         static let searchExclusionsEnabled = "settings.searchExclusionsEnabled"
         static let gitExecutable = "settings.gitExecutable"
@@ -128,15 +130,12 @@ final class AppSettings: ObservableObject {
             defaults.set(terminalScrollbackLines, forKey: Key.terminalScrollbackLines)
         }
     }
-    @Published var hiddenDirectoryNames: [String] {
+    /// The user's own Hidden paths patterns, one glob per entry. The built-in
+    /// rules are not stored here: `FileVisibilityRules` always adds them, so
+    /// they stay in force whatever this list holds.
+    @Published var hiddenPathPatterns: [String] {
         didSet {
-            defaults.set(hiddenDirectoryNames, forKey: Key.hiddenDirectories)
-            notifyFileVisibilityRulesObservers()
-        }
-    }
-    @Published var hiddenFilePatterns: [String] {
-        didSet {
-            defaults.set(hiddenFilePatterns, forKey: Key.hiddenFilePatterns)
+            defaults.set(hiddenPathPatterns, forKey: Key.hiddenPathPatterns)
             notifyFileVisibilityRulesObservers()
         }
     }
@@ -263,10 +262,8 @@ final class AppSettings: ObservableObject {
         terminalScrollbackLines = Self.normalizedTerminalScrollbackLines(
             defaults.object(forKey: Key.terminalScrollbackLines) as? Int ?? Self.defaultTerminalScrollbackLines
         )
-        hiddenDirectoryNames = defaults.stringArray(forKey: Key.hiddenDirectories)
-            ?? FileVisibilityRules.default.hiddenDirectoryNames
-        hiddenFilePatterns = defaults.stringArray(forKey: Key.hiddenFilePatterns)
-            ?? FileVisibilityRules.default.hiddenFilePatterns
+        hiddenPathPatterns = defaults.stringArray(forKey: Key.hiddenPathPatterns)
+            ?? Self.migratedHiddenPathPatterns(from: defaults)
         searchExcludedPathPatterns = defaults.stringArray(forKey: Key.searchExcludedPathPatterns) ?? []
         // Existing saved exclusions stay active when upgrading from the inline editor.
         searchExclusionsEnabled = defaults.object(forKey: Key.searchExclusionsEnabled) as? Bool ?? true
@@ -402,20 +399,16 @@ final class AppSettings: ObservableObject {
     /// Search Everywhere globs never change other search clients or project visibility.
     var searchEverywhereVisibilityRules: FileVisibilityRules {
         guard searchExclusionsEnabled else { return fileVisibilityRules }
-        let patterns = searchExcludedPathPatterns.flatMap { value -> [String] in
-            let pattern = value.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !pattern.isEmpty else { return [] }
-            return pattern.hasPrefix("**/") ? [pattern, String(pattern.dropFirst(3))] : [pattern]
-        }
-        return FileVisibilityRules(hiddenDirectoryNames: hiddenDirectoryNames,
-            hiddenFilePatterns: hiddenFilePatterns + patterns)
+        // A leading `**/` already matches zero or more folders in the rules.
+        let patterns = searchExcludedPathPatterns
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        return FileVisibilityRules(hiddenDirectoryNames: [],
+            hiddenFilePatterns: hiddenPathPatterns + patterns)
     }
 
     var fileVisibilityRules: FileVisibilityRules {
-        FileVisibilityRules(
-            hiddenDirectoryNames: hiddenDirectoryNames,
-            hiddenFilePatterns: hiddenFilePatterns
-        )
+        FileVisibilityRules(hiddenDirectoryNames: [], hiddenFilePatterns: hiddenPathPatterns)
     }
 
     @discardableResult
@@ -452,8 +445,7 @@ final class AppSettings: ObservableObject {
         terminalShell = .system
         terminalScrollbackLines = Self.defaultTerminalScrollbackLines
         terminalShellPathOverride = ""
-        hiddenDirectoryNames = FileVisibilityRules.default.hiddenDirectoryNames
-        hiddenFilePatterns = FileVisibilityRules.default.hiddenFilePatterns
+        hiddenPathPatterns = []
         searchExcludedPathPatterns = []
         searchExclusionsEnabled = true
         gitFetchOptions = GitFetchOptions()
@@ -690,6 +682,27 @@ final class AppSettings: ObservableObject {
         guard let data = try? JSONEncoder().encode(payload) else { return }
         defaults.set(data, forKey: Key.keyboardShortcutPresets)
         defaults.set(nil, forKey: Key.keyboardShortcutOverrides)
+    }
+
+    /// Folds the two lists older versions saved into one pattern list. A custom
+    /// folder name `x` becomes `**/x/`, which hides it at any depth as before.
+    /// Built-in entries are dropped because `FileVisibilityRules` always adds
+    /// them. The legacy keys are left untouched and stop being read once the
+    /// new key is saved.
+    static func migratedHiddenPathPatterns(from defaults: any KeyValueStore) -> [String] {
+        let builtIn = FileVisibilityRules.default
+        let directories = (defaults.stringArray(forKey: Key.legacyHiddenDirectories) ?? [])
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && !builtIn.isHiddenDirectoryName($0) }
+            .map { "**/\($0)/" }
+        let files = (defaults.stringArray(forKey: Key.legacyHiddenFilePatterns) ?? [])
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { pattern in
+                !pattern.isEmpty && !builtIn.hiddenFilePatterns.contains {
+                    $0.caseInsensitiveCompare(pattern) == .orderedSame
+                }
+            }
+        return directories + files
     }
 
     private static func loadKeyboardShortcutPresets(
