@@ -90,7 +90,7 @@ struct BundledUIFontTests {
             let prompt = "\u{1b}[38;2;154;52;142m\u{e0b6}\u{1b}[48;2;154;52;142m\u{1b}[37muser \u{1b}[38;2;154;52;142m\u{1b}[48;2;218;98;125m\u{e0b0}\u{1b}[37m …/Lithe-IDEA \u{1b}[38;2;218;98;125m\u{1b}[48;2;252;161;125m\u{e0b0}\u{1b}[37m \u{f418} codex/issue-1082 $ \u{1b}[38;2;252;161;125m\u{1b}[48;2;134;187;216m\u{e0b0}\u{1b}[37m \u{e76f} v1.3.12 \u{1b}[38;2;134;187;216m\u{1b}[48;2;51;101;138m\u{e0b0}\u{1b}[37m ♥ 01:23 \u{1b}[0m\u{1b}[38;2;51;101;138m\u{e0b0}\u{1b}[0m\r\n"
             for dark in [false, true] {
                 terminal.view.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
-                terminal.view.applyThemeColors()
+                terminal.view.applyThemeColors(theme: .lithe, isDark: dark)
                 terminal.view.feed(text: "\u{1b}[2J\u{1b}[H" + prompt + prompt)
                 let bitmap = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 1440, pixelsHigh: 300,
                     bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
