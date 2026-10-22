@@ -145,3 +145,52 @@ fn list_directories_orders_versioned_names_by_number_with_directories_first() {
     );
     assert_eq!(names(1), ["part2", "part10"]);
 }
+
+/// The snapshot `files` sequence is not a display order: Windows Quick Open keeps the
+/// first 100 matches of it, so the natural tree order must not leak into it.
+#[test]
+fn workspace_snapshot_keeps_its_traversal_order_while_the_tree_rows_are_natural() {
+    let root = temporary_root("snapshot-traversal-order");
+    fs::create_dir_all(&root).unwrap();
+    for name in ["v0.1.12.md", "v0.1.4.md", "v0.1.14.md", "TEMPLATE.md"] {
+        fs::write(root.join(name), "").unwrap();
+    }
+    for part in ["part10", "part2"] {
+        fs::create_dir_all(root.join("zeta").join(part)).unwrap();
+        fs::write(root.join("zeta").join(part).join("a.md"), "").unwrap();
+    }
+
+    let files = |include_tree: bool| {
+        let response: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id": "snapshot-traversal-order",
+                "command": "workspace.snapshot",
+                "payload": {"root": root, "includeTree": include_tree}
+            })
+            .to_string(),
+        ))
+        .expect("core response should be JSON");
+        assert_eq!(response["ok"], true, "{response}");
+        response["data"]["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|file| file.as_str().unwrap().to_string())
+            .collect::<Vec<_>>()
+    };
+    let with_tree = files(true);
+    let without_tree = files(false);
+    let removed = fs::remove_dir_all(&root);
+    removed.expect("temporary fixture should be removable");
+
+    let expected = [
+        "zeta/part10/a.md",
+        "zeta/part2/a.md",
+        "TEMPLATE.md",
+        "v0.1.12.md",
+        "v0.1.14.md",
+        "v0.1.4.md",
+    ];
+    assert_eq!(with_tree, expected);
+    assert_eq!(without_tree, expected);
+}
