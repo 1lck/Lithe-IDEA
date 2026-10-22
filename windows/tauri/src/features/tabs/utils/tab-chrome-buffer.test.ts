@@ -59,6 +59,18 @@ describe("toTabChromeBuffer", () => {
     expect(tabChromeBuffersEqual(before, otherFile)).toBe(false);
     expect(tabChromeBuffersEqual(before, fromGutter)).toBe(false);
   });
+
+  test("rerenders the reused Git Log preview tab when file arrows select another comparison", () => {
+    // "Repository Diff: <file>" reuses one tab at the same virtual path, so the
+    // selected diff must participate in tab chrome equality.
+    const paths = ["src/a.ts", "src/b.ts"];
+    const before = [toTabChromeBuffer(gitLogPreviewBuffer("src/a.ts:0", paths))];
+    const sameFile = [toTabChromeBuffer(gitLogPreviewBuffer("src/a.ts:0", paths))];
+    const otherFile = [toTabChromeBuffer(gitLogPreviewBuffer("src/b.ts:1", paths))];
+
+    expect(tabChromeBuffersEqual(before, sameFile)).toBe(true);
+    expect(tabChromeBuffersEqual(before, otherFile)).toBe(false);
+  });
 });
 
 function workingTreeDiffBuffer(selectedFileKey: string, commitPreview = true): DiffContent {
@@ -80,6 +92,37 @@ function workingTreeDiffBuffer(selectedFileKey: string, commitPreview = true): D
       totalDeletions: 0,
       initiallySelectedFileKey: selectedFileKey,
       commitPreview,
+    },
+  };
+}
+
+/** Git Log reuses `diff://commit-file-preview` while arrows switch the file. */
+function gitLogPreviewBuffer(selectedFileKey: string, paths: string[]): DiffContent {
+  return {
+    id: "diff-2",
+    type: "diff",
+    path: "diff://commit-file-preview",
+    name: "Repository Diff: a.ts",
+    isPinned: false,
+    isPreview: false,
+    isActive: true,
+    content: "",
+    savedContent: "",
+    diffData: {
+      commitHash: "abcdef1",
+      files: paths.map((filePath) => ({
+        file_path: filePath,
+        is_new: false,
+        is_deleted: false,
+        is_renamed: false,
+        lines: [],
+      })),
+      totalFiles: paths.length,
+      totalAdditions: 0,
+      totalDeletions: 0,
+      initiallySelectedFileKey: selectedFileKey,
+      initiallyExpandedFileKey: selectedFileKey,
+      commitFilePreview: true,
     },
   };
 }
