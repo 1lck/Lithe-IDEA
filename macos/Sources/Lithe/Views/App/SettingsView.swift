@@ -602,7 +602,7 @@ struct SettingsView: View {
                 }
             }
 
-            group("Hidden paths", info: "One entry per line. A plain name hides matching files and folders at any depth; * and ? match files; end with / to match a folder path from the project root.") {
+            group("Hidden paths", info: "One entry per line. Directories hides folders by name at any depth. File patterns support * and ?; end with / or /* to hide a folder from the project root.") {
                 // One card line: the two lists side by side with Apply beneath.
                 VStack(alignment: .trailing, spacing: 6) {
                     HStack(alignment: .top, spacing: 12) {

@@ -559,25 +559,32 @@ fn list_directories_returns_one_visible_level_per_requested_directory() {
 }
 
 #[test]
-fn plain_file_pattern_hides_same_named_folders_without_reading_them() {
-    // A plain name typed into the file patterns, such as `.lithe`, must hide the
-    // folder as well as a file of that name, and the tree must not enumerate it.
-    let root = temporary_root("plain-name-folders");
+fn folder_patterns_hide_folders_without_reading_them() {
+    // `name/`, `name/*` and `name/**` hide a folder from the project root, so the
+    // tree must not enumerate it. A plain name stays a file pattern.
+    let root = temporary_root("folder-patterns");
     write_fixture_file(&root.join("src/App.java"), "class App {}");
     write_fixture_file(&root.join(".lithe/dependencies/index.json"), "{}");
-    write_fixture_file(&root.join("modules/a/.LITHE/config.json"), "{}");
-    write_fixture_file(&root.join(".lithe-notes.md"), "kept");
-    let rules = serde_json::json!({"root": root, "hiddenFilePatterns": [".lithe"]});
+    write_fixture_file(&root.join("generated/Out.java"), "class Out {}");
+    write_fixture_file(&root.join("docs/api/index.html"), "<html></html>");
+    write_fixture_file(&root.join("modules/.lithe/config.json"), "{}");
+    write_fixture_file(&root.join("notes/todo.md"), "kept");
+    let patterns = [".lithe/*", "generated/", "docs/**", "notes"];
+    let rules = serde_json::json!({"root": root, "hiddenFilePatterns": patterns});
 
     crate::project::files::DIRECTORY_VISITS.with_borrow_mut(|visits| *visits = Some(Vec::new()));
-    let snapshot = core_data("plain-name-snapshot", "workspace.snapshot", rules.clone());
+    let snapshot = core_data(
+        "folder-patterns-snapshot",
+        "workspace.snapshot",
+        rules.clone(),
+    );
     let root_listing = core_data(
-        "plain-name-listing",
+        "folder-patterns-listing",
         "workspace.listDirectories",
         serde_json::json!({
             "root": root,
-            "paths": ["", ".lithe", "modules/a", "modules/a/.LITHE"],
-            "hiddenFilePatterns": [".lithe"]
+            "paths": ["", ".lithe", "generated", "docs", "modules"],
+            "hiddenFilePatterns": patterns
         }),
     );
     let visits = crate::project::files::DIRECTORY_VISITS
@@ -591,27 +598,36 @@ fn plain_file_pattern_hides_same_named_folders_without_reading_them() {
         .map(|file| file.as_str().unwrap_or_default())
         .collect::<Vec<_>>();
     snapshot_files.sort_unstable();
-    assert_eq!(snapshot_files, [".lithe-notes.md", "src/App.java"]);
+    assert_eq!(
+        snapshot_files,
+        [
+            "modules/.lithe/config.json",
+            "notes/todo.md",
+            "src/App.java"
+        ]
+    );
     let listed = root_listing["directories"]
         .as_array()
         .expect("directories should be an array")
         .iter()
         .map(|directory| directory["path"].as_str().unwrap_or_default())
         .collect::<Vec<_>>();
-    assert_eq!(listed, ["", "modules/a"]);
+    assert_eq!(listed, ["", "modules"]);
     let root_children = root_listing["directories"][0]["children"]
         .as_array()
         .expect("children should be an array")
         .iter()
         .map(|child| child["name"].as_str().unwrap_or_default())
         .collect::<Vec<_>>();
-    assert_eq!(root_children, ["modules", "src", ".lithe-notes.md"]);
-    assert!(
-        visits.iter().all(|path| !path
-            .components()
-            .any(|part| part.as_os_str().eq_ignore_ascii_case(".lithe"))),
-        "hidden folders must not be enumerated: {visits:?}"
-    );
+    assert_eq!(root_children, ["modules", "notes", "src"]);
+    for hidden in [".lithe", "generated", "docs"] {
+        assert!(
+            visits
+                .iter()
+                .all(|path| !path.starts_with(root.join(hidden))),
+            "hidden folder {hidden} must not be enumerated: {visits:?}"
+        );
+    }
     fs::remove_dir_all(root).expect("temporary fixture should be removable");
 }
 
@@ -1071,35 +1087,6 @@ fn preserve_case_matches_original_occurrence_shape() {
     assert_eq!(replace(false), "bazQux bazQux bazQux bazQux();");
     assert_eq!(replace(true), "bazQux BazQux BAZQUX bazQux();");
 
-    fs::remove_dir_all(root).expect("temporary fixture should be removable");
-}
-
-#[test]
-fn local_history_skips_files_below_a_plain_name_file_pattern() {
-    // Local History honors the same hidden-path rules as the project tree, so a
-    // folder hidden through the file patterns must not collect snapshots.
-    let root = temporary_root("history-plain-name");
-    fs::create_dir_all(&root).expect("history workspace should be creatable");
-    let storage = root.join("history-storage");
-    let record = |path: &str| {
-        core_data(
-            "history-plain-name",
-            "history.record",
-            serde_json::json!({
-                "workspaceRoot": root,
-                "storageRoot": storage,
-                "path": path,
-                "reason": "saved",
-                "content": "text\n",
-                "hiddenDirectoryNames": [],
-                "hiddenFilePatterns": [".lithe"]
-            }),
-        )
-    };
-
-    assert!(record(".lithe/dependencies/index.json").is_null());
-    assert!(record("modules/a/.LITHE/config.json").is_null());
-    assert!(record("src/Main.java")["id"].as_str().is_some());
     fs::remove_dir_all(root).expect("temporary fixture should be removable");
 }
 

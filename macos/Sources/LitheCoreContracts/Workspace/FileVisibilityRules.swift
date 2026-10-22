@@ -57,18 +57,9 @@ package struct FileVisibilityRules: Hashable, Sendable {
         }
 
         let directoryCount = isDirectory == false ? max(0, components.count - 1) : components.count
-        // A plain name such as `.lithe` cannot say whether it means a file or a
-        // folder, so it also hides same-named directories at any depth. Globs keep
-        // their file-only meaning and `/` marks a folder pattern, as pinned by
-        // `shared/fixtures/search/exclusions.json`.
-        let hidesFolder = hiddenFilePatterns.contains { pattern in
-            Self.isPlainName(pattern)
-                && components.prefix(directoryCount).contains { pattern.caseInsensitiveCompare($0) == .orderedSame }
-        }
-        if hidesFolder { return true }
-        for pattern in hiddenFilePatterns where pattern.hasSuffix("/") {
+        for glob in hiddenFilePatterns.compactMap(Self.folderGlob) {
             for count in 1..<(directoryCount + 1) {
-                if Self.globMatches(String(pattern.dropLast()), value: components.prefix(count).joined(separator: "/")) {
+                if Self.globMatches(glob, value: components.prefix(count).joined(separator: "/")) {
                     return true
                 }
             }
@@ -103,9 +94,18 @@ package struct FileVisibilityRules: Hashable, Sendable {
         hiddenDirectoryNames.contains { $0.caseInsensitiveCompare(name) == .orderedSame }
     }
 
-    /// A literal name: no glob wildcard and no path separator.
-    private static func isPlainName(_ pattern: String) -> Bool {
-        !pattern.contains { $0 == "*" || $0 == "?" || $0 == "/" }
+    /// The folder glob of an entry that ends in `/`, `/*` or `/**`.
+    ///
+    /// Such an entry names a folder from the project root, so the folder and
+    /// everything below it is hidden instead of leaving an empty folder behind.
+    /// Other entries keep their file-only meaning, as pinned by
+    /// `shared/fixtures/search/exclusions.json`.
+    private static func folderGlob(_ pattern: String) -> String? {
+        for suffix in ["/**", "/*", "/"] where pattern.hasSuffix(suffix) {
+            let glob = String(pattern.dropLast(suffix.count))
+            return glob.isEmpty ? nil : glob
+        }
+        return nil
     }
 
     private static func normalizedEntries(_ values: [String]) -> [String] {

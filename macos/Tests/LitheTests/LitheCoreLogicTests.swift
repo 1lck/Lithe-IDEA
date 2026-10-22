@@ -2662,7 +2662,7 @@ struct LitheCoreLogicTests {
     @Test
     func hiddenProjectConfigurationFolderStaysWatchedButOtherHiddenPathsAreDropped() {
         let workspace = URL(fileURLWithPath: "/tmp/lithe-visibility-watched-configuration")
-        let rules = FileVisibilityRules(hiddenDirectoryNames: [], hiddenFilePatterns: [".lithe"])
+        let rules = FileVisibilityRules(hiddenDirectoryNames: [], hiddenFilePatterns: [".lithe/*", "**/.lithe/*"])
         let configuration = DirectoryWatchConfiguration(workspaceRoot: workspace, gitContext: nil)
         let watcher = MacDirectoryWatcher(configuration: configuration, visibilityRules: rules) { _ in }
         let projectJSON = workspace.appendingPathComponent(".lithe/project.json").path
@@ -2694,6 +2694,8 @@ struct LitheCoreLogicTests {
             .default,
             FileVisibilityRules(hiddenDirectoryNames: [".lithe"], hiddenFilePatterns: []),
             FileVisibilityRules(hiddenDirectoryNames: [], hiddenFilePatterns: [".lithe/"]),
+            FileVisibilityRules(hiddenDirectoryNames: [], hiddenFilePatterns: [".lithe/*"]),
+            FileVisibilityRules(hiddenDirectoryNames: [], hiddenFilePatterns: [".lithe/**"]),
             FileVisibilityRules(hiddenDirectoryNames: [], hiddenFilePatterns: [".*/"]),
             FileVisibilityRules(hiddenDirectoryNames: [], hiddenFilePatterns: ["*.json"]),
         ]
@@ -2711,21 +2713,33 @@ struct LitheCoreLogicTests {
     }
 
     @Test
-    func plainFilePatternAlsoHidesSameNamedFoldersAtAnyDepth() {
-        let root = URL(fileURLWithPath: "/tmp/lithe-visibility-plain-name-tests")
-        let rules = FileVisibilityRules(hiddenDirectoryNames: [], hiddenFilePatterns: [".lithe", "*.log"])
+    func folderPatternsHideWholeFoldersFromTheProjectRoot() {
+        let root = URL(fileURLWithPath: "/tmp/lithe-visibility-folder-pattern-tests")
+        func hidden(_ path: String, _ patterns: [String], isDirectory: Bool) -> Bool {
+            FileVisibilityRules(hiddenDirectoryNames: [], hiddenFilePatterns: patterns)
+                .isHidden(root.appendingPathComponent(path), relativeTo: root, isDirectory: isDirectory)
+        }
 
-        // A plain name typed into the file patterns hides the folder, its
-        // contents and a nested copy, not only a file with that name.
-        #expect(rules.isHidden(root.appendingPathComponent(".lithe"), relativeTo: root, isDirectory: true))
-        #expect(rules.isHidden(root.appendingPathComponent(".lithe/dependencies/index.json"), relativeTo: root, isDirectory: false))
-        #expect(rules.isHidden(root.appendingPathComponent("modules/a/.LITHE"), relativeTo: root, isDirectory: nil))
-        #expect(rules.isHidden(root.appendingPathComponent(".lithe"), relativeTo: root, isDirectory: false))
-        #expect(!rules.isHidden(root.appendingPathComponent(".lithe-notes.md"), relativeTo: root, isDirectory: false))
-        // Globs keep their file-only meaning.
-        #expect(rules.isHidden(root.appendingPathComponent("src/Name.log"), relativeTo: root, isDirectory: false))
-        #expect(!rules.isHidden(root.appendingPathComponent("src/Name.log"), relativeTo: root, isDirectory: true))
-        // The default rules still leave the rest of `.lithe` visible.
+        // `name/`, `name/*` and `name/**` all hide the root folder, its contents
+        // and nothing else: no empty folder row is left behind.
+        for pattern in [".lithe/", ".lithe/*", ".lithe/**"] {
+            #expect(hidden(".lithe", [pattern], isDirectory: true), "\(pattern)")
+            #expect(hidden(".lithe/dependencies", [pattern], isDirectory: true), "\(pattern)")
+            #expect(hidden(".lithe/dependencies/index.json", [pattern], isDirectory: false), "\(pattern)")
+            #expect(!hidden(".lithe", [pattern], isDirectory: false), "\(pattern)")
+            #expect(!hidden(".lithe-notes.md", [pattern], isDirectory: false), "\(pattern)")
+            #expect(!hidden("modules/a/.lithe", [pattern], isDirectory: true), "\(pattern)")
+        }
+        // A leading `**/` reaches nested copies.
+        #expect(hidden("modules/a/.lithe", ["**/.lithe/*"], isDirectory: true))
+        #expect(hidden("modules/a/.lithe/run.json", ["**/.lithe/*"], isDirectory: false))
+        // A plain name or a glob without a folder suffix stays a file pattern.
+        #expect(hidden(".lithe", [".lithe"], isDirectory: false))
+        #expect(!hidden(".lithe", [".lithe"], isDirectory: true))
+        #expect(!hidden(".lithe/dependencies/index.json", [".lithe"], isDirectory: false))
+        #expect(hidden("src/Name.log", ["*.log"], isDirectory: false))
+        #expect(!hidden("src/Name.log", ["*.log"], isDirectory: true))
+        // The default rules leave `.lithe` visible.
         #expect(!FileVisibilityRules.default.isHidden(root.appendingPathComponent(".lithe"), relativeTo: root, isDirectory: true))
     }
 
@@ -5668,7 +5682,7 @@ struct EditorDocumentTests {
         let workspace = URL(fileURLWithPath: "/in-memory/lithe-hidden-configuration")
         let source = workspace.appendingPathComponent("src/Main.java")
         let configuration = workspace.appendingPathComponent(".lithe/run.json")
-        let rules = FileVisibilityRules(hiddenDirectoryNames: [], hiddenFilePatterns: [".lithe"])
+        let rules = FileVisibilityRules(hiddenDirectoryNames: [], hiddenFilePatterns: [".lithe/*"])
         let watcherFactory = TestDirectoryWatcherFactory()
         var projectReloadCount = 0
         var gitRefreshCount = 0

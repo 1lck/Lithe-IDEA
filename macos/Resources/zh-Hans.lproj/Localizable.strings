@@ -204,7 +204,7 @@
 "Restore Default" = "恢复默认";
 "Save after" = "保存延迟";
 "Hidden paths" = "隐藏路径";
-"One entry per line. A plain name hides matching files and folders at any depth; * and ? match files; end with / to match a folder path from the project root." = "每行输入一项。普通名称会隐藏任意层级中同名的文件和文件夹；* 和 ? 用于匹配文件；以 / 结尾则匹配从项目根目录起的文件夹路径。";
+"One entry per line. Directories hides folders by name at any depth. File patterns support * and ?; end with / or /* to hide a folder from the project root." = "每行输入一项。“目录”按名称隐藏任意层级的同名文件夹；“文件模式”支持 * 和 ?，以 / 或 /* 结尾则从项目根目录起隐藏整个文件夹。";
 "Directories" = "目录";
 "File patterns" = "文件模式";
 "Apply" = "应用";

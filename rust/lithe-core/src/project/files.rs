@@ -783,26 +783,10 @@ impl VisibilityRules {
             return true;
         }
         let directory_count = components.len().saturating_sub(usize::from(!is_directory));
-        // A plain name such as `.lithe` cannot say whether it means a file or a
-        // folder, so it also hides same-named directories at any depth. Globs keep
-        // their file-only meaning and `/` marks a folder pattern, as pinned by
-        // `shared/fixtures/search/exclusions.json`.
-        if self
-            .hidden_file_patterns
-            .iter()
-            .filter(|pattern| is_plain_name(pattern))
-            .any(|name| {
-                components[..directory_count]
-                    .iter()
-                    .any(|component| name.eq_ignore_ascii_case(component))
-            })
-        {
-            return true;
-        }
         for glob in self
             .hidden_file_patterns
             .iter()
-            .filter_map(|pattern| pattern.strip_suffix('/'))
+            .filter_map(|pattern| folder_glob(pattern))
         {
             if (1..=directory_count).any(|count| glob_matches(glob, &components[..count].join("/")))
             {
@@ -819,9 +803,18 @@ impl VisibilityRules {
     }
 }
 
-/// Whether a hidden-path entry is a literal name: no glob wildcard and no path separator.
-fn is_plain_name(pattern: &str) -> bool {
-    !pattern.contains(['*', '?', '/'])
+/// The folder glob of a hidden-path entry that ends in `/`, `/*` or `/**`.
+///
+/// Such an entry names a folder from the project root, so the folder and
+/// everything below it is hidden instead of leaving an empty folder behind. Other
+/// entries keep their file-only meaning, as pinned by
+/// `shared/fixtures/search/exclusions.json`.
+fn folder_glob(pattern: &str) -> Option<&str> {
+    let glob = pattern
+        .strip_suffix("/**")
+        .or_else(|| pattern.strip_suffix("/*"))
+        .or_else(|| pattern.strip_suffix('/'))?;
+    (!glob.is_empty()).then_some(glob)
 }
 
 fn scan_node(
