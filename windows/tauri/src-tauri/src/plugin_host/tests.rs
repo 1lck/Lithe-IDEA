@@ -16,23 +16,23 @@ const FIXTURES_DIR: &str = concat!(
 );
 
 /// Valid manifests that this host's capability declaration accepts.
-const ACCEPTED_FIXTURES: [&str; 5] = [
+const ACCEPTED_FIXTURES: [&str; 6] = [
     "go-support.plugin.json",
     "hello-lithe.plugin.json",
     "java-support.plugin.json",
     "node-runtime.plugin.json",
     "php-support.plugin.json",
+    "web-panel.plugin.json",
 ];
 
 /// Valid manifests whose capabilities exceed the host declaration; Core
 /// rejects them through the capability gate, not through manifest semantics.
-const CAPABILITY_GATED_FIXTURES: [&str; 6] = [
+const CAPABILITY_GATED_FIXTURES: [&str; 5] = [
     "cargo-build.plugin.json",
     "go-build.plugin.json",
     "gradle-build.plugin.json",
     "gradle-provider.plugin.json",
     "maven-build.plugin.json",
-    "web-panel.plugin.json",
 ];
 
 fn fixture_path(name: &str) -> PathBuf {

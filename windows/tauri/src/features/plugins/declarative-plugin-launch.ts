@@ -235,3 +235,28 @@ export function resolveDeclarativeTestPlan(
     relativeProjectFilePaths,
   });
 }
+
+/** One declared web tool window (ui capability 2). */
+export interface DeclarativeWebToolWindow {
+  windowId: string;
+  pluginId: string;
+  title: string;
+  placement: string;
+  order: number | null;
+  entry: string;
+}
+
+/** Declared web tool windows of all accepted, enabled packages. */
+export function listDeclarativeWebWindows(): Promise<DeclarativeWebToolWindow[]> {
+  return invoke<DeclarativeWebToolWindow[]>("declarative_plugins_web_windows");
+}
+
+/** Opens (or focuses) the web view of one tool window. */
+export function openDeclarativeWebWindow(windowId: string): Promise<void> {
+  return invoke<void>("declarative_plugins_open_web_window", { windowId });
+}
+
+/** Destroys the web view of one tool window. */
+export function closeDeclarativeWebWindow(windowId: string): Promise<void> {
+  return invoke<void>("declarative_plugins_close_web_window", { windowId });
+}

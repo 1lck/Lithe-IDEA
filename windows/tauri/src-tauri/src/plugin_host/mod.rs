@@ -18,6 +18,7 @@ pub mod settings;
 pub mod store;
 #[cfg(test)]
 mod tests;
+pub mod web;
 
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -30,13 +31,15 @@ use tauri::{AppHandle, Manager};
 /// so the host never registers a manifest section it cannot run. The set
 /// grows per milestone of the declarative plugin host work. `languageServers`
 /// 2 and `settings` 2 add workspace configuration push and scoped settings
-/// (M3); `executionProviders` and `ui` remain unhosted.
+/// (M3); `ui` 2 adds package web pages in host windows (M4);
+/// `executionProviders`, `buildProviders` and `buildSystems` remain unhosted.
 pub fn host_capabilities() -> Value {
     json!({
         "languages": [1],
         "languageServers": [1, 2],
         "serverProcess": [1],
         "settings": [1, 2],
+        "ui": [1, 2],
     })
 }
 

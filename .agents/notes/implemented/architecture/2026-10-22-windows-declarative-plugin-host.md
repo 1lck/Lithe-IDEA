@@ -4,7 +4,7 @@
 
 ## 先说结论
 
-Windows 新增一套契约 v1 声明式插件宿主，与现有 Worker 扩展模型长期并行：需要宿主代用户拉起进程的语言与构建插件走契约宿主，宿主内运行 UI 与服务行为的扩展（主题、AI provider 等）留在 Worker 模型。契约引擎不需要新写——`lithe-core` 已经编译进 Windows 宿主，经 `core_execute` 就能调用 `plugins.declarative.*` 与 `plugins.marketplace.*`。M1 已落地：包存储、启动扫描与隔离、语言服务器启动计划解析，以及共享 fixtures 的全量验收；M2 已补磁盘导入安装链、设置内独立管理页和 runtime 启动的 `minimumVersion` 探测；M3 已补声明式设置（`languageServers` 2 / `settings` 2 能力声明、双层存储、`immediate` 效果下推）、运行/测试计划命令与契约版 PHP bundled 包。能力声明开放 `languages:1`、`languageServers:[1,2]`、`serverProcess:1`、`settings:[1,2]`，其余能力（`executionProviders`、`buildProviders`、`buildSystems`、`ui`）仍由 Core 自动拒绝。
+Windows 新增一套契约 v1 声明式插件宿主，与现有 Worker 扩展模型长期并行：需要宿主代用户拉起进程的语言与构建插件走契约宿主，宿主内运行 UI 与服务行为的扩展（主题、AI provider 等）留在 Worker 模型。契约引擎不需要新写——`lithe-core` 已经编译进 Windows 宿主，经 `core_execute` 就能调用 `plugins.declarative.*` 与 `plugins.marketplace.*`。M1 已落地：包存储、启动扫描与隔离、语言服务器启动计划解析，以及共享 fixtures 的全量验收；M2 已补磁盘导入安装链、设置内独立管理页和 runtime 启动的 `minimumVersion` 探测；M3 已补声明式设置、运行/测试计划命令与契约版 PHP bundled 包；M4 已补 Web 工具窗口（`lithe-plugin://` scheme、CSP、`window.lithe` 桥 v0）。能力声明开放 `languages:1`、`languageServers:[1,2]`、`serverProcess:1`、`settings:[1,2]`、`ui:[1,2]`，其余能力（`executionProviders`、`buildProviders`、`buildSystems`）仍由 Core 自动拒绝。
 
 ## 问题
 
@@ -24,7 +24,7 @@ Windows 新增一套契约 v1 声明式插件宿主，与现有 Worker 扩展模
 
 ### 能力声明渐进开放
 
-宿主在 `plugins.declarative.validate` 的 payload 里声明 `hostCapabilities = { languages:[1], languageServers:[1,2], serverProcess:[1], settings:[1,2] }`。Core 的 `capabilities.rs` 会拒绝声明了宿主未开放能力的插件，宿主不需要自己写拒绝逻辑。后续按里程碑提升：M3 增 `executionProviders:1`、`settings:1`，并把 `languageServers` 提到 2、`settings` 提到 2（注册设置页与 `workspaceConfiguration` 下推）；M4 增 `ui:[1,2]`。宿主不声明的能力，市场侧按不支持展示。
+宿主在 `plugins.declarative.validate` 的 payload 里声明 `hostCapabilities = { languages:[1], languageServers:[1,2], serverProcess:[1], settings:[1,2], ui:[1,2] }`。Core 的 `capabilities.rs` 会拒绝声明了宿主未开放能力的插件，宿主不需要自己写拒绝逻辑。后续按里程碑提升：M3 增 `executionProviders:1`、`settings:1`，并把 `languageServers` 提到 2、`settings` 提到 2（注册设置页与 `workspaceConfiguration` 下推）；M4 增 `ui:[1,2]`。宿主不声明的能力，市场侧按不支持展示。
 
 ### 存储、信任与安装（v0）
 
@@ -51,7 +51,7 @@ Windows 新增一套契约 v1 声明式插件宿主，与现有 Worker 扩展模
 
 ### 实施切分
 
-M1 包存储 + 启动校验 + 语言注册 + LSP 启动（已落地）；M2 磁盘安装链路 + 管理界面 v1 + 死链处置（已落地）；M3 声明式设置 + 运行/测试计划 + PHP 契约包（已落地，Worker 版保留见上文）；M4 Web 工具窗口（`ui` 2，WebView2 自定义 scheme）。每个里程碑独立 PR，矩阵条目随代码同 PR 更新。总体方向遵循[公共扩展契约与 Provider 接入方向](../../proposed/architecture/2026-10-13-public-extension-contract-and-provider-api.md)，本 Note 只落地其中 Windows 契约宿主的第一阶段。
+M1 包存储 + 启动校验 + 语言注册 + LSP 启动（已落地）；M2 磁盘安装链路 + 管理界面 v1 + 死链处置（已落地）；M3 声明式设置 + 运行/测试计划 + PHP 契约包（已落地，Worker 版保留见上文）；M4 Web 工具窗口（已落地，桥 v0 只含 state/openFile/主题，build.* 与 functions.* 等 Windows 构建系统能力接入后开放）。每个里程碑独立 PR，矩阵条目随代码同 PR 更新。总体方向遵循[公共扩展契约与 Provider 接入方向](../../proposed/architecture/2026-10-13-public-extension-contract-and-provider-api.md)，本 Note 只落地其中 Windows 契约宿主的第一阶段。
 
 ## 考虑过的备选方案
 
@@ -69,6 +69,9 @@ M1 包存储 + 启动校验 + 语言注册 + LSP 启动（已落地）；M2 磁�
 - M2–M4 里程碑：磁盘/市场安装链路 + 管理界面；声明式设置 + 运行/测试计划 + PHP 契约包替换；Web 工具窗口。每个里程碑独立 PR，能力声明与矩阵条目随代码同 PR 更新。
 
 ## 验证
+
+- M4 Web 工具窗口：`plugin_host/web.rs` 测试覆盖包路径规范化（`..`、编码分隔符、空段拒绝）、CSP 内容断言（default-src none、无 wasm-unsafe-eval、frame-ancestors none）、桥脚本冻结与作用域、状态键隔离；web-panel fixture 随 `ui:[1,2]` 声明提升转为被宿主接受（能力门控测试同步）。桥 v0 的 build.*/functions.* 返回 `plugin.web.unknownMethod`，等构建系统能力接入。
+
 
 - M3 设置链路：`settings_tests`（`plugin_host/tests.rs`）覆盖项目覆盖往返、其他插件条目保留、损坏 store 报错不重置；能力门控测试随声明提升更新（settings-v2 fixture 被接受）。设置编辑 UI（`declarative-plugin-settings-editor.tsx`）按声明的 scope/effect 渲染并显示值来源徽标。
 - M3 运行计划：契约 PHP 包端到端测试（`bundled_php_contract_package_expands_plans`）走真实 Core 命令验证 validate、runPlan（`${file}`/`${userArguments}` 展开）、testPlan（workspace scope + 项目标记）、resolveSettings。
@@ -95,6 +98,7 @@ M1 包存储 + 启动校验 + 语言注册 + LSP 启动（已落地）；M2 磁�
 - `windows/tauri/src-tauri/src/plugin_host/run_plans.rs`（运行/测试计划命令）
 - `windows/tauri/src/features/plugins/declarative-plugin-settings-editor.tsx`（设置编辑）
 - `windows/tauri/src/features/plugins/declarative-plugin-run.ts`（契约插件运行入口）
+- `windows/tauri/src-tauri/src/plugin_host/web.rs`（Web 工具窗口 scheme、桥与状态）
 - `Plugins/win/Official/PhpSupportContract/`（契约版 PHP bundled 包）
 - `windows/tauri/src/features/plugins/declarative-plugins-section.tsx`（设置内管理页）
 - `windows/tauri/src/features/editor/lsp/resolve-editor-lsp-launch.ts`（契约插件回落来源）

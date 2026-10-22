@@ -60,6 +60,9 @@ fn main() {
         window.create = false;
     }
     let application = tauri::Builder::default()
+        .register_uri_scheme_protocol("lithe-plugin", |context, request| {
+            plugin_host::web::handle_scheme_request(context.app_handle(), request)
+        })
         .plugin(tauri_plugin_single_instance::init(|app, arguments, _| {
             host::enqueue_cli_arguments(app, arguments);
         }))
@@ -133,6 +136,7 @@ fn main() {
             app.manage(run::RunProcessManager::default());
             app.manage(debug::DebugAdapterManager::default());
             app.manage(plugin_host::PluginHostState::default());
+            app.manage(plugin_host::web::WebPageHostState::default());
             run::cleanup_legacy_appdata(app.handle());
             maven::clear_dependency_outputs(app.handle());
             plugin_host::install::cleanup_stale_snapshots(app.handle());
@@ -259,6 +263,10 @@ fn main() {
             plugin_host::settings::declarative_plugins_workspace_configuration,
             plugin_host::run_plans::declarative_plugins_run_plan,
             plugin_host::run_plans::declarative_plugins_test_plan,
+            plugin_host::web::declarative_plugins_web_windows,
+            plugin_host::web::declarative_plugins_open_web_window,
+            plugin_host::web::declarative_plugins_close_web_window,
+            plugin_host::web::declarative_plugins_web_bridge_request,
             extension_store_placeholder::install_extension_from_url,
             extension_store_placeholder::uninstall_extension_new,
             extension_store_placeholder::get_extension_path,

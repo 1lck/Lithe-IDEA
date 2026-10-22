@@ -286,7 +286,7 @@ pub(crate) fn staging_install(
     if staging_directory.exists() {
         std::fs::remove_dir_all(&staging_directory).map_err(|error| error.to_string())?;
     }
-    copy_directory_snapshot(source, &staging_directory);
+    copy_directory_snapshot(source, &staging_directory)?;
     let result = staging_validate_and_activate(&staging_directory, &version_directory);
     if result.is_err() {
         // A failed install never leaves staging bytes behind.

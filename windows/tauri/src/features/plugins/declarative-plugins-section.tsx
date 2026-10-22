@@ -3,9 +3,13 @@ import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
 import Switch from "@/ui/switch";
 import {
+  closeDeclarativeWebWindow,
   confirmDeclarativeDiskInstall,
   listDeclarativePlugins,
+  listDeclarativeWebWindows,
+  openDeclarativeWebWindow,
   prepareDeclarativeDiskInstall,
+  type DeclarativeWebToolWindow,
   rescanDeclarativePlugins,
   rollbackDeclarativePlugin,
   setDeclarativePluginEnabled,
@@ -25,6 +29,7 @@ import { DeclarativePluginSettingsEditor } from "./declarative-plugin-settings-e
 export function DeclarativePluginsSection() {
   const { t } = useTranslation();
   const [plugins, setPlugins] = useState<DeclarativePluginSummary[]>([]);
+  const [webWindows, setWebWindows] = useState<DeclarativeWebToolWindow[]>([]);
   const [pending, setPending] = useState<PreparedDeclarativeInstall | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -32,6 +37,7 @@ export function DeclarativePluginsSection() {
   const refresh = useCallback(async () => {
     await rescanDeclarativePlugins();
     setPlugins(await listDeclarativePlugins());
+    setWebWindows(await listDeclarativeWebWindows());
   }, []);
 
   useEffect(() => {
@@ -108,7 +114,52 @@ export function DeclarativePluginsSection() {
           </li>
         )}
       </ul>
+      {webWindows.length > 0 && (
+        <div className="flex flex-col gap-1">
+          <h3 className="ui-text-sm font-semibold">
+            {t("settings.declarativePlugins.webWindows")}
+          </h3>
+          <ul className="flex flex-col gap-1" data-testid="declarative-web-window-list">
+            {webWindows.map((window) => (
+              <WebWindowRow key={window.windowId} window={window} />
+            ))}
+          </ul>
+        </div>
+      )}
     </section>
+  );
+}
+
+function WebWindowRow({ window }: { window: DeclarativeWebToolWindow }) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  return (
+    <li className="flex items-center gap-3 rounded-md border border-border px-3 py-2">
+      <div className="min-w-0 flex-1">
+        <p className="truncate ui-text-sm">
+          {window.title}
+          <span className="text-subtle-foreground">
+            {" "}
+            · {t(`settings.declarativePlugins.placement.${window.placement}`)}
+          </span>
+        </p>
+      </div>
+      <Button
+        variant="accent"
+        size="sm"
+        onClick={() => {
+          if (open) {
+            void closeDeclarativeWebWindow(window.windowId).then(() => setOpen(false));
+          } else {
+            void openDeclarativeWebWindow(window.windowId).then(() => setOpen(true));
+          }
+        }}
+      >
+        {open
+          ? t("settings.declarativePlugins.closeWindow")
+          : t("settings.declarativePlugins.openWindow")}
+      </Button>
+    </li>
   );
 }
 

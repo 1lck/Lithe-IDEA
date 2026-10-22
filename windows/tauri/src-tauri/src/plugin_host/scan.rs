@@ -7,7 +7,8 @@
 //! the shared fixtures acceptance covers the real production path.
 
 use super::store::{self, DiscoveredPackage};
-use super::{CatalogEntry, CatalogLanguage, CatalogRejection, ScannedPackage};
+pub(crate) use super::ScannedPackage;
+use super::{CatalogEntry, CatalogLanguage, CatalogRejection};
 use serde_json::{json, Value};
 use tauri::AppHandle;
 
