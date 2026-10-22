@@ -3652,3 +3652,16 @@
 "%lld of %lld services selected" = "已选择 %2$lld 个服务中的 %1$lld 个";
 
 "Background Services" = "后台服务";
+
+/* 内嵌 HTML 预览浏览器。 */
+"Stop Loading" = "停止加载";
+"Enter address" = "输入网址或本地路径";
+"Open HTML in Browser" = "在系统浏览器中打开";
+"Developer Tools" = "开发者工具";
+"This page" = "此页面";
+"“%@” says" = "“%@”提示";
+"This address cannot be opened here." = "无法在此处打开该地址。";
+"Zoom In" = "放大";
+"Zoom Out" = "缩小";
+"Reset Page Zoom (100%)" = "恢复页面缩放（100%）";
+"Page Zoom" = "页面缩放";
