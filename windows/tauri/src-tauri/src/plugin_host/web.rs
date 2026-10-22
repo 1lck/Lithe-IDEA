@@ -102,7 +102,7 @@ pub fn declarative_plugins_open_web_window(
     else {
         return Err(format!("{window_id} is not a declared web tool window"));
     };
-    let label = format!("plugin-web-{}", window_id.replace(['.', ':'], "-"));
+    let label = format!("plugin-web-{}", web_window_label(&window.window_id));
     if let Some(existing) = app.get_webview_window(&label) {
         let _ = existing.set_focus();
         return Ok(());
@@ -134,7 +134,7 @@ pub fn declarative_plugins_close_web_window(
     app: AppHandle,
     window_id: String,
 ) -> Result<(), String> {
-    let label = format!("plugin-web-{}", window_id.replace(['.', ':'], "-"));
+    let label = format!("plugin-web-{}", web_window_label(&window_id));
     if let Some(existing) = app.get_webview_window(&label) {
         existing
             .close()
@@ -216,7 +216,7 @@ fn const_bridge_script() -> &'static str {
   const listeners = new Map();
   const invoke = (method, params) => window.__TAURI_INTERNALS__.invoke(
     "declarative_plugins_web_bridge_request",
-    { pluginId: __LITHE_PLUGIN__, windowId: __LITHE_WINDOW__, method, params },
+    { method, params },
   );
   const bridge = {
     context,
@@ -247,18 +247,26 @@ fn const_bridge_script() -> &'static str {
 })();"#
 }
 
-/// The single Tauri command behind `lithe.request`. Every method is validated
-/// here; the page can only reach its own plugin's state and workspace.
+/// The single Tauri command behind `lithe.request`. The calling page's
+/// identity is derived from the invoking webview's label
+/// (`plugin-web-<windowID>`), never from arguments the page supplies; the
+/// plugin is then resolved from the accepted catalog and must currently
+/// declare this window and be enabled. A page can only reach its own
+/// plugin's state and the workspace layer.
 #[tauri::command]
 pub fn declarative_plugins_web_bridge_request(
     app: AppHandle,
-    plugin_id: String,
-    window_id: String,
+    webview: tauri::Webview,
     method: String,
     params: Value,
 ) -> Result<Value, String> {
+    let identity = bridge_identity(&app, webview.label())?;
     match method.as_str() {
-        "ui.getState" => Ok(declarative_plugins_web_get_state(app, plugin_id, window_id)),
+        "ui.getState" => Ok(declarative_plugins_web_get_state(
+            app,
+            identity.plugin_id,
+            identity.window_id,
+        )),
         "ui.setState" => {
             let Some(state) = params.get("state") else {
                 return Err(bridge_error(
@@ -266,7 +274,12 @@ pub fn declarative_plugins_web_bridge_request(
                     "setState requires state",
                 ));
             };
-            declarative_plugins_web_set_state(app, plugin_id, window_id, state.clone())?;
+            declarative_plugins_web_set_state(
+                app,
+                identity.plugin_id,
+                identity.window_id,
+                state.clone(),
+            )?;
             Ok(json!({}))
         }
         "workspace.openFile" => {
@@ -277,8 +290,16 @@ pub fn declarative_plugins_web_bridge_request(
                 ));
             };
             use tauri::Emitter;
-            app.emit("plugin-web-open-file", json!({ "path": path }))
-                .map_err(|error| error.to_string())?;
+            app.emit(
+                "plugin-web-open-file",
+                json!({
+                    "pluginId": identity.plugin_id,
+                    "path": path,
+                    "line": params["line"].as_u64(),
+                    "column": params["column"].as_u64(),
+                }),
+            )
+            .map_err(|error| error.to_string())?;
             Ok(json!({}))
         }
         "build.instances" | "build.refresh" | "build.runTask" | "build.runTests"
@@ -294,8 +315,109 @@ pub fn declarative_plugins_web_bridge_request(
     }
 }
 
+/// Identity of a bridge caller, derived from its window label.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BridgeIdentity {
+    pub plugin_id: String,
+    pub window_id: String,
+}
+
+/// Resolves and authorizes a bridge caller from its webview label. The label
+/// is `plugin-web-<sanitized windowID>` (see `open_web_window`); the window ID
+/// is the label-safe form of a declared tool-window ID, so authorization
+/// re-derives it from the owning package's current catalog entry. Anything
+/// that does not round-trip — a label from another window kind, a window the
+/// plugin no longer declares, a disabled or uninstalled plugin, or a forged
+/// label pointing at another plugin's window — is refused with
+/// `plugin.web.forbidden`.
+fn bridge_identity<R: tauri::Runtime>(
+    app: &AppHandle<R>,
+    label: &str,
+) -> Result<BridgeIdentity, String> {
+    const LABEL_PREFIX: &str = "plugin-web-";
+    let Some(remainder) = label.strip_prefix(LABEL_PREFIX) else {
+        return Err(bridge_error(
+            "plugin.web.forbidden",
+            "bridge requests are only accepted from plugin pages",
+        ));
+    };
+    let packages = app.state::<super::PluginHostState>().packages();
+    for package in &packages {
+        if package.entry.status != "accepted" || !package.entry.enabled {
+            continue;
+        }
+        let Some(tool_windows) = package.manifest["ui"]["toolWindows"].as_array() else {
+            continue;
+        };
+        for window in tool_windows {
+            let Some(window_id) = window["id"].as_str() else {
+                continue;
+            };
+            if window["web"]["entry"].is_null() {
+                continue;
+            }
+            if web_window_label(window_id) == remainder {
+                return Ok(BridgeIdentity {
+                    plugin_id: package.entry.plugin_id.clone(),
+                    window_id: window_id.to_string(),
+                });
+            }
+        }
+    }
+    Err(bridge_error(
+        "plugin.web.forbidden",
+        "the calling window does not belong to an enabled plugin page",
+    ))
+}
+
+/// The webview label of one tool window: a sanitized form of the declared
+/// window ID, safe for Tauri labels.
+pub(crate) fn web_window_label(window_id: &str) -> String {
+    window_id
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || character == '-' || character == '_' {
+                character
+            } else {
+                '-'
+            }
+        })
+        .collect()
+}
+
 fn bridge_error(code: &str, message: impl Into<String>) -> String {
     json!({ "code": code, "message": message.into() }).to_string()
+}
+
+/// Declared web window IDs of one plugin from the current catalog.
+pub fn web_windows_of_plugin<R: tauri::Runtime>(
+    app: &AppHandle<R>,
+    plugin_id: &str,
+) -> Vec<String> {
+    app.state::<super::PluginHostState>()
+        .packages()
+        .into_iter()
+        .filter(|package| package.entry.plugin_id == plugin_id)
+        .flat_map(|package| {
+            package.manifest["ui"]["toolWindows"]
+                .as_array()
+                .map(|windows| {
+                    windows
+                        .iter()
+                        .filter_map(|window| window["id"].as_str().map(str::to_string))
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default()
+        })
+        .collect()
+}
+
+/// Closes one web window by declared window ID, tolerating absence.
+pub fn close_web_window_by_id<R: tauri::Runtime>(app: &AppHandle<R>, window_id: &str) {
+    let label = format!("plugin-web-{}", web_window_label(window_id));
+    if let Some(existing) = app.get_webview_window(&label) {
+        let _ = existing.close();
+    }
 }
 
 // MARK: scheme file service
@@ -522,6 +644,13 @@ mod tests {
         assert!(script.contains("writable: false"));
     }
 
+    #[test]
+    fn web_window_labels_are_stable_and_sanitized() {
+        // Declared IDs are reverse-DNS with dots; labels replace them.
+        assert_eq!(web_window_label("dev.lithe.window"), "dev-lithe-window");
+        assert_eq!(web_window_label("acme:panel"), "acme-panel");
+        assert_eq!(web_window_label("acme-panel"), "acme-panel");
+    }
     #[test]
     fn state_keys_separate_plugins_and_windows() {
         assert_ne!(state_key("a.plugin", "w1"), state_key("a.plugin", "w2"));

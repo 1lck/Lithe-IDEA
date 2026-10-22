@@ -146,3 +146,19 @@ pub fn declarative_plugins_state(app: AppHandle) -> Vec<CatalogEntry> {
         .map(|package| package.entry)
         .collect()
 }
+
+/// Returns the raw manifest of one accepted, enabled plugin; settings pages
+/// must pass the full manifest to Core's resolve commands, which re-validate
+/// it. `None` when the ID does not name an accepted, enabled plugin.
+#[tauri::command]
+pub fn declarative_plugins_manifest(app: AppHandle, plugin_id: String) -> Option<Value> {
+    app.state::<PluginHostState>()
+        .packages()
+        .into_iter()
+        .find(|package| {
+            package.entry.status == "accepted"
+                && package.entry.enabled
+                && package.entry.plugin_id == plugin_id
+        })
+        .map(|package| package.manifest)
+}

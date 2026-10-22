@@ -147,6 +147,17 @@ pub fn declarative_plugins_confirm_disk_install(
         .unwrap_or_else(|| accepted_entry_fallback(&plugin_id, &version)))
 }
 
+/// Closes every web window of one plugin and drops its page state. Called
+/// before an install-record change takes effect so a disabled, uninstalled,
+/// or replaced package never keeps live pages.
+fn close_plugin_web_windows(app: &AppHandle, plugin_id: &str) {
+    let windows = crate::plugin_host::web::web_windows_of_plugin(app, plugin_id);
+    for window_id in windows {
+        let _ = crate::plugin_host::web::close_web_window_by_id(app, &window_id);
+    }
+    crate::plugin_host::web::forget_plugin_state(app, plugin_id);
+}
+
 /// Removes an installed package. Bundled packages cannot be uninstalled.
 #[tauri::command]
 pub fn declarative_plugins_uninstall(app: AppHandle, plugin_id: String) -> Result<(), String> {
@@ -162,6 +173,7 @@ pub fn declarative_plugins_uninstall(app: AppHandle, plugin_id: String) -> Resul
         std::fs::remove_dir_all(&state_directory)
             .map_err(|error| format!("state directory could not be removed: {error}"))?;
     }
+    close_plugin_web_windows(&app, &plugin_id);
     rescan_after_change(&app);
     Ok(())
 }
@@ -190,6 +202,9 @@ pub fn declarative_plugins_set_enabled(
     )
     .map_err(|error| error.to_string())?;
     std::fs::rename(&temp_path, &record_path).map_err(|error| error.to_string())?;
+    if !enabled {
+        close_plugin_web_windows(&app, &plugin_id);
+    }
     rescan_after_change(&app);
     Ok(())
 }

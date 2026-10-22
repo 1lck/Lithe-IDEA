@@ -260,3 +260,19 @@ export function openDeclarativeWebWindow(windowId: string): Promise<void> {
 export function closeDeclarativeWebWindow(windowId: string): Promise<void> {
   return invoke<void>("declarative_plugins_close_web_window", { windowId });
 }
+
+/** Returns the raw manifest of one accepted declarative plugin. */
+export function getDeclarativePluginManifest(
+  pluginId: string,
+): Promise<Record<string, unknown> | null> {
+  return invoke<Record<string, unknown> | null>("declarative_plugins_manifest", { pluginId });
+}
+
+/** The enabled declarative plugin that owns a file, or null. */
+export function invokeDeclarativePluginOwner(filePath: string): Promise<{
+  pluginId: string;
+  displayName: string;
+  languageId: string;
+} | null> {
+  return invoke("declarative_plugins_language_owner", { filePath });
+}

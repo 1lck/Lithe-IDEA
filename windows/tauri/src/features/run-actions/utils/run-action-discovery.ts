@@ -36,6 +36,7 @@ const SOURCE_PRIORITY: Record<RunActionSource, number> = {
   go: 6,
   python: 7,
   extension: 8,
+  declarative: 9,
 };
 
 export function javaTestActionsForFile(

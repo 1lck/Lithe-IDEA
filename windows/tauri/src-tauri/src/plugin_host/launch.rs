@@ -70,7 +70,8 @@ pub fn declarative_plugins_language_launch(
             plan["error"]["message"].as_str().unwrap_or("unknown")
         ));
     }
-    resolve_launch(&package, &language_id, &plan).map(Some)
+    // Core wraps the plan in `{status, plan}`; resolve the inner value.
+    resolve_launch(&package, &language_id, &plan["plan"]).map(Some)
 }
 
 /// Finds an accepted, enabled scanned package by plugin ID.
@@ -83,6 +84,28 @@ pub(crate) fn package_by_id(app: &AppHandle, plugin_id: &str) -> Option<ScannedP
                 && package.entry.enabled
                 && package.entry.plugin_id == plugin_id
         })
+}
+
+/// Returns the enabled declarative plugin that owns a file, for the run and
+/// test entry points. Mirrors the launch path's ownership matching without
+/// expanding a plan.
+#[tauri::command]
+pub fn declarative_plugins_language_owner(app: AppHandle, file_path: String) -> Option<OwnerInfo> {
+    let package = owning_package(&app, &file_path)?;
+    Some(OwnerInfo {
+        plugin_id: package.entry.plugin_id.clone(),
+        display_name: package.entry.display_name.clone(),
+        language_id: owning_language_id(&package, &file_path)?,
+    })
+}
+
+/// Ownership answer for run/test entry points.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OwnerInfo {
+    pub plugin_id: String,
+    pub display_name: String,
+    pub language_id: String,
 }
 
 fn owning_package(app: &AppHandle, file_path: &str) -> Option<ScannedPackage> {
@@ -249,45 +272,35 @@ fn verify_runtime_version(path: &Path, tool: &str, launch: &Value) -> Result<(),
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
-    let reported = first_version_token(&text)
-        .ok_or_else(|| format!("runtime tool {tool} did not report a parsable version"))?;
-    if store::compare_versions(&reported, minimum) == std::cmp::Ordering::Less {
+    // Version parsing and comparison are Core semantics (shared
+    // runtime-versions fixtures); the host only runs the probe and forwards
+    // the output.
+    let check = super::scan::core_execute(
+        "plugins.declarative.checkRuntimeVersion",
+        serde_json::json!({
+            "tool": tool,
+            "minimumVersion": minimum,
+            "output": text,
+        }),
+    )
+    .map_err(|error| format!("runtime version check failed: {error}"))?;
+    if check["status"] == serde_json::json!("rejected") {
         return Err(format!(
-            "runtime tool {tool} reports {reported}, but the plugin requires at least {minimum}"
+            "runtime tool {tool}: {}",
+            check["error"]["message"]
+                .as_str()
+                .unwrap_or("version check failed")
+        ));
+    }
+    if check["check"]["satisfied"] == serde_json::json!(false) {
+        return Err(format!(
+            "runtime tool {tool}: {}",
+            check["check"]["reason"]
+                .as_str()
+                .unwrap_or("the runtime does not satisfy the required minimum version")
         ));
     }
     Ok(())
-}
-
-/// First `N(.N)*` token in a version output line; tolerates the `v` prefix
-/// node uses and the multi-line `java -version` output.
-fn first_version_token(text: &str) -> Option<String> {
-    for line in text.lines() {
-        for token in line.split_whitespace() {
-            // Strip quotes and any non-digit prefix (`v20.11.0`,
-            // `go1.21.5`, `"17.0.2"`).
-            let token = token
-                .trim_matches(['"', '\''])
-                .trim_start_matches(|character: char| !character.is_ascii_digit());
-            let mut candidate = String::new();
-            for character in token.chars() {
-                if character.is_ascii_digit() || character == '.' {
-                    candidate.push(character);
-                } else {
-                    break;
-                }
-            }
-            // At least two chunks with a digit each make a version.
-            if candidate.matches('.').count() >= 1
-                && candidate
-                    .split('.')
-                    .any(|chunk| chunk.parse::<u64>().is_ok())
-            {
-                return Some(candidate);
-            }
-        }
-    }
-    None
 }
 
 /// Joins a package-relative plan path and proves it stays inside the package
@@ -426,24 +439,34 @@ mod tests {
         );
     }
 
+    /// Version judgment goes through Core's checkRuntimeVersion: outputs the
+    /// shared fixtures accept (a `java -version` banner line before the
+    /// version, an `openjdk 25` two-part version) are judged by Core, not by
+    /// host parsing.
     #[test]
-    fn first_version_token_parses_real_tool_outputs() {
-        assert_eq!(
-            first_version_token(
-                "v20.11.0
-"
-            ),
-            Some("20.11.0".to_string())
-        );
-        assert_eq!(
-            first_version_token("openjdk version \"17.0.2\" 2022-01-18"),
-            Some("17.0.2".to_string())
-        );
-        assert_eq!(
-            first_version_token("go version go1.21.5 windows/amd64"),
-            Some("1.21.5".to_string())
-        );
-        assert_eq!(first_version_token("no version here"), None);
+    fn version_check_delegates_to_core_semantics() {
+        let check = super::super::scan::core_execute(
+            "plugins.declarative.checkRuntimeVersion",
+            serde_json::json!({
+                "tool": "java",
+                "minimumVersion": "21",
+                "output": "Picked up JAVA_TOOL_OPTIONS: -Dapp.version=99.0\nopenjdk version \"25\" 2026-09-16",
+            }),
+        )
+        .expect("core check executes");
+        assert_eq!(check["status"], "ok", "{check}");
+        assert_eq!(check["check"]["satisfied"], true);
+
+        let stale = super::super::scan::core_execute(
+            "plugins.declarative.checkRuntimeVersion",
+            serde_json::json!({
+                "tool": "java",
+                "minimumVersion": "21",
+                "output": "openjdk version \"17.0.2\" 2022-01-18",
+            }),
+        )
+        .expect("core check executes");
+        assert_eq!(stale["check"]["satisfied"], false);
     }
 
     #[test]
@@ -476,6 +499,47 @@ mod tests {
             store::workspace_state_key(r"D:\work\demo"),
             store::workspace_state_key(r"D:\work\demo2")
         );
+    }
+
+    #[test]
+    fn resolve_launch_consumes_the_real_core_response_envelope() {
+        let temporary = unique_temp_root("launch-envelope");
+        let package_root = temporary.as_path().join("pkg");
+        let server = package_root.join("bin").join("server.exe");
+        std::fs::create_dir_all(server.parent().unwrap()).expect("bin dir");
+        std::fs::write(&server, b"binary").expect("server file");
+        // The bundled fixture is API 1 (no settings requirement) with a
+        // packaged launch, so a real plan request succeeds.
+        let mut manifest =
+            crate::plugin_host::tests::read_fixture_for_tests("php-support.plugin.json");
+        manifest["languageServers"][0]["launch"] = serde_json::json!({
+            "kind": "packaged",
+            "path": "bin/server.exe"
+        });
+        let package = package_with_root(package_root, manifest);
+        let response = super::super::scan::core_execute(
+            "plugins.declarative.languageServerLaunchPlan",
+            serde_json::json!({
+                "manifest": package.manifest,
+                "languageID": "php",
+                "request": launch_request(
+                    &temporary.as_path().join("state"),
+                    &package,
+                    &temporary.as_path().to_string_lossy(),
+                    crate::plugin_host::settings::SettingLayers {
+                        global: Default::default(),
+                        project: Default::default(),
+                    },
+                ),
+            }),
+        )
+        .expect("real Core command executes");
+        assert_eq!(response["status"], "ok", "{response}");
+        // The production path passes the wrapped outcome; only the inner
+        // plan carries the launch.
+        let resolved = resolve_launch(&package, "php", &response["plan"]).expect("resolves");
+        assert_eq!(resolved.server_path, server.to_string_lossy());
+        let _ = std::fs::remove_dir_all(&temporary);
     }
 
     #[test]

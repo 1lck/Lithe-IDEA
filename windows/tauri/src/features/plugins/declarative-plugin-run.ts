@@ -7,8 +7,9 @@ import {
   useRunStore,
 } from "@/features/run/stores/run.store";
 import { useUIState } from "@/features/window/stores/ui-state.store";
+import type { RunActionItem } from "@/features/run-actions/types/run-action.types";
 import {
-  listDeclarativePlugins,
+  invokeDeclarativePluginOwner,
   resolveDeclarativeRunPlan,
   type DeclarativeRunPlan,
 } from "./declarative-plugin-launch";
@@ -18,67 +19,41 @@ import { declarativePluginProcessOwner } from "./declarative-plugin-process-owne
  * Run actions for contract v1 plugins, mirroring the Worker extension run
  * path: Core expands the declared template, the shared run pipeline resolves
  * and starts the process, and the process owner tracks it per workspace and
- * plugin so disabling or uninstalling stops its sessions.
+ * plugin so disabling or uninstalling stops its sessions. File ownership
+ * comes from the host's live catalog (`declarative_plugins_language_owner`),
+ * so there is no second catalog to drift.
  */
 
-export interface DeclarativeRunTarget {
-  /** Run session ID, shaped `declarative:<pluginID>:<uuid>`. */
-  id: string;
-  title: string;
-}
-
-export function isDeclarativeRunEnabled(pluginId: string): boolean {
-  return findAcceptedPlugin(pluginId)?.enabled === true;
-}
-
-function findAcceptedPlugin(pluginId: string) {
-  // Synchronous accessors are not available on the cached Tauri state; the
-  // frontend keeps the scanned catalog in this module after each rescan.
-  return declarativeCatalog.find((plugin) => plugin.pluginId === pluginId);
-}
-
-let declarativeCatalog: Awaited<ReturnType<typeof listDeclarativePlugins>> = [];
-
-/** Refreshes the cached catalog; call after rescans and installs. */
-export function refreshDeclarativeCatalog(): void {
-  void listDeclarativePlugins().then((plugins) => {
-    declarativeCatalog = plugins;
-  });
-}
-
-export function declarativePluginForFile(
+/** The declarative run action for the file's owner, or null. */
+export async function declarativeRunActionForFile(
   filePath: string,
-): { pluginId: string; languageId: string } | null {
-  const lower = filePath.toLowerCase();
-  const dot = lower.lastIndexOf(".");
-  const extension = dot === -1 ? "" : lower.slice(dot + 1);
-  for (const plugin of declarativeCatalog) {
-    if (plugin.status !== "accepted" || !plugin.enabled) continue;
-    for (const language of plugin.languages) {
-      if (language.fileExtensions.some((declared) => declared.toLowerCase() === extension)) {
-        return { pluginId: plugin.pluginId, languageId: language.id };
-      }
-    }
-  }
-  return null;
+): Promise<RunActionItem | null> {
+  const owner = await invokeDeclarativePluginOwner(filePath);
+  if (!owner) return null;
+  return {
+    id: `declarative:${owner.pluginId}:${owner.languageId}`,
+    name: owner.displayName,
+    description: owner.languageId,
+    source: "declarative",
+    sourceLabel: owner.displayName,
+    declarativeOwner: { pluginId: owner.pluginId, languageId: owner.languageId },
+  };
 }
 
-export async function runDeclarativePluginFile(
-  filePath: string,
+export async function runDeclarativeAction(
+  action: RunActionItem,
   workspaceId: string,
   root: string,
-  userArguments: string[] = [],
+  filePath: string,
 ): Promise<void> {
-  const owner = declarativePluginForFile(filePath);
-  if (!owner) throw new Error("No enabled declarative plugin owns this file.");
-  const relative = toWorkspaceRelative(filePath, root);
+  const owner = action.declarativeOwner;
+  if (!owner) throw new Error("The action does not name a declarative plugin.");
   const plan = await resolveDeclarativeRunPlan(
     owner.pluginId,
     owner.languageId,
-    relative,
-    userArguments,
+    toWorkspaceRelative(filePath, root),
   );
-  await startDeclarativePlan(plan, workspaceId, root, relative);
+  await startDeclarativePlan(plan, workspaceId, root, filePath);
 }
 
 async function startDeclarativePlan(
@@ -101,7 +76,6 @@ async function startDeclarativePlan(
         executable: plan.executable,
         workingDirectory: plan.workingDirectory,
       });
-      if (!isDeclarativeRunEnabled(plan.pluginId)) return;
       bindRunSessionWorkspace(id, workspaceId);
       store.setState((state) => ({
         sessions: [

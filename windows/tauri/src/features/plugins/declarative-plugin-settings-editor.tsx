@@ -4,6 +4,7 @@ import Switch from "@/ui/switch";
 import NumberInput from "@/ui/number-input";
 import SettingsSelect from "@/ui/settings-select";
 import {
+  getDeclarativePluginManifest,
   resolveDeclarativeSettings,
   storeDeclarativeSetting,
   declarativeWorkspaceConfiguration,
@@ -36,11 +37,22 @@ export function DeclarativePluginSettingsEditor({
   const [values, setValues] = useState<ResolvedDeclarativeSetting[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Core re-validates the whole manifest on every resolve call, so the
+  // editor must send the full raw manifest from the host catalog — not an
+  // ID placeholder.
+  const [manifest, setManifest] = useState<Record<string, unknown> | null>(null);
+
+  useEffect(() => {
+    getDeclarativePluginManifest(pluginId)
+      .then((loaded) => setManifest(loaded))
+      .catch((reason: unknown) => setError(String(reason)));
+  }, [pluginId]);
 
   const refresh = useCallback(async () => {
     setError(null);
+    if (!manifest) return;
     try {
-      const outcome = await resolveDeclarativeSettings({ id: pluginId }, workspacePath ?? "");
+      const outcome = await resolveDeclarativeSettings(manifest, workspacePath ?? "");
       if (outcome.status !== "ok") {
         setError(t("settings.declarativePlugins.settingsUnavailable"));
         return;
@@ -49,7 +61,7 @@ export function DeclarativePluginSettingsEditor({
     } catch (reason) {
       setError(String(reason));
     }
-  }, [pluginId, workspacePath, t]);
+  }, [manifest, workspacePath, t]);
 
   useEffect(() => {
     void refresh();
@@ -64,12 +76,8 @@ export function DeclarativePluginSettingsEditor({
       const stored = value === setting.default ? null : value;
       await storeDeclarativeSetting(pluginId, setting.id, scope, workspacePath ?? "", stored);
       await refresh();
-      if (setting.effect === "immediate" && languageId) {
-        await declarativeWorkspaceConfiguration(
-          { id: pluginId },
-          languageId,
-          workspacePath ?? "",
-        );
+      if (setting.effect === "immediate" && languageId && manifest) {
+        await declarativeWorkspaceConfiguration(manifest, languageId, workspacePath ?? "");
       }
     } catch (reason) {
       setError(String(reason));
@@ -78,7 +86,17 @@ export function DeclarativePluginSettingsEditor({
     }
   };
 
-  if (!values.length) return null;
+  // Loading and error states stay visible; an empty settings list never
+  // hides a failed resolve.
+  if (!manifest) {
+    return error ? (
+      <div className="mt-2 flex flex-col gap-2 border-t border-border pt-2">
+        <p role="alert" className="text-destructive ui-text-sm">
+          {error}
+        </p>
+      </div>
+    ) : null;
+  }
   return (
     <div className="mt-2 flex flex-col gap-2 border-t border-border pt-2">
       <h4 className="ui-text-sm font-semibold">{t("settings.declarativePlugins.settings")}</h4>
