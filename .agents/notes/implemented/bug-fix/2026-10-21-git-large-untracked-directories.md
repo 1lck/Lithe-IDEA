@@ -4,7 +4,7 @@
 
 ## 先说结论
 
-一个没被忽略的构建目录（例如 `rust/lithe-core/target/`）曾让 Commit 面板出现 5,000 多条变更，帧率掉到 2 FPS（Issue #1385）。现在 Core 只把"整个目录都未跟踪、且里面没有嵌套仓库"的大目录报告成一条带文件数的目录汇总，用户展开时再一层一层列出。macOS 变更列表的每个标题和每一行都直接交给 `LazyVStack`（SwiftUI 的懒加载栈，只为屏幕上可见的行创建视图），变更再多也只构建可见行。
+一个没被忽略的构建目录（例如 `rust/lithe-core/target/`）曾让 Commit 面板出现 5,000 多条变更，帧率掉到 2 FPS（Issue #1385）。现在 Core 只把"整个目录都未跟踪、且里面没有嵌套仓库"的大目录报告成一条带文件数的目录汇总，用户展开时再一层一层列出。macOS 和 Windows 都接入了这个汇总。macOS 变更列表的每个标题和每一行都直接交给 `LazyVStack`（SwiftUI 的懒加载栈，只为屏幕上可见的行创建视图），变更再多也只构建可见行；Windows 的列表本来就是虚拟列表。
 
 ## 问题
 
@@ -21,7 +21,7 @@
 - 对这些目录，Core 用一次 `git ls-files --others --exclude-standard` 拿到其中的文件，再逐个决定：超过 100 个文件就报告成一条汇总（`path` 以 `/` 结尾并带 `untrackedFileCount`）；不超过 100 个文件仍按文件逐条报告，所以新建的小源码目录照常显示。
 - **含嵌套仓库的目录绝不汇总。** 例如 `.worktrees/` 里有 linked worktree（关联工作树），暂存 `.worktrees/` 会把这些独立仓库记成 gitlink（父仓库里的子仓库指针）。这种目录会继续向下拆分，直到每个汇总里都没有嵌套仓库。这样，对汇总路径执行暂存、丢弃或 diff，作用范围正好是它统计的那些文件。
 - `git.untrackedDirectory` 每次只列一层：直接子文件，以及每个子目录的汇总。
-- 不传这个参数时行为不变，Windows 目前仍拿到逐文件列表。
+- 不传这个参数时行为不变，一次性读取（例如 Windows 的 Shelf）仍拿到逐文件列表。
 
 **围绕汇总条目的操作也必须按目录工作**，否则会悄悄出错：
 
@@ -37,6 +37,13 @@
 - 逐条执行的写操作（Rollback、Shelve）先去掉同一批里被汇总覆盖的子项。否则同一个文件会在搁置补丁里写两次，恢复时 `git apply` 失败；或者汇总被清理后，子项的 `git restore` 报错并中断。
 - 把汇总移到 ChangeList 后，ChangeList 只记录 `dir/` 这一个键，目录下的文件继承它的归属。Core 的提交范围检查（`PathScope`）只按字面路径比较，所以 `commitScope` 会把继承归属的文件逐个列出。否则在该 ChangeList 中提交会被拒，而默认列表的提交会把这些文件一起带走。
 - `GitChangeSectionsCache.rows` 把仓库标题、ChangeList 标题和每一条变更拍平成一个行数组，`ForEach` 直接放在 `LazyVStack` 中。
+
+**Windows 端：**
+
+- 只有写入 `repositoryStatuses`（Windows 唯一的状态真源）的读取 `getRepositoryGitStatuses` 打开汇总。Shelf、Diff 审查、GitHub 等一次性读取继续使用逐文件的 `getGitStatus`。
+- 展开状态保存在 `git-untracked-directory-expansions.ts`，按仓库记录，不持久化。展开的内容在同一次状态读取中列出，并紧跟汇总写进仓库快照，然后像其他状态一样发布一次。这样 Commit 面板、项目树、页脚和编辑器看到的是同一份结果，没有第二份可写的状态。
+- 文件夹视图中，展开后的内容会形成一个同名文件夹，由这个文件夹代表该汇总：汇总行被移除，折叠这个文件夹就是收起汇总。已记住的文件夹折叠状态不会挡住展开的内容。
+- 项目树颜色、页脚计数、编辑器装订线和行历史查询，都按"汇总目录下的文件是未跟踪文件"处理；ChangeList 的继承规则和提交范围与 macOS 一致；删除时去掉被汇总覆盖的子项；汇总本身不参与 Diff。
 
 正确做法：新增大列表时，让每一行都是懒加载栈的直接子项，汇总和分组数据在缓存里一次算好。
 
@@ -66,7 +73,7 @@ LazyVStack {
 - 汇总目录本身不能直接查看 diff，要展开后逐个文件查看。
 - 展开状态下，每次刷新都要为每个展开的目录多调用一次 Git。
 - 一个已跟踪目录里直接放着大量未跟踪文件（不在子目录中）时，Core 无法安全地汇总，因为暂存这个目录会连同已跟踪文件的修改一起暂存。这种情况只依靠视图懒加载保证流畅。
-- Windows 尚未接入汇总，仍然逐文件显示。
+- Windows 每次读取状态时，每个展开的目录都要多调用一次 Core。
 
 ## 验证
 
@@ -76,6 +83,8 @@ LazyVStack {
 - `./scripts/verify-service-boundaries.sh`
 - `./scripts/verify-platform-feature-matrix.sh`
 - `./scripts/verify-agent-notes.sh`
+- `./scripts/verify-windows-boundaries.sh`
+- `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`
 
 实机验收步骤见功能矩阵 `git-large-untracked-directories`。组件测试不能替代真实仓库下的滚动和帧率检查。
 
@@ -87,3 +96,7 @@ LazyVStack {
 - `macos/Sources/LitheGitModule/Models/GitModels.swift`
 - `macos/Sources/Lithe/Views/Git/ChangesSidebarView.swift`
 - `macos/Sources/Lithe/Views/Git/GitChangeSectionsCache.swift`
+- `windows/tauri/src/features/git/api/git-status-api.ts`
+- `windows/tauri/src/features/git/services/git-untracked-directory-expansions.ts`
+- `windows/tauri/src/features/git/utils/git-untracked-directories.ts`
+- `windows/tauri/src/features/git/components/status/git-status-panel.tsx`

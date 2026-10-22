@@ -15,6 +15,11 @@ export interface GitFile {
   rawStatus?: string;
   /** Whether the worktree differs from the index for this path. */
   worktree?: boolean;
+  /**
+   * Set when this entry summarizes a wholly untracked directory: `path` ends
+   * with `/` and the entry stands for this many files.
+   */
+  untrackedFileCount?: number;
 }
 
 export interface GitStatus {
