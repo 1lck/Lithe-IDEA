@@ -9,6 +9,7 @@ import {
   projectWorkspaceGitStatus,
   type GitRepositoryStatuses,
 } from "../utils/git-workspace-status";
+import { listExpandedUntrackedDirectories } from "../services/git-untracked-directory-expansions";
 import {
   isNotGitRepositoryError,
   resolveRepositoryPath,
@@ -50,6 +51,7 @@ const queryGitStatus = async (
   repoPath: string,
   source: GitExecutionSource = "unknown",
   repositoryRoots: readonly string[] = [],
+  summarizeUntrackedDirectories = false,
 ): Promise<GitStatus | null> => {
   const resolvedRepoPath = await resolveRepositoryPath(repoPath);
 
@@ -57,7 +59,7 @@ const queryGitStatus = async (
     return null;
   }
 
-  const requestKey = `${resolvedRepoPath}\0${source}\0${JSON.stringify(repositoryRoots)}`;
+  const requestKey = `${resolvedRepoPath}\0${source}\0${JSON.stringify(repositoryRoots)}\0${summarizeUntrackedDirectories}`;
   const existingRequest = inFlightGitStatusRequests.get(requestKey);
   if (existingRequest) {
     return existingRequest;
@@ -67,22 +69,25 @@ const queryGitStatus = async (
   if (!gitStatusGenerations.has(resolvedRepoPath)) {
     gitStatusGenerations.set(resolvedRepoPath, generation);
   }
+  const payload = {
+    repoPath: resolvedRepoPath,
+    includeIndexOnlyChanges: true,
+    repositoryRoots,
+    ...(summarizeUntrackedDirectories ? { summarizeUntrackedDirectories } : {}),
+  };
   const request = (
     source === "unknown"
-      ? tauriInvoke<GitStatus>("git_status", {
-          repoPath: resolvedRepoPath,
-          includeIndexOnlyChanges: true,
-          repositoryRoots,
-        })
-      : tauriInvoke<GitStatus>(
-          "git_status",
-          { repoPath: resolvedRepoPath, includeIndexOnlyChanges: true, repositoryRoots },
-          { gitExecutionSource: source },
-        )
+      ? tauriInvoke<GitStatus>("git_status", payload)
+      : tauriInvoke<GitStatus>("git_status", payload, { gitExecutionSource: source })
   )
     .then((status) => {
       if (generation !== (gitStatusGenerations.get(resolvedRepoPath) ?? 0)) {
-        return queryGitStatus(resolvedRepoPath, source, repositoryRoots);
+        return queryGitStatus(
+          resolvedRepoPath,
+          source,
+          repositoryRoots,
+          summarizeUntrackedDirectories,
+        );
       }
       return status;
     })
@@ -116,7 +121,13 @@ export async function getWorkspaceRootGitStatus(
   return rootStatus;
 }
 
-/** Read raw repository snapshots; optional workspace roots may have no Git repository. */
+/**
+ * Read raw repository snapshots; optional workspace roots may have no Git repository.
+ *
+ * These snapshots feed `repositoryStatuses`, so a large wholly untracked
+ * directory arrives as one summary and expanded summaries list their contents
+ * here (#1385). One-off readers such as Shelve keep the file-level `getGitStatus`.
+ */
 export async function getRepositoryGitStatuses(
   repoPaths: readonly string[],
   source: GitExecutionSource = "unknown",
@@ -126,13 +137,50 @@ export async function getRepositoryGitStatuses(
   const required = new Set(requiredRepoPaths);
   const entries = await Promise.all(
     normalizedRepoPaths.map(async (repoPath) => {
-      const status = await queryGitStatus(repoPath, source, requiredRepoPaths);
+      const status = await queryGitStatus(repoPath, source, requiredRepoPaths, true);
       if (!status && required.has(repoPath))
         throw new Error("Git status query returned no snapshot");
-      return [repoPath, status] as const;
+      return [
+        repoPath,
+        status && (await withExpandedUntrackedDirectories(repoPath, status, requiredRepoPaths)),
+      ] as const;
     }),
   );
   return Object.fromEntries(entries);
+}
+
+async function withExpandedUntrackedDirectories(
+  repoPath: string,
+  status: GitStatus,
+  repositoryRoots: readonly string[],
+): Promise<GitStatus> {
+  const files = await listExpandedUntrackedDirectories(repoPath, status.files, (directory) =>
+    listUntrackedDirectory(repoPath, directory, repositoryRoots),
+  );
+  return files.length === status.files.length ? status : { ...status, files };
+}
+
+/**
+ * Lists the immediate files and subdirectory summaries of one summarized
+ * untracked directory, or null when Git could not list it.
+ */
+export async function listUntrackedDirectory(
+  repoPath: string,
+  directory: string,
+  repositoryRoots: readonly string[] = [],
+): Promise<GitFile[] | null> {
+  try {
+    const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
+    const listing = await tauriInvoke<{ files: GitFile[] }>("git.untrackedDirectory", {
+      repoPath: resolvedRepoPath,
+      directory,
+      repositoryRoots,
+    });
+    return listing.files;
+  } catch (error) {
+    console.error("Failed to list untracked directory:", error);
+    return null;
+  }
 }
 
 export const getWorkspaceGitStatus = async (

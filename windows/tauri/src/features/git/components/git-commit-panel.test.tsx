@@ -43,7 +43,13 @@ afterEach(async () => {
   // workspace-commit assertions read them).
   const commitStore = useWorkspaceCommitStore.getStore("A").getState();
   commitStore.setDraftOwner(null);
-  commitStore.workflow.setState({ busy: false, session: null, review: null, error: null });
+  commitStore.workflow.setState({
+    busy: false,
+    session: null,
+    review: null,
+    pushTargetPrompt: null,
+    error: null,
+  });
   container.remove();
   restoreDom();
   registry.resetForTests();
@@ -117,6 +123,25 @@ test("commit starts regular and passes the user's Amend choice to review", async
     await act(async () => commitButton()!.click());
     expect(prepare.mock.calls[1][0].amend).toBe(true);
     expect(prepare.mock.calls[1][0].message).toBe("Plain commit");
+  } finally {
+    prepare.mockRestore();
+  }
+});
+
+// Regression for #1331: Commit and Push used to await a client-side destination
+// preview and return silently when it produced no answer, so ordinary pushes did
+// nothing. The panel must always hand the request to the workflow, which asks Core.
+test("Commit and Push reaches the workflow directly with no destination preview", async () => {
+  await renderPanel({ message: "Ship it" });
+  const workflow = useWorkspaceCommitStore.getStore("A").getState().workflow;
+  const prepare = spyOn(workflow, "prepare").mockResolvedValue(undefined);
+  try {
+    await act(async () => buttonByText("Commit and Push...")!.click());
+    expect(prepare).toHaveBeenCalledTimes(1);
+    const request = prepare.mock.calls[0][0];
+    expect(request.push).toBe(true);
+    expect(request.message).toBe("Ship it");
+    expect(request.pushTargets).toBeUndefined();
   } finally {
     prepare.mockRestore();
   }

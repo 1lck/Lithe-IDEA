@@ -2,6 +2,7 @@ import type { ReviewRow } from "@lithe/editor/diff-review";
 import type { GitDiff, GitDiffLine, GitFile, GitHunk } from "../types/git.types";
 import { normalizeRepositoryPath } from "../api/git-repository-path";
 import { parseDiffHunkRange } from "./git-diff-helpers";
+import { findContainingUntrackedDirectory } from "./git-untracked-directories";
 
 /** Aggregated workspace status must match both repository and relative path. */
 export function isGitGutterFileUntracked(
@@ -9,11 +10,14 @@ export function isGitGutterFileUntracked(
   repoPath: string,
   filePath: string,
 ): boolean {
-  return files.some((file) =>
-    file.status === "untracked" &&
-    (!file.repositoryPath ||
-      normalizeRepositoryPath(file.repositoryPath) === normalizeRepositoryPath(repoPath)) &&
-    (file.repositoryRelativePath ?? file.path) === filePath,
+  return (
+    files.some(
+      (file) =>
+        file.status === "untracked" &&
+        (!file.repositoryPath ||
+          normalizeRepositoryPath(file.repositoryPath) === normalizeRepositoryPath(repoPath)) &&
+        (file.repositoryRelativePath ?? file.path) === filePath,
+    ) || findContainingUntrackedDirectory(files, repoPath, filePath) !== undefined
   );
 }
 
