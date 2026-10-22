@@ -1,7 +1,7 @@
 //! Serializable response models shared across every host boundary.
 
 use crate::protocol::CoreError;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 #[derive(Debug, Serialize)]
@@ -740,6 +740,26 @@ pub struct GitHistoryCursorCloseResponse {
     pub closed: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// How the resolved push destination relates to the local branch's upstream.
+///
+/// Callers use this to decide whether a push is a routine repeat of the same
+/// branch name or a decision the user has to confirm explicitly.
+pub enum GitPushTargetKind {
+    /// The branch has no upstream; pushing publishes it to the same-named
+    /// remote branch.
+    #[serde(rename = "publish")]
+    Publish,
+    /// The upstream branch has the same name as the local branch.
+    #[serde(rename = "tracking")]
+    Tracking,
+    /// The upstream branch name differs from the local branch name. Pushing
+    /// here would update a different branch, so it must not happen implicitly.
+    #[serde(rename = "divergent")]
+    Divergent,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 /// Resolved destination and bounded commits for one branch push.
@@ -752,6 +772,10 @@ pub struct GitPushPreviewResponse {
     pub remote: String,
     /// Branch name created or updated on the remote.
     pub remote_branch: String,
+    /// How the destination relates to the configured upstream.
+    pub target_kind: GitPushTargetKind,
+    /// Whether the destination branch does not exist on the remote yet.
+    pub creates_remote_branch: bool,
     /// Locally observed destination OID, or `None` before first publication.
     pub remote_tracking_oid: Option<String>,
     /// Configured upstream short name, or `None` before first publication.
