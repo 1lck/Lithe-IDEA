@@ -301,9 +301,9 @@ jobs:
       - name: Test Agent native adapters and settings in isolation
         shell: pwsh
         run: |
-          $suites = @('agent-linked-launch', 'agent-pasted-images', 'agent-provider-editor', 'agent-edit-review-buffer', 'agent-settings-persistence')
+          $suites = @('agent-linked-launch', 'agent-pasted-images', 'agent-provider-editor', 'agent-edit-review-buffer', 'agent-settings-persistence', 'agent-file-context-menu')
           foreach ($suite in $suites) {
-            $path = Get-ChildItem "tests/$suite.test.*" | Select-Object -ExpandProperty FullName
+            $path = Get-ChildItem "windows/tauri/tests/$suite.test.*" | Select-Object -ExpandProperty FullName
             node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report ".artifacts/test-stability/windows-$suite.json" -- $path
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }

@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeEach, expect, mock, test } from "bun:test";
 import { act, useState } from "react";
 import type { Root } from "react-dom/client";
 import { installHappyDom } from "../src/test-utils/happy-dom";
-import { CLAUDE_AGENT_ID, normalizeAgentPanelSettings, type AgentPanelSettings } from "../src/features/agent/types/agent-settings.types";
+import { CLAUDE_AGENT_ID, CODEX_AGENT_ID, normalizeAgentPanelSettings, type AgentPanelSettings } from "../src/features/agent/types/agent-settings.types";
 import type { AgentManagement } from "../src/features/agent/hooks/use-agent-management";
 
 const restoreDom = installHappyDom();
@@ -20,7 +20,8 @@ mock.module("@/features/settings/stores/settings.store", () => ({ useSettingsSto
   agentSettingsError: () => null,
 } } }));
 mock.module("@/features/agent/services/agent-launch", () => ({ readAgentApiKey: async () => "fixture-key" }));
-mock.module("@/platform/tauri-core", () => ({ invoke: async (_command: string, args: { configuration: string }) => {
+mock.module("@/platform/tauri-core", () => ({ invoke: async (_command: string, args: { source: string; configuration: string }) => {
+  if (args.source === "codex") return { apiProtocol: "responses", endpoint: "https://codex.example.test/v1", model: "imported-codex-model" };
   const config = JSON.parse(args.configuration).env;
   return { apiProtocol: "anthropicMessages", endpoint: config.ANTHROPIC_BASE_URL ?? "", model: config.ANTHROPIC_MODEL ?? "" };
 } }));
@@ -102,3 +103,27 @@ test("form and configuration text roundtrip keeps credentials in the unsaved edi
   expect(transactions).toHaveLength(0);
   await click("ui.cancel");
 });
+
+for (const agentId of [CODEX_AGENT_ID, CLAUDE_AGENT_ID]) {
+  test(`${agentId} text import can be saved immediately with its imported credential`, async () => {
+    initial = normalizeAgentPanelSettings({ ...initial, agentId, provider: { ...initial.provider,
+      protocol: agentId === CODEX_AGENT_ID ? "responses" : "anthropicMessages" } });
+    await act(async () => { publish(initial); });
+    await click("agent.settings.editProvider");
+    await click("agent.settings.textMode");
+    const source = agentId === CODEX_AGENT_ID ? "codex" : "claude";
+    const endpoint = `https://${source}.example.test/v1`;
+    const key = `imported-${source}-key`;
+    await input("agent.settings.importConfiguration", source === "codex"
+      ? `model_provider = "fixture"\nmodel = "imported-codex-model"\n[model_providers.fixture]\nbase_url = "${endpoint}"\nwire_api = "responses"\n`
+      : JSON.stringify({ env: { ANTHROPIC_BASE_URL: endpoint, ANTHROPIC_MODEL: "imported-claude-model", ANTHROPIC_API_KEY: key } }));
+    if (source === "codex") await input("agent.settings.authJson", JSON.stringify({ OPENAI_API_KEY: key }));
+    await click("agent.settings.importConfigurationAction");
+    expect(transactions).toHaveLength(0);
+    await click("ui.save");
+    expect(transactions).toHaveLength(1);
+    expect(transactions[0]!.next.provider).toMatchObject({ baseUrl: endpoint, model: `imported-${source}-model` });
+    expect(transactions[0]!.key.value).toBe(key);
+    expect(JSON.stringify(transactions[0]!.next)).not.toContain(key);
+  });
+}

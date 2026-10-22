@@ -40,7 +40,7 @@ import {
   type AgentSubscriptionQuota,
 } from "../types/agent.types";
 import { parseTurnUsage, startTurn } from "../types/agent-turn-statistics";
-import { addModelCall, childSubtree, finishChildren, parseModelCall, parseNotice, terminalChild, updateChild, type AgentNotice } from "../types/agent-observations";
+import { addModelCall, childSubtree, finishChildren, parseModelCall, parseNotice, retainSubagentHistory, terminalChild, updateChild, type AgentNotice } from "../types/agent-observations";
 import { contextModels, type AgentStatisticsStore } from "../types/agent-session-statistics";
 import type {
   AgentLaunchConfiguration,
@@ -1321,10 +1321,10 @@ export class AgentConnectionModel {
       if (!id || id === rootID || this.snapshot.conversations[id] !== undefined || this.snapshot.sessions.some((session) => session.id === id)) return true;
       const existing = root.subagents.find((child) => child.id === id);
       if (update.sessionUpdate === "subagent_spawned") {
-        if (existing !== undefined || root.subagents.length >= 64 || (!root.isResponding && !root.isLoading)) return true;
+        if (existing !== undefined || (!root.isResponding && !root.isLoading)) return true;
         if (Object.values(this.snapshot.conversations).some((view) => view.subagents.some((child) => child.id === id))) return true;
         this.editConversation(rootID, (current) => ({ ...current, quiet: false, retry: null,
-          subagents: [...current.subagents, { id, parentID, name: asString(update.name) ?? id, task: asString(update.task) ?? "", state: "running", messages: [], plan: [], contextUsage: null }],
+          subagents: retainSubagentHistory([...current.subagents, { id, parentID, name: asString(update.name) ?? id, task: asString(update.task) ?? "", state: "running", messages: [], plan: [], contextUsage: null }]),
         }));
       } else {
         if (existing === undefined || existing.parentID !== parentID || terminalChild(existing)) return true;

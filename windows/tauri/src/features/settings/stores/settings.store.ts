@@ -65,8 +65,9 @@ const useSettingsStoreBase = create(
         actions: {
           commitAgentProvider: async (expected: AgentPanelSettings, next: AgentPanelSettings, credential?: AgentCredentialChange) => {
             try {
-              await commitAgentPanelSettings(expected, next, credential);
+              const committed = await commitAgentPanelSettings(expected, next, credential);
               set((state) => { state.agentSettingsError = null; });
+              return committed;
             } catch (error) {
               set((state) => { state.agentSettingsError = String(error).includes("agent.settings.conflict") ? "agent.settings.conflict" : "agent.settings.saveFailed"; });
               throw error;

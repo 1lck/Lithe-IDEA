@@ -1,4 +1,5 @@
 import { toast } from "sonner";
+import isEqual from "fast-deep-equal";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
@@ -47,9 +48,9 @@ export function useAgentFileContextMenu() {
         addFileReferences(useAgentSurfaceStore.getState().drafts[key]?.files ?? [], uris);
         let expected = settings;
         if (next !== settings) {
-          const saving = useSettingsStore.getState().actions.updateSetting("agentPanel", next);
+          const committed = await useSettingsStore.getState().actions.commitAgentProvider(settings, next);
           expected = useSettingsStore.getState().settings.agentPanel;
-          await saving;
+          if (!isEqual(expected, committed)) throw new Error("agent.context.stale");
         }
         if (useFileSystemStore.getState().rootFolderPath !== workspace ||
           useSettingsStore.getState().settings.agentPanel !== expected) throw new Error("agent.context.stale");
@@ -79,17 +80,17 @@ export function useAgentFileContextMenu() {
     const destinations: MenuItem[] = ids.map((id) => {
       const candidate = selectAgentConfiguration(settings, id);
       return { id: `agent-${id}`, label: AGENT_LABELS[id] ?? id, onClick: () => {}, children: [
-        { id: `agent-${id}-new`, label: t("agent.context.new"), onClick: () => void attach(id, null) },
+        { id: `agent-${id}-new`, label: t("agent.context.new"), onClick: () => attach(id, null) },
         ...cachedAgentSessions(workspace, candidate).map((session) => ({
           id: `agent-${id}-${session.id}`,
           label: `${id === settings.agentId && selected === session.id ? "✓ " : ""}${session.title ?? t("agent.tabs.untitled")} · ${session.id.slice(0, 8)}`,
-          onClick: () => void attach(id, session.id),
+          onClick: () => attach(id, session.id),
         })),
       ] };
     });
     const quick: MenuItem[] = ids.includes(settings.agentId) ? [{
       id: "agent-current", label: `${AGENT_LABELS[settings.agentId] ?? settings.agentId} · ${t("agent.context.current")}`,
-      onClick: () => void attach(settings.agentId, selected),
+      onClick: () => attach(settings.agentId, selected),
     }] : [];
     return [{ id: "agent-attach", label: t("agent.context.attach"), onClick: () => {}, children: [...quick, ...destinations] }];
   };

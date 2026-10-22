@@ -42,6 +42,16 @@ function count(value: unknown): number | null {
 }
 export function terminalChild(child: AgentSubagent): boolean { return child.state !== "running"; }
 
+const MAX_FINISHED_SUBAGENTS = 64;
+
+/** Bound historical display records without evicting live permission owners. */
+export function retainSubagentHistory(children: AgentSubagent[]): AgentSubagent[] {
+  const finished = children.filter(terminalChild);
+  if (finished.length <= MAX_FINISHED_SUBAGENTS) return children;
+  const retained = new Set(finished.slice(-MAX_FINISHED_SUBAGENTS).map((child) => child.id));
+  return children.filter((child) => !terminalChild(child) || retained.has(child.id));
+}
+
 /** All descendants, including the target. Ownership is immutable after spawn. */
 export function childSubtree(children: AgentSubagent[], id: string): Set<string> {
   const ids = new Set([id]);
@@ -55,8 +65,8 @@ export function childSubtree(children: AgentSubagent[], id: string): Set<string>
 
 export function finishChildren(children: AgentSubagent[], parentID?: string): AgentSubagent[] {
   const ids = parentID === undefined ? null : childSubtree(children, parentID);
-  return children.map((child) => !terminalChild(child) && (ids === null || ids.has(child.id))
-    ? { ...child, state: "disconnected", messages: interruptPendingTools({ ...createConversation(), messages: child.messages }).messages } : child);
+  return retainSubagentHistory(children.map((child) => !terminalChild(child) && (ids === null || ids.has(child.id))
+    ? { ...child, state: "disconnected", messages: interruptPendingTools({ ...createConversation(), messages: child.messages }).messages } : child));
 }
 
 export function updateChild(child: AgentSubagent, update: Record<string, unknown>): AgentSubagent {

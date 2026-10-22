@@ -223,6 +223,8 @@ export function AgentSettingsSection({
       if (editor !== null) {
         onChange({ ...settings, provider: providerSettings });
         if (key) setApiKeyDraft(key);
+        // Import consumes the text into the form draft, including its secret.
+        setTextMode(false);
       } else {
         await commitAgentProvider(savedSettings, updateAgentProvider(savedSettings, providerSettings));
       }

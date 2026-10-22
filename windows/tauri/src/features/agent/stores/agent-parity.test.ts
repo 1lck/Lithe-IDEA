@@ -160,6 +160,44 @@ describe("Agent parity lifecycle", () => {
     expect(view().pendingPermissions).toEqual([]);
   });
 
+  for (const nextTurn of [false, true]) {
+    test(`completed child history cannot block new child permissions (nextTurn=${nextTurn})`, () => {
+      model.send("Inspect many tasks");
+      for (let index = 0; index < 70; index++) {
+        const id = `completed-${index}`;
+        update({ sessionUpdate: "subagent_spawned", subagentSessionId: id });
+        update({ sessionUpdate: "subagent_state_update", subagentSessionId: id, state: "completed" });
+      }
+      if (nextTurn) {
+        deliver({ kind: "turnFinished", sessionId: "session-1", stopReason: "end_turn" });
+        model.send("Continue inspection");
+      }
+      update({ sessionUpdate: "subagent_spawned", subagentSessionId: "live-child" });
+      deliver({ kind: "permission", sessionId: "session-1", requestId: "live-permission", request: { sessionId: "live-child", options: [] } });
+      expect(view().pendingPermissions.map((prompt) => prompt.id)).toEqual(["live-permission"]);
+      expect(view().subagents.find((child) => child.id === "live-child")?.state).toBe("running");
+      expect(view().subagents.filter((child) => child.state !== "running")).toHaveLength(64);
+      expect(view().subagents.some((child) => child.id === "completed-0")).toBe(false);
+    });
+  }
+
+  test("more than 64 active children retain permission ownership until they terminate", () => {
+    model.send("Inspect concurrent tasks");
+    for (let index = 0; index < 70; index++) {
+      const id = `active-${index}`;
+      update({ sessionUpdate: "subagent_spawned", subagentSessionId: id });
+      deliver({ kind: "permission", sessionId: "session-1", requestId: id, request: { sessionId: id, options: [] } });
+    }
+    expect(view().subagents).toHaveLength(70);
+    expect(view().pendingPermissions).toHaveLength(70);
+    update({ sessionUpdate: "subagent_state_update", subagentSessionId: "active-69", state: "completed" });
+    expect(view().pendingPermissions).toHaveLength(69);
+    expect(view().pendingPermissions.some((prompt) => prompt.id === "active-69")).toBe(false);
+    deliver({ kind: "turnFinished", sessionId: "session-1", stopReason: "end_turn" });
+    expect(view().subagents).toHaveLength(64);
+    expect(view().pendingPermissions).toEqual([]);
+  });
+
   test("unannounced child traffic cannot become a root conversation", () => {
     deliver(fixture.events.subagentMessageChunk);
     expect(model.getSnapshot().conversations["child-1"]).toBeUndefined();

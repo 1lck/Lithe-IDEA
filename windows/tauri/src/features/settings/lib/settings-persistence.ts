@@ -32,7 +32,7 @@ export interface AgentCredentialChange {
 }
 
 /** Serialize this window's edits; the host compares the persisted revision atomically. */
-export function commitAgentPanelSettings(expected: AgentPanelSettings, next: AgentPanelSettings, credential?: AgentCredentialChange): Promise<void> {
+export function commitAgentPanelSettings(expected: AgentPanelSettings, next: AgentPanelSettings, credential?: AgentCredentialChange): Promise<AgentPanelSettings> {
   agentPanelPending += 1;
   const operation = agentPanelQueue.then(async () => {
     await getSettingsStore();
@@ -41,6 +41,7 @@ export function commitAgentPanelSettings(expected: AgentPanelSettings, next: Age
     }
     await invoke("commit_agent_panel_settings", { expected: agentPanelRevision ?? null, next, credential: credential ?? null });
     agentPanelRevision = JSON.parse(JSON.stringify(next));
+    return normalizeAgentPanelSettings(agentPanelRevision);
   });
   const settled = operation.finally(async () => {
     try {
