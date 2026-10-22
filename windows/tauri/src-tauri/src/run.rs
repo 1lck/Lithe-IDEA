@@ -35,6 +35,8 @@ const RUN_OUTPUT_QUEUE_CAPACITY_CHUNKS: usize = 64;
 // A Job Object ends its processes at once; this only bounds a process stuck in
 // the kernel, which is then reported instead of being assumed stopped.
 const RUN_STOP_TIMEOUT: Duration = Duration::from_secs(10);
+// The exit code `ProcessTree` gives every process it ends.
+const STOPPED_EXIT_CODE: i32 = 1;
 const SKIPPED_DIRECTORIES: &[&str] = &[
     "target",
     "node_modules",
@@ -255,16 +257,50 @@ fn owned_processes(
 /// The window closes, or the update installs, only after this succeeds; a
 /// session whose tree could not be confirmed ended stays listed and is
 /// reported.
+///
+/// Each stopped session is reported to its window as exited. Its exit waiter
+/// no longer owns the table entry and stays silent, and the window may outlive
+/// this stop, for example when the update install fails afterwards.
 #[tauri::command]
-pub async fn run_stop_owned_processes(window_label: Option<String>) -> Result<(), String> {
+pub async fn run_stop_owned_processes(
+    app: AppHandle,
+    window_label: Option<String>,
+) -> Result<(), String> {
     let owned = take_owned_sessions(|key| {
         window_label
             .as_deref()
             .is_none_or(|label| key.window_label == label)
     });
-    tauri::async_runtime::spawn_blocking(move || stop_sessions(owned, RUN_STOP_TIMEOUT))
-        .await
-        .map_err(|error| format!("Run stop failed: {error}"))?
+    let stopping = owned
+        .iter()
+        .map(|(key, session)| (key.clone(), session.pid))
+        .collect::<Vec<_>>();
+    let result =
+        tauri::async_runtime::spawn_blocking(move || stop_sessions(owned, RUN_STOP_TIMEOUT))
+            .await
+            .map_err(|error| format!("Run stop failed: {error}"))?;
+    let still_running = {
+        let current = sessions()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        stopping
+            .iter()
+            .map(|(key, pid)| current.get(key).is_some_and(|session| session.pid == *pid))
+            .collect::<Vec<_>>()
+    };
+    for ((key, _), running) in stopping.into_iter().zip(still_running) {
+        // A session that did not stop went back into the table; its exit
+        // waiter still reports it.
+        if running {
+            continue;
+        }
+        let _ = app.emit_to(
+            &key.window_label,
+            "run-exit",
+            json!({ "sessionId": key.session_id, "exitCode": STOPPED_EXIT_CODE }),
+        );
+    }
+    result
 }
 
 /// Ends every Run process a destroyed window owns, including launches still
