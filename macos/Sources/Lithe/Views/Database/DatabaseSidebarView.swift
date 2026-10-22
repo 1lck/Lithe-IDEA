@@ -60,9 +60,6 @@ struct DatabaseSidebarView: View {
     @State private var showsTableActionConfirmation = false
     @State private var pendingRedisProfile: DatabaseProfile?
     @State private var showsRedisFlushConfirmation = false
-    @State private var showsDBXImporter = false
-    @State private var showsDBXImportSheet = false
-    @State private var dbxImportData: Data?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -87,12 +84,6 @@ struct DatabaseSidebarView: View {
                         }
                             .litheToolbarIconButton().workbenchHoverHelp(Text("New Folder"))
                             .accessibilityLabel("New Folder")
-                        Button { showsDBXImporter = true } label: {
-                            LitheIDEAIcon(resourcePath: "expui/general/import.svg",
-                                size: LitheTheme.Metrics.toolbarIconSize, preservesOriginalColors: true)
-                        }
-                            .litheToolbarIconButton().workbenchHoverHelp(Text("Import connections from DBX"))
-                            .accessibilityLabel("Import connections from DBX")
                         Button { collapseAll() } label: {
                             LitheIDEAIcon(resourcePath: "expui/general/collapseAll.svg",
                                 size: LitheTheme.Metrics.toolbarIconSize, preservesOriginalColors: true)
@@ -232,16 +223,6 @@ struct DatabaseSidebarView: View {
                 .environment(\.locale, model.settings.language.locale)
                 .id(model.settings.language)
         })
-        .background(LitheCenteredPopup(isPresented: $showsDBXImportSheet, dialogTitle: String(localized: "Import Connections from DBX")) {
-            if let dbxImportData {
-                DatabaseDBXImportSheet(isPresented: $showsDBXImportSheet, data: dbxImportData)
-                    .environment(\.locale, model.settings.language.locale)
-                    .id(model.settings.language)
-            }
-        })
-        .onChange(of: showsDBXImportSheet) { shown in
-            if !shown { dbxImportData = nil }
-        }
         .alert("Remove folder?", isPresented: $showsFolderDeletionConfirmation, presenting: folderPendingDeletion) { folder in
             Button("Remove Folder", role: .destructive) {
                 feature.removeFolder(folder)
@@ -292,23 +273,8 @@ struct DatabaseSidebarView: View {
         .fileImporter(isPresented: $showsImporter, allowedContentTypes: [importFormat.contentType]) { result in
             importFile(result)
         }
-        .fileImporter(isPresented: $showsDBXImporter, allowedContentTypes: [.json]) { result in
-            importDBXFile(result)
-        }
         .onChange(of: feature.selectedProfileID) { selectedID in
             if let selectedID { expandedProfileIDs = [selectedID] }
-        }
-    }
-
-    private func importDBXFile(_ result: Result<URL, Error>) {
-        do {
-            let url = try result.get()
-            let accessed = url.startAccessingSecurityScopedResource()
-            defer { if accessed { url.stopAccessingSecurityScopedResource() } }
-            dbxImportData = try feature.readImportData(from: url)
-            showsDBXImportSheet = true
-        } catch {
-            feature.errorMessage = error.localizedDescription
         }
     }
 
@@ -1176,238 +1142,6 @@ struct DatabaseSidebarView: View {
     }
 }
 
-private struct DatabaseDBXImportSheet: View {
-    @EnvironmentObject private var feature: DatabaseFeatureModel
-    @Binding var isPresented: Bool
-    @FocusState private var passphraseFocused: Bool
-
-    let data: Data
-    @State private var passphrase = ""
-    @State private var plan: DatabaseDBXImportPlan?
-    @State private var selectedIDs: Set<UUID> = []
-    @State private var errorMessage: String?
-    @State private var isReading = false
-
-    private let service = DatabaseDBXImportService()
-    private var isEncrypted: Bool { service.isEncrypted(data) }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            Text("Connections are saved without testing them. Passwords are stored in Keychain.")
-                .font(LitheTheme.uiFont(size: 13))
-                .foregroundStyle(LitheTheme.secondaryText)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(16)
-            Rectangle().fill(LitheTheme.divider).frame(height: 1)
-
-            Group {
-                if let plan {
-                    preview(plan)
-                } else {
-                    unlockView
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-            Rectangle().fill(LitheTheme.divider).frame(height: 1)
-            HStack(spacing: LitheTheme.ActionButton.spacing) {
-                if plan != nil {
-                    Text("\(selectedIDs.count) connections selected")
-                        .font(LitheTheme.uiFont(size: 10.5))
-                        .foregroundStyle(LitheTheme.secondaryText)
-                        .monospacedDigit()
-                }
-                Spacer()
-                Button("Cancel") { isPresented = false }
-                    .buttonStyle(LitheActionButtonStyle())
-                    .keyboardShortcut(.cancelAction)
-                if let plan {
-                    Button("Import Selected") {
-                        let count = feature.importDBXConnections(plan: plan, selectedIDs: selectedIDs)
-                        if count > 0 { isPresented = false }
-                    }
-                    .buttonStyle(LitheActionButtonStyle(isPrimary: true))
-                    .disabled(selectedIDs.isEmpty)
-                }
-            }
-            .padding(.horizontal, 16)
-            .frame(height: 54)
-            .background(LitheCommitDialogStyle.background)
-        }
-        .frame(width: 680, height: 560)
-        .background(LitheCommitDialogStyle.background)
-        .foregroundStyle(LitheTheme.primaryText)
-        .onAppear {
-            if !isEncrypted { readFile() }
-        }
-        .onDisappear { passphrase = "" }
-    }
-
-    private var unlockView: some View {
-        VStack(spacing: 14) {
-            Spacer()
-            LitheIDEAIcon(resourcePath: isEncrypted ? "expui/general/locked.svg" : "expui/general/import.svg", size: 16, preservesOriginalColors: true)
-            Text(isEncrypted ? "Encrypted DBX Export" : "Reading DBX Export")
-                .font(LitheTheme.uiFont(size: 13, weight: .semibold))
-            if isEncrypted {
-                Text("Enter the password used when this connection file was exported from DBX.")
-                    .font(LitheTheme.uiFont(size: 11))
-                    .foregroundStyle(LitheTheme.secondaryText)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: 360)
-                SecureField("DBX export password", text: $passphrase)
-                    .focused($passphraseFocused)
-                    .modifier(LitheCommitDialogInputStyle(focused: passphraseFocused))
-                    .frame(width: 320)
-                    .onSubmit(readFile)
-            }
-            if let errorMessage {
-                DatabaseLocalization.text(errorMessage)
-                    .font(LitheTheme.uiFont(size: 10.5))
-                    .foregroundStyle(LitheTheme.error)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: 420)
-            }
-            if isReading {
-                ProgressView("Reading connection configuration…")
-                    .controlSize(.small)
-            } else if isEncrypted {
-                Button("Read DBX Export") { readFile() }
-                    .buttonStyle(LitheActionButtonStyle(isPrimary: true))
-                    .disabled(passphrase.isEmpty)
-            }
-            Spacer()
-        }
-        .padding(24)
-    }
-
-    private func preview(_ plan: DatabaseDBXImportPlan) -> some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 18) {
-                summaryValue(plan.importableCount, label: "Ready")
-                summaryValue(plan.duplicateCount, label: "Duplicates")
-                summaryValue(plan.unsupportedCount, label: "Unsupported")
-                summaryValue(plan.folders.count, label: "Folders")
-                Spacer()
-                if plan.wasEncrypted {
-                    Text("Passwords decrypted")
-                        .font(LitheTheme.uiFont(size: 10, weight: .medium))
-                        .foregroundStyle(LitheTheme.success)
-                }
-            }
-            .padding(.horizontal, 16)
-            .frame(height: 54)
-            .background(LitheTheme.inputBackground.opacity(0.55))
-
-            Rectangle().fill(LitheTheme.divider).frame(height: 1)
-
-            ScrollView {
-                LazyVStack(spacing: 1) {
-                    ForEach(plan.candidates) { candidate in
-                        candidateRow(candidate)
-                    }
-                    if !plan.unsupportedTypes.isEmpty {
-                        LitheBanner(status: .warning) {
-                            Text("Unsupported DBX database types").litheBannerTitle()
-                            Text(plan.unsupportedTypes.sorted(by: { $0.key < $1.key }).map { "\($0.key) × \($0.value)" }.joined(separator: ", "))
-                                .font(LitheTheme.uiFont(size: 13, design: .monospaced))
-                        }
-                    }
-                }
-                .padding(10)
-            }
-        }
-    }
-
-    private func summaryValue(_ value: Int, label: LocalizedStringKey) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text("\(value)").font(LitheTheme.uiFont(size: 13, weight: .semibold, design: .monospaced))
-            Text(label).font(LitheTheme.uiFont(size: 9.5)).foregroundStyle(LitheTheme.tertiaryText)
-        }
-    }
-
-    private func candidateRow(_ candidate: DatabaseDBXImportCandidate) -> some View {
-        let isSelected = selectedIDs.contains(candidate.id)
-        return Button {
-            guard !candidate.isDuplicate else { return }
-            if isSelected { selectedIDs.remove(candidate.id) }
-            else { selectedIDs.insert(candidate.id) }
-        } label: {
-            HStack(spacing: 10) {
-                LitheIDEAIcon(resourcePath: candidate.isDuplicate ? "commit/checkBoxDisabled.svg" : (isSelected ? "commit/checkBoxSelected.svg" : "commit/checkBox.svg"), size: 16, preservesOriginalColors: true)
-                    .frame(width: 18)
-                DatabaseBrandIcon(kind: candidate.profile.kind, size: 18)
-                    .frame(width: 22)
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 7) {
-                        Text(candidate.profile.name)
-                            .font(LitheTheme.uiFont(size: 13))
-                            .lineLimit(1)
-                        if candidate.isDuplicate {
-                            Text("Duplicate")
-                                .font(LitheTheme.uiFont(size: 9, weight: .medium))
-                                .foregroundStyle(LitheTheme.tertiaryText)
-                        } else if !candidate.warnings.isEmpty {
-                            Text("Review")
-                                .font(LitheTheme.uiFont(size: 9, weight: .medium))
-                                .foregroundStyle(LitheTheme.warning)
-                        }
-                    }
-                    Text(candidateSubtitle(candidate.profile))
-                        .font(LitheTheme.uiFont(size: 10, design: .monospaced))
-                        .foregroundStyle(LitheTheme.secondaryText)
-                        .lineLimit(1)
-                    ForEach(candidate.warnings, id: \.self) { warning in
-                        DatabaseLocalization.text(warning)
-                            .font(LitheTheme.uiFont(size: 9.5))
-                            .foregroundStyle(LitheTheme.warning)
-                            .lineLimit(1)
-                    }
-                }
-                Spacer()
-                Text(candidate.profile.kind.displayName)
-                    .font(LitheTheme.uiFont(size: 9.5, weight: .medium))
-                    .foregroundStyle(LitheTheme.tertiaryText)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.litheNoPress)
-        .disabled(candidate.isDuplicate)
-        .litheRowHover(isActive: isSelected, activeBackground: LitheTheme.subtleSelection,
-                       hoverBackground: candidate.isDuplicate ? .clear : LitheTheme.hoverBackground)
-    }
-
-    private func candidateSubtitle(_ profile: DatabaseProfile) -> String {
-        if profile.kind == .sqlite { return profile.path }
-        let endpoint = profile.port > 0 ? "\(profile.host):\(profile.port)" : profile.host
-        return profile.username.isEmpty ? endpoint : "\(profile.username) @ \(endpoint)"
-    }
-
-    private func readFile() {
-        guard !isReading else { return }
-        isReading = true
-        errorMessage = nil
-        let data = data
-        let passphrase = isEncrypted ? passphrase : nil
-        let profiles = feature.profiles
-        Task {
-            do {
-                let parsed = try await Task.detached {
-                    try service.parse(data: data, passphrase: passphrase, existingProfiles: profiles)
-                }.value
-                plan = parsed
-                selectedIDs = Set(parsed.candidates.filter { !$0.isDuplicate }.map(\.id))
-                self.passphrase = ""
-            } catch {
-                errorMessage = error.localizedDescription
-            }
-            isReading = false
-        }
-    }
-}
 
 private enum DatabaseConnectionSort: String, CaseIterable, Identifiable {
     case name

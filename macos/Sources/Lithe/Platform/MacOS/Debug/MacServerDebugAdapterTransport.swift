@@ -19,9 +19,6 @@ protocol DebugAdapterSocketConnection: AnyObject {
     func stop()
 }
 
-/// Compatibility name for the first TCP adapter implementation and its tests.
-typealias DlvSocketConnection = DebugAdapterSocketConnection
-
 @MainActor
 final class NetworkDebugAdapterSocketConnection: DebugAdapterSocketConnection {
     private let connection: NWConnection
@@ -350,7 +347,7 @@ final class MacDlvDebugAdapterTransport: MacServerDebugAdapterTransport {
         executableURL: URL,
         environment: [String: String],
         process: any RawProcessSession,
-        socketFactory: @escaping @MainActor (String, UInt16) -> any DlvSocketConnection = {
+        socketFactory: @escaping @MainActor (String, UInt16) -> any DebugAdapterSocketConnection = {
             NetworkDebugAdapterSocketConnection(host: $0, port: $1)
         }
     ) {

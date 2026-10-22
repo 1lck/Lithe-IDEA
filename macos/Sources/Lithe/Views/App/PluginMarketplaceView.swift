@@ -232,9 +232,9 @@ struct PluginMarketplaceView: View {
     }
 }
 
-/// Detail pane for one plugin: identity, install action, metadata DBX also
-/// shows (version, license, release date, platforms, links), and the notice
-/// about who maintains it.
+/// Detail pane for one plugin: identity, install action, and metadata (version,
+/// license, release date, platforms, links), plus the notice about who maintains
+/// it.
 private struct PluginMarketplaceDetail: View {
     @Environment(\.locale) private var locale
     @ObservedObject var feature: PluginMarketplaceFeatureModel

@@ -208,7 +208,6 @@ for legacy_database_file in \
     macos/Sources/Lithe/Application/DatabaseSQLSupport.swift \
     macos/Sources/Lithe/Application/DatabaseSchemaDiff.swift \
     macos/Sources/Lithe/Services/DatabaseConnectionStore.swift \
-    macos/Sources/Lithe/Services/DatabaseDBXImportService.swift \
     macos/Sources/Lithe/Services/DatabaseSidecarService.swift \
     macos/Sources/Lithe/Core/Ports/DatabaseRecovery.swift; do
     if [[ -e "$legacy_database_file" ]]; then

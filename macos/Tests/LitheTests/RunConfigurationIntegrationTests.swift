@@ -5802,7 +5802,7 @@ private final class TestLanguageProviderRuntimeFactory: LanguageProviderRuntimeF
 }
 
 @MainActor
-private final class TestDlvSocketConnection: DlvSocketConnection {
+private final class TestDlvSocketConnection: DebugAdapterSocketConnection {
     var onReady: (() -> Void)?
     var onData: ((Data) -> Void)?
     var onFailure: ((Error) -> Void)?

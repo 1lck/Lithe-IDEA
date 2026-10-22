@@ -1334,7 +1334,6 @@
 "Choose database" = "选择数据库";
 "Add database connection" = "添加数据库连接";
 "New Folder" = "新建文件夹";
-"Import connections from DBX" = "从 DBX 导入连接";
 "Collapse all" = "全部折叠";
 "Refresh connection structure" = "刷新连接结构";
 "Search connections" = "搜索连接";
