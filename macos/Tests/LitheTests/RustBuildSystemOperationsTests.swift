@@ -72,8 +72,8 @@ struct RustBuildSystemOperationsTests {
     func invocationUsesTheGlobalExecutableSetting() throws {
         let target = try Self.target("build-tool-path", "fixture")
         let custom = try operations.invocationPlan(target, root: ".", settings: ["toolPath": .string("/opt/custom tools/build")])
-        #expect(custom.configuredExecutable == "/opt/custom tools/build")
-        #expect(try operations.invocationPlan(target, root: ".").configuredExecutable == nil)
+        #expect(custom.executables.first == .setting(id: "toolPath", path: "/opt/custom tools/build"))
+        #expect(try operations.invocationPlan(target, root: ".").executables.first == .setting(id: "toolPath", path: nil))
     }
 
     @Test

@@ -1288,7 +1288,7 @@ package final class BuildSystemService: ObservableObject {
         } catch is CancellationError {
             throw CancellationError()
         } catch {
-            if invocation.configuredExecutable != nil { throw error }
+            if (error as? BuildToolResolutionError)?.terminal == true { throw error }
             if canAppend(owner) {
                 appendOutput(
                     "\n" + String(localized: "The provider looks up the build tool itself: \(error.localizedDescription)") + "\n",

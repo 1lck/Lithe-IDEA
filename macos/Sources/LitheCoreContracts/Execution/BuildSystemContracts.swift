@@ -427,18 +427,7 @@ package struct BuildModel: Equatable, Sendable, Decodable {
 
 /// The executables of one build system on this platform, in Core's order.
 package struct BuildInvocation: Equatable, Sendable {
-    /// Explicit global file setting; failure must not fall back to discovery.
-    package let configuredExecutable: String?
-    package enum Executable: Equatable, Sendable {
-        /// A wrapper script inside the project. Always runs project code.
-        case projectFile(path: String, requires: [String])
-        /// A path below the directory one environment variable names.
-        case environment(variable: String, path: String)
-        /// A bare command name the host's tool discovery resolves.
-        case command(String)
-        /// The executable of a declared runtime dependency.
-        case runtime(String)
-    }
+    package typealias Executable = ExecutableCandidate
 
     package struct RuntimeDependency: Equatable, Sendable {
         package let id: String
@@ -469,12 +458,11 @@ package struct BuildInvocation: Equatable, Sendable {
     package init(
         executables: [Executable], environmentInputs: [String] = [],
         runtimeDependencies: [RuntimeDependency] = [], versionArguments: [String]? = nil,
-        minimumVersion: String? = nil, configuredExecutable: String? = nil
+        minimumVersion: String? = nil
     ) {
         self.executables = executables; self.environmentInputs = environmentInputs
         self.runtimeDependencies = runtimeDependencies; self.versionArguments = versionArguments
         self.minimumVersion = minimumVersion
-        self.configuredExecutable = configuredExecutable
     }
 }
 
@@ -504,7 +492,8 @@ package struct ResolvedBuildTool: Equatable, Sendable {
 /// No candidate of a build system, or one of its runtimes, was usable.
 package struct BuildToolResolutionError: LocalizedError, Equatable, Sendable {
     package let message: String
-    package init(_ message: String) { self.message = message }
+    package let terminal: Bool
+    package init(_ message: String, terminal: Bool = false) { self.message = message; self.terminal = terminal }
     package var errorDescription: String? { message }
 }
 

@@ -5,8 +5,9 @@
   "version": "0.1.0",
   "pluginAPIVersion": 3,
   "requires": {
-    "buildSystems": 2,
-    "settings": 2
+    "buildSystems": 1,
+    "settings": 2,
+    "executableResolution": 1
   },
   "vendor": {
     "id": "org.example",
@@ -43,8 +44,12 @@
         ]
       },
       "invocation": {
-        "executableSetting": "toolPath",
         "executables": [
+          {
+            "id": "selected",
+            "kind": "setting",
+            "settingID": "toolPath"
+          },
           {
             "kind": "command",
             "command": "fixture-build"

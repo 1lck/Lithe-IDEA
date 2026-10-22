@@ -910,6 +910,23 @@ impl DeclarativePluginManifest {
     /// server and every own build provider is a `serverProcess`.
     fn used_capabilities(&self) -> BTreeSet<&'static str> {
         let sections = [
+            (
+                capabilities::EXECUTABLE_RESOLUTION,
+                self.build_systems.iter().any(|system| {
+                    system
+                        .invocation
+                        .executables
+                        .iter()
+                        .chain(
+                            system
+                                .invocation
+                                .runtime_dependencies
+                                .iter()
+                                .flat_map(|runtime| &runtime.executables),
+                        )
+                        .any(|candidate| candidate.uses_resolution())
+                }),
+            ),
             (capabilities::LANGUAGES, !self.languages.is_empty()),
             (
                 capabilities::LANGUAGE_SERVERS,
@@ -1247,6 +1264,26 @@ impl DeclarativePluginManifest {
         self.setting_actions
             .sort_by(|left, right| left.id.cmp(&right.id));
         Ok(())
+    }
+
+    /// Strict executable selection preserves invalid stored values instead of
+    /// applying the UI settings resolver's tolerant fallback-to-default rule.
+    pub(crate) fn executable_setting_value(
+        &self,
+        id: &str,
+        values: &BTreeMap<String, Value>,
+    ) -> Validation<Option<String>> {
+        let setting = self
+            .settings
+            .iter()
+            .find(|setting| setting.id == id)
+            .ok_or_else(|| {
+                invalid(
+                    "executables.settingID",
+                    "The executable setting is not declared.",
+                )
+            })?;
+        setting.executable_value(values.get(id))
     }
 
     /// Effective value of every declared setting and the layer it came from.

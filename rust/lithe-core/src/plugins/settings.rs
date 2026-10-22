@@ -15,7 +15,7 @@
 //!
 //! Note: the decision is recorded in .agents/notes/implemented/architecture/2026-10-21-plugin-settings-surfaces.md
 
-use super::declarative::{invalid, Validation};
+use super::declarative::{invalid, PluginRejection, Validation};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -324,6 +324,31 @@ pub(crate) struct SettingLayers<'a> {
 }
 
 impl SettingDeclaration {
+    /// Unlike display/configuration settings, an explicit invalid executable
+    /// value must terminate resolution rather than silently choose a default.
+    pub(crate) fn executable_value(&self, stored: Option<&Value>) -> Validation<Option<String>> {
+        let value = stored.unwrap_or(&self.default);
+        let valid = self.accepts(value)
+            && value.as_str().is_some_and(|path| {
+                path.is_empty()
+                    || (path.trim() == path
+                        && !path.chars().any(char::is_control)
+                        && (path.starts_with('/')
+                            || (path.len() >= 3
+                                && path.as_bytes()[0].is_ascii_alphabetic()
+                                && path.as_bytes()[1] == b':'
+                                && matches!(path.as_bytes()[2], b'/' | b'\\'))
+                            || path.starts_with("\\\\")))
+            });
+        if !valid {
+            return Err(PluginRejection::at("plugin.build.invalidSelection", format!("settings.{}", self.id), "The configured executable must be an absolute file path satisfying the setting constraints."));
+        }
+        Ok(value
+            .as_str()
+            .filter(|path| !path.is_empty())
+            .map(str::to_owned))
+    }
+
     fn is_version_2_kind(&self) -> bool {
         matches!(
             self.kind.as_str(),

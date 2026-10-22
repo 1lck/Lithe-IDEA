@@ -69,7 +69,7 @@ Rust Core 负责校验声明、识别工程、展开每一条命令行，并把�
 插件可以自由描述（不需要改 Core）：
 
 - **任何构建工具**：ID、标记文件、任务、选项、运行入口、测试过滤器、诊断正则、依赖命令都是数据。
-- **可执行文件**：按偏好顺序列出候选，有四种：
+- **可执行文件**：按偏好顺序列出候选，有四种基础来源：
   - `projectFile`：工程里的 Wrapper（例如 `gradlew`），可以要求某些文件存在。它一律被视为执行仓库代码。
   - `environment`：某个环境变量下的相对路径，例如 `MAVEN_HOME` 下的 `bin/mvn`。变量必须列在 `environmentInputs` 里，宿主只传这些变量。
   - `command`：在 `PATH` 上查找的裸命令名。
@@ -365,3 +365,17 @@ macOS 接入规则（2026-10-18）：
 - `shared/contracts/plugins/v1/`
 - `shared/contracts/rust-core-api.md`
 - `scripts/verify-shared-contracts.sh`
+
+
+### 统一的候选解析扩展
+
+在原有自动发现来源之上，可选 `executableResolution: 1` 增加 setting 来源与
+确定性排序；候选仍声明在同一个 executables 数组里，不增加新的 Build 覆盖路径。
+数组顺序是默认优先级，不需要路径覆盖的插件不用声明设置。
+共享类型与拓扑排序位于 `plugins::executables`，macOS 由
+`ExecutableCandidateResolver` 注入文件系统、环境、Runtime 和工具发现能力，
+区分跳过、解析成功和终止失败。Provider 的可选 tool 提示继续复用宿主解析结果；
+无显式选择的自动发现失败仍可让 Provider 自行查找，显式失败则停止本次模型加载。
+设置值非法时 Core 直接拒绝计划，普通设置的容错显示规则不变。
+自定义 Runtime 候选复用同一机制；其余进程模块的分步迁移边界见
+[插件设置面](2026-10-21-plugin-settings-surfaces.md)。

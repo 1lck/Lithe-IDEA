@@ -67,22 +67,35 @@ macOS 设置窗口现在可以由插件“注册”页面：插件在 `plugin.js
 
 ### 5. 构建工具的可执行文件路径
 
-只声明一个 file 设置不会改变构建进程。`buildSystems` 2 增加通用的
-`invocation.executableSetting`，引用全局 file 设置，生效方式为 reload 或
-nextRun。Core 负责校验引用和解析值；macOS 每次计划时读取该插件的全局值，
-由平台 adapter 检查文件权限和版本，并把同一个路径用于模型 Provider 与构建、
-测试、运行。留空恢复自动发现。已指定路径失效时必须报错，不能回退到 PATH
-中的另一份工具，否则模型与执行可能使用不同安装。工具父目录也放到进程
-PATH 前，供工具启动同目录的辅助程序。
+路径选择使用同一个 `invocation.executables` 数组。插件需要用户覆盖时，声明
+`kind: "setting"`、`settingID`，引用全局 file 设置（reload 或 nextRun）；不需要
+覆盖的插件保持原来的自动发现列表，不额外声明设置。该通用机制按
+`executableResolution: 1` 协商，不要求所有构建插件升级。
 
-路径只允许全局作用域，避免共享项目配置静默选择本机可执行文件。不要在
-Cargo 或其他插件 ID 下写宿主分支。插件只需声明 file 字段和引用；版本 1
-宿主通过能力协商拒绝安装，避免出现可保存但不生效的设置。
+Core 先校验完整候选集、排定顺序，再按平台过滤。数组从前到后是首选写法；
+可选 priority 以较大值优先，同分按原序；insertBefore/insertAfter 使用同集合的稳定
+id 建立相对顺序约束。插入约束优先，不能在同一候选混用 priority 或两个插入字段；
+重复 id、未知锚点、自环与循环都拒绝。契约正文定义完整的确定性算法，供后续使用方复用。
 
-该设置写入既有用户偏好存储，没有新缓存或安装目录写入，不影响包签名和
-Sparkle delta。通用夹具 `build-tool-path.plugin.json`、Core 校验、Swift
-路径解析与 Provider 失败回归覆盖这条边界。Cargo 专属真实执行回归仍由独立
-插件仓库维护；独立仓库的发布宿主 pin 必须在宿主变更提交后同步更新。
+macOS 的 `ExecutableCandidateResolver`（候选文件解析器）由宿主注入文件系统、
+环境变量、Runtime 和工具发现服务，返回跳过、已解析或终止失败。设置值来自 Core
+检查后的同一操作快照；空值跳过，非空无效值直接拒绝，不能经过普通设置解析的
+“无效则回默认值”。普通设置的显示与配置容错不变。平台检查权限与版本，显式路径
+失败时 Provider 不得独立发现另一安装。带空格路径保持完整参数，父目录进入 PATH。
+
+共享源类型和排序在 `plugins::executables`；本次 Build 与自定义 Runtime Dependencies
+使用共享解析器，已有 Build Provider 继续通过 ServerProcess 适配和 tool 提示复用。
+Language Server、Execution Provider 等后续可接入相同机制，各自保留包内文件边界、
+自动启动限制和工作区信任；当前不在这些清单位置开放新候选语法。
+参考 xiaoyumuxi 的 #1318、#1356、#1382 以及 Maven 插件 #3，宿主仍只负责通用机制，
+Provider 继续接受宿主选中的工具，不重新实现一套覆盖路径。
+
+已发布预览 Cargo 0.1.1 使用旧 `executableSetting`（buildSystems 2）。保留只读的兼容
+输入适配：转换为数组首位 setting 候选，后续只走共享解析器，不再返回
+configuredExecutable。新插件必须用第五种候选和新能力；既有发行包不覆盖，迁移以新版本发布。
+
+路径偏好仍写既有用户存储，候选计划只在操作内存活，没有额外缓存或安装目录写入，
+不影响签名和 Sparkle delta。Core、Swift 与独立 Cargo CI 覆盖统一的选择和失败语义。
 
 ### 6. 宿主能力版本
 
@@ -129,6 +142,11 @@ macOS 保留既有原生控件和主题，只在通用 owner 中修复压缩规�
 ### 让插件用网页画设置页
 
 插件已经可以声明网页 UI，理论上可以自己画设置页。但网页无法和宿主设置窗口的搜索、分组、项目/全局切换保持一致，用户偏好也是原生优先。网页 UI 仍可用于复杂的工具窗口，设置项本身走原生控件。
+
+### 顶层增加可执行文件覆盖旁路
+
+单独增加 executableSetting/configuredExecutable 会让 Build 的设置路径绕过候选顺序，
+其它进程模块也不能复用。只为已发布预览包保留输入适配，新 API 使用统一候选与宿主能力注入。
 
 ### 宿主自己合并取值
 

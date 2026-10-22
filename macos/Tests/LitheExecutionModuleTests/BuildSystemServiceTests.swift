@@ -1492,7 +1492,7 @@ struct BuildSystemServiceTests {
             #expect(pluginID == "dev.example")
             return ["toolPath": .string("/custom tools/build")]
         })
-        harness.tools.failure = BuildToolResolutionError("Selected executable is unavailable.")
+        harness.tools.failure = BuildToolResolutionError("Selected executable is unavailable.", terminal: true)
         defer { harness.service.stop() }
         harness.service.reset(workspaceURL: Self.workspace)
         #expect(await harness.waitForEntries { $0.first?.modelState == .notLoaded })
@@ -2057,7 +2057,7 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
 
     func invocationPlan(_ target: BuildSystemTarget, root: String, settings: [String: ToolingJSONValue]) throws -> BuildInvocation {
         let configured: String? = if case .string(let path)? = settings["toolPath"] { path } else { nil }
-        return BuildInvocation(executables: [.command("fake")], configuredExecutable: configured)
+        return BuildInvocation(executables: [.setting(id: "toolPath", path: configured), .command("fake")])
     }
 
     func checkToolVersion(_ target: BuildSystemTarget, runtime: String?, output: String) throws -> BuildVersionCheck {

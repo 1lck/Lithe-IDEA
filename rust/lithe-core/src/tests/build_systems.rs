@@ -1611,37 +1611,37 @@ fn explicit_build_tool_path_requires_supported_global_file_setting() {
         )
     };
     assert_eq!(
-        invoke(json!({}))["invocation"].get("configuredExecutable"),
-        None
+        invoke(json!({}))["invocation"]["executables"][0]["path"],
+        Value::Null
     );
     assert_eq!(
-        invoke(json!({"toolPath": ""}))["invocation"].get("configuredExecutable"),
-        None
-    );
-    let path = "/opt/custom tools/build-tool";
-    assert_eq!(
-        invoke(json!({"toolPath": path}))["invocation"]["configuredExecutable"],
-        path
+        invoke(json!({"toolPath": ""}))["invocation"]["executables"][0]["path"],
+        Value::Null
     );
     assert_eq!(
-        invoke(json!({"toolPath": "relative"}))["invocation"].get("configuredExecutable"),
-        None
+        invoke(json!({"toolPath": "/opt/custom tools/build-tool"}))["invocation"]["executables"][0]
+            ["path"],
+        "/opt/custom tools/build-tool"
     );
-    for platform in ["macos", "linux", "windows"] {
-        let result = call(
-            "invocationPlan",
-            manifest.clone(),
-            "fixture",
-            json!({
-                "root": ".", "platform": platform, "settings": {"toolPath": "C:\\Tools\\build.exe"}
-            }),
-        );
-        assert_eq!(result["status"], "ok");
+    for value in [
+        json!("relative"),
+        json!(42),
+        json!(null),
+        json!([]),
+        json!(" /bad"),
+        json!("/bad\npath"),
+        json!("/".repeat(1025)),
+    ] {
         assert_eq!(
-            result["invocation"]["configuredExecutable"],
-            "C:\\Tools\\build.exe"
+            invoke(json!({"toolPath": value}))["status"],
+            "rejected",
+            "{value}"
         );
     }
+    assert_eq!(
+        invoke(json!({"toolPath": "C:\\Tools\\build.exe"}))["status"],
+        "ok"
+    );
     for (field, value) in [
         ("scope", json!("project")),
         ("type", json!("directory")),
@@ -1652,9 +1652,135 @@ fn explicit_build_tool_path_requires_supported_global_file_setting() {
         assert_eq!(validate(invalid)["status"], "rejected", "{field}");
     }
     let mut old = manifest.clone();
-    old["requires"]["buildSystems"] = json!(1);
+    old["requires"]
+        .as_object_mut()
+        .unwrap()
+        .remove("executableResolution");
     assert_eq!(validate(old)["status"], "rejected");
     let mut missing = manifest;
-    missing["buildSystems"][0]["invocation"]["executableSetting"] = json!("missing");
+    missing["buildSystems"][0]["invocation"]["executables"][0]["settingID"] = json!("missing");
     assert_eq!(validate(missing)["status"], "rejected");
+}
+
+#[test]
+fn executable_candidates_order_and_constraints_are_shared_and_deterministic() {
+    let base: Value =
+        serde_json::from_str(contract_file!("fixtures/build-tool-path.plugin.json")).unwrap();
+    let invoke = |candidates: Value| {
+        let mut manifest = base.clone();
+        manifest["buildSystems"][0]["invocation"]["executables"] = candidates;
+        call(
+            "invocationPlan",
+            manifest,
+            "fixture",
+            json!({"root":".","platform":"macos"}),
+        )
+    };
+    let result = invoke(json!([
+        {"id":"a","kind":"command","command":"a"},
+        {"id":"b","kind":"command","command":"b","priority":10},
+        {"kind":"command","command":"c","insertBefore":"b"},
+        {"kind":"command","command":"d","insertAfter":"a"}
+    ]));
+    assert_eq!(result["status"], "ok", "{result}");
+    let commands: Vec<_> = result["invocation"]["executables"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|item| item["command"].as_str().unwrap())
+        .collect();
+    // Relative constraints are edges, not adjacency: ready-node ties retain
+    // array order, so a precedes c; c unlocks the higher-priority b.
+    assert_eq!(commands, ["a", "c", "b", "d"]);
+    for candidates in [
+        json!([{"id":"a","kind":"command","command":"a"},{"id":"a","kind":"command","command":"b"}]),
+        json!([{"kind":"command","command":"a","insertBefore":"missing"}]),
+        json!([{"id":"a","kind":"command","command":"a","insertBefore":"a"}]),
+        json!([{"id":"a","kind":"command","command":"a","insertBefore":"b"},{"id":"b","kind":"command","command":"b","insertBefore":"a"}]),
+        json!([{"id":"a","kind":"command","command":"a","priority":2,"insertAfter":"a"}]),
+        json!([{"id":"a","kind":"command","command":"a","insertBefore":"a","insertAfter":"a"}]),
+    ] {
+        assert_eq!(
+            invoke(candidates.clone())["status"],
+            "rejected",
+            "{candidates}"
+        );
+    }
+    let result = invoke(json!([
+        {"kind":"command","command":"a","priority":1},
+        {"kind":"command","command":"b","priority":9},
+        {"kind":"command","command":"c","priority":9}
+    ]));
+    assert_eq!(result["invocation"]["executables"][0]["command"], "b");
+    assert_eq!(result["invocation"]["executables"][1]["command"], "c");
+}
+
+#[test]
+fn published_build_v2_paths_adapt_to_candidates_and_preserve_invalid_values() {
+    let mut manifest: Value =
+        serde_json::from_str(contract_file!("fixtures/build-tool-path.plugin.json")).unwrap();
+    manifest["requires"]
+        .as_object_mut()
+        .unwrap()
+        .remove("executableResolution");
+    manifest["buildSystems"][0]["invocation"]["executables"]
+        .as_array_mut()
+        .unwrap()
+        .remove(0);
+    manifest["requires"]["buildSystems"] = json!(2);
+    manifest["buildSystems"][0]["invocation"]["executableSetting"] = json!("toolPath");
+    let run = |value| {
+        call(
+            "invocationPlan",
+            manifest.clone(),
+            "fixture",
+            json!({"root":".","platform":"macos","settings":{"toolPath":value}}),
+        )
+    };
+    let result = run(json!("/tools/custom build"));
+    assert_eq!(result["status"], "ok", "{result}");
+    assert_eq!(result["invocation"]["executables"][0]["kind"], "setting");
+    assert!(result["invocation"].get("configuredExecutable").is_none());
+    assert_eq!(run(json!(false))["status"], "rejected");
+    // The existing settings UI keeps its tolerant display behavior.
+    let displayed = crate::plugins::declarative::resolve_settings_command(
+        json!({"manifest":manifest,"settings":{"toolPath":false}}),
+    )
+    .unwrap();
+    assert_eq!(displayed["status"], "ok", "{displayed}");
+    assert_eq!(displayed["settings"][0]["value"], "", "{displayed}");
+}
+
+#[test]
+fn executable_resolution_is_opt_in_and_custom_runtimes_share_the_same_plan() {
+    let mut manifest: Value =
+        serde_json::from_str(contract_file!("fixtures/build-tool-path.plugin.json")).unwrap();
+    let old_host = validate_command(
+        json!({"manifest":manifest,"hostCapabilities":{"buildSystems":[1,2],"settings":[1,2]}}),
+    )
+    .unwrap();
+    assert_eq!(old_host["error"]["code"], "plugin.api.unsupported");
+    manifest["buildSystems"][0]["invocation"]["runtimeDependencies"] = json!([{
+        "id":"custom", "executables":[
+            {"id":"selected","kind":"setting","settingID":"toolPath"},
+            {"kind":"command","command":"custom"}
+        ]
+    }]);
+    let result = call(
+        "invocationPlan",
+        manifest.clone(),
+        "fixture",
+        json!({"root":".","platform":"macos","settings":{"toolPath":"/custom runtime/tool"}}),
+    );
+    assert_eq!(result["status"], "ok", "{result}");
+    assert_eq!(
+        result["invocation"]["runtimeDependencies"][0]["executables"][0]["path"],
+        "/custom runtime/tool"
+    );
+    // Anchors never escape into a different candidate collection.
+    manifest["buildSystems"][0]["invocation"]["executables"][1]["insertBefore"] =
+        json!("runtime-only");
+    manifest["buildSystems"][0]["invocation"]["runtimeDependencies"][0]["executables"][0]["id"] =
+        json!("runtime-only");
+    assert_eq!(validate(manifest)["status"], "rejected");
 }

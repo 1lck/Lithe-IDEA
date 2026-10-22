@@ -8,13 +8,14 @@
 
 use super::decode::{self, join_relative};
 use super::manifest::{
-    BuildSystemDeclaration, ExecutableCandidate, Platform, RuntimeDependency, VersionProbe,
+    BuildSystemDeclaration, ExecutableCandidate, ExecutableSource, Platform, RuntimeDependency,
+    VersionProbe,
 };
 use crate::plugins::declarative::{
     reported_version, validate_minimum_version, version_components, DeclarativePluginManifest,
     PluginRejection, Validation,
 };
-use crate::plugins::settings::SettingLayers;
+use crate::plugins::executables::ordered_indices;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -40,34 +41,29 @@ pub(crate) struct VersionCheckRequest {
     pub(crate) output: String,
 }
 
-fn candidates(candidates: &[ExecutableCandidate], root: &str, platform: Platform) -> Vec<Value> {
-    candidates
-        .iter()
-        .filter(|candidate| {
-            candidate.platforms().is_empty() || candidate.platforms().contains(&platform)
-        })
-        .map(|candidate| match candidate {
-            ExecutableCandidate::ProjectFile { path, requires, .. } => json!({
-                "kind": "projectFile",
-                "path": join_relative(root, path),
-                "requires": requires.iter().map(|file| join_relative(root, file)).collect::<Vec<_>>(),
-                "executesProjectCode": true,
-            }),
-            ExecutableCandidate::Environment { variable, path, .. } => json!({
-                "kind": "environment",
-                "variable": variable,
-                "path": path,
-            }),
-            ExecutableCandidate::Command { command, .. } => json!({
-                "kind": "command",
-                "command": command,
-            }),
-            ExecutableCandidate::Runtime { runtime, .. } => json!({
-                "kind": "runtime",
-                "runtime": runtime,
-            }),
-        })
-        .collect()
+fn candidates(
+    candidates: &[ExecutableCandidate],
+    root: &str,
+    platform: Platform,
+    manifest: &DeclarativePluginManifest,
+    settings: &BTreeMap<String, Value>,
+) -> Validation<Vec<Value>> {
+    ordered_indices(candidates, "executables")?.into_iter()
+        .filter(|&index| candidates[index].platforms.is_empty() || candidates[index].platforms.contains(&platform))
+        .map(|index| {
+            let candidate = &candidates[index];
+            Ok(match &candidate.source {
+                ExecutableSource::ProjectFile { path, requires } => json!({
+                    "kind": "projectFile", "path": join_relative(root, path),
+                    "requires": requires.iter().map(|file| join_relative(root, file)).collect::<Vec<_>>(), "executesProjectCode": true,
+                }),
+                ExecutableSource::Environment { variable, path } => json!({ "kind": "environment", "variable": variable, "path": path }),
+                ExecutableSource::Command { command } => json!({ "kind": "command", "command": command }),
+                ExecutableSource::Runtime { runtime } => json!({ "kind": "runtime", "runtime": runtime }),
+                ExecutableSource::Setting { setting_id } => json!({ "kind": "setting", "settingID": setting_id,
+                    "path": manifest.executable_setting_value(setting_id, settings)? }),
+            })
+        }).collect()
 }
 
 /// Arguments that make a host-managed runtime print its version and exit.
@@ -84,7 +80,13 @@ pub(crate) fn host_runtime_version_arguments(id: &str) -> Option<&'static [&'sta
     }
 }
 
-fn runtime(runtime: &RuntimeDependency, root: &str, platform: Platform) -> Value {
+fn runtime(
+    runtime: &RuntimeDependency,
+    root: &str,
+    platform: Platform,
+    manifest: &DeclarativePluginManifest,
+    settings: &BTreeMap<String, Value>,
+) -> Validation<Value> {
     let version = if runtime.is_host_managed() {
         host_runtime_version_arguments(&runtime.id)
             .map(|arguments| json!({ "arguments": arguments }))
@@ -94,14 +96,14 @@ fn runtime(runtime: &RuntimeDependency, root: &str, platform: Platform) -> Value
             .as_ref()
             .map(|probe| json!({ "arguments": probe.arguments }))
     };
-    json!({
+    Ok(json!({
         "id": runtime.id,
         "displayName": runtime.display_name,
         "hostManaged": runtime.is_host_managed(),
         "minimumVersion": runtime.minimum_version,
-        "executables": candidates(&runtime.executables, root, platform),
+        "executables": candidates(&runtime.executables, root, platform, manifest, settings)?,
         "version": version,
-    })
+    }))
 }
 
 /// `build.invocationPlan`: the candidates for this platform, in order, with
@@ -113,7 +115,17 @@ pub(crate) fn invocation_plan(
 ) -> Validation<Value> {
     let root = decode::request_path(&request.root, "root")?;
     let invocation = &build_system.invocation;
-    let executables = candidates(&invocation.executables, &root, request.platform);
+    let mut executables = candidates(
+        &invocation.executables,
+        &root,
+        request.platform,
+        manifest,
+        &request.settings,
+    )?;
+    // Published v2 preview manifests adapt into the same candidate path.
+    if let Some(id) = &invocation.executable_setting {
+        executables.insert(0, json!({ "kind": "setting", "settingID": id, "path": manifest.executable_setting_value(id, &request.settings)? }));
+    }
     if executables.is_empty() {
         return Err(PluginRejection::new(
             "plugin.build.unavailable",
@@ -123,23 +135,7 @@ pub(crate) fn invocation_plan(
             ),
         ));
     }
-    let configured_executable = invocation.executable_setting.as_ref().and_then(|id| {
-        manifest
-            .resolve_settings(SettingLayers {
-                global: &request.settings,
-                project: &BTreeMap::new(),
-            })
-            .into_iter()
-            .find(|setting| &setting.id == id)
-            .and_then(|setting| {
-                setting
-                    .value
-                    .as_str()
-                    .filter(|path| !path.is_empty())
-                    .map(str::to_owned)
-            })
-    });
-    let mut plan = json!({
+    Ok(json!({
         "buildSystemID": build_system.id,
         "root": root,
         "executables": executables,
@@ -147,15 +143,11 @@ pub(crate) fn invocation_plan(
         "runtimeDependencies": invocation
             .runtime_dependencies
             .iter()
-            .map(|dependency| runtime(dependency, &root, request.platform))
-            .collect::<Vec<_>>(),
+            .map(|dependency| runtime(dependency, &root, request.platform, manifest, &request.settings))
+            .collect::<Validation<Vec<_>>>()?,
         "version": invocation.version.as_ref().map(|probe| json!({ "arguments": probe.arguments })),
         "minimumVersion": invocation.minimum_version,
-    });
-    if let Some(path) = configured_executable {
-        plan["configuredExecutable"] = json!(path);
-    }
-    Ok(plan)
+    }))
 }
 
 /// `build.checkToolVersion`: reads the probe output of the build tool or of

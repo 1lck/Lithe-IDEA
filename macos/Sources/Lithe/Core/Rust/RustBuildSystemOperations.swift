@@ -473,8 +473,10 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
         let variable: String?
         let command: String?
         let runtime: String?
+        let settingID: String?
 
         func executable() throws -> BuildInvocation.Executable {
+            if kind == "setting", let settingID { return .setting(id: settingID, path: path) }
             switch (kind, path, variable, command, runtime) {
             case ("projectFile", let path?, _, _, _):
                 return .projectFile(path: path, requires: requires ?? [])
@@ -503,7 +505,6 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
     }
 
     private struct WireInvocation: Decodable {
-        let configuredExecutable: String?
         let executables: [WireExecutable]
         let environmentInputs: [String]
         let runtimeDependencies: [WireRuntime]
@@ -525,8 +526,7 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
                     )
                 },
                 versionArguments: version?.arguments,
-                minimumVersion: minimumVersion,
-                configuredExecutable: configuredExecutable
+                minimumVersion: minimumVersion
             )
         }
     }
