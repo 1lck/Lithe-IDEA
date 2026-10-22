@@ -21,8 +21,10 @@ import { cn } from "@/utils/cn";
 import { agentHistoryRows, historyMessageCount } from "../services/agent-history-view";
 import type { AgentConversation, AgentSessionSummary } from "../types/agent.types";
 import type { AgentHistoryFilter, AgentHistoryMetadataMap } from "../types/agent-history.types";
+import { AgentArchivedHistory, type AgentArchiveHistoryProps } from "./agent-archived-history";
 
 interface AgentHistoryListProps {
+  archive?: AgentArchiveHistoryProps;
   sessions: AgentSessionSummary[];
   /** Lithe's own annotations for this workspace and Agent. */
   metadata: AgentHistoryMetadataMap;
@@ -50,6 +52,7 @@ interface AgentHistoryListProps {
  * filtered view cannot change sessions the user cannot see.
  */
 export function AgentHistoryList({
+  archive,
   sessions,
   metadata,
   conversations,
@@ -251,7 +254,7 @@ export function AgentHistoryList({
         </div>
       ) : null}
 
-      {rows.length === 0 ? (
+      {rows.length === 0 && (archive === undefined || agentHistoryRows(archive.sessions, metadata, query, filter).length === 0) ? (
         <div className="px-2 pb-1.5 text-subtle-foreground ui-text-caption">{emptyMessage}</div>
       ) : (
         <div className="max-h-56 overflow-auto pb-1">
@@ -382,6 +385,8 @@ export function AgentHistoryList({
           })}
         </div>
       )}
+      {archive === undefined ? null : <AgentArchivedHistory archive={archive} query={query} filter={filter} metadata={metadata}
+        onSelect={onSelect} onSetHidden={onSetHidden} onSetFavorite={onSetFavorite} />}
     </div>
   );
 }

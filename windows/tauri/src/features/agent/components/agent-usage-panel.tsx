@@ -3,6 +3,7 @@ import { useTranslation } from "@/i18n/locale-provider";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/ui/hover-card";
 import Tooltip from "@/ui/tooltip";
 import { cn } from "@/utils/cn";
+import { InfoIcon } from "@/ui/icons";
 import { contextUsageDetails, quotaWindowLabel } from "../services/agent-session-selectors";
 import {
   isQuotaStale,
@@ -21,10 +22,10 @@ function percent(fraction: number, digits: number, locale: string): string {
 }
 
 /**
- * Compact context ring with a zero placeholder until the Agent reports usage,
- * as `AgentContextUsageView` on macOS: warning from 90%, error from 100%.
+ * Context is unknown until upstream reports it. The same entry opens session
+ * details with observed usage instead of inventing an empty context window.
  */
-export function AgentContextUsageView({ usage }: { usage: AgentContextUsage | null }) {
+export function AgentContextUsageView({ usage, onOpenDetails }: { usage: AgentContextUsage | null; onOpenDetails?: () => void }) {
   const { t, language } = useTranslation();
   const details = contextUsageDetails(usage, {
     percent: (fraction, digits) => percent(fraction, digits, language),
@@ -43,13 +44,14 @@ export function AgentContextUsageView({ usage }: { usage: AgentContextUsage | nu
           : "text-subtle-foreground";
   const circumference = 2 * Math.PI * 5;
   return (
-    <Tooltip side="top" content={details}>
-      <span
-        role="img"
-        aria-label={`${t("agent.context.label")}: ${details}`}
+    <Tooltip side="top" content={usage === null ? t("agent.stats.unknown") : details}>
+      <button
+        type="button"
+        onClick={onOpenDetails}
+        aria-label={onOpenDetails ? t("agent.details.title") : t("agent.context.label")}
         className={cn("flex items-center gap-1 py-1 tabular-nums", tone)}
       >
-        <svg aria-hidden viewBox="0 0 12 12" className="size-3 -rotate-90">
+        {usage === null ? <InfoIcon className="size-3.5" /> : <svg aria-hidden viewBox="0 0 12 12" className="size-3 -rotate-90">
           <circle
             cx="6"
             cy="6"
@@ -71,9 +73,9 @@ export function AgentContextUsageView({ usage }: { usage: AgentContextUsage | nu
               strokeDasharray={`${Math.min(fraction, 1) * circumference} ${circumference}`}
             />
           )}
-        </svg>
-        {percent(fraction, 0, language)}
-      </span>
+        </svg>}
+        {usage === null ? (onOpenDetails ? null : t("agent.stats.unknown")) : percent(fraction, 0, language)}
+      </button>
     </Tooltip>
   );
 }

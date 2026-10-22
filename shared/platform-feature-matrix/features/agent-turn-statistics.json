@@ -27,12 +27,14 @@
       "windows/tauri/src/features/agent/services/agent-transcript-items.ts",
       "windows/tauri/src/features/agent/stores/agent-connection.model.ts",
       "windows/tauri/src/features/agent/stores/agent-turn-statistics.model.test.ts",
-      "windows/tauri/src/features/agent/types/agent-turn-statistics.ts"
+      "windows/tauri/src/features/agent/types/agent-turn-statistics.ts",
+      "windows/tauri/src/features/agent/types/agent-session-statistics.ts",
+      "windows/tauri/src/platform/agent-statistics-storage.ts"
     ],
-    "implementationStatus": "partial",
+    "implementationStatus": "implemented",
     "verificationStatus": "pending"
   },
   "owner": "Agent",
-  "verification": "macOS：在真实 Agent 会话中确认发送后计时包含建会话、加载历史、工具和权限等待；正常完成、取消确认、请求失败和断连后停止计时，下一轮仍可看到上一轮统计。并发会话切换验证耗时与用量隔离；每轮下方只显示复制、用量胶囊与完成时间，复制按钮复制该轮最终回复；悬停胶囊显示耗时、输入/输出、缓存、推理、工具次数、模型调用、平均首字延迟和输出速度，缺失 usage 时胶囊只显示耗时；跨天的轮次显示完整日期。历史回放不编造逐轮耗时；完成几轮后断开或重启，重新加载该会话应显示之前累计的轮次、工具、Token 与 TTFT，新一轮在其基础上增加，重复加载不叠加；上下文占用与订阅额度不作为输入/输出 token。检查深浅主题和窄宽面板。Windows 共享 Host 已透传可选 usage；每轮回复下方已显示复制回复、用量胶囊（耗时 · token）与完成时间（当天 HH:mm，否则 yyyy-MM-dd HH:mm），悬停胶囊显示耗时、输入/输出、推理、缓存读写与总量，缺失 usage 时只显示耗时，失败/取消/断连仍保留耗时。首字延迟、输出速度、工具与模型调用统计，以及跨连接保存的会话合计仍未接入。",
-  "notes": "2026-10-18 Windows：`AgentTurnStatistics.completedAt` 记录墙钟完成时间，`groupTranscript` 把该轮最后一条 Agent 正文写入 footer 供复制；胶囊使用 macOS 的 compactTokens（25K/1.2M）格式。会话合计与模型调用统计留待第 14 期，矩阵保持 partial。"
+  "verification": "macOS：在真实 Agent 会话中确认发送后计时包含建会话、加载历史、工具和权限等待；正常完成、取消确认、请求失败和断连后停止计时，下一轮仍可看到上一轮统计。并发会话切换验证耗时与用量隔离；每轮下方只显示复制、用量胶囊与完成时间，复制按钮复制该轮最终回复；悬停胶囊显示耗时、输入/输出、缓存、推理、工具次数、模型调用、平均首字延迟和输出速度，缺失 usage 时胶囊只显示耗时；跨天的轮次显示完整日期。历史回放不编造逐轮耗时；完成几轮后断开或重启，重新加载该会话应显示之前累计的轮次、工具、Token 与 TTFT，新一轮在其基础上增加，重复加载不叠加；上下文占用与订阅额度不作为输入/输出 token。检查深浅主题和窄宽面板。Windows 共享 Host 已透传可选 usage；每轮回复下方已显示复制回复、用量胶囊（耗时 · token）与完成时间（当天 HH:mm，否则 yyyy-MM-dd HH:mm），悬停胶囊显示耗时、输入/输出、推理、缓存读写与总量，缺失 usage 时只显示耗时，失败/取消/断连仍保留耗时。首字延迟、输出速度、工具与模型调用统计及跨连接会话累计已接入 Windows；详见模型调用统计行。 Windows：在真实 Tauri 窗口执行 Windows 记录完成轮次、去重工具调用、工具与权限重叠区间的并集耗时，并保存每会话累计统计。历史重放不重复计费，最新 ACP 用量不跨轮累加；断连冻结时间。统计缓存按工作区/Agent/会话隔离，最多 200 条，不保存正文或凭据。 单元测试不替代运行时验收，未执行的真实服务及平台动作保持 pending。",
+  "notes": "2026-10-22：Windows 记录完成轮次、去重工具调用、工具与权限重叠区间的并集耗时，并保存每会话累计统计。历史重放不重复计费，最新 ACP 用量不跨轮累加；断连冻结时间。统计缓存按工作区/Agent/会话隔离，最多 200 条，不保存正文或凭据。"
 }

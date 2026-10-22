@@ -3676,3 +3676,32 @@
 "Page Zoom" = "页面缩放";
 
 "The configured build tool is not executable: %@" = "配置的构建工具无法执行：%@";
+/* 内嵌 HTML 预览浏览器：摄像头和麦克风。 */
+"“%@” wants to use your camera." = "“%@”想使用你的摄像头。";
+"“%@” wants to use your microphone." = "“%@”想使用你的麦克风。";
+"“%@” wants to use your camera and microphone." = "“%@”想使用你的摄像头和麦克风。";
+"The plugin “%@” wants to use your camera." = "插件“%@”想使用你的摄像头。";
+"The plugin “%@” wants to use your microphone." = "插件“%@”想使用你的麦克风。";
+"The plugin “%@” wants to use your camera and microphone." = "插件“%@”想使用你的摄像头和麦克风。";
+"You can mute or stop the device from the address bar while the page is using it." = "页面使用设备期间，你可以在地址栏中将其暂停或停止。";
+"Plugin ID: %@. It can keep using the device until you close or hide its window." = "插件 ID：%@。在你关闭或隐藏它的窗口之前，它可以一直使用该设备。";
+"Lithe can’t give pages access to the camera or microphone in this version." = "此版本的 Lithe 无法让页面使用摄像头或麦克风。";
+"Camera in use" = "摄像头使用中";
+"Microphone in use" = "麦克风使用中";
+"Camera and microphone in use" = "摄像头和麦克风使用中";
+"Mute Camera" = "暂停摄像头";
+"Unmute Camera" = "恢复摄像头";
+"Stop Camera" = "停止摄像头";
+"Mute Microphone" = "静音麦克风";
+"Unmute Microphone" = "取消静音麦克风";
+"Stop Microphone" = "停止麦克风";
+
+/* 内嵌 HTML 预览浏览器：页内查找。 */
+"Find in page" = "在页面中查找";
+"Previous Match" = "上一个匹配项";
+"Next Match" = "下一个匹配项";
+"Close Find" = "关闭查找";
+
+/* 内嵌 HTML 预览浏览器：右键菜单、打印和 PDF。 */
+"Print…" = "打印…";
+"Export as PDF…" = "导出为 PDF…";

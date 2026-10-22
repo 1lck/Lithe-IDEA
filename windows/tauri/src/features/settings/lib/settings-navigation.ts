@@ -38,7 +38,7 @@ const toolsGroup = {
 const aiGroup = {
   id: "ai",
   labelKey: "settings.groups.ai",
-  categories: ["mcp", "ai-commit", "ai"],
+  categories: ["mcp", "ai-commit", "ai", "agents"],
 } as const;
 
 export const settingsGroups = [
@@ -355,6 +355,11 @@ export const settingsCategories: Array<{
       "aiCommit.subject",
       "aiCommit.diff",
     ],
+  },
+  {
+    id: "agents",
+    labelKey: "settings.tabs.agents",
+    terms: ["Agent", "Codex", "Claude", "ACP", "Provider", "API key", "代理", "智能体"],
   },
   {
     id: "logs",

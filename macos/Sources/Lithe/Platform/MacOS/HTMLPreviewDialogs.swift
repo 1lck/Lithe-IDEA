@@ -6,7 +6,7 @@ import AppKit
 /// implements them, which is why `alert`, `confirm`, `prompt` and file inputs
 /// silently did nothing in the preview. Each completion runs exactly once.
 @MainActor
-protocol HTMLPreviewDialogPresenting: AnyObject {
+protocol HTMLPreviewDialogPresenting: WebMediaCaptureConfirming {
     func presentAlert(message: String, source: String, in window: NSWindow?, completion: @escaping () -> Void)
     func presentConfirm(message: String, source: String, in window: NSWindow?, completion: @escaping (Bool) -> Void)
     func presentPrompt(
@@ -23,12 +23,16 @@ protocol HTMLPreviewDialogPresenting: AnyObject {
         completion: @escaping ([URL]?) -> Void
     )
     func chooseDownloadDestination(suggestedFilename: String, in window: NSWindow?, completion: @escaping (URL?) -> Void)
+    /// Shows the print panel for `operation` as a sheet on `window`.
+    func runPrintOperation(_ operation: NSPrintOperation, in window: NSWindow?)
 }
 
 /// Presents the dialogs as sheets on the preview's window. A page's script stays
 /// blocked until the sheet closes, matching how browsers treat `alert`.
 @MainActor
 final class HTMLPreviewAppKitDialogs: HTMLPreviewDialogPresenting {
+    private let mediaCapture = AppKitWebMediaCaptureConfirmer()
+
     func presentAlert(message: String, source: String, in window: NSWindow?, completion: @escaping () -> Void) {
         guard let window else { return completion() }
         let alert = makeAlert(message: message, source: source)
@@ -90,6 +94,20 @@ final class HTMLPreviewAppKitDialogs: HTMLPreviewDialogPresenting {
         } else {
             completion(nil)
         }
+    }
+
+    func confirmMediaCapture(
+        devices: WebMediaDevices,
+        requester: WebMediaCaptureRequester,
+        in window: NSWindow?,
+        completion: @escaping (Bool) -> Void
+    ) {
+        mediaCapture.confirmMediaCapture(devices: devices, requester: requester, in: window, completion: completion)
+    }
+
+    func runPrintOperation(_ operation: NSPrintOperation, in window: NSWindow?) {
+        guard let window else { return }
+        operation.runModal(for: window, delegate: nil, didRun: nil, contextInfo: nil)
     }
 
     private func makeAlert(message: String, source: String) -> NSAlert {

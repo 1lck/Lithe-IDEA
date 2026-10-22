@@ -33,12 +33,15 @@
       "windows/tauri/src/features/agent/services/agent-composer-mentions.test.ts",
       "windows/tauri/src/features/file-system/utils/file-system-dropped-paths.ts",
       "windows/tauri/src/features/file-system/utils/file-system-drop-controller.ts",
-      "windows/tauri/src/features/file-system/utils/file-system-drop-controller.test.ts"
+      "windows/tauri/src/features/file-system/utils/file-system-drop-controller.test.ts",
+      "windows/tauri/src-tauri/src/agent_clipboard.rs",
+      "windows/tauri/src/platform/agent-pasted-images.ts",
+      "windows/tauri/tests/agent-pasted-images.test.ts"
     ],
-    "implementationStatus": "partial",
+    "implementationStatus": "implemented",
     "verificationStatus": "pending"
   },
   "owner": "Agent",
-  "verification": "macOS：从 Finder、项目树拖入临时文件（多文件、中文/空格名）到输入区与上下文栏，检查高亮和可移除标签、去重、数量限制、会话切换和发送失败保留草稿；用隔离项目验证文字+文件与纯文件发送、历史加载后引用正确送到原会话、Agent 读取与权限流程。在 Finder 复制文件后于输入框 ⌘V 应附加文件，截图后 ⌘V 应生成带缩略图的图片附件（保存在 Caches/AgentPastedImages，一周后清理，不写 app bundle），复制普通文字时 ⌘V 照常粘贴，Caps Lock 开启时附件 ⌘V 同样生效；切到另一窗口或同窗口其他输入框后，附件粘贴不得进入原 Agent 草稿；在深色和浅色主题下单独输入 @ 或全角 ＠ 应立即列出已加载工作区的文件候选（最多 20 项，不重新扫描）；扫描结束前输入 @，文件清单就绪后应自动出现候选，无需重输；继续输入关键字应筛选文件，旧查询不得覆盖新候选；方向键切换、回车/Tab 选中后移除 @ 查询并附加该文件，Esc 只关闭候选且保留草稿。图片按文件引用处理，无多模态上传。Windows 原生拖放和 Claude 端到端待验证。 macOS 裸 @ 与 @Name 共享项目文件可见性，均不显示 .build/node_modules 生成文件，不受 Search exclusions（例如 *.log）影响；全局搜索仍可单独包含生成目录名称。 Unicode 回归：@i 能找到 src/İ.txt，小写展开和希腊字母上下文转换不丢失候选；与共享 unicode-contiguous fixture 核对。",
-  "notes": "2026-10-16 Windows：输入框通过项目文件搜索或“引用当前文件”生成 `file://` 引用（`agent-file-uri.ts`），引用随消息一起发送并按共享规则去重与限数；系统级与项目树拖放在后续 PR 接入。"
+  "verification": "macOS：从 Finder、项目树拖入临时文件（多文件、中文/空格名）到输入区与上下文栏，检查高亮和可移除标签、去重、数量限制、会话切换和发送失败保留草稿；用隔离项目验证文字+文件与纯文件发送、历史加载后引用正确送到原会话、Agent 读取与权限流程。在 Finder 复制文件后于输入框 ⌘V 应附加文件，截图后 ⌘V 应生成带缩略图的图片附件（保存在 Caches/AgentPastedImages，一周后清理，不写 app bundle），复制普通文字时 ⌘V 照常粘贴，Caps Lock 开启时附件 ⌘V 同样生效；切到另一窗口或同窗口其他输入框后，附件粘贴不得进入原 Agent 草稿；在深色和浅色主题下单独输入 @ 或全角 ＠ 应立即列出已加载工作区的文件候选（最多 20 项，不重新扫描）；扫描结束前输入 @，文件清单就绪后应自动出现候选，无需重输；继续输入关键字应筛选文件，旧查询不得覆盖新候选；方向键切换、回车/Tab 选中后移除 @ 查询并附加该文件，Esc 只关闭候选且保留草稿。图片按文件引用处理，无多模态上传。Windows 原生拖放和 Claude 端到端待验证。 macOS 裸 @ 与 @Name 共享项目文件可见性，均不显示 .build/node_modules 生成文件，不受 Search exclusions（例如 *.log）影响；全局搜索仍可单独包含生成目录名称。 Unicode 回归：@i 能找到 src/İ.txt，小写展开和希腊字母上下文转换不丢失候选；与共享 unicode-contiguous fixture 核对。 Windows：在真实 Tauri 窗口执行 Windows 支持拖放、选择器、当前文件、@ 引用、原生 CF_HDROP 文件粘贴与图片粘贴缩略图。图片按数量、类型和大小限制写入平台缓存，过期或失败粘贴清理自身文件；已接收图片为历史保留。目录不递归展开。 单元测试不替代运行时验收，未执行的真实服务及平台动作保持 pending。",
+  "notes": "2026-10-22：Windows 支持拖放、选择器、当前文件、@ 引用、原生 CF_HDROP 文件粘贴与图片粘贴缩略图。图片按数量、类型和大小限制写入平台缓存，过期或失败粘贴清理自身文件；已接收图片为历史保留。目录不递归展开。"
 }
