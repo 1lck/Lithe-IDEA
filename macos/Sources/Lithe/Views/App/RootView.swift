@@ -491,6 +491,12 @@ final class LitheWindowCoordinator: NSObject, NSWindowDelegate {
     private var nativeWindowCloseTask: Task<Void, Never>?
     private let confirmUnsavedDocuments: @MainActor (any UnsavedDocumentHandling) async -> Bool
     private var isDetached = false
+    /// Set when a layout transition was deferred because the window was in
+    /// native fullscreen; the frame is reconciled on exit.
+    private var needsFrameReconcileAfterFullScreen = false
+    /// Injectable for tests: real transitions set `.fullScreen` on the style
+    /// mask, and AppKit throws when tests write it outside its own transition.
+    var isInFullScreen: (NSWindow) -> Bool = { $0.styleMask.contains(.fullScreen) }
 
     init(
         projectSessions: any ProjectWindowSessionHandling,
@@ -557,6 +563,12 @@ final class LitheWindowCoordinator: NSObject, NSWindowDelegate {
 
     func windowDidExitFullScreen(_ notification: Notification) {
         guard let window, notification.object as? NSWindow === window, let layout else { return }
+        if needsFrameReconcileAfterFullScreen {
+            needsFrameReconcileAfterFullScreen = false
+            // AppKit restored the pre-fullscreen frame of the old layout;
+            // reapply the current layout's frame before the buttons align.
+            applyFrame(for: layout, to: window, animate: false)
+        }
         alignWindowButtons(in: window, for: layout)
     }
 
@@ -693,6 +705,19 @@ final class LitheWindowCoordinator: NSObject, NSWindowDelegate {
         // only for a new window/role, not every model update during layout.
         window.contentMinSize = layout.minimumContentSize
 
+        // setFrame on a native-fullscreen window shrinks it to a centered box
+        // inside its Space (content surrounded by black), so a layout
+        // transition that happens while fullscreen defers the frame swap
+        // until the user leaves fullscreen.
+        if isInFullScreen(window) {
+            needsFrameReconcileAfterFullScreen = true
+            return
+        }
+        applyFrame(for: layout, to: window, animate: shouldAnimate)
+        alignWindowButtons(in: window, for: layout)
+    }
+
+    private func applyFrame(for layout: LitheWindowLayout, to window: NSWindow, animate: Bool) {
         let currentFrame = window.frame
         let visibleFrame = (window.screen ?? NSScreen.main)?.visibleFrame
         let targetContentSize: NSSize
@@ -710,8 +735,7 @@ final class LitheWindowCoordinator: NSObject, NSWindowDelegate {
         if let visibleFrame {
             targetFrame = LitheWindowLayout.frame(targetFrame, fitting: visibleFrame)
         }
-        window.setFrame(targetFrame, display: true, animate: shouldAnimate)
-        alignWindowButtons(in: window, for: layout)
+        window.setFrame(targetFrame, display: true, animate: animate)
     }
 
     private func alignWindowButtons(in window: NSWindow, for layout: LitheWindowLayout) {

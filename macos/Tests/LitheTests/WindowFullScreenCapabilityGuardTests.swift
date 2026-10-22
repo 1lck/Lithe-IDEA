@@ -84,12 +84,89 @@ struct WindowFullScreenStateReaderTests {
         window.contentView?.addSubview(reader)
         #expect(reported == [false])
 
-        window.styleMask.insert(.fullScreen)
+        // AppKit throws when tests write the style mask outside a real
+        // fullscreen transition, so the state is driven through the
+        // injectable predicate instead.
+        reader.isFullScreen = { _ in true }
         NotificationCenter.default.post(name: NSWindow.didUpdateNotification, object: window)
         #expect(reported == [false, true])
 
-        window.styleMask.remove(.fullScreen)
+        reader.isFullScreen = { _ in false }
         NotificationCenter.default.post(name: NSWindow.didUpdateNotification, object: window)
         #expect(reported == [false, true, false])
+    }
+}
+
+@Suite("Window layout transition while fullscreen")
+@MainActor
+struct WindowLayoutFullScreenTransitionTests {
+    private final class Sessions: ProjectWindowSessionHandling {
+        var hasUnsavedDocuments = false
+        var closingDocuments: [EditorDocument] = []
+        var unsavedDocumentNames: [String] = []
+        var hasActiveProject = false
+        var hasActiveStandaloneFile = false
+        var shouldDismissWindowWhenClosingActiveSession = false
+        var windowScope: ProjectWindowScope = .primary
+
+        @discardableResult
+        func saveAllDocuments() async -> Bool { true }
+        func closeActiveProject() {}
+        func requestCloseActiveWorkbenchItem() -> Bool { false }
+        func requestCloseActiveSession() -> Bool { true }
+        func resetForProjectWindowClose() async {}
+        func noteWindowBecameKey() {}
+    }
+
+    @Test
+    func layoutTransitionWhileFullScreenDefersFrameSwapUntilExit() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 100, y: 100, width: 800, height: 650),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+
+        let coordinator = LitheWindowCoordinator(projectSessions: Sessions())
+        coordinator.attach(to: window, layout: .welcome, title: "Welcome")
+        let welcomeWidth = window.frame.width
+        #expect(abs(welcomeWidth - LitheWindowLayout.welcomeContentSize.width) < 1)
+
+        // 欢迎页全屏后打开项目：全屏期间不得把窗口缩成居中的工作台默认尺寸
+        coordinator.isInFullScreen = { _ in true }
+        coordinator.attach(to: window, layout: .workspace, title: "Project")
+        #expect(abs(window.frame.width - welcomeWidth) < 1)
+
+        // 退出全屏后补一次换框，落回工作台默认尺寸
+        coordinator.isInFullScreen = { _ in false }
+        coordinator.windowDidExitFullScreen(
+            Notification(name: NSWindow.didExitFullScreenNotification, object: window)
+        )
+        #expect(abs(window.frame.width - LitheWindowLayout.workspaceContentSize.width) < 1)
+    }
+
+    @Test
+    func directFullScreenExitWithoutLayoutChangeKeepsRestoredFrame() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 100, y: 100, width: 800, height: 650),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+
+        let coordinator = LitheWindowCoordinator(projectSessions: Sessions())
+        coordinator.attach(to: window, layout: .welcome, title: "Welcome")
+        let welcomeWidth = window.frame.width
+
+        // 全屏前全屏后布局未变：退出时不做换框，保留退出前的窗口尺寸
+        coordinator.isInFullScreen = { _ in true }
+        coordinator.windowDidExitFullScreen(
+            Notification(name: NSWindow.didExitFullScreenNotification, object: window)
+        )
+        #expect(abs(window.frame.width - welcomeWidth) < 1)
     }
 }

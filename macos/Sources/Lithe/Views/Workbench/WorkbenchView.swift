@@ -91,6 +91,10 @@ struct WindowFullScreenStateReader: NSViewRepresentable {
 
     final class ReaderView: NSView {
         var onRefresh: ((Bool) -> Void)?
+        /// Injectable so tests can drive fullscreen state without starting a
+        /// real transition: writing the style mask directly throws outside
+        /// AppKit's own fullscreen flow.
+        var isFullScreen: (NSWindow) -> Bool = { $0.styleMask.contains(.fullScreen) }
 
         override func viewDidMoveToWindow() {
             NotificationCenter.default.removeObserver(
@@ -117,7 +121,7 @@ struct WindowFullScreenStateReader: NSViewRepresentable {
         }
 
         func refresh() {
-            onRefresh?(window?.styleMask.contains(.fullScreen) ?? false)
+            onRefresh?(window.map(isFullScreen) ?? false)
         }
     }
 }
