@@ -1288,7 +1288,9 @@ package final class BuildSystemService: ObservableObject {
         } catch is CancellationError {
             throw CancellationError()
         } catch {
-            if (error as? BuildToolResolutionError)?.terminal == true { throw error }
+            // Runtime resolution can fail before the selected tool is visited.
+            // Delegating then would lose the invocation's explicit selection.
+            if invocation.hasExplicitExecutableSelection || (error as? BuildToolResolutionError)?.terminal == true { throw error }
             if canAppend(owner) {
                 appendOutput(
                     "\n" + String(localized: "The provider looks up the build tool itself: \(error.localizedDescription)") + "\n",

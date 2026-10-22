@@ -117,6 +117,39 @@ struct MacBuildToolResolverTests {
     }
 
     @Test
+    func customRuntimeProbeAndExecutionUseTheSameSiblingHelper() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let executable = root.appendingPathComponent("custom runtime/runtime")
+        let helper = executable.deletingLastPathComponent().appendingPathComponent("fixture-helper")
+        try FileManager.default.createDirectory(at: executable.deletingLastPathComponent(), withIntermediateDirectories: true)
+        for (url, script) in [(executable, "#!/bin/sh\nexec fixture-helper\n"),
+                              (helper, "#!/bin/sh\nprintf 'fixture 2.0\\n'\n")] {
+            try Data(script.utf8).write(to: url)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+        }
+        // The injected environment has no PATH entry for the helper. Only the
+        // candidate-specific environment can make this version probe succeed.
+        let runtime = ProjectRuntimeService(runtimeLocator: BuildProbeRuntimeLocator(home: root), store: BuildProbeEmptyStore())
+        let runner = MacProcessRunner()
+        let resolver = MacBuildToolResolver(runtime: runtime, processRunner: runner, fileStorage: MacFileStorage())
+        let invocation = BuildInvocation(executables: [.runtime("custom")], runtimeDependencies: [
+            .init(id: "custom", hostManaged: false, minimumVersion: "2",
+                  executables: [.setting(id: "runtimePath", path: executable.path)], versionArguments: ["--version"])
+        ])
+        let resolved = try await resolver.resolve(invocation, displayName: "Fixture", workspaceURL: root) { id, output in
+            #expect(id == "custom")
+            #expect(output == "fixture 2.0\n")
+            return BuildVersionCheck(satisfied: output == "fixture 2.0\n", version: "2.0")
+        }
+        #expect(resolved.environment["PATH"] == executable.deletingLastPathComponent().path)
+        let request = ProcessRequest(executablePath: resolved.executableURL.path, arguments: [],
+                                     environment: resolved.environment, timeoutMilliseconds: 2_000)
+        let output = await Task.detached { runner.run(request).output }.value
+        #expect(output == "fixture 2.0\n")
+    }
+
+    @Test
     func languageImportDiscoversWrapperWithoutExecutingItOrRuntimeProbes() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }

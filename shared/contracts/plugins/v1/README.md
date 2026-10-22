@@ -1498,8 +1498,15 @@ resolver's fallback-to-default behavior. Project overrides never select tools.
 The host checks file permissions and versions: a configured failure is terminal,
 including a failure to probe, and must not fall back to subsequent candidates or
 a Provider's own lookup. Paths with spaces remain single paths. The selected
-setting's directory precedes PATH. Provider hints and task/test execution use
-this same plan/selection mechanism.
+setting's directory precedes PATH. Runtime candidates construct their environment
+before version probing and reuse it for execution; a rejected candidate's
+environment does not leak into the next choice. Provider hints and task/test
+execution use this same plan/selection mechanism. If resolution fails before a
+configured candidate is reached (for example, an earlier Runtime is missing),
+any nonempty setting in the tool or Runtime candidate sets still forbids the
+Provider's independent lookup. All-empty settings retain automatic-discovery
+fallback. This check applies after failure, so an earlier successful candidate
+is unaffected by a later unused setting.
 
 Optional metadata applies within **one candidate set owned by one plugin**:
 

@@ -138,9 +138,17 @@ final class MacBuildToolResolver: BuildToolResolving {
             case .terminalFailure(let message): throw BuildToolResolutionError(message, terminal: true)
             case .resolved(let choices):
                 for choice in choices {
+                    // Probes and execution need the same PATH, including helpers
+                    // next to a selected runtime. Failed candidates must not
+                    // contribute their environment to the next choice.
+                    var selectedEnvironment = environment
+                    if let javaHome { selectedEnvironment["JAVA_HOME"] = javaHome.path }
+                    let directory = choice.url.deletingLastPathComponent().path
+                    let path = environment["PATH"] ?? ""
+                    selectedEnvironment["PATH"] = path.isEmpty ? directory : directory + ":" + path
                     if !choice.executesProjectCode,
                        let minimum = dependency.minimumVersion, let arguments = dependency.versionArguments {
-                        let output = await probe(choice.url, arguments: arguments, environment: environment)
+                        let output = await probe(choice.url, arguments: arguments, environment: selectedEnvironment)
                         let check: BuildVersionCheck
                         do { check = try checkVersion(dependency.id, output) }
                         catch { throw BuildToolResolutionError(error.localizedDescription, terminal: choice.terminal) }
@@ -150,10 +158,7 @@ final class MacBuildToolResolver: BuildToolResolving {
                             continue
                         }
                     }
-                    if let javaHome { environment["JAVA_HOME"] = javaHome.path }
-                    let directory = choice.url.deletingLastPathComponent().path
-                    let path = environment["PATH"] ?? ""
-                    environment["PATH"] = path.isEmpty ? directory : directory + ":" + path
+                    environment = selectedEnvironment
                     return choice.url
                 }
             }

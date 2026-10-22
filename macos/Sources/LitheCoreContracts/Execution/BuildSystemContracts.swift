@@ -455,6 +455,16 @@ package struct BuildInvocation: Equatable, Sendable {
     package let versionArguments: [String]?
     package let minimumVersion: String?
 
+    /// After resolution fails, a provider must not discard a configured tool
+    /// or runtime by doing its own lookup. Check this only on failure: an
+    /// earlier successful candidate still wins over a later setting.
+    package var hasExplicitExecutableSelection: Bool {
+        (executables + runtimeDependencies.flatMap(\.executables)).contains {
+            if case .setting(_, let path) = $0 { return path.map { !$0.isEmpty } ?? false }
+            return false
+        }
+    }
+
     package init(
         executables: [Executable], environmentInputs: [String] = [],
         runtimeDependencies: [RuntimeDependency] = [], versionArguments: [String]? = nil,

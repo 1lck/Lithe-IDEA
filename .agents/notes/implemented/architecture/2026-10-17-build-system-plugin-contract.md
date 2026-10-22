@@ -375,7 +375,21 @@ macOS 接入规则（2026-10-18）：
 共享类型与拓扑排序位于 `plugins::executables`，macOS 由
 `ExecutableCandidateResolver` 注入文件系统、环境、Runtime 和工具发现能力，
 区分跳过、解析成功和终止失败。Provider 的可选 tool 提示继续复用宿主解析结果；
-无显式选择的自动发现失败仍可让 Provider 自行查找，显式失败则停止本次模型加载。
+无显式选择的自动发现失败仍可让 Provider 自行查找，显式失败则停止本次模型或依赖加载。
+这个限制也覆盖前置 Runtime 先失败的情况：Provider 回退前检查整个调用计划里的
+工具和 Runtime 是否有非空 setting，不能仅依赖失败候选的 terminal 标志。
+例如用户选了工具 A，先解析的 Runtime 不可用时，应报告 Runtime 错误；不能丢掉
+A，发出不带 tool 的请求。空 setting 仍允许自动发现失败后交给 Provider。
+只在解析失败时检查这项约束，前面候选成功后不会被后面未使用的 setting 阻止。
+Runtime 每个候选先构造自己的环境，把所选目录加入 PATH，再以同一环境探测和
+执行；失败候选的 PATH 不传给下一个候选。否则同目录 helper 会在探测时缺失，
+合法的 Runtime 就会被误判为版本不足。
 设置值非法时 Core 直接拒绝计划，普通设置的容错显示规则不变。
 自定义 Runtime 候选复用同一机制；其余进程模块的分步迁移边界见
 [插件设置面](2026-10-21-plugin-settings-surfaces.md)。
+
+`BuildToolProviderResolutionTests` 使用真实 Core 计划、MacBuildToolResolver 和
+BuildSystemService 验证上述组合：前置 Runtime 缺失或版本不足时，工具或后置
+Runtime 的显式选择均阻止模型和依赖 Provider 请求；全部设置为空时仍发送无 tool 的请求。
+`MacBuildToolResolverTests.customRuntimeProbeAndExecutionUseTheSameSiblingHelper`
+用临时可执行脚本验证带空格目录里的 Runtime 在探测和执行时都能找到同目录 helper。
