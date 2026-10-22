@@ -65,9 +65,28 @@ macOS 设置窗口现在可以由插件“注册”页面：插件在 `plugin.js
 
 为了保证“立即生效”真的不需要新进程，Core 在校验时拒绝把 `immediate` 设置用在命令行参数或 `initializationOptions` 里。
 
-### 5. 宿主能力版本
+### 5. 构建工具的可执行文件路径
 
-macOS 的 `hostCapabilities` 声明 `settings: [1, 2]` 和 `languageServers: [1, 2]`。Windows 还没有这些界面和推送，所以仍只声明 1，需要 v2 的插件在 Windows 上会被市场隐藏，而不是装上后行为不完整。
+只声明一个 file 设置不会改变构建进程。`buildSystems` 2 增加通用的
+`invocation.executableSetting`，引用全局 file 设置，生效方式为 reload 或
+nextRun。Core 负责校验引用和解析值；macOS 每次计划时读取该插件的全局值，
+由平台 adapter 检查文件权限和版本，并把同一个路径用于模型 Provider 与构建、
+测试、运行。留空恢复自动发现。已指定路径失效时必须报错，不能回退到 PATH
+中的另一份工具，否则模型与执行可能使用不同安装。工具父目录也放到进程
+PATH 前，供工具启动同目录的辅助程序。
+
+路径只允许全局作用域，避免共享项目配置静默选择本机可执行文件。不要在
+Cargo 或其他插件 ID 下写宿主分支。插件只需声明 file 字段和引用；版本 1
+宿主通过能力协商拒绝安装，避免出现可保存但不生效的设置。
+
+该设置写入既有用户偏好存储，没有新缓存或安装目录写入，不影响包签名和
+Sparkle delta。通用夹具 `build-tool-path.plugin.json`、Core 校验、Swift
+路径解析与 Provider 失败回归覆盖这条边界。Cargo 专属真实执行回归仍由独立
+插件仓库维护；独立仓库的发布宿主 pin 必须在宿主变更提交后同步更新。
+
+### 6. 宿主能力版本
+
+macOS 的 `hostCapabilities` 声明 `settings: [1, 2]`、`languageServers: [1, 2]` 和 `buildSystems: [1, 2]`。Windows 还没有这些界面和推送，所以仍只声明 1，需要 v2 的插件在 Windows 上会被市场隐藏，而不是装上后行为不完整。
 
 ## 考虑过的备选方案
 

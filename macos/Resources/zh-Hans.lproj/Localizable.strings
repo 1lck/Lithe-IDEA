@@ -3664,3 +3664,5 @@
 "Zoom Out" = "缩小";
 "Reset Page Zoom (100%)" = "恢复页面缩放（100%）";
 "Page Zoom" = "页面缩放";
+
+"The configured build tool is not executable: %@" = "配置的构建工具无法执行：%@";

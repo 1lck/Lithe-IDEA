@@ -22,7 +22,7 @@
       "additionalProperties": false,
       "properties": {
         "buildProviders": { "description": "Required exactly when any buildSystems[].provider is present, including own-process and shared language-server providers. Declares host support for Provider orchestration, independent of declarative buildSystems and serverProcess launch support.", "enum": [1] },
-        "buildSystems": { "description": "Declarative build detection, models, and command plans; does not imply buildProviders support.", "enum": [1] },
+        "buildSystems": { "description": "Declarative build detection, models, and command plans; does not imply buildProviders support.", "enum": [1, 2] },
         "executionProviders": { "enum": [1] },
         "languageServers": { "enum": [1] },
         "languages": { "enum": [1] },
@@ -1095,6 +1095,12 @@
             "executables"
           ],
           "properties": {
+            "executableSetting": {
+              "type": "string",
+              "description": "buildSystems 2: global file setting with effect reload or nextRun; empty uses discovery, nonempty must be used without fallback.",
+              "pattern": "^[a-z][a-zA-Z0-9]*$",
+              "maxLength": 120
+            },
             "executables": {
               "type": "array",
               "items": {

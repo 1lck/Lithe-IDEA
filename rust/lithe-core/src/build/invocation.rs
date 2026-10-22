@@ -11,10 +11,13 @@ use super::manifest::{
     BuildSystemDeclaration, ExecutableCandidate, Platform, RuntimeDependency, VersionProbe,
 };
 use crate::plugins::declarative::{
-    reported_version, validate_minimum_version, version_components, PluginRejection, Validation,
+    reported_version, validate_minimum_version, version_components, DeclarativePluginManifest,
+    PluginRejection, Validation,
 };
+use crate::plugins::settings::SettingLayers;
 use serde::Deserialize;
 use serde_json::{json, Value};
+use std::collections::BTreeMap;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -22,6 +25,9 @@ pub(crate) struct InvocationRequest {
     /// Instance root, workspace-relative.
     pub(crate) root: String,
     pub(crate) platform: Platform,
+    /// Global plugin settings. Project files cannot select a local executable.
+    #[serde(default)]
+    pub(crate) settings: BTreeMap<String, Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -103,6 +109,7 @@ fn runtime(runtime: &RuntimeDependency, root: &str, platform: Platform) -> Value
 pub(crate) fn invocation_plan(
     build_system: &BuildSystemDeclaration,
     request: &InvocationRequest,
+    manifest: &DeclarativePluginManifest,
 ) -> Validation<Value> {
     let root = decode::request_path(&request.root, "root")?;
     let invocation = &build_system.invocation;
@@ -116,7 +123,23 @@ pub(crate) fn invocation_plan(
             ),
         ));
     }
-    Ok(json!({
+    let configured_executable = invocation.executable_setting.as_ref().and_then(|id| {
+        manifest
+            .resolve_settings(SettingLayers {
+                global: &request.settings,
+                project: &BTreeMap::new(),
+            })
+            .into_iter()
+            .find(|setting| &setting.id == id)
+            .and_then(|setting| {
+                setting
+                    .value
+                    .as_str()
+                    .filter(|path| !path.is_empty())
+                    .map(str::to_owned)
+            })
+    });
+    let mut plan = json!({
         "buildSystemID": build_system.id,
         "root": root,
         "executables": executables,
@@ -128,7 +151,11 @@ pub(crate) fn invocation_plan(
             .collect::<Vec<_>>(),
         "version": invocation.version.as_ref().map(|probe| json!({ "arguments": probe.arguments })),
         "minimumVersion": invocation.minimum_version,
-    }))
+    });
+    if let Some(path) = configured_executable {
+        plan["configuredExecutable"] = json!(path);
+    }
+    Ok(plan)
 }
 
 /// `build.checkToolVersion`: reads the probe output of the build tool or of

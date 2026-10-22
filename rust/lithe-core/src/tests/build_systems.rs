@@ -1592,3 +1592,69 @@ fn task_categories_and_option_placements_are_display_only() {
     assert_eq!(plan["status"], "ok", "{plan}");
     assert!(plan.to_string().contains("\":run\""), "{plan}");
 }
+
+/// A global executable selection is validated by the same settings rules as
+/// launch settings. No filesystem access or per-tool branch belongs in Core.
+#[test]
+fn explicit_build_tool_path_requires_supported_global_file_setting() {
+    let manifest: Value =
+        serde_json::from_str(contract_file!("fixtures/build-tool-path.plugin.json")).unwrap();
+    assert_eq!(validate(manifest.clone())["status"], "ok");
+    let invoke = |settings: Value| {
+        call(
+            "invocationPlan",
+            manifest.clone(),
+            "fixture",
+            json!({
+                "root": ".", "platform": "macos", "settings": settings
+            }),
+        )
+    };
+    assert_eq!(
+        invoke(json!({}))["invocation"].get("configuredExecutable"),
+        None
+    );
+    assert_eq!(
+        invoke(json!({"toolPath": ""}))["invocation"].get("configuredExecutable"),
+        None
+    );
+    let path = "/opt/custom tools/build-tool";
+    assert_eq!(
+        invoke(json!({"toolPath": path}))["invocation"]["configuredExecutable"],
+        path
+    );
+    assert_eq!(
+        invoke(json!({"toolPath": "relative"}))["invocation"].get("configuredExecutable"),
+        None
+    );
+    for platform in ["macos", "linux", "windows"] {
+        let result = call(
+            "invocationPlan",
+            manifest.clone(),
+            "fixture",
+            json!({
+                "root": ".", "platform": platform, "settings": {"toolPath": "C:\\Tools\\build.exe"}
+            }),
+        );
+        assert_eq!(result["status"], "ok");
+        assert_eq!(
+            result["invocation"]["configuredExecutable"],
+            "C:\\Tools\\build.exe"
+        );
+    }
+    for (field, value) in [
+        ("scope", json!("project")),
+        ("type", json!("directory")),
+        ("effect", json!("restart")),
+    ] {
+        let mut invalid = manifest.clone();
+        invalid["settings"][0][field] = value;
+        assert_eq!(validate(invalid)["status"], "rejected", "{field}");
+    }
+    let mut old = manifest.clone();
+    old["requires"]["buildSystems"] = json!(1);
+    assert_eq!(validate(old)["status"], "rejected");
+    let mut missing = manifest;
+    missing["buildSystems"][0]["invocation"]["executableSetting"] = json!("missing");
+    assert_eq!(validate(missing)["status"], "rejected");
+}

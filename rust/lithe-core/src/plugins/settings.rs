@@ -246,6 +246,8 @@ struct SettingOption {
 /// Setting IDs a template may name, with the restrictions their kinds carry.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct DeclaredSettings {
+    /// Global paths that may explicitly select a build executable.
+    executables: BTreeSet<String>,
     /// Settings a launch reads when it starts.
     launch: BTreeSet<String>,
     /// Settings that are only pushed to a running server.
@@ -256,6 +258,11 @@ pub(crate) struct DeclaredSettings {
 }
 
 impl DeclaredSettings {
+    /// Whether the global file setting may select the build executable.
+    pub(crate) fn is_executable(&self, id: &str) -> bool {
+        self.executables.contains(id)
+    }
+
     /// Whether a start-time template may name the setting.
     pub(crate) fn contains(&self, id: &str) -> bool {
         self.launch.contains(id)
@@ -606,6 +613,15 @@ impl SettingDeclaration {
 pub(crate) fn declared(settings: &[SettingDeclaration]) -> DeclaredSettings {
     let mut declared = DeclaredSettings::default();
     for setting in settings {
+        if setting.kind == "file"
+            && setting.scope() == SettingScope::Global
+            && matches!(
+                setting.effect(),
+                SettingEffect::Reload | SettingEffect::NextRun
+            )
+        {
+            declared.executables.insert(setting.id.clone());
+        }
         if setting.effect() == SettingEffect::Immediate {
             declared.immediate.insert(setting.id.clone());
         } else {

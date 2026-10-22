@@ -404,6 +404,7 @@ final class MacServiceContainer {
                         ),
                         runner: MacBuildCommandRunner(processRegistry: processRegistry),
                         providers: buildProviderSessions,
+                        settings: { pluginSettings.values(forPlugin: $0) },
                         sources: {
                             // Enablement is read on every detection, so turning a
                             // plugin off takes its build systems away at once.

@@ -2086,3 +2086,5 @@
 "Zoom Out" = "Zoom Out";
 "Reset Page Zoom (100%)" = "Reset Page Zoom (100%)";
 "Page Zoom" = "Page Zoom";
+
+"The configured build tool is not executable: %@" = "The configured build tool is not executable: %@";

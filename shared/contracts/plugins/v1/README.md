@@ -1471,3 +1471,22 @@ macOS 动作的可见、可用、勾选和激活中状态由宿主计算，不�
 条件脚本。窗口尚在激活时，其打开命令在工具栏、菜单和命令面板禁用；窗口入口
 仍可取消显示。多个窗口同时请求同一插件模块时只构造一次；禁用或关闭会取消
 并清理在途激活，旧的菜单或命令引用不能重新调用已禁用的贡献。
+
+#### Configured build executable (`buildSystems` 2)
+
+`invocation.executableSetting` names a declared **global** `file` setting with
+`effect: "reload"` or `"nextRun"` (also requires `settings: 2`). The field is part
+of install review. Project settings cannot choose an executable. See
+[`build-tool-path.plugin.json`](fixtures/build-tool-path.plugin.json).
+
+`build.invocationPlan` accepts optional `request.settings`, the plugin's stored
+global values. Core applies the declared setting validation/default and emits
+`invocation.configuredExecutable` only for a nonempty value. Empty/absent values
+retain the existing ordered executable candidates. A host advertising
+`buildSystems: 2` must use a configured path directly, verify executability and
+version, and report a failure instead of falling back to another installation.
+The executable's parent directory precedes PATH for its process. All command
+sources, tasks/tests and provider `tool.executable` hints must use that same
+selection; a provider must not do independent discovery when an explicit path
+fails. Passive language import may inspect existence but never execute a probe.
+Older hosts advertise only version 1 and reject version 2 plugins.

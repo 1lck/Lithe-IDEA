@@ -192,6 +192,10 @@ pub(crate) enum Nesting {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct Invocation {
+    /// Optional global file setting selecting the executable. An empty value
+    /// keeps discovery; a configured path must never fall back silently.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) executable_setting: Option<String>,
     /// Candidates in preference order; the host takes the first that exists.
     pub(crate) executables: Vec<ExecutableCandidate>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -965,6 +969,7 @@ fn check_target_tags(tags: &mut Vec<String>, scopes: &[Scope], field: &str) -> V
 /// against.
 pub(crate) struct DeclarationContext<'a> {
     pub(crate) plugin_api_version: u32,
+    pub(crate) build_systems_version: u32,
     pub(crate) official: bool,
     /// Setting IDs a provider's launch templates may name.
     pub(crate) declared_settings: &'a crate::plugins::settings::DeclaredSettings,
@@ -1242,7 +1247,7 @@ impl BuildSystemDeclaration {
         self.validate_provider(field, context)?;
         self.validate_detection(field)?;
         let option_ids = self.validate_options(field)?;
-        self.validate_invocation(field, &option_ids)?;
+        self.validate_invocation(field, &option_ids, context)?;
         let model_templates = self.validate_tasks(field, &option_ids)?;
         self.validate_model(field, &option_ids)?;
         self.validate_run(field, &option_ids, &model_templates)?;
@@ -1411,9 +1416,22 @@ impl BuildSystemDeclaration {
         Ok(ids)
     }
 
-    fn validate_invocation(&mut self, field: &str, options: &BTreeSet<String>) -> Validation<()> {
+    fn validate_invocation(
+        &mut self,
+        field: &str,
+        options: &BTreeSet<String>,
+        context: &DeclarationContext<'_>,
+    ) -> Validation<()> {
         let invocation = &mut self.invocation;
         let field = format!("{field}.invocation");
+        if let Some(id) = &invocation.executable_setting {
+            if context.build_systems_version < 2 || !context.declared_settings.is_executable(id) {
+                return Err(invalid(
+                    format!("{field}.executableSetting"),
+                    "An executable setting requires buildSystems 2 and a global file setting with effect reload or nextRun.",
+                ));
+            }
+        }
         if invocation.environment_inputs.len() > MAX_LIST {
             return Err(invalid(
                 format!("{field}.environmentInputs"),

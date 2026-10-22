@@ -46,6 +46,18 @@ final class MacBuildToolResolver: BuildToolResolving {
         }
 
         var problems: [String] = []
+        if let path = invocation.configuredExecutable {
+            let url = URL(fileURLWithPath: path)
+            guard path.hasPrefix("/"), fileStorage.isExecutable(at: url) else {
+                throw BuildToolResolutionError(String(localized: "The configured build tool is not executable: \(path)"))
+            }
+            environment["PATH"] = url.deletingLastPathComponent().path + ":" + (environment["PATH"] ?? "")
+            if let tool = try await accept(
+                url, invocation: invocation, environment: environment,
+                checkVersion: checkVersion, problems: &problems
+            ) { return tool }
+            throw BuildToolResolutionError(Self.unavailableMessage(displayName, problems: problems))
+        }
         for candidate in invocation.executables {
             switch candidate {
             case .projectFile(let path, let requires):
@@ -97,6 +109,10 @@ final class MacBuildToolResolver: BuildToolResolving {
     /// Project import needs the installation path for global settings, but
     /// must not run build code or a version probe merely by opening a project.
     func languageImportExecutable(_ invocation: BuildInvocation, workspaceURL: URL) -> URL? {
+        if let path = invocation.configuredExecutable {
+            let url = URL(fileURLWithPath: path)
+            return path.hasPrefix("/") && fileStorage.isExecutable(at: url) ? url : nil
+        }
         let environment = runtime.processEnvironment()
         for candidate in invocation.executables {
             switch candidate {

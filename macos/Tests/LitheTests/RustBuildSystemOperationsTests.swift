@@ -69,6 +69,14 @@ struct RustBuildSystemOperationsTests {
     }
 
     @Test
+    func invocationUsesTheGlobalExecutableSetting() throws {
+        let target = try Self.target("build-tool-path", "fixture")
+        let custom = try operations.invocationPlan(target, root: ".", settings: ["toolPath": .string("/opt/custom tools/build")])
+        #expect(custom.configuredExecutable == "/opt/custom tools/build")
+        #expect(try operations.invocationPlan(target, root: ".").configuredExecutable == nil)
+    }
+
+    @Test
     func invocationAndVersionProbe() throws {
         let target = try Self.target("cargo-build", "cargo")
 

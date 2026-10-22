@@ -427,6 +427,8 @@ package struct BuildModel: Equatable, Sendable, Decodable {
 
 /// The executables of one build system on this platform, in Core's order.
 package struct BuildInvocation: Equatable, Sendable {
+    /// Explicit global file setting; failure must not fall back to discovery.
+    package let configuredExecutable: String?
     package enum Executable: Equatable, Sendable {
         /// A wrapper script inside the project. Always runs project code.
         case projectFile(path: String, requires: [String])
@@ -467,11 +469,12 @@ package struct BuildInvocation: Equatable, Sendable {
     package init(
         executables: [Executable], environmentInputs: [String] = [],
         runtimeDependencies: [RuntimeDependency] = [], versionArguments: [String]? = nil,
-        minimumVersion: String? = nil
+        minimumVersion: String? = nil, configuredExecutable: String? = nil
     ) {
         self.executables = executables; self.environmentInputs = environmentInputs
         self.runtimeDependencies = runtimeDependencies; self.versionArguments = versionArguments
         self.minimumVersion = minimumVersion
+        self.configuredExecutable = configuredExecutable
     }
 }
 
@@ -929,7 +932,9 @@ package protocol BuildSystemPlanning: Sendable {
         options: [String: ToolingJSONValue],
         executableURL: URL?
     ) throws -> BuildLanguageImport?
-    func invocationPlan(_ target: BuildSystemTarget, root: String) throws -> BuildInvocation
+    func invocationPlan(
+        _ target: BuildSystemTarget, root: String, settings: [String: ToolingJSONValue]
+    ) throws -> BuildInvocation
     func checkToolVersion(_ target: BuildSystemTarget, runtime: String?, output: String) throws -> BuildVersionCheck
     func resolveOptions(
         _ target: BuildSystemTarget,

@@ -7,6 +7,54 @@ import Testing
 @MainActor
 struct MacBuildToolResolverTests {
     @Test
+    func configuredPathWithSpacesWinsOverDiscoveryAndSuppliesItsDirectory() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let executable = root.appendingPathComponent("custom tools/build-tool")
+        try FileManager.default.createDirectory(at: executable.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("#!/bin/sh\nprintf 'fixture 2.0\\n'\n".utf8).write(to: executable)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        let runtime = ProjectRuntimeService(runtimeLocator: BuildProbeRuntimeLocator(home: root), store: BuildProbeEmptyStore())
+        let resolver = MacBuildToolResolver(runtime: runtime, processRunner: MacProcessRunner(), fileStorage: MacFileStorage())
+        let invocation = BuildInvocation(
+            executables: [.command("unavailable")], versionArguments: ["--version"],
+            minimumVersion: "2", configuredExecutable: executable.path
+        )
+        let resolved = try await resolver.resolve(invocation, displayName: "Fixture", workspaceURL: root) { _, output in
+            BuildVersionCheck(satisfied: output.contains("fixture 2.0"), version: "2.0")
+        }
+        #expect(resolved.executableURL == executable)
+        #expect(resolved.environment["PATH"]?.hasPrefix(executable.deletingLastPathComponent().path + ":") == true)
+        #expect(resolver.languageImportExecutable(invocation, workspaceURL: root) == executable)
+    }
+
+    @Test(arguments: ["missing", "non-executable", "old"])
+    func unusableConfiguredPathNeverFallsBackToAvailableWrapper(_ failure: String) async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let configured = root.appendingPathComponent("configured")
+        if failure != "missing" {
+            try Data("#!/bin/sh\nprintf 'fixture 1.0\\n'\n".utf8).write(to: configured)
+            try FileManager.default.setAttributes([.posixPermissions: failure == "old" ? 0o755 : 0o644], ofItemAtPath: configured.path)
+        }
+        let fallback = root.appendingPathComponent("wrapper")
+        try Data("#!/bin/sh\nexit 0\n".utf8).write(to: fallback)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fallback.path)
+        let runtime = ProjectRuntimeService(runtimeLocator: BuildProbeRuntimeLocator(home: root), store: BuildProbeEmptyStore())
+        let resolver = MacBuildToolResolver(runtime: runtime, processRunner: MacProcessRunner(), fileStorage: MacFileStorage())
+        let invocation = BuildInvocation(
+            executables: [.projectFile(path: "wrapper", requires: [])], versionArguments: ["--version"],
+            minimumVersion: "2", configuredExecutable: configured.path
+        )
+        await #expect(throws: BuildToolResolutionError.self) {
+            try await resolver.resolve(invocation, displayName: "Fixture", workspaceURL: root) { _, _ in
+                BuildVersionCheck(satisfied: false, version: "1.0")
+            }
+        }
+    }
+
+    @Test
     func languageImportDiscoversWrapperWithoutExecutingItOrRuntimeProbes() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }

@@ -46,7 +46,7 @@ pub(crate) const BUILD_PROVIDERS: &str = "buildProviders";
 /// capability keeps the meaning its section had at API level 2.
 pub const SUPPORTED_CAPABILITIES: &[(&str, &[u32])] = &[
     (BUILD_PROVIDERS, &[1]),
-    (BUILD_SYSTEMS, &[1]),
+    (BUILD_SYSTEMS, &[1, 2]),
     (EXECUTION_PROVIDERS, &[1]),
     (LANGUAGE_SERVERS, &[1, 2]),
     (LANGUAGES, &[1]),
