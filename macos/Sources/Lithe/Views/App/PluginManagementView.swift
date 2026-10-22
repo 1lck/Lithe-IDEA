@@ -17,7 +17,8 @@ struct PluginManagementView: View {
     /// bound is a constant rather than read from live window geometry.
     static let listMaximumWidth: CGFloat = 520
     static let detailMinimumWidth: CGFloat = 160
-    @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var settingsContext: SettingsModelContext
+    private var model: AppModel { settingsContext.model }
     @ObservedObject var settingsState: SettingsViewState
 
     var body: some View {
@@ -31,7 +32,8 @@ struct PluginManagementView: View {
 private struct PluginManagementPage: View {
     typealias Tab = PluginManagementView.Tab
 
-    @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var settingsContext: SettingsModelContext
+    private var model: AppModel { settingsContext.model }
     @ObservedObject var settingsState: SettingsViewState
     @ObservedObject var feature: PluginMarketplaceFeatureModel
     @AppStorage("lithe.settings.pluginTab") private var tab = Tab.installed
@@ -156,12 +158,12 @@ private struct PluginManagementPage: View {
 /// Installed tab: enable, disable, update, reinstall, and uninstall.
 private struct InstalledPluginsView: View {
     @Environment(\.locale) private var locale
-    @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var settingsContext: SettingsModelContext
+    private var model: AppModel { settingsContext.model }
     @ObservedObject var settingsState: SettingsViewState
     @ObservedObject var feature: PluginMarketplaceFeatureModel
     @State private var searchText = ""
     @State private var selectedPluginID: PluginID?
-    @State private var hoveredPluginID: PluginID?
     @State private var isManagingPackage = false
     @State private var confirmingUninstall: PluginManagementSnapshot?
     @State private var confirmingRollback: PluginManagementSnapshot?
@@ -190,14 +192,6 @@ private struct InstalledPluginsView: View {
                 hasUpdate: feature.availableUpdate(for: plugin.id) != nil
             ) && PluginListFilter.matches(plugin, query: query)
         }
-    }
-
-    private var enabledPlugins: [PluginManagementSnapshot] {
-        filteredPlugins.filter { effectiveEnabledState(for: $0) }
-    }
-
-    private var disabledPlugins: [PluginManagementSnapshot] {
-        filteredPlugins.filter { !effectiveEnabledState(for: $0) }
     }
 
     private var selectedPlugin: PluginManagementSnapshot? {
@@ -312,21 +306,26 @@ private struct InstalledPluginsView: View {
                 Spacer()
             }
             .padding(.horizontal, 14).frame(height: 38).background(LitheTheme.settingsListSurface)
+            // Filter and sort once per render; rows only receive their own state.
+            let plugins = filteredPlugins
+            let selectedID = (plugins.first { $0.id == selectedPluginID } ?? plugins.first)?.id
+            let enabled = plugins.filter { effectiveEnabledState(for: $0) }
+            let disabled = plugins.filter { !effectiveEnabledState(for: $0) }
             ScrollView {
                 LazyVStack(spacing: 0) {
-                    if !enabledPlugins.isEmpty {
+                    if !enabled.isEmpty {
                         groupHeader("Enabled")
-                        ForEach(enabledPlugins) { plugin in
-                            pluginRow(plugin)
+                        ForEach(enabled) { plugin in
+                            pluginRow(plugin, isSelected: plugin.id == selectedID)
                         }
                     }
-                    if !disabledPlugins.isEmpty {
+                    if !disabled.isEmpty {
                         groupHeader("Disabled")
-                        ForEach(disabledPlugins) { plugin in
-                            pluginRow(plugin)
+                        ForEach(disabled) { plugin in
+                            pluginRow(plugin, isSelected: plugin.id == selectedID)
                         }
                     }
-                    if filteredPlugins.isEmpty {
+                    if plugins.isEmpty {
                         Text(LocalizedStringKey("No matching plugins"))
                             .font(LitheTheme.smallFont)
                             .foregroundStyle(LitheTheme.secondaryText)
@@ -411,50 +410,17 @@ private struct InstalledPluginsView: View {
             .padding(.bottom, 4)
     }
 
-    private func pluginRow(_ plugin: PluginManagementSnapshot) -> some View {
-        let isSelected = selectedPlugin?.id == plugin.id
-        let isHovered = hoveredPluginID == plugin.id
-        return HStack(spacing: 10) {
+    private func pluginRow(_ plugin: PluginManagementSnapshot, isSelected: Bool) -> some View {
+        InstalledPluginRow(
+            displayName: plugin.manifest.displayName,
+            subtitle: rowSubtitle(plugin),
+            hasUpdate: feature.availableUpdate(for: plugin.id) != nil,
+            isEnabled: effectiveEnabledState(for: plugin),
+            isSelected: isSelected,
+            select: { selectedPluginID = plugin.id }
+        ) {
             pluginIcon(plugin, size: 32)
-                .scaleEffect(isHovered && !isSelected ? 1.06 : 1)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(LocalizedStringKey(plugin.manifest.displayName)).lineLimit(1)
-                    .font(LitheTheme.uiFont(size: 13, weight: .semibold))
-                Text(verbatim: rowSubtitle(plugin))
-                    .font(LitheTheme.smallFont).foregroundStyle(LitheTheme.secondaryText)
-                    .lineLimit(1)
-            }
-            Spacer()
-            if feature.availableUpdate(for: plugin.id) != nil {
-                Image(systemName: "arrow.up.circle.fill")
-                    .foregroundStyle(LitheTheme.accent)
-                    .help("Update available")
-            }
-            Image(systemName: effectiveEnabledState(for: plugin) ? "checkmark.square.fill" : "square")
-                .foregroundStyle(effectiveEnabledState(for: plugin) ? LitheTheme.accent : LitheTheme.secondaryText)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            isSelected
-                ? LitheTheme.settingsSelection
-                : (isHovered ? LitheTheme.hoverBackground : Color.clear)
-        )
-        .contentShape(Rectangle())
-        .onTapGesture(count: 1) {
-            selectedPluginID = plugin.id
-        }
-        .onHover { hovering in
-            if hovering {
-                hoveredPluginID = plugin.id
-            } else if hoveredPluginID == plugin.id {
-                hoveredPluginID = nil
-            }
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isButton)
-        .accessibilityAction { selectedPluginID = plugin.id }
     }
 
     /// A plugin whose package was refused. It can only be uninstalled or
@@ -792,5 +758,55 @@ private struct PluginFilterChipLayout: Layout {
         }
         if !current.indices.isEmpty { rows.append(current) }
         return rows
+    }
+}
+
+/// One installed plugin row. Hover state stays inside the row, so moving the
+/// pointer over the list redraws only the rows it enters and leaves instead
+/// of the whole Installed page and its detail pane.
+private struct InstalledPluginRow<Icon: View>: View {
+    let displayName: String
+    let subtitle: String
+    let hasUpdate: Bool
+    let isEnabled: Bool
+    let isSelected: Bool
+    let select: () -> Void
+    @ViewBuilder let icon: () -> Icon
+    @State private var isHovered = false
+
+    var body: some View {
+        HStack(spacing: 10) {
+            icon()
+                .scaleEffect(isHovered && !isSelected ? 1.06 : 1)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(LocalizedStringKey(displayName)).lineLimit(1)
+                    .font(LitheTheme.uiFont(size: 13, weight: .semibold))
+                Text(verbatim: subtitle)
+                    .font(LitheTheme.smallFont).foregroundStyle(LitheTheme.secondaryText)
+                    .lineLimit(1)
+            }
+            Spacer()
+            if hasUpdate {
+                Image(systemName: "arrow.up.circle.fill")
+                    .foregroundStyle(LitheTheme.accent)
+                    .help("Update available")
+            }
+            Image(systemName: isEnabled ? "checkmark.square.fill" : "square")
+                .foregroundStyle(isEnabled ? LitheTheme.accent : LitheTheme.secondaryText)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            isSelected
+                ? LitheTheme.settingsSelection
+                : (isHovered ? LitheTheme.hoverBackground : Color.clear)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture(count: 1, perform: select)
+        .onHover { isHovered = $0 }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { select() }
     }
 }

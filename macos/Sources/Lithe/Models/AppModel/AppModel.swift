@@ -204,7 +204,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         runtime: services.moduleRuntime,
         store: moduleCapabilityStore,
         awaitShutdown: { [weak self] in await self?.awaitModuleRuntimeShutdown() },
-        onChange: { [weak self] in self?.scheduleObjectWillChangeRelay() },
+        onChange: { [weak self] in self?.scheduleObjectWillChangeRelay(affectsSettings: false) },
         onError: { [weak self] in self?.showNotification($0) }
     )
     lazy var debugModuleCoordinator = DebugModuleCoordinator(
@@ -214,7 +214,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         configure: { [weak self] in self?.configureDebugHostHandlers($0) },
         openWorkspace: { feature, url in feature.openWorkspace(at: url) },
         onStateChange: { [weak self] in self?.handleDebugSessionStateChange($0) },
-        onChange: { [weak self] in self?.scheduleObjectWillChangeRelay() },
+        onChange: { [weak self] in self?.scheduleObjectWillChangeRelay(affectsSettings: false) },
         onError: { [weak self] in self?.showNotification($0) }
     )
     lazy var languageIntelligenceModuleCoordinator = LanguageIntelligenceModuleCoordinator(
@@ -226,12 +226,12 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     lazy var terminalModuleCoordinator = TerminalModuleCoordinator(
         runtime: services.moduleRuntime,
         store: moduleCapabilityStore,
-        onChange: { [weak self] in self?.scheduleObjectWillChangeRelay() }
+        onChange: { [weak self] in self?.scheduleObjectWillChangeRelay(affectsSettings: false) }
     )
     lazy var gitModuleCoordinator = GitModuleCoordinator(
         runtime: services.moduleRuntime,
         store: moduleCapabilityStore,
-        onChange: { [weak self] in self?.scheduleObjectWillChangeRelay() },
+        onChange: { [weak self] in self?.scheduleObjectWillChangeRelay(affectsSettings: false) },
         onError: { [weak self] in self?.showNotification($0) }
     )
     let javaLanguageServerPreparationCoordinator = JavaLanguageServerPreparationCoordinator()
@@ -250,25 +250,25 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
             } ?? []
         },
         notify: { [weak self] in self?.showNotification($0) },
-        onChange: { [weak self] in self?.scheduleObjectWillChangeRelay() }
+        onChange: { [weak self] in self?.scheduleObjectWillChangeRelay(affectsSettings: false) }
     )
     lazy var databaseModuleCoordinator = DatabaseModuleCoordinator(
         runtime: services.moduleRuntime,
         store: moduleCapabilityStore,
-        onChange: { [weak self] in self?.scheduleObjectWillChangeRelay() },
+        onChange: { [weak self] in self?.scheduleObjectWillChangeRelay(affectsSettings: false) },
         onError: { [weak self] in self?.showNotification($0) }
     )
     lazy var searchModuleCoordinator = SearchModuleCoordinator(
         runtime: services.moduleRuntime,
         store: moduleCapabilityStore,
-        onChange: { [weak self] in self?.scheduleObjectWillChangeRelay() },
+        onChange: { [weak self] in self?.scheduleObjectWillChangeRelay(affectsSettings: false) },
         onError: { [weak self] in self?.showNotification($0) }
     )
     lazy var runWorkflowCoordinator = RunWorkflowCoordinator(
         pluginCatalog: services.pluginCatalog,
         moduleRuntime: services.moduleRuntime,
         notify: { [weak self] in self?.showNotification($0) },
-        onPendingActionChange: { [weak self] in self?.scheduleObjectWillChangeRelay() }
+        onPendingActionChange: { [weak self] in self?.scheduleObjectWillChangeRelay(affectsSettings: false) }
     )
     var languageCapability: LitheLanguageIntelligenceModule.LanguageIntelligenceCapability? {
         cachedModuleCapability(.languageIntelligence)
@@ -381,6 +381,18 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     private var springFeatureObservation: AnyCancellable?
     private var mybatisFeatureObservation: AnyCancellable?
     private var isObjectWillChangeRelayScheduled = false
+    /// Whether any change waiting in the scheduled relay can affect a settings page.
+    private var pendingRelayAffectsSettings = false
+    /// Set while the relay republishes only workbench feature changes, so
+    /// `settingsChanges` can skip them.
+    private var isRelayingWorkbenchOnlyChange = false
+    private var settingsChangeObservations: [AnyCancellable] = []
+    /// Fires for `AppModel` changes a settings page can show: its own published
+    /// state, explicit plugin/module notifications, module activation and the
+    /// open workspace. High-frequency workbench feature relays (documents,
+    /// language tooling, Git, search…) are excluded so the settings window does
+    /// not rebuild while the project is busy. See `SettingsModelContext`.
+    let settingsChanges = ObservableObjectPublisher()
     private var languageToolingObservation: AnyCancellable?
     /// Regenerates the Run list once JDT has prepared the project, after a
     /// generation that could only show the previous Java entries.
@@ -449,7 +461,11 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         moduleCapabilityStore.observe(moduleID, observation: observation)
     }
 
-    func scheduleObjectWillChangeRelay() {
+    /// Coalesces change notifications into one `objectWillChange` per turn.
+    /// Pass `affectsSettings: false` for workbench feature changes that no
+    /// settings page reads through `SettingsModelContext`.
+    func scheduleObjectWillChangeRelay(affectsSettings: Bool = true) {
+        if affectsSettings { pendingRelayAffectsSettings = true }
         guard !isObjectWillChangeRelayScheduled else { return }
         isObjectWillChangeRelayScheduled = true
         let signpost = LitheSignpost.begin("appmodel.relay")
@@ -457,7 +473,10 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
             defer { LitheSignpost.end("appmodel.relay", signpost) }
             guard let self else { return }
             self.isObjectWillChangeRelayScheduled = false
+            self.isRelayingWorkbenchOnlyChange = !self.pendingRelayAffectsSettings
+            self.pendingRelayAffectsSettings = false
             self.objectWillChange.send()
+            self.isRelayingWorkbenchOnlyChange = false
         }
     }
 
@@ -514,7 +533,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
             self?.languageToolingSessionsIfActive
         }
         featureObservationBinder = AppModelObservationBinder(graph: featureGraph) { [weak self] in
-            self?.scheduleObjectWillChangeRelay()
+            self?.scheduleObjectWillChangeRelay(affectsSettings: false)
         }
         runWorkflowCoordinator.connect(actions: self)
         featureGraph.debugLaunchPreparation.connect(actions: self)
@@ -543,10 +562,10 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         documentLanguageCoordinator = DocumentFeatureComposition.configure(model: self)
         springFeatureObservation = springFeature.objectWillChange.sink { [weak self] _ in
             self?.refreshEditorDiagnosticsStore()
-            self?.scheduleObjectWillChangeRelay()
+            self?.scheduleObjectWillChangeRelay(affectsSettings: false)
         }
         mybatisFeatureObservation = mybatisFeature.objectWillChange.sink { [weak self] _ in
-            self?.scheduleObjectWillChangeRelay()
+            self?.scheduleObjectWillChangeRelay(affectsSettings: false)
         }
         fileVisibilityRulesObserverID = settings.addFileVisibilityRulesObserver { [weak self] in
             guard let self else { return }
@@ -597,6 +616,17 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         )
         configureMediaViewerRegistry()
         shortcutSessionCoordinator?.setActive(true)
+        settingsChangeObservations = [
+            objectWillChange.sink { [weak self] _ in
+                guard let self, !self.isRelayingWorkbenchOnlyChange else { return }
+                self.settingsChanges.send()
+            },
+            // The workspace session is a relayed feature, but project-scoped
+            // settings pages read the open workspace.
+            workspaceSessionCoordinator.$workspaceURL.removeDuplicates().dropFirst().sink { [weak self] _ in
+                self?.settingsChanges.send()
+            }
+        ]
     }
 
     convenience init(settings: AppSettings, services: AppServices) {
