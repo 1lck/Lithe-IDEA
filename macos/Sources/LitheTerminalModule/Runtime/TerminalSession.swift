@@ -178,6 +178,8 @@ public final class TerminalSession: ObservableObject, Identifiable {
         environment["TERM"] = "xterm-256color"
         environment["COLORTERM"] = "truecolor"
         environment["TERM_PROGRAM"] = "Lithe"
+        // Direct assignment drops any value inherited from the outer terminal when the transport cannot report one.
+        environment["TERM_PROGRAM_VERSION"] = transport.termProgramVersion
         for change in changes {
             if let value = change.value {
                 environment[change.name] = value
