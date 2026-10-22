@@ -1130,7 +1130,6 @@
 "files" = "个文件";
 "matches" = "个匹配项";
 "Text or hash" = "文本或 Hash";
-"This sends the selected local branch to its configured remote." = "这会将选中的本地分支推送到已配置的远程仓库。";
 "Rebase Current Branch onto…" = "将当前分支变基到…";
 "Branch:" = "分支：";
 "All" = "全部";
@@ -1871,7 +1870,6 @@
 "Date" = "日期";
 "Review" = "查看";
 "%@: %@" = "%@：%@";
-"Push '%@'?" = "推送“%@”？";
 "Deleted branch '%@'" = "已删除分支“%@”";
 "Deleted tag '%@'" = "已删除标签“%@”";
 "Delete tag '%@'?" = "删除标签“%@”？";
@@ -1881,8 +1879,18 @@
 "Create on commit %@. Leave the message empty for a lightweight tag." = "在提交 %@ 上创建标签。留空说明可创建轻量标签。";
 "Updating %@ (%lld incoming, %lld local)" = "正在更新 %@（%lld 个传入提交，%lld 个本地提交）";
 "Push to %@" = "推送到 %@";
-"Tracking %@" = "跟踪 %@";
-"Publish %@ (Core selects default remote)" = "发布 %@（自动选择默认远程仓库）";
+"Resolving push destination…" = "正在确定推送目标…";
+"Branch '%@' tracks '%@', which has a different name. Choose which branch to update." = "分支“%@”跟踪的是名称不同的“%@”。请选择要更新哪个分支。";
+"Publish to %@/%@" = "发布到 %@/%@";
+"Commits" = "提交";
+"No new commits. Pushing creates the remote branch." = "没有新的提交。推送会创建远程分支。";
+"Nothing to push" = "没有可推送的内容";
+"Older commits are not listed." = "更早的提交未列出。";
+"Could not load the changed files." = "无法加载更改的文件。";
+"Choose which branch to update before pushing." = "推送前请选择要更新的分支。";
+"Creates a new branch on %@" = "将在 %@ 上创建新分支";
+"Sets %@ as the upstream" = "将 %@ 设为上游分支";
+"Review commit and push" = "检查提交并推送";
 "Diff: %@ with %@" = "差异：%@ 与 %@";
 "File %lld of %lld" = "第 %lld 个文件，共 %lld 个";
 "%lld file(s) · %@" = "%lld 个文件 · %@";

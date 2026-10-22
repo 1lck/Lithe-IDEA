@@ -1401,24 +1401,50 @@ an upstream. If the push fails, the local branch is intentionally retained so
 the user can fix credentials or connectivity and retry without losing commits.
 
 `git.pushPreview` accepts `root`, an optional complete local `gitReference` or
-legacy `reference`, an optional bounded `limit`, and `pushTags`. It returns `localBranch`,
-`localHead`, `remote`, `remoteBranch`, nullable `remoteTrackingOid`, nullable
-`upstream`, exact reviewed `tags`, `commits`, and `hasMore` using
-`shared/fixtures/git/push-preview-v1.json`. The push destination follows
+legacy `reference`, an optional bounded `limit`, `pushTags`, and an optional
+`pushTarget`. It returns `localBranch`,
+`localHead`, `remote`, `remoteBranch`, `targetKind`, `createsRemoteBranch`,
+nullable `remoteTrackingOid`, nullable `upstream`, exact reviewed `tags`,
+`commits`, and `hasMore` using `shared/fixtures/git/push-preview-v1.json`.
+`targetKind` describes how `remoteBranch` relates to the local branch:
+`tracking` when both names match, `publish` when the branch has no upstream on the
+selected remote and will be published under its own name, and `divergent` when the
+upstream branch has a different name. `createsRemoteBranch` reports whether
+`remoteBranch` is still absent on the remote. The push destination follows
 `branch.<name>.pushRemote`, then `remote.pushDefault`, the configured upstream
 remote, `branch.<name>.remote`, and finally `origin` or the first configured
-remote. A destination without a fetched tracking reference previews commits not
-reachable from that remote. A reviewed `push` mutation sends these resolved fields
-back as `expectedPush`; Core rejects a stale local tip, destination, or tracking OID
-before starting Git. `force` binds `--force-with-lease` to the reviewed destination
-OID when `expectedPush` is present, and Core also validates the reviewed tag
-identities; `pushTags` accepts `none`, `all`, or `reachable`
-and maps to no tag option, `--tags`, or `--follow-tags` respectively. Legacy push
-callers may omit `expectedPush`. A reviewed push uses the preview's immutable
-`localHead` OID as the refspec source, so a repository change after validation
-cannot add unreviewed commits to the operation. Because Git cannot infer an
-upstream from an OID source, Core explicitly configures the reviewed local
-branch after a successful first push.
+remote. An upstream only names the destination when it lives on the selected
+remote, so a `pushRemote` or `remote.pushDefault` override falls back to the
+same-named branch on that remote. A destination without a fetched tracking
+reference previews commits not reachable from that remote. A reviewed `push`
+mutation sends these resolved fields back as `expectedPush`; Core rejects a stale
+local tip, destination, or tracking OID before starting Git. An optional
+`expectedPush.targetKind` is compared only when the caller supplies it, so a
+caller that predates target kinds keeps its previous behaviour instead of being
+rejected as stale.
+
+A `divergent` destination is never pushed implicitly. `pushTarget` accepts
+`publish` (send the branch to its same-named remote branch and repoint the upstream
+there after a successful push) or `upstream` (keep the differently named upstream
+branch, which is the only case allowed to update it, and leave the tracking
+configuration untouched). `git.pushPreview` and `push` resolve the destination
+through the same function with the same `pushTarget`, so the preview describes the
+branch, tracking OID and commits that choice would update, and a reviewed push is
+validated against exactly that destination. A client therefore previews with the
+choice, shows the result, and pushes with the same `pushTarget` and the
+`expectedPush` taken from that preview; a tracking configuration that moves in
+between is rejected as stale. Without `pushTarget`, a `divergent` preview reports
+the same-named destination and `push` rejects the request with `invalid_request`.
+`pushTarget` is ignored for branches that are not `divergent`.
+`force` binds
+`--force-with-lease` to the reviewed destination OID when `expectedPush` is
+present, and Core also validates the reviewed tag identities; `pushTags` accepts
+`none`, `all`, or `reachable` and maps to no tag option, `--tags`, or
+`--follow-tags` respectively. Legacy push callers may omit `expectedPush`. A
+reviewed push uses the preview's immutable `localHead` OID as the refspec source,
+so a repository change after validation cannot add unreviewed commits to the
+operation. Because Git cannot infer an upstream from an OID source, Core
+explicitly configures the reviewed local branch after a successful first push.
 
 New reference-based workflows send `gitReference` as `{ "fullName": string,
 "shortName": string, "kind": "local" | "remote" | "tag" }`. Core verifies
@@ -3216,6 +3242,22 @@ execution binding, never a portable identity. The response is
 finds real gitlink relationships, includes clean parents when requested, orders
 children first, and adds push-only child work where needed. Cycles fail closed.
 A changed reviewed plan must be displayed and confirmed again before any step.
+
+When `push` is set, Core also checks whether any repository's branch tracks a
+differently named remote branch (a `divergent` push destination, see
+`git.pushPreview`). Those repositories are returned as `pushTargetQuestions: [{
+repositoryId, localBranch, remote, upstream, upstreamBranch }]` (omitted when
+empty) and the session must not be stepped: when a step reaches such a repository,
+Core refuses it before writing that repository's commit instead of committing
+something it cannot push. Clients answer by preparing again
+with `pushTargets: { <repository-id>: { choice, remote, remoteBranch } }`, where
+`choice` is `publish` (`remoteBranch` is `localBranch`) or `upstream`
+(`remoteBranch` is `upstreamBranch`). The answer names the remote and branch that
+were shown; if the tracking configuration moves before the push, the answer no
+longer matches and Core asks again. Each repository is answered and checked
+separately, answers are stored in `plan.pushTargets`, and a retry restores and
+re-validates them from `previous` without the client forwarding them. Routine
+pushes (`tracking` or `publish` destinations) never produce a question.
 
 An optional `pathScope: { include, paths: { <repository-id>: [<relative-path>] } }`
 restricts local changelist commits. With `include: true`, only the listed literal

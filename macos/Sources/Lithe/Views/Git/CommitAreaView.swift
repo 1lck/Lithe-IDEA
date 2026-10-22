@@ -171,13 +171,15 @@ struct CommitAreaView: View {
 
 /// Observe the plan directly so a changed selection updates the open sheet.
 private struct WorkspaceCommitPlanView: View {
+    @Environment(\.locale) private var locale
     @ObservedObject var feature: GitFeatureModel
     let commitWorkflow: CommitWorkflowCoordinator
 
     var body: some View {
         if let plan = feature.pendingSubmoduleCommitPlan {
             VStack(alignment: .leading, spacing: 12) {
-                Text(LocalizedStringKey(plan.isRetry ? "Review remaining steps" : "Review repository commits")).font(LitheTheme.uiFont(.headline))
+                Text(LocalizedStringKey(plan.isRetry ? "Review remaining steps" : (plan.push ? "Review commit and push" : "Review repository commits")))
+                    .font(LitheTheme.uiFont(.headline))
                 Text("Each repository has its own commit. Completed steps are kept if another repository fails.")
                 Text("Commit message: \(plan.message)").font(LitheTheme.uiFont(.caption))
                 if plan.amend { Text("Amend applies to repositories with selected files.").font(LitheTheme.uiFont(.caption)) }
@@ -190,6 +192,7 @@ private struct WorkspaceCommitPlanView: View {
                                 if let state = plan.states[root] {
                                     Text("\(state.branch ?? "Detached HEAD") · \(state.head?.prefix(10) ?? "New repository")")
                                         .font(LitheTheme.uiFont(.caption)).foregroundStyle(.secondary)
+                                    if plan.push { pushTargetRow(plan: plan, root: root) }
                                     if !plan.committedRoots.contains(root) {
                                         ForEach(state.stagedPaths, id: \.self) { path in
                                             Text(path).font(LitheTheme.uiFont(.caption))
@@ -210,12 +213,75 @@ private struct WorkspaceCommitPlanView: View {
                 )).disabled(feature.isCommitting)
                 if plan.push { Text("Each submodule is pushed before its parent.").font(LitheTheme.uiFont(.caption)) }
                 HStack {
+                    if plan.needsPushTargetChoice {
+                        Text("Choose which branch to update before pushing.")
+                            .font(LitheTheme.uiFont(.caption))
+                            .foregroundStyle(LitheTheme.secondaryText)
+                    }
                     Spacer()
                     Button("Cancel") { feature.cancelPendingSubmoduleCommit() }
-                    Button("Continue") { Task { await commitWorkflow.confirmPendingSubmoduleCommit() } }
-                        .keyboardShortcut(.defaultAction)
+                    Button(LocalizedStringKey(plan.push ? "Commit and Push" : "Continue")) {
+                        Task { await commitWorkflow.confirmPendingSubmoduleCommit() }
+                    }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(plan.needsPushTargetChoice)
                 }.disabled(feature.isCommitting)
             }.padding(20).frame(width: 540)
         }
+    }
+
+    /// Where this repository's branch goes. A differently named upstream is never
+    /// pushed to implicitly: the user picks the branch, and Continue stays off until
+    /// every such repository has an answer.
+    @ViewBuilder
+    private func pushTargetRow(plan: GitSubmoduleCommitPlan, root: URL) -> some View {
+        if let question = plan.pushQuestion(for: root) {
+            let chosen = plan.confirmedPushTarget(for: root)?.choice
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Branch '\(question.localBranch)' tracks '\(question.upstream)', which has a different name. Choose which branch to update.")
+                    .font(LitheTheme.uiFont(.caption))
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 8) {
+                    pushChoiceButton(.publish, chosen: chosen, question: question) {
+                        Text("Publish to \(question.remote)/\(question.localBranch)")
+                    }
+                    pushChoiceButton(.upstream, chosen: chosen, question: question) {
+                        Text("Push to \(question.upstream)")
+                    }
+                }
+            }
+            .padding(8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(LitheTheme.warning.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
+        } else if let confirmed = plan.confirmedPushTarget(for: root) {
+            pushDestinationLabel("\(confirmed.remote)/\(confirmed.remoteBranch)", note: nil)
+        } else if let preview = plan.pushDestinations[root] {
+            pushDestinationLabel(preview.destination, note: GitPushDialogPresentation(preview: preview, locale: locale).note)
+        }
+    }
+
+    private func pushDestinationLabel(_ destination: String, note: String?) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "arrow.right").font(LitheTheme.uiFont(.caption))
+            Text(verbatim: destination).foregroundStyle(LitheTheme.accent)
+            if let note { Text(verbatim: note).foregroundStyle(LitheTheme.secondaryText) }
+        }
+        .font(LitheTheme.uiFont(.caption))
+    }
+
+    private func pushChoiceButton<Label: View>(
+        _ choice: GitPushTargetChoice,
+        chosen: GitPushTargetChoice?,
+        question: GitWorkspacePushTargetQuestion,
+        @ViewBuilder label: () -> Label
+    ) -> some View {
+        Button {
+            Task { await feature.choosePushTarget(choice, for: question) }
+        } label: {
+            label().lineLimit(1)
+        }
+        .buttonStyle(.bordered)
+        .tint(chosen == choice ? LitheTheme.accent : nil)
+        .lithePointer()
     }
 }
