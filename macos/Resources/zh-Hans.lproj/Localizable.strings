@@ -1,4 +1,6 @@
 /* Core interface strings for Simplified Chinese. */
+"LITHE" = "LITHE";
+"PERSONAL WORKBENCH" = "PERSONAL WORKBENCH";
 "Preparing Lithe" = "正在准备 Lithe";
 "Loading plugins" = "正在加载插件";
 "Initializing language services" = "正在初始化语言服务";

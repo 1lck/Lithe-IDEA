@@ -1,5 +1,6 @@
 import { createStore } from "zustand/vanilla";
 import { useStore } from "zustand";
+import { invoke } from "@/platform/tauri-core";
 import {
   StartupFeedbackController,
   systemStartupFeedbackClock,
@@ -40,11 +41,18 @@ export function beginStartupFeedback(): void {
 /** Reports the phase the product is currently working on. */
 export function reportStartupStage(stage: StartupStageId): void {
   startupFeedbackController.setStage(stage);
+  void invoke("publish_startup_stage", { stage }).catch(() => {
+    // The splash window is optional, so a failed broadcast must not break the
+    // startup of the workbench.
+  });
 }
 
 /** Reports that the workbench is usable. */
 export function reportStartupReady(): void {
   startupFeedbackController.markReady();
+  void invoke("publish_startup_ready").catch(() => {
+    // The splash window closes itself when the workbench reports readiness.
+  });
 }
 
 /** Reports that the startup failed and keeps the reason visible. */
@@ -53,6 +61,12 @@ export function reportStartupFailed(
   failureMessage: string | null = null,
 ): void {
   startupFeedbackController.markFailed(failureCode, failureMessage);
+  void invoke("publish_startup_failed", { code: failureCode, message: failureMessage }).catch(
+    () => {
+      // The splash window is optional, so a failed broadcast must not break the
+      // startup of the workbench.
+    },
+  );
 }
 
 /** Dismisses the failure state after the user asked to continue. */

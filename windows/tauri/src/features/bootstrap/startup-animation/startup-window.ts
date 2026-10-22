@@ -1,41 +1,40 @@
 import { invoke } from "@/platform/tauri-core";
 import { startupFeedbackStore } from "./startup-feedback.store";
 
-let revealRequested = false;
+let completed = false;
 
 /**
- * Reveals the main window.
+ * Closes the startup splash and shows the workbench.
  *
- * The window is created hidden so the user never sees the empty WebView
- * surface while the frontend boots. The shell reveals the window on a timer as
- * well, so a frontend failure cannot leave an invisible window behind.
+ * The splash window and the workbench both request the handover, so the
+ * command has to stay idempotent.
  */
-export async function revealMainWindow(): Promise<void> {
-  if (revealRequested) return;
-  revealRequested = true;
+export async function completeStartup(): Promise<void> {
+  if (completed) return;
+  completed = true;
 
   try {
-    await invoke("show_main_window", { focus: true });
+    await invoke("complete_startup");
   } catch (error) {
-    console.warn("Failed to show the main window:", error);
+    console.warn("Failed to complete the startup sequence:", error);
   }
 }
 
 /**
- * Reveals the main window as soon as the startup feedback can explain the
- * wait.
+ * Completes the startup once the workbench reports readiness.
  *
- * The window stays hidden while the animation is not on screen yet, so the
- * user never sees a blank surface. A startup that finished before the
- * animation threshold is revealed right away, and a disabled animation never
- * holds the window back.
+ * The splash window fades out on its own when it receives the readiness
+ * event. This path exists for the case where the splash window is missing or
+ * failed to load: the workbench must not stay invisible in that case.
  */
 export function armMainWindowReveal(): () => void {
   const revealIfNeeded = (state: { visible: boolean; enabled: boolean; outcome: string }) => {
-    if (!state.visible && state.enabled && state.outcome !== "ready" && state.outcome !== "failed") {
+    if (state.outcome !== "ready" && state.outcome !== "failed") {
       return;
     }
-    void revealMainWindow();
+    window.setTimeout(() => {
+      void completeStartup();
+    }, 600);
   };
 
   revealIfNeeded(startupFeedbackStore.getState());

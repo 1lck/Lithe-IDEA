@@ -175,6 +175,7 @@ struct StartupFeedbackTests {
 
         for stage in fixture.stages {
             #expect(StartupStage(rawValue: stage.id)?.englishLabel == stage.labels.en)
+            #expect(StartupStage(rawValue: stage.id)?.progress == stage.progress)
         }
     }
 
@@ -243,6 +244,7 @@ private struct StartupFeedbackFixture: Decodable {
     struct Stage: Decodable {
         let id: String
         let order: Int
+        let progress: Int
         let labelKey: String
         let labels: Labels
     }

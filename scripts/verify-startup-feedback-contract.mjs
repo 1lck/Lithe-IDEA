@@ -183,20 +183,41 @@ if (fixture) {
     if (stage.labels.en === stage.labels.zhHans) {
       failures.push(`phase ${stage.id} must distinguish the English and Chinese wording`);
     }
+    if (!Number.isInteger(stage.progress) || stage.progress < 0 || stage.progress > 100) {
+      failures.push(`phase ${stage.id} must declare a progress percentage between 0 and 100`);
+    }
+  }
+  const progressValues = stages.map((stage) => stage.progress);
+  for (let index = 1; index < progressValues.length; index += 1) {
+    if (!(progressValues[index] > progressValues[index - 1])) {
+      failures.push("startup feedback phases must report a strictly increasing progress");
+    }
   }
 
   const windowsStages = readText(windowsStagePath);
   if (windowsStages) {
-    const declaredIds = [...windowsStages.matchAll(/\bid:\s*"([A-Za-z]+)"/g)].map((match) => match[1]);
+    const declaredStages = parseWindowsStageLines(windowsStages);
+    const declaredIds = declaredStages.map((entry) => entry.id);
     if (declaredIds.join(",") !== stageIds.join(",")) {
       failures.push(
         `Windows startup phases differ from the contract: ${declaredIds.join(", ") || "(none)"}`,
       );
     }
-    const declaredKeys = [...windowsStages.matchAll(/\blabelKey:\s*"([^"]+)"/g)].map((match) => match[1]);
-    const expectedKeys = stages.map((stage) => stage.labelKey);
-    if (declaredKeys.join(",") !== expectedKeys.join(",")) {
-      failures.push("Windows startup phase label keys differ from the contract");
+    for (const stage of stages) {
+      const declared = declaredStages.find((entry) => entry.id === stage.id);
+      if (!declared) {
+        failures.push(`Windows startup phase ${stage.id} is not declared`);
+        continue;
+      }
+      if (declared.labelKey !== stage.labelKey) {
+        failures.push(`Windows startup label key for phase ${stage.id} differs from the contract`);
+      }
+      if (declared.progress !== stage.progress) {
+        failures.push(`Windows startup progress for phase ${stage.id} differs from the contract`);
+      }
+      if (declared.en !== stage.labels.en || declared.zhHans !== stage.labels.zhHans) {
+        failures.push(`Windows startup wording for phase ${stage.id} differs from the contract`);
+      }
     }
     const minimum = /STARTUP_MINIMUM_VISIBLE_DURATION_MS\s*=\s*(\d+)/.exec(windowsStages);
     const fade = /STARTUP_FADE_OUT_DURATION_MS\s*=\s*(\d+)/.exec(windowsStages);
@@ -217,6 +238,19 @@ if (fixture) {
       failures.push(
         `macOS startup phases differ from the contract: ${declaredIds.join(", ") || "(none)"}`,
       );
+    }
+    const declaredProgress = [
+      ...macosStages.matchAll(/case\s+\.([A-Za-z]+):\s*return\s+(\d+)/g),
+    ].map((match) => ({ id: match[1], progress: Number(match[2]) }));
+    for (const stage of stages) {
+      const declared = declaredProgress.find((entry) => entry.id === stage.id);
+      if (!declared) {
+        failures.push(`macOS startup phase ${stage.id} does not declare the contract progress`);
+        continue;
+      }
+      if (declared.progress !== stage.progress) {
+        failures.push(`macOS startup progress for phase ${stage.id} differs from the contract`);
+      }
     }
   }
 
@@ -280,6 +314,30 @@ if (fixture) {
   if (windowsSettingsDefault && !/showStartupAnimation:\s*true/.test(windowsSettingsDefault)) {
     failures.push("Windows settings must enable the startup animation by default");
   }
+}
+
+// The Windows phase table keeps one phase per line, so every line that declares
+// an identifier is read on its own. Reading line by line keeps the failure
+// message table, which also carries wording, out of the phase comparison.
+function parseWindowsStageLines(source) {
+  const entries = [];
+  for (const line of source.split("\n")) {
+    const id = /\bid:\s*"([A-Za-z]+)"/.exec(line);
+    if (!id) continue;
+    const labelKey = /\blabelKey:\s*"([^"]+)"/.exec(line);
+    const progress = /\bprogress:\s*(\d+)/.exec(line);
+    const wording = /\blabels:\s*\{\s*en:\s*"((?:[^"\\]|\\.)*)"\s*,\s*zhHans:\s*"((?:[^"\\]|\\.)*)"\s*\}/.exec(
+      line,
+    );
+    entries.push({
+      id: id[1],
+      labelKey: labelKey?.[1],
+      progress: progress ? Number(progress[1]) : undefined,
+      en: wording ? JSON.parse(`"${wording[1]}"`) : undefined,
+      zhHans: wording ? JSON.parse(`"${wording[2]}"`) : undefined,
+    });
+  }
+  return entries;
 }
 
 function readLocaleSection(source, language) {

@@ -30,13 +30,19 @@ platform-owned because it describes platform diagnostics.
 
 ## Phases
 
-| Order | Phase | Meaning |
-| --- | --- | --- |
-| 1 | `preparing` | The product shell is being prepared before any phase runs. |
-| 2 | `loadingPlugins` | Installed plugins or extensions are being discovered and validated. |
-| 3 | `initializingLanguageServices` | Language services are being prepared. |
-| 4 | `openingWorkspace` | The workspace is being opened and indexed. |
-| 5 | `restoringSession` | The previous session is being restored. |
+| Order | Phase | Progress | Meaning |
+| --- | --- | --- | --- |
+| 1 | `preparing` | 10 | The product shell is being prepared before any phase runs. |
+| 2 | `loadingPlugins` | 30 | Installed plugins or extensions are being discovered and validated. |
+| 3 | `initializingLanguageServices` | 50 | Language services are being prepared. |
+| 4 | `openingWorkspace` | 72 | The workspace is being opened and indexed. |
+| 5 | `restoringSession` | 88 | The previous session is being restored. |
+
+The progress column is the percentage a progress indicator shows while that
+phase runs. It is part of the contract so both products report the same number
+for the same phase; a product may animate towards the value, but the value it
+settles on is the one in this table. The indicator reaches 100 when the outcome
+turns `ready`.
 
 A phase is a coarse product level step. The detailed language service
 preparation phases (`starting`, `importing`, `configuring`, `building`,

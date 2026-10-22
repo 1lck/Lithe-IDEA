@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="zh-CN" data-theme-type="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Lithe</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --splash-card: #15151b;
+        --splash-fg: #e8e8ec;
+        --splash-muted: #8d8d99;
+        --splash-accent: #4f7ffb;
+        --splash-track: rgba(232, 232, 236, 0.14);
+      }
+
+      html[data-theme-type="light"] {
+        color-scheme: light;
+        --splash-card: #ffffff;
+        --splash-fg: #1b1b1f;
+        --splash-muted: #6a6a76;
+        --splash-accent: #2f6fed;
+        --splash-track: rgba(27, 27, 31, 0.12);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+        padding: 0;
+        background: transparent;
+      }
+
+      body {
+        overflow: hidden;
+        color: var(--splash-fg);
+        font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      .splash {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        width: 100%;
+      }
+
+      .card {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        width: 100%;
+        border-radius: 28px;
+        overflow: hidden;
+        background: var(--splash-card);
+        box-shadow: 0 24px 64px rgba(0, 0, 0, 0.45);
+      }
+
+      .card::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        background:
+          radial-gradient(120% 85% at 50% 0%, rgba(104, 132, 255, 0.22), transparent 62%),
+          radial-gradient(90% 60% at 50% 108%, rgba(64, 190, 255, 0.14), transparent 70%);
+      }
+
+      .logo {
+        position: relative;
+        width: 80px;
+        height: 80px;
+        border-radius: 18px;
+        box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+      }
+
+      .brand {
+        position: relative;
+        margin-top: 28px;
+        font-size: 30px;
+        font-weight: 600;
+        letter-spacing: 0.42em;
+        text-indent: 0.42em;
+      }
+
+      .subtitle {
+        position: relative;
+        margin-top: 12px;
+        color: var(--splash-muted);
+        font-size: 10px;
+        letter-spacing: 0.34em;
+        text-indent: 0.34em;
+      }
+
+      .progress {
+        position: relative;
+        margin-top: 48px;
+        width: 384px;
+        max-width: 70%;
+        height: 4px;
+        border-radius: 999px;
+        background: var(--splash-track);
+        overflow: hidden;
+      }
+
+      .progress-fill {
+        width: 0%;
+        height: 100%;
+        border-radius: 999px;
+        background: var(--splash-accent);
+        transition: width 420ms cubic-bezier(0.22, 0.61, 0.36, 1);
+      }
+
+      .progress.indeterminate .progress-fill {
+        width: 38%;
+        transition: none;
+        animation: splash-indeterminate 1.4s ease-in-out infinite;
+      }
+
+      @keyframes splash-indeterminate {
+        0% {
+          transform: translateX(-110%);
+        }
+        100% {
+          transform: translateX(320%);
+        }
+      }
+
+      .row {
+        position: relative;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        width: 384px;
+        max-width: 70%;
+        margin-top: 16px;
+        color: var(--splash-muted);
+        font-size: 11px;
+        letter-spacing: 0.2em;
+      }
+
+      .stage {
+        text-transform: uppercase;
+      }
+
+      .failure {
+        position: relative;
+        display: none;
+        width: 384px;
+        max-width: 76%;
+        margin-top: 40px;
+        text-align: center;
+      }
+
+      .failure.visible {
+        display: block;
+      }
+
+      .failure-title {
+        font-size: 14px;
+        font-weight: 500;
+      }
+
+      .failure-stage {
+        margin-top: 8px;
+        color: var(--splash-muted);
+        font-size: 11px;
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+      }
+
+      .failure-reason {
+        margin-top: 8px;
+        color: var(--splash-muted);
+        font-size: 12px;
+      }
+
+      .continue {
+        margin-top: 20px;
+        padding: 7px 22px;
+        border: 1px solid var(--splash-track);
+        border-radius: 8px;
+        background: transparent;
+        color: var(--splash-fg);
+        font-family: inherit;
+        font-size: 12px;
+        cursor: pointer;
+      }
+
+      .continue:hover {
+        border-color: var(--splash-accent);
+        color: var(--splash-accent);
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="splash">
+      <div class="card" id="card">
+        <img class="logo" src="/logo.png" alt="" />
+        <div class="brand">LITHE</div>
+        <div class="subtitle">PERSONAL WORKBENCH</div>
+        <div class="progress indeterminate" id="progress">
+          <div class="progress-fill" id="progress-fill"></div>
+        </div>
+        <div class="row">
+          <span class="stage" id="stage"></span>
+          <span class="percent" id="percent"></span>
+        </div>
+        <div class="failure" id="failure">
+          <div class="failure-title" id="failure-title"></div>
+          <div class="failure-stage" id="failure-stage"></div>
+          <div class="failure-reason" id="failure-reason"></div>
+          <button class="continue" id="continue" type="button"></button>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/src/startup-splash.ts"></script>
+  </body>
+</html>

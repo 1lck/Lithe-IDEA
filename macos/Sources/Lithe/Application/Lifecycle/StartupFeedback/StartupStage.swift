@@ -19,6 +19,20 @@ enum StartupStage: String, CaseIterable, Sendable {
 }
 
 extension StartupStage {
+    /// The progress percentage the phase reports on the startup surface.
+    ///
+    /// The values come from `shared/fixtures/settings/startup-feedback-v1.json`
+    /// so both products advance the same indicator in the same way.
+    var progress: Int {
+        switch self {
+        case .preparing: return 10
+        case .loadingPlugins: return 30
+        case .initializingLanguageServices: return 50
+        case .openingWorkspace: return 72
+        case .restoringSession: return 88
+        }
+    }
+
     /// The English wording of the phase.
     ///
     /// macOS localizes with the English sentence as the key, so the wording must

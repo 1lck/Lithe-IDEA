@@ -78,6 +78,11 @@ fn main() {
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(move |app| {
+            // The startup splash opens before the slower boot work so the
+            // product shows its startup animation as early as possible.
+            if let Err(error) = host::create_startup_splash_window(app.handle()) {
+                eprintln!("[startup] the startup splash could not be created: {error}");
+            }
             match profile_migration::prepare(app.handle()) {
                 Ok(true) => {
                     app.handle().plugin(
@@ -132,6 +137,11 @@ fn main() {
             app.manage(debug::DebugAdapterManager::default());
             run::cleanup_legacy_appdata(app.handle());
             maven::clear_dependency_outputs(app.handle());
+            // The splash window comes first so the user sees the startup
+            // animation instead of waiting for an invisible workbench.
+            if let Err(error) = host::create_startup_splash_window(app.handle()) {
+                eprintln!("[startup] failed to create the startup splash window: {error}");
+            }
             for config in initial_windows.iter().filter(|config| config.create) {
                 tauri::WebviewWindowBuilder::from_config(app.handle(), config)?.build()?;
             }
@@ -214,7 +224,10 @@ fn main() {
             logging::record_startup_milestone,
             host::get_system_theme,
             host::set_native_window_appearance,
-            host::show_main_window,
+            host::complete_startup,
+            host::publish_startup_stage,
+            host::publish_startup_ready,
+            host::publish_startup_failed,
             fonts::get_system_fonts,
             fonts::get_monospace_fonts,
             fonts::validate_font,
@@ -293,14 +306,13 @@ fn window_state_flags() -> StateFlags {
 
 /// Reveals the main window when the frontend did not do it.
 ///
-/// The frontend reveals the window as soon as the startup animation is on
-/// screen. A frontend that fails before that point would leave an invisible
-/// window, so the shell reveals it after a delay without stealing the focus.
+/// The frontend closes the splash window and shows the workbench once the
+/// startup animation handed over. A frontend that fails before that point
+/// would leave the splash on screen, so the shell completes the startup after
+/// a delay.
 fn reveal_main_window_after_delay(app: tauri::AppHandle) {
     std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_secs(8));
-        if let Some(window) = app.get_webview_window("main") {
-            let _ = window.show();
-        }
+        std::thread::sleep(std::time::Duration::from_secs(20));
+        let _ = host::complete_startup(app);
     });
 }

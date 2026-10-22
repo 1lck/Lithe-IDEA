@@ -7,30 +7,35 @@
     {
       "id": "preparing",
       "order": 1,
+      "progress": 10,
       "labelKey": "startup.stage.preparing",
       "labels": { "en": "Preparing Lithe", "zhHans": "正在准备 Lithe" }
     },
     {
       "id": "loadingPlugins",
       "order": 2,
+      "progress": 30,
       "labelKey": "startup.stage.loadingPlugins",
       "labels": { "en": "Loading plugins", "zhHans": "正在加载插件" }
     },
     {
       "id": "initializingLanguageServices",
       "order": 3,
+      "progress": 50,
       "labelKey": "startup.stage.initializingLanguageServices",
       "labels": { "en": "Initializing language services", "zhHans": "正在初始化语言服务" }
     },
     {
       "id": "openingWorkspace",
       "order": 4,
+      "progress": 72,
       "labelKey": "startup.stage.openingWorkspace",
       "labels": { "en": "Opening workspace", "zhHans": "正在打开工作区" }
     },
     {
       "id": "restoringSession",
       "order": 5,
+      "progress": 88,
       "labelKey": "startup.stage.restoringSession",
       "labels": { "en": "Restoring your last session", "zhHans": "正在恢复上次会话" }
     }

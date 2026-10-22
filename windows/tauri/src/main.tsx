@@ -16,12 +16,12 @@ if (import.meta.env.VITE_REACT_SCAN === "true") {
 traceWindowOpen("frontend:entry");
 recordStartupMilestone("frontend:entry");
 
-// The startup feedback starts before React mounts so the phase timer covers the
-// whole boot instead of only the part that follows the first render.
-beginStartupFeedback();
-
 const renderStartedAt = performance.now();
 traceWindowOpen("reactRender:start");
+
+// The startup feedback starts before React mounts so the phase timer covers
+// the whole boot instead of only the part that follows the first render.
+beginStartupFeedback();
 
 createRoot(document.getElementById("root")!).render(<App />);
 traceWindowOpen("reactRender:scheduled", {

@@ -2,7 +2,7 @@
   "id": "startup-animation",
   "area": "启动与窗口",
   "group": "启动反馈",
-  "capability": "启动阶段反馈：显示 Lithe 标志与当前启动阶段文案，启动很快时跳过，就绪后淡出，失败时显示失败阶段与原因",
+  "capability": "启动阶段反馈：显示 Lithe 标志与当前启动阶段文案和进度百分比，启动很快时跳过，就绪后淡出，失败时显示失败阶段与原因",
   "macos": {
     "evidence": [
       "shared/contracts/startup-feedback-v1.md",
@@ -22,6 +22,8 @@
     "evidence": [
       "shared/contracts/startup-feedback-v1.md",
       "shared/fixtures/settings/startup-feedback-v1.json",
+      "windows/tauri/startup-splash.html",
+      "windows/tauri/src/startup-splash.ts",
       "windows/tauri/src/features/bootstrap/startup-animation",
       "windows/tauri/src/features/bootstrap/bootstrap-async.ts",
       "windows/tauri/src/features/layout/components/main-layout.tsx",
@@ -33,6 +35,6 @@
     "verificationStatus": "pending"
   },
   "owner": "Workbench",
-  "notes": "两端共享启动阶段契约 shared/contracts/startup-feedback-v1.md 与 shared/fixtures/settings/startup-feedback-v1.json，阶段 ID、顺序、中英文案与时间常量由 scripts/verify-startup-feedback-contract.mjs 强制一致。契约阶段是产品级粗粒度步骤，语言服务器内部的细粒度阶段继续使用 shared/fixtures/lsp/project-preparation-v1.json 的词汇，两套词汇不互相替代。Windows 在原生窗口层消除白屏：tauri.windows.conf.json 设置 visible:false，tauri-plugin-window-state 的 StateFlags::VISIBLE 被移除以免恢复上次状态时直接显示，首帧绘制完成后由 show_main_window 命令显示窗口，并保留 8 秒超时兜底显示；macOS 不改窗口创建流程，改用主窗口内覆盖层。macOS 的加载插件阶段当前不可观测，因为插件扫描在 LitheApp.init() 同步完成、早于窗口出现，两端阶段覆盖范围因此并不完全相同。开关默认开启，关闭后既不显示动画也不引入额外延迟。",
-  "verification": "两端各按同一套步骤验证：冷启动一个工作区较大的项目，确认启动期间显示 Lithe 标志与当前阶段文案，阶段随加载插件、初始化语言服务、打开工作区、恢复上次会话推进；启动很快时确认完全跳过动画且不引入可感知延迟；就绪后确认淡出并进入工作台；在深色与浅色外观下核对标志与文案可读；关闭设置中的启动动画开关后重启，确认不显示动画且启动速度无变化。Windows 另外确认原生窗口在首帧绘制前不可见、不出现白屏、失败时窗口仍能显示并给出原因。macOS 另外确认失败态持续显示直到点击继续，且失败提示不阻塞工作台操作。启动快慢判定依赖可控时钟的自动化测试，Windows 见 startup-feedback-controller.test.ts，macOS 见 StartupFeedbackTests.swift；真实运行时长仍需在目标平台实机确认。"
+  "notes": "两端共享启动阶段契约 shared/contracts/startup-feedback-v1.md 与 shared/fixtures/settings/startup-feedback-v1.json，阶段 ID、顺序、中英文案、进度百分比与时间常量由 scripts/verify-startup-feedback-contract.mjs 强制一致。契约阶段是产品级粗粒度步骤，语言服务器内部的细粒度阶段继续使用 shared/fixtures/lsp/project-preparation-v1.json 的词汇，两套词汇不互相替代。Windows 使用独立的原生启动窗口：setup 开头创建透明无边框窗口，页面是独立静态入口 startup-splash.html，不加载 React 与工作台打包产物，因此点击后立即可见；主窗口在 tauri.windows.conf.json 中设置 visible:false，tauri-plugin-window-state 的 StateFlags::VISIBLE 被移除以免恢复上次状态时直接显示，工作台就绪后由 complete_startup 命令关闭启动窗口并显示主窗口，另保留 20 秒超时兜底。macOS 不改窗口创建流程，改用主窗口内的居中圆角卡片覆盖层，视觉结构与 Windows 一致。macOS 的加载插件阶段当前不可观测，因为插件扫描在 LitheApp.init() 同步完成、早于窗口出现，两端阶段覆盖范围因此并不完全相同。开关默认开启，关闭后既不显示动画也不引入额外延迟。",
+  "verification": "两端各按同一套步骤验证：冷启动一个工作区较大的项目，确认启动期间显示 Lithe 标志、当前阶段文案与进度百分比，阶段随加载插件、初始化语言服务、打开工作区、恢复上次会话推进且百分比与契约数值一致；启动很快时确认完全跳过动画且不引入可感知延迟；就绪后确认淡出并进入工作台；在深色与浅色外观下核对标志与文案可读；关闭设置中的启动动画开关后重启，确认不显示动画且启动速度无变化。Windows 另外确认点击后启动窗口立即出现、不出现白屏、启动窗口不加载工作台打包产物、失败时窗口仍能显示并给出原因。macOS 另外确认覆盖层卡片不阻塞工作台操作、失败态持续显示直到点击继续。启动快慢判定依赖可控时钟的自动化测试，Windows 见 startup-feedback-controller.test.ts，macOS 见 StartupFeedbackTests.swift；真实运行时长仍需在目标平台实机确认。"
 }

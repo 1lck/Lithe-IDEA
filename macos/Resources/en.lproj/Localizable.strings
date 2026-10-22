@@ -1,4 +1,6 @@
 /* English is the default UI language. */
+"LITHE" = "LITHE";
+"PERSONAL WORKBENCH" = "PERSONAL WORKBENCH";
 "Preparing Lithe" = "Preparing Lithe";
 "Loading plugins" = "Loading plugins";
 "Initializing language services" = "Initializing language services";

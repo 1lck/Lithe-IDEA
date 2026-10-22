@@ -39,10 +39,11 @@
       "minItems": 1,
       "items": {
         "type": "object",
-        "required": ["id", "order", "labelKey", "labels"],
+        "required": ["id", "order", "progress", "labelKey", "labels"],
         "properties": {
           "id": { "type": "string", "pattern": "^[a-z][A-Za-z]*$" },
           "order": { "type": "integer", "minimum": 1 },
+          "progress": { "type": "integer", "minimum": 0, "maximum": 100 },
           "labelKey": { "type": "string", "minLength": 1 },
           "labels": {
             "type": "object",

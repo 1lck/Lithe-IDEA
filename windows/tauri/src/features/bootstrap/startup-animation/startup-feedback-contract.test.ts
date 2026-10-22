@@ -17,6 +17,15 @@ test("the Windows startup phases match the shared startup feedback contract", ()
   expect(STARTUP_STAGES.map((stage) => stage.labelKey).join(",")).toBe(
     fixture.stages.map((stage) => stage.labelKey).join(","),
   );
+  expect(STARTUP_STAGES.map((stage) => stage.progress).join(",")).toBe(
+    fixture.stages.map((stage) => stage.progress).join(","),
+  );
+  expect(STARTUP_STAGES.map((stage) => stage.labels.en).join(",")).toBe(
+    fixture.stages.map((stage) => stage.labels.en).join(","),
+  );
+  expect(STARTUP_STAGES.map((stage) => stage.labels.zhHans).join(",")).toBe(
+    fixture.stages.map((stage) => stage.labels.zhHans).join(","),
+  );
 });
 
 test("the Windows startup timings match the shared startup feedback contract", () => {
