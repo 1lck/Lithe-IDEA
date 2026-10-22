@@ -1,5 +1,6 @@
 import type { FileEntry } from "@/features/file-system/types/app.types";
 import type { GitFile, GitStatus } from "@/features/git/types/git.types";
+import { isUntrackedDirectorySummary } from "@/features/git/utils/git-untracked-directories";
 import { getRelativePath } from "@/utils/path-helpers";
 
 export interface FileTreeGitStatusDecoration {
@@ -10,6 +11,8 @@ export interface FileTreeGitStatusDecoration {
 export interface FileTreeGitStatusLookup {
   files: Map<string, FileTreeGitStatusDecoration>;
   directories: Map<string, FileTreeGitStatusDecoration>;
+  /** Summarized untracked directories (`dir/`); everything below them is untracked. */
+  untrackedDirectories: string[];
 }
 
 const gitStatusPriority: Record<GitFile["status"], number> = {
@@ -47,12 +50,19 @@ export function getFileTreeGitStatusDecoration(
   }
 }
 
+const UNTRACKED_DECORATION: FileTreeGitStatusDecoration = {
+  colorClassName: "text-git-untracked",
+  label: "Untracked",
+};
+
 export function createFileTreeGitStatusLookup(gitStatus: GitStatus): FileTreeGitStatusLookup {
   const files = new Map<string, FileTreeGitStatusDecoration>();
   const directories = new Map<string, FileTreeGitStatusDecoration>();
   const directoryPriorities = new Map<string, number>();
+  const untrackedDirectories: string[] = [];
 
   for (const gitFile of gitStatus.files) {
+    if (isUntrackedDirectorySummary(gitFile)) untrackedDirectories.push(gitFile.path);
     const statusDecoration = getFileTreeGitStatusDecoration(gitFile);
     if (!statusDecoration) continue;
 
@@ -71,7 +81,7 @@ export function createFileTreeGitStatusLookup(gitStatus: GitStatus): FileTreeGit
     }
   }
 
-  return { files, directories };
+  return { files, directories, untrackedDirectories };
 }
 
 export function getFileTreeEntryGitStatusDecoration(
@@ -86,6 +96,10 @@ export function getFileTreeEntryGitStatusDecoration(
 
   const fileStatus = lookup.files.get(relativePath);
   if (fileStatus) return fileStatus;
+  // A summarized directory has one status entry; its files and folders share it.
+  if (lookup.untrackedDirectories.some((directory) => relativePath.startsWith(directory))) {
+    return UNTRACKED_DECORATION;
+  }
 
   if (file.isDir) {
     return lookup.directories.get(relativePath) || null;

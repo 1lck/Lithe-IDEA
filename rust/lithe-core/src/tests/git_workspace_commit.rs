@@ -588,3 +588,351 @@ fn git_workspace_changelist_guard_catches_a_rename_after_the_ui_snapshot() {
     assert_eq!(result["ok"], false, "{result}");
     assert_eq!(state(&repo.0), before);
 }
+
+/// Bare `origin` that a divergent-upstream scenario publishes to.
+fn bare_remote(name: &str) -> Repository {
+    let remote = Repository(temporary_root(name));
+    fs::create_dir_all(&remote.0).unwrap();
+    git(&remote.0, &["init", "--bare", "-q"]);
+    remote
+}
+
+/// Leaves `repo` on `feature/topic`, whose upstream is `origin/<upstream>` even
+/// though the names differ. Git produces this state when a branch is started from
+/// a remote branch, which is how issue #1272 reaches the push.
+fn divergent_feature_branch(repo: &Path, remote: &Path, upstream: &str) {
+    fs::write(repo.join("base.txt"), "base").unwrap();
+    git(repo, &["add", "."]);
+    git(repo, &["commit", "-qm", "base"]);
+    git(repo, &["branch", "-M", "main"]);
+    git(repo, &["remote", "add", "origin", remote.to_str().unwrap()]);
+    git(
+        repo,
+        &[
+            "push",
+            "-q",
+            "origin",
+            &format!("main:refs/heads/{upstream}"),
+        ],
+    );
+    git(repo, &["fetch", "-q", "origin"]);
+    git(
+        repo,
+        &[
+            "switch",
+            "-q",
+            "-c",
+            "feature/topic",
+            &format!("origin/{upstream}"),
+        ],
+    );
+    git(
+        repo,
+        &[
+            "branch",
+            "-q",
+            &format!("--set-upstream-to=origin/{upstream}"),
+            "feature/topic",
+        ],
+    );
+}
+
+fn prepare_workspace_with(root: &Path, repositories: &[(&str, &Path)], extra: Value) -> Value {
+    let repositories: Vec<_> = repositories
+        .iter()
+        .map(|(id, path)| json!({"id":id,"root":path}))
+        .collect();
+    let mut payload = json!({
+        "repositories":repositories, "message":"topic work", "push":true,
+        "includeParentReferences":false
+    });
+    for (key, value) in extra.as_object().cloned().unwrap_or_default() {
+        payload[key] = value;
+    }
+    let response = request(root, "git.workspaceCommitPrepare", payload);
+    assert_eq!(response["ok"], true, "{response}");
+    response["data"].clone()
+}
+
+fn confirmation(choice: &str, remote_branch: &str) -> Value {
+    json!({"choice":choice, "remote":"origin", "remoteBranch":remote_branch})
+}
+
+fn run_workspace(root: &Path, mut session: Value) -> Value {
+    for _ in 0..6 {
+        if session["finished"] == true {
+            break;
+        }
+        session = next_workspace(root, session);
+    }
+    session
+}
+
+fn remote_head(remote: &Path, branch: &str) -> String {
+    git(remote, &["rev-parse", &format!("refs/heads/{branch}")])
+        .trim()
+        .to_string()
+}
+
+/// Issue #1272: the plan, not the client, finds the repositories whose push needs a
+/// destination choice. It asks before committing, and refuses to run the steps for
+/// a client that ignored the question, so no commit is written and then stranded.
+#[test]
+fn git_workspace_commit_push_asks_before_a_divergent_branch_commits() {
+    let repo = repository("workspace-commit-divergent-ask");
+    let remote = bare_remote("workspace-commit-divergent-ask-remote");
+    divergent_feature_branch(&repo.0, &remote.0, "main");
+    staged_file(&repo.0, "topic.txt", "topic");
+    let main_before = remote_head(&remote.0, "main");
+    let head_before = git(&repo.0, &["rev-parse", "HEAD"]);
+
+    let asked = prepare_workspace_with(&repo.0, &[(".", &repo.0)], json!({}));
+    let questions = asked["pushTargetQuestions"].as_array().unwrap();
+    assert_eq!(questions.len(), 1, "{asked}");
+    assert_eq!(questions[0]["repositoryId"], ".");
+    assert_eq!(questions[0]["localBranch"], "feature/topic");
+    assert_eq!(questions[0]["remote"], "origin");
+    assert_eq!(questions[0]["upstream"], "origin/main");
+    assert_eq!(questions[0]["upstreamBranch"], "main");
+
+    // A client that skips the question still must not commit.
+    let session = next_workspace(&repo.0, asked["session"].clone());
+    assert_eq!(
+        session["results"]["."]["status"], "reviewRequired",
+        "{session}"
+    );
+    assert_eq!(session["results"]["."]["committed"], false);
+    assert!(session["results"]["."]["detail"]
+        .as_str()
+        .unwrap()
+        .contains("needs confirmation"));
+    assert_eq!(git(&repo.0, &["rev-parse", "HEAD"]), head_before);
+    assert_eq!(remote_head(&remote.0, "main"), main_before);
+}
+
+/// Issue #1272: commit-and-push has no reviewed preview, so the plan carries the
+/// destination the user confirmed. Publishing must leave the branch the local one
+/// diverges from untouched.
+#[test]
+fn git_workspace_commit_push_carries_the_confirmed_target() {
+    let repo = repository("workspace-commit-divergent-push");
+    let remote = bare_remote("workspace-commit-divergent-remote");
+    divergent_feature_branch(&repo.0, &remote.0, "main");
+    staged_file(&repo.0, "topic.txt", "topic");
+    let main_before = remote_head(&remote.0, "main");
+
+    let prepared = prepare_workspace_with(
+        &repo.0,
+        &[(".", &repo.0)],
+        json!({"pushTargets":{".": confirmation("publish", "feature/topic")}}),
+    );
+    assert!(prepared.get("pushTargetQuestions").is_none(), "{prepared}");
+    assert_eq!(
+        prepared["session"]["plan"]["pushTargets"]["."]["choice"],
+        "publish"
+    );
+
+    let session = run_workspace(&repo.0, prepared["session"].clone());
+    assert_eq!(session["succeeded"], true, "{session}");
+    assert_eq!(remote_head(&remote.0, "main"), main_before);
+    assert_eq!(
+        remote_head(&remote.0, "feature/topic"),
+        git(&repo.0, &["rev-parse", "HEAD"]).trim()
+    );
+}
+
+/// Issue #1272: a slashed upstream branch name must not be cut at its last segment.
+#[test]
+fn git_workspace_commit_push_keeps_a_slashed_confirmed_upstream() {
+    let repo = repository("workspace-commit-slashed-upstream");
+    let remote = bare_remote("workspace-commit-slashed-remote");
+    divergent_feature_branch(&repo.0, &remote.0, "team/release");
+    staged_file(&repo.0, "topic.txt", "topic");
+    let release_before = remote_head(&remote.0, "team/release");
+
+    let asked = prepare_workspace_with(&repo.0, &[(".", &repo.0)], json!({}));
+    assert_eq!(
+        asked["pushTargetQuestions"][0]["upstreamBranch"],
+        "team/release"
+    );
+    let prepared = prepare_workspace_with(
+        &repo.0,
+        &[(".", &repo.0)],
+        json!({"pushTargets":{".": confirmation("upstream", "team/release")}}),
+    );
+    let session = run_workspace(&repo.0, prepared["session"].clone());
+    assert_eq!(session["succeeded"], true, "{session}");
+
+    let head = git(&repo.0, &["rev-parse", "HEAD"]);
+    assert_eq!(remote_head(&remote.0, "team/release"), head.trim());
+    assert_ne!(remote_head(&remote.0, "team/release"), release_before);
+    let misresolved = request(
+        &remote.0,
+        "git.command",
+        json!({"arguments":["rev-parse", "--verify", "--quiet", "refs/heads/release"]}),
+    );
+    assert_ne!(
+        misresolved["data"]["exitCode"], 0,
+        "a mis-resolved destination branch must not be created: {misresolved}"
+    );
+    // Confirming "upstream" must not rewrite the user's tracking configuration.
+    assert_eq!(
+        git(
+            &repo.0,
+            &["rev-parse", "--abbrev-ref", "feature/topic@{upstream}"]
+        )
+        .trim(),
+        "origin/team/release"
+    );
+}
+
+/// Issue #1272: two repositories in one batch can track unrelated branches, so each
+/// is asked and guarded on its own instead of sharing one batch-wide answer.
+#[test]
+fn git_workspace_commit_push_confirms_each_repository_separately() {
+    let parent = repository("workspace-commit-divergent-multi");
+    let child = parent.0.join("B");
+    let parent_remote = bare_remote("workspace-commit-divergent-multi-a");
+    let child_remote = bare_remote("workspace-commit-divergent-multi-b");
+    // The parent commits its base before the nested repository exists, because
+    // `git add .` rejects an embedded repository that has no commit yet.
+    divergent_feature_branch(&parent.0, &parent_remote.0, "release");
+    init(&child);
+    divergent_feature_branch(&child, &child_remote.0, "main");
+    staged_file(&parent.0, "a.txt", "a");
+    staged_file(&child, "b.txt", "b");
+    let child_main = remote_head(&child_remote.0, "main");
+    let repositories: [(&str, &Path); 2] = [(".", &parent.0), ("B", &child)];
+
+    let asked = prepare_workspace_with(&parent.0, &repositories, json!({}));
+    let ids: Vec<_> = asked["pushTargetQuestions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|question| question["repositoryId"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(ids, [".", "B"], "{asked}");
+
+    // Answering one repository leaves the other open: an answer is not batch-wide.
+    let partial = prepare_workspace_with(
+        &parent.0,
+        &repositories,
+        json!({"pushTargets":{".": confirmation("upstream", "release")}}),
+    );
+    assert_eq!(partial["pushTargetQuestions"].as_array().unwrap().len(), 1);
+    assert_eq!(partial["pushTargetQuestions"][0]["repositoryId"], "B");
+
+    let prepared = prepare_workspace_with(
+        &parent.0,
+        &repositories,
+        json!({"pushTargets":{
+            ".": confirmation("upstream", "release"),
+            "B": confirmation("publish", "feature/topic"),
+        }}),
+    );
+    assert!(prepared.get("pushTargetQuestions").is_none(), "{prepared}");
+    let session = run_workspace(&parent.0, prepared["session"].clone());
+    assert_eq!(session["succeeded"], true, "{session}");
+    assert_eq!(
+        remote_head(&parent_remote.0, "release"),
+        git(&parent.0, &["rev-parse", "HEAD"]).trim()
+    );
+    assert_eq!(remote_head(&child_remote.0, "main"), child_main);
+    assert_eq!(
+        remote_head(&child_remote.0, "feature/topic"),
+        git(&child, &["rev-parse", "HEAD"]).trim()
+    );
+}
+
+/// Issue #1272: a retry after a failed push reuses the confirmed destination without
+/// recommitting, but asks again once the tracking configuration no longer matches it.
+#[test]
+fn git_workspace_commit_retry_restores_and_revalidates_the_confirmed_target() {
+    let repo = repository("workspace-commit-divergent-retry");
+    let remote = bare_remote("workspace-commit-divergent-retry-remote");
+    divergent_feature_branch(&repo.0, &remote.0, "main");
+    staged_file(&repo.0, "topic.txt", "topic");
+    let repositories: [(&str, &Path); 1] = [(".", &repo.0)];
+    let remote_path = remote.0.to_str().unwrap().to_string();
+
+    let prepared = prepare_workspace_with(
+        &repo.0,
+        &repositories,
+        json!({"pushTargets":{".": confirmation("upstream", "main")}}),
+    );
+    // Break the remote after the confirmation so the push step fails after the commit.
+    git(
+        &repo.0,
+        &["remote", "set-url", "origin", "/lithe/missing/remote"],
+    );
+    let failed = run_workspace(&repo.0, prepared["session"].clone());
+    assert_eq!(failed["canRetry"], true, "{failed}");
+    assert_eq!(failed["results"]["."]["committed"], true);
+    assert_eq!(failed["results"]["."]["pushed"], false);
+    git(&repo.0, &["remote", "set-url", "origin", &remote_path]);
+
+    // The client forwards only the previous session; the confirmation is restored.
+    let retried = prepare_workspace_with(&repo.0, &repositories, json!({"previous":failed}));
+    assert!(retried.get("pushTargetQuestions").is_none(), "{retried}");
+    assert_eq!(
+        retried["session"]["plan"]["pushTargets"]["."]["remoteBranch"],
+        "main"
+    );
+    let resumed = run_workspace(&repo.0, retried["session"].clone());
+    assert_eq!(resumed["succeeded"], true, "{resumed}");
+    assert_eq!(git(&repo.0, &["rev-list", "--count", "HEAD"]).trim(), "2");
+    assert_eq!(
+        remote_head(&remote.0, "main"),
+        git(&repo.0, &["rev-parse", "HEAD"]).trim()
+    );
+}
+
+/// Issue #1272: the confirmation names a remote branch. When the upstream moves to
+/// another branch before the retry, the old answer must not authorize the new one.
+#[test]
+fn git_workspace_commit_retry_asks_again_when_the_upstream_moved() {
+    let repo = repository("workspace-commit-divergent-moved");
+    let remote = bare_remote("workspace-commit-divergent-moved-remote");
+    divergent_feature_branch(&repo.0, &remote.0, "release");
+    git(&repo.0, &["push", "-q", "origin", "main:refs/heads/main"]);
+    git(&repo.0, &["fetch", "-q", "origin"]);
+    staged_file(&repo.0, "topic.txt", "topic");
+    let repositories: [(&str, &Path); 1] = [(".", &repo.0)];
+    let remote_path = remote.0.to_str().unwrap().to_string();
+
+    let prepared = prepare_workspace_with(
+        &repo.0,
+        &repositories,
+        json!({"pushTargets":{".": confirmation("upstream", "release")}}),
+    );
+    git(
+        &repo.0,
+        &["remote", "set-url", "origin", "/lithe/missing/remote"],
+    );
+    let failed = run_workspace(&repo.0, prepared["session"].clone());
+    assert_eq!(failed["canRetry"], true, "{failed}");
+    git(&repo.0, &["remote", "set-url", "origin", &remote_path]);
+    git(
+        &repo.0,
+        &[
+            "branch",
+            "-q",
+            "--set-upstream-to=origin/main",
+            "feature/topic",
+        ],
+    );
+    let main_before = remote_head(&remote.0, "main");
+
+    let retried = prepare_workspace_with(&repo.0, &repositories, json!({"previous":failed}));
+    let questions = retried["pushTargetQuestions"].as_array().unwrap();
+    assert_eq!(questions.len(), 1, "{retried}");
+    assert_eq!(questions[0]["upstreamBranch"], "main");
+
+    // Stepping anyway is refused instead of following the moved upstream.
+    let refused = next_workspace(&repo.0, retried["session"].clone());
+    assert_eq!(
+        refused["results"]["."]["status"], "reviewRequired",
+        "{refused}"
+    );
+    assert_eq!(remote_head(&remote.0, "main"), main_before);
+}

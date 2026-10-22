@@ -23,6 +23,7 @@ export interface AgentLaunchConfiguration {
   cwd: string;
   dataDirectory: string | null;
   authentication: "apiKey" | "codexSubscription";
+  observeModelCalls?: boolean;
   provider: {
     protocol: "responses" | "chatCompletions" | "anthropicMessages";
     baseUrl: string;
@@ -84,6 +85,8 @@ export function createTauriAgentTransport(): AgentTransport {
               cwd: launch.cwd,
               dataDirectory: launch.dataDirectory ?? undefined,
               authentication: launch.authentication,
+              observeSubagents: true,
+              observeModelCalls: launch.observeModelCalls ?? true,
               provider: launch.provider ?? undefined,
             },
           },

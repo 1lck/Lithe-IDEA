@@ -173,7 +173,7 @@ struct GitWorktreesView: View {
             let worktrees = feature.gitWorktrees
             let query = searchText
             let inspection = feature.gitWorktreeInspection
-            let currentChangeCount = feature.gitChanges.count
+            let currentChangeCount = feature.gitChangedFileCount
             let projection = await Task.detached(priority: .userInitiated) {
                 GitWorktreeListProjection.items(
                     worktrees: worktrees,
@@ -864,7 +864,7 @@ struct GitWorktreesView: View {
         WorktreeListProjectionIdentity(
             worktreesVersion: feature.gitWorktreesVersion,
             inspectionVersion: feature.gitWorktreeInspectionVersion,
-            currentChangeCount: feature.gitChanges.count,
+            currentChangeCount: feature.gitChangedFileCount,
             query: searchText
         )
     }
@@ -929,9 +929,9 @@ struct GitWorktreesView: View {
     private func localChangesDescription(for worktree: GitWorktree) -> String {
         let count: Int
         if let inspection = matchingInspection(for: worktree) {
-            count = inspection.changes.count
+            count = inspection.changes.reduce(0) { $0 + $1.fileCount }
         } else if worktree.isCurrent {
-            count = feature.gitChanges.count
+            count = feature.gitChangedFileCount
         } else {
             return gitLocalizedFormat("Loading…", locale: locale)
         }

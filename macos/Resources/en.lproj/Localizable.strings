@@ -627,6 +627,8 @@
 "Show all changes" = "Show all changes";
 "Collapse section" = "Collapse section";
 "Expand section" = "Expand section";
+"Collapse directory" = "Collapse directory";
+"Expand directory" = "Expand directory";
 "Unstage all files" = "Unstage all files";
 "Stage all files" = "Stage all files";
 "Local changes were restored with conflicts" = "Local changes were restored with conflicts";
@@ -637,7 +639,6 @@
 "Date" = "Date";
 "Review" = "Review";
 "%@: %@" = "%@: %@";
-"Push '%@'?" = "Push '%@'?";
 "Deleted branch '%@'" = "Deleted branch '%@'";
 "Deleted tag '%@'" = "Deleted tag '%@'";
 "Delete tag '%@'?" = "Delete tag '%@'?";
@@ -647,8 +648,19 @@
 "Create on commit %@. Leave the message empty for a lightweight tag." = "Create on commit %@. Leave the message empty for a lightweight tag.";
 "Updating %@ (%lld incoming, %lld local)" = "Updating %@ (%lld incoming, %lld local)";
 "Push to %@" = "Push to %@";
-"Tracking %@" = "Tracking %@";
-"Publish %@ (Core selects default remote)" = "Publish %@ (Core selects default remote)";
+"Resolving push destination…" = "Resolving push destination…";
+"Branch '%@' tracks '%@', which has a different name. Choose which branch to update." = "Branch '%@' tracks '%@', which has a different name. Choose which branch to update.";
+"Publish to %@/%@" = "Publish to %@/%@";
+"Commits" = "Commits";
+"No new commits. Pushing creates the remote branch." = "No new commits. Pushing creates the remote branch.";
+"Nothing to push" = "Nothing to push";
+"Older commits are not listed." = "Older commits are not listed.";
+"Could not load the changed files." = "Could not load the changed files.";
+"Choose which branch to update before pushing." = "Choose which branch to update before pushing.";
+"Creates a new branch on %@" = "Creates a new branch on %@";
+"Sets %@ as the upstream" = "Sets %@ as the upstream";
+"Review commit and push" = "Review commit and push";
+"Commit and Push" = "Commit and Push";
 "Your changes to these files conflict with '%@':" = "Your changes to these files conflict with '%@':";
 "Diff: %@ with %@" = "Diff: %@ with %@";
 "File %lld of %lld" = "File %lld of %lld";
@@ -829,7 +841,6 @@
 "The repository will be opened in detached HEAD state." = "The repository will be opened in detached HEAD state.";
 "This removes the saved patch from Lithe and cannot be undone." = "This removes the saved patch from Lithe and cannot be undone.";
 "This removes the stash from Git and cannot be undone." = "This removes the stash from Git and cannot be undone.";
-"This sends the selected local branch to its configured remote." = "This sends the selected local branch to its configured remote.";
 "Title" = "Title";
 "Toggle preview" = "Toggle preview";
 "Tracking Branch" = "Tracking Branch";
@@ -2072,3 +2083,17 @@
 "These defaults apply only to this project on this computer. Run configurations inherit them unless overridden. Use the Project save scope in a run configuration to share settings with your team." = "These defaults apply only to this project on this computer. Run configurations inherit them unless overridden. Use the Project save scope in a run configuration to share settings with your team.";
 "Saved only for this project on this computer in .lithe/run/local.json and excluded from Git." = "Saved only for this project on this computer in .lithe/run/local.json and excluded from Git.";
 "This computer" = "This computer";
+
+/* Embedded HTML preview browser. */
+"Forward" = "Forward";
+"Stop Loading" = "Stop Loading";
+"Enter address" = "Enter address";
+"Open HTML in Browser" = "Open HTML in Browser";
+"Developer Tools" = "Developer Tools";
+"This page" = "This page";
+"“%@” says" = "“%@” says";
+"This address cannot be opened here." = "This address cannot be opened here.";
+"Zoom In" = "Zoom In";
+"Zoom Out" = "Zoom Out";
+"Reset Page Zoom (100%)" = "Reset Page Zoom (100%)";
+"Page Zoom" = "Page Zoom";

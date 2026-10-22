@@ -6,10 +6,21 @@
   "macos": {
     "evidence": [
       "macos/Sources/Lithe/Views/Editor/HTMLPreviewView.swift",
+      "macos/Sources/Lithe/Platform/MacOS/HTMLPreviewWebView.swift",
+      "macos/Sources/Lithe/Platform/MacOS/HTMLPreviewBrowser.swift",
+      "macos/Sources/Lithe/Platform/MacOS/HTMLPreviewResources.swift",
+      "macos/Sources/Lithe/Platform/MacOS/HTMLPreviewNavigation.swift",
+      "macos/Sources/Lithe/Platform/MacOS/HTMLPreviewDialogs.swift",
+      "macos/Sources/Lithe/Platform/MacOS/HTMLPreviewZoom.swift",
+      "macos/Sources/Lithe/Platform/MacOS/HTMLPreviewScrollbars.swift",
       "macos/Sources/Lithe/Views/Editor/MediaViewerView.swift",
       "macos/Sources/Lithe/Views/Editor/SVGPreviewView.swift",
       "macos/Sources/Lithe/Platform/MacOS/UI/MacHTMLBrowserOpener.swift",
-      "macos/Tests/LitheTests/HTMLBrowserOpenerTests.swift"
+      "macos/Tests/LitheTests/HTMLBrowserOpenerTests.swift",
+      "macos/Tests/LitheTests/HTMLPreviewBrowserTests.swift",
+      "macos/Tests/LitheTests/HTMLPreviewResourcesTests.swift",
+      "macos/Tests/LitheTests/HTMLPreviewNavigationTests.swift",
+      "macos/Tests/LitheTests/HTMLPreviewZoomTests.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -25,5 +36,5 @@
     "verificationStatus": "pending"
   },
   "owner": "Editor",
-  "verification": "分别打开 HTML、SVG、图片、PDF 和二进制文件，验证缩放、错误和源文件返回。 两端将 .html 默认打开程序改成文本编辑器，再点击 HTML 浏览器按钮，确认仍打开默认网页浏览器中的磁盘文件；覆盖中文、空格、# 文件名和无默认浏览器失败提示。 在 Windows 的 Web Viewer 标签中浏览几页后，用 Navigate 菜单或 Ctrl+Alt+←/→ 确认先在网页历史中后退/前进，到达网页历史起点后再次后退回到之前的代码位置。"
+  "verification": "分别打开 HTML、SVG、图片、PDF 和二进制文件，验证缩放、错误和源文件返回。 两端将 .html 默认打开程序改成文本编辑器，再点击 HTML 浏览器按钮，确认仍打开默认网页浏览器中的磁盘文件；覆盖中文、空格、# 文件名和无默认浏览器失败提示。 在 Windows 的 Web Viewer 标签中浏览几页后，用 Navigate 菜单或 Ctrl+Alt+←/→ 确认先在网页历史中后退/前进，到达网页历史起点后再次后退回到之前的代码位置。 在 macOS 的 HTML 预览中验证内嵌浏览器：后退/前进/刷新（Shift 强制刷新）、地址栏输入本地路径和网址、−/+/百分比和 ⌘+/⌘−/⌘0 页面缩放（跳转页面后保持）、内容溢出时常驻纵横滚动条、锚点与相对链接在预览内跳转、module 脚本与 fetch 可读取工作区文件、alert/confirm/prompt 与文件选择弹窗、开发者工具可开关；本地隐藏文件和密钥文件不能被页面读取。Windows 的 iframe 预览尚无对应能力。"
 }

@@ -753,7 +753,7 @@ pub(crate) struct VisibilityRules {
 }
 
 impl VisibilityRules {
-    fn new(hidden_directories: Vec<String>, hidden_files: Vec<String>) -> Self {
+    pub(crate) fn new(hidden_directories: Vec<String>, hidden_files: Vec<String>) -> Self {
         let mut directories = BUILT_IN_HIDDEN_DIRECTORIES
             .iter()
             .map(|value| (*value).to_string())
@@ -783,13 +783,22 @@ impl VisibilityRules {
             return true;
         }
         let directory_count = components.len().saturating_sub(usize::from(!is_directory));
-        for glob in self
+        let mut folder_globs = self
             .hidden_file_patterns
             .iter()
-            .filter_map(|pattern| pattern.strip_suffix('/'))
-        {
-            if (1..=directory_count).any(|count| glob_matches(glob, &components[..count].join("/")))
-            {
+            .filter_map(|pattern| folder_glob(pattern))
+            .peekable();
+        if folder_globs.peek().is_some() {
+            // Each ancestor prefix is joined once and shared by every folder
+            // rule, instead of being rebuilt per rule.
+            let prefixes = (1..=directory_count)
+                .map(|count| components[..count].join("/"))
+                .collect::<Vec<_>>();
+            if folder_globs.any(|glob| {
+                prefixes
+                    .iter()
+                    .any(|prefix| path_glob_matches(glob, prefix))
+            }) {
                 return true;
             }
         }
@@ -799,8 +808,34 @@ impl VisibilityRules {
         let last = components.last().copied().unwrap_or_default();
         self.hidden_file_patterns
             .iter()
-            .any(|pattern| glob_matches(pattern, last) || glob_matches(pattern, path))
+            .any(|pattern| path_glob_matches(pattern, last) || path_glob_matches(pattern, path))
     }
+}
+
+/// Matches a hidden-path glob, letting a leading `**/` stand for zero or more
+/// folders, so `**/dist/` covers a root-level `dist` as well as `a/b/dist`.
+///
+/// `*` already spans `/`, which covers the non-root case; the root case needs
+/// the second attempt because the glob would otherwise demand a literal `/`.
+fn path_glob_matches(pattern: &str, value: &str) -> bool {
+    glob_matches(pattern, value)
+        || pattern
+            .strip_prefix("**/")
+            .is_some_and(|rest| glob_matches(rest, value))
+}
+
+/// The folder glob of a hidden-path entry that ends in `/`, `/*` or `/**`.
+///
+/// Such an entry names a folder from the project root (or at any depth when it
+/// starts with `**/`), so the folder and everything below it is hidden instead
+/// of leaving an empty folder behind. Other entries keep their file-only
+/// meaning, as pinned by `shared/fixtures/search/exclusions.json`.
+fn folder_glob(pattern: &str) -> Option<&str> {
+    let glob = pattern
+        .strip_suffix("/**")
+        .or_else(|| pattern.strip_suffix("/*"))
+        .or_else(|| pattern.strip_suffix('/'))?;
+    (!glob.is_empty()).then_some(glob)
 }
 
 fn scan_node(

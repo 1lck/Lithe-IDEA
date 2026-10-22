@@ -275,6 +275,22 @@ struct AppLocalizationTests {
         }
     }
 
+    @Test
+    func simplifiedChineseResourcesCoverHTMLPreviewBrowser() throws {
+        let translations = try simplifiedChineseTranslations()
+        let requiredKeys = [
+            "Back", "Forward", "Reload", "Stop Loading", "Enter address",
+            "Open HTML in Browser", "Developer Tools", "This page",
+            "“%@” says", "This address cannot be opened here.", "OK", "Cancel",
+            "Zoom In", "Zoom Out", "Reset Page Zoom (100%)", "Page Zoom"
+        ]
+
+        for key in requiredKeys {
+            #expect(translations[key] != nil, "Missing HTML preview browser translation: \(key)")
+        }
+        #expect(translations["Developer Tools"] == "开发者工具")
+    }
+
     private func simplifiedChineseTranslations() throws -> [String: String] {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -395,18 +411,28 @@ struct GitLocalizationTests {
     @Test(arguments: ["en", "zh-Hans"])
     func pushDestinationUsesTheRequestedLanguage(language: String) throws {
         let bundle = try resourceBundle(language)
-        for upstream in [nil, "origin/Today"] as [String?] {
-            let reference = GitReference(fullName: "refs/heads/Today", shortName: "Today", kind: .local,
-                                         isCurrent: true, upstreamShortName: upstream)
-            let presentation = GitPushDialogPresentation(reference: reference, locale: Locale(identifier: language), bundle: bundle)
-            let expected: String
-            if upstream != nil {
-                expected = language == "en" ? "Tracking origin/Today" : "跟踪 origin/Today"
-            } else {
-                expected = language == "en" ? "Publish Today (Core selects default remote)" : "发布 Today（自动选择默认远程仓库）"
-            }
-            #expect(presentation.destination == expected)
+        let locale = Locale(identifier: language)
+        func preview(createsRemoteBranch: Bool) -> GitPushPreview {
+            GitPushPreview(
+                localBranch: "Today", localHead: "head", remote: "origin", remoteBranch: "Today",
+                targetKind: .publish, createsRemoteBranch: createsRemoteBranch, remoteTrackingOid: nil,
+                upstream: nil, commits: []
+            )
         }
+
+        let created = GitPushDialogPresentation(preview: preview(createsRemoteBranch: true), locale: locale, bundle: bundle)
+        let upstream = GitPushDialogPresentation(preview: preview(createsRemoteBranch: false), locale: locale, bundle: bundle)
+
+        #expect(created.destination == "origin/Today")
+        #expect(created.note == (language == "en" ? "Creates a new branch on origin" : "将在 origin 上创建新分支"))
+        #expect(upstream.note == (language == "en" ? "Sets origin/Today as the upstream" : "将 origin/Today 设为上游分支"))
+        let question = gitLocalizedFormat(
+            "Branch '%@' tracks '%@', which has a different name. Choose which branch to update.",
+            "Today", "origin/main", locale: locale, bundle: bundle
+        )
+        #expect(question == (language == "en"
+            ? "Branch 'Today' tracks 'origin/main', which has a different name. Choose which branch to update."
+            : "分支“Today”跟踪的是名称不同的“origin/main”。请选择要更新哪个分支。"))
     }
 
     @Test @MainActor
