@@ -1305,6 +1305,7 @@
 "Review remaining steps" = "Review remaining steps";
 "Review repository commits" = "Review repository commits";
 "Each repository has its own commit. Completed steps are kept if another repository fails." = "Each repository has its own commit. Completed steps are kept if another repository fails.";
+"Review and Retry…" = "Review and Retry…";
 "Review and Retry Unfinished Steps…" = "Review and Retry Unfinished Steps…";
 "Dismiss Results" = "Dismiss Results";
 "Update parent repository references" = "Update parent repository references";

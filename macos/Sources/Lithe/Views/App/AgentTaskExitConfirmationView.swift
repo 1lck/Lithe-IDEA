@@ -199,7 +199,7 @@ struct AgentTaskExitConfirmationView: View {
     }
 
     private var actions: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: LitheTheme.ActionButton.spacing) {
             if purpose == .quit {
                 Button(String(localized: "Cancel Quit")) { onAnswer(.cancel) }
                     .buttonStyle(LitheActionButtonStyle())

@@ -718,7 +718,7 @@ struct SearchEverywhereExclusionsEditor: View {
             TextEditor(text: $draft)
                 .litheSettingsTextEditor(height: 140, focus: $focused)
                 .accessibilityLabel("Search exclusions")
-            HStack(spacing: 0) {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Spacer()
                 Button("Cancel", action: dismiss)
                     .buttonStyle(LitheActionButtonStyle())
@@ -827,17 +827,17 @@ struct SearchEverywhereProviderFilter: View {
             .litheScrollViewChrome()
             .overlay { Rectangle().strokeBorder(LitheTheme.SearchEverywhere.filterBorder, lineWidth: 1).allowsHitTesting(false) }
             if showsProviders {
-                HStack(spacing: 5) {
+                HStack(spacing: LitheTheme.ActionButton.spacing) {
                     Button("All") { selection = Set(SearchEverywhereProvider.allCases) }
                     Button("None") { selection = [] }
                     Button("Invert") { selection = Set(SearchEverywhereProvider.allCases).subtracting(selection) }
                 }
-                .buttonStyle(LitheActionButtonStyle(borderInset: 0))
+                .buttonStyle(LitheActionButtonStyle())
                 .padding(5)
             }
         }
-        // ShowFilterAction: 200pt minimum; FlowLayout's three 72pt buttons with 5pt gaps/insets.
-        .frame(width: 3 * LitheTheme.Commit.buttonMinimumWidth + 20, height: showsProviders ? 200 : 36)
+        // Three welcome-standard buttons, with shared gaps and the existing outer insets.
+        .frame(width: 3 * LitheTheme.ActionButton.minimumWidth + 2 * LitheTheme.ActionButton.spacing + 10, height: showsProviders ? 200 : 36)
         // ElementsChooser is a table/Panel surface, not Popup.background.
         .background(LitheTheme.settingsListSurface)
     }

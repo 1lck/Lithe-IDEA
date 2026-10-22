@@ -2467,7 +2467,7 @@ struct WorkbenchBackgroundPicker: View {
                 Button("Choose Image…") {
                     model.workbenchBackgroundFeature.chooseCustomImage()
                 }
-                .buttonStyle(LitheSecondaryButtonStyle())
+                .buttonStyle(LitheActionButtonStyle())
 
                 if settings.hasConfiguredWorkbenchBackground {
                     Button("Remove") {

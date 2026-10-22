@@ -79,7 +79,6 @@ struct SettingsView: View {
     static let categoryMinimumWidth: CGFloat = 234
     static let contentMinimumWidth: CGFloat = 500
     static let categoryMaximumWidth: CGFloat = 480
-    private static let footerActionLabelWidth: CGFloat = 52
 
     init(
         settings: AppSettings,
@@ -518,7 +517,7 @@ struct SettingsView: View {
                     Button("Choose Image…") {
                         model.workbenchBackgroundFeature.chooseCustomImage()
                     }
-                    .buttonStyle(LitheSecondaryButtonStyle())
+                    .buttonStyle(LitheActionButtonStyle())
 
                     if settings.hasConfiguredWorkbenchBackground {
                         Button("Remove") {
@@ -613,7 +612,7 @@ struct SettingsView: View {
                 .help(Text(verbatim: builtIn.joined(separator: "   ")))
                 Spacer(minLength: 8)
                 Button("Apply") { applyVisibilityDrafts() }
-                    .buttonStyle(LitheSecondaryButtonStyle(horizontalPadding: 14, height: 26, fontSize: 12))
+                    .buttonStyle(LitheActionButtonStyle())
             }
         }
     }
@@ -833,6 +832,7 @@ struct SettingsView: View {
                     viewState.detectedTerminalShells = model.availableTerminalShells
                     viewState.knownTerminalShells = MacTerminalShellDiscovery.knownShells()
                 }
+                .buttonStyle(LitheActionButtonStyle())
             }
             group("Scrollback") {
                 row("Terminal scrollback", info: "Lines kept for scrolling back in new terminal sessions.") {
@@ -923,19 +923,19 @@ struct SettingsView: View {
 
                 }
 
-                HStack(spacing: 8) {
+                HStack(spacing: LitheTheme.ActionButton.spacing) {
                     Button("Add Provider") {
                         viewState.editingProviderID = settings.addAIProvider()
                         syncAIProviderDraft()
                     }
-                    .buttonStyle(LitheSecondaryButtonStyle())
+                    .buttonStyle(LitheActionButtonStyle())
 
                     Button("Remove") {
                         if let id = editingProvider?.id { settings.removeAIProvider(id) }
                         viewState.editingProviderID = nil
                         syncAIProviderDraft()
                     }
-                    .buttonStyle(LitheSecondaryButtonStyle())
+                    .buttonStyle(LitheActionButtonStyle())
                     .disabled(editingProvider == nil)
                 }
 
@@ -982,7 +982,7 @@ struct SettingsView: View {
                         Button("Save Key") {
                             if let editingProvider { model.saveAPIKey(viewState.aiAPIKeyDraft, for: editingProvider) }
                         }
-                        .buttonStyle(LitheSecondaryButtonStyle())
+                        .buttonStyle(LitheActionButtonStyle())
                         .disabled(editingProviderIsConfigurationManaged)
                     }
 
@@ -1026,10 +1026,7 @@ struct SettingsView: View {
                                         syncAIProviderDraft()
                                     }
                                 }
-                                .buttonStyle(LithePrimaryButtonStyle(
-                                    backgroundColor: LitheTheme.settingsPrimaryAction,
-                                    restingOpacity: 1
-                                ))
+                                .buttonStyle(LitheActionButtonStyle(isPrimary: true))
                             }
                             .padding(10)
                             .background(LitheTheme.inputBackground)
@@ -1043,7 +1040,7 @@ struct SettingsView: View {
                             } label: {
                                 Label("Reload AI configurations", systemImage: "arrow.clockwise")
                             }
-                            .buttonStyle(LitheSecondaryButtonStyle())
+                            .buttonStyle(LitheActionButtonStyle())
                         }
                     }
                 } else {
@@ -1056,7 +1053,7 @@ struct SettingsView: View {
                         } label: {
                             Label("Reload AI configurations", systemImage: "arrow.clockwise")
                         }
-                        .buttonStyle(LitheSecondaryButtonStyle())
+                        .buttonStyle(LitheActionButtonStyle())
                     }
                 }
             }
@@ -1111,7 +1108,7 @@ struct SettingsView: View {
                     }
                 }
                 Button("Manage AI Providers…") { viewState.selection = .providers }
-                    .buttonStyle(LitheSecondaryButtonStyle())
+                    .buttonStyle(LitheActionButtonStyle())
             }
 
             group("Commit message generation", info: "Low effort and a small output limit are recommended for fast commit-message generation.") {
@@ -1193,8 +1190,7 @@ struct SettingsView: View {
                             settings.commitMessageAI.pullRequestCustomTemplate =
                                 CommitMessageAISettings.defaultPullRequestTemplate
                         }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
+                        .buttonStyle(LitheActionButtonStyle())
                         .lithePointer()
                     }
 
@@ -1429,7 +1425,7 @@ struct SettingsView: View {
                 updateStatusDescription
                 StableRollbackControl()
 
-                HStack(spacing: 10) {
+                HStack(spacing: LitheTheme.ActionButton.spacing) {
                     // An update found here is installed from the button beside
                     // this one, so the check does not open the update window.
                     let checkButton = Button {
@@ -1442,12 +1438,9 @@ struct SettingsView: View {
                     }
                     .disabled(updateChecker.isBusy)
                     if case .available = updateChecker.status {
-                        checkButton.buttonStyle(LitheSecondaryButtonStyle())
+                        checkButton.buttonStyle(LitheActionButtonStyle())
                     } else {
-                        checkButton.buttonStyle(LithePrimaryButtonStyle(
-                            backgroundColor: LitheTheme.settingsPrimaryAction,
-                            restingOpacity: 1
-                        ))
+                        checkButton.buttonStyle(LitheActionButtonStyle(isPrimary: true))
                     }
 
                     if case .waitingForTermination = updateChecker.status {
@@ -1456,7 +1449,7 @@ struct SettingsView: View {
                         } label: {
                             Label("Continue Installation", systemImage: "arrow.clockwise")
                         }
-                        .buttonStyle(LitheSecondaryButtonStyle())
+                        .buttonStyle(LitheActionButtonStyle())
                     }
                     if case .available(let version, _) = updateChecker.status {
                         Button {
@@ -1468,10 +1461,7 @@ struct SettingsView: View {
                                 Label("Update \(version)", systemImage: "arrow.down.circle.fill")
                             }
                         }
-                        .buttonStyle(LithePrimaryButtonStyle(
-                            backgroundColor: LitheTheme.settingsPrimaryAction,
-                            restingOpacity: 1
-                        ))
+                        .buttonStyle(LitheActionButtonStyle(isPrimary: true))
                         .disabled(updateChecker.isBusy)
                     }
                 }
@@ -1555,11 +1545,11 @@ struct SettingsView: View {
                 }
             }
             .font(LitheTheme.smallFont)
-            HStack {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Button("Open Log Directory") { model.platformUI.open(settings.logDirectory) }
                 Button("Copy Path") { model.platformUI.copyToClipboard(settings.logDirectory.path) }
             }
-            .buttonStyle(LitheSecondaryButtonStyle())
+            .buttonStyle(LitheActionButtonStyle())
         }
     }
 
@@ -1699,14 +1689,13 @@ struct SettingsView: View {
     private var footer: some View {
         HStack {
             Button("Restore Defaults") { settings.restoreDefaults() }
-                .buttonStyle(LitheSecondaryButtonStyle(horizontalPadding: 10, height: 28))
+                .buttonStyle(LitheActionButtonStyle())
             Spacer()
-            HStack(spacing: 10) {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Button { closeSettings() } label: {
                     Text("Cancel")
-                        .frame(minWidth: Self.footerActionLabelWidth)
                 }
-                    .buttonStyle(LitheSecondaryButtonStyle(horizontalPadding: 10, height: 28))
+                    .buttonStyle(LitheActionButtonStyle())
                     .keyboardShortcut(.cancelAction)
                     .disabled(viewState.isApplyingPluginChanges)
                 Button {
@@ -1717,14 +1706,8 @@ struct SettingsView: View {
                     }
                 } label: {
                     Text("OK")
-                        .frame(minWidth: Self.footerActionLabelWidth)
                 }
-                    .buttonStyle(LithePrimaryButtonStyle(
-                        backgroundColor: LitheTheme.settingsPrimaryAction,
-                        restingOpacity: 1,
-                        horizontalPadding: 10,
-                        height: 28
-                    ))
+                    .buttonStyle(LitheActionButtonStyle(isPrimary: true))
                     .keyboardShortcut(.defaultAction)
                     .disabled(viewState.isApplyingPluginChanges)
             }
