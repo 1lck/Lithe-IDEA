@@ -788,7 +788,8 @@ impl VisibilityRules {
             .iter()
             .filter_map(|pattern| folder_glob(pattern))
         {
-            if (1..=directory_count).any(|count| glob_matches(glob, &components[..count].join("/")))
+            if (1..=directory_count)
+                .any(|count| path_glob_matches(glob, &components[..count].join("/")))
             {
                 return true;
             }
@@ -799,16 +800,28 @@ impl VisibilityRules {
         let last = components.last().copied().unwrap_or_default();
         self.hidden_file_patterns
             .iter()
-            .any(|pattern| glob_matches(pattern, last) || glob_matches(pattern, path))
+            .any(|pattern| path_glob_matches(pattern, last) || path_glob_matches(pattern, path))
     }
+}
+
+/// Matches a hidden-path glob, letting a leading `**/` stand for zero or more
+/// folders, so `**/dist/` covers a root-level `dist` as well as `a/b/dist`.
+///
+/// `*` already spans `/`, which covers the non-root case; the root case needs
+/// the second attempt because the glob would otherwise demand a literal `/`.
+fn path_glob_matches(pattern: &str, value: &str) -> bool {
+    glob_matches(pattern, value)
+        || pattern
+            .strip_prefix("**/")
+            .is_some_and(|rest| glob_matches(rest, value))
 }
 
 /// The folder glob of a hidden-path entry that ends in `/`, `/*` or `/**`.
 ///
-/// Such an entry names a folder from the project root, so the folder and
-/// everything below it is hidden instead of leaving an empty folder behind. Other
-/// entries keep their file-only meaning, as pinned by
-/// `shared/fixtures/search/exclusions.json`.
+/// Such an entry names a folder from the project root (or at any depth when it
+/// starts with `**/`), so the folder and everything below it is hidden instead
+/// of leaving an empty folder behind. Other entries keep their file-only
+/// meaning, as pinned by `shared/fixtures/search/exclusions.json`.
 fn folder_glob(pattern: &str) -> Option<&str> {
     let glob = pattern
         .strip_suffix("/**")

@@ -1742,7 +1742,9 @@ Agent completion, or workspace tree visibility. The existing
 case-insensitive `*`/`?` matcher applies to a basename or root-relative path (`*`
 can span `/`). A trailing `/` explicitly marks a root-relative directory glob:
 match it before descending into a directory and against ancestors of directly
-reported file updates. The UI adds the root form for leading `**/`. An entry ending in
+reported file updates. A leading `**/` stands for zero or more folders in the
+matcher itself, so `**/dist/` covers a root-level `dist` as well as nested ones
+(no client has to add the root form). An entry ending in
 `/*` or `/**` is the same folder rule as one ending in `/`, so `.lithe/*` hides the
 folder and everything below it rather than leaving an empty folder; ordinary file globs
 and plain names (such as `.lithe`) retain their file-only semantics. The macOS file

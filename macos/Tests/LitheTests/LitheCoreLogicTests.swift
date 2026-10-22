@@ -2730,9 +2730,22 @@ struct LitheCoreLogicTests {
             #expect(!hidden(".lithe-notes.md", [pattern], isDirectory: false), "\(pattern)")
             #expect(!hidden("modules/a/.lithe", [pattern], isDirectory: true), "\(pattern)")
         }
-        // A leading `**/` reaches nested copies.
-        #expect(hidden("modules/a/.lithe", ["**/.lithe/*"], isDirectory: true))
-        #expect(hidden("modules/a/.lithe/run.json", ["**/.lithe/*"], isDirectory: false))
+        // A leading `**/` stands for zero or more folders, so it reaches the
+        // root copy as well as nested ones.
+        for pattern in ["**/.lithe/", "**/.lithe/*", "**/.lithe/**"] {
+            #expect(hidden(".lithe", [pattern], isDirectory: true), "\(pattern)")
+            #expect(hidden(".lithe/run.json", [pattern], isDirectory: false), "\(pattern)")
+            #expect(hidden("modules/a/.lithe", [pattern], isDirectory: true), "\(pattern)")
+            #expect(hidden("modules/a/.lithe/run.json", [pattern], isDirectory: false), "\(pattern)")
+            #expect(!hidden("modules/a/.lithe-notes", [pattern], isDirectory: true), "\(pattern)")
+            #expect(!hidden("modules/.lithe", [pattern], isDirectory: false), "\(pattern)")
+        }
+        // The same prefix applies to file patterns.
+        #expect(hidden("secret.txt", ["**/secret.txt"], isDirectory: false))
+        #expect(hidden("config/secret.txt", ["**/secret.txt"], isDirectory: false))
+        #expect(!hidden("config/secret.txt.bak", ["**/secret.txt"], isDirectory: false))
+        // Matching ignores case.
+        #expect(hidden("Modules/A/DIST", ["**/dist/"], isDirectory: true))
         // A plain name or a glob without a folder suffix stays a file pattern.
         #expect(hidden(".lithe", [".lithe"], isDirectory: false))
         #expect(!hidden(".lithe", [".lithe"], isDirectory: true))
@@ -3779,16 +3792,65 @@ struct LitheCoreLogicTests {
 
         let firstID = settings.addFileVisibilityRulesObserver { firstObserverCalls += 1 }
         _ = settings.addFileVisibilityRulesObserver { secondObserverCalls += 1 }
-        settings.hiddenDirectoryNames.append("generated")
+        settings.hiddenPathPatterns.append("**/generated/")
 
         #expect(firstObserverCalls == 1)
         #expect(secondObserverCalls == 1)
 
         settings.removeFileVisibilityRulesObserver(firstID)
-        settings.hiddenFilePatterns.append("*.generated.swift")
+        settings.hiddenPathPatterns.append("*.generated.swift")
 
         #expect(firstObserverCalls == 1)
         #expect(secondObserverCalls == 2)
+    }
+
+    @Test
+    @MainActor
+    func hiddenPathsMigrateTheTwoLegacyListsIntoOnePatternList() {
+        let store = MutableKeyValueStore()
+        // Older versions saved the built-ins together with the user's entries.
+        store.set(FileVisibilityRules.builtInHiddenDirectories + ["generated", "Out"], forKey: "settings.hiddenDirectories")
+        store.set(FileVisibilityRules.builtInHiddenFilePatterns + ["*.generated.swift", "  "], forKey: "settings.hiddenFilePatterns")
+
+        let settings = AppSettings(store: store)
+
+        // A folder name keeps hiding at any depth, built-ins are not copied, and
+        // the file globs carry over unchanged.
+        #expect(settings.hiddenPathPatterns == ["**/generated/", "**/Out/", "*.generated.swift"])
+        let root = URL(fileURLWithPath: "/tmp/lithe-hidden-migration")
+        #expect(settings.fileVisibilityRules.isHidden(
+            root.appendingPathComponent("modules/generated"), relativeTo: root, isDirectory: true))
+        #expect(settings.fileVisibilityRules.isHidden(
+            root.appendingPathComponent("node_modules"), relativeTo: root, isDirectory: true))
+
+        // Once the new list is saved the legacy keys are no longer read.
+        settings.hiddenPathPatterns = ["docs/"]
+        #expect(AppSettings(store: store).hiddenPathPatterns == ["docs/"])
+        settings.hiddenPathPatterns = []
+        #expect(AppSettings(store: store).hiddenPathPatterns.isEmpty)
+        settings.hiddenPathPatterns = ["docs/"]
+        settings.restoreDefaults()
+        #expect(settings.hiddenPathPatterns.isEmpty)
+        #expect(AppSettings(store: EmptyKeyValueStore()).hiddenPathPatterns.isEmpty)
+    }
+
+    @Test
+    func builtInHiddenPatternsShowTheEffectiveRulesInPatternSyntax() {
+        // The settings page echoes the built-in rules as patterns: every folder
+        // name as `**/name/` (any depth) followed by the file patterns.
+        let patterns = FileVisibilityRules.builtInPatterns
+        #expect(patterns == FileVisibilityRules.builtInHiddenDirectories.map { "**/\($0)/" }
+            + FileVisibilityRules.builtInHiddenFilePatterns)
+        #expect(patterns.contains("**/node_modules/"))
+        #expect(patterns.contains(".DS_Store"))
+
+        // Built-in folders stay hidden at any depth without any user pattern.
+        let root = URL(fileURLWithPath: "/tmp/lithe-hidden-builtin-patterns")
+        let rules = FileVisibilityRules(hiddenDirectoryNames: [], hiddenFilePatterns: [])
+        for directory in FileVisibilityRules.builtInHiddenDirectories {
+            #expect(rules.isHidden(root.appendingPathComponent(directory), relativeTo: root, isDirectory: true), "\(directory)")
+            #expect(rules.isHidden(root.appendingPathComponent("a/b/\(directory)/x.txt"), relativeTo: root, isDirectory: false), "\(directory)")
+        }
     }
 
     @Test

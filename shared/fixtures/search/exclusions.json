@@ -6,7 +6,9 @@
     "*.log",
     "generated/*",
     "docs/**",
-    "notes"
+    "notes",
+    "**/tmp/",
+    "**/secret.txt"
   ],
   "cases": [
     {
@@ -117,6 +119,46 @@
     {
       "path": "notes/todo.md",
       "isDirectory": false,
+      "hidden": false
+    },
+    {
+      "path": "tmp",
+      "isDirectory": true,
+      "hidden": true
+    },
+    {
+      "path": "a/b/tmp",
+      "isDirectory": true,
+      "hidden": true
+    },
+    {
+      "path": "a/b/tmp/x.txt",
+      "isDirectory": false,
+      "hidden": true
+    },
+    {
+      "path": "a/tmp.txt",
+      "isDirectory": false,
+      "hidden": false
+    },
+    {
+      "path": "secret.txt",
+      "isDirectory": false,
+      "hidden": true
+    },
+    {
+      "path": "config/secret.txt",
+      "isDirectory": false,
+      "hidden": true
+    },
+    {
+      "path": "config/secret.txt.bak",
+      "isDirectory": false,
+      "hidden": false
+    },
+    {
+      "path": "secret.txt",
+      "isDirectory": true,
       "hidden": false
     }
   ]

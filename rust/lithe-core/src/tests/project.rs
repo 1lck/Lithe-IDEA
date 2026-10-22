@@ -560,8 +560,9 @@ fn list_directories_returns_one_visible_level_per_requested_directory() {
 
 #[test]
 fn folder_patterns_hide_folders_without_reading_them() {
-    // `name/`, `name/*` and `name/**` hide a folder from the project root, so the
-    // tree must not enumerate it. A plain name stays a file pattern.
+    // `name/`, `name/*` and `name/**` hide a folder from the project root, and a
+    // leading `**/` hides it at any depth, so the tree must not enumerate it. A
+    // plain name stays a file pattern.
     let root = temporary_root("folder-patterns");
     write_fixture_file(&root.join("src/App.java"), "class App {}");
     write_fixture_file(&root.join(".lithe/dependencies/index.json"), "{}");
@@ -569,7 +570,10 @@ fn folder_patterns_hide_folders_without_reading_them() {
     write_fixture_file(&root.join("docs/api/index.html"), "<html></html>");
     write_fixture_file(&root.join("modules/.lithe/config.json"), "{}");
     write_fixture_file(&root.join("notes/todo.md"), "kept");
-    let patterns = [".lithe/*", "generated/", "docs/**", "notes"];
+    write_fixture_file(&root.join("tmp/scratch.txt"), "root copy");
+    write_fixture_file(&root.join("modules/tmp/scratch.txt"), "nested copy");
+    write_fixture_file(&root.join("modules/keep.txt"), "kept");
+    let patterns = [".lithe/*", "generated/", "docs/**", "notes", "**/tmp/"];
     let rules = serde_json::json!({"root": root, "hiddenFilePatterns": patterns});
 
     crate::project::files::DIRECTORY_VISITS.with_borrow_mut(|visits| *visits = Some(Vec::new()));
@@ -583,7 +587,7 @@ fn folder_patterns_hide_folders_without_reading_them() {
         "workspace.listDirectories",
         serde_json::json!({
             "root": root,
-            "paths": ["", ".lithe", "generated", "docs", "modules"],
+            "paths": ["", ".lithe", "generated", "docs", "tmp", "modules", "modules/tmp"],
             "hiddenFilePatterns": patterns
         }),
     );
@@ -602,6 +606,7 @@ fn folder_patterns_hide_folders_without_reading_them() {
         snapshot_files,
         [
             "modules/.lithe/config.json",
+            "modules/keep.txt",
             "notes/todo.md",
             "src/App.java"
         ]
@@ -620,7 +625,7 @@ fn folder_patterns_hide_folders_without_reading_them() {
         .map(|child| child["name"].as_str().unwrap_or_default())
         .collect::<Vec<_>>();
     assert_eq!(root_children, ["modules", "notes", "src"]);
-    for hidden in [".lithe", "generated", "docs"] {
+    for hidden in [".lithe", "generated", "docs", "tmp", "modules/tmp"] {
         assert!(
             visits
                 .iter()
