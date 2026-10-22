@@ -139,12 +139,24 @@ struct WindowLayoutFullScreenTransitionTests {
         coordinator.attach(to: window, layout: .workspace, title: "Project")
         #expect(abs(window.frame.width - welcomeWidth) < 1)
 
-        // 退出全屏后补一次换框，落回工作台默认尺寸
+        // 退出全屏后补一次换框，落回工作台默认尺寸。期望值必须经过与
+        // applyFrame 相同的屏幕钳制：CI 的虚拟显示器只有 1024pt 宽，
+        // 不能直接断言 1440。
         coordinator.isInFullScreen = { _ in false }
         coordinator.windowDidExitFullScreen(
             Notification(name: NSWindow.didExitFullScreenNotification, object: window)
         )
-        #expect(abs(window.frame.width - LitheWindowLayout.workspaceContentSize.width) < 1)
+        let expectedWorkspaceWidth: CGFloat
+        if let visibleFrame = (window.screen ?? NSScreen.main)?.visibleFrame {
+            expectedWorkspaceWidth = LitheWindowLayout.frame(
+                NSRect(origin: .zero, size: LitheWindowLayout.workspaceContentSize),
+                fitting: visibleFrame
+            ).width
+        } else {
+            // applyFrame 只在有可见屏幕时钳制；无屏幕环境不缩放。
+            expectedWorkspaceWidth = LitheWindowLayout.workspaceContentSize.width
+        }
+        #expect(abs(window.frame.width - expectedWorkspaceWidth) < 1)
     }
 
     @Test
