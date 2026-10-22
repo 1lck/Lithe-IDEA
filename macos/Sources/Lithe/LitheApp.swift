@@ -1184,19 +1184,7 @@ enum SettingsWindowChrome {
         titlebarDragMonitor = NSEvent.addLocalMonitorForEvents(
             matching: [.leftMouseDown, .leftMouseUp]
         ) { event in
-            switch event.type {
-            case .leftMouseDown:
-                if let window = settingsWindow, event.window === window,
-                   isTitlebarPress(event, in: window),
-                   let owner = window.parent {
-                    owner.removeChildWindow(window)
-                    dragDetachedOwner = owner
-                }
-            case .leftMouseUp:
-                reattachAfterTitlebarDrag()
-            default:
-                break
-            }
+            handleTitlebarMouseEvent(event)
             return event
         }
         NotificationCenter.default.addObserver(
@@ -1209,6 +1197,24 @@ enum SettingsWindowChrome {
                       NSEvent.pressedMouseButtons & 1 == 0 else { return }
                 reattachAfterTitlebarDrag()
             }
+        }
+    }
+
+    /// Detaches on a titlebar press and rejoins on release; called by the
+    /// local event monitor before AppKit starts the window drag.
+    static func handleTitlebarMouseEvent(_ event: NSEvent) {
+        switch event.type {
+        case .leftMouseDown:
+            if let window = settingsWindow, event.window === window,
+               isTitlebarPress(event, in: window),
+               let owner = window.parent {
+                owner.removeChildWindow(window)
+                dragDetachedOwner = owner
+            }
+        case .leftMouseUp:
+            reattachAfterTitlebarDrag()
+        default:
+            break
         }
     }
 

@@ -111,7 +111,7 @@ Diff 的纵向同步依据 Community `SyncScrollSupport.ScrollHelper` 和
 
 需要实时状态的页面自己订阅对应功能模型，或者在一个小的叶子视图里订阅 `AppModel`，
 例如语言服务状态和项目运行时页面。模块按需激活的页面要把激活结果存进本地状态，
-不能指望后续的整体刷新把新功能显示出来。窗口外观（标题栏、样式掩码）只在标题、
+不能指望后续的整体刷新把新功能显示出来；但本地状态只能作为能力缓存填好前的过渡，统一用 `ModuleFeatureSelection`：激活任务以当前能力身份为 key，模块休眠后立即丢弃旧实例并重新激活，页面不能继续读写已释放的功能实例。窗口外观（标题栏、样式掩码）只在标题、
 主题、关闭按钮状态或外观真的变化时才重新应用。插件列表在一次渲染里只排序、
 过滤一次，行的悬停状态留在行内部。
 
@@ -192,6 +192,10 @@ IDEA 的 [BranchesTreeComponent](https://github.com/JetBrains/intellij-community
 - `AppModelSettingsChangesTests` 验证只影响工作台的转发不会进入
   `settingsChanges`，直接通知和设置相关的转发仍然会进入，并且合并后的一次转发
   只要包含设置相关变化就会通知设置窗口。
+- `ModuleFeatureSelectionTests` 验证设置页保持打开时，模块休眠后会丢弃已释放的
+  实例，重新激活后显示新实例。`SettingsAppearanceContainerTests` 用原生鼠标事件
+  验证：按下标题栏会解除子窗口关系，拖动中重新配置不会提前挂回，松手后挂回，
+  关闭后重新打开也会挂回。
 - `GitGraphInteractionTests.splitPaneBounds` 在两种方向、两种位置及折叠状态
   验证原生子视图身份、可见尺寸和传入的确定尺寸，防止恢复为堆栈尺寸探测。
 - `LitheSplitPaneCollapseTests.outerDragSuspendsRowChrome` 使用原生分隔条
