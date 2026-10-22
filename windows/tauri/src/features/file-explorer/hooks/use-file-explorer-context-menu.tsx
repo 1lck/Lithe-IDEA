@@ -40,6 +40,7 @@ import { writeClipboardText } from "@/utils/clipboard";
 import { isMarkdownPreviewableFile } from "@/features/editor/markdown/previewable";
 import { activateMainEditorPane } from "@/features/editor/stores/buffer-pane-sync";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
+import { requestNewTerminal } from "@/features/terminal/utils/terminal-launch-actions";
 import { readFile as readTextFile, writeFile } from "@/features/file-system/controllers/platform";
 import {
   buildEnvTemplateContent,
@@ -685,12 +686,7 @@ export function useFileExplorerContextMenu({
           label: t("files.openInTerminal"),
           icon: <Terminal />,
           onClick: () => {
-            const folderName = getBaseName(contextMenu.path, "terminal");
-            const { openTerminalBuffer } = useBufferStore.getState().actions;
-            openTerminalBuffer({
-              name: folderName,
-              workingDirectory: contextMenu.path,
-            });
+            requestNewTerminal(contextMenu.path);
           },
         },
         {

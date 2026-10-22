@@ -8,7 +8,10 @@ import { useTerminalProfilesStore } from "@/features/terminal/stores/profiles.st
 import { useTerminalStore } from "@/features/terminal/stores/terminal.store";
 import { useTerminalShellsStore } from "@/features/terminal/stores/shells.store";
 import type { TerminalSplitDirection } from "@/features/terminal/types/terminal.types";
-import { createDefaultTerminalHandler } from "@/features/terminal/utils/terminal-launch-actions";
+import {
+  createDefaultTerminalHandler,
+  createNewTerminalEventHandler,
+} from "@/features/terminal/utils/terminal-launch-actions";
 import {
   openNewTerminalFromGlobalEntry,
   shouldAutoHideTerminalPane,
@@ -137,9 +140,10 @@ const TerminalContainer = ({
   }, []);
 
   const handleNewTerminalWithProfile = useCallback(
-    (profileId?: string) => {
+    (profileId?: string, workingDirectoryOverride?: string) => {
       const resolvedLaunch = resolveTerminalLaunch({
         currentDirectory,
+        workingDirectoryOverride,
         customProfiles,
         explicitProfileId: profileId,
         settings: {
@@ -530,13 +534,13 @@ const TerminalContainer = ({
   }, [switchToNextTerminal, switchToPrevTerminal]);
 
   useEffect(() => {
-    const handleNewTerminalEvent = () => {
+    const handleNewTerminalEvent = createNewTerminalEventHandler((workingDirectory) => {
       openNewTerminalFromGlobalEntry({
-        createTerminal: handleNewTerminal,
+        createTerminal: () => handleNewTerminalWithProfile(undefined, workingDirectory),
         setBottomPaneActiveTab,
         setIsBottomPaneVisible,
       });
-    };
+    });
 
     const handleDetachTerminalToBuffer = (event: Event) => {
       const terminalId = (event as CustomEvent<{ terminalId?: string }>).detail?.terminalId;
@@ -583,6 +587,7 @@ const TerminalContainer = ({
     terminals,
     focusActiveTerminal,
     handleNewTerminal,
+    handleNewTerminalWithProfile,
     setActiveTerminal,
     setBottomPaneActiveTab,
     setIsBottomPaneVisible,

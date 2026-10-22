@@ -57,12 +57,14 @@ export const resolveTerminalLaunch = ({
   currentDirectory,
   customProfiles,
   explicitProfileId,
+  workingDirectoryOverride,
   settings,
   shells,
 }: {
   currentDirectory: string;
   customProfiles: TerminalProfile[];
   explicitProfileId?: string;
+  workingDirectoryOverride?: string;
   settings: Pick<Settings, "terminalDefaultProfileId" | "terminalDefaultShellId">;
   shells: Shell[];
 }): ResolvedTerminalLaunch => {
@@ -75,7 +77,10 @@ export const resolveTerminalLaunch = ({
       ? settings.terminalDefaultShellId
       : undefined;
   const initialCommand = profile?.startupCommands?.filter(Boolean).join("\n") || undefined;
-  const workingDirectory = profile?.startupDirectory?.trim() || currentDirectory;
+  // An explicit folder action wins over a profile's usual startup directory.
+  // Resolve WSL from that final location too, rather than the previous project.
+  const workingDirectory =
+    workingDirectoryOverride || profile?.startupDirectory?.trim() || currentDirectory;
   const wslInfo = parseWslPath(workingDirectory);
   const shell = wslInfo ? getWslShellId(wslInfo.distro) : profile?.shell || fallbackShell;
 

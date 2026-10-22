@@ -413,7 +413,8 @@ mod tests {
             root: root.clone(),
             id: String::new(),
         };
-        let args = json!({"directory":root.join("app-data/mcp"),"workspaceKey":"fixture-project","helperPath":helper,"permissions":{"configure":false,"execute":false}});
+        let args = json!({"directory":root.join("app-data/mcp"),"workspaceKey":"fixture-project","helperPath":helper,"permissions":{"configure":false,"execute":false},"ownerId":format!("fixture-owner-{}", Uuid::new_v4())});
+        let owner = args["ownerId"].clone();
         let opened = open(args.clone()).unwrap();
         fixture.id = opened["hostID"].as_str().unwrap().into();
         assert!(
@@ -468,7 +469,12 @@ mod tests {
             response.unwrap().json::<Value>().await.unwrap()["workspaceID"],
             "fixture-project"
         );
-        execute("close", json!({"hostID":fixture.id})).unwrap();
+        execute("closeOwner", json!({"ownerID":"unrelated-window"})).unwrap();
+        assert!(
+            connection_path.exists(),
+            "another window must not revoke this connection"
+        );
+        execute("closeOwner", json!({"ownerID":owner})).unwrap();
         let mut headers = HeaderMap::new();
         headers.insert(
             "authorization",

@@ -40,3 +40,36 @@ describe("terminal profile selection", () => {
     expect(launch.profileId).toBe("shell:pwsh");
   });
 });
+
+test("an explicit WSL folder chooses its distro instead of the profile startup location", () => {
+  const launch = resolveTerminalLaunch({
+    currentDirectory: "C:/fixture/project",
+    workingDirectoryOverride: "wsl://Ubuntu/home/fixture/selected folder",
+    customProfiles: [
+      { id: "custom", name: "Custom", shell: "pwsh", startupDirectory: "C:/fixture/profile" },
+    ],
+    settings: { terminalDefaultProfileId: "custom", terminalDefaultShellId: "cmd" },
+    shells,
+  });
+  expect(launch.workingDirectory).toBe("wsl://Ubuntu/home/fixture/selected folder");
+  expect(launch.shell).toBe("wsl:Ubuntu");
+});
+
+test("an explicit local folder does not inherit WSL from a profile startup directory", () => {
+  const launch = resolveTerminalLaunch({
+    currentDirectory: "wsl://Ubuntu/home/fixture/project",
+    workingDirectoryOverride: "C:/fixture/selected folder",
+    customProfiles: [
+      {
+        id: "custom",
+        name: "Custom",
+        shell: "pwsh",
+        startupDirectory: "wsl://Ubuntu/home/fixture/profile",
+      },
+    ],
+    settings: { terminalDefaultProfileId: "custom", terminalDefaultShellId: "cmd" },
+    shells,
+  });
+  expect(launch.workingDirectory).toBe("C:/fixture/selected folder");
+  expect(launch.shell).toBe("pwsh");
+});
