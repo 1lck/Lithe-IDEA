@@ -71,21 +71,28 @@ struct CommitAreaView: View {
 
             if !feature.workspaceCommitResults.isEmpty {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 3) {
-                        ForEach(feature.workspaceCommitResults) { result in
-                            (Text("\(result.root.lastPathComponent): ") + Text(LocalizedStringKey(result.detail))
-                                + Text(verbatim: result.diagnostic.isEmpty ? "" : ": \(result.diagnostic)"))
-                                .font(LitheTheme.uiFont(.caption)).help(result.root.path)
+                    VStack(alignment: .leading, spacing: LitheTheme.ActionButton.spacing) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            ForEach(feature.workspaceCommitResults) { result in
+                                (Text("\(result.root.lastPathComponent): ") + Text(LocalizedStringKey(result.detail))
+                                    + Text(verbatim: result.diagnostic.isEmpty ? "" : ": \(result.diagnostic)"))
+                                    .font(LitheTheme.uiFont(.caption)).help(result.root.path)
+                            }
+                        }.frame(maxWidth: .infinity, alignment: .leading)
+                        Button("Dismiss Results") { feature.dismissWorkspaceCommitResults() }
+                            .buttonStyle(LitheActionButtonStyle())
+                            .disabled(feature.isCommitting)
+                        if feature.canRetryWorkspaceCommit {
+                            Button("Review and Retry…") {
+                                Task { await feature.prepareWorkspaceCommitRetry() }
+                            }
+                            .buttonStyle(LitheActionButtonStyle())
+                            .help("Review and Retry Unfinished Steps…")
+                            .disabled(feature.isCommitting)
+                            .accessibilityIdentifier("git-commit-retry")
                         }
-                    }.frame(maxWidth: .infinity, alignment: .leading)
-                }.frame(maxHeight: 90)
-                Button("Dismiss Results") { feature.dismissWorkspaceCommitResults() }
-                    .disabled(feature.isCommitting)
-                if feature.canRetryWorkspaceCommit {
-                    Button("Review and Retry Unfinished Steps…") {
-                        Task { await feature.prepareWorkspaceCommitRetry() }
-                    }.disabled(feature.isCommitting)
-                }
+                    }
+                }.frame(minHeight: 0, maxHeight: LitheTheme.Commit.resultsMaximumHeight)
             }
 
             HStack(spacing: LitheTheme.ActionButton.spacing) {

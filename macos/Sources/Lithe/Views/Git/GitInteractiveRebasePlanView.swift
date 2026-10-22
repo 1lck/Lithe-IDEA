@@ -47,7 +47,7 @@ private struct GitInteractiveRebasePlanView: View {
                 Text(LocalizedStringKey(error)).font(LitheTheme.uiFont(size: 12)).foregroundStyle(LitheTheme.error).textSelection(.enabled)
             }
             HStack(spacing: LitheTheme.ActionButton.spacing) {
-                Button("Reload Range") { editor.reloadPreview() }.disabled(editor.isBusy).lithePointer()
+                Button("Reload Range") { editor.reloadPreview() }.buttonStyle(LitheActionButtonStyle()).disabled(editor.isBusy).lithePointer()
                     .help("Reload the Core preview and reset the step plan")
                 if editor.isExecuting { ProgressView().controlSize(.small) }
                 Spacer()

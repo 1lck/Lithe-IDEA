@@ -185,6 +185,7 @@ private struct GitHistoryRewriteDialog: View {
             HStack(spacing: LitheTheme.ActionButton.spacing) {
                 if !editor.isLoading {
                     Button("Refresh Preview") { editor.reloadPreview() }
+                        .buttonStyle(LitheActionButtonStyle())
                         .disabled(editor.isExecuting).lithePointer()
                 }
                 Spacer()

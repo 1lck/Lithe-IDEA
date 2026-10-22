@@ -32,6 +32,7 @@ struct LitheActionButtonStyle: ButtonStyle {
                                                   : LitheTheme.ActionButton.disabledBorder, lineWidth: 1))
             .contentShape(Rectangle())
             .onHover { isHovered = $0 }
+            .lithePointer()
             .litheFocusEffectHidden()
     }
 }

@@ -1,24 +1,34 @@
 import AppKit
 import SwiftUI
-import LitheGitModule
+@testable import LitheGitModule
 import Testing
 @testable import Lithe
 
 @MainActor
 @Suite("Commit action button chrome", .serialized)
 struct CommitActionButtonStyleTests {
-    @Test(arguments: [ColorScheme.dark, .light])
-    func commitFormStaysInsideItsSplitPaneWhenTheFooterStacks(scheme: ColorScheme) async throws {
+    @Test(arguments: [ColorScheme.dark, .light], [false, true])
+    func commitFormStaysInsideItsSplitPaneWhenTheFooterStacks(scheme: ColorScheme, hasResults: Bool) async throws {
         MacBundledFontRegistry.registerFonts()
         let feature = GitFeatureModel(service: GitService(operations: RustGitOperations(core: RustCoreBridge())))
         defer { feature.reset() }
+        if hasResults {
+            let plan = GitWorkspaceCommitPlan(repositories: [], message: "commit", amend: false, push: false,
+                includeParentReferences: true, isRetry: false, orderedIds: [], propagatedRelations: [],
+                dependencyRelations: [], states: [:], committedIds: [], pendingPushIds: [])
+            feature.workspaceCommitAttempt = GitWorkspaceCommitSession(plan: plan, states: [:], results: [:],
+                blocked: [], cursor: 0, commandFailed: true, finished: true, succeeded: false, canRetry: true)
+            feature.workspaceCommitResults = [GitRepositoryCommitResult(root: URL(fileURLWithPath: "/fixture/project"),
+                detail: "Repository needs attention")]
+        }
         let draft = CommitDraftFeatureModel()
         let workflow = CommitWorkflowCoordinator(draft: draft, activateGit: { nil }, workspaceGeneration: { 0 },
             generate: { _ in "" }, notify: { _ in })
+        let minimumHeight = LitheTheme.Commit.areaMinimumHeight + (hasResults ? LitheTheme.Commit.resultsMaximumHeight : 0)
         let pane = NSView()
         let host = NSHostingView(rootView: LitheSplitPaneView(axis: .vertical, placement: .trailing,
-            defaultSize: LitheTheme.Commit.areaMinimumHeight,
-            minimum: LitheTheme.Commit.areaMinimumHeight, maximum: 400,
+            defaultSize: minimumHeight,
+            minimum: minimumHeight, maximum: 400,
             sized: {
                 CommitAreaView(feature: feature, draft: draft, commitWorkflow: workflow,
                                hasBackgroundImage: false, showSettings: { _ in })
@@ -37,7 +47,7 @@ struct CommitActionButtonStyleTests {
             host.setFrameSize(NSSize(width: width, height: 400))
             host.layoutSubtreeIfNeeded()
             let bounds = pane.convert(pane.bounds, to: host)
-            #expect(abs(bounds.height - LitheTheme.Commit.areaMinimumHeight) < 0.5)
+            #expect(abs(bounds.height - minimumHeight) < 0.5, "Pane \(bounds) at width \(width)")
             var buttons: [NSRect] = []
             for identifier in ["git-commit-ai", "git-commit-submit", "git-commit-and-push", "git-commit-settings"] {
                 let frame = try await AgentNativeControlTestSupport.frame(of: identifier, in: host)
@@ -48,6 +58,11 @@ struct CommitActionButtonStyleTests {
                     #expect(abs(frame.height - 28) < 0.5)
                     buttons.append(frame)
                 }
+            }
+            if hasResults {
+                let retry = try await AgentNativeControlTestSupport.frame(of: "git-commit-retry", in: host)
+                #expect(retry.minX >= bounds.minX && retry.maxX <= bounds.maxX)
+                #expect(abs(retry.height - LitheTheme.ActionButton.height) < 0.5)
             }
             #expect(!buttons[0].intersects(buttons[1]))
             if width == 260 {
@@ -63,6 +78,24 @@ struct CommitActionButtonStyleTests {
             #expect(editorFrame.minY >= bounds.minY && editorFrame.maxY <= bounds.maxY)
             #expect(buttons.allSatisfy { !$0.intersects(editorFrame) })
         }
+    }
+
+    @Test(arguments: [false, true], [false, true])
+    func actionStyleGivesOnlyTheOuterPointerOwnership(outerPointer: Bool, pointingAllowed: Bool) {
+        var flags: [String: Bool] = [:]
+        let button = Button {} label: {
+            PointerOwnershipProbe(identifier: "label") { flags[$0] = $1 }
+        }.buttonStyle(LitheActionButtonStyle())
+        let host = NSHostingView(rootView: HStack {
+            Group {
+                if outerPointer { button.lithePointer() } else { button }
+            }
+            PointerOwnershipProbe(identifier: "sibling") { flags[$0] = $1 }
+        }.environment(\.lithePointingHandCursorEnabled, pointingAllowed))
+        host.setFrameSize(NSSize(width: 200, height: 50))
+        host.layoutSubtreeIfNeeded()
+        #expect(flags["label"] == false, "The style must own pointer feedback even without an outer modifier")
+        #expect(flags["sibling"] == pointingAllowed, "Pointer ownership must not leak into sibling controls")
     }
 
     @Test
@@ -161,4 +194,16 @@ private struct CommitPaneBoundsProbe: NSViewRepresentable {
     let view: NSView
     func makeNSView(context: Context) -> NSView { view }
     func updateNSView(_ nsView: NSView, context: Context) {}
+}
+
+/// Observe the actual environment passed through a ButtonStyle's label.
+private struct PointerOwnershipProbe: NSViewRepresentable {
+    @Environment(\.lithePointingHandCursorEnabled) private var pointingAllowed
+    let identifier: String
+    let observe: (String, Bool) -> Void
+    func makeNSView(context: Context) -> NSView {
+        observe(identifier, pointingAllowed)
+        return NSView(frame: NSRect(x: 0, y: 0, width: 10, height: 12))
+    }
+    func updateNSView(_ nsView: NSView, context: Context) { observe(identifier, pointingAllowed) }
 }

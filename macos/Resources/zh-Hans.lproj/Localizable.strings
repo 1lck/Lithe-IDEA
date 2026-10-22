@@ -2568,6 +2568,7 @@
 "Review remaining steps" = "确认剩余步骤";
 "Review repository commits" = "确认各仓库提交";
 "Each repository has its own commit. Completed steps are kept if another repository fails." = "每个仓库会分别提交。某个仓库失败时，已完成的步骤仍会保留。";
+"Review and Retry…" = "查看并重试…";
 "Review and Retry Unfinished Steps…" = "查看并重试未完成的步骤…";
 "Dismiss Results" = "清除结果";
 "Update parent repository references" = "更新父仓库引用";

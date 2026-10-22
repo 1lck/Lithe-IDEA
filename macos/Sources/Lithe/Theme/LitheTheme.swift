@@ -1082,6 +1082,7 @@ enum LitheTheme {
         static let toolbarHeight = Metrics.toolbarHeight
         static let listMinimumHeight: CGFloat = 120
         static let messageMinimumHeight: CGFloat = 50
+        static let resultsMaximumHeight: CGFloat = 90
         // Reserve two rows for the wrapping Amend header and two for the footer,
         // plus the message editor and existing row/editor/button insets.
         static let areaMinimumHeight: CGFloat = 4 * ActionButton.height + 4 * ActionButton.spacing
@@ -1336,6 +1337,8 @@ private struct LithePointerModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
+            // The outer pointer owns the cursor stack; nested styles must not push again.
+            .environment(\.lithePointingHandCursorEnabled, false)
             .onHover { isInside in
                 cursor.isHovered = isInside
                 cursor.update(isPointing: isInside && isEnabled && pointingHandCursorEnabled)
