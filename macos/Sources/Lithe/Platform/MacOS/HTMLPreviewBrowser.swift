@@ -47,9 +47,16 @@ final class HTMLPreviewBrowserController: NSObject, ObservableObject {
     /// view must not be the root that SwiftUI sizes.
     let containerView = NSView()
     let webView: WKWebView
+    /// Find in page, opened with ⌘F while the page has focus.
+    let find: HTMLPreviewFindModel
+    /// The camera and microphone the page is capturing from.
+    let capture: HTMLPreviewCaptureModel
+    /// Shared with the delegate extensions that live in their own files.
+    let dialogs: any HTMLPreviewDialogPresenting
+    /// The app's Info.plist entries, read when a page asks for the camera or microphone.
+    let mediaUsageDescriptions: () -> [String: Any]?
 
     private let schemeHandler: HTMLPreviewSchemeHandler
-    private let dialogs: any HTMLPreviewDialogPresenting
     private var scope: HTMLPreviewScope?
     private var lastPayload: Payload?
     private var scrollRestoration: (x: Double, y: Double)?
@@ -61,7 +68,13 @@ final class HTMLPreviewBrowserController: NSObject, ObservableObject {
     private static let maximumProcessRecoveries = 2
     private var cancellables = Set<AnyCancellable>()
 
-    init(dialogs: (any HTMLPreviewDialogPresenting)? = nil) {
+    /// `configure` adjusts the web view's configuration last; tests use it to give the
+    /// page mock cameras and microphones, which the app never does.
+    init(
+        dialogs: (any HTMLPreviewDialogPresenting)? = nil,
+        mediaUsageDescriptions: @escaping () -> [String: Any]? = { Bundle.main.infoDictionary },
+        configure: (WKWebViewConfiguration) -> Void = { _ in }
+    ) {
         let handler = HTMLPreviewSchemeHandler()
         let configuration = WKWebViewConfiguration()
         // Cookies, storage and caches live only as long as the preview.
@@ -72,14 +85,23 @@ final class HTMLPreviewBrowserController: NSObject, ObservableObject {
         if configuration.preferences.responds(to: NSSelectorFromString("_setDeveloperExtrasEnabled:")) {
             configuration.preferences.setValue(true, forKey: "developerExtrasEnabled")
         }
+        // The camera and microphone are asked for in the preview's own dialog and
+        // shown in its address bar; screen sharing has neither, so pages are not offered it.
+        if configuration.preferences.responds(to: NSSelectorFromString("_setScreenCaptureEnabled:")) {
+            configuration.preferences.setValue(false, forKey: "screenCaptureEnabled")
+        }
         let pagePreferences = WKWebpagePreferences()
         pagePreferences.allowsContentJavaScript = true
         configuration.defaultWebpagePreferences = pagePreferences
+        configure(configuration)
 
         schemeHandler = handler
         self.dialogs = dialogs ?? HTMLPreviewAppKitDialogs()
+        self.mediaUsageDescriptions = mediaUsageDescriptions
         let surface = HTMLPreviewWebViewSurface(frame: .zero, configuration: configuration)
         webView = surface
+        find = HTMLPreviewFindModel(webView: surface)
+        capture = HTMLPreviewCaptureModel(webView: surface)
         super.init()
 
         surface.onZoomCommand = { [weak self] command in
@@ -89,6 +111,9 @@ final class HTMLPreviewBrowserController: NSObject, ObservableObject {
             case .reset: self?.resetZoom()
             }
         }
+        surface.onFindCommand = { [weak self] command in self?.find.handle(command) }
+        surface.onPrintCommand = { [weak self] command in self?.handlePrintCommand(command) }
+        surface.onContextMenu = { [weak self] menu, event in self?.customizeContextMenu(menu, for: event) }
         if #available(macOS 13.3, *) { webView.isInspectable = true }
         webView.navigationDelegate = self
         webView.uiDelegate = self
@@ -351,7 +376,7 @@ final class HTMLPreviewBrowserController: NSObject, ObservableObject {
     // MARK: - Helpers
 
     /// How a dialog names the page that raised it.
-    private func sourceLabel(for url: URL?) -> String {
+    func sourceLabel(for url: URL?) -> String {
         guard let url else { return String(localized: "This page") }
         if HTMLPreviewURL.isInternal(url) {
             return scope.flatMap { HTMLPreviewURL.fileURL(for: url, in: $0) }?.lastPathComponent
@@ -360,7 +385,7 @@ final class HTMLPreviewBrowserController: NSObject, ObservableObject {
         return url.host ?? url.absoluteString
     }
 
-    private func report(_ error: Error) {
+    func report(_ error: Error) {
         let nsError = error as NSError
         // Cancelled loads and policy-interrupted frames are not failures the user caused.
         if nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled { return }
@@ -487,6 +512,7 @@ extension HTMLPreviewBrowserController: WKNavigationDelegate {
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         // The frames of the previous document are gone with it.
         scrollbarFrames.removeAll()
+        find.pageDidChange()
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {

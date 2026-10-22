@@ -282,7 +282,21 @@ struct AppLocalizationTests {
             "Back", "Forward", "Reload", "Stop Loading", "Enter address",
             "Open HTML in Browser", "Developer Tools", "This page",
             "“%@” says", "This address cannot be opened here.", "OK", "Cancel",
-            "Zoom In", "Zoom Out", "Reset Page Zoom (100%)", "Page Zoom"
+            "Zoom In", "Zoom Out", "Reset Page Zoom (100%)", "Page Zoom",
+            // Find in page.
+            "Find in page", "Previous Match", "Next Match", "Close Find", "No matches",
+            // Print and PDF.
+            "Print…", "Export as PDF…",
+            // Camera and microphone.
+            "Allow", "Don’t Allow",
+            "“%@” wants to use your camera.",
+            "“%@” wants to use your microphone.",
+            "“%@” wants to use your camera and microphone.",
+            "You can mute or stop the device from the address bar while the page is using it.",
+            "Lithe can’t give pages access to the camera or microphone in this version.",
+            "Camera in use", "Microphone in use", "Camera and microphone in use",
+            "Mute Camera", "Unmute Camera", "Stop Camera",
+            "Mute Microphone", "Unmute Microphone", "Stop Microphone"
         ]
 
         for key in requiredKeys {

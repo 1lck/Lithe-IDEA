@@ -50,21 +50,39 @@ enum HTMLPreviewZoom {
     }
 }
 
-/// Hands the zoom shortcuts to the preview while the page itself has focus.
-/// Key equivalents are offered to every view of the window, so a preview
-/// shown beside the editor must not answer ⌘+ typed into the editor.
+/// Hands the page shortcuts (zoom, find, print) to the preview while the page
+/// itself has focus. Key equivalents are offered to every view of the window, so
+/// a preview shown beside the editor must not answer ⌘+ or ⌘F typed into the editor.
 final class HTMLPreviewWebViewSurface: WKWebView {
     var onZoomCommand: ((HTMLPreviewZoom.Command) -> Void)?
+    var onFindCommand: ((HTMLPreviewFind.Command) -> Void)?
+    var onPrintCommand: ((HTMLPreviewPrint.Command) -> Void)?
+    /// Called with the context menu WebKit is about to show, before it appears.
+    var onContextMenu: ((NSMenu, NSEvent?) -> Void)?
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        guard let responder = window?.firstResponder as? NSView, responder.isDescendant(of: self),
-              let command = HTMLPreviewZoom.command(
-                forKey: event.charactersIgnoringModifiers ?? "",
-                modifiers: event.modifierFlags
-              ) else {
+        guard let responder = window?.firstResponder as? NSView, responder.isDescendant(of: self) else {
             return super.performKeyEquivalent(with: event)
         }
-        onZoomCommand?(command)
-        return true
+        let key = event.charactersIgnoringModifiers ?? ""
+        let modifiers = event.modifierFlags
+        if let command = HTMLPreviewZoom.command(forKey: key, modifiers: modifiers) {
+            onZoomCommand?(command)
+            return true
+        }
+        if let command = HTMLPreviewFind.command(forKey: key, modifiers: modifiers) {
+            onFindCommand?(command)
+            return true
+        }
+        if let command = HTMLPreviewPrint.command(forKey: key, modifiers: modifiers) {
+            onPrintCommand?(command)
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
+    override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
+        super.willOpenMenu(menu, with: event)
+        onContextMenu?(menu, event)
     }
 }
