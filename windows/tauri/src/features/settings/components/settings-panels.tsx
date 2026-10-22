@@ -57,6 +57,7 @@ export type SettingsCategory =
   | "editor"
   | "keyboard"
   | "plugins"
+  | "declarative-plugins"
   | "terminal"
   | "lsp"
   | "maven"
@@ -69,6 +70,12 @@ const PluginsPanel = lazy(() =>
   import("@/extensions/ui/components/extensions-sidebar").then(({ ExtensionsSidebar }) => ({
     default: ExtensionsSidebar,
   })),
+);
+
+const DeclarativePluginsPanel = lazy(() =>
+  import("@/features/plugins/declarative-plugins-section").then(
+    ({ DeclarativePluginsSection }) => ({ default: DeclarativePluginsSection }),
+  ),
 );
 
 function GeneralPanel() {
@@ -612,6 +619,12 @@ export function SettingsPanel({
       return (
         <Suspense fallback={null}>
           <PluginsPanel presentation="settings" />
+        </Suspense>
+      );
+    case "declarative-plugins":
+      return (
+        <Suspense fallback={null}>
+          <DeclarativePluginsPanel />
         </Suspense>
       );
     case "terminal":

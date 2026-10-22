@@ -6,8 +6,11 @@
 //! currently accepts, and how a Core launch plan becomes a process command
 //! line. The boundary with the Worker extension model and the staged
 //! capability rollout are recorded in
-//! .agents/notes/proposed/architecture/2026-10-22-windows-declarative-plugin-host.md
+//! .agents/notes/implemented/architecture/2026-10-22-windows-declarative-plugin-host.md
 
+pub mod install;
+#[cfg(test)]
+mod install_tests;
 pub mod launch;
 pub mod scan;
 pub mod store;

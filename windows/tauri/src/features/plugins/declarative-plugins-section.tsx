@@ -1,0 +1,270 @@
+import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "@/i18n/locale-provider";
+import { Button } from "@/ui/button";
+import Switch from "@/ui/switch";
+import {
+  confirmDeclarativeDiskInstall,
+  listDeclarativePlugins,
+  prepareDeclarativeDiskInstall,
+  rescanDeclarativePlugins,
+  rollbackDeclarativePlugin,
+  setDeclarativePluginEnabled,
+  uninstallDeclarativePlugin,
+  type DeclarativePluginSummary,
+  type PreparedDeclarativeInstall,
+} from "./declarative-plugin-launch";
+
+/**
+ * Management surface for contract v1 declarative plugins. This block is
+ * intentionally separate from the Worker extension browser: the two models
+ * have different trust properties (contract packages run only host-launched
+ * processes reviewed through Core's install review), so mixing them in one
+ * list would hide that difference from the user.
+ */
+export function DeclarativePluginsSection() {
+  const { t } = useTranslation();
+  const [plugins, setPlugins] = useState<DeclarativePluginSummary[]>([]);
+  const [pending, setPending] = useState<PreparedDeclarativeInstall | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const refresh = useCallback(async () => {
+    await rescanDeclarativePlugins();
+    setPlugins(await listDeclarativePlugins());
+  }, []);
+
+  useEffect(() => {
+    refresh().catch((reason: unknown) => setError(String(reason)));
+  }, [refresh]);
+
+  const importPackage = async () => {
+    const selection = await import("@tauri-apps/plugin-dialog").then(({ open }) =>
+      open({
+        multiple: false,
+        filters: [
+          { name: "Lithe plugin package", extensions: ["zip"] },
+        ],
+      }),
+    );
+    if (typeof selection !== "string") return;
+    setBusy(true);
+    setError(null);
+    try {
+      setPending(await prepareDeclarativeDiskInstall(selection));
+    } catch (reason) {
+      setError(String(reason));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const confirmInstall = async () => {
+    if (!pending) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await confirmDeclarativeDiskInstall(pending.sessionId, pending.manifestDigest);
+      setPending(null);
+      await refresh();
+    } catch (reason) {
+      setError(String(reason));
+      setPending(null);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section aria-label={t("settings.declarativePlugins.title")} className="flex flex-col gap-2">
+      <SettingsSectionGroup
+        title={t("settings.declarativePlugins.title")}
+        description={t("settings.declarativePlugins.description")}
+        action={
+          <Button variant="accent" size="sm" disabled={busy} onClick={() => void importPackage()}>
+            {t("settings.declarativePlugins.import")}
+          </Button>
+        }
+      />
+      {error && (
+        <p role="alert" className="text-destructive ui-text-sm">
+          {error}
+        </p>
+      )}
+      {pending && (
+        <InstallReviewCard pending={pending} onConfirm={() => void confirmInstall()} busy={busy} />
+      )}
+      <ul className="flex flex-col gap-1" data-testid="declarative-plugin-list">
+        {plugins.map((plugin) => (
+          <DeclarativePluginRow
+            key={`${plugin.source}-${plugin.pluginId}`}
+            plugin={plugin}
+            onChanged={() => void refresh()}
+          />
+        ))}
+        {!plugins.length && (
+          <li className="text-subtle-foreground ui-text-sm">
+            {t("settings.declarativePlugins.empty")}
+          </li>
+        )}
+      </ul>
+    </section>
+  );
+}
+
+function InstallReviewCard({
+  pending,
+  onConfirm,
+  busy,
+}: {
+  pending: PreparedDeclarativeInstall;
+  onConfirm: () => void;
+  busy: boolean;
+}) {
+  const { t } = useTranslation();
+  return (
+    <div
+      role="dialog"
+      aria-label={t("settings.declarativePlugins.reviewTitle")}
+      className="rounded-md border border-border p-3"
+    >
+      <p className="ui-text-sm font-medium">
+        {t("settings.declarativePlugins.reviewTitle", {
+          name: pending.displayName,
+          version: pending.review.version,
+        })}
+      </p>
+      <p className="text-subtle-foreground ui-text-sm">
+        {t("settings.declarativePlugins.unverified")}
+      </p>
+      {pending.review.permissions.length > 0 && (
+        <ul className="mt-1 list-disc pl-5 ui-text-sm">
+          {pending.review.permissions.map((permission) => (
+            <li key={permission}>{permission}</li>
+          ))}
+        </ul>
+      )}
+      {pending.review.programs.length > 0 && (
+        <ProgramDeclarationList programs={pending.review.programs} />
+      )}
+      <div className="mt-2 flex gap-2">
+        <Button size="sm" disabled={busy} onClick={onConfirm}>
+          {t("settings.declarativePlugins.confirmInstall")}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function ProgramDeclarationList({ programs }: { programs: unknown[] }) {
+  const { t } = useTranslation();
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div className="mt-1 ui-text-sm">
+      <button
+        type="button"
+        className="text-left underline"
+        onClick={() => setExpanded((value) => !value)}
+      >
+        {t("settings.declarativePlugins.programDeclaration", { count: programs.length })}
+      </button>
+      {expanded && (
+        <pre className="mt-1 max-h-40 overflow-auto rounded bg-muted p-2 text-xs">
+          {JSON.stringify(programs, null, 2)}
+        </pre>
+      )}
+    </div>
+  );
+}
+
+function DeclarativePluginRow({
+  plugin,
+  onChanged,
+}: {
+  plugin: DeclarativePluginSummary;
+  onChanged: () => void;
+}) {
+  const { t } = useTranslation();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const rejected = plugin.status === "rejected";
+
+  const run = async (action: () => Promise<void>) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await action();
+      onChanged();
+    } catch (reason) {
+      setError(String(reason));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <li className="flex items-center gap-3 rounded-md border border-border px-3 py-2">
+      <div className="min-w-0 flex-1">
+        <p className="truncate ui-text-sm font-medium">
+          {plugin.displayName}{" "}
+          <span className="text-subtle-foreground">
+            {plugin.version} · {t(`settings.declarativePlugins.source.${plugin.source}`)}
+          </span>
+        </p>
+        {rejected && plugin.rejection && (
+          <p className="text-destructive ui-text-sm">
+            {plugin.rejection.code}: {plugin.rejection.message}
+          </p>
+        )}
+        {error && <p className="text-destructive ui-text-sm">{error}</p>}
+      </div>
+      {!rejected && plugin.source === "installed" && (
+        <>
+          <Switch
+            checked={plugin.enabled}
+            disabled={busy}
+            onChange={(checked) =>
+              void run(() => setDeclarativePluginEnabled(plugin.pluginId, checked))
+            }
+            aria-label={t("settings.declarativePlugins.toggle", { name: plugin.displayName })}
+          />
+          <Button
+            variant="accent"
+            size="sm"
+            disabled={busy}
+            onClick={() => void run(() => rollbackDeclarativePlugin(plugin.pluginId))}
+          >
+            {t("settings.declarativePlugins.rollback")}
+          </Button>
+          <Button
+            variant="danger"
+            size="sm"
+            disabled={busy}
+            onClick={() => void run(() => uninstallDeclarativePlugin(plugin.pluginId))}
+          >
+            {t("settings.declarativePlugins.uninstall")}
+          </Button>
+        </>
+      )}
+    </li>
+  );
+}
+
+function SettingsSectionGroup({
+  title,
+  description,
+  action,
+}: {
+  title: string;
+  description: string;
+  action?: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <div>
+        <h3 className="ui-text-sm font-semibold">{title}</h3>
+        <p className="text-subtle-foreground ui-text-sm">{description}</p>
+      </div>
+      {action}
+    </div>
+  );
+}

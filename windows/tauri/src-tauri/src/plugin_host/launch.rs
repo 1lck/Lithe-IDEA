@@ -184,6 +184,7 @@ fn resolve_launch(
                 format!("LITHE_{}_PATH", tool.to_uppercase().replace('-', "_")),
                 path.to_string_lossy().to_string(),
             );
+            verify_runtime_version(&path, tool, launch)?;
             path
         }
         other => return Err(format!("unsupported launch kind {other}")),
@@ -199,6 +200,75 @@ fn resolve_launch(
             .cloned(),
         environment,
     })
+}
+
+/// Runs the tool's version probe and rejects a runtime older than the plan's
+/// declared `minimumVersion`. Probes run at every launch because the PATH
+/// candidate can change between sessions; a failing or unreadable probe is a
+/// rejection, not a fallback.
+fn verify_runtime_version(path: &Path, tool: &str, launch: &Value) -> Result<(), String> {
+    let Some(minimum) = launch["minimumVersion"].as_str() else {
+        return Ok(());
+    };
+    let version_arguments: Vec<String> = launch["versionArguments"]
+        .as_array()
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_str().map(str::to_string))
+                .collect()
+        })
+        .ok_or_else(|| {
+            format!("runtime launch declares minimumVersion without versionArguments")
+        })?;
+    let output = std::process::Command::new(path)
+        .args(&version_arguments)
+        .output()
+        .map_err(|error| format!("runtime tool {tool} could not be executed: {error}"))?;
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let reported = first_version_token(&text)
+        .ok_or_else(|| format!("runtime tool {tool} did not report a parsable version"))?;
+    if store::compare_versions(&reported, minimum) == std::cmp::Ordering::Less {
+        return Err(format!(
+            "runtime tool {tool} reports {reported}, but the plugin requires at least {minimum}"
+        ));
+    }
+    Ok(())
+}
+
+/// First `N(.N)*` token in a version output line; tolerates the `v` prefix
+/// node uses and the multi-line `java -version` output.
+fn first_version_token(text: &str) -> Option<String> {
+    for line in text.lines() {
+        for token in line.split_whitespace() {
+            // Strip quotes and any non-digit prefix (`v20.11.0`,
+            // `go1.21.5`, `"17.0.2"`).
+            let token = token
+                .trim_matches(['"', '\''])
+                .trim_start_matches(|character: char| !character.is_ascii_digit());
+            let mut candidate = String::new();
+            for character in token.chars() {
+                if character.is_ascii_digit() || character == '.' {
+                    candidate.push(character);
+                } else {
+                    break;
+                }
+            }
+            // At least two chunks with a digit each make a version.
+            if candidate.matches('.').count() >= 1
+                && candidate
+                    .split('.')
+                    .any(|chunk| chunk.parse::<u64>().is_ok())
+            {
+                return Some(candidate);
+            }
+        }
+    }
+    None
 }
 
 /// Joins a package-relative plan path and proves it stays inside the package
@@ -333,6 +403,26 @@ mod tests {
             owning_language_id(&package, r"C:\site\PHP.INI").as_deref(),
             Some("ini")
         );
+    }
+
+    #[test]
+    fn first_version_token_parses_real_tool_outputs() {
+        assert_eq!(
+            first_version_token(
+                "v20.11.0
+"
+            ),
+            Some("20.11.0".to_string())
+        );
+        assert_eq!(
+            first_version_token("openjdk version \"17.0.2\" 2022-01-18"),
+            Some("17.0.2".to_string())
+        );
+        assert_eq!(
+            first_version_token("go version go1.21.5 windows/amd64"),
+            Some("1.21.5".to_string())
+        );
+        assert_eq!(first_version_token("no version here"), None);
     }
 
     #[test]

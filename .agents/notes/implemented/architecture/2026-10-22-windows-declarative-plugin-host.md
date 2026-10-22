@@ -4,7 +4,7 @@
 
 ## 先说结论
 
-Windows 新增一套契约 v1 声明式插件宿主，与现有 Worker 扩展模型长期并行：需要宿主代用户拉起进程的语言与构建插件走契约宿主，宿主内运行 UI 与服务行为的扩展（主题、AI provider 等）留在 Worker 模型。契约引擎不需要新写——`lithe-core` 已经编译进 Windows 宿主，经 `core_execute` 就能调用 `plugins.declarative.*` 与 `plugins.marketplace.*`。M1 已落地：包存储、启动扫描与隔离、语言服务器启动计划解析，以及共享 fixtures 的全量验收；能力声明只开放 `languages:1`、`languageServers:1`、`serverProcess:1`，声明了更高能力的插件包由 Core 自动拒绝。
+Windows 新增一套契约 v1 声明式插件宿主，与现有 Worker 扩展模型长期并行：需要宿主代用户拉起进程的语言与构建插件走契约宿主，宿主内运行 UI 与服务行为的扩展（主题、AI provider 等）留在 Worker 模型。契约引擎不需要新写——`lithe-core` 已经编译进 Windows 宿主，经 `core_execute` 就能调用 `plugins.declarative.*` 与 `plugins.marketplace.*`。M1 已落地：包存储、启动扫描与隔离、语言服务器启动计划解析，以及共享 fixtures 的全量验收；M2 已补磁盘导入安装链（快照、`installReview` 全量审批、staging 复验、卸载/回滚/启停）、设置内独立管理页和 runtime 启动的 `minimumVersion` 探测。能力声明只开放 `languages:1`、`languageServers:1`、`serverProcess:1`，声明了更高能力的插件包由 Core 自动拒绝。
 
 ## 问题
 
@@ -31,7 +31,7 @@ Windows 新增一套契约 v1 声明式插件宿主，与现有 Worker 扩展模
 - 安装根为 `app_local_data_dir()/plugins/<pluginID>/<version>/`，`installation.json` 记录版本与启用状态；记录缺失或损坏的包隔离展示，绝不静默加载。
 - bundled 包从 `resource_dir()/OfficialPlugins` 只读加载，多版本目录取最高版本；运行时不写安装目录与资源目录，遵守发行基线只读边界。
 - 每个插件的语言服务器状态目录在 `app_local_data_dir()/plugin-state/<pluginID>/<workspace 哈希>`，由宿主注入启动计划请求。
-- 信任模型 v0：官方 ID 防冒用由 Core 校验兜底；bundled 包随安装器分发；磁盘导入与市场下载（M2）一律走 `plugins.marketplace.installReview` 全量审批（权限 + 完整程序清单），审批界面明示"未认证发布者"。publisher Ed25519 验签明确延后，这是 v0 的已知缺口，Windows 验签方案（Authenticode 还是包内 Ed25519）单独立项评估。
+- 信任模型 v0：官方 ID 防冒用由 Core 校验兜底；bundled 包随安装器分发；磁盘导入（已落地）与市场下载（M3+）一律走 `plugins.marketplace.installReview` 全量审批（权限 + 完整程序清单），审批界面明示"未认证发布者"。publisher Ed25519 验签明确延后，这是 v0 的已知缺口，Windows 验签方案（Authenticode 还是包内 Ed25519）单独立项评估。
 - 磁盘导入的私有快照、staging 重验、内容摘要复查与回滚语义照抄 macOS 侧规则（见声明式语言插件 Note 的磁盘安装节），Windows 不另造审查语义。
 
 ### 启动接线（M1 落地形状）
@@ -46,12 +46,12 @@ Windows 新增一套契约 v1 声明式插件宿主，与现有 Worker 扩展模
 
 - 两套模型互不桥接：契约插件不进 Worker 宿主，Worker 扩展不冒充契约能力。
 - PhpSupport 迁移：M3 用契约包替换 Worker 包，保留用户启用状态后移除 Worker 版本。
-- M2 一并处理 `install_extension_from_url` 死链：补注册命令或删除前端死调用，二选一在 PR 描述里说明。
+- `install_extension_from_url` 等 Worker 非语言市场命令（M2 已处置）：在 Rust 宿主注册为显式占位错误（`extensionStore.notAvailable`），调用方得到可诊断的结构化失败而不是"命令不存在"；完整落盘后端是独立工作项，不与契约宿主混淆。
 - 管理界面按模型分组展示两类扩展并使用不同文案，避免用户把 Worker 扩展当成契约插件。
 
 ### 实施切分
 
-M1 包存储 + 启动校验 + 语言注册 + LSP 启动（已落地）；M2 磁盘/市场安装链路 + 管理界面 v1；M3 声明式设置 + 运行/测试计划 + PHP 契约包替换；M4 Web 工具窗口（`ui` 2，WebView2 自定义 scheme）。每个里程碑独立 PR，矩阵条目随代码同 PR 更新。总体方向遵循[公共扩展契约与 Provider 接入方向](../../proposed/architecture/2026-10-13-public-extension-contract-and-provider-api.md)，本 Note 只落地其中 Windows 契约宿主的第一阶段。
+M1 包存储 + 启动校验 + 语言注册 + LSP 启动（已落地）；M2 磁盘安装链路 + 管理界面 v1 + 死链处置（已落地）；M3 声明式设置 + 运行/测试计划 + PHP 契约包替换；M4 Web 工具窗口（`ui` 2，WebView2 自定义 scheme）。每个里程碑独立 PR，矩阵条目随代码同 PR 更新。总体方向遵循[公共扩展契约与 Provider 接入方向](../../proposed/architecture/2026-10-13-public-extension-contract-and-provider-api.md)，本 Note 只落地其中 Windows 契约宿主的第一阶段。
 
 ## 考虑过的备选方案
 
@@ -70,6 +70,10 @@ M1 包存储 + 启动校验 + 语言注册 + LSP 启动（已落地）；M2 磁�
 
 ## 验证
 
+- M2 磁盘导入链测试（`windows/tauri/src-tauri/src/plugin_host/install_tests.rs`）：目录快照隔离（symlink 拒绝）、ZIP 解包与恶意路径（`../` 逃逸条目）拒绝、staging 安装（坏包失败保留现行版本且清空 staging）、回滚版本选择；runtime 启动的版本探测输出解析（node/java/go 真实输出格式）在 `launch.rs` 测试覆盖。
+- 管理界面（`declarative-plugins-section.tsx`）挂在设置的独立一级页，`settings-hierarchy.test.tsx` 的布局断言随导航更新；i18n 提供 en-US 与 zh-CN 全套文案。
+
+
 - 共享 fixtures 全量验收在 Windows 二进制内完成：`invalid-manifests.json` 全部 154 个用例经宿主校验路径断言同一稳定错误码（不带 hostCapabilities 的契约等价模式），合法样例在不带与带 v0 能力声明两种模式下分别断言通过与 `plugin.api.unsupported` 门控。测试入口：`windows/tauri/src-tauri/src/plugin_host/tests.rs`，运行 `cargo test --manifest-path windows/tauri/src-tauri/Cargo.toml plugin_host`。
 - 存储与启动的单测覆盖安装记录缺失/损坏隔离、bundled 最高版本选择、版本比较（含 prerelease）、扩展与文件名匹配（大小写与前导点）、packaged 路径逃逸拒绝、runtime 的 `LITHE_<TOOL>_PATH` 导出与 `PATH` 前置。
 - 前端回落链路测试：`windows/tauri/src/features/editor/lsp/resolve-editor-lsp-launch.test.ts` 断言契约插件启动映射与无归属文件返回 null；启动扫描步骤在 bootstrap 中执行。
@@ -80,7 +84,10 @@ M1 包存储 + 启动校验 + 语言注册 + LSP 启动（已落地）；M2 磁�
 - `windows/tauri/src-tauri/src/plugin_host/`（存储、扫描、启动接线与 fixtures 验收测试）
 - `windows/tauri/src-tauri/src/main.rs`（模块注册与命令注册）
 - `windows/tauri/src-tauri/src/language_tools.rs`（复用的系统工具查找）
+- `windows/tauri/src-tauri/src/plugin_host/install.rs`（磁盘导入、卸载、回滚、启停）
+- `windows/tauri/src-tauri/src/extension_store_placeholder.rs`（Worker 扩展落盘命令的显式占位）
 - `windows/tauri/src/features/plugins/declarative-plugin-launch.ts`（前端宿主 API）
+- `windows/tauri/src/features/plugins/declarative-plugins-section.tsx`（设置内管理页）
 - `windows/tauri/src/features/editor/lsp/resolve-editor-lsp-launch.ts`（契约插件回落来源）
 - `windows/tauri/src/features/bootstrap/bootstrap-async.ts`（启动扫描步骤）
 - `shared/platform-feature-matrix/features/declarative-plugin-contract.json`、`plugin-marketplace.json`、`plugin-extension-management.json`、`declarative-plugin-settings.json`、`php-optional-plugin.json`、`plugin-web-tool-windows.json`

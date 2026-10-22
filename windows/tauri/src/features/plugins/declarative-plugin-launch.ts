@@ -67,3 +67,57 @@ export function resolveDeclarativePluginLaunch(
     workspacePath,
   });
 }
+
+/** Core's install review for one prepared package. */
+export interface DeclarativePluginInstallReview {
+  pluginId: string;
+  version: string;
+  permissions: string[];
+  /** Full canonical program declarations, including arguments and templates. */
+  programs: unknown[];
+  newPrograms: unknown[];
+}
+
+/** A prepared disk import awaiting user confirmation. */
+export interface PreparedDeclarativeInstall {
+  sessionId: string;
+  review: DeclarativePluginInstallReview;
+  /** Digest the confirm call must present to prove the package is unchanged. */
+  manifestDigest: string;
+  displayName: string;
+}
+
+/** Prepares a disk import from a .zip archive or unpacked package directory. */
+export function prepareDeclarativeDiskInstall(
+  sourcePath: string,
+): Promise<PreparedDeclarativeInstall> {
+  return invoke<PreparedDeclarativeInstall>("declarative_plugins_prepare_disk_install", {
+    sourcePath,
+  });
+}
+
+/** Installs a confirmed snapshot; rejects when the package changed after review. */
+export function confirmDeclarativeDiskInstall(
+  sessionId: string,
+  manifestDigest: string,
+): Promise<DeclarativePluginSummary> {
+  return invoke<DeclarativePluginSummary>("declarative_plugins_confirm_disk_install", {
+    sessionId,
+    manifestDigest,
+  });
+}
+
+/** Removes an installed package and its state directory. */
+export function uninstallDeclarativePlugin(pluginId: string): Promise<void> {
+  return invoke<void>("declarative_plugins_uninstall", { pluginId });
+}
+
+/** Enables or disables an installed package; bundled packages reject this. */
+export function setDeclarativePluginEnabled(pluginId: string, enabled: boolean): Promise<void> {
+  return invoke<void>("declarative_plugins_set_enabled", { pluginId, enabled });
+}
+
+/** Restores the highest retained previous version of an installed package. */
+export function rollbackDeclarativePlugin(pluginId: string): Promise<void> {
+  return invoke<void>("declarative_plugins_rollback", { pluginId });
+}

@@ -7,6 +7,7 @@ mod date_time;
 mod debug;
 mod diagnostics;
 mod document;
+mod extension_store_placeholder;
 mod file_events;
 mod file_publication;
 mod fonts;
@@ -134,6 +135,7 @@ fn main() {
             app.manage(plugin_host::PluginHostState::default());
             run::cleanup_legacy_appdata(app.handle());
             maven::clear_dependency_outputs(app.handle());
+            plugin_host::install::cleanup_stale_snapshots(app.handle());
             for config in initial_windows.iter().filter(|config| config.create) {
                 tauri::WebviewWindowBuilder::from_config(app.handle(), config)?.build()?;
             }
@@ -247,6 +249,16 @@ fn main() {
             plugin_host::declarative_plugins_rescan,
             plugin_host::declarative_plugins_state,
             plugin_host::launch::declarative_plugins_language_launch,
+            plugin_host::install::declarative_plugins_prepare_disk_install,
+            plugin_host::install::declarative_plugins_confirm_disk_install,
+            plugin_host::install::declarative_plugins_uninstall,
+            plugin_host::install::declarative_plugins_set_enabled,
+            plugin_host::install::declarative_plugins_rollback,
+            extension_store_placeholder::install_extension_from_url,
+            extension_store_placeholder::uninstall_extension_new,
+            extension_store_placeholder::get_extension_path,
+            extension_store_placeholder::read_extension_entrypoint,
+            extension_store_placeholder::get_importable_ide_projects,
             language_tools::get_tool_path,
             language_tools::install_language_tools,
             language_tools::check_language_tool_requirements,

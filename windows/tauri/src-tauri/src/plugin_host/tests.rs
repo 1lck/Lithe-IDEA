@@ -322,3 +322,8 @@ fn scan_package_at(
         record_problem,
     })
 }
+
+/// Fixture reader shared with the install test module.
+pub(crate) fn read_fixture_for_tests(name: &str) -> serde_json::Value {
+    read_fixture(name)
+}
