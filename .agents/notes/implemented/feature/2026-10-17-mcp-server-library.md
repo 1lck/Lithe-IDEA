@@ -61,6 +61,66 @@
 - 错误消息、日志和 Core 返回值都不回显配置内容。解析失败只报告文件路径和错误类型。
 - 首版不自动启动 MCP 服务器做健康检查。启动服务器会执行用户配置的命令，资源库只负责配置，不在用户没有要求时执行项目代码。
 
+### 发现市场与弹窗编辑
+
+资源库和“发现 MCP 服务器”在同一页纵向排列，上方管理已添加服务器，下方搜索官方目录；项目级 Lithe 授权在页末。
+添加或编辑使用平铺表单的原生弹窗，只有字段区域滚动，取消和保存固定在底部；资源库超过五项时提供名称与安全摘要搜索。
+发现区标题右侧以灰色普通文字显示“精选，以及官方 MCP Registry”，作为目录来源标记，不提供 Registry 首页直达链接。
+市场卡片直接显示发布者、版本和两行简介，这些是用于选择服务器的目录内容；设置行为和授权解释仍放在 ⓘ。卡片按窗口宽度自动排列为一列或多列。
+标准 `mcpServers` JSON 经既有 Core 解析器生成预览，用户逐个选择条目检查后再保存。
+导入只带入现有编辑器支持的字段，认证与客户端专有字段需另行配置；界面的 ⓘ 明确
+说明这个边界。导入不读环境变量、不写文件，也不接管已有条目。
+
+交互参考 Magpie 的 `86254d4049cb6be4a2ccdab02edf0bd59860c603`，目录行为另核对
+`ec7e50b8287462efcb6153fde67308e66b5aaf51` 的 `internal/library/market.go`，尤其
+`internal/gui/assets/plugins/library/client.js` 的发现卡片与编辑流程，以及
+`internal/gui/library.go` 对目录失败的独立提示。只参考公开交互与 API 使用方式，
+继续复用 Lithe 的原生控件、配置端口、格式保留与所有权模型，不搬入其 Web UI 或网关。
+
+打开页面先展示随版本提供的精选目录，不发网络请求。Magpie 的 `MarketServers` 同样
+先筛选内置 `featured`，只有搜索词非空时才请求 Registry，部分失败仍返回精选结果；
+因此“打开时有卡片”不代表该机器已经连通官方目录。Lithe 的精选 JSON 由 Git 管理并
+编译进 Core，`mcp.featuredRegistry` 复用公开目录的校验逻辑返回卡片。包版本从官方 npm
+元数据核对后固定，远程地址按发布者文档核对；中文介绍随应用本地化。维护目录时
+必须重新核对包版本、远程地址和文档，不复制 Magpie Image 等产品专属能力。
+
+精选包含 Context7、Playwright、Chrome DevTools、Microsoft Learn、GitHub、DeepWiki、
+Exa、Filesystem、Fetch 和 Memory。2026-10-22 核对发布者文档与 npm/PyPI 元数据，
+Filesystem/Memory 固定为 2.0.0（需要 Node.js 24+），Fetch 固定为 2026.10.19
+（需要 uv 和 Python 3.10+）；GitHub、DeepWiki、Exa 使用发布者的 HTTPS 入口。
+GitHub 的令牌和 Filesystem 的允许目录不能猜测，因此只有版本内的精选可声明
+`setup`，让编辑器显示说明并阻止缺少必填内容的保存。GitHub 预置空 Authorization
+请求头，用户填写 Bearer 令牌；Filesystem 必须在包参数后逐行填写至少一个绝对目录，
+路径中的空格保留。公开 Registry 不能声明这一可信模板类型，原有复杂输入限制不变。
+
+卡片图标使用发布者的品牌标记，不再让所有远程服务都显示地球、所有命令都显示终端。
+图标源文件与来源、审核日期、SHA-256 清单位于 `Resources/McpIcons`，Playwright 的
+Apache-2.0 许可一同保留。它们是 Git 跟踪、SwiftPM 打包的固定输入；运行时只从资源
+bundle 读取并在内存缓存，不访问图片服务器、不下载头像、不写 bundle，因而不改变
+代码签名或 Sparkle delta。三个参考服务器共用 MCP 标记，未认识的条目保留传输方式
+图标。只按可信精选的完整 ID 选择有限文件名，公开条目即便伪装成同名也不使用品牌图标。
+深色页面的品牌标记放在白色小底板上，保留原始颜色和几何；不是工具栏动作图标。
+
+搜索时使用官方 `registry.modelcontextprotocol.io/v0.1/servers`，按名称搜索、只查最新
+版本，并使用返回的 opaque cursor（必须原样传回的分页标记）。这是一份目录，不是
+Lithe 的托管服务器或插件市场，也不把收录标成安全审核。Core 的 `mcp.parseRegistry`
+把公开元数据转换为可显示的卡片；静态远程地址和没有额外输入的固定版本 npm/PyPI
+入口才能生成配置草稿；自定义包源、非默认 runner、npm 可变标签和主/次版本范围都只保留文档。需要密钥、动态地址或复杂参数的记录保留文档入口，不猜命令。
+草稿不默认选择 Agent，用户确认后走原来的保存流程；不会下载、安装或运行服务器。
+
+macOS adapter 使用无持久缓存、无 Cookie 和无凭据存储的 URLSession，限制响应为
+1 MiB，请求/总资源期限分别为 15/20 秒。搜索任务归 SwiftUI 页面拥有，离开页面取消；
+请求身份防止旧响应覆盖新搜索，分页合并按名称去重，相同 cursor 不再反复加载。
+精选与在线条目按 ID 和不含名称的连接定义去重。连接失败保留已匹配条目，明确区分
+安全连接、超时和网络不可达，并保留手动添加入口，不把失败伪装成“没有服务器”。
+请求默认遵循 macOS 系统代理；只有用户点击“直连重试”才为此页面的公开目录请求
+选择空代理字典的独立 URLSession，继续校验证书，并允许切回系统代理。路由不持久化，
+不修改系统、Agent 或实际 MCP 服务器的网络配置，也不自动绕过用户的代理。
+
+公开元数据
+的在线响应只保存在进程内存；精选目录属于只读编译输入。两者均无发行目录运行时写入，不影响签名及 Sparkle delta；资源复用 exclusion
+将其登记为 `mcp-registry-metadata`，不存在可复制阶段。
+
 ## 考虑过的备选方案
 
 ### 只复制一段 Lithe 配置，不做资源库
@@ -99,6 +159,10 @@ Windows 的 Agent 配置路径和 Tauri 侧文件访问模型不同，同步实�
 
 ## 验证
 
+- `./scripts/test-macos.sh --filter "McpRegistryTests|McpServerLibraryTests"`：离线首页零网络请求、失败保留精选、显式选择路由和路由间分页隔离、精选与在线连接去重，Registry 桥接、分页、取消、旧请求淘汰，JSON 预览不写文件也不取得所有权；原生卡片浅色/深色下在 420 与 780 点宽度重排，截图写入 `.artifacts/mcp-discovery/` 供人工检查。
+- `LITHE_RUN_MCP_REGISTRY_INTEGRATION=1 ./scripts/test-macos.sh --filter McpRegistryIntegrationTests`：可选联网集成，通过生产 adapter 显式直连官方目录并分页；普通单元测试不依赖公网。
+- `cargo test --manifest-path rust/Cargo.toml -p lithe-core mcp::registry::`：精选目录无需网络且草稿固定版本，元数据夹具、失效记录、动态输入、危险链接和大小上限。
+- `node --test scripts/test-reuse-worktree-resources.mjs`：进程内目录元数据不得跨 worktree 复用。
 - `cargo test --manifest-path rust/Cargo.toml -p lithe-core mcp::`（覆盖删除首项/中间项/末项、同行相邻项、值跨多行且下一个键同行的布局、单行与混合换行布局，JSON 输出重新解析，重复 JSON 键拒绝编辑；Codex 更新保留 `bearer_token_env_var`、`startup_timeout_sec`、未知键、建模键与值的注释、未变化的 args 数组内注释和非字符串 env 值，变量列表清空时也保留非字符串值；内联 `mcp_servers` 表可删除、可编辑；拒绝重复变量键；哈希忽略当前传输不写入的 command/args/env/url/headers 且与重解析一致；重命名保留专属字段）
 - `./scripts/test-macos.sh --filter McpServerLibraryTests`（覆盖计划后磁盘变化拒绝写入、文件在计划后出现拒绝创建、linked worktree 公共排除文件、关闭会话后仍能清理项目注册、项目切换后清理两个项目的注册、Git 排除失败不回滚账本、注销冲突写入错误横幅、重复变量键校验、重命名外部条目、按 Agent 开启时忽略传输不写入的字段、切换传输方式丢弃隐藏字段后仍保持所有权、重命名保留 Codex 字段、自然排序条目的所有权、两个窗口合并账本）
 - `./scripts/test-macos.sh --filter "McpWriteProtectionTests|FileStorageReplacementTests|McpFeatureBatchFailureTests"`（备份完成后外部保存被保留并返回 `changedOnDisk`，预检后出现的新文件不被覆盖；`MacFileStorage.replaceData` 拒绝过期快照、按匹配快照原子发布、拒绝覆盖已存在文件；`removeData` 只删除匹配快照的文件；失败/成功路径都不遗留临时文件；临时文件从创建起为 `0600`；回滚换出更新保存或无法恢复时保留并报告路径；不支持交换的卷拒绝写入和删除）

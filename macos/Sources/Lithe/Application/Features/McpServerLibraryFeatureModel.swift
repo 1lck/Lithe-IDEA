@@ -104,6 +104,18 @@ struct McpServerDraft: Equatable {
     var env: [McpKeyValue] = []
     var headers: [McpKeyValue] = []
     var enabledAgents: Set<McpAgent> = []
+    /// Present only while reviewing an incomplete featured template.
+    var setup: McpRegistrySetup?
+
+    var setupMessage: String? {
+        switch setup {
+        case .bearerToken:
+            String(localized: "GitHub requires a personal access token. Set the Authorization header to Bearer followed by your token. It is stored in the Agent configuration file.")
+        case .allowedDirectories:
+            String(localized: "Add at least one absolute folder path after the package argument, one per line. Filesystem can read and write only in the folders you allow. Requires Node.js 24 or later.")
+        case nil: nil
+        }
+    }
 
     var isNew: Bool { originalRowID == nil }
 
@@ -133,6 +145,26 @@ struct McpServerDraft: Equatable {
         env = row.definition.env
         headers = row.definition.headers
         enabledAgents = row.enabledGlobalAgents
+    }
+
+    init(definition: McpServerDefinition) {
+        name = definition.name
+        transport = definition.transport
+        command = definition.command ?? ""
+        url = definition.url ?? ""
+        originalArguments = definition.args
+        argumentsText = definition.args.joined(separator: "\n")
+        env = definition.env
+        headers = definition.headers
+    }
+
+    init?(entry: McpRegistryEntry) {
+        guard let definition = entry.draft else { return nil }
+        self.init(definition: definition)
+        if entry.source == .featured {
+            setup = entry.setup
+            if setup == .bearerToken { headers = [McpKeyValue(key: "Authorization", value: "")] }
+        }
     }
 }
 
@@ -177,9 +209,14 @@ enum McpLibraryError: LocalizedError {
 /// Application dependencies used by the MCP library.
 @MainActor
 protocol McpServerLibraryActions: AnyObject {
+    var mcpRegistry: (any McpRegistryProviding)? { get }
     var mcpConfigurationStore: (any McpConfigurationStore)? { get }
     var mcpWorkspaceURL: URL? { get }
     var mcpLedgerStore: any KeyValueStore { get }
+}
+
+extension McpServerLibraryActions {
+    var mcpRegistry: (any McpRegistryProviding)? { nil }
 }
 
 /// Discovers, edits and removes MCP servers registered with Codex and Claude Code.
@@ -190,6 +227,7 @@ protocol McpServerLibraryActions: AnyObject {
 /// included in errors.
 @MainActor
 final class McpServerLibraryFeatureModel: ObservableObject {
+    let discovery: McpRegistryFeatureModel
     @Published private(set) var rows: [McpServerRow] = []
     @Published private(set) var isAvailable = false
     @Published private(set) var loadErrors: [String] = []
@@ -211,6 +249,7 @@ final class McpServerLibraryFeatureModel: ObservableObject {
 
     init(model: any McpServerLibraryActions) {
         self.model = model
+        discovery = McpRegistryFeatureModel(registry: model.mcpRegistry)
     }
 
     // MARK: - Discovery
@@ -296,6 +335,17 @@ final class McpServerLibraryFeatureModel: ObservableObject {
 
     func makeDraft() -> McpServerDraft { McpServerDraft() }
 
+    /// Import is a preview only. Existing Core parsing validates the JSON;
+    /// no configuration or ownership record changes until the editor saves.
+    func importedDrafts(_ json: String) throws -> [McpServerDraft] {
+        guard let store = model?.mcpConfigurationStore,
+              let file = store.configurationFiles(workspace: nil).first(where: { $0.agent == .claudeCode && $0.scope == .global })
+        else { throw McpLibraryError.unavailable }
+        let servers = try store.parse(file, content: json)
+        guard !servers.isEmpty else { throw McpLibraryError.invalidDraft(String(localized: "Paste a JSON object containing mcpServers.")) }
+        return servers.map(McpServerDraft.init(definition:))
+    }
+
     func draft(for row: McpServerRow) -> McpServerDraft { McpServerDraft(row: row) }
 
     /// Returns a user-facing reason when the draft cannot be saved.
@@ -330,6 +380,20 @@ final class McpServerLibraryFeatureModel: ObservableObject {
             guard let parsed = URL(string: url), parsed.scheme != nil, parsed.host != nil else {
                 return String(localized: "Enter a complete server URL.")
             }
+        }
+        switch draft.setup {
+        case .bearerToken:
+            let value = draft.headers.first { $0.key.lowercased() == "authorization" }?.value ?? ""
+            let parts = value.split(whereSeparator: \.isWhitespace)
+            if draft.transport == .stdio || parts.count != 2 || parts[0].lowercased() != "bearer" {
+                return String(localized: "Enter an Authorization header with Bearer and your GitHub token.")
+            }
+        case .allowedDirectories:
+            let folders = Array(draft.arguments.dropFirst(2))
+            if draft.transport != .stdio || folders.isEmpty || folders.contains(where: { !$0.hasPrefix("/") }) {
+                return String(localized: "Add at least one absolute allowed folder path after the Filesystem package argument.")
+            }
+        case nil: break
         }
         return nil
     }

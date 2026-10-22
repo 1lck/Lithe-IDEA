@@ -357,6 +357,27 @@ Swift 单元、插件和数据库 CI 通道复用已有 Cargo 下载缓存。先
 
 ### 独立工作树的本地编译
 
+共享指令的 `Lithe/AgentInstructions/Shared.md`、`.sync.lock` 和同目录原子保存暂存文件登记为
+`agent-instruction-library-state`，由平台 storage adapter 的 Application Support 根目录提供。
+它们是可变用户配置，不具有版本/平台/架构/工具链身份；所有工作树复用阶段均拒绝复制，
+不从其他工作树或发行包导入。原生 Agent 指令文件同样保留用户归属；暂存文件随保存完成或失败清理，
+空锁文件属于用户资料的生命周期。运行时不写 app bundle、安装目录或 Sparkle delta 基线。
+
+MCP 发现页读取的官方 Registry 在线响应登记为 `mcp-registry-metadata`，仅在当前进程内存中保存。
+响应最多 1 MiB，由 Rust Core 校验；按搜索、分页和取消请求管理生命周期，没有持久缓存、
+平台/架构/工具链身份或允许复制的阶段。资源复用脚本明确拒绝该项，不下载服务器包或图片，
+也不写入 app bundle 或 Windows 安装目录，因此不改变签名和 Sparkle delta 基线。
+内置精选 `rust/lithe-core/src/mcp/featured.json` 属于 Git 跟踪的编译输入，随本工作树
+源码编译进 Core，运行时只读；不从缓存或其他工作树复制，不登记为下载/生成资源。
+查询路由默认使用系统代理，显式直连只改变当前页面的内存请求，不产生可复用状态。
+
+精选品牌图标 `macos/Sources/Lithe/Resources/McpIcons` 也是 Git 跟踪的固定输入，
+`NOTICE.json` 记录每个来源与 SHA-256，随 SwiftPM 资源 bundle 在构建时打包。
+该目录与精选 JSON 一起归入 `mcp-registry-metadata` 的不可复用说明：没有下载缓存、
+生成 identity stamp 或跨工作树复制阶段；版本由当前 Git 源码和清单哈希决定，
+不从其他工作树或已安装应用提取。运行时只读并在内存缓存解码结果，不访问图标网络，
+不改写签名包或 Sparkle delta 基线；Windows 未消费此 macOS 资源目录。
+
 Cargo 社区插件在 [独立仓库](https://github.com/Lithe-IDEA/lithe-plugin-cargo) 中构建，
 最终 ZIP、摘要、vendored Node SDK 和集成测试产物由该仓库的 `dist/`、`.artifacts/` 持有，
 不作为 Lithe 主仓库的下载缓存或可复用资源。Cargo 专属清单、模型金样与兼容性测试也由

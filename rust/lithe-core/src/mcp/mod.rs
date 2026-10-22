@@ -8,12 +8,14 @@ mod json_edit;
 mod model;
 mod parse;
 mod plan;
+mod registry;
 mod source_hash;
 mod toml_edit;
 
 pub use model::{McpKeyValue, McpServer, McpTransport};
 pub use parse::parse_configuration;
 pub use plan::plan_write;
+pub use registry::{featured_registry, parse_registry};
 
 #[cfg(test)]
 mod tests;

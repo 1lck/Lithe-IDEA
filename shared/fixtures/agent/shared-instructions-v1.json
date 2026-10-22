@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "readRequest": {
+    "command": "agent.instructions.shared",
+    "payload": {
+      "dataDirectory": "/fixture/app-support/AgentInstructions",
+      "action": "read"
+    }
+  },
+  "library": {
+    "file": {
+      "agentId": "shared",
+      "path": "/fixture/app-support/AgentInstructions/Shared.md",
+      "content": "Use concise Chinese replies.",
+      "exists": true,
+      "revision": "source-sha256"
+    },
+    "agents": [
+      {
+        "agentId": "codex-acp",
+        "file": {
+          "agentId": "codex-acp",
+          "path": "/fixture/user/.codex/AGENTS.md",
+          "content": "Own rules\n<!-- LITHE:SHARED-INSTRUCTIONS:BEGIN -->\nUse concise Chinese replies.\n<!-- LITHE:SHARED-INSTRUCTIONS:END -->\n",
+          "exists": true,
+          "revision": "native-sha256"
+        },
+        "enabled": true,
+        "needsSync": false,
+        "ownLineCount": 1,
+        "issue": null
+      },
+      {
+        "agentId": "claude-acp",
+        "file": null,
+        "enabled": null,
+        "needsSync": false,
+        "ownLineCount": 0,
+        "issue": "The instruction path must be a regular file, not a symbolic link or directory."
+      }
+    ]
+  }
+}
