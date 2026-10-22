@@ -2097,3 +2097,33 @@
 "Zoom Out" = "Zoom Out";
 "Reset Page Zoom (100%)" = "Reset Page Zoom (100%)";
 "Page Zoom" = "Page Zoom";
+
+/* Embedded HTML preview browser: camera and microphone. */
+"“%@” wants to use your camera." = "“%@” wants to use your camera.";
+"“%@” wants to use your microphone." = "“%@” wants to use your microphone.";
+"“%@” wants to use your camera and microphone." = "“%@” wants to use your camera and microphone.";
+"The plugin “%@” wants to use your camera." = "The plugin “%@” wants to use your camera.";
+"The plugin “%@” wants to use your microphone." = "The plugin “%@” wants to use your microphone.";
+"The plugin “%@” wants to use your camera and microphone." = "The plugin “%@” wants to use your camera and microphone.";
+"You can mute or stop the device from the address bar while the page is using it." = "You can mute or stop the device from the address bar while the page is using it.";
+"Plugin ID: %@. It can keep using the device until you close or hide its window." = "Plugin ID: %@. It can keep using the device until you close or hide its window.";
+"Lithe can’t give pages access to the camera or microphone in this version." = "Lithe can’t give pages access to the camera or microphone in this version.";
+"Camera in use" = "Camera in use";
+"Microphone in use" = "Microphone in use";
+"Camera and microphone in use" = "Camera and microphone in use";
+"Mute Camera" = "Mute Camera";
+"Unmute Camera" = "Unmute Camera";
+"Stop Camera" = "Stop Camera";
+"Mute Microphone" = "Mute Microphone";
+"Unmute Microphone" = "Unmute Microphone";
+"Stop Microphone" = "Stop Microphone";
+
+/* Embedded HTML preview browser: find in page. */
+"Find in page" = "Find in page";
+"Previous Match" = "Previous Match";
+"Next Match" = "Next Match";
+"Close Find" = "Close Find";
+
+/* Embedded HTML preview browser: context menu, print and PDF. */
+"Print…" = "Print…";
+"Export as PDF…" = "Export as PDF…";

@@ -9,6 +9,8 @@
  * of fabricated ones.
  */
 
+import type { AgentModelCall } from "./agent-observations";
+
 /** Token counters from a prompt response; the Agent owns their accounting scope. */
 export interface AgentTurnUsage {
   totalTokens: number;
@@ -31,6 +33,7 @@ export interface AgentTurnStatistics {
   /** Wall-clock time the turn ended, shown beside the reply. */
   completedAt: number | null;
   usage: AgentTurnUsage | null;
+  modelCalls: AgentModelCall[];
 }
 
 function count(value: unknown): number | null {
@@ -56,7 +59,7 @@ export function parseTurnUsage(value: unknown): AgentTurnUsage | null {
 }
 
 export function startTurn(id: string, startedAt: number): AgentTurnStatistics {
-  return { id, startedAt, endingMessageID: null, duration: null, completedAt: null, usage: null };
+  return { id, startedAt, endingMessageID: null, duration: null, completedAt: null, usage: null, modelCalls: [] };
 }
 
 /** Seconds since submission, or the frozen duration of a finished turn. */

@@ -17,6 +17,7 @@ import {
   commitDiffScrollAnchors,
   transferCommitDiffLine,
   type IndependentChange,
+  type IndependentDisplayChange,
 } from "../../utils/independent-commit-diff";
 
 const RAIL_WIDTH = 12,
@@ -204,7 +205,7 @@ export function mountIndependentCommitDiff(host: HTMLElement, options: Options) 
     dirtyGeometry = true,
     digits = 3;
   let changePixels: Array<{
-    change: IndependentChange;
+    change: IndependentDisplayChange;
     left: readonly [number, number];
     right: readonly [number, number];
   }> = [];
@@ -222,7 +223,7 @@ export function mountIndependentCommitDiff(host: HTMLElement, options: Options) 
     if (!dirtyGeometry) return;
     dirtyGeometry = false;
     changePixels = [];
-    for (const change of plan.changes) {
+    for (const change of plan.displayChanges) {
       const a = pixels(0, change.leftStart, change.leftEnd),
         b = pixels(1, change.rightStart, change.rightEnd);
       changePixels.push({ change, left: a, right: b });
@@ -340,8 +341,12 @@ export function mountIndependentCommitDiff(host: HTMLElement, options: Options) 
       const a = value.left.map((y) => y - offsets[0]) as [number, number];
       const b = value.right.map((y) => y - offsets[1]) as [number, number];
       if (Math.max(a[1], b[1]) < 0 || Math.min(a[0], b[0]) > height) continue;
-      const block = blocksByID.get(commitDiffChangeID(plan, change));
-      if (blockControls && block) {
+      // Block actions belong to the Git change, not to a display sub-block:
+      // draw them once, anchored on the sub-block that starts the change.
+      const block = change.first && blockControls
+        ? blocksByID.get(commitDiffChangeID(plan, change.change))
+        : undefined;
+      if (block && blockControls) {
         for (const side of [0, 1] as const) {
           if (options.wholeFileAdded && side === 0) continue;
           const y = (side ? b : a)[0];
@@ -428,12 +433,12 @@ export function mountIndependentCommitDiff(host: HTMLElement, options: Options) 
   }
   function decorate() {
     const values: monaco.editor.IModelDeltaDecoration[][] = [[], []];
-    const muted = new Set<IndependentChange>();
+    const muted = new Set<IndependentDisplayChange>();
     // Word comparison has a per-block limit plus a total character budget. Large
     // replacements keep whole-line highlighting instead of blocking scrolling.
     let wordBudget = 128_000;
     if (words)
-      for (const change of plan.changes) {
+      for (const change of plan.displayChanges) {
         if (change.kind !== "modified") continue;
         const texts = [
           plan.left
@@ -468,7 +473,7 @@ export function mountIndependentCommitDiff(host: HTMLElement, options: Options) 
       }
     // IDEA uses its middle background only when inner fragments were computed.
     // Native decorations stay below viewLines; never change syntax foregrounds.
-    for (const change of plan.changes)
+    for (const change of plan.displayChanges)
       for (const side of [0, 1] as const) {
         const start = side ? change.rightStart : change.leftStart,
           end = side ? change.rightEnd : change.leftEnd;

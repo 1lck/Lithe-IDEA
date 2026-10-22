@@ -1,26 +1,35 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
-import { CheckIcon } from "@/ui/icons";
+import { showConfirmDialog } from "@/ui/dialog";
+import { CheckIcon, EyeIcon, EyeSlashIcon } from "@/ui/icons";
 import Input from "@/ui/input";
 import Select from "@/ui/select";
 import { Spinner } from "@/ui/spinner";
 import Switch from "@/ui/switch";
 import Textarea from "@/ui/textarea";
 import { cn } from "@/utils/cn";
+import { readAgentCliConfiguration } from "@/platform/agent-cli-configuration";
+import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import type { AgentManagement } from "../hooks/use-agent-management";
-import { readAgentApiKey, storeAgentApiKey } from "../services/agent-launch";
+import { readAgentApiKey } from "../services/agent-launch";
+import { agentProviderCredential } from "../services/agent-provider-credentials";
 import {
   agentProviderConfigSource,
   importAgentProviderConfiguration,
   importedProviderMatchesAgent,
+  agentProviderConfigurationText,
 } from "../services/agent-provider-import";
 import {
   CLAUDE_AGENT_ID,
   CODEX_AGENT_ID,
   CUSTOM_AGENT_ID,
   defaultAgentModel,
-  providerAfterAgentChange,
+  agentProviders,
+  addAgentProvider,
+  removeAgentProvider,
+  updateAgentProvider,
+  selectAgentConfiguration,
   supportsCodexSubscription,
   type AgentPanelSettings,
 } from "../types/agent-settings.types";
@@ -45,41 +54,81 @@ interface AgentSettingsSectionProps {
  * and which provider or subscription it signs in with.
  */
 export function AgentSettingsSection({
-  settings,
-  onChange,
+  settings: savedSettings,
+  onChange: commitSettings,
   management,
   onReconnect,
   canChangeAuthentication,
 }: AgentSettingsSectionProps) {
   const { t } = useTranslation();
+  const commitAgentProvider = useSettingsStore.use.actions().commitAgentProvider;
+  const settingsError = useSettingsStore.use.agentSettingsError();
+  const [editor, setEditor] = useState<{ original: AgentPanelSettings; draft: AgentPanelSettings; isNew: boolean } | null>(null);
+  const settings = editor?.draft ?? savedSettings;
   const [apiKeyDraft, setApiKeyDraft] = useState("");
+  const [revealsKey, setRevealsKey] = useState(false);
   const [hasStoredKey, setHasStoredKey] = useState(false);
   const [keyError, setKeyError] = useState<string | null>(null);
   const [importText, setImportText] = useState("");
+  const [textMode, setTextMode] = useState(false);
+  const [authenticationText, setAuthenticationText] = useState("");
   const [importError, setImportError] = useState<string | null>(null);
   const [isImporting, setIsImporting] = useState(false);
+  const [isSavingKey, setIsSavingKey] = useState(false);
+  const [isReadingKey, setIsReadingKey] = useState(false);
+  const latest = useRef({ settings: savedSettings, canChangeAuthentication });
+  latest.current = { settings: savedSettings, canChangeAuthentication };
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  const currentOperation = () => mounted.current && latest.current.settings === savedSettings && latest.current.canChangeAuthentication;
+  const disabled = !canChangeAuthentication || isSavingKey || isImporting || management.busyAgentId !== null;
   const isCustom = settings.agentId === CUSTOM_AGENT_ID;
   const isSubscription = settings.authentication === "codexSubscription";
   const configSource = agentProviderConfigSource(settings.agentId);
+  const providers = agentProviders(settings);
+  const onChange = (next: AgentPanelSettings) => {
+    if (editor !== null) {
+      setEditor({ ...editor, draft: next });
+      return;
+    }
+    if (next.provider !== settings.provider && next.provider.id === settings.provider.id) {
+      const updated = updateAgentProvider(settings, next.provider);
+      commitSettings({ ...next, provider: updated.provider, providers: updated.providers });
+    } else commitSettings(next);
+  };
+
+  useEffect(() => {
+    setImportText(configSource === null ? "" : agentProviderConfigurationText(configSource, settings.provider));
+    setImportError(null);
+    setAuthenticationText("");
+  }, [configSource, settings.provider]);
 
   useEffect(() => {
     let cancelled = false;
     setApiKeyDraft("");
+    setRevealsKey(false);
+    setKeyError(null);
+    setHasStoredKey(false);
+    setIsReadingKey(!isSubscription);
     if (isSubscription) {
       setHasStoredKey(false);
       return;
     }
-    void readAgentApiKey(settings.agentId)
+    void readAgentApiKey(settings.agentId, settings.provider.id)
       .then((key) => {
-        if (!cancelled) setHasStoredKey(key.length > 0);
+        if (!cancelled) {
+          setHasStoredKey(key.length > 0);
+          if (editor !== null && !editor.isNew) setApiKeyDraft(key);
+        }
       })
-      .catch(() => {
-        if (!cancelled) setHasStoredKey(false);
-      });
+      .catch((error) => {
+        if (!cancelled) setKeyError(t("agent.settings.keyFailed"));
+      })
+      .finally(() => { if (!cancelled) setIsReadingKey(false); });
     return () => {
       cancelled = true;
     };
-  }, [isSubscription, settings.agentId]);
+  }, [isSubscription, settings.agentId, settings.provider.id, editor?.original, editor?.isNew]);
 
   const agentOptions = (management.status?.agents ?? FALLBACK_AGENTS).map((agent) => ({
     value: agent.id,
@@ -97,46 +146,104 @@ export function AgentSettingsSection({
   // an automatic update when it verified the installation owner.
   const canInstallCli = canInstall && cli !== null && (cli.detected === null || cli.installation.canUpdate);
 
-  const saveKey = async () => {
+  const saveKey = async (value = apiKeyDraft) => {
+    if (disabled) return;
+    setIsSavingKey(true);
     try {
-      await storeAgentApiKey(settings.agentId, apiKeyDraft);
+      await commitAgentProvider(settings, settings, { agentId: settings.agentId, providerId: settings.provider.id, value });
+      if (!mounted.current) return;
       setApiKeyDraft("");
-      setHasStoredKey(apiKeyDraft.trim().length > 0);
+      setHasStoredKey(value.trim().length > 0);
       setKeyError(null);
       onReconnect();
     } catch (error) {
-      setKeyError(error instanceof Error ? error.message : String(error));
+      if (currentOperation()) setKeyError(t("agent.settings.keyFailed"));
+    } finally {
+      if (mounted.current) setIsSavingKey(false);
     }
   };
 
-  const importConfiguration = async () => {
-    if (configSource === null) return;
+  const saveProvider = async () => {
+    if (editor === null || disabled) return;
+    setIsSavingKey(true);
+    try {
+      let provider = settings.provider;
+      let key = apiKeyDraft;
+      if (textMode && configSource !== null) {
+        const parsed = await importAgentProviderConfiguration(configSource, importText);
+        if (!importedProviderMatchesAgent(settings.agentId, parsed)) throw new Error("agent.settings.importProtocolMismatch");
+        provider = { ...provider, ...parsed, source: undefined };
+        key = agentProviderCredential(configSource, importText, authenticationText);
+      }
+      if (!provider.name.trim() || !provider.baseUrl.trim() || !provider.model.trim() || !key.trim()) throw new Error("agent.settings.requiredProviderFields");
+      let endpoint: URL;
+      try { endpoint = new URL(provider.baseUrl); }
+      catch { throw new Error("agent.settings.invalidProviderUrl"); }
+      if (endpoint.username || endpoint.password || !["https:", "http:"].includes(endpoint.protocol) ||
+          (endpoint.protocol === "http:" && !provider.allowInsecureHttp)) throw new Error("agent.settings.invalidProviderUrl");
+      const next = editor.isNew
+        ? { ...settings, provider, providers: agentProviders({ ...settings, provider }) }
+        : updateAgentProvider(editor.original, provider);
+      await commitAgentProvider(editor.original, next, { agentId: settings.agentId, providerId: next.provider.id, value: key });
+      if (!mounted.current) return;
+      setEditor(null);
+      setApiKeyDraft("");
+      setAuthenticationText("");
+      setImportError(null);
+      onReconnect();
+    } catch (error) {
+      if (mounted.current) {
+        const code = error instanceof Error ? error.message : "";
+        setImportError(t(code.startsWith("agent.settings.") ? code : "agent.settings.importFailed"));
+      }
+    } finally {
+      if (mounted.current) setIsSavingKey(false);
+    }
+  };
+
+  const importConfiguration = async (local = false) => {
+    if (configSource === null || disabled) return false;
     setIsImporting(true);
     try {
-      const provider = await importAgentProviderConfiguration(configSource, importText);
+      const configuration = local ? await readAgentCliConfiguration(configSource) : importText;
+      const provider = await importAgentProviderConfiguration(configSource, configuration, true);
+      if (!currentOperation()) return false;
       if (!importedProviderMatchesAgent(settings.agentId, provider)) {
         setImportError(t("agent.settings.importProtocolMismatch"));
-        return;
+        return false;
       }
-      onChange({
-        ...settings,
-        provider: {
+      const providerSettings = {
           ...settings.provider,
+          source: local ? settings.provider.source : undefined,
           protocol: provider.protocol,
           baseUrl: provider.baseUrl,
           model: provider.model,
-        },
-      });
+      };
+      const key = local ? "" : agentProviderCredential(configSource, configuration, authenticationText);
+      if (editor !== null) {
+        onChange({ ...settings, provider: providerSettings });
+        if (key) setApiKeyDraft(key);
+        // Import consumes the text into the form draft, including its secret.
+        setTextMode(false);
+      } else {
+        await commitAgentProvider(savedSettings, updateAgentProvider(savedSettings, providerSettings));
+      }
+      if (!mounted.current) return false;
+      setAuthenticationText("");
       setImportError(null);
+      return true;
     } catch (error) {
-      setImportError(error instanceof Error ? error.message : String(error));
+      if (currentOperation()) setImportError(error instanceof Error && error.message === "agent.settings.configurationTooLarge"
+        ? t(error.message) : t("agent.settings.importFailed"));
+      return false;
     } finally {
-      setIsImporting(false);
+      if (mounted.current) setIsImporting(false);
     }
   };
 
   return (
-    <div className="space-y-2 border-border/70 border-b p-2">
+    <fieldset disabled={disabled} className="min-w-0 space-y-2 border-border/70 border-b p-2">
+      <fieldset disabled={editor !== null} className="min-w-0 space-y-2">
       <div className="flex items-center justify-between gap-2">
         <div className="min-w-0">
           <div className="text-foreground">{t("agent.settings.enable")}</div>
@@ -149,6 +256,10 @@ export function AgentSettingsSection({
         />
       </div>
 
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0"><div>{t("agent.stats.observe")}</div><div className="text-subtle-foreground ui-text-caption">{t("agent.stats.observeHint")}</div></div>
+        <Switch size="sm" checked={settings.observeModelCalls ?? true} disabled={!canChangeAuthentication} onChange={(observeModelCalls) => onChange({ ...settings, observeModelCalls })} />
+      </div>
       <div className="flex items-center gap-2">
         <span className="w-20 shrink-0 text-subtle-foreground">{t("agent.settings.agent")}</span>
         <Select
@@ -156,14 +267,8 @@ export function AgentSettingsSection({
           className="min-w-0 flex-1"
           value={settings.agentId}
           options={agentOptions}
-          onChange={(agentId) =>
-            onChange({
-              ...settings,
-              agentId,
-              authentication: "apiKey",
-              provider: providerAfterAgentChange(settings.provider, settings.agentId, agentId),
-            })
-          }
+          disabled={disabled}
+          onChange={(agentId) => onChange(selectAgentConfiguration(settings, agentId))}
         />
         <Button
           type="button"
@@ -201,6 +306,11 @@ export function AgentSettingsSection({
                 ? t("agent.settings.install")
                 : t("agent.settings.reinstall")}
           </Button>
+          {selectedAgent.installedVersion === null ? null : (
+            <Button type="button" size="xs" variant="ghost" disabled={isBusy} onClick={() => void management.uninstall(settings.agentId)}>
+              {t("agent.settings.uninstall")}
+            </Button>
+          )}
         </div>
       ) : null}
 
@@ -259,6 +369,15 @@ export function AgentSettingsSection({
             <li key={issue}>{issue}</li>
           ))}
         </ul>
+      )}
+      {management.status === null ? null : (
+        <details className="break-all text-subtle-foreground ui-text-caption">
+          <summary>{t("agent.settings.preflight")}</summary>
+          <div>Node.js: {management.status.environment.node?.version ?? "—"} {management.status.environment.node?.path}</div>
+          <div>npm: {management.status.environment.npm?.version ?? "—"} {management.status.environment.npm?.path}</div>
+          <div>{selectedAgent?.package} {selectedAgent?.version} · {selectedAgent?.protocol}</div>
+          <div>{cli?.detected?.path} · {cli?.installation.source}</div>
+        </details>
       )}
       {management.progress === null ? null : (
         <div className="text-subtle-foreground ui-text-caption">
@@ -348,14 +467,64 @@ export function AgentSettingsSection({
         <div className="text-subtle-foreground ui-text-caption">
           {t("agent.settings.subscriptionHint")}
         </div>
-      ) : (
+      ) : null}
+      </fieldset>
+      {isSubscription ? null : (
         <>
+          <div className="flex items-center gap-2">
+            <Select size="sm" className="min-w-0 flex-1" value={settings.provider.id ?? "legacy"}
+              disabled={disabled || editor !== null}
+              options={providers.map((provider, index) => ({ value: provider.id ?? "legacy", label: provider.name || provider.baseUrl || `${t("agent.settings.provider")} ${index + 1}` }))}
+              onChange={(id) => {
+                const provider = providers.find((entry) => (entry.id ?? "legacy") === id);
+                if (provider) commitSettings({ ...settings, providers, provider });
+              }} />
+            <Button type="button" size="xs" variant="ghost" disabled={editor !== null || providers.length >= 32} onClick={() => {
+              setEditor({ original: savedSettings, draft: addAgentProvider(savedSettings), isNew: true });
+              setTextMode(false);
+            }}>{t("agent.settings.addProvider")}</Button>
+            <Button type="button" size="xs" variant="ghost" disabled={editor !== null || Boolean(settings.provider.source)} onClick={() => {
+              setEditor({ original: savedSettings, draft: savedSettings, isNew: false });
+              setTextMode(false);
+            }}>{t("agent.settings.editProvider")}</Button>
+            <Button type="button" size="xs" variant="ghost" disabled={editor !== null} onClick={async () => {
+              const confirmed = await showConfirmDialog(t("agent.settings.removeProviderConfirm"), {
+                title: t("agent.settings.removeProvider"), confirmLabel: t("agent.settings.removeProvider"), cancelLabel: t("ui.cancel"),
+              });
+              if (!confirmed || !currentOperation()) return;
+              setIsSavingKey(true);
+              void commitAgentProvider(settings, removeAgentProvider(settings), { agentId: settings.agentId, providerId: settings.provider.id, value: "" })
+                .catch(() => { if (currentOperation()) setKeyError(t("agent.settings.keyFailed")); })
+                .finally(() => { if (mounted.current) setIsSavingKey(false); });
+            }}>{t("agent.settings.removeProvider")}</Button>
+          </div>
+          {configSource === null ? null : <div className="flex items-center justify-between gap-2">
+            <span className="text-subtle-foreground ui-text-caption">{t("agent.settings.linkLocal")}</span>
+            <Switch size="sm" disabled={editor !== null} checked={settings.provider.source === configSource} onChange={(linked) =>
+              onChange({ ...settings, provider: { ...settings.provider, source: linked ? configSource : undefined } })} />
+          </div>}
+          {configSource === null || editor !== null ? null : <Button type="button" size="xs" variant="ghost" onClick={() => void importConfiguration(true)}>{t("agent.settings.readLocalConfiguration")}</Button>}
+          <fieldset disabled={editor === null || isReadingKey || Boolean(settings.provider.source)} className="min-w-0 space-y-2">
+          {configSource === null ? null : <Button type="button" size="xs" variant="ghost" onClick={async () => {
+            if (!textMode) {
+              setImportText(agentProviderConfigurationText(configSource, settings.provider, apiKeyDraft));
+              setAuthenticationText(configSource === "codex" ? JSON.stringify({ OPENAI_API_KEY: apiKeyDraft }, null, 2) : "");
+              setTextMode(true);
+            }
+            else if (importText.trim().length === 0 || await importConfiguration()) setTextMode(false);
+          }}>
+            {t(textMode ? "agent.settings.formMode" : "agent.settings.textMode")}
+          </Button>}
+          {textMode && configSource !== null ? null : <>
+          <Input size="sm" aria-label={t("agent.settings.providerName")} placeholder={t("agent.settings.providerName")} value={settings.provider.name}
+            onChange={(event) => onChange({ ...settings, provider: { ...settings.provider, name: event.target.value } })} />
           <div className="flex items-center gap-2">
             <span className="w-20 shrink-0 text-subtle-foreground">
               {t("agent.settings.baseUrl")}
             </span>
             <Input
               size="sm"
+              aria-label={t("agent.settings.baseUrl")}
               className="min-w-0 flex-1"
               value={settings.provider.baseUrl}
               placeholder="https://api.openai.com/v1"
@@ -373,6 +542,7 @@ export function AgentSettingsSection({
             </span>
             <Input
               size="sm"
+              aria-label={t("agent.settings.model")}
               className="min-w-0 flex-1"
               value={settings.provider.model}
               placeholder={
@@ -386,13 +556,15 @@ export function AgentSettingsSection({
               }
             />
           </div>
+          </>}
           <div className="flex items-center gap-2">
             <span className="w-20 shrink-0 text-subtle-foreground">
               {t("agent.settings.apiKey")}
             </span>
             <Input
               size="sm"
-              type="password"
+              aria-label={t("agent.settings.apiKey")}
+              type={revealsKey ? "text" : "password"}
               className="min-w-0 flex-1"
               value={apiKeyDraft}
               placeholder={
@@ -400,14 +572,10 @@ export function AgentSettingsSection({
               }
               onChange={(event) => setApiKeyDraft(event.target.value)}
             />
-            <Button
-              type="button"
-              size="xs"
-              variant="accent"
-              disabled={apiKeyDraft.trim().length === 0}
-              onClick={() => void saveKey()}
-            >
-              {t("agent.settings.saveKey")}
+            <Button type="button" size="icon-sm" variant="ghost"
+              aria-label={t(revealsKey ? "agent.settings.hideKey" : "agent.settings.showKey")}
+              onClick={() => setRevealsKey(!revealsKey)}>
+              {revealsKey ? <EyeSlashIcon className="size-3.5" /> : <EyeIcon className="size-3.5" />}
             </Button>
           </div>
           <div className="flex items-center justify-between gap-2">
@@ -425,15 +593,7 @@ export function AgentSettingsSection({
               }
             />
           </div>
-          <div className="flex items-center justify-between">
-            <span className="text-subtle-foreground ui-text-caption">
-              {t("agent.settings.reconnectHint")}
-            </span>
-            <Button type="button" size="xs" variant="ghost" onClick={onReconnect}>
-              {t("agent.settings.reconnect")}
-            </Button>
-          </div>
-          {configSource === null ? null : (
+          {configSource === null || !textMode ? null : (
             <div className="flex flex-col gap-1 border-border/70 border-t pt-2">
               <span className="text-subtle-foreground">
                 {t("agent.settings.importConfiguration")}
@@ -442,9 +602,21 @@ export function AgentSettingsSection({
                 size="sm"
                 rows={4}
                 className="font-mono"
+                style={revealsKey ? undefined : { WebkitTextSecurity: "disc" } as CSSProperties}
+                aria-label={t("agent.settings.importConfiguration")}
                 value={importText}
                 onChange={(event) => setImportText(event.target.value)}
               />
+              {configSource === "codex" ? <>
+                <div className="flex items-center justify-between gap-2">
+                  <span>{t("agent.settings.authJson")}</span>
+                  <Button type="button" size="icon-sm" variant="ghost" aria-label={t(revealsKey ? "agent.settings.hideKey" : "agent.settings.showKey")} onClick={() => setRevealsKey(!revealsKey)}>
+                    {revealsKey ? <EyeSlashIcon className="size-3.5" /> : <EyeIcon className="size-3.5" />}
+                  </Button>
+                </div>
+                <Textarea size="sm" rows={3} className="font-mono" style={revealsKey ? undefined : { WebkitTextSecurity: "disc" } as CSSProperties} aria-label={t("agent.settings.authJson")}
+                  placeholder={t("agent.settings.authJson")} value={authenticationText} onChange={(event) => setAuthenticationText(event.target.value)} />
+              </> : null}
               <div className="flex items-center justify-between gap-2">
                 <span className="min-w-0 text-subtle-foreground ui-text-caption">
                   {t("agent.settings.importConfigurationHint")}
@@ -460,15 +632,27 @@ export function AgentSettingsSection({
                     ? t("agent.settings.importingConfiguration")
                     : t("agent.settings.importConfigurationAction")}
                 </Button>
+                <Button type="button" size="xs" variant="ghost" onClick={() => void importConfiguration(true)}>{t("agent.settings.readLocalConfiguration")}</Button>
               </div>
               {importError === null ? null : (
                 <div className="text-warning ui-text-caption">{importError}</div>
               )}
             </div>
           )}
+          </fieldset>
+          {editor === null ? (hasStoredKey && !settings.provider.source ? <Button type="button" size="xs" variant="ghost" onClick={() => void saveKey("")}>{t("agent.settings.unlinkKey")}</Button> : null) : <div className="flex justify-end gap-2">
+            <Button type="button" size="xs" variant="ghost" onClick={() => { setEditor(null); setApiKeyDraft(""); setAuthenticationText(""); setImportError(null); setTextMode(false); }}>{t("ui.cancel")}</Button>
+            <Button type="button" size="xs" variant="accent" disabled={isReadingKey || !settings.provider.name.trim() || (!textMode && (!settings.provider.baseUrl.trim() || !settings.provider.model.trim() || !apiKeyDraft.trim()))} onClick={() => void saveProvider()}>{t("ui.save")}</Button>
+          </div>}
+          {importError === null ? null : <div role="alert" className="text-warning ui-text-caption">{importError}</div>}
+          <div className="flex items-center justify-between">
+            <span className="text-subtle-foreground ui-text-caption">{t("agent.settings.reconnectHint")}</span>
+            <Button type="button" size="xs" variant="ghost" onClick={onReconnect}>{t("agent.settings.reconnect")}</Button>
+          </div>
         </>
       )}
       {keyError === null ? null : <div className="text-warning ui-text-caption">{keyError}</div>}
-    </div>
+      {settingsError === null ? null : <div role="alert" className="text-warning ui-text-caption">{t(settingsError)}</div>}
+    </fieldset>
   );
 }
