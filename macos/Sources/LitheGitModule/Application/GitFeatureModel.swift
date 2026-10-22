@@ -3580,10 +3580,30 @@ package final class GitFeatureModel: ObservableObject {
         return trimmedMessage(result)
     }
 
-    package func pushBranch(_ reference: GitReference) async {
-        guard let gitRepositoryRoot else { return }
+    /// Resolves where pushing `reference` would go and which commits it would send,
+    /// without writing anything. `pushTarget` previews the destination a differently
+    /// named upstream was confirmed to use.
+    package func previewPush(
+        _ reference: GitReference,
+        pushTarget: GitPushTargetChoice? = nil
+    ) async -> Result<GitPushPreview, GitPushFailure> {
+        guard let gitRepositoryRoot else { return .failure(GitPushFailure("Open a Git repository first.")) }
+        return await service.pushPreview(reference, pushTarget: pushTarget, at: gitRepositoryRoot)
+    }
+
+    /// Pushes what the user reviewed in the push dialog and returns why it failed, or
+    /// `nil` on success. Core rejects the push when the branch, destination or
+    /// tracking commit moved after the preview.
+    package func pushReviewed(
+        _ reference: GitReference,
+        preview: GitPushPreview,
+        pushTarget: GitPushTargetChoice?
+    ) async -> GitPushFailure? {
+        guard let gitRepositoryRoot else { return GitPushFailure("Open a Git repository first.") }
         isPerformingBranchOperation = true
-        let result = await withGitOperation { await service.push(reference, at: gitRepositoryRoot) }
+        let result = await withGitOperation {
+            await service.pushReviewed(reference, preview: preview, pushTarget: pushTarget, at: gitRepositoryRoot)
+        }
         isPerformingBranchOperation = false
         notify?(
             result.succeeded
@@ -3591,6 +3611,13 @@ package final class GitFeatureModel: ObservableObject {
                 : trimmedMessage(result)
         )
         await refreshGit()
+        return result.succeeded ? nil : GitPushFailure(trimmedMessage(result))
+    }
+
+    /// Changed files of one commit, for the push dialog's detail pane.
+    package func changedFiles(in commit: GitCommit) async -> [GitCommitFile]? {
+        guard let gitRepositoryRoot else { return nil }
+        return await service.files(in: commit, at: gitRepositoryRoot)
     }
 
     @discardableResult
