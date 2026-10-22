@@ -3,7 +3,10 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { installHappyDom } from "@/test-utils/happy-dom";
 import { LocaleProvider } from "@/i18n/locale-provider";
-import type { GitPushPreview, GitPushTargetChoice } from "../types/git.types";
+import type {
+  WorkspaceCommitPushTarget,
+  WorkspaceCommitPushTargetQuestion,
+} from "../types/git-workspace-commit.types";
 
 let restoreDom: () => void;
 let root: Root;
@@ -28,39 +31,43 @@ afterEach(async () => {
   else actGlobal.IS_REACT_ACT_ENVIRONMENT = previousAct;
 });
 
-const divergentPreview: GitPushPreview = {
+const question = (
+  repositoryId: string,
+  overrides: Partial<WorkspaceCommitPushTargetQuestion> = {},
+): WorkspaceCommitPushTargetQuestion => ({
+  repositoryId,
   localBranch: "feature/topic",
-  localHead: "2222222222222222222222222222222222222222",
   remote: "origin",
-  remoteBranch: "feature/topic",
-  targetKind: "divergent",
-  createsRemoteBranch: true,
-  remoteTrackingOid: null,
   upstream: "origin/main",
-  tags: [],
-  commits: [],
-  hasMore: false,
-};
+  upstreamBranch: "main",
+  ...overrides,
+});
 
-async function renderPrompt(onChoose: (choice: GitPushTargetChoice) => void, onCancel: () => void) {
+async function renderPrompt(
+  questions: WorkspaceCommitPushTargetQuestion[],
+  onConfirm: (answers: Record<string, WorkspaceCommitPushTarget>) => void,
+  onCancel: () => void,
+) {
   const { GitPushTargetPrompt } = await import("./git-push-target-prompt");
   await act(async () =>
     root.render(
       <LocaleProvider language="en-US">
-        <GitPushTargetPrompt preview={divergentPreview} onChoose={onChoose} onCancel={onCancel} />
+        <GitPushTargetPrompt questions={questions} onConfirm={onConfirm} onCancel={onCancel} />
       </LocaleProvider>,
     ),
   );
 }
 
-const clickByTestId = async (testId: string) => {
-  const button = document.querySelector(`[data-testid="${testId}"]`);
-  expect(button).not.toBeNull();
-  await act(async () => (button as HTMLButtonElement).click());
+const byTestId = (testId: string) => {
+  const element = document.querySelector(`[data-testid="${testId}"]`);
+  expect(element).not.toBeNull();
+  return element as HTMLButtonElement;
 };
+const click = async (testId: string) => act(async () => byTestId(testId).click());
 
 test("names both destinations instead of pushing to an unrelated branch", async () => {
   await renderPrompt(
+    [question(".")],
     () => {},
     () => {},
   );
@@ -72,26 +79,63 @@ test("names both destinations instead of pushing to an unrelated branch", async 
   expect(text).toContain("Push to origin/main");
 });
 
-test("reports the confirmed destination", async () => {
-  const choices: GitPushTargetChoice[] = [];
+test("cannot be confirmed until every repository has an answer", async () => {
+  const answers: Record<string, WorkspaceCommitPushTarget>[] = [];
   await renderPrompt(
-    (choice) => {
-      choices.push(choice);
-    },
+    [question("."), question("B")],
+    (next) => answers.push(next),
     () => {},
   );
-  await clickByTestId("git-push-target-prompt-publish");
-  expect(choices).toEqual(["publish"]);
+  expect(byTestId("git-push-target-confirm").disabled).toBe(true);
+  await click("git-push-target-publish-.");
+  expect(byTestId("git-push-target-confirm").disabled).toBe(true);
+  await click("git-push-target-upstream-B");
+  expect(byTestId("git-push-target-confirm").disabled).toBe(false);
+  await click("git-push-target-confirm");
+  expect(answers).toEqual([
+    {
+      ".": { choice: "publish", remote: "origin", remoteBranch: "feature/topic" },
+      B: { choice: "upstream", remote: "origin", remoteBranch: "main" },
+    },
+  ]);
 });
 
-test("keeps the divergent upstream when the user chooses it", async () => {
-  const choices: GitPushTargetChoice[] = [];
+test("binds an upstream answer to the upstream's own slashed branch name", async () => {
+  const answers: Record<string, WorkspaceCommitPushTarget>[] = [];
   await renderPrompt(
-    (choice) => {
-      choices.push(choice);
-    },
+    [
+      question(".", {
+        remote: "team/origin",
+        upstream: "team/origin/team/release",
+        upstreamBranch: "team/release",
+      }),
+    ],
+    (next) => answers.push(next),
     () => {},
   );
-  await clickByTestId("git-push-target-prompt-upstream");
-  expect(choices).toEqual(["upstream"]);
+  await click("git-push-target-upstream-.");
+  await click("git-push-target-confirm");
+  expect(answers[0]).toEqual({
+    ".": { choice: "upstream", remote: "team/origin", remoteBranch: "team/release" },
+  });
+});
+
+test("the last pick wins and cancelling reports nothing", async () => {
+  const answers: Record<string, WorkspaceCommitPushTarget>[] = [];
+  let cancelled = 0;
+  await renderPrompt(
+    [question(".")],
+    (next) => answers.push(next),
+    () => (cancelled += 1),
+  );
+  await click("git-push-target-upstream-.");
+  await click("git-push-target-publish-.");
+  expect(byTestId("git-push-target-publish-.").getAttribute("aria-pressed")).toBe("true");
+  expect(byTestId("git-push-target-upstream-.").getAttribute("aria-pressed")).toBe("false");
+  const cancel = Array.from(document.querySelectorAll("button")).find(
+    (button) => button.textContent === "Cancel",
+  )!;
+  await act(async () => cancel.click());
+  expect(cancelled).toBe(1);
+  expect(answers).toEqual([]);
 });

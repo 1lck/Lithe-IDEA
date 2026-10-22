@@ -1018,6 +1018,228 @@ fn confirmed_upstream_push_resolves_a_slashed_branch_name() {
     );
 }
 
+/// Builds the state Git itself leaves behind with `autoSetupMerge` enabled: a
+/// feature branch with one commit of its own that tracks `origin/main`.
+fn divergent_feature_branch(fixture: &GitFixture) -> (PathBuf, PathBuf) {
+    let (repository, remote) = initialize_repository(fixture);
+    require_git(
+        &repository,
+        &[
+            "switch",
+            "-q",
+            "-c",
+            "feature/topic",
+            "refs/remotes/origin/main",
+        ],
+    );
+    require_git(
+        &repository,
+        &[
+            "branch",
+            "-q",
+            "--set-upstream-to=origin/main",
+            "feature/topic",
+        ],
+    );
+    fs::write(repository.join("topic.txt"), "topic\n").expect("fixture should be writable");
+    require_git(&repository, &["add", "topic.txt"]);
+    require_git(&repository, &["commit", "-q", "-m", "topic work"]);
+    (repository, remote)
+}
+
+fn rev_parse(directory: &Path, revision: &str) -> String {
+    String::from_utf8_lossy(&git(directory, &["rev-parse", revision]).stdout)
+        .trim()
+        .to_string()
+}
+
+/// The preview must describe the destination the user is about to choose, not a
+/// fixed guess: the same request with each `pushTarget` shows the branch that
+/// choice will update, so a confirmation can bind to what was displayed.
+#[test]
+fn preview_follows_the_chosen_destination_of_a_divergent_branch() {
+    let fixture = GitFixture::new();
+    let (repository, _) = divergent_feature_branch(&fixture);
+    let main_oid = rev_parse(&repository, "origin/main");
+
+    let upstream = core(
+        "git.pushPreview",
+        &repository,
+        json!({ "pushTarget": "upstream" }),
+    );
+    assert_eq!(upstream["ok"], true, "response: {upstream}");
+    assert_eq!(upstream["data"]["targetKind"], "divergent");
+    assert_eq!(upstream["data"]["remote"], "origin");
+    assert_eq!(upstream["data"]["remoteBranch"], "main");
+    assert_eq!(upstream["data"]["upstream"], "origin/main");
+    assert_eq!(upstream["data"]["createsRemoteBranch"], false);
+    assert_eq!(upstream["data"]["remoteTrackingOid"], main_oid);
+
+    let publish = core(
+        "git.pushPreview",
+        &repository,
+        json!({ "pushTarget": "publish" }),
+    );
+    assert_eq!(publish["ok"], true, "response: {publish}");
+    assert_eq!(publish["data"]["targetKind"], "divergent");
+    assert_eq!(publish["data"]["remoteBranch"], "feature/topic");
+    assert_eq!(publish["data"]["createsRemoteBranch"], true);
+    assert_eq!(publish["data"]["remoteTrackingOid"], Value::Null);
+}
+
+/// Reviewed push bound to the upstream choice: the lease must be taken on the
+/// upstream branch the user saw, not on the same-named branch, otherwise the
+/// "reviewed" force push would lease an unrelated (missing) ref.
+#[test]
+fn reviewed_force_push_to_the_chosen_upstream_leases_that_branch() {
+    let fixture = GitFixture::new();
+    let (repository, remote) = divergent_feature_branch(&fixture);
+    let main_oid = rev_parse(&repository, "origin/main");
+    let local_head = rev_parse(&repository, "HEAD");
+
+    let preview = core(
+        "git.pushPreview",
+        &repository,
+        json!({ "pushTarget": "upstream" }),
+    );
+    let pushed = core(
+        "git.write",
+        &repository,
+        json!({
+            "operation": "push",
+            "pushTarget": "upstream",
+            "force": true,
+            "expectedPush": push_expectation(&preview)
+        }),
+    );
+    assert_eq!(pushed["ok"], true, "response: {pushed}");
+    assert_eq!(pushed["data"]["exitCode"], 0, "response: {pushed}");
+    let arguments = pushed["data"]["arguments"]
+        .as_array()
+        .expect("push arguments should be present")
+        .iter()
+        .filter_map(Value::as_str)
+        .collect::<Vec<_>>();
+    let lease = format!("--force-with-lease=refs/heads/main:{main_oid}");
+    assert!(
+        arguments.contains(&lease.as_str()),
+        "the lease must name the upstream branch and its observed oid: {arguments:?}"
+    );
+    assert_eq!(rev_parse(&remote, "refs/heads/main"), local_head);
+}
+
+/// The exact stale-preview hole from review: the user reviews "update
+/// `origin/main`", then the upstream is repointed at another remote branch before
+/// the push. The reviewed push must be rejected, because the effective
+/// destination is no longer the one that was shown.
+#[test]
+fn reviewed_upstream_push_is_rejected_when_the_upstream_moves() {
+    let fixture = GitFixture::new();
+    let (repository, remote) = divergent_feature_branch(&fixture);
+    let main_before = rev_parse(&remote, "refs/heads/main");
+
+    let preview = core(
+        "git.pushPreview",
+        &repository,
+        json!({ "pushTarget": "upstream" }),
+    );
+    assert_eq!(preview["data"]["remoteBranch"], "main");
+
+    // Same commit on both branches, so only the branch name can tell them apart.
+    require_git(
+        &repository,
+        &["push", "-q", "origin", "main:refs/heads/release"],
+    );
+    require_git(&repository, &["fetch", "-q", "origin"]);
+    require_git(
+        &repository,
+        &[
+            "branch",
+            "-q",
+            "--set-upstream-to=origin/release",
+            "feature/topic",
+        ],
+    );
+
+    let pushed = core(
+        "git.write",
+        &repository,
+        json!({
+            "operation": "push",
+            "pushTarget": "upstream",
+            "expectedPush": push_expectation(&preview)
+        }),
+    );
+    assert_eq!(
+        pushed["data"]["operationError"]["message"],
+        "Git push preview is stale; refresh and try again.",
+        "response: {pushed}"
+    );
+    assert_eq!(rev_parse(&remote, "refs/heads/main"), main_before);
+    assert_eq!(rev_parse(&remote, "refs/heads/release"), main_before);
+}
+
+/// A confirmation answers one question. Reusing a "publish" preview with the
+/// "upstream" choice (or the reverse) is a different destination and must be stale.
+#[test]
+fn reviewed_push_rejects_a_different_destination_choice() {
+    let fixture = GitFixture::new();
+    let (repository, remote) = divergent_feature_branch(&fixture);
+    let main_before = rev_parse(&remote, "refs/heads/main");
+
+    let publish_preview = core(
+        "git.pushPreview",
+        &repository,
+        json!({ "pushTarget": "publish" }),
+    );
+    let pushed = core(
+        "git.write",
+        &repository,
+        json!({
+            "operation": "push",
+            "pushTarget": "upstream",
+            "expectedPush": push_expectation(&publish_preview)
+        }),
+    );
+    assert_eq!(
+        pushed["data"]["operationError"]["message"],
+        "Git push preview is stale; refresh and try again.",
+        "response: {pushed}"
+    );
+    assert_eq!(rev_parse(&remote, "refs/heads/main"), main_before);
+}
+
+/// Choices only mean something for a divergent upstream: a routine branch keeps
+/// pushing to its own tracked branch no matter what a stale client sends.
+#[test]
+fn push_target_choice_is_ignored_for_a_branch_that_tracks_its_own_name() {
+    let fixture = GitFixture::new();
+    let (repository, remote) = initialize_repository(&fixture);
+    fs::write(repository.join("tracked.txt"), "initial\nsecond\n")
+        .expect("fixture should be writable");
+    require_git(&repository, &["commit", "-q", "-am", "second"]);
+
+    for choice in ["publish", "upstream"] {
+        let preview = core(
+            "git.pushPreview",
+            &repository,
+            json!({ "pushTarget": choice }),
+        );
+        assert_eq!(preview["data"]["targetKind"], "tracking", "{choice}");
+        assert_eq!(preview["data"]["remoteBranch"], "main", "{choice}");
+    }
+    let pushed = core(
+        "git.write",
+        &repository,
+        json!({ "operation": "push", "pushTarget": "publish" }),
+    );
+    assert_eq!(pushed["data"]["exitCode"], 0, "response: {pushed}");
+    assert_eq!(
+        rev_parse(&remote, "refs/heads/main"),
+        rev_parse(&repository, "HEAD")
+    );
+}
+
 /// Issue #1272 asks whether new worktrees carry the same implicit-tracking risk.
 /// The worktree path already freezes tracking explicitly: a remote start tracks
 /// that remote branch, and an explicit commit start does not track anything.

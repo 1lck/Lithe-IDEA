@@ -100,6 +100,17 @@ describe("Git push API", () => {
     });
   });
 
+  test("previews the destination that a divergent choice would update", async () => {
+    await getGitPushPreview("C:/repo", "feature/topic", "none", "upstream");
+
+    expect(invoke).toHaveBeenCalledWith("git.pushPreview", {
+      repoPath: "C:/repo",
+      reference: "refs/heads/feature/topic",
+      pushTags: "none",
+      pushTarget: "upstream",
+    });
+  });
+
   test("omits pushTarget for a routine same-named push", async () => {
     await executeGitPush("C:/repo", {
       reference: "feature/push",

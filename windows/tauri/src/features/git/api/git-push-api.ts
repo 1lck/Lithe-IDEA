@@ -58,12 +58,18 @@ export const getGitPushPreview = async (
   repoPath: string,
   reference?: GitReferenceInput,
   pushTags: GitPushTagScope = "none",
+  /**
+   * Previews the destination this choice would update. A reviewed push must be
+   * previewed and executed with the same choice, otherwise Core rejects it as stale.
+   */
+  pushTarget?: GitPushTargetChoice,
 ): Promise<GitPushPreview> => {
   const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
   const preview = await tauriInvoke<CoreGitPushPreview>("git.pushPreview", {
     repoPath: resolvedRepoPath,
     ...pushReferencePayload(reference),
     pushTags,
+    ...(pushTarget ? { pushTarget } : {}),
   });
   return {
     ...preview,

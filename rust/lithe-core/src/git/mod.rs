@@ -666,6 +666,11 @@ pub struct GitPushPreviewRequest {
     /// Tag scope to resolve into an immutable preview: `none`, `all`, or `reachable`.
     #[serde(default)]
     pub push_tags: Option<String>,
+    /// Destination the user picked for a divergent upstream. The preview then
+    /// describes that exact remote branch, so a reviewed push can be bound to it.
+    /// Ignored when the branch is not divergent.
+    #[serde(default)]
+    pub push_target: Option<PushTargetChoiceRequest>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -5827,11 +5832,18 @@ fn find_stash_reference(root: &str, message: &str) -> Result<Option<String>, Cor
 struct PushTarget {
     local_branch: String,
     remote: String,
+    /// Remote branch the push updates. For a divergent upstream this follows the
+    /// confirmed choice, so previews, expectation checks, leases and refspecs all
+    /// describe the same branch.
     remote_branch: String,
+    /// Relationship between the local branch and its upstream; independent of the
+    /// confirmed choice.
     target_kind: PushTargetKind,
     /// Whether the destination branch does not exist on the remote yet.
     creates_remote_branch: bool,
     upstream: Option<String>,
+    /// Branch name of a divergent upstream on `remote`; `None` for every other kind.
+    divergent_upstream_branch: Option<String>,
     comparison_reference: Option<String>,
 }
 
@@ -5854,7 +5866,7 @@ pub fn push_preview(request: GitPushPreviewRequest) -> Result<GitPushPreviewResp
             .map(|reference| validated_reference(Some(reference)))
             .transpose()?
     };
-    let target = resolve_push_target(&root, reference.as_deref())?;
+    let target = resolve_push_target(&root, reference.as_deref(), request.push_target)?;
     let limit = request.limit.clamp(1, 5_000);
     let local_reference = format!("refs/heads/{}", target.local_branch);
     let local_head = resolve_commit_revision(&root, &local_reference)?;
@@ -5910,10 +5922,22 @@ pub enum PushTargetChoiceRequest {
     Upstream,
 }
 
-/// Rejects a push whose confirmed destination cannot be resolved. The message is
-/// actionable without exposing repository internals.
-fn invalid_push_destination(message: &str) -> CoreError {
-    CoreError::new(ErrorCode::InvalidRequest, message)
+/// Rejection for a divergent upstream that no caller confirmed. The message names
+/// the command that unblocks a client without a destination picker, because the
+/// native macOS push does not offer one yet.
+fn push_destination_needs_confirmation(
+    local_branch: &str,
+    remote: &str,
+    upstream: &str,
+) -> CoreError {
+    CoreError::new(
+        ErrorCode::InvalidRequest,
+        format!(
+            "Push destination needs confirmation: '{local_branch}' tracks '{upstream}', which has a different name. \
+             Run `git push -u {remote} {local_branch}` to publish it under its own name, \
+             or confirm the destination in a client that offers the choice."
+        ),
+    )
 }
 
 fn push(
@@ -5937,78 +5961,27 @@ fn push(
             ))
         }
     };
-    let target = resolve_push_target(root, reference)?;
-    // Issue #1272: a divergent upstream means the refspec would update a branch with
-    // a different name. That is never implicit; the caller has to confirm the
-    // destination, and the confirmation has to say which branch it sends to.
+    // Issue #1272: the effective destination is resolved once, with the caller's
+    // confirmed choice, by the same function the preview uses. A reviewed push is
+    // therefore compared against exactly the branch the user was shown.
+    let target = resolve_push_target(root, reference, push_target)?;
     if target.target_kind == PushTargetKind::Divergent && push_target.is_none() {
-        return Err(CoreError::new(
-            ErrorCode::InvalidRequest,
-            format!(
-                "Push destination needs confirmation: '{}' tracks '{}' on '{}'",
-                target.local_branch,
-                target.upstream.as_deref().unwrap_or_default(),
-                target.remote
-            ),
+        return Err(push_destination_needs_confirmation(
+            &target.local_branch,
+            &target.remote,
+            target.upstream.as_deref().unwrap_or_default(),
         ));
     }
-    // A reviewed push is validated against the state the preview described, before
-    // any confirmed redirect below changes the effective destination.
     if let Some(expected_push) = expected_push {
         validate_push_expectation(root, &target, tag_scope, expected_push)?;
     }
-    // Confirming "publish" redirects a divergent destination to the same-named
-    // branch and repoints the upstream only after the push succeeds. Confirming
-    // "upstream" keeps the foreign branch name, which is the only case where a
-    // refspec may legitimately update a differently named branch.
-    let (target, should_set_upstream) = if target.target_kind == PushTargetKind::Divergent {
-        match push_target {
-            Some(PushTargetChoiceRequest::Upstream) => {
-                // Reuse the shared remote/branch splitter: an upstream short name is
-                // `remote/branch`, and either side may itself contain slashes, so the
-                // last segment is not reliably the branch name.
-                let upstream_full_name = target.upstream.clone().ok_or_else(|| {
-                    invalid_push_destination("The configured upstream could not be resolved")
-                })?;
-                let (_, upstream_branch) = mutations::remote_branch_components(
-                    root,
-                    &format!("refs/remotes/{upstream_full_name}"),
-                )
-                .map_err(|error| invalid_push_destination(&error.message))?;
-                let target_reference =
-                    format!("refs/remotes/{}/{}", target.remote, upstream_branch);
-                let comparison_reference =
-                    reference_exists(root, &target_reference)?.then_some(target_reference);
-                (
-                    PushTarget {
-                        remote_branch: upstream_branch,
-                        creates_remote_branch: comparison_reference.is_none(),
-                        comparison_reference,
-                        ..target
-                    },
-                    false,
-                )
-            }
-            _ => {
-                let target_reference =
-                    format!("refs/remotes/{}/{}", target.remote, target.local_branch);
-                let comparison_reference =
-                    reference_exists(root, &target_reference)?.then_some(target_reference);
-                (
-                    PushTarget {
-                        remote_branch: target.local_branch.clone(),
-                        target_kind: PushTargetKind::Publish,
-                        creates_remote_branch: comparison_reference.is_none(),
-                        comparison_reference,
-                        ..target
-                    },
-                    true,
-                )
-            }
-        }
-    } else {
-        let should_set_upstream = target.upstream.is_none();
-        (target, should_set_upstream)
+    // Only an upstream that was missing or deliberately replaced is repointed after
+    // a successful push. Confirming "upstream" keeps the foreign branch name and
+    // leaves the user's tracking configuration untouched.
+    let should_set_upstream = match target.target_kind {
+        PushTargetKind::Tracking => false,
+        PushTargetKind::Publish => target.upstream.is_none(),
+        PushTargetKind::Divergent => push_target == Some(PushTargetChoiceRequest::Publish),
     };
     let mut arguments = vec!["push".to_string()];
     if check_submodules {
@@ -6589,7 +6562,16 @@ fn resolve_push_tags(
     Ok(tags)
 }
 
-fn resolve_push_target(root: &str, reference: Option<&str>) -> Result<PushTarget, CoreError> {
+/// Resolves the single destination used by both `pushPreview` and `push`.
+///
+/// `choice` only matters for a divergent upstream. Keeping the preview and the push
+/// on this one function is what lets a reviewed push compare the exact remote
+/// branch, tracking OID and lease the user was shown.
+fn resolve_push_target(
+    root: &str,
+    reference: Option<&str>,
+    choice: Option<PushTargetChoiceRequest>,
+) -> Result<PushTarget, CoreError> {
     let local_branch = match reference {
         Some(reference) => local_branch_name(&validated_reference(Some(reference))?)?,
         None => current_branch(root)?,
@@ -6636,13 +6618,20 @@ fn resolve_push_target(root: &str, reference: Option<&str>) -> Result<PushTarget
         .as_ref()
         .filter(|(upstream_remote, _)| upstream_remote == &remote)
         .map(|(_, branch)| branch.clone());
-    let (target_kind, remote_branch) = match upstream_branch {
+    let (target_kind, remote_branch, divergent_upstream_branch) = match upstream_branch {
         // Issue #1272: a divergent upstream means pushing would update a different
-        // branch. It is never the implicit destination; only an explicit confirmed
-        // choice may publish to the same-named remote branch.
-        Some(branch) if branch != local_branch => (PushTargetKind::Divergent, local_branch.clone()),
-        Some(branch) => (PushTargetKind::Tracking, branch),
-        None => (PushTargetKind::Publish, local_branch.clone()),
+        // branch, so it is never the implicit destination. The same-named branch is
+        // reported while the choice is pending only so a client can describe it;
+        // `push` refuses to use it until a choice is confirmed.
+        Some(branch) if branch != local_branch => {
+            let remote_branch = match choice {
+                Some(PushTargetChoiceRequest::Upstream) => branch.clone(),
+                Some(PushTargetChoiceRequest::Publish) | None => local_branch.clone(),
+            };
+            (PushTargetKind::Divergent, remote_branch, Some(branch))
+        }
+        Some(branch) => (PushTargetKind::Tracking, branch, None),
+        None => (PushTargetKind::Publish, local_branch.clone(), None),
     };
     let target_reference = format!("refs/remotes/{remote}/{remote_branch}");
     let comparison_reference = if reference_exists(root, &target_reference)? {
@@ -6658,8 +6647,60 @@ fn resolve_push_target(root: &str, reference: Option<&str>) -> Result<PushTarget
         target_kind,
         creates_remote_branch: comparison_reference.is_none(),
         upstream,
+        divergent_upstream_branch,
         comparison_reference,
     })
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// A branch whose upstream has a different name and therefore needs the user's
+/// choice before anything is pushed.
+pub struct DivergentPushDestination {
+    /// Short name of the local branch being pushed.
+    pub local_branch: String,
+    /// Remote that both choices target; the upstream lives on it.
+    pub remote: String,
+    /// Upstream short name such as `origin/release`.
+    pub upstream: String,
+    /// Branch name of the upstream on `remote`, which may itself contain slashes.
+    pub upstream_branch: String,
+}
+
+impl DivergentPushDestination {
+    /// Remote branch that a confirmed `choice` updates.
+    pub(crate) fn remote_branch_for(&self, choice: PushTargetChoiceRequest) -> &str {
+        match choice {
+            PushTargetChoiceRequest::Publish => &self.local_branch,
+            PushTargetChoiceRequest::Upstream => &self.upstream_branch,
+        }
+    }
+}
+
+/// Reports whether pushing `reference` needs a destination choice, using the same
+/// resolution as `push` so a plan can ask before it commits anything.
+pub(crate) fn divergent_push_destination(
+    root: &str,
+    reference: &str,
+) -> Result<Option<DivergentPushDestination>, CoreError> {
+    let target = resolve_push_target(root, Some(reference), None)?;
+    Ok(
+        match (
+            target.target_kind,
+            target.upstream,
+            target.divergent_upstream_branch,
+        ) {
+            (PushTargetKind::Divergent, Some(upstream), Some(upstream_branch)) => {
+                Some(DivergentPushDestination {
+                    local_branch: target.local_branch,
+                    remote: target.remote,
+                    upstream,
+                    upstream_branch,
+                })
+            }
+            _ => None,
+        },
+    )
 }
 
 /// Push destination relationship, mirroring [`GitPushTargetKind`] inside Core.

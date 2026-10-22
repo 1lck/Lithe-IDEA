@@ -4612,6 +4612,8 @@ const catalogs = {
     "git.pushDialog.publishSameName": "Publish to {remote}/{branch}",
     "git.pushDialog.pushToUpstream": "Push to {branch}",
     "git.pushDialog.chooseTargetTitle": "Choose the push destination",
+    "git.pushDialog.chooseTargetDescription":
+      "These branches track a branch with a different name. Choose where each push goes; nothing is committed until you confirm.",
     "git.pushDialog.upstreamConfigurationFailed":
       "Push succeeded, but the branch upstream could not be configured.",
     "git.pushDialog.pushTags": "Push tags:",
@@ -9328,6 +9330,8 @@ const catalogs = {
     "git.pushDialog.publishSameName": "发布到 {remote}/{branch}",
     "git.pushDialog.pushToUpstream": "推送到 {branch}",
     "git.pushDialog.chooseTargetTitle": "选择推送目标",
+    "git.pushDialog.chooseTargetDescription":
+      "这些分支跟踪的是名称不同的远端分支。请为每个推送选择目标，确认之前不会写入任何提交。",
     "git.pushDialog.upstreamConfigurationFailed": "推送已成功，但无法配置分支上游。",
     "git.pushDialog.pushTags": "推送标签：",
     "git.pushDialog.tagsAll": "所有",

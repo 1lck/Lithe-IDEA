@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ArrowRightIcon as ArrowRight,
   CaretDownIcon as CaretDown,
@@ -117,29 +117,55 @@ function GitPushDialog({
   const [pushError, setPushError] = useState<string | null>(null);
   // Only set when the user confirms a divergent destination; routine pushes stay implicit.
   const [pushTarget, setPushTarget] = useState<GitPushTargetChoice | null>(null);
+  // The remote branch the first preview of the current choice showed. A later preview
+  // that resolves elsewhere means the tracking configuration moved under the choice.
+  const confirmedDestination = useRef<{ remote: string; remoteBranch: string } | null>(null);
+  const previewSequence = useRef(0);
 
   const loadPreview = useCallback(async () => {
+    const sequence = ++previewSequence.current;
     setLoadState("loading");
     setPreviewError(null);
     setPushError(null);
-    // A refreshed preview invalidates any earlier destination confirmation.
-    setPushTarget(null);
     try {
+      // The preview is requested with the chosen destination, so the commits, remote
+      // branch and lease shown are exactly what the push will be checked against.
       const nextPreview = await getGitPushPreview(
         request.repoPath,
         request.reference,
         pushTags ? tagScope : "none",
+        pushTarget ?? undefined,
       );
+      if (sequence !== previewSequence.current) return;
+      if (pushTarget) {
+        const confirmed = confirmedDestination.current;
+        if (!confirmed) {
+          confirmedDestination.current = {
+            remote: nextPreview.remote,
+            remoteBranch: nextPreview.remoteBranch,
+          };
+        } else if (
+          confirmed.remote !== nextPreview.remote ||
+          confirmed.remoteBranch !== nextPreview.remoteBranch
+        ) {
+          // Do not carry the confirmation over to a branch the user never saw; clearing
+          // the choice reloads the preview and asks again.
+          confirmedDestination.current = null;
+          setPushTarget(null);
+          return;
+        }
+      }
       setPreview(nextPreview);
       setSelectedCommitHash(nextPreview.commits[0]?.hash ?? null);
       setLoadState("ready");
     } catch (error) {
+      if (sequence !== previewSequence.current) return;
       setPreview(null);
       setSelectedCommitHash(null);
       setPreviewError(error instanceof Error ? error.message : String(error));
       setLoadState("failed");
     }
-  }, [pushTags, request.reference, request.repoPath, tagScope]);
+  }, [pushTags, pushTarget, request.reference, request.repoPath, tagScope]);
 
   useEffect(() => {
     void loadPreview();
@@ -175,10 +201,18 @@ function GitPushDialog({
     () => preview?.commits.find((commit) => commit.hash === selectedCommitHash) ?? null,
     [preview?.commits, selectedCommitHash],
   );
-  const canPush = Boolean(preview && (preview.commits.length > 0 || preview.tags.length > 0));
+  // A preview that is still reloading describes the previous choice, so it cannot be pushed.
+  const canPush = Boolean(
+    loadState === "ready" && preview && (preview.commits.length > 0 || preview.tags.length > 0),
+  );
   // A divergent destination cannot be pushed until the user picks one of the
   // two explicit options, so the button stays disabled rather than failing late.
   const needsTargetChoice = preview?.targetKind === "divergent" && !pushTarget;
+  const chooseTarget = (choice: GitPushTargetChoice) => {
+    if (choice === pushTarget || isPushing) return;
+    confirmedDestination.current = null;
+    setPushTarget(choice);
+  };
   const tagOptions = [
     { value: "all", label: t("git.pushDialog.tagsAll") },
     { value: "reachable", label: t("git.pushDialog.tagsReachable") },
@@ -300,7 +334,7 @@ function GitPushDialog({
                           variant={pushTarget === "publish" ? "accent" : "default"}
                           disabled={isPushing}
                           data-testid="git-push-target-publish"
-                          onClick={() => setPushTarget("publish")}
+                          onClick={() => chooseTarget("publish")}
                         >
                           {t("git.pushDialog.publishSameName", {
                             remote: preview.remote,
@@ -312,7 +346,7 @@ function GitPushDialog({
                           variant={pushTarget === "upstream" ? "accent" : "default"}
                           disabled={isPushing}
                           data-testid="git-push-target-upstream"
-                          onClick={() => setPushTarget("upstream")}
+                          onClick={() => chooseTarget("upstream")}
                         >
                           {t("git.pushDialog.pushToUpstream", {
                             branch: preview.upstream ?? "",
