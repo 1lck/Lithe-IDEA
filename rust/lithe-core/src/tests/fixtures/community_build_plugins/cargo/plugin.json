@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 2,
+  "id": "io.github.lithe-idea.cargo-build",
+  "displayName": "Cargo",
+  "version": "0.1.0",
+  "pluginAPIVersion": 3,
+  "requires": { "buildProviders": 1, "buildSystems": 1, "serverProcess": 1 },
+  "vendor": { "id": "io.github.lithe-idea", "displayName": "Lithe Community", "signatureRequirement": "none" },
+  "permissions": ["languageServer.launch", "process.build"],
+  "activationEvents": ["onBuildSystem:cargo"],
+  "languages": [],
+  "buildSystems": [{
+    "id": "cargo",
+    "displayName": "Cargo",
+    "detection": { "markers": ["Cargo.toml"], "nesting": "outermost" },
+    "invocation": {
+      "executables": [{ "kind": "command", "command": "cargo" }],
+      "globalArguments": ["--color", "never"],
+      "version": { "arguments": ["--version"], "pattern": "cargo (\\d+\\.\\d+\\.\\d+)" },
+      "minimumVersion": "1.70"
+    },
+    "provider": {
+      "launch": { "kind": "runtime", "tool": "node", "minimumVersion": "20.3", "entry": "backend/main.mjs" },
+      "executesProjectCode": false,
+      "mayUseNetwork": true
+    },
+    "options": [
+      { "id": "release", "displayName": "Release Profile", "kind": "boolean", "arguments": ["--release"] },
+      { "id": "features", "displayName": "Features", "kind": "multiSelect", "choicesFromModel": true, "presentation": "tree", "arguments": ["--features", "${value}"] },
+      { "id": "offline", "displayName": "Offline", "kind": "boolean", "arguments": ["--offline"] }
+    ],
+    "model": { "source": "provider" },
+    "tasks": [
+      {
+        "id": "build", "displayName": "Build", "group": "build", "scopes": ["workspace", "project"],
+        "arguments": ["build", "--message-format=short", { "value": "--workspace", "when": "noProjectSelected" }, { "value": "--package", "when": "projectSelected" }, { "value": "${project.name}", "when": "projectSelected" }, "${optionArguments}"]
+      },
+      {
+        "id": "check", "displayName": "Check", "group": "verification", "scopes": ["workspace", "project"],
+        "arguments": ["check", "--message-format=short", { "value": "--workspace", "when": "noProjectSelected" }, { "value": "--package", "when": "projectSelected" }, { "value": "${project.name}", "when": "projectSelected" }, "${optionArguments}"]
+      },
+      { "id": "clean", "displayName": "Clean Workspace", "group": "build", "scopes": ["workspace"], "arguments": ["clean"] },
+      {
+        "id": "run-binary", "displayName": "Run Binary", "group": "run", "execution": "application", "scopes": ["target"], "targetTags": ["application"],
+        "arguments": ["run", "--message-format=short", "--package", "${project.name}", "--bin", "${target.name}", "${optionArguments}", "--", "${userArguments}"]
+      },
+      {
+        "id": "run-example", "displayName": "Run Example", "group": "run", "execution": "application", "scopes": ["target"], "targetTags": ["example"],
+        "arguments": ["run", "--message-format=short", "--package", "${project.name}", "--example", "${target.name}", "${optionArguments}", "--", "${userArguments}"]
+      }
+    ],
+    "test": {
+      "scopes": ["workspace", "project", "target"], "targetTags": ["test"], "filters": ["case"],
+      "arguments": ["test", "--message-format=short", { "value": "--workspace", "when": "noProjectSelected" }, { "value": "--package", "when": "projectSelected" }, { "value": "${project.name}", "when": "projectSelected" }, { "value": "--test", "when": "targetSelected" }, { "value": "${target.name}", "when": "targetSelected" }, "${optionArguments}", { "value": "--", "when": "caseSelected" }, { "value": "${test.case}", "when": "caseSelected" }, { "value": "--exact", "when": "caseSelected" }]
+    },
+    "diagnostics": {
+      "decoder": "lineMatcher",
+      "patterns": [{ "regex": "^([^\\s:][^:]*\\.rs):(\\d+):(\\d+): (error|warning)(?:\\[\\w+\\])?: (.+)$", "file": 1, "line": 2, "column": 3, "severity": 4, "message": 5 }]
+    },
+    "sync": { "watch": ["Cargo.toml", "Cargo.lock", ".cargo/config", ".cargo/config.toml", "rust-toolchain", "rust-toolchain.toml"] },
+    "layout": { "excluded": ["target"] }
+  }]
+}

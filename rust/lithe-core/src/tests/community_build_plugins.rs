@@ -1,9 +1,11 @@
-//! The Maven and Gradle community build plugins, checked against what real
-//! Maven and Gradle wrote for them.
+//! Community build plugins, checked against the manifests and models of
+//! their independently maintained plugin repositories.
 //!
 //! `fixtures/community_build_plugins/` holds each plugin's `plugin.json` and
 //! the documents its own integration test captured from a real build:
 //!
+//! - Cargo: `github.com/Lithe-IDEA/lithe-plugin-cargo` at 7dfdd2b; its
+//!   integration golden is checked against a real two-package workspace;
 //! - Maven: `github.com/Lithe-IDEA/lithe-plugin-maven`, `plugin.json` at
 //!   944552c, documents captured at ef40103 with Maven 3.10.0 on
 //!   `test/fixtures/reactor`;
@@ -55,6 +57,158 @@ fn maven() -> Value {
 
 fn gradle() -> Value {
     serde_json::from_str(GRADLE_MANIFEST).expect("Gradle plugin.json is JSON")
+}
+
+fn cargo_plugin() -> Value {
+    serde_json::from_str(plugin_file!("cargo", "plugin.json")).expect("Cargo plugin.json is JSON")
+}
+
+/// The distributable package must pass the same compatibility and install
+/// review gates as a third-party archive, including its Node provider.
+#[test]
+fn cargo_plugin_validates_and_requires_a_provider_host() {
+    let manifest = cargo_plugin();
+    let capabilities = json!({"buildSystems": [1], "buildProviders": [1], "serverProcess": [1]});
+    let validated =
+        validate_command(json!({"manifest": manifest, "hostCapabilities": capabilities})).unwrap();
+    assert_eq!(validated["status"], "ok", "{validated}");
+    let review = install_review_command(
+        json!({"manifest": cargo_plugin(), "hostCapabilities": capabilities}),
+    )
+    .unwrap();
+    assert_eq!(review["status"], "ok", "{review}");
+    let programs = review["review"]["programs"].as_array().unwrap();
+    assert!(programs
+        .iter()
+        .any(|item| item["kind"] == "runtimeBuildProvider"));
+    assert!(programs.iter().any(|item| item["kind"] == "buildSystem"));
+    let unsupported = validate_command(json!({"manifest": cargo_plugin(), "hostCapabilities": {"buildSystems": [1], "serverProcess": [1]}})).unwrap();
+    assert_eq!(unsupported["error"]["code"], "plugin.api.unsupported");
+}
+
+#[test]
+fn cargo_plugin_detects_one_workspace_and_decodes_the_real_metadata_model() {
+    let workspace = Workspace::new("cargo-plugin-workspace");
+    workspace
+        .write("Cargo.toml", "[workspace]\nmembers = [\"app\", \"util\"]\n")
+        .write(
+            "app/Cargo.toml",
+            "[package]\nname = \"cargo-plugin-demo\"\nversion = \"0.1.0\"\n",
+        )
+        .write(
+            "util/Cargo.toml",
+            "[package]\nname = \"cargo-plugin-util\"\nversion = \"0.1.0\"\n",
+        );
+    assert_eq!(detected_ids(&workspace, cargo_plugin()), ["cargo:."]);
+    let model: Value = serde_json::from_str(plugin_file!("cargo", "model.json")).unwrap();
+    let mut result = model;
+    result["format"] = json!("litheBuildModel");
+    result["version"] = json!(1);
+    let decoded = ok(
+        build_decode_model_command,
+        cargo_plugin(),
+        "cargo",
+        json!({
+            "workspaceRoot": workspace.root(), "root": ".", "result": result
+        }),
+    );
+    assert_eq!(decoded["model"]["projects"].as_array().unwrap().len(), 2);
+    assert_eq!(decoded["model"]["targets"].as_array().unwrap().len(), 4);
+    assert_eq!(
+        decoded["model"]["optionValues"]["features"],
+        json!(["cargo-plugin-demo/greeting"])
+    );
+}
+
+/// Release/features belong after each Cargo subcommand. Clean intentionally
+/// receives none of those options; exact test selection stays after `--`.
+#[test]
+fn cargo_plugin_task_and_test_plans_keep_package_target_and_option_identity() {
+    let project = json!({"path": "app", "name": "cargo-plugin-demo"});
+    let options =
+        json!({"release": true, "offline": true, "features": ["cargo-plugin-demo/greeting"]});
+    let build = ok(
+        build_task_plan_command,
+        cargo_plugin(),
+        "cargo",
+        json!({
+            "root": ".", "task": "build", "project": project, "options": options
+        }),
+    );
+    let args = arguments(&build);
+    assert_eq!(
+        &args[..6],
+        [
+            "--color",
+            "never",
+            "build",
+            "--message-format=short",
+            "--package",
+            "cargo-plugin-demo"
+        ]
+    );
+    assert!(
+        args.contains(&"--release")
+            && args.contains(&"--offline")
+            && args.contains(&"cargo-plugin-demo/greeting")
+    );
+    let clean = ok(
+        build_task_plan_command,
+        cargo_plugin(),
+        "cargo",
+        json!({"root": ".", "task": "clean", "options": options}),
+    );
+    assert_eq!(arguments(&clean), ["--color", "never", "clean"]);
+    for (task, tag, selector) in [
+        ("run-binary", "application", "--bin"),
+        ("run-example", "example", "--example"),
+    ] {
+        let run = ok(
+            build_task_plan_command,
+            cargo_plugin(),
+            "cargo",
+            json!({
+                "root": ".", "task": task, "project": project,
+                "target": {"path": "app", "name": "demo", "tags": [tag]}, "userArguments": ["hello world"]
+            }),
+        );
+        let args = arguments(&run);
+        assert!(args.windows(2).any(|pair| pair == [selector, "demo"]));
+        assert_eq!(args.last(), Some(&"hello world"));
+    }
+    let tests = ok(
+        build_test_plan_command,
+        cargo_plugin(),
+        "cargo",
+        json!({
+            "root": ".", "project": project,
+            "target": {"path": "app", "name": "smoke", "tags": ["test"]}, "case": "greeting_is_available"
+        }),
+    );
+    assert_eq!(
+        arguments(&tests),
+        [
+            "--color",
+            "never",
+            "test",
+            "--message-format=short",
+            "--package",
+            "cargo-plugin-demo",
+            "--test",
+            "smoke",
+            "--",
+            "greeting_is_available",
+            "--exact"
+        ]
+    );
+    let rejected = build_task_plan_command(
+        json!({"manifest": cargo_plugin(), "buildSystemID": "cargo", "request": {
+            "root": ".", "task": "run-binary", "project": project,
+            "target": {"path": "app", "name": "demo", "tags": ["example"]}
+        }}),
+    )
+    .unwrap();
+    assert_eq!(rejected["error"]["code"], "plugin.build.invalidSelection");
 }
 
 /// Removes its directory when dropped, so a failed assertion cleans up too.

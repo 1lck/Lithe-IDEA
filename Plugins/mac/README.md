@@ -35,6 +35,17 @@ user to uninstall them before installing the community version. Their last
 manifests live in `macos/Tests/LitheTests/Fixtures/RetiredOfficialPlugins/` for
 tests only.
 
+## Cargo community plugin
+
+[Cargo](https://github.com/Lithe-IDEA/lithe-plugin-cargo) is maintained and
+released independently, alongside the Maven and Gradle community plugins.
+It uses API 3 native build windows and a Node SDK metadata provider for
+workspace/package build, check, test, clean and binary/example runs, with
+Release/Features/Offline options. Cargo and Node are user tools.
+See the plugin repository for source, installation, tests and preview releases.
+This repository keeps only pinned manifest/model compatibility fixtures in
+`rust/lithe-core/src/tests/fixtures/community_build_plugins/cargo/`.
+
 ## Downloadable official plugins
 
 No downloadable official plugin is configured right now:

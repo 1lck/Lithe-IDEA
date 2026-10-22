@@ -1,0 +1,19 @@
+{
+  "projects": [
+    { "name": "cargo-plugin-demo", "path": "app", "properties": { "version": "0.1.0", "edition": "2021" } },
+    { "name": "cargo-plugin-util", "path": "util", "properties": { "version": "0.1.0", "edition": "2021" } }
+  ],
+  "targets": [
+    { "name": "demo", "project": "app", "path": "app", "tags": ["application"] },
+    { "name": "demo", "project": "app", "path": "app", "tags": ["example"] },
+    { "name": "smoke", "project": "app", "path": "app", "tags": ["test"] },
+    { "name": "cargo_plugin_util", "project": "util", "path": "util", "tags": ["library"] }
+  ],
+  "contentRoots": [
+    { "project": "app", "path": "app/examples", "kind": "testSource" },
+    { "project": "app", "path": "app/src", "kind": "source" },
+    { "project": "app", "path": "app/tests", "kind": "testSource" },
+    { "project": "util", "path": "util/src", "kind": "source" }
+  ],
+  "optionValues": { "features": ["cargo-plugin-demo/greeting"] }
+}

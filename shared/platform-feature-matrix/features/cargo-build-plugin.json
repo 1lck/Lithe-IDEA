@@ -1,0 +1,26 @@
+{
+  "id": "cargo-build-plugin",
+  "area": "扩展",
+  "group": "插件与主题",
+  "capability": "Cargo 社区构建插件：由 Cargo metadata 提供 workspace/package/target/features，使用原生构建窗口执行编译、检查、测试、清理和 binary/example 运行，支持 Release、Features、Offline；用户安装 Cargo 与 Node，插件独立打包且运行时只读",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "rust/lithe-core/src/tests/fixtures/community_build_plugins/cargo/plugin.json",
+      "rust/lithe-core/src/tests/fixtures/community_build_plugins/cargo/model.json",
+      "rust/lithe-core/src/tests/fixtures/community_build_plugins/cargo/README.md",
+      "rust/lithe-core/src/tests/community_build_plugins.rs",
+      ".agents/notes/implemented/feature/2026-10-22-cargo-build-plugin.md"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
+    "evidence": [
+      "shared/contracts/plugins/v1/README.md"
+    ]
+  },
+  "owner": "Plugin Platform",
+  "verification": "独立源码与预发布包由 https://github.com/Lithe-IDEA/lithe-plugin-cargo 维护；插件仓库运行 SDK 固定版本/文件 SHA-256 校验、Node 单元与包校验、LITHE_CARGO_INTEGRATION=1 的真实双包 Cargo workspace，覆盖 metadata 与 Core 共用金样、Release/Features/Offline、编译/测试、同名 binary/example、单测试筛选、编译失败、清理、后端正常退出和插件包字节不变。主仓库：cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib cargo_plugin，验证固定到插件提交的清单、安装审查、能力拒绝、识别、模型解码和参数；scripts/verify-runtime-bundle-immutability.sh。原生验收待完成：macOS 从磁盘安装预发布 ZIP、确认 Cargo/Node、重启并启用；打开插件仓库 fixture workspace，检查 Cargo 原生窗口、模型与选项，执行构建/检查/测试/运行，制造错误并跳转源码；停止运行、关闭项目与停用插件后确认无后端和 Cargo 子进程。基础版不提供依赖树、调试或逐用例图形报告；Windows 尚无 API 3 构建宿主。"
+}
