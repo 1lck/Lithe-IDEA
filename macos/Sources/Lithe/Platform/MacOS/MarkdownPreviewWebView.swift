@@ -201,6 +201,7 @@ struct MarkdownPreviewWebView: NSViewRepresentable {
 
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = context.coordinator
+        webView.uiDelegate = WebMediaCaptureDenier.shared
         webView.allowsBackForwardNavigationGestures = false
         webView.allowsMagnification = true
         webView.setValue(false, forKey: "drawsBackground")
