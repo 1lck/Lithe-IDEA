@@ -5,61 +5,6 @@ import WebKit
 
 // Note: HTML 预览作为内嵌浏览器的决策见 .agents/notes/implemented/feature/2026-10-22-html-preview-embedded-browser.md
 
-/// The devices a page asks to capture from.
-struct HTMLPreviewMediaDevices: OptionSet, Equatable {
-    let rawValue: Int
-
-    static let camera = HTMLPreviewMediaDevices(rawValue: 1 << 0)
-    static let microphone = HTMLPreviewMediaDevices(rawValue: 1 << 1)
-
-    init(rawValue: Int) {
-        self.rawValue = rawValue
-    }
-
-    /// A capture type WebKit adds later asks for nothing this preview knows, so it gets no device.
-    init(_ type: WKMediaCaptureType) {
-        switch type {
-        case .camera: self = .camera
-        case .microphone: self = .microphone
-        case .cameraAndMicrophone: self = [.camera, .microphone]
-        @unknown default: self = []
-        }
-    }
-}
-
-/// Whether the app may ask the system for a device at all.
-///
-/// macOS ends a process that touches the camera or microphone without the
-/// matching usage description in its Info.plist, so a request is only put to the
-/// user when the description is there. WebKit reads the same entries: without
-/// them `navigator.mediaDevices` is not even defined, which makes this a second
-/// line of defence for scripts that reach the delegate another way.
-enum HTMLPreviewMediaAccess {
-    enum Outcome: Equatable {
-        /// The user decides.
-        case ask
-        /// The app cannot offer these devices. An empty set means the request named none.
-        case unavailable(missing: HTMLPreviewMediaDevices)
-    }
-
-    static let cameraUsageKey = "NSCameraUsageDescription"
-    static let microphoneUsageKey = "NSMicrophoneUsageDescription"
-
-    static func outcome(for devices: HTMLPreviewMediaDevices, usageDescriptions info: [String: Any]?) -> Outcome {
-        guard !devices.isEmpty else { return .unavailable(missing: []) }
-        var missing: HTMLPreviewMediaDevices = []
-        let required: [(device: HTMLPreviewMediaDevices, key: String)] = [
-            (.camera, cameraUsageKey),
-            (.microphone, microphoneUsageKey),
-        ]
-        for (device, key) in required where devices.contains(device) {
-            let description = (info?[key] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            if description.isEmpty { missing.insert(device) }
-        }
-        return missing.isEmpty ? .ask : .unavailable(missing: missing)
-    }
-}
-
 /// Whether the page is capturing from a device, mirroring `WKMediaCaptureState`.
 enum HTMLPreviewCaptureState: Equatable {
     case inactive
@@ -186,35 +131,35 @@ extension HTMLPreviewBrowserController {
         decisionHandler: @escaping @MainActor (WKPermissionDecision) -> Void
     ) {
         requestMediaCapture(
-            devices: HTMLPreviewMediaDevices(type),
+            devices: WebMediaDevices(type),
             source: sourceLabel(for: frame.request.url),
             decide: decisionHandler
         )
     }
 
     /// The whole decision, free of the WebKit types a test cannot build. Every
-    /// request ends in exactly one answer, and nothing is remembered: the next
-    /// request asks again.
+    /// request that reaches here ends in exactly one answer; Lithe keeps no record
+    /// of earlier answers, so each of them asks.
     func requestMediaCapture(
-        devices: HTMLPreviewMediaDevices,
+        devices: WebMediaDevices,
         source: String,
         decide: @escaping @MainActor (WKPermissionDecision) -> Void
     ) {
-        switch HTMLPreviewMediaAccess.outcome(for: devices, usageDescriptions: mediaUsageDescriptions()) {
-        case .ask:
-            dialogs.confirmMediaCapture(devices: devices, source: source, in: webView.window) { granted in
-                decide(granted ? .grant : .deny)
-            }
-        case let .unavailable(missing):
-            decide(.deny)
-            guard !missing.isEmpty else { return }
-            let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "Lithe"
-            dialogs.presentAlert(
-                message: String(localized: "Lithe can’t give pages access to the camera or microphone in this version."),
-                source: appName,
-                in: webView.window,
-                completion: {}
-            )
-        }
+        let outcome = WebMediaCapture.decide(
+            devices: devices,
+            requester: .page(name: source),
+            in: webView.window,
+            usageDescriptions: mediaUsageDescriptions(),
+            confirmer: dialogs,
+            completion: decide
+        )
+        guard case let .unavailable(missing) = outcome, !missing.isEmpty else { return }
+        let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "Lithe"
+        dialogs.presentAlert(
+            message: String(localized: "Lithe can’t give pages access to the camera or microphone in this version."),
+            source: appName,
+            in: webView.window,
+            completion: {}
+        )
     }
 }

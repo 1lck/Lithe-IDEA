@@ -6,7 +6,7 @@ import AppKit
 /// implements them, which is why `alert`, `confirm`, `prompt` and file inputs
 /// silently did nothing in the preview. Each completion runs exactly once.
 @MainActor
-protocol HTMLPreviewDialogPresenting: AnyObject {
+protocol HTMLPreviewDialogPresenting: WebMediaCaptureConfirming {
     func presentAlert(message: String, source: String, in window: NSWindow?, completion: @escaping () -> Void)
     func presentConfirm(message: String, source: String, in window: NSWindow?, completion: @escaping (Bool) -> Void)
     func presentPrompt(
@@ -23,14 +23,6 @@ protocol HTMLPreviewDialogPresenting: AnyObject {
         completion: @escaping ([URL]?) -> Void
     )
     func chooseDownloadDestination(suggestedFilename: String, in window: NSWindow?, completion: @escaping (URL?) -> Void)
-    /// Asks whether the page may use the camera and/or microphone. Every request
-    /// is asked again; nothing is remembered.
-    func confirmMediaCapture(
-        devices: HTMLPreviewMediaDevices,
-        source: String,
-        in window: NSWindow?,
-        completion: @escaping (Bool) -> Void
-    )
     /// Shows the print panel for `operation` as a sheet on `window`.
     func runPrintOperation(_ operation: NSPrintOperation, in window: NSWindow?)
 }
@@ -39,6 +31,8 @@ protocol HTMLPreviewDialogPresenting: AnyObject {
 /// blocked until the sheet closes, matching how browsers treat `alert`.
 @MainActor
 final class HTMLPreviewAppKitDialogs: HTMLPreviewDialogPresenting {
+    private let mediaCapture = AppKitWebMediaCaptureConfirmer()
+
     func presentAlert(message: String, source: String, in window: NSWindow?, completion: @escaping () -> Void) {
         guard let window else { return completion() }
         let alert = makeAlert(message: message, source: source)
@@ -102,35 +96,18 @@ final class HTMLPreviewAppKitDialogs: HTMLPreviewDialogPresenting {
         }
     }
 
-    /// "Don’t Allow" comes first, so it is what Return chooses; the page can only
-    /// get a device by an explicit click on "Allow". Nothing is remembered.
     func confirmMediaCapture(
-        devices: HTMLPreviewMediaDevices,
-        source: String,
+        devices: WebMediaDevices,
+        requester: WebMediaCaptureRequester,
         in window: NSWindow?,
         completion: @escaping (Bool) -> Void
     ) {
-        guard let window else { return completion(false) }
-        let alert = NSAlert()
-        alert.messageText = String(format: Self.mediaCaptureQuestion(for: devices), source)
-        alert.informativeText = String(localized: "You can mute or stop the device from the address bar while the page is using it.")
-        alert.addButton(withTitle: String(localized: "Don’t Allow"))
-        alert.addButton(withTitle: String(localized: "Allow"))
-        alert.beginSheetModal(for: window) { completion($0 == .alertSecondButtonReturn) }
+        mediaCapture.confirmMediaCapture(devices: devices, requester: requester, in: window, completion: completion)
     }
 
     func runPrintOperation(_ operation: NSPrintOperation, in window: NSWindow?) {
         guard let window else { return }
         operation.runModal(for: window, delegate: nil, didRun: nil, contextInfo: nil)
-    }
-
-    /// The format of the alert title, with the page's name as its only argument.
-    static func mediaCaptureQuestion(for devices: HTMLPreviewMediaDevices) -> String {
-        switch (devices.contains(.camera), devices.contains(.microphone)) {
-        case (true, true): String(localized: "“%@” wants to use your camera and microphone.")
-        case (true, false): String(localized: "“%@” wants to use your camera.")
-        default: String(localized: "“%@” wants to use your microphone.")
-        }
     }
 
     private func makeAlert(message: String, source: String) -> NSAlert {

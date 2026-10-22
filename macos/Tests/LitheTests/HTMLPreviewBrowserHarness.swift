@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import Foundation
+import Testing
 import WebKit
 @testable import Lithe
 
@@ -15,7 +16,7 @@ final class RecordingDialogs: ObservableObject, HTMLPreviewDialogPresenting {
     var promptAnswer: String? = "Ada"
     @Published var downloadNames: [String] = []
     var downloadDestination: URL?
-    var mediaCaptureRequests: [(devices: HTMLPreviewMediaDevices, source: String)] = []
+    var mediaCaptureRequests: [(devices: WebMediaDevices, requester: WebMediaCaptureRequester)] = []
     var mediaCaptureAnswer = true
     var printOperations: [NSPrintOperation] = []
 
@@ -56,18 +57,52 @@ final class RecordingDialogs: ObservableObject, HTMLPreviewDialogPresenting {
     }
 
     func confirmMediaCapture(
-        devices: HTMLPreviewMediaDevices,
-        source: String,
+        devices: WebMediaDevices,
+        requester: WebMediaCaptureRequester,
         in window: NSWindow?,
         completion: @escaping (Bool) -> Void
     ) {
-        mediaCaptureRequests.append((devices, source))
+        mediaCaptureRequests.append((devices, requester))
         completion(mediaCaptureAnswer)
     }
 
     /// Print operations are recorded, never run: a print panel would wait for a person.
     func runPrintOperation(_ operation: NSPrintOperation, in window: NSWindow?) {
         printOperations.append(operation)
+    }
+}
+
+/// Every end-to-end capture test, wherever it lives, runs one at a time: two pages
+/// that capture side by side in one process mute each other.
+@MainActor
+@Suite("Mock capture", .serialized)
+struct MockCaptureTests {}
+
+/// WebKit's mock cameras and microphones: nothing touches real hardware or asks the system for access.
+enum MockCapture {
+    /// Info.plist entries of an app that may use both devices.
+    static var usageDescriptions: [String: Any] {
+        [
+            WebMediaAccess.cameraUsageKey: "Lithe shows the camera in a page you preview.",
+            WebMediaAccess.microphoneUsageKey: "Lithe records sound for a page you preview."
+        ]
+    }
+
+    /// The private preferences that give a page mock devices; absent on a WebKit that dropped them.
+    private static let preferences: [(selector: String, key: String, value: Bool)] = [
+        ("_setMediaDevicesEnabled:", "mediaDevicesEnabled", true),
+        ("_setMockCaptureDevicesEnabled:", "mockCaptureDevicesEnabled", true),
+        ("_setGetUserMediaRequiresFocus:", "getUserMediaRequiresFocus", false)
+    ]
+
+    static let isAvailable = preferences.allSatisfy {
+        class_respondsToSelector(WKPreferences.self, NSSelectorFromString($0.selector))
+    }
+
+    static func configure(_ configuration: WKWebViewConfiguration) {
+        for preference in preferences {
+            configuration.preferences.setValue(preference.value, forKey: preference.key)
+        }
     }
 }
 
@@ -90,6 +125,38 @@ final class WaitGate: @unchecked Sendable {
         observation?.cancel()
         observation = nil
         pending.resume(returning: value)
+    }
+}
+
+/// The changes of a web view that a test waits on.
+@MainActor
+func webViewChanges(_ webView: WKWebView) -> [AnyPublisher<Void, Never>] {
+    [
+        webView.publisher(for: \.title).map { _ in () }.eraseToAnyPublisher(),
+        webView.publisher(for: \.url).map { _ in () }.eraseToAnyPublisher(),
+        webView.publisher(for: \.isLoading).map { _ in () }.eraseToAnyPublisher(),
+        webView.publisher(for: \.cameraCaptureState).map { _ in () }.eraseToAnyPublisher(),
+        webView.publisher(for: \.microphoneCaptureState).map { _ in () }.eraseToAnyPublisher()
+    ]
+}
+
+/// Waits for `isSatisfied`, re-checking after every change `changes` publishes.
+/// Returns false at the deadline instead of hanging.
+@MainActor
+func waitForChanges(
+    _ changes: [AnyPublisher<Void, Never>],
+    timeout: DispatchTimeInterval = .seconds(15),
+    until isSatisfied: @escaping @MainActor () -> Bool
+) async -> Bool {
+    if isSatisfied() { return true }
+    return await withCheckedContinuation { continuation in
+        let gate = WaitGate(continuation)
+        gate.hold(Publishers.MergeMany(changes).sink { _ in
+            Task { @MainActor in
+                if isSatisfied() { gate.finish(true) }
+            }
+        })
+        DispatchQueue.main.asyncAfter(deadline: .now() + timeout) { gate.finish(false) }
     }
 }
 
@@ -140,28 +207,18 @@ final class BrowserHarness {
     /// controller or its find and capture models publish. Returns false at the
     /// deadline instead of hanging.
     func wait(timeout: DispatchTimeInterval = .seconds(15), until isSatisfied: @escaping @MainActor () -> Bool) async -> Bool {
-        if isSatisfied() { return true }
-        let webView = webView
         let controller = controller
         let dialogs = dialogs
-        return await withCheckedContinuation { continuation in
-            let gate = WaitGate(continuation)
-            let changes = Publishers.MergeMany(
-                webView.publisher(for: \.title).map { _ in () }.eraseToAnyPublisher(),
-                webView.publisher(for: \.url).map { _ in () }.eraseToAnyPublisher(),
-                webView.publisher(for: \.isLoading).map { _ in () }.eraseToAnyPublisher(),
+        return await waitForChanges(
+            webViewChanges(webView) + [
                 controller.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
                 controller.find.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
                 controller.capture.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
                 dialogs.objectWillChange.map { _ in () }.eraseToAnyPublisher()
-            )
-            gate.hold(changes.sink { _ in
-                Task { @MainActor in
-                    if isSatisfied() { gate.finish(true) }
-                }
-            })
-            DispatchQueue.main.asyncAfter(deadline: .now() + timeout) { gate.finish(false) }
-        }
+            ],
+            timeout: timeout,
+            until: isSatisfied
+        )
     }
 
     func waitForTitle(_ title: String) async -> Bool {

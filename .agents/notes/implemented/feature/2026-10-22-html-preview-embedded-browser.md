@@ -112,26 +112,43 @@ Swift 里没有公开 `WKMenuItemIdentifier…` 这些常量，所以 `HTMLPrevi
 
 ### 摄像头和麦克风
 
-页面调用 `getUserMedia` 时，`WKUIDelegate` 的 `requestMediaCapturePermissionFor` 把请求交给 `HTMLPreviewBrowserController.requestMediaCapture`：
+**原则：谁都没有默认权限。** Lithe 里每个能显示网页的地方都必须回答 `requestMediaCapturePermissionFor`：没人回答时 WebKit 会退回它自己的提示框，而不是拒绝。回答只有两种方式，而且把请求变成授权的只有一个地方，`WebMediaCapture.decide`（`WebMediaCapture.swift`）：
 
-- 弹出 `NSAlert` sheet，标题写明是哪个页面（本地文件显示文件名，网页显示域名）想用摄像头、麦克风还是两者。按钮顺序是“Don’t Allow”（默认，Return 选它）、“Allow”：只有明确点“Allow”才授权。弹窗没有给 Esc 单独映射按钮，要拒绝就点“Don’t Allow”或按 Return。窗口缺失时按拒绝处理，回调恰好执行一次。
-- **每次请求都重新询问，什么也不记**：没有“记住这个页面”，没有任何持久化的授权。
+- **询问**（HTML 预览、插件页）：`decide` 先检查请求点名了设备、应用有对应的 Info.plist 用途说明，都满足才把问题交给 `WebMediaCaptureConfirming`。使用者明确点“Allow”才得到 `.grant`；点“Don’t Allow”、没有窗口可弹、缺用途说明、没有点名设备，一律 `.deny`，回调恰好执行一次。每个到达委托的请求都重新询问，Lithe 自己什么也不记。
+- **不问直接拒绝**（Lithe 自己的页面：Markdown 预览、Monaco 编辑器和 diff、发行说明）：它们把 `WebMediaCaptureDenier.shared` 设为 `uiDelegate`，没有任何理由使用设备。
+- `WebMediaCaptureCoverageTests` 扫描 `macos/Sources`：每个创建 `WKWebView`（或其子类）的文件都要登记由谁回答，并且 `.grant` 只能出现在 `WebMediaCapture.swift`。新增网页入口时在这个测试里登记，不要绕过。
+
+HTML 预览里，`WKUIDelegate` 的 `requestMediaCapturePermissionFor` 把请求交给 `HTMLPreviewBrowserController.requestMediaCapture`，它再调用 `decide`：
+
+- 弹出 `NSAlert` sheet（`AppKitWebMediaCaptureConfirmer`），标题写明是哪个页面（本地文件显示文件名，网页显示域名）想用摄像头、麦克风还是两者。按钮顺序是“Don’t Allow”（默认，Return 选它）、“Allow”：只有明确点“Allow”才授权。弹窗没有给 Esc 单独映射按钮，要拒绝就点“Don’t Allow”或按 Return。
 - 地理位置和剪贴板读取不做自定义弹窗，使用 WebKit 自带的确认；这次没有单独实测它们在预览里的表现。
-- 请求的设备类型转成 `HTMLPreviewMediaDevices`；`WKMediaCaptureType` 里将来新增的类型视为“没有任何已知设备”，直接拒绝。屏幕共享不提供：私有偏好 `screenCaptureEnabled` 设为 `false`（设置前先检查 `_setScreenCaptureEnabled:`），页面看不到 `getDisplayMedia`。
+- 请求的设备类型转成 `WebMediaDevices`；`WKMediaCaptureType` 里将来新增的类型视为“没有任何已知设备”，直接拒绝。屏幕共享不提供：私有偏好 `screenCaptureEnabled` 设为 `false`（设置前先检查 `_setScreenCaptureEnabled:`），页面看不到 `getDisplayMedia`。
 - WebKit 默认要求页面处于焦点才处理 `getUserMedia`（偏好 `getUserMediaRequiresFocus`），否则请求静默挂起，没有任何提示。产品里保持 WebKit 的默认值，所以使用者正在编辑器里输入、预览刚重新加载时，页面一加载就发起的请求要等到使用者点一下预览才会弹出确认；只有测试会关掉这个要求。
 
 地址栏右侧的“设备使用中”指示器（`HTMLPreviewCaptureIndicator`）只在有设备被使用时出现：红色的摄像头 / 麦克风图标，静音后变灰；点击打开菜单，可以对每个设备“Mute / Unmute”或“Stop”。它不自己记状态：`HTMLPreviewCaptureModel` 用 KVO 观察 `WKWebView.cameraCaptureState` / `microphoneCaptureState`，操作经 `setCameraCaptureState` / `setMicrophoneCaptureState` 回到 web view，所以页面自己停止、系统静音或另一个页面抢走设备时，指示器也跟着变。
 
 停掉最后一个设备后，WebKit 约 3 秒（实测 3000 毫秒）才把状态降为 none，页面里的轨道则马上结束，所以点“Stop”后指示器还会停留约 3 秒；还有别的设备在用时，被停掉的设备会立刻从指示器上消失。不要为了“立刻消失”乐观地隐藏它：这 3 秒内页面若又开始采集，WebKit 的状态一直是 active、不会再发通知，乐观隐藏会在设备正在被使用时藏起指示器，宁可多显示 3 秒也不能少显示。
 
-**为什么现在是休眠的**：WebKit 是否向页面提供 `navigator.mediaDevices`，默认取决于宿主应用的 Info.plist 有没有摄像头 / 麦克风用途说明。当前构建没有 `NSCameraUsageDescription` 和 `NSMicrophoneUsageDescription`，在本机实测页面里 `navigator.mediaDevices` 是 `undefined`，页面发不出请求，也不会出现系统权限框。这是想要的安全默认：macOS 会结束一个没有用途说明却去访问摄像头 / 麦克风的进程。控制器把同一个检查再做一遍（`HTMLPreviewMediaAccess.outcome`）：请求到了委托但缺少用途说明时，直接拒绝并提示一次“此版本无法让页面使用摄像头或麦克风”，不弹授权框。生产代码不会去打开 WebKit 的私有开关 `mediaDevicesEnabled`，只有测试会。
+**插件页**（`MacPluginWebPage`）与 HTML 预览走同一个 `decide`，差别如下：
+
+- 弹窗写“插件“X”想使用你的摄像头。”，说明文字列出插件 ID。插件名是插件自己起的，所以问题明说这是插件并附上 ID；名字经 `displayText` 去掉换行、控制字符和方向覆盖等不可见字符，并截到 80 个字符，防止它改写或冒充问题本身。
+- 只响应插件自己的主框架（scheme `lithe-plugin`、host 等于插件 ID、端口 0）。页面所在视图不在窗口里（隐藏工具窗口时页面还保留着）则直接拒绝，不弹窗。使用者回答时再检查一次：问题开着的时候页面被隐藏或关闭，点“Allow”也按拒绝处理。实测 WebKit 自己就不会把没有窗口的页面发出的请求转给委托（脱离窗口时委托没有被调用，装回窗口后才询问一次并授权成功），所以隐藏中的插件页提出的请求要等工具窗口再次显示才会弹窗；上面的拒绝检查不依赖这个行为，是保险。
+- 页面使用设备期间，视图离开窗口（隐藏工具窗口）就立刻结束采集（`setCameraCaptureState(.none)`），不会在后台继续录。授权先于设备启动：使用者点“Allow”之后、WebKit 真正启动设备之前，页面可能已经离开窗口，那时还没有采集可停。所以 `MacPluginWebPage` 还用 KVO 观察 `cameraCaptureState` / `microphoneCaptureState`，任何设备在页面不在窗口里时变成非 none，就立刻停掉。
+- HTML 预览没有这一条：页面随 `HTMLPreviewView` 的 `@StateObject` 一起销毁，切到别的编辑器标签页时视图被替换，采集随之结束（读代码得出的结论，没有单独测试）；地址栏右侧的指示器也只在预览显示时可见。
+- 插件页没有应用内“设备使用中”指示器，只有系统菜单栏的绿点 / 橙点，所以弹窗里说明“在你关闭或隐藏它的窗口之前，它可以一直使用该设备”。
+
+**记住选择（没做）**：使用者接受“记住偏好”，但记住只能让弹窗变少，不能让任何请求在没有记录时默认有权限。以后做的时候：记录按“请求者（页面来源或插件 ID）加设备”存到平台存储 adapter 解析的用户目录，不能写进 app bundle；必须同时提供查看和撤销入口（设置页，归属见 `2026-10-15-macos-settings-hierarchy.md`）；记住的“允许”仍要先过 `decide` 的用途说明检查，“拒绝”优先于“允许”。没有撤销入口就不该开始存，所以这次没做。
+
+**为什么现在是休眠的**：WebKit 是否向页面提供 `navigator.mediaDevices`，默认取决于宿主应用的 Info.plist 有没有摄像头 / 麦克风用途说明。当前构建没有 `NSCameraUsageDescription` 和 `NSMicrophoneUsageDescription`，在本机实测页面里 `navigator.mediaDevices` 是 `undefined`，页面发不出请求，也不会出现系统权限框。这是想要的安全默认：macOS 会结束一个没有用途说明却去访问摄像头 / 麦克风的进程。`decide` 把同一个检查再做一遍（`WebMediaAccess.outcome`）：请求到了委托但缺少用途说明时，直接拒绝，不弹授权框；HTML 预览里还会提示一次“此版本无法让页面使用摄像头或麦克风”。生产代码不会去打开 WebKit 的私有开关 `mediaDevicesEnabled`，只有测试会。
 
 要让功能真正可用，需要在 `macos/Resources/Info.plist` 增加 `NSCameraUsageDescription` 和 `NSMicrophoneUsageDescription`（以及它们的本地化文案）。隐私用途说明和 entitlements 属于要先经维护者确认的改动，所以这次没有动它们，功能保持休眠。打包脚本 `scripts/package-app.sh` 用 `codesign --force --deep --sign "$SIGNING_IDENTITY"`，默认是 ad-hoc 签名（`-`），不带 `--options runtime`，也没有 entitlements 文件，没有启用 hardened runtime 或沙盒，所以只补用途说明就够；以后启用 hardened runtime 时还要加 `com.apple.security.device.camera` 和 `com.apple.security.device.audio-input`。ad-hoc 签名的应用，系统记录的摄像头 / 麦克风授权很可能跟着代码签名哈希走，应用更新后需要重新授权（未实测）。
 
-**测试**：`HTMLPreviewMockCaptureTests` 在真实 `WKWebView` 里用 WebKit 的模拟摄像头 / 麦克风验证授权后指示器出现、静音 / 恢复 / 停止、摄像头和麦克风分开停止、拒绝时页面收到 `NotAllowedError`、屏幕共享不存在。模拟设备需要私有偏好 `mediaDevicesEnabled`、`mockCaptureDevicesEnabled` 和 `getUserMediaRequiresFocus = false`，只通过控制器的 `configure` 回调在测试里设置，缺任何一个就整组跳过。实测得到三条约束：
+**补用途说明之前必须知道的事**：系统的摄像头 / 麦克风授权属于整个 Lithe，不属于某个页面或插件。使用者在任何一个弹窗里点过“Allow”并通过系统权限框之后，系统记下的是“Lithe 可以用摄像头”；按 macOS 的责任进程规则，Lithe 启动的子进程（插件后端、内置终端里的命令）访问设备时也算在 Lithe 名下，可能不经过 Lithe 的任何弹窗就拿到设备（没有实测）。网页这一侧有 `decide` 把关，子进程这一侧没有。目前没有用途说明，系统会直接拒绝这些访问，所以现在不存在这个口子；补用途说明就是把它引入的决定，要由维护者先确认。
 
-- 同一进程里第二个页面开始采集，会把第一个页面的采集静音（诊断实测：第一页 active，第二页开始后第一页变 muted；再恢复第一页，两者都是 active）。所以这组测试串行执行（`@Suite(.serialized)`），不要改成并行，否则两个测试会互相静音，间歇性失败。
-- 同一个页面里第二次、第三次 `getUserMedia` 在模拟设备下会超时，所以每个页面只发一次请求。
+**测试**：`WebMediaCaptureTests` 覆盖门的决策（没回答前什么都没授权、只有明确的 yes 才授权、每次都重新问）、问题文字和 `displayText`、拒绝委托，以及上面的源码扫描。`HTMLPreviewMediaCaptureTests` 和 `PluginWebCaptureTests` 在真实 `WKWebView` 里用 WebKit 的模拟摄像头 / 麦克风做端到端：授权后指示器出现、静音 / 恢复 / 停止、摄像头和麦克风分开停止、拒绝时页面收到 `NotAllowedError`、屏幕共享不存在；插件页还覆盖没有窗口、没有用途说明、隐藏时结束采集、隐藏后才回答的 yes，以及点“Allow”之后页面才被隐藏时才启动的设备会被停掉。模拟设备需要私有偏好 `mediaDevicesEnabled`、`mockCaptureDevicesEnabled` 和 `getUserMediaRequiresFocus = false`，只通过 `configure` 回调在测试里设置（`MockCapture.configure`），缺任何一个就整组跳过。实测得到几条约束：
+
+- 同一进程里第二个页面开始采集，会把第一个页面的采集静音（诊断实测：第一页 active，第二页开始后第一页变 muted；再恢复第一页，两者都是 active）。所以所有端到端采集测试都放在根 suite `MockCaptureTests`（`.serialized`，对嵌套 suite 递归生效，不论写在哪个文件）里串行执行，不要改成并行，否则两个测试会互相静音，间歇性失败。
+- 同一个文档里第二次请求同一种设备，在模拟设备下会超时：不论第一个流还在用还是已经停止，第二次请求都没有再到达委托，15 秒内也没有完成或失败（探针实测）。请求另一种设备（先视频后音频）则再次到达委托并授权成功，重新加载得到的新文档也会再次询问。推测 WebKit 在同一文档内复用了已经批准的授权，所以一次“Allow”在该文档存活期间对同一种设备有效，包括停止后再次开始；这只是推测，模拟设备下无法确认，也没有在真实设备上验证。这和“记住选择”不同：它不跨文档、不跨重启，也不是 Lithe 记的。因此每个端到端用例只对每种设备发一次请求。
 - 隔离模式下窗口透明度为零，页面的 `visibilityState` 是 `hidden`，采集依然保持 active，所以这些测试不依赖窗口可见。
 - 最后一个设备停止后，指示器状态要 3 秒才降为 inactive（上面的实测）。测试因此用页面轨道的 `ended` 事件确认“停止生效”，只在另一个设备仍在使用时才等指示器变化，不让每条用例白等 3 秒触发性能警告。
 
@@ -162,9 +179,11 @@ WebKit 没有公开的 Web Inspector 开关，所以：
 - 不要在 `updateNSView` 里无条件给 `@Published` 属性赋值（即使值相同也会触发 SwiftUI 的“视图更新期间发布变更”警告）；控制器用 `clearLoadError()` 只在有变化时赋值。
 - 不要把 `WKWebView` 直接作为 `NSViewRepresentable` 返回的视图，会破坏开发者工具停靠。
 - 不要在生产代码里打开 `mediaDevicesEnabled`、`mockCaptureDevicesEnabled` 这类私有开关来“让摄像头可用”：没有用途说明却去访问摄像头 / 麦克风，macOS 会结束进程。要启用功能，先补 Info.plist 的用途说明（需要维护者确认），不要绕过。
-- 不要记住摄像头 / 麦克风的授权（按页面、按域名或按会话）；每次请求都要重新问。
+- 不要在 `WebMediaCapture.decide` 之外返回 `.grant`，也不要新建 `WKWebView` 而不回答它的摄像头 / 麦克风请求；没人回答时 WebKit 会弹它自己的提示，等于绕开了 Lithe 的确认。
+- 不要让任何请求默认有权限：记住的偏好只能少问，不能让没有记录的请求通过；在有撤销入口之前不要开始记（见“记住选择”）。
+- 不要在宿主里按插件名或插件 ID 给摄像头 / 麦克风写特例；所有插件页走同一条询问路径，插件名只用于提问文字。
 - 不要为地理位置、剪贴板另做一套弹窗；它们使用 WebKit 自带的确认。
-- 不要把 `HTMLPreviewMockCaptureTests` 改成并行：同一进程里两个页面同时采集会互相静音。
+- 不要把端到端采集测试放到 `MockCaptureTests` 之外或改成并行：同一进程里两个页面同时采集会互相静音。
 
 ## 考虑过的备选方案
 
@@ -189,7 +208,7 @@ WebKit 没有公开的 Web Inspector 开关，所以：
 - 收益：页面行为接近真实浏览器；使用者能直接在编辑器里调试前端页面；规则集中在可单测的纯函数中。
 - 代价：使用 `_WKInspector` 私有接口，需要在 macOS 大版本升级时回归；预览窗口不再是透明背景，页面背景由页面样式决定。
 - 私有接口清单（都先 `responds(to:)` 检查，缺失时功能退化而不崩溃，大版本升级时一起回归）：`_inspector` 与偏好 `developerExtrasEnabled`（开发者工具和“检查元素”）；`_hideFindUI`（清除查找高亮，缺失时高亮自行淡出）；`_setScreenCaptureEnabled:` 与偏好 `screenCaptureEnabled`（不向页面提供屏幕共享，缺失时保持 WebKit 默认）。`mediaDevicesEnabled`、`mockCaptureDevicesEnabled`、`getUserMediaRequiresFocus` 只在测试里设置。
-- 已知限制：查找条没有匹配计数（WebKit 不提供）；焦点在查找条输入框里时 ⌘G 不由预览处理；导出的 PDF 是一页连续的长页，分页版本要走打印面板；摄像头 / 麦克风确认弹窗没有 Esc 映射；页面不在焦点时 `getUserMedia` 要等页面获得焦点；停掉最后一个设备后指示器还会停留约 3 秒；摄像头 / 麦克风在补上 Info.plist 用途说明之前休眠（`navigator.mediaDevices` 不存在），补上之后才能在运行的应用里端到端验收，ad-hoc 签名下系统授权记录是否跨更新保留未实测。
+- 已知限制：查找条没有匹配计数（WebKit 不提供）；焦点在查找条输入框里时 ⌘G 不由预览处理；导出的 PDF 是一页连续的长页，分页版本要走打印面板；摄像头 / 麦克风确认弹窗没有 Esc 映射；页面不在焦点时 `getUserMedia` 要等页面获得焦点；停掉最后一个设备后指示器还会停留约 3 秒；摄像头 / 麦克风在补上 Info.plist 用途说明之前休眠（`navigator.mediaDevices` 不存在），补上之后才能在运行的应用里端到端验收，ad-hoc 签名下系统授权记录是否跨更新保留未实测；系统授权按整个 Lithe 记，Lithe 的子进程是否能绕过 Lithe 的弹窗使用已授权的设备未实测；插件页没有应用内使用指示器，也没有“记住选择”；WebKit 可能为同一文档里已批准的设备复用授权（见“测试”一节的实测与推测），插件弹窗里“隐藏窗口前它可以一直使用该设备”的说明因此可能少说了“隐藏后重新显示，同一页面可能不再询问就重新开始使用”，真实设备上确认之后再校对文案（隐藏时和设备在页面离开窗口后启动时，采集都会被立即停掉，这一点不受影响）。
 - 已知限制：`showDirectoryPicker` 等只有 Chromium 才有的 Web API 在 WebKit 中不存在，依赖它们的页面（例如 `assets/agent-notes-board.html`）需要在 Chromium 内核浏览器中使用，可用“在系统浏览器中打开”。
 - Windows 端的 HTML 预览（iframe `srcDoc` 加 `<base>`）没有这些能力，已在功能矩阵中记录，另行跟进。
 - 需要重新评估的触发条件：Apple 提供公开的 Web Inspector 接口；预览需要多标签；需要持久登录状态（当前使用非持久数据存储）。
@@ -208,7 +227,8 @@ WebKit 没有公开的 Web Inspector 开关，所以：
 - 在运行的应用中用 − / + / 百分比按钮和 ⌘+ / ⌘− / ⌘0 缩放，确认百分比与页面实际大小一致，跳转页面后缩放保持，分屏时在编辑器里按 ⌘+ 不会缩放预览。
 - 在运行的应用中按 ⌘F 打开查找条，输入文字确认页面里的匹配项被选中；⌘G / ⇧⌘G 与 Return / ⇧Return 前进、后退并回绕；输入页面里没有的文字显示 “No matches”；Esc 收起后键盘回到页面；分屏时焦点在编辑器里按 ⌘F / ⌘G / ⌘P 仍归编辑器。
 - 在页面空白处、链接和图片上右键：没有“在新窗口中打开”，链接上有“拷贝链接”，空白处在“检查元素”上方有 Print… 和 Export as PDF…。⌘P 或 Print… 以窗口 sheet 打开系统打印面板；Export as PDF… 保存整页，文件名取页面标题。
-- 补上 Info.plist 用途说明之后，在运行的应用中打开调用 `getUserMedia` 的页面：弹窗写明页面名称，默认按钮是 Don’t Allow；允许后地址栏右侧出现指示器，菜单里的静音 / 停止生效；再次打开同一页面仍会询问；页面里没有 `getDisplayMedia`。当前构建没有这些用途说明，这一步还不能做。
+- 补上 Info.plist 用途说明之后，在运行的应用中打开调用 `getUserMedia` 的页面：弹窗写明页面名称，默认按钮是 Don’t Allow；允许后地址栏右侧出现指示器，菜单里的静音 / 停止生效；再次打开同一页面仍会询问；页面里没有 `getDisplayMedia`。再用一个调用 `getUserMedia` 的插件页确认：弹窗写“插件“X”……”并带插件 ID，点 Don’t Allow 页面收到 `NotAllowedError`，允许后隐藏该工具窗口，系统菜单栏的绿点 / 橙点随之消失；再显示窗口并让页面第二次调用 `getUserMedia`，记录是否再次询问，并据此校对插件弹窗里的说明。当前构建没有这些用途说明，这一步还不能做。
+- `./scripts/test-macos.sh --filter 'WebMedia|MockCapture|PluginMediaCapture|HTMLPreviewMediaCapture'`：门的决策、源码扫描、拒绝委托和两条端到端路径（HTML 预览、插件页）。
 
 ## 适用范围
 
@@ -220,6 +240,9 @@ WebKit 没有公开的 Web Inspector 开关，所以：
 - `macos/Sources/Lithe/Platform/MacOS/HTMLPreviewFind.swift`
 - `macos/Sources/Lithe/Platform/MacOS/HTMLPreviewPrint.swift`
 - `macos/Sources/Lithe/Platform/MacOS/HTMLPreviewMediaCapture.swift`
+- `macos/Sources/Lithe/Platform/MacOS/WebMediaCapture.swift`（摄像头 / 麦克风的统一门和 Lithe 自有页面的拒绝委托）
+- `macos/Sources/Lithe/Platform/MacOS/Plugins/Web/MacPluginWebPage.swift`（插件页的询问、隐藏即停止）
+- `macos/Sources/Lithe/Platform/MacOS/MonacoDiffEditor.swift`、`MonacoWorkbenchEditor.swift`、`Updates/ReleaseNotesWebView.swift`（各一行 `uiDelegate`）
 - `macos/Sources/Lithe/Platform/MacOS/HTMLPreviewScrollbars.swift`
 - `macos/Sources/Lithe/Platform/MacOS/HTMLPreviewWebView.swift`
 - `macos/Sources/Lithe/Platform/MacOS/LocalFileSchemeSupport.swift`
