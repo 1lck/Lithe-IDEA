@@ -65,8 +65,7 @@ enum HTMLPreviewScrollbars {
 
     /// A JavaScript string literal, so the CSS cannot break out of the script.
     private static func literal(_ text: String) -> String {
-        let data = (try? JSONSerialization.data(withJSONObject: [text], options: [])) ?? Data("[\"\"]".utf8)
-        let array = String(decoding: data, as: UTF8.self)
-        return String(array.dropFirst().dropLast())
+        let data = (try? JSONEncoder().encode(text)) ?? Data("\"\"".utf8)
+        return String(decoding: data, as: UTF8.self)
     }
 }

@@ -48,6 +48,8 @@ final class HTMLPreviewBrowserController: NSObject, ObservableObject {
     private var lastPayload: Payload?
     private var scrollRestoration: (x: Double, y: Double)?
     private var loadCount = 0
+    private var processTerminations = 0
+    private static let maximumProcessRecoveries = 2
     private var cancellables = Set<AnyCancellable>()
 
     init(dialogs: (any HTMLPreviewDialogPresenting)? = nil) {
@@ -111,7 +113,15 @@ final class HTMLPreviewBrowserController: NSObject, ObservableObject {
         } else if isShowingDocument(in: newScope) {
             // A page the user navigated to is left alone and picks up the new
             // text when they come back.
-            reloadKeepingScrollPosition(fromOrigin: false)
+            if webView.isLoading {
+                // `reload` acts on the page already on screen, which can be the
+                // previous document while this one is still loading; start the
+                // load again instead. Not `load(_:)`: a reload in flight keeps
+                // the scroll position it installed.
+                webView.load(URLRequest(url: documentPage))
+            } else {
+                reloadKeepingScrollPosition(fromOrigin: false)
+            }
         }
     }
 
@@ -343,14 +353,7 @@ final class HTMLPreviewBrowserController: NSObject, ObservableObject {
             guard let destination else { return }
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
-                    if FileManager.default.fileExists(atPath: destination.path) {
-                        try FileManager.default.removeItem(at: destination)
-                    }
-                    if let bufferText {
-                        try Data(bufferText.utf8).write(to: destination, options: .atomic)
-                    } else {
-                        try FileManager.default.copyItem(at: file, to: destination)
-                    }
+                    try HTMLPreviewFileSaver.save(file, bufferText: bufferText, to: destination)
                 } catch {
                     DispatchQueue.main.async { self?.loadError = error.localizedDescription }
                 }
@@ -410,10 +413,20 @@ extension HTMLPreviewBrowserController: WKNavigationDelegate {
         let disposition = (navigationResponse.response as? HTTPURLResponse)?
             .value(forHTTPHeaderField: "Content-Disposition")?.lowercased() ?? ""
         let isAttachment = disposition.hasPrefix("attachment")
+        let canShow = navigationResponse.canShowMIMEType && !isAttachment
         guard navigationResponse.isForMainFrame else {
-            return decisionHandler(navigationResponse.canShowMIMEType && !isAttachment ? .allow : .cancel)
+            return decisionHandler(canShow ? .allow : .cancel)
         }
-        decisionHandler(navigationResponse.canShowMIMEType && !isAttachment ? .allow : .download)
+        if canShow { return decisionHandler(.allow) }
+        // A link to a file the web view cannot display (an archive, a binary) is
+        // a download; for the custom scheme WebKit cannot start one, so the
+        // file is copied instead of the link silently doing nothing.
+        if let url = navigationResponse.response.url, HTMLPreviewURL.isInternal(url) {
+            decisionHandler(.cancel)
+            saveInternalResource(url)
+        } else {
+            decisionHandler(.download)
+        }
     }
 
     func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
@@ -431,6 +444,16 @@ extension HTMLPreviewBrowserController: WKNavigationDelegate {
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         removeScrollRestoration()
         refreshDeveloperToolsState()
+        processTerminations = 0
+    }
+
+    /// WebKit runs the page in its own process, which the system may end under
+    /// memory pressure. The preview would stay blank until the next edit, so the
+    /// page is loaded again, unless it keeps taking the process down with it.
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        processTerminations += 1
+        guard processTerminations <= Self.maximumProcessRecoveries else { return }
+        webView.reload()
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {

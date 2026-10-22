@@ -7,13 +7,15 @@ import WebKit
 
 /// Answers page dialogs without showing any, and records what the page asked.
 @MainActor
-private final class RecordingDialogs: HTMLPreviewDialogPresenting {
+private final class RecordingDialogs: ObservableObject, HTMLPreviewDialogPresenting {
     var alerts: [String] = []
     var confirms: [String] = []
     var prompts: [(message: String, defaultText: String?)] = []
     var sources: [String] = []
     var confirmAnswer = true
     var promptAnswer: String? = "Ada"
+    @Published var downloadNames: [String] = []
+    var downloadDestination: URL?
 
     func presentAlert(message: String, source: String, in window: NSWindow?, completion: @escaping () -> Void) {
         alerts.append(message)
@@ -47,7 +49,8 @@ private final class RecordingDialogs: HTMLPreviewDialogPresenting {
     }
 
     func chooseDownloadDestination(suggestedFilename: String, in window: NSWindow?, completion: @escaping (URL?) -> Void) {
-        completion(nil)
+        downloadNames.append(suggestedFilename)
+        completion(downloadDestination)
     }
 }
 
@@ -114,13 +117,15 @@ private final class BrowserHarness {
         if isSatisfied() { return true }
         let webView = webView
         let controller = controller
+        let dialogs = dialogs
         return await withCheckedContinuation { continuation in
             let gate = WaitGate(continuation)
             let changes = Publishers.MergeMany(
                 webView.publisher(for: \.title).map { _ in () }.eraseToAnyPublisher(),
                 webView.publisher(for: \.url).map { _ in () }.eraseToAnyPublisher(),
                 webView.publisher(for: \.isLoading).map { _ in () }.eraseToAnyPublisher(),
-                controller.objectWillChange.map { _ in () }.eraseToAnyPublisher()
+                controller.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
+                dialogs.objectWillChange.map { _ in () }.eraseToAnyPublisher()
             )
             gate.hold(changes.sink { _ in
                 Task { @MainActor in
@@ -443,6 +448,81 @@ struct HTMLPreviewBrowserTests {
         #expect(await harness.waitForTitle("styled"))
         let size = try await scrollbarSize(harness)
         #expect(abs(size.vertical - 20) <= 1, "The page's own bar should win, vertical bar was \(size.vertical)")
+    }
+
+
+    @Test func switchingToAnotherDocumentShowsThatDocument() async throws {
+        let harness = try BrowserHarness(files: ["site/a.html": "disk a", "site/b.html": "disk b"])
+        defer { harness.tearDown() }
+        harness.show("<title>a</title>", document: "site/a.html")
+        #expect(await harness.waitForTitle("a"))
+
+        // Two updates in one pass, as when a tab switch is followed by the new
+        // document's text: reloading the page on screen would bring back document a.
+        harness.show("<title>stale</title>", document: "site/b.html")
+        harness.show("<title>b</title>", document: "site/b.html")
+
+        #expect(await harness.waitForTitle("b"), "Title was \(harness.webView.title ?? "nil")")
+        #expect(harness.controller.address == harness.fixture.url("site/b.html").absoluteString)
+    }
+
+    @Test func newWindowLinksOpenInPlace() async throws {
+        let harness = try BrowserHarness(files: [
+            "site/page.html": "disk",
+            "site/other.html": "<title>other</title>"
+        ])
+        defer { harness.tearDown() }
+        harness.show("<title>first</title><a id=\"go\" href=\"other.html\" target=\"_blank\">go</a>")
+        #expect(await harness.waitForTitle("first"))
+
+        _ = try await harness.evaluate("document.getElementById('go').click()")
+
+        #expect(await harness.waitForTitle("other"), "Title was \(harness.webView.title ?? "nil")")
+        #expect(harness.controller.canGoBack)
+    }
+
+    @Test func linkedFilesTheViewCannotShowAreOfferedForSaving() async throws {
+        let harness = try BrowserHarness(files: [
+            "site/page.html": "disk",
+            "site/archive.zip": "PK-bytes"
+        ])
+        defer { harness.tearDown() }
+        harness.show("<title>first</title><a id=\"get\" href=\"archive.zip\">get</a>")
+        #expect(await harness.waitForTitle("first"))
+
+        _ = try await harness.evaluate("document.getElementById('get').click()")
+
+        #expect(await harness.wait { harness.dialogs.downloadNames == ["archive.zip"] }, "Saved: \(harness.dialogs.downloadNames)")
+        // The page the link was on stays, and so does its address.
+        let pageAddress = harness.fixture.url("site/page.html").absoluteString
+        #expect(await harness.wait { harness.controller.address == pageAddress }, "Address was \(harness.controller.address)")
+    }
+
+    @Test func downloadAttributeOffersTheLinkedFileForSaving() async throws {
+        let harness = try BrowserHarness(files: ["site/page.html": "disk", "site/data.txt": "plain"])
+        defer { harness.tearDown() }
+        harness.show("<title>first</title><a id=\"get\" href=\"data.txt\" download>get</a>")
+        #expect(await harness.waitForTitle("first"))
+
+        _ = try await harness.evaluate("document.getElementById('get').click()")
+
+        #expect(await harness.wait { harness.dialogs.downloadNames == ["data.txt"] }, "Saved: \(harness.dialogs.downloadNames)")
+    }
+
+    @Test func aDirectoryAddressLoadsItsIndexWithRelativeLinksIntact() async throws {
+        let harness = try BrowserHarness(files: [
+            "site/page.html": "disk",
+            "docs/index.html": "<title>docs</title><script src=\"app.js\"></script>",
+            "docs/app.js": "document.title = 'docs:script-loaded';"
+        ])
+        defer { harness.tearDown() }
+        harness.show("<title>first</title>")
+        #expect(await harness.waitForTitle("first"))
+
+        #expect(harness.controller.navigate(toAddress: harness.fixture.url("docs").path))
+
+        // Without the folder's trailing slash `app.js` would be requested from the root.
+        #expect(await harness.waitForTitle("docs:script-loaded"), "Title was \(harness.webView.title ?? "nil")")
     }
 
     @Test func developerToolsAreOfferedByTheSystemWebKit() throws {

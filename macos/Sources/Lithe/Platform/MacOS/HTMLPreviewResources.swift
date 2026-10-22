@@ -56,7 +56,15 @@ enum HTMLPreviewURL {
         var components = URLComponents()
         components.scheme = scheme
         components.host = host
-        components.path = "/" + scope.relativeComponents(of: file).joined(separator: "/")
+        var path = "/" + scope.relativeComponents(of: file).joined(separator: "/")
+        // A scheme handler cannot redirect `/docs` to `/docs/` the way a web
+        // server does, and without the slash the relative links in the folder's
+        // index page would resolve against its parent.
+        var isDirectory: ObjCBool = false
+        if !path.hasSuffix("/"), FileManager.default.fileExists(atPath: file.path, isDirectory: &isDirectory), isDirectory.boolValue {
+            path += "/"
+        }
+        components.path = path
         return components.url
     }
 
@@ -276,6 +284,35 @@ enum HTMLPreviewResponder {
     }
 }
 
+/// Saves a served file where the user chose, for the downloads WebKit cannot do
+/// itself because the file lives behind the custom scheme.
+enum HTMLPreviewFileSaver {
+    /// `bufferText` is the editor's text when the file is the previewed document.
+    static func save(_ source: URL, bufferText: String?, to destination: URL) throws {
+        if let bufferText {
+            try Data(bufferText.utf8).write(to: destination, options: .atomic)
+            return
+        }
+        // The user may pick the file's own location in the save panel; making
+        // room for the copy would then delete the only copy.
+        if isSameFile(source, destination) { return }
+        if FileManager.default.fileExists(atPath: destination.path) {
+            try FileManager.default.removeItem(at: destination)
+        }
+        try FileManager.default.copyItem(at: source, to: destination)
+    }
+
+    /// Compares file identity rather than paths, which differ by case on a
+    /// case-insensitive volume and through symbolic or hard links.
+    private static func isSameFile(_ first: URL, _ second: URL) -> Bool {
+        guard let a = try? first.resourceValues(forKeys: [.fileResourceIdentifierKey]).fileResourceIdentifier,
+              let b = try? second.resourceValues(forKeys: [.fileResourceIdentifierKey]).fileResourceIdentifier else {
+            return false
+        }
+        return a.isEqual(b)
+    }
+}
+
 /// Serves preview pages and their resources to the web view.
 ///
 /// The previewed document comes from the editor buffer so unsaved edits show up;
@@ -287,7 +324,8 @@ final class HTMLPreviewSchemeHandler: NSObject, WKURLSchemeHandler, @unchecked S
     }
 
     private let lock = NSLock()
-    private let queue = DispatchQueue(label: "lithe.html-preview.resources", qos: .userInitiated)
+    // Concurrent, so one large media file does not hold up the page's scripts and styles.
+    private let queue = DispatchQueue(label: "lithe.html-preview.resources", qos: .userInitiated, attributes: .concurrent)
     private var snapshot: Snapshot?
     private var liveTasks = Set<ObjectIdentifier>()
 

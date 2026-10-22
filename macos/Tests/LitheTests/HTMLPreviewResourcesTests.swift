@@ -200,4 +200,40 @@ struct HTMLPreviewResourcesTests {
         #expect(url.fragment == nil)
         #expect(HTMLPreviewURL.fileURL(for: url, in: scope) == scope.documentURL)
     }
+
+    @Test func folderURLsEndWithASlashSoRelativeLinksResolveInsideThem() throws {
+        let fixture = try HTMLPreviewFixture(files: ["docs/index.html": "x", "page.html": "x"])
+        let scope = fixture.scope(document: "page.html")
+        #expect(HTMLPreviewURL.url(forFile: fixture.url("docs"), in: scope)?.absoluteString == "lithe-html://preview/docs/")
+        #expect(HTMLPreviewURL.url(forFile: fixture.workspace, in: scope)?.absoluteString == "lithe-html://preview/")
+        #expect(HTMLPreviewURL.url(forFile: fixture.url("docs/index.html"), in: scope)?.absoluteString == "lithe-html://preview/docs/index.html")
+    }
+
+    @Test func savingAFileCopiesItAndReplacesAnExistingOne() throws {
+        let fixture = try HTMLPreviewFixture(files: ["data.txt": "source", "taken.txt": "old"])
+
+        try HTMLPreviewFileSaver.save(fixture.url("data.txt"), bufferText: nil, to: fixture.url("copy.txt"))
+        try HTMLPreviewFileSaver.save(fixture.url("data.txt"), bufferText: nil, to: fixture.url("taken.txt"))
+
+        #expect(try String(contentsOf: fixture.url("copy.txt"), encoding: .utf8) == "source")
+        #expect(try String(contentsOf: fixture.url("taken.txt"), encoding: .utf8) == "source")
+    }
+
+    @Test func savingAFileOverItselfKeepsIt() throws {
+        let fixture = try HTMLPreviewFixture(files: ["data.txt": "source"])
+        try FileManager.default.createSymbolicLink(at: fixture.url("alias.txt"), withDestinationURL: fixture.url("data.txt"))
+
+        try HTMLPreviewFileSaver.save(fixture.url("data.txt"), bufferText: nil, to: fixture.url("data.txt"))
+        try HTMLPreviewFileSaver.save(fixture.url("data.txt"), bufferText: nil, to: fixture.url("alias.txt"))
+
+        #expect(try String(contentsOf: fixture.url("data.txt"), encoding: .utf8) == "source")
+    }
+
+    @Test func savingThePreviewedDocumentWritesTheEditorText() throws {
+        let fixture = try HTMLPreviewFixture(files: ["page.html": "disk"])
+
+        try HTMLPreviewFileSaver.save(fixture.url("page.html"), bufferText: "unsaved edit", to: fixture.url("saved.html"))
+
+        #expect(try String(contentsOf: fixture.url("saved.html"), encoding: .utf8) == "unsaved edit")
+    }
 }

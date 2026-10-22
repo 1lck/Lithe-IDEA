@@ -29,7 +29,7 @@ struct HTMLPreviewView: View {
             HTMLPreviewWebView(
                 controller: browser,
                 payload: .init(
-                    html: content.html,
+                    html: content.html(for: document),
                     documentURL: document.url,
                     workspaceURL: model.workspaceURL
                 )
@@ -202,14 +202,24 @@ struct HTMLPreviewView: View {
 @MainActor
 private final class HTMLPreviewContent: ObservableObject {
     @Published private(set) var html: String
+    private var observedDocumentID: UUID
     private var changes: AnyCancellable?
 
     init(document: EditorDocument) {
         html = document.text
+        observedDocumentID = document.id
+    }
+
+    /// The text to preview for `document`. When the editor switches to another
+    /// HTML file this view is reused and `observe` only runs after the first
+    /// render, so until then `html` is still the previous file's text.
+    func html(for document: EditorDocument) -> String {
+        observedDocumentID == document.id ? html : document.text
     }
 
     func observe(_ document: EditorDocument) {
         stopObserving()
+        observedDocumentID = document.id
         update(document)
         changes = document.textDidChange
             .debounce(for: .milliseconds(150), scheduler: DispatchQueue.main)
