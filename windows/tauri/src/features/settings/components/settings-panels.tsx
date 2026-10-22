@@ -178,6 +178,19 @@ function GeneralPanel() {
         </SettingsRow>
       </SettingsGroup>
 
+      <SettingsGroup title={t("settings.general.startup")}>
+        <SettingsRow
+          label={t("settings.general.showStartupAnimation")}
+          description={t("settings.general.showStartupAnimationDescription")}
+        >
+          <Switch
+            checked={settings.showStartupAnimation}
+            onChange={(checked) => void updateSetting("showStartupAnimation", checked)}
+            size="sm"
+          />
+        </SettingsRow>
+      </SettingsGroup>
+
       <SettingsGroup title={t("settings.mac.language")}>
         <SettingsRow
           label={t("settings.mac.language")}

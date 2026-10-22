@@ -36,6 +36,7 @@ final class WorkspaceSessionCoordinator: ObservableObject {
     private let recentProjectBranchReader: any RecentProjectBranchReading
     private weak var platformUI: (any PlatformUI)?
     private let workspaceFeature: WorkspaceFeatureModel?
+    private let startupFeedback: StartupFeedbackCoordinator?
     private var securityScopedWorkspaceURL: URL?
     private var lifecycleHandlers: LifecycleHandlers?
     private var workspaceRebuildTask: Task<Void, Never>?
@@ -44,12 +45,14 @@ final class WorkspaceSessionCoordinator: ObservableObject {
         recentProjectsStore: RecentProjectsStore,
         platformUI: any PlatformUI,
         recentProjectBranchReader: any RecentProjectBranchReading = UnavailableRecentProjectBranchReader(),
-        workspaceFeature: WorkspaceFeatureModel? = nil
+        workspaceFeature: WorkspaceFeatureModel? = nil,
+        startupFeedback: StartupFeedbackCoordinator? = nil
     ) {
         self.recentProjectsStore = recentProjectsStore
         self.recentProjectBranchReader = recentProjectBranchReader
         self.platformUI = platformUI
         self.workspaceFeature = workspaceFeature
+        self.startupFeedback = startupFeedback
         recentProjects = recentProjectsStore.load()
     }
 
@@ -242,13 +245,22 @@ final class WorkspaceSessionCoordinator: ObservableObject {
                 return
             }
             let rules = self.lifecycleHandlers?.visibilityRules() ?? .default
-            _ = await workspaceFeature.rebuild(
+            // The startup animation reports the phase the product is working
+            // on; the rebuild is the step the user waits for.
+            self.startupFeedback?.setStage(.openingWorkspace)
+            let result = await workspaceFeature.rebuild(
                 at: workspaceURL,
                 rules: rules,
                 isCurrent: { [weak self] in
                     self?.isCurrentWorkspace(workspaceURL, generation: generation) == true
                 }
             )
+            if case .unavailable = result {
+                self.startupFeedback?.markFailed(
+                    code: .workspaceOpenFailed,
+                    message: workspaceFeature.loadErrorMessage
+                )
+            }
         }
     }
 

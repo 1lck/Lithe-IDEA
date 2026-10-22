@@ -1,4 +1,5 @@
 import { reportBootstrapResults } from "./bootstrap-errors";
+import { reportStartupStage } from "./startup-animation/startup-feedback.store";
 import { isBackendCapabilityAvailable } from "@/config/backend-capabilities";
 
 const asyncBootstrapSteps = [
@@ -30,6 +31,8 @@ const asyncBootstrapSteps = [
   {
     name: "extension loader",
     run: async () => {
+      // Loading the extensions is the plugin phase of the startup feedback.
+      reportStartupStage("loadingPlugins");
       const { extensionLoader } = await import("@/extensions/loader/extension-loader");
       await extensionLoader.initialize();
     },

@@ -2,6 +2,8 @@ import { GitAuthenticationDialog } from "@/features/git/components/log/git-authe
 import "@/features/git/stores/git-console.store";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { StartupAnimationLayer } from "@/features/bootstrap/startup-animation/startup-animation";
+import { armMainWindowReveal } from "@/features/bootstrap/startup-animation/startup-window";
 import { recordStartupMilestoneAfterFrame } from "@/features/bootstrap/startup-performance";
 import {
   getWindowOpenDiagnostics,
@@ -66,10 +68,12 @@ function App() {
       durationMs: Math.round((performance.now() - mountedAt) * 100) / 100,
     }));
     const cleanupStartupMilestone = recordStartupMilestoneAfterFrame("app:first-frame");
+    const stopReveal = armMainWindowReveal();
 
     return () => {
       cleanupTrace();
       cleanupStartupMilestone();
+      stopReveal();
     };
   }, [blankWindowOpen]);
 
@@ -93,6 +97,7 @@ function App() {
     <Suspense fallback={<InitialWindowShell />}>
       <LocaleProvider>
         <WorkbenchApp />
+        <StartupAnimationLayer />
         <GitAuthenticationDialog />
       </LocaleProvider>
     </Suspense>

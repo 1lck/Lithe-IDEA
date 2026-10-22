@@ -48,7 +48,10 @@ import { serializeTerminals } from "@/features/terminal/lib/terminal-session-sto
 import { useTerminalTabsStore } from "@/features/terminal/stores/terminal-tabs.store";
 import { useTerminalStore } from "@/features/terminal/stores/terminal.store";
 import { createTerminalEventChannel } from "@/features/terminal/utils/terminal-protocol";
-import { getFrontendTerminalSessionArgs } from "@/features/terminal/utils/frontend-terminal-session";
+import {
+  ensureFrontendTerminalSessionReady,
+  getFrontendTerminalSessionArgs,
+} from "@/features/terminal/utils/frontend-terminal-session";
 import type { PaneContent } from "@/features/panes/types/pane-content.types";
 import { showAlertDialog, showPromptDialog } from "@/ui/dialog";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
@@ -1857,6 +1860,9 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
             try {
               const { rootFolderPath } = get();
               const events = createTerminalEventChannel();
+              // The backend registers a terminal only under an accepted frontend
+              // session, and the first frame does not wait for that session.
+              await ensureFrontendTerminalSessionReady();
               // Create terminal connection for external editor
               const connectionId = await invoke<string>("create_terminal", {
                 config: {

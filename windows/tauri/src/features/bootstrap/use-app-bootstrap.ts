@@ -1,5 +1,9 @@
 import { invoke } from "@/platform/tauri-core";
 import { useEffect } from "react";
+import {
+  reportStartupFailed,
+  reportStartupStage,
+} from "@/features/bootstrap/startup-animation/startup-feedback.store";
 import { useExtensionInstallPrompt } from "@/extensions/hooks/use-extension-install-prompt";
 import {
   cleanupFileClipboardListener,
@@ -94,8 +98,13 @@ export function useAppBootstrap() {
     const request = parseWindowOpenUrl(new URL(window.location.href));
     if (!request) return;
 
+    // Opening the requested workspace is the workspace phase of the startup
+    // feedback. A failure here is a startup failure, so it stays readable.
+    reportStartupStage("openingWorkspace");
+
     void enqueueWindowOpenRequest(request).catch((error) => {
       console.error("Failed to open initial workspace:", error);
+      reportStartupFailed("workspaceOpenFailed", error instanceof Error ? error.message : String(error));
     }).finally(() => {
       // A rejected/invalid initial path must not leave an empty window owning it.
       void invoke("release_pending_project_window").catch((error) => {

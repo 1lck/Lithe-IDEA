@@ -84,6 +84,10 @@ struct RootView: View {
             if let scopedModel {
                 ActiveSessionChrome(scope: scope, session: scopedModel)
             }
+            if let feedback = scopedModel?.startupFeedback {
+                StartupAnimationView(feedback: feedback)
+                    .zIndex(100)
+            }
         }
         .environment(\.projectWindowScope, scope)
         .background(ProjectWindowSceneBridge())
@@ -142,6 +146,17 @@ struct RootView: View {
             didStartAutomaticUpdateCheck = true
             guard !LithePerformanceBaseline.isEnabled else { return }
             await updateChecker.checkForUpdates()
+        }
+        .task {
+            // The launch animation belongs to the primary window only; a
+            // project opened later must not replay it.
+            guard scope == .primary, let model = scopedModel else { return }
+            guard model.workspaceURL != nil else {
+                // The welcome window has nothing to load, so the animation is
+                // skipped instead of covering an already usable window.
+                return
+            }
+            model.startupFeedback.start()
         }
     }
 

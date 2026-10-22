@@ -78,6 +78,11 @@ fn main() {
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(move |app| {
+            // The startup splash opens before the slower boot work so the
+            // product shows its startup animation as early as possible.
+            if let Err(error) = host::create_startup_splash_window(app.handle()) {
+                eprintln!("[startup] the startup splash could not be created: {error}");
+            }
             match profile_migration::prepare(app.handle()) {
                 Ok(true) => {
                     app.handle().plugin(
@@ -132,12 +137,16 @@ fn main() {
             app.manage(debug::DebugAdapterManager::default());
             run::cleanup_legacy_appdata(app.handle());
             maven::clear_dependency_outputs(app.handle());
+            // The splash window was already created at the start of the setup,
+            // so the user sees the startup animation instead of waiting for an
+            // invisible workbench.
             for config in initial_windows.iter().filter(|config| config.create) {
                 tauri::WebviewWindowBuilder::from_config(app.handle(), config)?.build()?;
             }
             if let Some(window) = app.get_webview_window("main") {
                 host::apply_window_taskbar_icon(&window);
             }
+            reveal_main_window_after_delay(app.handle().clone());
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -213,6 +222,11 @@ fn main() {
             logging::record_startup_milestone,
             host::get_system_theme,
             host::set_native_window_appearance,
+            host::complete_startup,
+            host::reveal_startup_splash,
+            host::publish_startup_stage,
+            host::publish_startup_ready,
+            host::publish_startup_failed,
             fonts::get_system_fonts,
             fonts::get_monospace_fonts,
             fonts::validate_font,
@@ -282,5 +296,27 @@ fn main() {
 fn window_state_flags() -> StateFlags {
     let mut flags = StateFlags::all();
     flags.remove(StateFlags::DECORATIONS);
+    // The main window starts hidden and is revealed once the frontend painted
+    // its first frame. Restoring the saved visibility would show the empty
+    // WebView surface before the startup animation can explain the wait.
+    flags.remove(StateFlags::VISIBLE);
     flags
+}
+
+/// Reveals the main window when the frontend did not do it.
+///
+/// The frontend closes the splash window and shows the workbench once the
+/// startup animation handed over. A frontend that fails before that point
+/// would leave the splash on screen, so the shell completes the startup after
+/// a delay.
+fn reveal_main_window_after_delay(app: tauri::AppHandle) {
+    std::thread::spawn(move || {
+        // The splash page reveals the window once its card is painted. This is
+        // the safety net for a page that failed to load: without it the
+        // startup would stay invisible.
+        std::thread::sleep(std::time::Duration::from_millis(1200));
+        let _ = host::reveal_startup_splash(app.clone());
+        std::thread::sleep(std::time::Duration::from_secs(19));
+        let _ = host::complete_startup(app);
+    });
 }

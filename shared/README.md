@@ -32,4 +32,15 @@ golden sample in [`fixtures/updates/update-v1.json`](fixtures/updates/update-v1.
 Platform installers remain native; their feeds are normalized to this contract
 by the macOS and Windows adapters.
 
+Startup phase feedback is defined by
+[`contracts/startup-feedback-v1.md`](contracts/startup-feedback-v1.md), with the
+canonical shape in
+[`contracts/startup-feedback-v1.schema.json`](contracts/startup-feedback-v1.schema.json)
+and the golden sample in
+[`fixtures/settings/startup-feedback-v1.json`](fixtures/settings/startup-feedback-v1.json).
+The contract owns the phase vocabulary, the outcome vocabulary, the timing
+thresholds, and the wording both products display while the workbench is not
+ready yet. Starting the work is platform behavior; the contract only describes
+how that progress is reported.
+
 Do not place UI state, process management, file watching, terminal sessions, installers, or update logic here. The compiled implementation lives under `rust/lithe-core`; this directory remains the stable contract and fixture source.

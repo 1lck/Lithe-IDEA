@@ -36,6 +36,7 @@ final class AppModelFeatureGraph {
     let debugLaunchPreparation: DebugLaunchPreparationCoordinator
     let debugSessionCleanup: DebugSessionCleanupCoordinator
     let javaTestDebugWorkflow: JavaTestDebugWorkflowCoordinator
+    let startupFeedback: StartupFeedbackCoordinator
 
     init(settings: AppSettings, services: AppServices) {
         keyboardShortcut = KeyboardShortcutFeatureModel(settings: settings)
@@ -58,11 +59,14 @@ final class AppModelFeatureGraph {
             directoryMarkStore: services.directoryMarkStore
         )
         self.workspace = workspace
+        let startupFeedback = StartupFeedbackCoordinator()
+        self.startupFeedback = startupFeedback
         workspaceSession = WorkspaceSessionCoordinator(
             recentProjectsStore: services.recentProjectsStore,
             platformUI: services.platformUI,
             recentProjectBranchReader: services.recentProjectBranchReader,
-            workspaceFeature: workspace
+            workspaceFeature: workspace,
+            startupFeedback: startupFeedback
         )
         workbenchBackground = WorkbenchBackgroundFeatureModel(
             settings: settings,

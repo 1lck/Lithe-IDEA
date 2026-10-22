@@ -33,7 +33,10 @@ enum WorkspaceProjectionComposition {
             setSelectedSidebar: { [weak workbench] rawValue in
                 workbench?.selectedSidebar = SidebarDestination(rawValue: rawValue) ?? .project
             },
-            restoreSession: { [weak workbench, weak editorSession] session, availableFiles in
+            restoreSession: { [weak model, weak workbench, weak editorSession] session, availableFiles in
+                // Restoring the previous session is the last visible startup
+                // step, so the launch animation reports it as its own phase.
+                model?.startupFeedback.setStage(.restoringSession)
                 workbench?.selectedSidebar = .project
                 await editorSession?.restoreDocuments(
                     orderedPaths: session.openPaths,
@@ -88,6 +91,9 @@ enum WorkspaceProjectionComposition {
                 if isInitialLoad {
                     model.projectHistoryFeatureIfActive?.seed(files: snapshot.files)
                 }
+                // The workspace, the restored session, and the workspace
+                // services are ready, so the launch animation can fade out.
+                model.startupFeedback.markReady()
             },
             warmSearchIndex: { [weak model] workspaceURL, rules in
                 model?.searchFeatureIfActive?.warmIndex(at: workspaceURL, visibilityRules: rules.searchRules)

@@ -2,6 +2,7 @@ import {
   cacheFontsForBootstrap,
   cacheThemeForBootstrap,
 } from "@/features/settings/lib/appearance-bootstrap";
+import { writeStartupAnimationBootstrapCache } from "@/features/bootstrap/startup-animation/startup-animation-bootstrap";
 import {
   resolveEffectiveTheme,
   subscribeSystemThemePreference,
@@ -141,6 +142,17 @@ function cacheFontSettings(settings: Pick<Settings, "fontFamily" | "uiFontFamily
   cacheFontsForBootstrap(settings.fontFamily, settings.uiFontFamily, settings.uiFontSize);
 }
 
+/**
+ * Mirrors the startup animation switch into the first-frame cache.
+ *
+ * The startup animation decides during the first frame whether it shows, and
+ * the settings store is loaded asynchronously. The cache is the same
+ * mechanism the resolved theme uses for the first frame.
+ */
+function cacheStartupAnimationSetting(showStartupAnimation: boolean) {
+  writeStartupAnimationBootstrapCache({ version: 1, showStartupAnimation });
+}
+
 function syncOllamaBaseUrl(baseUrl: string) {
   if (!baseUrl) {
     return;
@@ -177,6 +189,7 @@ async function syncOllamaApiKey() {
 
 export function applySettingsSideEffects(settings: Settings) {
   cacheFontSettings(settings);
+  cacheStartupAnimationSetting(settings.showStartupAnimation);
   applyWindowTransparency(settings.windowTransparency);
   applyProjectGradient(settings.differentiateProjects);
   applyUiPreferences(settings);
@@ -221,6 +234,10 @@ export function applySettingSideEffect<K extends keyof Settings>(
 
   if (key === "fontFamily" || key === "uiFontFamily" || key === "uiFontSize") {
     cacheFontSettings(getSettings());
+  }
+
+  if (key === "showStartupAnimation") {
+    cacheStartupAnimationSetting(value as boolean);
   }
 
   if (key === "windowTransparency") {

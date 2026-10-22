@@ -37,6 +37,16 @@ export default defineConfig({
     },
     dedupe: ["react", "react-dom", "monaco-editor", "immer"],
   },
+  build: {
+    rollupOptions: {
+      input: {
+        // The startup splash is a separate page so it can paint before the
+        // workbench bundle finishes loading.
+        main: path.resolve(__dirname, "index.html"),
+        "startup-splash": path.resolve(__dirname, "startup-splash.html"),
+      },
+    },
+  },
   test: {
     testTimeout: 10_000,
     exclude: [

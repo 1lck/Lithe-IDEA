@@ -390,4 +390,6 @@ done
   abort "update fixture release URL must be HTTPS" unless sample.fetch("releaseURL").start_with?("https://")
 ' "$update_schema" "$update_fixture"
 
+node scripts/verify-startup-feedback-contract.mjs
+
 print "Shared contract verification passed: JSON fixtures are valid"

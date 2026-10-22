@@ -49,6 +49,7 @@ export const defaultSettings: Settings = {
   // General
   autoSave: true,
   quickOpenPreview: true,
+  showStartupAnimation: true,
   // Editor
   fontFamily: DEFAULT_MONO_FONT_FAMILY,
   fontSize: DEFAULT_CODE_FONT_SIZE,

@@ -671,6 +671,123 @@ pub fn set_native_window_appearance(
     window.set_theme(theme).map_err(|error| error.to_string())
 }
 
+/// Label of the native window that shows the startup animation.
+pub const STARTUP_SPLASH_LABEL: &str = "startup-splash";
+
+/// Page the startup splash window loads. It shares the frontend bundle with the
+/// workbench and decides from the query which view it renders.
+pub const STARTUP_SPLASH_URL: &str = "startup-splash.html";
+
+/// Event that carries the phase the product is working on.
+pub const STARTUP_STAGE_EVENT: &str = "lithe://startup-stage";
+
+/// Event that reports a failed startup.
+pub const STARTUP_FAILED_EVENT: &str = "lithe://startup-failed";
+
+/// Event that reports that the workbench is ready.
+pub const STARTUP_READY_EVENT: &str = "lithe://startup-ready";
+
+/// Creates the window that shows the startup animation.
+///
+/// The splash is a separate window so the workbench never paints an empty
+/// surface while the frontend boots, and so the animation keeps its own
+/// compact layout instead of covering the workbench. The window itself is
+/// transparent and the frontend draws a rounded card inside it, so the card
+/// floats over the desktop instead of filling the whole window.
+///
+/// The window starts hidden. A transparent window that is shown before its page
+/// painted shows up as an empty frame, so the page reveals it once the card is
+/// on screen.
+pub fn create_startup_splash_window(app: &AppHandle) -> Result<WebviewWindow, String> {
+    if let Some(existing) = app.get_webview_window(STARTUP_SPLASH_LABEL) {
+        return Ok(existing);
+    }
+    WebviewWindowBuilder::new(
+        app,
+        STARTUP_SPLASH_LABEL,
+        WebviewUrl::App(STARTUP_SPLASH_URL.into()),
+    )
+    .title("Lithe")
+    .inner_size(720.0, 460.0)
+    .min_inner_size(720.0, 460.0)
+    .max_inner_size(720.0, 460.0)
+    .decorations(false)
+    .resizable(false)
+    .skip_taskbar(true)
+    .always_on_top(true)
+    .transparent(true)
+    .background_color(tauri::window::Color(0, 0, 0, 0))
+    .visible(false)
+    .center()
+    .build()
+    .map_err(|error| error.to_string())
+}
+
+/// Shows the startup splash window once its card is painted.
+///
+/// The command is idempotent: the splash page reveals itself after the first
+/// paint, and the shell reveals it again as a safety net when the page failed
+/// to load.
+#[tauri::command]
+pub fn reveal_startup_splash(app: AppHandle) -> Result<(), String> {
+    if let Some(splash) = app.get_webview_window(STARTUP_SPLASH_LABEL) {
+        let _ = splash.center();
+        splash.show().map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+/// Closes the startup splash and hands the screen to the workbench.
+///
+/// The command is idempotent because both the splash window and the workbench
+/// can request the handover.
+#[tauri::command]
+pub fn complete_startup(app: AppHandle) -> Result<(), String> {
+    if let Some(splash) = app.get_webview_window(STARTUP_SPLASH_LABEL) {
+        let _ = splash.close();
+    }
+    if let Some(main) = app.get_webview_window("main") {
+        main.show().map_err(|error| error.to_string())?;
+        let _ = main.set_focus();
+    }
+    Ok(())
+}
+
+/// Broadcasts the phase the product is working on to the startup splash.
+#[tauri::command]
+pub fn publish_startup_stage(app: AppHandle, stage: String) -> Result<(), String> {
+    app.emit(STARTUP_STAGE_EVENT, stage)
+        .map_err(|error| error.to_string())
+}
+
+/// Payload of a failed startup that the splash window renders.
+#[derive(Clone, Serialize)]
+pub struct StartupFailurePayload {
+    pub code: String,
+    pub message: Option<String>,
+}
+
+/// Broadcasts a failed startup to the startup splash.
+#[tauri::command]
+pub fn publish_startup_failed(
+    app: AppHandle,
+    code: String,
+    message: Option<String>,
+) -> Result<(), String> {
+    app.emit(
+        STARTUP_FAILED_EVENT,
+        StartupFailurePayload { code, message },
+    )
+    .map_err(|error| error.to_string())
+}
+
+/// Broadcasts that the workbench is ready.
+#[tauri::command]
+pub fn publish_startup_ready(app: AppHandle) -> Result<(), String> {
+    app.emit(STARTUP_READY_EVENT, ())
+        .map_err(|error| error.to_string())
+}
+
 #[tauri::command]
 pub fn get_bundled_extensions_path(app: AppHandle) -> Result<String, String> {
     app.path()
