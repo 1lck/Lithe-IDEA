@@ -407,7 +407,7 @@ struct DatabaseSidebarView: View {
             isExpanded: expandedProfileIDs.contains(profile.id),
             onExpansion: { expanded in
                 if expanded != expandedProfileIDs.contains(profile.id) { toggleProfile(profile) }
-            }, onSelect: { selectProfile(profile, expand: true) },
+            }, onClick: { selectProfile(profile, expand: true) },
             menu: { connectionContextMenu(profile) }
         ) {
             HStack(spacing: LitheTheme.Tree.iconTextGap) {
@@ -527,7 +527,7 @@ struct DatabaseSidebarView: View {
                 expandedTableKey = expanded ? key : nil
                 if expanded { openTable(profile, table: table, section: .data) }
             },
-            onSelect: {
+            onClick: {
                 expandedTableKey = expandedTableKey == key ? nil : key
                 openTable(profile, table: table, section: .data)
             },

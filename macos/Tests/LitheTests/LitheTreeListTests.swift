@@ -97,12 +97,24 @@ struct LitheTreeListTests {
         let previous = (application.accessibilityAttributeValue(attribute) as? Bool) ?? false
         application.accessibilitySetValue(true, forAttribute: attribute)
         defer { application.accessibilitySetValue(previous, forAttribute: attribute) }
+        let domain = "Lithe.TreeAccessibility.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let store = MacUserDefaultsStore(defaults: defaults)
+        let settings = AppSettings(store: store)
+        let model = AppModel(settings: settings,
+            services: MacServiceContainer(store: store, settings: settings, moduleLaunchMode: .safeMode).services)
+        let resultRoot = try #require(URL(string: "lithe-fixture://results/"))
         let state = TreeListInteractionState()
         let host = NSHostingView(
             rootView: LitheTreeList(
                 ["a", "b", "c", "d"], id: \.self,
                 selection: Binding(get: { state.selected }, set: { state.selected = $0 }),
-                onActivate: { state.activated.append($0) }
+                onActivate: {
+                    state.activated.append($0)
+                    model.documentFeature.openVirtualDocument(resultRoot.appendingPathComponent($0 + ".java"),
+                                                              text: "class Result {}", displayPath: nil)
+                }
             ) { value in
                 HStack {
                     Text(value).accessibilityIdentifier("row-label-" + value)
@@ -150,9 +162,61 @@ struct LitheTreeListTests {
         #expect(state.selected == ["b"])
         let refresh = try #require(find(host, id: "embedded-refresh"))
         #expect(refresh.accessibilityPerformPress?() == true)
-        #expect(state.activated == ["refresh"])
+        #expect(state.activated == ["b", "refresh"])
+        #expect(model.activeDocument?.url == resultRoot.appendingPathComponent("b.java"))
         #expect(state.selected == ["b"])
 
+    }
+
+    @Test(arguments: [false, true], ["Run", "Exclude from dependency tree"])
+    func emptyNodeMenuPreservesEmbeddedBusinessMenu(multiple: Bool, title: String) async throws {
+        let app = NSApplication.shared
+        let attribute = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
+        let previous = (app.accessibilityAttributeValue(attribute) as? Bool) ?? false
+        app.accessibilitySetValue(true, forAttribute: attribute)
+        defer { app.accessibilitySetValue(previous, forAttribute: attribute) }
+        var executions = 0
+        let node = LitheTreeListNode(id: "row") {
+            Text("Business row").frame(maxWidth: .infinity, alignment: .leading)
+                .litheContextMenu { [.action(title, localizesTitle: false) { executions += 1 }] }
+        }
+        var single: String?
+        var selected: Set<String> = []
+        let content: AnyView = multiple
+            ? AnyView(LitheTreeList(nodes: [node], selection: Binding(get: { selected }, set: { selected = $0 })))
+            : AnyView(LitheTreeList(nodes: [node], selection: Binding(get: { single }, set: { single = $0 })))
+        let host = NSHostingView(rootView: content.frame(width: 300, height: 160))
+        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 300, height: 160),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.makeKeyAndOrderFront(nil)
+        defer { LitheContextMenuPresenter.shared.dismiss(); window.contentView = nil; window.close() }
+        host.layoutSubtreeIfNeeded()
+        let point = NSPoint(x: 120, y: host.isFlipped ? 16 : host.bounds.height - 16)
+        let rightClick = try #require(NSEvent.mouseEvent(with: .rightMouseDown,
+            location: host.convert(point, to: nil), modifierFlags: [], timestamp: 0,
+            windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
+        func views(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(views) }
+        let captures = views(host).filter { String(describing: type(of: $0)) == "LitheRightClickCaptureView" }
+        #expect(captures.count == 1, "An empty node menu must not install a second capture above the business menu")
+        let capture = try #require(captures.first)
+        // Invoke the actual AppKit event boundary; do not run a nested application event loop.
+        capture.rightMouseDown(with: rightClick)
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(1))
+        func menu() -> NSPanel? { NSApp.windows.compactMap { $0 as? NSPanel }.first { $0.isVisible } }
+        while menu() == nil && clock.now < deadline { await Task.yield(); host.layoutSubtreeIfNeeded() }
+        let popup = try #require(menu(), "An absent node menu must leave Run/Edit/Pin and dependency menus reachable")
+        func find(_ value: Any) -> AnyObject? {
+            let item = value as AnyObject
+            if item.accessibilityRole?() == .button, item.accessibilityLabel?() == title { return item }
+            return (item.accessibilityChildren?() ?? []).lazy.compactMap(find).first
+        }
+        let contentView = try #require(popup.contentView)
+        let action = try #require(find(contentView))
+        #expect(action.accessibilityPerformPress?() == true)
+        #expect(executions == 1)
     }
 
     @Test func productRowsCannotUseTheRetiredStyleRecipe() throws {

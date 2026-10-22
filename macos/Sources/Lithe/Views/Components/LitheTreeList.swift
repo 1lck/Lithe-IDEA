@@ -260,6 +260,7 @@ struct LitheTreeList<Data: RandomAccessCollection, ID: Hashable, RowContent: Vie
             if state.isSelectable {
                 if !retainsSearchFocus { isFocused = true }
                 select(itemID)
+                activate(item)
             } else if state.isBranch {
                 onExpansion?(item, !state.isExpanded)
             }
@@ -298,7 +299,7 @@ struct LitheTreeList<Data: RandomAccessCollection, ID: Hashable, RowContent: Vie
     private func activate(_ item: Item) {
         hierarchy(item).activate(
             onExpansion: onExpansion.map { expand in { expand(item, $0) } },
-            onActivate: onActivate.map { activate in { activate(item) } })
+            onActivate: (onActivate ?? onClick).map { activate in { activate(item) } })
     }
 
     private func navigate(_ direction: MoveCommandDirection, extending: Bool) {
@@ -375,7 +376,10 @@ private struct LitheTreeListMenu: ViewModifier {
     var items: (() -> [LitheContextMenuItem])?
     let onRightClick: () -> Void
     @ViewBuilder func body(content: Content) -> some View {
-        if let items { content.litheContextMenu(items: items, onRightClick: onRightClick) } else { content }
+        // An empty outer menu must not consume the row content's own right-click menu.
+        if let items, !items().isEmpty {
+            content.litheContextMenu(items: items, onRightClick: onRightClick)
+        } else { content }
     }
 }
 
@@ -444,7 +448,7 @@ extension LitheTreeList where Data == [LitheTreeListNode], ID == String, RowCont
                     depth: $0.depth, isBranch: $0.isExpanded != nil,
                     isExpanded: $0.isExpanded == true, isSelectable: $0.isSelectable)
             }, onExpansion: { $0.onExpansion?($1) },
-            onActivate: { $0.onActivate?() }, onClick: { $0.onClick?() }, contextMenu: { $0.menu() }, multiline: multiline, row: { $0.content })
+            onActivate: { ($0.onActivate ?? $0.onClick)?() }, onClick: { $0.onClick?() }, contextMenu: { $0.menu() }, multiline: multiline, row: { $0.content })
     }
 }
 
@@ -471,7 +475,7 @@ extension LitheTreeList where Data == [LitheTreeListNode], ID == String, RowCont
                 .init(
                     depth: $0.depth, isBranch: $0.isExpanded != nil,
                     isExpanded: $0.isExpanded == true, isSelectable: $0.isSelectable)
-            }, onExpansion: { $0.onExpansion?($1) }, onActivate: { $0.onActivate?() }, onClick: { $0.onClick?() },
+            }, onExpansion: { $0.onExpansion?($1) }, onActivate: { ($0.onActivate ?? $0.onClick)?() }, onClick: { $0.onClick?() },
             contextMenu: { $0.menu() }, multiline: multiline, row: { $0.content })
     }
 }

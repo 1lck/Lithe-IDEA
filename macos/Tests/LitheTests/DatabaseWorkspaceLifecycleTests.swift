@@ -1033,6 +1033,96 @@ struct DatabaseWorkspaceLifecycleTests {
     }
 
     @Test
+    func sidebarRightClickPreservesAllUnappliedTableEdits() async throws {
+        let app = NSApplication.shared
+        let attribute = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
+        let previous = (app.accessibilityAttributeValue(attribute) as? Bool) ?? false
+        app.accessibilitySetValue(true, forAttribute: attribute)
+        defer { app.accessibilitySetValue(previous, forAttribute: attribute) }
+        let preferences = DatabaseLifecyclePreferences()
+        let store = DatabaseConnectionStore(store: preferences, secureStore: DatabaseLifecycleSecrets())
+        let profile = DatabaseProfile(name: "Context menu fixture", kind: .mysql, database: "first_db")
+        try store.save([profile])
+        let settings = AppSettings(store: preferences)
+        let model = AppModel(settings: settings,
+            services: MacServiceContainer(store: preferences, settings: settings, moduleLaunchMode: .safeMode).services)
+        let feature = DatabaseFeatureModel(operations: DatabaseSidecarService(processRunner: TableEditsWorkspaceRunner(),
+            executableURL: URL(fileURLWithPath: "/fixture/database")), connectionStore: store)
+        defer { feature.prepareForModuleRelease() }
+        model.cacheModuleCapability(DatabaseModuleCapability(feature: feature), id: .databaseWorkspace, moduleID: .database)
+        feature.activateProfile(profile)
+        await feature.refreshTables()
+        await feature.openTable("customers")
+        let host = NSHostingView(rootView: DatabaseSidebarView().frame(width: 340, height: 600)
+            .environmentObject(feature).environmentObject(model).environmentObject(settings))
+        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 340, height: 600),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.makeKeyAndOrderFront(nil)
+        defer { LitheContextMenuPresenter.shared.dismiss(); window.contentView = nil; window.close() }
+        func hasText(_ value: Any, _ text: String) -> Bool {
+            let item = value as AnyObject
+            let stringValue: String? = item.accessibilityValue?()
+            if stringValue == text || item.accessibilityLabel?() == text { return true }
+            return (item.accessibilityChildren?() ?? []).contains { hasText($0, text) }
+        }
+        func row(_ value: Any, named text: String) -> AnyObject? {
+            let item = value as AnyObject
+            if item.accessibilityRole?() == .button, hasText(item, text) { return item }
+            return (item.accessibilityChildren?() ?? []).lazy.compactMap { row($0, named: text) }.first
+        }
+        func waitForRow(_ text: String) async -> AnyObject? {
+            let clock = ContinuousClock()
+            let deadline = clock.now.advanced(by: .seconds(1))
+            repeat {
+                host.layoutSubtreeIfNeeded()
+                if let found = row(host, named: text) { return found }
+                await Task.yield()
+            } while clock.now < deadline
+            return nil
+        }
+        let connection = try #require(await waitForRow(profile.name))
+        #expect(connection.accessibilityPerformPress?() == true)
+        let orders = try #require(await waitForRow("orders"))
+        let cell = DatabaseCellKey(row: 0, column: "name")
+        feature.tableCellDrafts[cell] = .string("edited")
+        feature.tableInsertedRows = [["name": .string("new")]]
+        feature.tableDeletedRows = [1]
+        let rect = try #require(orders.accessibilityFrame?())
+        let point = window.convertPoint(fromScreen: NSPoint(x: rect.midX, y: rect.midY))
+        let rightClick = try #require(NSEvent.mouseEvent(with: .rightMouseDown, location: point,
+            modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil,
+            eventNumber: 1, clickCount: 1, pressure: 1))
+        func views(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(views) }
+        let captures = views(host).filter { String(describing: type(of: $0)) == "LitheRightClickCaptureView" }
+        let capture = try #require(captures.filter {
+            $0.convert($0.bounds, to: nil).contains(point)
+        }.min { $0.bounds.width * $0.bounds.height < $1.bounds.width * $1.bounds.height })
+        // Invoke the actual AppKit event boundary; do not run a nested application event loop.
+        capture.rightMouseDown(with: rightClick)
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(1))
+        func menu() -> NSPanel? { NSApp.windows.compactMap { $0 as? NSPanel }.first { $0.isVisible } }
+        while menu() == nil && clock.now < deadline { await Task.yield() }
+        let popup = try #require(menu())
+        NSApp.sendEvent(try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+            timestamp: 0, windowNumber: popup.windowNumber, context: nil, characters: "\u{1b}",
+            charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53)))
+        #expect(!popup.isVisible)
+        #expect(feature.selectedTable == "customers")
+        #expect(feature.tableCellDrafts[cell] == .string("edited"))
+        #expect(feature.tableInsertedRows == [["name": .string("new")]])
+        #expect(feature.tableDeletedRows == [1])
+        // An explicit open still follows the real sidebar navigation path.
+        let target = try #require(await waitForRow("orders"))
+        #expect(target.accessibilityPerformPress?() == true)
+        #expect(feature.selectedTable == "orders")
+        #expect(await awaitChange(on: feature, until: { !feature.isLoading }))
+        await model.shutdownProjectSession()
+    }
+
+    @Test
     func tableEditsSurviveConsoleRenderingAndBackgroundRefresh() async throws {
         let preferences = DatabaseLifecyclePreferences()
         let store = DatabaseConnectionStore(store: preferences, secureStore: DatabaseLifecycleSecrets())
