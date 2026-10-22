@@ -359,9 +359,14 @@ Swift 单元、插件和数据库 CI 通道复用已有 Cargo 下载缓存。先
 
 Cargo 社区插件在 [独立仓库](https://github.com/Lithe-IDEA/lithe-plugin-cargo) 中构建，
 最终 ZIP、摘要、vendored Node SDK 和集成测试产物由该仓库的 `dist/`、`.artifacts/` 持有，
-不作为 Lithe 主仓库的下载缓存或可复用资源。主仓库仅保留固定来源的清单和模型夹具，
-不下载、组装或共享 Cargo 插件、SDK、运行时状态与 Cargo target。插件仓库每次构建校验
-`sdk.lock.json` 固定的源码提交与文件 SHA-256，SDK 复制只发生在打包阶段，安装目录保持只读。
+不作为 Lithe 主仓库的下载缓存或可复用资源。Cargo 专属清单、模型金样与兼容性测试也由
+插件仓库持有：其 CI 按 `sdk.lock.json` 固定的宿主提交检出独立的 `.artifacts/lithe-core`，
+用公开 JSON API 验证清单、安装审查、识别、解码与任务计划，并实际执行 Core 生成的 Cargo 命令。
+宿主依赖按其 Cargo.lock 下载，测试工程的 Cargo 命令使用离线模式；固定基线不代表持续验证未来 preview。
+`.artifacts/core-target` 是插件 checkout 私有可变编译状态，不进入主仓库资源复用清单，
+不跨 worktree 共享，也不进入发布 ZIP。主仓库保留通用插件契约回归，不下载或组装 Cargo 插件。
+插件仓库每次打包校验 `sdk.lock.json` 固定的 SDK 源码提交与文件 SHA-256，
+SDK 复制只发生在打包阶段，安装目录保持只读。
 
 `Lithe-Dev` 的运行时用户状态不属于可复用构建缓存。macOS 用
 `app.lithe.desktop.dev` 隔离偏好和钥匙串，并在系统 Application Support、Caches、
