@@ -11,7 +11,6 @@ struct PluginMarketplaceView: View {
     @Environment(\.locale) private var locale
     @EnvironmentObject private var model: AppModel
     @ObservedObject var feature: PluginMarketplaceFeatureModel
-    @State private var pluginListActive = false
     @State private var searchText = ""
     @State private var sourceFilter = PluginMarketplaceView.allSources
     @State private var sortOrder = PluginMarketplaceFeatureModel.SortOrder.name
@@ -45,7 +44,7 @@ struct PluginMarketplaceView: View {
                 ),
                 flexibleMinimum: PluginManagementView.detailMinimumWidth,
                 onCommit: { listWidth = Double($0) },
-                sized: { sidebar.background(LitheToolWindowActivityTracker(isActive: $pluginListActive)) },
+                sized: { sidebar },
                 flexible: { detail }
             )
         }
@@ -56,7 +55,7 @@ struct PluginMarketplaceView: View {
 
     private var sidebar: some View {
         VStack(spacing: 0) {
-            LitheSettingsSearchField("Search plugins", text: $searchText)
+            LitheSearchField("Search plugins", text: $searchText)
                 .padding(.horizontal, 8)
                 .frame(height: 44)
             HStack(spacing: 8) {
@@ -92,14 +91,13 @@ struct PluginMarketplaceView: View {
             if listings.isEmpty {
                 emptyList
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(listings) { listing in
-                            row(listing)
-                        }
-                    }
+                LitheTreeList(
+                    listings,
+                    selection: Binding(
+                        get: { selectedListing?.pluginID }, set: { selectedPluginID = $0 }), multiline: true
+                ) { listing in
+                    row(listing)
                 }
-                .litheScrollViewChrome()
             }
         }
         .frame(maxWidth: .infinity)
@@ -120,7 +118,6 @@ struct PluginMarketplaceView: View {
 
     private func row(_ listing: PluginMarketplaceListing) -> some View {
         let offer = feature.offer(for: listing)
-        let isSelected = selectedListing?.pluginID == listing.pluginID
         return HStack(spacing: 10) {
             PluginMarketplaceIcon(icons: feature.icons, entry: offer?.entry, size: 32)
             VStack(alignment: .leading, spacing: 3) {
@@ -137,19 +134,15 @@ struct PluginMarketplaceView: View {
                 rowAction(offer)
             }
         }
-        .padding(.horizontal, 14)
+        .padding(.horizontal, LitheTheme.Tree.iconTextGap)
         .padding(.vertical, 9)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .litheSelectionRow(isSelected: isSelected, isFocused: pluginListActive)
         .contentShape(Rectangle())
-        .onTapGesture { selectedPluginID = listing.pluginID }
         // Keep the row's Install button a separate element: combining the
         // children makes pressing the row install the plugin instead of
         // selecting it.
         .accessibilityElement(children: .contain)
         .accessibilityLabel(Text(verbatim: offer?.entry.name ?? listing.pluginID.rawValue))
-        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
-        .accessibilityAction { selectedPluginID = listing.pluginID }
     }
 
     @ViewBuilder

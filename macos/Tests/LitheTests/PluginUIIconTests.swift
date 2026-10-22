@@ -210,7 +210,7 @@ struct PluginUIIconTests {
     }
 
     @Test(arguments: [PluginUIIcon.Mode.template, .original], [false, true])
-    func registeredWindowHeaderRendersTheDeclaredThemeVariant(mode: PluginUIIcon.Mode, dark: Bool) async throws {
+    func registeredWindowHeaderOmitsIconsInEveryTheme(mode: PluginUIIcon.Mode, dark: Bool) async throws {
         let descriptor = try DeclarativePluginTestSupport.operations.validate(manifest: manifest(icon: [
             "path": "light.png", "darkPath": "dark.png", "mode": mode.rawValue]))
         let declaration = try #require(descriptor.pluginManifest.modules.first)
@@ -231,11 +231,17 @@ struct PluginUIIconTests {
             let bitmap = try snapshot(renderer.content(model).environmentObject(model).environmentObject(settings),
                 dark: dark, size: CGSize(width: 300, height: 150))
             let scale = CGFloat(bitmap.pixelsWide) / 300
-            let center = try #require(bitmap.colorAt(x: Int(18.5 * scale), y: Int(15 * scale))?.usingColorSpace(.deviceRGB))
-            if mode == .original {
-                if dark { #expect(center.blueComponent > center.redComponent + 0.6) }
-                else { #expect(center.redComponent > center.blueComponent + 0.6) }
-            } else { #expect(abs(center.redComponent - center.blueComponent) < 0.15) }
+            var brandPixels = 0
+            for y in 0..<Int(LitheTheme.Metrics.toolWindowHeaderHeight * scale) {
+                for x in 0..<bitmap.pixelsWide {
+                    let color = try #require(bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB))
+                    if (color.redComponent > color.greenComponent + 0.4 && color.redComponent > color.blueComponent + 0.4)
+                        || (color.blueComponent > color.greenComponent + 0.4 && color.blueComponent > color.redComponent + 0.4) {
+                        brandPixels += 1
+                    }
+                }
+            }
+            #expect(brandPixels == 0, "A declared rail icon must never appear in the text-only panel header")
         }
     }
 
@@ -301,7 +307,7 @@ struct PluginUIIconTests {
             captured = bitmap
             let scale = CGFloat(bitmap.pixelsWide) / content.bounds.width
             func color(row: Int) throws -> NSColor {
-                try #require(bitmap.colorAt(x: Int(18 * scale), y: Int((100 + CGFloat(row) * 24) * scale))?.usingColorSpace(.deviceRGB))
+                try #require(bitmap.colorAt(x: Int((LitheTheme.Tree.horizontalInset + 10 + LitheTheme.Metrics.toolbarIconSize / 2) * scale), y: Int((100 + CGFloat(row) * LitheTheme.Tree.rowHeight) * scale))?.usingColorSpace(.deviceRGB))
             }
             return try (color(row: 0), color(row: 1))
         }
@@ -393,11 +399,11 @@ struct PluginUIIconTests {
     @Test(arguments: [PluginUIIcon.Mode.template, .original], [false, true])
     func hostIconsHonorDeclaredColorModeAndTheme(mode: PluginUIIcon.Mode, dark: Bool) throws {
         let asset = WorkbenchContributionIcon.Asset(.init(host: "run", mode: mode), resources: nil)
-        let hasHostAsset = LitheIcons.ideaImage(resourcePath: asset.hostPath!) != nil
+        let hasHostAsset = LitheIcons.ideaImage(resourcePath: asset.hostPath(for: .action)!) != nil
         if Bundle.main.bundleURL.pathExtension == "app" { #expect(hasHostAsset, "Packaged tests must resolve the real host asset") }
         let bitmap = try snapshot(WorkbenchContributionIcon(asset: asset, role: .action)
             .foregroundStyle(Color(red: 1, green: 0, blue: 1)), dark: dark)
-        let original = try snapshot(LitheIDEAIcon(resourcePath: asset.hostPath!, size: WorkbenchContributionIcon.Role.action.size,
+        let original = try snapshot(LitheIDEAIcon(resourcePath: asset.hostPath(for: .action)!, size: WorkbenchContributionIcon.Role.action.size,
             preservesOriginalColors: true), dark: dark)
         var paintedPixels = 0
         var minimumTintMargin: CGFloat = 1, maximumOriginalDifference: CGFloat = 0
@@ -420,6 +426,41 @@ struct PluginUIIconTests {
         // fallback remains themed; the packaged renderer checks original pixels.
         if mode == .template || !hasHostAsset { #expect(minimumTintMargin > 0.5) }
         else { #expect(maximumOriginalDifference < 0.02) }
+    }
+
+    @Test(arguments: [false, true])
+    func toolbarOwnsTemplateTintWithoutCallerModifiers(dark: Bool) throws {
+        let resources = try PluginUIIconResources(light: image("svg", color: .red))
+        let asset = WorkbenchContributionIcon.Asset(.init(path: "icon.svg"), resources: resources)
+        let actual = try snapshot(Button {} label: {
+            WorkbenchContributionIcon(asset: asset, role: .action)
+        }.litheToolbarIconButton(), dark: dark)
+        let expected = try snapshot(Rectangle().fill(LitheTheme.ActionToolbar.icon)
+            .frame(width: 16, height: 16), dark: dark)
+        let color = try #require(actual.colorAt(x: actual.pixelsWide / 2, y: actual.pixelsHigh / 2)?.usingColorSpace(.deviceRGB))
+        let reference = try #require(expected.colorAt(x: expected.pixelsWide / 2, y: expected.pixelsHigh / 2)?.usingColorSpace(.deviceRGB))
+        #expect(abs(color.redComponent - reference.redComponent) < 0.01)
+        #expect(abs(color.greenComponent - reference.greenComponent) < 0.01)
+        #expect(abs(color.blueComponent - reference.blueComponent) < 0.01)
+    }
+
+    @Test func actionAssetsKeepNativeSixteenPointGeometry() throws {
+        for (railPath, actionPath) in WorkbenchContributionIcon.Asset.actionPaths {
+            let id = try #require(WorkbenchContributionIcon.Asset.hostPaths.first { $0.value == railPath }?.key)
+            let asset = WorkbenchContributionIcon.Asset(.init(host: id), resources: nil)
+            #expect(asset.hostPath(for: .toolWindow) == railPath)
+            #expect(asset.hostPath(for: .action) == actionPath)
+            for path in [actionPath, LitheIcons.darkIdeaAssetPath(for: actionPath)] {
+                let source = DeclarativePluginTestSupport.repositoryRoot.appendingPathComponent("macos/Resources/IDEAIcons/" + path)
+                // A template-only stroke can share its source across both themes.
+                let resolved = FileManager.default.fileExists(atPath: source.path) ? source
+                    : DeclarativePluginTestSupport.repositoryRoot.appendingPathComponent("macos/Resources/IDEAIcons/" + actionPath)
+                let icon = try #require(NSImage(contentsOf: resolved))
+                #expect(icon.size == NSSize(width: 16, height: 16))
+                let svg = try String(contentsOf: resolved, encoding: .utf8)
+                #expect(!svg.contains("#253627"), "Template action assets must not turn a dark interior fill into a solid glyph")
+            }
+        }
     }
 
     @Test func hostCatalogAndMissingIconUseExistingAssets() throws {

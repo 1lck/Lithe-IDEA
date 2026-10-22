@@ -133,7 +133,8 @@ struct LitheSplitPaneCollapseTests {
                             VStack(spacing: 0) {
                                 ForEach(0..<69) { index in
                                     Button("codex/branch-\(index)") {}.buttonStyle(.litheNoPress)
-                                        .litheTreeRow()
+                                        .frame(height: LitheTheme.Tree.rowHeight)
+                                        .modifier(LitheTreeListRowSurface(isSelected: false, isFocused: false))
                                         .workbenchHoverHelp(Text("Branch \(index)"))
                                         .litheContextMenu { [.action("Select", action: {})] }
                                         .background(CollapseSurface(name: String(index), recorder: surfaces))

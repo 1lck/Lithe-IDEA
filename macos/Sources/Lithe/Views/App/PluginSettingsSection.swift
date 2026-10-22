@@ -128,8 +128,7 @@ private struct PluginIntegerSettingField: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            TextField("", text: $text)
-                .litheSettingsTextField()
+            LitheTextField("", text: $text)
                 .multilineTextAlignment(.trailing)
                 .monospacedDigit()
                 .frame(width: 90)

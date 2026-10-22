@@ -385,7 +385,26 @@ pub fn run_sample_scenario(sample: &Sample) {
     let arguments = plan["arguments"].as_array().unwrap().clone();
 
     let mut session = Session::start(&plugin_id, runtime, &arguments, &workspace);
-    assert_eq!(session.functions(), ["snapshot.read", "workspace.build"]);
+    if sample.tool == "node" {
+        assert_eq!(
+            session.functions(),
+            ["snapshot.read", "ui.inspect", "ui.nodes", "workspace.build"]
+        );
+        let rows = session.call("native-rows", "ui.nodes", json!({}));
+        assert_eq!(
+            rows["result"]["value"]["nodes"].as_array().unwrap().len(),
+            3
+        );
+        let selected = &rows["result"]["value"]["nodes"][0]["id"];
+        let inspected = session.call(
+            "native-inspect",
+            "ui.inspect",
+            json!({"selectedID": selected}),
+        );
+        assert_eq!(inspected["result"]["value"]["message"], "Selected: app");
+    } else {
+        assert_eq!(session.functions(), ["snapshot.read", "workspace.build"]);
+    }
 
     // Typed build requests: Core plans them and decodes the answers.
     let build = |operation: &str, request: Value| {

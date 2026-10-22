@@ -83,6 +83,24 @@ backend.function('workspace.build', async ({ projects: selected }, context) => {
   return snapshot;
 });
 
+// A native panel needs only data and functions; Lithe supplies every control.
+backend.function('ui.nodes', backendNodes);
+
+backend.function('ui.inspect', async ({ selectedID }) => {
+  const { nodes } = await backendNodes();
+  const node = nodes.flatMap((node) => [node, ...node.children]).find(({ id }) => id === selectedID);
+  if (!node) throw new PluginError('sample.selection', 'Select a current project row.');
+  return { message: `Selected: ${node.label}` };
+});
+
+async function backendNodes() {
+  const config = await readConfig('.');
+  return { nodes: config.projects.map(({ name, path }) => ({
+    id: `project.${Buffer.from(path).toString('base64url')}`, label: name,
+    children: [{ id: `project.${Buffer.from(path).toString('base64url')}.info`, label: `Project: ${name}` }],
+  })) };
+}
+
 backend.function('snapshot.read', () => store.read('snapshot', null));
 
 // Reads the latest snapshot when the build ends, not when it starts: two

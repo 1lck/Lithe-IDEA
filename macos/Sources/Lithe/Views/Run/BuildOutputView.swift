@@ -11,7 +11,6 @@ struct BuildOutputView: View {
         VStack(spacing: 0) {
             LitheToolWindowHeader(
                 title: "Build Output",
-                systemImage: "terminal",
                 onMinimize: { model.workbenchFeature.setVisibility(.buildOutput, isVisible: false) }
             ) {
                 stateLabel

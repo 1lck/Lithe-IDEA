@@ -1,0 +1,27 @@
+{
+  "id": "macos-shared-tree-list-control",
+  "area": "工作台",
+  "group": "公共控件",
+  "capability": "macOS 原生树与列表使用完整公共入口，统一焦点、两侧留白、悬停、活动/失焦选择、方向键、范围多选、双击展开及回车；项目树与插件树共用展开箭头控件；既有页面与声明式插件共用；保留原生视口、拖放、业务加载与输入编辑",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "macos/Sources/Lithe/Views/Components/LitheTreeList.swift",
+      "macos/Tests/LitheTests/LitheTreeListTests.swift",
+      "macos/Tests/LitheTests/LitheTreeRowStyleTests.swift",
+      "macos/Sources/Lithe/Views/Workspace/ProjectSidebarView.swift",
+      "macos/Sources/Lithe/Views/Workbench/PluginNativeToolWindowView.swift",
+      ".agents/notes/implemented/simplification/2026-09-30-macos-shared-dropdown-style.md"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
+    "evidence": [
+      "windows/tauri/src/ui"
+    ]
+  },
+  "owner": "Workbench UI",
+  "verification": "运行 LitheTreeListTests、LitheTreeRowStyleTests、PluginNativeUITests、ProjectTreeSelectionTests、GitChangeSelectionTests、原生 Git 文件树和 Worktree 及焦点回归；实机验证 Sample Explorer 与 Project/Commit/构建/设置列表的两侧留白、焦点边框、选择、悬停、方向键、范围选择、双击名称展开/收起、箭头一致性、回车与嵌入输入；深浅色及窗口失焦分别验收。组件验证不代替全部页面实机验收；Windows 后续独立同步。"
+}

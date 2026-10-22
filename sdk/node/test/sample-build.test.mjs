@@ -62,3 +62,16 @@ test('a selection naming an unknown project fails instead of building nothing', 
   assert.deepEqual(selected.result.projects, [{ name: 'lib', exitCode: 0 }]);
   await host.close();
 });
+
+test('native panel provides stable rows and handles a selected-node action', { timeout: 10000 }, async (t) => {
+  const host = await startSample(t);
+  try {
+    const first = await host.request('lithe/function/invoke', { functionID: 'ui.nodes', operationID: 'native-1', params: {} });
+    assert.equal(first.result.nodes.length, 2);
+    const selectedID = first.result.nodes[1].children[0].id;
+    const action = await host.request('lithe/function/invoke', { functionID: 'ui.inspect', operationID: 'native-2', params: { selectedID } });
+    assert.equal(action.result.message, 'Selected: Project: lib');
+    const second = await host.request('lithe/function/invoke', { functionID: 'ui.nodes', operationID: 'native-3', params: {} });
+    assert.deepEqual(second.result, first.result);
+  } finally { await host.close(); }
+});

@@ -110,7 +110,6 @@ struct AgentHistoryView: View {
     let onCopySessionID: (String) -> Void
     let onSelect: (String) -> Void
     let onReconnect: () -> Void
-    @State private var historyListActive = false
     @State private var query = ""
     @State private var filter = AgentHistoryFilter.all
     @State private var isSelecting = false
@@ -182,13 +181,9 @@ struct AgentHistoryView: View {
             if sessions.isEmpty && archived.isEmpty {
                 emptyState
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(sessions) { session in row(session) }
-                        if !archived.isEmpty { archivedSection }
-                    }
-                }
-                .background(LitheToolWindowActivityTracker(isActive: $historyListActive))
+                LitheTreeList(
+                    nodes: historyNodes, selection: $selectedIDs,
+                    multiline: true, togglesSelectionOnClick: isSelecting)
             }
         }
         .litheWorkbenchSurface(AgentPanelStyle.canvas)
@@ -312,7 +307,7 @@ struct AgentHistoryView: View {
 
     private var searchControls: some View {
         HStack(spacing: 8) {
-            LitheSettingsSearchField("Search conversation titles or IDs…", text: $query)
+            LitheSearchField("Search conversation titles or IDs…", text: $query)
                 .accessibilityIdentifier("agent-history-search")
             LitheMenu {
                 for mode in AgentHistoryFilter.allCases {
@@ -347,29 +342,37 @@ struct AgentHistoryView: View {
 
     private var agentDisplayName: String { agentName ?? AgentLocalization.string("This Agent", locale: locale) }
 
-    private var archivedSection: some View {
-        VStack(spacing: 0) {
-            Button { archivedExpansion = !isArchivedExpanded } label: {
-                HStack(spacing: 6) {
-                    LitheSystemIcon(systemImage: isArchivedExpanded ? "chevron.down" : "chevron.right", size: 10)
-                    Text(String(format: AgentLocalization.string("Archived (%d)", locale: locale), archived.count))
-                        .font(LitheTheme.uiFont(size: 12, weight: .semibold))
-                    if feature.isRefreshingArchivedSessions || feature.unarchivingSessionID != nil {
-                        ProgressView().controlSize(.mini)
-                    }
-                    Spacer(minLength: 0)
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.litheNoPress).lithePointer()
-            .foregroundStyle(AgentPanelStyle.secondary)
-            .padding(.horizontal, 20).padding(.vertical, 10)
-            .overlay(alignment: .bottom) { divider }
-            .accessibilityIdentifier("agent-history-archived")
-            if isArchivedExpanded {
-                ForEach(archived) { session in archivedRow(session) }
-            }
+    private var historyNodes: [LitheTreeListNode] {
+        var nodes = sessions.map { session in
+            LitheTreeListNode(
+                id: session.id, isSelectable: isSelecting,
+                onActivate: { if !isSelecting { onSelect(session.id) } }
+            ) { row(session) }
         }
+        if !archived.isEmpty {
+            nodes.append(
+                LitheTreeListNode(
+                    id: "archived:", isExpanded: isArchivedExpanded,
+                    isSelectable: false, onExpansion: { archivedExpansion = $0 }
+                ) {
+                    HStack(spacing: 6) {
+                        Text(String(format: AgentLocalization.string("Archived (%d)", locale: locale), archived.count))
+                            .font(LitheTheme.uiFont(size: 12, weight: .semibold))
+                        if feature.isRefreshingArchivedSessions || feature.unarchivingSessionID != nil {
+                            ProgressView().controlSize(.mini)
+                        }
+                    }.padding(.vertical, 10)
+                        .accessibilityIdentifier("agent-history-archived")
+                } children: {
+                    archived.map { session in
+                        LitheTreeListNode(
+                            id: session.id, isSelectable: false,
+                            onActivate: { pendingUnarchiveID = session.id }
+                        ) { archivedRow(session) }
+                    }
+                })
+        }
+        return nodes
     }
 
     /// Upstream unarchive requires consent. Restoring Lithe visibility only clears
@@ -378,7 +381,7 @@ struct AgentHistoryView: View {
         AgentHistoryRow(
             session: session, title: displayTitle(session), agentName: agentName, messageCount: nil,
             isCurrent: false, isFavorite: false, isRemoved: filter == .removed, isArchived: true, isSelecting: false,
-            isSelected: false, isFocused: historyListActive, isEditing: false,
+            isSelected: false, isEditing: false,
             editingTitle: $editingTitle, isCopied: copiedID == session.id, canExport: false,
             canOpen: feature.connectionState == .ready && feature.unarchivingSessionID == nil,
             onOpen: { pendingUnarchiveID = session.id }, onToggleSelection: {},
@@ -395,7 +398,7 @@ struct AgentHistoryView: View {
             isCurrent: session.id == feature.selectedSessionID,
             isFavorite: history.metadata[session.id]?.isFavorite == true,
             isRemoved: filter == .removed, isSelecting: isSelecting,
-            isSelected: selectedIDs.contains(session.id), isFocused: historyListActive, isEditing: editingID == session.id,
+            isSelected: selectedIDs.contains(session.id), isEditing: editingID == session.id,
             editingTitle: $editingTitle, isCopied: copiedID == session.id,
             canExport: history.canExport([session.id]),
             canOpen: feature.canLoadSessions && feature.connectionState == .ready
@@ -436,7 +439,6 @@ private struct AgentHistoryRow: View {
     var isArchived = false
     let isSelecting: Bool
     let isSelected: Bool
-    let isFocused: Bool
     let isEditing: Bool
     @Binding var editingTitle: String
     let isCopied: Bool
@@ -472,12 +474,12 @@ private struct AgentHistoryRow: View {
                         .disabled(editingTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     icon("xmark", "Cancel", onCancel)
                 } else {
-                    Button(action: isSelecting ? onToggleSelection : onOpen) {
+                    Button(action: onOpen) {
                         Text(title).font(LitheTheme.uiFont(size: 14, weight: .semibold))
                             .lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
                             .contentShape(Rectangle())
                     }.buttonStyle(.litheNoPress).lithePointer()
-                        .disabled(!isSelecting && !canOpen).help(title)
+                        .disabled(isSelecting || !canOpen).help(title)
                     if let date = AgentHistoryPresentation.date(session.updatedAt) {
                         Text(date, format: .relative(presentation: .named, unitsStyle: .abbreviated))
                             .font(LitheTheme.uiFont(size: 11)).foregroundStyle(AgentPanelStyle.secondary)
@@ -525,7 +527,6 @@ private struct AgentHistoryRow: View {
         }
         .foregroundStyle(AgentPanelStyle.text)
         .padding(.horizontal, 20).padding(.vertical, 14)
-        .litheSelectionRow(isSelected: isSelected, isFocused: isFocused, cornerRadius: 0)
         .background(isCurrent && !isSelected ? AgentPanelStyle.header : .clear)
         .overlay(alignment: .bottom) { Rectangle().fill(AgentPanelStyle.border).frame(height: 1) }
         .onHover { isHovering = $0 }

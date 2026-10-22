@@ -11,15 +11,18 @@ struct GitWorktreeAppearanceTests {
     func nativeSelectionUsesSharedFocusColors(dark: Bool) throws {
         let item = item("main")
         let view = GitWorktreeListNSView(frame: CGRect(x: 0, y: 0, width: 286, height: 80))
-        let window = NSWindow(contentRect: view.bounds, styleMask: [.borderless], backing: .buffered, defer: false)
+        let window = TreeListAppearanceWindow(contentRect: view.bounds, styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
         window.contentView = view
         defer { window.contentView = nil; window.close() }
+        view.update(items: [item], selectedWorktreeID: item.id, onSelect: { _ in })
+        window.makeKeyAndOrderFront(nil)
         for focused in [true, false, true] {
-            #expect(view.update(items: [item], selectedWorktreeID: item.id, isFocused: focused, onSelect: { _ in }))
+            if focused { window.makeFirstResponder(view) } else { window.makeFirstResponder(nil) }
+            #expect((window.isKeyWindow && window.firstResponder === view) == focused)
             let bitmap = try nativeSRGBCapture(view)
-            let pixel = try nativeSRGBPixel(bitmap, x: 16, y: 80)
+            let pixel = try nativeSRGBPixel(bitmap, x: 25, y: 80)
             let expected: UInt32 = dark
                 ? (focused ? 0x2A4371 : 0x33353B)
                 : (focused ? 0xD0DFFE : 0xE9EAEE)
@@ -97,7 +100,7 @@ struct GitWorktreeAppearanceTests {
         let host = NSHostingView(rootView: content)
         host.sizingOptions = []
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 1400, height: 620),
-                              styleMask: [.borderless], backing: .buffered, defer: false)
+                              styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
         window.contentView = host
@@ -134,4 +137,10 @@ struct GitWorktreeAppearanceTests {
             lockReason: nil, isPrunable: false, pruneReason: nil
         ), status: .available)
     }
+}
+
+@MainActor
+private final class TreeListAppearanceWindow: NSWindow {
+    // The isolated test host intentionally never becomes the desktop's key window.
+    override var isKeyWindow: Bool { true }
 }

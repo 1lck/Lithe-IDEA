@@ -179,13 +179,11 @@ struct WorkbenchModuleUIRegistry {
             }
             if contribution.kind == .toolWindow, let rendererID = contribution.rendererID {
                 let window = WorkbenchFeatureModel.ToolWindow(rawValue: contribution.id)
-                let icon = WorkbenchContributionIcon.Asset(contribution.uiIcon, resources: iconResources[contribution.id])
                 renderers.append(Renderer(
                     id: rendererID, ideaAssetPath: "expui/toolwindows/toolWindowComponents@20x20.svg",
                     isVisible: { $0.workspaceURL != nil },
                     isSelected: { $0.workbenchFeature.isVisible(window) },
-                    content: { model in AnyView(DeclarativeToolWindowView(contribution: contribution, model: model,
-                        icon: WorkbenchContributionIcon(asset: icon, role: .header))) },
+                    content: { model in AnyView(DeclarativeToolWindowView(contribution: contribution, model: model)) },
                     rightSidebarBehavior: .docked
                 ))
             }

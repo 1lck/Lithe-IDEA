@@ -19,6 +19,14 @@ struct PluginWebWindow: Equatable, Sendable {
     let isInspectable: Bool
 }
 
+/// Identity and capability scope shared by native controls and packaged pages.
+struct PluginUIRequestContext {
+    let pluginID: String
+    let pluginName: String
+    let windowID: String
+    let buildSystemIDs: Set<String>
+}
+
 /// A bridge refusal with a code of the shared contract.
 struct PluginWebBridgeFailure: Error, Equatable {
     let code: String
@@ -116,7 +124,7 @@ final class PluginWebBridge {
     /// Function calls one page may keep running at once.
     static let functionCallLimit = 16
 
-    let window: PluginWebWindow
+    let window: PluginUIRequestContext
     /// Delivers an event and its JSON payload to the page.
     var emit: ((String, ToolingJSONValue) -> Void)?
 
@@ -165,11 +173,18 @@ final class PluginWebBridge {
         let timeout: Task<Void, Never>
     }
 
-    init(
+    convenience init(
         window: PluginWebWindow, host: any PluginWebBridgeHost, stateStore: any PluginWebStateStoring,
         requestTimeout: Duration = .seconds(15 * 60)
     ) {
-        self.window = window
+        self.init(context: .init(pluginID: window.pluginID, pluginName: window.pluginName,
+            windowID: window.windowID, buildSystemIDs: window.buildSystemIDs),
+            host: host, stateStore: stateStore, requestTimeout: requestTimeout)
+    }
+
+    init(context: PluginUIRequestContext, host: any PluginWebBridgeHost,
+         stateStore: any PluginWebStateStoring, requestTimeout: Duration = .seconds(15 * 60)) {
+        self.window = context
         self.host = host
         self.stateStore = stateStore
         self.requestTimeout = requestTimeout

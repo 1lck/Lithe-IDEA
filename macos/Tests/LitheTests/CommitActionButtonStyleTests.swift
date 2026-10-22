@@ -19,6 +19,24 @@ struct CommitActionButtonStyleTests {
         #expect(image.height == 56)
     }
 
+    @Test(arguments: [false, true])
+    func declaredWidthPoliciesKeepSharedChromeAndFitTheirCell(fills: Bool) throws {
+        let renderer = ImageRenderer(content: Button {} label: { Text("Submit") }
+            .buttonStyle(LitheActionButtonStyle(fillsWidth: fills, maximumWidth: 294))
+            .frame(width: 300, alignment: .leading))
+        renderer.scale = 1
+        let image = try #require(renderer.cgImage)
+        #expect(image.width == 300)
+        #expect(image.height == 34)
+        let bitmap = NSBitmapImageRep(cgImage: image)
+        let rightEdge = try #require((0..<300).last { (bitmap.colorAt(x: $0, y: 17)?.alphaComponent ?? 0) > 0.5 })
+        #expect(fills ? rightEdge > 290 : rightEdge < 200)
+        let host = NSHostingView(rootView: Button {} label: { Text("Submit") }
+            .buttonStyle(LitheActionButtonStyle(fillsWidth: fills, maximumWidth: 294)))
+        #expect(host.fittingSize.width <= 300)
+        if !fills { #expect(host.fittingSize.width < 200) }
+    }
+
     @Test(arguments: [ColorScheme.dark, .light], [
         (primary: false, enabled: false), (primary: false, enabled: true),
         (primary: true, enabled: false), (primary: true, enabled: true)

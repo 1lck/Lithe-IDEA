@@ -24,7 +24,7 @@ enum GitCommitFileTreeItem: Equatable, Identifiable {
     }
 }
 
-struct GitCommitFileTreeScrollView: NSViewRepresentable {
+struct GitCommitFileTreeScrollView: NSViewRepresentable, LitheTreeListNativeRenderer {
     @Environment(\.controlActiveState) private var controlActiveState
     let items: [GitCommitFileTreeItem]
     let selectedFileID: String?
@@ -142,6 +142,7 @@ final class GitCommitFileTreeNSView: NSControl {
     private var onSelectFile: ((GitCommitFile) -> Void)?
     private var drawingStyle: DrawingStyle?
     private var hoveredIndex: Int?
+    private var focusedItemID: String?
     private var rowPresentations: [RowPresentation] = []
     private var contentWidth: CGFloat = 0
     private var hoverTrackingArea: NSTrackingArea?
@@ -153,6 +154,7 @@ final class GitCommitFileTreeNSView: NSControl {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         allowsExpansionToolTips = true
+        focusRingType = .none
         setAccessibilityRole(.outline)
         setAccessibilityLabel(gitLocalizedFormat("Commit changed files", locale: locale))
     }
@@ -177,6 +179,7 @@ final class GitCommitFileTreeNSView: NSControl {
             || self.collapsedFolderIDs != collapsedFolderIDs
         self.items = items
         self.selectedFileID = selectedFileID
+        if let focusedItemID, !items.contains(where: { $0.id == focusedItemID }) { self.focusedItemID = nil }
         self.rootSubtitle = rootSubtitle
         self.collapsedFolderIDs = collapsedFolderIDs
         self.onToggleFolder = onToggleFolder
@@ -272,12 +275,56 @@ final class GitCommitFileTreeNSView: NSControl {
             return
         }
         window?.makeFirstResponder(self)
+        focusedItemID = items[index].id
         switch items[index] {
         case let .folder(node, _):
             onToggleFolder?(node.id)
         case let .file(file, _):
             onSelectFile?(file)
         }
+    }
+
+    override func keyDown(with event: NSEvent) {
+        let current = items.firstIndex { item in
+            if let focusedItemID { return item.id == focusedItemID }
+            if case .file(let file, _) = item { return file.id == selectedFileID }
+            return false
+        }
+        if let key = LitheTreeListNavigationKey(rawValue: event.keyCode) {
+            let rows = items.map { item -> LitheTreeListHierarchy in
+                switch item {
+                case .folder(let node, let depth):
+                    return .init(depth: depth, isBranch: true, isExpanded: !collapsedFolderIDs.contains(node.id))
+                case .file(_, let depth): return .init(depth: depth)
+                }
+            }
+            switch LitheTreeListNavigation.resolve(key, current: current, rows: rows) {
+            case .select(let index): focusRow(index)
+            case .expand(let index, _):
+                if case .folder(let node, _) = items[index] { onToggleFolder?(node.id) }
+            case nil: break
+            }
+        } else if event.keyCode == 115 {
+            focusRow(0)
+        } else if event.keyCode == 119 {
+            focusRow(items.count - 1)
+        } else if event.keyCode == 36 || event.keyCode == 76 || event.keyCode == 49 {
+            guard let current else { return }
+            switch items[current] {
+            case .folder(let node, _): onToggleFolder?(node.id)
+            case .file(let file, _): onSelectFile?(file)
+            }
+        } else {
+            super.keyDown(with: event)
+        }
+    }
+
+    private func focusRow(_ index: Int) {
+        guard items.indices.contains(index) else { return }
+        focusedItemID = items[index].id
+        if case .file(let file, _) = items[index] { onSelectFile?(file) }
+        scrollToVisible(rowRect(for: index))
+        needsDisplay = true
     }
 
     override func expansionFrame(withFrame contentFrame: NSRect) -> NSRect {
@@ -310,10 +357,15 @@ final class GitCommitFileTreeNSView: NSControl {
         context.setShouldAntialias(true)
         for index in range {
             let rowRect = rowRect(for: index)
-            if index == hoveredIndex {
-                style.hover.setFill()
-                NSBezierPath(roundedRect: rowRect.insetBy(dx: 4, dy: 0), xRadius: 4, yRadius: 4).fill()
+            let selected: Bool
+            switch items[index] {
+            case .file(let file, _): selected = file.id == selectedFileID
+            case .folder: selected = items[index].id == focusedItemID
             }
+            LitheTreeListAppearance.paint(
+                rowRect, selected: selected,
+                focused: window?.isKeyWindow == true && window?.firstResponder === self,
+                hovered: index == hoveredIndex)
             switch items[index] {
             case let .folder(node, depth):
                 drawFolder(node, depth: depth, presentation: rowPresentations[index], in: rowRect, style: style)
@@ -379,11 +431,6 @@ final class GitCommitFileTreeNSView: NSControl {
         in rect: CGRect,
         style: DrawingStyle
     ) {
-        if file.id == selectedFileID {
-            let focused = window?.isKeyWindow == true && window?.firstResponder === self
-            (focused ? style.selection : style.inactiveSelection).setFill()
-            NSBezierPath(roundedRect: rect.insetBy(dx: 4, dy: 0), xRadius: 4, yRadius: 4).fill()
-        }
         drawIcon(presentation.icon, x: presentation.textX - LitheTheme.Tree.iconSize - LitheTheme.Tree.iconTextGap, in: rect)
         drawText(
             presentation.title,
@@ -487,13 +534,10 @@ final class GitCommitFileTreeNSView: NSControl {
         let added: NSColor
         let modified: NSColor
         let deleted: NSColor
-        let inactiveSelection: NSColor
         let background: NSColor
         let primaryText: NSColor
         let secondaryText: NSColor
         let tertiaryText: NSColor
-        let hover: NSColor
-        let selection: NSColor
 
         init(isDark: Bool) {
             self.isDark = isDark
@@ -501,13 +545,10 @@ final class GitCommitFileTreeNSView: NSControl {
             added = NSColor(srgbRed: isDark ? 115.0/255 : 6.0/255, green: isDark ? 189.0/255 : 125.0/255, blue: isDark ? 121.0/255 : 23.0/255, alpha: 1)
             modified = NSColor(srgbRed: isDark ? 112.0/255 : 0, green: isDark ? 174.0/255 : 51.0/255, blue: isDark ? 1 : 179.0/255, alpha: 1)
             deleted = NSColor(srgbRed: isDark ? 111.0/255 : 108.0/255, green: isDark ? 115.0/255 : 112.0/255, blue: isDark ? 122.0/255 : 126.0/255, alpha: 1)
-            inactiveSelection = NSColor(LitheTheme.Tree.inactiveSelection)
             background = LitheTheme.nsColor(.sidebar, isDark: isDark)
             primaryText = NSColor(LitheTheme.Tree.text)
             secondaryText = NSColor(LitheTheme.Tree.secondaryText)
             tertiaryText = LitheTheme.nsColor(.secondaryText, isDark: isDark).withAlphaComponent(0.76)
-            hover = NSColor(LitheTheme.Tree.hover)
-            selection = NSColor(LitheTheme.Tree.focusedSelection)
         }
     }
 }

@@ -12,6 +12,7 @@ struct SearchSidebarView: View {
     let searchProject: (ProjectSearchOptions) async -> Void
     @FocusState private var searchFocused: Bool
     @FocusState private var fileMaskFocused: Bool
+    @State private var selectedResultID: String?
     @State private var searchOptions = ProjectSearchOptions.default
 
     var body: some View {
@@ -33,31 +34,7 @@ struct SearchSidebarView: View {
             .contentShape(Rectangle())
             .onTapGesture(perform: dismissSearchFieldFocus)
 
-            HStack(spacing: 2) {
-                LitheIDEAIcon(
-                    resourcePath: "expui/general/search.svg",
-                    size: LitheTheme.Metrics.toolbarIconSize,
-                    fallbackSystemImage: "magnifyingglass",
-                    preservesOriginalColors: true
-                )
-                LitheSearchTextField("Search files and contents", text: $session.query)
-                    .focused($searchFocused)
-                    .lineLimit(1)
-                if !session.query.isEmpty {
-                    Button {
-                        session.query = ""
-                    } label: {
-                        LitheIDEAIcon(
-                            resourcePath: "expui/general/closeSmall.svg",
-                            size: LitheTheme.Metrics.toolbarIconSize,
-                            fallbackSystemImage: "xmark",
-                            preservesOriginalColors: true
-                        )
-                    }
-                    .buttonStyle(LitheIconButtonStyle(size: 20, cornerRadius: 4))
-                    .padding(.leading, 1)
-                    .help("Clear search")
-                }
+            LitheSearchField("Search files and contents", text: $session.query, focus: $searchFocused) {
                 Button {
                     openReplace(searchOptions)
                 } label: {
@@ -73,7 +50,6 @@ struct SearchSidebarView: View {
 
                 searchOptionsMenu
             }
-            .litheSearchField(isFocused: searchFocused)
             .padding(.horizontal, 10)
             .padding(.bottom, 6)
 
@@ -102,63 +78,63 @@ struct SearchSidebarView: View {
                     .contentShape(Rectangle())
                     .onTapGesture(perform: dismissSearchFieldFocus)
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(feature.searchResults) { result in
-                            Button {
-                                openResult(result)
-                            } label: {
-                                VStack(alignment: .leading, spacing: 3) {
-                                    HStack(spacing: 6) {
-                                        LitheIcon(
-                                            kind: LitheIcons.kind(forFilePath: result.url.path),
-                                            size: LitheTheme.Metrics.treeIconSize
-                                        )
-                                        Text(result.url.lastPathComponent)
-                                            .font(LitheTheme.uiFont(size: 12.5, weight: .medium))
-                                            .lineLimit(1)
-                                            .truncationMode(.middle)
-                                        Spacer()
-                                        if let line = result.line {
-                                            Text(":\(line)")
-                                                .foregroundStyle(LitheTheme.secondaryText)
-                                        }
-                                    }
-                                    Text(result.preview)
-                                        .font(LitheTheme.uiFont(size: 11.5, design: .monospaced))
-                                        .foregroundStyle(LitheTheme.secondaryText)
-                                        .lineLimit(2)
-                                }
-                                .foregroundStyle(LitheTheme.primaryText)
-                                .padding(.horizontal, 11)
-                                .padding(.vertical, 8)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.litheNoPress)
-                            .litheRowHover(
-                                cornerRadius: LitheTheme.Metrics.projectTreeSelectionCornerRadius
+                LitheTreeList(
+                    feature.searchResults, selection: $selectedResultID,
+                    onActivate: openResult, onClick: openResult, multiline: true
+                ) { result in
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(spacing: 6) {
+                            LitheIcon(
+                                kind: LitheIcons.kind(forFilePath: result.url.path),
+                                size: LitheTheme.Metrics.treeIconSize
                             )
-                            .lithePointer()
-                            .litheContextMenu {
-                                [
-                                    .action("Open", systemImage: "doc.text", action: {
-                                        openResult(result)
-                                    }),
-                                    .action("Show in Finder", systemImage: "folder", action: {
-                                            revealInFinder(result.url)
-                                    }),
-                                    .submenu("Copy Path / Reference", items: [
-                                        .action("Copy Path", action: {
-                                            copyPath(result.url, false)
-                                        }),
-                                        .action("Copy Relative Path", action: {
-                                            copyPath(result.url, true)
-                                        })
-                                    ])
-                                ]
+                            Text(result.url.lastPathComponent)
+                                .font(LitheTheme.uiFont(size: 12.5, weight: .medium))
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Spacer()
+                            if let line = result.line {
+                                Text(":\(line)")
+                                    .foregroundStyle(LitheTheme.secondaryText)
                             }
                         }
+                        Text(result.preview)
+                            .font(LitheTheme.uiFont(size: 11.5, design: .monospaced))
+                            .foregroundStyle(LitheTheme.secondaryText)
+                            .lineLimit(2)
+                    }
+                    .foregroundStyle(LitheTheme.primaryText)
+                    .padding(.horizontal, 11)
+                    .padding(.vertical, 8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                    .litheContextMenu {
+                        [
+                            .action(
+                                "Open", systemImage: "doc.text",
+                                action: {
+                                    openResult(result)
+                                }),
+                            .action(
+                                "Show in Finder", systemImage: "folder",
+                                action: {
+                                    revealInFinder(result.url)
+                                }),
+                            .submenu(
+                                "Copy Path / Reference",
+                                items: [
+                                    .action(
+                                        "Copy Path",
+                                        action: {
+                                            copyPath(result.url, false)
+                                        }),
+                                    .action(
+                                        "Copy Relative Path",
+                                        action: {
+                                            copyPath(result.url, true)
+                                        }),
+                                ]),
+                        ]
                     }
                 }
                 .simultaneousGesture(TapGesture().onEnded { _ in dismissSearchFieldFocus() })
@@ -181,36 +157,8 @@ struct SearchSidebarView: View {
     }
 
     private var fileMaskField: some View {
-        HStack(spacing: 2) {
-            LitheIDEAIcon(
-                resourcePath: "expui/general/filter.svg",
-                size: LitheTheme.Metrics.toolbarIconSize,
-                fallbackSystemImage: "line.3.horizontal.decrease",
-                preservesOriginalColors: false
-            )
-                .foregroundStyle(
-                    searchOptions.fileMask.isEmpty ? LitheTheme.secondaryText : LitheTheme.accent
-                )
-            LitheSearchTextField("File mask, e.g. *.java, *.kt", text: $searchOptions.fileMask)
-                .focused($fileMaskFocused)
-                .help("Comma-separated glob patterns. Empty searches every file.")
-            if !searchOptions.fileMask.isEmpty {
-                Button {
-                    searchOptions.fileMask = ""
-                } label: {
-                    LitheIDEAIcon(
-                        resourcePath: "expui/general/closeSmall.svg",
-                        size: LitheTheme.Metrics.toolbarIconSize,
-                        fallbackSystemImage: "xmark",
-                        preservesOriginalColors: true
-                    )
-                }
-                .buttonStyle(LitheIconButtonStyle(size: 20, cornerRadius: 4))
-                .padding(.leading, 1)
-                .help("Clear file mask")
-            }
-        }
-        .litheSearchField(isFocused: fileMaskFocused)
+        LitheSearchField("File mask, e.g. *.java, *.kt", text: $searchOptions.fileMask, focus: $fileMaskFocused)
+        .help("Comma-separated glob patterns. Empty searches every file.")
     }
 
     private var searchOptionsMenu: some View {

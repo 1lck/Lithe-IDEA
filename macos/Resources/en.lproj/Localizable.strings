@@ -2072,3 +2072,11 @@
 "These defaults apply only to this project on this computer. Run configurations inherit them unless overridden. Use the Project save scope in a run configuration to share settings with your team." = "These defaults apply only to this project on this computer. Run configurations inherit them unless overridden. Use the Project save scope in a run configuration to share settings with your team.";
 "Saved only for this project on this computer in .lithe/run/local.json and excluded from Git." = "Saved only for this project on this computer in .lithe/run/local.json and excluded from Git.";
 "This computer" = "This computer";
+
+/* Native plugin UI */
+"No items" = "No items";
+"This panel needs exactly one matching plugin instance in the workspace." = "This panel needs exactly one matching plugin instance in the workspace.";
+
+"The field value is invalid or exceeds 1024 UTF-8 bytes." = "The field value is invalid or exceeds 1024 UTF-8 bytes.";
+
+"The field value does not match its declaration or exceeds its size limit." = "The field value does not match its declaration or exceeds its size limit.";

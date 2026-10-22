@@ -3548,3 +3548,11 @@
 "%lld of %lld services selected" = "已选择 %2$lld 个服务中的 %1$lld 个";
 
 "Background Services" = "后台服务";
+
+/* Native plugin UI */
+"No items" = "暂无项目";
+"This panel needs exactly one matching plugin instance in the workspace." = "此面板要求工作区中恰好有一个匹配的插件实例。";
+
+"The field value is invalid or exceeds 1024 UTF-8 bytes." = "字段值无效或超过 1024 个 UTF-8 字节。";
+
+"The field value does not match its declaration or exceeds its size limit." = "字段值不符合声明或超过大小限制。";

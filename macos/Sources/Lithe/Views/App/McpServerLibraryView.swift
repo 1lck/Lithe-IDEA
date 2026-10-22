@@ -381,8 +381,7 @@ private struct McpServerEditorView: View {
         LitheSettingsSection("Server") {
             VStack(alignment: .leading, spacing: 9) {
                 McpSettingsRow("Name") {
-                    TextField("Name", text: $draft.name)
-                        .litheSettingsTextField()
+                    LitheTextField("Name", text: $draft.name)
                         .frame(width: 240)
                 }
                 McpSettingsRow("Transport") {
@@ -395,18 +394,14 @@ private struct McpServerEditorView: View {
                 }
                 if draft.transport == .stdio {
                     McpSettingsRow("Command") {
-                        TextField("Command", text: $draft.command)
-                            .litheSettingsTextField()
+                        LitheTextField("Command", text: $draft.command)
                     }
                     McpSettingsRow("Arguments", info: "One argument per line. Arguments keep spaces without quoting.") {
-                        TextEditor(text: $draft.argumentsText)
-                            .font(LitheTheme.uiFont(size: 11.5, design: .monospaced))
-                            .litheSettingsTextEditor(height: 64)
+                        LitheTextEditor(text: $draft.argumentsText, height: 64)
                     }
                 } else {
                     McpSettingsRow("URL") {
-                        TextField("https://example.com/mcp", text: $draft.url)
-                            .litheSettingsTextField()
+                        LitheTextField("https://example.com/mcp", text: $draft.url)
                     }
                 }
             }
@@ -541,11 +536,9 @@ private struct McpKeyValueEditor: View {
         VStack(alignment: .leading, spacing: 6) {
             ForEach(entries.indices, id: \.self) { index in
                 HStack(spacing: 6) {
-                    TextField(keyPlaceholder, text: $entries[index].key)
-                        .litheSettingsTextField()
+                    LitheTextField(keyPlaceholder, text: $entries[index].key)
                         .frame(maxWidth: .infinity)
-                    SecureField(valuePlaceholder, text: $entries[index].value)
-                        .litheSettingsTextField()
+                    LitheTextField(valuePlaceholder, text: $entries[index].value, secure: true)
                         .frame(maxWidth: .infinity)
                     Button {
                         entries.remove(at: index)

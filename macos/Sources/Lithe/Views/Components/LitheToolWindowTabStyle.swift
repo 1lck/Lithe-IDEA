@@ -80,6 +80,7 @@ struct LitheToolWindowTabStyle: ViewModifier {
 /// Tracks clicks across the whole tool window, including embedded AppKit content.
 struct LitheToolWindowActivityTracker: NSViewRepresentable {
     @Binding var isActive: Bool
+    var onPointerActivity: (Bool) -> Void = { _ in }
 
     func makeNSView(context: Context) -> NSView {
         let view = TrackingView()
@@ -98,9 +99,10 @@ struct LitheToolWindowActivityTracker: NSViewRepresentable {
 
     func updateNSView(_ view: NSView, context: Context) {
         context.coordinator.updateBinding($isActive)
+        context.coordinator.onPointerActivity = onPointerActivity
     }
 
-    func makeCoordinator() -> Coordinator { Coordinator(isActive: $isActive) }
+    func makeCoordinator() -> Coordinator { Coordinator(isActive: $isActive, onPointerActivity: onPointerActivity) }
 
     static func dismantleNSView(_ view: NSView, coordinator: Coordinator) {
         if let monitor = coordinator.monitor { NSEvent.removeMonitor(monitor) }
@@ -118,6 +120,7 @@ struct LitheToolWindowActivityTracker: NSViewRepresentable {
         private weak var lastResponder: NSResponder?
         private var eventVersion = 0
         private let schedule: (@escaping () -> Void) -> Void
+        var onPointerActivity: (Bool) -> Void
 
         func updateBinding(_ binding: Binding<Bool>) { _isActive = binding }
 
@@ -134,6 +137,7 @@ struct LitheToolWindowActivityTracker: NSViewRepresentable {
                 } else if self.isActive != clickedInside {
                     self.isActive = clickedInside
                 }
+                self.onPointerActivity(clickedInside)
             }
         }
 
@@ -193,10 +197,11 @@ struct LitheToolWindowActivityTracker: NSViewRepresentable {
             return editor.delegate as? NSView ?? editor
         }
 
-        init(isActive: Binding<Bool>, schedule: @escaping (@escaping () -> Void) -> Void = {
+        init(isActive: Binding<Bool>, onPointerActivity: @escaping (Bool) -> Void = { _ in }, schedule: @escaping (@escaping () -> Void) -> Void = {
             DispatchQueue.main.async(execute: $0)
         }) {
             _isActive = isActive
+            self.onPointerActivity = onPointerActivity
             self.schedule = schedule
         }
     }

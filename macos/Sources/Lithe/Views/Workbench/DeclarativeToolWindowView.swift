@@ -6,11 +6,26 @@ import LitheModuleAPI
 struct DeclarativeToolWindowView: View {
     let contribution: ModuleContribution
     @ObservedObject var model: AppModel
-    var icon: WorkbenchContributionIcon? = nil
 
     var body: some View {
+        if let native = contribution.nativeUI {
+            PluginNativeToolWindowView(
+                contribution: contribution,
+                makeFeature: { try model.makeNativeUIFeature(contribution, declaration: native) },
+                releaseFeature: { model.releaseNativeUIFeature($0, windowID: contribution.id) },
+                onMinimize: {
+                    model.workbenchFeature.setVisibility(.init(rawValue: contribution.id), isVisible: false)
+                }
+            )
+            .id(model.workspaceURL)
+        } else {
+            legacyBody
+        }
+    }
+
+    private var legacyBody: some View {
         VStack(spacing: 0) {
-            LitheToolWindowHeader(title: contribution.title, icon: icon.map { AnyView($0) }, onMinimize: {
+            LitheToolWindowHeader(title: contribution.title, onMinimize: {
                 model.workbenchFeature.setVisibility(.init(rawValue: contribution.id), isVisible: false)
             }) { EmptyView() }
             if contribution.webEntry != nil {

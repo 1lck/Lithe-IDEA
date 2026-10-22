@@ -50,7 +50,7 @@ pub const SUPPORTED_CAPABILITIES: &[(&str, &[u32])] = &[
     (LANGUAGES, &[1]),
     (SERVER_PROCESS, &[1]),
     (SETTINGS, &[1]),
-    (UI, &[1, 2]),
+    (UI, &[1, 2, 3]),
 ];
 
 /// Longest capability ID, so a hostile index cannot grow host state.

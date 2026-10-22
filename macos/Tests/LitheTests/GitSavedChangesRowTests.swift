@@ -8,7 +8,7 @@ struct GitSavedChangesRowTests {
     @Test(arguments: [ColorScheme.dark, .light])
     func savedRowExpandsWithoutMovingTheListAndKeepsClickAction(scheme: ColorScheme) throws {
         var clicks = 0
-        let host = NSHostingView(rootView: GitSavedChangesRow(accessibilityTitle: "Saved change", onPress: { clicks += 1 }) { expanded, _ in
+        let host = NSHostingView(rootView: LitheTreeListOverflowRow(accessibilityTitle: "Saved change", onPress: { clicks += 1 }) { expanded, _ in
             HStack {
                 Text("search-replace-before-upstream-sync-20260913")
                 if expanded { Text("2026/09/13 22:10").fixedSize() }

@@ -52,7 +52,6 @@ struct SettingsView: View {
     @ObservedObject var settings: AppSettings
     @ObservedObject var viewState: SettingsViewState
     @AppStorage("lithe.settings.categorySidebarWidth") private var categorySidebarWidth = 234.0
-    @State private var categoryListActive = false
     @State private var missingTerminalShellPath: String?
     @State private var expandedSidebarGroups: Set<String> = []
     /// Font shown before the latest font change, so the preview can compare the
@@ -94,7 +93,7 @@ struct SettingsView: View {
                     flexibleMinimum: Self.contentMinimumWidth,
 
                     onCommit: { categorySidebarWidth = Double($0) },
-                    sized: { categories.background(LitheToolWindowActivityTracker(isActive: $categoryListActive)) },
+                    sized: { categories },
                     flexible: {
                         content.simultaneousGesture(TapGesture().onEnded { isSearchFocused = false })
                     }
@@ -160,29 +159,39 @@ struct SettingsView: View {
                 .padding(.top, 11)
                 .padding(.bottom, 8)
 
-            ScrollView {
-                VStack(spacing: 0) {
-                    ForEach(Array(SettingsSidebarItem.layout.enumerated()), id: \.offset) { _, item in
-                        switch item {
-                        case .group(let group): categoryGroup(group)
-                        case .page(let category): categoryButton(category)
+            if filteredCategories.isEmpty {
+                VStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass").font(LitheTheme.uiFont(size: 18, weight: .light))
+                    Text("No settings found").font(LitheTheme.uiFont(size: 12))
+                }
+                .foregroundStyle(LitheTheme.tertiaryText)
+                .frame(maxWidth: .infinity).padding(.top, 28)
+                Spacer(minLength: 0)
+            } else {
+                LitheTreeList(
+                    categoryRows,
+                    selection: Binding(
+                        get: { viewState.selection.rawValue },
+                        set: { id in
+                            if let id, let category = SettingsCategory(rawValue: id) {
+                                isSearchFocused = false
+                                viewState.selection = category
+                            }
+                        }), hierarchy: { $0.hierarchy },
+                    onExpansion: { row, expanded in
+                        guard let group = row.group, viewState.searchQuery.isEmpty else { return }
+                        isSearchFocused = false
+                        if expanded {
+                            expandedSidebarGroups.insert(group.rawValue)
+                        } else {
+                            expandedSidebarGroups.remove(group.rawValue)
                         }
                     }
-
-                    if filteredCategories.isEmpty {
-                        VStack(spacing: 8) {
-                            Image(systemName: "magnifyingglass")
-                                .font(LitheTheme.uiFont(size: 18, weight: .light))
-                            Text("No settings found")
-                                .font(LitheTheme.uiFont(size: 12))
-                        }
-                        .foregroundStyle(LitheTheme.tertiaryText)
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, 28)
-                    }
+                ) { row in
+                    Text(LocalizedStringKey(row.category?.title ?? row.group?.rawValue ?? ""))
+                        .font(row.category?.group == nil ? LitheTheme.settingsStrongFont : LitheTheme.settingsFont)
                 }
             }
-            .litheScrollViewChrome(alwaysShowVertical: true, usesCompactScrollers: true)
         }
         .frame(maxWidth: .infinity)
         .frame(maxHeight: .infinity)
@@ -190,71 +199,39 @@ struct SettingsView: View {
     }
 
     private var settingsSearchField: some View {
-        LitheSettingsSearchField("", text: $viewState.searchQuery, focus: $isSearchFocused)
+        LitheSearchField("", text: $viewState.searchQuery, focus: $isSearchFocused)
             .accessibilityLabel("Search settings")
     }
 
-    @ViewBuilder
-    private func categoryGroup(_ group: SettingsGroup) -> some View {
-        let title = group.rawValue
-        let visible = group.categories.filter { filteredCategories.contains($0) }
-        if !visible.isEmpty {
-            let expanded = expandedSidebarGroups.contains(title) || !viewState.searchQuery.isEmpty
-            Button {
-                isSearchFocused = false
-                if expandedSidebarGroups.contains(title) {
-                    expandedSidebarGroups.remove(title)
-                } else {
-                    expandedSidebarGroups.insert(title)
-                }
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: expanded ? "chevron.down" : "chevron.right")
-                        .font(LitheTheme.uiFont(size: 10, weight: .medium))
-                        .frame(width: 10)
-                    Text(LocalizedStringKey(title))
-                        .font(LitheTheme.settingsStrongFont)
-                    Spacer(minLength: 0)
-                }
-                .padding(.leading, 16)
-                .padding(.trailing, 8)
-                .frame(height: 24)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.litheNoPress)
-            .foregroundStyle(LitheTheme.primaryText)
-            if expanded {
-                ForEach(visible) { category in
-                    categoryButton(category, nested: true)
-                }
-            }
-        }
+    private struct CategoryRow: Identifiable {
+        let id: String
+        var category: SettingsCategory?
+        var group: SettingsGroup?
+        var hierarchy: LitheTreeListHierarchy
     }
 
-    @ViewBuilder
-    private func categoryButton(_ category: SettingsCategory, nested: Bool = false) -> some View {
-        if filteredCategories.contains(category) {
-            let isSelected = viewState.selection == category
-            Button {
-                isSearchFocused = false
-                viewState.selection = category
-            } label: {
-                HStack(spacing: 8) {
-                    Color.clear.frame(width: 10)
-                    Text(LocalizedStringKey(category.title))
-                        .font(nested ? LitheTheme.settingsFont : LitheTheme.settingsStrongFont)
-                    Spacer(minLength: 0)
+    private var categoryRows: [CategoryRow] {
+        var rows: [CategoryRow] = []
+        for item in SettingsSidebarItem.layout {
+            switch item {
+            case .page(let category):
+                if filteredCategories.contains(category) {
+                    rows.append(.init(id: category.rawValue, category: category, hierarchy: .init()))
                 }
-                .padding(.leading, nested ? 30 : 16)
-                .padding(.trailing, 8)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .frame(height: 24)
-                .litheSelectionRow(isSelected: isSelected, isFocused: categoryListActive, cornerRadius: 0)
-                .contentShape(Rectangle())
+            case .group(let group):
+                let visible = group.categories.filter { filteredCategories.contains($0) }
+                guard !visible.isEmpty else { continue }
+                let expanded = expandedSidebarGroups.contains(group.rawValue) || !viewState.searchQuery.isEmpty
+                rows.append(
+                    .init(
+                        id: "group:" + group.rawValue, group: group,
+                        hierarchy: .init(isBranch: true, isExpanded: expanded, isSelectable: false)))
+                if expanded {
+                    rows += visible.map { .init(id: $0.rawValue, category: $0, hierarchy: .init(depth: 1)) }
+                }
             }
-            .buttonStyle(.litheNoPress)
-            .foregroundStyle(LitheTheme.primaryText)
         }
+        return rows
     }
 
     private func expandGroup(containing category: SettingsCategory) {
@@ -526,13 +503,11 @@ struct SettingsView: View {
             group("Hidden paths", info: "One entry per line. Directory names hide matching folders; file entries support * and ?.") {
                 Text("Directories")
                     .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
-                TextEditor(text: $viewState.hiddenDirectoriesDraft)
-                    .litheSettingsTextEditor(height: 66)
+                LitheTextEditor(text: $viewState.hiddenDirectoriesDraft, height: 66)
 
                 Text("File patterns")
                     .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
-                TextEditor(text: $viewState.hiddenFilePatternsDraft)
-                    .litheSettingsTextEditor(height: 52)
+                LitheTextEditor(text: $viewState.hiddenFilePatternsDraft, height: 52)
 
                 HStack(spacing: 8) {
                     Spacer()
@@ -870,8 +845,7 @@ struct SettingsView: View {
                 }
 
                 if editingProvider != nil {
-                    TextField("Provider name", text: editingProviderTextBinding(\.name))
-                        .litheSettingsTextField()
+                    LitheTextField("Provider name", text: editingProviderTextBinding(\.name))
                         .disabled(editingProviderIsConfigurationManaged)
                     row("API protocol") {
                         LitheSettingsSelect(
@@ -883,8 +857,7 @@ struct SettingsView: View {
                         )
                         .disabled(editingProviderIsConfigurationManaged)
                     }
-                    TextField("API URL", text: editingProviderTextBinding(\.endpoint))
-                        .litheSettingsTextField()
+                    LitheTextField("API URL", text: editingProviderTextBinding(\.endpoint))
                         .disabled(editingProviderIsConfigurationManaged)
                     if editingProvider?.usesInsecureHTTP == true {
                         LitheSettingsCheckbox(
@@ -901,13 +874,11 @@ struct SettingsView: View {
                         .font(LitheTheme.smallFont)
                         .foregroundStyle(LitheTheme.warning)
                     }
-                    TextField("Model", text: editingProviderTextBinding(\.model))
-                        .litheSettingsTextField()
+                    LitheTextField("Model", text: editingProviderTextBinding(\.model))
                         .disabled(editingProviderIsConfigurationManaged)
 
                     HStack(spacing: 8) {
-                        SecureField("API key or token", text: $viewState.aiAPIKeyDraft)
-                            .litheSettingsTextField()
+                        LitheTextField("API key or token", text: $viewState.aiAPIKeyDraft, secure: true)
                             .disabled(editingProviderIsConfigurationManaged)
                         Button("Save Key") {
                             if let editingProvider { model.saveAPIKey(viewState.aiAPIKeyDraft, for: editingProvider) }
@@ -1097,8 +1068,7 @@ struct SettingsView: View {
                 if settings.commitMessageAI.format == .custom {
                     Text("Custom instructions")
                         .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
-                    TextEditor(text: $settings.commitMessageAI.customInstructions)
-                        .litheSettingsTextEditor(height: 92)
+                    LitheTextEditor(text: $settings.commitMessageAI.customInstructions, height: 92)
                 }
             }
 
@@ -1128,8 +1098,7 @@ struct SettingsView: View {
                         .lithePointer()
                     }
 
-                    TextEditor(text: $settings.commitMessageAI.pullRequestCustomTemplate)
-                        .litheSettingsTextEditor(height: 150)
+                    LitheTextEditor(text: $settings.commitMessageAI.pullRequestCustomTemplate, height: 150)
                 }
 
                 Label(

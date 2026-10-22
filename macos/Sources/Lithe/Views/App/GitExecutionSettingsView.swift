@@ -16,8 +16,7 @@ struct GitExecutionSettingsView: View {
             GitSettingsRow("Git executable") {
                 VStack(alignment: .leading, spacing: 7) {
                     HStack(spacing: 8) {
-                        TextField("Use Git from PATH", text: $executable)
-                            .litheSettingsTextField()
+                        LitheTextField("Use Git from PATH", text: $executable)
                             .frame(maxWidth: .infinity)
                         Button("Save") {
                             settings.gitExecutable = executable.trimmingCharacters(in: .whitespacesAndNewlines)

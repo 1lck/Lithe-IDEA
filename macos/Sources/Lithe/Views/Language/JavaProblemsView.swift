@@ -7,7 +7,6 @@ struct ProblemsView: View {
     private let runnableFileURLs: Set<URL>
     @State private var scope = ProblemsPanelScope.file
     @State private var toolWindowActive = false
-    @State private var resultListActive = false
     @State private var previewEnabled = false
     @State private var selectedDiagnosticID: String?
     @State private var resolvedFileIcons: [URL: LitheIconKind] = [:]
@@ -110,9 +109,22 @@ struct ProblemsView: View {
         .padding(.vertical, 5)
     }
 
+    private struct ProblemRow: Identifiable {
+        let id: String
+        var file: URL?
+        var count = 0
+        var diagnostic: EditorDiagnostic?
+    }
+
+    private var problemRows: [ProblemRow] {
+        diagnosticGroups.flatMap { group in
+            [ProblemRow(id: "file:" + group.key.absoluteString, file: group.key, count: group.value.count)]
+                + group.value.map { ProblemRow(id: $0.id, diagnostic: $0) }
+        }
+    }
+
     private var problemList: some View {
-        let selectedID = selectedDiagnostic?.id
-        return Group {
+        Group {
             if diagnostics.isEmpty {
                 ProblemsEmptyState(
                     title: scope.emptyTitle(currentFileURL: currentFileURL),
@@ -121,38 +133,26 @@ struct ProblemsView: View {
                         ? nil : LocalizedStringKey("Problems could be filtered out")
                 )
             } else {
-                ScrollViewReader { proxy in
-                    ScrollView(.vertical) {
-                        LazyVStack(alignment: .leading, spacing: 0) {
-                            ForEach(diagnosticGroups, id: \.key) { group in
-                                fileHeader(group.key, count: group.value.count)
-                                ForEach(group.value) { diagnostic in
-                                    diagnosticRow(diagnostic, isSelected: selectedID == diagnostic.id)
-                                }
-                            }
-                        }
-                        .padding(.vertical, LitheTheme.Tree.verticalInset)
+                LitheTreeList(
+                    problemRows,
+                    selection: Binding(
+                        get: { selectedDiagnostic?.id },
+                        set: { selectedDiagnosticID = $0 }),
+                    hierarchy: { .init(depth: $0.diagnostic == nil ? 0 : 1, isSelectable: $0.diagnostic != nil) },
+                    onActivate: { row in if let diagnostic = row.diagnostic { model.openDiagnostic(diagnostic) } },
+                    onClick: { row in
+                        if !previewEnabled, let diagnostic = row.diagnostic { model.openDiagnostic(diagnostic) }
                     }
-                    .onChange(of: selectedDiagnosticID) { id in
-                        if let id { proxy.scrollTo(id) }
+                ) { row in
+                    if let file = row.file {
+                        fileHeader(file, count: row.count)
+                    } else if let diagnostic = row.diagnostic {
+                        diagnosticContent(diagnostic)
                     }
-                }
-                .focusable()
-                .litheFocusEffectHidden()
-                .onMoveCommand { direction in
-                    guard direction == .up || direction == .down,
-                          let selected = selectedDiagnostic,
-                          let index = diagnostics.firstIndex(where: { $0.id == selected.id }) else { return }
-                    let next = min(max(index + (direction == .up ? -1 : 1), 0), diagnostics.count - 1)
-                    selectedDiagnosticID = diagnostics[next].id
-                }
-                .onCommand(#selector(NSResponder.insertNewline(_:))) {
-                    if let selectedDiagnostic { model.openDiagnostic(selectedDiagnostic) }
                 }
             }
         }
         .litheWorkbenchSurface(LitheTheme.editor)
-        .background(LitheToolWindowActivityTracker(isActive: $resultListActive))
     }
 
     private var currentFileURL: URL? {
@@ -273,40 +273,27 @@ struct ProblemsView: View {
             Spacer(minLength: 0)
         }
         .lineLimit(1)
-        .padding(.horizontal, LitheTheme.Tree.horizontalInset)
-        .litheTreeRow()
         .help(model.relativePath(for: url))
         .accessibilityElement(children: .combine)
     }
 
-    private func diagnosticRow(_ diagnostic: EditorDiagnostic, isSelected: Bool) -> some View {
-        Button {
-            selectedDiagnosticID = diagnostic.id
-            if !previewEnabled { model.openDiagnostic(diagnostic) }
-        } label: {
-            HStack(spacing: LitheTheme.Tree.iconTextGap) {
-                severityIcon(diagnostic.severity)
-                Text(diagnostic.message.replacingOccurrences(of: "\n", with: " "))
-                    .layoutPriority(1)
-                Text(":\(diagnostic.line + 1):\(diagnostic.utf16Column + 1)")
-                    .foregroundStyle(LitheTheme.Tree.secondaryText)
-                    .fixedSize()
-                if let source = diagnostic.source, !source.isEmpty {
-                    Text(source).foregroundStyle(LitheTheme.Tree.secondaryText)
-                }
-                if let reason = diagnostic.reasonSummary {
-                    Text(reason).foregroundStyle(LitheTheme.Tree.secondaryText)
-                }
-                Spacer(minLength: 0)
+    private func diagnosticContent(_ diagnostic: EditorDiagnostic) -> some View {
+        HStack(spacing: LitheTheme.Tree.iconTextGap) {
+            severityIcon(diagnostic.severity)
+            Text(diagnostic.message.replacingOccurrences(of: "\n", with: " "))
+                .layoutPriority(1)
+            Text(":\(diagnostic.line + 1):\(diagnostic.utf16Column + 1)")
+                .foregroundStyle(LitheTheme.Tree.secondaryText)
+                .fixedSize()
+            if let source = diagnostic.source, !source.isEmpty {
+                Text(source).foregroundStyle(LitheTheme.Tree.secondaryText)
             }
-            .lineLimit(1)
-            .padding(.leading, LitheTheme.Tree.horizontalInset + LitheTheme.Tree.indent)
-            .padding(.trailing, LitheTheme.Tree.horizontalInset)
-            .litheTreeRow(isSelected: isSelected,
-                          isFocused: resultListActive)
+            if let reason = diagnostic.reasonSummary {
+                Text(reason).foregroundStyle(LitheTheme.Tree.secondaryText)
+            }
+            Spacer(minLength: 0)
         }
-        .buttonStyle(.litheNoPress)
-        .simultaneousGesture(TapGesture(count: 2).onEnded { model.openDiagnostic(diagnostic) })
+        .lineLimit(1)
         .help(diagnostic.locationTitle + "\n" + diagnostic.detailText)
         .accessibilityLabel(diagnostic.locationTitle + ": " + diagnostic.detailText)
     }

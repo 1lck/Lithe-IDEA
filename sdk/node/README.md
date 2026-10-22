@@ -143,3 +143,36 @@ npm test --prefix sdk/node
 
 The tests use a bounded in-memory host (`test/harness.mjs`), which plugin
 authors can copy to test their own backends without starting Lithe.
+
+### Native UI example (macOS)
+
+For comprehensive manual acceptance, use [native-ui-lab](examples/native-ui-lab/README.md).
+It packages static/dynamic trees and lists, empty/large data, mutations, recoverable
+errors and cancellation into five host-rendered panels, with a matching workspace.
+
+`examples/sample-build/plugin.json` also declares **Sample Explorer** with
+`requires.ui: 3`. No frontend files or CSS are needed: the host draws its tree,
+Refresh/Inspect toolbar and Inspect context menu. The existing sample backend
+adds only `ui.nodes` (data) and `ui.inspect` (selected-node action).
+
+For a disk-installable development package, copy `examples/sample-build/` to a
+staging directory, copy this SDK's `src/` into
+`backend/vendor/lithe-plugin-sdk/src/` there, and change the sample backend's
+repository-relative SDK import to `./vendor/lithe-plugin-sdk/src/index.mjs`.
+Install that folder from disk in a DEBUG build (unsigned development packages
+are refused by release builds), then restart Lithe. Open a workspace containing:
+
+```json
+{"projects":[{"name":"app","path":"app","build":["node","--version"]}]}
+```
+
+Save it as `lithe-sample.json`, create the `app` directory, and show **Sample Explorer** from the right activity
+bar. Refresh loads project rows; expand one and select its child, then Inspect
+shows a message and reloads the same stable rows. Right-clicking another row
+runs Inspect for that row. Hide/reopen restores selection and expansion. Test
+light/dark themes and arrow-key navigation; disable the plugin or close the
+workspace during refresh to verify cleanup. Windows intentionally rejects ui 3.
+
+This phase expects exactly one detected `sample` instance. It does not alter
+build scheduling or the backend transport. See the shared native UI schema for
+limits and the remaining schema-1 restrictions.

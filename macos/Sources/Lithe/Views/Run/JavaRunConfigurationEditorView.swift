@@ -372,8 +372,7 @@ struct RunConfigurationEditorView: View {
 
     private var environmentSection: some View {
         section(title: "Environment", info: "One NAME=value entry per line") {
-            TextEditor(text: $environmentText)
-                .litheSettingsTextEditor(height: 88)
+            LitheTextEditor(text: $environmentText, height: 88)
         }
     }
 
@@ -454,8 +453,7 @@ struct RunConfigurationEditorView: View {
             Text(LocalizedStringKey(title))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .frame(width: 120, alignment: .leading)
-            TextField(LocalizedStringKey(placeholder), text: text)
-                .litheSettingsTextField()
+            LitheTextField(LocalizedStringKey(placeholder), text: text)
             Button(action: chooseDirectory) {
                 LitheSystemIcon(systemImage: "folder")
             }
@@ -474,8 +472,7 @@ struct RunConfigurationEditorView: View {
             Text(LocalizedStringKey(title))
                 .font(LitheTheme.uiFont(size: 11.5))
                 .foregroundStyle(LitheTheme.secondaryText)
-            TextField(LocalizedStringKey(placeholder), text: text)
-                .litheSettingsTextField()
+            LitheTextField(LocalizedStringKey(placeholder), text: text)
         }
     }
 

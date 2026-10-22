@@ -28,7 +28,7 @@
         "languages": { "enum": [1] },
         "serverProcess": { "description": "The launch fields of language servers and of build providers that start their own process.", "enum": [1] },
         "settings": { "enum": [1] },
-        "ui": { "description": "Version 2 adds web content in tool windows.", "enum": [1, 2] }
+        "ui": { "description": "Version 2 adds web content; version 3 adds native controls.", "enum": [1, 2, 3] }
       }
     },
     "vendor": {
@@ -89,7 +89,8 @@
             ],
             "oneOf": [
               { "required": ["text"] },
-              { "required": ["web"] }
+              { "required": ["web"] },
+              { "required": ["native"] }
             ],
             "properties": {
               "id": {
@@ -115,6 +116,7 @@
                 "type": "string",
                 "maxLength": 65536
               },
+              "native": { "$ref": "native-ui.schema.json" },
               "web": {
                 "description": "ui 2: the plugin's own page, served from the package into a sandboxed host web view. Needs the ui.web permission.",
                 "type": "object",
@@ -244,6 +246,7 @@
             "terminal",
             "search",
             "refresh",
+            "reset",
             "run",
             "debug",
             "settings",

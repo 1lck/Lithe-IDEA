@@ -4,6 +4,8 @@ import SwiftUI
 /// 14pt label padding, 72pt minimum width, and regular UI font on macOS.
 struct LitheActionButtonStyle: ButtonStyle {
     var isPrimary = false
+    var fillsWidth = false
+    var maximumWidth: CGFloat? = nil
     var borderInset: CGFloat = LitheTheme.Commit.buttonBorderInset
     @State private var isHovered = false
     @Environment(\.isEnabled) private var isEnabled
@@ -15,8 +17,10 @@ struct LitheActionButtonStyle: ButtonStyle {
             .font(LitheTheme.uiFont(size: 13, weight: .regular))
             .foregroundStyle(isEnabled ? (isPrimary ? Color.white : LitheTheme.searchFieldText) : LitheTheme.Commit.disabledText)
             .padding(.horizontal, LitheTheme.Commit.buttonHorizontalPadding)
-            .frame(minWidth: LitheTheme.Commit.buttonMinimumWidth, minHeight: LitheTheme.Commit.buttonHeight)
-            .fixedSize(horizontal: true, vertical: false)
+            .frame(minWidth: min(LitheTheme.Commit.buttonMinimumWidth, maximumWidth ?? LitheTheme.Commit.buttonMinimumWidth),
+                   maxWidth: fillsWidth ? (maximumWidth ?? .infinity) : maximumWidth,
+                   minHeight: LitheTheme.Commit.buttonHeight)
+            .fixedSize(horizontal: !fillsWidth, vertical: false)
             .background {
                 shape.fill(isPrimary && isEnabled ? LitheTheme.searchFieldFocusBorder
                                                   : isEnabled ? LitheTheme.Commit.buttonBackground(for: colorScheme) : .clear)

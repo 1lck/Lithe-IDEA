@@ -76,7 +76,7 @@ private struct GitIdentitySettingsPane: View {
         return VStack(alignment: .leading, spacing: 7) {
             Text(title).font(LitheTheme.uiFont(size: 12, weight: .medium))
             HStack {
-                TextField(title, text: draft).litheSettingsTextField()
+                LitheTextField(title, text: draft)
                 Button("Save") { save(field) }
                     .disabled(draft.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                               || draft.wrappedValue == shownValue)

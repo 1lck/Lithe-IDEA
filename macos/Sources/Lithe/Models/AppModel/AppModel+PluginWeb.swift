@@ -43,6 +43,6 @@ extension AppModel: PluginWebBridgeHost {
         let pages = services.pluginWebPages
         guard !pages.openWindowIDs.isEmpty else { return }
         let current = Set(pluginSnapshots.filter { $0.isEnabled && !$0.requiresRestart }.map(\.id.rawValue))
-        pages.closePages(of: Set(pages.windows.values.map(\.pluginID)).subtracting(current))
+        pages.closePages(of: pages.pluginIDs.subtracting(current))
     }
 }

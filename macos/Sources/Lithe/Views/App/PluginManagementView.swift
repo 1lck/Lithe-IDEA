@@ -156,7 +156,6 @@ private struct InstalledPluginsView: View {
     @ObservedObject var feature: PluginMarketplaceFeatureModel
     @State private var searchText = ""
     @State private var selectedPluginID: PluginID?
-    @State private var hoveredPluginID: PluginID?
     @State private var isManagingPackage = false
     @State private var confirmingUninstall: PluginManagementSnapshot?
     @AppStorage("lithe.settings.pluginListWidth") private var pluginListWidth = 320.0
@@ -241,7 +240,7 @@ private struct InstalledPluginsView: View {
     private var sidebar: some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                LitheSettingsSearchField("Type / to see options", text: $searchText)
+                LitheSearchField("Type / to see options", text: $searchText)
             }
             .padding(.horizontal, 8).frame(height: 44)
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
@@ -251,27 +250,27 @@ private struct InstalledPluginsView: View {
                 Spacer()
             }
             .padding(.horizontal, 14).frame(height: 38).background(LitheTheme.settingsListSurface)
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    ForEach(filteredPlugins) { plugin in
-                        pluginRow(plugin)
-                    }
-                    ForEach(brokenPluginIssues) { issue in
-                        brokenPluginRow(issue)
-                    }
+            LitheTreeList(
+                nodes: filteredPlugins.map { plugin in
+                    LitheTreeListNode(
+                        id: "plugin:" + plugin.id.rawValue,
+                        onSelect: { selectedPluginID = plugin.id }
+                    ) { pluginRow(plugin) }
                 }
-            }
+                    + brokenPluginIssues.map { issue in
+                        LitheTreeListNode(id: "issue:" + String(describing: issue.id), isSelectable: false) {
+                            brokenPluginRow(issue)
+                        }
+                    }, selection: Binding(get: { selectedPlugin.map { "plugin:" + $0.id.rawValue } }, set: { _ in }),
+                multiline: true)
         }
         .frame(maxWidth: .infinity)
         .background(LitheTheme.settingsListSurface)
     }
 
     private func pluginRow(_ plugin: PluginManagementSnapshot) -> some View {
-        let isSelected = selectedPlugin?.id == plugin.id
-        let isHovered = hoveredPluginID == plugin.id
         return HStack(spacing: 10) {
             pluginIcon(plugin, size: 32)
-                .scaleEffect(isHovered && !isSelected ? 1.06 : 1)
             VStack(alignment: .leading, spacing: 3) {
                 Text(LocalizedStringKey(plugin.manifest.displayName)).lineLimit(1)
                     .font(LitheTheme.uiFont(size: 13, weight: .semibold))
@@ -287,28 +286,10 @@ private struct InstalledPluginsView: View {
             Image(systemName: effectiveEnabledState(for: plugin) ? "checkmark.square.fill" : "square")
                 .foregroundStyle(effectiveEnabledState(for: plugin) ? LitheTheme.accent : LitheTheme.secondaryText)
         }
-        .padding(.horizontal, 14)
+        .padding(.horizontal, LitheTheme.Tree.iconTextGap)
         .padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            isSelected
-                ? LitheTheme.settingsSelection
-                : (isHovered ? LitheTheme.hoverBackground : Color.clear)
-        )
-        .contentShape(Rectangle())
-        .onTapGesture(count: 1) {
-            selectedPluginID = plugin.id
-        }
-        .onHover { hovering in
-            if hovering {
-                hoveredPluginID = plugin.id
-            } else if hoveredPluginID == plugin.id {
-                hoveredPluginID = nil
-            }
-        }
         .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isButton)
-        .accessibilityAction { selectedPluginID = plugin.id }
     }
 
     /// A plugin whose package was refused. It can only be uninstalled or

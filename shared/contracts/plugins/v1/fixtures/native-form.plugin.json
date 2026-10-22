@@ -1,0 +1,157 @@
+{
+  "schemaVersion": 2,
+  "id": "dev.lithe.fixture.native-form",
+  "displayName": "Native form fixture",
+  "version": "0.1.0",
+  "pluginAPIVersion": 3,
+  "requires": {
+    "buildProviders": 1,
+    "buildSystems": 1,
+    "serverProcess": 1,
+    "ui": 3
+  },
+  "vendor": {
+    "id": "org.example",
+    "displayName": "Example",
+    "signatureRequirement": "publisherPackage"
+  },
+  "permissions": [
+    "languageServer.launch",
+    "process.build",
+    "ui.contribute"
+  ],
+  "activationEvents": [
+    "onBuildSystem:sample",
+    "onView:dev.lithe.fixture.native-form.form"
+  ],
+  "languages": [],
+  "buildSystems": [
+    {
+      "id": "sample",
+      "displayName": "Sample",
+      "detection": {
+        "markers": [
+          "lithe-sample.json"
+        ],
+        "nesting": "outermost"
+      },
+      "invocation": {
+        "executables": [
+          {
+            "kind": "command",
+            "command": "node"
+          }
+        ]
+      },
+      "provider": {
+        "launch": {
+          "kind": "runtime",
+          "tool": "node",
+          "minimumVersion": "20.3",
+          "entry": "backend/main.mjs"
+        },
+        "arguments": [
+          "--state",
+          "${workspaceStateDir}"
+        ],
+        "executesProjectCode": true,
+        "mayUseNetwork": false
+      },
+      "model": {
+        "source": "provider"
+      },
+      "tasks": [
+        {
+          "id": "build",
+          "displayName": "Build",
+          "group": "build",
+          "scopes": [
+            "workspace"
+          ],
+          "arguments": [
+            "--version"
+          ]
+        }
+      ],
+      "dependencies": {
+        "source": "provider",
+        "scopes": [
+          "workspace",
+          "project"
+        ]
+      },
+      "sync": {
+        "watch": [
+          "lithe-sample.json"
+        ]
+      }
+    }
+  ],
+  "ui": {
+    "toolWindows": [
+      {
+        "id": "dev.lithe.fixture.native-form.form",
+        "title": "Native form",
+        "placement": "bottom",
+        "native": {
+          "schemaVersion": 1,
+          "id": "form",
+          "kind": "form",
+          "nodes": [],
+          "controls": [
+            {
+              "id": "name",
+              "kind": "input",
+              "label": "名称（输入后按回车）",
+              "value": "UI Lab",
+              "placeholder": "输入中文、English 或 😀🚀",
+              "span": 6
+            },
+            {
+              "id": "query",
+              "kind": "input",
+              "label": "空输入框与占位提示",
+              "value": "",
+              "placeholder": "试试中文输入法、粘贴、撤销",
+              "span": 6
+            },
+            {
+              "id": "environment",
+              "kind": "select",
+              "label": "环境（切换后自动提交）",
+              "value": "dev",
+              "options": [
+                {
+                  "id": "dev",
+                  "label": "开发环境"
+                },
+                {
+                  "id": "test",
+                  "label": "测试环境 / English"
+                },
+                {
+                  "id": "prod",
+                  "label": "生产环境 😀"
+                }
+              ],
+              "span": 6
+            },
+            {
+              "id": "notify",
+              "kind": "checkbox",
+              "label": "启用通知（切换后自动提交）",
+              "value": true,
+              "span": 6
+            }
+          ],
+          "actions": [],
+          "toolbar": [],
+          "contextMenu": [],
+          "layout": {
+            "columns": 12
+          }
+        }
+      }
+    ]
+  }
+}

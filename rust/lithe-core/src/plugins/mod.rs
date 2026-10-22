@@ -3,6 +3,7 @@
 pub mod capabilities;
 pub mod declarative;
 pub mod marketplace;
+pub(crate) mod native_ui;
 
 use serde::Deserialize;
 use std::collections::{BTreeMap, BTreeSet};
