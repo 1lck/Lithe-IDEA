@@ -1789,7 +1789,7 @@ struct WorkbenchView: View {
             if model.workbenchFeature.isVisible(.references) {
                 Label("\(model.languageNavigationResults.count) usages", systemImage: "scope")
             }
-            Text(model.gitChanges.isEmpty ? "No changes" : "\(model.gitChanges.count) changes")
+            Text(model.gitChanges.isEmpty ? "No changes" : "\(model.gitChangedFileCount) changes")
             Image(systemName: "checkmark.circle.fill")
                 .foregroundStyle(LitheTheme.success)
         }

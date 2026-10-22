@@ -104,9 +104,21 @@ package final class GitFeatureModel: ObservableObject {
         }
     }
     @Published package private(set) var gitChanges: [GitChange] = [] {
-        didSet { gitTreeStatus = GitTreeStatusProjection(changes: gitChanges, absolutePaths: true) }
+        didSet {
+            gitTreeStatus = GitTreeStatusProjection(changes: gitChanges, absolutePaths: true)
+            gitChangedFileCount = gitChanges.reduce(0) { count, change in
+                count + (isListedUntrackedContent(change) ? 0 : change.fileCount)
+            }
+        }
     }
     package private(set) var gitTreeStatus = GitTreeStatusProjection(changes: [])
+    /// Changed files across `gitChanges`; a directory summary counts its files
+    /// once, including while its contents are listed.
+    package private(set) var gitChangedFileCount = 0
+    /// Untracked directory summaries shown expanded. Their listed contents are
+    /// merged into `gitChanges` right after the summary on every refresh, so
+    /// staging, discard, diff and selection treat them as ordinary changes.
+    @Published package private(set) var expandedUntrackedDirectoryIDs: Set<GitChange.ID> = []
     /// Repository-scoped operations must not consume the aggregated workspace list.
     package var activeRepositoryChanges: [GitChange] {
         gitChanges.filter {
@@ -293,6 +305,7 @@ package final class GitFeatureModel: ObservableObject {
     private var gitLogFilterGeneration = UUID()
     private let shelveService: ShelveService?
     private let snapshotProvider: @Sendable (URL, [URL]) async -> GitSnapshot?
+    private let untrackedDirectoryChildrenProvider: @Sendable (GitChange, [URL]) async -> [GitChange]?
     private let stashesProvider: @Sendable (URL) async -> [GitStash]
     private let operationStateProvider: @Sendable (URL) async -> GitOperationState?
     private let worktreesProvider: @Sendable (URL) async -> [GitWorktree]?
@@ -364,7 +377,8 @@ package final class GitFeatureModel: ObservableObject {
         operationStateProvider: (@Sendable (URL) async -> GitOperationState?)? = nil,
         worktreesProvider: (@Sendable (URL) async -> [GitWorktree]?)? = nil,
         repositoryRootsProvider: (@Sendable (URL) async -> [URL])? = nil,
-        diffDocumentProvider: (@Sendable (GitChange, GitDiffWhitespaceMode) async -> DiffDocument)? = nil
+        diffDocumentProvider: (@Sendable (GitChange, GitDiffWhitespaceMode) async -> DiffDocument)? = nil,
+        untrackedDirectoryChildrenProvider: (@Sendable (GitChange) async -> [GitChange]?)? = nil
     ) {
         self.changelistStorage = changelistStorage
         self.service = service
@@ -374,7 +388,14 @@ package final class GitFeatureModel: ObservableObject {
         if let snapshotProvider {
             self.snapshotProvider = { root, _ in await snapshotProvider(root) }
         } else {
-            self.snapshotProvider = { root, roots in await service.snapshot(for: root, repositoryRoots: roots) }
+            self.snapshotProvider = { root, roots in await service.changesSnapshot(for: root, repositoryRoots: roots) }
+        }
+        if let untrackedDirectoryChildrenProvider {
+            self.untrackedDirectoryChildrenProvider = { directory, _ in await untrackedDirectoryChildrenProvider(directory) }
+        } else {
+            self.untrackedDirectoryChildrenProvider = { directory, roots in
+                await service.untrackedDirectoryChildren(of: directory, repositoryRoots: roots)
+            }
         }
         self.stashesProvider = stashesProvider ?? { await service.stashes(at: $0) }
         self.operationStateProvider = operationStateProvider ?? { await service.operationState(at: $0) }
@@ -452,6 +473,7 @@ package final class GitFeatureModel: ObservableObject {
         changelistStorageFailed = false
         includeChangelistParentReferences = true
         gitChanges = []
+        expandedUntrackedDirectoryIDs = []
         pendingStagingStates = [:]
         gitStashes = []
         gitShelves = []
@@ -625,8 +647,10 @@ package final class GitFeatureModel: ObservableObject {
         if let observation {
             let snapshot = observation.snapshot
             guard !Task.isCancelled, workspaceURLProvider?()?.standardizedFileURL == workspaceURL.standardizedFileURL else { return }
+            let changes = await listingExpandedUntrackedDirectories(in: snapshot.changes)
+            guard !Task.isCancelled else { return }
             loadChangelistsIfNeeded()
-            let changesChanged = gitChanges != snapshot.changes
+            let changesChanged = gitChanges != changes
             if gitRepositoryRoot != snapshot.repositoryRoot {
                 resetHistoryForRepositoryChange()
                 gitRepositoryRoot = snapshot.repositoryRoot
@@ -651,17 +675,17 @@ package final class GitFeatureModel: ObservableObject {
                 didChange = true
             }
             if changesChanged {
-                gitChanges = snapshot.changes
+                gitChanges = changes
                 rememberChangelistRenames()
                 gitLineChangeMarkers = [:]
                 lineChangeHunks = [:]
                 didChange = true
             }
-            reconcilePendingStagingStates(with: snapshot.changes,
+            reconcilePendingStagingStates(with: changes,
                 successfullyReadRepositoryRoots: observation.successfullyReadRepositoryRoots)
             if !gitConflictFilterPaths.isEmpty {
                 let previousFilter = gitConflictFilterPaths
-                gitConflictFilterPaths.formIntersection(Set(snapshot.changes.map(\.path)))
+                gitConflictFilterPaths.formIntersection(Set(changes.map(\.path)))
                 didChange = didChange || previousFilter != gitConflictFilterPaths
             }
             let stashes = await stashesProvider(snapshot.repositoryRoot)
@@ -693,10 +717,10 @@ package final class GitFeatureModel: ObservableObject {
             }
 
             if let selectedChange,
-               let updated = snapshot.changes.first(where: {
+               let updated = changes.first(where: {
                    $0.repositoryRoot.standardizedFileURL == selectedChange.repositoryRoot.standardizedFileURL
                        && $0.path == selectedChange.path
-               }) {
+               }) ?? untrackedChange(at: selectedChange.url, in: selectedChange.repositoryRoot) {
                 if self.selectedChange != updated {
                     self.selectedChange = updated
                     didChange = true
@@ -776,6 +800,72 @@ package final class GitFeatureModel: ObservableObject {
         return (snapshot, Set(snapshots.map { $0.repositoryRoot.standardizedFileURL }))
     }
 
+    /// Shows or hides the listed contents of an untracked directory summary.
+    package func toggleUntrackedDirectory(_ directory: GitChange) async {
+        guard directory.isUntrackedDirectory else { return }
+        if expandedUntrackedDirectoryIDs.contains(directory.id) {
+            let contents = gitChanges.filter(directory.containsUntrackedDescendant)
+            expandedUntrackedDirectoryIDs.subtract(contents.map(\.id) + [directory.id])
+            gitChanges.removeAll(where: directory.containsUntrackedDescendant)
+            if let selectedChange, directory.containsUntrackedDescendant(selectedChange) {
+                closeWorkingTreeDiff()
+            }
+            return
+        }
+        guard let children = await untrackedDirectoryChildrenProvider(directory, availableRepositoryRoots) else {
+            notify?("Could not list \(directory.path)")
+            return
+        }
+        // A refresh may have removed the summary or updated its count meanwhile.
+        guard let index = gitChanges.firstIndex(where: { $0.id == directory.id && $0.isUntrackedDirectory }),
+              !expandedUntrackedDirectoryIDs.contains(directory.id) else { return }
+        expandedUntrackedDirectoryIDs.insert(directory.id)
+        gitChanges.insert(contentsOf: children, at: index + 1)
+    }
+
+    /// Lists the contents of every expanded summary still present in `changes`,
+    /// directly after it. Nested expanded summaries are listed in the same pass.
+    private func listingExpandedUntrackedDirectories(in changes: [GitChange]) async -> [GitChange] {
+        let requested = expandedUntrackedDirectoryIDs
+        guard !requested.isEmpty else { return changes }
+        var result = changes
+        var index = 0
+        while index < result.count {
+            let change = result[index]
+            index += 1
+            guard change.isUntrackedDirectory, requested.contains(change.id), !Task.isCancelled,
+                  let children = await untrackedDirectoryChildrenProvider(change, availableRepositoryRoots)
+            else { continue }
+            result.insert(contentsOf: children, at: index)
+        }
+        // Forget expansions whose summary is gone; keep ones toggled meanwhile.
+        let present = Set(result.map(\.id))
+        expandedUntrackedDirectoryIDs.subtract(requested.subtracting(present))
+        return result
+    }
+
+    /// True for a change listed only because its untracked summary is expanded.
+    private func isListedUntrackedContent(_ change: GitChange) -> Bool {
+        change.isUntracked && !expandedUntrackedDirectoryIDs.isEmpty
+            && gitTreeStatus.containingUntrackedDirectory(of: change) != nil
+    }
+
+    /// The file-level change status would report for a path below a summary.
+    private func untrackedChange(at url: URL, in repositoryRoot: URL) -> GitChange? {
+        guard let change = gitTreeStatus.change(relativePath: url.standardizedFileURL.path),
+              change.repositoryRoot.standardizedFileURL == repositoryRoot.standardizedFileURL,
+              !change.isUntrackedDirectory else { return nil }
+        return change
+    }
+
+    /// The change for a working-tree file, including one below a directory summary.
+    private func change(at fileURL: URL) -> GitChange? {
+        gitChanges.first(where: { $0.url.standardizedFileURL == fileURL })
+            ?? gitTreeStatus.change(relativePath: fileURL.path).flatMap {
+                $0.isUntrackedDirectory ? nil : $0
+            }
+    }
+
     package func selectRepository(_ root: URL, reference: GitReference? = nil) async {
         guard availableRepositoryRoots.contains(root) else { return }
         if root == gitRepositoryRoot && root == (requestedRepositoryRoot ?? gitRepositoryRoot) {
@@ -812,6 +902,8 @@ package final class GitFeatureModel: ObservableObject {
     }
 
     package func selectChange(_ change: GitChange) async {
+        // A directory summary stands for many files; its rows expand instead.
+        guard !change.isUntrackedDirectory else { return }
         closeBranchComparison()
         selectedGitCommitDiffContext = nil
         selectedChange = change
@@ -902,9 +994,7 @@ package final class GitFeatureModel: ObservableObject {
     package func loadLineChanges(for fileURL: URL) async {
         let normalizedURL = fileURL.standardizedFileURL
         guard !loadingLineChangeURLs.contains(normalizedURL) else { return }
-        guard let change = gitChanges.first(where: {
-            $0.url.standardizedFileURL == normalizedURL
-        }) else {
+        guard let change = change(at: normalizedURL) else {
             gitLineChangeMarkers[normalizedURL] = []
             lineChangeHunks[normalizedURL] = [:]
             return
@@ -913,7 +1003,7 @@ package final class GitFeatureModel: ObservableObject {
         defer { loadingLineChangeURLs.remove(normalizedURL) }
 
         let document = await service.diffDocument(for: change)
-        guard gitChanges.contains(change) else { return }
+        guard self.change(at: normalizedURL) == change else { return }
         gitLineChangeMarkers[normalizedURL] = GitLineChangeProjection.markers(from: document.rows)
         lineChangeHunks[normalizedURL] = Dictionary(
             uniqueKeysWithValues: document.hunks.map { ($0.id, $0) }
@@ -921,9 +1011,7 @@ package final class GitFeatureModel: ObservableObject {
     }
 
     package func showLineChange(_ marker: GitLineChangeMarker, for fileURL: URL) async {
-        guard let change = gitChanges.first(where: {
-            $0.url.standardizedFileURL == fileURL.standardizedFileURL
-        }) else { return }
+        guard let change = change(at: fileURL.standardizedFileURL) else { return }
         await selectChange(change)
         _ = marker
     }
@@ -953,9 +1041,7 @@ package final class GitFeatureModel: ObservableObject {
         let normalizedURL = fileURL.standardizedFileURL
         guard let hunkID = marker.hunkID,
               let hunk = lineChangeHunks[normalizedURL]?[hunkID],
-              let change = gitChanges.first(where: {
-                  $0.url.standardizedFileURL == normalizedURL
-              }) else { return nil }
+              let change = change(at: normalizedURL) else { return nil }
         return (change, hunk)
     }
 
@@ -2359,7 +2445,7 @@ package final class GitFeatureModel: ObservableObject {
         if worktree.isCurrent, !isLoadingGitHistory {
             gitWorktreeInspection = GitWorktreeInspection(
                 worktreeID: worktree.id,
-                changes: activeRepositoryChanges,
+                changes: activeRepositoryChanges.filter { !isListedUntrackedContent($0) },
                 commits: Array(gitCommits.prefix(80)),
                 hasMoreCommits: gitCommits.count > 80 || canLoadMoreGitHistory
             )
@@ -2385,7 +2471,7 @@ package final class GitFeatureModel: ObservableObject {
             return
         }
 
-        let initialChanges = worktree.isCurrent ? activeRepositoryChanges : []
+        let initialChanges = worktree.isCurrent ? activeRepositoryChanges.filter { !isListedUntrackedContent($0) } : []
         let initialInspection = GitWorktreeInspection(
             worktreeID: worktree.id,
             changes: initialChanges,

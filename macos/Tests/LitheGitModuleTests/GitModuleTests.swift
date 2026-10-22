@@ -291,6 +291,87 @@ struct GitModuleTests {
     }
 
     @Test
+    func treeStatusTreatsFilesBelowAnUntrackedSummaryAsUntracked() {
+        // Project rows, editor gutters and Show Diff found a per-file record for
+        // these files before status summarized large untracked directories (#1385).
+        let root = URL(fileURLWithPath: "/workspace")
+        let summary = GitChange(repositoryRoot: root, path: "target/", originalPath: nil,
+                                indexStatus: "?", workTreeStatus: "?", untrackedFileCount: 5_273)
+        let projection = GitTreeStatusProjection(changes: [summary])
+
+        let file = projection.change(relativePath: "target/debug/app")
+        #expect(file?.path == "target/debug/app")
+        #expect(file?.isUntracked == true)
+        #expect(file?.isUntrackedDirectory == false)
+        #expect(projection.kind(relativePath: "target", isDirectory: true) == .added)
+        #expect(projection.change(relativePath: "targets/app") == nil)
+        let absolute = GitTreeStatusProjection(changes: [summary], absolutePaths: true)
+        #expect(absolute.change(relativePath: "/workspace/target/a.o")?.path == "target/a.o")
+        #expect(absolute.containingUntrackedDirectory(of: summary) == nil)
+    }
+
+    @Test
+    func untrackedDirectorySummaryListsItsContentsOnDemandAndAcrossRefreshes() async {
+        let root = URL(fileURLWithPath: "/workspace")
+        func untracked(_ path: String, count: Int? = nil) -> GitChange {
+            GitChange(repositoryRoot: root, path: path, originalPath: nil,
+                      indexStatus: "?", workTreeStatus: "?", untrackedFileCount: count)
+        }
+        let source = GitChange(repositoryRoot: root, path: "src/App.swift", originalPath: nil,
+                               indexStatus: " ", workTreeStatus: "M")
+        let target = untracked("target/", count: 5_273)
+        let debug = untracked("target/debug/", count: 5_272)
+        let snapshots = UntrackedDirectorySnapshots(
+            GitSnapshot(repositoryRoot: root, branch: "main", changes: [source, target])
+        )
+        let listing: [String: [GitChange]] = [
+            "target/": [untracked("target/.rustc_info.json"), debug],
+            "target/debug/": [untracked("target/debug/app")]
+        ]
+        let feature = GitFeatureModel(
+            service: GitService(operations: TestGitOperations()),
+            snapshotProvider: { _ in await snapshots.current() },
+            stashesProvider: { _ in [] },
+            operationStateProvider: { _ in nil },
+            repositoryRootsProvider: { _ in [] },
+            diffDocumentProvider: { _, _ in DiffDocument(rows: [], hunks: []) },
+            untrackedDirectoryChildrenProvider: { listing[$0.path] }
+        )
+        defer { feature.reset() }
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false },
+                          notify: { _ in }, onStateRefreshed: {})
+
+        await feature.refreshGit()
+        #expect(feature.gitChanges.map(\.path) == ["src/App.swift", "target/"])
+        #expect(feature.gitChangedFileCount == 5_274)
+
+        // A summary stands for thousands of files and has no diff of its own.
+        await feature.selectChange(target)
+        #expect(feature.selectedChange == nil)
+
+        let expanded = ["src/App.swift", "target/", "target/.rustc_info.json", "target/debug/", "target/debug/app"]
+        await feature.toggleUntrackedDirectory(target)
+        await feature.toggleUntrackedDirectory(debug)
+        #expect(feature.gitChanges.map(\.path) == expanded)
+        #expect(feature.gitChangedFileCount == 5_274)
+
+        // A watcher refresh lists expanded summaries again instead of collapsing them.
+        await feature.refreshGit()
+        #expect(feature.gitChanges.map(\.path) == expanded)
+
+        await feature.toggleUntrackedDirectory(target)
+        #expect(feature.gitChanges.map(\.path) == ["src/App.swift", "target/"])
+        #expect(feature.expandedUntrackedDirectoryIDs.isEmpty)
+
+        // Staging or deleting the directory removes its summary and its expansion.
+        await feature.toggleUntrackedDirectory(target)
+        await snapshots.replace(with: GitSnapshot(repositoryRoot: root, branch: "main", changes: [source]))
+        await feature.refreshGit()
+        #expect(feature.gitChanges.map(\.path) == ["src/App.swift"])
+        #expect(feature.expandedUntrackedDirectoryIDs.isEmpty)
+    }
+
+    @Test
     func lineChangeProjectionMapsAdditionsChangesAndMiddleDeletions() {
         let markers = GitLineChangeProjection.markers(from: [
             DiffRow(oldLine: 1, newLine: 1, left: "same", right: "same", kind: .context, hunkID: "h1"),
@@ -3932,6 +4013,15 @@ private func waitForGitCommitFilesOutcome(
         group.cancelAll()
         return result
     }
+}
+
+private actor UntrackedDirectorySnapshots {
+    private var snapshot: GitSnapshot
+
+    init(_ snapshot: GitSnapshot) { self.snapshot = snapshot }
+
+    func current() -> GitSnapshot { snapshot }
+    func replace(with snapshot: GitSnapshot) { self.snapshot = snapshot }
 }
 
 private func waitForGitTaskCompletion(

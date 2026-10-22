@@ -304,6 +304,8 @@ pub enum CoreCommand {
     MybatisIndex,
     /// Reads normalized repository and working-tree state (`git.status`).
     GitStatus,
+    /// Lists one level of a summarized untracked directory (`git.untrackedDirectory`).
+    GitUntrackedDirectory,
     /// Reads HEAD and index preconditions for workspace commits (`git.commitState`).
     GitCommitState,
     /// Builds a reviewed multi-repository plan (`git.workspaceCommitPrepare`).
@@ -555,6 +557,7 @@ impl CoreCommand {
             "spring.index" => Some(Self::SpringIndex),
             "mybatis.index" => Some(Self::MybatisIndex),
             "git.status" => Some(Self::GitStatus),
+            "git.untrackedDirectory" => Some(Self::GitUntrackedDirectory),
             "git.commitState" => Some(Self::GitCommitState),
             "git.workspaceCommitPrepare" => Some(Self::GitWorkspaceCommitPrepare),
             "git.workspaceCommitStep" => Some(Self::GitWorkspaceCommitStep),

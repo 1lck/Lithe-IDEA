@@ -69,6 +69,19 @@ struct GitLocalChangelistsTests {
         #expect(!state.isValid)
     }
 
+    @Test
+    func filesListedBelowAnUntrackedDirectoryFollowItsChangelist() {
+        // Moving a directory summary assigns `target/`; the commit pathspec covers
+        // its files, so the rows listed below it must stay in the same list.
+        var state = GitLocalChangelists()
+        state.lists.append(GitLocalChangelist(id: "local", name: "Local"))
+        state.move([change("target/")], to: "local")
+        #expect(state.listID(for: change("target/debug/app")) == "local")
+        #expect(state.listID(for: change("target/debug/")) == "local")
+        #expect(state.listID(for: change("targets/app")) == GitLocalChangelists.defaultID)
+        #expect(state.listID(for: change("target")) == GitLocalChangelists.defaultID)
+    }
+
     private func change(_ path: String, original: String? = nil, at repository: URL? = nil) -> GitChange {
         GitChange(repositoryRoot: repository ?? root, path: path, originalPath: original,
                   indexStatus: original == nil ? " " : "R", workTreeStatus: "M")

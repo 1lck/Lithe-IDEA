@@ -30,7 +30,20 @@ package struct GitLocalChangelists: Codable, Equatable, Sendable {
     package func listID(for change: GitChange) -> String {
         let paths = assignments[change.repositoryRoot.standardizedFileURL.path] ?? [:]
         // A stale destination assignment must not override the renamed source.
-        return renamedSourcePath(change).flatMap { paths[$0] } ?? paths[change.path] ?? Self.defaultID
+        return renamedSourcePath(change).flatMap { paths[$0] } ?? paths[change.path]
+            ?? directoryAssignment(above: change.path, in: paths) ?? Self.defaultID
+    }
+
+    /// An untracked directory summary (`dir/`) is assigned by its path; the files
+    /// listed below it follow it, as the commit pathspec `dir/` does.
+    private func directoryAssignment(above path: String, in paths: [String: String]) -> String? {
+        guard !paths.isEmpty else { return nil }
+        var ancestor = path.hasSuffix("/") ? Substring(path.dropLast()) : Substring(path)
+        while let separator = ancestor.lastIndex(of: "/") {
+            if let id = paths[String(ancestor[...separator])] { return id }
+            ancestor = ancestor[..<separator]
+        }
+        return nil
     }
 
     package mutating func move(_ changes: [GitChange], to id: String) {
