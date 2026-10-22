@@ -275,6 +275,22 @@ struct AppLocalizationTests {
         }
     }
 
+    @Test
+    func simplifiedChineseResourcesCoverHTMLPreviewBrowser() throws {
+        let translations = try simplifiedChineseTranslations()
+        let requiredKeys = [
+            "Back", "Forward", "Reload", "Stop Loading", "Enter address",
+            "Open HTML in Browser", "Developer Tools", "This page",
+            "“%@” says", "This address cannot be opened here.", "OK", "Cancel",
+            "Zoom In", "Zoom Out", "Reset Page Zoom (100%)", "Page Zoom"
+        ]
+
+        for key in requiredKeys {
+            #expect(translations[key] != nil, "Missing HTML preview browser translation: \(key)")
+        }
+        #expect(translations["Developer Tools"] == "开发者工具")
+    }
+
     private func simplifiedChineseTranslations() throws -> [String: String] {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

@@ -357,6 +357,17 @@ Swift 单元、插件和数据库 CI 通道复用已有 Cargo 下载缓存。先
 
 ### 独立工作树的本地编译
 
+Cargo 社区插件在 [独立仓库](https://github.com/Lithe-IDEA/lithe-plugin-cargo) 中构建，
+最终 ZIP、摘要、vendored Node SDK 和集成测试产物由该仓库的 `dist/`、`.artifacts/` 持有，
+不作为 Lithe 主仓库的下载缓存或可复用资源。Cargo 专属清单、模型金样与兼容性测试也由
+插件仓库持有：其 CI 按 `sdk.lock.json` 固定的宿主提交检出独立的 `.artifacts/lithe-core`，
+用公开 JSON API 验证清单、安装审查、识别、解码与任务计划，并实际执行 Core 生成的 Cargo 命令。
+宿主依赖按其 Cargo.lock 下载，测试工程的 Cargo 命令使用离线模式；固定基线不代表持续验证未来 preview。
+`.artifacts/core-target` 是插件 checkout 私有可变编译状态，不进入主仓库资源复用清单，
+不跨 worktree 共享，也不进入发布 ZIP。主仓库保留通用插件契约回归，不下载或组装 Cargo 插件。
+插件仓库每次打包校验 `sdk.lock.json` 固定的 SDK 源码提交与文件 SHA-256，
+SDK 复制只发生在打包阶段，安装目录保持只读。
+
 `Lithe-Dev` 的运行时用户状态不属于可复用构建缓存。macOS 用
 `app.lithe.desktop.dev` 隔离偏好和钥匙串，并在系统 Application Support、Caches、
 Logs 及临时目录下使用同名子目录；Windows 用 `app.lithe.windows.dev` 隔离
@@ -375,6 +386,30 @@ macOS 的 Application Support 临时快照 `.lithe-dev-profile-import-<transacti
 偏好、插件状态、恢复文件和日志由所属发行身份持有，临时文件与缓存可由系统清理；
 这些目录没有可靠 identity stamp，不进入工作树缓存或安装包，不改变代码签名及增量更新基线。
 同一发行身份的多个源码工作树仍会使用同一用户域；本地测试应注入临时目录与独立偏好域。
+
+模块日志和诊断包暂存目录登记为 `application-log-state`，不允许跨工作树复用。
+日志根目录下的 `application`、`language`、`run`、`git`、`plugins`、`performance`
+子目录、旧版 `lithe.log`、macOS 缓存中的 `Lithe/diagnostics-export/<snapshot>/`
+以及导出目标旁的临时 ZIP（macOS 的 `.lithe-diagnostics-<snapshot>.zip`
+和 Windows 的 `<destination>.lithe-<process>-<snapshot>.tmp`）都属于本次运行的用户状态，没有可验证的版本、平台、
+架构或工具链 identity stamp。复用脚本在解析工作树与复制之前拒绝这些位置；
+不存在允许复制的阶段。Windows 的确认快照仅保存在内存中，最多四份、五分钟有效；
+macOS 的暂存目录由导出成功、失败或取消清理。测试必须注入各自的临时日志根目录，
+不要复用真实用户日志。这些数据不进入 app bundle、Windows 安装目录或签名基线。
+
+#### 日志与诊断的原生界面检查
+
+编译 macOS 测试后运行 `./scripts/probe-macos-logging-ui.sh --skip-build`，或省略
+`--skip-build` 先构建测试。脚本使用当前 Xcode 的 SwiftPM runner，在系统临时目录
+创建一次性的 `Lithe Logging UI.app`，并复用产品本地化打包脚本装入中英文字符串表。
+它运行真实原生页面的四种语言/明暗组合，生成 `.artifacts/test-stability/logging-*.png`
+和计时 HTML/JUnit；不会启动用户工作区，也不会改写 Xcode 或已安装的 Lithe。
+
+临时宿主由脚本创建并在退出时删除，截图留在当前工作树的测试报告中。
+`agent-ui-test-evidence` 将两者都列为不可复用资源：身份只覆盖当前源版本、Xcode
+runner、产品字符串表、外观和测试参数，没有可跨工作树迁移的可靠 identity stamp。
+复用脚本在复制前直接拒绝这类资源，不复制、不校验后发布，也不共享原生测试宿主。
+
 
 功能矩阵生成物 `.artifacts/platform-feature-matrix/`（CI Pages 使用
 `<runner-temp>/lithe-agent-notes-site/platform-feature-matrix/`）不允许跨工作树复用。
@@ -440,6 +475,16 @@ SHA-256；Cargo、SwiftPM 和 Bun 使用各自的 lockfile、版本与完整性�
   worker 内存中存活，不增加下载目录，不写发行资源，也不影响签名或增量更新。
 - `.artifacts/jdtls-downloads/`：JDTLS、Lombok、Java Debug/Test 和 license。
 - `.artifacts/jdk-downloads/`：各平台与架构的 bundled JDK 下载归档。
+- `.artifacts/conpty-downloads/`：Windows Terminal 发布的
+  `Microsoft.Windows.Console.ConPTY` NuGet 包，按
+  `third_party/conpty/manifest.json` 固定版本与 SHA-256。包内 x64/arm64 的
+  `conpty.dll` 与 `OpenConsole.exe` 解出后写入 `.artifacts/conpty/`，供
+  `build.rs` 复制到可执行文件同目录，并由 `tauri.conf.json` 的 bundle
+  resources 打进安装包。该校验只接受 manifest 指定版本的那一个归档，
+  其余文件直接删除并重新下载。
+- `.artifacts/php-language-server-downloads/`：按
+  `Plugins/mac/Official/PhpSupport/language-server.json` 下载并校验的
+  Intelephense tarball；它只服务当前工作树的插件打包，不能复制解压结果。
 
 Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono 2.304 的 16 个静态 TTF、OFL 和作者信息位于 Git 跟踪的
 `macos/Resources/Fonts`。同目录增加 Nerd Fonts v3.5.1 的 JetBrains Mono Nerd Font Mono 四个完整 TTF（常规、粗体、斜体、粗斜体）及 OFL 许可，终端可直接选择这些字型而不依赖用户安装；来源、版本和固定 SHA-256 记录于 `NOTICE.txt`。它们与平台架构和工具链无关，随工作树检出，不从另一个

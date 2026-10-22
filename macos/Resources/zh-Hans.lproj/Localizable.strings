@@ -204,9 +204,8 @@
 "Restore Default" = "恢复默认";
 "Save after" = "保存延迟";
 "Hidden paths" = "隐藏路径";
-"One entry per line. Directory names hide matching folders; file entries support * and ?." = "每行输入一项。目录名用于隐藏匹配的文件夹；文件条目支持 * 和 ?。";
-"Directories" = "目录";
-"File patterns" = "文件模式";
+"One pattern per line, case-insensitive. Patterns use wildcards, a simplified form of regular expressions: `*` matches any characters and `?` matches one.\nEnd a pattern with `/` or `/*` to hide a folder and everything in it; start with `**/` to match at any depth. Other patterns hide matching files.\nExamples:\n`**/dist/` — every dist folder\n`.lithe/*` — the .lithe folder in the project root\n`*.log` — all log files\n`docs/*.md` — Markdown files in docs\nThe built-in patterns below always apply." = "每行一条规则，不区分大小写。规则使用通配符，是正则表达式的简化写法：`*` 匹配任意字符，`?` 匹配单个字符。\n以 `/` 或 `/*` 结尾表示隐藏整个文件夹及其内容，以 `**/` 开头表示匹配任意层级；其他写法隐藏匹配的文件。\n示例：\n`**/dist/` — 任意层级的 dist 文件夹\n`.lithe/*` — 项目根目录下的 .lithe 文件夹\n`*.log` — 所有 .log 文件\n`docs/*.md` — docs 下的 Markdown 文件\n下方的内置规则始终生效。";
+"Built-in" = "内置";
 "Apply" = "应用";
 "Display" = "显示";
 "Editor tabs" = "编辑器标签栏";
@@ -235,6 +234,10 @@
 "Shell" = "Shell";
 "Default shell" = "默认 Shell";
 "Used for new terminal sessions." = "用于新建的终端会话。";
+"Scrollback" = "回滚";
+"Terminal scrollback" = "终端回滚行数";
+"Lines kept for scrolling back in new terminal sessions." = "新建终端会话保留的可回滚行数。";
+"%lld lines" = "%lld 行";
 "Restore Defaults" = "恢复默认设置";
 "Done" = "完成";
 "Java SDK" = "Java SDK";
@@ -2925,9 +2928,9 @@
 "Manage Plugin Repositories…" = "管理插件仓库…";
 "Refresh Plugin Repositories" = "刷新插件仓库";
 "Paste an https plugin index URL or a GitHub repository URL. A GitHub repository must contain lithe-plugin-index.json at its root." = "粘贴 https 插件索引地址或 GitHub 仓库地址。GitHub 仓库的根目录需要包含 lithe-plugin-index.json。";
-"https://github.com/owner/repository" = "https://github.com/owner/repository";
 "Refresh All" = "全部刷新";
 "Refreshed %@" = "已于 %@ 刷新";
+"just now" = "刚刚";
 "Not refreshed yet" = "尚未刷新";
 "Ignored entries: %lld" = "已忽略条目：%lld";
 "Uninstall %@?" = "卸载 %@？";
@@ -3431,6 +3434,12 @@
 "Allow" = "允许";
 "Don’t Allow" = "不允许";
 "Restart Lithe to load the updated page." = "重启 Lithe 以加载更新后的页面。";
+"Search Everywhere (Double Shift)" = "全局搜索（双击 Shift）";
+"Show Preview" = "显示预览";
+"Filter results" = "筛选结果";
+"Select a file to preview" = "选择文件以预览";
+"Read-only file preview" = "只读文件预览";
+"Invert" = "反选";
 
 "Subagent" = "子代理";
 
@@ -3460,3 +3469,198 @@
 "All tasks completed" = "所有任务已完成";
 "Modified files: %lld" = "修改了 %lld 个文件";
 "Review changes" = "查看文件修改";
+
+"Search exclusions" = "搜索排除规则";
+"One pattern per line: `*.log`, `**/.*/`, `.*`, `cache/`. Only affects this Search Everywhere window." = "每行一个表达式：`*.log`、`**/.*/`、`.*`、`cache/`。仅影响当前双 Shift 搜索窗口。";
+
+"Edit search exclusions" = "编辑搜索排除规则";
+
+"All modules" = "全部模块";
+
+"Application" = "应用运行";
+
+"Editor and language services" = "编辑器与语言服务";
+
+"Build, run and debug" = "构建、运行与调试";
+
+"Current session" = "当前会话";
+
+"Previous session" = "上一次会话";
+
+"All sessions" = "全部会话";
+
+"Log filter" = "日志筛选";
+
+"Log level" = "日志级别";
+
+"Filter log messages" = "筛选日志内容";
+
+"From (UTC ISO 8601)" = "起始时间（UTC ISO 8601）";
+
+"Until (UTC ISO 8601)" = "结束时间（UTC ISO 8601）";
+
+"Refresh Logs" = "刷新日志";
+
+"Clear Logs" = "清空日志";
+
+"Detailed diagnostics for 15 minutes" = "详细诊断（15 分钟后关闭）";
+
+"No matching logs" = "没有匹配的日志";
+
+"Earlier log content omitted" = "较早的日志已省略";
+
+"Delete collected application logs?" = "删除已收集的应用日志？";
+
+/* Unified logs and diagnostics workflow. */
+"Logs and Diagnostics" = "日志与诊断";
+"Log locations" = "日志位置";
+"Log timeline" = "日志时间线";
+"Retention and cleanup" = "保留与清理";
+"Choose a module, enable detailed diagnostics, reproduce the problem, then preview and export a diagnostic bundle." = "选择模块，开启详细诊断并复现问题，然后预览并导出诊断包。";
+"Preview and export the selected logs with environment information. Credentials and home-directory paths are redacted; source code, editor buffers and terminal history are excluded." = "预览并导出筛选后的日志和环境信息。凭据和用户目录路径均会脱敏，不包含源码、编辑缓冲区或终端历史。";
+"Preview and Export…" = "预览并导出…";
+"Detailed diagnostics" = "详细诊断";
+"Detailed diagnostics cover the selected module and expire after 15 minutes. Refresh to see the current status." = "详细诊断仅覆盖所选模块，15 分钟后自动关闭。刷新可查看当前状态。";
+"Detailed diagnostics: On (%@)" = "详细诊断：已开启（%@）";
+"Detailed diagnostics: Off" = "详细诊断：已关闭";
+"Dropped: %lld; write failures: %lld" = "已丢弃：%lld；写入失败：%lld";
+"Earlier evidence was omitted by collection limits." = "部分较早的日志因收集上限被省略。";
+"Module logs rotate at 10 MiB and expire after 30 days. The combined budget is 100 MiB; performance logs have a separate 20 MiB budget." = "模块日志达到 10 MiB 后轮转，保留 30 天。总预算为 100 MiB，性能日志另有限额 20 MiB。";
+"Clear collected logs?" = "清空已收集的日志？";
+"Delete only Lithe-managed logs in the active directory across all modules and sessions. Filters do not limit this action. New events will continue to be recorded." = "仅删除生效目录中由 Lithe 管理的所有模块和会话日志。筛选条件不限制清理范围，后续事件仍会继续记录。";
+"Collected logs cleared." = "已清空收集的日志。";
+"Module: %@ · Session: %@ · Minimum level: %@" = "模块：%@ · 会话：%@ · 最低级别：%@";
+"Minimum level" = "最低级别";
+"Open Log Directory" = "打开日志目录";
+
+/* Project-local toolchain scope. */
+"This computer · This project" = "本机 · 此项目";
+"These defaults apply only to this project on this computer. Run configurations inherit them unless overridden. Use the Project save scope in a run configuration to share settings with your team." = "这些默认设置仅作用于这台电脑上的此项目。运行配置默认继承，单独设置时可覆盖。需要与团队共享的设置，请在运行配置中选择“项目”保存范围。";
+"Saved only for this project on this computer in .lithe/run/local.json and excluded from Git." = "仅为这台电脑上的此项目保存在 .lithe/run/local.json，并已从 Git 中排除。";
+"This computer" = "本机";
+
+/* Settings › Plugins › Installed: detail tabs and list filters. */
+"Features" = "功能";
+"Permissions & Programs" = "权限与程序";
+"Versions & Source" = "版本与来源";
+"Takes effect after Lithe restarts" = "重启 Lithe 后生效";
+"Provides" = "提供";
+"Plugin Source" = "来源";
+"View" = "查看";
+"Configure in Settings" = "在设置中配置";
+"Language Services" = "语言服务";
+"Local development package" = "本地开发包";
+"Ships with Lithe" = "随 Lithe 发行";
+"Generated from the plugin's declaration." = "根据插件声明的能力自动生成。";
+"This plugin declares no features." = "该插件没有声明功能。";
+"Plugin disabled" = "插件已禁用";
+"Configure" = "配置";
+"Inside the plugin" = "插件内置";
+"Runs on %@ shipped with the plugin" = "使用插件自带的 %@ 运行";
+"Runs on %@ installed on this Mac" = "使用本机已安装的 %@ 运行";
+"Installed on this Mac: %@" = "本机已安装：%@";
+"Provided by Lithe for this language" = "由 Lithe 为该语言提供";
+"Tasks: %d" = "任务：%d";
+"Language Server" = "语言服务器";
+"Debugger" = "调试器";
+"Build System" = "构建系统";
+"Tool Window" = "工具窗口";
+"This plugin declares no settings." = "该插件没有声明设置。";
+"Valid values are saved as you type." = "值合法时立即保存。";
+"Needs no extra permissions." = "不需要额外权限。";
+"Starts no programs." = "不启动任何程序。";
+"Part of Lithe. It starts no programs of its own." = "属于 Lithe 自身功能，不会启动额外程序。";
+"Setting values only fill the places the program templates reserve for them, so changing a setting never changes the programs above." = "设置值只会填入程序模板预留的位置，不能改变上面列出的程序，所以修改设置不需要重新审查。";
+"Current Version" = "当前版本";
+"Previous Version" = "上一版本";
+"Roll Back…" = "回滚…";
+"Roll Back" = "回滚";
+"Roll back %@ to %@?" = "将 %1$@ 回滚到 %2$@？";
+"The previous version is used after restarting Lithe. Your setting values are kept." = "重启 Lithe 后使用上一版本，你修改过的设置值会保留。";
+"Managed outside the Marketplace; no update source." = "在插件市场之外管理，没有更新来源。";
+"Updated with Lithe" = "随 Lithe 一起更新";
+"Checked again every time Lithe loads the plugin." = "每次加载插件时都会重新校验。";
+"Signature" = "签名";
+"Lithe publisher signature verified" = "已验证 Lithe 发布者签名";
+"Plugin ID" = "插件 ID";
+"Interface" = "界面";
+"Community / Disk" = "社区 / 磁盘";
+
+/* Plugin-registered settings pages */
+"Overridden in this project" = "已被此项目覆盖";
+"This project" = "此项目";
+"All projects" = "所有项目";
+"Applies immediately" = "立即生效";
+"Needs restart" = "需重启";
+"Reloads project" = "重新加载项目";
+"Next run" = "下次运行";
+"This value is not allowed." = "该值不被允许。";
+"Plugin Details" = "插件详情";
+"This plugin adds no options to this page." = "该插件未在此页添加选项。";
+"Open a project to see its language service." = "打开项目后可查看其语言服务。";
+"Starting" = "正在启动";
+"Initializing project index" = "正在初始化项目索引";
+"Stopping" = "正在停止";
+"Off for this project" = "已在此项目关闭";
+"Starts on demand when a matching file is opened" = "按需启动，打开对应文件时运行";
+"Failed to start; check the language server configuration" = "启动失败，请检查语言服务器配置";
+"Language service for this project" = "为此项目启用语言服务";
+"Added by plugins" = "由插件添加";
+
+/* Settings window: Git page and plugin settings pages */
+"Git Program and Credentials" = "Git 程序与凭据";
+"Sync with Remote" = "同步远程";
+"Lithe Fetch Defaults" = "Lithe 获取默认值";
+"Local Changes" = "本地更改";
+"Pull" = "拉取";
+"Email" = "邮箱";
+"Write to this repository" = "写入当前仓库";
+"Write to global config" = "写入全局配置";
+"Reload Configuration" = "重新加载配置";
+"Open Remote ↗" = "打开远程仓库 ↗";
+"→ %@" = "→ %@";
+"Git not found" = "未找到 Git";
+"Looking for Git…" = "正在查找 Git…";
+"In effect: " = "生效：";
+"Clear the override and inherit" = "清除覆盖并恢复继承";
+"The value Git uses now" = "Git 当前使用的值";
+"The value Git uses now and where it comes from" = "Git 当前使用的值及其来源";
+"Where the rows below that are backed by Git configuration are written." = "下方由 Git 配置支持的选项写入的位置。";
+"Reading Git configuration…" = "正在读取 Git 配置…";
+"Lithe default" = "Lithe 默认";
+"System Git" = "系统 Git";
+"No project is open. Rows backed by Git configuration write to the global Git configuration; commit identity needs a repository." = "当前没有打开项目。由 Git 配置支持的选项会写入全局 Git 配置；提交身份需要打开仓库。";
+"Lithe does not save passwords. Credentials are stored by the Git credential helper you choose." = "Lithe 不保存密码，凭据由你选择的 Git 凭据助手保存。";
+"Name and email are written to the global Git configuration. Existing commits do not change." = "姓名和邮箱写入全局 Git 配置，已有提交不会改变。";
+"Name and email are written to this repository's Git configuration and override the global values. Existing commits do not change." = "姓名和邮箱写入当前仓库的 Git 配置并覆盖全局值，已有提交不会改变。";
+"Pull and Push settings are written to the selected Git configuration. Fetch settings apply to both manual and background fetches." = "拉取和推送设置写入所选的 Git 配置；获取设置同时作用于手动获取和后台获取。";
+"Defaults for ordinary Fetch in every project. A repository's own Git configuration above still wins where it is set." = "所有项目普通获取的默认值。仓库自身的 Git 配置一旦设置，仍以其为准。";
+"How uncommitted changes are put aside before switching branches or pulling." = "切换分支或拉取前，如何暂存未提交的更改。";
+"Changes are written to" = "更改写入";
+"All projects · project can override" = "所有项目 · 项目可覆盖";
+"Provided by" = "由以下插件提供";
+"Language Service" = "语言服务";
+"Enable for this project" = "在本项目启用";
+"Preview background image" = "预览背景图片";
+"Annotate with Git Blame" = "使用 Git Blame 显示注释";
+"Hide Git Blame" = "隐藏 Git Blame 注释";
+"Edit Breakpoint…" = "编辑断点…";
+
+"Deselect All" = "全不选";
+
+"%lld of %lld services selected" = "已选择 %2$lld 个服务中的 %1$lld 个";
+
+"Background Services" = "后台服务";
+
+/* 内嵌 HTML 预览浏览器。 */
+"Stop Loading" = "停止加载";
+"Enter address" = "输入网址或本地路径";
+"Open HTML in Browser" = "在系统浏览器中打开";
+"Developer Tools" = "开发者工具";
+"This page" = "此页面";
+"“%@” says" = "“%@”提示";
+"This address cannot be opened here." = "无法在此处打开该地址。";
+"Zoom In" = "放大";
+"Zoom Out" = "缩小";
+"Reset Page Zoom (100%)" = "恢复页面缩放（100%）";
+"Page Zoom" = "页面缩放";

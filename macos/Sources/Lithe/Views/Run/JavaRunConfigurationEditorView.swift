@@ -116,7 +116,7 @@ struct RunConfigurationEditorView: View {
 
     private var saveScopeInfo: LocalizedStringKey {
         saveScope == .local
-            ? "Saved in .lithe/run/local.json and excluded from Git."
+            ? "Saved only for this project on this computer in .lithe/run/local.json and excluded from Git."
             : "Saved in .lithe/run/configurations.json for the whole team. Local JDK paths are never shared."
     }
 
@@ -130,7 +130,7 @@ struct RunConfigurationEditorView: View {
                 width: 200
             ) { scope in
                 switch scope {
-                case .local: "This Mac"
+                case .local: "This computer"
                 case .project: "Project"
                 }
             }
@@ -233,7 +233,7 @@ struct RunConfigurationEditorView: View {
         switch feature.source(for: configuration) {
         case .generated: String(localized: "Automatically generated")
         case .project: String(localized: "Project configuration")
-        case .local: String(localized: "This Mac")
+        case .local: String(localized: "This computer")
         }
     }
 

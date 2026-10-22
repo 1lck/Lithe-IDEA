@@ -843,6 +843,12 @@ package struct LanguageServerCodeAction: Identifiable, Equatable, Sendable {
     package var id: String { [title, kind ?? ""].joined(separator: "\u{1F}") }
 }
 
+package enum WorkspaceConfigurationUpdateResult: Sendable {
+    case applied
+    case superseded
+    case failed
+}
+
 @MainActor
 package protocol LanguageServerSession: AnyObject {
     var onProjectPreparation: ((ProjectPreparationSnapshot) -> Void)? { get set }
@@ -975,10 +981,26 @@ package protocol LanguageServerSession: AnyObject {
     /// undecoded. Cancelling the task cancels the request in the process.
     func buildRequest(method: String, params: ToolingJSONValue, timeout: TimeInterval) async throws
         -> ToolingJSONValue
+    /// Replaces the configuration a plugin's server reads through
+    /// `workspace/configuration` and announces it; false when the session
+    /// cannot take it, so the caller offers a restart instead.
+    @discardableResult
+    func updateWorkspaceConfiguration(_ configuration: ToolingJSONValue) -> Bool
+    /// Sends the same update off the main actor, with the runtime's bounded
+    /// send watchdog protecting a server that stopped reading stdin.
+    @discardableResult
+    func updateWorkspaceConfigurationAsync(_ configuration: ToolingJSONValue) async
+        -> WorkspaceConfigurationUpdateResult
     func stop()
 }
 
 package extension LanguageServerSession {
+    @discardableResult
+    func updateWorkspaceConfiguration(_: ToolingJSONValue) -> Bool { false }
+
+    @discardableResult
+    func updateWorkspaceConfigurationAsync(_: ToolingJSONValue) async -> WorkspaceConfigurationUpdateResult { .failed }
+
     func buildRequest(method _: String, params _: ToolingJSONValue, timeout _: TimeInterval) async throws
         -> ToolingJSONValue {
         throw LanguageServerRuntimeFailure(

@@ -185,6 +185,16 @@ fn execute(request: &str) -> CoreResponse {
             parsed.payload,
             crate::plugins::declarative::check_runtime_version_command,
         ),
+        CoreCommand::PluginsDeclarativeResolveSettings => plugin_response(
+            id,
+            parsed.payload,
+            crate::plugins::declarative::resolve_settings_command,
+        ),
+        CoreCommand::PluginsDeclarativeWorkspaceConfiguration => plugin_response(
+            id,
+            parsed.payload,
+            crate::plugins::declarative::workspace_configuration_command,
+        ),
         CoreCommand::BuildDetect => {
             plugin_response(id, parsed.payload, crate::build::build_detect_command)
         }
@@ -1468,6 +1478,27 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::LspUpdateWorkspaceConfiguration => {
+            match serde_json::from_value::<crate::lsp::UpdateWorkspaceConfigurationRequest>(
+                parsed.payload,
+            )
+            .map_err(|error| {
+                CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Invalid workspace configuration update request",
+                )
+                .with_details(error.to_string())
+            })
+            .and_then(crate::lsp::update_workspace_configuration)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data)
+                        .expect("workspace configuration update response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::LspSyncDocument => {
             match serde_json::from_value::<crate::lsp::SyncDocumentRequest>(parsed.payload)
                 .map_err(|error| {
@@ -1549,6 +1580,21 @@ fn execute(request: &str) -> CoreResponse {
                 Ok(data) => CoreResponse::success(
                     id,
                     serde_json::to_value(data).expect("Build-provider response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::LspFunctionRequest => {
+            match serde_json::from_value::<crate::lsp::PluginFunctionRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid plugin-function request")
+                        .with_details(error.to_string())
+                })
+                .and_then(crate::lsp::plugin_function_request)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Plugin-function response should encode"),
                 ),
                 Err(error) => CoreResponse::failure(id, error),
             }
@@ -2627,6 +2673,36 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::DiagnosticsPrepareLogEvent => {
+            match serde_json::from_value::<crate::diagnostics::logging::LogEventRequest>(
+                parsed.payload,
+            ) {
+                Ok(request) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(crate::diagnostics::logging::prepare_log_event(request))
+                        .expect("Log event should encode"),
+                ),
+                Err(_) => CoreResponse::failure(
+                    id,
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid log event request"),
+                ),
+            }
+        }
+        CoreCommand::DiagnosticsQueryLogs => {
+            match serde_json::from_value::<crate::diagnostics::logging::LogQueryRequest>(
+                parsed.payload,
+            ) {
+                Ok(request) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(crate::diagnostics::logging::query_logs(request))
+                        .expect("Log query should encode"),
+                ),
+                Err(_) => CoreResponse::failure(
+                    id,
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid log query request"),
+                ),
+            }
+        }
         CoreCommand::DiagnosticsRedactText => {
             match serde_json::from_value::<RedactTextRequest>(parsed.payload).map_err(|error| {
                 CoreError::new(
@@ -2717,6 +2793,15 @@ mod tests {
                     "sessionId": unknown_session,
                     "operationId": "build-1",
                     "method": "lithe/build/model",
+                    "params": {}
+                }
+            }),
+            json!({
+                "command": "lsp.functionRequest",
+                "payload": {
+                    "sessionId": unknown_session,
+                    "operationId": "function-1",
+                    "function": { "pluginID": "dev.lithe.fixture.maven", "functionID": "snapshot.refresh" },
                     "params": {}
                 }
             }),

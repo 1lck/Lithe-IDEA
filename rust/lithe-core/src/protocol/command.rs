@@ -62,6 +62,10 @@ pub enum CoreCommand {
     PluginsDeclarativeLanguageServerLaunchPlan,
     /// Compares a launch runtime's version output with its requirement (`plugins.declarative.checkRuntimeVersion`).
     PluginsDeclarativeCheckRuntimeVersion,
+    /// Merges a plugin's stored setting layers into effective values (`plugins.declarative.resolveSettings`).
+    PluginsDeclarativeResolveSettings,
+    /// Expands a language server's `workspaceConfiguration` (`plugins.declarative.workspaceConfiguration`).
+    PluginsDeclarativeWorkspaceConfiguration,
     /// Finds the build-system instances of a workspace (`build.detect`).
     BuildDetect,
     /// Lists a build system's executable candidates and version probes (`build.invocationPlan`).
@@ -241,6 +245,9 @@ pub enum CoreCommand {
     /// Sends a changed Maven configuration to a running Java session
     /// (`lsp.updateMavenConfiguration`).
     LspUpdateMavenConfiguration,
+    /// Replaces the plugin settings a plugin-provided server reads
+    /// (`lsp.updateWorkspaceConfiguration`).
+    LspUpdateWorkspaceConfiguration,
     /// Opens or updates a synchronized document (`lsp.syncDocument`).
     LspSyncDocument,
     /// Publishes external workspace file changes (`lsp.workspaceFilesChanged`).
@@ -251,6 +258,8 @@ pub enum CoreCommand {
     LspRequest,
     /// Queues one build-provider request (`lsp.buildRequest`).
     LspBuildRequest,
+    /// Invokes one plugin function (`lsp.functionRequest`).
+    LspFunctionRequest,
     /// Queues shared Java gutter marker resolution (`java.navigationMarkers`).
     JavaNavigationMarkers,
     /// Queues click-time Java navigation resolution (`java.resolveNavigation`).
@@ -393,6 +402,10 @@ pub enum CoreCommand {
     GitHubNormalizeResponse,
     /// Redacts credentials, tokens, and home-directory paths from diagnostic text (`diagnostics.redactText`).
     DiagnosticsRedactText,
+    /// Normalizes a bounded, redacted application log event (`diagnostics.prepareLogEvent`).
+    DiagnosticsPrepareLogEvent,
+    /// Filters and merges bounded host-collected log tails (`diagnostics.queryLogs`).
+    DiagnosticsQueryLogs,
     /// Shapes a deterministic diagnostic bundle manifest from host-gathered facts (`diagnostics.buildManifest`).
     DiagnosticsBuildManifest,
 }
@@ -420,6 +433,10 @@ impl CoreCommand {
             }
             "plugins.declarative.checkRuntimeVersion" => {
                 Some(Self::PluginsDeclarativeCheckRuntimeVersion)
+            }
+            "plugins.declarative.resolveSettings" => Some(Self::PluginsDeclarativeResolveSettings),
+            "plugins.declarative.workspaceConfiguration" => {
+                Some(Self::PluginsDeclarativeWorkspaceConfiguration)
             }
             "build.detect" => Some(Self::BuildDetect),
             "build.invocationPlan" => Some(Self::BuildInvocationPlan),
@@ -509,11 +526,13 @@ impl CoreCommand {
             "lsp.stopServer" => Some(Self::LspStopServer),
             "lsp.retryMavenProfiles" => Some(Self::LspRetryMavenProfiles),
             "lsp.updateMavenConfiguration" => Some(Self::LspUpdateMavenConfiguration),
+            "lsp.updateWorkspaceConfiguration" => Some(Self::LspUpdateWorkspaceConfiguration),
             "lsp.syncDocument" => Some(Self::LspSyncDocument),
             "lsp.workspaceFilesChanged" => Some(Self::LspWorkspaceFilesChanged),
             "lsp.closeDocument" => Some(Self::LspCloseDocument),
             "lsp.request" => Some(Self::LspRequest),
             "lsp.buildRequest" => Some(Self::LspBuildRequest),
+            "lsp.functionRequest" => Some(Self::LspFunctionRequest),
             "java.resolveNavigation" => Some(Self::JavaResolveNavigation),
             "lsp.cancelOperation" => Some(Self::LspCancelOperation),
             "lsp.pollEvents" => Some(Self::LspPollEvents),
@@ -585,6 +604,8 @@ impl CoreCommand {
             "github.requestPlan" => Some(Self::GitHubRequestPlan),
             "github.normalizeResponse" => Some(Self::GitHubNormalizeResponse),
             "diagnostics.redactText" => Some(Self::DiagnosticsRedactText),
+            "diagnostics.prepareLogEvent" => Some(Self::DiagnosticsPrepareLogEvent),
+            "diagnostics.queryLogs" => Some(Self::DiagnosticsQueryLogs),
             "diagnostics.buildManifest" => Some(Self::DiagnosticsBuildManifest),
             _ => None,
         }
@@ -602,10 +623,12 @@ mod tests {
             "lsp.jdtWorkspaceKey",
             "lsp.stopServer",
             "lsp.updateMavenConfiguration",
+            "lsp.updateWorkspaceConfiguration",
             "lsp.syncDocument",
             "lsp.closeDocument",
             "lsp.request",
             "lsp.buildRequest",
+            "lsp.functionRequest",
             "lsp.cancelOperation",
             "lsp.pollEvents",
             "lsp.waitEvents",

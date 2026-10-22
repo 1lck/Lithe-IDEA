@@ -80,6 +80,7 @@ individual upstream commands were called.
 | `Plugins/win/` | Windows-owned plugin packages |
 | `frontend/editor/` | Shared Monaco presentation, tokenization, and editor model lifecycle; no platform APIs |
 | `shared/` | Cross-platform contracts and fixtures, not compiled implementation |
+| `sdk/` | Official plugin backend SDKs and their samples; they implement `shared/contracts/plugins/` and never define protocol |
 | `infra/` | Repository-level development and validation infrastructure |
 | `third_party/` | Upstream code; leave unchanged unless the task explicitly targets it |
 
@@ -352,6 +353,21 @@ workbench visual validation complete merely because a component test passes.
 
 The decision and owning components are recorded in
 `.agents/notes/implemented/simplification/2026-09-30-macos-shared-dropdown-style.md`.
+
+### macOS settings pages: explanations live behind ⓘ
+
+- Every sentence that explains what a setting, section, page or plugin option
+  does goes into an ⓘ tip (`LitheInfoTip`): the `info:` of `LitheSettingsRow`,
+  `LitheSettingsLabel`, or the accessory of `LitheSettingsSection`. Plugin
+  declarations follow the same rule: a setting's `description` and an action's
+  `summary` are shown through ⓘ or a hover help, never as text on the page.
+- Do not put explanatory paragraphs, captions under controls, or description
+  text in a row's badge column. Rows stay one compact line: label, control,
+  and badges for dynamic values only (effective value, scope, source, effect).
+- Text that stays visible is limited to live state the user must act on:
+  errors, warnings, "restart needed" notices, empty states, and values read
+  from the system. When a new page or row needs an explanation, add it to ⓘ
+  and to the zh-Hans strings in the same change.
 
 ### Rust
 

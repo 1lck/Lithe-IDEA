@@ -130,6 +130,12 @@
       "kind": "update", "sessionId": "session-1",
       "update": { "sessionUpdate": "session_info_update", "_meta": { "jetbrains": { "air": { "version": 1, "sessionFailure": { "id": "upstream-turn-1:error", "revision": 1, "category": "access", "severity": "error", "title": "Sign in to continue using Claude.", "details": "API Error: 401 Invalid API key", "actions": ["login"] } } } } }
     },
+    "sessionsPage": {
+      "kind": "sessionsPage", "token": "token-3",
+      "sessions": [
+        { "sessionId": "session-1", "title": "Explain this project", "updatedAt": "2026-09-25T10:00:00Z" }
+      ]
+    },
     "sessions": {
       "kind": "sessions",
       "token": "token-3",

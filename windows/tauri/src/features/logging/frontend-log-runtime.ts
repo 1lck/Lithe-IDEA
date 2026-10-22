@@ -19,6 +19,8 @@ const SERIALIZED_TOTAL_LIMIT = 3_000;
 const SERIALIZED_MAX_DEPTH = 3;
 const ERROR_STACK_FRAMES = 8;
 
+let inFlight = 0;
+const MAX_IN_FLIGHT_LOGS = 64;
 let installed = false;
 let diagnosticEnabled = false;
 let serializing = false;
@@ -107,21 +109,25 @@ function truncate(value: string, limit: number) {
   return `${value.slice(0, Math.max(0, limit - 18))}…[truncated]`;
 }
 
-function serializeUnknown(
-  value: unknown,
-  depth: number,
-  seen: WeakSet<object>,
-): string {
+function serializeUnknown(value: unknown, depth: number, seen: WeakSet<object>): string {
   try {
     if (value instanceof Error) {
       const stack = value.stack
         ?.split(/\r?\n/)
         .slice(0, ERROR_STACK_FRAMES + 1)
         .join("\\n");
-      return truncate(`${value.name}: ${value.message}${stack ? ` ${stack}` : ""}`, SERIALIZED_ARGUMENT_LIMIT);
+      return truncate(
+        `${value.name}: ${value.message}${stack ? ` ${stack}` : ""}`,
+        SERIALIZED_ARGUMENT_LIMIT,
+      );
     }
     if (typeof value === "string") return truncate(value, SERIALIZED_ARGUMENT_LIMIT);
-    if (value === null || value === undefined || typeof value === "number" || typeof value === "boolean") {
+    if (
+      value === null ||
+      value === undefined ||
+      typeof value === "number" ||
+      typeof value === "boolean"
+    ) {
       return String(value);
     }
     if (typeof value === "bigint") return `${value}n`;
@@ -134,7 +140,10 @@ function serializeUnknown(
         return `<${value.tagName.toLowerCase()}>`;
       }
       if (Array.isArray(value)) {
-        return `[${value.map((entry) => serializeUnknown(entry, depth + 1, seen)).join(",")}]`;
+        return `[${value
+          .slice(0, 24)
+          .map((entry) => serializeUnknown(entry, depth + 1, seen))
+          .join(",")}]`;
       }
       const entries = Object.entries(value as Record<string, unknown>)
         .slice(0, 20)
@@ -181,6 +190,11 @@ export function submitFrontendLog(input: FrontendLogInput): Promise<boolean> {
   if (isHalfOpenProbe && halfOpenProbeInFlight) return Promise.resolve(false);
   if (isHalfOpenProbe) halfOpenProbeInFlight = true;
 
+  if (inFlight >= MAX_IN_FLIGHT_LOGS) {
+    suppressedFailures += 1;
+    return Promise.resolve(false);
+  }
+  inFlight += 1;
   return rawInvoke(input)
     .then(() => {
       const recoveredFailures = consecutiveFailures + suppressedFailures;
@@ -205,6 +219,9 @@ export function submitFrontendLog(input: FrontendLogInput): Promise<boolean> {
         breakerOpenUntil = Date.now() + FORWARD_BREAKER_COOLDOWN_MS;
       }
       return false;
+    })
+    .finally(() => {
+      inFlight -= 1;
     });
 }
 
@@ -282,9 +299,7 @@ export function initializeFrontendLogging() {
   stopFpsLogging = startFpsLogging(forwardFpsEvent, isFrontendDiagnosticEnabled);
   void listen<LogSettingsSnapshot>("lithe-log-runtime-fallback", (event) => {
     setFrontendDiagnosticEnabled(event.payload.diagnostic_enabled);
-    window.dispatchEvent(
-      new CustomEvent("lithe-log-runtime-fallback", { detail: event.payload }),
-    );
+    window.dispatchEvent(new CustomEvent("lithe-log-runtime-fallback", { detail: event.payload }));
   }).catch(() => {});
   initializationPromise = getLogSettings()
     .then((snapshot) => {

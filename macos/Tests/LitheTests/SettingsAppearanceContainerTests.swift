@@ -110,6 +110,81 @@ struct SettingsAppearanceContainerTests {
     }
 
     @Test
+    func titlebarDragDetachesFromOwnerAndRejoinsOnRelease() throws {
+        let (owner, _) = makeWindow(theme: .dark)
+        let (settingsWindow, _) = makeWindow(theme: .dark)
+        defer {
+            settingsWindow.parent?.removeChildWindow(settingsWindow)
+            SettingsWindowChrome.ownerWindow = nil
+            SettingsWindowChrome.settingsWindow = nil
+            settingsWindow.close()
+            owner.close()
+        }
+        SettingsWindowChrome.ownerWindow = owner
+        SettingsWindowChrome.configure(settingsWindow, title: "Settings", themePreference: .dark)
+        #expect(settingsWindow.parent === owner)
+
+        // A press in the content area keeps the child relationship.
+        let contentPoint = NSPoint(x: 20, y: settingsWindow.contentLayoutRect.minY + 10)
+        SettingsWindowChrome.handleTitlebarMouseEvent(try mouseEvent(.leftMouseDown, at: contentPoint, in: settingsWindow))
+        #expect(settingsWindow.parent === owner)
+        SettingsWindowChrome.handleTitlebarMouseEvent(try mouseEvent(.leftMouseUp, at: contentPoint, in: settingsWindow))
+
+        // A titlebar press hands the drag to the window server.
+        let titlebarPoint = NSPoint(x: 120, y: settingsWindow.contentLayoutRect.maxY + 4)
+        SettingsWindowChrome.handleTitlebarMouseEvent(try mouseEvent(.leftMouseDown, at: titlebarPoint, in: settingsWindow))
+        #expect(settingsWindow.parent == nil)
+        #expect(owner.childWindows?.contains(settingsWindow) != true)
+
+        // Reconfiguring mid-drag must not reattach and reintroduce the stutter.
+        SettingsWindowChrome.configure(settingsWindow, title: "Settings", themePreference: .dark)
+        #expect(settingsWindow.parent == nil)
+
+        SettingsWindowChrome.handleTitlebarMouseEvent(try mouseEvent(.leftMouseUp, at: titlebarPoint, in: settingsWindow))
+        #expect(settingsWindow.parent === owner)
+    }
+
+    @Test
+    func settingsWindowClosedDuringTitlebarPressRejoinsOwnerWhenReopened() throws {
+        let (owner, _) = makeWindow(theme: .dark)
+        let (settingsWindow, _) = makeWindow(theme: .dark)
+        defer {
+            settingsWindow.parent?.removeChildWindow(settingsWindow)
+            SettingsWindowChrome.ownerWindow = nil
+            SettingsWindowChrome.settingsWindow = nil
+            settingsWindow.close()
+            owner.close()
+        }
+        SettingsWindowChrome.ownerWindow = owner
+        SettingsWindowChrome.configure(settingsWindow, title: "Settings", themePreference: .dark)
+
+        // Pressing the titlebar close button detaches, then closes the window.
+        let titlebarPoint = NSPoint(x: 10, y: settingsWindow.contentLayoutRect.maxY + 4)
+        SettingsWindowChrome.handleTitlebarMouseEvent(try mouseEvent(.leftMouseDown, at: titlebarPoint, in: settingsWindow))
+        settingsWindow.orderOut(nil)
+        SettingsWindowChrome.handleTitlebarMouseEvent(try mouseEvent(.leftMouseUp, at: titlebarPoint, in: settingsWindow))
+        #expect(settingsWindow.parent == nil)
+
+        settingsWindow.orderFront(nil)
+        SettingsWindowChrome.configure(settingsWindow, title: "Settings", themePreference: .dark)
+        #expect(settingsWindow.parent === owner)
+    }
+
+    private func mouseEvent(_ type: NSEvent.EventType, at point: NSPoint, in window: NSWindow) throws -> NSEvent {
+        try #require(NSEvent.mouseEvent(
+            with: type,
+            location: point,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: type == .leftMouseDown ? 1 : 0
+        ))
+    }
+
+    @Test
     func applyingPluginChangesBlocksNativeWindowClose() {
         let (window, _) = makeWindow(theme: .dark)
         defer { window.close() }

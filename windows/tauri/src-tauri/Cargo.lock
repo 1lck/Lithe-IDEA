@@ -2862,6 +2862,7 @@ dependencies = [
  "kill_tree",
  "libc",
  "reqwest 0.12.28",
+ "semver",
  "serde",
  "serde_json",
  "tokio",
@@ -2877,6 +2878,7 @@ version = "0.1.0"
 dependencies = [
  "ammonia",
  "base64 0.22.1",
+ "chrono",
  "comrak",
  "lithe-agent-host",
  "lithe-git-host",

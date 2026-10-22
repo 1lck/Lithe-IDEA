@@ -9,6 +9,9 @@ import { isGitChangeRelevant, subscribeToGitChanges } from "../events/git-events
 import { commitDiffPresentation, createCommitDiffReview, type CommitDiffReviewState } from "../services/commit-diff-review";
 import { beginCommitDiffWrite, commitDiffWritePending } from "../runtime/commit-diff-write-state";
 import { useWorkspaceCommitStore } from "../stores/git-workspace-commit.store";
+import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import { showConfirmDialog } from "@/ui/dialog";
+import { useTranslation } from "@/i18n/locale-provider";
 import type { MultiFileDiff, WorkingTreeDiffTarget } from "../types/git-diff.types";
 import { createSingleFileWorkingTreeDiff } from "../utils/working-tree-multi-diff";
 import { getGitFileRepositoryRelativePath, resolveGitFileMutationPaths } from "../utils/git-status-selection";
@@ -20,6 +23,8 @@ export function useCommitDiffReview(bufferId: string | null, fileKey: string,
   const workflow = useWorkspaceCommitStore(state => state.workflow);
   const batch = useSyncExternalStore(workflow.subscribe, workflow.getState, workflow.getState);
   const [state, setState] = useState<CommitDiffReviewState>({ snapshot: null, blocks: [], busy: false });
+  const { t } = useTranslation();
+  const rollbackConfirmPendingRef = useRef<string | null>(null);
   const navigationRequests = useRef(createRequestGeneration());
   const [fileNavigationBusy, setFileNavigationBusy] = useState(false);
   useLayoutEffect(() => {
@@ -190,5 +195,42 @@ export function useCommitDiffReview(bufferId: string | null, fileKey: string,
     presentation: state.snapshot ? commitDiffPresentation(state.snapshot, stagedView) : undefined,
     refresh: () => owner.current?.refresh(),
     toggle: (id: string | null, included: boolean) => owner.current?.apply(id, included ? "include" : "exclude"),
-    rollback: (id: string) => owner.current?.apply(id, "rollback") };
+    rollback: async (id: string) => {
+      if (!useSettingsStore.getState().settings.confirmBeforeDiscard) {
+        return owner.current?.apply(id, "rollback");
+      }
+      // One pending confirmation at a time; repeat clicks while the dialog is
+      // open are ignored instead of stacking a second dialog.
+      if (rollbackConfirmPendingRef.current !== null) return "ignored";
+      // Bind to the model-level owner and snapshot: publish() refreshes the
+      // service state before React rerenders, so a render-phase ref could
+      // still hold the pre-refresh snapshot and let unconfirmed content pass.
+      const ownerAtConfirm = owner.current;
+      const snapshotAtConfirm = ownerAtConfirm?.currentState().snapshot ?? null;
+      rollbackConfirmPendingRef.current = id;
+      let confirmed = false;
+      try {
+        confirmed = await showConfirmDialog(
+          t("git.diff.rollbackHunkConfirm", { path: filePath ?? "" }),
+          { title: t("git.rollback"), confirmLabel: t("git.rollback") },
+        );
+      } finally {
+        rollbackConfirmPendingRef.current = null;
+      }
+      if (!confirmed) return "cancelled";
+      // The confirmed rollback only applies to the owner and snapshot it was
+      // opened against; a refreshed or switched target (new owner, snapshot,
+      // file, or repository) requires operating again on what is now shown.
+      // A different owner means the review moved to another file or
+      // repository: drop the confirmation silently, because publishing the
+      // stale notice here would blame the newly shown target. Only the same
+      // owner with a refreshed snapshot is a stale target the user can still
+      // see, so only that case surfaces the error.
+      if (owner.current !== ownerAtConfirm) return "stale";
+      if ((owner.current?.currentState().snapshot ?? null) !== snapshotAtConfirm) {
+        setState(previous => ({ ...previous, error: "stale" }));
+        return "stale";
+      }
+      return owner.current?.apply(id, "rollback");
+    } };
 }

@@ -152,6 +152,9 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let line: Int?
         let preview: String
         let symbolName: String?
+        let nameMatchRanges: [SearchNameRange]?
+        let matchingDegree: Int?
+        let isIgnored: Bool?
     }
 
     struct SearchResponsePayload: Decodable, Sendable {
@@ -164,7 +167,10 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                     line: match.line,
                     preview: match.preview,
                     kind: SearchResultKind(rawValue: match.kind) ?? .content,
-                    symbolName: match.symbolName
+                    symbolName: match.symbolName,
+                    nameMatchRanges: match.nameMatchRanges ?? [],
+                    matchingDegree: match.matchingDegree,
+                    isIgnored: match.isIgnored
                 )
             }
         }
@@ -248,6 +254,41 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
 
     struct MarkdownRenderPayload: Decodable, Sendable {
         let html: String
+    }
+
+    struct PreparedLogEvent: Codable, Sendable {
+        let category: String
+        let scope: String
+        let message: String
+        let fields: [String: String]
+    }
+
+    struct LogSource: Encodable, Sendable {
+        let category: String
+        let text: String
+    }
+
+    struct LogQueryPayload: Decodable, Sendable {
+        let content: String
+        let truncated: Bool
+        let matchedLines: Int
+    }
+
+    private struct LogEventRequest: Encodable {
+        let scope: String
+        let message: String
+        let fields: [String: String]
+    }
+
+    private struct LogQueryRequest: Encodable {
+        let sources: [LogSource]
+        let category: String?
+        let minimumLevel: String?
+        let sessionId: String?
+        let search: String?
+        let since: String?
+        let until: String?
+        let limit: Int
     }
 
     struct DiagnosticsRedactTextPayload: Decodable, Sendable {
@@ -1501,6 +1542,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let fileMask: String
         let hiddenDirectoryNames: [String]
         let hiddenFilePatterns: [String]
+        var includeGeneratedFileNames = false
     }
 
     private struct ReplacementPreviewRequest: Encodable {
@@ -1832,12 +1874,15 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
 
     private struct LspStartServerRequest: Encodable {
         let providerId: String
+        /// The plugin that owns the process; nil for host-owned servers.
+        let pluginId: String?
         let executablePath: String
         let arguments: [String]
         let environment: [String: String]
         let rootUri: String
         let workingDirectory: String
         let initializationOptions: ToolingJSONValue?
+        let workspaceConfiguration: ToolingJSONValue?
         let runtimeExecutablePath: String?
         let jdtlsLaunchResources: LspJdtlsLaunchResourcesRequest?
         let cacheDirectory: String?
@@ -1981,6 +2026,18 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let timeoutMilliseconds: Int
     }
 
+    private struct LspFunctionRequest: Encodable {
+        struct Reference: Encodable {
+            let pluginID: String
+            let functionID: String
+        }
+
+        let sessionId: String
+        let function: Reference
+        let params: ToolingJSONValue
+        let timeoutMilliseconds: Int
+    }
+
     private struct LspCancelOperationRequest: Encodable {
         let sessionId: String
         let operationId: String
@@ -2033,6 +2090,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let underlyingMessage: String?
         let processExitCode: Int?
         let javaBuildReport: JavaBuildReport?
+        let pluginErrorCode: String?
     }
 
     struct LspServerInfoPayload: Decodable, Sendable {
@@ -2451,7 +2509,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         maxSymbolResults: Int? = 50,
         fileMask: String = "",
         hiddenDirectoryNames: [String] = [],
-        hiddenFilePatterns: [String] = []
+        hiddenFilePatterns: [String] = [],
+        includeGeneratedFileNames: Bool = false
     ) -> SearchResponsePayload? {
         execute(
             command: "workspace.searchEverywhere",
@@ -2467,7 +2526,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 maxSymbolResults: maxSymbolResults,
                 fileMask: fileMask,
                 hiddenDirectoryNames: hiddenDirectoryNames,
-                hiddenFilePatterns: hiddenFilePatterns
+                hiddenFilePatterns: hiddenFilePatterns,
+                includeGeneratedFileNames: includeGeneratedFileNames
             )
         )
     }
@@ -3338,6 +3398,17 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
 
     /// Redacts credentials, tokens, and home-directory paths from diagnostic
     /// text before it is staged for a diagnostic bundle export.
+    func prepareLogEvent(scope: String, message: String, fields: [String: String]) -> PreparedLogEvent? {
+        execute(command: "diagnostics.prepareLogEvent", payload: LogEventRequest(
+            scope: scope, message: message, fields: fields))
+    }
+
+    func queryLogs(sources: [LogSource], query: ApplicationLogQuery, sessionID: String?) -> LogQueryPayload? {
+        execute(command: "diagnostics.queryLogs", payload: LogQueryRequest(
+            sources: sources, category: query.category, minimumLevel: query.minimumLevel,
+            sessionId: sessionID, search: query.search, since: query.since, until: query.until, limit: 10000))
+    }
+
     func redactDiagnosticText(_ text: String) -> Result<DiagnosticsRedactTextPayload, CoreCallError> {
         executeResult(
             command: "diagnostics.redactText",
@@ -3529,12 +3600,14 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     /// and owns the process; nothing about it crosses back except this ID.
     func lspStartServer(
         providerID: String,
+        pluginID: String? = nil,
         executableURL: URL,
         arguments: [String],
         environment: [String: String],
         rootURL: URL,
         workingDirectoryURL: URL,
         initializationOptions: ToolingJSONValue? = nil,
+        workspaceConfiguration: ToolingJSONValue? = nil,
         runtimeExecutableURL: URL? = nil,
         jdtlsLaunchResources: JDTLSLaunchResources? = nil,
         cacheDirectoryURL: URL? = nil,
@@ -3549,12 +3622,14 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             command: "lsp.startServer",
             payload: LspStartServerRequest(
                 providerId: providerID,
+                pluginId: pluginID,
                 executablePath: executableURL.standardizedFileURL.path,
                 arguments: arguments,
                 environment: environment,
                 rootUri: rootURL.standardizedFileURL.absoluteString,
                 workingDirectory: workingDirectoryURL.standardizedFileURL.path,
                 initializationOptions: initializationOptions,
+                workspaceConfiguration: workspaceConfiguration,
                 runtimeExecutablePath: runtimeExecutableURL?.standardizedFileURL.path,
                 jdtlsLaunchResources: jdtlsLaunchResources.map {
                     LspJdtlsLaunchResourcesRequest(
@@ -3586,6 +3661,22 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             command: "lsp.stopServer",
             payload: LspSessionIdentifierRequest(sessionId: sessionID)
         )
+    }
+
+    /// Replaces the plugin configuration a running plugin server reads.
+    func lspUpdateWorkspaceConfiguration(
+        sessionID: String,
+        configuration: ToolingJSONValue
+    ) -> Result<Void, CoreCallError> {
+        executeVoid(
+            command: "lsp.updateWorkspaceConfiguration",
+            payload: LspUpdateWorkspaceConfigurationRequest(sessionId: sessionID, configuration: configuration)
+        )
+    }
+
+    private struct LspUpdateWorkspaceConfigurationRequest: Encodable {
+        let sessionId: String
+        let configuration: ToolingJSONValue
     }
 
     /// Retries Maven Profile application while retaining the running JDTLS process.
@@ -3788,6 +3879,26 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             payload: LspBuildRequest(
                 sessionId: sessionID,
                 method: method,
+                params: params,
+                timeoutMilliseconds: max(1, Self.milliseconds(timeout))
+            )
+        )
+    }
+
+    /// Invokes a plugin function. Core refuses it unless the session belongs
+    /// to `pluginID` and registered the function.
+    func lspFunctionRequest(
+        sessionID: String,
+        pluginID: String,
+        functionID: String,
+        params: ToolingJSONValue,
+        timeout: TimeInterval
+    ) -> Result<LspOperationPayload, CoreCallError> {
+        executeResult(
+            command: "lsp.functionRequest",
+            payload: LspFunctionRequest(
+                sessionId: sessionID,
+                function: .init(pluginID: pluginID, functionID: functionID),
                 params: params,
                 timeoutMilliseconds: max(1, Self.milliseconds(timeout))
             )
@@ -4023,7 +4134,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 timeoutMilliseconds: nil,
                 command: command,
                 payload: payload,
-                gitExecution: observesGit ? gitOptions : nil
+                gitExecution: (observesGit || command == "workspace.searchEverywhere") ? gitOptions : nil
             )
         ),
         let request = String(data: requestData, encoding: .utf8),

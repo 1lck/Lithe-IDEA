@@ -103,7 +103,6 @@ beforeEach(() => {
   useSettingsStore.setState({
     settings: {
       ...settings,
-      autoRevealActiveFileInFileTree: false,
       compactFoldersInFileTree: false,
       showFileIconsInFileTree: false,
     },
@@ -142,7 +141,7 @@ afterEach(async () => {
   else actGlobal.IS_REACT_ACT_ENVIRONMENT = previousAct;
 });
 
-test("locate expands collapsed ancestors and renders the offscreen current file with auto reveal off", async () => {
+test("locate expands collapsed ancestors and renders the offscreen current file", async () => {
   await act(async () => root.render(<ProjectTree />));
   expect(targetRow()).toBeNull();
   expect(viewport().scrollTop).toBe(0);
@@ -212,12 +211,25 @@ test("a superseded locate completion does not scroll back after the latest reque
   expect(viewport().scrollTop).toBe(0);
 });
 
-test("automatic reveal still scrolls the active file into the virtual viewport", async () => {
-  useSettingsStore.setState({
-    settings: { ...useSettingsStore.getState().settings, autoRevealActiveFileInFileTree: true },
-  });
+test("switching the active editor file does not scroll the tree", async () => {
   await act(async () => root.render(<ProjectTree />));
+  expect(viewport().scrollTop).toBe(0);
 
-  expect(viewport().scrollTop).toBeGreaterThan(0);
-  expect(targetRow()).not.toBeNull();
+  await act(async () => {
+    useBufferStore.setState({
+      activeBufferId: "other",
+      buffers: [
+        ...useBufferStore.getState().buffers,
+        createPaneContent("other", {
+          type: "editor",
+          path: `${directoryPath}/file-000.ts`,
+          name: "file-000.ts",
+          content: "",
+        }),
+      ],
+    });
+  });
+
+  expect(viewport().scrollTop).toBe(0);
+  expect(targetRow()).toBeNull();
 });

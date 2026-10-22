@@ -210,6 +210,9 @@ package struct LanguageServerRuntimeError: Equatable, Sendable {
     package let underlyingMessage: String?
     package let processExitCode: Int?
     package let javaBuildReport: JavaBuildReport?
+    /// Plugin-defined code of a failed plugin function, for the plugin's own
+    /// UI only; the host never branches on it.
+    package let pluginErrorCode: String?
 
     package init(
         code: String,
@@ -217,7 +220,8 @@ package struct LanguageServerRuntimeError: Equatable, Sendable {
         message: String,
         underlyingMessage: String?,
         processExitCode: Int?,
-        javaBuildReport: JavaBuildReport? = nil
+        javaBuildReport: JavaBuildReport? = nil,
+        pluginErrorCode: String? = nil
     ) {
         self.code = code
         self.stage = stage
@@ -225,6 +229,7 @@ package struct LanguageServerRuntimeError: Equatable, Sendable {
         self.underlyingMessage = underlyingMessage
         self.processExitCode = processExitCode
         self.javaBuildReport = javaBuildReport
+        self.pluginErrorCode = pluginErrorCode
     }
 }
 
@@ -456,6 +461,51 @@ package protocol LanguageServerRuntimeCore: Sendable {
         params: ToolingJSONValue,
         timeout: TimeInterval
     ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure>
+    /// Starts a process a plugin owns. Only such a session negotiates plugin
+    /// functions, and Core lets it serve that plugin's functions alone.
+    func startPluginLanguageServer(
+        pluginID: String,
+        providerID: String,
+        executableURL: URL,
+        arguments: [String],
+        environment: [String: String],
+        rootURL: URL,
+        initializationOptions: ToolingJSONValue?,
+        initializeTimeout: TimeInterval,
+        requestTimeout: TimeInterval,
+        shutdownTimeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure>
+    /// Starts a plugin-owned process whose server reads `workspaceConfiguration`
+    /// through `workspace/configuration` (plugin settings with `effect: immediate`).
+    func startPluginLanguageServer(
+        pluginID: String,
+        providerID: String,
+        executableURL: URL,
+        arguments: [String],
+        environment: [String: String],
+        rootURL: URL,
+        initializationOptions: ToolingJSONValue?,
+        workspaceConfiguration: ToolingJSONValue?,
+        initializeTimeout: TimeInterval,
+        requestTimeout: TimeInterval,
+        shutdownTimeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure>
+    /// Replaces the configuration a running plugin server reads and tells it
+    /// through `workspace/didChangeConfiguration`.
+    func updateWorkspaceConfiguration(
+        sessionID: String,
+        configuration: ToolingJSONValue
+    ) -> Result<Void, LanguageServerRuntimeFailure>
+    /// Invokes a plugin function of `pluginID`. Progress arrives as
+    /// `requestProgress` events and the outcome as one `requestCompleted`,
+    /// with the result under `result.value`.
+    func requestPluginFunction(
+        sessionID: String,
+        pluginID: String,
+        functionID: String,
+        params: ToolingJSONValue,
+        timeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure>
     func cancelLanguageServerOperation(sessionID: String, operationID: String)
     func pollLanguageServerEvents(sessionID: String) -> [LanguageServerRuntimeEvent]
     func destroyLanguageServer(sessionID: String)
@@ -574,6 +624,102 @@ package extension LanguageServerRuntimeCore {
             message: "Build-provider requests are not supported by this runtime."
         ))
     }
+
+    /// Runtimes without plugin ownership start a host-owned session, which
+    /// serves no plugin functions.
+    func startPluginLanguageServer(
+        pluginID _: String,
+        providerID: String,
+        executableURL: URL,
+        arguments: [String],
+        environment: [String: String],
+        rootURL: URL,
+        initializationOptions: ToolingJSONValue?,
+        initializeTimeout: TimeInterval,
+        requestTimeout: TimeInterval,
+        shutdownTimeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure> {
+        startLanguageServer(
+            providerID: providerID, executableURL: executableURL, arguments: arguments, environment: environment,
+            rootURL: rootURL, workingDirectoryURL: rootURL, initializationOptions: initializationOptions,
+            runtimeExecutableURL: nil, jdtlsLaunchResources: nil, cacheDirectoryURL: nil,
+            workspaceFingerprint: nil, initializeTimeout: initializeTimeout,
+            requestTimeout: requestTimeout, shutdownTimeout: shutdownTimeout
+        )
+    }
+
+    /// Runtimes without plugin configuration support ignore it.
+    func startPluginLanguageServer(
+        pluginID: String,
+        providerID: String,
+        executableURL: URL,
+        arguments: [String],
+        environment: [String: String],
+        rootURL: URL,
+        initializationOptions: ToolingJSONValue?,
+        workspaceConfiguration _: ToolingJSONValue?,
+        initializeTimeout: TimeInterval,
+        requestTimeout: TimeInterval,
+        shutdownTimeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure> {
+        startPluginLanguageServer(
+            pluginID: pluginID, providerID: providerID, executableURL: executableURL, arguments: arguments,
+            environment: environment, rootURL: rootURL, initializationOptions: initializationOptions,
+            initializeTimeout: initializeTimeout, requestTimeout: requestTimeout, shutdownTimeout: shutdownTimeout
+        )
+    }
+
+    func updateWorkspaceConfiguration(
+        sessionID _: String,
+        configuration _: ToolingJSONValue
+    ) -> Result<Void, LanguageServerRuntimeFailure> {
+        .failure(LanguageServerRuntimeFailure(
+            code: "not_supported",
+            message: "Workspace configuration updates are not supported by this runtime."
+        ))
+    }
+
+    func requestPluginFunction(
+        sessionID _: String,
+        pluginID _: String,
+        functionID _: String,
+        params _: ToolingJSONValue,
+        timeout _: TimeInterval
+    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
+        .failure(LanguageServerRuntimeFailure(
+            code: "not_supported",
+            message: "Plugin functions are not supported by this runtime."
+        ))
+    }
+}
+
+/// One progress report of a running plugin function, as Core normalized it.
+package struct PluginFunctionProgress: Equatable, Sendable {
+    package let message: String?
+    /// A whole number from 0 to 100.
+    package let percentage: Int?
+
+    package init(message: String?, percentage: Int?) {
+        self.message = message
+        self.percentage = percentage
+    }
+}
+
+/// A plugin function that ended without a result: Core's stable
+/// `plugin.function.*` or request code, and the backend's own code when it
+/// gave one. Cancellation is reported as `CancellationError` instead.
+package struct PluginFunctionFailure: LocalizedError, Equatable, Sendable {
+    package let code: String
+    package let message: String
+    package let pluginErrorCode: String?
+
+    package init(code: String, message: String, pluginErrorCode: String? = nil) {
+        self.code = code
+        self.message = message
+        self.pluginErrorCode = pluginErrorCode
+    }
+
+    package var errorDescription: String? { message }
 }
 
 @MainActor

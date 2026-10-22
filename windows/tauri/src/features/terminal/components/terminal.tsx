@@ -26,6 +26,7 @@ import {
 } from "@/features/file-system/utils/file-system-drop-controller";
 import { clipboardEntryPaths } from "@/features/file-explorer/lib/clipboard-entry-paths";
 import { formatPathsForTerminal } from "@/features/terminal/utils/terminal-file-drop";
+import { resolveAutomountRootForPaths } from "@/features/wsl/utils/wsl-automount-root";
 import { showConfirmDialog } from "@/ui/dialog";
 import {
   ContextMenu,
@@ -162,15 +163,16 @@ export const XtermTerminal = ({
     workspaceRootRef.current = rootFolderPath;
   }, [rootFolderPath]);
 
-  const { currentConnectionIdRef, sendTerminalSize, writeBuffered } = useTerminalConnection({
-    connectionId,
-    getTerminalTheme,
-    initialCommand,
-    isInitialized,
-    onTerminalExit,
-    remoteConnectionId,
-    reuseExistingConnection: hadExistingConnectionOnMountRef.current,
-    sessionId,
+  const { currentConnectionIdRef, isExtendedKeyboardActive, sendTerminalSize, writeBuffered } =
+    useTerminalConnection({
+      connectionId,
+      getTerminalTheme,
+      initialCommand,
+      isInitialized,
+      onTerminalExit,
+      remoteConnectionId,
+      reuseExistingConnection: hadExistingConnectionOnMountRef.current,
+      sessionId,
     terminal: xtermRef.current,
     updateSession,
   });
@@ -198,11 +200,20 @@ export const XtermTerminal = ({
 
   const insertDroppedPaths = useCallback(
     (paths: string[]) => {
-      const text = formatDroppedPathsForTerminal(paths, resolveShell(), resolveRemoteConnectionId());
-      if (!text) return false;
+      // Only a Windows drive path needs the mount root, so the host read is
+      // skipped for the Linux-form and protocol paths that make up most drops.
+      void resolveAutomountRootForPaths(resolveShell(), paths).then((automountRoot) => {
+        const text = formatDroppedPathsForTerminal(
+          paths,
+          resolveShell(),
+          resolveRemoteConnectionId(),
+          automountRoot,
+        );
+        if (!text) return;
 
-      writeBuffered(text);
-      requestAnimationFrame(() => xtermRef.current?.focus());
+        writeBuffered(text);
+        requestAnimationFrame(() => xtermRef.current?.focus());
+      });
       return true;
     },
     [resolveRemoteConnectionId, resolveShell, writeBuffered],
@@ -232,15 +243,18 @@ export const XtermTerminal = ({
     const handlePathInsert = (event: Event) => {
       const detail = (event as CustomEvent<TerminalPathInsertDetail>).detail;
       const paths = clipboardEntryPaths((detail?.paths ?? []).map((path) => ({ path })));
-      const text = formatPathsForTerminal(paths, {
-        shell: resolveShell(),
-        remoteConnectionId: resolveRemoteConnectionId(),
-        trailingSpace: true,
-      });
-      if (!text) return;
+      void resolveAutomountRootForPaths(resolveShell(), paths).then((automountRoot) => {
+        const text = formatPathsForTerminal(paths, {
+          shell: resolveShell(),
+          remoteConnectionId: resolveRemoteConnectionId(),
+          automountRoot,
+          trailingSpace: true,
+        });
+        if (!text) return;
 
-      writeBuffered(text);
-      requestAnimationFrame(() => xtermRef.current?.focus());
+        writeBuffered(text);
+        requestAnimationFrame(() => xtermRef.current?.focus());
+      });
     };
 
     container.addEventListener(TERMINAL_FILE_DROP_EVENT, handleNativeFileDrop);
@@ -283,6 +297,9 @@ export const XtermTerminal = ({
     (terminal: Terminal) => {
       if (!currentConnectionIdRef.current) return;
 
+      // The mount root is only needed for a Windows drive path, and that is only
+      // known after the clipboard has been read, so the lookup happens inside
+      // `readTerminalPasteText` instead of gating the clipboard read.
       void readTerminalPasteText(resolveShell(), resolveRemoteConnectionId())
         .then((text) => pasteIntoTerminal(terminal, text))
         .catch((error) => console.error("Failed to paste into terminal:", error));
@@ -331,7 +348,12 @@ export const XtermTerminal = ({
         onRendererFallback: fitTerminal,
       });
       terminal.attachCustomKeyEventHandler((event) => {
-        const action = getTerminalKeyAction(event, currentPlatform);
+        const action = getTerminalKeyAction(event, currentPlatform, {
+          // Read the live selection rather than the state captured at render time:
+          // the user may have selected text since the last re-render.
+          hasSelection: hasTerminalSelection(terminal),
+          extendedKeyboardActive: isExtendedKeyboardActive(),
+        });
         if (action.type === "switchTab") {
           event.preventDefault();
           window.dispatchEvent(
@@ -948,7 +970,7 @@ export const XtermTerminal = ({
             >
               <CopyIcon />
               {t("terminal.copySelection")}
-              <ContextMenuShortcut>Ctrl+Shift+C</ContextMenuShortcut>
+              <ContextMenuShortcut>Ctrl+C</ContextMenuShortcut>
             </ContextMenuItem>
             <ContextMenuItem
               disabled={!connectionId}

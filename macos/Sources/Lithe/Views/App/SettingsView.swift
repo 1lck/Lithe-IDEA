@@ -1,3 +1,5 @@
+import AppKit
+import ImageIO
 import SwiftUI
 import LitheCoreContracts
 import LitheGitModule
@@ -7,8 +9,7 @@ import LitheModuleAPI
 final class SettingsViewState: ObservableObject {
     @Published var selection: SettingsCategory
     @Published var searchQuery = ""
-    @Published var hiddenDirectoriesDraft = ""
-    @Published var hiddenFilePatternsDraft = ""
+    @Published var hiddenPathPatternsDraft = ""
     @Published var aiAPIKeyDraft = ""
     /// Provider shown in Settings › AI Providers; independent of the one
     /// commit messages use.
@@ -21,10 +22,20 @@ final class SettingsViewState: ObservableObject {
     /// expensive; the catalog itself caches the result for the process.
     @Published var editorFontFamilies: [String] = []
     @Published var pendingPluginEnabledStates: [PluginID: Bool] = [:]
+    /// A page plugins registered, shown instead of `selection` while set.
+    @Published var contributedPageID: ContributedSettingsPage.ID?
+    /// A plugin another page asked Settings › Plugins to show.
+    @Published var requestedPluginID: PluginID?
     @Published private(set) var isApplyingPluginChanges = false
 
     init(initialCategory: SettingsCategory) {
         selection = initialCategory
+    }
+
+    func showPlugin(_ pluginID: PluginID) {
+        requestedPluginID = pluginID
+        contributedPageID = nil
+        selection = .plugins
     }
 
     func applyPluginChanges(
@@ -47,7 +58,8 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
-    @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var settingsContext: SettingsModelContext
+    private var model: AppModel { settingsContext.model }
     @EnvironmentObject private var updateChecker: UpdateChecker
     @ObservedObject var settings: AppSettings
     @ObservedObject var viewState: SettingsViewState
@@ -66,6 +78,7 @@ struct SettingsView: View {
     private let onDismiss: (() -> Void)?
     static let categoryMinimumWidth: CGFloat = 234
     static let contentMinimumWidth: CGFloat = 500
+    static let categoryMaximumWidth: CGFloat = 480
     private static let footerActionLabelWidth: CGFloat = 52
 
     init(
@@ -84,23 +97,24 @@ struct SettingsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            GeometryReader { geometry in
-                LitheSplitPaneView(
-                    axis: .horizontal,
-                    placement: .leading,
-                    defaultSize: CGFloat(categorySidebarWidth),
-                    minimum: Self.categoryMinimumWidth,
-                    maximum: max(Self.categoryMinimumWidth, geometry.size.width - SplitHandleView.thickness - Self.contentMinimumWidth),
-                    flexibleMinimum: Self.contentMinimumWidth,
+            // The split layout reserves the content minimum itself, so the
+            // sidebar bound is a constant. Reading the window size here would
+            // rebuild the sidebar and the whole page on every resize frame.
+            LitheSplitPaneView(
+                axis: .horizontal,
+                placement: .leading,
+                defaultSize: CGFloat(categorySidebarWidth),
+                minimum: Self.categoryMinimumWidth,
+                maximum: Self.categoryMaximumWidth,
+                flexibleMinimum: Self.contentMinimumWidth,
 
-                    onCommit: { categorySidebarWidth = Double($0) },
-                    sized: { categories.background(LitheToolWindowActivityTracker(isActive: $categoryListActive)) },
-                    flexible: {
-                        content.simultaneousGesture(TapGesture().onEnded { isSearchFocused = false })
-                    }
-                )
-            }
-            Rectangle().fill(LitheTheme.divider).frame(height: 1)
+                onCommit: { categorySidebarWidth = Double($0) },
+                sized: { categories.background(LitheToolWindowActivityTracker(isActive: $categoryListActive)) },
+                flexible: {
+                    content.simultaneousGesture(TapGesture().onEnded { isSearchFocused = false })
+                }
+            )
+            Rectangle().fill(LitheTheme.settingsCardDivider).frame(height: 1)
             footer
         }
         .frame(minWidth: 900, minHeight: 668)
@@ -114,8 +128,7 @@ struct SettingsView: View {
             model.refreshAIConfigurations()
             syncAIProviderDraft()
         }
-        .onChange(of: settings.hiddenDirectoryNames) { _ in syncVisibilityDrafts() }
-        .onChange(of: settings.hiddenFilePatterns) { _ in syncVisibilityDrafts() }
+        .onChange(of: settings.hiddenPathPatterns) { _ in syncVisibilityDrafts() }
         .onChange(of: settings.commitMessageAI.activeProviderID) { _ in syncAIProviderDraft() }
         .onChange(of: viewState.editingProviderID) { _ in syncAIProviderDraft() }
         .onChange(of: initialCategory) { category in
@@ -124,6 +137,7 @@ struct SettingsView: View {
         }
         .onChange(of: categoryRequest) { _ in
             viewState.searchQuery = ""
+            viewState.contributedPageID = nil
             viewState.selection = initialCategory
             expandGroup(containing: initialCategory)
         }
@@ -131,9 +145,19 @@ struct SettingsView: View {
             expandGroup(containing: category)
         }
         .onChange(of: viewState.searchQuery) { _ in
-            guard !filteredCategories.contains(viewState.selection),
-                  let firstMatch = filteredCategories.first else { return }
-            viewState.selection = firstMatch
+            if let page = selectedContributedPage {
+                if filteredContributedPages.contains(where: { $0.id == page.id }) { return }
+                viewState.contributedPageID = nil
+            }
+            guard !filteredCategories.contains(viewState.selection) else { return }
+            if let firstMatch = filteredCategories.first {
+                viewState.selection = firstMatch
+            } else if let firstPage = filteredContributedPages.first {
+                viewState.contributedPageID = firstPage.id
+            }
+        }
+        .onChange(of: viewState.contributedPageID) { _ in
+            expandSelectedContributedPageGroup()
         }
         .environment(\.locale, settings.language.locale)
         .font(LitheTheme.settingsFont)
@@ -156,8 +180,8 @@ struct SettingsView: View {
     private var categories: some View {
         VStack(spacing: 0) {
             settingsSearchField
-                .padding(.horizontal, 8)
-                .padding(.top, 11)
+                .padding(.horizontal, 10)
+                .padding(.top, 10)
                 .padding(.bottom, 8)
 
             ScrollView {
@@ -169,7 +193,7 @@ struct SettingsView: View {
                         }
                     }
 
-                    if filteredCategories.isEmpty {
+                    if filteredCategories.isEmpty && filteredContributedPages.isEmpty {
                         VStack(spacing: 8) {
                             Image(systemName: "magnifyingglass")
                                 .font(LitheTheme.uiFont(size: 18, weight: .light))
@@ -181,16 +205,18 @@ struct SettingsView: View {
                         .padding(.top, 28)
                     }
                 }
+                .padding(.horizontal, 6)
+                .padding(.bottom, 10)
             }
             .litheScrollViewChrome(alwaysShowVertical: true, usesCompactScrollers: true)
         }
         .frame(maxWidth: .infinity)
         .frame(maxHeight: .infinity)
-        .background(LitheTheme.settingsSurface)
+        .background(LitheTheme.settingsSidebar)
     }
 
     private var settingsSearchField: some View {
-        LitheSettingsSearchField("", text: $viewState.searchQuery, focus: $isSearchFocused)
+        LitheSettingsSearchField("Search settings", text: $viewState.searchQuery, focus: $isSearchFocused)
             .accessibilityLabel("Search settings")
     }
 
@@ -198,7 +224,8 @@ struct SettingsView: View {
     private func categoryGroup(_ group: SettingsGroup) -> some View {
         let title = group.rawValue
         let visible = group.categories.filter { filteredCategories.contains($0) }
-        if !visible.isEmpty {
+        let pages = filteredContributedPages.filter { $0.group == group }
+        if !visible.isEmpty || !pages.isEmpty {
             let expanded = expandedSidebarGroups.contains(title) || !viewState.searchQuery.isEmpty
             Button {
                 isSearchFocused = false
@@ -209,23 +236,28 @@ struct SettingsView: View {
                 }
             } label: {
                 HStack(spacing: 8) {
-                    Image(systemName: expanded ? "chevron.down" : "chevron.right")
-                        .font(LitheTheme.uiFont(size: 10, weight: .medium))
-                        .frame(width: 10)
+                    SettingsSidebarIcon(style: .group(group))
                     Text(LocalizedStringKey(title))
-                        .font(LitheTheme.settingsStrongFont)
+                        .font(LitheTheme.uiFont(size: 13, weight: .medium))
                     Spacer(minLength: 0)
+                    Image(systemName: "chevron.right")
+                        .font(LitheTheme.uiFont(size: 9, weight: .semibold))
+                        .foregroundStyle(LitheTheme.tertiaryText)
+                        .rotationEffect(.degrees(expanded ? 90 : 0))
                 }
-                .padding(.leading, 16)
-                .padding(.trailing, 8)
-                .frame(height: 24)
+                .padding(.horizontal, 8)
+                .frame(height: 30)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.litheNoPress)
             .foregroundStyle(LitheTheme.primaryText)
+            .padding(.top, 2)
             if expanded {
                 ForEach(visible) { category in
                     categoryButton(category, nested: true)
+                }
+                ForEach(pages) { page in
+                    contributedPageButton(page)
                 }
             }
         }
@@ -234,27 +266,92 @@ struct SettingsView: View {
     @ViewBuilder
     private func categoryButton(_ category: SettingsCategory, nested: Bool = false) -> some View {
         if filteredCategories.contains(category) {
-            let isSelected = viewState.selection == category
+            let isSelected = viewState.selection == category && viewState.contributedPageID == nil
             Button {
                 isSearchFocused = false
+                viewState.contributedPageID = nil
                 viewState.selection = category
             } label: {
                 HStack(spacing: 8) {
-                    Color.clear.frame(width: 10)
+                    if !nested {
+                        SettingsSidebarIcon(style: .page(category))
+                    }
                     Text(LocalizedStringKey(category.title))
-                        .font(nested ? LitheTheme.settingsFont : LitheTheme.settingsStrongFont)
+                        .font(nested
+                              ? LitheTheme.uiFont(size: 12.5, weight: isSelected ? .medium : .regular)
+                              : LitheTheme.uiFont(size: 13, weight: .medium))
+                        .foregroundStyle(nested && !isSelected ? LitheTheme.secondaryText : LitheTheme.primaryText)
                     Spacer(minLength: 0)
                 }
-                .padding(.leading, nested ? 30 : 16)
+                .padding(.leading, nested ? 36 : 8)
                 .padding(.trailing, 8)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .frame(height: 24)
-                .litheSelectionRow(isSelected: isSelected, isFocused: categoryListActive, cornerRadius: 0)
+                .frame(height: nested ? 26 : 30)
+                .litheSelectionRow(isSelected: isSelected, isFocused: categoryListActive, cornerRadius: 6)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.litheNoPress)
-            .foregroundStyle(LitheTheme.primaryText)
+            .padding(.top, nested ? 0 : 2)
         }
+    }
+
+    /// A page plugins registered, drawn like the host's own nested pages
+    /// with the providing plugin named on the trailing edge.
+    private func contributedPageButton(_ page: ContributedSettingsPage) -> some View {
+        let isSelected = viewState.contributedPageID == page.id
+        let providers = page.contributions.map(\.pluginName).joined(separator: ", ")
+        return Button {
+            isSearchFocused = false
+            viewState.contributedPageID = page.id
+        } label: {
+            HStack(spacing: 6) {
+                Text(verbatim: page.title)
+                    .font(LitheTheme.uiFont(size: 12.5, weight: isSelected ? .medium : .regular))
+                    .foregroundStyle(isSelected ? LitheTheme.primaryText : LitheTheme.secondaryText)
+                    .lineLimit(1)
+                Spacer(minLength: 4)
+                Text(verbatim: providers)
+                    .font(LitheTheme.uiFont(size: 10))
+                    .foregroundStyle(LitheTheme.tertiaryText)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            .padding(.leading, 36)
+            .padding(.trailing, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(height: 26)
+            .litheSelectionRow(isSelected: isSelected, isFocused: categoryListActive, cornerRadius: 6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.litheNoPress)
+        .help(Text(LocalizedStringKey("Added by plugins")))
+    }
+
+    private var contributedPages: [ContributedSettingsPage] {
+        PluginSettingsRegistry.pages(from: model.pluginSnapshots)
+    }
+
+    private var selectedContributedPage: ContributedSettingsPage? {
+        guard let id = viewState.contributedPageID else { return nil }
+        return contributedPages.first { $0.id == id }
+    }
+
+    private var filteredContributedPages: [ContributedSettingsPage] {
+        let query = viewState.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return contributedPages }
+        return contributedPages.filter { page in
+            page.searchTerms.contains { term in
+                term.localizedStandardContains(query) || localizedSearchValue(term).localizedStandardContains(query)
+            }
+        }
+    }
+
+    private func expandSelectedContributedPageGroup() {
+        guard let page = selectedContributedPage else { return }
+        // Keep the selected page lifetime outside SwiftUI's onChange closure;
+        // Swift 6.3.3 crashes optimizing an optional group projection there.
+        let groupID = page.group.rawValue
+        expandedSidebarGroups.insert(groupID)
     }
 
     private func expandGroup(containing category: SettingsCategory) {
@@ -282,37 +379,49 @@ struct SettingsView: View {
 
     private var content: some View {
         VStack(spacing: 0) {
-            if viewState.selection != .plugins {
+            if viewState.selection != .plugins || selectedContributedPage != nil {
                 HStack(spacing: 8) {
                     ForEach(Array(settingsBreadcrumb.enumerated()), id: \.offset) { index, title in
                         if index > 0 {
-                            Image(systemName: "chevron.right")
-                                .font(LitheTheme.uiFont(size: 9, weight: .medium))
+                            Text(verbatim: "›")
                                 .foregroundStyle(LitheTheme.secondaryText)
                         }
+                        let isLast = index == settingsBreadcrumb.count - 1
                         Text(LocalizedStringKey(title))
-                            .font(LitheTheme.uiFont(size: 12.5, weight: .semibold))
-                            .foregroundStyle(LitheTheme.primaryText)
+                            .font(isLast
+                                  ? LitheTheme.uiFont(size: 14, weight: .semibold)
+                                  : LitheTheme.uiFont(size: 13))
+                            .foregroundStyle(isLast ? LitheTheme.primaryText : LitheTheme.secondaryText)
                     }
                     Spacer(minLength: 0)
                 }
-                .padding(.horizontal, 16)
-                .frame(height: 48)
+                .padding(.horizontal, 18)
+                .frame(height: 46)
+                .background(LitheTheme.settingsCard)
+                .overlay(alignment: .bottom) {
+                    Rectangle().fill(LitheTheme.settingsCardDivider).frame(height: 1)
+                }
             }
 
             settingsContent
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(LitheTheme.settingsPage)
     }
 
     private var settingsBreadcrumb: [String] {
+        if let page = selectedContributedPage { return [page.group.rawValue, page.title] }
         let category = viewState.selection
         return [category.group?.rawValue, category.title].compactMap { $0 }
     }
 
     @ViewBuilder
     private var settingsContent: some View {
-        if filteredCategories.isEmpty {
+        if let page = selectedContributedPage {
+            ContributedSettingsPageView(page: page, openPlugin: viewState.showPlugin)
+                .id(page.id)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if filteredCategories.isEmpty {
             VStack(spacing: 10) {
                 Image(systemName: "magnifyingglass")
                     .font(LitheTheme.uiFont(size: 28, weight: .light))
@@ -343,7 +452,7 @@ struct SettingsView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             ScrollView {
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 0) {
                     switch viewState.selection {
                     case .mcp:
                         McpServerLibraryView(
@@ -364,20 +473,17 @@ struct SettingsView: View {
                             .id(model.settingsCategoryRequest)
                     case .providers: providersSettings
                     case .git:
-                        VStack(alignment: .leading, spacing: 14) {
-                            GitExecutionSettingsView(settings: settings)
-                            GitFetchSettingsView(options: $settings.gitFetchOptions)
-                            GitIdentitySettingsView()
-                        }
-                        .frame(maxWidth: 760, alignment: .leading)
+                        GitSettingsPage(settings: settings)
                     case .updates: updatesSettings
                     case .processTermination: ProcessTerminationSettingsView(settings: settings)
                     case .diagnostics: diagnosticsSettings
                     case .plugins: EmptyView()
                     }
                 }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 20)
+                .padding(.horizontal, 26)
+                .padding(.top, 20)
+                .padding(.bottom, 36)
+                .frame(maxWidth: 900, alignment: .leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .litheScrollViewChrome(alwaysShowVertical: true, usesCompactScrollers: true)
@@ -406,21 +512,8 @@ struct SettingsView: View {
                     )
                 }
 
-                Divider().padding(.vertical, 2)
-
-                HStack(spacing: 4) {
-                    Text("Workbench background")
-                        .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
-                    LitheInfoTip("Shown across the entire workbench, including toolbars, project tree, editor, tabs, terminals, and status bar.")
-                }
-
-                HStack(spacing: 10) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(model.workbenchBackgroundFeature.displayName ?? "No background image selected")
-                            .lineLimit(1)
-                    }
-
-                    Spacer(minLength: 8)
+                LitheSettingsRow("Workbench background", info: "Shown across the entire workbench, including toolbars, project tree, editor, tabs, terminals, and status bar.") {
+                    WorkbenchBackgroundThumbnail(feature: model.workbenchBackgroundFeature)
 
                     Button("Choose Image…") {
                         model.workbenchBackgroundFeature.chooseCustomImage()
@@ -437,23 +530,7 @@ struct SettingsView: View {
                     }
                 }
 
-                if let error = model.workbenchBackgroundFeature.imageError {
-                    Label {
-                        Text(LocalizedStringKey(error))
-                    } icon: {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                    }
-                    .font(LitheTheme.smallFont)
-                    .foregroundStyle(LitheTheme.warning)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                    Button("Retry") {
-                        model.workbenchBackgroundFeature.retry()
-                    }
-                    .buttonStyle(.litheNoPress)
-                    .foregroundStyle(LitheTheme.accent)
-                    .lithePointer()
-                }
+                WorkbenchBackgroundImageError(feature: model.workbenchBackgroundFeature)
 
                 if settings.hasConfiguredWorkbenchBackground {
                     row("Workbench background opacity") {
@@ -508,101 +585,35 @@ struct SettingsView: View {
                 }
             }
 
-            group("Git") {
-                row(
-                    "Save local changes with",
-                    info: LocalizedStringKey(settings.gitSaveChangesPolicy.description)
-                ) {
-                    LitheSettingsSelect(
-                        selection: $settings.gitSaveChangesPolicy,
-                        options: GitSaveChangesPolicy.allCases,
-                        width: 180,
-                        accessibilityLabel: "Save local changes with",
-                        title: \GitSaveChangesPolicy.title
-                    )
-                }
+            group("Hidden paths", info: "One pattern per line, case-insensitive. Patterns use wildcards, a simplified form of regular expressions: `*` matches any characters and `?` matches one.\nEnd a pattern with `/` or `/*` to hide a folder and everything in it; start with `**/` to match at any depth. Other patterns hide matching files.\nExamples:\n`**/dist/` — every dist folder\n`.lithe/*` — the .lithe folder in the project root\n`*.log` — all log files\n`docs/*.md` — Markdown files in docs\nThe built-in patterns below always apply.") {
+                hiddenPathsEditor
             }
+        }
+    }
 
-            group("Hidden paths", info: "One entry per line. Directory names hide matching folders; file entries support * and ?.") {
-                Text("Directories")
-                    .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
-                TextEditor(text: $viewState.hiddenDirectoriesDraft)
-                    .litheSettingsTextEditor(height: 66)
-
-                Text("File patterns")
-                    .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
-                TextEditor(text: $viewState.hiddenFilePatternsDraft)
-                    .litheSettingsTextEditor(height: 52)
-
-                HStack(spacing: 8) {
-                    Spacer()
-                    Button("Apply") { applyVisibilityDrafts() }
-                        .buttonStyle(LithePrimaryButtonStyle(
-                            backgroundColor: LitheTheme.settingsPrimaryAction,
-                            restingOpacity: 1
-                        ))
-                }
-            }
-
-            group("Logs") {
-                Text("Log directory")
-                    .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
-
-                HStack(spacing: 10) {
-                    Text(settings.logDirectory.path)
-                        .font(LitheTheme.uiFont(size: 13, weight: .medium))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .textSelection(.enabled)
-                        .help(settings.logDirectory.path)
-
-                    Spacer(minLength: 8)
-
-                    Button {
-                        guard let directory = model.platformUI.chooseDirectory(
-                            title: "Choose Log Directory",
-                            prompt: "Choose"
-                        ) else { return }
-                        settings.setCustomLogDirectory(directory)
-                    } label: {
-                        Image(systemName: "folder")
-                            .font(LitheTheme.uiFont(size: 16, weight: .regular))
-                            .frame(width: 26, height: 26)
-                    }
-                    .buttonStyle(.litheNoPress)
-                    .foregroundStyle(LitheTheme.secondaryText)
-                    .contentShape(Rectangle())
-                    .lithePointer()
-                    .help("Choose Directory")
-                }
-                .padding(.horizontal, 12)
-                .frame(maxWidth: .infinity, minHeight: 46, maxHeight: 46)
-                .litheSettingsControlChrome(background: LitheTheme.settingsTextFieldBackground)
-
+    /// One pattern list with the built-in patterns echoed beneath it, so the
+    /// effective rules are visible without being editable.
+    private var hiddenPathsEditor: some View {
+        let builtIn = FileVisibilityRules.builtInPatterns
+        let shown = builtIn.prefix(3)
+        return VStack(alignment: .leading, spacing: 6) {
+            TextEditor(text: $viewState.hiddenPathPatternsDraft)
+                .litheSettingsTextEditor(height: 72)
+                .accessibilityLabel(Text("Hidden paths"))
+            HStack(spacing: 6) {
                 HStack(spacing: 6) {
-                    Text("Default directory")
-                        .foregroundStyle(LitheTheme.secondaryText)
-                    Text(settings.defaultLogDirectory.path)
+                    Text("Built-in")
+                        .font(LitheTheme.uiFont(size: 11))
                         .foregroundStyle(LitheTheme.tertiaryText)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .textSelection(.enabled)
-                        .help(settings.defaultLogDirectory.path)
-
-                    Spacer(minLength: 8)
-
-                    if settings.customLogDirectory != nil {
-                        Button {
-                            settings.setCustomLogDirectory(nil)
-                        } label: {
-                            Text("Restore Default")
-                        }
-                        .buttonStyle(.litheNoPress)
-                        .foregroundStyle(LitheTheme.accent)
-                        .lithePointer()
+                    ForEach(shown, id: \.self) { LitheSettingsPill(verbatim: $0, kind: .value) }
+                    if builtIn.count > shown.count {
+                        LitheSettingsPill(verbatim: "+\(builtIn.count - shown.count)")
                     }
                 }
-                .font(LitheTheme.smallFont)
+                .help(Text(verbatim: builtIn.joined(separator: "   ")))
+                Spacer(minLength: 8)
+                Button("Apply") { applyVisibilityDrafts() }
+                    .buttonStyle(LitheSecondaryButtonStyle(horizontalPadding: 14, height: 26, fontSize: 12))
             }
         }
     }
@@ -644,7 +655,7 @@ struct SettingsView: View {
                 row("Font size") {
                     LitheSettingsStepper(
                         value: $settings.editorFontSize,
-                        in: 10...22,
+                        in: 8...22,
                         step: 1,
                         width: 126,
                         accessibilityLabel: "Font size",
@@ -795,31 +806,45 @@ struct SettingsView: View {
     }
 
     private var terminalSettings: some View {
-        group("Shell") {
-            row("Default shell", info: "Used for new terminal sessions.") {
-                LitheSettingsSelect(
-                    selection: Binding(
-                        get: { settings.terminalShellPath ?? "" },
-                        set: { path in
-                            guard path.isEmpty || terminalShellIsAvailable(path) else {
-                                missingTerminalShellPath = path
-                                return
+        VStack(alignment: .leading, spacing: 10) {
+            group("Shell") {
+                row("Default shell", info: "Used for new terminal sessions.") {
+                    LitheSettingsSelect(
+                        selection: Binding(
+                            get: { settings.terminalShellPath ?? "" },
+                            set: { path in
+                                guard path.isEmpty || terminalShellIsAvailable(path) else {
+                                    missingTerminalShellPath = path
+                                    return
+                                }
+                                settings.selectTerminalShell(path: path)
                             }
-                            settings.selectTerminalShell(path: path)
-                        }
-                    ),
-                    options: terminalShellOptions,
-                    width: 320,
-                    accessibilityLabel: "Default shell",
-                    title: terminalShellTitle,
-                    isAvailable: terminalShellIsAvailable,
-                    onUnavailableSelection: { path in missingTerminalShellPath = path }
-                )
+                        ),
+                        options: terminalShellOptions,
+                        width: 320,
+                        accessibilityLabel: "Default shell",
+                        title: terminalShellTitle,
+                        isAvailable: terminalShellIsAvailable,
+                        onUnavailableSelection: { path in missingTerminalShellPath = path }
+                    )
+                }
+                Button("Detect Installed Shells") {
+                    model.terminalFeature?.refreshAvailableShells()
+                    viewState.detectedTerminalShells = model.availableTerminalShells
+                    viewState.knownTerminalShells = MacTerminalShellDiscovery.knownShells()
+                }
             }
-            Button("Detect Installed Shells") {
-                model.terminalFeature?.refreshAvailableShells()
-                viewState.detectedTerminalShells = model.availableTerminalShells
-                viewState.knownTerminalShells = MacTerminalShellDiscovery.knownShells()
+            group("Scrollback") {
+                row("Terminal scrollback", info: "Lines kept for scrolling back in new terminal sessions.") {
+                    LitheSettingsStepper(
+                        value: $settings.terminalScrollbackLines,
+                        in: AppSettings.terminalScrollbackLinesRange,
+                        step: 500,
+                        width: 146,
+                        accessibilityLabel: "Terminal scrollback",
+                        title: { String(format: String(localized: "%lld lines"), $0) }
+                    )
+                }
             }
         }
         .task {
@@ -1243,13 +1268,11 @@ struct SettingsView: View {
     private var formatPickerPopover: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 8) {
-                VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 4) {
                     Text("Choose a commit format")
                         .font(LitheTheme.uiFont(size: 12.5, weight: .semibold))
                         .foregroundStyle(LitheTheme.primaryText)
-                    Text("Each built-in preset includes a preview of the generated message.")
-                        .font(LitheTheme.smallFont)
-                        .foregroundStyle(LitheTheme.secondaryText)
+                    LitheInfoTip("Each built-in preset includes a preview of the generated message.")
                 }
 
                 Spacer(minLength: 8)
@@ -1457,28 +1480,86 @@ struct SettingsView: View {
     }
 
     private var diagnosticsSettings: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            group("Diagnostic bundle") {
-                Text("Package the redacted application log with an environment and performance snapshot into a zip you can attach to a bug report. Credentials, tokens, and home-directory paths are removed automatically, and you can review the file list before anything is written.")
-                    .font(LitheTheme.smallFont)
-                    .foregroundStyle(LitheTheme.secondaryText)
+        ApplicationLogDiagnosticsPage(feature: model.diagnosticsFeature) {
+            logDirectoryControls
+        }
+    }
+
+    private var logDirectoryControls: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Log directory")
+                .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
+
+            HStack(spacing: 10) {
+                Text(settings.logDirectory.path)
+                    .font(LitheTheme.uiFont(size: 13, weight: .medium))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .textSelection(.enabled)
+                    .help(settings.logDirectory.path)
+
+                Spacer(minLength: 8)
 
                 Button {
-                    model.diagnosticsFeature.presentExport()
+                    guard let directory = model.platformUI.chooseDirectory(
+                        title: "Choose Log Directory",
+                        prompt: "Choose"
+                    ) else { return }
+                    Task {
+                        if await model.diagnosticsFeature.changeLogDirectory(to: directory) {
+                            settings.setCustomLogDirectory(directory)
+                        }
+                    }
                 } label: {
-                    Label("Export Diagnostics Bundle…", systemImage: "stethoscope")
+                    Image(systemName: "folder")
+                        .font(LitheTheme.uiFont(size: 16, weight: .regular))
+                        .frame(width: 26, height: 26)
                 }
-                .buttonStyle(LithePrimaryButtonStyle(
-                    backgroundColor: LitheTheme.settingsPrimaryAction,
-                    restingOpacity: 1
-                ))
+                .buttonStyle(.litheNoPress)
+                .foregroundStyle(LitheTheme.secondaryText)
+                .contentShape(Rectangle())
+                .lithePointer()
+                .help("Choose Directory")
+                .disabled(model.diagnosticsFeature.isBusy)
             }
-        }
-        .sheet(isPresented: Binding(
-            get: { model.diagnosticsFeature.isPresented },
-            set: { model.diagnosticsFeature.isPresented = $0 }
-        )) {
-            DiagnosticsExportSheet(feature: model.diagnosticsFeature)
+            .padding(.horizontal, 12)
+            .frame(maxWidth: .infinity, minHeight: 46, maxHeight: 46)
+            .litheSettingsControlChrome(background: LitheTheme.settingsTextFieldBackground)
+
+            HStack(spacing: 6) {
+                Text("Default directory")
+                    .foregroundStyle(LitheTheme.secondaryText)
+                Text(settings.defaultLogDirectory.path)
+                    .foregroundStyle(LitheTheme.tertiaryText)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .textSelection(.enabled)
+                    .help(settings.defaultLogDirectory.path)
+
+                Spacer(minLength: 8)
+
+                if settings.customLogDirectory != nil {
+                    Button {
+                        Task {
+                            if await model.diagnosticsFeature.changeLogDirectory(to: settings.defaultLogDirectory) {
+                                settings.setCustomLogDirectory(nil)
+                            }
+                        }
+                    } label: {
+                        Text("Restore Default")
+                    }
+                    .buttonStyle(.litheNoPress)
+                    .foregroundStyle(LitheTheme.accent)
+                    .lithePointer()
+                    .disabled(model.diagnosticsFeature.isBusy)
+                }
+            }
+            .font(LitheTheme.smallFont)
+            HStack {
+                Button("Open Log Directory") { model.platformUI.open(settings.logDirectory) }
+                Button("Copy Path") { model.platformUI.copyToClipboard(settings.logDirectory.path) }
+            }
+            .buttonStyle(LitheSecondaryButtonStyle())
         }
     }
 
@@ -1560,12 +1641,9 @@ struct SettingsView: View {
         info: LocalizedStringKey? = nil,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        HStack(spacing: 12) {
-            LitheSettingsLabel(LocalizedStringKey(title), info: info)
-            Spacer(minLength: 16)
+        LitheSettingsRow(LocalizedStringKey(title), info: info) {
             content()
         }
-        .frame(minHeight: 28)
     }
 
     private func syncAIProviderDraft() {
@@ -1652,18 +1730,16 @@ struct SettingsView: View {
             }
         }
         .padding(.horizontal, 16)
-        .frame(height: 52)
-        .background(LitheTheme.settingsSurface)
+        .frame(height: 50)
+        .background(LitheTheme.settingsCard)
     }
 
     private func syncVisibilityDrafts() {
-        viewState.hiddenDirectoriesDraft = settings.hiddenDirectoryNames.joined(separator: "\n")
-        viewState.hiddenFilePatternsDraft = settings.hiddenFilePatterns.joined(separator: "\n")
+        viewState.hiddenPathPatternsDraft = settings.hiddenPathPatterns.joined(separator: "\n")
     }
 
     private func applyVisibilityDrafts() {
-        settings.hiddenDirectoryNames = entries(from: viewState.hiddenDirectoriesDraft)
-        settings.hiddenFilePatterns = entries(from: viewState.hiddenFilePatternsDraft)
+        settings.hiddenPathPatterns = entries(from: viewState.hiddenPathPatternsDraft)
     }
 
     private func entries(from text: String) -> [String] {
@@ -1678,5 +1754,148 @@ struct SettingsView: View {
         } else {
             dismiss()
         }
+    }
+}
+
+/// The colored tile in front of a top-level sidebar row, like the icons in
+/// macOS System Settings. Every group has one; plugin pages nest under them.
+private struct SettingsSidebarIcon: View {
+    enum Style {
+        case group(SettingsGroup)
+        case page(SettingsCategory)
+    }
+
+    let style: Style
+
+    var body: some View {
+        let (symbol, color) = appearance
+        RoundedRectangle(cornerRadius: 5, style: .continuous)
+            .fill(color)
+            .frame(width: 20, height: 20)
+            .overlay(
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .strokeBorder(Color.black.opacity(0.08), lineWidth: 0.5)
+            )
+            .overlay {
+                Image(systemName: symbol)
+                    .font(.system(size: 10.5, weight: .semibold))
+                    .foregroundStyle(.white)
+            }
+            .accessibilityHidden(true)
+    }
+
+    private var appearance: (String, Color) {
+        switch style {
+        case .group(.appearance): ("circle.lefthalf.filled", Color(red: 0.37, green: 0.36, blue: 0.90))
+        case .group(.versionControl): ("arrow.triangle.branch", Color(red: 0.94, green: 0.32, blue: 0.20))
+        case .group(.build): ("play.fill", Color(red: 0.20, green: 0.66, blue: 0.33))
+        case .group(.languages): ("curlybraces", Color(red: 0.04, green: 0.52, blue: 1.0))
+        case .group(.tools): ("wrench.and.screwdriver.fill", Color(red: 0.56, green: 0.56, blue: 0.58))
+        case .group(.ai): ("sparkles", Color(red: 0.75, green: 0.35, blue: 0.95))
+        case .page: ("puzzlepiece.extension.fill", Color(red: 1.0, green: 0.62, blue: 0.04))
+        }
+    }
+}
+
+/// The chosen workbench background as a small thumbnail with its name; a
+/// click shows it larger. The image is decoded once per change into a
+/// downsampled copy, so resizing the window never decodes the original.
+/// Observes the background feature itself: the settings window does not
+/// rebuild on relayed workbench feature changes.
+private struct WorkbenchBackgroundImageError: View {
+    @ObservedObject var feature: WorkbenchBackgroundFeatureModel
+
+    var body: some View {
+        if let error = feature.imageError {
+            Label {
+                Text(LocalizedStringKey(error))
+            } icon: {
+                Image(systemName: "exclamationmark.triangle.fill")
+            }
+            .font(LitheTheme.smallFont)
+            .foregroundStyle(LitheTheme.warning)
+            .fixedSize(horizontal: false, vertical: true)
+
+            Button("Retry") {
+                feature.retry()
+            }
+            .buttonStyle(.litheNoPress)
+            .foregroundStyle(LitheTheme.accent)
+            .lithePointer()
+        }
+    }
+}
+
+private struct WorkbenchBackgroundThumbnail: View {
+    @ObservedObject var feature: WorkbenchBackgroundFeatureModel
+    @State private var thumbnail: NSImage?
+    @State private var preview: NSImage?
+    @State private var showsPreview = false
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Button { if thumbnail != nil { showsPreview = true } } label: {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .fill(LitheTheme.settingsPill)
+                    if let thumbnail {
+                        Image(nsImage: thumbnail)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                    } else {
+                        Image(systemName: "photo")
+                            .font(LitheTheme.uiFont(size: 13))
+                            .foregroundStyle(LitheTheme.tertiaryText)
+                    }
+                }
+                .frame(width: 64, height: 40)
+                .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .strokeBorder(LitheTheme.settingsCardRing, lineWidth: 0.5)
+                )
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.litheNoPress)
+            .disabled(thumbnail == nil)
+            .help(Text("Preview background image"))
+            .accessibilityLabel(Text("Preview background image"))
+            .litheDropdown(isPresented: $showsPreview) {
+                if let preview {
+                    Image(nsImage: preview)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(maxWidth: 480, maxHeight: 320)
+                        .padding(8)
+                }
+            }
+
+            Text(feature.displayName ?? String(localized: "No background image selected"))
+                .foregroundStyle(LitheTheme.secondaryText)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        .task(id: feature.imageData) {
+            guard let data = feature.imageData else {
+                thumbnail = nil
+                preview = nil
+                return
+            }
+            let images = await Task.detached(priority: .utility) {
+                (Self.downsample(data, maxPixel: 160), Self.downsample(data, maxPixel: 960))
+            }.value
+            guard !Task.isCancelled else { return }
+            thumbnail = images.0.map { NSImage(cgImage: $0, size: .zero) }
+            preview = images.1.map { NSImage(cgImage: $0, size: .zero) }
+        }
+    }
+
+    private nonisolated static func downsample(_ data: Data, maxPixel: Int) -> CGImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixel,
+        ] as CFDictionary)
     }
 }

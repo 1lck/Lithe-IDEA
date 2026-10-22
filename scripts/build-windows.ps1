@@ -23,6 +23,20 @@ if ($jdkPrepareOutput.Count -eq 0) {
     throw "JDK preparation did not return an output directory."
 }
 $preparedJdkRoot = [System.IO.Path]::GetFullPath([string]$jdkPrepareOutput[-1])
+
+# The terminal must ship its own console host: the one in the OS on Windows 10
+# drops extended keyboard sequences such as Shift+Enter.
+$conptyPlatform = switch ($RustTarget) {
+    "x86_64-pc-windows-msvc" { "windows-x86_64" }
+    "aarch64-pc-windows-msvc" { "windows-aarch64" }
+    default { throw "No bundled console host for target $RustTarget" }
+}
+$conptyPrepareOutput = @(& (Join-Path $root "scripts/prepare-conpty.ps1") -Platform $conptyPlatform)
+if ($conptyPrepareOutput.Count -eq 0) {
+    throw "ConPTY preparation did not return an output directory."
+}
+$preparedConptyRoot = [System.IO.Path]::GetFullPath([string]$conptyPrepareOutput[-1])
+$env:LITHE_REQUIRE_CONPTY = "1"
 Set-Location $windowsApp
 
 if ($null -eq (Get-Command bun -ErrorAction SilentlyContinue)) {

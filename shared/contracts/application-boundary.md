@@ -35,6 +35,8 @@ with bounded process cleanup. Missing usage and unmeasured replayed history rema
 unknown. See the
 [Agent host contract](rust-core-api.md) and `fixtures/agent/acp-events-v1.json`.
 
+Agent history lists can expose matching summaries as pages arrive while the remaining scan stays loading. Partial results prove presence only; final snapshots reconcile removals, and later failures retain visible rows. History surfaces share connection-local recent snapshots and in-flight requests; manual refresh remains immediate. Workspace/Agent isolation, stale-token rejection and upstream history ownership apply to both partial and final results.
+
 An Agent that advertises steering can accept supplementary user input while its
 logical turn is active. Input delivery has a separate pending/received/failed
 outcome and does not replace turn ownership, permissions, timing, or Stop.
@@ -126,6 +128,7 @@ These presentation actions do not add Agent Host commands or persist chat histor
 | Terminal | input bytes, output bytes, lifecycle; [shell selection semantics](terminal-profiles.md) | PTY/ConPTY, shell discovery, native profile preferences, and environment |
 | Workbench background | versioned source (`none`, bundled slot `01`–`10`, or `custom`) and opacity | UI, image rendering, bundled-resource packaging, local-image access permission and persistence |
 | Local History | revision metadata, text content, restore result | persistence location and file operations |
+| Application logging | fixed module categories, versioned event context, recursive privacy rules, bounded timeline filters and frozen diagnostic preview manifests | background queues, native file rotation/retention, effective directory fallback, crash capture, session selection, viewing and user-selected export destinations |
 | Modules | stable IDs, manifests, enabled state, lifecycle snapshots, dependencies, capabilities, and contributions | native factories, processes, timers, PTY/ConPTY, watchers, connections, and UI rendering |
 | Community integrations | Discourse authorization sessions, RSA-OAEP callback verification, user API protocol models, and normalized community data | opening the system browser, receiving URL callbacks, and credential-vault persistence |
 | Updates | normalized release metadata, state names, validated `stable|autobuild` preference, explicit rolling consent, and stable error codes | update feeds, package verification, download, installation, restart, and native UI |

@@ -148,6 +148,19 @@ enum MacShortcutInputPolicy {
     static func shouldDeferToMarkedText(_ responder: NSResponder?) -> Bool {
         (responder as? NSTextInputClient)?.hasMarkedText() == true
     }
+
+    /// Terminal surfaces own plain Control chords. Readline, shells, and TUI
+    /// applications bind them to editing (Ctrl-D EOF, Ctrl-R history, Ctrl-W
+    /// delete-word), so the application keymap must not consume them. Chords
+    /// that add Command, Shift, or Option keep their application meaning.
+    static func shouldDeferToTerminal(
+        _ responder: NSResponder?,
+        modifierFlags: NSEvent.ModifierFlags
+    ) -> Bool {
+        guard responder is LitheTerminalView else { return false }
+        let flags = modifierFlags.intersection([.command, .control, .option, .shift])
+        return flags == .control
+    }
 }
 
 /// Matches ordinary key presses and double-modifier taps for application commands.
@@ -188,6 +201,14 @@ private final class MacShortcutDetector: ShortcutDetector, @unchecked Sendable {
             // NSTextInputClient. Consuming one as an application shortcut
             // breaks Chinese/Japanese/Korean composition and confirmation.
             if MacShortcutInputPolicy.shouldDeferToMarkedText(event.window?.firstResponder) {
+                return event
+            }
+            // A focused terminal receives Control chords untouched; otherwise
+            // Ctrl-D would start a debug session instead of ending input.
+            if MacShortcutInputPolicy.shouldDeferToTerminal(
+                event.window?.firstResponder,
+                modifierFlags: event.modifierFlags
+            ) {
                 return event
             }
             guard !self.isSuspended,

@@ -20,11 +20,17 @@
   },
   "windows": {
     "evidence": [
-      "windows/tauri/src/features"
+      "windows/tauri/src/features/agent/types/agent.types.ts",
+      "windows/tauri/src/features/agent/stores/agent-connection.model.ts",
+      "windows/tauri/src/features/agent/components/agent-composer.tsx",
+      "windows/tauri/src/features/agent/services/agent-command-completion.ts",
+      "windows/tauri/src/features/agent/services/agent-command-completion.test.ts",
+      "shared/fixtures/agent/acp-events-v1.json"
     ],
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable"
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
   },
   "owner": "Agent",
-  "verification": "macOS：分别连接 Codex 与 Claude，输入 / 确认弹出的命令与 Agent 实际上报一致，不出现 Lithe 内置命令；Codex 上报的 $Skill 补全为 $名称 而不是 /$名称，输入 $ 只列 Skill；继续输入时按前缀优先过滤，无匹配时显示“没有匹配的命令”，输入空格后关闭；鼠标选择或 Return 补全为“/命令 ”，完整命令按 Return 直接发送并由 Agent 执行；macOS 14 及以上方向键和 Tab 可导航，macOS 13 仍可鼠标选择；Esc 先关闭补全、回复中再次 Esc 才停止；切换会话后显示各自命令列表；上游重复上报同名命令时只显示首条定义，断连后清空旧补全，重连加载后以新进程上报为准；在默认和最小输入区高度、有无附带文件、窄宽面板中输入 /，用长列表和空结果确认输入行可见可编辑，浮出的命令可鼠标选择，方向键选中最后一条时列表跟随滚动。Windows Agent 对话 UI 尚未实现。 中文输入法下输入 ¥ 应只列出技能，输入 、 应列出全部命令，补全后插入 $name / /name。"
+  "verification": "macOS：分别连接 Codex 与 Claude，输入 / 确认弹出的命令与 Agent 实际上报一致，不出现 Lithe 内置命令；Codex 上报的 $Skill 补全为 $名称 而不是 /$名称，输入 $ 只列 Skill；继续输入时按前缀优先过滤，无匹配时显示“没有匹配的命令”，输入空格后关闭；鼠标选择或 Return 补全为“/命令 ”，完整命令按 Return 直接发送并由 Agent 执行；macOS 14 及以上方向键和 Tab 可导航，macOS 13 仍可鼠标选择；Esc 先关闭补全、回复中再次 Esc 才停止；切换会话后显示各自命令列表；上游重复上报同名命令时只显示首条定义，断连后清空旧补全，重连加载后以新进程上报为准；在默认和最小输入区高度、有无附带文件、窄宽面板中输入 /，用长列表和空结果确认输入行可见可编辑，浮出的命令可鼠标选择，方向键选中最后一条时列表跟随滚动。Windows 已接入 ACP `available_commands_update`：输入 `/`、`、` 或 `macOS：分别连接 Codex 与 Claude，输入 / 确认弹出的命令与 Agent 实际上报一致，不出现 Lithe 内置命令；Codex 上报的 $Skill 补全为 $名称 而不是 /$名称，输入 $ 只列 Skill；继续输入时按前缀优先过滤，无匹配时显示“没有匹配的命令”，输入空格后关闭；鼠标选择或 Return 补全为“/命令 ”，完整命令按 Return 直接发送并由 Agent 执行；macOS 14 及以上方向键和 Tab 可导航，macOS 13 仍可鼠标选择；Esc 先关闭补全、回复中再次 Esc 才停止；切换会话后显示各自命令列表；上游重复上报同名命令时只显示首条定义，断连后清空旧补全，重连加载后以新进程上报为准；在默认和最小输入区高度、有无附带文件、窄宽面板中输入 /，用长列表和空结果确认输入行可见可编辑，浮出的命令可鼠标选择，方向键选中最后一条时列表跟随滚动。、`¥`、`￥` 时在输入框上方浮出命令列表（最多 168px），显示调用名与说明，前缀匹配优先、其次包含匹配；方向键移动、Tab 或 Return 补全为“/命令 ”或“$skill ”，完整命令 Return 直接发送，Esc 先关闭列表、回复中再次 Esc 才停止；无匹配时显示“没有匹配的命令”，断连后清空旧列表。中文输入法与真机验收待执行。",
+  "notes": "2026-10-18 Windows：`availableCommands` 进入 `AgentConversation`，由 `parseAvailableCommands` 按 200 条上限、去重保留首条解析；`agent-command-completion.ts` 复刻 macOS 的触发字符、前缀优先排序与按键状态机，Composer 在草稿上方浮出列表并保留原 `@` 文件选择器。单测覆盖触发字符、排序、去重与按键结果，真机验收待执行。"
 }

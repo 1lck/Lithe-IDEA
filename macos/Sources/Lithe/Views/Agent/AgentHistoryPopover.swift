@@ -77,7 +77,7 @@ struct AgentHistoryPopover: View {
         .frame(width: isToolWindow ? nil : LitheDropdownMetrics.maximumWidth)
         .onAppear {
             reconcileSelection()
-            feature.refreshSessions()
+            feature.refreshSessionsIfNeeded()
         }
         .onChange(of: sessions.map(\.id)) { _ in reconcileSelection() }
         .onChange(of: feature.selectedSessionID) { _ in reconcileSelection() }

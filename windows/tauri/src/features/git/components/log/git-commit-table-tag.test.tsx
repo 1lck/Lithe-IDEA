@@ -138,6 +138,7 @@ function TableHarness({
       onRevert={() => {}}
       onCreateTag={onCreateTag}
       onLoadMore={() => {}}
+      onSelectReference={() => {}}
     />
   );
 }

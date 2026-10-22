@@ -74,6 +74,13 @@ export function mountDiffReview(container: HTMLElement,
   const modified = monaco.editor.createModel("", "plaintext", monaco.Uri.parse(`lithe-review://${instanceID}/modified`));
   editor.setModel({ original, modified });
   const left = editor.getOriginalEditor(), right = editor.getModifiedEditor();
+  // Full-width punctuation is normal Chinese prose; workbench.ts explains why
+  // Monaco's confusable-character warning stays off in embedded editors.
+  const noConfusableHighlight: monaco.editor.IEditorOptions = {
+    unicodeHighlight: { ambiguousCharacters: false },
+  };
+  left.updateOptions(noConfusableHighlight);
+  right.updateOptions(noConfusableHighlight);
   installWordHighlightLifecycle(left);
   installWordHighlightLifecycle(right);
   const leftDecorations = left.createDecorationsCollection();

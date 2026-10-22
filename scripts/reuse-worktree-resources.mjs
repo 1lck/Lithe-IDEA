@@ -62,7 +62,7 @@ async function readRegistry() {
     throw new Error(`Unsupported worktree resource registry: ${REGISTRY_PATH}`);
   }
   const identifiers = new Set();
-  const validators = new Set(["cargo", "swiftpm", "bun", "jdtls", "jdk"]);
+  const validators = new Set(["cargo", "swiftpm", "bun", "jdtls", "jdk", "conpty"]);
   for (const resource of registry.resources) {
     if (!resource?.id || identifiers.has(resource.id)) throw new Error(`Duplicate or missing resource id: ${resource?.id ?? "<missing>"}`);
     if (!validators.has(resource.validator)) throw new Error(`Unknown validator for ${resource.id}: ${resource.validator}`);
@@ -161,6 +161,9 @@ async function validatorArguments(resource, cachePath, targetRoot) {
   }
   if (resource.validator === "jdk") {
     return ["--skip-cargo", "--jdk-cache", cachePath, "--jdk-manifest", await requiredFile(targetRoot, "third_party/jdk/manifest.json", resource.id)];
+  }
+  if (resource.validator === "conpty") {
+    return ["--skip-cargo", "--conpty-cache", cachePath, "--conpty-manifest", await requiredFile(targetRoot, "third_party/conpty/manifest.json", resource.id)];
   }
   if (resource.validator === "swiftpm") {
     const swiftVersionPath = await requiredFile(targetRoot, ".swift-version", resource.id);
@@ -376,7 +379,11 @@ async function main() {
       // and AutoBuild staging (including per-tag baselines and local/downloaded publication checkpoints), per-launch
       // Codex relays and isolated plugin packages take this rejection route, never a content-hash validator.
       // Identical bytes do not establish transferable execution ownership.
+      // Includes application-log-state: logs, confirmation snapshots and export ZIP
+      // staging belong to one runtime session; no validator or copy stage applies.
       // Includes test-jfr-recordings: worker-owned profiling output has no transferable build identity.
+      // Localized logging probes also reject their temporary SwiftPM UI hosts;
+      // the host belongs to one source/toolchain/localization verification run.
       // Includes agent-ui-test-evidence: fixture screenshots belong to one test
       // revision/theme/viewport, never to a reusable build or runtime resource.
       // Includes plugin-ui-icons: signed runtime packages are never build-cache inputs.

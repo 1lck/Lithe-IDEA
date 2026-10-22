@@ -1,0 +1,270 @@
+{
+  "schemaVersion": 1,
+  "protocol": "litheFunctions",
+  "offer": { "versions": [1] },
+  "negotiation": [
+    {
+      "name": "no answer leaves the protocol off",
+      "capabilities": { "hoverProvider": true },
+      "expected": { "functions": null }
+    },
+    {
+      "name": "an answer next to litheBuild is independent of it",
+      "capabilities": {
+        "experimental": {
+          "litheBuild": { "version": 1 },
+          "litheFunctions": { "version": 1, "functions": [{ "id": "snapshot.refresh" }] }
+        }
+      },
+      "expected": { "functions": ["snapshot.refresh"] }
+    },
+    {
+      "name": "a version without functions starts with an empty registry",
+      "capabilities": { "experimental": { "litheFunctions": { "version": 1 } } },
+      "expected": { "functions": [] }
+    },
+    {
+      "name": "unknown descriptor and answer fields are ignored",
+      "capabilities": {
+        "experimental": {
+          "litheFunctions": {
+            "version": 1,
+            "future": true,
+            "functions": [{ "id": "install.prepare", "title": "Prepare" }, { "id": "install.finish" }]
+          }
+        }
+      },
+      "expected": { "functions": ["install.finish", "install.prepare"] }
+    },
+    {
+      "name": "a version the host never offered is not negotiated",
+      "capabilities": { "experimental": { "litheFunctions": { "version": 2 } } },
+      "expected": { "functions": null }
+    },
+    {
+      "name": "a version list is the offer shape, not an answer",
+      "capabilities": { "experimental": { "litheFunctions": { "versions": [1] } } },
+      "expected": { "functions": null }
+    },
+    {
+      "name": "a malformed function ID rejects the whole answer",
+      "capabilities": {
+        "experimental": {
+          "litheFunctions": { "version": 1, "functions": [{ "id": "ok" }, { "id": "Not-Valid" }] }
+        }
+      },
+      "expected": { "functions": null }
+    },
+    {
+      "name": "a duplicate function ID rejects the whole answer",
+      "capabilities": {
+        "experimental": {
+          "litheFunctions": { "version": 1, "functions": [{ "id": "refresh" }, { "id": "refresh" }] }
+        }
+      },
+      "expected": { "functions": null }
+    }
+  ],
+  "registration": [
+    {
+      "name": "register adds functions",
+      "method": "lithe/function/register",
+      "registered": ["snapshot.refresh"],
+      "params": { "functions": [{ "id": "snapshot.clear" }] },
+      "expected": { "status": "accepted", "functions": ["snapshot.clear", "snapshot.refresh"], "removed": [] }
+    },
+    {
+      "name": "registering an existing ID is refused",
+      "method": "lithe/function/register",
+      "registered": ["snapshot.refresh"],
+      "params": { "functions": [{ "id": "snapshot.clear" }, { "id": "snapshot.refresh" }] },
+      "expected": { "status": "rejected", "code": "plugin.function.invalidRegistration" }
+    },
+    {
+      "name": "an empty registration is refused",
+      "method": "lithe/function/register",
+      "registered": [],
+      "params": { "functions": [] },
+      "expected": { "status": "rejected", "code": "plugin.function.invalidRegistration" }
+    },
+    {
+      "name": "a function ID with a separator other than a dot is refused",
+      "method": "lithe/function/register",
+      "registered": [],
+      "params": { "functions": [{ "id": "snapshot/refresh" }] },
+      "expected": { "status": "rejected", "code": "plugin.function.invalidRegistration" }
+    },
+    {
+      "name": "unregister withdraws functions",
+      "method": "lithe/function/unregister",
+      "registered": ["snapshot.clear", "snapshot.refresh"],
+      "params": { "ids": ["snapshot.refresh"] },
+      "expected": { "status": "accepted", "functions": ["snapshot.clear"], "removed": ["snapshot.refresh"] }
+    },
+    {
+      "name": "unregistering an unknown ID is refused as a whole",
+      "method": "lithe/function/unregister",
+      "registered": ["snapshot.clear"],
+      "params": { "ids": ["snapshot.clear", "snapshot.refresh"] },
+      "expected": { "status": "rejected", "code": "plugin.function.invalidRegistration" }
+    }
+  ],
+  "invocations": [
+    {
+      "name": "a registered function of the session's plugin is sent",
+      "session": { "pluginID": "dev.lithe.fixture.maven", "negotiated": true, "functions": ["snapshot.refresh"] },
+      "request": {
+        "function": { "pluginID": "dev.lithe.fixture.maven", "functionID": "snapshot.refresh" },
+        "params": { "project": "app" }
+      },
+      "expected": {
+        "status": "sent",
+        "method": "lithe/function/invoke",
+        "params": { "functionID": "snapshot.refresh", "operationID": "operation-1", "params": { "project": "app" } }
+      }
+    },
+    {
+      "name": "a malformed reference is refused before the session is consulted",
+      "session": { "pluginID": "dev.lithe.fixture.maven", "negotiated": true, "functions": ["snapshot.refresh"] },
+      "request": {
+        "function": { "pluginID": "dev.lithe.fixture.maven", "functionID": "lithe/build/model" },
+        "params": {}
+      },
+      "expected": { "status": "refused", "code": "plugin.function.invalidReference" }
+    },
+    {
+      "name": "params must be an object",
+      "session": { "pluginID": "dev.lithe.fixture.maven", "negotiated": true, "functions": ["snapshot.refresh"] },
+      "request": {
+        "function": { "pluginID": "dev.lithe.fixture.maven", "functionID": "snapshot.refresh" },
+        "params": ["app"]
+      },
+      "expected": { "status": "refused", "code": "plugin.function.invalidParams" }
+    },
+    {
+      "name": "a session of another plugin is never reached",
+      "session": { "pluginID": "dev.lithe.fixture.gradle", "negotiated": true, "functions": ["snapshot.refresh"] },
+      "request": {
+        "function": { "pluginID": "dev.lithe.fixture.maven", "functionID": "snapshot.refresh" },
+        "params": {}
+      },
+      "expected": { "status": "refused", "code": "plugin.function.wrongPlugin" }
+    },
+    {
+      "name": "a host-owned session serves no plugin functions",
+      "session": { "pluginID": null, "negotiated": true, "functions": ["snapshot.refresh"] },
+      "request": {
+        "function": { "pluginID": "dev.lithe.fixture.maven", "functionID": "snapshot.refresh" },
+        "params": {}
+      },
+      "expected": { "status": "refused", "code": "plugin.function.unavailable" }
+    },
+    {
+      "name": "a backend that did not negotiate keeps serving its domain protocol only",
+      "session": { "pluginID": "dev.lithe.fixture.maven", "negotiated": false, "functions": [] },
+      "request": {
+        "function": { "pluginID": "dev.lithe.fixture.maven", "functionID": "snapshot.refresh" },
+        "params": {}
+      },
+      "expected": { "status": "refused", "code": "plugin.function.unavailable" }
+    },
+    {
+      "name": "an unregistered function is unknown",
+      "session": { "pluginID": "dev.lithe.fixture.maven", "negotiated": true, "functions": ["snapshot.clear"] },
+      "request": {
+        "function": { "pluginID": "dev.lithe.fixture.maven", "functionID": "snapshot.refresh" },
+        "params": {}
+      },
+      "expected": { "status": "refused", "code": "plugin.function.unknown" }
+    }
+  ],
+  "outcomes": [
+    {
+      "name": "a result is wrapped as value",
+      "response": { "jsonrpc": "2.0", "id": 4, "result": { "snapshot": 3 } },
+      "expected": { "result": { "value": { "snapshot": 3 } } }
+    },
+    {
+      "name": "a null result is a result",
+      "response": { "jsonrpc": "2.0", "id": 4, "result": null },
+      "expected": { "result": { "value": null } }
+    },
+    {
+      "name": "a response without result is invalid",
+      "response": { "jsonrpc": "2.0", "id": 4 },
+      "expected": {
+        "error": { "code": "plugin.function.invalidResult", "message": "The plugin function returned no result." }
+      }
+    },
+    {
+      "name": "an error keeps the backend message and a well-formed plugin code",
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 4,
+        "error": { "code": -32000, "message": "Snapshot is locked.", "data": { "code": "maven.snapshotLocked" } }
+      },
+      "expected": {
+        "error": {
+          "code": "plugin.function.failed",
+          "message": "Snapshot is locked.",
+          "pluginErrorCode": "maven.snapshotLocked"
+        }
+      }
+    },
+    {
+      "name": "a malformed plugin code is dropped and an empty message replaced",
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 4,
+        "error": { "code": -32000, "message": "", "data": { "code": "not a code" } }
+      },
+      "expected": {
+        "error": { "code": "plugin.function.failed", "message": "The plugin function failed." }
+      }
+    }
+  ],
+  "progress": [
+    {
+      "name": "message and percentage are reported",
+      "params": { "operationID": "operation-1", "message": "Reading snapshot", "percentage": 40 },
+      "expected": { "operationID": "operation-1", "message": "Reading snapshot", "percentage": 40 }
+    },
+    {
+      "name": "both fields are optional",
+      "params": { "operationID": "operation-1" },
+      "expected": { "operationID": "operation-1" }
+    },
+    {
+      "name": "a percentage over 100 drops the report",
+      "params": { "operationID": "operation-1", "percentage": 101 },
+      "expected": null
+    },
+    {
+      "name": "a report without operation ID is dropped",
+      "params": { "message": "Working" },
+      "expected": null
+    }
+  ],
+  "backendRequests": [
+    {
+      "name": "a backend cannot ask the host to invoke a function",
+      "method": "lithe/function/invoke",
+      "expected": { "code": "plugin.function.recursiveCall" }
+    },
+    {
+      "name": "a backend cannot ask the host for a build-domain operation",
+      "method": "lithe/build/model",
+      "expected": { "code": "plugin.function.recursiveCall" }
+    },
+    {
+      "name": "version 1 offers no host capability",
+      "method": "lithe/host/process.run",
+      "expected": { "code": "plugin.host.unavailable" }
+    },
+    {
+      "name": "other methods keep the ordinary JSON-RPC answer",
+      "method": "workspace/applyEdit",
+      "expected": { "code": null }
+    }
+  ]
+}

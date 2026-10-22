@@ -34,7 +34,8 @@ final class ProjectSessionManager: ObservableObject {
     @Published private(set) var focusedScope: ProjectWindowScope = .primary
     @Published private(set) var settingsModel: AppModel?
     /// Invalidates close callbacks from an earlier opening of the shared settings window.
-    private(set) var settingsBindingID = UUID()
+    /// Published so the visible settings window re-reads the current binding on every rebind.
+    @Published private(set) var settingsBindingID = UUID()
     @Published var pendingProjectOpen: PendingProjectOpen?
 
     private let settings: AppSettings

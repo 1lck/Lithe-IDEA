@@ -7867,6 +7867,40 @@ fn tracking_counts(repository_root: &Path) -> (usize, usize) {
     (ahead, behind)
 }
 
+/// Resolves ignore rules through Git, including info/exclude, global rules, and negations.
+///
+/// Paths are workspace-relative candidates owned by the search index. NUL-delimited
+/// stdin preserves whitespace and avoids command-line limits. Missing Git/repositories
+/// leave status unknown rather than guessing from directory names.
+pub(crate) fn ignored_paths(
+    directory: &Path,
+    paths: &[String],
+) -> Result<Option<HashSet<String>>, CoreError> {
+    if paths.is_empty() {
+        return Ok(Some(HashSet::new()));
+    }
+    let response = execute_git_readonly(
+        &directory.to_string_lossy(),
+        &["check-ignore".into(), "--stdin".into(), "-z".into()],
+        Some(nul_pathspec_input(paths)),
+    );
+    crate::protocol::cancellation::check()?;
+    let Ok(response) = response else {
+        return Ok(None);
+    };
+    if ![0, 1].contains(&response.exit_code) {
+        return Ok(None);
+    }
+    Ok(Some(
+        response
+            .stdout
+            .split('\0')
+            .filter(|path| !path.is_empty())
+            .map(str::to_string)
+            .collect(),
+    ))
+}
+
 /// Upper bound on the pathspec bytes passed to one `git ls-files` call.
 ///
 /// Windows limits a whole command line to 32,767 UTF-16 units; batching well

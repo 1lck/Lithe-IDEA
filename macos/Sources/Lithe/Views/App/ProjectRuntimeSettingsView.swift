@@ -3,6 +3,8 @@ import SwiftUI
 import LitheCoreContracts
 
 struct ProjectRuntimeSettingsView: View {
+    /// Observes the model: this page shows live run and Maven feature state,
+    /// which the settings window's `SettingsModelContext` does not republish.
     @EnvironmentObject private var model: AppModel
     @ObservedObject var feature: RuntimeSettingsFeatureModel
     @State private var subprojectListActive = false
@@ -45,6 +47,11 @@ struct ProjectRuntimeSettingsView: View {
 
     private var header: some View {
         HStack {
+            if model.workspaceURL != nil {
+                Text("This computer · This project")
+                    .font(LitheTheme.smallFont)
+                    .foregroundStyle(LitheTheme.secondaryText)
+            }
             Spacer()
             if feature.isDiscovering {
                 ProgressView()
@@ -146,10 +153,14 @@ struct ProjectRuntimeSettingsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 8) {
                 if let subproject = selectedSubproject {
-                    Text(subproject.title)
-                        .font(LitheTheme.uiFont(size: 13, weight: .semibold))
-                        .foregroundStyle(LitheTheme.primaryText)
-                        .padding(.bottom, 4)
+                    HStack(spacing: 4) {
+                        Text(subproject.title)
+                            .font(LitheTheme.uiFont(size: 13, weight: .semibold))
+                            .foregroundStyle(LitheTheme.primaryText)
+                        LitheInfoTip("These defaults apply only to this project on this computer. Run configurations inherit them unless overridden. Use the Project save scope in a run configuration to share settings with your team.")
+                    }
+                    .padding(.top, 8)
+                    .padding(.bottom, 4)
                     if subproject.kind == .projectDefaults {
                         projectDefaultsDetail
                     } else if subproject.usesJava {
@@ -329,11 +340,11 @@ struct ProjectRuntimeSettingsView: View {
 
     private func otherSubprojectDetail(_ subproject: ProjectRuntimeSubproject) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("This subproject does not use a JDK.")
-                .font(LitheTheme.uiFont(size: 13, weight: .medium))
-            Text("Frontend and other non-Java roots keep the workspace editor and terminal settings. Java and Maven SDKs only apply to the backends listed on the left.")
-                .font(LitheTheme.smallFont)
-                .foregroundStyle(LitheTheme.secondaryText)
+            HStack(spacing: 4) {
+                Text("This subproject does not use a JDK.")
+                    .font(LitheTheme.uiFont(size: 13, weight: .medium))
+                LitheInfoTip("Frontend and other non-Java roots keep the workspace editor and terminal settings. Java and Maven SDKs only apply to the backends listed on the left.")
+            }
             if subproject.displaysPath {
                 labeledValue("Path", subproject.relativePath)
             }

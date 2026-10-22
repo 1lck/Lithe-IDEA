@@ -37,15 +37,60 @@ struct TerminalInputFocusTests {
     }
 
     @Test
-    func terminalCanvasLeavesSharedPaneBackgroundVisible() {
-        let terminal = LitheTerminalView(frame: NSRect(x: 0, y: 0, width: 400, height: 200))
-        terminal.applyThemeColors()
-        #expect(terminal.nativeBackgroundColor.alphaComponent == 0)
-        #expect(terminal.layer?.isOpaque == false)
-        let renderer = MTKView(frame: terminal.bounds, device: nil)
-        terminal.addSubview(renderer)
-        terminal.hasFocus = false
-        #expect(renderer.layer?.isOpaque == false)
+    func terminalPaletteAppliesContrastGatePerImportedEntry() throws {
+        func archive(_ color: NSColor) throws -> Data {
+            try NSKeyedArchiver.archivedData(withRootObject: color, requiringSecureCoding: true)
+        }
+        let paleCyan = NSColor(srgbRed: 0, green: 0.9, blue: 0.9, alpha: 1)
+        let darkGreen = NSColor(srgbRed: 0, green: 0.25, blue: 0.25, alpha: 1)
+        let preferences: [String: Any] = [
+            "Default Window Settings": "Selected",
+            "Window Settings": ["Selected": [
+                "ANSIBrightCyanColor": try archive(paleCyan),
+                "ANSIBrightGreenColor": try archive(darkGreen)
+            ]]
+        ]
+
+        let lightEditor = LitheTheme.nsColor(.editor, isDark: false)
+        let gated = MacTerminalPalette(preferences: preferences, backgroundColor: lightEditor)
+        #expect(gated.ansiColors[14] == nil)
+        #expect(gated.ansiColors[10]?.green == UInt16((darkGreen.greenComponent * 65535).rounded()))
+
+        let ungated = MacTerminalPalette(preferences: preferences)
+        #expect(ungated.ansiColors[14]?.green == UInt16((paleCyan.greenComponent * 65535).rounded()))
+    }
+
+    @Test
+    func lightFallbackANSIColorsMeetContrastInvariant() {
+        let editor = LitheTheme.nsColor(.editor, isDark: false)
+        let colors = MacTerminalPalette.fallbackANSIColors(isDark: false)
+        #expect(colors.count == 16)
+        for value in colors {
+            let color = NSColor(
+                srgbRed: CGFloat((value >> 16) & 0xff) / 255,
+                green: CGFloat((value >> 8) & 0xff) / 255,
+                blue: CGFloat(value & 0xff) / 255,
+                alpha: 1
+            )
+            #expect(contrastRatio(color, against: editor) >= 4.5)
+        }
+    }
+
+    private func contrastRatio(_ foreground: NSColor, against background: NSColor) -> CGFloat {
+        func luminance(_ color: NSColor) -> CGFloat {
+            let color = color.usingColorSpace(.sRGB)!
+            func linear(_ channel: CGFloat) -> CGFloat {
+                channel <= 0.04045 ? channel / 12.92 : pow((channel + 0.055) / 1.055, 2.4)
+            }
+            return 0.2126 * linear(color.redComponent)
+                + 0.7152 * linear(color.greenComponent)
+                + 0.0722 * linear(color.blueComponent)
+        }
+        let foregroundLuminance = luminance(foreground)
+        let backgroundLuminance = luminance(background)
+        let lighter = max(foregroundLuminance, backgroundLuminance)
+        let darker = min(foregroundLuminance, backgroundLuminance)
+        return (lighter + 0.05) / (darker + 0.05)
     }
 
     @Test
@@ -267,6 +312,94 @@ struct TerminalInputFocusTests {
         editor.needsDisplay = false
         #expect(window.makeFirstResponder(editor))
         #expect(editor.needsDisplay, "Returning to the editor must restore its caret")
+    }
+}
+
+@Suite("Terminal canvas compositing")
+@MainActor
+struct TerminalCanvasCompositingTests {
+    @Test
+    func canvasLeavesSharedPaneBackgroundVisibleWithWallpaper() {
+        let terminal = LitheTerminalView(frame: NSRect(x: 0, y: 0, width: 400, height: 200))
+        terminal.appearance = NSAppearance(named: .aqua)
+        terminal.setWorkbenchBackgroundVisible(true)
+        terminal.applyThemeColors()
+        #expect(terminal.nativeBackgroundColor.alphaComponent == 0)
+        // Metal clear colors are premultiplied, so a transparent canvas clears to black rather than the workbench color.
+        let clearColor = terminal.nativeBackgroundColor.usingColorSpace(.sRGB)
+        #expect(clearColor?.redComponent == 0)
+        #expect(clearColor?.greenComponent == 0)
+        #expect(clearColor?.blueComponent == 0)
+        // The layer must stay clear as well: the Core Graphics fallback paints its background from this layer.
+        #expect(terminal.layer?.backgroundColor == NSColor.clear.cgColor)
+        #expect(terminal.layer?.isOpaque == false)
+        let renderer = MTKView(frame: terminal.bounds, device: nil)
+        terminal.addSubview(renderer)
+        terminal.applyThemeColors()
+        #expect(renderer.layer?.isOpaque == false)
+        // Focus changes repaint the paused Metal surface, so the decision must survive them too.
+        terminal.hasFocus = false
+        #expect(renderer.layer?.isOpaque == false)
+    }
+
+    @Test
+    func canvasOwnsOpaqueBackgroundWithoutWallpaper() {
+        for name in [NSAppearance.Name.aqua, .darkAqua] {
+            let terminal = LitheTerminalView(frame: NSRect(x: 0, y: 0, width: 400, height: 200))
+            terminal.appearance = NSAppearance(named: name)
+            terminal.applyThemeColors()
+            let editorColor = LitheTheme.nsColor(.editor, isDark: name == .darkAqua)
+            #expect(terminal.nativeBackgroundColor.alphaComponent == 1)
+            #expect(terminal.nativeBackgroundColor.isEqual(editorColor))
+            #expect(terminal.layer?.backgroundColor == editorColor.cgColor)
+            #expect(terminal.layer?.isOpaque == true)
+            let renderer = MTKView(frame: terminal.bounds, device: nil)
+            terminal.addSubview(renderer)
+            terminal.applyThemeColors()
+            #expect(renderer.layer?.isOpaque == true)
+        }
+    }
+
+    @Test
+    func canvasFollowsWorkbenchBackgroundChanges() {
+        let terminal = LitheTerminalView(frame: NSRect(x: 0, y: 0, width: 400, height: 200))
+        terminal.appearance = NSAppearance(named: .aqua)
+        terminal.applyThemeColors()
+        let renderer = MTKView(frame: terminal.bounds, device: nil)
+        terminal.addSubview(renderer)
+
+        terminal.setWorkbenchBackgroundVisible(true)
+        #expect(terminal.nativeBackgroundColor.alphaComponent == 0)
+        #expect(terminal.nativeBackgroundColor.usingColorSpace(.sRGB)?.redComponent == 0)
+        #expect(terminal.layer?.backgroundColor == NSColor.clear.cgColor)
+        #expect(terminal.layer?.isOpaque == false)
+        #expect(renderer.layer?.isOpaque == false)
+
+        terminal.setWorkbenchBackgroundVisible(false)
+        #expect(terminal.nativeBackgroundColor.alphaComponent == 1)
+        #expect(terminal.layer?.isOpaque == true)
+        #expect(renderer.layer?.isOpaque == true)
+    }
+
+    @Test
+    func osc11ReportedBackgroundMatchesCanvasClearColor() throws {
+        // SwiftTerm answers OSC 11 from the terminal background color, which mirrors the canvas clear color.
+        // Reporting black while a wallpaper is visible is the documented tradeoff of the premultiplied clear.
+        let terminal = LitheTerminalView(frame: NSRect(x: 0, y: 0, width: 400, height: 200))
+        terminal.appearance = NSAppearance(named: .aqua)
+        terminal.applyThemeColors()
+        let editorColor = LitheTheme.nsColor(.editor, isDark: false).usingColorSpace(.sRGB)
+        let expected = try #require(editorColor)
+        let reported = terminal.terminal.backgroundColor
+        #expect(reported.red == UInt16((expected.redComponent * 65535).rounded()))
+        #expect(reported.green == UInt16((expected.greenComponent * 65535).rounded()))
+        #expect(reported.blue == UInt16((expected.blueComponent * 65535).rounded()))
+
+        terminal.setWorkbenchBackgroundVisible(true)
+        let transparent = terminal.terminal.backgroundColor
+        #expect(transparent.red == 0)
+        #expect(transparent.green == 0)
+        #expect(transparent.blue == 0)
     }
 }
 

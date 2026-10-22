@@ -18,6 +18,9 @@ final class MacPluginMarketplaceService: PluginMarketplaceServicing {
     static let communityRepository = "https://github.com/Lithe-IDEA/Lithe-store"
     static let communityIndexURL = PluginMarketplaceSource.communityIndexURL
     private static let maximumIndexBytes: Int64 = 5 * 1_048_576
+    /// Same per-file limits as icons inside a plugin package.
+    private static let maximumIconBytes: Int64 = 262_144
+    private static let maximumIconPixels = 1024 * 1024
     private static let sourcesSchemaVersion = 1
 
     let platform: String
@@ -182,6 +185,35 @@ final class MacPluginMarketplaceService: PluginMarketplaceServicing {
         cacheRootURL
             .appendingPathComponent(source.id, isDirectory: true)
             .appendingPathComponent("index.json", isDirectory: false)
+    }
+
+    // MARK: Icons
+
+    /// Core already limits `icon` to a raw file of the plugin's repository;
+    /// the bytes then pass the same static-SVG/PNG gate as package icons.
+    /// The transport's transfer file is removed before this returns, and the
+    /// bytes live only in the feature model's memory.
+    func iconData(from icon: String) async throws -> Data {
+        guard let url = URL(string: icon), url.scheme?.lowercased() == "https",
+              url.host?.lowercased() == "raw.githubusercontent.com" else {
+            throw PluginMarketplaceIconRejected()
+        }
+        let data: Data
+        do {
+            data = try await transport.data(from: url, maximumBytes: Self.maximumIconBytes)
+        } catch MacPluginPackageDownloadError.httpStatus(let status)
+                    where (400..<500).contains(status) && status != 408 && status != 429 {
+            throw PluginMarketplaceIconRejected()
+        } catch MacPluginPackageDownloadError.archiveTooLarge {
+            throw PluginMarketplaceIconRejected()
+        }
+        let isPNG = data.starts(with: [137, 80, 78, 71, 13, 10, 26, 10])
+        guard MacPluginUIIconLoader.decodedPixelArea(
+            of: data, isSVG: !isPNG, pixelBudget: Self.maximumIconPixels
+        ) != nil else {
+            throw PluginMarketplaceIconRejected()
+        }
+        return data
     }
 
     // MARK: Installation

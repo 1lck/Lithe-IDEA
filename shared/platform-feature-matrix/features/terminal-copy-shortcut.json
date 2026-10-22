@@ -1,0 +1,24 @@
+{
+  "id": "terminal-copy-shortcut",
+  "area": "工作台",
+  "group": "终端",
+  "capability": "Windows 终端在有选中内容时用 Ctrl+C 复制，无选中时仍然中断运行中的命令",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Platform/MacOS/Terminal/MacTerminalTransport.swift"
+    ],
+    "implementationStatus": "platform-specific",
+    "verificationStatus": "not-applicable"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/terminal/utils/terminal-keyboard.ts",
+      "windows/tauri/src/features/terminal/utils/terminal-keyboard.test.ts",
+      "windows/tauri/src/features/terminal/components/terminal.tsx"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Terminal",
+  "verification": "仅在 Windows 生效。终端里选中一段输出后按 Ctrl+C，确认复制到剪贴板且不向程序发送 0x03；不选中任何内容时按 Ctrl+C，确认运行中的命令被中断（例如一个持续输出的循环），说明 SIGINT 未被拦截。Ctrl+Shift+C 在两种情况下都应仍可复制。核对本项不影响已有的终端复制粘贴、搜索和拖放路径。macOS 不使用该绑定：复制走系统 Cmd+C，由 SwiftTerm 与系统菜单处理，因此该平台标记为平台专属。真实 Windows 产品交互验收 pending。"
+}

@@ -16,7 +16,8 @@ extension AppModel {
         )
         guard signature != languageSessionChromeSignature else { return }
         languageSessionChromeSignature = signature
-        scheduleObjectWillChangeRelay()
+        // Settings language pages observe `AppModel` directly for server status.
+        scheduleObjectWillChangeRelay(affectsSettings: false)
     }
 
     func refreshEditorDiagnosticsStore() {
@@ -62,6 +63,13 @@ extension AppModel {
             projectFiles: projectFiles,
             workspaceRoot: workspaceRoot
         )
+    }
+
+    func canShowBlame(for fileURL: URL) -> Bool {
+        guard let root = gitRepositoryRoot?.standardizedFileURL, fileURL.isFileURL else { return false }
+        let url = fileURL.standardizedFileURL
+        let prefix = root.path == "/" ? "/" : root.path + "/"
+        return url != root && url.path.hasPrefix(prefix) && gitChange(for: url)?.isUntracked != true
     }
 
     func showBlame(for fileURL: URL) {

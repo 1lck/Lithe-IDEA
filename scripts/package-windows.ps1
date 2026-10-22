@@ -44,6 +44,31 @@ if ($preparedJdkOutput.Count -eq 0) {
     throw "JDK preparation did not return an output directory."
 }
 $preparedJdkRoot = [System.IO.Path]::GetFullPath([string]$preparedJdkOutput[-1])
+
+# The bundled console host is a bundle resource, so the installer build needs it
+# present before Tauri collects resources.
+$conptyPlatform = switch ($RustTarget) {
+    "x86_64-pc-windows-msvc" { "windows-x86_64" }
+    "aarch64-pc-windows-msvc" { "windows-aarch64" }
+    default { throw "No bundled console host for target $RustTarget" }
+}
+$preparedConptyOutput = @(& (Join-Path $root "scripts/prepare-conpty.ps1") -Platform $conptyPlatform)
+if ($preparedConptyOutput.Count -eq 0) {
+    throw "ConPTY preparation did not return an output directory."
+}
+$env:LITHE_REQUIRE_CONPTY = "1"
+$preparedConptyRoot = [System.IO.Path]::GetFullPath([string]$preparedConptyOutput[-1])
+foreach ($requiredPath in @(
+    (Join-Path $preparedConptyRoot "conpty.dll"),
+    (Join-Path $preparedConptyRoot "OpenConsole.exe"),
+    # The MIT text ships as a bundle resource, so packaging stops here rather than
+    # distributing the binaries without the notice they must carry.
+    (Join-Path $preparedConptyRoot "ConPTY-LICENSE.txt")
+)) {
+    if (-not (Test-Path -LiteralPath $requiredPath)) {
+        throw "Bundled console host preparation is incomplete: $requiredPath"
+    }
+}
 foreach ($requiredPath in @(
     (Join-Path $preparedJdtlsRoot "bin/jdtls.bat"),
     (Join-Path $preparedJdtlsRoot "plugins"),

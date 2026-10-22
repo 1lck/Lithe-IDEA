@@ -1,0 +1,165 @@
+{
+  "hiddenFilePatterns": [
+    "cache/",
+    "**/.*/",
+    ".*/",
+    "*.log",
+    "generated/*",
+    "docs/**",
+    "notes",
+    "**/tmp/",
+    "**/secret.txt"
+  ],
+  "cases": [
+    {
+      "path": "cache",
+      "isDirectory": true,
+      "hidden": true
+    },
+    {
+      "path": "cache/deep/Name.swift",
+      "isDirectory": false,
+      "hidden": true
+    },
+    {
+      "path": "src/cache",
+      "isDirectory": true,
+      "hidden": false
+    },
+    {
+      "path": "src/cache/Name.swift",
+      "isDirectory": false,
+      "hidden": false
+    },
+    {
+      "path": ".cache",
+      "isDirectory": true,
+      "hidden": true
+    },
+    {
+      "path": "src/.cache",
+      "isDirectory": true,
+      "hidden": true
+    },
+    {
+      "path": "src/.cache/deep/Name.swift",
+      "isDirectory": false,
+      "hidden": true
+    },
+    {
+      "path": "src/Name.log",
+      "isDirectory": false,
+      "hidden": true
+    },
+    {
+      "path": "src/Name.log",
+      "isDirectory": true,
+      "hidden": false
+    },
+    {
+      "path": "src/.env",
+      "isDirectory": false,
+      "hidden": false
+    },
+    {
+      "path": "src/Name.swift",
+      "isDirectory": false,
+      "hidden": false
+    },
+    {
+      "path": "generated",
+      "isDirectory": true,
+      "hidden": true
+    },
+    {
+      "path": "generated/Name.swift",
+      "isDirectory": false,
+      "hidden": true
+    },
+    {
+      "path": "src/generated",
+      "isDirectory": true,
+      "hidden": false
+    },
+    {
+      "path": "src/generated/Name.swift",
+      "isDirectory": false,
+      "hidden": false
+    },
+    {
+      "path": "generated",
+      "isDirectory": false,
+      "hidden": false
+    },
+    {
+      "path": "docs",
+      "isDirectory": true,
+      "hidden": true
+    },
+    {
+      "path": "docs/api/index.html",
+      "isDirectory": false,
+      "hidden": true
+    },
+    {
+      "path": "src/docs",
+      "isDirectory": true,
+      "hidden": false
+    },
+    {
+      "path": "notes",
+      "isDirectory": false,
+      "hidden": true
+    },
+    {
+      "path": "notes",
+      "isDirectory": true,
+      "hidden": false
+    },
+    {
+      "path": "notes/todo.md",
+      "isDirectory": false,
+      "hidden": false
+    },
+    {
+      "path": "tmp",
+      "isDirectory": true,
+      "hidden": true
+    },
+    {
+      "path": "a/b/tmp",
+      "isDirectory": true,
+      "hidden": true
+    },
+    {
+      "path": "a/b/tmp/x.txt",
+      "isDirectory": false,
+      "hidden": true
+    },
+    {
+      "path": "a/tmp.txt",
+      "isDirectory": false,
+      "hidden": false
+    },
+    {
+      "path": "secret.txt",
+      "isDirectory": false,
+      "hidden": true
+    },
+    {
+      "path": "config/secret.txt",
+      "isDirectory": false,
+      "hidden": true
+    },
+    {
+      "path": "config/secret.txt.bak",
+      "isDirectory": false,
+      "hidden": false
+    },
+    {
+      "path": "secret.txt",
+      "isDirectory": true,
+      "hidden": false
+    }
+  ]
+}

@@ -31,25 +31,10 @@ enum MacPluginUIIconLoader {
             let handle = try FileHandle(forReadingFrom: url)
             defer { try? handle.close() }
             let data = try handle.read(upToCount: 262_145) ?? Data()
-            guard data.count <= 262_144, totalBytes + data.count <= 8_388_608 else { throw InvalidIcon(path: path) }
-            var pixels = 0
-            if path.hasSuffix(".svg") {
-                guard SVGIconValidator.accepts(data) else { throw InvalidIcon(path: path) }
-            } else {
-                guard data.starts(with: [137, 80, 78, 71, 13, 10, 26, 10]),
-                      let source = CGImageSourceCreateWithData(data as CFData, nil), CGImageSourceGetCount(source) == 1,
-                      let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
-                      let width = properties[kCGImagePropertyPixelWidth] as? Int,
-                      let height = properties[kCGImagePropertyPixelHeight] as? Int,
-                      (1...1024).contains(width), (1...1024).contains(height) else { throw InvalidIcon(path: path) }
-                pixels = width * height
-                guard totalPixels + pixels <= 4_194_304,
-                      CGImageSourceCreateImageAtIndex(source, 0, nil) != nil else { throw InvalidIcon(path: path) }
-            }
-            guard let image = NSImage(data: data), image.size.width > 0, image.size.height > 0,
-                  image.size.width <= 1024, image.size.height <= 1024 else { throw InvalidIcon(path: path) }
-            totalPixels += pixels == 0 ? Int(image.size.width * image.size.height) : pixels
-            guard totalPixels <= 4_194_304 else { throw InvalidIcon(path: path) }
+            guard data.count <= 262_144, totalBytes + data.count <= 8_388_608,
+                  let pixels = decodedPixelArea(of: data, isSVG: path.hasSuffix(".svg"),
+                                                pixelBudget: 4_194_304 - totalPixels) else { throw InvalidIcon(path: path) }
+            totalPixels += pixels
             assets[path] = data
             totalBytes += data.count
             return data
@@ -76,6 +61,29 @@ enum MacPluginUIIconLoader {
         return result
     }
 
+    /// Accepts the static SVG subset or a single-frame PNG of at most
+    /// 1024×1024 that AppKit decodes within `pixelBudget`, and returns its
+    /// pixel area. Package icons and marketplace index icons share this gate.
+    static func decodedPixelArea(of data: Data, isSVG: Bool, pixelBudget: Int) -> Int? {
+        var pixels = 0
+        if isSVG {
+            guard SVGIconValidator.accepts(data) else { return nil }
+        } else {
+            guard data.starts(with: [137, 80, 78, 71, 13, 10, 26, 10]),
+                  let source = CGImageSourceCreateWithData(data as CFData, nil), CGImageSourceGetCount(source) == 1,
+                  let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+                  let width = properties[kCGImagePropertyPixelWidth] as? Int,
+                  let height = properties[kCGImagePropertyPixelHeight] as? Int,
+                  (1...1024).contains(width), (1...1024).contains(height) else { return nil }
+            pixels = width * height
+            guard pixels <= pixelBudget, CGImageSourceCreateImageAtIndex(source, 0, nil) != nil else { return nil }
+        }
+        guard let image = NSImage(data: data), image.size.width > 0, image.size.height > 0,
+              image.size.width <= 1024, image.size.height <= 1024 else { return nil }
+        if pixels == 0 { pixels = Int(image.size.width * image.size.height) }
+        return pixels <= pixelBudget ? pixels : nil
+    }
+
     struct InvalidIcon: LocalizedError {
         let path: String
         var errorDescription: String? { "Invalid plugin icon resource: \(path)" }
@@ -88,7 +96,7 @@ private final class SVGIconValidator: NSObject, XMLParserDelegate {
     private var valid = true
     private var count = 0
     private let elements: Set<String> = ["svg", "g", "path", "rect", "circle", "ellipse", "line", "polyline", "polygon", "defs", "linearGradient", "radialGradient", "stop", "clipPath", "title", "desc"]
-    private let attributes: Set<String> = ["xmlns", "version", "id", "viewBox", "width", "height", "x", "y", "x1", "x2", "y1", "y2", "cx", "cy", "fx", "fy", "r", "rx", "ry", "d", "points", "fill", "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin", "stroke-miterlimit", "stroke-dasharray", "stroke-dashoffset", "fill-rule", "clip-rule", "clip-path", "opacity", "fill-opacity", "stroke-opacity", "transform", "gradientTransform", "gradientUnits", "offset", "stop-color", "stop-opacity", "preserveAspectRatio"]
+    private let attributes: Set<String> = ["xmlns", "version", "role", "id", "viewBox", "width", "height", "x", "y", "x1", "x2", "y1", "y2", "cx", "cy", "fx", "fy", "r", "rx", "ry", "d", "points", "fill", "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin", "stroke-miterlimit", "stroke-dasharray", "stroke-dashoffset", "fill-rule", "clip-rule", "clip-path", "opacity", "fill-opacity", "stroke-opacity", "transform", "gradientTransform", "gradientUnits", "offset", "stop-color", "stop-opacity", "preserveAspectRatio"]
 
     static func accepts(_ data: Data) -> Bool {
         guard let text = String(data: data, encoding: .utf8),

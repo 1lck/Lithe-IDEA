@@ -95,7 +95,6 @@ Issue 举的是通用、Git 和 Agent 管理三个页面，但同类常驻说明
 - `macos/Sources/Lithe/Views/App/SettingsView.swift`
 - `macos/Sources/Lithe/Views/App/GitExecutionSettingsView.swift`
 - `macos/Sources/Lithe/Views/App/GitFetchSettingsView.swift`
-- `macos/Sources/Lithe/Views/App/GitIdentitySettingsView.swift`
 - `macos/Sources/Lithe/Views/App/PluginSettingsSection.swift`
 - `macos/Sources/Lithe/Views/App/EffectiveRuntimeLabel.swift`
 - `macos/Sources/Lithe/Views/App/McpSettingsView.swift`

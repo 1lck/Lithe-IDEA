@@ -7,10 +7,18 @@ import LitheModuleAPI
 package struct ResolvedLanguageServerLaunch: Equatable, Sendable {
     package let arguments: [String]
     package let initializationOptions: ToolingJSONValue?
+    /// What the server reads through `workspace/configuration`; plugin
+    /// settings with `effect: immediate` change it without a restart.
+    package let workspaceConfiguration: ToolingJSONValue?
 
-    package init(arguments: [String], initializationOptions: ToolingJSONValue?) {
+    package init(
+        arguments: [String],
+        initializationOptions: ToolingJSONValue?,
+        workspaceConfiguration: ToolingJSONValue? = nil
+    ) {
         self.arguments = arguments
         self.initializationOptions = initializationOptions
+        self.workspaceConfiguration = workspaceConfiguration
     }
 }
 
@@ -129,7 +137,8 @@ package final class StdioLanguageProviderRuntime: LanguageProviderRuntime {
             cacheDirectoryURL: languageServerCacheDirectory,
             core: languageServerCore,
             processRegistry: processRegistry,
-            moduleID: moduleID
+            moduleID: moduleID,
+            pluginID: languageServerLaunch.launchSource?.pluginID
         )
     }
 

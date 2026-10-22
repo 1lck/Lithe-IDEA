@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import LitheApplicationKernel
 @testable import LitheExecutionModule
 import LitheCoreContracts
 import Testing
@@ -1400,6 +1401,109 @@ struct BuildSystemServiceTests {
         #expect(runner.requests.isEmpty)
     }
 
+    /// A first load lets the provider answer from its snapshot; the request
+    /// still names the build tool the host resolved, so the provider does
+    /// not repeat wrapper, MAVEN_HOME, PATH, and override lookup.
+    @Test
+    func providerModelLoadCarriesTheResolvedToolWithoutRefresh() async throws {
+        let planner = FakeBuildPlanner()
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "provider")])
+        planner.providerRequest = Self.providerRequest(method: "lithe/build/model")
+        let providers = FakeBuildProviders()
+        let harness = Harness(planner: planner, providers: providers)
+        defer { harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        #expect(await harness.waitForEntries { $0.first?.modelState == .notLoaded })
+
+        harness.service.loadModel(Self.instanceID)
+        #expect(await harness.waitForEntries { $0.first?.modelState == .loaded })
+
+        // Core decides the source; the tool is resolved only once it says
+        // provider, and the request is planned again with it.
+        #expect(planner.modelPlanHints == [
+            BuildProviderHints(reason: .initial),
+            BuildProviderHints(reason: .initial, toolExecutable: FakeToolResolver.executableURL),
+        ])
+        #expect(harness.tools.resolutions == 1)
+        #expect(providers.sent.count == 1)
+    }
+
+    /// The user's Reload must reach the provider, or it would answer from a
+    /// snapshot taken before the build files changed.
+    @Test
+    func providerReloadsAskForARefresh() async throws {
+        let planner = FakeBuildPlanner()
+        planner.detection = BuildDetection(instances: [
+            try Self.instance(modelSource: "provider", model: Self.model(name: "loaded"))
+        ])
+        planner.providerRequest = Self.providerRequest(method: "lithe/build/model")
+        let providers = FakeBuildProviders()
+        let harness = Harness(planner: planner, providers: providers)
+        defer { harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        #expect(await harness.waitForEntries { !$0.isEmpty })
+
+        harness.service.loadModel(Self.instanceID, reason: .refresh)
+        #expect(await harness.waitForEntries { $0.first?.modelState == .loaded })
+        #expect(planner.modelPlanHints.last == BuildProviderHints(
+            reason: .refresh, toolExecutable: FakeToolResolver.executableURL
+        ))
+
+        harness.service.loadDependencies(Self.instanceID, project: nil, reason: .refresh)
+        #expect(await harness.waitForEntries { entry in
+            guard case .loaded = entry.first?.dependencies["app"] else { return false }
+            return true
+        })
+        #expect(planner.dependencyPlanHints == [
+            BuildProviderHints(reason: .refresh),
+            BuildProviderHints(reason: .refresh, toolExecutable: FakeToolResolver.executableURL),
+        ])
+    }
+
+    /// A missing build tool is not a provider failure: the request goes out
+    /// without the tool and the provider looks it up itself.
+    @Test
+    func providerLoadsWithoutTheToolWhenResolutionFails() async throws {
+        let planner = FakeBuildPlanner()
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "provider")])
+        planner.providerRequest = Self.providerRequest(method: "lithe/build/model")
+        let providers = FakeBuildProviders()
+        let harness = Harness(planner: planner, providers: providers)
+        harness.tools.failure = BuildToolResolutionError("Maven is not installed.")
+        defer { harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        #expect(await harness.waitForEntries { $0.first?.modelState == .notLoaded })
+
+        harness.service.loadModel(Self.instanceID)
+        #expect(await harness.waitForEntries { $0.first?.modelState == .loaded })
+
+        #expect(planner.modelPlanHints == [BuildProviderHints(reason: .initial)])
+        #expect(providers.sent.count == 1)
+        #expect(harness.service.output.contains("Maven is not installed."))
+    }
+
+    /// Command sources resolve their tool when the command runs; planning
+    /// never resolves it a second time for them.
+    @Test
+    func commandModelLoadsDoNotResolveAProviderTool() async throws {
+        let planner = FakeBuildPlanner()
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "command")])
+        planner.modelOutput = .stdout
+        let runner = FakeBuildRunner()
+        runner.script = .init(chunks: [], result: BuildCommandResult(termination: .exited(0), standardOutput: "MODEL"))
+        let harness = Harness(planner: planner, runner: runner)
+        defer { harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        #expect(await harness.waitForEntries { $0.first?.modelState == .notLoaded })
+
+        harness.service.loadModel(Self.instanceID, reason: .refresh)
+        #expect(await harness.waitForEntries { $0.first?.modelState == .loaded })
+
+        #expect(planner.modelPlanHints == [BuildProviderHints(reason: .refresh)])
+        #expect(harness.tools.resolutions == 1)
+        #expect(runner.requests.count == 1)
+    }
+
     @Test
     func workspaceSwitchAndDisabledPluginStopTheirProviders() async throws {
         let planner = FakeBuildPlanner()
@@ -1430,6 +1534,42 @@ struct BuildSystemServiceTests {
         harness.service.reset(workspaceURL: URL(fileURLWithPath: "/workspace/other"))
         #expect(providers.stopped == [first, first])
         #expect(providers.running.isEmpty)
+    }
+
+    @Test(arguments: [false, true])
+    func moduleShutdownStopsInitializingAndReadyProviders(ready: Bool) async throws {
+        let planner = FakeBuildPlanner()
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "provider")])
+        planner.providerRequest = Self.providerRequest(method: "lithe/build/model")
+        let providers = FakeBuildProviders()
+        if !ready { providers.replyGate = BuildTestGate() }
+        let harness = Harness(planner: planner, providers: providers)
+        let (runtime, graph) = try await makeBuildSystemTestRuntime(harness.service)
+        defer {
+            graph.stop()
+            providers.replyGate?.open()
+        }
+        harness.service.reset(workspaceURL: Self.workspace)
+        try #require(await harness.waitForEntries { $0.first?.modelState == .notLoaded })
+        harness.service.loadModel(Self.instanceID)
+        try #require(await providers.requestStarted.waitUntilOpen())
+        let target = try #require(providers.sent.first?.target)
+        if ready {
+            try #require(await harness.waitForEntries { $0.first?.modelState == .loaded })
+        }
+        #expect(providers.running == [target])
+
+        try await runtime.shutdown(.execution)
+
+        #expect(providers.stopped == [target])
+        #expect(providers.running.isEmpty)
+        #expect(!graph.isActive)
+        #expect(runtime.capability(.executionWorkspace) == nil)
+        try #require(await providers.requestFinished.waitUntilOpen())
+        #expect(harness.service.entries.first?.modelState == (ready ? .loaded : .notLoaded))
+        try await runtime.shutdown(.execution)
+        #expect(providers.stopped == [target])
+        await runtime.shutdownAll()
     }
 
     @Test
@@ -1572,6 +1712,7 @@ private final class Harness {
     let service: BuildSystemService
     let optionsStore = FakeOptionsStore()
     let stateLocator = FakeStateLocator()
+    let tools = FakeToolResolver()
     private let enabledSources: SourceList
 
     /// The plugins the service sees as enabled.
@@ -1591,7 +1732,7 @@ private final class Harness {
         self.enabledSources = enabledSources
         service = BuildSystemService(
             planner: planner,
-            tools: FakeToolResolver(),
+            tools: tools,
             optionsStore: optionsStore,
             stateLocator: stateLocator,
             runner: runner,
@@ -1768,6 +1909,8 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
         var decodedModelOutputs: [BuildCommandOutput] = []
         var diagnosticOutputs: [String] = []
         var taskPlanContexts: [BuildPlanContext] = []
+        var modelPlanHints: [BuildProviderHints] = []
+        var dependencyPlanHints: [BuildProviderHints] = []
     }
 
     private func access<Value>(_ body: (inout State) -> Value) -> Value { lock.withLock { body(&state) } }
@@ -1841,6 +1984,9 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
         set { access { $0.testPlanDeclaresResults = newValue } }
     }
     var taskPlanContexts: [BuildPlanContext] { access { $0.taskPlanContexts } }
+    /// The provider hints of every model and dependency plan, in order.
+    var modelPlanHints: [BuildProviderHints] { access { $0.modelPlanHints } }
+    var dependencyPlanHints: [BuildProviderHints] { access { $0.dependencyPlanHints } }
     var fingerprint: String {
         get { access { $0.fingerprint } }
         set { access { $0.fingerprint = newValue } }
@@ -1933,7 +2079,13 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
         """)
     }
 
-    func modelPlan(_ target: BuildSystemTarget, context: BuildPlanContext, outputFile: URL?) throws -> BuildOutputPlan {
+    func modelPlan(
+        _ target: BuildSystemTarget,
+        context: BuildPlanContext,
+        outputFile: URL?,
+        providerHints: BuildProviderHints
+    ) throws -> BuildOutputPlan {
+        access { $0.modelPlanHints.append(providerHints) }
         if let request = providerRequest { return .provider(request) }
         return .process(plan(["model"], output: modelOutput))
     }
@@ -1957,8 +2109,10 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
         _ target: BuildSystemTarget,
         context: BuildPlanContext,
         project: BuildSelection?,
-        outputFile: URL?
+        outputFile: URL?,
+        providerHints: BuildProviderHints
     ) throws -> BuildOutputPlan {
+        access { $0.dependencyPlanHints.append(providerHints) }
         if let request = providerRequest { return .provider(request) }
         return .process(plan(["dependencies"], output: .stdout))
     }
@@ -2048,14 +2202,21 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
 
 @MainActor
 private final class FakeToolResolver: BuildToolResolving {
+    static let executableURL = URL(fileURLWithPath: "/tool/bin/fake")
+    /// When set, resolution fails like a build tool that is not installed.
+    var failure: (any Error)?
+    private(set) var resolutions = 0
+
     func resolve(
         _ invocation: BuildInvocation,
         displayName: String,
         workspaceURL: URL,
         checkVersion: @escaping @Sendable (String?, String) throws -> BuildVersionCheck
     ) async throws -> ResolvedBuildTool {
-        ResolvedBuildTool(
-            executableURL: URL(fileURLWithPath: "/tool/bin/fake"),
+        resolutions += 1
+        if let failure { throw failure }
+        return ResolvedBuildTool(
+            executableURL: Self.executableURL,
             environment: ["PATH": "/tool/bin"],
             executesProjectCode: false,
             version: nil
@@ -2255,6 +2416,9 @@ private final class FakeBuildProviders: BuildProviderRequesting {
 
     var reply: ToolingJSONValue = .object(["projects": .array([])])
     var failure: (any Error)?
+    var replyGate: BuildTestGate?
+    let requestStarted = BuildTestGate()
+    let requestFinished = BuildTestGate()
     private(set) var sent: [Sent] = []
     private(set) var running: Set<BuildProviderTarget> = []
     private(set) var stopped: [BuildProviderTarget] = []
@@ -2266,6 +2430,9 @@ private final class FakeBuildProviders: BuildProviderRequesting {
     ) async throws -> ToolingJSONValue {
         sent.append(Sent(request: request, target: target, timeout: timeout))
         running.insert(target)
+        requestStarted.open()
+        defer { requestFinished.open() }
+        if let replyGate, !(await replyGate.waitUntilOpen()) { throw CancellationError() }
         if let failure { throw failure }
         return reply
     }

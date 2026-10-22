@@ -30,6 +30,7 @@ mod select;
 mod template;
 
 pub(crate) use commands::*;
+pub(crate) use invocation::host_runtime_version_arguments;
 pub(crate) use manifest::{
     activation_event, programs, validate_declarations, BuildSystemDeclaration, DeclarationContext,
     ProviderProcess,

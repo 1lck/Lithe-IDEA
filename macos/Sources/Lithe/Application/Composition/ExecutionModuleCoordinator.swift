@@ -52,7 +52,7 @@ final class ExecutionModuleCoordinator {
             }
             return capability
         } catch {
-            onError(error.localizedDescription)
+            if !error.isCancellation { onError(error.localizedDescription) }
             return nil
         }
     }

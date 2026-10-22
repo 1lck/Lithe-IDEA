@@ -6,6 +6,70 @@ import Testing
 @Suite("Tool window docking")
 @MainActor
 struct ToolWindowDockingTests {
+    @Test func transparentProjectStripesOnlyCaptureTheSelectedProjectsClicks() throws {
+        let fixture = ProjectStripeFixture()
+        defer { fixture.close() }
+        // All three projects retain overlapping native monitors, just as opacity(0) does.
+        for project in [0, 1, 2, 0] {
+            fixture.select(project)
+            let before = fixture.clicks
+            try fixture.send(.leftMouseDown)
+            try fixture.send(.leftMouseUp)
+            for index in fixture.sources.indices {
+                #expect(fixture.clicks[index] == before[index] + (index == project ? 1 : 0))
+                #expect(!fixture.sources[index].isHiddenOrHasHiddenAncestor)
+                #expect(fixture.drags[index].target(at: fixture.point)?.before == (index == project ? .agent : nil))
+            }
+        }
+    }
+
+    @Test func projectStripeOwnershipIsScopedToItsWindowInsteadOfTheKeyWindow() throws {
+        let first = ProjectStripeFixture()
+        defer { first.close() }
+        let second = ProjectStripeFixture()
+        defer { second.close() }
+        first.select(1)
+        second.select(2)
+        // The first click in either window must work without depending on global key-window state.
+        for fixture in [second, first, second, first] {
+            try fixture.send(.leftMouseDown)
+            try fixture.send(.leftMouseUp)
+        }
+        #expect(first.clicks == [0, 2, 0])
+        #expect(second.clicks == [0, 0, 2])
+    }
+
+    @Test func switchingProjectsCancelsToolPressesAndFloatingDragPreviews() throws {
+        let fixture = ProjectStripeFixture()
+        defer { fixture.close() }
+        try fixture.send(.leftMouseDown)
+        fixture.select(1)
+        // No representable update has occurred: the event-time ownership check must reject release.
+        try fixture.send(.leftMouseUp)
+        #expect(fixture.clicks == [0, 0, 0])
+        try fixture.send(.leftMouseDown)
+        try fixture.send(.leftMouseUp)
+        #expect(fixture.clicks == [0, 1, 0])
+
+        fixture.select(0)
+        try fixture.send(.leftMouseDown)
+        try fixture.send(.leftMouseDragged, at: NSPoint(x: fixture.point.x + 15, y: fixture.point.y))
+        #expect(fixture.drags[0].source == .agent)
+        let preview = try #require(fixture.window.childWindows?.first {
+            $0.identifier?.rawValue == "lithe.tool-window-drag-preview"
+        })
+        fixture.select(2)
+        // SwiftUI's regular update uses this same cancellation path, even with no further mouse event.
+        fixture.sources[0].cancelIfInactive()
+        #expect(!preview.isVisible && preview.parent == nil)
+        #expect(fixture.drags[0].source == nil)
+        try fixture.send(.leftMouseUp)
+        fixture.select(0)
+        try fixture.send(.leftMouseUp)
+        #expect(fixture.clicks == [0, 1, 0])
+        #expect(fixture.commits == [0, 0, 0])
+    }
+
     @Test func clippedToolButtonsDoNotCaptureOtherGroupsOrBecomeDropTargets() throws {
         let drag = ToolWindowDragState()
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 100, height: 400),
@@ -578,6 +642,58 @@ struct ToolWindowDockingTests {
         #expect(drag.source == nil)
         #expect(drag.target == nil)
         #expect(model.toolWindowStates == original)
+    }
+}
+
+@MainActor
+private final class ProjectStripeFixture {
+    let window: NSWindow
+    let point = NSPoint(x: 18, y: 20)
+    private(set) var sources: [ToolWindowDragSource.SourceView] = []
+    private(set) var drags: [ToolWindowDragState] = []
+    private(set) var clicks = [0, 0, 0]
+    private(set) var commits = [0, 0, 0]
+    private var selectedProject = 0
+
+    init() {
+        window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 100, height: 400),
+                          styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 400))
+        window.contentView = root
+        for index in 0..<3 {
+            let drag = ToolWindowDragState()
+            drag.workspaceFrame = root.bounds
+            let source = ToolWindowDragSource.SourceView(frame: NSRect(x: 0, y: 0, width: 37, height: 40))
+            source.tool = .agent
+            source.position = .init(anchor: .right, group: .primary)
+            source.drag = drag
+            source.isCurrentProject = { [weak self] in self?.selectedProject == index }
+            source.click = { [weak self] in self?.clicks[index] += 1 }
+            source.commit = { [weak self] _, _ in self?.commits[index] += 1 }
+            source.image = { NSImage(size: NSSize(width: 20, height: 20)) }
+            sources.append(source)
+            drags.append(drag)
+            root.addSubview(source)
+        }
+        select(0)
+    }
+
+    func select(_ project: Int) {
+        selectedProject = project
+        for (index, source) in sources.enumerated() { source.alphaValue = index == project ? 1 : 0 }
+    }
+
+    func send(_ type: NSEvent.EventType, at location: NSPoint? = nil) throws {
+        NSApp.sendEvent(try #require(NSEvent.mouseEvent(with: type, location: location ?? point,
+            modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil,
+            eventNumber: 0, clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1)))
+    }
+
+    func close() {
+        sources.forEach { $0.dismantle() }
+        window.contentView = nil
+        window.close()
     }
 }
 

@@ -150,6 +150,15 @@ export function invoke<T>(
 function capabilityForCommand(command: string): BackendCapability | null {
   if (command.startsWith("github_")) return "github";
   if (command.startsWith("docker_")) return "docker";
+  if (command === "wsl_automount_root") {
+    // Placing a path inside a WSL prompt is terminal behaviour, not WSL
+    // management: the terminal backend is what inserts it, and reading
+    // `/etc/wsl.conf` only decides where Windows drives live. Gating it behind
+    // the unavailable `wsl` family would reject every call before IPC and
+    // silently fall back to `/mnt`, which inserts a path the distribution
+    // cannot open when it uses a custom root.
+    return "terminal";
+  }
   if (command.startsWith("wsl_")) return "wsl";
   if (
     command.startsWith("ssh_") ||
@@ -186,12 +195,24 @@ function capabilityForCommand(command: string): BackendCapability | null {
     return "runActions";
   }
   if (
+    command === "agent.status" ||
+    command === "agent.install" ||
+    command === "agent.uninstall" ||
+    command === "agent.installCli" ||
+    command === "agent.parseProviderConfiguration"
+  ) {
+    return "agent";
+  }
+  if (
     command.includes("acp_") ||
     command.includes("ai_provider") ||
     command.includes("_chat") ||
     command === "get_available_agents"
   ) {
-    return "agent";
+    // The legacy `features/ai` chat has no Windows backend. It keeps its own
+    // gate so those commands still read "待开发" instead of reaching the
+    // dispatcher that answers "not implemented".
+    return "aiChat";
   }
   if (
     command.includes("extension_secret") ||

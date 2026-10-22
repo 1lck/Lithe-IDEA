@@ -146,25 +146,30 @@ public struct DeclarativeLanguageServerLaunchRequest: Equatable, Sendable {
     /// Core falls back to the declared default for a missing or no longer
     /// acceptable value.
     public let settings: [String: ToolingJSONValue]
+    /// The workspace's overrides of project-scoped settings.
+    public let projectSettings: [String: ToolingJSONValue]
 
     public init(
         pluginDirectory: URL,
         stateDirectory: URL,
         workspaceStateDirectory: URL,
         architecture: String,
-        settings: [String: ToolingJSONValue] = [:]
+        settings: [String: ToolingJSONValue] = [:],
+        projectSettings: [String: ToolingJSONValue] = [:]
     ) {
         self.pluginDirectory = pluginDirectory
         self.stateDirectory = stateDirectory
         self.workspaceStateDirectory = workspaceStateDirectory
         self.architecture = architecture
         self.settings = settings
+        self.projectSettings = projectSettings
     }
 }
 
 /// One option a declarative plugin lets the user change (plugin API 2). The
-/// plugin names it in launch templates; the host shows it on the plugin's page
-/// and keeps the value once per plugin.
+/// plugin names it in launch templates; the host shows it on the page the
+/// declaration places it on and keeps the value per plugin, and per project
+/// for project-scoped settings (settings capability 2).
 public struct DeclarativePluginSetting: Equatable, Identifiable, Sendable {
     public struct Option: Equatable, Sendable {
         public let value: String
@@ -180,6 +185,36 @@ public struct DeclarativePluginSetting: Equatable, Identifiable, Sendable {
         case integer(minimum: Int, maximum: Int, unit: String?)
         case choice([Option])
         case toggle
+        case multiSelect([Option])
+        /// Free text matched in whole by `pattern`, which Rust Core requires.
+        case text(pattern: String, maxLength: Int, placeholder: String?)
+        /// An absolute path, or empty for "not set".
+        case path(directory: Bool, placeholder: String?)
+    }
+
+    /// Where a value may be kept. A project value overrides the global one.
+    public enum Scope: String, Equatable, Sendable {
+        case global
+        case project
+    }
+
+    /// When a changed value takes effect, shown next to the control.
+    public enum Effect: String, Equatable, Sendable {
+        /// The language server restarts with the new launch.
+        case restart
+        /// Sent to the running server through workspace configuration.
+        case immediate
+        /// The build model reloads.
+        case reload
+        /// The next run, test, or build uses it.
+        case nextRun
+    }
+
+    /// The generated settings page that shows the declaration. Without one it
+    /// stays on the plugin's own page under Tools.
+    public enum Page: Hashable, Sendable {
+        case language(String)
+        case buildSystem(String)
     }
 
     public let id: String
@@ -187,13 +222,32 @@ public struct DeclarativePluginSetting: Equatable, Identifiable, Sendable {
     public let summary: String?
     public let kind: Kind
     public let defaultValue: ToolingJSONValue
+    public let scope: Scope
+    public let effect: Effect
+    public let page: Page?
+    /// Optional group heading within the page.
+    public let section: String?
 
-    public init(id: String, title: String, summary: String?, kind: Kind, defaultValue: ToolingJSONValue) {
+    public init(
+        id: String,
+        title: String,
+        summary: String?,
+        kind: Kind,
+        defaultValue: ToolingJSONValue,
+        scope: Scope = .global,
+        effect: Effect = .restart,
+        page: Page? = nil,
+        section: String? = nil
+    ) {
         self.id = id
         self.title = title
         self.summary = summary
         self.kind = kind
         self.defaultValue = defaultValue
+        self.scope = scope
+        self.effect = effect
+        self.page = page
+        self.section = section
     }
 
     /// Whether `value` is one this declaration can hold. Mirrors the check Rust
@@ -202,13 +256,29 @@ public struct DeclarativePluginSetting: Equatable, Identifiable, Sendable {
     public func accepts(_ value: ToolingJSONValue) -> Bool {
         switch (kind, value) {
         case (.integer(let minimum, let maximum, _), .integer(let number)):
-            number >= minimum && number <= maximum
+            return number >= minimum && number <= maximum
         case (.choice(let options), .string(let text)):
-            options.contains { $0.value == text }
+            return options.contains { $0.value == text }
         case (.toggle, .bool):
-            true
+            return true
+        case (.multiSelect(let options), .array(let items)):
+            var seen = Set<String>()
+            return items.allSatisfy { item in
+                guard case .string(let text) = item,
+                      options.contains(where: { $0.value == text })
+                else { return false }
+                return seen.insert(text).inserted
+            }
+        case (.text(let pattern, let maxLength, _), .string(let text)):
+            return text.unicodeScalars.count <= maxLength
+                && !text.hasPrefix("-")
+                && Self.isPrintable(text)
+                && Self.matchesWhole(text, pattern: pattern)
+        case (.path, .string(let text)):
+            return text.isEmpty
+                || (Self.isAbsolutePath(text) && text.unicodeScalars.count <= 1024 && Self.isPrintable(text))
         default:
-            false
+            return false
         }
     }
 
@@ -217,6 +287,79 @@ public struct DeclarativePluginSetting: Equatable, Identifiable, Sendable {
         if let stored, accepts(stored) { return stored }
         return defaultValue
     }
+
+    /// Rust's `char::is_control`: general category Cc only, not format
+    /// characters such as the zero-width joiner.
+    private static func isPrintable(_ text: String) -> Bool {
+        !text.unicodeScalars.contains { $0.properties.generalCategory == .control }
+    }
+
+    /// `/…`, or `C:\…` / `C:/…`, as Rust Core accepts on every host.
+    private static func isAbsolutePath(_ text: String) -> Bool {
+        if text.hasPrefix("/") { return true }
+        let bytes = Array(text.utf8.prefix(3))
+        guard bytes.count == 3 else { return false }
+        let isLetter = (UInt8(ascii: "a")...UInt8(ascii: "z")).contains(bytes[0] | 0x20)
+        return isLetter && bytes[1] == UInt8(ascii: ":")
+            && (bytes[2] == UInt8(ascii: "\\") || bytes[2] == UInt8(ascii: "/"))
+    }
+
+    private static func matchesWhole(_ text: String, pattern: String) -> Bool {
+        guard let expression = try? NSRegularExpression(pattern: "^(?:\(pattern))$") else {
+            return false
+        }
+        let range = NSRange(text.startIndex..., in: text)
+        return expression.firstMatch(in: text, range: range) != nil
+    }
+}
+
+/// A language a plugin declares.
+public struct DeclarativePluginLanguage: Equatable, Hashable, Sendable {
+    public let id: String
+    public let displayName: String
+
+    public init(id: String, displayName: String) {
+        self.id = id
+        self.displayName = displayName
+    }
+}
+
+/// A button a plugin adds to a settings page. The host draws it and invokes
+/// the named plugin function of the same plugin; what it does is the
+/// plugin's business.
+public struct DeclarativePluginSettingAction: Equatable, Identifiable, Sendable {
+    public let id: String
+    public let title: String
+    public let summary: String?
+    public let page: DeclarativePluginSetting.Page?
+    public let section: String?
+    public let functionID: String
+    public let requiresConfirmation: Bool
+
+    public init(
+        id: String,
+        title: String,
+        summary: String?,
+        page: DeclarativePluginSetting.Page?,
+        section: String?,
+        functionID: String,
+        requiresConfirmation: Bool
+    ) {
+        self.id = id
+        self.title = title
+        self.summary = summary
+        self.page = page
+        self.section = section
+        self.functionID = functionID
+        self.requiresConfirmation = requiresConfirmation
+    }
+}
+
+/// Which stored layer an effective setting value came from.
+public enum PluginSettingSource: String, Equatable, Sendable {
+    case `default`
+    case global
+    case project
 }
 
 /// The user's values for declarative plugin settings, kept once per plugin.
@@ -225,6 +368,25 @@ public protocol PluginSettingsStoring: Sendable {
     func values(forPlugin pluginID: String) -> [String: ToolingJSONValue]
     /// Stores `value`; `nil` forgets it so the declared default applies.
     func setValue(_ value: ToolingJSONValue?, forSetting settingID: String, plugin pluginID: String)
+    /// Project-layer values, read from the project itself so they travel with it.
+    func projectValues(forPlugin pluginID: String, projectRoot: URL) -> [String: ToolingJSONValue]
+    /// Stores a project-layer value; `nil` removes the override.
+    func setProjectValue(
+        _ value: ToolingJSONValue?,
+        forSetting settingID: String,
+        plugin pluginID: String,
+        projectRoot: URL
+    ) throws
+}
+
+public extension PluginSettingsStoring {
+    func projectValues(forPlugin pluginID: String, projectRoot: URL) -> [String: ToolingJSONValue] { [:] }
+    func setProjectValue(
+        _ value: ToolingJSONValue?,
+        forSetting settingID: String,
+        plugin pluginID: String,
+        projectRoot: URL
+    ) throws {}
 }
 
 /// Result of `plugins.declarative.languageServerLaunchPlan`. Rust Core only
@@ -249,6 +411,9 @@ public struct DeclarativeLanguageServerLaunchPlan: Equatable, Sendable {
     public let arguments: [String]
     public let validationArguments: [String]
     public let initializationOptions: ToolingJSONValue?
+    /// What the server reads through `workspace/configuration`, expanded with
+    /// the current settings; `nil` when the server declares none.
+    public var workspaceConfiguration: ToolingJSONValue? = nil
     /// A declared host integration with its package-relative resource paths.
     public struct HostIntegration: Equatable, Sendable {
         public let id: String
@@ -395,6 +560,10 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
     public let executionProviders: [DeclarativeExecutionProvider]
     public let buildSystems: [DeclarativeBuildSystem]
     public let settings: [DeclarativePluginSetting]
+    /// Buttons the plugin adds to settings pages (settings capability 2).
+    public let settingActions: [DeclarativePluginSettingAction]
+    /// Languages the plugin declares, with their display names.
+    public let languages: [DeclarativePluginLanguage]
     public let permissions: [String]
     public let activationEvents: [String]
     public let ui: DeclarativeUIContributions?
@@ -437,6 +606,8 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
         buildSystems = decoded.buildSystems.map { $0.declaration() }
         ui = decoded.ui
         settings = try decoded.settings.map { try $0.declaration() }
+        settingActions = decoded.settingActions.map { $0.declaration() }
+        languages = decoded.languages.map { DeclarativePluginLanguage(id: $0.id, displayName: $0.displayName) }
         permissions = decoded.permissions
         activationEvents = decoded.activationEvents
         self.normalizedManifest = normalizedManifest
@@ -647,6 +818,16 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 let value: String
                 let title: String
             }
+            struct Page: Decodable {
+                let languageID: String?
+                let buildSystemID: String?
+
+                var placement: DeclarativePluginSetting.Page? {
+                    if let languageID { return .language(languageID) }
+                    if let buildSystemID { return .buildSystem(buildSystemID) }
+                    return nil
+                }
+            }
 
             let id: String
             let type: String
@@ -657,31 +838,76 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
             let maximum: Int?
             let unit: String?
             let options: [Option]?
+            let scope: String?
+            let effect: String?
+            let page: Page?
+            let section: String?
+            let pattern: String?
+            let maxLength: Int?
+            let placeholder: String?
 
             /// Rust Core has already checked the declaration, so a shape that
             /// does not fit comes from a newer contract this host cannot show.
             func declaration() throws -> DeclarativePluginSetting {
                 let kind: DeclarativePluginSetting.Kind
+                let options = (options ?? []).map { DeclarativePluginSetting.Option(value: $0.value, title: $0.title) }
                 switch (type, minimum, maximum) {
                 case ("integer", let minimum?, let maximum?):
                     kind = .integer(minimum: minimum, maximum: maximum, unit: unit)
                 case ("enum", _, _):
-                    kind = .choice((options ?? []).map { .init(value: $0.value, title: $0.title) })
+                    kind = .choice(options)
                 case ("boolean", _, _):
                     kind = .toggle
+                case ("multiSelect", _, _):
+                    kind = .multiSelect(options)
+                case ("text", _, _) where pattern != nil:
+                    kind = .text(pattern: pattern ?? "", maxLength: maxLength ?? 256, placeholder: placeholder)
+                case ("file", _, _):
+                    kind = .path(directory: false, placeholder: placeholder)
+                case ("directory", _, _):
+                    kind = .path(directory: true, placeholder: placeholder)
                 default:
-                    throw DeclarativePluginRejection(
-                        code: "plugin.manifest.invalid",
-                        message: "The setting type \(type) is not supported by this version of Lithe.",
-                        field: "settings.\(id)"
-                    )
+                    throw unsupported("The setting type \(type) is not supported by this version of Lithe.")
                 }
+                guard let scope = DeclarativePluginSetting.Scope(rawValue: scope ?? "global"),
+                      let effect = DeclarativePluginSetting.Effect(rawValue: effect ?? "restart")
+                else { throw unsupported("The setting scope or effect is not supported by this version of Lithe.") }
+                let placement = page?.placement
                 return DeclarativePluginSetting(
                     id: id,
                     title: title,
                     summary: description,
                     kind: kind,
-                    defaultValue: `default`
+                    defaultValue: `default`,
+                    scope: scope,
+                    effect: effect,
+                    page: placement,
+                    section: section
+                )
+            }
+
+            private func unsupported(_ message: String) -> DeclarativePluginRejection {
+                DeclarativePluginRejection(code: "plugin.manifest.invalid", message: message, field: "settings.\(id)")
+            }
+        }
+        struct SettingAction: Decodable {
+            let id: String
+            let title: String
+            let description: String?
+            let page: Setting.Page?
+            let section: String?
+            let function: String
+            let confirm: Bool?
+
+            func declaration() -> DeclarativePluginSettingAction {
+                DeclarativePluginSettingAction(
+                    id: id,
+                    title: title,
+                    summary: description,
+                    page: page?.placement,
+                    section: section,
+                    functionID: function,
+                    requiresConfirmation: confirm ?? false
                 )
             }
         }
@@ -813,6 +1039,7 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
         let buildSystems: [BuildSystem]
         let ui: DeclarativeUIContributions?
         let settings: [Setting]
+        let settingActions: [SettingAction]
 
         init(from decoder: Decoder) throws {
             let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -829,11 +1056,12 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
             executionProviders = try values.decodeIfPresent([ExecutionProvider].self, forKey: .executionProviders) ?? []
             buildSystems = try values.decodeIfPresent([BuildSystem].self, forKey: .buildSystems) ?? []
             settings = try values.decodeIfPresent([Setting].self, forKey: .settings) ?? []
+            settingActions = try values.decodeIfPresent([SettingAction].self, forKey: .settingActions) ?? []
         }
 
         private enum CodingKeys: String, CodingKey {
             case id, displayName, version, pluginAPIVersion, vendor, permissions, activationEvents
-            case languages, languageServers, executionProviders, buildSystems, ui, settings
+            case languages, languageServers, executionProviders, buildSystems, ui, settings, settingActions
         }
     }
 }
@@ -869,6 +1097,36 @@ public protocol DeclarativeExecutionPlanning: Sendable {
 
 /// Expands a declarative language server's launch declaration. Implementations
 /// throw `DeclarativePluginRejection`.
+/// One declared setting's effective value and the layer it came from, as
+/// Rust Core resolves it for launches.
+public struct ResolvedPluginSetting: Equatable, Sendable {
+    public let id: String
+    public let value: ToolingJSONValue
+    public let source: PluginSettingSource
+
+    public init(id: String, value: ToolingJSONValue, source: PluginSettingSource) {
+        self.id = id
+        self.value = value
+        self.source = source
+    }
+}
+
+/// Rust Core's view of plugin settings: the values a launch would use and the
+/// workspace configuration an `immediate` change sends to a running server.
+public protocol DeclarativePluginSettingsResolving: Sendable {
+    func resolveSettings(
+        manifest: Data,
+        settings: [String: ToolingJSONValue],
+        projectSettings: [String: ToolingJSONValue]
+    ) throws -> [ResolvedPluginSetting]
+    func workspaceConfiguration(
+        manifest: Data,
+        languageID: String,
+        settings: [String: ToolingJSONValue],
+        projectSettings: [String: ToolingJSONValue]
+    ) throws -> ToolingJSONValue?
+}
+
 public protocol DeclarativeLanguageServerLaunchPlanning: Sendable {
     func languageServerLaunchPlan(
         manifest: Data,

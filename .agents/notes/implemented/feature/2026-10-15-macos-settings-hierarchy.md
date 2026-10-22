@@ -21,10 +21,14 @@ macOS 设置侧栏现在只有七个一级入口：外观与行为、插件、�
 | 版本控制 | Git、SVN 等版本控制系统的配置 |
 | 构建、执行、部署 | 构建工具、项目 JDK、运行配置、服务运行，以及框架和构建工具注入的配置 |
 | 语言与框架 | 语言服务（LSP）的开关，以及 Spring Boot 等框架的配置 |
-| 工具 | 终端、诊断包导出等通用工具；插件带来的专用工具（例如 `.http` 请求）可以放进对应工具页 |
+| 工具 | 终端、日志与诊断（查看、目录、清理和诊断包导出）等通用工具；插件带来的专用工具（例如 `.http` 请求）可以放进对应工具页 |
 | AI | 凡是和 AI 有关的都放这里：MCP、Skill、AI 提交信息、Agents、AI 服务商 |
 
 插件如果带来了新的设置，默认放进“插件”页；只有它新增的是上表中某个分组本来就该有的能力（例如新的版本控制系统）时，才放进那个分组。
+
+### 插件注册的页面
+
+插件可以在清单里把设置和按钮放到“语言与框架 › <语言>”或“构建、执行、部署 › <构建系统>”。这些页面不是 `SettingsCategory` 的 case，而是由 `PluginSettingsRegistry` 从已启用插件的声明推导，跟在对应分组的静态页面后面；面包屑和搜索同样从注册结果推导。宿主不为任何具体语言或构建工具写专用页面，规则见 [插件设置的通用注册面与生效方式](../architecture/2026-10-21-plugin-settings-surfaces.md)。
 
 ### 开发者怎么做
 
@@ -35,6 +39,7 @@ macOS 设置侧栏现在只有七个一级入口：外观与行为、插件、�
 
 - 不要把页面直接加到 `SettingsSidebarItem.layout` 来绕开分组；一级页面只留给插件。
 - 不要在 `SettingsView` 里再写按页面分支的分组 `switch`，这正是本次删除的重复来源。
+- 不要为某个语言或构建工具新增 `SettingsCategory`；让对应插件在清单里用 `page` 注册。
 
 ## 考虑过的备选方案
 
@@ -64,5 +69,6 @@ Issue 希望“构建工具 → Maven”“服务运行”“框架支持”也�
 - `macos/Sources/Lithe/Models/AppModel/AppModelSupportTypes.swift`
 - `macos/Sources/Lithe/Views/App/SettingsView.swift`
 - `macos/Sources/Lithe/Views/App/SettingsSearchVocabulary.swift`
+- `macos/Sources/Lithe/Application/Features/PluginSettingsRegistry.swift`
 - `macos/Tests/LitheTests/SettingsSidebarLayoutTests.swift`
 - `windows/tauri/src/features/settings/lib/settings-navigation.ts`（Windows 同步）

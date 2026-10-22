@@ -17,6 +17,7 @@ import { useTranslation } from "@/i18n/locale-provider";
 import { joinPath } from "@/utils/path-helpers";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { isWorktreeWritePatchCurrent } from "@/features/git/api/git-diff-api";
+import { showConfirmDialog } from "@/ui/dialog";
 import { discardHunk, stageHunk, unstageHunk } from "../../api/git-status-api";
 import {
   createMonacoDiffHunkActions,
@@ -88,6 +89,27 @@ export default function MonacoGitDiff({
   const container = useRef<HTMLDivElement>(null);
   const review = useRef<ReturnType<typeof mountDiffReview> | null>(null);
   const hunkActions = useRef<ReturnType<typeof createMonacoDiffHunkActions> | null>(null);
+  // Stable across the diff effect: one dialog at a time for block discards on
+  // this surface, honoring the shared Confirm Before Discard setting. The
+  // translator is read through a synchronized ref so dialogs opened after a
+  // language switch use the current locale without rebuilding the owner.
+  const translateRef = useRef(t);
+  translateRef.current = t;
+  const discardDialogPendingRef = useRef(false);
+  const confirmDiscardRef = useRef(async (path: string) => {
+    if (!useSettingsStore.getState().settings.confirmBeforeDiscard) return true;
+    if (discardDialogPendingRef.current) return false;
+    discardDialogPendingRef.current = true;
+    try {
+      const translate = translateRef.current;
+      return await showConfirmDialog(
+        translate("git.diff.rollbackHunkConfirm", { path }),
+        { title: translate("git.rollback"), confirmLabel: translate("git.rollback") },
+      );
+    } finally {
+      discardDialogPendingRef.current = false;
+    }
+  });
   const [error, setError] = useState<string>();
   // `stale` is a refused zero-context discard: the file changed after this
   // diff was read, and the watcher replaces the diff (clearing the notice).
@@ -337,7 +359,7 @@ export default function MonacoGitDiff({
 
   useEffect(() => {
     const owner = createMonacoDiffHunkActions(diff, repoPath ? { repoPath, isStaged, canDiscard } : undefined,
-      { stage: stageHunk, unstage: unstageHunk, discard: discardHunk,
+      { stage: stageHunk, unstage: unstageHunk, discard: discardHunk, confirmDiscard: confirmDiscardRef.current,
         // Zero-context hunks are sliced from `writePatch`; confirm that raw
         // patch, not the display diff, is still current before writing.
         validate: () => isWorktreeWritePatchCurrent(repoPath, sourcePath, diff.writePatch) });

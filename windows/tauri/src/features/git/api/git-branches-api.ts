@@ -25,6 +25,13 @@ interface CheckoutPreflightResult {
 interface GitWriteResult {
   output?: string;
   exitCode?: number;
+  branchDeletion?: GitBranchDeletion;
+}
+
+/** Recovery record Core returns for a deleted local branch: the commit it pointed at. */
+export interface GitBranchDeletion {
+  name: string;
+  deletedTarget: string;
 }
 
 const checkoutErrorMessage = (error: unknown): string => {
@@ -253,4 +260,52 @@ export const deleteBranch = async (repoPath: string, branchName: string): Promis
     console.error("Failed to delete branch:", error);
     return false;
   }
+};
+
+/**
+ * Deletes a local branch without any confirmation, like IDEA, and returns the recovery
+ * record so the caller can offer Restore. Unlike {@link deleteBranch} it rejects with
+ * Git's own reason (for example "not fully merged") instead of collapsing it to `false`.
+ */
+export const deleteLocalBranch = async (
+  repoPath: string,
+  branchName: string,
+): Promise<GitBranchDeletion> => {
+  const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
+  const result = await tauriInvoke<GitWriteResult>("git.write", {
+    repoPath: resolvedRepoPath,
+    operation: "deleteBranch",
+    reference: localBranchReference(branchName),
+  });
+  emitGitChanged({
+    repoPath: resolvedRepoPath,
+    scopes: ["history", "refs"],
+    source: "delete-branch",
+  });
+  return result?.branchDeletion ?? { name: branchName, deletedTarget: "" };
+};
+
+/** Recreates a deleted branch at the commit recorded by {@link deleteLocalBranch}. */
+export const restoreDeletedBranch = async (
+  repoPath: string,
+  deletion: GitBranchDeletion,
+): Promise<void> => {
+  if (!deletion.deletedTarget) throw new Error("The deleted branch has no recorded commit");
+  const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
+  await tauriInvoke("git.write", {
+    repoPath: resolvedRepoPath,
+    operation: "createBranch",
+    name: deletion.name,
+    gitReference: {
+      fullName: deletion.deletedTarget,
+      shortName: deletion.deletedTarget,
+      kind: "local",
+    },
+    checkout: false,
+  });
+  emitGitChanged({
+    repoPath: resolvedRepoPath,
+    scopes: ["history", "refs"],
+    source: "restore-deleted-branch",
+  });
 };

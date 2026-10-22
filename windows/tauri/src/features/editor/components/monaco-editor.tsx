@@ -1094,12 +1094,17 @@ export function MonacoEditor({
       contextmenu: false,
       overviewRulerLanes: 0,
       fixedOverflowWidgets: false,
+      // Full-width punctuation is normal Chinese prose; see frontend/editor workbench.ts
+      // for the rationale behind disabling Monaco's confusable-character warning.
+      unicodeHighlight: { ambiguousCharacters: false },
       "semanticHighlighting.enabled": enableExpensiveServicesRef.current && semanticTokens,
       scrollbar: {
         vertical: scrollable ? "auto" : "hidden",
         horizontal: scrollable ? "auto" : "hidden",
         handleMouseWheel: scrollable,
         alwaysConsumeMouseWheel: scrollable && alwaysConsumeMouseWheel,
+        verticalScrollbarSize: EDITOR_CONSTANTS.SCROLLBAR_TRACK_SIZE,
+        horizontalScrollbarSize: EDITOR_CONSTANTS.SCROLLBAR_TRACK_SIZE,
       },
     });
     const restoreFindWidgetCloseButtonHover = suppressFindWidgetCloseButtonHover(container);
@@ -2364,11 +2369,16 @@ export function MonacoEditor({
       cursorBlinking:
         vimModeEnabled && vimCurrentMode === "normal" ? "solid" : editorCursorBlinking,
       "semanticHighlighting.enabled": enableExpensiveServices && semanticTokens,
+      // Full-width punctuation is normal Chinese prose; see frontend/editor workbench.ts
+      // for the rationale behind disabling Monaco's confusable-character warning.
+      unicodeHighlight: { ambiguousCharacters: false },
       scrollbar: {
         vertical: scrollable ? "auto" : "hidden",
         horizontal: scrollable ? "auto" : "hidden",
         handleMouseWheel: scrollable,
         alwaysConsumeMouseWheel: scrollable && alwaysConsumeMouseWheel,
+        verticalScrollbarSize: EDITOR_CONSTANTS.SCROLLBAR_TRACK_SIZE,
+        horizontalScrollbarSize: EDITOR_CONSTANTS.SCROLLBAR_TRACK_SIZE,
       },
     });
     if (container) syncContainedEditorFontOptions(container, fontOptions);

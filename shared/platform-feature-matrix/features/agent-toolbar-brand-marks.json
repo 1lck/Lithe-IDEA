@@ -14,12 +14,16 @@
     ]
   },
   "windows": {
-    "implementationStatus": "missing",
+    "implementationStatus": "implemented",
     "verificationStatus": "pending",
     "evidence": [
-      "shared/contracts/application-boundary.md"
+      "shared/contracts/application-boundary.md",
+      "windows/tauri/src/features/agent/components/brand/agent-brand-icon.tsx",
+      "windows/tauri/src/features/agent/components/agent-composer.tsx",
+      "windows/tauri/src/features/agent/components/agent-session-selectors.tsx"
     ]
   },
   "owner": "Agent",
-  "verification": "macOS：原生真实输入框的 Menu 像素测试通过四种品牌/深浅主题组合，共用模板图像保持不变；87 项相关 Agent 测试通过。打包预览应用的深色界面实际展开 Agent 与模型菜单，确认底栏图标居中、点击区域一致、模型小标志同步；Agent 菜单中 Claude 与 Codex 都带对应品牌图标，Claude 选中与切到 Codex 后的勾选均与品牌图标并列正确显示，模型与权限跟随所选 Agent。菜单验证前后 bundle 的 990 个文件清单及 SHA-256 一致，旧版应用与辅助进程已退出，仅保留用户新版主应用及项目正常运行的进程。Windows 对话 UI 和验收待完成。"
+  "verification": "macOS：原生真实输入框的 Menu 像素测试通过四种品牌/深浅主题组合，共用模板图像保持不变；87 项相关 Agent 测试通过。打包预览应用的深色界面实际展开 Agent 与模型菜单，确认底栏图标居中、点击区域一致、模型小标志同步；Agent 菜单中 Claude 与 Codex 都带对应品牌图标，Claude 选中与切到 Codex 后的勾选均与品牌图标并列正确显示，模型与权限跟随所选 Agent。菜单验证前后 bundle 的 990 个文件清单及 SHA-256 一致，旧版应用与辅助进程已退出，仅保留用户新版主应用及项目正常运行的进程。 Windows 已用同一品牌组件实现底栏、Agent 菜单与模型入口，真机深浅主题验收待执行。",
+  "notes": "2026-10-17 Windows：`AgentBrandIcon` 新增 `variant=\"brand\"`，与 macOS `AgentPanelStyle.brandTint` 对齐——Claude 使用品牌橙 `#d97757`，Codex 结形跟随主题文字色；底栏 Agent 切换入口、Agent 下拉条目（图标+名称+勾选并列）与模型入口都使用同一组件。 真机深浅主题验收待执行。"
 }

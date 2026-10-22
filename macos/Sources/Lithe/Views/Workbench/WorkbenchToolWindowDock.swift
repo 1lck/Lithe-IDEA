@@ -442,6 +442,7 @@ struct ToolWindowDragSource: NSViewRepresentable {
     let click: () -> Void
     let commit: (WorkbenchFeatureModel.ToolWindow, ToolWindowDragState.Target) -> Void
     var isEnabled = true
+    var isCurrentProject: () -> Bool = { true }
     var openInEditor: (() -> Void)? = nil
 
     func makeNSView(context: Context) -> SourceView { SourceView() }
@@ -449,6 +450,7 @@ struct ToolWindowDragSource: NSViewRepresentable {
         view.tool = tool; view.position = position; view.drag = drag; view.click = click; view.commit = commit
         view.image = image
         view.isEnabled = isEnabled
+        view.isCurrentProject = isCurrentProject
         view.openInEditor = openInEditor
         view.record()
         view.cancelIfInactive()
@@ -457,6 +459,7 @@ struct ToolWindowDragSource: NSViewRepresentable {
 
     final class SourceView: NSView {
         var isEnabled = true
+        var isCurrentProject: () -> Bool = { true }
         var tool: WorkbenchFeatureModel.ToolWindow?
         var position: DockPosition?
         weak var drag: ToolWindowDragState?
@@ -472,7 +475,7 @@ struct ToolWindowDragSource: NSViewRepresentable {
         private var imageOrigin: NSPoint = .zero
 
         private var visibleHitRect: CGRect {
-            guard !isHiddenOrHasHiddenAncestor else { return .null }
+            guard isCurrentProject(), !isHiddenOrHasHiddenAncestor else { return .null }
             return bounds.intersection(visibleRect)
         }
 
@@ -496,12 +499,16 @@ struct ToolWindowDragSource: NSViewRepresentable {
             // ponytail: at most 16 built-in entries; consolidate monitoring if the catalog becomes unbounded.
             // SwiftUI Buttons can intercept events before an overlaid NSView. Capture only this entry's press.
             mouseMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp, .keyDown]) { [weak self] event in
-                guard let self, self.isEnabled else { return event }
+                guard let self, event.window === self.window else { return event }
+                // Opacity hides retained project content without removing its native monitors.
+                guard self.isEnabled, self.isCurrentProject() else {
+                    self.cancelIfInactive()
+                    return event
+                }
                 if event.type == .keyDown {
                     if self.dragging && event.keyCode == 53 { self.cancel(); self.cancelled = true; return nil }
                     return event
                 }
-                guard event.window === self.window else { return event }
                 if event.type == .leftMouseDown {
                     guard !event.modifierFlags.contains(.control),
                           self.visibleHitRect.contains(self.convert(event.locationInWindow, from: nil)) else { return event }
@@ -525,7 +532,7 @@ struct ToolWindowDragSource: NSViewRepresentable {
         }
         override func mouseUp(with event: NSEvent) {
             guard pressed != nil else { return }
-            guard isEnabled else { cancel(); pressed = nil; return }
+            guard isEnabled, isCurrentProject() else { cancel(); pressed = nil; return }
             let wasDragging = dragging
             let destination = drag?.target(at: event.locationInWindow)
             let opensEditor = destination == nil && drag?.isEditorTarget(at: event.locationInWindow) == true
@@ -540,6 +547,7 @@ struct ToolWindowDragSource: NSViewRepresentable {
             else if !wasDragging, visibleHitRect.contains(convert(event.locationInWindow, from: nil)) { click?() }
         }
         override func mouseDragged(with event: NSEvent) {
+            guard isEnabled, isCurrentProject() else { cancel(); pressed = nil; return }
             guard !cancelled, let pressed, let tool, let drag, let window else { return }
             let delta = NSPoint(x: event.locationInWindow.x - pressed.locationInWindow.x,
                                 y: event.locationInWindow.y - pressed.locationInWindow.y)
@@ -572,7 +580,9 @@ struct ToolWindowDragSource: NSViewRepresentable {
             if drag.targetsEditor != targetsEditor { drag.targetsEditor = targetsEditor }
         }
         func cancelIfInactive() {
-            if dragging && (drag?.source != tool || !isEnabled) { cancel(); cancelled = true }
+            if !isEnabled || !isCurrentProject() || (dragging && drag?.source != tool) {
+                cancel(); pressed = nil; cancelled = true
+            }
         }
         func cancel() {
             if let preview { preview.parent?.removeChildWindow(preview) }

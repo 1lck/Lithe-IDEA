@@ -16,6 +16,7 @@ This directory is the cross-platform source of truth:
 | `fixtures/command-plans.json` | Golden run/test command expansions and language-server launch plans |
 | `fixtures/runtime-versions.json` | Golden outcomes of the launch runtime version check |
 | `fixtures/build-plans.json` | Golden build-system plans and decoded outputs |
+| `fixtures/function-protocol.json` | Golden plugin-function negotiation, registration, invocation, outcome, progress, and refusal cases |
 | `plugin-index.schema.json` | JSON shape of a marketplace source index |
 | `fixtures/marketplace/*.json` | Marketplace index, availability, source URL, and install review golden cases |
 
@@ -114,8 +115,10 @@ the host's probe of the runtime is its version check. The launch plan carries
 the probe's `versionArguments`; the host runs the candidate with them and
 passes the output to `plugins.declarative.checkRuntimeVersion`, which returns
 `{satisfied, version?}`. A candidate that does not satisfy the requirement is
-not used, the same as a candidate that fails a validation probe. A `java`
-older than 9 does not accept the probe and is therefore treated as too old.
+not used, the same as a candidate that fails a validation probe. The probe
+is `-version` for `java`, which every JDK including Java 8 accepts and which
+prints to stderr (hosts capture it together with stdout), and `--version` for
+`node`. Java 8 and older report `1.<major>`, which is read as `<major>`.
 The reported version is the first dotted number in the probe output, ignoring
 lines that start with `Picked up ` (a JVM announcing `JAVA_TOOL_OPTIONS`
 before its version); see `fixtures/runtime-versions.json`.
@@ -244,6 +247,75 @@ with `plugin.manifest.invalid` or `plugin.template.invalid`. The settings
 declaration is not part of an install review's program list, because no value
 can change what runs beyond what the templates already show.
 
+#### Settings v2: placement, scope, effect, and page buttons
+
+Version 2 of the `settings` capability (`requires.settings: 2`, level 3) lets
+a plugin place its options anywhere in the host's settings without the host
+knowing the plugin. Hosts keep only generic registration points: a page per
+language and per build system, sections, one control per setting type, a
+project/global layer switch, and buttons. What appears there comes from the
+manifest. Fixture: `fixtures/settings-v2.plugin.json`.
+
+```json
+"settings": [
+  { "id": "dialyzer", "type": "boolean", "title": "Dialyzer", "default": true,
+    "scope": "project", "effect": "immediate", "page": { "languageID": "elixir" } },
+  { "id": "mixEnv", "type": "text", "title": "MIX_ENV", "default": "dev", "pattern": "[a-z]+",
+    "scope": "project", "page": { "languageID": "elixir" }, "section": "Server" }
+],
+"settingActions": [
+  { "id": "rebuildPlt", "title": "Rebuild PLT", "function": "dialyzer.rebuild",
+    "page": { "languageID": "elixir" }, "confirm": true }
+]
+```
+
+| Field | Meaning |
+| --- | --- |
+| `type` | Adds `multiSelect` (one to 32 `options`; the value is an array of distinct option values), `text` (requires `pattern`, matched against the whole value; optional `maxLength`, default 256 and at most 1024 Unicode scalars; optional `placeholder`), `file` and `directory` (an absolute path of at most 1024 Unicode scalars, or empty for "not set"; optional `placeholder`). Text and paths never start with `-` and contain no control characters. |
+| `scope` | `global` (default): one value for every project. `project`: the open project may override it. |
+| `effect` | When a change takes effect. `restart` (default): the next start of the plugin's processes. `immediate`: pushed to the running language server through `workspaceConfiguration`. `reload`: the next build-model reload; hosts reload the plugin's build models. `nextRun`: the next run or build command. |
+| `page` | `{ "languageID": … }` or `{ "buildSystemID": … }`: the settings page that shows the setting besides the plugin's own page. Any plugin may add to a page; the host shows the page while an enabled plugin contributes to it. |
+| `section` | Heading the setting is grouped under on its page. |
+
+`settingActions` (at most 16, sorted by unique `id`) are buttons the host
+draws on the plugin's page and on their `page`. Each invokes the plugin
+function `function` of the same plugin with empty params, served by the
+plugin's own provider process for the open project (see
+[plugin functions](#plugin-functions)). `confirm: true` makes the host ask
+first. The host owns the button and knows nothing about what the function
+does. Declaring actions counts as using `settings` and needs version 2.
+
+Placement and use rules, checked by Core at validation:
+
+- An `immediate` setting may appear only in a language server's
+  `workspaceConfiguration`; it never reaches a command line or
+  `initializationOptions`, so a change never needs a new process.
+- A `text`, `file`, or `directory` setting is a whole template value or the
+  value of one `name=` argument, never part of a longer argument.
+- Any v2 field or type, or any action, with `requires.settings` below 2 is
+  refused with `plugin.manifest.invalid`.
+
+**Layers.** Hosts store a global value per plugin and setting, and a project
+value in the project's `.lithe/plugin-settings.json`
+(`{pluginID: {settingID: value}}`, meant to be shared through version
+control). They send both as `settings` and `projectSettings`; Core merges
+them as project (for `scope: "project"` only), then global, then default,
+skipping a stored value the declaration no longer accepts.
+`plugins.declarative.resolveSettings` returns each effective value with
+its `source` (`project`, `global`, or `default`).
+
+#### Workspace configuration (`languageServers` 2)
+
+A language server may declare `workspaceConfiguration`, an object whose
+string leaves may be `${setting:<id>}` templates. With
+`requires.languageServers: 2`, Core expands it with the merged settings
+(`plugins.declarative.workspaceConfiguration`, and the launch plan's
+`workspaceConfiguration`), answers the server's `workspace/configuration`
+requests by section path from it, and sends
+`workspace/didChangeConfiguration` after `initialized`. Hosts send a new
+value with `lsp.updateWorkspaceConfiguration` when an `immediate` setting
+changes; the running server receives it without a restart.
+
 ### Execution providers
 
 `run` and `test` each name an `executable`: exactly one of a bare `command`
@@ -310,10 +382,10 @@ hosts. Level 3 versions each section on its own. A level 3 manifest lists in
 | Capability | Covers | Versions |
 | --- | --- | --- |
 | `languages` | `languages[]` | `1` |
-| `languageServers` | `languageServers[]` apart from their launch fields | `1` |
+| `languageServers` | `languageServers[]` apart from their launch fields | `1`, `2` (adds [`workspaceConfiguration`](#workspace-configuration-languageservers-2)) |
 | `serverProcess` | The launch fields of language servers and of build providers with a process of their own: `launch`, `arguments`, `validationArguments`, `runtimeDependencies`, `initializationOptions` | `1` |
 | `executionProviders` | `executionProviders[]` | `1` |
-| `settings` | `settings[]` | `1` |
+| `settings` | `settings[]` and `settingActions[]` | `1`, `2` (adds [placement, scope, effect, page buttons](#settings-v2-placement-scope-effect-and-page-buttons)) |
 | `ui` | `ui` | `1`, `2` (adds [web content](#web-content-ui-2)) |
 | `buildSystems` | Declarative build detection, models, and command plans | `1` |
 | `buildProviders` | `buildSystems[].provider`, including own-process and shared language-server providers | `1` |
@@ -805,6 +877,15 @@ with `buildSystemID`. For a provider source, `build.modelPlan` and
 | `options` | Effective option values by option ID. |
 | `optionArguments`, `environment` | What the options contribute, for a provider that runs the tool. |
 | `project` | Dependencies only: `{ name, path }` of the selected project, or `null` for the workspace. |
+| `refresh` | Optional; `true` when the user asked to reload (Reload, Retry, a page's `build.refresh`) or the host reloads after a `sync` file changed. The provider must then recompute instead of answering from a cache or snapshot of its own. Absent or `false` for a first load, which a provider may answer from a snapshot it still trusts. |
+| `tool` | Optional; `{ executable }`, the absolute path of the build tool the host resolved from the build system's `invocation` the same way a task run does (project wrapper, environment variable, `PATH`, the user's override), so the provider need not repeat the lookup. Absent when the host could not resolve it; the provider then looks the tool up itself. It is never a reason to fail the request. |
+
+The host passes `refresh` and `tool` in the `build.modelPlan` and
+`build.dependencyPlan` requests; Core validates `tool.executable` as an
+absolute path (`plugin.build.invalidSelection` otherwise) and copies both into
+`params` only when they are set, so a request without them is the same as
+before they existed. Command sources ignore both. Both are optional data
+within protocol version 1.
 
 The host passes the JSON result of the request as `result` to
 `build.decodeModel` or `build.decodeDependencies`, which decode it like the
@@ -871,6 +952,203 @@ digests the watched files. A selection the declaration does not allow is
 `plugin.build.invalidSelection`; an operation it does not declare is
 `plugin.build.unavailable`.
 
+## Plugin functions
+
+A plugin backend (a language server or build provider process the plugin
+starts) can offer **plugin functions**: plugin-private actions with
+serializable params and results, which the host invokes on behalf of the same
+plugin, for example from that plugin's own window. Functions complement the
+typed domain protocols; they never replace them. Version 1 of the protocol is
+implemented in Rust Core (`rust/lithe-core/src/lsp/interface/plugin_function.rs`).
+macOS starts every build provider process as a session of the plugin that
+owns it and invokes its functions from that plugin's web pages (the
+`functions.*` bridge methods below). A provider served by a shared language
+server is started by the host for every plugin of its language, so it serves
+no plugin's functions. Windows has no plugin backend host. The
+[official Node SDK](#official-backend-sdk) implements the backend side.
+
+### Capability ownership
+
+Every capability has one owner, who defines its contract, and one direction:
+
+| Direction | Contract owner | Implemented by | Travels as | Examples |
+| --- | --- | --- | --- | --- |
+| Plugin provides a domain capability | Lithe: the typed domain contract | The plugin, declaratively or by its backend | A manifest `source`, Core plans and decodes, a typed `lithe/build/*` request | Build model, dependency tree; later task execution |
+| Plugin provides a plugin function | The plugin: its own params and results | The plugin's backend | `lithe/function/invoke` | Refresh a private snapshot, a step behind a button of the plugin's own UI |
+| Plugin calls a host capability | The host | The host | `lithe/host/*` requests, offered per protocol version | Run a process through the host's runner, write output, store state |
+
+Two rules keep these directions from forming a loop:
+
+- A backend never asks the host to dispatch a domain operation or a function.
+  The host could route that request to the same backend, whose handler would
+  then wait for itself. A backend request for `lithe/function/invoke` or any
+  `lithe/build/*` method is refused with `plugin.function.recursiveCall`.
+  A handler that needs, say, a Maven run asks for the host's process
+  capability, never for the task that its own plugin implements.
+- Host capabilities are primitive host services, never another entry into a
+  domain registry. Each is added to a protocol version together with its
+  params, permission, and the operation it must belong to. Version 1 offers
+  none: every `lithe/host/*` request is refused with `plugin.host.unavailable`.
+
+### Declarative or backend implementation
+
+- A domain operation has exactly one implementation, chosen in the manifest
+  (`source`: `static`, `command`, `hostIntegration`, or `provider`). Core plans
+  only that one. There is no runtime fallback from a backend to a template or
+  back: the two may differ in meaning, and a fallback would hide the failure.
+- A backend implements a domain operation through its typed method and Core's
+  plan and decode commands, never through a plugin function, so IDE
+  workflows, presentation, and other hosts keep a single contract.
+- Plugin functions need no manifest field. What a running process can answer
+  is negotiated, as for [build providers](#build-providers); so declaring,
+  adding, or removing functions changes neither `pluginAPIVersion` nor any
+  `requires` version.
+- A new kind of domain implementation, such as a provider for tasks, is a new
+  version of the capability that owns it (`buildProviders`), so only plugins
+  that use it are filtered from hosts that cannot run it.
+
+### Negotiation
+
+For a session owned by a plugin (`lsp.startServer.pluginId`), the host offers
+`capabilities.experimental.litheFunctions: { "versions": [1] }` in
+`initialize`, next to and independent of `litheBuild`. Host-owned sessions do
+not offer or accept this protocol, retain no plugin-function registry, and
+reject register/unregister with `-32601`. A plugin backend that offers
+functions answers:
+
+```json
+"experimental": { "litheFunctions": { "version": 1, "functions": [{ "id": "snapshot.refresh" }] } }
+```
+
+`functions` is optional and defaults to none. An answer with a version the
+host did not offer, or a malformed or duplicate function ID, does not
+negotiate the protocol at all, so a session never starts with half a
+registry. Unknown fields of the answer and of descriptors are ignored.
+After a plugin-owned session successfully negotiates the protocol in
+`initialize`, Core publishes its initial
+registry as `functionsChanged { functions: [<sorted IDs>], removed: [] }`,
+including when the negotiated registry is empty. Hosts can discover the
+functions from events without issuing an invocation first.
+
+### References and IDs
+
+A function reference is `{ "pluginID", "functionID" }`. The host routes by
+plugin first: only a session the plugin started (`lsp.startServer` with
+`pluginId`) serves its functions, and a reference to another plugin is
+`plugin.function.wrongPlugin`. Host-owned servers serve none.
+
+A function ID is dot-separated lowerCamelCase segments
+(`snapshot.refresh`), at most 128 bytes, unique within the session. A
+session holds at most 256 functions.
+
+### Registration and withdrawal
+
+After `initialize` a backend may send:
+
+| Request | Params | Effect |
+| --- | --- | --- |
+| `lithe/function/register` | `{ "functions": [{ "id" }] }`, nonempty | Adds the functions. |
+| `lithe/function/unregister` | `{ "ids": ["…"] }`, nonempty | Removes them and revokes their running calls. |
+
+Each request is all or nothing: a malformed ID, a function listed twice, an
+already registered ID, an unregistered ID, or exceeding the limit refuses the
+whole request with JSON-RPC error `-32602` and
+`data.code: "plugin.function.invalidRegistration"`. A successful change
+answers `null` and publishes `functionsChanged` with the sorted IDs. A
+backend that did not negotiate the protocol gets `-32601` for both.
+
+### Invocation
+
+`lsp.functionRequest { sessionId, operationId?, function, params?,
+timeoutMilliseconds? }` returns `{ operationId }` and sends:
+
+```json
+{ "method": "lithe/function/invoke", "params": { "functionID": "snapshot.refresh", "operationID": "…", "params": { … } } }
+```
+
+`params` must be a JSON object and defaults to `{}`. Core assigns every
+backend invocation a unique, opaque `operationID`. The backend must echo it
+unchanged in progress notifications; it must not derive it from the host's
+`operationId`. The host continues to cancel and receive events using its own
+`operationId`, which can be reused after a call ends. Core translates progress
+back to that host ID, including `requestProgress.result.operationID`. This
+prevents a late report for an earlier call from being attributed to a new call.
+Core checks, in this order, and refuses without writing anything:
+
+| Check | Core error | `details` |
+| --- | --- | --- |
+| Plugin or function ID malformed | `invalid_request` | `plugin.function.invalidReference` |
+| `params` not an object | `invalid_request` | `plugin.function.invalidParams` |
+| Session belongs to no plugin | `not_supported` | `plugin.function.unavailable` |
+| Session belongs to another plugin | `permission_denied` | `plugin.function.wrongPlugin` |
+| Protocol not negotiated | `not_supported` | `plugin.function.unavailable` |
+| Function not registered | `not_supported` | `plugin.function.unknown` |
+
+The call ends with exactly one `requestCompleted` event:
+
+| Outcome | Event |
+| --- | --- |
+| Result | `result: { "value": <result> }`; `null` is a result. |
+| Backend error | `error.code: "plugin.function.failed"`, the backend's `message` (at most 1024 bytes), and `error.pluginErrorCode` from `error.data.code` when it is an identifier of at most 64 bytes. The plugin code is for the plugin's own UI; Lithe never branches on it. |
+| No `result`, or a result over 1 MiB serialized | `plugin.function.invalidResult` |
+| Function withdrawn while running | `plugin.function.revoked`; the host also sends `$/cancelRequest` |
+| Cancelled through `lsp.cancelOperation` | `requestCancelled`; the host sends `$/cancelRequest` |
+| Deadline passed | `requestTimeout`; the host sends `$/cancelRequest`. `timeoutMilliseconds` is capped at one hour and defaults to the session's request timeout. |
+| Process exited or the transport failed | The session's terminal error, as for every pending request |
+
+After a call has ended, its late reply is ignored, and so is any progress
+report for it. Every terminal path removes its function/request association;
+withdrawing that function later cannot cancel a new operation reusing the
+host ID, including a build request. A backend should stop work on
+`$/cancelRequest`, but the host does not rely on it.
+
+### Progress
+
+A backend reports progress of a running call with the notification
+`lithe/function/progress { operationID, message?, percentage? }`, where
+`message` is cut to 1024 bytes and `percentage` is a whole number from 0 to
+100. Core publishes it as `requestProgress` with the operation ID and the
+normalized report. A malformed report, or one for an operation that is not
+running on that session, is dropped.
+
+### Compatibility
+
+- Packages of every API level are unchanged: functions add no manifest field.
+- A backend written before this protocol does not answer `litheFunctions`.
+  It keeps serving its language and its `litheBuild` requests, receives no
+  function calls, and its function requests are answered with `-32601`.
+- A new host capability or wire field the other side must not ignore needs a
+  new protocol version, offered next to the old one.
+- `fixtures/function-protocol.json` holds the golden cases. Rust Core tests run
+  them, and a scripted backend covers routing, result, failure, cancellation,
+  deadline, late reply, revocation, and compatibility with a build-only
+  backend.
+
+### Official backend SDK
+
+[`sdk/node`](../../../../sdk/node/README.md) is the official SDK for backends
+started through a `node` runtime launch. It implements this protocol and
+`litheBuild` 1, so a plugin author writes only handlers. It enforces the
+rules above on the backend side: `lithe/*` methods are never sent, stdout
+carries only protocol frames, `PluginError` is the only way to set a
+`pluginErrorCode`, processes started for a call end with it, and its state
+store refuses the plugin package. Its sample plugin
+(`sdk/node/examples/sample-build`) is driven through a real Core session by
+`rust/lithe-core/tests/plugin_sdk_node.rs`, which the Rust Core lane runs with
+`LITHE_PLUGIN_SDK_NODE` set.
+
+[`sdk/java`](../../../../sdk/java/README.md) is the Java twin for backends
+started through a `java` runtime launch. It needs Java 8 or newer, has no
+runtime dependencies, and is released as a JAR with its SHA-256 for plugins
+to shade into their backend. It enforces the same rules with the same error
+mapping, with one difference: on Java 8 it stops only a cancelled tool's
+direct child, and the host's process scope ends the rest. Its sample plugin
+(`sdk/java/examples/sample-build`) runs the same Core scenario through
+`rust/lithe-core/tests/plugin_sdk_java.rs`.
+
+Neither SDK adds a wire field: a backend written without one is equally
+valid.
+
 ## Outcomes and error codes
 
 `plugins.declarative.*`, `plugins.marketplace.*`, and `build.*` commands return `{"status": "ok", …}` or
@@ -914,6 +1192,11 @@ command payload is a Core `invalid_request` failure instead.
 | `plugin.web.unknownMethod` | Host | A plugin page called a bridge method the host does not implement |
 | `plugin.web.invalidRequest` | Host | A bridge call has malformed parameters |
 | `plugin.web.forbidden` | Host | A bridge call names an instance, run, or path outside the page's plugin or workspace, or the page is closed |
+| `plugin.function.invalidReference`, `plugin.function.invalidParams`, `plugin.function.unavailable`, `plugin.function.wrongPlugin`, `plugin.function.unknown` | Core | A [plugin-function](#plugin-functions) call is refused before it reaches the backend |
+| `plugin.function.failed`, `plugin.function.invalidResult`, `plugin.function.revoked` | Core | A plugin-function call ended without a usable result |
+| `plugin.function.invalidRegistration` | Core | A backend's register or unregister request was refused as a whole |
+| `plugin.function.recursiveCall` | Core | A backend asked the host to dispatch a domain operation or function |
+| `plugin.host.unavailable` | Core | A backend asked for a host capability the negotiated protocol does not offer |
 
 Host-facing plugin states are `notInstalled`, `installed` (enabled or
 disabled), `running`, `restartRequired`, `updateRequired`, and `failed`.
@@ -1027,15 +1310,33 @@ their output appears in the host's Build output window.
 | `build.setOptions` | `{ instance, values }` | `{ options }`, checked by `build.resolveOptions` and stored like values set in the host's option list |
 | `workspace.openFile` | `{ path, line?, column? }`, a path inside the workspace | `{}` |
 | `ui.getState`, `ui.setState` | none, `{ state }` | `{ state }`, `{}`; JSON of at most 64 KiB per window and workspace |
+| `functions.list` | `{ instance }` | `{ functions }`: sorted IDs of the functions the instance's provider currently offers; starts the provider |
+| `functions.invoke` | `{ instance, function, params?, call? }`; `params` an object, `call` a page-chosen ID of at most 128 characters that the page never used before | `{ value }`, the function's result |
+| `functions.cancel` | `{ call }` | `{}`; a call still awaiting consent never starts, a call waiting for its provider to start ends at once while the start goes on, and a call that already ended is ignored |
 
 | Event | Payload |
 | --- | --- |
 | `build.instancesChanged` | `{ instances }`, as `build.instances` returns them |
 | `build.runChanged` | `{ run, instance, state, exitCode? }`, `state` one of `running`, `succeeded`, `failed`, `cancelled` |
+| `functions.progress` | `{ call, instance, function, message?, percentage? }`, only for a call made with `call` |
 | `ui.themeChanged` | `{ theme }` |
 
 Bridge errors are `plugin.web.unknownMethod`, `plugin.web.invalidRequest`,
 and `plugin.web.forbidden`. Build requests also report the `build.*` codes.
+Function requests report Core's codes unchanged (`plugin.function.*`,
+`requestCancelled`, `requestTimeout`); a failure the plugin reported also
+carries its own `pluginErrorCode`, which the host never interprets. A call
+Core could not deliver, such as a write to a backend that exited, keeps
+Core's transport code (`processFailed`) and carries the OS diagnostic only in
+its message. A backend that stops reading its input is ended when a write to
+it stays blocked past the call's timeout, or briefly after the call was
+cancelled or the provider stopped. A page
+has at most 16 function calls accepted at once, counting calls still awaiting
+consent, and closing it cancels them. Reusing a `call` ID is
+`plugin.web.invalidRequest`, also after that call ended.
+`functions.list` and `functions.invoke` ask for the same consent as the
+host's provider requests: once given for a plugin and workspace, it holds
+until the project is closed.
 macOS implements web content with WKWebView and advertises `ui: [1, 2]`.
 Windows has no WebView2 host yet and still advertises `ui: [1]`, so Core refuses
 `ui` 2 plugins there with `plugin.api.unsupported`.

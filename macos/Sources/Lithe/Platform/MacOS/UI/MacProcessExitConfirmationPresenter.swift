@@ -120,27 +120,8 @@ final class MacProcessExitConfirmationPresenter: ProcessExitConfirmationPresenti
             alert.informativeText = String(localized: "These processes left their terminal or tool to keep running in the background, like daemons and dev servers. Checked items end when Lithe quits; unchecked items keep running.")
         }
 
-        let checkboxes = resources.map { resource -> NSButton in
-            let button = NSButton(checkboxWithTitle: Self.describe(resource), target: nil, action: nil)
-            button.state = .on
-            button.lineBreakMode = .byTruncatingMiddle
-            button.toolTip = resource.detail
-            return button
-        }
-        let remember = NSButton(
-            checkboxWithTitle: String(localized: "Remember my choice for these kinds of services"),
-            target: nil,
-            action: nil
-        )
-        let stack = NSStackView(views: checkboxes)
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 6
-        if resources.contains(where: { $0.recognizerID != nil }) {
-            stack.addArrangedSubview(remember)
-        }
-        stack.frame = NSRect(x: 0, y: 0, width: 420, height: stack.fittingSize.height)
-        alert.accessoryView = stack
+        let selectionView = BackgroundResourceSelectionView(resources: resources)
+        alert.accessoryView = selectionView
 
         if purpose == .startupSweep {
             alert.addButton(withTitle: String(localized: "End Checked"))
@@ -155,13 +136,13 @@ final class MacProcessExitConfirmationPresenter: ProcessExitConfirmationPresenti
         let selected: Set<String>
         switch response {
         case .alertFirstButtonReturn:
-            selected = Set(zip(resources, checkboxes).filter { $0.1.state == .on }.map(\.0.id))
+            selected = selectionView.selectedIDs
         case .alertSecondButtonReturn:
             selected = Set(resources.map(\.id))
         default:
             return nil
         }
-        return BackgroundResourceAnswer(terminate: selected, remember: remember.state == .on)
+        return BackgroundResourceAnswer(terminate: selected, remember: selectionView.rememberCheckbox.state == .on)
     }
 
     private static func describe(_ terminal: TerminalExitCandidate) -> String {
@@ -184,18 +165,6 @@ final class MacProcessExitConfirmationPresenter: ProcessExitConfirmationPresenti
             lines.append(line)
         }
         return lines.joined(separator: "\n")
-    }
-
-    private static func describe(_ resource: BackgroundResourceCandidate) -> String {
-        var text = resource.name
-        if !resource.listeningPorts.isEmpty {
-            text += "  " + String(format: String(localized: "ports %@"),
-                                  resource.listeningPorts.map(String.init).joined(separator: ", "))
-        }
-        if resource.processIDs.count > 1 {
-            text += "  " + String(format: String(localized: "%lld processes"), resource.processIDs.count)
-        }
-        return text
     }
 
     private static func progress(_ position: Int, _ count: Int) -> String {

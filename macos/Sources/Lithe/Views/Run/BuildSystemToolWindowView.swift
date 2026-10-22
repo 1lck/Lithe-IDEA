@@ -263,7 +263,7 @@ struct BuildSystemToolWindowView: View {
             feature.detect()
         }
         for entry in entries where entry.instance.loadsModelOnRequest {
-            feature.loadModel(entry.id)
+            feature.loadModel(entry.id, reason: .refresh)
         }
     }
 
@@ -279,7 +279,7 @@ struct BuildSystemToolWindowView: View {
         } else if entry.isReloadRequired {
             LitheBanner(status: .warning, layout: .editor) {
                 Text(String(format: String(localized: "%@ build files changed"), entry.instance.displayName))
-                Button("Reload") { feature.loadModel(entry.id) }
+                Button("Reload") { feature.loadModel(entry.id, reason: .refresh) }
                     .disabled(entry.modelState == .loading)
             }
         }
@@ -291,7 +291,7 @@ struct BuildSystemToolWindowView: View {
     }
 
     private func reloadModel(_ entry: BuildSystemEntry) {
-        if entry.instance.loadsModelOnRequest { feature.loadModel(entry.id) } else { feature.detect() }
+        if entry.instance.loadsModelOnRequest { feature.loadModel(entry.id, reason: .refresh) } else { feature.detect() }
     }
 
     private var emptyState: some View {
@@ -719,7 +719,7 @@ struct BuildSystemToolWindowView: View {
             onToggle: toggle,
             menu: {
                 [.action("Reload", isEnabled: entry.dependencies[key] != .loading) {
-                    feature.loadDependencies(entry.id, project: project)
+                    feature.loadDependencies(entry.id, project: project, reason: .refresh)
                 }]
             }
         ) {
@@ -741,7 +741,7 @@ struct BuildSystemToolWindowView: View {
                         .foregroundStyle(LitheTheme.error)
                         .lineLimit(3)
                         .textSelection(.enabled)
-                    Button("Retry") { feature.loadDependencies(entry.id, project: project) }
+                    Button("Retry") { feature.loadDependencies(entry.id, project: project, reason: .refresh) }
                         .buttonStyle(.litheNoPress)
                 }
                 .padding(.horizontal, 4)

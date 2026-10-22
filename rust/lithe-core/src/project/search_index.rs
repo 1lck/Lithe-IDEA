@@ -20,6 +20,7 @@ pub(crate) struct WorkspaceSearchIndex {
     free_ids: Vec<u32>,
     path_to_id: HashMap<String, u32>,
     postings: HashMap<u32, Vec<u32>>,
+    names_only: bool,
 }
 
 /// Searchable file contents and symbols stored under a stable numeric ID.
@@ -62,6 +63,7 @@ struct IndexKey {
     root: PathBuf,
     hidden_directories: Vec<String>,
     hidden_file_patterns: Vec<String>,
+    names_only: bool,
 }
 
 type SharedIndex = Arc<RwLock<WorkspaceSearchIndex>>;
@@ -77,6 +79,7 @@ fn key(root: &Path, rules: &VisibilityRules) -> IndexKey {
         root: root.to_path_buf(),
         hidden_directories: rules.hidden_directories.clone(),
         hidden_file_patterns: rules.hidden_file_patterns.clone(),
+        names_only: false,
     }
 }
 
@@ -90,7 +93,32 @@ pub(crate) fn get_or_build(root: &Path, rules: &VisibilityRules) -> Result<Share
     if let Some(index) = indexes.get(&cache_key) {
         return Ok(Arc::clone(index));
     }
-    let index = Arc::new(RwLock::new(WorkspaceSearchIndex::build(root, rules)?));
+    let index = Arc::new(RwLock::new(WorkspaceSearchIndex::build(
+        root, rules, false,
+    )?));
+    // ponytail: one rule variant per root/kind bounds memory; alternating clients rebuild.
+    // Upgrade to a measured, bounded multi-client cache only if that rebuild cost matters.
+    indexes
+        .retain(|existing, _| existing.root != root || existing.names_only != cache_key.names_only);
+    indexes.insert(cache_key, Arc::clone(&index));
+    Ok(index)
+}
+
+/// Caches names without reading generated files, binaries, or dependency source contents.
+pub(crate) fn get_names(root: &Path, rules: &VisibilityRules) -> Result<SharedIndex, CoreError> {
+    let mut indexes = cache()
+        .lock()
+        .map_err(|_| CoreError::new(ErrorCode::Unknown, "Search index lock was poisoned"))?;
+    let mut cache_key = key(root, rules);
+    cache_key.names_only = true;
+    if let Some(index) = indexes.get(&cache_key) {
+        return Ok(Arc::clone(index));
+    }
+    let index = Arc::new(RwLock::new(WorkspaceSearchIndex::build(root, rules, true)?));
+    // ponytail: one rule variant per root/kind bounds memory; alternating clients rebuild.
+    // Upgrade to a measured, bounded multi-client cache only if that rebuild cost matters.
+    indexes
+        .retain(|existing, _| existing.root != root || existing.names_only != cache_key.names_only);
     indexes.insert(cache_key, Arc::clone(&index));
     Ok(index)
 }
@@ -140,47 +168,54 @@ pub(crate) fn update_cached_file(root: &Path, path: &Path) {
 /// remove an arbitrary number of descendants.
 pub(crate) fn update_paths(
     root: &Path,
-    rules: &VisibilityRules,
+    _rules: &VisibilityRules,
     paths: &[String],
 ) -> UpdateOutcome {
-    let cache_key = key(root, rules);
-    let index = {
+    let entries = {
         let Ok(indexes) = cache().lock() else {
             return UpdateOutcome::NotIndexed;
         };
-        indexes.get(&cache_key).cloned()
+        indexes
+            .iter()
+            // Search-only exclusions create rule variants; keep all warm variants current.
+            .filter(|(cache_key, _)| cache_key.root == root)
+            .map(|(key, index)| (key.clone(), Arc::clone(index)))
+            .collect::<Vec<_>>()
     };
-    let Some(index) = index else {
+    if entries.is_empty() {
         return UpdateOutcome::NotIndexed;
-    };
-    let Ok(mut index) = index.write() else {
-        return UpdateOutcome::RequiresRebuild;
-    };
-
-    for value in paths {
-        let Some(absolute) = normalized_update_path(root, value) else {
-            continue;
+    }
+    for (cache_key, shared) in entries {
+        let Ok(mut index) = shared.write() else {
+            return UpdateOutcome::RequiresRebuild;
         };
-        let relative = relative_path(&absolute, root);
-        // Scans never index nested linked worktrees, so their churn neither
-        // adds entries nor forces a rebuild.
-        if is_inside_nested_linked_worktree(root, &relative) {
-            continue;
+        let effective_rules = VisibilityRules {
+            hidden_directories: cache_key.hidden_directories,
+            hidden_file_patterns: cache_key.hidden_file_patterns,
+        };
+        for value in paths {
+            let Some(absolute) = normalized_update_path(root, value) else {
+                continue;
+            };
+            let relative = relative_path(&absolute, root);
+            // Both name and content indexes exclude nested linked worktrees.
+            if is_inside_nested_linked_worktree(root, &relative) {
+                continue;
+            }
+            let metadata = fs::symlink_metadata(&absolute).ok();
+            if metadata.as_ref().is_some_and(|value| value.is_dir())
+                || (metadata.is_none() && index.has_descendant(&relative))
+            {
+                return UpdateOutcome::RequiresRebuild;
+            }
+            index.update_file(&absolute, &relative, metadata.as_ref(), &effective_rules);
         }
-        let metadata = fs::symlink_metadata(&absolute).ok();
-        if metadata.as_ref().is_some_and(|value| value.is_dir()) {
-            return UpdateOutcome::RequiresRebuild;
-        }
-        if metadata.is_none() && index.has_descendant(&relative) {
-            return UpdateOutcome::RequiresRebuild;
-        }
-        index.update_file(&absolute, &relative, metadata.as_ref(), rules);
     }
     UpdateOutcome::Updated
 }
 
 impl WorkspaceSearchIndex {
-    fn build(root: &Path, rules: &VisibilityRules) -> Result<Self, CoreError> {
+    fn build(root: &Path, rules: &VisibilityRules, names_only: bool) -> Result<Self, CoreError> {
         let mut paths = Vec::new();
         collect_files(root, root, rules, &mut paths)?;
         let mut index = Self {
@@ -188,6 +223,7 @@ impl WorkspaceSearchIndex {
             free_ids: Vec::new(),
             path_to_id: HashMap::with_capacity(paths.len()),
             postings: HashMap::new(),
+            names_only,
         };
         for path in paths {
             crate::protocol::cancellation::check()?;
@@ -201,7 +237,11 @@ impl WorkspaceSearchIndex {
         if let Some(existing) = self.path_to_id.get(&relative).copied() {
             self.remove_id(existing);
         }
-        let (trigrams, symbols) = read_search_data(path, &relative);
+        let (trigrams, symbols) = if self.names_only {
+            (Vec::new(), Vec::new())
+        } else {
+            read_search_data(path, &relative)
+        };
         let id = self
             .free_ids
             .pop()
@@ -376,7 +416,26 @@ fn collect_files(
     files: &mut Vec<PathBuf>,
 ) -> Result<(), CoreError> {
     crate::protocol::cancellation::check()?;
-    let children = visible_children(path, root, rules)?.children;
+    let children = match visible_children(path, root, rules) {
+        Ok(listing) => listing.children,
+        Err(error)
+            if path != root
+                && matches!(
+                    error.code,
+                    ErrorCode::PermissionDenied | ErrorCode::WorkspaceNotFound
+                ) =>
+        {
+            // A transient/inaccessible descendant must not hide unrelated workspace results.
+            // Log only a workspace-relative path; root errors and cancellation still propagate.
+            eprintln!(
+                "Search index skipped directory {:?}: {}",
+                relative_path(path, root),
+                error.message
+            );
+            return Ok(());
+        }
+        Err(error) => return Err(error),
+    };
     for (child, is_directory) in children {
         if is_directory {
             collect_files(root, &child, rules, files)?;
@@ -439,5 +498,340 @@ pub(crate) fn make_symbol_match(indexed: &IndexedSymbol, path: String) -> Search
         line: Some(indexed.line),
         preview: indexed.signature.clone(),
         symbol_name: Some(indexed.name.clone()),
+        name_match_ranges: Vec::new(),
+        matching_degree: None,
+        is_ignored: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn source_caps_build_only_required_cold_indexes_and_skip_generated_text_enumeration() {
+        let root = crate::tests::support::temporary_root("search-source-caps");
+        fs::create_dir_all(root.join("src")).unwrap();
+        let root = root.canonicalize().unwrap();
+        struct Cleanup(PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                invalidate_root(&self.0);
+                super::super::files::DIRECTORY_VISITS.with_borrow_mut(|visits| *visits = None);
+                let _ = fs::remove_dir_all(&self.0);
+            }
+        }
+        let _cleanup = Cleanup(root.clone());
+        fs::write(root.join("src/Name.java"), "class Name {}\n").unwrap();
+        for directory in [".build", "node_modules"] {
+            fs::create_dir(root.join(directory)).unwrap();
+            for number in 0..1000 {
+                fs::write(root.join(directory).join(format!("Name{number}.bin")), "").unwrap();
+            }
+        }
+        for (files, content, symbols, expected_indexes) in [
+            (0, 0, 0, vec![]),
+            (0, 1, 0, vec![false]),
+            (1, 0, 0, vec![true]),
+            (0, 0, 1, vec![false]),
+            (1, 0, 1, vec![false, true]),
+        ] {
+            invalidate_root(&root);
+            super::super::files::DIRECTORY_VISITS
+                .with_borrow_mut(|visits| *visits = Some(Vec::new()));
+            let started = std::time::Instant::now();
+            let response = super::super::files::search_everywhere(
+                serde_json::from_value(serde_json::json!({
+                    "root": root, "query": "Name", "includeGeneratedFileNames": true,
+                    "maxResults": 10, "maxFileResults": files,
+                    "maxContentResults": content, "maxSymbolResults": symbols
+                }))
+                .unwrap(),
+            )
+            .unwrap();
+            let indexes = cache().lock().unwrap();
+            let mut built: Vec<_> = indexes
+                .keys()
+                .filter(|key| key.root == root)
+                .map(|key| key.names_only)
+                .collect();
+            built.sort();
+            assert_eq!(built, expected_indexes);
+            let resident_files: usize = indexes
+                .iter()
+                .filter(|(key, _)| key.root == root)
+                .map(|(_, index)| index.read().unwrap().stats().file_count)
+                .sum();
+            assert_eq!(
+                resident_files,
+                usize::from(files > 0) * 2001 + usize::from(content > 0 || symbols > 0)
+            );
+            eprintln!("Cold source caps files={files} content={content} symbols={symbols}: {:?}, indexes={}, resident files={resident_files}, results={}",
+                started.elapsed(), built.len(), response.matches.len());
+            super::super::files::DIRECTORY_VISITS.with_borrow(|visits| {
+                let visits = visits.as_ref().unwrap();
+                if expected_indexes.is_empty() {
+                    assert!(visits.is_empty());
+                }
+                if files == 0 {
+                    assert!(!visits
+                        .iter()
+                        .any(|path| path.starts_with(root.join(".build"))
+                            || path.starts_with(root.join("node_modules"))));
+                }
+            });
+        }
+    }
+
+    #[test]
+    fn missing_descendants_are_skipped_but_root_and_cancellation_errors_propagate() {
+        let root = crate::tests::support::temporary_root("search-missing-descendant");
+        let rules = VisibilityRules {
+            hidden_directories: vec![],
+            hidden_file_patterns: vec![],
+        };
+        let mut paths = Vec::new();
+        assert!(collect_files(&root, &root.join("vanished"), &rules, &mut paths).is_ok());
+        assert!(paths.is_empty());
+        assert!(matches!(
+            collect_files(&root, &root, &rules, &mut paths)
+                .unwrap_err()
+                .code,
+            ErrorCode::WorkspaceNotFound
+        ));
+        let operation_id = root.to_string_lossy().into_owned();
+        let _scope = crate::protocol::cancellation::Scope::begin(Some(operation_id.clone()), None);
+        assert!(crate::protocol::cancellation::cancel(&operation_id));
+        assert!(matches!(
+            collect_files(&root, &root.join("vanished"), &rules, &mut paths)
+                .unwrap_err()
+                .code,
+            ErrorCode::Cancelled
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn inaccessible_generated_subtree_preserves_source_and_text_results() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = crate::tests::support::temporary_root("search-unreadable-generated");
+        let blocked = root.join(".build/blocked");
+        fs::create_dir_all(&blocked).unwrap();
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(
+            root.join("src/Name.java"),
+            "class Name {\n    void useName() {}\n}",
+        )
+        .unwrap();
+        struct Cleanup(PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = fs::set_permissions(
+                    self.0.join(".build/blocked"),
+                    fs::Permissions::from_mode(0o755),
+                );
+                invalidate_root(&self.0);
+                let _ = fs::remove_dir_all(&self.0);
+            }
+        }
+        let _cleanup = Cleanup(root.clone());
+        fs::set_permissions(&blocked, fs::Permissions::from_mode(0)).unwrap();
+        if fs::read_dir(&blocked).is_ok() {
+            // Privileged test runners bypass Unix mode bits; do not claim a permission regression ran.
+            eprintln!("Skipping permission fixture: runner can enumerate mode-000 directories");
+            return;
+        }
+        for text_only in [false, true] {
+            invalidate_root(&root);
+            let request = serde_json::from_value(serde_json::json!({
+                "root": root, "query": "Name", "includeGeneratedFileNames": true,
+                "maxResults": 100, "maxFileResults": if text_only { 0 } else { 100 },
+                "maxSymbolResults": if text_only { 0 } else { 100 }
+            }))
+            .unwrap();
+            let response = super::super::files::search_everywhere(request).unwrap();
+            for kind in if text_only {
+                vec!["content"]
+            } else {
+                vec!["file", "type", "symbol", "content"]
+            } {
+                assert!(
+                    response
+                        .matches
+                        .iter()
+                        .any(|item| item.path == "src/Name.java" && item.kind == kind),
+                    "Missing {kind} result after encountering an inaccessible generated directory"
+                );
+            }
+        }
+        let rules = VisibilityRules {
+            hidden_directories: vec![],
+            hidden_file_patterns: vec![],
+        };
+        let mut paths = Vec::new();
+        assert!(matches!(
+            collect_files(&blocked, &blocked, &rules, &mut paths)
+                .unwrap_err()
+                .code,
+            ErrorCode::PermissionDenied
+        ));
+    }
+
+    #[test]
+    fn directory_exclusions_prune_enumeration_and_incremental_updates() {
+        let root = crate::tests::support::temporary_root("search-directory-pruning");
+        fs::create_dir_all(&root).unwrap();
+        let root = root.canonicalize().unwrap();
+        struct Cleanup(PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                super::invalidate_root(&self.0);
+                super::super::files::DIRECTORY_VISITS.with_borrow_mut(|visits| *visits = None);
+                let _ = fs::remove_dir_all(&self.0);
+            }
+        }
+        let _cleanup = Cleanup(root.clone());
+        for path in [
+            "cache/deep/Name.txt",
+            ".cache/deep/Name.txt",
+            "src/.cache/deep/Name.txt",
+            "src/Name.log",
+            "src/Name.txt",
+        ] {
+            let file = root.join(path);
+            fs::create_dir_all(file.parent().unwrap()).unwrap();
+            fs::write(file, "Name before").unwrap();
+        }
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../shared/fixtures/search/exclusions.json"
+        ))
+        .unwrap();
+        // The patterns come from the shared fixture, so Rust and Swift always
+        // judge the same list.
+        let rules = VisibilityRules {
+            hidden_directories: vec![],
+            hidden_file_patterns: fixture["hiddenFilePatterns"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|pattern| pattern.as_str().unwrap().to_string())
+                .collect(),
+        };
+        for case in fixture["cases"].as_array().unwrap() {
+            assert_eq!(
+                rules.is_hidden(
+                    case["path"].as_str().unwrap(),
+                    case["isDirectory"].as_bool().unwrap()
+                ),
+                case["hidden"].as_bool().unwrap(),
+                "{case}"
+            );
+        }
+        super::super::files::DIRECTORY_VISITS.with_borrow_mut(|visits| *visits = Some(Vec::new()));
+        let content = get_or_build(&root, &rules).unwrap();
+        let names = get_names(&root, &rules).unwrap();
+        super::super::files::DIRECTORY_VISITS.with_borrow(|visits| {
+            let visits = visits.as_ref().unwrap();
+            assert!(visits.contains(&root));
+            assert!(visits.contains(&root.join("src")));
+            assert!(
+                visits
+                    .iter()
+                    .all(|path| !path.starts_with(root.join("cache"))
+                        && !path.starts_with(root.join(".cache"))
+                        && !path.starts_with(root.join("src/.cache"))),
+                "{visits:?}"
+            );
+        });
+        assert_eq!(content.read().unwrap().stats().file_count, 1);
+        assert_eq!(names.read().unwrap().stats().file_count, 1);
+        assert!(matches!(
+            update_paths(
+                &root,
+                &rules,
+                &[
+                    "cache/deep/Name.txt".into(),
+                    "src/.cache/deep/Name.txt".into()
+                ]
+            ),
+            UpdateOutcome::Updated
+        ));
+        assert_eq!(content.read().unwrap().stats().file_count, 1);
+        assert_eq!(names.read().unwrap().stats().file_count, 1);
+    }
+
+    #[test]
+    fn changing_exclusions_releases_old_indexes_and_bounds_resident_variants() {
+        let root = crate::tests::support::temporary_root("search-cache-exclusions");
+        fs::create_dir_all(&root).unwrap();
+        let root = root.canonicalize().unwrap();
+        struct Cleanup(PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                super::invalidate_root(&self.0);
+                let _ = fs::remove_dir_all(&self.0);
+            }
+        }
+        let _cleanup = Cleanup(root.clone());
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("Name.txt"), "before").unwrap();
+        let mut old = Vec::new();
+        for index in 0..32 {
+            let rules = VisibilityRules {
+                hidden_directories: vec![],
+                hidden_file_patterns: vec![format!("exclude-{index}/")],
+            };
+            let content = get_or_build(&root, &rules).unwrap();
+            let names = get_names(&root, &rules).unwrap();
+            assert!(
+                old.iter()
+                    .all(|weak: &std::sync::Weak<RwLock<WorkspaceSearchIndex>>| weak
+                        .upgrade()
+                        .is_none()),
+                "old index allocations remain resident"
+            );
+            assert_eq!(
+                cache()
+                    .lock()
+                    .unwrap()
+                    .keys()
+                    .filter(|key| key.root == root)
+                    .count(),
+                2
+            );
+            fs::write(root.join("Name.txt"), format!("after-{index}")).unwrap();
+            assert!(matches!(
+                update_paths(&root, &rules, &["Name.txt".into()]),
+                UpdateOutcome::Updated
+            ));
+            for current in [&content, &names] {
+                assert_eq!(current.read().unwrap().stats().file_count, 1);
+            }
+            let updated = content.read().unwrap();
+            assert_eq!(
+                updated
+                    .candidate_ids(&format!("after-{index}"), false)
+                    .len(),
+                1
+            );
+            assert!(updated.candidate_ids("before", false).is_empty());
+            drop(updated);
+            old = vec![Arc::downgrade(&content), Arc::downgrade(&names)];
+            // The same command the settings observer uses must remove both kinds.
+            if index % 2 == 0 {
+                invalidate_root(&root);
+                assert_eq!(
+                    cache()
+                        .lock()
+                        .unwrap()
+                        .keys()
+                        .filter(|key| key.root == root)
+                        .count(),
+                    0
+                );
+            }
+        }
+        invalidate_root(&root);
+        assert!(old.iter().all(|weak| weak.upgrade().is_none()));
     }
 }

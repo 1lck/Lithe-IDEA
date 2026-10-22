@@ -21,7 +21,13 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
     case mcp = "MCP Configuration"
 
     var id: String { rawValue }
-    var title: String { self == .project ? "Project · JDK & Maven" : rawValue }
+    var title: String {
+        switch self {
+        case .project: "Project · JDK & Maven"
+        case .diagnostics: "Logs and Diagnostics"
+        default: rawValue
+        }
+    }
 
     /// The sidebar group that owns this page, or `nil` for a top-level page.
     var group: SettingsGroup? {

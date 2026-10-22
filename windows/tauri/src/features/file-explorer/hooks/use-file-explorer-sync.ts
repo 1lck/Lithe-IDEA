@@ -4,7 +4,6 @@ import { getExplorerTargetPath } from "@/features/file-explorer/utils/file-explo
 
 interface UseFileExplorerSyncOptions {
   activePath?: string;
-  autoRevealActiveFile: boolean;
   updateActivePath?: (path: string) => void;
   revealPathInTree: (path: string) => Promise<void>;
 }
@@ -16,7 +15,6 @@ export interface FileExplorerRevealRequest {
 
 export function useFileExplorerSync({
   activePath,
-  autoRevealActiveFile,
   updateActivePath,
   revealPathInTree,
 }: UseFileExplorerSyncOptions) {
@@ -57,17 +55,13 @@ export function useFileExplorerSync({
     [revealPathInTree],
   );
 
-  useEffect(() => {
-    if (autoRevealActiveFile && explorerTargetPath) {
-      void requestRevealPath(explorerTargetPath);
-    } else {
-      setRevealRequest(null);
-    }
-
-    return () => {
+  useEffect(
+    () => () => {
+      // Invalidate in-flight reveals on unmount so a late completion cannot publish state.
       ++revealRequestIdRef.current;
-    };
-  }, [autoRevealActiveFile, explorerTargetPath, requestRevealPath]);
+    },
+    [],
+  );
 
   const consumeRevealRequest = useCallback((requestId: number) => {
     setRevealRequest((current) => (current?.id === requestId ? null : current));

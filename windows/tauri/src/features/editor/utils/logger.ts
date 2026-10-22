@@ -1,3 +1,8 @@
+import {
+  isFrontendDiagnosticEnabled,
+  serializeConsoleArguments,
+  submitFrontendLog,
+} from "@/features/logging/frontend-log-runtime";
 /**
  * Editor logging utility
  * Provides structured logging with levels and can be disabled in production
@@ -20,7 +25,7 @@ const LOG_LEVELS: Record<LogLevel, number> = {
 
 class EditorLogger {
   private config: LoggerConfig = {
-    enabled: import.meta.env.DEV, // Only enabled in development
+    enabled: true, // Errors remain observable in installed builds.
     minLevel: "warn",
     prefix: "[Editor]",
   };
@@ -31,6 +36,7 @@ class EditorLogger {
 
   private shouldLog(level: LogLevel): boolean {
     if (!this.config.enabled) return false;
+    if (level === "debug") return isFrontendDiagnosticEnabled();
     return LOG_LEVELS[level] >= LOG_LEVELS[this.config.minLevel];
   }
 
@@ -40,25 +46,45 @@ class EditorLogger {
 
   debug(component: string, message: string, ...args: unknown[]): void {
     if (this.shouldLog("debug")) {
-      console.log(this.formatMessage(component, message), ...args);
+      void submitFrontendLog({
+        level: "debug",
+        scope: `editor.${component}`,
+        message,
+        payload: { detail: serializeConsoleArguments(args) },
+      });
     }
   }
 
   info(component: string, message: string, ...args: unknown[]): void {
     if (this.shouldLog("info")) {
-      console.info(this.formatMessage(component, message), ...args);
+      void submitFrontendLog({
+        level: "info",
+        scope: `editor.${component}`,
+        message,
+        payload: { detail: serializeConsoleArguments(args) },
+      });
     }
   }
 
   warn(component: string, message: string, ...args: unknown[]): void {
     if (this.shouldLog("warn")) {
-      console.warn(this.formatMessage(component, message), ...args);
+      void submitFrontendLog({
+        level: "warn",
+        scope: `editor.${component}`,
+        message,
+        payload: { detail: serializeConsoleArguments(args) },
+      });
     }
   }
 
   error(component: string, message: string, ...args: unknown[]): void {
     if (this.shouldLog("error")) {
-      console.error(this.formatMessage(component, message), ...args);
+      void submitFrontendLog({
+        level: "error",
+        scope: `editor.${component}`,
+        message,
+        payload: { detail: serializeConsoleArguments(args) },
+      });
     }
   }
 }

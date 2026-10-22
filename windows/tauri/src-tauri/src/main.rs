@@ -99,6 +99,7 @@ fn main() {
                     return Ok(());
                 }
             }
+            app.manage(Arc::new(diagnostics::DiagnosticBundleStore::default()));
             match logging::LogManager::initialize(app.handle()) {
                 Ok(log_manager) => {
                     app.manage(log_manager);
@@ -203,6 +204,8 @@ fn main() {
             logging::set_log_directory,
             logging::set_diagnostic_logging,
             logging::read_lithe_log,
+            logging::query_lithe_logs,
+            diagnostics::discard_diagnostic_bundle,
             logging::clear_lithe_logs,
             logging::resolve_previous_log_cleanup,
             logging::open_log_directory,
@@ -231,6 +234,7 @@ fn main() {
             host::clipboard_paste,
             host::clipboard_clear,
             host::clipboard_sequence_number,
+            host::wsl_automount_root,
             host::create_app_window,
             project_windows::claim_project_window,
             project_windows::release_project_window,
