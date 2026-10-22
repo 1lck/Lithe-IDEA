@@ -5,4 +5,4 @@ export { createBackend } from './backend.mjs';
 export { PluginError, PluginSdkError } from './errors.mjs';
 export { runProcess } from './process.mjs';
 export { openStateStore } from './state.mjs';
-export { isFunctionId, LIMITS } from './protocol.mjs';
+export { isFunctionId, isVcsId, LIMITS, VCS_ERRORS } from './protocol.mjs';

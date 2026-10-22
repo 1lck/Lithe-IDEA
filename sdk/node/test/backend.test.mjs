@@ -24,7 +24,7 @@ test('initialize answers the protocols the host offered, with sorted functions',
     litheFunctions: { version: 1, functions: [{ id: 'install.prepare' }, { id: 'snapshot.refresh' }] },
   });
   assert.deepEqual(result.serverInfo, { name: 'test-backend', version: '1.0.0' });
-  assert.deepEqual(backend.negotiated, { functions: true, build: true });
+  assert.deepEqual(backend.negotiated, { functions: true, build: true, vcs: false });
   assert.equal(await host.close(), 1);
 });
 

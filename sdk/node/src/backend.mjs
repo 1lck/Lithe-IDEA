@@ -4,8 +4,8 @@
 // cancellation, error codes, and the `lithe/*` namespace -- and leaves the
 // plugin free to decide what its handlers do.
 //
-// Contract: shared/contracts/plugins/v1/README.md ("Build providers" and
-// "Plugin functions").
+// Contracts: shared/contracts/plugins/v1/README.md ("Build providers" and
+// "Plugin functions") and shared/contracts/vcs-provider-v1.md.
 
 import { format } from 'node:util';
 import { encodeFrame, FrameDecoder, FramingError, MALFORMED } from './framing.mjs';
@@ -18,8 +18,12 @@ import {
   FUNCTIONS_VERSION,
   isFunctionId,
   isReservedMethod,
+  isVcsId,
   LIMITS,
   METHODS,
+  VCS_OPERATIONS,
+  VCS_REQUIRED_OPERATIONS,
+  VCS_VERSION,
 } from './protocol.mjs';
 
 /** Canonical result format of each typed build request. */
@@ -28,6 +32,9 @@ const BUILD_FORMATS = Object.freeze({
   [METHODS.buildDependencies]: 'litheDependencies',
 });
 
+/** VCS capabilities that describe the VCS rather than a request it answers. */
+const VCS_TRAITS = Object.freeze(['push', 'staging']);
+
 /**
  * Creates a backend. Declare handlers, then call `listen()`.
  *
@@ -35,8 +42,9 @@ const BUILD_FORMATS = Object.freeze({
  * @param {string} [options.name] Reported as `serverInfo.name` and used as the log prefix.
  * @param {string} [options.version] Reported as `serverInfo.version`.
  * @param {object} [options.capabilities] Standard LSP server capabilities, for a
- *   backend that is also a language server. `experimental.litheBuild` and
- *   `experimental.litheFunctions` are negotiated by the SDK and cannot be set here.
+ *   backend that is also a language server. `experimental.litheBuild`,
+ *   `experimental.litheFunctions`, and `experimental.litheVcs` are negotiated by
+ *   the SDK and cannot be set here.
  */
 export function createBackend(options = {}) {
   return new Backend(options);
@@ -48,13 +56,15 @@ class Backend {
   #capabilities;
   #functions = new Map();
   #buildHandlers = new Map();
+  /** The declared VCS provider: `{ id, handlers: Map<method, handler>, capabilities }`. */
+  #vcs = null;
   #requestHandlers = new Map();
   #notificationHandlers = new Map();
   #initializeHooks = [];
   #shutdownHooks = [];
   /** `idle` → `listening` → `initializing` → `ready` → `shuttingDown` → `exited`. */
   #phase = 'idle';
-  #negotiated = Object.freeze({ functions: false, build: false });
+  #negotiated = Object.freeze({ functions: false, build: false, vcs: false });
   #initializeParams = null;
   /** Host requests being handled, by JSON-RPC ID. */
   #incoming = new Map();
@@ -72,10 +82,10 @@ class Backend {
 
   constructor({ name = 'lithe-plugin-backend', version, capabilities = {} } = {}) {
     const experimental = capabilities.experimental ?? {};
-    if ('litheBuild' in experimental || 'litheFunctions' in experimental) {
+    if ('litheBuild' in experimental || 'litheFunctions' in experimental || 'litheVcs' in experimental) {
       throw new PluginSdkError(
         'sdk.capabilities.reserved',
-        'litheBuild and litheFunctions are negotiated by the SDK; declare handlers instead.',
+        'litheBuild, litheFunctions, and litheVcs are negotiated by the SDK; declare handlers instead.',
       );
     }
     this.#name = String(name);
@@ -89,7 +99,7 @@ class Backend {
     });
   }
 
-  /** Protocols the host agreed to in `initialize`; both false before it. */
+  /** Protocols the host agreed to in `initialize`; all false before it. */
   get negotiated() {
     return this.#negotiated;
   }
@@ -117,6 +127,53 @@ class Backend {
     }
     this.#checkNewFunction(id, handler);
     this.#functions.set(id, handler);
+    return this;
+  }
+
+  /**
+   * Declares the VCS this backend provides and the operations it answers,
+   * before `listen()`. Each handler gets the operation's arguments plus
+   * `root: { path }` and `tool: { executable } | null`, and returns the reply
+   * object of shared/contracts/vcs-provider-v1.md. Declaring a handler
+   * negotiates its capability; `status`, `baseContent`, `checkin`, and
+   * `rollback` are required.
+   *
+   * @param {string} id The VCS ID of the manifest's `vcsProviders` entry, such as `svn`.
+   * @param {Record<string, Function>} handlers Keyed by operation name.
+   * @param {object} [traits]
+   * @param {boolean} [traits.push] Check-in is local and publishing is a separate step.
+   * @param {boolean} [traits.staging] Changes carry a staged/unstaged dimension.
+   */
+  vcs(id, handlers, traits = {}) {
+    if (this.#phase !== 'idle') {
+      throw new PluginSdkError('sdk.vcs.lateDeclaration', 'Declare the VCS provider before listen().');
+    }
+    if (this.#vcs) throw new PluginSdkError('sdk.vcs.duplicate', 'A backend provides one VCS.');
+    if (!isVcsId(id)) {
+      throw new PluginSdkError(
+        'sdk.vcs.invalidID',
+        `VCS ID ${JSON.stringify(id)} must be lowercase letters, digits, and "-", start with a letter, and be at most ${LIMITS.maxVcsIdBytes} bytes.`,
+      );
+    }
+    if (id === 'git') throw new PluginSdkError('sdk.vcs.reserved', 'git is provided by Lithe.');
+    const methods = new Map();
+    const capabilities = {};
+    for (const [operation, handler] of Object.entries(handlers ?? {})) {
+      const declared = VCS_OPERATIONS[operation];
+      if (!declared) throw new PluginSdkError('sdk.vcs.unknownOperation', `${operation} is not a VCS operation.`);
+      if (typeof handler !== 'function') throw new TypeError(`The ${operation} handler must be a function.`);
+      methods.set(declared.method, handler);
+      capabilities[declared.capability] = VCS_VERSION;
+    }
+    const missing = VCS_REQUIRED_OPERATIONS.filter((operation) => !methods.has(VCS_OPERATIONS[operation].method));
+    if (missing.length > 0) {
+      throw new PluginSdkError('sdk.vcs.missingOperation', `A VCS provider must answer ${missing.join(', ')}.`);
+    }
+    for (const [trait, enabled] of Object.entries(traits)) {
+      if (!VCS_TRAITS.includes(trait)) throw new PluginSdkError('sdk.vcs.unknownTrait', `${trait} is not a VCS trait.`);
+      if (enabled) capabilities[trait] = VCS_VERSION;
+    }
+    this.#vcs = { id, methods, capabilities: sortedKeys(capabilities) };
     return this;
   }
 
@@ -311,6 +368,11 @@ class Backend {
       this.#run(id, null, (context) => build(params ?? {}, context), (result) => buildResult(method, result));
       return;
     }
+    const vcs = this.#negotiated.vcs ? this.#vcs.methods.get(method) : undefined;
+    if (vcs) {
+      this.#run(id, null, (context) => vcs(params ?? {}, this.#vcsContext(context)), (result) => vcsResult(method, result));
+      return;
+    }
     const handler = this.#requestHandlers.get(method);
     if (handler) {
       this.#run(id, null, (context) => handler(params, context), (result) => result ?? null);
@@ -348,6 +410,7 @@ class Backend {
     this.#negotiated = Object.freeze({
       functions: offers(offered.litheFunctions, FUNCTIONS_VERSION),
       build: this.#buildHandlers.size > 0 && offers(offered.litheBuild, BUILD_VERSION),
+      vcs: this.#vcs !== null && offers(offered.litheVcs, VCS_VERSION),
     });
     try {
       for (const hook of this.#initializeHooks) {
@@ -370,6 +433,11 @@ class Backend {
     }
     const experimental = { ...(this.#capabilities.experimental ?? {}) };
     if (this.#negotiated.build) experimental.litheBuild = { version: BUILD_VERSION };
+    if (this.#negotiated.vcs) {
+      experimental.litheVcs = { version: VCS_VERSION, vcs: this.#vcs.id, capabilities: this.#vcs.capabilities };
+    } else if (this.#vcs) {
+      this.log('The host did not offer litheVcs version 1; the VCS provider stays unavailable.');
+    }
     if (this.#negotiated.functions) {
       experimental.litheFunctions = {
         version: FUNCTIONS_VERSION,
@@ -473,6 +541,44 @@ class Backend {
         controller.abort(new PluginSdkError('sdk.call.ended', 'The call ended.'));
         this.#respond(id, result, error);
       });
+  }
+
+  /**
+   * The request context of a VCS handler. Its `run` reports every finished
+   * command to the host as `lithe/vcs/execution`, for the project console,
+   * unless the call passes `report: false`. Arguments are reported as given,
+   * so they must never carry a credential.
+   */
+  #vcsContext(context) {
+    const report = (command, args, started, outcome) => {
+      const params = {
+        command: [String(command), ...args.map(String)],
+        exitCode: outcome.exitCode ?? null,
+        durationMilliseconds: Math.max(0, Math.round(performance.now() - started)),
+        stderr: boundedText(outcome.stderr ?? '', LIMITS.maxExecutionErrorOutputBytes),
+      };
+      this.#write({ jsonrpc: '2.0', method: METHODS.vcsExecution, params });
+    };
+    return {
+      ...context,
+      run: (command, args = [], { report: reporting = true, ...options } = {}) => {
+        const started = performance.now();
+        const running = context.run(command, args, options);
+        if (!reporting) return running;
+        const reported = running.then(
+          (result) => {
+            report(command, args, started, result);
+            return result;
+          },
+          (error) => {
+            if (!context.signal.aborted) report(command, args, started, { exitCode: null, stderr: error?.message });
+            throw error;
+          },
+        );
+        reported.catch(() => {});
+        return reported;
+      },
+    };
   }
 
   #declareBuild(method, handler) {
@@ -612,6 +718,23 @@ function buildResult(method, result) {
     throw new PluginSdkError('sdk.build.invalidResult', `${method} returned version ${result.version}, not 1.`);
   }
   return { ...result, format: expected, version: 1 };
+}
+
+/**
+ * A VCS reply must be a JSON object; Core validates its fields and refuses
+ * anything else as `plugin.vcs.invalidOutput`, so it fails here with a log.
+ */
+function vcsResult(method, result) {
+  if (result === undefined) return {};
+  if (result === null || typeof result !== 'object' || Array.isArray(result)) {
+    throw new PluginSdkError('sdk.vcs.invalidResult', `${method} must return a reply object.`);
+  }
+  return result;
+}
+
+/** A copy of `object` with its keys sorted, for a stable `initialize` answer. */
+function sortedKeys(object) {
+  return Object.fromEntries(Object.entries(object).sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0)));
 }
 
 /**

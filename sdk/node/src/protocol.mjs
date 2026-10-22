@@ -1,11 +1,12 @@
 // Wire constants and validation shared with Rust Core
-// (rust/lithe-core/src/lsp/interface/plugin_function.rs). The SDK checks the
-// same rules locally so a plugin author sees a mistake when registering a
+// (rust/lithe-core/src/lsp/interface/plugin_function.rs and
+// rust/lithe-core/src/vcs/). The SDK checks the same rules locally so a plugin author sees a mistake when registering a
 // handler instead of as a refused session at runtime.
 
 /** Protocol versions this SDK can answer. */
 export const FUNCTIONS_VERSION = 1;
 export const BUILD_VERSION = 1;
+export const VCS_VERSION = 1;
 
 export const METHODS = Object.freeze({
   initialize: 'initialize',
@@ -19,6 +20,43 @@ export const METHODS = Object.freeze({
   functionProgress: 'lithe/function/progress',
   buildModel: 'lithe/build/model',
   buildDependencies: 'lithe/build/dependencies',
+  vcsExecution: 'lithe/vcs/execution',
+});
+
+/**
+ * VCS-provider operations: the handler name a plugin declares, the request
+ * Core sends for it, and the capability declaring the handler negotiates.
+ * Contract: shared/contracts/vcs-provider-v1.md.
+ */
+export const VCS_OPERATIONS = Object.freeze({
+  status: Object.freeze({ method: 'lithe/vcs/status', capability: 'status' }),
+  baseContent: Object.freeze({ method: 'lithe/vcs/baseContent', capability: 'baseContent' }),
+  history: Object.freeze({ method: 'lithe/vcs/history', capability: 'history' }),
+  fileHistory: Object.freeze({ method: 'lithe/vcs/fileHistory', capability: 'fileHistory' }),
+  annotate: Object.freeze({ method: 'lithe/vcs/annotate', capability: 'annotate' }),
+  checkin: Object.freeze({ method: 'lithe/vcs/checkin', capability: 'checkin' }),
+  rollback: Object.freeze({ method: 'lithe/vcs/rollback', capability: 'rollback' }),
+  update: Object.freeze({ method: 'lithe/vcs/update', capability: 'update' }),
+  fileOperation: Object.freeze({ method: 'lithe/vcs/fileOperation', capability: 'fileOperations' }),
+  resolve: Object.freeze({ method: 'lithe/vcs/resolve', capability: 'conflicts' }),
+  cleanup: Object.freeze({ method: 'lithe/vcs/cleanup', capability: 'cleanup' }),
+});
+
+/** Handlers every VCS provider must declare; Core refuses a provider without them. */
+export const VCS_REQUIRED_OPERATIONS = Object.freeze(['status', 'baseContent', 'checkin', 'rollback']);
+
+/**
+ * The provider error codes Core passes on (`error.data.code`). Throw a
+ * `PluginError` with one of them; any other code reaches the host as
+ * `vcs.provider.failed`.
+ */
+export const VCS_ERRORS = Object.freeze({
+  authenticationFailed: 'vcs.authentication.failed',
+  conflict: 'vcs.conflict',
+  outOfDate: 'vcs.outOfDate',
+  toolUnavailable: 'vcs.tool.unavailable',
+  workingCopyLocked: 'vcs.workingCopy.locked',
+  workingCopyUnsupported: 'vcs.workingCopy.unsupported',
 });
 
 /** JSON-RPC and LSP error codes the SDK answers with. */
@@ -39,6 +77,8 @@ export const LIMITS = Object.freeze({
   maxPluginErrorCodeBytes: 64,
   maxMessageBytes: 1024,
   maxResultBytes: 1 << 20,
+  maxVcsIdBytes: 32,
+  maxExecutionErrorOutputBytes: 16 * 1024,
 });
 
 /** Dot-separated lowerCamelCase segments, for example `snapshot.refresh`. */
@@ -49,6 +89,11 @@ export function isFunctionId(value) {
     Buffer.byteLength(value) <= LIMITS.maxFunctionIdBytes &&
     value.split('.').every((segment) => /^[a-z][A-Za-z0-9]*$/.test(segment))
   );
+}
+
+/** A VCS ID: lowercase ASCII letters, digits, and `-`, starting with a letter, such as `svn`. */
+export function isVcsId(value) {
+  return typeof value === 'string' && value.length <= LIMITS.maxVcsIdBytes && /^[a-z][a-z0-9-]*$/.test(value);
 }
 
 /** The plugin error code alphabet Core forwards as `pluginErrorCode`. */

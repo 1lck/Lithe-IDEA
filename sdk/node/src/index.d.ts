@@ -72,15 +72,58 @@ export interface BuildRequestParams {
   [key: string]: unknown;
 }
 
+/** Params every VCS handler receives, on top of its operation's arguments. */
+export interface VcsRequestParams {
+  root: { path: string };
+  /** The VCS client the host resolved; null when it could not, so report `vcs.tool.unavailable`. */
+  tool: { executable: string } | null;
+  [key: string]: unknown;
+}
+
+export interface VcsRunOptions extends RunProcessOptions {
+  /** Report the finished command as `lithe/vcs/execution`; default true. */
+  report?: boolean;
+}
+
+export interface VcsContext extends RequestContext {
+  /** `RequestContext.run` that also reports each finished command to the host's console. */
+  run(command: string, args?: string[], options?: VcsRunOptions): Promise<ProcessResult>;
+}
+
+export type VcsHandler = (params: VcsRequestParams, context: VcsContext) => JsonObject | void | Promise<JsonObject | void>;
+
+/** Handlers keyed by operation; see shared/contracts/vcs-provider-v1.md for each reply. */
+export interface VcsHandlers {
+  status: VcsHandler;
+  baseContent: VcsHandler;
+  checkin: VcsHandler;
+  rollback: VcsHandler;
+  history?: VcsHandler;
+  fileHistory?: VcsHandler;
+  annotate?: VcsHandler;
+  update?: VcsHandler;
+  fileOperation?: VcsHandler;
+  resolve?: VcsHandler;
+  cleanup?: VcsHandler;
+}
+
+export interface VcsTraits {
+  /** Check-in is local and publishing is a separate step. */
+  push?: boolean;
+  /** Changes carry a staged/unstaged dimension. */
+  staging?: boolean;
+}
+
 export interface Negotiated {
   functions: boolean;
   build: boolean;
+  vcs: boolean;
 }
 
 export interface BackendOptions {
   name?: string;
   version?: string;
-  /** Standard LSP server capabilities; `experimental.litheBuild` and `experimental.litheFunctions` are reserved. */
+  /** Standard LSP server capabilities; `experimental.litheBuild`, `litheFunctions`, and `litheVcs` are reserved. */
   capabilities?: JsonObject;
 }
 
@@ -100,6 +143,7 @@ export interface Backend {
     model(handler: BuildHandler): Backend;
     dependencies(handler: BuildHandler): Backend;
   };
+  vcs(id: string, handlers: VcsHandlers, traits?: VcsTraits): Backend;
   function(id: string, handler: FunctionHandler): Backend;
   registerFunction(id: string, handler: FunctionHandler): Promise<void>;
   unregisterFunction(id: string): Promise<void>;
@@ -137,10 +181,24 @@ export function openStateStore(directory: string, options?: { packageDirectory?:
 
 export function isFunctionId(value: unknown): boolean;
 
+export function isVcsId(value: unknown): boolean;
+
+/** Provider error codes Core passes on; use them as `PluginError` codes. */
+export const VCS_ERRORS: Readonly<{
+  authenticationFailed: 'vcs.authentication.failed';
+  conflict: 'vcs.conflict';
+  outOfDate: 'vcs.outOfDate';
+  toolUnavailable: 'vcs.tool.unavailable';
+  workingCopyLocked: 'vcs.workingCopy.locked';
+  workingCopyUnsupported: 'vcs.workingCopy.unsupported';
+}>;
+
 export const LIMITS: Readonly<{
   maxFunctions: number;
   maxFunctionIdBytes: number;
   maxPluginErrorCodeBytes: number;
   maxMessageBytes: number;
   maxResultBytes: number;
+  maxVcsIdBytes: number;
+  maxExecutionErrorOutputBytes: number;
 }>;

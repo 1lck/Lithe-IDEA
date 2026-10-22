@@ -324,7 +324,7 @@ missing required field, or a size limit exceeded makes the reply invalid.
 
 | Direction | Method | Version 1 behavior |
 | --- | --- | --- |
-| provider → host | `lithe/vcs/execution` | Notification of a command the provider ran and its output. Core passes it on as a session `log` event (`message` is the method, `detail` the params); routing it to the project console is host work (P3). |
+| provider → host | `lithe/vcs/execution` | Notification of a command the provider ran: `{ command: [executable, ...arguments], exitCode: number \| null, durationMilliseconds, stderr }`, with `stderr` cut to 16 KiB and no stdout. Core passes it on as a session `log` event (`message` is the method, `detail` the params as JSON); routing it to the project console is host work (P3). Arguments are shown as sent, so a provider never puts a credential in them. |
 | provider → host | `lithe/vcs/authenticate` | Not accepted yet: Core answers `-32601`. A provider runs its client non-interactively and fails with `vcs.authentication.failed`. |
 
 Both sides ignore unknown fields in params and results. `$/cancelRequest` and

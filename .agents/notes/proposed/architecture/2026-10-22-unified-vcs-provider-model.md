@@ -122,11 +122,12 @@ SVN 插件调用用户系统里的 `svn` 命令行，解析它稳定的 `--xml` 
 | P4 | Windows 按同一契约和 fixtures 接入 | Windows 通过同一组 fixtures |
 | 之后 | Git 精简并接入统一层，见第 10 节 | 另起提案 |
 
-P1 的 Core 部分已完成（2026-10-22），Node SDK 和假 Provider 端到端测试还没做：
+P1 已完成（2026-10-22）：
 
 - 插件清单：API 级别 3 的 `vcsProviders`、`process.vcs` 权限和 `onVcsRoot:<id>` 激活事件；`git` 是保留 ID。安装审查列出 Provider 进程，SVN 这类工具路径另放在 `vcsTool` 字段，不覆盖运行时的 `tool`。
 - 根识别 `vcs.detectRoots`：只读目录项，不读文件、不启动进程；工作区自己没有标记时向上查祖先目录，所以“工作区开在 SVN 工作副本的子目录里”也能识别。新增 `vcs.ownerOf`，让各宿主用同一条“最深根”规则给文件找归属，不必各写一份。
 - 会话：`litheVcs` 只提供给插件启动的会话；`lsp.vcsRequest` 按操作名生成 `lithe/vcs/*` 请求，未协商的能力在写出前就拒绝；Provider 只能使用契约列出的错误码，其余一律变成 `vcs.provider.failed`。`lithe/vcs/authenticate` 在宿主实现交互式认证前按未知请求回绝。
+- Node SDK：`backend.vcs(id, handlers, traits)` 按声明的处理函数协商能力，VCS 处理函数里的 `context.run` 会自动发出 `lithe/vcs/execution` 执行报告（只带命令行、退出码、耗时和截断后的 stderr，不带 stdout）。`sdk/node/examples/sample-vcs` 是一个把修订存在 JSON 文件里的玩具 VCS，Rust 端到端测试经真实 Core 会话跑通它的协商和全部 11 种操作。
 
 ### 10. Git 什么时候、怎样接入
 

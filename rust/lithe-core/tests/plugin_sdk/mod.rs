@@ -13,6 +13,8 @@
 // Each test binary includes this module and uses only the helpers its SDK needs.
 #![allow(dead_code)]
 
+pub mod vcs;
+
 use lithe_core::execute_json;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -97,10 +99,27 @@ struct Session {
 
 impl Session {
     fn start(plugin_id: &str, executable: &str, arguments: &[Value], workspace: &Path) -> Self {
+        Self::start_provider(
+            &format!("buildProvider:{plugin_id}:{BUILD_SYSTEM}"),
+            plugin_id,
+            executable,
+            arguments,
+            workspace,
+        )
+    }
+
+    /// Starts a plugin-owned session under the host's provider ID.
+    fn start_provider(
+        provider_id: &str,
+        plugin_id: &str,
+        executable: &str,
+        arguments: &[Value],
+        workspace: &Path,
+    ) -> Self {
         let started = core(
             "lsp.startServer",
             json!({
-                "providerId": format!("buildProvider:{plugin_id}:{BUILD_SYSTEM}"),
+                "providerId": provider_id,
                 "pluginId": plugin_id,
                 "executablePath": executable,
                 "arguments": arguments,
