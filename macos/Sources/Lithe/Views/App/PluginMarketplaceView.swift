@@ -9,7 +9,8 @@ import LitheModuleAPI
 /// repositories on the left, the selected plugin's details on the right.
 struct PluginMarketplaceView: View {
     @Environment(\.locale) private var locale
-    @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var settingsContext: SettingsModelContext
+    private var model: AppModel { settingsContext.model }
     @ObservedObject var feature: PluginMarketplaceFeatureModel
     @State private var pluginListActive = false
     @State private var searchText = ""

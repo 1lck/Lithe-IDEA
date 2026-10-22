@@ -10,7 +10,8 @@ import SwiftUI
 /// under its name. Nothing here depends on which language, build system,
 /// or plugin it is.
 struct ContributedSettingsPageView: View {
-    @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var settingsContext: SettingsModelContext
+    private var model: AppModel { settingsContext.model }
     let page: ContributedSettingsPage
     let openPlugin: (PluginID) -> Void
     @State private var layer = PluginSettingLayer.project

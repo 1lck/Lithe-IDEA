@@ -1,13 +1,17 @@
 import SwiftUI
 
 struct RunConfigurationSettingsView: View {
-    @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var settingsContext: SettingsModelContext
+    private var model: AppModel { settingsContext.model }
+    /// Held here because module feature changes do not refresh the settings
+    /// window; an activation finishing after the first render must still show.
+    @State private var activatedFeature: RunFeatureModel?
 
     var body: some View {
         Group {
             if model.workspaceURL == nil {
                 Text("Open a project to configure its run configurations.")
-            } else if let feature = model.runFeatureIfActive {
+            } else if let feature = activatedFeature ?? model.runFeatureIfActive {
                 RunConfigurationSettingsContent(feature: feature)
                     .id(model.workspaceURL)
             } else {
@@ -16,7 +20,7 @@ struct RunConfigurationSettingsView: View {
         }
         .task(id: model.workspaceURL) {
             guard model.workspaceURL != nil else { return }
-            _ = await model.activateExecutionModule()
+            activatedFeature = await model.activateExecutionModule()?.runFeature
             // The editor shows the JDK an automatic or inherited value resolves to.
             await model.runtimeFeature.ensureRuntimesDiscovered()
         }
@@ -24,7 +28,8 @@ struct RunConfigurationSettingsView: View {
 }
 
 private struct RunConfigurationSettingsContent: View {
-    @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var settingsContext: SettingsModelContext
+    private var model: AppModel { settingsContext.model }
     @ObservedObject var feature: RunFeatureModel
     @State private var confirmGeneration = false
     @State private var isGenerating = false
