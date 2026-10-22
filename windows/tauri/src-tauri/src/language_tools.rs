@@ -522,7 +522,7 @@ fn find_bun_executable(path_env: Option<&OsStr>, user_home: Option<&OsStr>) -> O
 /// Finds a system tool by probing every PATH directory. Only Windows launcher
 /// extensions are accepted; a bare extensionless file is a POSIX script that
 /// CreateProcess cannot execute.
-fn find_system_tool(path_env: Option<&OsStr>, name: &str) -> Option<PathBuf> {
+pub(crate) fn find_system_tool(path_env: Option<&OsStr>, name: &str) -> Option<PathBuf> {
     let path_env = path_env?;
     for directory in std::env::split_paths(path_env) {
         if let Some(tool) = first_existing(executable_candidates_in(&directory, name)) {

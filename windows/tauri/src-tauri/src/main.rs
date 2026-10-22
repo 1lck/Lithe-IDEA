@@ -18,6 +18,7 @@ mod lsp;
 mod maven;
 mod memory;
 mod platform;
+mod plugin_host;
 mod profile_migration;
 mod project_window_registry;
 mod project_windows;
@@ -130,6 +131,7 @@ fn main() {
             app.manage(window_title::WindowTitles::default());
             app.manage(run::RunProcessManager::default());
             app.manage(debug::DebugAdapterManager::default());
+            app.manage(plugin_host::PluginHostState::default());
             run::cleanup_legacy_appdata(app.handle());
             maven::clear_dependency_outputs(app.handle());
             for config in initial_windows.iter().filter(|config| config.create) {
@@ -242,6 +244,9 @@ fn main() {
             window_title::update_window_title_context,
             lsp::lsp_resolve_java_launch,
             lsp::lsp_rebuild_java_index,
+            plugin_host::declarative_plugins_rescan,
+            plugin_host::declarative_plugins_state,
+            plugin_host::launch::declarative_plugins_language_launch,
             language_tools::get_tool_path,
             language_tools::install_language_tools,
             language_tools::check_language_tool_requirements,

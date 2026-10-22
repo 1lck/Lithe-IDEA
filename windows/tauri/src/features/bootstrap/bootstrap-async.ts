@@ -42,6 +42,14 @@ const asyncBootstrapSteps = [
       await initializeExtensionStore();
     },
   },
+  {
+    name: "declarative plugins",
+    run: async () => {
+      const { rescanDeclarativePlugins } =
+        await import("@/features/plugins/declarative-plugin-launch");
+      await rescanDeclarativePlugins();
+    },
+  },
 ] as const;
 
 export async function runAsyncBootstrapSteps(): Promise<void> {
