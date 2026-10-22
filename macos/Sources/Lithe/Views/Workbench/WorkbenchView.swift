@@ -478,13 +478,9 @@ struct WorkbenchView: View {
             Text(model.pendingDiscardHunk?.change.path ?? "This action cannot be undone by Lithe.")
         }
         .sheet(item: $pendingTopBarPushReference) { reference in
-            GitPushDialog(
-                projectName: model.projectName,
-                reference: reference,
-                onPush: {
-                    Task { await model.pushBranch(reference) }
-                }
-            )
+            if let feature = model.gitFeatureIfActive {
+                GitPushDialog(feature: feature, projectName: model.projectName, reference: reference)
+            }
         }
         .confirmationDialog(
             "Delete branch?",

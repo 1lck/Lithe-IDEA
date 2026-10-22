@@ -1,5 +1,6 @@
 //! Workspace traversal, file operations, search, and replacement previews.
 
+use super::file_name_order::FileNameKey;
 use super::search_index::{self, UpdateOutcome, WorkspaceSearchIndex};
 use crate::protocol::{invalid_relative_path, CoreError, ErrorCode};
 use crate::protocol::{
@@ -228,7 +229,7 @@ pub fn list_directories(
         let Some(directory) = listable_directory(&root, &relative, &rules) else {
             continue;
         };
-        let Ok(listing) = visible_children(&directory, &root, &rules) else {
+        let Ok(listing) = visible_children(&directory, &root, &rules, ChildOrder::Tree) else {
             continue;
         };
         let children = listing
@@ -863,7 +864,7 @@ fn scan_node(
         });
     }
 
-    let listing = visible_children(path, root, rules)?;
+    let listing = visible_children(path, root, rules, ChildOrder::Traversal)?;
     nested_worktrees.extend(
         listing
             .nested_worktrees
@@ -894,7 +895,7 @@ fn collect_snapshot_files(
     nested_worktrees: &mut Vec<String>,
 ) -> Result<(), CoreError> {
     crate::protocol::cancellation::check()?;
-    let listing = visible_children(path, root, rules)?;
+    let listing = visible_children(path, root, rules, ChildOrder::Traversal)?;
     nested_worktrees.extend(
         listing
             .nested_worktrees
@@ -919,11 +920,23 @@ fn node_name(path: &Path) -> String {
         .to_string()
 }
 
-/// Visible children of one directory in tree order, plus the nested linked
+/// How `visible_children` orders the siblings it returns. Directories always come first.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ChildOrder {
+    /// The rows the project tree displays: IDEA's natural file-name order, where digit
+    /// runs compare by value (see `file_name_order`).
+    Tree,
+    /// The sequence behind flat file lists and the search index: lowercased names in
+    /// byte order. Consumers that keep only the first N entries of that sequence, such
+    /// as Windows Quick Open (the first 100 matches of the snapshot list), depend on it,
+    /// so a display-order change must not reorder it.
+    Traversal,
+}
+
+/// Visible children of one directory in the requested order, plus the nested linked
 /// worktrees that were left out of it.
 pub(crate) struct VisibleDirectory {
-    /// Child paths and whether each is a directory: directories first, then
-    /// case-insensitive names.
+    /// Child paths and whether each is a directory, sorted by the requested `ChildOrder`.
     pub(crate) children: Vec<(PathBuf, bool)>,
     pub(crate) nested_worktrees: Vec<PathBuf>,
 }
@@ -940,6 +953,7 @@ pub(crate) fn visible_children(
     path: &Path,
     root: &Path,
     rules: &VisibilityRules,
+    order: ChildOrder,
 ) -> Result<VisibleDirectory, CoreError> {
     #[cfg(test)]
     DIRECTORY_VISITS.with_borrow_mut(|visits| {
@@ -953,23 +967,37 @@ pub(crate) fn visible_children(
         .filter_map(Result::ok)
         .filter_map(|entry| visible_child(entry, root, rules, &mut nested_worktrees))
         .collect::<Vec<_>>();
-    children.sort_by(|left, right| {
-        right.1.cmp(&left.1).then_with(|| {
-            left.0
-                .file_name()
-                .and_then(|value| value.to_str())
-                .unwrap_or_default()
-                .to_lowercase()
-                .cmp(
-                    &right
-                        .0
-                        .file_name()
+    match order {
+        // Siblings follow IDEA's Project view: directories first, then natural file-name
+        // order, so `v0.1.4.md` precedes `v0.1.12.md`.
+        ChildOrder::Tree => children.sort_by_cached_key(|(path, is_directory)| {
+            (
+                std::cmp::Reverse(*is_directory),
+                FileNameKey::new(
+                    path.file_name()
                         .and_then(|value| value.to_str())
-                        .unwrap_or_default()
-                        .to_lowercase(),
-                )
-        })
-    });
+                        .unwrap_or_default(),
+                ),
+            )
+        }),
+        ChildOrder::Traversal => children.sort_by(|left, right| {
+            right.1.cmp(&left.1).then_with(|| {
+                left.0
+                    .file_name()
+                    .and_then(|value| value.to_str())
+                    .unwrap_or_default()
+                    .to_lowercase()
+                    .cmp(
+                        &right
+                            .0
+                            .file_name()
+                            .and_then(|value| value.to_str())
+                            .unwrap_or_default()
+                            .to_lowercase(),
+                    )
+            })
+        }),
+    }
     nested_worktrees.sort();
     Ok(VisibleDirectory {
         children,

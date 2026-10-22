@@ -34,6 +34,13 @@
   ],
   "excludedResources": [
     {
+      "id": "agent-edit-and-paste-state",
+      "reusable": false,
+      "locations": ["<platform-app-cache>/agent/pasted-images/pasted-<UUID>.<image-extension>", "<workspace-parent>/.lithe-agent-recovery-<pid>-<sequence>-<filename>"],
+      "identity": "One user attachment or guarded revert operation owns these mutable bytes. No reusable version/platform/architecture/toolchain identity stamp exists.",
+      "reason": "The Windows attachment adapter writes only to platform application cache; abandoned batches delete their own files, accepted references remain available to history. Revert stages a same-directory file until Windows recycling succeeds, restoring on failure without overwriting a recreated destination. A conflicting restoration reports the recovery location for manual action. Neither resource may enter any worktree copy stage or installation directory; signatures and update baselines remain unchanged."
+    },
+    {
       "id": "distribution-runtime-state",
       "reusable": false,
       "locations": [

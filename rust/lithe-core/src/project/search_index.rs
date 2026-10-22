@@ -2,7 +2,7 @@
 
 use crate::project::files::{
     is_inside_nested_linked_worktree, java_symbols, read_searchable_text, relative_path,
-    visible_children, VisibilityRules,
+    visible_children, ChildOrder, VisibilityRules,
 };
 use crate::protocol::{CoreError, ErrorCode, SearchMatch};
 use std::collections::{HashMap, HashSet};
@@ -416,7 +416,7 @@ fn collect_files(
     files: &mut Vec<PathBuf>,
 ) -> Result<(), CoreError> {
     crate::protocol::cancellation::check()?;
-    let children = match visible_children(path, root, rules) {
+    let children = match visible_children(path, root, rules, ChildOrder::Traversal) {
         Ok(listing) => listing.children,
         Err(error)
             if path != root

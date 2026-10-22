@@ -59,6 +59,58 @@ pub async fn read_document_file(path: PathBuf) -> Result<Option<String>, Documen
 }
 
 #[tauri::command]
+pub async fn resolve_agent_document_path(
+    workspace: PathBuf,
+    path: PathBuf,
+) -> Result<PathBuf, DocumentError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        document_file::agent_document_path(&workspace, &path).map_err(DocumentError::from)
+    })
+    .await
+    .map_err(DocumentError::worker)?
+}
+
+#[tauri::command]
+pub async fn trash_agent_document(
+    workspace: PathBuf,
+    path: PathBuf,
+    expected_identity: String,
+) -> Result<(), DocumentError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        document_file::trash_agent_document(&workspace, &path, &expected_identity)
+            .map_err(DocumentError::from)
+    })
+    .await
+    .map_err(DocumentError::worker)?
+}
+
+#[tauri::command]
+pub async fn save_agent_document(
+    workspace: PathBuf,
+    path: PathBuf,
+    content: String,
+    expected_content: Option<String>,
+    encoding: Option<String>,
+    expected_identity: Option<String>,
+) -> Result<SaveOutcome, DocumentError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let resolved =
+            document_file::agent_document_path(&workspace, &path).map_err(DocumentError::from)?;
+        document_file::save_document_with_encoding(
+            &resolved,
+            &content,
+            expected_content.as_deref(),
+            encoding.as_deref(),
+            encoding.as_deref(),
+            expected_identity.as_deref(),
+        )
+        .map_err(DocumentError::from)
+    })
+    .await
+    .map_err(DocumentError::worker)?
+}
+
+#[tauri::command]
 pub async fn read_document_file_details(
     path: PathBuf,
     encoding: Option<String>,
