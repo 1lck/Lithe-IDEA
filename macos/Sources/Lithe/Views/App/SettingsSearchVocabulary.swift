@@ -33,6 +33,10 @@ enum SettingsSearchVocabulary {
             ["AI & Commit", "Commit message", "Pull request"]
         case .agents:
             ["Agents", "Agent conversation", "Codex", "Claude", "ACP adapter", "Preflight", "Providers"]
+        case .instructions:
+            ["Instructions", "Global instructions", "AGENTS.md", "AGENTS.override.md", "CLAUDE.md", "Codex", "Claude"]
+        case .skills:
+            ["Skills", "Agent skills", "SKILL.md", "Global skills", "Project skills", "Import skill", "New skill", "Codex", "Claude"]
         case .providers:
             ["AI Providers", "AI provider", "Model", "API key", "Endpoint", "Responses", "Anthropic"]
         case .git:

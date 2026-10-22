@@ -11,6 +11,12 @@ import Testing
 @Suite("Settings search vocabulary")
 @MainActor
 struct SettingsSearchVocabularyTests {
+    @Test func globalInstructionsAreSearchableByNativeFileAndChineseName() throws {
+        let translations = try simplifiedChineseTranslations()
+        for query in ["Global instructions", "AGENTS.md", "AGENTS.override.md", "CLAUDE.md", "全局指令"] {
+            #expect(SettingsSearchVocabulary.matches(query: query, category: .instructions, localize: { translations[$0] ?? $0 }))
+        }
+    }
     @Test func everySettingsPageKeepsSearchTerms() {
         for category in SettingsCategory.allCases {
             #expect(
@@ -41,6 +47,12 @@ struct SettingsSearchVocabularyTests {
         #expect(SettingsSearchVocabulary.matches(query: "ACP adapter", category: .agents))
         #expect(SettingsSearchVocabulary.matches(query: "Codex", category: .agents))
         #expect(!SettingsSearchVocabulary.matches(query: "ACP adapter", category: .providers))
+    }
+
+    @Test func skillsPageMatchesSkillScopeAndImportQueries() {
+        for query in ["Skills", "SKILL.md", "Global skills", "Project skills", "Import skill"] {
+            #expect(SettingsSearchVocabulary.matches(query: query, category: .skills))
+        }
     }
 
     @Test func editorPageMatchesTheNewFontQueries() {
@@ -103,6 +115,8 @@ struct SettingsSearchVocabularyTests {
         let translations = try simplifiedChineseTranslations()
         let localize: (String) -> String = { translations[$0] ?? $0 }
 
+        #expect(SettingsSearchVocabulary.matches(query: "技能", category: .skills, localize: localize))
+        #expect(SettingsSearchVocabulary.matches(query: "全局技能", category: .skills, localize: localize))
         #expect(translations["Editor tabs"] == "编辑器标签栏")
         #expect(translations["Font"] == "字体")
         #expect(translations["Search fonts"] == "搜索字体")

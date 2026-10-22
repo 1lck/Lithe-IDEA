@@ -8,6 +8,18 @@ import Testing
 /// ownership ledger, backups and project registration around it.
 @MainActor
 struct McpServerLibraryTests {
+    @Test func jsonImportPreviewsWithoutWritingOrTakingOwnership() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        let feature = fixture.feature()
+        let drafts = try feature.importedDrafts(#"{"mcpServers":{"demo":{"command":"npx","args":["-y","@example/server","space value"],"env":{"TOKEN":"private"}},"remote":{"type":"http","url":"https://example.invalid/mcp"}}}"#)
+        #expect(drafts.map(\.name) == ["demo", "remote"])
+        #expect(drafts[0].arguments == ["-y", "@example/server", "space value"])
+        #expect(drafts.allSatisfy { $0.enabledAgents.isEmpty && $0.originalSources.isEmpty })
+        #expect(!FileManager.default.fileExists(atPath: fixture.codexURL.path))
+        #expect(!FileManager.default.fileExists(atPath: fixture.claudeURL.path))
+        #expect(throws: (any Error).self) { try feature.importedDrafts("invalid json private") }
+    }
     @Test(arguments: McpAgent.allCases, [false, true])
     func staleEditorCannotOverwriteAnotherWindowsSave(agent: McpAgent, refreshBeforeSave: Bool) throws {
         let fixture = try Fixture()

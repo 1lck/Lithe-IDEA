@@ -1,0 +1,48 @@
+{
+  "reviewed": "2026-10-22",
+  "servers": [
+    {
+      "server": {
+        "name": "lithe.featured/context7",
+        "title": "Context7",
+        "publisher": "Upstash",
+        "description": "Current library documentation and code examples for coding agents.",
+        "websiteUrl": "https://github.com/upstash/context7",
+        "remotes": [{ "type": "streamable-http", "url": "https://mcp.context7.com/mcp" }]
+      }
+    },
+    {
+      "server": {
+        "name": "lithe.featured/playwright",
+        "title": "Playwright",
+        "publisher": "Microsoft",
+        "description": "Open pages, click, type and inspect a browser through its accessibility tree.",
+        "version": "0.0.83",
+        "websiteUrl": "https://github.com/microsoft/playwright-mcp",
+        "packages": [{ "registryType": "npm", "identifier": "@playwright/mcp", "version": "0.0.83", "transport": { "type": "stdio" } }]
+      }
+    },
+    {
+      "server": {
+        "name": "lithe.featured/chrome-devtools",
+        "title": "Chrome DevTools",
+        "publisher": "Google",
+        "description": "Inspect Chrome pages, console messages, network requests and performance.",
+        "version": "1.11.0",
+        "websiteUrl": "https://github.com/ChromeDevTools/chrome-devtools-mcp",
+        "packages": [{ "registryType": "npm", "identifier": "chrome-devtools-mcp", "version": "1.11.0", "transport": { "type": "stdio" } }]
+      }
+    },
+    {
+      "server": {
+        "name": "lithe.featured/microsoft-learn",
+        "title": "Microsoft Learn",
+        "publisher": "Microsoft",
+        "description": "Search official Microsoft and Azure documentation and code samples.",
+        "websiteUrl": "https://github.com/MicrosoftDocs/mcp",
+        "remotes": [{ "type": "streamable-http", "url": "https://learn.microsoft.com/api/mcp" }]
+      }
+    }
+  ],
+  "metadata": {}
+}
