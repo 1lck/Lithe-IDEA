@@ -59,7 +59,8 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
-    @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var settingsContext: SettingsModelContext
+    private var model: AppModel { settingsContext.model }
     @EnvironmentObject private var updateChecker: UpdateChecker
     @ObservedObject var settings: AppSettings
     @ObservedObject var viewState: SettingsViewState
@@ -531,23 +532,7 @@ struct SettingsView: View {
                     }
                 }
 
-                if let error = model.workbenchBackgroundFeature.imageError {
-                    Label {
-                        Text(LocalizedStringKey(error))
-                    } icon: {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                    }
-                    .font(LitheTheme.smallFont)
-                    .foregroundStyle(LitheTheme.warning)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                    Button("Retry") {
-                        model.workbenchBackgroundFeature.retry()
-                    }
-                    .buttonStyle(.litheNoPress)
-                    .foregroundStyle(LitheTheme.accent)
-                    .lithePointer()
-                }
+                WorkbenchBackgroundImageError(feature: model.workbenchBackgroundFeature)
 
                 if settings.hasConfiguredWorkbenchBackground {
                     row("Workbench background opacity") {
@@ -1811,6 +1796,32 @@ private struct SettingsSidebarIcon: View {
 /// The chosen workbench background as a small thumbnail with its name; a
 /// click shows it larger. The image is decoded once per change into a
 /// downsampled copy, so resizing the window never decodes the original.
+/// Observes the background feature itself: the settings window does not
+/// rebuild on relayed workbench feature changes.
+private struct WorkbenchBackgroundImageError: View {
+    @ObservedObject var feature: WorkbenchBackgroundFeatureModel
+
+    var body: some View {
+        if let error = feature.imageError {
+            Label {
+                Text(LocalizedStringKey(error))
+            } icon: {
+                Image(systemName: "exclamationmark.triangle.fill")
+            }
+            .font(LitheTheme.smallFont)
+            .foregroundStyle(LitheTheme.warning)
+            .fixedSize(horizontal: false, vertical: true)
+
+            Button("Retry") {
+                feature.retry()
+            }
+            .buttonStyle(.litheNoPress)
+            .foregroundStyle(LitheTheme.accent)
+            .lithePointer()
+        }
+    }
+}
+
 private struct WorkbenchBackgroundThumbnail: View {
     @ObservedObject var feature: WorkbenchBackgroundFeatureModel
     @State private var thumbnail: NSImage?
