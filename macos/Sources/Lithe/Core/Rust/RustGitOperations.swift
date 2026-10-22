@@ -483,6 +483,17 @@ struct RustGitOperations: GitOperations, Sendable {
         core.gitStatus(at: rootURL, repositoryRoots: repositoryRoots)?.makeSnapshot(at: rootURL)
     }
 
+    func changesSnapshot(at rootURL: URL, repositoryRoots: [URL]) -> GitSnapshot? {
+        core.gitStatus(at: rootURL, repositoryRoots: repositoryRoots, summarizeUntrackedDirectories: true)?
+            .makeSnapshot(at: rootURL)
+    }
+
+    func untrackedDirectoryChildren(of directory: GitChange, repositoryRoots: [URL]) -> [GitChange]? {
+        let root = directory.repositoryRoot.standardizedFileURL
+        return core.gitUntrackedDirectory(at: root, directory: directory.path, repositoryRoots: repositoryRoots)?
+            .changes.map { $0.makeChange(repositoryRoot: root) }
+    }
+
     func repositories(in workspaceURL: URL) -> [URL] {
         core.workspaceRepositories(at: workspaceURL)?.repositories.map {
             URL(fileURLWithPath: $0.path).standardizedFileURL

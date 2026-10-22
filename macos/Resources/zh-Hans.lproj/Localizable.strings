@@ -1859,6 +1859,8 @@
 "Show all changes" = "显示所有更改";
 "Collapse section" = "折叠分组";
 "Expand section" = "展开分组";
+"Collapse directory" = "折叠目录";
+"Expand directory" = "展开目录";
 "Unstage all files" = "取消暂存所有文件";
 "Stage all files" = "暂存所有文件";
 "Local changes were restored with conflicts" = "本地更改已恢复，但存在冲突";
@@ -3651,3 +3653,16 @@
 "%lld of %lld services selected" = "已选择 %2$lld 个服务中的 %1$lld 个";
 
 "Background Services" = "后台服务";
+
+/* 内嵌 HTML 预览浏览器。 */
+"Stop Loading" = "停止加载";
+"Enter address" = "输入网址或本地路径";
+"Open HTML in Browser" = "在系统浏览器中打开";
+"Developer Tools" = "开发者工具";
+"This page" = "此页面";
+"“%@” says" = "“%@”提示";
+"This address cannot be opened here." = "无法在此处打开该地址。";
+"Zoom In" = "放大";
+"Zoom Out" = "缩小";
+"Reset Page Zoom (100%)" = "恢复页面缩放（100%）";
+"Page Zoom" = "页面缩放";

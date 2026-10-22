@@ -863,6 +863,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `git.initialize` | Initialize a directory outside existing repositories without staging or committing |
 | `git.configureIdentity` | Save or clear one local/global `user.name` or `user.email` override |
 | `git.status` | Resolve the repository, current branch, and working-tree changes |
+| `git.untrackedDirectory` | List one level of a summarized untracked directory: its files and subdirectory summaries |
 | `git.commitState` | Read exact HEAD, symbolic branch and index preconditions for a workspace commit |
 | `git.watchContext` | Resolve the repository and absolute Git metadata roots needed by native file watchers |
 | `git.worktrees` | Return deterministic registered-worktree metadata without scanning each checkout |
@@ -3188,6 +3189,20 @@ already-staged change) is eligible for the parent's staging checkbox.
 repositories). Untracked paths owned by a nested root are excluded from the
 parent list. Each change returns `canToggleStaging`; platforms render that
 eligibility instead of reinterpreting submodule dirt.
+
+`git.status` accepts optional `summarizeUntrackedDirectories`. When true, Core
+reads Git's collapsed untracked view and reports a wholly untracked directory
+holding more than 100 non-ignored files as one change whose `path` ends with `/`
+and which carries `untrackedFileCount`. Smaller directories keep one change per
+file. A directory containing a nested repository is never summarized; it is
+split until each summary is free of nested repositories, so staging (`stage`),
+discarding (`discard`/`discardAll`) or diffing (`git.diff` with `untracked`) the
+summary path acts on exactly the counted files. Omission preserves the
+file-level projection. `git.untrackedDirectory` accepts `{ root, directory,
+repositoryRoots? }`, where `directory` is a summary path ending with `/`, and
+returns `{ changes }`: the directory's immediate untracked files plus each
+subdirectory as a summary, using the same change shape and nested-root
+exclusion as `git.status`.
 
 `git.workspaceCommitPrepare` owns the complete multi-repository policy. It accepts
 `repositories: [{ id, root }]`, `message`, `amend`, `push`,

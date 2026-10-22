@@ -196,7 +196,7 @@ struct MediaViewerView: View {
                         .font(LitheTheme.uiFont(size: 11, weight: .medium))
                         .monospacedDigit()
                 }
-                .buttonStyle(MediaZoomPercentageButtonStyle())
+                .buttonStyle(ZoomPercentageButtonStyle())
                 .help("Reset to actual size (100%)")
                 .accessibilityLabel("Image zoom")
                 .accessibilityValue("\(imageZoomPercentage) percent")
@@ -509,7 +509,7 @@ private final class ImageDocumentView: NSView {
     }
 }
 
-private struct MediaZoomPercentageButtonStyle: ButtonStyle {
+struct ZoomPercentageButtonStyle: ButtonStyle {
     @State private var isHovering = false
 
     func makeBody(configuration: Configuration) -> some View {

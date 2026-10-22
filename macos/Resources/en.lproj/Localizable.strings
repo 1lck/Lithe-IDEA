@@ -627,6 +627,8 @@
 "Show all changes" = "Show all changes";
 "Collapse section" = "Collapse section";
 "Expand section" = "Expand section";
+"Collapse directory" = "Collapse directory";
+"Expand directory" = "Expand directory";
 "Unstage all files" = "Unstage all files";
 "Stage all files" = "Stage all files";
 "Local changes were restored with conflicts" = "Local changes were restored with conflicts";
@@ -2072,3 +2074,17 @@
 "These defaults apply only to this project on this computer. Run configurations inherit them unless overridden. Use the Project save scope in a run configuration to share settings with your team." = "These defaults apply only to this project on this computer. Run configurations inherit them unless overridden. Use the Project save scope in a run configuration to share settings with your team.";
 "Saved only for this project on this computer in .lithe/run/local.json and excluded from Git." = "Saved only for this project on this computer in .lithe/run/local.json and excluded from Git.";
 "This computer" = "This computer";
+
+/* Embedded HTML preview browser. */
+"Forward" = "Forward";
+"Stop Loading" = "Stop Loading";
+"Enter address" = "Enter address";
+"Open HTML in Browser" = "Open HTML in Browser";
+"Developer Tools" = "Developer Tools";
+"This page" = "This page";
+"“%@” says" = "“%@” says";
+"This address cannot be opened here." = "This address cannot be opened here.";
+"Zoom In" = "Zoom In";
+"Zoom Out" = "Zoom Out";
+"Reset Page Zoom (100%)" = "Reset Page Zoom (100%)";
+"Page Zoom" = "Page Zoom";

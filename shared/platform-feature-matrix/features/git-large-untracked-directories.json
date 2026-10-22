@@ -1,0 +1,40 @@
+{
+  "id": "git-large-untracked-directories",
+  "area": "版本控制",
+  "group": "Git",
+  "capability": "大型未跟踪目录汇总与按需展开",
+  "macos": {
+    "evidence": [
+      "rust/lithe-core/src/git/untracked_directories.rs",
+      "rust/lithe-core/src/tests/git_untracked_directories.rs",
+      "macos/Sources/Lithe/Views/Git/ChangesSidebarView.swift",
+      "macos/Sources/Lithe/Views/Git/GitChangeSectionsCache.swift",
+      "macos/Sources/LitheGitModule/Application/GitFeatureModel.swift",
+      "macos/Sources/LitheGitModule/Models/GitModels.swift",
+      "macos/Tests/LitheTests/GitChangeSectionsCacheTests.swift",
+      "macos/Tests/LitheGitModuleTests/GitModuleTests.swift",
+      ".agents/notes/implemented/bug-fix/2026-10-21-git-large-untracked-directories.md"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "rust/lithe-core/src/git/untracked_directories.rs",
+      "windows/tauri/src/features/git/api/git-status-api.ts",
+      "windows/tauri/src/features/git/services/git-untracked-directory-expansions.ts",
+      "windows/tauri/src/features/git/utils/git-untracked-directories.ts",
+      "windows/tauri/src/features/git/components/status/git-status-panel.tsx",
+      "windows/tauri/src/features/git/utils/git-status-model.ts",
+      "windows/tauri/src/features/git/utils/git-changelists.ts",
+      "windows/tauri/src/features/file-explorer/lib/file-tree-git-status.ts",
+      "windows/tauri/src/features/git/utils/git-untracked-directories.test.ts",
+      "windows/tauri/src/features/git/components/status/git-workspace-status-panel.test.tsx"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Git",
+  "verification": "在仓库中放入未被忽略、超过 100 个文件的构建目录（如 rust/lithe-core/target/），以及包含多个 linked worktree 的 .worktrees/。打开 Commit 面板：构建目录只显示一行目录节点和「N 个文件」，状态栏与 ChangeList 计数按文件统计；.worktrees/ 不被汇总，已发现的 worktree 不出现在父仓库列表。展开目录只加载下一层，子目录继续显示为带数量的节点；构建写入触发刷新后展开状态保持，目录被删除或暂存后展开状态清除。勾选目录节点暂存全部文件，丢弃目录节点删除其中未跟踪文件，搁置后能完整恢复目录内容；项目树中该目录下的文件仍显示未跟踪颜色，编辑器行标记正常。多仓库和单仓库模式下滚动与帧率不随变更数量下降。 Windows 另检查目录视图与平铺视图：折叠的汇总显示为带「N 个文件」的目录行，展开后由同名文件夹代表该汇总，折叠该文件夹即收起汇总，已记住的文件夹折叠不能挡住展开内容；单击汇总行不打开 Diff，「显示 Diff」与查看全部变更跳过汇总本身；删除汇总只删一次目录；页脚计数、项目树颜色、编辑器装订线与行历史对汇总目录下的文件按未跟踪处理；把汇总移到 ChangeList 后暂存并提交，提交范围包含其文件。",
+  "notes": "#1385：Core 的 git.status 新增 summarizeUntrackedDirectories，使用 Git 的 normal 未跟踪视图，只汇总不含嵌套仓库的整目录；git.untrackedDirectory 按层列出。macOS 变更列表改为扁平行直接交给 LazyVStack，只构建可见行。Windows 由写入 repositoryStatuses 的状态读取开启汇总，展开内容在同一次读取中列出并发布，Shelf 等一次性读取保持逐文件；状态列表原本已虚拟化。"
+}

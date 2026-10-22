@@ -71,6 +71,7 @@ import { useGitBlameStore } from "../stores/git-blame.store";
 import { useRepositoryStore } from "../stores/git-repository.store";
 import { useGitStore } from "../stores/git.store";
 import { buildVisibleGitFiles } from "../utils/git-status-model";
+import { isUntrackedDirectorySummary } from "../utils/git-untracked-directories";
 import {
   type WorkingTreeDiffEntry,
   type WorkingTreeDiffScope,
@@ -201,6 +202,8 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
     const seenDiffableFileKeys = new Set<string>();
 
     for (const file of visible.files) {
+      // A summary stands for many files; its listed contents are diffed instead.
+      if (isUntrackedDirectorySummary(file)) continue;
       const fileKey = `${file.staged ? "staged" : "unstaged"}:${file.path}`;
 
       if (seenDiffableFileKeys.has(fileKey)) {
