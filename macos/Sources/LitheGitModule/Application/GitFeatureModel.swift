@@ -844,6 +844,19 @@ package final class GitFeatureModel: ObservableObject {
         return result
     }
 
+    /// Drops changes below a directory summary that is in the same set.
+    ///
+    /// Acting on the summary already acts on them. Acting again would write
+    /// each file twice into a shelf patch, or fail once the summary's files
+    /// have been cleaned.
+    private func coveringUntrackedDirectoryContents(_ changes: [GitChange]) -> [GitChange] {
+        let summaries = changes.filter(\.isUntrackedDirectory)
+        guard !summaries.isEmpty else { return changes }
+        return changes.filter { change in
+            !summaries.contains { $0.containsUntrackedDescendant(change) }
+        }
+    }
+
     /// True for a change listed only because its untracked summary is expanded.
     private func isListedUntrackedContent(_ change: GitChange) -> Bool {
         change.isUntracked && !expandedUntrackedDirectoryIDs.isEmpty
@@ -1366,6 +1379,7 @@ package final class GitFeatureModel: ObservableObject {
     }
 
     package func discardChanges(_ changes: [GitChange]) async {
+        let changes = coveringUntrackedDirectoryContents(changes)
         guard !changes.isEmpty else { return }
         _ = await withGitOperation {
             var results: [GitService.CommandResult] = []
@@ -1610,9 +1624,9 @@ package final class GitFeatureModel: ObservableObject {
         at repositoryRoot: URL
     ) async -> ShelfCaptureResult {
         guard let shelveService else { return .failed("Shelve storage is unavailable") }
-        let changes = gitChanges.filter {
+        let changes = coveringUntrackedDirectoryContents(gitChanges.filter {
             $0.repositoryRoot.standardizedFileURL == repositoryRoot.standardizedFileURL
-        }
+        })
         guard !changes.isEmpty else { return .failed("There are no changes to shelve") }
         guard !changes.contains(where: \.isConflicted) else {
             return .failed("Resolve existing conflicts before shelving changes")

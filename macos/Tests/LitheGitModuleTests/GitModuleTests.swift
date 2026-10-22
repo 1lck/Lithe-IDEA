@@ -1905,6 +1905,32 @@ struct GitModuleTests {
     }
 
     @Test
+    func discardingAnUntrackedSummaryWithItsListedContentsCleansTheDirectoryOnce() async {
+        // Once `target/` is cleaned its listed files are gone, so discarding them
+        // again would fail and stop the batch after the directory was removed.
+        let root = URL(fileURLWithPath: "/workspace")
+        func untracked(_ path: String, count: Int? = nil) -> GitChange {
+            GitChange(repositoryRoot: root, path: path, originalPath: nil,
+                      indexStatus: "?", workTreeStatus: "?", untrackedFileCount: count)
+        }
+        let selection = [untracked("target/", count: 200), untracked("target/a.o"),
+                         untracked("target/debug/", count: 199), untracked("targets.txt")]
+        let service = GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: []),
+            discardHandler: { change in
+                GitProcessResult(arguments: ["discard", change.path], output: "", exitCode: 0)
+            }
+        ))
+        let feature = GitFeatureModel(service: service)
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false },
+                          notify: { _ in }, onStateRefreshed: {})
+        await feature.refreshGit()
+        feature.clearGitConsole()
+        await feature.discardChanges(selection)
+        #expect(feature.gitConsoleEntries.map(\.arguments) == [["discard", "target/"], ["discard", "targets.txt"]])
+    }
+
+    @Test
     func confirmedDiscardHunkSurvivesDialogDismissalAndReportsFailure() async throws {
         let root = URL(fileURLWithPath: "/workspace")
         let change = GitChange(repositoryRoot: root, path: "target.txt", originalPath: nil,

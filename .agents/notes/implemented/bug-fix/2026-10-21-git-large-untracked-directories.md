@@ -34,6 +34,8 @@
 - 展开的目录内容由 `GitFeatureModel` 直接插入到 `gitChanges` 中、紧跟在汇总条目后面，每次刷新都重新列出。因此暂存、丢弃、选择和 diff 都把这些子项当作普通变更处理，不需要另外维护一套状态。
 - `GitTreeStatusProjection`（把 Git 状态映射到项目树和编辑器的那层）对汇总目录下的文件，会合成一条逐文件的未跟踪记录。项目树着色、编辑器行标记和 Show Diff 的结果与之前一致。
 - 计数按文件统计（`gitChangedFileCount`）：一条汇总按它的文件数计；已展开的子项已经算在汇总里，不重复计数。
+- 逐条执行的写操作（Rollback、Shelve）先去掉同一批里被汇总覆盖的子项。否则同一个文件会在搁置补丁里写两次，恢复时 `git apply` 失败；或者汇总被清理后，子项的 `git restore` 报错并中断。
+- 把汇总移到 ChangeList 后，ChangeList 只记录 `dir/` 这一个键，目录下的文件继承它的归属。Core 的提交范围检查（`PathScope`）只按字面路径比较，所以 `commitScope` 会把继承归属的文件逐个列出。否则在该 ChangeList 中提交会被拒，而默认列表的提交会把这些文件一起带走。
 - `GitChangeSectionsCache.rows` 把仓库标题、ChangeList 标题和每一条变更拍平成一个行数组，`ForEach` 直接放在 `LazyVStack` 中。
 
 正确做法：新增大列表时，让每一行都是懒加载栈的直接子项，汇总和分组数据在缓存里一次算好。

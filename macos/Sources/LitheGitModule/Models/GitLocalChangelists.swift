@@ -35,7 +35,7 @@ package struct GitLocalChangelists: Codable, Equatable, Sendable {
     }
 
     /// An untracked directory summary (`dir/`) is assigned by its path; the files
-    /// listed below it follow it, as the commit pathspec `dir/` does.
+    /// listed below it, and those staged from it, follow it.
     private func directoryAssignment(above path: String, in paths: [String: String]) -> String? {
         guard !paths.isEmpty else { return nil }
         var ancestor = path.hasSuffix("/") ? Substring(path.dropLast()) : Substring(path)
@@ -76,9 +76,20 @@ package struct GitLocalChangelists: Codable, Equatable, Sendable {
         let include = activeID != Self.defaultID
         var paths: [String: [String]] = [:]
         for repository in repositories {
-            let assigned = snapshot.assignments[URL(fileURLWithPath: repository.root).standardizedFileURL.path] ?? [:]
-            let selected = assigned.filter { include ? $0.value == activeID : $0.value != Self.defaultID }.keys.sorted()
-            if !selected.isEmpty { paths[repository.id] = selected }
+            let rootPath = URL(fileURLWithPath: repository.root).standardizedFileURL.path
+            let assigned = snapshot.assignments[rootPath] ?? [:]
+            let isSelected = { (id: String) in include ? id == activeID : id != Self.defaultID }
+            var selected = Set(assigned.filter { isSelected($0.value) }.keys)
+            // Core matches literal paths, so files that follow an assigned
+            // directory summary must be listed by their own paths.
+            for change in changes where change.repositoryRoot.standardizedFileURL.path == rootPath
+                && assigned[change.path] == nil
+                && snapshot.renamedSourcePath(change).flatMap({ assigned[$0] }) == nil {
+                if let id = snapshot.directoryAssignment(above: change.path, in: assigned), isSelected(id) {
+                    selected.insert(change.path)
+                }
+            }
+            if !selected.isEmpty { paths[repository.id] = selected.sorted() }
         }
         return GitWorkspaceCommitPathScope(include: include, paths: paths)
     }
