@@ -15,7 +15,7 @@ const FIXTURES_DIR: &str = concat!(
     "/../../../shared/contracts/plugins/v1/fixtures"
 );
 
-/// Valid manifests that this host's v0 capability declaration accepts.
+/// Valid manifests that this host's capability declaration accepts.
 const ACCEPTED_FIXTURES: [&str; 5] = [
     "go-support.plugin.json",
     "hello-lithe.plugin.json",
@@ -24,7 +24,7 @@ const ACCEPTED_FIXTURES: [&str; 5] = [
     "php-support.plugin.json",
 ];
 
-/// Valid manifests whose capabilities exceed the v0 host declaration; Core
+/// Valid manifests whose capabilities exceed the host declaration; Core
 /// rejects them through the capability gate, not through manifest semantics.
 const CAPABILITY_GATED_FIXTURES: [&str; 6] = [
     "cargo-build.plugin.json",
@@ -326,4 +326,165 @@ fn scan_package_at(
 /// Fixture reader shared with the install test module.
 pub(crate) fn read_fixture_for_tests(name: &str) -> serde_json::Value {
     read_fixture(name)
+}
+
+/// M3 setting-store tests exercise the two persistence layers directly: the
+/// global per-plugin file and the workspace's `.lithe/plugin-settings.json`.
+mod settings_tests {
+    use crate::plugin_host::settings::{project_store_path, store_global, store_project};
+
+    fn unique_temp_root(label: &str) -> std::path::PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "lithe-plugin-settings-{label}-{}-{nanos}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&root).expect("temp root");
+        root
+    }
+
+    #[test]
+    fn project_overrides_round_trip_and_clean_up_empty_entries() {
+        let workspace = unique_temp_root("project");
+        let workspace_path = workspace.to_string_lossy().to_string();
+
+        store_project(
+            &workspace_path,
+            "acme.php",
+            "heapMaxMB",
+            Some(serde_json::json!(4096)),
+        )
+        .expect("stores override");
+        let store =
+            std::fs::read_to_string(project_store_path(&workspace_path)).expect("store file");
+        let parsed: serde_json::Value = serde_json::from_str(&store).expect("store JSON");
+        assert_eq!(parsed["acme.php"]["heapMaxMB"], 4096);
+
+        // Erasing the last override removes the plugin entry, then the file.
+        store_project(&workspace_path, "acme.php", "heapMaxMB", None).expect("erases override");
+        assert!(!project_store_path(&workspace_path).exists());
+        let _ = std::fs::remove_dir_all(&workspace);
+    }
+
+    #[test]
+    fn project_store_keeps_other_plugins_entries() {
+        let workspace = unique_temp_root("project-multi");
+        let workspace_path = workspace.to_string_lossy().to_string();
+        store_project(&workspace_path, "acme.php", "a", Some(serde_json::json!(1)))
+            .expect("stores a");
+        store_project(
+            &workspace_path,
+            "other.plugin",
+            "b",
+            Some(serde_json::json!(2)),
+        )
+        .expect("stores b");
+        store_project(&workspace_path, "acme.php", "a", None).expect("erases a");
+
+        let store: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(project_store_path(&workspace_path)).expect("store"),
+        )
+        .expect("store JSON");
+        assert!(store["acme.php"].is_null());
+        assert_eq!(store["other.plugin"]["b"], 2);
+        let _ = std::fs::remove_dir_all(&workspace);
+    }
+
+    #[test]
+    fn corrupted_project_store_is_an_error_not_a_reset() {
+        let workspace = unique_temp_root("project-corrupt");
+        let path = project_store_path(&workspace.to_string_lossy());
+        std::fs::create_dir_all(path.parent().unwrap()).expect(".lithe dir");
+        std::fs::write(&path, "{ not json").expect("corrupt store");
+
+        assert!(store_project(
+            &workspace.to_string_lossy(),
+            "acme.php",
+            "a",
+            Some(serde_json::json!(1))
+        )
+        .is_err());
+        // The corrupted bytes are preserved for diagnosis.
+        assert_eq!(std::fs::read_to_string(&path).expect("store"), "{ not json");
+        let _ = std::fs::remove_dir_all(&workspace);
+    }
+
+    // store_global needs an AppHandle; its logic is covered through the
+    // project variant (same read/write helpers) and the live command test.
+    #[allow(unused_imports)]
+    fn witness() {
+        let _ = store_global;
+    }
+}
+
+/// The bundled PHP contract package validates, expands run and test plans,
+/// and exposes settings resolution through the real Core commands — the
+/// end-to-end acceptance of the contract package shipped with the app.
+#[test]
+fn bundled_php_contract_package_expands_plans() {
+    let text = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../Plugins/win/Official/PhpSupportContract/plugin.json"
+    ))
+    .expect("contract package manifest is readable");
+    let manifest: serde_json::Value = serde_json::from_str(&text).expect("manifest is JSON");
+
+    let validated = scan::validate_manifest_with(&manifest, Some(super::host_capabilities()));
+    let plugin = validated.expect("contract package is accepted by the host");
+    assert_eq!(plugin["id"], "dev.lithe.plugin.php-support");
+    assert_eq!(plugin["pluginAPIVersion"], 2);
+
+    // Run plan expansion.
+    let run = scan::core_execute(
+        "plugins.declarative.runPlan",
+        serde_json::json!({
+            "manifest": manifest,
+            "languageID": "php",
+            "request": {
+                "relativeFilePath": "src/Item.php",
+                "arguments": ["--verbose"]
+            },
+        }),
+    )
+    .expect("run plan executes");
+    assert_eq!(run["status"], "ok", "{run}");
+    assert_eq!(run["plan"]["executable"]["command"], "php");
+    assert_eq!(
+        run["plan"]["arguments"],
+        serde_json::json!(["src/Item.php", "--verbose"])
+    );
+
+    // Workspace test plan expansion.
+    let test = scan::core_execute(
+        "plugins.declarative.testPlan",
+        serde_json::json!({
+            "manifest": manifest,
+            "languageID": "php",
+            "request": {
+                "scope": { "kind": "workspace" },
+                "relativeProjectFilePaths": ["composer.json", "tests/ItemTest.php"],
+            },
+        }),
+    )
+    .expect("test plan executes");
+    assert_eq!(test["status"], "ok", "{test}");
+    assert_eq!(
+        test["plan"]["arguments"],
+        serde_json::json!(["vendor/bin/phpunit"])
+    );
+
+    // Settings resolution with an empty store (defaults).
+    let settings = scan::core_execute(
+        "plugins.declarative.resolveSettings",
+        serde_json::json!({
+            "manifest": manifest,
+            "settings": {},
+            "projectSettings": {},
+        }),
+    )
+    .expect("resolve settings executes");
+    assert_eq!(settings["status"], "ok", "{settings}");
 }

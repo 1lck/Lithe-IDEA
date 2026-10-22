@@ -21,9 +21,12 @@
   },
   "windows": {
     "evidence": [
-      "shared/contracts/plugins/v1/README.md"
+      "windows/tauri/src-tauri/src/plugin_host/settings.rs",
+      "windows/tauri/src-tauri/src/plugin_host/tests.rs",
+      "windows/tauri/src/features/plugins/declarative-plugin-settings-editor.tsx",
+      "shared/contracts/plugins/v1/fixtures/settings-v2.plugin.json"
     ],
-    "implementationStatus": "missing",
+    "implementationStatus": "partial",
     "verificationStatus": "not-applicable"
   },
   "owner": "Plugin Platform",

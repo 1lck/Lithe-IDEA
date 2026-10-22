@@ -12,7 +12,9 @@ pub mod install;
 #[cfg(test)]
 mod install_tests;
 pub mod launch;
+pub mod run_plans;
 pub mod scan;
+pub mod settings;
 pub mod store;
 #[cfg(test)]
 mod tests;
@@ -26,12 +28,15 @@ use tauri::{AppHandle, Manager};
 /// Capability versions this host implements. `plugins.declarative.validate`
 /// rejects any package that requires a capability or version beyond this map,
 /// so the host never registers a manifest section it cannot run. The set
-/// grows per milestone of the declarative plugin host work.
+/// grows per milestone of the declarative plugin host work. `languageServers`
+/// 2 and `settings` 2 add workspace configuration push and scoped settings
+/// (M3); `executionProviders` and `ui` remain unhosted.
 pub fn host_capabilities() -> Value {
     json!({
         "languages": [1],
-        "languageServers": [1],
+        "languageServers": [1, 2],
         "serverProcess": [1],
+        "settings": [1, 2],
     })
 }
 
@@ -60,6 +65,10 @@ pub struct CatalogEntry {
     /// packages are quarantined with Core's stable rejection code.
     pub status: &'static str,
     pub languages: Vec<CatalogLanguage>,
+    /// Declared settings (settings capability), as Core normalizes them.
+    pub declared_settings: Vec<Value>,
+    /// First language with a language server, for workspace configuration.
+    pub primary_language_id: Option<String>,
     pub rejection: Option<CatalogRejection>,
 }
 

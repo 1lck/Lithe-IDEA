@@ -4,7 +4,7 @@
 
 ## 先说结论
 
-Windows 新增一套契约 v1 声明式插件宿主，与现有 Worker 扩展模型长期并行：需要宿主代用户拉起进程的语言与构建插件走契约宿主，宿主内运行 UI 与服务行为的扩展（主题、AI provider 等）留在 Worker 模型。契约引擎不需要新写——`lithe-core` 已经编译进 Windows 宿主，经 `core_execute` 就能调用 `plugins.declarative.*` 与 `plugins.marketplace.*`。M1 已落地：包存储、启动扫描与隔离、语言服务器启动计划解析，以及共享 fixtures 的全量验收；M2 已补磁盘导入安装链（快照、`installReview` 全量审批、staging 复验、卸载/回滚/启停）、设置内独立管理页和 runtime 启动的 `minimumVersion` 探测。能力声明只开放 `languages:1`、`languageServers:1`、`serverProcess:1`，声明了更高能力的插件包由 Core 自动拒绝。
+Windows 新增一套契约 v1 声明式插件宿主，与现有 Worker 扩展模型长期并行：需要宿主代用户拉起进程的语言与构建插件走契约宿主，宿主内运行 UI 与服务行为的扩展（主题、AI provider 等）留在 Worker 模型。契约引擎不需要新写——`lithe-core` 已经编译进 Windows 宿主，经 `core_execute` 就能调用 `plugins.declarative.*` 与 `plugins.marketplace.*`。M1 已落地：包存储、启动扫描与隔离、语言服务器启动计划解析，以及共享 fixtures 的全量验收；M2 已补磁盘导入安装链、设置内独立管理页和 runtime 启动的 `minimumVersion` 探测；M3 已补声明式设置（`languageServers` 2 / `settings` 2 能力声明、双层存储、`immediate` 效果下推）、运行/测试计划命令与契约版 PHP bundled 包。能力声明开放 `languages:1`、`languageServers:[1,2]`、`serverProcess:1`、`settings:[1,2]`，其余能力（`executionProviders`、`buildProviders`、`buildSystems`、`ui`）仍由 Core 自动拒绝。
 
 ## 问题
 
@@ -24,7 +24,7 @@ Windows 新增一套契约 v1 声明式插件宿主，与现有 Worker 扩展模
 
 ### 能力声明渐进开放
 
-宿主在 `plugins.declarative.validate` 的 payload 里声明 `hostCapabilities = { languages:[1], languageServers:[1], serverProcess:[1] }`。Core 的 `capabilities.rs` 会拒绝声明了宿主未开放能力的插件，宿主不需要自己写拒绝逻辑。后续按里程碑提升：M3 增 `executionProviders:1`、`settings:1`，并把 `languageServers` 提到 2、`settings` 提到 2（注册设置页与 `workspaceConfiguration` 下推）；M4 增 `ui:[1,2]`。宿主不声明的能力，市场侧按不支持展示。
+宿主在 `plugins.declarative.validate` 的 payload 里声明 `hostCapabilities = { languages:[1], languageServers:[1,2], serverProcess:[1], settings:[1,2] }`。Core 的 `capabilities.rs` 会拒绝声明了宿主未开放能力的插件，宿主不需要自己写拒绝逻辑。后续按里程碑提升：M3 增 `executionProviders:1`、`settings:1`，并把 `languageServers` 提到 2、`settings` 提到 2（注册设置页与 `workspaceConfiguration` 下推）；M4 增 `ui:[1,2]`。宿主不声明的能力，市场侧按不支持展示。
 
 ### 存储、信任与安装（v0）
 
@@ -45,13 +45,13 @@ Windows 新增一套契约 v1 声明式插件宿主，与现有 Worker 扩展模
 ### 与 Worker 扩展模型共存
 
 - 两套模型互不桥接：契约插件不进 Worker 宿主，Worker 扩展不冒充契约能力。
-- PhpSupport 迁移：M3 用契约包替换 Worker 包，保留用户启用状态后移除 Worker 版本。
+- PhpSupport 迁移（M3 调整）：契约版 PHP 包（`Plugins/win/Official/PhpSupportContract`，`sameTeamAsHost` bundled）随安装器分发并完成 validate/launch/runPlan 端到端测试，但 Worker 版**保留不移除**。原因：Worker 版提供 composer scripts 的动态运行动作发现（读取工作区 composer.json 生成动作列表），契约 v1 的 `executionProviders` 是静态声明，没有等价能力；删除 Worker 版会丢失用户可见功能。完整迁移等契约补齐动态运行动作后再做。两包并存时 Worker 版优先（Worker 扩展清单先解析），契约包不重复注册语言。
 - `install_extension_from_url` 等 Worker 非语言市场命令（M2 已处置）：在 Rust 宿主注册为显式占位错误（`extensionStore.notAvailable`），调用方得到可诊断的结构化失败而不是"命令不存在"；完整落盘后端是独立工作项，不与契约宿主混淆。
 - 管理界面按模型分组展示两类扩展并使用不同文案，避免用户把 Worker 扩展当成契约插件。
 
 ### 实施切分
 
-M1 包存储 + 启动校验 + 语言注册 + LSP 启动（已落地）；M2 磁盘安装链路 + 管理界面 v1 + 死链处置（已落地）；M3 声明式设置 + 运行/测试计划 + PHP 契约包替换；M4 Web 工具窗口（`ui` 2，WebView2 自定义 scheme）。每个里程碑独立 PR，矩阵条目随代码同 PR 更新。总体方向遵循[公共扩展契约与 Provider 接入方向](../../proposed/architecture/2026-10-13-public-extension-contract-and-provider-api.md)，本 Note 只落地其中 Windows 契约宿主的第一阶段。
+M1 包存储 + 启动校验 + 语言注册 + LSP 启动（已落地）；M2 磁盘安装链路 + 管理界面 v1 + 死链处置（已落地）；M3 声明式设置 + 运行/测试计划 + PHP 契约包（已落地，Worker 版保留见上文）；M4 Web 工具窗口（`ui` 2，WebView2 自定义 scheme）。每个里程碑独立 PR，矩阵条目随代码同 PR 更新。总体方向遵循[公共扩展契约与 Provider 接入方向](../../proposed/architecture/2026-10-13-public-extension-contract-and-provider-api.md)，本 Note 只落地其中 Windows 契约宿主的第一阶段。
 
 ## 考虑过的备选方案
 
@@ -70,6 +70,10 @@ M1 包存储 + 启动校验 + 语言注册 + LSP 启动（已落地）；M2 磁�
 
 ## 验证
 
+- M3 设置链路：`settings_tests`（`plugin_host/tests.rs`）覆盖项目覆盖往返、其他插件条目保留、损坏 store 报错不重置；能力门控测试随声明提升更新（settings-v2 fixture 被接受）。设置编辑 UI（`declarative-plugin-settings-editor.tsx`）按声明的 scope/effect 渲染并显示值来源徽标。
+- M3 运行计划：契约 PHP 包端到端测试（`bundled_php_contract_package_expands_plans`）走真实 Core 命令验证 validate、runPlan（`${file}`/`${userArguments}` 展开）、testPlan（workspace scope + 项目标记）、resolveSettings。
+
+
 - M2 磁盘导入链测试（`windows/tauri/src-tauri/src/plugin_host/install_tests.rs`）：目录快照隔离（symlink 拒绝）、ZIP 解包与恶意路径（`../` 逃逸条目）拒绝、staging 安装（坏包失败保留现行版本且清空 staging）、回滚版本选择；runtime 启动的版本探测输出解析（node/java/go 真实输出格式）在 `launch.rs` 测试覆盖。
 - 管理界面（`declarative-plugins-section.tsx`）挂在设置的独立一级页，`settings-hierarchy.test.tsx` 的布局断言随导航更新；i18n 提供 en-US 与 zh-CN 全套文案。
 
@@ -87,6 +91,11 @@ M1 包存储 + 启动校验 + 语言注册 + LSP 启动（已落地）；M2 磁�
 - `windows/tauri/src-tauri/src/plugin_host/install.rs`（磁盘导入、卸载、回滚、启停）
 - `windows/tauri/src-tauri/src/extension_store_placeholder.rs`（Worker 扩展落盘命令的显式占位）
 - `windows/tauri/src/features/plugins/declarative-plugin-launch.ts`（前端宿主 API）
+- `windows/tauri/src-tauri/src/plugin_host/settings.rs`（设置双层存储与命令）
+- `windows/tauri/src-tauri/src/plugin_host/run_plans.rs`（运行/测试计划命令）
+- `windows/tauri/src/features/plugins/declarative-plugin-settings-editor.tsx`（设置编辑）
+- `windows/tauri/src/features/plugins/declarative-plugin-run.ts`（契约插件运行入口）
+- `Plugins/win/Official/PhpSupportContract/`（契约版 PHP bundled 包）
 - `windows/tauri/src/features/plugins/declarative-plugins-section.tsx`（设置内管理页）
 - `windows/tauri/src/features/editor/lsp/resolve-editor-lsp-launch.ts`（契约插件回落来源）
 - `windows/tauri/src/features/bootstrap/bootstrap-async.ts`（启动扫描步骤）

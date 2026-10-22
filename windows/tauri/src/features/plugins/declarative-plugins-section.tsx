@@ -13,6 +13,7 @@ import {
   type DeclarativePluginSummary,
   type PreparedDeclarativeInstall,
 } from "./declarative-plugin-launch";
+import { DeclarativePluginSettingsEditor } from "./declarative-plugin-settings-editor";
 
 /**
  * Management surface for contract v1 declarative plugins. This block is
@@ -186,7 +187,11 @@ function DeclarativePluginRow({
   const { t } = useTranslation();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showSettings, setShowSettings] = useState(false);
   const rejected = plugin.status === "rejected";
+  const declaredSettings =
+    !rejected && Array.isArray(plugin.declaredSettings) ? plugin.declaredSettings : [];
+  const hasSettings = declaredSettings.length > 0;
 
   const run = async (action: () => Promise<void>) => {
     setBusy(true);
@@ -202,48 +207,68 @@ function DeclarativePluginRow({
   };
 
   return (
-    <li className="flex items-center gap-3 rounded-md border border-border px-3 py-2">
-      <div className="min-w-0 flex-1">
-        <p className="truncate ui-text-sm font-medium">
-          {plugin.displayName}{" "}
-          <span className="text-subtle-foreground">
-            {plugin.version} · {t(`settings.declarativePlugins.source.${plugin.source}`)}
-          </span>
-        </p>
-        {rejected && plugin.rejection && (
-          <p className="text-destructive ui-text-sm">
-            {plugin.rejection.code}: {plugin.rejection.message}
+    <li className="rounded-md border border-border px-3 py-2">
+      <div className="flex items-center gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="truncate ui-text-sm font-medium">
+            {plugin.displayName}{" "}
+            <span className="text-subtle-foreground">
+              {plugin.version} · {t(`settings.declarativePlugins.source.${plugin.source}`)}
+            </span>
           </p>
-        )}
-        {error && <p className="text-destructive ui-text-sm">{error}</p>}
-      </div>
-      {!rejected && plugin.source === "installed" && (
-        <>
-          <Switch
-            checked={plugin.enabled}
-            disabled={busy}
-            onChange={(checked) =>
-              void run(() => setDeclarativePluginEnabled(plugin.pluginId, checked))
-            }
-            aria-label={t("settings.declarativePlugins.toggle", { name: plugin.displayName })}
-          />
+          {rejected && plugin.rejection && (
+            <p className="text-destructive ui-text-sm">
+              {plugin.rejection.code}: {plugin.rejection.message}
+            </p>
+          )}
+          {error && <p className="text-destructive ui-text-sm">{error}</p>}
+        </div>
+        {!rejected && hasSettings && (
           <Button
             variant="accent"
             size="sm"
             disabled={busy}
-            onClick={() => void run(() => rollbackDeclarativePlugin(plugin.pluginId))}
+            onClick={() => setShowSettings((value) => !value)}
           >
-            {t("settings.declarativePlugins.rollback")}
+            {showSettings ? t("settings.declarativePlugins.hideSettings") : t("settings.declarativePlugins.showSettings")}
           </Button>
-          <Button
-            variant="danger"
-            size="sm"
-            disabled={busy}
-            onClick={() => void run(() => uninstallDeclarativePlugin(plugin.pluginId))}
-          >
-            {t("settings.declarativePlugins.uninstall")}
-          </Button>
-        </>
+        )}
+        {!rejected && plugin.source === "installed" && (
+          <>
+            <Switch
+              checked={plugin.enabled}
+              disabled={busy}
+              onChange={(checked) =>
+                void run(() => setDeclarativePluginEnabled(plugin.pluginId, checked))
+              }
+              aria-label={t("settings.declarativePlugins.toggle", { name: plugin.displayName })}
+            />
+            <Button
+              variant="accent"
+              size="sm"
+              disabled={busy}
+              onClick={() => void run(() => rollbackDeclarativePlugin(plugin.pluginId))}
+            >
+              {t("settings.declarativePlugins.rollback")}
+            </Button>
+            <Button
+              variant="danger"
+              size="sm"
+              disabled={busy}
+              onClick={() => void run(() => uninstallDeclarativePlugin(plugin.pluginId))}
+            >
+              {t("settings.declarativePlugins.uninstall")}
+            </Button>
+          </>
+        )}
+      </div>
+      {!rejected && showSettings && hasSettings && (
+        <DeclarativePluginSettingsEditor
+          pluginId={plugin.pluginId}
+          settings={declaredSettings}
+          workspacePath={null}
+          languageId={plugin.primaryLanguageId}
+        />
       )}
     </li>
   );

@@ -32,7 +32,23 @@ export interface DeclarativePluginSummary {
   /** `rejected` packages are quarantined and never own a language. */
   status: "accepted" | "rejected";
   languages: DeclarativePluginLanguage[];
+  declaredSettings: DeclarativePluginSetting[];
+  primaryLanguageId: string | null;
   rejection: DeclarativePluginRejection | null;
+}
+
+export interface DeclarativePluginSetting {
+  id: string;
+  type: "integer" | "enum" | "boolean" | "multiSelect" | "text" | "file" | "directory";
+  title: string;
+  description?: string | null;
+  default: unknown;
+  minimum?: number | null;
+  maximum?: number | null;
+  unit?: string | null;
+  options?: Array<{ value: string; label: string }> | null;
+  scope?: "global" | "project" | null;
+  effect?: "restart" | "immediate" | "reload" | "nextRun" | null;
 }
 
 export interface DeclarativePluginLaunch {
@@ -120,4 +136,102 @@ export function setDeclarativePluginEnabled(pluginId: string, enabled: boolean):
 /** Restores the highest retained previous version of an installed package. */
 export function rollbackDeclarativePlugin(pluginId: string): Promise<void> {
   return invoke<void>("declarative_plugins_rollback", { pluginId });
+}
+
+/** One declared setting, as Core normalizes it (settings capability v2). */
+export interface DeclarativePluginSetting {
+  id: string;
+  type: "integer" | "enum" | "boolean" | "multiSelect" | "text" | "file" | "directory";
+  title: string;
+  description?: string | null;
+  default: unknown;
+  minimum?: number | null;
+  maximum?: number | null;
+  unit?: string | null;
+  options?: Array<{ value: string; label: string }> | null;
+  scope?: "global" | "project" | null;
+  effect?: "restart" | "immediate" | "reload" | "nextRun" | null;
+  section?: { languageID?: string; buildSystemID?: string } | null;
+}
+
+/** Effective value of one setting and the layer it came from. */
+export interface ResolvedDeclarativeSetting {
+  id: string;
+  value: unknown;
+  source: "default" | "global" | "project";
+}
+
+/** Effective values of one plugin's settings for one workspace. */
+export function resolveDeclarativeSettings(
+  manifest: Record<string, unknown>,
+  workspacePath: string,
+): Promise<{ status: string; settings?: ResolvedDeclarativeSetting[] }> {
+  return invoke("declarative_plugins_resolve_settings", { manifest, workspacePath });
+}
+
+/** Stores a setting value in the requested layer; `null` erases it. */
+export function storeDeclarativeSetting(
+  pluginId: string,
+  settingId: string,
+  scope: "global" | "project",
+  workspacePath: string,
+  value: unknown,
+): Promise<void> {
+  return invoke("declarative_plugins_store_setting", {
+    pluginId,
+    settingId,
+    scope,
+    workspacePath,
+    value,
+  });
+}
+
+/** A running server's workspace configuration expanded with current values. */
+export function declarativeWorkspaceConfiguration(
+  manifest: Record<string, unknown>,
+  languageId: string,
+  workspacePath: string,
+): Promise<{ status: string; configuration?: unknown }> {
+  return invoke("declarative_plugins_workspace_configuration", {
+    manifest,
+    languageId,
+    workspacePath,
+  });
+}
+
+/** An expanded run or test plan ready for the shared run pipeline. */
+export interface DeclarativeRunPlan {
+  pluginId: string;
+  languageId: string;
+  executable: { command?: string | null; tool?: string | null };
+  arguments: string[];
+  workingDirectory: string;
+}
+
+/** Expands the run template for one file of a plugin-owned language. */
+export function resolveDeclarativeRunPlan(
+  pluginId: string,
+  languageId: string,
+  relativeFilePath: string,
+  userArguments: string[] = [],
+): Promise<DeclarativeRunPlan> {
+  return invoke<DeclarativeRunPlan>("declarative_plugins_run_plan", {
+    pluginId,
+    languageId,
+    relativeFilePath,
+    userArguments,
+  });
+}
+
+/** Expands the workspace test template for a plugin-owned language. */
+export function resolveDeclarativeTestPlan(
+  pluginId: string,
+  languageId: string,
+  relativeProjectFilePaths: string[],
+): Promise<DeclarativeRunPlan> {
+  return invoke<DeclarativeRunPlan>("declarative_plugins_test_plan", {
+    pluginId,
+    languageId,
+    relativeProjectFilePaths,
+  });
 }

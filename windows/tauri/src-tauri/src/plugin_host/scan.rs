@@ -65,6 +65,12 @@ fn scan_package(package: DiscoveredPackage) -> ScannedPackage {
                 enabled: package.enabled,
                 status: "accepted",
                 languages: catalog_languages(&plugin),
+                declared_settings: plugin["settings"].as_array().cloned().unwrap_or_default(),
+                primary_language_id: plugin["languageServers"]
+                    .as_array()
+                    .and_then(|servers| servers.first())
+                    .and_then(|server| server["languageID"].as_str())
+                    .map(str::to_string),
                 rejection: None,
             };
             ScannedPackage {
@@ -98,6 +104,8 @@ fn quarantined(
             enabled: false,
             status: "rejected",
             languages: Vec::new(),
+            declared_settings: Vec::new(),
+            primary_language_id: None,
             rejection: Some(rejection),
         },
         root: package.root,

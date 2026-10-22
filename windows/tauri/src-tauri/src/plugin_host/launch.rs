@@ -53,12 +53,14 @@ pub fn declarative_plugins_language_launch(
         return Ok(None);
     };
     let state_directory = store::plugin_state_directory(&app, &package.entry.plugin_id)?;
+    let layers = super::settings::load_layers(&app, &package.entry.plugin_id, &workspace_path)
+        .map_err(|error| format!("plugin settings could not be read: {error}"))?;
     let plan = super::scan::core_execute(
         "plugins.declarative.languageServerLaunchPlan",
         serde_json::json!({
             "manifest": package.manifest,
             "languageID": language_id,
-            "request": launch_request(&state_directory, &package, &workspace_path),
+            "request": launch_request(&state_directory, &package, &workspace_path, layers),
         }),
     )
     .map_err(|error| format!("launch plan failed: {error}"))?;
@@ -69,6 +71,18 @@ pub fn declarative_plugins_language_launch(
         ));
     }
     resolve_launch(&package, &language_id, &plan).map(Some)
+}
+
+/// Finds an accepted, enabled scanned package by plugin ID.
+pub(crate) fn package_by_id(app: &AppHandle, plugin_id: &str) -> Option<ScannedPackage> {
+    app.state::<super::PluginHostState>()
+        .packages()
+        .into_iter()
+        .find(|package| {
+            package.entry.status == "accepted"
+                && package.entry.enabled
+                && package.entry.plugin_id == plugin_id
+        })
 }
 
 fn owning_package(app: &AppHandle, file_path: &str) -> Option<ScannedPackage> {
@@ -119,15 +133,20 @@ fn owning_language_id(package: &ScannedPackage, file_path: &str) -> Option<Strin
 /// Builds the Core launch-plan request with host-owned directories and
 /// architecture. Settings layers stay empty until the settings milestone;
 /// Core then falls back to declared defaults.
-fn launch_request(state_directory: &Path, package: &ScannedPackage, workspace_path: &str) -> Value {
+fn launch_request(
+    state_directory: &Path,
+    package: &ScannedPackage,
+    workspace_path: &str,
+    layers: super::settings::SettingLayers,
+) -> Value {
     let workspace_directory = state_directory.join(store::workspace_state_key(workspace_path));
     serde_json::json!({
         "pluginDirectory": package.root.to_string_lossy(),
         "stateDirectory": state_directory.to_string_lossy(),
         "workspaceStateDirectory": workspace_directory.to_string_lossy(),
         "architecture": super::host_architecture(),
-        "settings": {},
-        "projectSettings": {},
+        "settings": layers.global,
+        "projectSettings": layers.project,
     })
 }
 
@@ -374,6 +393,8 @@ mod tests {
                 enabled: true,
                 status: "accepted",
                 languages: Vec::new(),
+                declared_settings: Vec::new(),
+                primary_language_id: None,
                 rejection: None,
             },
             root,

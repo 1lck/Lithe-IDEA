@@ -518,6 +518,8 @@ fn accepted_entry_fallback(plugin_id: &str, version: &str) -> CatalogEntry {
         enabled: true,
         status: "accepted",
         languages: Vec::new(),
+        declared_settings: Vec::new(),
+        primary_language_id: None,
         rejection: None,
     }
 }
