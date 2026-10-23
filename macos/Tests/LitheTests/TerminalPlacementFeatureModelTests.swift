@@ -250,6 +250,98 @@ struct TerminalPlacementFeatureModelTests {
         #expect(!toolSession.isRunning)
     }
 
+    @Test
+    func shellExitClosesTabAndHidesPanelForLastToolTerminal() async throws {
+        let context = makeTerminalCloseContext()
+        let model = context.model
+        let feature = try #require(model.terminalFeature)
+        defer { feature.stopAllSessions() }
+        await settleFixtureActivation()
+        model.terminalPlacementFeature.moveToTool(context.session.id)
+        model.workbenchFeature.setVisibility(.terminal, isVisible: true)
+        model.configureInteractiveTerminalSession(context.session)
+
+        context.transport.onTermination?(0)
+        await settleFixtureActivation()
+
+        #expect(model.terminalSessions.isEmpty)
+        #expect(!model.workbenchFeature.isVisible(.terminal))
+        #expect(!context.session.isRunning)
+        #expect(context.transport.stopCount == 1)
+    }
+
+    @Test
+    func shellExitKeepsPanelAndSurvivingToolTerminalsRunning() async throws {
+        let context = makeTerminalCloseContext()
+        let model = context.model
+        let feature = try #require(model.terminalFeature)
+        defer { feature.stopAllSessions() }
+        let survivor = feature.createSession(
+            in: URL(fileURLWithPath: "/tmp/lithe-terminal-close-tests"), shellPath: "/bin/zsh"
+        )
+        model.terminalPlacementFeature.registerSession(survivor.id)
+        model.terminalPlacementFeature.moveToTool(context.session.id)
+        model.terminalPlacementFeature.moveToTool(survivor.id)
+        await settleFixtureActivation()
+        model.workbenchFeature.setVisibility(.terminal, isVisible: true)
+        model.configureInteractiveTerminalSession(context.session)
+
+        context.transport.onTermination?(0)
+        await settleFixtureActivation()
+
+        #expect(model.workbenchFeature.isVisible(.terminal))
+        #expect(model.toolTerminalSessions.map(\.id) == [survivor.id])
+        #expect(survivor.isRunning)
+    }
+
+    @Test
+    func shellExitClosesEditorAreaTerminalTab() async throws {
+        let context = makeTerminalCloseContext()
+        let model = context.model
+        let feature = try #require(model.terminalFeature)
+        defer { feature.stopAllSessions() }
+        await settleFixtureActivation()
+        model.configureInteractiveTerminalSession(context.session)
+
+        context.transport.onTermination?(0)
+        await settleFixtureActivation()
+
+        #expect(model.terminalSessions.isEmpty)
+        #expect(model.terminalPlacementFeature.editorSessionIDs.isEmpty)
+        #expect(model.terminalPlacementFeature.toolSessionIDs.isEmpty)
+    }
+
+    @Test
+    func restartAfterShellExitKeepsTheRestartedSession() async throws {
+        let context = makeTerminalCloseContext()
+        let model = context.model
+        let feature = try #require(model.terminalFeature)
+        defer { feature.stopAllSessions() }
+        model.terminalPlacementFeature.moveToTool(context.session.id)
+        await settleFixtureActivation()
+        model.workbenchFeature.setVisibility(.terminal, isVisible: true)
+        model.configureInteractiveTerminalSession(context.session)
+
+        context.transport.onTermination?(0)
+        context.session.restart()
+        await settleFixtureActivation()
+
+        #expect(model.toolTerminalSessions.map(\.id) == [context.session.id])
+        #expect(context.session.isRunning)
+        #expect(model.workbenchFeature.isVisible(.terminal))
+    }
+
+    /// The fixture's deferred workspace-module activation reconciles tool
+    /// window visibility once it lands, so tests that assert visibility must
+    /// let that activation settle first.
+    private func settleFixtureActivation() async {
+        for _ in 0..<3 {
+            await withCheckedContinuation { continuation in
+                DispatchQueue.main.async { continuation.resume() }
+            }
+        }
+    }
+
     @Test(arguments: [ColorScheme.dark, .light])
     func retainedTerminalRestoresFocusAndWallpaperWithoutRecreatingItsSurface(scheme: ColorScheme) async throws {
         let context = makeTerminalCloseContext(), state = RetainedTerminalReviewState()
