@@ -55,7 +55,8 @@ struct VcsProviderHostTests {
 
         // Metadata the provider did not declare never refreshes; a working
         // file does. Both arrive before the delay, so one refresh covers them.
-        fixture.feature.workspaceFilesChanged([fixture.url(".svn/tmp/x"), fixture.url("module/File.java")])
+        fixture.metadataWatchers.deliver([fixture.url(".svn/tmp/x")])
+        fixture.changed("module/File.java")
         #expect(await fixture.settled { fixture.providers.statusCount(root: module) == 2 })
         #expect(fixture.providers.statusCount(root: workspace) == 1)
 
@@ -63,28 +64,24 @@ struct VcsProviderHostTests {
         // for a short while, working files still count.
         #expect(await fixture.feature.cleanup("module"))
         #expect(await fixture.settled { fixture.providers.statusCount(root: module) == 3 })
-        fixture.feature.workspaceFilesChanged([fixture.url(".svn/wc.db"), fixture.url("module/Other.java")])
+        fixture.metadataWatchers.deliver([fixture.url(".svn/wc.db")])
+        fixture.changed("module/Other.java")
         #expect(await fixture.settled { fixture.providers.statusCount(root: module) == 4 })
         #expect(fixture.providers.statusCount(root: workspace) == 1)
 
         // Once the quiet period ends, the declared metadata path refreshes
         // its root, as an update from the command line would.
         fixture.clock.advance(by: .seconds(3))
-        fixture.feature.workspaceFilesChanged([fixture.url(".svn/wc.db")])
+        fixture.metadataWatchers.deliver([fixture.url(".svn/wc.db")])
         #expect(await fixture.settled { fixture.providers.statusCount(root: workspace) == 2 })
         #expect(fixture.providers.statusCount(root: module) == 4)
-
-        // A marker directory appearing detects the roots again.
-        fixture.clock.advance(by: .seconds(3))
-        fixture.feature.workspaceFilesChanged([fixture.url("plugins/.svn")])
-        #expect(await fixture.settled { fixture.planner.detectCount == 2 })
     }
 
-    /// The workspace watcher never sees `../.svn` of a working copy that
-    /// encloses the workspace, so that metadata directory is watched on its
-    /// own while the enclosing root is detected.
+    /// The workspace watcher hides VCS metadata as the project tree does,
+    /// and never sees `../.svn` of a working copy that encloses the
+    /// workspace, so every root's metadata directory is watched on its own.
     @Test
-    func watchesTheMetadataOfAWorkingCopyThatEnclosesTheWorkspace() async throws {
+    func watchesTheMetadataDirectoryOfEveryRoot() async throws {
         let fixture = try VcsFeatureFixture(
             workspaceURL: URL(fileURLWithPath: "/virtual/wc/app", isDirectory: true),
             roots: [("..", "svn"), ("lib", "svn")]
@@ -92,25 +89,53 @@ struct VcsProviderHostTests {
         defer { fixture.close() }
         fixture.providers.replies["status"] = try VcsTestData.statusReply([])
         let enclosing = fixture.workspaceURL.appendingPathComponent("..").path
+        let lib = fixture.url("lib").path
         let metadata = URL(fileURLWithPath: "/virtual/wc/.svn", isDirectory: true)
         #expect(await fixture.open())
-        // `lib/.svn` is inside the workspace, which the workspace watcher covers.
-        #expect(fixture.metadataWatchers.running == [metadata.path])
+        #expect(fixture.metadataWatchers.running == [metadata.path, fixture.url("lib/.svn").path])
         #expect(fixture.providers.statusCount(root: enclosing) == 1)
         fixture.clock.advance(by: .seconds(3))
 
         fixture.metadataWatchers.deliver([metadata.appendingPathComponent("wc.db")])
         #expect(await fixture.settled { fixture.providers.statusCount(root: enclosing) == 2 })
-        #expect(fixture.providers.statusCount(root: fixture.url("lib").path) == 1)
+        #expect(fixture.providers.statusCount(root: lib) == 1)
+        fixture.metadataWatchers.deliver([fixture.url("lib/.svn/wc.db")])
+        #expect(await fixture.settled { fixture.providers.statusCount(root: lib) == 2 })
+        #expect(fixture.providers.statusCount(root: enclosing) == 2)
 
         // A watch that lost its events detects the roots again.
         fixture.clock.advance(by: .seconds(3))
         fixture.metadataWatchers.deliver(DirectoryChangeBatch(requiresFullRescan: true))
         #expect(await fixture.settled { fixture.planner.detectCount == 2 })
-        #expect(fixture.metadataWatchers.running == [metadata.path])
+        #expect(fixture.metadataWatchers.running == [metadata.path, fixture.url("lib/.svn").path])
 
         fixture.close()
         #expect(fixture.metadataWatchers.running.isEmpty)
+    }
+
+    /// The workspace watcher hides `.svn`, so a working copy checked out in
+    /// the workspace shows only as created entries beside its marker.
+    @Test
+    func detectsAWorkingCopyThatAppearsInTheWorkspace() async throws {
+        let fixture = try VcsFeatureFixture(roots: [("", "svn")])
+        defer { fixture.close() }
+        fixture.providers.replies["status"] = try VcsTestData.statusReply([])
+        fixture.files.add(fixture.url(".svn"), fixture.url("plugins/.svn"))
+        #expect(await fixture.open())
+        fixture.clock.advance(by: .seconds(3))
+
+        // A created entry and the directory holding it are looked up unless
+        // they are a known root; a changed file is not looked up at all.
+        let lookedUp = fixture.files.gate(afterLookups: 3)
+        fixture.changed("plugins/Plugin.java")
+        fixture.created("README.md", "src/Main.java")
+        #expect(await lookedUp.waitUntilOpen(timeout: .seconds(5)))
+        #expect(Set(fixture.files.lookups)
+            == Set(["README.md/.svn", "src/Main.java/.svn", "src/.svn"].map { fixture.url($0).path }))
+
+        fixture.created("plugins/Plugin.java")
+        #expect(await fixture.settled { fixture.planner.detectCount == 2 })
+        #expect(!fixture.files.lookups.contains(fixture.url(".svn").path))
     }
 
     @Test
@@ -173,6 +198,43 @@ struct VcsProviderHostTests {
         fixture.providers.failures["fileOperation"] = VcsProviderFailure(code: "vcs.provider.failed", message: "E155010")
         #expect(await feature.move(from: fixture.url("b.txt"), to: fixture.url("c.txt")) == false)
         #expect(feature.failure?.message == "E155010")
+    }
+
+    /// An action that starts while a move asks Core who owns its paths
+    /// leaves the move to the disk, as one running before would, instead of
+    /// reporting the move as refused.
+    @Test
+    func moveYieldsToAnActionThatStartsWhileOwnershipIsChecked() async throws {
+        let fixture = try VcsFeatureFixture(roots: [("", "svn")])
+        defer { fixture.close() }
+        fixture.providers.replies["status"] = try VcsTestData.statusReply([("a.txt", "modified")])
+        fixture.providers.replies["checkin"] = try VcsTestData.json(["revision": ["id": "8", "display": "r8", "kind": "number"]])
+        #expect(await fixture.open())
+        let ownersEntered = TestGate()
+        let ownersReleased = TestGate()
+        let checkinHeld = TestGate()
+        fixture.planner.heldOwners = (paths: ["b.txt"], entered: ownersEntered, released: ownersReleased)
+        fixture.providers.holds["checkin"] = checkinHeld
+        defer {
+            ownersReleased.open()
+            checkinHeld.open()
+        }
+
+        let feature = fixture.feature
+        let source = fixture.url("b.txt")
+        let destination = fixture.url("docs/b.txt")
+        let move = Task { await feature.move(from: source, to: destination) }
+        #expect(await ownersEntered.waitUntilOpen(timeout: .seconds(5)))
+        let commit = Task { await feature.checkin(["a.txt"], message: "Fix", in: "") }
+        #expect(await awaitChange(on: feature) { feature.runningOperation?.rootID == "" })
+        ownersReleased.open()
+
+        #expect(await move.value == false)
+        #expect(feature.failure == nil)
+        checkinHeld.open()
+        #expect(await commit.value?.revision?.display == "r8")
+        #expect(!fixture.providers.requests.contains { $0.operation.name == "fileOperation" })
+        #expect(!fixture.planner.ownersTimedOut)
     }
 
     @Test
@@ -332,6 +394,53 @@ struct VcsProviderHostTests {
             Issue.record("Core accepted an unknown status")
         } catch let failure as VcsProviderFailure {
             #expect(failure.code == "plugin.vcs.invalidOutput")
+        }
+    }
+
+    /// A VCS client that cannot be found is the contract's
+    /// `vcs.tool.unavailable`, so the tool window leads with its install hint.
+    @Test
+    func aVcsClientThatCannotBeFoundIsReportedAsUnavailable() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lithe-vcs-tool-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let packageURL = root.appendingPathComponent("package", isDirectory: true)
+        let workspaceURL = root.appendingPathComponent("workspace", isDirectory: true)
+        try FileManager.default.createDirectory(at: workspaceURL, withIntermediateDirectories: true)
+        let object = try #require(
+            try JSONSerialization.jsonObject(with: VcsTestData.svnProviderManifest()) as? [String: Any]
+        )
+        _ = try DeclarativePluginTestSupport.writePackage(at: packageURL, manifest: object)
+        let entry = packageURL.appendingPathComponent("provider/svn-provider.mjs")
+        try FileManager.default.createDirectory(at: entry.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data().write(to: entry)
+        let operations = DeclarativePluginTestSupport.operations
+        let descriptor = try operations.validate(manifest: Data(contentsOf: packageURL.appendingPathComponent("plugin.json")))
+        let sessions = MacVcsProviderSessions(
+            launchResolver: MacPluginLanguageServerLaunchResolver(
+                planner: operations,
+                directories: MacPluginStateDirectories(rootURL: root.appendingPathComponent("state", isDirectory: true)),
+                settings: InMemoryPluginSettings()
+            ),
+            tools: VcsTestTools(),
+            versionChecker: operations,
+            runtime: VcsTestToolRuntime(),
+            core: RustCoreBridge(),
+            processRegistry: nil,
+            endBackendProcesses: { _, _ in }
+        )
+        let target = VcsProviderTarget(
+            pluginID: descriptor.id.rawValue, vcs: "svn", manifest: descriptor.normalizedManifest,
+            packageURL: packageURL, workspaceURL: workspaceURL
+        )
+        defer { sessions.retainProviders { _ in false } }
+
+        do {
+            _ = try await sessions.negotiation(for: target)
+            Issue.record("The provider started without its VCS client")
+        } catch let failure as VcsProviderFailure {
+            #expect(failure.code == "vcs.tool.unavailable")
+            #expect(failure.message == VcsTestTools.NotFound().localizedDescription)
         }
     }
 
@@ -523,6 +632,8 @@ private final class FakeVcsPlanner: VcsRootPlanning, @unchecked Sendable {
     private var storedDetection: VcsDetection
     private var detections = 0
     private var mappings: [VcsRootMapping] = []
+    private var hold: (paths: Set<String>, entered: TestGate, released: TestGate)?
+    private var holdTimedOut = false
 
     init(detection: VcsDetection) {
         storedDetection = detection
@@ -535,6 +646,14 @@ private final class FakeVcsPlanner: VcsRootPlanning, @unchecked Sendable {
 
     var detectCount: Int { lock.withLock { detections } }
     var lastMappings: [VcsRootMapping] { lock.withLock { mappings } }
+    var ownersTimedOut: Bool { lock.withLock { holdTimedOut } }
+
+    /// Ownership asked for any of `paths` opens `entered`, then answers once
+    /// `released` opens.
+    var heldOwners: (paths: Set<String>, entered: TestGate, released: TestGate)? {
+        get { lock.withLock { hold } }
+        set { lock.withLock { hold = newValue } }
+    }
 
     func detectRoots(workspaceURL: URL, manifests: [Data], mappings: [VcsRootMapping]) throws -> VcsDetection {
         lock.withLock {
@@ -545,6 +664,12 @@ private final class FakeVcsPlanner: VcsRootPlanning, @unchecked Sendable {
     }
 
     func owners(roots: [String], ambiguous: [String], paths: [String]) throws -> [String?] {
+        if let hold = heldOwners, paths.contains(where: hold.paths.contains) {
+            hold.entered.open()
+            // This synchronous protocol runs on the feature's detached ownership task.
+            let released = hold.released.waitSynchronously(timeout: 5)
+            lock.withLock { holdTimedOut = holdTimedOut || !released }
+        }
         func contains(_ id: String, _ path: String) -> Bool {
             id.isEmpty || id.hasPrefix("..") || path == id || path.hasPrefix(id + "/")
         }
@@ -654,8 +779,12 @@ private final class FakeMetadataWatchers: DirectoryWatcherFactory, @unchecked Se
         return watcher
     }
 
+    /// Delivers each path to the running watcher of the directory holding it.
     func deliver(_ urls: [URL]) {
-        deliver(DirectoryChangeBatch(workspacePaths: urls.map(\.path)))
+        for watcher in watchers where watcher.isRunning {
+            let paths = urls.map(\.path).filter { $0.hasPrefix(watcher.directory.path + "/") }
+            if !paths.isEmpty { watcher.onChange(DirectoryChangeBatch(workspacePaths: paths)) }
+        }
     }
 
     func deliver(_ batch: DirectoryChangeBatch) {
@@ -671,6 +800,7 @@ private final class VcsFeatureFixture {
     let planner: FakeVcsPlanner
     let providers = FakeVcsProviders()
     let metadataWatchers = FakeMetadataWatchers()
+    let files = VcsTestFiles()
     let keyValues = VcsTestKeyValueStore()
     let clock = VcsTestClock()
     let feature: VcsProvidersFeatureModel
@@ -685,10 +815,12 @@ private final class VcsFeatureFixture {
             roots: roots, workspaceURL: self.workspaceURL, ambiguous: ambiguous
         ))
         let clock = clock
+        let files = files
         feature = VcsProvidersFeatureModel(
             planner: planner,
             providers: providers,
             mappingStore: MacVcsRootMappingStore(store: keyValues),
+            fileExists: { files.exists($0) },
             sleep: { _ in try Task.checkCancellation() },
             now: { clock.now },
             metadataWatcherFactory: metadataWatchers,
@@ -704,6 +836,16 @@ private final class VcsFeatureFixture {
 
     func url(_ path: String) -> URL {
         workspaceURL.appendingPathComponent(path).standardizedFileURL
+    }
+
+    /// Reports changed workspace entries, as the workspace watcher does.
+    func changed(_ paths: String...) {
+        feature.workspaceFilesChanged(paths.map { WorkspaceFileChange(fileURL: url($0), kind: .changed) })
+    }
+
+    /// Reports created workspace entries, as the workspace watcher does.
+    func created(_ paths: String...) {
+        feature.workspaceFilesChanged(paths.map { WorkspaceFileChange(fileURL: url($0), kind: .created) })
     }
 
     /// Opens the workspace and waits until every root has read its status.
@@ -724,6 +866,66 @@ private final class VcsFeatureFixture {
 
     func close() {
         feature.reset(workspaceURL: nil)
+    }
+}
+
+/// Finds the provider's runtime but no VCS client.
+private final class VcsTestTools: BuildToolResolving {
+    struct NotFound: LocalizedError {
+        var errorDescription: String? { "svn was not found." }
+    }
+
+    func resolve(
+        _ invocation: BuildInvocation, displayName _: String, workspaceURL _: URL,
+        checkVersion _: @escaping @Sendable (String?, String) throws -> BuildVersionCheck
+    ) async throws -> ResolvedBuildTool {
+        guard invocation.executables == [.runtime("node")] else { throw NotFound() }
+        return ResolvedBuildTool(
+            executableURL: URL(fileURLWithPath: "/usr/bin/false"), environment: [:], executesProjectCode: false, version: nil
+        )
+    }
+}
+
+private final class VcsTestToolRuntime: LanguageToolRuntimePort {
+    func executableOnPath(_: String) -> URL? { nil }
+    func executableURL(at _: String) -> URL? { nil }
+    func executableCandidates(_: String) -> [RuntimeToolCandidate] { [] }
+    func languageToolProcessEnvironment(runtimeTools _: [String]) -> [String: String] { [:] }
+    func missingLanguageToolMessage(_ name: String) -> String { name }
+}
+
+/// The paths a marker lookup finds, and the lookups made.
+private final class VcsTestFiles: @unchecked Sendable {
+    private let lock = NSLock()
+    private var existing: Set<String> = []
+    private var recorded: [String] = []
+    private var waiter: (count: Int, gate: TestGate)?
+
+    var lookups: [String] { lock.withLock { recorded } }
+
+    func add(_ urls: URL...) {
+        lock.withLock { existing.formUnion(urls.map(\.path)) }
+    }
+
+    /// A gate that opens once `count` lookups have been made.
+    func gate(afterLookups count: Int) -> TestGate {
+        let gate = TestGate()
+        let reached = lock.withLock {
+            waiter = (count, gate)
+            return recorded.count >= count
+        }
+        if reached { gate.open() }
+        return gate
+    }
+
+    func exists(_ url: URL) -> Bool {
+        let (found, gate) = lock.withLock { () -> (Bool, TestGate?) in
+            recorded.append(url.path)
+            let gate = waiter.flatMap { recorded.count >= $0.count ? $0.gate : nil }
+            return (existing.contains(url.path), gate)
+        }
+        gate?.open()
+        return found
     }
 }
 

@@ -318,19 +318,26 @@ final class MacVcsProviderSessions: VcsProviderRequesting {
     }
 
     /// The VCS client the provider runs, such as `svn`, found like any other
-    /// command. The provider itself reports a client that is too old.
+    /// command. The provider itself reports a client that is too old; one
+    /// that cannot be found is `vcs.tool.unavailable`, as the contract names it.
     private func resolveTool(
         _ provider: MacPluginLanguageServerLaunchResolver.VcsProviderProcess,
         workspaceURL: URL
     ) async throws -> String? {
         guard !provider.toolCommands.isEmpty else { return nil }
-        let resolved = try await tools.resolve(
-            BuildInvocation(executables: provider.toolCommands.map { .command($0) }),
-            displayName: provider.toolCommands[0],
-            workspaceURL: workspaceURL,
-            checkVersion: { _, _ in BuildVersionCheck(satisfied: true, version: nil) }
-        )
-        return resolved.executableURL.path
+        do {
+            let resolved = try await tools.resolve(
+                BuildInvocation(executables: provider.toolCommands.map { .command($0) }),
+                displayName: provider.toolCommands[0],
+                workspaceURL: workspaceURL,
+                checkVersion: { _, _ in BuildVersionCheck(satisfied: true, version: nil) }
+            )
+            return resolved.executableURL.path
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            throw VcsProviderFailure(code: "vcs.tool.unavailable", message: error.localizedDescription)
+        }
     }
 
     private static func seconds(_ duration: Duration) -> TimeInterval {

@@ -17,6 +17,6 @@ extension AppModel {
     }
 
     func handleVcsProviderFileChanges(_ changes: [WorkspaceFileChange]) {
-        vcsProvidersFeature?.workspaceFilesChanged(changes.map(\.fileURL))
+        vcsProvidersFeature?.workspaceFilesChanged(changes)
     }
 }

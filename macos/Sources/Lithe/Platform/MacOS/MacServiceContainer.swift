@@ -796,6 +796,7 @@ final class MacServiceContainer {
                 providers: vcsProviderSessions,
                 mappingStore: MacVcsRootMappingStore(store: store),
                 readFile: { url in try? fileStorage.readData(from: url, options: .mappedIfSafe) },
+                fileExists: { url in fileStorage.fileExists(at: url) },
                 metadataWatcherFactory: MacDirectoryWatcherFactory(),
                 sources: {
                     // Enablement is read on every detection, so turning a

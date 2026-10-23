@@ -541,7 +541,7 @@ private final class ProjectTreeActions: @unchecked Sendable {
     @MainActor
     func vcsDiffMenuItem(_ url: URL) -> LitheContextMenuItem? {
         guard let feature = model.vcsProvidersFeature, let (root, change) = feature.change(at: url),
-              root.supports(.baseContent), ![.unversioned, .ignored, .added].contains(change.status) else { return nil }
+              root.comparesWithBase(change) else { return nil }
         return .action(String(format: String(localized: "Show %@ Diff"), root.displayName), localizesTitle: false) {
             feature.showDiff(change, in: root.id)
         }

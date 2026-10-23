@@ -510,7 +510,7 @@ struct VcsProviderToolWindowView: View {
         .accessibilityLabel(Text(verbatim: "\(change.path), \(change.status.title)"))
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .accessibilityAction { select(change) }
-        .accessibilityAction(named: Text(Self.opensDiff(change, in: root) ? "Show Diff" : "Open File")) {
+        .accessibilityAction(named: Text(root.comparesWithBase(change) ? "Show Diff" : "Open File")) {
             open(change, in: root)
         }
         .accessibilityAction(named: Text("Include in commit")) {
@@ -537,19 +537,15 @@ struct VcsProviderToolWindowView: View {
         }
     }
 
-    /// Double-click compares with the base when there is one; a new or
-    /// deleted file has nothing to compare, so it opens or does nothing.
+    /// Double-click compares with the base when there is one; a new file
+    /// has nothing to compare, so it opens.
     private func open(_ change: VcsChange, in root: VcsRootState) {
         selection = [change.path]
-        if Self.opensDiff(change, in: root) {
+        if root.comparesWithBase(change) {
             showDiff(change, in: root)
         } else if ![.deleted, .missing].contains(change.status) {
             actions.openFile(root.url.appendingPathComponent(change.path))
         }
-    }
-
-    static func opensDiff(_ change: VcsChange, in root: VcsRootState) -> Bool {
-        root.supports(.baseContent) && ![.unversioned, .added, .copied].contains(change.status)
     }
 
     private func contextMenu(for change: VcsChange, root: VcsRootState) -> [LitheContextMenuItem] {

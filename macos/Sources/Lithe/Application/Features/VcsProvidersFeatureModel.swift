@@ -30,14 +30,20 @@ struct VcsRootState: Identifiable, Equatable {
 
     var id: String { root.id }
 
-    /// The workspace folder's name for the workspace root and enclosing
-    /// working copies; the relative path for nested ones.
+    /// The root folder's own name for the workspace root and an enclosing
+    /// working copy; the relative path for a nested one.
     var title: String {
         root.id.isEmpty || root.id.hasPrefix("..") ? url.lastPathComponent : root.id
     }
 
     func supports(_ capability: VcsCapability) -> Bool {
         negotiation?.supports(capability) == true
+    }
+
+    /// Whether the change has a base revision worth comparing with. A copy
+    /// compares with its source; a new file has nothing to compare.
+    func comparesWithBase(_ change: VcsChange) -> Bool {
+        supports(.baseContent) && ![.unversioned, .ignored, .added].contains(change.status)
     }
 }
 
@@ -142,10 +148,11 @@ final class VcsProvidersFeatureModel: ObservableObject {
     private let mappingStore: any VcsRootMappingStoring
     private let sources: @MainActor () -> [VcsProviderPluginSource]
     private let readFile: @MainActor (URL) -> Data?
+    private let fileExists: @Sendable (URL) -> Bool
     private let sleep: @Sendable (Duration) async throws -> Void
     private let now: @Sendable () -> ContinuousClock.Instant
     private let metadataWatcherFactory: (any DirectoryWatcherFactory)?
-    /// Watchers of metadata directories outside the workspace, by path.
+    /// Watchers of the roots' metadata directories, by path.
     private var metadataWatchers: [String: any DirectoryChangeSource] = [:]
 
     /// Bumped whenever the workspace changes, so late results are dropped.
@@ -174,6 +181,7 @@ final class VcsProvidersFeatureModel: ObservableObject {
         providers: any VcsProviderRequesting,
         mappingStore: any VcsRootMappingStoring,
         readFile: @escaping @MainActor (URL) -> Data? = { _ in nil },
+        fileExists: @escaping @Sendable (URL) -> Bool = { _ in false },
         sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
         now: @escaping @Sendable () -> ContinuousClock.Instant = { .now },
         metadataWatcherFactory: (any DirectoryWatcherFactory)? = nil,
@@ -183,6 +191,7 @@ final class VcsProvidersFeatureModel: ObservableObject {
         self.providers = providers
         self.mappingStore = mappingStore
         self.readFile = readFile
+        self.fileExists = fileExists
         self.sleep = sleep
         self.now = now
         self.metadataWatcherFactory = metadataWatcherFactory
@@ -215,7 +224,7 @@ final class VcsProvidersFeatureModel: ObservableObject {
         runningOperation = nil; failure = nil
         rootTreeStatuses = [:]; treeStatus = VcsTreeStatusProjection()
         commitMessageDrafts = [:]; presentedDiff = nil
-        watchOutsideMetadata()
+        watchMetadata()
         retainProviders()
         detect()
     }
@@ -333,7 +342,7 @@ final class VcsProvidersFeatureModel: ObservableObject {
         if let unused = detection?.unusedMappings, !unused.isEmpty {
             mappingStore.setMappings(mappings.filter { !unused.contains($0) }, workspaceURL: workspaceURL)
         }
-        watchOutsideMetadata()
+        watchMetadata()
         retainProviders()
         roots.forEach { refresh($0.id) }
     }
@@ -353,15 +362,15 @@ final class VcsProvidersFeatureModel: ObservableObject {
 
     // MARK: File changes
 
-    /// Watches the metadata directories of working copies that enclose the
-    /// workspace, such as `../.svn`. The workspace watcher sees only the
-    /// workspace, so a commit or update from a terminal would otherwise go
-    /// unnoticed. Only the directory holding a declared metadata path is
-    /// watched, never the enclosing working copy itself.
-    private func watchOutsideMetadata() {
+    /// Watches the metadata directory of every root, such as `.svn` or
+    /// `../.svn`. The workspace watcher hides VCS metadata as the project
+    /// tree does and never sees a working copy that encloses the workspace,
+    /// so a commit or update from a terminal would otherwise go unnoticed.
+    /// Only the directory holding a declared metadata path is watched.
+    private func watchMetadata() {
         guard let metadataWatcherFactory else { return }
         var directories: [String: URL] = [:]
-        for root in roots where root.id.hasPrefix("..") {
+        for root in roots {
             for path in root.metadataPaths {
                 guard let first = path.split(separator: "/").first.map(String.init),
                       root.metadataDirectories.contains(first) else { continue }
@@ -378,7 +387,7 @@ final class VcsProvidersFeatureModel: ObservableObject {
                 configuration: DirectoryWatchConfiguration(workspaceRoot: url, gitContext: nil),
                 visibilityRules: .default
             ) { [weak self] batch in
-                Task { @MainActor [weak self] in self?.outsideMetadataChanged(batch, in: url) }
+                Task { @MainActor [weak self] in self?.metadataChanged(batch, in: url) }
             }
             metadataWatchers[path] = watcher
             watcher.start()
@@ -387,18 +396,26 @@ final class VcsProvidersFeatureModel: ObservableObject {
 
     /// A metadata directory that lost track of its events, or went away,
     /// counts as the marker changing, so the roots are detected again.
-    private func outsideMetadataChanged(_ batch: DirectoryChangeBatch, in directory: URL) {
+    private func metadataChanged(_ batch: DirectoryChangeBatch, in directory: URL) {
         guard metadataWatchers[directory.path] != nil else { return }
-        workspaceFilesChanged(
+        filesChanged(
             batch.requiresFullRescan ? [directory] : batch.workspacePaths.map { URL(fileURLWithPath: $0) }
         )
+    }
+
+    /// Workspace changes: the roots whose working files changed are read
+    /// again. The workspace watcher hides VCS markers, so a new working copy
+    /// shows only as created entries next to its marker.
+    func workspaceFilesChanged(_ changes: [WorkspaceFileChange]) {
+        filesChanged(changes.map(\.fileURL))
+        detectNewRoots(near: changes.filter { $0.kind == .created }.map(\.fileURL))
     }
 
     /// Refreshes the roots whose files changed, shortly after the last
     /// change. Metadata changes count only for the provider's declared
     /// metadata paths, and not while the host's own requests write them.
-    /// A marker directory appearing or going away detects again.
-    func workspaceFilesChanged(_ urls: [URL]) {
+    /// A marker directory going away detects again.
+    private func filesChanged(_ urls: [URL]) {
         guard workspaceURL != nil, hasProviders else { return }
         let quiet = activeRequests > 0 || metadataQuietUntil.map { now() < $0 } == true
         let byDepth = roots.sorted { $0.url.path.count > $1.url.path.count }
@@ -417,6 +434,42 @@ final class VcsProvidersFeatureModel: ObservableObject {
             }
             affected.insert(root.id)
         }
+        schedule(roots: affected, detect: redetect)
+    }
+
+    /// Detects again when a created entry, or the directory holding it, has
+    /// a marker but is no known root or ambiguous directory, as after a
+    /// checkout or an update that fetched an external. The markers are
+    /// looked up off the main thread.
+    private func detectNewRoots(near created: [URL]) {
+        guard let workspaceURL, !created.isEmpty, !markerNames.isEmpty else { return }
+        let known = Set((allRootIDs + ambiguous.map(\.id)).map { Self.rootURL(id: $0, workspaceURL: workspaceURL).path })
+        let workspacePath = workspaceURL.path
+        var directories: Set<String> = []
+        for url in created {
+            let url = url.standardizedFileURL
+            for path in [url.path, url.deletingLastPathComponent().path]
+            where (path == workspacePath || path.hasPrefix(workspacePath + "/")) && !known.contains(path) {
+                directories.insert(path)
+            }
+        }
+        guard !directories.isEmpty else { return }
+        let markers = markerNames
+        let fileExists = fileExists
+        let generation = generation
+        Task { [weak self] in
+            let found = await Task.detached(priority: .utility) {
+                directories.contains { directory in
+                    markers.contains { fileExists(URL(fileURLWithPath: directory).appendingPathComponent($0)) }
+                }
+            }.value
+            guard found, let self, self.generation == generation else { return }
+            self.schedule(roots: [], detect: true)
+        }
+    }
+
+    /// Refreshes `roots`, or detects again, shortly after the last change.
+    private func schedule(roots affected: Set<String>, detect redetect: Bool) {
         guard redetect || !affected.isEmpty else { return }
         scheduledRoots.formUnion(affected)
         scheduledDetection = scheduledDetection || redetect
@@ -639,7 +692,10 @@ final class VcsProvidersFeatureModel: ObservableObject {
         let owners = await Task.detached(priority: .userInitiated) {
             try? planner.owners(roots: rootIDs, ambiguous: ambiguousIDs, paths: [sourcePath, destinationPath])
         }.value
-        guard self.generation == generation, let owners, owners == [root.id, root.id] else { return false }
+        // An action that started meanwhile leaves the move to the disk, as
+        // one running before would, instead of reporting it as refused.
+        guard self.generation == generation, runningOperation == nil,
+              let owners, owners == [root.id, root.id] else { return false }
         return await perform(.move(from: from, to: to), in: root.id,
                              title: String(localized: "Moving…"), as: VcsEmptyResult.self) != nil
     }
