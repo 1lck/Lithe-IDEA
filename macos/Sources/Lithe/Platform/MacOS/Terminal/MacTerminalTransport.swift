@@ -479,6 +479,10 @@ final class MacTerminalTransport: NSObject, TerminalTransport, @preconcurrency L
         ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
     }
 
+    var termProgramVersion: String? {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+    }
+
     func defaultEnvironment() -> [String: String] {
         ProcessInfo.processInfo.environment
     }

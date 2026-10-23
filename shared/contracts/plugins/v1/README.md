@@ -1489,3 +1489,85 @@ macOS 动作的可见、可用、勾选和激活中状态由宿主计算，不�
 条件脚本。窗口尚在激活时，其打开命令在工具栏、菜单和命令面板禁用；窗口入口
 仍可取消显示。多个窗口同时请求同一插件模块时只构造一次；禁用或关闭会取消
 并清理在途激活，旧的菜单或命令引用不能重新调用已禁用的贡献。
+
+#### Shared executable candidates (`executableResolution` 1)
+
+Declare executable sources in `invocation.executables`, in preference order.
+Array order is the recommended form; no custom path setting is required for a
+plugin that only needs automatic discovery. Existing `projectFile`, `environment`,
+`command` and `runtime` sources retain their v1 behavior. The shared
+`executableResolution: 1` capability adds `setting` and ordering metadata:
+
+```json
+"executables": [
+  { "id": "selected", "kind": "setting", "settingID": "toolPath" },
+  { "id": "wrapper", "kind": "projectFile", "path": "mvnw" },
+  { "id": "system", "kind": "command", "command": "mvn" }
+]
+```
+
+A `setting` references a declared **global file** setting with `effect: "reload"`
+or `"nextRun"` (`settings: 2`). Core receives raw `request.settings`. An absent
+value uses the declared default; an explicit empty string emits a setting candidate
+with `path: null`, which skips. A nonempty value must satisfy the setting rules,
+be absolute, and have no surrounding whitespace or controls. Invalid stored
+values reject the invocation instead of invoking the normal settings display
+resolver's fallback-to-default behavior. Project overrides never select tools.
+The host checks file permissions and versions: a configured failure is terminal,
+including a failure to probe, and must not fall back to subsequent candidates or
+a Provider's own lookup. Paths with spaces remain single paths. The selected
+setting's directory precedes PATH. Runtime candidates construct their environment
+before version probing and reuse it for execution; a rejected candidate's
+environment does not leak into the next choice. Provider hints and task/test
+execution use this same plan/selection mechanism. If resolution fails before a
+configured candidate is reached (for example, an earlier Runtime is missing),
+any nonempty setting in the tool or Runtime candidate sets still forbids the
+Provider's independent lookup. All-empty settings retain automatic-discovery
+fallback. This check applies after failure, so an earlier successful candidate
+is unaffected by a later unused setting.
+
+Optional metadata applies within **one candidate set owned by one plugin**:
+
+- `id` is a unique stable identifier; anonymous candidates cannot be anchors.
+- `priority` is a signed 32-bit integer; higher wins, absent means 0. Ties retain
+  original array order.
+- `insertBefore` or `insertAfter` names an ID in this set. One candidate cannot
+  combine either with `priority`, or declare both insertion fields. Constraints
+  mean relative order, not immediate adjacency.
+- Normalize the complete set into a directed graph before platform filtering.
+  Repeatedly select a zero-indegree node by descending priority, then original
+  index; emit it and remove its edges. Explicit edges take precedence over
+  priority. Duplicate/invalid IDs, unknown anchors, cycles/self-edges and
+  conflicting metadata are manifest errors. Filter platforms only after sorting,
+  so anchors remain valid even if they do not apply to the current platform.
+
+`plugins::executables` owns the reusable source types and deterministic order;
+`ExecutableCandidateResolver` receives file-system, Setting (already validated by
+Core), Environment, Runtime and command-discovery capabilities from the host.
+Results distinguish `skip`, `resolved` and `terminalFailure`; plugins declare data
+and cannot inject host native code. Each operation uses a value snapshot for its
+settings/environment and ordered plan. Passive import does not resolve/probe
+runtimes or execute project wrappers. A project candidate remains project code
+and is only executed through the consumer's existing trust/user-action workflow.
+
+This PR connects Build Systems and their custom Runtime Dependencies. Own Build
+Providers already adapt command/runtime launches through BuildToolResolver and
+receive the selected build tool as `tool.executable`; their ServerProcess protocol
+is unchanged. Language Servers, Execution Providers, and other ServerProcess
+launch forms can later adapt into this same resolver without changing their
+manifest structure all at once: preserve package-realpath/executable checks,
+workspace trust, auto-start restrictions, runtime ownership and cancellation.
+They do **not** advertise support for new candidate declarations until their
+adapter is implemented; this capability currently authorizes the Build candidate
+positions only. Windows does not advertise it yet.
+
+Compatibility: Cargo 0.1.1 already shipped as a preview with `buildSystems: 2`
+and `invocation.executableSetting`. That field is deprecated and supported only
+as a v2 input adapter: prepend an equivalent setting candidate to the normal
+list; never emit `configuredExecutable` or use a separate resolution branch.
+New plugins use the fifth candidate and `executableResolution: 1` (Build v1
+remains sufficient). Legacy manifests do not need the new capability; hosts
+without it reject new-style plugins before decoding unknown fields. Published
+0.1.0/0.1.1 archives remain immutable; migration is a new plugin version.
+
+See [`build-tool-path.plugin.json`](fixtures/build-tool-path.plugin.json).

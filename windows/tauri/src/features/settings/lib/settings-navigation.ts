@@ -253,6 +253,10 @@ export const settingsCategories: Array<{
       "run.jdkHome",
       "run.mavenExecutable",
       "run.mavenJdkHome",
+      "Quit",
+      "Stop services",
+      "runningServices.settingsGroup",
+      "runningServices.setting",
     ],
   },
   {
