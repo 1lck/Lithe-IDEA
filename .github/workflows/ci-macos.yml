@@ -385,24 +385,7 @@ jobs:
         with:
           cargo: "true"
 
-      # The Java plugin SDK targets Java 8: its tests and sample backend run on
-      # a Java 8 runtime, while Maven builds with the newer JDK set up last.
-      - name: Set up Java 8 runtime for the plugin SDK
-        id: java8
-        uses: actions/setup-java@v5
-        with:
-          distribution: zulu
-          java-version: '8'
-
-      - name: Set up Java 21 for Maven
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: '21'
-
       - name: Run Rust Core tests
-        env:
-          LITHE_PLUGIN_SDK_JAVA_RUNTIME: ${{ steps.java8.outputs.path }}/bin/java
         run: ./scripts/verify-rust-core-crates.sh
 
       - name: Upload Rust test reports
@@ -415,7 +398,6 @@ jobs:
             .artifacts/test-stability/agent-host-rust.*
             .artifacts/test-stability/ide-host-rust.*
             .artifacts/test-stability/rust-comment-checker.xml
-            .artifacts/test-stability/TEST-io.github.litheidea.plugin.sdk.*.xml
           if-no-files-found: ignore
           retention-days: 14
 

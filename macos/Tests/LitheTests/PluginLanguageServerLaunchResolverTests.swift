@@ -402,7 +402,7 @@ struct PluginLanguageServerLaunchResolverTests {
 
     private func makeFixture(
         root: URL,
-        manifest: String = "java-support.plugin.json",
+        manifest: String = "language-host-integration.plugin.json",
         languageID: String = "java",
         settings: any PluginSettingsStoring = InMemoryPluginSettings()
     ) throws -> Fixture {
@@ -458,7 +458,7 @@ struct PluginLanguageServerLaunchResolverTests {
     }
 
     private func javaFixtureManifest() throws -> Data {
-        try fixtureManifest("java-support.plugin.json")
+        try fixtureManifest("language-host-integration.plugin.json")
     }
 
     private func fixtureManifest(_ name: String) throws -> Data {

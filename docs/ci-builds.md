@@ -403,6 +403,9 @@ Cargo 社区插件在 [独立仓库](https://github.com/Lithe-IDEA/lithe-plugin-
 不跨 worktree 共享，也不进入发布 ZIP。主仓库保留通用插件契约回归，不下载或组装 Cargo 插件。
 插件仓库每次打包校验 `sdk.lock.json` 固定的 SDK 源码提交与文件 SHA-256，
 SDK 复制只发生在打包阶段，安装目录保持只读。
+官方插件 SDK 已移到 [lithe-plugin-docs](https://github.com/Lithe-IDEA/lithe-plugin-docs)：
+SDK 的 Maven 构建输出和端到端测试使用的 Lithe 稀疏检出（`.artifacts/lithe`）都属于该仓库，
+主仓库不再构建 SDK，也不把这些目录登记为可复用资源。
 
 `Lithe-Dev` 的运行时用户状态不属于可复用构建缓存。macOS 用
 `app.lithe.desktop.dev` 隔离偏好和钥匙串，并在系统 Application Support、Caches、

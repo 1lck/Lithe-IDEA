@@ -146,7 +146,7 @@ struct PluginBuildOptionPersistenceTests {
             try Data("[package]\nname = \"\(root)\"\nversion = \"0.1.0\"\n[features]\n\(feature) = []\n".utf8)
                 .write(to: directory.appendingPathComponent("Cargo.toml"))
         }
-        let fixture = DeclarativePluginTestSupport.repositoryRoot.appendingPathComponent("shared/contracts/plugins/v1/fixtures/cargo-build.plugin.json")
+        let fixture = DeclarativePluginTestSupport.repositoryRoot.appendingPathComponent("shared/contracts/plugins/v1/fixtures/build-static-file.plugin.json")
         var manifest = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: fixture)) as? [String: Any])
         var systems = try #require(manifest["buildSystems"] as? [[String: Any]])
         var options = try #require(systems[0]["options"] as? [[String: Any]])

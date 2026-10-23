@@ -11,7 +11,7 @@ This directory is the cross-platform source of truth:
 | File | Purpose |
 | --- | --- |
 | `plugin-manifest.schema.json` | JSON shape of `plugin.json` |
-| `fixtures/*.plugin.json` | Valid example manifests: language plugins (PHP, Go, Java, a discovered Node runtime), UI (`hello-lithe`), and level 3 build systems (Cargo, Go, Gradle, Maven, and two build providers) |
+| `fixtures/*.plugin.json` | Valid example manifests, named after the capability they exercise rather than a published plugin: `language-*` (packaged, system-command, and host-integration language servers; `node-runtime` for a discovered runtime), `hello-lithe` and `web-panel` (UI), `settings-v2`, and `build-*` (level 3 build systems and the two forms of a build provider) |
 | `fixtures/invalid-manifests.json` | Edits to a valid manifest and the rejection code every host must report |
 | `fixtures/command-plans.json` | Golden run/test command expansions and language-server launch plans |
 | `fixtures/runtime-versions.json` | Golden outcomes of the launch runtime version check |
@@ -23,8 +23,17 @@ This directory is the cross-platform source of truth:
 Validation and template expansion are implemented once in Rust Core
 (`rust/lithe-core/src/plugins/`, with build systems in
 `rust/lithe-core/src/build/`) and exposed through the
-`plugins.declarative.*` commands in `../../rust-core-api.md`. Hosts must not
+`plugins.declarative.*` commands in [`shared/contracts/rust-core-api.md`](https://github.com/1lck/Lithe-IDEA/blob/preview/shared/contracts/rust-core-api.md). Hosts must not
 reimplement them.
+
+Plugin authors do not need this repository. The public
+[`Lithe-IDEA/lithe-plugin-docs`](https://github.com/Lithe-IDEA/lithe-plugin-docs)
+repository holds the developer guide and a byte-identical copy of this whole
+directory under `contract/v1/`, pinned to a revision of this repository; each
+schema's `$id` is its URL there. Contract changes land here first and must then
+be synced to that repository, so links in this file that leave this directory
+are absolute. `plugin.json` may not carry a `$schema` key, because unknown
+fields are rejected; editors associate the schema by file name instead.
 
 ## Package layout
 
@@ -716,8 +725,12 @@ commands: Core validates the declaration, detects instances, decodes the
 model, and expands every command line; the host only runs the processes Core
 planned and passes their output back. A community plugin therefore needs no
 host change to add a build tool, and no host code branches on a build-system
-ID. The fixtures `cargo-build`, `go-build`, `gradle-build`, and `maven-build`
-are complete examples, `gradle-provider` and `mix-provider` show the two
+ID. One complete fixture covers each model source: `build-static-file` reads
+a project file, `build-command-stdout` decodes a command's standard output,
+`build-command-output-file` decodes a file the command writes, and
+`build-host-integration` hands the model to a host integration. They use
+Cargo, Go, Gradle, and Maven as realistic inputs; they are not those
+plugins. `build-provider` and `build-provider-language-server` show the two
 forms of a build provider, and `fixtures/build-plans.json` is the golden list
 of plans and decoded outputs every host gets from them.
 
@@ -1126,25 +1139,30 @@ running on that session, is dropped.
 
 ### Official backend SDK
 
-[`sdk/node`](../../../../sdk/node/README.md) is the official SDK for backends
+The official SDKs live in
+[lithe-plugin-docs](https://github.com/Lithe-IDEA/lithe-plugin-docs), which
+also releases them; they implement this contract and never define protocol.
+
+[`sdk/node`](https://github.com/Lithe-IDEA/lithe-plugin-docs/blob/main/sdk/node/README.md) is the official SDK for backends
 started through a `node` runtime launch. It implements this protocol and
-`litheBuild` 1, so a plugin author writes only handlers. It enforces the
-rules above on the backend side: `lithe/*` methods are never sent, stdout
+`litheBuild` 1, so a plugin author writes only handlers. It is released
+(`sdk-node-v<version>`) as a `.tgz` with its SHA-256 for plugins to vendor
+into their package. It enforces the rules above on the backend side: `lithe/*` methods are never sent, stdout
 carries only protocol frames, `PluginError` is the only way to set a
 `pluginErrorCode`, processes started for a call end with it, and its state
-store refuses the plugin package. Its sample plugin
-(`sdk/node/examples/sample-build`) is driven through a real Core session by
-`rust/lithe-core/tests/plugin_sdk_node.rs`, which the Rust Core lane runs with
-`LITHE_PLUGIN_SDK_NODE` set.
+store refuses the plugin package.
 
-[`sdk/java`](../../../../sdk/java/README.md) is the Java twin for backends
+[`sdk/java`](https://github.com/Lithe-IDEA/lithe-plugin-docs/blob/main/sdk/java/README.md) is the Java twin for backends
 started through a `java` runtime launch. It needs Java 8 or newer, has no
 runtime dependencies, and is released as a JAR with its SHA-256 for plugins
 to shade into their backend. It enforces the same rules with the same error
 mapping, with one difference: on Java 8 it stops only a cancelled tool's
-direct child, and the host's process scope ends the rest. Its sample plugin
-(`sdk/java/examples/sample-build`) runs the same Core scenario through
-`rust/lithe-core/tests/plugin_sdk_java.rs`.
+direct child, and the host's process scope ends the rest.
+
+Each SDK has a sample plugin (`sdk/*/examples/sample-build`), and both samples
+answer one end-to-end scenario driven through a real Core session. That
+repository runs it against the Lithe commit its contract copy pins, and weekly
+against the latest `preview`, the branch Lithe changes merge into.
 
 Neither SDK adds a wire field: a backend written without one is equally
 valid.
@@ -1376,8 +1394,8 @@ existing Debug UI. Each must verify disable/re-enable, resource ownership and
 restoration; view-bearing samples also verify layout persistence. These samples
 are future acceptance criteria, not claims about current runtime support.
 
-The design source is the [proposed public Extension Contract and Provider API](../../../../.agents/notes/proposed/architecture/2026-10-13-public-extension-contract-and-provider-api.md).
-Current runtime behavior is recorded in the [first-stage workbench UI Note](../../../../.agents/notes/implemented/architecture/2026-10-12-workbench-ui-contributions.md).
+The design source is the [proposed public Extension Contract and Provider API](https://github.com/1lck/Lithe-IDEA/blob/preview/.agents/notes/proposed/architecture/2026-10-13-public-extension-contract-and-provider-api.md).
+Current runtime behavior is recorded in the [first-stage workbench UI Note](https://github.com/1lck/Lithe-IDEA/blob/preview/.agents/notes/implemented/architecture/2026-10-12-workbench-ui-contributions.md).
 
 ### Current Windows availability
 Windows can validate API level 2 through Rust Core but its UI adapter has not
