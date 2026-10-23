@@ -534,16 +534,25 @@ private struct AgentConnectionView: View {
 
     private var detailsPanel: some View {
         let conversation = feature.selectedConversation
+        let sessionID = feature.selectedSessionID
         return AgentEditorDetailsColumn(
             statistics: conversation?.sessionStatistics,
             contextUsage: conversation?.contextUsage,
             changes: AgentActivity(messages: conversation?.messages ?? [],
                                    reviewed: conversation?.reviewedFileChanges ?? [:]).files,
+            sessionID: sessionID,
+            isResponding: conversation?.isResponding == true,
+            isReviewing: feature.fileReviewSessionID != nil,
+            reviewError: feature.fileReviewErrorSessionID == sessionID ? feature.fileReviewError : nil,
+            onKeep: { changes in if let sessionID { feature.keepFileChanges(changes, in: sessionID) } },
+            onRestore: { changes in
+                if let sessionID { await feature.restoreFileChanges(changes, in: sessionID, restore: onRestoreFile) }
+            },
             showsSubscriptionQuota: feature.usesSubscription,
             subscriptionQuota: feature.subscriptionQuota,
             subscriptionAccount: feature.subscriptionEmail,
             quotaFailure: feature.quotaFailure,
-            activity: activity,
+            activity: activity(includesEdits: false),
             onOpenFile: onOpenFile
         )
     }
@@ -713,13 +722,16 @@ private struct AgentConnectionView: View {
         }
     }
 
-    private var activity: AgentActivitySummaryBar {
+    private var activity: AgentActivitySummaryBar { activity(includesEdits: true) }
+
+    private func activity(includesEdits: Bool) -> AgentActivitySummaryBar {
         let conversation = feature.selectedConversation
         let sessionID = feature.selectedSessionID
         return AgentActivitySummaryBar(messages: conversation?.messages ?? [], sessionID: sessionID,
             plan: conversation?.plan, subagents: conversation?.subagents ?? [], reviewed: conversation?.reviewedFileChanges ?? [:],
             isResponding: conversation?.isResponding == true, isReviewing: feature.fileReviewSessionID != nil,
             reviewError: feature.fileReviewErrorSessionID == sessionID ? feature.fileReviewError : nil,
+            includesEdits: includesEdits,
             onOpenFile: onOpenFile,
             onKeep: { changes in if let sessionID { feature.keepFileChanges(changes, in: sessionID) } },
             onRestore: { changes in

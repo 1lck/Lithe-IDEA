@@ -19,8 +19,6 @@ enum AgentComposerMetrics {
     static let horizontalInset: CGFloat = 8
     static let toolbarHorizontalInset: CGFloat = 5
     static let splitTopInset: CGFloat = 10
-    /// Status row under the editor conversation's composer card.
-    static let editorFooterHeight: CGFloat = 28
     static let editorCardCornerRadius: CGFloat = 16
 
     static func minimumHeight(hasFiles: Bool) -> CGFloat {

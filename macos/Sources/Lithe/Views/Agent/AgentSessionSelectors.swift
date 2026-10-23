@@ -81,12 +81,8 @@ struct AgentSessionSelectors: View {
     let agentName: String?
     let isDisabled: Bool
     var appliesToNextTurn = false
-    /// Editor footer: approval mode at the leading edge, model at the trailing edge.
-    var spreadsAcrossRow = false
-    /// Hides the approval-mode selector; the editor card shows only the model.
-    var showsMode = true
-    var showsModel = true
-    /// Hides the fallback "more settings" menu when there is no model selector.
+    /// Hides the fallback "more settings" menu when there is no model selector;
+    /// the editor card keeps only the approval mode and model.
     var showsSettings = true
     let onSelect: (String, String) -> Void
     @State private var showsModels = false
@@ -102,7 +98,7 @@ struct AgentSessionSelectors: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            if showsMode, let mode {
+            if let mode {
                 LitheMenu(opensUpward: true) {
                     LitheContextMenuItem.heading("Mode", centered: true)
                     for choice in mode.choices {
@@ -130,8 +126,7 @@ struct AgentSessionSelectors: View {
                 .accessibilityValue(AgentSessionSelectorPresentation.currentTitle(mode, locale: locale))
                 .accessibilityIdentifier("agent-session-mode-selector")
             }
-            if spreadsAcrossRow { Spacer(minLength: 8) }
-            if showsModel, let model {
+            if let model {
                 Button { showsModels.toggle() } label: {
                     selectorLabel(expandsDownward: true) {
                         AgentBrandIcon(name: agentName, size: 12, style: .brand)

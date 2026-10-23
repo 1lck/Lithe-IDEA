@@ -312,6 +312,11 @@ final class AgentHistoryRowsCache {
         return ConversationState(messageCount: count, isAttached: conversation.isAttached)
     }
 
+    /// Forget counts of conversations whose tabs were closed.
+    func pruneConversations(keeping ids: Dictionary<String, AgentConversation>.Keys) {
+        if counts.count > ids.count { counts = counts.filter { ids.contains($0.key) } }
+    }
+
     func items(for key: ItemsKey,
                build: () -> (items: [AgentHistoryListItem], archived: [AgentHistoryRowModel])) -> (items: [AgentHistoryListItem], archived: [AgentHistoryRowModel], revision: Int) {
         if key != itemsKey {
@@ -480,8 +485,8 @@ struct AgentHistoryView: View {
                     LitheMenu {
                         LitheContextMenuItem.action("Export conversations") { history.export(selected) }
                             .disabled(!history.canExport(selected))
-                        LitheContextMenuItem.action("Add to favorites") { history.setFavorite(selected, true) }
-                        LitheContextMenuItem.action("Remove from favorites") { history.setFavorite(selected, false) }
+                        LitheContextMenuItem.action("Pin conversation") { history.setFavorite(selected, true) }
+                        LitheContextMenuItem.action("Unpin conversation") { history.setFavorite(selected, false) }
                         LitheContextMenuItem.separator
                         LitheContextMenuItem.action(
                             filter == .removed ? "Restore conversations" : "Remove from history"
@@ -546,7 +551,7 @@ struct AgentHistoryView: View {
                     LitheContextMenuItem.action(mode.menuTitle, checked: mode == filter) { filter = mode }
                 }
             } label: {
-                LitheSystemIcon(systemImage: filter == .favorites ? "star.fill" : "line.3.horizontal.decrease", size: LitheTheme.Metrics.toolbarIconSize)
+                LitheSystemIcon(systemImage: filter == .favorites ? "pin.fill" : "line.3.horizontal.decrease", size: LitheTheme.Metrics.toolbarIconSize)
             }
             .litheToolbarIconButton()
                 .help(filter.title)
@@ -577,9 +582,11 @@ struct AgentHistoryView: View {
     private func list(rows: [AgentSessionSummary], archivedRows: [AgentSessionSummary]) -> some View {
         rowsCache.noteArchived(archivedRows)
         var conversationStates: [String: AgentHistoryRowsCache.ConversationState] = [:]
-        for (id, conversation) in feature.conversations {
+        let conversations = feature.conversations
+        for (id, conversation) in conversations {
             conversationStates[id] = rowsCache.conversationState(id, conversation)
         }
+        rowsCache.pruneConversations(keeping: conversations.keys)
         let now = Date()
         let groupsByDate = filter == .all && !isSearching
         let key = AgentHistoryRowsCache.ItemsKey(

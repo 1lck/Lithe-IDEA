@@ -61,6 +61,14 @@ struct AgentEditorDetailsColumn: View {
     let statistics: AgentSessionStatistics?
     let contextUsage: AgentContextUsage?
     var changes: [AgentFileChange] = []
+    var sessionID: String? = nil
+    var isResponding = false
+    var isReviewing = false
+    var reviewError: String? = nil
+    /// Marks the Agent's saved edits as reviewed; files are left as they are.
+    var onKeep: ([AgentFileChange]) -> Void = { _ in }
+    /// Reverses only the reported Agent edits after the user confirms.
+    var onRestore: ([AgentFileChange]) async -> Void = { _ in }
     var showsSubscriptionQuota = false
     var subscriptionQuota: AgentSubscriptionQuota? = nil
     var subscriptionAccount: String? = nil
@@ -69,7 +77,15 @@ struct AgentEditorDetailsColumn: View {
     var onOpenFile: (AgentToolDetails.Location) -> Void = { _ in }
     @AppStorage("lithe.agent.editor.detailsCollapsed") private var collapsedRaw = ""
     @State private var showsAllChanges = false
+    @State private var selectedDiff: AgentFileChange?
+    @State private var confirmation: [AgentFileChange]?
+    @State private var restoration: Restoration?
     @Environment(\.locale) private var locale
+
+    private struct Restoration {
+        let id = UUID()
+        let changes: [AgentFileChange]
+    }
 
     private enum Section: String { case context, changes, activity, quota, session }
     /// Changes beyond this many files fold behind "Show more".
@@ -108,6 +124,28 @@ struct AgentEditorDetailsColumn: View {
         .litheWorkbenchSurface(AgentPanelStyle.header)
         .overlay(alignment: .leading) { LitheTheme.divider.frame(width: 1) }
         .accessibilityIdentifier("agent-editor-details-panel")
+        .sheet(item: $selectedDiff) { change in
+            AgentFileDiffView(change: change, onOpenFile: onOpenFile)
+        }
+        .alert("Roll back Agent changes?", isPresented: Binding(get: { confirmation != nil }, set: { if !$0 { confirmation = nil } })) {
+            Button("Cancel", role: .cancel) { confirmation = nil }
+            Button("Roll back", role: .destructive) {
+                if let confirmation { restoration = Restoration(changes: confirmation) }
+                confirmation = nil
+            }
+        } message: {
+            Text("Only the reported Agent edits will be reversed. Conflicting changes and unsaved editor changes will be preserved.")
+        }
+        .task(id: restoration?.id) {
+            guard let restoration else { return }
+            await onRestore(restoration.changes)
+            self.restoration = nil
+        }
+        .onChange(of: sessionID) { _ in
+            selectedDiff = nil
+            confirmation = nil
+            showsAllChanges = false
+        }
     }
 
     // MARK: Context
@@ -168,73 +206,63 @@ struct AgentEditorDetailsColumn: View {
 
     // MARK: Changes
 
+    /// The single entry for reviewing this conversation's edits: totals, keep or
+    /// roll back everything, and per-file diff, open and roll back.
     @ViewBuilder private var changesContent: some View {
-        if changes.isEmpty {
+        if changes.isEmpty && !isReviewing && reviewError == nil {
             Text("No file edits").font(LitheTheme.uiFont(size: 12)).foregroundStyle(AgentPanelStyle.secondary)
         } else {
             VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 8) {
-                    Image(systemName: "plusminus.circle").foregroundStyle(AgentPanelStyle.secondary)
-                    Text(verbatim: String(format: AgentLocalization.string("Modified files: %lld", locale: locale), Int64(changes.count)))
-                        .lineLimit(1).foregroundStyle(AgentPanelStyle.text)
-                    Spacer(minLength: 6)
-                    if let totals = AgentActivitySummaryPresentation.lineTotals(changes) {
-                        Text(verbatim: "+\(totals.additions)").foregroundStyle(LitheTheme.success)
-                        Text(verbatim: "−\(totals.deletions)").foregroundStyle(LitheTheme.error)
+                if !changes.isEmpty {
+                    HStack(spacing: 8) {
+                        Image(systemName: "plusminus.circle").foregroundStyle(AgentPanelStyle.secondary)
+                        Text(verbatim: String(format: AgentLocalization.string("Modified files: %lld", locale: locale), Int64(changes.count)))
+                            .lineLimit(1).foregroundStyle(AgentPanelStyle.text)
+                        Spacer(minLength: 6)
+                        if let totals = AgentActivitySummaryPresentation.lineTotals(changes) {
+                            Text(verbatim: "+\(totals.additions)").foregroundStyle(LitheTheme.success)
+                            Text(verbatim: "−\(totals.deletions)").foregroundStyle(LitheTheme.error)
+                        }
+                    }
+                    .font(LitheTheme.uiFont(size: 12)).monospacedDigit()
+                    HStack(spacing: LitheTheme.ActionButton.spacing) {
+                        Button("Keep all") { onKeep(changes) }
+                            .disabled(isResponding || isReviewing || changes.contains(where: \.isPending))
+                            .help("The Agent already saved these files. Mark the current changes as reviewed.")
+                            .accessibilityIdentifier("agent-edits-keep-all")
+                        Button("Roll back all", role: .destructive) { confirmation = changes }
+                            .disabled(isResponding || isReviewing || !changes.allSatisfy(\.canRevert))
+                            .accessibilityIdentifier("agent-edits-revert-all")
+                        if isReviewing { ProgressView().controlSize(.mini) }
+                    }
+                    .buttonStyle(LitheActionButtonStyle())
+                    .font(LitheTheme.uiFont(size: 11))
+                    let visible = showsAllChanges ? changes : Array(changes.prefix(Self.changePreviewCount))
+                    ForEach(visible) { change in changeRow(change) }
+                    if changes.count > Self.changePreviewCount {
+                        Button(showsAllChanges ? "Show less" : "Show more") { showsAllChanges.toggle() }
+                            .buttonStyle(.litheNoPress)
+                            .font(LitheTheme.uiFont(size: 12))
+                            .foregroundStyle(AgentPanelStyle.secondary)
+                            .accessibilityIdentifier("agent-details-changes-more")
                     }
                 }
-                .font(LitheTheme.uiFont(size: 12)).monospacedDigit()
-                let visible = showsAllChanges ? changes : Array(changes.prefix(Self.changePreviewCount))
-                ForEach(visible) { change in changeRow(change) }
-                if changes.count > Self.changePreviewCount {
-                    Button(showsAllChanges ? "Show less" : "Show more") { showsAllChanges.toggle() }
-                        .buttonStyle(.litheNoPress)
-                        .font(LitheTheme.uiFont(size: 12))
-                        .foregroundStyle(AgentPanelStyle.secondary)
-                        .accessibilityIdentifier("agent-details-changes-more")
+                if let reviewError {
+                    LitheBanner(status: .error) { Text(reviewError).textSelection(.enabled) }
                 }
             }
         }
     }
 
     private func changeRow(_ change: AgentFileChange) -> some View {
-        Button { onOpenFile(AgentToolDetails.Location(path: change.path)) } label: {
-            HStack(alignment: .top, spacing: 8) {
-                Image(systemName: change.isDeletion ? "doc.badge.minus" : "doc.text")
-                    .foregroundStyle(change.isDeletion ? LitheTheme.error : AgentPanelStyle.secondary)
-                    .frame(width: 14)
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 6) {
-                        Text((change.path as NSString).lastPathComponent)
-                            .lineLimit(1).truncationMode(.middle)
-                            .foregroundStyle(AgentPanelStyle.text)
-                        Spacer(minLength: 4)
-                        if let additions = change.additions, additions > 0 {
-                            Text(verbatim: "+\(additions)").foregroundStyle(LitheTheme.success)
-                        }
-                        if let deletions = change.deletions, deletions > 0 {
-                            Text(verbatim: "−\(deletions)").foregroundStyle(LitheTheme.error)
-                        }
-                    }
-                    Text(verbatim: Self.directory(of: change.path))
-                        .font(LitheTheme.uiFont(size: 11))
-                        .foregroundStyle(AgentPanelStyle.secondary)
-                        .lineLimit(1).truncationMode(.head)
-                }
-            }
-            .font(LitheTheme.uiFont(size: 12)).monospacedDigit()
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.litheNoPress)
-        .help(change.path)
-        .accessibilityIdentifier("agent-details-change-\(change.path)")
+        AgentEditorChangeRow(
+            change: change,
+            canRollBack: !isResponding && !isReviewing && change.canRevert,
+            onOpen: { onOpenFile(AgentToolDetails.Location(path: change.path)) },
+            onDiff: { selectedDiff = change },
+            onRollBack: { confirmation = [change] })
     }
 
-    /// The last two folders, enough to tell same-named files apart.
-    static func directory(of path: String) -> String {
-        let folders = (path as NSString).deletingLastPathComponent.split(separator: "/")
-        return folders.suffix(2).joined(separator: "/")
-    }
 
     // MARK: Card
 
@@ -272,5 +300,77 @@ struct AgentEditorDetailsColumn: View {
         var set = collapsed
         if !set.insert(id.rawValue).inserted { set.remove(id.rawValue) }
         collapsedRaw = set.sorted().joined(separator: ",")
+    }
+}
+
+/// One edited file in the Changes card. Diff and roll back appear on hover so the
+/// list stays as quiet as a plain file list.
+private struct AgentEditorChangeRow: View {
+    let change: AgentFileChange
+    let canRollBack: Bool
+    let onOpen: () -> Void
+    let onDiff: () -> Void
+    let onRollBack: () -> Void
+    @State private var isHovering = false
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Button(action: onOpen) {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: change.isDeletion ? "doc.badge.minus" : "doc.text")
+                        .foregroundStyle(change.isDeletion ? LitheTheme.error : AgentPanelStyle.secondary)
+                        .frame(width: 14)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text((change.path as NSString).lastPathComponent)
+                            .lineLimit(1).truncationMode(.middle)
+                            .foregroundStyle(AgentPanelStyle.text)
+                        Text(verbatim: Self.directory(of: change.path))
+                            .font(LitheTheme.uiFont(size: 11))
+                            .foregroundStyle(AgentPanelStyle.secondary)
+                            .lineLimit(1).truncationMode(.head)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.litheNoPress)
+            .help(change.path)
+            .accessibilityIdentifier("agent-edits-open-\(change.path)")
+            if isHovering {
+                Button(action: onDiff) {
+                    LitheSystemIcon(systemImage: "rectangle.split.2x1", size: LitheTheme.Metrics.toolbarIconSize)
+                }
+                .litheToolbarIconButton()
+                .disabled(change.diffs.isEmpty)
+                .help("Show Agent diff")
+                .accessibilityIdentifier("agent-edits-diff-\(change.path)")
+                Button(action: onRollBack) {
+                    LitheSystemIcon(systemImage: "arrow.uturn.backward", size: LitheTheme.Metrics.toolbarIconSize)
+                }
+                .litheToolbarIconButton()
+                .disabled(!canRollBack)
+                .help(change.canRevert ? "Roll back Agent changes" : "Original content is missing or incomplete.")
+                .accessibilityIdentifier("agent-edits-revert-\(change.path)")
+            } else {
+                HStack(spacing: 6) {
+                    if let additions = change.additions, additions > 0 {
+                        Text(verbatim: "+\(additions)").foregroundStyle(LitheTheme.success)
+                    }
+                    if let deletions = change.deletions, deletions > 0 {
+                        Text(verbatim: "−\(deletions)").foregroundStyle(LitheTheme.error)
+                    }
+                }
+            }
+        }
+        .font(LitheTheme.uiFont(size: 12)).monospacedDigit()
+        .frame(minHeight: 32)
+        .onHover { isHovering = $0 }
+        .accessibilityIdentifier("agent-details-change-\(change.path)")
+    }
+
+    /// The last two folders, enough to tell same-named files apart.
+    static func directory(of path: String) -> String {
+        let folders = (path as NSString).deletingLastPathComponent.split(separator: "/")
+        return folders.suffix(2).joined(separator: "/")
     }
 }

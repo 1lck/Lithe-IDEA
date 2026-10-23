@@ -41,7 +41,8 @@ struct AgentComposerView: View {
     var draftText: Binding<String>? = nil
     var draftFiles: Binding<[AgentFileReference]>? = nil
     var focusRequest: UInt = 0
-    /// Editor tab: mode and model move to a status row under the card.
+    /// Editor tab: a rounded card holding the Agent, approval mode, model, attach
+    /// and send; quota and session details live in the trailing details column.
     var isEditorLayout = false
     @State private var completion = AgentCommandCompletion()
     @State private var files: [AgentFileReference] = []
@@ -150,7 +151,7 @@ struct AgentComposerView: View {
             } else if !configOptions.isEmpty {
                 AgentSessionSelectors(options: configOptions, agentName: selectedAgent?.name,
                     isDisabled: isBlocked || isConfiguring, appliesToNextTurn: isResponding,
-                    showsMode: true, showsSettings: false, onSelect: onSetConfig)
+                    showsSettings: false, onSelect: onSetConfig)
                     .id(sessionID ?? selectedAgent?.id)
                 if isConfiguring { ProgressView().controlSize(.mini) }
             } else if let model = selectedAgent?.modelName, !model.isEmpty {
