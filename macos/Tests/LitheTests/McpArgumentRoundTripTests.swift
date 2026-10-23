@@ -59,7 +59,7 @@ struct McpArgumentRoundTripTests {
         let entries = try MacMcpRegistry(core: RustCoreBridge()).featured().entries
         let entry = try #require(entries.first { $0.id == "lithe.featured/playwright" })
         var draft = try #require(McpServerDraft(entry: entry)); draft.enabledAgents = Set(McpAgent.allCases)
-        let directory = DeclarativePluginTestSupport.repositoryRoot.appendingPathComponent(".artifacts/mcp-tools")
+        let directory = DeclarativePluginTestSupport.repositoryRoot.appendingPathComponent(".artifacts/test-stability/mcp-ui")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         for dark in [false, true] {
             let view = McpServerEditorView(feature: feature, draft: .constant(draft), onClose: {})
@@ -124,6 +124,102 @@ struct McpArgumentRoundTripTests {
         #expect(latest.tools.first?.enabled == false)
         #expect(latest.tools.first?.editable == false)
         service.release([snapshot, latest])
+    }
+
+    @Test(arguments: ["switch", "editor", "delete"])
+    func disabledToolsSurviveServerRemovalAndReopening(action: String) throws {
+        let fixture = try ArgumentFixture()
+        defer { fixture.cleanUp() }
+        let feature = fixture.feature()
+        var draft = feature.makeDraft()
+        draft.name = "alpha"; draft.command = "/bin/echo"
+        draft.env = [McpKeyValue(key: "TOKEN", value: "fixture-secret-must-not-be-archived")]
+        draft.enabledAgents = Set(McpAgent.allCases)
+        try #require(feature.save(draft))
+        try fixture.codexFilters(allow: ["read", "write"], deny: ["read"])
+        feature.refresh()
+        feature.takeOwnership(of: try #require(feature.rows.first), agent: .codex)
+        let row = try #require(feature.rows.first)
+        let service = try #require(fixture.mcpTools)
+        let target = McpToolTarget(definition: row.definition, files: row.globalSources.map(\.file))
+        let names = ["read", "write", "outside-allowlist"]
+        let policy = try service.policy(for: target, agent: .codex, tools: names)
+        let off = try service.setEnabled(false, tool: "write", target: target, snapshot: policy)
+        feature.tools.didChangePolicy?(row, off)
+        service.release([off])
+        let claudeBefore = try fixture.nativeText(.claudeCode)
+        let current = try #require(feature.rows.first)
+        switch action {
+        case "switch": try #require(feature.setAgent(.codex, enabled: false, for: current))
+        case "editor":
+            var edit = feature.draft(for: current); edit.enabledAgents.remove(.codex)
+            try #require(feature.save(edit))
+        default: try #require(feature.delete(current))
+        }
+        #expect(try !fixture.nativeText(.codex).contains("mcp_servers.alpha"))
+        #expect(!fixture.ledgerText().contains("fixture-secret-must-not-be-archived"))
+
+        // A new page reads durable state, rather than the old policy snapshot.
+        let reopened = fixture.feature(); reopened.refresh()
+        if action == "switch" {
+            try #require(reopened.setAgent(.codex, enabled: true, for: try #require(reopened.rows.first)))
+        } else {
+            var add = McpServerDraft(definition: row.definition)
+            add.enabledAgents = Set(McpAgent.allCases)
+            try #require(reopened.save(add))
+        }
+        let restored = try #require(reopened.rows.first)
+        let restoredTarget = McpToolTarget(definition: restored.definition, files: restored.globalSources.map(\.file))
+        let restoredPolicy = try service.policy(for: restoredTarget, agent: .codex, tools: names)
+        defer { service.release([restoredPolicy]) }
+        #expect(restoredPolicy.tools.allSatisfy { !$0.enabled })
+        #expect(restoredPolicy.tools.first { $0.name == "read" }?.editable == false)
+        #expect(restoredPolicy.tools.first { $0.name == "write" }?.editable == true)
+        #expect(restoredPolicy.tools.first { $0.name == "outside-allowlist" }?.editable == false)
+        let claude = try service.policy(for: restoredTarget, agent: .claudeCode, tools: names)
+        service.release([claude])
+        #expect(claude.tools.allSatisfy { $0.enabled })
+        if action != "delete" { #expect(try fixture.nativeText(.claudeCode) == claudeBefore) }
+
+        let on = try service.setEnabled(true, tool: "write", target: restoredTarget, snapshot: restoredPolicy)
+        service.release([on]); reopened.tools.didChangePolicy?(restored, on)
+        #expect(on.tools.first { $0.name == "write" }?.enabled == true)
+        #expect(on.tools.first { $0.name == "read" }?.enabled == false)
+        try #require(reopened.setAgent(.codex, enabled: false, for: try #require(reopened.rows.first)))
+    }
+
+    @Test func retainedFiltersStayWithTheirNativeProfilePath() throws {
+        let ledger = ArgumentKeyValueStore()
+        let first = try ArgumentFixture(ledger: ledger)
+        defer { first.cleanUp() }
+        let second = try ArgumentFixture(ledger: ledger)
+        defer { second.cleanUp() }
+        var draft = McpServerDraft(); draft.name = "alpha"; draft.command = "/bin/echo"
+        draft.enabledAgents = Set(McpAgent.allCases)
+        let original = first.feature()
+        try #require(original.save(draft))
+        try first.codexFilters(allow: [], deny: ["read"])
+        original.refresh()
+        original.takeOwnership(of: try #require(original.rows.first), agent: .codex)
+        try #require(original.setAgent(.codex, enabled: false, for: try #require(original.rows.first)))
+
+        let otherProfile = second.feature()
+        draft.enabledAgents = [.codex]
+        try #require(otherProfile.save(draft))
+        #expect(try !second.nativeText(.codex).contains("enabled_tools"))
+        #expect(try !second.nativeText(.codex).contains("disabled_tools"))
+        try #require(otherProfile.delete(try #require(otherProfile.rows.first)))
+
+        // Returning to the original native path restores its empty allow-list,
+        // even after a different profile reused the same name and preferences.
+        let reopened = first.feature(); reopened.refresh()
+        try #require(reopened.setAgent(.codex, enabled: true, for: try #require(reopened.rows.first)))
+        let row = try #require(reopened.rows.first)
+        let service = try #require(first.mcpTools)
+        let policy = try service.policy(for: McpToolTarget(definition: row.definition, files: row.globalSources.map(\.file)),
+            agent: .codex, tools: ["read", "write"])
+        defer { service.release([policy]) }
+        #expect(policy.tools.allSatisfy { !$0.enabled && !$0.editable })
     }
 
     @Test(arguments: McpAgent.allCases, ["github", "deepwiki", "exa", "filesystem", "fetch", "memory"])
@@ -250,7 +346,7 @@ struct McpArgumentRoundTripTests {
 private final class ArgumentFixture: McpServerLibraryActions {
     private let root: URL
     private let store: MacAgentMcpConfigurationStore
-    private let ledger = ArgumentKeyValueStore()
+    private let ledger: ArgumentKeyValueStore
     private lazy var toolService = MacMcpTools(core: RustCoreBridge(), store: store, ledger: ledger,
         storage: ArgumentFileStorage(root: root), environment: ["CLAUDE_CONFIG_DIR": root.appendingPathComponent("claude").path])
 
@@ -260,7 +356,8 @@ private final class ArgumentFixture: McpServerLibraryActions {
     var mcpWorkspaceURL: URL? { nil }
     var mcpLedgerStore: any KeyValueStore { ledger }
 
-    init() throws {
+    init(ledger: ArgumentKeyValueStore = ArgumentKeyValueStore()) throws {
+        self.ledger = ledger
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("mcp-arguments-\(UUID().uuidString)", isDirectory: true)
         root = directory
@@ -313,6 +410,22 @@ private final class ArgumentFixture: McpServerLibraryActions {
 
     func hasConfiguration(_ agent: McpAgent) throws -> Bool {
         try store.read(file(for: agent)) != nil
+    }
+
+    func nativeText(_ agent: McpAgent) throws -> String { try store.read(file(for: agent)) ?? "" }
+
+    func codexFilters(allow: [String], deny: [String]) throws {
+        let file = try file(for: .codex)
+        let encode = { (values: [String]) in String(decoding: try JSONEncoder().encode(values), as: UTF8.self) }
+        let before = try nativeText(.codex)
+        let header = "[mcp_servers.alpha]\n"
+        try #require(before.contains(header))
+        let text = before.replacingOccurrences(of: header, with: header + "enabled_tools = \(try encode(allow))\ndisabled_tools = \(try encode(deny))\n")
+        try Data(text.utf8).write(to: file.url)
+    }
+
+    func ledgerText() -> String {
+        ledger.data(forKey: "settings.mcpServerRegistrations").map { String(decoding: $0, as: UTF8.self) } ?? ""
     }
 
     func allowedFolder() throws -> String {

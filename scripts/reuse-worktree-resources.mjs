@@ -389,7 +389,8 @@ async function main() {
       // Includes plugin-ui-icons: signed runtime packages are never build-cache inputs.
       // Includes agent-instruction-library-state: user text and sync locks have no build identity or copy stage.
       // Includes mcp-tool-probe-state: SDK sessions, native tool exclusions and
-      // in-memory snapshots belong to one user profile/page, never build reuse.
+      // retained Codex tool lists and in-memory snapshots belong to one user
+      // profile/page, never build reuse (including after server removal).
       // Includes mcp-registry-metadata: responses have no copy stage; featured.json
       // and McpIcons follow Git source, never a downloaded/generated resource validator.
       // Includes plugin-web-state: per-window/workspace user JSON has no build identity or copy stage.

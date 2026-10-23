@@ -46,6 +46,61 @@ fn owned_entry(parsed: &Value, name: &str) -> Value {
     })
 }
 
+#[test]
+fn removed_codex_filters_restore_without_credentials_or_allowlist_widening() {
+    for allowed in ["[]", "['read', 'write']"] {
+        let content = format!("model = 'keep'\n[mcp_servers.alpha]\ncommand = 'echo'\nenabled_tools = {allowed}\ndisabled_tools = ['external', 'write']\nenv = {{ TOKEN = 'secret' }}\n");
+        let parsed = parse("codex", "global", &content, None);
+        let removed = plan(json!({"source":"codex","scope":"global","content":content,
+            "operation":"remove","name":"alpha","owned":[owned_entry(&parsed,"alpha")]}));
+        assert_eq!(removed["action"], "removed");
+        let filters = &removed["toolFilters"];
+        assert_eq!(filters["disabledTools"], json!(["external", "write"]));
+        assert!(!filters.to_string().contains("secret"));
+        let restored = plan(
+            json!({"source":"codex","scope":"global","content":removed["content"],
+            "operation":"set","server":parsed["servers"][0],"owned":[],"toolFilters":filters}),
+        );
+        let next: toml::Value = toml::from_str(restored["content"].as_str().unwrap()).unwrap();
+        let original: toml::Value = toml::from_str(&content).unwrap();
+        assert_eq!(
+            next["mcp_servers"]["alpha"],
+            original["mcp_servers"]["alpha"]
+        );
+        assert_eq!(next["model"].as_str(), Some("keep"));
+        let reparsed = parse(
+            "codex",
+            "global",
+            restored["content"].as_str().unwrap(),
+            None,
+        );
+        assert_eq!(restored["sourceHash"], source_hash(&reparsed, "alpha"));
+    }
+}
+
+#[test]
+fn retained_codex_filters_never_replace_live_native_policy() {
+    let content = "[mcp_servers.alpha]\ncommand = 'echo'\ndisabled_tools = ['external']\nenabled_tools = []\n";
+    let parsed = parse("codex", "global", content, None);
+    let restored = plan(json!({"source":"codex","scope":"global","content":content,
+        "operation":"set","server":parsed["servers"][0],"owned":[owned_entry(&parsed,"alpha")],
+        "toolFilters":{"disabledTools":[],"enabledTools":["write"]}}));
+    assert_eq!(restored["content"], content);
+    assert_eq!(restored["changed"], false);
+}
+
+#[test]
+fn malformed_native_tool_lists_cannot_be_deleted_and_forgotten() {
+    let content = "[mcp_servers.alpha]\ncommand = 'echo'\ndisabled_tools = ['read', 1]\n";
+    let parsed = parse("codex", "global", content, None);
+    let result = plan_write(json!({"source":"codex","scope":"global","content":content,
+        "operation":"remove","name":"alpha","owned":[owned_entry(&parsed,"alpha")]}));
+    assert!(matches!(
+        result.unwrap_err().code,
+        ErrorCode::InvalidRequest
+    ));
+}
+
 fn plan(request: Value) -> Value {
     plan_write(request).expect("write plan should succeed")
 }

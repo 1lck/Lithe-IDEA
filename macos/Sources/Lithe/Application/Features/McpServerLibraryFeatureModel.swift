@@ -604,9 +604,10 @@ final class McpServerLibraryFeatureModel: ObservableObject {
               !source.isOwnedByLithe else { return }
         error = nil
         var entries = ledgerEntries(for: source.file)
+        let filters = entries.first { $0.name == row.name }?.toolFilters
         entries.removeAll { $0.name == row.name }
         entries.append(McpOwnedEntry(
-            name: row.name, definitionHash: source.definitionHash, sourceHash: source.sourceHash
+            name: row.name, definitionHash: source.definitionHash, sourceHash: source.sourceHash, toolFilters: filters
         ))
         setLedger(entries, for: source.file)
         refresh()
@@ -816,7 +817,8 @@ final class McpServerLibraryFeatureModel: ObservableObject {
             name: name,
             previousName: previousName,
             owned: owned,
-            expectedHash: expectedHash
+            expectedHash: expectedHash,
+            toolFilters: server.flatMap { server in owned.first(where: { $0.name == server.name })?.toolFilters?[file.url.path] }
         )
     }
 
@@ -866,9 +868,10 @@ final class McpServerLibraryFeatureModel: ObservableObject {
                         completedRenames[previousName] = expectedHash
                     }
                     if let hash = plan.definitionHash {
+                        let filters = entries.first { $0.name == server.name }?.toolFilters
                         entries.removeAll { $0.name == server.name }
                         entries.append(McpOwnedEntry(
-                            name: server.name, definitionHash: hash, sourceHash: plan.sourceHash
+                            name: server.name, definitionHash: hash, sourceHash: plan.sourceHash, toolFilters: filters
                         ))
                     }
                 case .remove(let name, let expectedHash):
@@ -896,7 +899,17 @@ final class McpServerLibraryFeatureModel: ObservableObject {
                     }
                     content = plan.content
                     changed = changed || plan.changed
-                    entries.removeAll { $0.name == name }
+                    // Rename already carries the native fields to the new name.
+                    // Ordinary removal retains only non-secret restrictions,
+                    // without a source hash that could authorize a future edit.
+                    if plan.action == "removed" {
+                        var filters = entries.first { $0.name == name }?.toolFilters ?? [:]
+                        filters[file.url.path] = plan.toolFilters
+                        entries.removeAll { $0.name == name }
+                        if !filters.isEmpty, let hash = plan.definitionHash {
+                            entries.append(McpOwnedEntry(name: name, definitionHash: hash, toolFilters: filters))
+                        }
+                    }
                 }
             }
             planned.append((file, source, content, entries, changed))
@@ -957,7 +970,8 @@ final class McpServerLibraryFeatureModel: ObservableObject {
            let next = snapshot.sourceHash, let source = row.globalSources.first(where: { $0.file.agent == .codex }) {
             var entries = ledgerEntries(for: source.file)
             if let index = entries.firstIndex(where: { $0.name == row.name && $0.sourceHash == previous }) {
-                entries[index] = McpOwnedEntry(name: row.name, definitionHash: row.definition.definitionHash, sourceHash: next)
+                entries[index] = McpOwnedEntry(name: row.name, definitionHash: row.definition.definitionHash,
+                    sourceHash: next, toolFilters: entries[index].toolFilters)
                 setLedger(entries, for: source.file)
             }
         }

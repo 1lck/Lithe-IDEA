@@ -702,11 +702,21 @@ lowercase SHA-256 hashes with separate purposes:
 
 `mcp.planWrite` accepts `{ source, scope, projectPath?, content?: string | null,
 operation: "set" | "remove", server?: McpServer, name?: string,
-previousName?: string, expectedHash?: string, owned?: OwnedEntry[] }`. `set`
+previousName?: string, expectedHash?: string, owned?: OwnedEntry[],
+toolFilters?: {enabledTools?: string[], disabledTools?: string[]} }`. `set`
 requires `server`, `remove` requires `name`, and project scope requires
 `projectPath`. `previousName` identifies the original of a rename. Each owned
 entry is `{ name, definitionHash, sourceHash?: string }`; hosts must record the
 hashes returned from the actual write plan rather than hashes from the draft.
+
+Successful Codex removals also return `toolFilters` when native `enabled_tools`
+or `disabled_tools` exists. These lists contain tool names only; an empty
+allow-list stays empty and malformed lists reject removal. Hosts retain them
+by native path/server only after the complete write batch succeeds, separately
+from live source ownership. A later `set` applies retained filters only when
+inserting a new Codex entry; existing/renamed native policy always takes
+precedence. Returned hashes cover the restored policy. Claude's user deny
+rules remain in its separate settings file during server removal.
 
 Automatic replacement/removal, including unchanged set plans used for repeated
 registration, requires an owned record whose name, `definitionHash` and
@@ -728,11 +738,11 @@ it is not owned. For rename, it refers to `previousName`, and cannot authorize
 an unrelated existing destination; destination ownership checks still apply.
 
 The response is `{ content, changed, action, conflict, definitionHash?,
-sourceHash? }`. Actions are `inserted`, `updated`, `unchanged`, `removed`, `absent`,
+sourceHash?, toolFilters? }`. Actions are `inserted`, `updated`, `unchanged`, `removed`, `absent`,
 or `conflict`; conflicts leave the input unchanged. Successful set plans return
 both hashes computed by parsing the actual output entry, including preserved
 unknown fields. Unchanged set plans also return the current entry's hashes;
-removal/absence normally has no entry hashes. Hashes sent on the draft server
+removal can return the old definition hash for filter retention; absence has no entry hashes. Hashes sent on the draft server
 are never trusted as write output or persisted into Agent configuration.
 
 ### Agent adapters

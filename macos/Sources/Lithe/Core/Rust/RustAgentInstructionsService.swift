@@ -64,10 +64,15 @@ struct RustAgentInstructionsService: AgentInstructionsService {
     private func run<Result: Decodable & Sendable, Payload: Encodable & Sendable>(_ command: String, _ payload: Payload) async throws -> Result {
         let core = core
         let operationID = UUID().uuidString
+        let cancellation = RustCoreCancellation(core: core, operationID: operationID)
         return try await withTaskCancellationHandler {
-            try await Task.detached(priority: .userInitiated) {
-                try core.executeResult(command: command, payload: payload, operationID: operationID).get()
+            try Task.checkCancellation()
+            return try await Task.detached(priority: .userInitiated) {
+                if cancellation.isCancelled { throw CancellationError() }
+                let result: Swift.Result<Result, RustCoreBridge.CoreCallError> = core.executeResult(
+                    command: command, payload: payload, operationID: operationID, onEvent: { cancellation.receive($0) })
+                return try result.get()
             }.value
-        } onCancel: { core.cancel(operationID: operationID) }
+        } onCancel: { cancellation.cancel() }
     }
 }

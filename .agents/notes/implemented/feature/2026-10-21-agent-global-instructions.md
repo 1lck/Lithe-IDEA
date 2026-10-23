@@ -42,6 +42,12 @@ Agent Host 负责原子文件操作，Core 负责严格请求分派，功能模�
 只锁定待处理行，其他行不因全局禁用变灰；取消拥有队列的页面任务后不启动后续写入。
 重新进入页面只回读实际状态，不自动同步，也不丢弃未保存草稿。
 
+Swift 适配器在启动工作任务前检查取消，并通过 `RustCoreCancellation` 把注册前到达的
+取消保存到同步状态。Core 在登记操作后、分派命令前同步发出 `requestStarted`；回调在这个
+边界补传取消，因此快速保存也不会在注册空隙中漏掉取消。不要只调用一次尚未登记的
+`cancel`，也不要用定时重试保证短写入：写入可能在首次重试前完成。已完成的原子替换
+不会因稍后取消而撤销，跨文件保存仍只在每次写入之间观察取消。
+
 正确做法：用户在 Codex 文件写了自有规则，开启共享后两者并存；关闭后自有规则逐字节保留。
 不要把关闭共享解释成关闭 Codex 或删除其整份 AGENTS.md，也不要在启动时自动覆盖外部修改。
 
@@ -69,6 +75,7 @@ Agent Host 负责原子文件操作，Core 负责严格请求分派，功能模�
 
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`。
 - `SharedInstructionsFeatureTests` 覆盖共享草稿、切换排队、逐项失败与页面取消；Host shared 测试用临时目录验证真实读写、关闭字节还原、override、损坏标记和跨文件部分成功。
+- `AgentInstructionsCancellationTests` 使用真实 Core 和隔离共享源，确定性控制进入适配器前取消、编码后注册前取消，确认文件及锁未创建、已有字节不变，下一次有效保存仍能完成；不写开发者原生指令文件。
 - 典型共享流程前后比较 app bundle 文件清单与哈希，用户目录不参与发行资源写入；`node --test scripts/test-reuse-worktree-resources.mjs` 确认共享指令用户状态不能复制。
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'AgentInstructionsFeatureModelTests|SettingsSidebarLayoutTests|SettingsSearchVocabularyTests|ContextMenuCoverageTests'`。
 - Agent Host 计时测试覆盖原生优先级、读取不创建文件、保存和清空、外部修改与路径变化、UTF-8/大小限制、符号链接拒绝、权限保留和临时文件清理。

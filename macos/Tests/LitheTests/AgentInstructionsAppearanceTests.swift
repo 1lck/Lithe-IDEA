@@ -43,11 +43,15 @@ struct AgentInstructionsAppearanceTests {
                 #expect(rect.minX >= 0 && rect.maxX <= width + 1)
                 #expect(editor.isEditable)
                 #expect(feature.file?.path == "/fixture/user/.codex/AGENTS.md")
-                if let folder = ProcessInfo.processInfo.environment["LITHE_INSTRUCTIONS_SCREENSHOTS"] {
+                let folder = ProcessInfo.processInfo.environment["LITHE_INSTRUCTIONS_SCREENSHOTS"]
+                    .map { URL(fileURLWithPath: $0) }
+                    ?? DeclarativePluginTestSupport.repositoryRoot.appendingPathComponent(".artifacts/test-stability/instructions-ui")
+                do {
+                    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
                     let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
                     host.cacheDisplay(in: host.bounds, to: bitmap)
                     let png = try #require(bitmap.representation(using: .png, properties: [:]))
-                    let path = URL(fileURLWithPath: folder).appendingPathComponent("instructions-\(dark ? "dark" : "light")-\(language)-\(Int(width)).png")
+                    let path = folder.appendingPathComponent("instructions-\(dark ? "dark" : "light")-\(language)-\(Int(width)).png")
                     try png.write(to: path)
                 }
                 // Exercise native typing through SwiftUI's binding, not just model.edit.

@@ -55,21 +55,19 @@ final class MacMcpTools: McpToolsManaging {
         let payload = Payload(transport: definition.transport, command: definition.command, args: definition.args,
                               env: definition.env, url: definition.url, headers: definition.headers)
         let core = core; let operation = UUID().uuidString
-        let cancellation = McpProbeCancellation(core: core, operation: operation)
-        defer { cancellation.finish() }
+        let cancellation = RustCoreCancellation(core: core, operationID: operation)
         return try await withTaskCancellationHandler {
             try Task.checkCancellation()
             return try await withCheckedThrowingContinuation { continuation in
                 // Debug SDK/TLS futures exceed the Swift executor's small stack.
                 // This bounded blocking C ABI call owns a native thread instead.
                 let worker = Thread {
-                    defer { cancellation.finish() }
                     if cancellation.isCancelled {
                         continuation.resume(throwing: CancellationError())
                         return
                     }
                     let result: Result<McpProbeResult, RustCoreBridge.CoreCallError> = core.executeResult(
-                        command: "mcp.probe", payload: payload, operationID: operation)
+                        command: "mcp.probe", payload: payload, operationID: operation, onEvent: { cancellation.receive($0) })
                     continuation.resume(with: result.mapError { $0 as any Error })
                 }
                 worker.name = "Lithe MCP inspection"
@@ -151,42 +149,5 @@ final class MacMcpTools: McpToolsManaging {
     }
     private func key(_ file: McpConfigurationFile, _ name: String) -> String {
         "settings.mcpToolExclusions.\(file.agent.rawValue).\(file.url.path).\(name)"
-    }
-}
-
-/// Cancellation can arrive before the C ABI registers its operation. Retry only
-/// after cancellation, until the owned bounded worker completes, so that gap
-/// cannot leave a probe running after navigation. No UI/cooperative thread waits.
-private final class McpProbeCancellation: @unchecked Sendable {
-    private let lock = NSLock()
-    private let core: RustCoreBridge
-    private let operation: String
-    private var cancelled = false
-    private var finished = false
-    private var timer: DispatchSourceTimer?
-
-    init(core: RustCoreBridge, operation: String) { self.core = core; self.operation = operation }
-
-    var isCancelled: Bool { lock.withLock { cancelled } }
-
-    func cancel() {
-        lock.withLock {
-            cancelled = true
-            guard !finished, timer == nil else { return }
-            let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
-            let core = core, operation = operation
-            timer.setEventHandler { core.cancel(operationID: operation) }
-            timer.schedule(deadline: .now(), repeating: .milliseconds(50))
-            self.timer = timer
-            timer.resume()
-        }
-    }
-
-    func finish() {
-        lock.withLock {
-            finished = true
-            timer?.cancel()
-            timer = nil
-        }
     }
 }

@@ -11,7 +11,7 @@ use super::parse::{
 use super::toml_edit;
 use super::{McpKeyValue, McpServer};
 use crate::protocol::{CoreError, ErrorCode};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
 #[derive(Deserialize)]
@@ -55,6 +55,21 @@ struct WriteRequest {
     /// Entries the host recorded as written by Lithe.
     #[serde(default)]
     owned: Vec<OwnedEntry>,
+    /// Non-secret native filters retained when this server was removed.
+    #[serde(default)]
+    tool_filters: Option<ToolFilters>,
+}
+
+/// Native Codex restrictions, kept separately from credentials and connection fields.
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ToolFilters {
+    /// Absence differs from an empty allow-list, which allows no tools.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    enabled_tools: Option<Vec<String>>,
+    /// Preserve external exclusions as well as those owned by Lithe.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    disabled_tools: Option<Vec<String>>,
 }
 
 fn invalid_request() -> CoreError {
@@ -167,7 +182,16 @@ fn plan_set(
     };
     let next = match request.source.as_str() {
         "claude" => write_claude(content, project_path, &server.name, server, previous)?,
-        "codex" => write_codex(content, server, previous)?,
+        "codex" => write_codex(
+            content,
+            server,
+            previous,
+            if action == "inserted" {
+                request.tool_filters.as_ref()
+            } else {
+                None
+            },
+        )?,
         _ => return Err(invalid_request()),
     };
     // Unknown fields survive edits, so hash the actual output rather than the
@@ -228,12 +252,48 @@ fn plan_remove(
     if next == content {
         return Ok(with_hashes(unchanged(content, "absent", None), current));
     }
+    // Capture before deletion; malformed native restrictions must fail closed
+    // rather than disappearing when an Agent is switched back on.
+    let tool_filters = if request.source == "codex" {
+        codex_tool_filters(content, name)?
+    } else {
+        None
+    };
     Ok(json!({
         "content": next,
         "changed": true,
         "action": "removed",
         "conflict": Value::Null,
+        "definitionHash": current.definition_hash,
+        "toolFilters": tool_filters,
     }))
+}
+
+/// Extract only the native tool lists; never archive env, headers or auth values.
+fn codex_tool_filters(content: &str, name: &str) -> Result<Option<ToolFilters>, CoreError> {
+    let document: toml::Value = toml::from_str(content).map_err(|_| invalid_request())?;
+    let entry = document
+        .get("mcp_servers")
+        .and_then(|v| v.get(name))
+        .ok_or_else(invalid_request)?;
+    let list = |key: &str| -> Result<Option<Vec<String>>, CoreError> {
+        entry
+            .get(key)
+            .map(|value| {
+                value
+                    .as_array()
+                    .ok_or_else(invalid_request)?
+                    .iter()
+                    .map(|v| v.as_str().map(str::to_owned).ok_or_else(invalid_request))
+                    .collect()
+            })
+            .transpose()
+    };
+    let filters = ToolFilters {
+        enabled_tools: list("enabled_tools")?,
+        disabled_tools: list("disabled_tools")?,
+    };
+    Ok((filters.enabled_tools.is_some() || filters.disabled_tools.is_some()).then_some(filters))
 }
 
 fn existing_servers(
@@ -407,9 +467,29 @@ fn write_codex(
     content: &str,
     server: &McpServer,
     previous: Option<&str>,
+    filters: Option<&ToolFilters>,
 ) -> Result<String, CoreError> {
     let mut document = toml_edit::document(content)?;
     toml_edit::set_server(&mut document, server, previous)?;
+    if let Some(filters) = filters {
+        let entry = document
+            .get_mut("mcp_servers")
+            .and_then(|v| v.get_mut(&server.name))
+            .and_then(::toml_edit::Item::as_table_like_mut)
+            .ok_or_else(invalid_request)?;
+        for (key, values) in [
+            ("enabled_tools", &filters.enabled_tools),
+            ("disabled_tools", &filters.disabled_tools),
+        ] {
+            if let Some(values) = values {
+                let mut array = ::toml_edit::Array::new();
+                for value in values {
+                    array.push(value.as_str());
+                }
+                entry.insert(key, ::toml_edit::value(array));
+            }
+        }
+    }
     Ok(document.to_string())
 }
 

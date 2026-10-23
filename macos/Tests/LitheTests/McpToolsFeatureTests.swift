@@ -49,7 +49,7 @@ struct McpToolsFeatureTests {
         let observer = feature.$states.sink { states in if states[row.id]?.isReady == true { ready.open() } }
         defer { observer.cancel(); feature.leavePage() }
         let task = try #require(feature.detect(row)); #expect(await ready.waitUntilOpen()); await task.value
-        let directory = DeclarativePluginTestSupport.repositoryRoot.appendingPathComponent(".artifacts/mcp-tools")
+        let directory = DeclarativePluginTestSupport.repositoryRoot.appendingPathComponent(".artifacts/test-stability/mcp-ui")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         for width: CGFloat in [420, 760] {
             for dark in [false, true] {

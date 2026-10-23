@@ -290,10 +290,8 @@ fn directory_inventory_reports_configured_visibility_and_malformed_issues() {
         .iter()
         .all(|row| row["enabled"] == true));
     assert_eq!(result["issues"].as_array().unwrap().len(), 1);
-    assert!(result["directories"]["repo"]
-        .as_str()
-        .unwrap()
-        .ends_with(".claude/skills"));
+    let directory = PathBuf::from(result["directories"]["repo"].as_str().unwrap());
+    assert!(directory.ends_with(PathBuf::from(".claude").join("skills")));
 }
 
 #[test]
