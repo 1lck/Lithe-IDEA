@@ -1,0 +1,53 @@
+# Agent 笔记：macOS 编辑区 Agent 对话的大历史加载与 Claude Desktop 式布局
+
+状态：已实现
+
+## 先说结论
+
+打开一个很大的历史对话，慢的不是上游 Agent，而是 Lithe 自己：回放每来一条消息就把整份对话复制一遍并通知界面，随后又一次性排版全部消息。现在回放期间的消息先放进不对外发布的缓冲区，回放结束时只发布一次；对话视图只构建最近 48 项，更早的内容点“显示更早的 N 项”再展开。同时，编辑区（对话作为编辑器标签打开时）的界面向 Claude Desktop 靠拢：历史列表有置顶与日期分组和“…”菜单，输入框变成圆角卡片，审批模式和模型移到卡片下方的状态行，右侧详情栏改成可折叠分区并新增“更改”。右侧工具窗口里的 Agent 样式不变。
+
+## 问题
+
+用户反馈大历史对话打开很慢，期望无论多大都在 2 秒内加载完成。先量化了每一段的耗时：
+
+- 上游：直接对 Claude ACP 发 `session/load`，43 MB 的会话约 1 秒回放完；它只重放最近一段上下文，回放事件只有几百条。上游不是瓶颈。
+- Lithe 接收：`AgentConnectionModel.conversations` 是 `@Published` 字典。对它做 `conversations[id]?.x = …` 会先整体读出、修改、再整体写回，数组写时复制，所以每个回放事件都复制已有的全部消息，总成本随历史长度平方增长。调试构建下 10 800 个事件耗时 27 秒。
+- Lithe 排版：回放结束后 `LazyVStack` 仍要为底部跟随估算整个文档高度，300 轮的历史首次排版 12 秒，1 200 轮 31 秒。
+
+## 决策
+
+- 回放走专用缓冲区：`loadSession` 期间的 `append`/`upsertTool` 写入 `replayMessages` 和 `replayToolIndex`（普通存储属性，原地修改，工具更新 O(1)），`sessionLoaded` 时一次 `commitReplay` 发布。连接中断且没有旧副本时提交已收到的部分（与以前一致，仍不标记为完整历史）；加载失败且有旧副本时丢弃缓冲区并恢复旧副本。子 Agent 状态更新要改消息时直接作用于缓冲区。没有活动回合时不再调用 `refreshTurnClock`，因为它同样会触发整体复制。
+- 对话视图窗口化：`AgentTranscriptWindow` 规定初始 48 项、每次展开 96 项。搜索时不窗口化；导航栏点到窗口之外的回合时先扩大窗口再滚动；展开更早内容后把滚动位置保持在原来的第一项。
+- 历史列表一次计算快照（排序和筛选原来每次渲染重复约 8 次），按“收藏 → 今天 → 昨天 → 过去 7 天 → 过去 30 天 → 更早 → 时间未知”分组；筛选或搜索时不分组。每行用 Agent 图标磁贴、标题、消息数与会话 ID（保留复制）、相对时间和“…”菜单（收藏、重命名、导出、复制会话 ID、移出历史/恢复）。选择、归档、已移除筛选、导出等原有能力全部保留。
+- 编辑区对话 UI：用户消息用中性灰圆角气泡；输入框改 16pt 圆角带轻阴影，卡片内只留“添加”和“发送”，审批模式在状态行左侧、模型在右侧，之后是订阅额度和上下文环。详情栏的上下文、更改、会话统计三个分区可单独折叠，状态保存在 `lithe.agent.editor.detailsCollapsed`；标题栏新增详情栏开关按钮，原菜单项保留。“更改”来自对话中的文件编辑记录，只显示已有数据。
+- 这些改动只作用于 `isEditorLayout`；工具窗口的 Agent 面板样式没有改变。
+
+## 考虑过的备选方案
+
+- 本地缓存转录快照，再次打开时先显示缓存：能把二次打开压到几十毫秒，但会让 Lithe 在磁盘上持有一份 Agent 对话内容，并需要失效策略。实测上游只要约 1 秒，Lithe 侧修复后总耗时不到 1 秒，所以没有引入。如果以后上游回放变慢，再单独评估。
+- 把回放解析移到后台线程：事件很少时收益不大，而且需要把 `[String: Any]` 越过 actor 边界；平方复制消除后主线程的接收成本已经可以忽略。
+- 对话视图改成真正的虚拟列表：改动面太大，会牵动底部跟随、导航锚点和文本选择；窗口化用最小代价把首次排版量与历史长度脱钩。
+- 在历史列表里加“固定”之外的新概念（置顶）：Lithe 已有“收藏”，沿用收藏并把它显示在列表最前，避免两个相似概念。
+
+## 后果
+
+- 调试构建下，1 200 轮（10 800 个事件）的接收从 27 秒降到约 0.45 秒，首次排版从 31 秒降到约 0.3 秒；加上上游约 1 秒，仍在 2 秒内。
+- 代价：窗口之外的旧消息不会在首屏构建，滚到最顶部需要点一次“显示更早的 N 项”。回放期间看不到逐步出现的消息（原来也是等回放结束才显示）。
+- “消息数”只对已加载过的会话显示；Claude Desktop 的“N 条消息”需要上游列表提供计数，目前没有。
+- “分叉会话”和“归档会话”没有对应的上游能力，菜单里不放占位项。
+
+## 验证
+
+- `AgentLargeHistoryLoadTests`：1 200 轮回放整体只发布少量次数、顺序和工具合并正确；中断保留部分回放但不标记完整；失败恢复旧副本；窗口扩大规则；历史分组。
+- `./scripts/test-macos.sh --filter AgentHistoryTests`、`AgentConversationSelectionTests`、`AgentTranscriptScrollTests`、`ContextMenuCoverageTests` 等 Agent 相关套件。
+- 对 Claude ACP 的 `session/load` 探测方法：直接起 `claude-agent-acp`，发 `initialize` 与 `session/load`，统计事件数量和耗时。
+
+## 适用范围
+
+- `macos/Sources/LitheAgentConversationModule/Application/AgentConnectionModel.swift`
+- `macos/Sources/Lithe/Views/Agent/AgentTranscriptView.swift`
+- `macos/Sources/Lithe/Views/Agent/AgentHistoryView.swift`
+- `macos/Sources/Lithe/Views/Agent/AgentComposerView.swift`
+- `macos/Sources/Lithe/Views/Agent/AgentEditorConversationChrome.swift`
+
+Windows 的编辑区对话仍使用自己的布局，见 [Windows Agent 对话在编辑区标签与工具窗口之间的放置](2026-10-18-windows-agent-conversation-editor-placement.md)。

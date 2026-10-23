@@ -14,6 +14,30 @@ enum AgentHistoryFilter: String, CaseIterable {
     }
 }
 
+/// Browsing groups of the unfiltered history: favorites first, then by last activity.
+enum AgentHistoryGroup: Hashable {
+    case favorites, today, yesterday, previous7Days, previous30Days, earlier, unknown
+
+    var title: String {
+        switch self {
+        case .favorites: "Favorites"
+        case .today: "Today"
+        case .yesterday: "Yesterday"
+        case .previous7Days: "Previous 7 days"
+        case .previous30Days: "Previous 30 days"
+        case .earlier: "Earlier"
+        case .unknown: "Unknown date"
+        }
+    }
+}
+
+struct AgentHistorySection: Identifiable {
+    /// `nil` renders the rows without a heading (search results and filtered lists).
+    let group: AgentHistoryGroup?
+    let sessions: [AgentSessionSummary]
+    var id: AgentHistoryGroup? { group }
+}
+
 enum AgentHistoryPresentation {
     enum EmptyState { case loading, incomplete, noMatches, noHistory }
 
@@ -48,6 +72,30 @@ enum AgentHistoryPresentation {
             if lhs.date != rhs.date { return (lhs.date ?? .distantPast) > (rhs.date ?? .distantPast) }
             return lhs.session.id < rhs.session.id
         }.map(\.session)
+    }
+
+    /// `sessions` is already ordered newest first, so every group keeps that order.
+    static func sections(_ sessions: [AgentSessionSummary], metadata: [String: AgentHistoryMetadata],
+                         groupsByDate: Bool, now: Date = Date(), calendar: Calendar = .current) -> [AgentHistorySection] {
+        guard groupsByDate else { return sessions.isEmpty ? [] : [AgentHistorySection(group: nil, sessions: sessions)] }
+        let startOfToday = calendar.startOfDay(for: now)
+        func offset(_ days: Int) -> Date { calendar.date(byAdding: .day, value: -days, to: startOfToday) ?? startOfToday }
+        let yesterday = offset(1), week = offset(7), month = offset(30)
+        var buckets: [AgentHistoryGroup: [AgentSessionSummary]] = [:]
+        for session in sessions {
+            let group: AgentHistoryGroup
+            if metadata[session.id]?.isFavorite == true { group = .favorites }
+            else if let date = date(session.updatedAt) {
+                if date >= startOfToday { group = .today }
+                else if date >= yesterday { group = .yesterday }
+                else if date >= week { group = .previous7Days }
+                else if date >= month { group = .previous30Days }
+                else { group = .earlier }
+            } else { group = .unknown }
+            buckets[group, default: []].append(session)
+        }
+        return [AgentHistoryGroup.favorites, .today, .yesterday, .previous7Days, .previous30Days, .earlier, .unknown]
+            .compactMap { group in buckets[group].map { AgentHistorySection(group: group, sessions: $0) } }
     }
 
     static func popupSessions(_ sessions: [AgentSessionSummary], openSessionIDs: [String],
@@ -142,7 +190,12 @@ struct AgentHistoryView: View {
     private var selected: [String] { visibleIDs.filter(selectedIDs.contains) }
 
     var body: some View {
-        VStack(spacing: 0) {
+        // Sorting and filtering run once per evaluation, not once per use.
+        let rows = sessions
+        let archivedRows = archived
+        let sections = AgentHistoryPresentation.sections(rows, metadata: history.metadata,
+                                                         groupsByDate: filter == .all && !isSearching)
+        return VStack(spacing: 0) {
             LitheToolWindowHeader(title: "Conversation history", usesWorkbenchSurface: true) {
                 Button(action: onBack) {
                     HStack(spacing: LitheTheme.Banner.gap) {
@@ -154,7 +207,7 @@ struct AgentHistoryView: View {
                 .accessibilityIdentifier("agent-history-back")
             }
             divider
-            toolbar
+            toolbar(count: rows.count, visible: rows.map(\.id))
             divider
             if let error = history.errorMessage ?? feature.historyError ?? feature.archivedHistoryError {
                 AgentInlineNotice(text: error, status: .error)
@@ -179,15 +232,19 @@ struct AgentHistoryView: View {
                     .padding(.horizontal, 20).padding(.vertical, 8)
                     .accessibilityIdentifier("agent-history-archive-incomplete")
             }
-            if sessions.isEmpty && archived.isEmpty {
+            if rows.isEmpty && archivedRows.isEmpty {
                 emptyState
             } else {
                 ScrollView {
                     LazyVStack(spacing: 0) {
-                        ForEach(sessions) { session in row(session) }
-                        if !archived.isEmpty { archivedSection }
+                        ForEach(sections) { section in
+                            if let group = section.group { sectionHeader(group, count: section.sessions.count) }
+                            ForEach(section.sessions) { session in row(session) }
+                        }
+                        if !archivedRows.isEmpty { archivedSection(archivedRows) }
                     }
                 }
+                .litheScrollViewChrome()
                 .background(LitheToolWindowActivityTracker(isActive: $historyListActive))
             }
         }
@@ -232,23 +289,24 @@ struct AgentHistoryView: View {
         .accessibilityIdentifier("agent-history-page")
     }
 
-    private var toolbar: some View {
-        VStack(spacing: 10) {
+    private func toolbar(count: Int, visible: [String]) -> some View {
+        let selected = visible.filter(selectedIDs.contains)
+        return VStack(spacing: 10) {
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 12) {
-                    summaryControls.fixedSize(horizontal: true, vertical: false)
+                    summaryControls(count: count, selectedCount: selected.count).fixedSize(horizontal: true, vertical: false)
                     searchControls.frame(minWidth: 180, maxWidth: 280)
                 }
                 VStack(spacing: 10) {
-                    summaryControls
+                    summaryControls(count: count, selectedCount: selected.count)
                     searchControls
                 }
             }
             if isSelecting {
                 HStack(spacing: 8) {
-                    Button(selected.count == sessions.count && !sessions.isEmpty ? "Deselect all" : "Select all") {
-                        selectedIDs = selected.count == sessions.count ? [] : Set(visibleIDs)
-                    }.disabled(sessions.isEmpty)
+                    Button(selected.count == count && count > 0 ? "Deselect all" : "Select all") {
+                        selectedIDs = selected.count == count ? [] : Set(visible)
+                    }.disabled(count == 0)
                     Spacer(minLength: 0)
                     LitheMenu {
                         LitheContextMenuItem.action("Export conversations") { history.export(selected) }
@@ -286,11 +344,11 @@ struct AgentHistoryView: View {
         .padding(.horizontal, 20).padding(.vertical, 14)
     }
 
-    private var summaryControls: some View {
+    private func summaryControls(count: Int, selectedCount: Int) -> some View {
         HStack(spacing: 8) {
             Text(isSelecting
-                 ? String(format: AgentLocalization.string("%d selected", locale: locale), selected.count)
-                 : String(format: AgentLocalization.string("%d conversations", locale: locale), sessions.count))
+                 ? String(format: AgentLocalization.string("%d selected", locale: locale), selectedCount)
+                 : String(format: AgentLocalization.string("%d conversations", locale: locale), count))
                 .font(LitheTheme.uiFont(size: 12)).foregroundStyle(AgentPanelStyle.secondary)
             Spacer(minLength: 0)
             Button {
@@ -347,7 +405,19 @@ struct AgentHistoryView: View {
 
     private var agentDisplayName: String { agentName ?? AgentLocalization.string("This Agent", locale: locale) }
 
-    private var archivedSection: some View {
+    private func sectionHeader(_ group: AgentHistoryGroup, count: Int) -> some View {
+        HStack(spacing: 6) {
+            Text(AgentLocalization.string(String.LocalizationValue(group.title), locale: locale))
+            Text(verbatim: String(count)).monospacedDigit().foregroundStyle(AgentPanelStyle.muted)
+            Spacer(minLength: 0)
+        }
+        .font(LitheTheme.uiFont(size: 11, weight: .semibold))
+        .foregroundStyle(AgentPanelStyle.secondary)
+        .padding(.horizontal, 20).padding(.top, 14).padding(.bottom, 6)
+        .accessibilityAddTraits(.isHeader)
+    }
+
+    private func archivedSection(_ archived: [AgentSessionSummary]) -> some View {
         VStack(spacing: 0) {
             Button { archivedExpansion = !isArchivedExpanded } label: {
                 HStack(spacing: 6) {
@@ -454,82 +524,128 @@ private struct AgentHistoryRow: View {
     @State private var isHovering = false
     @FocusState private var isTitleFocused: Bool
 
+    private var showsMenu: Bool { !isSelecting && !isEditing && !isArchived }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                if isSelecting {
-                    Button(action: onToggleSelection) {
-                        Image(systemName: isSelected ? "checkmark.square.fill" : "square")
-                    }.buttonStyle(.litheNoPress).help("Select conversation")
-                }
-                AgentBrandIcon(name: agentName, size: 18).foregroundStyle(AgentPanelStyle.text)
-                if isEditing {
-                    TextField("Conversation title", text: $editingTitle)
-                        .textFieldStyle(.plain).focused($isTitleFocused)
-                        .onSubmit(onSave).onExitCommand(perform: onCancel)
-                        .onAppear { isTitleFocused = true }
-                    icon("checkmark", "Save title", onSave)
-                        .disabled(editingTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    icon("xmark", "Cancel", onCancel)
-                } else {
-                    Button(action: isSelecting ? onToggleSelection : onOpen) {
-                        Text(title).font(LitheTheme.uiFont(size: 14, weight: .semibold))
-                            .lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
-                            .contentShape(Rectangle())
-                    }.buttonStyle(.litheNoPress).lithePointer()
-                        .disabled(!isSelecting && !canOpen).help(title)
-                    if let date = AgentHistoryPresentation.date(session.updatedAt) {
-                        Text(date, format: .relative(presentation: .named, unitsStyle: .abbreviated))
-                            .font(LitheTheme.uiFont(size: 11)).foregroundStyle(AgentPanelStyle.secondary)
-                            .lineLimit(1).fixedSize()
-                            .help(date.formatted(date: .abbreviated, time: .shortened))
-                    }
-                }
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 12) {
+                rowContent
             }
-            HStack(spacing: 6) {
-                if let messageCount {
-                    Text(String(format: AgentLocalization.string("%d messages", locale: locale), messageCount))
-                        .lineLimit(1)
-                    Text("·")
-                }
-                if isArchived {
-                    Text("Archived")
-                        .padding(.horizontal, 5).padding(.vertical, 1)
-                        .overlay(Capsule().stroke(AgentPanelStyle.border))
-                    Text("·")
-                }
-                Text(String(session.id.prefix(8))).font(LitheTheme.uiFont(size: 10, design: .monospaced))
-                    .help(session.id)
-                icon(isCopied ? "checkmark" : "doc.on.doc", "Copy session ID", onCopy)
-                    .accessibilityIdentifier("agent-history-copy-\(session.id)")
-                Spacer(minLength: 0)
-                if !isSelecting && !isEditing && isArchived && isRemoved {
-                    icon("arrow.uturn.backward", "Restore conversations", onRemove)
-                        .accessibilityIdentifier("agent-history-restore-\(session.id)")
-                }
-                if !isSelecting && !isEditing && !isArchived {
-                    HStack(spacing: 2) {
-                        if !isRemoved {
-                            icon("pencil", "Rename conversation", onRename)
-                            icon("arrow.down", "Export conversations", onExport).disabled(!canExport)
-                        }
-                        icon(isRemoved ? "arrow.uturn.backward" : "trash", isRemoved ? "Restore conversations" : "Remove from history", onRemove)
-                        icon(isFavorite ? "star.fill" : "star", "Toggle favorite", onFavorite)
-                            .foregroundStyle(isFavorite ? LitheTheme.warning : AgentPanelStyle.secondary)
-                    }
-                    .opacity(isHovering || isFavorite || isCurrent ? 1 : 0)
-                    .accessibilityElement(children: .contain)
-                }
-            }
-            .font(LitheTheme.uiFont(size: 11)).foregroundStyle(AgentPanelStyle.secondary)
+            detailLine.padding(.leading, 44 + (isSelecting ? 28 : 0))
         }
         .foregroundStyle(AgentPanelStyle.text)
-        .padding(.horizontal, 20).padding(.vertical, 14)
+        .padding(.horizontal, 16).padding(.vertical, 10)
         .litheSelectionRow(isSelected: isSelected, isFocused: isFocused, cornerRadius: 0)
         .background(isCurrent && !isSelected ? AgentPanelStyle.header : .clear)
         .overlay(alignment: .bottom) { Rectangle().fill(AgentPanelStyle.border).frame(height: 1) }
         .onHover { isHovering = $0 }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("agent-history-row-\(session.id)")
+    }
+
+    @ViewBuilder private var rowContent: some View {
+            if isSelecting {
+                Button(action: onToggleSelection) {
+                    Image(systemName: isSelected ? "checkmark.square.fill" : "square")
+                }.buttonStyle(.litheNoPress).help("Select conversation")
+            }
+            if isEditing {
+                tile
+                TextField("Conversation title", text: $editingTitle)
+                    .textFieldStyle(.plain).focused($isTitleFocused)
+                    .font(LitheTheme.uiFont(size: 14, weight: .semibold))
+                    .onSubmit(onSave).onExitCommand(perform: onCancel)
+                    .onAppear { isTitleFocused = true }
+                icon("checkmark", "Save title", onSave)
+                    .disabled(editingTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                icon("xmark", "Cancel", onCancel)
+            } else {
+                Button(action: isSelecting ? onToggleSelection : onOpen) {
+                    HStack(spacing: 12) {
+                        tile
+                        Text(title).font(LitheTheme.uiFont(size: 14, weight: .semibold))
+                            .lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.litheNoPress).lithePointer()
+                .disabled(!isSelecting && !canOpen).help(title)
+                .accessibilityIdentifier("agent-history-open-\(session.id)")
+                trailing
+            }
+    }
+
+    /// The Agent's mark on a quiet tile, as in Claude Desktop's list.
+    private var tile: some View {
+        AgentBrandIcon(name: agentName, size: 16, style: .brand)
+            .frame(width: 32, height: 32)
+            .background(AgentPanelStyle.context, in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var trailing: some View {
+        HStack(spacing: 4) {
+            if isFavorite && !isRemoved {
+                LitheSystemIcon(systemImage: "pin.fill", size: 11).foregroundStyle(AgentPanelStyle.secondary)
+                    .help("Favorites")
+            }
+            if let date = AgentHistoryPresentation.date(session.updatedAt) {
+                Text(date, format: .relative(presentation: .named, unitsStyle: .abbreviated))
+                    .font(LitheTheme.uiFont(size: 11)).foregroundStyle(AgentPanelStyle.secondary)
+                    .lineLimit(1).fixedSize()
+                    .help(date.formatted(date: .abbreviated, time: .shortened))
+            }
+            if showsMenu {
+                LitheMenu {
+                    if isRemoved {
+                        LitheContextMenuItem.action("Restore conversations", action: onRemove)
+                    } else {
+                        LitheContextMenuItem.action(isFavorite ? "Remove from favorites" : "Add to favorites", action: onFavorite)
+                        LitheContextMenuItem.action("Rename conversation", action: onRename)
+                        LitheContextMenuItem.action("Export conversations", isEnabled: canExport, action: onExport)
+                    }
+                    LitheContextMenuItem.action("Copy session ID", action: onCopy)
+                    if !isRemoved {
+                        LitheContextMenuItem.separator
+                        LitheContextMenuItem.action("Remove from history",
+                            icon: AnyView(LitheIDEAIcon(resourcePath: "expui/general/delete.svg", size: LitheDropdownMetrics.iconSize,
+                                                       fallbackSystemImage: "trash", preservesOriginalColors: true)),
+                            role: .destructive, action: onRemove)
+                    }
+                } label: {
+                    LitheSystemIcon(systemImage: "ellipsis", size: LitheTheme.Metrics.toolbarIconSize)
+                }
+                .litheToolbarIconButton()
+                .opacity(isHovering || isCurrent ? 1 : 0)
+                .help("Conversation actions")
+                .accessibilityLabel("Conversation actions")
+                .accessibilityIdentifier("agent-history-menu-\(session.id)")
+            } else if isArchived && isRemoved {
+                icon("arrow.uturn.backward", "Restore conversations", onRemove)
+                    .accessibilityIdentifier("agent-history-restore-\(session.id)")
+            }
+        }
+        .foregroundStyle(AgentPanelStyle.secondary)
+    }
+
+    private var detailLine: some View {
+        HStack(spacing: 6) {
+            if let messageCount {
+                Text(String(format: AgentLocalization.string("%d messages", locale: locale), messageCount))
+                    .lineLimit(1)
+                Text("·")
+            }
+            if isArchived {
+                Text("Archived")
+                    .padding(.horizontal, 5).padding(.vertical, 1)
+                    .overlay(Capsule().stroke(AgentPanelStyle.border))
+                Text("·")
+            }
+            Text(String(session.id.prefix(8))).font(LitheTheme.uiFont(size: 10, design: .monospaced))
+                .help(session.id)
+            icon(isCopied ? "checkmark" : "doc.on.doc", "Copy session ID", onCopy)
+                .accessibilityIdentifier("agent-history-copy-\(session.id)")
+        }
+        .font(LitheTheme.uiFont(size: 11)).foregroundStyle(AgentPanelStyle.secondary)
     }
 
     private func icon(_ name: String, _ title: LocalizedStringKey, _ action: @escaping () -> Void) -> some View {

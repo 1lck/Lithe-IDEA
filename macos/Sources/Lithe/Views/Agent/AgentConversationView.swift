@@ -182,6 +182,15 @@ struct AgentChatHeader: View {
                     .disabled(onSearch == nil)
                 iconButton("expui/general/history.svg", fallback: "clock.arrow.circlepath", help: "Conversation history", identifier: "agent-history-open") { onHistory?() }
                     .disabled(onHistory == nil)
+                if let onToggleDetails {
+                    Button(action: onToggleDetails) {
+                        LitheSystemIcon(systemImage: "sidebar.right", size: LitheTheme.Metrics.toolbarIconSize)
+                    }
+                    .buttonStyle(LitheIconButtonStyle(size: LitheTheme.Metrics.toolbarIconButtonSize, isSelected: showsDetails))
+                    .help(showsDetails ? "Hide Session Details" : "Show Session Details")
+                    .accessibilityLabel(showsDetails ? "Hide Session Details" : "Show Session Details")
+                    .accessibilityIdentifier("agent-details-toggle")
+                }
                 LitheMenu {
                     LitheContextMenuItem.action("Rename Chat", isEnabled: onRename != nil) { onRename?() }
                     LitheContextMenuItem.action("Copy Conversation", isEnabled: onCopyConversation != nil) { onCopyConversation?() }
@@ -346,7 +355,8 @@ struct AgentUnconfiguredConversationView: View {
                     onCancel: {}, onSelectAgent: { id in
                         onChooseAgent?(id)
                     }, onOpenSettings: onOpenSettings,
-                    onError: { notice = $0 }, fallbackAgentName: agentName
+                    onError: { notice = $0 }, fallbackAgentName: agentName,
+                    isEditorLayout: isEditorLayout
                 )
                 .modifier(AgentEditorColumn(isEditor: isEditorLayout))
             }
@@ -521,9 +531,13 @@ private struct AgentConnectionView: View {
     }
 
     private var detailsPanel: some View {
-        AgentEditorDetailsPanel(
-            statistics: feature.selectedConversation?.sessionStatistics,
-            contextUsage: feature.selectedConversation?.contextUsage
+        let conversation = feature.selectedConversation
+        return AgentEditorDetailsPanel(
+            statistics: conversation?.sessionStatistics,
+            contextUsage: conversation?.contextUsage,
+            changes: AgentActivity(messages: conversation?.messages ?? [],
+                                   reviewed: conversation?.reviewedFileChanges ?? [:]).files,
+            onOpenFile: onOpenFile
         )
     }
 
@@ -658,7 +672,7 @@ private struct AgentConnectionView: View {
             fileMentionRevision: fileMentionRevision,
             savePastedImage: onSavePastedImage,
             showsToolbar: showsToolbar, draftText: $feature.draftText, draftFiles: $feature.draftFiles,
-            focusRequest: feature.composerFocusRequest
+            focusRequest: feature.composerFocusRequest, isEditorLayout: isEditorLayout
         )
         .id(draftReset)
     }

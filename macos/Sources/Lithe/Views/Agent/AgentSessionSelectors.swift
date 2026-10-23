@@ -70,6 +70,8 @@ struct AgentSessionSelectors: View {
     let agentName: String?
     let isDisabled: Bool
     var appliesToNextTurn = false
+    /// Editor footer: approval mode at the leading edge, model at the trailing edge.
+    var spreadsAcrossRow = false
     let onSelect: (String, String) -> Void
     @State private var showsModels = false
 
@@ -112,6 +114,7 @@ struct AgentSessionSelectors: View {
                 .accessibilityValue(AgentSessionSelectorPresentation.currentTitle(mode, locale: locale))
                 .accessibilityIdentifier("agent-session-mode-selector")
             }
+            if spreadsAcrossRow { Spacer(minLength: 8) }
             if let model {
                 Button { showsModels.toggle() } label: {
                     selectorLabel(expandsDownward: true) {

@@ -377,13 +377,15 @@ struct AgentContextPanel: View {
     let composition: AgentModelCall.Context?
     var onClose: (() -> Void)?
     var bundle: Bundle = .main
+    /// A host with its own section title hides the panel's heading row.
+    var showsHeader = true
     @Environment(\.locale) private var locale
 
     private var breakdown: AgentContextBreakdown { AgentContextBreakdown(usage: usage, composition: composition) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack {
+            if showsHeader { HStack {
                 Text("Context usage", bundle: bundle).font(LitheTheme.uiFont(size: 12, weight: .medium))
                 Spacer(minLength: 8)
                 if let onClose {
@@ -396,7 +398,7 @@ struct AgentContextPanel: View {
                     .accessibilityIdentifier("agent-context-close")
                 }
             }
-            .foregroundStyle(LitheTheme.primaryText)
+            .foregroundStyle(LitheTheme.primaryText) }
             VStack(alignment: .leading, spacing: 8) {
                 ViewThatFits(in: .horizontal) {
                     HStack(alignment: .firstTextBaseline, spacing: 8) { percentage; capacity }

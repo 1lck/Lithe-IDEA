@@ -80,6 +80,20 @@ enum AgentTranscriptItem: Identifiable {
     }
 }
 
+/// A conversation of any size opens on its latest items; earlier ones are
+/// built only when asked for. Laying out every row of a long history before
+/// the first paint made opening a large conversation take seconds.
+enum AgentTranscriptWindow {
+    static let initialItems = 48
+    static let pageItems = 96
+
+    /// Smallest limit that keeps `anchorID` and everything after it in the window.
+    static func limit(including anchorID: String, in items: [AgentTranscriptItem], current: Int) -> Int {
+        guard let index = items.firstIndex(where: { $0.id == anchorID || $0.navigationMessageID == anchorID }) else { return current }
+        return max(current, items.count - index + 2)
+    }
+}
+
 /// Live advisories stay visible without being rendered as an Agent reply.
 struct AgentSessionNoticeView: View {
     let notice: AgentSessionNotice
@@ -121,6 +135,8 @@ struct AgentTranscriptView: View {
     // A filtered-out row can be destroyed. Keep its preference in the owning
     // transcript view, isolated by session and message, until the actual data goes away.
     @State private var thoughtExpansions: [String: [String: AgentThoughtExpansion]] = [:]
+    /// How many trailing transcript items each session currently builds.
+    @State private var windowLimits: [String: Int] = [:]
 
     var body: some View {
         let conversation = feature.selectedConversation
@@ -182,6 +198,16 @@ struct AgentTranscriptView: View {
                                     turnByMessageID: navigationContent.turnByMessageID,
                                     searchText: searchText,
                                     liveThoughtID: liveThoughtID,
+                                    isEditorLayout: isEditorLayout,
+                                    limit: searchText.isEmpty ? (sessionID.flatMap { windowLimits[$0] } ?? AgentTranscriptWindow.initialItems) : .max,
+                                    showEarlier: { anchorID in
+                                        guard let sessionID else { return }
+                                        windowLimits[sessionID, default: AgentTranscriptWindow.initialItems] += AgentTranscriptWindow.pageItems
+                                        // The new rows sit above the viewport; keep the reader where it was.
+                                        // Scroll again after layout resolves the newly inserted rows.
+                                        reader.scrollTo(anchorID, anchor: .top)
+                                        DispatchQueue.main.async { reader.scrollTo(anchorID, anchor: .top) }
+                                    },
                                     thoughtExpansions: sessionID.flatMap { thoughtExpansions[$0] } ?? [:],
                                     setThoughtExpansion: { id, value in
                                         guard let sessionID else { return }
@@ -192,7 +218,7 @@ struct AgentTranscriptView: View {
                                 .equatable()
                             }
                             if feature.selectedSessionID == nil, let prompt = feature.pendingNewConversationPrompt {
-                                AgentMessageRow(message: AgentConversationMessage(id: "pending", role: .user, text: prompt))
+                                AgentMessageRow(message: AgentConversationMessage(id: "pending", role: .user, text: prompt), isEditorLayout: isEditorLayout)
                                     .id("pending")
                             }
                             if conversation?.isResponding == true || feature.isCreatingSession {
@@ -232,6 +258,16 @@ struct AgentTranscriptView: View {
                         if searchText.isEmpty && !navigationContent.entries.isEmpty {
                             AgentTranscriptNavigationRail(state: navigation, entries: navigationContent.entries) { id in
                                 navigation.beginNavigation()
+                                if let sessionID {
+                                    let items = AgentTranscriptItem.grouped(messages, turns: conversation?.completedTurns ?? [])
+                                    let current = windowLimits[sessionID] ?? AgentTranscriptWindow.initialItems
+                                    let needed = AgentTranscriptWindow.limit(including: id, in: items, current: current)
+                                    if needed > current {
+                                        windowLimits[sessionID] = needed
+                                        // The target does not exist until this update inserts it.
+                                        DispatchQueue.main.async { reader.scrollTo(id, anchor: .top) }
+                                    }
+                                }
                                 reader.scrollTo(id, anchor: .top)
                             }
                         }
@@ -243,6 +279,7 @@ struct AgentTranscriptView: View {
         }
         .onChange(of: feature.openSessionIDs) { sessionIDs in
             thoughtExpansions = thoughtExpansions.filter { sessionIDs.contains($0.key) }
+            windowLimits = windowLimits.filter { sessionIDs.contains($0.key) }
         }
         .onChange(of: messages.count) { _ in
             // Use unfiltered messages: changing the search must never discard preferences.
@@ -273,22 +310,31 @@ private struct AgentTranscriptRows: View, Equatable {
     let turnByMessageID: [String: String]
     let searchText: String
     let liveThoughtID: String?
+    let isEditorLayout: Bool
+    let limit: Int
+    let showEarlier: (String) -> Void
     let thoughtExpansions: [String: AgentThoughtExpansion]
     let setThoughtExpansion: (String, AgentThoughtExpansion) -> Void
     let onOpenFile: (AgentToolDetails.Location) -> Void
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.messages == rhs.messages && lhs.completedTurns == rhs.completedTurns
-            && lhs.searchText == rhs.searchText && lhs.liveThoughtID == rhs.liveThoughtID
+            && lhs.searchText == rhs.searchText && lhs.liveThoughtID == rhs.liveThoughtID && lhs.limit == rhs.limit
+            && lhs.isEditorLayout == rhs.isEditorLayout
             && lhs.thoughtExpansions == rhs.thoughtExpansions
     }
 
     var body: some View {
-        let transcript = AgentTranscriptItem.grouped(messages, turns: completedTurns).filter { $0.matches(searchText) }
+        let matching = AgentTranscriptItem.grouped(messages, turns: completedTurns).filter { $0.matches(searchText) }
+        let hidden = limit < matching.count ? matching.count - limit : 0
+        let transcript = hidden > 0 ? Array(matching[hidden...]) : matching
         let turnEndingIDs = AgentTranscriptItem.repliesCopiedFromFooter(completedTurns, searchText: searchText)
         if !searchText.isEmpty && transcript.isEmpty {
             Text("No matching messages")
                 .foregroundStyle(AgentPanelStyle.secondary)
+        }
+        if hidden > 0, let first = transcript.first {
+            AgentShowEarlierRow(hiddenCount: hidden) { showEarlier(first.id) }
         }
         ForEach(transcript) { item in
             Group {
@@ -299,6 +345,7 @@ private struct AgentTranscriptRows: View, Equatable {
                         isStreamingThought: liveThoughtID == message.id,
                         isSearching: !searchText.isEmpty,
                         endsTurn: turnEndingIDs.contains(message.id),
+                        isEditorLayout: isEditorLayout,
                         thoughtExpansion: Binding(
                             get: { thoughtExpansions[message.id] ?? AgentThoughtExpansion() },
                             set: { setThoughtExpansion(message.id, $0) }
@@ -315,6 +362,28 @@ private struct AgentTranscriptRows: View, Equatable {
             .id(item.id)
         }
         .environment(\.openURL, AgentMarkdownLink.openAction(onOpenFile: onOpenFile))
+    }
+}
+
+/// Row that reveals the items outside the transcript window.
+private struct AgentShowEarlierRow: View {
+    let hiddenCount: Int
+    let onShow: () -> Void
+    @Environment(\.locale) private var locale
+
+    var body: some View {
+        Button(action: onShow) {
+            Text(String(format: AgentLocalization.string("Show %lld earlier items", locale: locale), hiddenCount))
+                .font(LitheTheme.uiFont(size: 12))
+                .foregroundStyle(AgentPanelStyle.secondary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 5)
+                .background(AgentPanelStyle.context, in: Capsule())
+        }
+        .buttonStyle(.litheNoPress)
+        .lithePointer()
+        .frame(maxWidth: .infinity)
+        .accessibilityIdentifier("agent-transcript-show-earlier")
     }
 }
 
@@ -406,6 +475,8 @@ private struct AgentMessageRow: View {
     var isSearching = false
     /// The turn footer below carries this reply's copy button.
     var endsTurn = false
+    /// Editor tab: Claude Desktop's neutral bubble instead of the panel's tinted one.
+    var isEditorLayout = false
     var thoughtExpansion: Binding<AgentThoughtExpansion> = .constant(AgentThoughtExpansion())
     var onOpenFile: (AgentToolDetails.Location) -> Void = { _ in }
     @State private var isHovered = false
@@ -432,11 +503,12 @@ private struct AgentMessageRow: View {
                         .foregroundStyle(AgentPanelStyle.secondary)
                     }
                 }
-                    .font(LitheTheme.uiFont(size: 13))
+                    .font(LitheTheme.uiFont(size: isEditorLayout ? 14 : 13))
                     .textSelection(.enabled)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(LitheTheme.accent.opacity(0.18), in: RoundedRectangle(cornerRadius: 10))
+                    .padding(.horizontal, isEditorLayout ? 14 : 12)
+                    .padding(.vertical, isEditorLayout ? 10 : 8)
+                    .background(isEditorLayout ? AnyShapeStyle(AgentPanelStyle.context) : AnyShapeStyle(LitheTheme.accent.opacity(0.18)),
+                                in: RoundedRectangle(cornerRadius: isEditorLayout ? 16 : 10))
             }
             .onHover { isHovered = $0 }
         case .agent:

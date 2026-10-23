@@ -19,6 +19,9 @@ enum AgentComposerMetrics {
     static let horizontalInset: CGFloat = 8
     static let toolbarHorizontalInset: CGFloat = 5
     static let splitTopInset: CGFloat = 10
+    /// Status row under the editor conversation's composer card.
+    static let editorFooterHeight: CGFloat = 28
+    static let editorCardCornerRadius: CGFloat = 16
 
     static func minimumHeight(hasFiles: Bool) -> CGFloat {
         inputMinimumHeight + bottomInset + splitTopInset + (hasFiles ? fileHeight : 0)
@@ -57,6 +60,9 @@ struct AgentComposerContent<Editor: View, Toolbar: View>: View {
     let onRemoveFile: (String) -> Void
     let onFocus: () -> Void
     var isFocused = false
+    /// The editor-hosted conversation uses a larger, softly raised card.
+    var cornerRadius = SettingsSelectMetrics.controlCornerRadius
+    var isElevated = false
     @ViewBuilder let editor: () -> Editor
     @ViewBuilder let toolbar: () -> Toolbar
 
@@ -82,9 +88,11 @@ struct AgentComposerContent<Editor: View, Toolbar: View>: View {
             .litheSettingsControlChrome(
                 background: LitheTheme.editor,
                 border: isFocused ? LitheTheme.settingsControlAccent : LitheTheme.settingsControlBorder,
+                cornerRadius: cornerRadius,
                 lineWidth: isFocused ? 2 : 1,
                 borderOutset: isFocused ? 1 : 0
             )
+            .shadow(color: isElevated ? Color.black.opacity(0.08) : .clear, radius: 10, y: 3)
         }
         .onPreferenceChange(AgentComposerWritingHeightKey.self) { height in
             if abs(height - writingHeight) > 0.5 { writingHeight = height }

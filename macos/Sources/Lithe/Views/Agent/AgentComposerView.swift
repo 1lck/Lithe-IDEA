@@ -41,6 +41,8 @@ struct AgentComposerView: View {
     var draftText: Binding<String>? = nil
     var draftFiles: Binding<[AgentFileReference]>? = nil
     var focusRequest: UInt = 0
+    /// Editor tab: mode and model move to a status row under the card.
+    var isEditorLayout = false
     @State private var completion = AgentCommandCompletion()
     @State private var files: [AgentFileReference] = []
     @State private var isDropTargeted = false
@@ -81,7 +83,7 @@ struct AgentComposerView: View {
     }
 
     var body: some View {
-        composerContent
+        composerStack
         .dropDestination(for: URL.self) { urls, _ in
             addFiles(urls)
         } isTargeted: { isDropTargeted = $0 }
@@ -112,11 +114,27 @@ struct AgentComposerView: View {
         .onExitCommand { _ = handleCommandKey(.escape) }
     }
 
+    @ViewBuilder private var composerStack: some View {
+        if isEditorLayout {
+            VStack(spacing: 6) {
+                composerContent
+                if showsToolbar { editorFooter }
+            }
+            .transformPreference(AgentComposerMinimumHeightKey.self) {
+                if showsToolbar { $0 += AgentComposerMetrics.editorFooterHeight + 6 }
+            }
+        } else {
+            composerContent
+        }
+    }
+
     private var composerContent: some View {
         AgentComposerContent(files: attachments, commands: commandSuggestions,
                              highlightedIndex: completion.highlightedIndex,
                              onSelect: complete, onRemoveFile: { id in attachments.removeAll { $0.id == id } },
-                             onFocus: { isFocused = true }, isFocused: isFocused || isDropTargeted) {
+                             onFocus: { isFocused = true }, isFocused: isFocused || isDropTargeted,
+                             cornerRadius: isEditorLayout ? AgentComposerMetrics.editorCardCornerRadius : SettingsSelectMetrics.controlCornerRadius,
+                             isElevated: isEditorLayout) {
             LitheSearchTextField(findFiles == nil ? "Type your task or / for commands" : "Type your task, / for commands or @ for files", text: textBinding, axis: .vertical)
                 .lineLimit(AgentComposerMetrics.minimumWritingLines...)
                 .focused($isFocused)
@@ -127,8 +145,53 @@ struct AgentComposerView: View {
                 .padding(.vertical, AgentComposerMetrics.writingVerticalInset)
                 .frame(maxWidth: .infinity, alignment: .topLeading)
         } toolbar: {
-            if showsToolbar { toolbar }
+            if isEditorLayout { editorCardToolbar } else if showsToolbar { toolbar }
         }
+    }
+
+    /// Claude Desktop layout: the card keeps only attach and send.
+    private var editorCardToolbar: some View {
+        HStack(spacing: 4) {
+            attachButton
+            Spacer(minLength: 0)
+            primaryActionButton
+        }
+        .padding(.horizontal, AgentComposerMetrics.toolbarHorizontalInset + 3)
+        .frame(height: AgentComposerMetrics.toolbarHeight - 2)
+    }
+
+    /// Mode on the left, model on the right, then quota and the context ring.
+    private var editorFooter: some View {
+        HStack(spacing: 4) {
+            agentMenu
+            if isPreparingSession {
+                Label("Loading session settings…", systemImage: "hourglass")
+                    .font(LitheTheme.uiFont(size: 11))
+                    .foregroundStyle(AgentPanelStyle.secondary)
+                    .lineLimit(1)
+                    .accessibilityIdentifier("agent-session-settings-loading")
+                Spacer(minLength: 0)
+            } else if !configOptions.isEmpty {
+                AgentSessionSelectors(options: configOptions, agentName: selectedAgent?.name,
+                    isDisabled: isBlocked || isConfiguring, appliesToNextTurn: isResponding,
+                    spreadsAcrossRow: true, onSelect: onSetConfig)
+                    .id(sessionID ?? selectedAgent?.id)
+                if isConfiguring { ProgressView().controlSize(.mini) }
+            } else {
+                if let model = selectedAgent?.modelName, !model.isEmpty {
+                    Text(model).font(LitheTheme.uiFont(size: 11)).lineLimit(1).truncationMode(.middle)
+                        .foregroundStyle(AgentPanelStyle.secondary).help(model)
+                }
+                Spacer(minLength: 0)
+            }
+            if showsSubscriptionQuota {
+                AgentSubscriptionQuotaView(quota: subscriptionQuota, account: subscriptionAccount, failure: quotaFailure)
+                    .id(sessionID ?? selectedAgent?.id)
+            }
+            detailsButton
+        }
+        .padding(.horizontal, AgentComposerMetrics.toolbarHorizontalInset)
+        .frame(height: AgentComposerMetrics.editorFooterHeight)
     }
 
     private var attachButton: some View {
@@ -168,19 +231,23 @@ struct AgentComposerView: View {
                     .id(sessionID ?? selectedAgent?.id)
             }
             detailsButton
-            Button(action: showsStopAction ? onCancel : send) {
-                LitheIDEAIcon(resourcePath: showsStopAction ? "expui/run/stop.svg" : "collaboration/sendOutline.svg",
-                              size: LitheTheme.Metrics.toolbarIconSize,
-                              fallbackSystemImage: showsStopAction ? "stop.fill" : "paperplane", preservesOriginalColors: true)
-            }
-            .litheToolbarIconButton()
-            .disabled(showsStopAction ? isCancelling : (isCancelling || isSendingSupplement || hasPendingContinuation || !hasContent || isBlocked || isPreparingSession || isConfiguring || (isResponding && !canSteer)))
-            .help(showsStopAction ? (isCancelling ? "Stopping…" : "Stop") : (isSendingSupplement ? "Sending…" : "Send"))
-            .accessibilityLabel(showsStopAction ? "Stop" : "Send")
-            .accessibilityIdentifier("agent-composer-primary-action")
+            primaryActionButton
         }
         .padding(.horizontal, AgentComposerMetrics.toolbarHorizontalInset)
         .frame(height: AgentComposerMetrics.toolbarHeight - 2)
+    }
+
+    private var primaryActionButton: some View {
+        Button(action: showsStopAction ? onCancel : send) {
+            LitheIDEAIcon(resourcePath: showsStopAction ? "expui/run/stop.svg" : "collaboration/sendOutline.svg",
+                          size: LitheTheme.Metrics.toolbarIconSize,
+                          fallbackSystemImage: showsStopAction ? "stop.fill" : "paperplane", preservesOriginalColors: true)
+        }
+        .litheToolbarIconButton()
+        .disabled(showsStopAction ? isCancelling : (isCancelling || isSendingSupplement || hasPendingContinuation || !hasContent || isBlocked || isPreparingSession || isConfiguring || (isResponding && !canSteer)))
+        .help(showsStopAction ? (isCancelling ? "Stopping…" : "Stop") : (isSendingSupplement ? "Sending…" : "Send"))
+        .accessibilityLabel(showsStopAction ? "Stop" : "Send")
+        .accessibilityIdentifier("agent-composer-primary-action")
     }
 
     private var detailsButton: some View {

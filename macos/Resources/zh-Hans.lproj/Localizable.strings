@@ -2285,6 +2285,12 @@
 "Thinking…" = "思考中…";
 "Responding…" = "回复中…";
 "Loading conversation…" = "正在加载对话…";
+"Previous 7 days" = "过去 7 天";
+"Previous 30 days" = "过去 30 天";
+"Earlier" = "更早";
+"Unknown date" = "时间未知";
+"Conversation actions" = "会话操作";
+"Show %lld earlier items" = "显示更早的 %lld 项";
 "Starting the Agent…" = "正在启动 Agent…";
 "The Agent process starts when this panel opens." = "打开此面板时才会启动 Agent 进程。";
 "The Agent could not start" = "Agent 无法启动";
