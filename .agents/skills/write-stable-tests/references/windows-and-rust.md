@@ -107,6 +107,17 @@ HTML/JUnit classification, and remains capped by the shared suite deadline.
 Use scoped budgets only for measured
 integration costs, never to bypass an unbounded wait or an assertion failure.
 
+`git_path_roundtrip::` imports the production TypeScript path normalizer in
+real Node subprocesses between native Git/Core requests. Windows run 39933419913
+cancelled Node at the fixture's 10-second subprocess deadline in the long-path
+case; no path-result mismatch was reported. Only Node's Windows allowance is
+20 seconds; Git setup stays at 10 seconds and Core requests at 5 seconds. Both
+SharedRust and real-JDT give this integration binary a 60-second case budget
+for the repeated subprocess exchanges. Other cases keep their default budget,
+the suite deadline is unchanged, and cancellation still reclaims the process
+tree through the native Git Host. Do not replace the frontend import with a
+Rust copy of its normalization logic or retry a failed assertion.
+
 ## Windows verification
 
 Run the PowerShell harness in a real Windows environment. A macOS boundary

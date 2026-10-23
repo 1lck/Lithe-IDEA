@@ -779,6 +779,7 @@ jobs:
             --package lithe-core `
             --warn-ms 1000 `
             --max-ms 15000 `
+            --test-budget git_path_roundtrip::=60000 `
             --test-budget lsp::interface::engine::real_jdt_tests::real_jdtls_discovers_builds_and_launches_java_25_entrypoints=600000 `
             --test-budget tests::git_history_rewrite::=30000 `
             --test-budget tests::git_history_rewrite::native_rebase_skip_omits_conflicted_message_from_later_squash=45000 `
