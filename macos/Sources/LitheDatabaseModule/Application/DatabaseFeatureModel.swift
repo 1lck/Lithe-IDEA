@@ -250,9 +250,14 @@ package final class DatabaseFeatureModel: ObservableObject {
         let connection = connection(profile, password: password)
         let task = Task.detached { [operations] in try operations.testConnection(connection) }
         try await withTaskCancellationHandler {
-            try await task.value
-            try Task.checkCancellation()
-            guard profileGeneration == generation else { throw CancellationError() }
+            do {
+                try await task.value
+                try Task.checkCancellation()
+                guard profileGeneration == generation else { throw CancellationError() }
+            } catch {
+                try Task.checkCancellation()
+                throw error
+            }
         } onCancel: {
             task.cancel()
         }
