@@ -79,7 +79,13 @@ Each patch request still has its own 15-second deadline, and the enclosing
 suite deadline remains unchanged. Both SharedRust and the real-JDT lane use
 these narrowly scoped budgets. Core rebase requests use a nested 20-second
 deadline. The workspace commit submodule publication test also gets 30 seconds
-because it creates two local remotes and runs multiple real Git pushes. Other
+because it creates two local remotes and runs multiple real Git pushes.
+`tests::git_workspace_commit::git_workspace_commit_push_confirms_each_repository_separately`
+also gets 30 seconds in both lanes after run 39914734587 killed it at 15.233
+seconds without an assertion failure. It prepares two divergent local
+repositories/remotes, checks independent confirmations in three preparation
+passes, and commits/pushes each repository. The default case and suite deadlines
+remain unchanged; bounded native subprocess calls and assertions still run. Other
 multi-repository coverage includes
 `tests::git::git_write_updates_a_noncurrent_branch_without_switching_head`,
 which also gets 30 seconds in both SharedRust and real-JDT lanes: it builds a
