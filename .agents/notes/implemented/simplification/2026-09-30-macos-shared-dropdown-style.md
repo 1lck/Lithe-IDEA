@@ -25,6 +25,16 @@ Project/Dependencies 标题与 Terminal shell/动作入口同样使用 `LitheMen
 - 产品下拉框直接显示透明面板，`animationBehavior = .none`，不使用 SwiftUI `Menu`、菜单式 `Picker` 或系统 `NSPopover` 的弹跳展开，也不添加缩放或弹簧过渡。新增或修改产品下拉框时必须走共享组件；AI 的强制入口规则位于 `develop-lithe` Skill。
 - 调用方只提交条目、动作、可用条件和定位信息。例如 Git Log 设置调用 `show(items:at:appearance:locale:)`；不要重新增加样式布尔值或局部绘制另一套菜单。
 
+### 操作菜单保留所属窗口的激活外观
+
+技能开关暴露了共享动作菜单的焦点问题：打开三个点时菜单成为 key window（接收键盘事件的窗口），设置窗口失去该身份，AppKit 把仍开启的 NSSwitch 画灰。不能用修改技能 enabled、另画开关或强制整页活动状态修饰这个显示问题。
+
+对照 Community `c7f91397daa3a961b4e78bc634fe467a0a7d9ade` 的 `platform/platform-impl/src/com/intellij/ui/popup/AbstractPopup.java`：它区分弹窗是否能够聚焦与是否主动请求焦点（myFocusable/myRequestFocus）。Lithe 的纯操作菜单没有文本编辑器，在所属窗口已经接收键盘事件时保留其 key 身份，自己以不可成为 key 的子面板显示；由共享事件监听把该窗口的方向键、Return 和 Esc 交给菜单。无法确认有效所属窗口时保留旧的聚焦回退。可搜索的自定义下拉仍自己接收焦点，输入法和搜索字段路径不改。
+
+若操作菜单来自另一个可搜索面板，父监听必须先让子菜单处理按键，避免一次方向键被父搜索列表抢走。未处理的输入或快捷键先关闭动作菜单再传回父窗口。所属窗口失焦或应用切走时关闭动作菜单；关闭、锚点拆除及失败清理时移除所有事件和通知监听。原生开关仍由真实 isEnabled 决定忙碌禁用，菜单不触发任何技能配置写入。
+
+`AgentSkillsAppearanceTests` 检查保留父窗口焦点、原生开关值/可用性与绘制不变，以及真正保存期间仍被禁用。`LitheActionMenuFocusTests` 检查键盘和原响应者、嵌套面板分派、Esc、失焦和应用切换清理；仍需真实应用打开菜单核对颜色，后台测试进程的灰色基线不能单独证明实际视觉已修复。
+
 Monaco 的原生菜单选中经过异步 WebKit 消息回调，已经失去浏览器的用户手势授权。
 复制、剪切、粘贴因此由 WKWebView 原生 responder 命令执行，继续触发 Monaco
 自己的 DOM 剪贴板监听和撤销逻辑；返回 `handled` 后前端不能再次执行动作。

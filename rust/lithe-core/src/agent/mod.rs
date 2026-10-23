@@ -5,6 +5,8 @@
 
 use std::path::PathBuf;
 
+pub(crate) mod instructions;
+
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -145,4 +147,20 @@ fn emit_progress(progress: install::InstallProgress) {
             "kind": "agentInstallProgress", "operationId": context.operation_id, "progress": progress
         }).to_string());
     }
+}
+
+/// Execute explicit native skill discovery, installation or visibility configuration.
+pub(crate) fn skills(request: lithe_agent_host::skills::Request) -> Result<Value, CoreError> {
+    use lithe_agent_host::skills::Error;
+    let result = lithe_agent_host::skills::execute(request, &cancelled);
+    cancellation::check()?;
+    result.map_err(|error| {
+        let code = match &error {
+            Error::Invalid(_) => ErrorCode::InvalidRequest,
+            Error::MissingCLI => ErrorCode::RuntimeMissing,
+            Error::Cancelled => ErrorCode::Cancelled,
+            Error::Failed(_) => ErrorCode::ProcessFailed,
+        };
+        CoreError::new(code, error.message())
+    })
 }

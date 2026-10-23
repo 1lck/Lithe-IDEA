@@ -77,13 +77,18 @@ enum WorkbenchModuleUIComposition {
     static func registry(for catalog: ValidatedPluginCatalog, iconResources: [String: PluginUIIconResources] = [:]) throws -> WorkbenchModuleUIRegistry {
         let plugins = catalog.manifests.filter { $0.entrypoint.kind == .declarative }
         let declarations = plugins.flatMap(\.modules).filter { !$0.contributions.isEmpty }
-        // Build-system windows are derived from the declaration, not
-        // declared by the plugin, and share one host view.
+        // Build-system and VCS windows are derived from the declaration,
+        // not declared by the plugin, and each kind shares one host view.
         let buildSystemModules = Set(plugins.map { ModuleID.buildSystemsExtension($0.id.rawValue) })
+        let vcsProviderModules = Set(plugins.map { ModuleID.vcsProvidersExtension($0.id.rawValue) })
         var registry = try WorkbenchModuleUIRegistry(registrations: registrations + declarations.map {
-            buildSystemModules.contains($0.manifest.id)
-                ? WorkbenchModuleUIRegistry.buildSystemRegistration($0, iconResources: iconResources)
-                : WorkbenchModuleUIRegistry.declarativeRegistration($0, iconResources: iconResources)
+            if buildSystemModules.contains($0.manifest.id) {
+                return WorkbenchModuleUIRegistry.buildSystemRegistration($0, iconResources: iconResources)
+            }
+            if vcsProviderModules.contains($0.manifest.id) {
+                return WorkbenchModuleUIRegistry.vcsProviderRegistration($0)
+            }
+            return WorkbenchModuleUIRegistry.declarativeRegistration($0, iconResources: iconResources)
         })
         registry.registerIcons(declarations.flatMap(\.contributions), resources: iconResources)
         return registry

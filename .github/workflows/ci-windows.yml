@@ -779,15 +779,18 @@ jobs:
             --package lithe-core `
             --warn-ms 1000 `
             --max-ms 15000 `
+            --test-budget git_paths_roundtrip_=60000 `
             --test-budget lsp::interface::engine::real_jdt_tests::real_jdtls_discovers_builds_and_launches_java_25_entrypoints=600000 `
             --test-budget tests::git_history_rewrite::=30000 `
             --test-budget tests::git_history_rewrite::native_rebase_skip_omits_conflicted_message_from_later_squash=45000 `
             --test-budget tests::git_remote_checkout::=30000 `
             --test-budget tests::git_workspace_commit::git_workspace_commit_push_checks_submodule_publication_before_updating_the_remote=30000 `
+            --test-budget tests::git_workspace_commit::git_workspace_commit_push_confirms_each_repository_separately=30000 `
             --test-budget tests::git::git_write_squashes_=30000 `
             --test-budget tests::git::git_write_deletes_a_local_commit_=30000 `
             --test-budget tests::git::git_write_edits_a_local_commit_message_=30000 `
             --test-budget tests::git::git_write_updates_a_noncurrent_branch_without_switching_head=30000 `
+            --test-budget tests::git::git_write_executes_checkout_preflight_clone_and_validation=30000 `
             --test-budget tests::git_patch_exchange::patch_exchange_detects_index_flags_and_hidden_destination_edits=30000 `
             --test-budget tests::git_patch_exchange::patch_exchange_rejects_stale_preview_and_forward_conflicts_without_writing=30000 `
             --test-budget tests::git_patch_exchange::patch_exchange_roundtrips_renames_deletes_and_platform_file_modes=30000 `

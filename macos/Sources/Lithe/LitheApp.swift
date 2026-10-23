@@ -983,6 +983,7 @@ private struct SettingsWindow: View {
                 viewState: viewState,
                 initialCategory: requestedCategory,
                 categoryRequest: categoryRequest,
+                skillProjects: projectSessions.openProjects.compactMap(\.workspaceURL),
                 onDismiss: close
             )
             .environmentObject(settingsContext)
@@ -1313,6 +1314,7 @@ extension AppThemePreference {
         case .dark: true
         }
     }
+
     var preferredColorScheme: ColorScheme? {
         switch self {
         case .system: nil

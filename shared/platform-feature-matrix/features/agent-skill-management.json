@@ -1,0 +1,37 @@
+{
+  "id": "agent-skill-management",
+  "area": "AI",
+  "group": "Agent 对话",
+  "capability": "技能设置：全局与项目分类、Agent 来源筛选、搜索刷新、查看与定位、原生目录新建和导入、原生配置启停开关（点击立即切换、后台确认、失败回滚、不显示加载转圈、保存提示不推动列表、仅待确认行禁用、其他行保持颜色并按序保存）；操作菜单保留所属窗口焦点和开启开关的颜色；技能目录最终发布在 macOS/Linux/Windows 均原子拒绝已有目标（包含空目录）",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/Agent/AgentSkillsSettingsView.swift",
+      "macos/Sources/Lithe/Views/Agent/AgentSkillSheets.swift",
+      "macos/Sources/Lithe/Application/Features/AgentSkillsFeatureModel.swift",
+      "rust/lithe-agent-host/src/skills.rs",
+      "rust/lithe-agent-host/src/skills/files.rs",
+      "macos/Tests/LitheTests/AgentSkillsFeatureModelTests.swift",
+      "rust/lithe-agent-host/src/skills/tests.rs",
+      "shared/fixtures/agent/skills-management-v1.json",
+      "rust/lithe-agent-host/src/skills/settings.rs",
+      "macos/Tests/LitheTests/LitheActionMenuFocusTests.swift",
+      "macos/Sources/Lithe/Core/Rust/RustAgentManagementService.swift",
+      "macos/Tests/LitheTests/AgentSkillsCancellationTests.swift"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "rust/lithe-core/src/agent/mod.rs",
+      "rust/lithe-agent-host/src/skills.rs",
+      "shared/fixtures/agent/skills-management-v1.json",
+      "rust/lithe-agent-host/src/skills/files.rs",
+      "rust/lithe-agent-host/src/skills/tests.rs"
+    ],
+    "implementationStatus": "partial",
+    "verificationStatus": "pending"
+  },
+  "owner": "Agent",
+  "verification": "macOS 在设置 → AI → 技能查看全局/项目两类、数量和来源标签；切换已打开项目和来源筛选，查询名称与说明；Codex 使用官方发现结果，Claude 清楚区分目录清单、本地配置可见性与会话实际可用性，内置/插件来源保留。检查深浅主题、500pt 与宽页面、菜单锚点、长名称和空态。打开详情查看完整 SKILL.md 与路径，复制路径及 Finder 定位；新建和导入弹窗显示适用 Agent、范围和目标目录，导入保留脚本、模板及权限。同名、非法名称、错误 YAML、符号链接、超限、取消或读取失败不覆盖已有技能、不留下半成品；失败保留旧列表，切项目拒绝旧结果。无项目时可管理全局，项目新增不可用；无需对话和 API Key，保存不发消息、不打断任务。Windows 目前仅共享 Core 与 Host 操作，页面及真实进程/文件系统验收待实现。 验证启停点击立即显示用户选择且不出现行内加载转圈，确认前不报告已保存；在深浅主题、500pt 与 760pt 页面中，对比首次切换前、关闭保存中及确认后、再次开启保存中及确认后的原生开关位置，成功提示始终预留空间且隐藏时不进入辅助功能树，列表不因提示显示或隐藏而跳动；写入失败恢复已确认值并显示错误、待确认行禁止重复提交，其他行保持原生开启颜色并可独立点击排队；控制同一 Agent 的两次原生写入按序确认，不丢失已保存的状态，单行失败回滚且后续队列继续，失败提示不被其他成功覆盖；切项目或退出时未开始的写入不再执行、切项目及退出拒绝迟到结果；Codex 仅对发现路径调用 skills/config/write 并读取确认，项目路径配置影响所有引用该路径的项目；Claude 全局修改用户 settings.json，项目修改 settings.local.json，按名称生效并保留其他字段/文件权限；无效配置、未知状态、符号链接、超限、锁冲突和取消不覆盖既有配置。不自动断开已有对话。 打开技能三个点纯操作菜单，所属设置窗口保持 key 身份、开启开关保持颜色且不发配置写入；方向键/Return/Esc 可用，真正保存期间仍禁用。搜索下拉继续获得输入焦点，嵌套子动作菜单优先接收按键；所属窗口失焦或应用切换关闭菜单并移除监听。 Windows 原生 CI 回归 publication_cannot_replace_an_existing_empty_directory，覆盖暂存后目标出现、普通文件与非空目录字节保留、Unicode/空格目标完整发布，以及 NUL 路径拒绝。Windows 使用 MoveFileExW 且不启用覆盖或跨卷复制，不以 std::fs::rename 的平台行为推断排他性；文件系统用例通过不代表设置页或会话已验收。 AgentSkillsCancellationTests 通过真实桥接验证创建、导入和启停在服务入口前取消时不改变技能包或原生配置；编码时取消经 requestStarted 注册握手补传，文件分派前停止且后续请求可成功。"
+}
