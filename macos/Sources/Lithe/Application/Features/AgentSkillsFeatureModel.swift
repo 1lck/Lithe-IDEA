@@ -167,6 +167,7 @@ final class AgentSkillsFeatureModel: ObservableObject {
         let service = service
         writeTask = Task { [weak self] in
             do {
+                try Task.checkCancellation()
                 let url = try await service.writeSkill(request)
                 guard let self, !Task.isCancelled, self.revision == token else { return }
                 self.savedURL = url; self.isWriting = false

@@ -35,6 +35,11 @@ protocol McpToolsManaging: AnyObject {
     func parseCommandLine(_ line: String) throws -> (command: String, args: [String])
     func release(_ snapshots: [McpToolPolicySnapshot])
     func validateRename(_ target: McpToolTarget) throws
+    /// Called only after the native batch commits, for each renamed source file.
+    func serverRenamed(from previousName: String, to name: String, in file: McpConfigurationFile)
 }
 
-extension McpToolsManaging { func validateRename(_ target: McpToolTarget) throws { } }
+extension McpToolsManaging {
+    func validateRename(_ target: McpToolTarget) throws { }
+    func serverRenamed(from previousName: String, to name: String, in file: McpConfigurationFile) { }
+}

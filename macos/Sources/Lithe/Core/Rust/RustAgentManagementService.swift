@@ -91,20 +91,22 @@ struct RustAgentManagementService: AgentManagementService {
     ) async throws -> Result {
         let operationID = UUID().uuidString
         let core = core
+        let cancellation = RustCoreCancellation(core: core, operationID: operationID)
         return try await withTaskCancellationHandler {
-            try await Task.detached(priority: .userInitiated) {
-                try core.executeResult(command: command, payload: payload, operationID: operationID, onEvent: onProgress.map { callback in
-                    { event in
-                        guard let data = event.data(using: .utf8),
+            try Task.checkCancellation()
+            return try await Task.detached(priority: .userInitiated) {
+                if cancellation.isCancelled { throw CancellationError() }
+                let result: Swift.Result<Result, RustCoreBridge.CoreCallError> = core.executeResult(
+                    command: command, payload: payload, operationID: operationID, onEvent: { event in
+                        cancellation.receive(event)
+                        guard let onProgress, let data = event.data(using: .utf8),
                               let decoded = try? JSONDecoder().decode(InstallEvent.self, from: data),
                               decoded.kind == "agentInstallProgress", decoded.operationId == operationID else { return }
-                        callback(decoded.progress)
-                    }
-                }).get()
+                        onProgress(decoded.progress)
+                    })
+                return try result.get()
             }.value
-        } onCancel: {
-            core.cancel(operationID: operationID)
-        }
+        } onCancel: { cancellation.cancel() }
     }
 }
 

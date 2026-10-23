@@ -17,6 +17,7 @@ final class McpToolsFeatureModel: ObservableObject {
     private let service: (any McpToolsManaging)?
     private var probes: [String: Task<Void, Never>] = [:]
     private var requests: [String: UUID] = [:]
+    private var targets: [String: McpServerRow] = [:]
 
     init(service: (any McpToolsManaging)?) { self.service = service }
 
@@ -26,6 +27,7 @@ final class McpToolsFeatureModel: ObservableObject {
     func detect(_ row: McpServerRow) -> Task<Void, Never>? {
         guard let service, !row.isProjectOnly else { return nil }
         cancelAll()
+        targets[row.id] = row
         let request = UUID(); requests[row.id] = request
         var state = states[row.id] ?? State(); state.isLoading = true; state.isReady = false; state.error = nil
         states[row.id] = state
@@ -35,7 +37,7 @@ final class McpToolsFeatureModel: ObservableObject {
                 guard let self, !Task.isCancelled, self.requests[row.id] == request else { return }
                 self.states[row.id]?.tools = result.tools
                 self.states[row.id]?.isReady = true
-                self.loadPolicies(row)
+                self.loadPolicies(self.targets[row.id] ?? row)
             } catch {
                 guard let self, !Task.isCancelled, self.requests[row.id] == request else { return }
                 self.states[row.id]?.isReady = false
@@ -78,6 +80,13 @@ final class McpToolsFeatureModel: ObservableObject {
         for id in Array(states.keys) where !ids.contains(id) {
             probes.removeValue(forKey: id)?.cancel(); requests[id] = nil
             if let state = states.removeValue(forKey: id) { service?.release(Array(state.policies.values)) }
+            targets[id] = nil
+        }
+        for row in rows where states[row.id] != nil {
+            let previous = targets.updateValue(row, forKey: row.id)
+            // Registration changes leave connection identity and inventory intact.
+            // Refresh local policy without connecting to the server a second time.
+            if previous?.globalSources != row.globalSources { loadPolicies(row) }
         }
     }
 
@@ -91,6 +100,7 @@ final class McpToolsFeatureModel: ObservableObject {
         cancelAll()
         for state in states.values { service?.release(Array(state.policies.values)) }
         states.removeAll()
+        targets.removeAll()
     }
 
     func commandLine(_ draft: McpServerDraft) throws -> String {

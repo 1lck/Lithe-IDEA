@@ -113,6 +113,16 @@ final class MacMcpTools: McpToolsManaging {
 
     func release(_ values: [McpToolPolicySnapshot]) { for value in values { snapshots.removeValue(forKey: value.id) } }
 
+    func serverRenamed(from previousName: String, to name: String, in file: McpConfigurationFile) {
+        guard file.agent == .codex, previousName != name else { return }
+        // The native table already moved atomically with its exact restrictions.
+        // Move only our names at this profile path, never adopt external rules
+        // or stale ownership left at the destination by an older server.
+        let previousKey = key(file, previousName)
+        ledger.set(ledger.stringArray(forKey: previousKey), forKey: key(file, name))
+        ledger.set(nil, forKey: previousKey)
+    }
+
     func validateRename(_ target: McpToolTarget) throws {
         guard target.files.contains(where: { $0.agent == .claudeCode }) else { return }
         let file = McpConfigurationFile(agent: .claudeCode, scope: .global, url: claudeSettings, projectPath: nil)

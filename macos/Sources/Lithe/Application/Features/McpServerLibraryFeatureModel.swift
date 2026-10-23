@@ -922,6 +922,11 @@ final class McpServerLibraryFeatureModel: ObservableObject {
         lastBackupURL = receipts.last?.backupURL ?? lastBackupURL
         // A later failure must not publish ownership for an earlier write.
         for entry in planned where entry.changed {
+            for operation in operations[entry.file] ?? [] {
+                if case .set(let server, _, let previousName?) = operation {
+                    model?.mcpTools?.serverRenamed(from: previousName, to: server.name, in: entry.file)
+                }
+            }
             setLedger(entry.entries, for: entry.file)
         }
     }

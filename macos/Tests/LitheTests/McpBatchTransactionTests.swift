@@ -76,6 +76,39 @@ struct McpBatchTransactionTests {
     }
 
     @Test
+    func failedRenameKeepsToolOwnershipUntilTheWholeBatchCommits() throws {
+        let fixture = try BatchFixture()
+        defer { fixture.cleanUp() }
+        let feature = McpServerLibraryFeatureModel(model: fixture)
+        var draft = feature.makeDraft()
+        draft.name = "alpha"; draft.command = "/bin/echo"; draft.enabledAgents = Set(McpAgent.allCases)
+        try #require(feature.save(draft))
+        let row = try #require(feature.rows.first)
+        let service = try #require(fixture.mcpTools)
+        let target = McpToolTarget(definition: row.definition, files: row.globalSources.map(\.file))
+        let off = try service.setEnabled(false, tool: "write", target: target,
+            snapshot: service.policy(for: target, agent: .codex, tools: ["write"]))
+        feature.tools.didChangePolicy?(row, off)
+        service.release([off])
+        let before = fixture.ledger.values
+        fixture.store.written.removeAll()
+        fixture.store.beforeSecondWrite = { _, current in
+            throw McpConfigurationError.notWritable(current.url.path)
+        }
+        var edit = feature.draft(for: try #require(feature.rows.first)); edit.name = "beta"
+        #expect(!feature.save(edit))
+        #expect(fixture.store.restored.count == 1)
+        #expect(NSDictionary(dictionary: fixture.ledger.values).isEqual(to: before))
+        let restored = try #require(feature.rows.first)
+        #expect(restored.name == "alpha")
+        let restoredTarget = McpToolTarget(definition: restored.definition, files: restored.globalSources.map(\.file))
+        let policy = try service.policy(for: restoredTarget, agent: .codex, tools: ["write"])
+        defer { service.release([policy]) }
+        #expect(policy.tools.first?.enabled == false)
+        #expect(policy.tools.first?.editable == true)
+    }
+
+    @Test
     func failedProjectRegistrationDoesNotPublishEitherAgentOrLedger() throws {
         let fixture = try BatchFixture()
         defer { fixture.cleanUp() }
@@ -104,6 +137,9 @@ private final class BatchFixture: McpServerLibraryActions {
     let root: URL
     let store: FailingBatchStore
     let ledger = BatchLedger()
+    private lazy var tools = MacMcpTools(core: RustCoreBridge(), store: store, ledger: ledger,
+        storage: BatchFileStorage(root: root), environment: ["CLAUDE_CONFIG_DIR": root.appendingPathComponent("claude").path])
+    var mcpTools: (any McpToolsManaging)? { tools }
     var mcpWorkspaceURL: URL? { root.appendingPathComponent("project") }
     var mcpConfigurationStore: (any McpConfigurationStore)? { store }
     var mcpLedgerStore: any KeyValueStore { ledger }

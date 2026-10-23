@@ -52,6 +52,52 @@ struct McpArgumentRoundTripTests {
         #expect(try fixture.reparse(.claudeCode).name == "alpha")
     }
 
+    @Test func codexRenamePreservesOnlyOwnedExactToolRulesAndAllowsReenabling() throws {
+        let fixture = try ArgumentFixture()
+        defer { fixture.cleanUp() }
+        let feature = fixture.feature()
+        var draft = feature.makeDraft()
+        draft.name = "alpha"; draft.command = "/bin/echo"; draft.enabledAgents = [.codex]
+        try #require(feature.save(draft))
+        // The user owns read's deny and allow-list; Lithe owns only write's deny.
+        try fixture.codexFilters(allow: ["read", "write"], deny: ["read"])
+        feature.refresh()
+        feature.takeOwnership(of: try #require(feature.rows.first), agent: .codex)
+        let row = try #require(feature.rows.first)
+        let service = try #require(fixture.mcpTools)
+        let target = McpToolTarget(definition: row.definition, files: row.globalSources.map(\.file))
+        let off = try service.setEnabled(false, tool: "write", target: target,
+            snapshot: service.policy(for: target, agent: .codex, tools: ["read", "write", "outside"]))
+        feature.tools.didChangePolicy?(row, off)
+        service.release([off])
+        var renamed = feature.draft(for: try #require(feature.rows.first)); renamed.name = "beta"
+        try #require(feature.save(renamed))
+        #expect(try fixture.reparse(.codex, name: "beta").name == "beta")
+        let beta = try #require(feature.rows.first)
+        let betaTarget = McpToolTarget(definition: beta.definition, files: beta.globalSources.map(\.file))
+        let policy = try service.policy(for: betaTarget, agent: .codex, tools: ["read", "write", "outside"])
+        #expect(policy.tools.first { $0.name == "write" }?.enabled == false)
+        #expect(policy.tools.first { $0.name == "write" }?.editable == true)
+        #expect(policy.tools.first { $0.name == "read" }?.editable == false)
+        #expect(policy.tools.first { $0.name == "outside" }?.editable == false)
+        let on = try service.setEnabled(true, tool: "write", target: betaTarget, snapshot: policy)
+        feature.tools.didChangePolicy?(beta, on)
+        service.release([on])
+        #expect(on.tools.first { $0.name == "write" }?.enabled == true)
+        #expect(on.tools.first { $0.name == "read" }?.enabled == false)
+
+        // Reusing alpha must not inherit the ownership moved to beta.
+        try #require(feature.save(draft))
+        try fixture.codexFilters(allow: ["read", "write"], deny: ["write"])
+        feature.refresh()
+        let alpha = try #require(feature.rows.first { $0.name == "alpha" })
+        let alphaPolicy = try service.policy(for: McpToolTarget(definition: alpha.definition,
+            files: alpha.globalSources.map(\.file)), agent: .codex, tools: ["write"])
+        defer { service.release([alphaPolicy]) }
+        #expect(alphaPolicy.tools.first?.enabled == false)
+        #expect(alphaPolicy.tools.first?.editable == false)
+    }
+
     @Test func compactEditorFitsBothNativeAppearances() throws {
         let fixture = try ArgumentFixture()
         defer { fixture.cleanUp() }
