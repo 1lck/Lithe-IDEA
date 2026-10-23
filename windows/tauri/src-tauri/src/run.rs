@@ -3723,32 +3723,76 @@ mod tests {
         assert_eq!(left, run_session_key("project-a", "primary"));
     }
 
-    /// A Run session like `cmd -> mvn -> java`, owned the way
-    /// `start_reserved_process` owns one: the suspended root joins its tree
-    /// before ping can start.
+    /// Owns both the registered Job and the root handle, including on assertion
+    /// failure. Descendant handles identify the exact process, without PID reuse
+    /// or sysinfo snapshots mistaking an exited process for a running one.
+    #[cfg(windows)]
+    struct ProcessTreeFixture {
+        child: Child,
+        window: &'static str,
+        descendant: Option<std::os::windows::io::OwnedHandle>,
+    }
+
+    #[cfg(windows)]
+    fn process_wait(handle: &impl std::os::windows::io::AsRawHandle, timeout: Duration) -> u32 {
+        use windows_sys::Win32::System::Threading::WaitForSingleObject;
+        // The borrowed handle stays owned by the fixture throughout this wait.
+        unsafe { WaitForSingleObject(handle.as_raw_handle(), timeout.as_millis() as u32) }
+    }
+
+    #[cfg(windows)]
+    impl ProcessTreeFixture {
+        fn assert_exited(&mut self) {
+            use windows_sys::Win32::Foundation::WAIT_OBJECT_0;
+            assert_eq!(
+                process_wait(&self.child, RUN_STOP_TIMEOUT),
+                WAIT_OBJECT_0,
+                "root exits"
+            );
+            assert!(self.child.try_wait().unwrap().is_some());
+            assert_eq!(
+                process_wait(
+                    self.descendant.as_ref().expect("descendant handle"),
+                    RUN_STOP_TIMEOUT
+                ),
+                WAIT_OBJECT_0,
+                "descendant exits",
+            );
+        }
+    }
+
+    #[cfg(windows)]
+    impl Drop for ProcessTreeFixture {
+        fn drop(&mut self) {
+            // Closing the Job also handles panics before the normal stop call.
+            drop(take_owned_sessions(|key| key.window_label == self.window));
+            let _ = self.child.kill();
+            let _ = process_wait(&self.child, RUN_STOP_TIMEOUT);
+            let _ = self.child.try_wait();
+            if let Some(descendant) = &self.descendant {
+                let _ = process_wait(descendant, RUN_STOP_TIMEOUT);
+            }
+        }
+    }
+
+    /// Starts the same suspended-root ownership sequence as a Run service.
+    /// Child discovery is bounded; no output reader or blocking pipe can outlive
+    /// the fixture. The descendant handle is retained before any stop operation.
     #[cfg(windows)]
     fn spawn_owned_process_tree(
-        window: &str,
+        window: &'static str,
         session: &str,
         title: &str,
-    ) -> (Child, std::process::ChildStdout, u32) {
+    ) -> ProcessTreeFixture {
+        use std::os::windows::io::{FromRawHandle, OwnedHandle};
+        use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_SYNCHRONIZE};
         let mut command = Command::new("cmd");
         command
             .args(["/C", "ping -n 30 127.0.0.1"])
-            .stdout(Stdio::piped());
+            .stdout(Stdio::null());
         ProcessTree::prepare(&mut command);
         let mut child = command.spawn().expect("spawn service");
         let tree = ProcessTree::adopt(&mut child).expect("own service tree");
-        // cmd writes nothing itself; the first output byte comes from ping, so
-        // the descendant is running once it arrives. The pipe stays open for
-        // the test, otherwise ping would exit on its next write.
-        let mut stdout = child.stdout.take().expect("service output");
-        stdout
-            .read_exact(&mut [0; 1])
-            .expect("service descendant output");
-        let descendant = *child_process_ids(child.id())
-            .first()
-            .expect("service descendant");
         sessions().lock().unwrap().insert(
             run_session_key(window, session),
             RunningSession {
@@ -3761,26 +3805,36 @@ mod tests {
                 tree,
             },
         );
-        (child, stdout, descendant)
-    }
-
-    #[cfg(windows)]
-    fn child_process_ids(parent: u32) -> Vec<u32> {
-        let mut system = sysinfo::System::new();
-        system.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
-        system
-            .processes()
-            .values()
-            .filter(|process| process.parent() == Some(sysinfo::Pid::from_u32(parent)))
-            .map(|process| process.pid().as_u32())
-            .collect()
-    }
-
-    #[cfg(windows)]
-    fn process_is_alive(pid: u32) -> bool {
-        let mut system = sysinfo::System::new();
-        system.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
-        system.process(sysinfo::Pid::from_u32(pid)).is_some()
+        let mut fixture = ProcessTreeFixture {
+            child,
+            window,
+            descendant: None,
+        };
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let mut system = sysinfo::System::new();
+            system.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+            if let Some(process) = system.processes().values().find(|process| {
+                process.parent() == Some(sysinfo::Pid::from_u32(fixture.child.id()))
+            }) {
+                // Open before terminating the Job; querying a PID afterward can
+                // observe a retained process object or an unrelated reused PID.
+                let handle = unsafe { OpenProcess(PROCESS_SYNCHRONIZE, 0, process.pid().as_u32()) };
+                assert!(
+                    !handle.is_null(),
+                    "open descendant: {}",
+                    std::io::Error::last_os_error()
+                );
+                fixture.descendant = Some(unsafe { OwnedHandle::from_raw_handle(handle) });
+                return fixture;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "service descendant did not start within 5 seconds"
+            );
+            // test-stability: allow(rust-real-sleep) reason: Windows process snapshots expose no child-start event; bounded polling only discovers the fixture PID, exit assertions use kernel signals.
+            thread::sleep(Duration::from_millis(10));
+        }
     }
 
     #[cfg(windows)]
@@ -3788,20 +3842,21 @@ mod tests {
     fn window_release_ends_its_process_trees_and_keeps_other_windows() {
         // Regression for #1137: closing a window left Run services and their
         // descendants running. Another window's service must survive the close.
-        let (mut closed, _closed_output, closed_descendant) =
-            spawn_owned_process_tree("release-closed-window", "service", "Closed");
-        let (mut kept, _kept_output, kept_descendant) =
-            spawn_owned_process_tree("release-kept-window", "service", "Kept");
+        let mut closed = spawn_owned_process_tree("release-closed-window", "service", "Closed");
+        let mut kept = spawn_owned_process_tree("release-kept-window", "service", "Kept");
 
         stop_sessions(
             take_owned_sessions(|key| key.window_label == "release-closed-window"),
             RUN_STOP_TIMEOUT,
         )
         .expect("the closed window's trees end");
-        assert!(closed.wait().is_ok());
-        assert!(!process_is_alive(closed_descendant));
-        assert!(kept.try_wait().unwrap().is_none());
-        assert!(process_is_alive(kept_descendant));
+        closed.assert_exited();
+        assert!(kept.child.try_wait().unwrap().is_none());
+        assert_eq!(
+            process_wait(kept.descendant.as_ref().unwrap(), Duration::ZERO),
+            windows_sys::Win32::Foundation::WAIT_TIMEOUT,
+            "the other window's descendant remains running",
+        );
 
         // A second destroy/exit pass finds nothing left and must not reap again.
         assert!(take_owned_sessions(|key| key.window_label == "release-closed-window").is_empty());
@@ -3811,8 +3866,7 @@ mod tests {
             RUN_STOP_TIMEOUT,
         )
         .expect("the kept window's trees end");
-        assert!(kept.wait().is_ok());
-        assert!(!process_is_alive(kept_descendant));
+        kept.assert_exited();
     }
 
     #[cfg(windows)]
@@ -3820,13 +3874,11 @@ mod tests {
     fn dropping_a_session_ends_its_tree_like_a_crashed_lithe() {
         // When Lithe dies, Windows closes its job handles. Dropping the session
         // closes the handle the same way, so no stop call is involved.
-        let (mut root, _output, descendant) =
-            spawn_owned_process_tree("crash-window", "service", "Crash");
+        let mut root = spawn_owned_process_tree("crash-window", "service", "Crash");
         let owned = take_owned_sessions(|key| key.window_label == "crash-window");
         assert_eq!(owned.len(), 1);
         drop(owned);
-        assert!(root.wait().is_ok());
-        assert!(!process_is_alive(descendant));
+        root.assert_exited();
     }
 
     #[cfg(windows)]
@@ -3835,11 +3887,9 @@ mod tests {
         // Maven goals and services of closed projects have no webview store,
         // so the close confirmation must come from the native table.
         let window = "listing-window";
-        let (mut first, _first_output, _) =
-            spawn_owned_process_tree(window, "maven", "clean install");
-        let (mut second, _second_output, _) = spawn_owned_process_tree(window, "service", "Api");
-        let (mut other, _other_output, _) =
-            spawn_owned_process_tree("listing-other-window", "service", "Other");
+        let mut first = spawn_owned_process_tree(window, "maven", "clean install");
+        let mut second = spawn_owned_process_tree(window, "service", "Api");
+        let mut other = spawn_owned_process_tree("listing-other-window", "service", "Other");
         let preparing = {
             let mut pending = pending_launches().lock().unwrap();
             let reservation = reserve_test_launch(&mut pending, window, "prepare");
@@ -3879,7 +3929,7 @@ mod tests {
             .expect("listing fixtures end");
         }
         for root in [&mut first, &mut second, &mut other] {
-            assert!(root.wait().is_ok());
+            root.assert_exited();
         }
     }
 
