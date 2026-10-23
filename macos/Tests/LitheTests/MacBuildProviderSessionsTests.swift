@@ -325,7 +325,7 @@ private final class ProgressReports {
 /// setting in its arguments.
 @MainActor
 private struct ProviderFixture {
-    static let pluginID = "dev.lithe.fixture.gradle-provider"
+    static let pluginID = "dev.lithe.fixture.build-provider"
     static let executablePath = "provider/bin/provider"
 
     let root: URL
@@ -348,7 +348,7 @@ private struct ProviderFixture {
         try FileManager.default.createDirectory(at: workspaceURL, withIntermediateDirectories: true)
 
         let fixtureURL = DeclarativePluginTestSupport.repositoryRoot
-            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/gradle-provider.plugin.json")
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/build-provider.plugin.json")
         var object = try #require(
             try JSONSerialization.jsonObject(with: Data(contentsOf: fixtureURL)) as? [String: Any]
         )

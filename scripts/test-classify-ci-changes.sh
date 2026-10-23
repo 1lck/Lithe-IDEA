@@ -127,7 +127,6 @@ modify_readme() { printf '%s\n' '# Updated' > README.md; }
 modify_rust_comment() { printf '%s\n' '//! Updated test module.' 'pub fn value() -> u8 { 1 }' > rust/lithe-core/src/lib.rs; }
 modify_rust_code() { printf '%s\n' '//! Test module.' 'pub fn value() -> u8 { 2 }' > rust/lithe-core/src/lib.rs; }
 modify_rust_test() { printf '%s\n' '#[test]' 'fn value_is_two() { assert_eq!(2, 2); }' > rust/lithe-core/tests/value.rs; }
-modify_plugin_sdk() { mkdir -p sdk/node/src && printf '%s\n' 'export const value = 2;' > sdk/node/src/index.mjs; }
 modify_rust_source_test() { printf '%s\n' '#[test]' 'fn source_test() { assert_eq!(2, 2); }' > rust/lithe-core/src/lsp/tests.rs; }
 modify_database_rust() { printf '%s\n' 'fn main() { println!("updated"); }' > rust/lithe-db-sidecar/src/main.rs; }
 modify_database_docker() { printf '%s\n' 'services:' '  mariadb: {}' > infra/docker/database-validation/compose.yaml; }
@@ -232,9 +231,6 @@ assert_classification rust-code \
 assert_classification rust-test \
     "$(classification false false false true false false false false false false)" \
     modify_rust_test
-assert_classification plugin-sdk \
-    "$(classification false false false true false false false false false false)" \
-    modify_plugin_sdk
 assert_classification rust-source-test \
     "$(classification false false false true false false false false false false)" \
     modify_rust_source_test

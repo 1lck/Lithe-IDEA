@@ -15,8 +15,7 @@
       "macos/Sources/Lithe/Application/Features/PluginWebBridge.swift",
       "macos/Tests/LitheExecutionModuleTests/BuildSystemServiceTests.swift",
       "macos/Tests/LitheTests/MacBuildProviderSessionsTests.swift",
-      "macos/Tests/LitheTests/PluginWebBridgeTests.swift",
-      "sdk/node/src/index.d.ts"
+      "macos/Tests/LitheTests/PluginWebBridgeTests.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
