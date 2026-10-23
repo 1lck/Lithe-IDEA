@@ -7,6 +7,7 @@ import {
   requestNewTerminal,
 } from "@/features/terminal/utils/terminal-launch-actions";
 import { openNewTerminalFromGlobalEntry } from "@/features/terminal/utils/terminal-pane-visibility";
+import { defaultSettings } from "@/features/settings/config/default-settings";
 
 const restoreDom = installHappyDom();
 afterAll(restoreDom);
@@ -29,8 +30,17 @@ const launches: Array<string | undefined> = [];
 const writes: Array<[string, unknown]> = [];
 const settings = create(() => ({
   settings: {
-    coreFeatures: { terminal: true, debugger: false },
-    terminalDockPosition: "bottom" as "bottom" | "right",
+    coreFeatures: {
+      ...defaultSettings.coreFeatures,
+      terminal: true,
+      debugger: false,
+      git: false,
+      search: false,
+      diagnostics: false,
+    },
+    sidebarActivityItemsOrder: [] as string[],
+    hiddenSidebarActivityItems: [] as string[],
+    terminalDockPosition: "bottom" as "bottom" | "left" | "right",
     terminalDockWidth: 400,
     bottomPaneHeight: 320,
   },
@@ -86,9 +96,30 @@ mock.module("@/features/keymaps/hooks/use-command-shortcut", () => ({
   useCommandShortcut: () => undefined,
 }));
 mock.module("@/features/editor/stores/buffer.store", () => ({
-  useBufferStore: {
-    use: { actions: () => ({ moveBufferToPane: () => {}, openTerminalBuffer: () => "" }) },
-  },
+  useBufferStore: Object.assign(
+    create(() => ({ activeBufferId: null, buffers: [] })),
+    {
+      use: { actions: () => ({ moveBufferToPane: () => {}, openTerminalBuffer: () => "" }) },
+    },
+  ),
+}));
+const toggleTerminal = () => {
+  const state = ui.getState();
+  const wasActive = state.isBottomPaneVisible && state.bottomPaneActiveTab === "terminal";
+  state.setBottomPaneActiveTab("terminal");
+  state.setIsBottomPaneVisible(!wasActive);
+};
+mock.module("@/features/keymaps/commands/view-command-actions", () => ({
+  toggleMavenPane: () => {},
+  toggleTerminalPane: toggleTerminal,
+}));
+mock.module("@/features/maven/stores/maven.store", () => ({
+  useMavenStore: (select: (state: unknown) => unknown) =>
+    select({ project: null, projectStatus: "idle" }),
+}));
+mock.module("@/features/agent/components/agent-trigger", () => ({ AgentTrigger: () => null }));
+mock.module("@/features/notifications/components/notifications-trigger", () => ({
+  NotificationsTrigger: () => null,
 }));
 mock.module("@/features/panes/stores/pane.store", () => ({
   usePaneStore: {
@@ -100,6 +131,7 @@ mock.module("@/features/panes/utils/pane-activation", () => ({
   activateBufferInPaneAndSync: () => {},
 }));
 mock.module("@/config/backend-capabilities", () => ({
+  BACKEND_UNAVAILABLE_TOOLTIP: "Unavailable in this fixture",
   isBackendCapabilityAvailable: (name: string) => name === "terminal",
 }));
 mock.module("@/i18n/locale-provider", () => ({
@@ -123,6 +155,8 @@ mock.module("@/features/tabs/utils/internal-tab-drag", () => ({
 }));
 const { default: BottomPane } = await import("./bottom-pane");
 const { TerminalDockLayout, TerminalDockHandle } = await import("../terminal-dock-layout");
+const { SidebarPaneSelector } = await import("../sidebar/sidebar-pane-selector");
+const { PluginActivityRail } = await import("../plugin-activity-rail");
 
 async function dockFixture() {
   ui.setState({ isBottomPaneVisible: true, bottomPaneActiveTab: "terminal" });
@@ -132,6 +166,7 @@ async function dockFixture() {
       terminalDockPosition: "bottom",
       terminalDockWidth: 400,
       bottomPaneHeight: 320,
+      hiddenSidebarActivityItems: [],
     },
   }));
   terminal.setState({ widthMode: "full" });
@@ -159,6 +194,18 @@ async function dockFixture() {
       root.render(
         <TerminalDockLayout
           workspaceKey={workspaceKey}
+          leftRail={
+            <SidebarPaneSelector
+              activeSidebarView="files"
+              isGitViewActive={false}
+              coreFeatures={settings.getState().settings.coreFeatures}
+              onViewChange={() => {}}
+              onTerminalClick={toggleTerminal}
+              orientation="vertical"
+              compact
+            />
+          }
+          rightRail={<PluginActivityRail />}
           sidebar={<span>Project</span>}
           tools={<span>Agent</span>}
           editor={<textarea defaultValue="editor" />}
@@ -179,12 +226,16 @@ async function dockFixture() {
   try {
     await render();
     const grid = host.querySelector<HTMLDivElement>("[data-terminal-dock]")!;
+    host.querySelector<HTMLElement>("[data-terminal-dock-workbench]")!.getBoundingClientRect = () =>
+      new DOMRect(62, 80, 1076, 700);
     grid.getBoundingClientRect = () => new DOMRect(100, 80, 1000, 700);
     (grid.children[1] as HTMLElement).getBoundingClientRect = () => new DOMRect(200, 80, 700, 380);
     (grid.children[3] as HTMLElement).getBoundingClientRect = () =>
-      settings.getState().settings.terminalDockPosition === "right"
-        ? new DOMRect(700, 80, 400, 700)
-        : new DOMRect(100, 460, 1000, 320);
+      settings.getState().settings.terminalDockPosition === "left"
+        ? new DOMRect(100, 80, 400, 700)
+        : settings.getState().settings.terminalDockPosition === "right"
+          ? new DOMRect(700, 80, 400, 700)
+          : new DOMRect(100, 460, 1000, 320);
     const pointer = async (type: string, x: number, y: number, element: EventTarget = document) =>
       act(async () => {
         element.dispatchEvent(
@@ -266,7 +317,12 @@ test.each([
   async (reason) => {
     const fixture = await dockFixture();
     try {
-      await fixture.begin();
+      await fixture.pointer(
+        "pointerdown",
+        80,
+        700,
+        fixture.host.querySelector('[data-terminal-dock-activity="left"]')!,
+      );
       await fixture.pointer("pointermove", 1000, 180);
       await act(async () => {
         if (reason === "escape")
@@ -279,7 +335,7 @@ test.each([
       if (reason === "unmount") await act(async () => fixture.root.unmount());
       await fixture.pointer(
         "pointerup",
-        reason === "outside" ? 1200 : reason === "invalid" ? 400 : 1000,
+        reason === "outside" ? 1200 : reason === "invalid" ? 600 : 1000,
         180,
       );
       expect(writes).toEqual([]);
@@ -292,6 +348,127 @@ test.each([
     }
   },
 );
+
+test("dragging the real terminal stripe entry moves both entry and retained panel between right, left and bottom", async () => {
+  const fixture = await dockFixture();
+  const { host, grid, pointer } = fixture;
+  const entry = (side: string) =>
+    host.querySelector<HTMLElement>(`[data-terminal-dock-activity="${side}"]`)!;
+  try {
+    const input = host.querySelector("input")!;
+    input.value = "unfinished command";
+    const editor = host.querySelector("textarea");
+    const initialMounts = mounts;
+    await pointer("pointerdown", 80, 700, entry("left"));
+    await pointer("pointermove", 1120, 740);
+    expect(host.querySelector('[data-terminal-dock-preview="right"]')).not.toBeNull();
+    expect(writes).toEqual([]);
+    await pointer("pointerup", 1120, 740);
+    expect(grid.dataset.terminalDock).toBe("right");
+    expect(entry("right")).not.toBeNull();
+    expect(entry("left")).toBeNull();
+    // The browser click after release cannot immediately hide the moved panel.
+    await act(async () =>
+      entry("right").dispatchEvent(new window.MouseEvent("click", { bubbles: true, detail: 1 })),
+    );
+    expect(ui.getState().isBottomPaneVisible).toBe(true);
+
+    await pointer("pointerdown", 1120, 740, entry("right"));
+    await pointer("pointermove", 80, 740);
+    expect(host.querySelector('[data-terminal-dock-preview="left"]')).not.toBeNull();
+    await pointer("pointerup", 80, 740);
+    expect(grid.dataset.terminalDock).toBe("left");
+    expect(grid.style.gridTemplateAreas).toBe('"panel sidebar editor tools"');
+    expect(entry("left")).not.toBeNull();
+    expect(entry("right")).toBeNull();
+    const separator = host.querySelector<HTMLElement>('[role="separator"]')!;
+    expect(separator.className).toContain("order-last");
+    writes.length = 0;
+    await pointer("pointerdown", 500, 200, separator);
+    await pointer("pointermove", 600, 200);
+    expect(writes).toEqual([]);
+    await pointer("pointerup", 600, 200);
+    expect(writes).toEqual([["terminalDockWidth", 500]]);
+
+    await act(async () => terminal.setState({ widthMode: "editor" }));
+    (grid.children[1] as HTMLElement).getBoundingClientRect = () => new DOMRect(700, 80, 200, 700);
+    (grid.children[3] as HTMLElement).getBoundingClientRect = () => new DOMRect(100, 80, 500, 700);
+    await pointer("pointerdown", 80, 740, entry("left"));
+    await pointer("pointermove", 650, 740);
+    const bottomPreview = host.querySelector<HTMLElement>('[data-terminal-dock-preview="bottom"]')!;
+    expect(bottomPreview.style.left).toBe("100px");
+    expect(bottomPreview.style.width).toBe("700px");
+    await pointer("pointerup", 650, 740);
+    expect(grid.dataset.terminalDock).toBe("bottom");
+    expect(host.querySelector("input")).toBe(input);
+    expect(input.value).toBe("unfinished command");
+    expect(host.querySelector("textarea")).toBe(editor);
+    expect(mounts).toBe(initialMounts);
+  } finally {
+    await fixture.destroy();
+  }
+});
+
+test("a hidden terminal stripe can be dragged without opening until drop, then clicked or hidden on the saved side", async () => {
+  const fixture = await dockFixture();
+  const { host, pointer } = fixture;
+  try {
+    const input = host.querySelector("input");
+    await act(async () => {
+      ui.getState().setBottomPaneActiveTab("run");
+      ui.getState().setIsBottomPaneVisible(false);
+    });
+    await pointer(
+      "pointerdown",
+      80,
+      700,
+      host.querySelector('[data-terminal-dock-activity="left"]')!,
+    );
+    await pointer("pointermove", 1120, 740);
+    expect(ui.getState().bottomPaneActiveTab).toBe("run");
+    expect(ui.getState().isBottomPaneVisible).toBe(false);
+    // Escape must cancel even when the focused editor consumes bubbling keys.
+    const editor = host.querySelector("textarea")!;
+    const consumeKey = (event: Event) => event.stopPropagation();
+    editor.addEventListener("keydown", consumeKey);
+    try {
+      await act(async () =>
+        editor.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })),
+      );
+    } finally {
+      editor.removeEventListener("keydown", consumeKey);
+    }
+    await pointer("pointerup", 1120, 740);
+    expect(writes).toEqual([]);
+    expect(ui.getState().bottomPaneActiveTab).toBe("run");
+    expect(ui.getState().isBottomPaneVisible).toBe(false);
+    await pointer(
+      "pointerdown",
+      80,
+      700,
+      host.querySelector('[data-terminal-dock-activity="left"]')!,
+    );
+    await pointer("pointermove", 1120, 740);
+    await pointer("pointerup", 1120, 740);
+    expect(ui.getState().bottomPaneActiveTab).toBe("terminal");
+    expect(ui.getState().isBottomPaneVisible).toBe(true);
+    expect(host.querySelector("input")).toBe(input);
+    const right = host.querySelector<HTMLButtonElement>('[data-terminal-dock-activity="right"]')!;
+    await act(async () => right.click());
+    expect(ui.getState().isBottomPaneVisible).toBe(false);
+    await act(async () => right.click());
+    expect(ui.getState().isBottomPaneVisible).toBe(true);
+    expect(fixture.grid.dataset.terminalDock).toBe("right");
+    await act(async () =>
+      settings.setState((state) => ({
+        settings: { ...state.settings, hiddenSidebarActivityItems: ["terminal"] },
+      })),
+    );
+    expect(host.querySelector("[data-terminal-dock-activity]")).toBeNull();
+  } finally {
+    await fixture.destroy();
+  }
+});
 
 test("terminal docking supports a keyboard click, bounded resizing and other tools staying at bottom", async () => {
   const fixture = await dockFixture();

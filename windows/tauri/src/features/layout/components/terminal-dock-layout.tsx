@@ -16,15 +16,17 @@ import { Button } from "@/ui/button";
 import { TerminalWindowIcon } from "@/ui/icons";
 import { clampResponsivePaneWidth } from "../utils/resizable-pane-layout";
 
-type DockPosition = "bottom" | "right";
+type DockPosition = "bottom" | "left" | "right";
 interface TerminalDock {
   position: DockPosition;
+  activitySide: "left" | "right";
   width: number;
   height: number;
   clampWidth: (value: number) => number;
   clampHeight: (value: number) => number;
   resize: (value: number) => void;
-  startDrag: (event: ReactPointerEvent) => void;
+  startDrag: (event: ReactPointerEvent, fromActivity?: boolean) => void;
+  suppressActivityClick: (keyboard: boolean) => boolean;
   toggle: (keyboard: boolean) => void;
 }
 const TerminalDockContext = createContext<TerminalDock | null>(null);
@@ -36,12 +38,16 @@ export function TerminalDockLayout({
   editor,
   tools,
   panel,
+  leftRail,
+  rightRail,
   workspaceKey,
 }: {
   sidebar: ReactNode;
   editor: ReactNode;
   tools: ReactNode;
   panel: ReactNode;
+  leftRail?: ReactNode;
+  rightRail?: ReactNode;
   workspaceKey: string;
 }) {
   const { t } = useTranslation();
@@ -53,6 +59,7 @@ export function TerminalDockLayout({
   const visible = useUIState((state) => state.isBottomPaneVisible);
   const widthMode = useTerminalStore((state) => state.widthMode);
   const position = activeTab === "terminal" ? storedPosition : "bottom";
+  const workbenchRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<HTMLDivElement>(null);
   const sidebarRef = useRef<HTMLDivElement>(null);
@@ -107,23 +114,29 @@ export function TerminalDockLayout({
     return () => cancelDrag.current?.();
   }, [workspaceKey, visible, activeTab, storedPosition, widthMode]);
 
-  const startDrag = (event: ReactPointerEvent) => {
-    if (event.button !== 0 || activeTab !== "terminal" || !visible) return;
+  const startDrag = (event: ReactPointerEvent, fromActivity = false) => {
+    if (event.button !== 0 || (!fromActivity && (activeTab !== "terminal" || !visible))) return;
     event.preventDefault();
     event.stopPropagation();
     cancelDrag.current?.();
     suppressClick.current = false;
     // Freeze geometry for the entire gesture; preview and hit testing use the same rectangles.
     const grid = gridRef.current!.getBoundingClientRect();
+    const workbench = workbenchRef.current!.getBoundingClientRect();
     const editorBounds = editorRef.current!.getBoundingClientRect();
     const panelBounds = panelRef.current!.getBoundingClientRect();
     const styles = window.getComputedStyle(gridRef.current!);
     const gap = (name: string) => Number.parseFloat(styles.getPropertyValue(name)) || 0;
     const bottomHeight =
-      position === "bottom" ? panelBounds.height : height + gap("--lithe-bottom-pane-gap");
-    const rightWidth =
-      position === "right" ? panelBounds.width : width + gap("--lithe-workbench-gap");
-    const bottomLeft = widthMode === "full" ? grid.left : editorBounds.left;
+      position === "bottom" && visible
+        ? panelBounds.height
+        : height + gap("--lithe-bottom-pane-gap");
+    const sideWidth =
+      position !== "bottom" && visible ? panelBounds.width : width + gap("--lithe-workbench-gap");
+    const bottomLeft =
+      widthMode === "full"
+        ? grid.left
+        : editorBounds.left - (position === "left" ? panelBounds.width : 0);
     const bottomRight =
       widthMode === "full"
         ? grid.right
@@ -137,13 +150,21 @@ export function TerminalDockLayout({
     let disposed = false;
     let target: DockPosition | null = null;
     const resolve = (x: number, y: number): DockPosition | null => {
-      if (x < grid.left || x > grid.right || y < grid.top || y > grid.bottom) return null;
+      if (x < workbench.left || x > workbench.right || y < grid.top || y > grid.bottom) return null;
+      // Activity stripes are drop targets too, including their lower corners.
+      if (x < grid.left) return "left";
+      if (x > grid.right) return "right";
       // The current edge wins at the corner, so a horizontal drag along the bottom stays there.
       const bottom = x >= bottomLeft && x <= bottomRight && y >= grid.bottom - bottomHeight;
-      const right = x >= grid.right - rightWidth;
+      const right = x >= grid.right - sideWidth;
+      const left = x <= grid.left + sideWidth;
       if (position === "bottom" && bottom) return "bottom";
+      if (position === "left" && left) return "left";
+      if (position === "right" && right) return "right";
+      if (bottom) return "bottom";
       if (right) return "right";
-      return bottom ? "bottom" : null;
+      if (left) return "left";
+      return null;
     };
     const move = (pointer: PointerEvent) => {
       if (pointer.pointerId !== pointerId) return;
@@ -160,10 +181,15 @@ export function TerminalDockLayout({
           ? null
           : {
               position: next,
-              left: next === "right" ? grid.width - rightWidth : bottomLeft - grid.left,
-              top: next === "right" ? 0 : grid.height - bottomHeight,
-              width: next === "right" ? rightWidth : bottomRight - bottomLeft,
-              height: next === "right" ? grid.height : bottomHeight,
+              left:
+                next === "right"
+                  ? grid.width - sideWidth
+                  : next === "left"
+                    ? 0
+                    : bottomLeft - grid.left,
+              top: next === "bottom" ? grid.height - bottomHeight : 0,
+              width: next === "bottom" ? bottomRight - bottomLeft : sideWidth,
+              height: next === "bottom" ? bottomHeight : grid.height,
             },
       );
     };
@@ -173,7 +199,7 @@ export function TerminalDockLayout({
       document.removeEventListener("pointermove", move, true);
       document.removeEventListener("pointerup", drop, true);
       document.removeEventListener("pointercancel", cancel, true);
-      document.removeEventListener("keydown", keydown);
+      document.removeEventListener("keydown", keydown, true);
       window.removeEventListener("blur", cancel);
       window.removeEventListener("resize", cancel);
       document.body.style.cursor = oldCursor;
@@ -188,6 +214,7 @@ export function TerminalDockLayout({
     const keydown = (key: KeyboardEvent) => {
       if (key.key === "Escape") {
         key.preventDefault();
+        key.stopPropagation();
         cancel();
       }
     };
@@ -195,13 +222,21 @@ export function TerminalDockLayout({
       if (pointer.pointerId !== pointerId) return;
       const destination = started ? resolve(pointer.clientX, pointer.clientY) : null;
       cleanup();
-      if (destination) updateSetting("terminalDockPosition", destination);
+      if (destination) {
+        updateSetting("terminalDockPosition", destination);
+        if (fromActivity) {
+          const ui = useUIState.getState();
+          ui.setBottomPaneActiveTab("terminal");
+          ui.setIsBottomPaneVisible(true);
+          window.dispatchEvent(new CustomEvent("terminal-ensure-session"));
+        }
+      }
     };
     cancelDrag.current = cancel;
     document.addEventListener("pointermove", move, true);
     document.addEventListener("pointerup", drop, true);
     document.addEventListener("pointercancel", cancel, true);
-    document.addEventListener("keydown", keydown);
+    document.addEventListener("keydown", keydown, true);
     window.addEventListener("blur", cancel);
     window.addEventListener("resize", cancel);
   };
@@ -210,67 +245,93 @@ export function TerminalDockLayout({
     <TerminalDockContext.Provider
       value={{
         position,
+        activitySide: storedPosition === "right" ? "right" : "left",
         width,
         height,
         clampWidth,
         clampHeight,
         startDrag,
+        suppressActivityClick: (keyboard) => !keyboard && suppressClick.current,
         resize: (value) =>
-          updateSetting(position === "right" ? "terminalDockWidth" : "bottomPaneHeight", value),
+          updateSetting(position === "bottom" ? "bottomPaneHeight" : "terminalDockWidth", value),
         toggle: (keyboard) => {
           if (keyboard || !suppressClick.current)
-            updateSetting("terminalDockPosition", position === "right" ? "bottom" : "right");
+            updateSetting("terminalDockPosition", position === "bottom" ? "right" : "bottom");
         },
       }}
     >
       <div
-        ref={gridRef}
-        data-terminal-dock={position}
-        className="relative grid min-h-0 min-w-0 flex-1 overflow-hidden"
-        style={{
-          gridTemplateColumns:
-            position === "right" ? "auto minmax(0, 1fr) auto auto" : "auto minmax(0, 1fr) auto",
-          gridTemplateRows: position === "right" ? "minmax(0, 1fr)" : "minmax(0, 1fr) auto",
-          gridTemplateAreas:
-            position === "right"
-              ? '"sidebar editor tools panel"'
-              : widthMode === "full"
-                ? '"sidebar editor tools" "panel panel panel"'
-                : '"sidebar editor tools" "sidebar panel tools"',
-        }}
+        ref={workbenchRef}
+        data-terminal-dock-workbench
+        className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden"
       >
-        <div ref={sidebarRef} className="flex min-h-0 min-w-0" style={{ gridArea: "sidebar" }}>
-          {sidebar}
-        </div>
+        {leftRail}
         <div
-          ref={editorRef}
-          className="flex min-h-0 min-w-0 flex-col"
-          style={{ gridArea: "editor" }}
+          ref={gridRef}
+          data-terminal-dock={position}
+          className="relative grid min-h-0 min-w-0 flex-1 overflow-hidden"
+          style={{
+            gridTemplateColumns:
+              position === "left"
+                ? "auto auto minmax(0, 1fr) auto"
+                : position === "right"
+                  ? "auto minmax(0, 1fr) auto auto"
+                  : "auto minmax(0, 1fr) auto",
+            gridTemplateRows: position !== "bottom" ? "minmax(0, 1fr)" : "minmax(0, 1fr) auto",
+            gridTemplateAreas:
+              position === "left"
+                ? '"panel sidebar editor tools"'
+                : position === "right"
+                  ? '"sidebar editor tools panel"'
+                  : widthMode === "full"
+                    ? '"sidebar editor tools" "panel panel panel"'
+                    : '"sidebar editor tools" "sidebar panel tools"',
+          }}
         >
-          {editor}
-        </div>
-        <div ref={toolsRef} className="flex min-h-0 min-w-0" style={{ gridArea: "tools" }}>
-          {tools}
-        </div>
-        <div ref={panelRef} className="flex min-h-0 min-w-0 flex-col" style={{ gridArea: "panel" }}>
-          {panel}
-        </div>
-        {preview && (
-          <div
-            data-terminal-dock-preview={preview.position}
-            className="pointer-events-none absolute z-50 flex items-center justify-center rounded-(--lithe-island-radius) border-2 border-primary bg-primary/20 text-foreground"
-            style={{
-              left: preview.left,
-              top: preview.top,
-              width: preview.width,
-              height: preview.height,
-            }}
-          >
-            <span className="rounded bg-background px-3 py-1">
-              {t(preview.position === "right" ? "terminal.dockRight" : "terminal.dockBottom")}
-            </span>
+          <div ref={sidebarRef} className="flex min-h-0 min-w-0" style={{ gridArea: "sidebar" }}>
+            {sidebar}
           </div>
-        )}
+          <div
+            ref={editorRef}
+            className="flex min-h-0 min-w-0 flex-col"
+            style={{ gridArea: "editor" }}
+          >
+            {editor}
+          </div>
+          <div ref={toolsRef} className="flex min-h-0 min-w-0" style={{ gridArea: "tools" }}>
+            {tools}
+          </div>
+          <div
+            ref={panelRef}
+            className="flex min-h-0 min-w-0 flex-col"
+            style={{ gridArea: "panel" }}
+          >
+            {panel}
+          </div>
+          {preview && (
+            <div
+              data-terminal-dock-preview={preview.position}
+              className="pointer-events-none absolute z-50 flex items-center justify-center rounded-(--lithe-island-radius) border-2 border-primary bg-primary/20 text-foreground"
+              style={{
+                left: preview.left,
+                top: preview.top,
+                width: preview.width,
+                height: preview.height,
+              }}
+            >
+              <span className="rounded bg-background px-3 py-1">
+                {t(
+                  preview.position === "right"
+                    ? "terminal.dockRight"
+                    : preview.position === "left"
+                      ? "terminal.dockLeft"
+                      : "terminal.dockBottom",
+                )}
+              </span>
+            </div>
+          )}
+        </div>
+        {rightRail}
       </div>
     </TerminalDockContext.Provider>
   );
@@ -288,7 +349,7 @@ export function TerminalDockHandle({ disabled = false }: { disabled?: boolean })
       aria-label={t("terminal.movePanel")}
       tooltip={t("terminal.movePanel")}
       tooltipSide="bottom"
-      onPointerDown={dock.startDrag}
+      onPointerDown={(event) => dock.startDrag(event)}
       onClick={(event) => dock.toggle(event.detail === 0)}
     >
       <TerminalWindowIcon />

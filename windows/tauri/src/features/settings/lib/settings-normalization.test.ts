@@ -22,8 +22,21 @@ describe("default settings", () => {
     expect(normalizeSettingValue("terminalDockPosition", "unknown" as never)).toBe("bottom");
     expect(normalizeSettingValue("terminalDockWidth", Number.NaN)).toBe(400);
     expect(normalizeSettingValue("bottomPaneHeight", -20)).toBe(200);
-    const saved = normalizeSettings({ ...restored, terminalDockPosition: "right", terminalDockWidth: 540, bottomPaneHeight: 410 });
-    expect([saved.terminalDockPosition, saved.terminalDockWidth, saved.bottomPaneHeight]).toEqual(["right", 540, 410]);
+    const saved = normalizeSettings({
+      ...restored,
+      terminalDockPosition: "right",
+      terminalDockWidth: 540,
+      bottomPaneHeight: 410,
+    });
+    expect([saved.terminalDockPosition, saved.terminalDockWidth, saved.bottomPaneHeight]).toEqual([
+      "right",
+      540,
+      410,
+    ]);
+    expect(normalizeSettings({ ...saved, terminalDockPosition: "left" }).terminalDockPosition).toBe(
+      "left",
+    );
+    expect(normalizeSettingValue("terminalDockPosition", "left")).toBe("left");
   });
   test("enables auto-save unless the user turns it off", () => {
     expect(getDefaultSettingsSnapshot().autoSave).toBe(true);

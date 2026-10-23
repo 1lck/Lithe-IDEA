@@ -53,6 +53,8 @@ const BottomPane = () => {
   const [height, setHeight] = useState(320);
   const dock = useTerminalDock();
   const isRightDocked = dock?.position === "right";
+  const isLeftDocked = dock?.position === "left";
+  const isSideDocked = isRightDocked || isLeftDocked;
   const paneHeight = dock?.height ?? height;
   const resizeSession = useRef<DocumentResizeSession | null>(null);
   const [isResizing, setIsResizing] = useState(false);
@@ -118,15 +120,21 @@ const BottomPane = () => {
   useEffect(() => {
     const frame = paneFrameRef.current;
     if (frame) {
-      frame.style.height = isRightDocked
+      frame.style.height = isSideDocked
         ? "100%"
         : `calc(${paneHeight}px + var(--lithe-bottom-pane-gap))`;
-      frame.style.width = isRightDocked
-        ? `calc(${dock!.width}px + var(--lithe-workbench-gap))`
-        : "";
+      frame.style.width = isSideDocked ? `calc(${dock!.width}px + var(--lithe-workbench-gap))` : "";
     }
     return () => resizeSession.current?.dispose({ commit: false });
-  }, [rootFolderPath, isRightDocked, isFullScreen, isBottomPaneVisible, dock?.width, paneHeight]);
+  }, [
+    rootFolderPath,
+    dock?.position,
+    isSideDocked,
+    isFullScreen,
+    isBottomPaneVisible,
+    dock?.width,
+    paneHeight,
+  ]);
 
   const handlePointerDown = (event: React.PointerEvent) => {
     if (event.button !== 0) return;
@@ -134,16 +142,16 @@ const BottomPane = () => {
     resizeSession.current?.dispose({ commit: false });
     const frame = paneFrameRef.current!;
     const applySize = (size: number) => {
-      if (isRightDocked) frame.style.width = `calc(${size}px + var(--lithe-workbench-gap))`;
+      if (isSideDocked) frame.style.width = `calc(${size}px + var(--lithe-workbench-gap))`;
       else frame.style.height = `calc(${size}px + var(--lithe-bottom-pane-gap))`;
     };
     resizeSession.current = startDocumentResizeSession({
-      startX: isRightDocked ? event.clientX : event.clientY,
-      startWidth: isRightDocked ? dock!.width : paneHeight,
-      direction: -1,
-      axis: isRightDocked ? "x" : "y",
-      cursor: isRightDocked ? "ew-resize" : "ns-resize",
-      clampWidth: isRightDocked
+      startX: isSideDocked ? event.clientX : event.clientY,
+      startWidth: isSideDocked ? dock!.width : paneHeight,
+      direction: isLeftDocked ? 1 : -1,
+      axis: isSideDocked ? "x" : "y",
+      cursor: isSideDocked ? "ew-resize" : "ns-resize",
+      clampWidth: isSideDocked
         ? dock!.clampWidth
         : (dock?.clampHeight ??
           ((value) => Math.min(Math.max(value, 200), window.innerHeight * 0.8))),
@@ -228,13 +236,14 @@ const BottomPane = () => {
       onPointerDown={handlePointerDown}
       className={cn(
         "relative shrink-0 touch-none",
-        isRightDocked
+        isSideDocked
           ? "h-full w-(--lithe-workbench-gap) cursor-ew-resize"
           : "h-(--lithe-bottom-pane-gap) w-full cursor-ns-resize",
+        isLeftDocked && "order-last",
       )}
       role="separator"
-      aria-orientation={isRightDocked ? "vertical" : "horizontal"}
-      aria-label={t(isRightDocked ? "terminal.resizePanel" : "layout.resizeBottomPane")}
+      aria-orientation={isSideDocked ? "vertical" : "horizontal"}
+      aria-label={t(isSideDocked ? "terminal.resizePanel" : "layout.resizeBottomPane")}
     />
   ) : null;
 
@@ -336,12 +345,12 @@ const BottomPane = () => {
       ref={paneFrameRef}
       className={cn(
         "flex min-h-0 min-w-0 shrink-0",
-        isRightDocked ? "h-full flex-row" : "flex-col",
+        isSideDocked ? "h-full flex-row" : "flex-col",
         !isBottomPaneVisible && "hidden",
       )}
       style={{
-        height: isRightDocked ? "100%" : `calc(${paneHeight}px + var(--lithe-bottom-pane-gap))`,
-        width: isRightDocked ? `calc(${dock!.width}px + var(--lithe-workbench-gap))` : undefined,
+        height: isSideDocked ? "100%" : `calc(${paneHeight}px + var(--lithe-bottom-pane-gap))`,
+        width: isSideDocked ? `calc(${dock!.width}px + var(--lithe-workbench-gap))` : undefined,
       }}
     >
       {resizeGutter}
@@ -350,7 +359,7 @@ const BottomPane = () => {
         <div
           className={cn(
             "fixed inset-0 z-40",
-            isRightDocked ? "cursor-ew-resize" : "cursor-ns-resize",
+            isSideDocked ? "cursor-ew-resize" : "cursor-ns-resize",
           )}
         />
       ) : null}

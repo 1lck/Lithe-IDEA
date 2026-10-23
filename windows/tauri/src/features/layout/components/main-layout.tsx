@@ -282,10 +282,10 @@ export function MainLayout() {
             <div className="flex flex-1 flex-row overflow-hidden" style={{ minHeight: 0 }}>
               {/* Both activity rails stay outside the middle column so they span the full
                   workbench height; the full-width bottom pane only stretches between them. */}
-              <SidebarActivityRail expanded={false} />
-
               <TerminalDockLayout
                 workspaceKey={rootFolderPath}
+                leftRail={<SidebarActivityRail expanded={false} />}
+                rightRail={<PluginActivityRail />}
                 sidebar={
                   <ResizablePane
                     position="left"
@@ -335,8 +335,6 @@ export function MainLayout() {
                   )
                 }
               />
-
-              <PluginActivityRail />
             </div>
           </div>
 
