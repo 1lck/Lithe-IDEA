@@ -38,6 +38,14 @@ pub enum CoreCommand {
     Ping,
     /// Detects Node.js and npm and lists catalog agent installs (`agent.status`).
     AgentStatus,
+    /// Reads the effective native global instruction file (`agent.instructions.read`).
+    AgentInstructionsRead,
+    /// Saves a guarded native global instruction draft (`agent.instructions.save`).
+    AgentInstructionsSave,
+    /// Synchronizes a marked shared block in native user files (`agent.instructions.shared`).
+    AgentInstructionsShared,
+    /// Lists native skills or creates/imports one explicitly (`agent.skills`).
+    AgentSkills,
     /// Installs a catalog ACP adapter with the user's npm (`agent.install`).
     AgentInstall,
     /// Removes a Lithe-managed ACP adapter install (`agent.uninstall`).
@@ -48,8 +56,18 @@ pub enum CoreCommand {
     AgentParseProviderConfiguration,
     /// Parses one Agent MCP configuration file into normalized servers (`mcp.parseConfiguration`).
     McpParseConfiguration,
+    /// Normalizes a public Registry response into discoverable server drafts (`mcp.parseRegistry`).
+    McpParseRegistry,
+    /// Returns the bundled, offline discovery catalog (`mcp.featuredRegistry`).
+    McpFeaturedRegistry,
     /// Plans a format-preserving MCP entry write or removal (`mcp.planWrite`).
     McpPlanWrite,
+    /// Probes an explicitly selected server without calling its tools.
+    McpProbe,
+    /// Reads or plans native per-tool exclusion lists.
+    McpToolPolicy,
+    /// Round-trips a quoted command line into exact argv boundaries.
+    McpCommandLine,
     /// Validates and normalizes a declarative plugin manifest (`plugins.declarative.validate`).
     PluginsDeclarativeValidate,
     /// Expands a declarative plugin's run template (`plugins.declarative.runPlan`).
@@ -428,12 +446,21 @@ impl CoreCommand {
             "core.ping" => Some(Self::Ping),
             "ideHost.control" => Some(Self::IdeHostControl),
             "agent.status" => Some(Self::AgentStatus),
+            "agent.instructions.read" => Some(Self::AgentInstructionsRead),
+            "agent.instructions.save" => Some(Self::AgentInstructionsSave),
+            "agent.instructions.shared" => Some(Self::AgentInstructionsShared),
+            "agent.skills" => Some(Self::AgentSkills),
             "agent.install" => Some(Self::AgentInstall),
             "agent.uninstall" => Some(Self::AgentUninstall),
             "agent.installCli" => Some(Self::AgentInstallCli),
             "agent.parseProviderConfiguration" => Some(Self::AgentParseProviderConfiguration),
             "mcp.parseConfiguration" => Some(Self::McpParseConfiguration),
+            "mcp.parseRegistry" => Some(Self::McpParseRegistry),
+            "mcp.featuredRegistry" => Some(Self::McpFeaturedRegistry),
             "mcp.planWrite" => Some(Self::McpPlanWrite),
+            "mcp.probe" => Some(Self::McpProbe),
+            "mcp.toolPolicy" => Some(Self::McpToolPolicy),
+            "mcp.commandLine" => Some(Self::McpCommandLine),
             "plugins.declarative.validate" => Some(Self::PluginsDeclarativeValidate),
             "plugins.declarative.runPlan" => Some(Self::PluginsDeclarativeRunPlan),
             "plugins.declarative.discoverTests" => Some(Self::PluginsDeclarativeDiscoverTests),

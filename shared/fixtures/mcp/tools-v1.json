@@ -1,0 +1,52 @@
+{
+  "probeRequest": {
+    "transport": "http",
+    "url": "https://example.invalid/mcp",
+    "command": null,
+    "args": [],
+    "env": [],
+    "headers": []
+  },
+  "probeResult": {
+    "tools": [
+      {
+        "name": "read",
+        "description": "Synthetic read-only tool metadata"
+      }
+    ]
+  },
+  "policyRequest": {
+    "source": "claude",
+    "content": "{}",
+    "server": "docs",
+    "tools": [
+      "read"
+    ],
+    "owned": [],
+    "tool": "read",
+    "enabled": false
+  },
+  "policyResult": {
+    "content": "{\n  \"permissions\": {\n  \"deny\": [\"mcp__docs__read\"]\n}\n}",
+    "changed": true,
+    "owned": [
+      "read"
+    ],
+    "tools": [
+      {
+        "name": "read",
+        "enabled": false,
+        "editable": true
+      }
+    ],
+    "hasRestrictions": true
+  },
+  "commandLine": {
+    "command": "/fixture/my tools/server",
+    "args": [
+      "",
+      "folder with spaces",
+      "a'b"
+    ]
+  }
+}

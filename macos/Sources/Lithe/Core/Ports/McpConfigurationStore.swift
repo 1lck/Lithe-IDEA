@@ -111,17 +111,26 @@ struct McpServerDefinition: Codable, Hashable, Identifiable, Sendable {
     }
 }
 
-/// Ledger entry recording that Lithe wrote a complete source entry.
+/// Non-secret native filters retained across server removal and re-registration.
+struct McpToolFilters: Codable, Hashable, Sendable {
+    let enabledTools: [String]?
+    let disabledTools: [String]?
+}
+
+/// Ledger entry recording ownership, or retained filters with no live source hash.
 struct McpOwnedEntry: Codable, Hashable, Sendable {
     let name: String
     let definitionHash: String
     /// Missing in legacy records, which must be adopted again before automatic writes.
     let sourceHash: String?
+    /// Native paths stay distinct when the user switches Agent profile roots.
+    let toolFilters: [String: McpToolFilters]?
 
-    init(name: String, definitionHash: String, sourceHash: String? = nil) {
+    init(name: String, definitionHash: String, sourceHash: String? = nil, toolFilters: [String: McpToolFilters]? = nil) {
         self.name = name
         self.definitionHash = definitionHash
         self.sourceHash = sourceHash
+        self.toolFilters = toolFilters
     }
 }
 
@@ -140,6 +149,8 @@ struct McpWriteRequest: Encodable, Sendable {
     let owned: [McpOwnedEntry]
     /// Full source version shown when editing; independent of the latest ledger.
     var expectedHash: String? = nil
+    /// Applied only to a new Codex entry; existing native policy always wins.
+    var toolFilters: McpToolFilters? = nil
 }
 
 /// Core's plan: the next file text plus whether anything changed.
@@ -154,6 +165,8 @@ struct McpWritePlan: Decodable, Sendable {
     let definitionHash: String?
     /// Complete source version derived from the planned output, not the draft.
     let sourceHash: String?
+    /// Returned only after a successful removal, for the host's durable ledger.
+    let toolFilters: McpToolFilters?
 }
 
 /// One compare-and-replace operation in an all-or-rollback batch.

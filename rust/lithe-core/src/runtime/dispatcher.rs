@@ -139,6 +139,16 @@ fn execute(request: &str) -> CoreResponse {
             }),
         ),
         CoreCommand::AgentStatus => agent_response(id, parsed.payload, crate::agent::status),
+        CoreCommand::AgentInstructionsRead => {
+            agent_response(id, parsed.payload, crate::agent::instructions::read)
+        }
+        CoreCommand::AgentInstructionsSave => {
+            agent_response(id, parsed.payload, crate::agent::instructions::save)
+        }
+        CoreCommand::AgentInstructionsShared => {
+            agent_response(id, parsed.payload, crate::agent::instructions::shared)
+        }
+        CoreCommand::AgentSkills => agent_response(id, parsed.payload, crate::agent::skills),
         CoreCommand::AgentParseProviderConfiguration => {
             match crate::ai::parse_provider_configuration(parsed.payload) {
                 Ok(data) => CoreResponse::success(id, data),
@@ -151,6 +161,23 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::McpParseRegistry => match crate::mcp::parse_registry(parsed.payload) {
+            Ok(data) => CoreResponse::success(id, data),
+            Err(error) => CoreResponse::failure(id, error),
+        },
+        CoreCommand::McpFeaturedRegistry => match crate::mcp::featured_registry() {
+            Ok(data) => CoreResponse::success(id, data),
+            Err(error) => CoreResponse::failure(id, error),
+        },
+        CoreCommand::McpProbe => agent_response(id, parsed.payload, crate::mcp::probe),
+        CoreCommand::McpToolPolicy => match crate::mcp::tool_policy(parsed.payload) {
+            Ok(data) => CoreResponse::success(id, data),
+            Err(error) => CoreResponse::failure(id, error),
+        },
+        CoreCommand::McpCommandLine => match crate::mcp::command_line(parsed.payload) {
+            Ok(data) => CoreResponse::success(id, data),
+            Err(error) => CoreResponse::failure(id, error),
+        },
         CoreCommand::McpPlanWrite => match crate::mcp::plan_write(parsed.payload) {
             Ok(data) => CoreResponse::success(id, data),
             Err(error) => CoreResponse::failure(id, error),

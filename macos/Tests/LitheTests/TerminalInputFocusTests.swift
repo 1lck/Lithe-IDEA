@@ -1,9 +1,11 @@
 import AppKit
+import SwiftUI
 import MetalKit
 import os
 import SwiftTerm
 import Testing
 @testable import Lithe
+import LitheTerminalModule
 
 @Suite("Terminal input focus")
 @MainActor
@@ -34,6 +36,20 @@ struct TerminalInputFocusTests {
         let missing = MacTerminalPalette(preferences: nil)
         #expect(missing.textColor == nil)
         #expect(missing.ansiColors.allSatisfy { $0 == nil })
+    }
+
+    @Test
+    func terminalPaletteRefreshesOnThemeChange() {
+        let terminal = LitheTerminalView(frame: .zero)
+        terminal.applyThemeColors(theme: .lithe, isDark: true)
+        let litheBackground = terminal.nativeBackgroundColor
+        let litheTerminalBackground = terminal.terminal.backgroundColor
+
+        terminal.applyThemeColors(theme: .codex, isDark: true)
+
+        #expect(terminal.nativeBackgroundColor != litheBackground)
+        #expect(terminal.terminal.backgroundColor != litheTerminalBackground)
+        #expect(terminal.nativeBackgroundColor == LitheTheme.nsColor(.editor, theme: .codex, isDark: true))
     }
 
     @Test
@@ -315,29 +331,38 @@ struct TerminalInputFocusTests {
     }
 }
 
-@Suite("Terminal canvas compositing")
+@Suite("Terminal canvas compositing", .serialized)
 @MainActor
 struct TerminalCanvasCompositingTests {
     @Test
+    func unmountedTerminalUsesAppAppearancePreference() {
+        let terminal = LitheTerminalView(frame: .zero)
+        terminal.appearance = NSAppearance(named: .darkAqua)
+        terminal.preferredAppearanceIsDark = { false }
+
+        terminal.applyThemeColors(theme: .lithe)
+
+        let expected = LitheTheme.nsColor(.editor, theme: .lithe, isDark: false)
+        #expect(terminal.window == nil)
+        #expect(terminal.nativeBackgroundColor.isEqual(expected))
+    }
+
+    @Test
     func canvasLeavesSharedPaneBackgroundVisibleWithWallpaper() {
         let terminal = LitheTerminalView(frame: NSRect(x: 0, y: 0, width: 400, height: 200))
-        terminal.appearance = NSAppearance(named: .aqua)
-        terminal.setWorkbenchBackgroundVisible(true)
-        terminal.applyThemeColors()
+        terminal.updateWorkbenchSurface(isVisible: true, theme: .lithe, isDark: false)
         #expect(terminal.nativeBackgroundColor.alphaComponent == 0)
         // Metal clear colors are premultiplied, so a transparent canvas clears to black rather than the workbench color.
         let clearColor = terminal.nativeBackgroundColor.usingColorSpace(.sRGB)
         #expect(clearColor?.redComponent == 0)
         #expect(clearColor?.greenComponent == 0)
         #expect(clearColor?.blueComponent == 0)
-        // The layer must stay clear as well: the Core Graphics fallback paints its background from this layer.
         #expect(terminal.layer?.backgroundColor == NSColor.clear.cgColor)
         #expect(terminal.layer?.isOpaque == false)
         let renderer = MTKView(frame: terminal.bounds, device: nil)
         terminal.addSubview(renderer)
-        terminal.applyThemeColors()
+        terminal.applyThemeColors(theme: .lithe, isDark: false)
         #expect(renderer.layer?.isOpaque == false)
-        // Focus changes repaint the paused Metal surface, so the decision must survive them too.
         terminal.hasFocus = false
         #expect(renderer.layer?.isOpaque == false)
     }
@@ -347,7 +372,7 @@ struct TerminalCanvasCompositingTests {
         for name in [NSAppearance.Name.aqua, .darkAqua] {
             let terminal = LitheTerminalView(frame: NSRect(x: 0, y: 0, width: 400, height: 200))
             terminal.appearance = NSAppearance(named: name)
-            terminal.applyThemeColors()
+            terminal.applyThemeColors(theme: .lithe, isDark: name == .darkAqua)
             let editorColor = LitheTheme.nsColor(.editor, isDark: name == .darkAqua)
             #expect(terminal.nativeBackgroundColor.alphaComponent == 1)
             #expect(terminal.nativeBackgroundColor.isEqual(editorColor))
@@ -355,7 +380,7 @@ struct TerminalCanvasCompositingTests {
             #expect(terminal.layer?.isOpaque == true)
             let renderer = MTKView(frame: terminal.bounds, device: nil)
             terminal.addSubview(renderer)
-            terminal.applyThemeColors()
+            terminal.applyThemeColors(theme: .lithe, isDark: name == .darkAqua)
             #expect(renderer.layer?.isOpaque == true)
         }
     }
@@ -364,18 +389,16 @@ struct TerminalCanvasCompositingTests {
     func canvasFollowsWorkbenchBackgroundChanges() {
         let terminal = LitheTerminalView(frame: NSRect(x: 0, y: 0, width: 400, height: 200))
         terminal.appearance = NSAppearance(named: .aqua)
-        terminal.applyThemeColors()
+        terminal.applyThemeColors(theme: .lithe, isDark: false)
         let renderer = MTKView(frame: terminal.bounds, device: nil)
         terminal.addSubview(renderer)
-
-        terminal.setWorkbenchBackgroundVisible(true)
+        terminal.updateWorkbenchSurface(isVisible: true, theme: .lithe, isDark: false)
         #expect(terminal.nativeBackgroundColor.alphaComponent == 0)
         #expect(terminal.nativeBackgroundColor.usingColorSpace(.sRGB)?.redComponent == 0)
         #expect(terminal.layer?.backgroundColor == NSColor.clear.cgColor)
         #expect(terminal.layer?.isOpaque == false)
         #expect(renderer.layer?.isOpaque == false)
-
-        terminal.setWorkbenchBackgroundVisible(false)
+        terminal.updateWorkbenchSurface(isVisible: false, theme: .lithe, isDark: false)
         #expect(terminal.nativeBackgroundColor.alphaComponent == 1)
         #expect(terminal.layer?.isOpaque == true)
         #expect(renderer.layer?.isOpaque == true)
@@ -383,24 +406,124 @@ struct TerminalCanvasCompositingTests {
 
     @Test
     func osc11ReportedBackgroundMatchesCanvasClearColor() throws {
-        // SwiftTerm answers OSC 11 from the terminal background color, which mirrors the canvas clear color.
-        // Reporting black while a wallpaper is visible is the documented tradeoff of the premultiplied clear.
         let terminal = LitheTerminalView(frame: NSRect(x: 0, y: 0, width: 400, height: 200))
         terminal.appearance = NSAppearance(named: .aqua)
-        terminal.applyThemeColors()
-        let editorColor = LitheTheme.nsColor(.editor, isDark: false).usingColorSpace(.sRGB)
+        terminal.applyThemeColors(theme: .lithe, isDark: false)
+        let editorColor = LitheTheme.nsColor(.editor, theme: .lithe, isDark: false).usingColorSpace(.sRGB)
         let expected = try #require(editorColor)
         let reported = terminal.terminal.backgroundColor
         #expect(reported.red == UInt16((expected.redComponent * 65535).rounded()))
         #expect(reported.green == UInt16((expected.greenComponent * 65535).rounded()))
         #expect(reported.blue == UInt16((expected.blueComponent * 65535).rounded()))
-
-        terminal.setWorkbenchBackgroundVisible(true)
+        terminal.updateWorkbenchSurface(isVisible: true, theme: .lithe, isDark: false)
         let transparent = terminal.terminal.backgroundColor
         #expect(transparent.red == 0)
         #expect(transparent.green == 0)
         #expect(transparent.blue == 0)
     }
+
+    @Test
+    func mountedTerminalRefreshesTheSameSurfaceInDarkAppearance() async throws {
+        try await assertMountedTerminalThemeRefresh(scheme: .dark)
+    }
+
+    @Test
+    func mountedTerminalRefreshesTheSameSurfaceInLightAppearance() async throws {
+        try await assertMountedTerminalThemeRefresh(scheme: .light)
+    }
+
+    private func assertMountedTerminalThemeRefresh(scheme: ColorScheme) async throws {
+        let domain = "Lithe.TerminalThemeRefresh.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        let originalTheme = AppThemeRuntime.shared.activeTheme
+        defer {
+            defaults.removePersistentDomain(forName: domain)
+            AppThemeRuntime.shared.activate(originalTheme)
+        }
+        let isDark = scheme == .dark
+        let store = MacUserDefaultsStore(defaults: defaults)
+        let settings = AppSettings(store: store)
+        settings.themePreference = isDark ? .dark : .light
+        settings.colorTheme = .lithe
+        let model = AppModel(settings: settings,
+            services: MacServiceContainer(store: store, settings: settings, moduleLaunchMode: .safeMode).services)
+        let terminal = LitheTerminalView(frame: .zero)
+        let transport = ThemeRefreshTestTransport(view: terminal)
+        let session = TerminalSession(transport: transport)
+        session.start(in: URL(fileURLWithPath: "/workspace/theme-refresh"), shellPath: "/bin/zsh")
+        let host = NSHostingView(rootView: TerminalSurfaceView(session: session)
+            .environmentObject(model).environmentObject(settings).environment(\.colorScheme, scheme))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 240),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.appearance = NSAppearance(named: isDark ? .darkAqua : .aqua)
+        window.contentView = host
+        let initialBackground = LitheTheme.nsColor(.editor, theme: .lithe, isDark: isDark)
+        let initialForeground = LitheTheme.nsColor(.primaryText, theme: .lithe, isDark: isDark)
+        let initialDeadline = ContinuousClock().now.advanced(by: .seconds(2))
+        while (!terminal.nativeBackgroundColor.isEqual(initialBackground)
+            || !terminal.nativeForegroundColor.isEqual(initialForeground)),
+            ContinuousClock().now < initialDeadline {
+            host.layoutSubtreeIfNeeded()
+            await Task.yield()
+        }
+        #expect(terminal.nativeBackgroundColor.isEqual(initialBackground))
+        #expect(terminal.nativeForegroundColor.isEqual(initialForeground))
+        #expect(session.isRunning)
+        let clock = ContinuousClock()
+        for theme in [AppColorTheme.codex, .linear, .lithe] {
+            settings.colorTheme = theme
+            let expected = LitheTheme.nsColor(.editor, theme: theme, isDark: isDark)
+            let expectedForeground = LitheTheme.nsColor(.primaryText, theme: theme, isDark: isDark)
+            let deadline = clock.now.advanced(by: .seconds(2))
+            while (!terminal.nativeBackgroundColor.isEqual(expected)
+                || !terminal.nativeForegroundColor.isEqual(expectedForeground)),
+                clock.now < deadline {
+                host.layoutSubtreeIfNeeded()
+                await Task.yield()
+            }
+            let sRGB = try #require(expected.usingColorSpace(.sRGB))
+            let reported = terminal.terminal.backgroundColor
+            let reportedForeground = terminal.terminal.foregroundColor
+            let expectedForegroundSRGB = try #require(expectedForeground.usingColorSpace(.sRGB))
+            #expect(terminal.nativeBackgroundColor.isEqual(expected))
+            #expect(terminal.nativeForegroundColor.isEqual(expectedForeground))
+            #expect(reported.red == UInt16(sRGB.redComponent * 65535))
+            #expect(reported.green == UInt16(sRGB.greenComponent * 65535))
+            #expect(reported.blue == UInt16(sRGB.blueComponent * 65535))
+            #expect(abs(Int(reportedForeground.red) - Int(expectedForegroundSRGB.redComponent * 65535)) <= 1)
+            #expect(abs(Int(reportedForeground.green) - Int(expectedForegroundSRGB.greenComponent * 65535)) <= 1)
+            #expect(abs(Int(reportedForeground.blue) - Int(expectedForegroundSRGB.blueComponent * 65535)) <= 1)
+            #expect(session.isRunning)
+        }
+        session.stop()
+        window.contentView = nil
+        window.close()
+        await model.shutdownProjectSession()
+    }
+}
+@MainActor
+private final class ThemeRefreshTestTransport: TerminalTransport {
+    let nativeView: AnyObject
+    var isRunning = false
+    var processID: Int32? { isRunning ? 1234 : nil }
+    var shellName = "zsh"
+    var onTermination: ((Int32?) -> Void)?
+    var onOutput: ((Data) -> Void)?
+    var onTitle: ((String) -> Void)?
+    var onDirectoryUpdate: ((String?) -> Void)?
+    var onLink: ((String, [String: String]) -> Void)?
+
+    init(view: LitheTerminalView) { nativeView = view }
+    func defaultShellPath() -> String { "/bin/zsh" }
+    func defaultEnvironment() -> [String: String] { [:] }
+    func start(workingDirectory: String, shellPath: String, environment: [String: String]) throws { isRunning = true }
+    func startProcess(_ launch: TerminalProcessLaunch, environment: [String: String]) throws -> Int32 { isRunning = true; return 1234 }
+    func send(_ input: Data) throws {}
+    func interrupt() throws {}
+    func focus() {}
+    func clear() {}
+    func stop() { isRunning = false }
 }
 
 @MainActor
@@ -446,4 +569,40 @@ private final class CursorDrawingRecorder: NSObject, MTKViewDelegate {
 @MainActor
 private final class TerminalOtherResponderView: NSView {
     override var acceptsFirstResponder: Bool { true }
+}
+
+/// Appearance resolution behind the exported COLORFGBG and the OSC 11 answer.
+@Suite("MacOS appearance resolution")
+@MainActor
+struct MacTerminalAppearanceResolutionTests {
+    @Test
+    func themePreferenceOverridesSystemAppearanceBeforeMount() {
+        let transport = MacTerminalTransport(preferredAppearanceIsDark: { true })
+        let view = transport.nativeView as! LitheTerminalView
+        view.appearance = NSAppearance(named: .aqua)
+        view.applyThemeColors(theme: LitheTheme.activeTheme)
+        #expect(transport.reportsLightBackground == false)
+    }
+
+    @Test
+    func effectiveAppearanceUsedWhenNoPreference() {
+        let transport = MacTerminalTransport(preferredAppearanceIsDark: { nil })
+        let view = transport.nativeView as! LitheTerminalView
+        view.appearance = NSAppearance(named: .aqua)
+        view.applyThemeColors(theme: LitheTheme.activeTheme)
+        #expect(transport.reportsLightBackground == true)
+    }
+
+    @Test
+    func wallpaperConfiguredBeforeSpawnReportsDarkAndAnswersBlack() {
+        let transport = MacTerminalTransport(preferredAppearanceIsDark: { nil })
+        let view = transport.nativeView as! LitheTerminalView
+        view.appearance = NSAppearance(named: .aqua)
+        view.applyThemeColors(theme: LitheTheme.activeTheme)
+        #expect(transport.reportsLightBackground == true)
+        transport.configureInitialSurface(showsWorkbenchBackground: true)
+        #expect(transport.reportsLightBackground == false)
+        // The canvas is transparent; OSC 11 answers this same black, so the env export stays consistent.
+        #expect(view.nativeBackgroundColor == NSColor.black.withAlphaComponent(0))
+    }
 }
