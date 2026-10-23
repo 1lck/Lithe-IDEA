@@ -213,6 +213,14 @@ export function redoActiveEditor(): void {
   editorAPI.redo();
 }
 
+export function undoActiveEditorCursor(): void {
+  editorAPI.executeCommand({ type: "cursorUndo" });
+}
+
+export function redoActiveEditorCursor(): void {
+  editorAPI.executeCommand({ type: "cursorRedo" });
+}
+
 export async function copyActiveEditorSelection(): Promise<void> {
   if (!shouldUseEditorModelCommand()) {
     document.execCommand("copy");

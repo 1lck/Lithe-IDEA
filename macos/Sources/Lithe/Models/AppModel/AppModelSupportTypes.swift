@@ -82,7 +82,7 @@ enum SettingsGroup: String, CaseIterable, Identifiable {
         case .build: [.project, .run]
         case .languages: [.lsp]
         case .tools: [.terminal, .diagnostics]
-        case .ai: [.mcp, .ai, .instructions, .agents, .skills, .providers]
+        case .ai: [.providers, .agents, .instructions, .skills, .mcp, .ai]
         }
     }
 }

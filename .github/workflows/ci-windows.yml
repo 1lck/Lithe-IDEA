@@ -381,6 +381,11 @@ jobs:
         shell: pwsh
         run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-git-gutter.json -- src/features/git/utils/git-gutter-changes.test.ts src/features/editor/engines/monaco/git-gutter-peek-session.test.ts src/features/git/api/git-line-history-api.test.ts src/features/git/utils/line-history-selection.test.ts src/features/git/components/git-line-history-popup.test.tsx
 
+      - name: Test cursor-aware undo and keyboard routing
+        shell: pwsh
+        timeout-minutes: 2
+        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-cursor-undo.json -- src/features/editor/engines/monaco/cursor-aware-undo.test.ts src/features/keymaps/hooks/use-keymaps.integration.test.tsx
+
       - name: Test editor tab scrolling and lifecycle
         shell: pwsh
         run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-tabs.json -- src/features/tabs src/features/editor/stores/buffer-new-tab.test.ts src/features/editor/stores/buffer-close-saved-tabs.test.ts

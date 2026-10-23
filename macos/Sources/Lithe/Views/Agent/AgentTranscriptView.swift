@@ -237,7 +237,8 @@ struct AgentTranscriptView: View {
                         .padding(.horizontal, 12)
                         .padding(.vertical, 12)
                         .modifier(AgentEditorColumn(isEditor: isEditorLayout))
-                        .padding(.horizontal, isEditorLayout ? 0 : 28)
+                        // Only the trailing navigation rail needs the extra gutter.
+                        .padding(.trailing, isEditorLayout ? 0 : 28)
                         .background(AgentTranscriptNavigationViewport(state: navigation))
                         .litheScrollViewChrome(alwaysShowVertical: true)
                         .background(AgentTranscriptScrollAnchor(
