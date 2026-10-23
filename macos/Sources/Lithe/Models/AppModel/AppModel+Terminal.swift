@@ -61,7 +61,8 @@ extension AppModel {
         let session = feature.createSession(
             in: workspaceURL,
             shellPath: shellPath ?? settings.terminalShellPath,
-            preferredToolTabTitle: shellPath.map { URL(fileURLWithPath: $0).lastPathComponent }
+            preferredToolTabTitle: shellPath.map { URL(fileURLWithPath: $0).lastPathComponent },
+            showsWorkbenchBackground: workbenchBackgroundFeature.hasImage
         )
         configureTerminalSession(session)
         terminalPlacementFeature.registerSession(session.id)
@@ -131,7 +132,10 @@ extension AppModel {
                 TerminalEnvironmentChange(name: $0.name, value: $0.value)
             }
         )
-        let created = try feature.createProcessSession(launch) { [weak self] output in
+        let created = try feature.createProcessSession(
+            launch,
+            showsWorkbenchBackground: workbenchBackgroundFeature.hasImage
+        ) { [weak self] output in
             self?.genericDebugFeatureIfActive?.appendDebuggeeOutput(output)
         }
         configureTerminalSession(created.session)

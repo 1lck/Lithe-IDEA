@@ -1314,6 +1314,7 @@ extension AppThemePreference {
         case .dark: true
         }
     }
+
     var preferredColorScheme: ColorScheme? {
         switch self {
         case .system: nil
