@@ -157,12 +157,10 @@ struct PluginMarketplaceView: View {
             switch feature.installState(for: offer) {
             case .installable:
                 Button(LocalizedStringKey("Install")) { install(offer) }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
+                    .buttonStyle(LitheActionButtonStyle())
             case .updateAvailable:
                 Button(LocalizedStringKey("Update")) { install(offer) }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
+                    .buttonStyle(LitheActionButtonStyle())
             case .installed, .installedFromOtherSource, .managedOutsideMarketplace:
                 if feature.requiresRestart(pluginID) {
                     RestartLitheButton(prominent: false)
@@ -316,24 +314,22 @@ private struct PluginMarketplaceDetail: View {
             switch state {
             case .installable:
                 Button(LocalizedStringKey("Install"), action: install)
-                    .buttonStyle(.borderedProminent)
-                    .tint(LitheTheme.accent)
+                    .buttonStyle(LitheActionButtonStyle(isPrimary: true))
             case .updateAvailable(_, let available):
                 Button(String(format: PluginMarketplacePresentation.localized("Update to %@", locale: locale), available), action: install)
-                    .buttonStyle(.borderedProminent)
-                    .tint(LitheTheme.accent)
+                    .buttonStyle(LitheActionButtonStyle(isPrimary: true))
             case .installed, .installedFromOtherSource, .managedOutsideMarketplace:
-                HStack(spacing: 8) {
+                HStack(spacing: LitheTheme.ActionButton.spacing) {
                     if feature.requiresRestart(PluginID(entry.id)) {
                         RestartLitheButton()
                     } else {
                         Button(LocalizedStringKey("Installed")) {}
-                            .buttonStyle(.bordered)
+                            .buttonStyle(LitheActionButtonStyle())
                             .disabled(true)
                     }
                     if feature.canUninstall(PluginID(entry.id)) {
                         Button(LocalizedStringKey("Uninstall")) { confirmingUninstall = true }
-                            .buttonStyle(.bordered)
+                            .buttonStyle(LitheActionButtonStyle())
                     }
                 }
                 .confirmationDialog(
@@ -348,12 +344,12 @@ private struct PluginMarketplaceDetail: View {
                 }
             case .unsupported:
                 Button(LocalizedStringKey("Not Supported")) {}
-                    .buttonStyle(.bordered)
+                    .buttonStyle(LitheActionButtonStyle())
                     .disabled(true)
             case .blockedByRetiredPlugin(_, let uninstallPending):
                 HStack(spacing: 8) {
                     Button(LocalizedStringKey("Install")) {}
-                        .buttonStyle(.bordered)
+                        .buttonStyle(LitheActionButtonStyle())
                         .disabled(true)
                     if uninstallPending { RestartLitheButton() }
                 }
@@ -851,12 +847,13 @@ struct PluginInstallConfirmationSheet: View {
             }
             .frame(maxHeight: 480)
 
-            HStack {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Spacer()
                 // Cancel is the default so pressing Return never installs.
-                Button(LocalizedStringKey("Cancel"), action: cancel)
+                Button(LocalizedStringKey("Cancel"), action: cancel).buttonStyle(LitheActionButtonStyle(isPrimary: true))
                     .keyboardShortcut(.defaultAction)
                 Button(LocalizedStringKey(confirmation.isUpdate ? "Update" : "Install"), action: confirm)
+                    .buttonStyle(LitheActionButtonStyle())
             }
         }
         .padding(22)
@@ -997,16 +994,15 @@ struct PluginRepositoriesSheet: View {
                 }
                 .frame(maxHeight: 320)
             }
-            HStack {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Button(LocalizedStringKey("Refresh All")) {
                     Task { await feature.refreshAll() }
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(LitheActionButtonStyle())
                 .disabled(!feature.sources.contains(where: \.isEnabled))
                 Spacer()
                 Button(LocalizedStringKey("Done"), action: close)
-                    .buttonStyle(.borderedProminent)
-                    .tint(LitheTheme.accent)
+                    .buttonStyle(LitheActionButtonStyle(isPrimary: true))
                     .keyboardShortcut(.defaultAction)
             }
         }
@@ -1035,14 +1031,14 @@ struct PluginRepositoriesSheet: View {
                     Text(LocalizedStringKey("Add"))
                 }
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(LitheActionButtonStyle())
             .disabled(!canAdd)
         }
     }
 
     private func sourceRow(_ source: PluginMarketplaceSource, now: Date) -> some View {
         let status = feature.sourceStatuses[source.id] ?? .init()
-        return HStack(spacing: 10) {
+        return HStack(spacing: LitheTheme.ActionButton.spacing) {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(verbatim: PluginMarketplacePresentation.sourceName(source, locale: locale))
@@ -1080,8 +1076,7 @@ struct PluginRepositoriesSheet: View {
             Button(LocalizedStringKey("Refresh")) {
                 Task { await feature.refresh(sourceID: source.id) }
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
+            .buttonStyle(LitheActionButtonStyle())
             .disabled(!source.isEnabled || status.isRefreshing)
             if source.isOfficial {
                 // The built-in source can be disabled but never removed.
@@ -1094,8 +1089,7 @@ struct PluginRepositoriesSheet: View {
                 } label: {
                     Text(LocalizedStringKey("Remove")).foregroundStyle(LitheTheme.error)
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+                .buttonStyle(LitheActionButtonStyle())
             }
         }
         .padding(.vertical, 4)

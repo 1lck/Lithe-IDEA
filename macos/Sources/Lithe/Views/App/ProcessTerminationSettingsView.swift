@@ -16,6 +16,18 @@ struct ProcessTerminationSettingsView: View {
                 LitheInfoTip("Choose what happens to programs started in Lithe when you quit or close a terminal. Programs started outside Lithe are never shown or stopped.")
             }) {
                 row(
+                    "Run services",
+                    info: "Run configurations and Maven goals started in Lithe. They always stop when their project or window closes or Lithe quits, together with the processes they started; this only decides whether Lithe lists them and asks first."
+                ) {
+                    select(\.runServicesOnExit, options: RunServiceExitPolicy.allCases, label: "Run services") {
+                        switch $0 {
+                        case .ask: "Ask before stopping"
+                        case .terminate: "Stop without asking"
+                        }
+                    }
+                }
+
+                row(
                     "Terminals with running programs",
                     info: "A terminal is busy when a program other than the shell still runs in it, such as a Spring Boot app, npm run dev or a job you sent to the background. Idle terminals always close without asking. Ending a terminal ends every program started in it."
                 ) {
@@ -114,7 +126,7 @@ struct ProcessTerminationSettingsView: View {
                             Button("Forget") {
                                 settings.processTermination.rememberedChoices[recognizer] = nil
                             }
-                            .buttonStyle(LitheSecondaryButtonStyle())
+                            .buttonStyle(LitheActionButtonStyle())
                         }
                     }
                 }

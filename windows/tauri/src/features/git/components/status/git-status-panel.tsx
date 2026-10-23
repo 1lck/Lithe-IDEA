@@ -59,7 +59,7 @@ import type { GitFile } from "../../types/git.types";
 import {
   buildGitFolderTree,
   buildGitStatusPresentation,
-  GIT_STATUS_ORDER,
+  orderedGitStatusFiles,
   type GitFolderTree,
   type GitStatusGroup,
 } from "../../utils/git-status-model";
@@ -494,18 +494,16 @@ const GitStatusPanel = ({
         return;
       }
 
-      for (const status of GIT_STATUS_ORDER) {
-        for (const file of groupedFiles[status]) {
-          rows.push({
-            kind: "file",
-            key: `${section}:${status}:${file.staged ? "staged" : "unstaged"}:${file.path}`,
-            section,
-            file,
-            depth: GIT_STATUS_SECTION_CHILD_DEPTH,
-            showDirectory: true,
-            reserveDisclosureSpace: true,
-          });
-        }
+      for (const file of orderedGitStatusFiles(groupedFiles)) {
+        rows.push({
+          kind: "file",
+          key: `${section}:${file.status}:${file.staged ? "staged" : "unstaged"}:${file.path}`,
+          section,
+          file,
+          depth: GIT_STATUS_SECTION_CHILD_DEPTH,
+          showDirectory: true,
+          reserveDisclosureSpace: true,
+        });
       }
     };
 

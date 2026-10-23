@@ -21,7 +21,7 @@ struct AgentInstructionsSettingsView: View {
                 Spacer(minLength: 0)
                 Button(localized("Refresh")) {
                     run { await feature.loadShared(); await feature.loadAll() }
-                }.buttonStyle(LitheSecondaryButtonStyle())
+                }.buttonStyle(LitheActionButtonStyle())
                     .disabled(feature.isSharedBusy || feature.phases.values.contains(.saving))
             }
             sharedCard
@@ -78,8 +78,8 @@ struct AgentInstructionsSettingsView: View {
                         .disabled(feature.sharedLibrary == nil || feature.isSharedBusy)
                         .accessibilityLabel(Text(key("Shared instructions")))
                     ViewThatFits(in: .horizontal) {
-                        HStack(spacing: 8) { sharedActions }
-                        VStack(alignment: .leading, spacing: 8) { sharedActions }
+                        HStack(spacing: LitheTheme.ActionButton.spacing) { sharedActions }
+                        VStack(alignment: .leading, spacing: LitheTheme.ActionButton.spacing) { sharedActions }
                     }
                 }.padding(.vertical, 8)
             }
@@ -88,7 +88,7 @@ struct AgentInstructionsSettingsView: View {
                     Text(key(String.LocalizationValue(message))).font(LitheTheme.smallFont).foregroundStyle(LitheTheme.error)
                     Spacer(minLength: 0)
                     Button(localized("Reload from disk")) { requestReload(shared: true) }
-                        .buttonStyle(LitheSecondaryButtonStyle()).disabled(feature.isSharedBusy)
+                        .buttonStyle(LitheActionButtonStyle()).disabled(feature.isSharedBusy)
                 }
             }
         }
@@ -96,11 +96,11 @@ struct AgentInstructionsSettingsView: View {
 
     @ViewBuilder private var sharedActions: some View {
         Button(localized("Save shared instructions")) { run { await feature.saveShared() } }
-            .buttonStyle(LithePrimaryButtonStyle(backgroundColor: LitheTheme.settingsPrimaryAction, restingOpacity: 1))
+            .buttonStyle(LitheActionButtonStyle(isPrimary: true))
             .disabled(!feature.canSaveShared).opacity(feature.canSaveShared ? 1 : 0.5)
             .keyboardShortcut(focusedEditor == .shared ? KeyboardShortcut("s", modifiers: .command) : nil)
         Button(localized("Reload from disk")) { requestReload(shared: true) }
-            .buttonStyle(LitheSecondaryButtonStyle()).disabled(feature.isSharedBusy)
+            .buttonStyle(LitheActionButtonStyle()).disabled(feature.isSharedBusy)
         if feature.isSharedBusy { ProgressView().controlSize(.small) }
         else if feature.sharedSaved { Text(key("Shared instructions saved.")).font(LitheTheme.smallFont).foregroundStyle(LitheTheme.secondaryText) }
         if feature.sharedDraft.utf8.count > 1024 * 1024 {
@@ -149,7 +149,7 @@ struct AgentInstructionsSettingsView: View {
             }
             if feature.sharedState(agent)?.needsSync == true {
                 Button(localized("Sync again")) { run { await feature.setSharedEnabled(true, agent: agent) } }
-                    .buttonStyle(LitheSecondaryButtonStyle()).disabled(!feature.canToggleShared(agent))
+                    .buttonStyle(LitheActionButtonStyle()).disabled(!feature.canToggleShared(agent))
             }
             if feature.files[agent] == nil, case .failed(let message) = feature.phases[agent] {
                 Text(key(String.LocalizationValue(message))).font(LitheTheme.smallFont).foregroundStyle(LitheTheme.error)
@@ -179,8 +179,8 @@ struct AgentInstructionsSettingsView: View {
                     .accessibilityLabel(Text(key("Global instructions")))
             }
             ViewThatFits(in: .horizontal) {
-                HStack(spacing: 8) { nativeActions }
-                VStack(alignment: .leading, spacing: 8) { nativeActions }
+                HStack(spacing: LitheTheme.ActionButton.spacing) { nativeActions }
+                VStack(alignment: .leading, spacing: LitheTheme.ActionButton.spacing) { nativeActions }
             }
             if case .failed(let message) = feature.phase {
                 Text(key(String.LocalizationValue(message))).font(LitheTheme.smallFont).foregroundStyle(LitheTheme.error).textSelection(.enabled)
@@ -193,11 +193,11 @@ struct AgentInstructionsSettingsView: View {
 
     @ViewBuilder private var nativeActions: some View {
         Button(localized("Save instructions")) { run { await feature.save() } }
-            .buttonStyle(LithePrimaryButtonStyle(backgroundColor: LitheTheme.settingsPrimaryAction, restingOpacity: 1))
+            .buttonStyle(LitheActionButtonStyle(isPrimary: true))
             .disabled(!feature.canSave).opacity(feature.canSave ? 1 : 0.5)
             .keyboardShortcut(focusedEditor == .native ? KeyboardShortcut("s", modifiers: .command) : nil)
         Button(localized("Reload from disk")) { requestReload(shared: false) }
-            .buttonStyle(LitheSecondaryButtonStyle()).disabled(feature.isBusy || feature.isSharedBusy)
+            .buttonStyle(LitheActionButtonStyle()).disabled(feature.isBusy || feature.isSharedBusy)
         if feature.isBusy { ProgressView().controlSize(.small) }
         else if feature.isDirty { Text(key("Unsaved changes")).font(LitheTheme.smallFont).foregroundStyle(LitheTheme.warning) }
         else if feature.saved.contains(feature.selectedAgent) { Text(key("Instructions saved.")).font(LitheTheme.smallFont).foregroundStyle(LitheTheme.secondaryText) }

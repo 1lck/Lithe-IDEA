@@ -25,6 +25,7 @@ struct WorkspaceSessionCoordinatorTests {
                 closeRequests += 1
                 return true
             },
+            runServicesCloseConfirmation: { nil },
             restoreDebugBreakpoints: { _ in },
             visibilityRules: { .default }
         ))
@@ -70,6 +71,7 @@ struct WorkspaceSessionCoordinatorTests {
                 closeRequests += 1
                 return true
             },
+            runServicesCloseConfirmation: { nil },
             restoreDebugBreakpoints: { _ in },
             visibilityRules: { .default }
         ))
@@ -88,6 +90,63 @@ struct WorkspaceSessionCoordinatorTests {
         #expect(closedURLs == [url])
         #expect(coordinator.pendingCloseRequest == nil)
         #expect(platform.stoppedURLs == [url])
+    }
+
+    @Test
+    func runServiceQuestionComesBeforeTheDocumentsAndCancelKeepsTheProject() async {
+        let platform = CoordinatorTestPlatformUI()
+        let coordinator = WorkspaceSessionCoordinator(
+            recentProjectsStore: RecentProjectsStore(store: CoordinatorTestStore()),
+            platformUI: platform
+        )
+        defer { coordinator.clearSession() }
+        let url = URL(fileURLWithPath: "/tmp/lithe-run-services-close", isDirectory: true)
+        var answers = [false, true]
+        var questions = 0
+        var closeRequests = 0
+        var closedURLs: [URL] = []
+        coordinator.configureLifecycle(with: .init(
+            prepareForWorkspaceOpen: { _ in },
+            prepareForWorkspaceClose: { closedURLs.append($0) },
+            prepareForStandaloneOpen: { _ in },
+            finishStandaloneClose: {},
+            beginDocumentClose: {
+                closeRequests += 1
+                return false
+            },
+            runServicesCloseConfirmation: {
+                {
+                    questions += 1
+                    return answers.removeFirst()
+                }
+            },
+            restoreDebugBreakpoints: { _ in },
+            visibilityRules: { .default }
+        ))
+        coordinator.beginWorkspace(at: url)
+
+        coordinator.requestCloseWorkspace()
+        #expect(coordinator.pendingCloseRequest == .workspace)
+        #expect(closeRequests == 0)
+        await waitUntil { coordinator.pendingCloseRequest == nil }
+        #expect(questions == 1)
+        #expect(closeRequests == 0)
+        #expect(coordinator.workspaceURL == url)
+        #expect(platform.stoppedURLs.isEmpty)
+
+        coordinator.requestCloseWorkspace()
+        await waitUntil { coordinator.workspaceURL == nil }
+        #expect(questions == 2)
+        #expect(closeRequests == 1)
+        #expect(closedURLs == [url])
+    }
+
+    /// Yields to the main actor until `condition` holds, for a bounded number of turns.
+    private func waitUntil(_ condition: () -> Bool) async {
+        for _ in 0..<1_000 where !condition() {
+            await Task.yield()
+        }
+        #expect(condition())
     }
 
     @Test
@@ -115,6 +174,7 @@ struct WorkspaceSessionCoordinatorTests {
                 closeRequests += 1
                 return false
             },
+            runServicesCloseConfirmation: { nil },
             restoreDebugBreakpoints: { _ in },
             visibilityRules: { .default }
         ))

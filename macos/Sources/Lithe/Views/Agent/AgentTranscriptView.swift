@@ -375,14 +375,14 @@ private struct AgentPermissionCard: View {
                 }
                 .frame(maxHeight: 180)
             }
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: LitheTheme.ActionButton.spacing) {
                 ForEach(permission.choices) { choice in
-                    Button(choice.label) { answer(choice.id) }
-                        .buttonStyle(.bordered)
-                        .tint(choice.kind?.hasPrefix("reject") == true ? LitheTheme.error : LitheTheme.accent)
+                    Button(choice.label, role: choice.kind?.hasPrefix("reject") == true ? .destructive : nil) { answer(choice.id) }
+                        .buttonStyle(LitheActionButtonStyle())
                 }
                 if !permission.choices.contains(where: { $0.kind?.hasPrefix("reject") == true }) {
-                    Button("Deny") { answer(nil) }
+                    Button("Deny", role: .destructive) { answer(nil) }
+                        .buttonStyle(LitheActionButtonStyle())
                 }
             }
             .controlSize(.small)

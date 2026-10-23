@@ -46,14 +46,14 @@ private struct GitInteractiveRebasePlanView: View {
             if let error = editor.errorMessage {
                 Text(LocalizedStringKey(error)).font(LitheTheme.uiFont(size: 12)).foregroundStyle(LitheTheme.error).textSelection(.enabled)
             }
-            HStack {
-                Button("Reload Range") { editor.reloadPreview() }.disabled(editor.isBusy).lithePointer()
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
+                Button("Reload Range") { editor.reloadPreview() }.buttonStyle(LitheActionButtonStyle()).disabled(editor.isBusy).lithePointer()
                     .help("Reload the Core preview and reset the step plan")
                 if editor.isExecuting { ProgressView().controlSize(.small) }
                 Spacer()
-                Button("Cancel") { editor.dismissPlan() }.keyboardShortcut(.cancelAction).disabled(editor.isExecuting).lithePointer()
+                Button("Cancel") { editor.dismissPlan() }.buttonStyle(LitheActionButtonStyle()).keyboardShortcut(.cancelAction).disabled(editor.isExecuting).lithePointer()
                 Button("Start Rebase") { Task { await editor.start() } }
-                    .buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+                    .buttonStyle(LitheActionButtonStyle(isPrimary: true)).keyboardShortcut(.defaultAction)
                     .disabled(!editor.canStart).lithePointer()
             }
         }

@@ -17,6 +17,14 @@ struct TerminalExitCandidate: Equatable, Sendable {
     var recordID: String { "terminal:\(sessionID.uuidString)" }
 }
 
+/// A Run configuration or Maven goal that is still running in a project.
+struct RunServiceExitCandidate: Equatable, Sendable {
+    /// Lifecycle record ID; unique across the projects being closed.
+    let id: String
+    let title: String
+    let projectName: String
+}
+
 /// A command an Agent started that is still running.
 struct AgentTaskCandidate: Equatable, Sendable {
     /// Lifecycle record ID; stable while the task's root process lives.
@@ -72,11 +80,20 @@ enum ProcessConfirmationPurpose: Sendable {
     case startupSweep
 }
 
+/// What closes when Run services are asked about.
+enum RunServiceStopPurpose: Sendable {
+    case quit
+    /// A project or project window closes while Lithe keeps running.
+    case closeProject
+}
+
 /// Shows the confirmations of the exit flow. Implemented by the platform.
 @MainActor
 protocol ProcessExitConfirmationPresenting: AnyObject {
     func confirmTerminalOnQuit(_ terminal: TerminalExitCandidate, position: Int, count: Int) async -> TerminalExitAnswer
     func confirmTerminalClose(_ terminal: TerminalExitCandidate) async -> Bool
+    /// One question for every listed Run service: stop them all or cancel.
+    func confirmStopRunServices(_ services: [RunServiceExitCandidate], purpose: RunServiceStopPurpose) async -> Bool
     func confirmAgentTask(
         _ task: AgentTaskCandidate,
         position: Int,
@@ -142,7 +159,8 @@ enum ProcessExitOutcome: Equatable, Sendable {
 /// Rust Core decides which records need a question (`processLifecycle.resolve`)
 /// and turns the answers into what ends and what is kept, including remembered
 /// choices (`processLifecycle.settle`). This type only orders the questions:
-/// busy terminals one by one, Agent tasks one by one, then the background list.
+/// Run services in one list, busy terminals one by one, Agent tasks one by
+/// one, then the background list.
 /// Nothing is stopped here, and a cancel at any step discards the earlier answers.
 @MainActor
 final class ProcessExitCoordinator {
@@ -162,13 +180,20 @@ final class ProcessExitCoordinator {
 
     func confirmQuit(
         settings: ProcessTerminationSettings,
+        runServices: [RunServiceExitCandidate] = [],
         terminals: [TerminalExitCandidate],
         agentTasks: [AgentTaskCandidate],
         resources: [BackgroundResourceCandidate]
     ) async -> (outcome: ProcessExitOutcome, settings: ProcessTerminationSettings) {
-        let records = terminals.map(Self.record) + agentTasks.map(Self.record) + resources.map(Self.record)
+        let records = runServices.map(Self.record) + terminals.map(Self.record)
+            + agentTasks.map(Self.record) + resources.map(Self.record)
         let plan = resolve(.quit, settings: settings, records: records)
         var answers: [String: ProcessLifecycleAnswer] = [:]
+
+        let stopServices = runServices.filter { plan.action(for: $0.id) == .confirmStop }
+        if !stopServices.isEmpty, await presenter?.confirmStopRunServices(stopServices, purpose: .quit) != true {
+            return (.cancelled, settings)
+        }
 
         let busyTerminals = terminals.filter { plan.action(for: $0.recordID) == .confirm }
         for (index, terminal) in busyTerminals.enumerated() {
@@ -220,6 +245,18 @@ final class ProcessExitCoordinator {
             gracefulStopMilliseconds: plan.gracefulStopMilliseconds
         )
         return (.proceed(approval), settlement.settings)
+    }
+
+    /// Whether a project or project window may close, which stops its Run
+    /// services. Asks first unless the setting says to stop them silently.
+    func confirmCloseProject(
+        settings: ProcessTerminationSettings,
+        runServices: [RunServiceExitCandidate]
+    ) async -> Bool {
+        let plan = resolve(.closeWorkspace, settings: settings, records: runServices.map(Self.record))
+        let stopServices = runServices.filter { plan.action(for: $0.id) == .confirmStop }
+        guard !stopServices.isEmpty else { return true }
+        return await presenter?.confirmStopRunServices(stopServices, purpose: .closeProject) ?? false
     }
 
     /// Whether a terminal tab may be closed. An idle tab never asks.
@@ -298,7 +335,8 @@ final class ProcessExitCoordinator {
                         kind: record.kind,
                         policy: .confirmEach,
                         action: record.kind == .terminal && record.idle ? .terminate
-                            : record.kind == .terminal || record.kind == .agentTask ? .confirm : .ask,
+                            : record.kind == .terminal || record.kind == .agentTask ? .confirm
+                            : record.kind == .run && record.ownership == .launched ? .confirmStop : .ask,
                         reason: "policyUnavailable"
                     )
                 }
@@ -326,6 +364,10 @@ final class ProcessExitCoordinator {
             diagnostics("Process lifecycle settlement failed: \(error)\n")
             return nil
         }
+    }
+
+    private static func record(_ service: RunServiceExitCandidate) -> ProcessLifecycleRecord {
+        ProcessLifecycleRecord(id: service.id, kind: .run, ownership: .launched)
     }
 
     private static func record(_ terminal: TerminalExitCandidate) -> ProcessLifecycleRecord {

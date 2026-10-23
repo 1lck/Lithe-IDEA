@@ -367,6 +367,16 @@ jobs:
           node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-title-focus.json -- src/features/window/services/window-title-focus.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Test Run services confirmation before close, quit and update
+        shell: pwsh
+        timeout-minutes: 2
+        run: |
+          $runner = ".agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs"
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-run-services-exit.json -- src/features/window/services/run-services-exit.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-settings-normalization.json -- src/features/settings/lib/settings-normalization.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Test Git gutter changes and inline review lifecycle
         shell: pwsh
         run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-git-gutter.json -- src/features/git/utils/git-gutter-changes.test.ts src/features/editor/engines/monaco/git-gutter-peek-session.test.ts src/features/git/api/git-line-history-api.test.ts src/features/git/utils/line-history-selection.test.ts src/features/git/components/git-line-history-popup.test.tsx

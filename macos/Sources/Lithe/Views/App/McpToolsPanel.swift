@@ -40,7 +40,7 @@ struct McpToolsPanel: View {
                     Button(state.isReady ? "Detect again" : "Detect tools") {
                         if row.definition.transport == .stdio { confirmsExecution = true }
                         else { feature.detect(row) }
-                    }.buttonStyle(LitheSecondaryButtonStyle())
+                    }.buttonStyle(LitheActionButtonStyle())
                 }
             }
             if let error = state.error {

@@ -31,11 +31,11 @@ struct AgentSkillDetailSheet: View {
                         .frame(maxWidth: .infinity, alignment: .leading).padding(8)
                 }.litheScrollViewChrome(alwaysShowVertical: true, usesCompactScrollers: true)
             } else if error == nil { ProgressView().controlSize(.small).frame(maxWidth: .infinity, maxHeight: .infinity) }
-            HStack(spacing: 8) {
-                Button("Open SKILL.md", action: onOpen).buttonStyle(LitheSecondaryButtonStyle())
-                Button("Reveal in Finder", action: onReveal).buttonStyle(LitheSecondaryButtonStyle())
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
+                Button("Open SKILL.md", action: onOpen).buttonStyle(LitheActionButtonStyle())
+                Button("Reveal in Finder", action: onReveal).buttonStyle(LitheActionButtonStyle())
                 Spacer()
-                Button("Close") { dismiss() }.buttonStyle(LitheSecondaryButtonStyle()).keyboardShortcut(.cancelAction)
+                Button("Close") { dismiss() }.buttonStyle(LitheActionButtonStyle()).keyboardShortcut(.cancelAction)
             }
         }
         .padding(20).frame(width: 560, height: 570).background(LitheTheme.settingsSurface)
@@ -90,17 +90,17 @@ struct AgentSkillCreateSheet: View {
                 TextEditor(text: $instructions).font(LitheTheme.codeFont).litheSettingsTextEditor(height: 230)
             }
             if let error = feature.error { AgentSettingsIssue(error) }
-            HStack(spacing: 8) {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 if feature.isWriting { ProgressView().controlSize(.small) }
                 Spacer()
-                Button("Cancel") { dismiss() }.buttonStyle(LitheSecondaryButtonStyle()).keyboardShortcut(.cancelAction)
+                Button("Cancel") { dismiss() }.buttonStyle(LitheActionButtonStyle()).keyboardShortcut(.cancelAction)
                 Button(source == nil ? "Create skill" : "Import") {
                     let request: AgentSkillWrite
                     if let source { request = .init(agentID: agentID, workspace: context.workspace, scope: scope, source: source) }
                     else { request = .init(agentID: agentID, workspace: context.workspace, scope: scope, name: name,
                                           description: description, instructions: instructions) }
                     feature.write(request, context: context)
-                }.buttonStyle(LithePrimaryButtonStyle(backgroundColor: LitheTheme.settingsPrimaryAction, restingOpacity: 1))
+                }.buttonStyle(LitheActionButtonStyle(isPrimary: true))
                     .disabled(!valid || feature.phase == .loading)
             }
         }

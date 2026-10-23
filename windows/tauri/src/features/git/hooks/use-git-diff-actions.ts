@@ -23,6 +23,7 @@ import type { MultiFileDiff } from "../types/git-diff.types";
 import type { GitCommit, GitDiff, GitFile, GitReference } from "../types/git.types";
 import { mapGitReadsInBatches } from "../utils/git-async-batch";
 import { aggregateSelectedCommitDiffs } from "../utils/git-commit-selection-diff";
+import { gitDiffDisplayPath, gitFileTreeOrder, orderGitDiffsForTree } from "../utils/git-file-tree-order";
 import {
   getGitFileOriginalRepositoryRelativePath,
   getGitFileRepositoryPath,
@@ -77,6 +78,7 @@ export function useGitDiffActions({
   onFileSelect,
   gitFileByPath,
   workingTreeDiffEntriesByScope,
+  orderedWorkingTreeFiles = [],
   commitByHash,
   currentBranch,
   currentReference,
@@ -87,6 +89,8 @@ export function useGitDiffActions({
   onFileSelect?: (path: string, isDir: boolean) => void;
   gitFileByPath: Map<string, GitFile>;
   workingTreeDiffEntriesByScope: Record<WorkingTreeDiffScope, WorkingTreeDiffEntry[]>;
+  /** Files in the order the Commit panel renders them; navigation follows it. */
+  orderedWorkingTreeFiles?: readonly GitFile[];
   commitByHash: Map<string, GitCommit>;
   currentBranch?: string;
   currentReference?: GitReference;
@@ -151,10 +155,14 @@ export function useGitDiffActions({
       try {
         const actualFilePath = normalizeDisplayedFilePath(filePath, staged ? "new" : "old");
         const file = gitFileByPath.get(actualFilePath);
-        const workingTreeFileOrder = createCommitWorkingTreeFileOrder(activeRepoPath,
-          workingTreeDiffEntriesByScope.all.length
-            ? workingTreeDiffEntriesByScope.all.map(([, file]) => file)
-            : [...gitFileByPath.values()], staged);
+        // The Commit panel's visible row order owns file navigation; the status
+        // entry order is only a fallback when the panel order is unavailable.
+        const orderFiles = orderedWorkingTreeFiles.length
+          ? orderedWorkingTreeFiles
+          : workingTreeDiffEntriesByScope.all.length
+            ? workingTreeDiffEntriesByScope.all.map(([, entryFile]) => entryFile)
+            : [...gitFileByPath.values()];
+        const workingTreeFileOrder = createCommitWorkingTreeFileOrder(activeRepoPath, orderFiles, staged);
         if (file) {
           const fileKey = `${staged ? "staged" : "unstaged"}:${actualFilePath}`;
           const fileRepoPath = getGitFileRepositoryPath(file, activeRepoPath) ?? activeRepoPath;
@@ -279,7 +287,7 @@ export function useGitDiffActions({
         );
       }
     },
-    [activeRepoPath, gitFileByPath, workingTreeDiffEntriesByScope, latestFileDiffRequest, openOriginalFile, t],
+    [activeRepoPath, gitFileByPath, orderedWorkingTreeFiles, workingTreeDiffEntriesByScope, latestFileDiffRequest, openOriginalFile, t],
   );
 
   const viewWorkingTreeDiff = useCallback(
@@ -288,11 +296,22 @@ export function useGitDiffActions({
 
       try {
         const selectedFilePaths = filePaths ? new Set(filePaths) : null;
-        const diffEntries = selectedFilePaths
+        const selectedEntries = selectedFilePaths
           ? workingTreeDiffEntriesByScope[scope].filter(([, file]) =>
               selectedFilePaths.has(file.path),
             )
           : workingTreeDiffEntriesByScope[scope];
+        // Sort by the Commit panel's visible order; entries missing from it keep
+        // their relative order after the known files.
+        const rank = new Map<string, number>(orderedWorkingTreeFiles.map((file, index) => [
+          `${file.staged ? "staged" : "unstaged"}:${file.path}`,
+          index,
+        ] as const));
+        const diffEntries = rank.size
+          ? [...selectedEntries].sort((left, right) =>
+              (rank.get(left[0]) ?? Number.MAX_SAFE_INTEGER)
+              - (rank.get(right[0]) ?? Number.MAX_SAFE_INTEGER))
+          : selectedEntries;
         if (diffEntries.length === 0) {
           await showAlertDialog(t(WORKING_TREE_EMPTY_LABELS[scope]), t("git.diff.title"));
           return;
@@ -333,7 +352,7 @@ export function useGitDiffActions({
         );
       }
     },
-    [activeRepoPath, t, workingTreeDiffEntriesByScope],
+    [activeRepoPath, orderedWorkingTreeFiles, t, workingTreeDiffEntriesByScope],
   );
 
   const viewCommitDiff = useCallback(
@@ -399,8 +418,8 @@ export function useGitDiffActions({
 
       setIsLoadingCommitDiff(true);
       try {
-        const diffs = await getRefDiff(activeRepoPath, baseRef, targetRef);
-        if (!diffs?.length) {
+        const loaded = await getRefDiff(activeRepoPath, baseRef, targetRef);
+        if (!loaded?.length) {
           await showAlertDialog(
             t("git.diff.noChangesBetween", {
               base: oldestLabel,
@@ -410,6 +429,7 @@ export function useGitDiffActions({
           );
           return;
         }
+        const diffs = orderGitDiffsForTree(loaded);
 
         const title = t("git.diff.commitRangeTitle", {
           base: oldestLabel,
@@ -470,15 +490,21 @@ export function useGitDiffActions({
         const title = t("git.diff.selectedCommitsTitle", {
           count: commits.length,
         });
+        // The selection preview navigates in Git Log's commit-files tree order;
+        // keys and labels follow the same permutation as their diffs.
+        const order = gitFileTreeOrder(aggregate.diffs, gitDiffDisplayPath);
+        const diffs = order.map((index) => aggregate.diffs[index]);
+        const fileKeys = order.map((index) => aggregate.fileKeys[index]);
+        const fileLabels = order.map((index) => aggregate.fileLabels[index]);
         const selectionKey = commits.map((commit) => commit.hash).join(",");
         const diffData = createMultiFileDiff({
           title,
           repoPath: activeRepoPath,
           commitHash: commits[0]?.hash ?? "selection",
-          diffs: aggregate.diffs,
+          diffs,
           initialFilePath: filePath,
-          fileKeys: aggregate.fileKeys,
-          fileLabels: aggregate.fileLabels,
+          fileKeys,
+          fileLabels,
         });
         diffData.totalFiles = aggregate.files.length;
         openDiffBuffer(

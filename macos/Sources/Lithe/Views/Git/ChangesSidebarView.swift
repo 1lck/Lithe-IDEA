@@ -177,6 +177,7 @@ struct ChangesSidebarView: View {
             let toolbarHeight = LitheTheme.Commit.toolbarHeight
             let minimumListHeight = LitheTheme.Commit.listMinimumHeight
             let minimumCommitHeight = LitheTheme.Commit.areaMinimumHeight
+                + (feature.workspaceCommitResults.isEmpty ? 0 : LitheTheme.Commit.resultsMaximumHeight)
             let availableCommitHeight = geometry.size.height
                 - toolbarHeight
                 - SplitHandleView.thickness
@@ -192,7 +193,7 @@ struct ChangesSidebarView: View {
                 LitheSplitPaneView(
                     axis: .vertical,
                     placement: .trailing,
-                    defaultSize: Self.defaultCommitAreaHeight,
+                    defaultSize: minimumCommitHeight,
                     minimum: minimumCommitHeight,
                     maximum: maximumCommitHeight,
                     dividerColor: LitheTheme.toolWindowBorder(for: colorScheme),
@@ -214,8 +215,6 @@ struct ChangesSidebarView: View {
             transaction.disablesAnimations = true
         }
     }
-
-    private static let defaultCommitAreaHeight = LitheTheme.Commit.areaMinimumHeight
 
     private var shelfContent: some View {
         GitSavedChangesView(feature: feature, isActive: commitToolActive, openDiff: openSavedDiff,

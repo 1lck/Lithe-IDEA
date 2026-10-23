@@ -28,7 +28,7 @@ struct McpDiscoveryView: View {
                         if value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { search() }
                     }
                 Button("Search") { search() }
-                    .buttonStyle(LitheSecondaryButtonStyle())
+                    .buttonStyle(LitheActionButtonStyle())
             }
             if route == .direct {
                 HStack(spacing: 6) {
@@ -46,15 +46,15 @@ struct McpDiscoveryView: View {
                         Text(error).font(LitheTheme.smallFont).foregroundStyle(LitheTheme.secondaryText)
                         Spacer(minLength: 0)
                     }
-                    HStack {
+                    HStack(spacing: LitheTheme.ActionButton.spacing) {
                         if !feature.entries.isEmpty {
                             Text("Showing available matches.").font(LitheTheme.smallFont).foregroundStyle(LitheTheme.secondaryText)
                         }
                         Spacer(minLength: 0)
-                        Button("Retry") { search() }.buttonStyle(LitheSecondaryButtonStyle())
+                        Button("Retry") { search() }.buttonStyle(LitheActionButtonStyle())
                         if feature.canRetryDirectly {
                             Button("Retry directly") { route = .direct; search() }
-                                .buttonStyle(LitheSecondaryButtonStyle())
+                                .buttonStyle(LitheActionButtonStyle())
                         }
                     }
                 }
@@ -69,7 +69,7 @@ struct McpDiscoveryView: View {
             McpRegistryCardsView(entries: feature.entries, add: add)
             if feature.nextCursor != nil {
                 Button("Load more") { loadMore = true; request += 1 }
-                    .buttonStyle(LitheSecondaryButtonStyle()).disabled(feature.isLoading)
+                    .buttonStyle(LitheActionButtonStyle()).disabled(feature.isLoading)
             }
         }
         .task(id: request) { await feature.search(query, loadMore: loadMore, route: route) }
@@ -138,7 +138,7 @@ private struct McpRegistryCard: View {
                         .fixedSize()
                 }
                 if let draft = McpServerDraft(entry: entry) {
-                    Button("Configure…") { add(draft) }.buttonStyle(LitheSecondaryButtonStyle())
+                    Button("Configure…") { add(draft) }.buttonStyle(LitheActionButtonStyle())
                         .fixedSize()
                 }
             }
@@ -193,20 +193,20 @@ struct McpJsonImportView: View {
                     ForEach(drafts.indices, id: \.self) { index in
                         Button { select(drafts[index]) } label: {
                             HStack { Text(verbatim: drafts[index].name); Spacer(); Text("Review configuration"); Image(systemName: "chevron.right") }
-                        }.buttonStyle(LitheSecondaryButtonStyle())
+                        }.buttonStyle(LitheActionButtonStyle())
                     }
                 }
             }
             Spacer(minLength: 0)
             Divider()
-            HStack {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Spacer()
-                Button("Cancel", action: cancel).buttonStyle(LitheSecondaryButtonStyle())
+                Button("Cancel", action: cancel).buttonStyle(LitheActionButtonStyle())
                     .keyboardShortcut(.cancelAction)
                 Button("Preview import") {
                     do { drafts = try feature.importedDrafts(json); error = nil }
                     catch { self.error = String(localized: "Could not import MCP JSON. Check the mcpServers object and try again.") }
-                }.buttonStyle(LithePrimaryButtonStyle(horizontalPadding: 12, height: 28))
+                }.buttonStyle(LitheActionButtonStyle(isPrimary: true))
             }
         }
     }

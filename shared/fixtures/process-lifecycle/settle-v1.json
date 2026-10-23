@@ -26,6 +26,7 @@
           "confirmTerminalTabClose": true,
           "agentTasks": "confirmEach",
           "backgroundResources": "ask",
+          "runServicesOnExit": "ask",
           "rememberedChoices": {"gradle.daemon": "terminate", "old.daemon": "keep"},
           "startupSweep": "ask",
           "gracefulStopSeconds": 5
@@ -49,6 +50,31 @@
           "confirmTerminalTabClose": true,
           "agentTasks": "confirmEach",
           "backgroundResources": "ask",
+          "runServicesOnExit": "ask",
+          "rememberedChoices": {},
+          "startupSweep": "ask",
+          "gracefulStopSeconds": 5
+        }
+      }
+    },
+    {
+      "name": "a confirmed stop ends every listed run session",
+      "request": {
+        "decisions": [
+          {"id": "api", "action": "confirmStop"},
+          {"id": "worker", "action": "confirmStop"},
+          {"id": "jdtls", "action": "terminate"}
+        ]
+      },
+      "expected": {
+        "terminate": ["api", "worker", "jdtls"],
+        "keep": [],
+        "settings": {
+          "terminalOnQuit": "confirmEach",
+          "confirmTerminalTabClose": true,
+          "agentTasks": "confirmEach",
+          "backgroundResources": "ask",
+          "runServicesOnExit": "ask",
           "rememberedChoices": {},
           "startupSweep": "ask",
           "gracefulStopSeconds": 5

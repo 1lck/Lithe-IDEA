@@ -86,7 +86,7 @@ struct AgentSkillsSettingsView: View {
     @ViewBuilder private var toolbar: some View {
         LitheSettingsSelect(selection: $feature.agentFilter, options: ["all"] + AgentSkillsFeatureModel.agents,
             width: 140, accessibilityLabel: "Skill source", title: { $0 == "all" ? text("All sources") : ($0 == "codex-acp" ? "Codex" : "Claude") }, localizesTitles: false)
-        HStack(spacing: 8) {
+        HStack(spacing: LitheTheme.ActionButton.spacing) {
             Button { feature.reload(context) } label: {
                 LitheIDEAIcon(resourcePath: "expui/general/refresh.svg", size: LitheTheme.Metrics.toolbarIconSize,
                               fallbackSystemImage: "arrow.clockwise", preservesOriginalColors: true)
@@ -94,9 +94,9 @@ struct AgentSkillsSettingsView: View {
             LitheMenu {
                 LitheContextMenuItem.action("Import SKILL.md") { chooseImport(directory: false) }
                 LitheContextMenuItem.action("Import skill directory") { chooseImport(directory: true) }
-            } label: { Text("Import") }.buttonStyle(LitheSecondaryButtonStyle()).disabled(!canAdd)
+            } label: { Text("Import") }.buttonStyle(LitheActionButtonStyle()).disabled(!canAdd)
             Button("New skill") { feature.dismissResult(); sheet = .add(nil) }
-                .buttonStyle(LithePrimaryButtonStyle(backgroundColor: LitheTheme.settingsPrimaryAction, restingOpacity: 1)).disabled(!canAdd)
+                .buttonStyle(LitheActionButtonStyle(isPrimary: true)).disabled(!canAdd)
         }
     }
 
@@ -148,7 +148,7 @@ struct AgentSkillsSettingsView: View {
             } else {
                 Text("State unknown").font(LitheTheme.smallFont).foregroundStyle(LitheTheme.secondaryText)
             }
-            Button("View skill") { sheet = .details(item) }.buttonStyle(LitheSecondaryButtonStyle())
+            Button("View skill") { sheet = .details(item) }.buttonStyle(LitheActionButtonStyle())
             LitheMenu {
                 LitheContextMenuItem.action("Open SKILL.md") { open(item.skill.path) }
                 LitheContextMenuItem.action("Reveal in Finder") { reveal(item.skill.path) }

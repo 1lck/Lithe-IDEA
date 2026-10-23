@@ -159,6 +159,27 @@ Git 的补丁顺序和历史行号仍是事实来源，`planIndependentCommitDif
 通常的统一视图仍复用原生 DiffEditor，必须在本预览范围内把 Monaco 的公开增删行、字符和行号栏颜色变量
 接到同一组 Islands 底色，字符边框透明；否则新增文件会落回默认黄绿色、删除落回默认红色。
 不覆盖活动语法主题，不修改其他编辑器的颜色；统一视图的修改按原生增删分段呈现。
+2026-10-22 起，显示层在 Git 连续变更块内部再按 IDEA 的 `ComparisonManagerImpl.createInnerWordFragments` →
+`ByWord.compareAndSplit` → `LineFragmentSplitter` 语义拆出仅显示的子块（Community
+`fb72b4df43aba102479eb0502d20b03586b9c5b8`）：块内左右行先按词元相似度做有界配对，完全相同的配对行按上下文不绘制，
+只有单侧存在的行重新获得新增绿/删除灰，其余相似配对保持修改蓝；两侧都没有共享词元的相邻子块仍合并为
+一个修改块，对应 `LineFragmentSplitter.shouldMergeChunks`。配对使用词元多重集相似度和带缺口的动态规划，
+不是 IDEA 的 Myers 同序匹配，因此只承诺可视分类一致，不声称逐字符复刻其 tie-breaking；
+超过配对格数、词元工作量或块大小预算时回退为整个 Git 块，保持原有行为。
+这一步只服务着色、连接带、概览标记和词级范围，`changes`（Git 脚本、差异计数、块包含、回退与导航）保持不变，
+单个 Git 块的控件仍只绘制一次并锚定在首个子块。原因是 JSONL 等文件插入若干行会让后续 `order` 全部变化，
+Git 会把几乎整个文件报告为一个修改块；直接按 Git 块着色时新增行与修改行同色，与 PyCharm 对照图中
+IDEA 仍把新增行标绿的结果不一致。
+2026-10-22 起，文件导航（左右文件箭头及上下差异箭头跨文件）按用户实际看到的列表顺序，而不是 Core 的路径序：
+Commit 面板的单文件与批量 Diff 使用仓库 → changelist →（文件夹树，或 added → modified → deleted → renamed →
+untracked 分组）的行顺序；Git Log 的单文件提交预览、完整提交 Diff、范围 Diff 与离散多选 Diff 使用提交文件树的
+顺序（目录节点先于文件，文件名用 IDEA 自然排序）。`orderGitStatusFilesForDisplay` 与 `gitFileTreeOrder` 是
+这两套展示顺序的唯一实现，面板与导航不得各写一份；未跟踪目录汇总行不是可导航文件，导航顺序跳过它但列表仍显示；
+Git Log 中重复路径（离散多选里同一文件的多个版本）按树顺序相邻，并保留原相对顺序。
+`workingTreeFileOrder` 仍是打开预览时的快照，状态变化后重新点击文件会按当前列表重建顺序；
+不在导航时额外读取 Git，交互预算不变。复用的标签页（Commit 面板的 `diff://working-tree/all-files` 与
+Git Log 的 `diff://commit-file-preview`）在文件箭头切换后必须重新计算标题：标签栏的 chrome 比较键包含
+当前选中文件名，不能只看缓冲区路径，否则正文已切换到新文件而标签仍停在旧文件名。
 原生统一 Diff 通过公开 `renderIndicators: false` 关闭行号旁的增删符号；独立行号只绘数字。
 这是一项呈现增强，不将 Git 的行级脚本重新交给字符算法推断。锁文件固定来源和校验，未新增运行时下载、
 资源目录或可共享缓存；现有资源复用清单已覆盖 Bun 下载缓存，node_modules 仍是各工作树独立可变状态。
@@ -327,10 +348,17 @@ macOS 本次不修改，双端功能矩阵保持目标产品运行验收待验�
   `monaco-diff-rows.test.ts` 检查隐藏补丁标题后真实内容、行身份和默认暂存投影不变。
   `commit-diff-chrome-geometry.test.ts` 检查跨两列数字的连接形状和空范围；
   `independent-commit-diff.test.ts` 检查独立行流、折叠恢复、双向边界映射及词级预算与颜色分类；
+  2026-10-22 起新增显示子块回归：整文件 `order` 重排时仍拆出新插入行、无共享词元的相邻子块保持一个修改块、
+  超过配对预算时回退为原 Git 块；
   `independent-commit-diff-surface.test.ts` 用可控帧和语言准备验证实际连接几何随独立偏移改变、
   外侧轨道、横向双向同步与短侧边界不回拉、纵向滚动/轨道键盘/点击/滚轮对应行同步、三态代码边界、显式双侧导航、
   轨道预留空间、中央列留白及 Commit 额外动作宽度、滚轮单位与 Ctrl 滚轮、词级淡底色及超限回退、无垂直接缝的边界，
-  反向行号选择、词级设置保持偏移以及卸载/迟到清理。三组都加入 CI 的 Git Log 计时组。
+  反向行号选择、词级设置保持偏移、显示子块的新增/修改整行底色与单个 Git 块控件不重复，以及卸载/迟到清理。
+  三组都加入 CI 的 Git Log 计时组。
+- 2026-10-22 用真实 `D:/work/bigcloud/product/AIMCloud` 仓库的
+  `setup/customers/permission/17_menus.jsonl` 走生产解析与投影：Git 将 115 增/113 删报告为一个修改块，
+  投影仍只保留 1 个 Git 差异，并将新文件第 2、3 行拆为新增子块、其余行保持修改子块；
+  该文件的新增行因此在并排预览中获得新增底色。真实 WebView2 的像素验收未在本机执行。
 - 真实浏览器加载生产页面组件和 Monaco，检查上下差异位置、左右文件切换、标题更新，
   连续下箭头经过多个文件、跨文件停在首处差异、等待比较时禁用以及集合末尾停止，
   删除/二进制禁用状态、左右侧源行映射，以及不同项目根目录下使用预览仓库。

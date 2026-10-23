@@ -88,10 +88,12 @@ struct McpServerLibraryView: View {
                 LitheInfoTip("Lithe reads the servers registered in your Codex and Claude Code configuration. Saving writes only the changed entry, keeps backups in Application Support, and never overwrites an entry created outside Lithe. Agents read MCP configuration when a session starts, so restart a session to apply changes.")
             }
             Spacer(minLength: 12)
-            Button("Import JSON") { showsImporter = true }
-                .buttonStyle(LitheSecondaryButtonStyle())
-            Button("Add server") { editing = feature.makeDraft() }
-                .buttonStyle(LithePrimaryButtonStyle(horizontalPadding: 12, height: 28))
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
+                Button("Import JSON") { showsImporter = true }
+                    .buttonStyle(LitheActionButtonStyle())
+                Button("Add server") { editing = feature.makeDraft() }
+                    .buttonStyle(LitheActionButtonStyle(isPrimary: true))
+            }
         }
     }
 
@@ -448,7 +450,7 @@ struct McpServerEditorView: View {
         McpSettingsRow("Available to Agents", info: "Each Agent keeps its own configuration file. Turning an Agent off removes only the entry Lithe wrote; an entry created outside Lithe is never removed without taking ownership first.") {
             HStack(alignment: .top, spacing: 16) {
                 Button("All") { draft.enabledAgents = Set(McpAgent.allCases) }
-                    .buttonStyle(LitheSecondaryButtonStyle())
+                    .buttonStyle(LitheActionButtonStyle())
                 ForEach(McpAgent.allCases) { agent in
                     agentRow(agent)
                 }
@@ -492,7 +494,7 @@ struct McpServerEditorView: View {
     }
 
     private var footer: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: LitheTheme.ActionButton.spacing) {
             if let original {
                 Button("Remove from library", role: .destructive) {
                     guard feature.delete(original) else { return }; onClose()
@@ -500,14 +502,14 @@ struct McpServerEditorView: View {
             }
             Spacer(minLength: 12)
             Button("Cancel", action: onClose)
-                .buttonStyle(LitheSecondaryButtonStyle(horizontalPadding: 12, height: 28, fontSize: 12))
+                .buttonStyle(LitheActionButtonStyle())
                 .keyboardShortcut(.cancelAction)
             Button("Save") {
                 didAttemptSave = true
                 guard feature.save(draft) else { return }
                 onClose()
             }
-            .buttonStyle(LithePrimaryButtonStyle(horizontalPadding: 14, height: 28))
+            .buttonStyle(LitheActionButtonStyle(isPrimary: true))
             .disabled(validationMessage != nil)
         }
         .padding(.top, 2)
