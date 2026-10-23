@@ -67,6 +67,7 @@ export function TerminalDockLayout({
   const panelRef = useRef<HTMLDivElement>(null);
   const cancelDrag = useRef<(() => void) | null>(null);
   const suppressClick = useRef(false);
+  const [activationWorkspace, setActivationWorkspace] = useState<string | null>(null);
   const [space, setSpace] = useState({ width: window.innerWidth, height: window.innerHeight });
   const [preview, setPreview] = useState<{
     position: DockPosition;
@@ -113,6 +114,16 @@ export function TerminalDockLayout({
     cancelDrag.current?.();
     return () => cancelDrag.current?.();
   }, [workspaceKey, visible, activeTab, storedPosition, widthMode]);
+
+  useEffect(() => {
+    if (activationWorkspace === null) return;
+    setActivationWorkspace(null);
+    // xterm cannot focus a hidden pane. Wait for React to commit visibility,
+    // and discard an activation superseded by a workspace/tool change.
+    if (activationWorkspace === workspaceKey && visible && activeTab === "terminal") {
+      window.dispatchEvent(new window.CustomEvent("terminal-ensure-session"));
+    }
+  }, [activationWorkspace, workspaceKey, visible, activeTab]);
 
   const startDrag = (event: ReactPointerEvent, fromActivity = false) => {
     if (event.button !== 0 || (!fromActivity && (activeTab !== "terminal" || !visible))) return;
@@ -228,7 +239,7 @@ export function TerminalDockLayout({
           const ui = useUIState.getState();
           ui.setBottomPaneActiveTab("terminal");
           ui.setIsBottomPaneVisible(true);
-          window.dispatchEvent(new CustomEvent("terminal-ensure-session"));
+          setActivationWorkspace(workspaceKey);
         }
       }
     };

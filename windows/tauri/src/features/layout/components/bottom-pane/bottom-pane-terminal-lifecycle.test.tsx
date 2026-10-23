@@ -1,5 +1,5 @@
 import { afterAll, expect, mock, test } from "bun:test";
-import { act, useEffect } from "react";
+import { act, useEffect, useRef } from "react";
 import { create } from "zustand";
 import { installHappyDom } from "@/test-utils/happy-dom";
 import {
@@ -56,6 +56,7 @@ const terminal = create(() => ({ widthMode: "full" as "full" | "editor" }));
 // Keep the real BottomPane and fullscreen surface. The terminal leaf replaces
 // xterm/native PTYs but owns the same production event subscription boundary.
 function TerminalProbe({ onFullScreen }: { onFullScreen: () => void }) {
+  const inputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     mounts++;
     const handler = createNewTerminalEventHandler((directory) => {
@@ -66,15 +67,22 @@ function TerminalProbe({ onFullScreen }: { onFullScreen: () => void }) {
       });
     });
     window.addEventListener("terminal-new", handler);
+    // Emulate xterm's focus boundary: a mounted but hidden input cannot focus.
+    const ensure = () => {
+      const input = inputRef.current;
+      if (input && !input.closest(".hidden, [hidden]")) input.focus();
+    };
+    window.addEventListener("terminal-ensure-session", ensure);
     return () => {
       unmounts++;
       window.removeEventListener("terminal-new", handler);
+      window.removeEventListener("terminal-ensure-session", ensure);
     };
   }, []);
   return (
     <>
       <button onClick={onFullScreen}>Fullscreen terminal</button>
-      <input defaultValue="running session" />
+      <input ref={inputRef} defaultValue="running session" />
       <TerminalDockHandle />
     </>
   );
@@ -429,6 +437,7 @@ test("a hidden terminal stripe can be dragged without opening until drop, then c
     expect(ui.getState().isBottomPaneVisible).toBe(false);
     // Escape must cancel even when the focused editor consumes bubbling keys.
     const editor = host.querySelector("textarea")!;
+    editor.focus();
     const consumeKey = (event: Event) => event.stopPropagation();
     editor.addEventListener("keydown", consumeKey);
     try {
@@ -442,6 +451,7 @@ test("a hidden terminal stripe can be dragged without opening until drop, then c
     expect(writes).toEqual([]);
     expect(ui.getState().bottomPaneActiveTab).toBe("run");
     expect(ui.getState().isBottomPaneVisible).toBe(false);
+    expect(document.activeElement).toBe(editor);
     await pointer(
       "pointerdown",
       80,
@@ -453,6 +463,7 @@ test("a hidden terminal stripe can be dragged without opening until drop, then c
     expect(ui.getState().bottomPaneActiveTab).toBe("terminal");
     expect(ui.getState().isBottomPaneVisible).toBe(true);
     expect(host.querySelector("input")).toBe(input);
+    expect(document.activeElement).toBe(input);
     const right = host.querySelector<HTMLButtonElement>('[data-terminal-dock-activity="right"]')!;
     await act(async () => right.click());
     expect(ui.getState().isBottomPaneVisible).toBe(false);
