@@ -121,6 +121,15 @@ The prefix matches the raw Rust test name, without the Cargo target printed
 before it in the console. Check each report's `maxMs` to confirm the allowance
 actually applies; a successful fast run alone does not prove prefix matching.
 
+`tests::git::git_write_executes_checkout_preflight_clone_and_validation`
+gets 30 seconds in both Windows lanes. Run 39935852248 reported its assertions
+passing in 15.22 seconds, but the complete test process took 18.529 seconds and
+exceeded the default 15-second budget. It creates divergent branches, checks
+clean/dirty/untracked checkout preflights, performs smart and forced checkouts,
+and clones a real local repository. The cache retry then exhausted the existing
+suite deadline; that secondary timeout does not justify extending the whole
+suite. Keep every checkout/clone assertion and the existing request deadlines.
+
 ## Windows verification
 
 Run the PowerShell harness in a real Windows environment. A macOS boundary
