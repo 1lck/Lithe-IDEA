@@ -9,6 +9,8 @@ import {
   selectVisibleTreeSiblings,
 } from "@/features/sidebar/utils/tree-selection";
 import { isTreeDomEvent } from "../lib/tree-dom-event";
+import { useFileOpenTarget } from "@/features/keymaps/hooks/use-file-open-target";
+import { isNativeTextInputTarget } from "@/utils/keyboard/text-input-target";
 import ignore from "ignore";
 import {
   EyeIcon as Eye,
@@ -205,6 +207,7 @@ function FileExplorerTreeComponent({
   const [treeSearchQuery, setTreeSearchQuery] = useState("");
   const [debouncedTreeSearchQuery] = useDebounce(treeSearchQuery, FILE_TREE_SEARCH_DEBOUNCE_DELAY);
   const viewportRef = useRef<FileExplorerViewportHandle>(null);
+  const fileOpenRegionRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const lastResolvedTreeSearchRef = useRef<ResolvedFileTreeSearch | null>(null);
   const searchScrollTopRef = useRef<number | null>(null);
@@ -1212,8 +1215,24 @@ function FileExplorerTreeComponent({
     return () => cancelAnimationFrame(rafId);
   }, [activePath]);
 
+  useFileOpenTarget(fileOpenRegionRef, (target) => {
+    if (
+      !target.closest("#file-tree-results") ||
+      isNativeTextInputTarget(target, target) ||
+      isTreeSearchSearching ||
+      !onFileOpen ||
+      !keyboardPath
+    )
+      return;
+    const index = visibleRowIndexByPath.get(keyboardPath);
+    const file = index === undefined ? undefined : visibleRows[index]?.file;
+    if (!file || file.isDir) return;
+    return () => onFileOpen(file.path, false);
+  });
+
   return (
     <div
+      ref={fileOpenRegionRef}
       className={cn(
         "file-explorer-shell relative flex min-h-0 min-w-0 flex-1 select-none flex-col overflow-hidden p-0",
         dragState.dragOverPath === "__ROOT__" &&

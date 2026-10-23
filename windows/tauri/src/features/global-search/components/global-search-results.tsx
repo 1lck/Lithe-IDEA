@@ -16,11 +16,13 @@ interface GlobalSearchResultsProps {
   fileNavigatorItems: FileNavigatorItem[];
   selectedFileNavigatorKey: string | null;
   onFileNavigatorSelect: (filePath: string) => void;
+  onFileNavigatorOpen: (filePath: string) => void;
   fileNavigatorViewMode: FileNavigatorViewMode;
   onFileNavigatorViewModeChange: (viewMode: FileNavigatorViewMode) => void;
   navigatorSearchResetKey: string;
   excerpts: SearchExcerpt[];
   selectedItemKey: string | null;
+  isNavigationDisabled: boolean;
   onOpen: (filePath: string, lineNumber?: number, columnNumber?: number) => void;
   onExpandContext: (filePath: string) => void;
   onCollapseContext: (filePath: string) => void;
@@ -39,11 +41,13 @@ export function GlobalSearchResults({
   fileNavigatorItems,
   selectedFileNavigatorKey,
   onFileNavigatorSelect,
+  onFileNavigatorOpen,
   fileNavigatorViewMode,
   onFileNavigatorViewModeChange,
   navigatorSearchResetKey,
   excerpts,
   selectedItemKey,
+  isNavigationDisabled,
   onOpen,
   onExpandContext,
   onCollapseContext,
@@ -63,6 +67,7 @@ export function GlobalSearchResults({
           items={fileNavigatorItems}
           selectedKey={selectedFileNavigatorKey}
           onSelect={onFileNavigatorSelect}
+          onOpen={isNavigationDisabled ? undefined : onFileNavigatorOpen}
           ariaLabel={t("fileNavigator.searchResultFiles")}
           viewMode={fileNavigatorViewMode}
           onViewModeChange={onFileNavigatorViewModeChange}
@@ -86,6 +91,7 @@ export function GlobalSearchResults({
           <SearchExcerptResults
             excerpts={excerpts}
             selectedItemKey={selectedItemKey}
+            isNavigationDisabled={isNavigationDisabled}
             onOpen={onOpen}
             onExpandContext={onExpandContext}
             onCollapseContext={onCollapseContext}

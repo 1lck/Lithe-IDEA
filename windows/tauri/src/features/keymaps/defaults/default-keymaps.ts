@@ -62,6 +62,7 @@ export const defaultKeymaps: Keybinding[] = [
     when: "terminalFocus",
   },
   { key: "cmd+o", command: "file.open", source: "default" },
+  { key: "F4", command: "file.openSelected", source: "default", when: "fileOpenTargetFocus" },
   // Note: cmd+p is handled by the global keyboard shortcuts to avoid race conditions with command context
 
   // Edit Operations
