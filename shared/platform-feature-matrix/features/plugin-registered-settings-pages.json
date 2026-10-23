@@ -2,7 +2,7 @@
   "id": "plugin-registered-settings-pages",
   "area": "插件",
   "group": "插件管理",
-  "capability": "插件通过 settings 2 在 plugin.json 里把设置项和按钮注册到“语言与框架 › <语言>”或“构建、执行、部署 › <构建系统>”页，按 section 分组；设置可声明项目级覆盖（写入项目 .lithe/plugin-settings.json）和生效方式（重启、立即、重新加载、下次运行），“立即生效”的值经 workspace/configuration 推给正在运行的语言服务器；按钮调用插件自己的插件函数。宿主只提供通用页面、控件和语言服务状态卡，不内置任何语言或构建工具的页面",
+  "capability": "插件通过 settings 2 在 plugin.json 里把设置项和按钮注册到“语言与框架 › <语言>”或“构建、执行、部署 › <构建系统>”页，按 section 分组；设置可声明项目级覆盖（写入项目 .lithe/plugin-settings.json）和生效方式（重启、立即、重新加载、下次运行），“立即生效”的值经 workspace/configuration 推给正在运行的语言服务器；按钮调用插件自己的插件函数。宿主只提供通用页面、控件和语言服务状态卡，不内置任何语言或构建工具的页面；路径选择按钮保持完整可见，窄面板由输入框和标题列缩短以容纳状态标签",
   "macos": {
     "evidence": [
       "rust/lithe-core/src/plugins/settings.rs",
@@ -13,7 +13,9 @@
       "macos/Sources/Lithe/Views/App/PluginSettingsSection.swift",
       "macos/Sources/Lithe/Views/App/SettingsView.swift",
       "macos/Tests/LitheTests/PluginSettingsTests.swift",
-      "shared/contracts/plugins/v1/fixtures/settings-v2.plugin.json"
+      "shared/contracts/plugins/v1/fixtures/settings-v2.plugin.json",
+      "macos/Sources/Lithe/Views/Components/LitheSettingsControls.swift",
+      "macos/Tests/LitheTests/PluginSettingsLayoutTests.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -26,5 +28,5 @@
     "verificationStatus": "not-applicable"
   },
   "owner": "Plugin Platform",
-  "verification": "macOS：先使用 Swift 6.3.3 构建 Release，确认插件页选择回调不触发编译器崩溃；在 Release 应用中选择插件设置页，确认其侧栏分组自动展开。macOS：安装一个声明了 settings 2 页面（page/section/scope/effect/settingActions）的插件并启用，确认设置侧栏的对应分组下出现该语言或构建系统页，页内按插件和 section 分组显示设置与按钮；搜索设置标题能定位到该页。打开项目后把 scope 为 project 的设置切到“此项目”并修改，确认项目下生成 .lithe/plugin-settings.json 且显示“已在此项目覆盖”，恢复默认后文件被删除。修改 effect 为 immediate 的设置，确认语言服务器不重启而配置生效；修改 restart 设置时出现重启提示。点击带 confirm 的按钮先弹确认，再调用插件函数并给出结果通知。停用插件后页面消失。Windows：宿主仍只声明 settings/languageServers 1，需要 v2 的插件在市场中隐藏。"
+  "verification": "macOS：先使用 Swift 6.3.3 构建 Release，确认插件页选择回调不触发编译器崩溃；在 Release 应用中选择插件设置页，确认其侧栏分组自动展开。macOS：安装一个声明了 settings 2 页面（page/section/scope/effect/settingActions）的插件并启用，确认设置侧栏的对应分组下出现该语言或构建系统页，页内按插件和 section 分组显示设置与按钮；搜索设置标题能定位到该页。打开项目后把 scope 为 project 的设置切到“此项目”并修改，确认项目下生成 .lithe/plugin-settings.json 且显示“已在此项目覆盖”，恢复默认后文件被删除。修改 effect 为 immediate 的设置，确认语言服务器不重启而配置生效；修改 restart 设置时出现重启提示。点击带 confirm 的按钮先弹确认，再调用插件函数并给出结果通知。停用插件后页面消失。macOS 布局回归：运行 PluginSettingsLayoutTests，检查 480/640/900 点宽、深浅主题的路径控件与选择按钮不重叠且留在容器内，点击选择按钮写入所选路径；在插件详情的窄设置页确认“选择…”文字完整。Windows：宿主仍只声明 settings/languageServers 1，需要 v2 的插件在市场中隐藏。"
 }

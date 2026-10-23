@@ -192,6 +192,10 @@ pub(crate) enum Nesting {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct Invocation {
+    /// Compatibility adapter for published buildSystems 2 previews. New
+    /// plugins declare a setting candidate in executables instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) executable_setting: Option<String>,
     /// Candidates in preference order; the host takes the first that exists.
     pub(crate) executables: Vec<ExecutableCandidate>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -207,74 +211,7 @@ pub(crate) struct Invocation {
     pub(crate) minimum_version: Option<String>,
 }
 
-/// One place an executable may come from.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(
-    tag = "kind",
-    rename_all = "camelCase",
-    rename_all_fields = "camelCase",
-    deny_unknown_fields
-)]
-pub(crate) enum ExecutableCandidate {
-    /// A file inside the instance root, such as a wrapper script. Running it
-    /// always counts as running project code.
-    ProjectFile {
-        path: String,
-        /// Further files that must exist for the candidate to apply.
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        requires: Vec<String>,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        platforms: Vec<Platform>,
-    },
-    /// A path below a directory named by a declared environment input.
-    Environment {
-        variable: String,
-        path: String,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        platforms: Vec<Platform>,
-    },
-    /// A bare command resolved through the host's tool discovery.
-    Command {
-        command: String,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        platforms: Vec<Platform>,
-    },
-    /// The executable of a declared runtime dependency itself.
-    Runtime {
-        runtime: String,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        platforms: Vec<Platform>,
-    },
-}
-
-impl ExecutableCandidate {
-    pub(crate) fn platforms(&self) -> &[Platform] {
-        match self {
-            Self::ProjectFile { platforms, .. }
-            | Self::Environment { platforms, .. }
-            | Self::Command { platforms, .. }
-            | Self::Runtime { platforms, .. } => platforms,
-        }
-    }
-
-    fn platforms_mut(&mut self) -> &mut Vec<Platform> {
-        match self {
-            Self::ProjectFile { platforms, .. }
-            | Self::Environment { platforms, .. }
-            | Self::Command { platforms, .. }
-            | Self::Runtime { platforms, .. } => platforms,
-        }
-    }
-}
-
-/// Host operating systems a candidate applies to; empty means all.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub(crate) enum Platform {
-    Macos,
-    Linux,
-    Windows,
-}
+pub(crate) use crate::plugins::executables::{ExecutableCandidate, ExecutableSource, Platform};
 
 /// A runtime the tool needs. Runtimes the host already manages (`java`,
 /// `node`, `go`) take only an ID and an optional minimum version and follow
@@ -965,6 +902,7 @@ fn check_target_tags(tags: &mut Vec<String>, scopes: &[Scope], field: &str) -> V
 /// against.
 pub(crate) struct DeclarationContext<'a> {
     pub(crate) plugin_api_version: u32,
+    pub(crate) build_systems_version: u32,
     pub(crate) official: bool,
     /// Setting IDs a provider's launch templates may name.
     pub(crate) declared_settings: &'a crate::plugins::settings::DeclaredSettings,
@@ -1242,7 +1180,7 @@ impl BuildSystemDeclaration {
         self.validate_provider(field, context)?;
         self.validate_detection(field)?;
         let option_ids = self.validate_options(field)?;
-        self.validate_invocation(field, &option_ids)?;
+        self.validate_invocation(field, &option_ids, context)?;
         let model_templates = self.validate_tasks(field, &option_ids)?;
         self.validate_model(field, &option_ids)?;
         self.validate_run(field, &option_ids, &model_templates)?;
@@ -1411,9 +1349,29 @@ impl BuildSystemDeclaration {
         Ok(ids)
     }
 
-    fn validate_invocation(&mut self, field: &str, options: &BTreeSet<String>) -> Validation<()> {
+    fn validate_invocation(
+        &mut self,
+        field: &str,
+        options: &BTreeSet<String>,
+        context: &DeclarationContext<'_>,
+    ) -> Validation<()> {
         let invocation = &mut self.invocation;
         let field = format!("{field}.invocation");
+        if let Some(id) = &invocation.executable_setting {
+            if invocation
+                .executables
+                .iter()
+                .any(ExecutableCandidate::uses_resolution)
+            {
+                return Err(invalid(&field, "Do not combine the legacy executableSetting adapter with new candidate metadata or setting sources."));
+            }
+            if context.build_systems_version < 2 || !context.declared_settings.is_executable(id) {
+                return Err(invalid(
+                    format!("{field}.executableSetting"),
+                    "An executable setting requires buildSystems 2 and a global file setting with effect reload or nextRun.",
+                ));
+            }
+        }
         if invocation.environment_inputs.len() > MAX_LIST {
             return Err(invalid(
                 format!("{field}.environmentInputs"),
@@ -1471,7 +1429,7 @@ impl BuildSystemDeclaration {
             }
             for (candidate_index, candidate) in runtime.executables.iter_mut().enumerate() {
                 let candidate_field = format!("{field}.executables[{candidate_index}]");
-                if matches!(candidate, ExecutableCandidate::Runtime { .. }) {
+                if matches!(candidate.source, ExecutableSource::Runtime { .. }) {
                     return Err(invalid(
                         candidate_field,
                         "A runtime cannot be provided by another runtime.",
@@ -1509,6 +1467,25 @@ impl BuildSystemDeclaration {
                 &invocation.environment_inputs,
                 &runtimes,
             )?;
+        }
+        for (list, location) in
+            std::iter::once((&invocation.executables, format!("{field}.executables"))).chain(
+                invocation.runtime_dependencies.iter().map(|runtime| {
+                    (
+                        &runtime.executables,
+                        format!("{field}.runtimeDependencies.{}.executables", runtime.id),
+                    )
+                }),
+            )
+        {
+            crate::plugins::executables::ordered_indices(list, &location)?;
+            for candidate in list {
+                if let ExecutableSource::Setting { setting_id } = &candidate.source {
+                    if !context.declared_settings.is_executable(setting_id) {
+                        return Err(invalid(&location, "A setting candidate needs a global file setting with effect reload or nextRun."));
+                    }
+                }
+            }
         }
         if let Some(probe) = &invocation.version {
             probe.validate(&format!("{field}.version"))?;
@@ -2020,8 +1997,8 @@ fn check_candidate(
     environment_inputs: &[String],
     runtimes: &BTreeSet<String>,
 ) -> Validation<()> {
-    match candidate {
-        ExecutableCandidate::ProjectFile { path, requires, .. } => {
+    match &mut candidate.source {
+        ExecutableSource::ProjectFile { path, requires, .. } => {
             *requires = sorted_unique(std::mem::take(requires));
             if !is_safe_relative_path(path)
                 || !requires.iter().all(|value| is_safe_relative_path(value))
@@ -2029,7 +2006,7 @@ fn check_candidate(
                 return Err(executable_path(field));
             }
         }
-        ExecutableCandidate::Environment { variable, path, .. } => {
+        ExecutableSource::Environment { variable, path, .. } => {
             if !environment_inputs.contains(variable) {
                 return Err(invalid(
                     format!("{field}.variable"),
@@ -2040,7 +2017,7 @@ fn check_candidate(
                 return Err(executable_path(field));
             }
         }
-        ExecutableCandidate::Command { command, .. } => {
+        ExecutableSource::Command { command, .. } => {
             if !is_bare_command(command) {
                 return Err(invalid(
                     format!("{field}.command"),
@@ -2048,7 +2025,12 @@ fn check_candidate(
                 ));
             }
         }
-        ExecutableCandidate::Runtime { runtime, .. } => {
+        ExecutableSource::Setting { setting_id } => {
+            if !is_setting_identifier(setting_id) {
+                return Err(invalid(format!("{field}.settingID"), "Invalid setting ID."));
+            }
+        }
+        ExecutableSource::Runtime { runtime, .. } => {
             if !runtimes.contains(runtime) {
                 return Err(invalid(
                     format!("{field}.runtime"),
@@ -2057,7 +2039,7 @@ fn check_candidate(
             }
         }
     }
-    let platforms = candidate.platforms_mut();
+    let platforms = &mut candidate.platforms;
     platforms.sort();
     platforms.dedup();
     Ok(())
