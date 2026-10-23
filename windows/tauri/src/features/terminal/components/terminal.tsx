@@ -60,7 +60,7 @@ import {
   pasteTerminalText,
 } from "../utils/terminal-clipboard";
 import { resolveTerminalFont } from "../utils/resolve-font";
-import { getTerminalKeyAction } from "../utils/terminal-keyboard";
+import { getTerminalKeyAction, isTerminalFindShortcut } from "../utils/terminal-keyboard";
 import { getTerminalCompatibilityOptions } from "../utils/terminal-options";
 import { createTerminalEventChannel, getTerminalSize } from "../utils/terminal-protocol";
 import { getFrontendTerminalSessionArgs } from "../utils/frontend-terminal-session";
@@ -827,13 +827,7 @@ export const XtermTerminal = ({
       const isTerminalFocused =
         terminalContainerRef.current?.contains(event.target as Node) ||
         terminalContainerRef.current?.contains(document.activeElement);
-      const key = event.key.toLowerCase();
-
-      if (
-        (event.ctrlKey || event.metaKey) &&
-        key === "f" &&
-        (isTerminalFocused || isSearchVisible)
-      ) {
+      if (isTerminalFindShortcut(event) && (isTerminalFocused || isSearchVisible)) {
         event.preventDefault();
         event.stopPropagation();
         setIsSearchVisible(true);

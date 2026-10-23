@@ -1,5 +1,24 @@
 import { describe, expect, test } from "bun:test";
-import { getTerminalKeyAction } from "./terminal-keyboard";
+import { getTerminalKeyAction, isTerminalFindShortcut } from "./terminal-keyboard";
+
+test("terminal find leaves project search, AltGr and consumed shortcuts to their owners", () => {
+  const find = {
+    type: "keydown",
+    key: "f",
+    ctrlKey: true,
+    metaKey: false,
+    altKey: false,
+    shiftKey: false,
+  };
+  expect(isTerminalFindShortcut(find)).toBe(true);
+  expect(isTerminalFindShortcut({ ...find, ctrlKey: false, metaKey: true })).toBe(true);
+  expect(isTerminalFindShortcut({ ...find, key: "F", shiftKey: true })).toBe(false);
+  expect(isTerminalFindShortcut({ ...find, ctrlKey: false, metaKey: true, shiftKey: true })).toBe(
+    false,
+  );
+  expect(isTerminalFindShortcut({ ...find, altKey: true })).toBe(false);
+  expect(isTerminalFindShortcut({ ...find, defaultPrevented: true })).toBe(false);
+});
 
 describe("terminal keyboard actions", () => {
   test.each([

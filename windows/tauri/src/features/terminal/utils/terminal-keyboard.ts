@@ -37,6 +37,18 @@ export function isTerminalAltTextInput(event: TerminalKeyboardEvent): boolean {
   return !event.ctrlKey || isTerminalAltGraphInput(event);
 }
 
+export function isTerminalFindShortcut(
+  event: TerminalKeyboardEvent & { defaultPrevented?: boolean },
+): boolean {
+  return (
+    !event.defaultPrevented &&
+    (event.ctrlKey || event.metaKey) &&
+    !event.shiftKey &&
+    !event.altKey &&
+    event.key.toLowerCase() === "f"
+  );
+}
+
 /**
  * Encode a key whose legacy form collides with another key, in the form the kitty
  * protocol's first bit promises.
