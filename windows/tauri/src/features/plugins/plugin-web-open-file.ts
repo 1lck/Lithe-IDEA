@@ -1,5 +1,6 @@
 import { listen } from "@tauri-apps/api/event";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
+import { declarativePluginProcessOwner } from "./declarative-plugin-process-owner";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
 
 interface PluginWebOpenFilePayload {
@@ -48,4 +49,28 @@ function pathIsInsideWorkspace(path: string, root: string): boolean {
   const normalizedRoot = root.replace(/\\/g, "/").replace(/\/$/, "");
   if (normalized.toLowerCase() === normalizedRoot.toLowerCase()) return false;
   return normalized.toLowerCase().startsWith(`${normalizedRoot.toLowerCase()}/`);
+}
+
+/**
+ * Stops declarative run sessions owned by a plugin whose state changed
+ * (disable/uninstall) and releases its web-page state.
+ */
+async function initializePluginLifecycleListener(): Promise<() => void> {
+  const unlisten = await listen<{ pluginId: string }>(
+    "declarative-plugin-lifecycle",
+    ({ payload }) => {
+      void declarativePluginProcessOwner.stop(undefined, payload.pluginId);
+    },
+  );
+  return unlisten;
+}
+
+/** Registers both plugin-page listeners (open-file and lifecycle). */
+export async function initializePluginWebListeners(): Promise<() => void> {
+  const unlistenOpen = await initializePluginWebOpenFileListener();
+  const unlistenLifecycle = await initializePluginLifecycleListener();
+  return () => {
+    unlistenOpen();
+    unlistenLifecycle();
+  };
 }

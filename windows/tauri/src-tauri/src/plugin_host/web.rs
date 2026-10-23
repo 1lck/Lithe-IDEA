@@ -247,23 +247,91 @@ fn const_bridge_script() -> &'static str {
 })();"#
 }
 
-/// The single Tauri command behind `lithe.request`. The calling page's
+/// The single Tauri entry behind `lithe.request`. The calling page's
 /// identity is derived from the invoking webview's label
 /// (`plugin-web-<windowID>`), never from arguments the page supplies; the
 /// plugin is then resolved from the accepted catalog and must currently
 /// declare this window and be enabled. A page can only reach its own
 /// plugin's state and the workspace layer.
-#[tauri::command]
-pub fn declarative_plugins_web_bridge_request(
-    app: AppHandle,
-    webview: tauri::Webview,
-    method: String,
-    params: Value,
+///
+/// This consumes the raw `Invoke` (the invoke handler in `main.rs` dispatches
+/// plugin-page traffic here directly) so no other command can be reached
+/// through this path.
+pub fn declarative_plugins_web_bridge_request(invoke: tauri::ipc::Invoke<tauri::Wry>) {
+    let webview = invoke.message.webview_ref().clone();
+    let method = invoke.message.command().to_string();
+    // The bridge payload arrives as the command's JSON arguments envelope.
+    let params: BridgeArgs = match invoke.message.payload() {
+        tauri::ipc::InvokeBody::Json(value) => match serde_json::from_value(value.clone()) {
+            Ok(args) => args,
+            Err(error) => {
+                invoke
+                    .resolver
+                    .respond::<tauri::ipc::InvokeResponseBody>(Err(tauri::ipc::InvokeError(
+                        serde_json::json!({
+                            "code": "plugin.web.invalidRequest",
+                            "message": error.to_string(),
+                        }),
+                    )));
+                return;
+            }
+        },
+        _ => {
+            invoke
+                .resolver
+                .respond::<tauri::ipc::InvokeResponseBody>(Err(tauri::ipc::InvokeError(
+                    serde_json::json!({
+                        "code": "plugin.web.invalidRequest",
+                        "message": "the bridge only accepts JSON payloads",
+                    }),
+                )));
+            return;
+        }
+    };
+    let app = webview.app_handle().clone();
+    let result = bridge_dispatch(&app, &webview, &method, params);
+    match result {
+        Ok(value) => {
+            invoke
+                .resolver
+                .respond::<tauri::ipc::InvokeResponseBody>(Ok(serde_json::to_string(&value)
+                    .map(tauri::ipc::InvokeResponseBody::Json)
+                    .unwrap_or_else(|_| tauri::ipc::InvokeResponseBody::Json("{}".into()))));
+        }
+        Err(message) => {
+            invoke
+                .resolver
+                .respond::<tauri::ipc::InvokeResponseBody>(Err(tauri::ipc::InvokeError(
+                    // `message` is already the JSON error envelope from `bridge_error`.
+                    serde_json::from_str(&message)
+                        .unwrap_or(serde_json::json!({ "message": message })),
+                )));
+        }
+    }
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BridgeArgs {
+    #[allow(dead_code)]
+    plugin_id: Option<String>,
+    #[allow(dead_code)]
+    window_id: Option<String>,
+    #[serde(default)]
+    params: Option<Value>,
+}
+
+fn bridge_dispatch(
+    app: &AppHandle,
+    webview: &tauri::Webview,
+    method: &str,
+    args: BridgeArgs,
 ) -> Result<Value, String> {
-    let identity = bridge_identity(&app, webview.label())?;
-    match method.as_str() {
+    let params = args.params.unwrap_or(Value::Null);
+    let identity = bridge_identity(app, webview.label())?;
+    match method {
         "ui.getState" => Ok(declarative_plugins_web_get_state(
-            app,
+            app.clone(),
             identity.plugin_id,
             identity.window_id,
         )),
@@ -275,7 +343,7 @@ pub fn declarative_plugins_web_bridge_request(
                 ));
             };
             declarative_plugins_web_set_state(
-                app,
+                app.clone(),
                 identity.plugin_id,
                 identity.window_id,
                 state.clone(),

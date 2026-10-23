@@ -1437,6 +1437,26 @@ export function getLspWorkspaceSessionSnapshot(args: {
   return session ? snapshotForSession(session) : null;
 }
 
+/**
+ * Pushes a declarative plugin's expanded `workspaceConfiguration` to the
+ * running language server for this workspace and language (`effect:`
+ * `immediate` settings). Returns whether a live session received it.
+ */
+export async function pushDeclarativeWorkspaceConfiguration(args: {
+  workspacePath: string;
+  languageId: string;
+  configuration: unknown;
+}): Promise<boolean> {
+  const session = sessions.get(sessionKey(args.workspacePath, args.languageId));
+  if (!session || !isSessionReady(session.lifecycle)) return false;
+  await core(
+    "lsp.updateWorkspaceConfiguration",
+    { sessionId: session.id, configuration: args.configuration },
+    crypto.randomUUID(),
+  );
+  return true;
+}
+
 function snapshotForSession(session: Session): LspSessionSnapshot {
   return {
     id: session.id,

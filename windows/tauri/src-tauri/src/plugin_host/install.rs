@@ -174,6 +174,7 @@ pub fn declarative_plugins_uninstall(app: AppHandle, plugin_id: String) -> Resul
             .map_err(|error| format!("state directory could not be removed: {error}"))?;
     }
     close_plugin_web_windows(&app, &plugin_id);
+    notify_plugin_lifecycle_change(&app, &plugin_id);
     rescan_after_change(&app);
     Ok(())
 }
@@ -204,9 +205,21 @@ pub fn declarative_plugins_set_enabled(
     std::fs::rename(&temp_path, &record_path).map_err(|error| error.to_string())?;
     if !enabled {
         close_plugin_web_windows(&app, &plugin_id);
+        notify_plugin_lifecycle_change(&app, &plugin_id);
     }
     rescan_after_change(&app);
     Ok(())
+}
+
+/// Tells the frontend that a plugin changed state, so owned run sessions and
+/// other live resources are released (the process owner lives in the
+/// frontend's run layer).
+fn notify_plugin_lifecycle_change(app: &AppHandle, plugin_id: &str) {
+    use tauri::Emitter;
+    let _ = app.emit(
+        "declarative-plugin-lifecycle",
+        serde_json::json!({ "pluginId": plugin_id, "active": false }),
+    );
 }
 
 /// Restores the previous version directory of an installed package. Rollback
@@ -316,11 +329,28 @@ fn staging_validate_and_activate(
 ) -> Result<(), String> {
     let staged_manifest = read_snapshot_manifest(staging_directory)?;
     validate_manifest(&staged_manifest).map_err(|rejection| rejection.message)?;
-    if version_directory.exists() {
-        std::fs::remove_dir_all(version_directory).map_err(|error| error.to_string())?;
+    if !version_directory.exists() {
+        return std::fs::rename(staging_directory, version_directory)
+            .map_err(|error| format!("activation failed: {error}"));
     }
-    std::fs::rename(staging_directory, version_directory)
-        .map_err(|error| format!("activation failed: {error}"))?;
+    // Replacing an existing version: move the current directory aside first,
+    // and restore it if activation fails, so a failed same-version reinstall
+    // never leaves the install record pointing at missing bytes.
+    let backup_directory = version_directory.with_extension("previous-tmp");
+    if backup_directory.exists() {
+        std::fs::remove_dir_all(&backup_directory).map_err(|error| error.to_string())?;
+    }
+    std::fs::rename(version_directory, &backup_directory)
+        .map_err(|error| format!("could not back up the current version: {error}"))?;
+    if let Err(activation_error) = std::fs::rename(staging_directory, version_directory) {
+        if let Err(restore_error) = std::fs::rename(&backup_directory, version_directory) {
+            return Err(format!(
+                "activation failed ({activation_error}) and the previous version could not be restored ({restore_error})"
+            ));
+        }
+        return Err(format!("activation failed: {activation_error}"));
+    }
+    let _ = std::fs::remove_dir_all(&backup_directory);
     Ok(())
 }
 
@@ -534,6 +564,7 @@ fn accepted_entry_fallback(plugin_id: &str, version: &str) -> CatalogEntry {
         status: "accepted",
         languages: Vec::new(),
         declared_settings: Vec::new(),
+        declares_tests: false,
         primary_language_id: None,
         rejection: None,
     }

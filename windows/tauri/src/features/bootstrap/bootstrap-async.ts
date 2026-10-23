@@ -48,6 +48,10 @@ const asyncBootstrapSteps = [
       const { rescanDeclarativePlugins } =
         await import("@/features/plugins/declarative-plugin-launch");
       await rescanDeclarativePlugins();
+      const { initializePluginWebOpenFileListener } =
+        await import("@/features/plugins/plugin-web-open-file");
+      const { initializePluginWebListeners } = await import("@/features/plugins/plugin-web-open-file");
+      await initializePluginWebListeners();
     },
   },
 ] as const;

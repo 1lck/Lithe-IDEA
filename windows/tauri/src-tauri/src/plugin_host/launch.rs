@@ -407,6 +407,7 @@ mod tests {
                 status: "accepted",
                 languages: Vec::new(),
                 declared_settings: Vec::new(),
+                declares_tests: false,
                 primary_language_id: None,
                 rejection: None,
             },

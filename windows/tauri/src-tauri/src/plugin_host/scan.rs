@@ -67,6 +67,13 @@ fn scan_package(package: DiscoveredPackage) -> ScannedPackage {
                 status: "accepted",
                 languages: catalog_languages(&plugin),
                 declared_settings: plugin["settings"].as_array().cloned().unwrap_or_default(),
+                declares_tests: plugin["executionProviders"]
+                    .as_array()
+                    .is_some_and(|providers| {
+                        providers
+                            .iter()
+                            .any(|provider| provider.get("test").is_some())
+                    }),
                 primary_language_id: plugin["languageServers"]
                     .as_array()
                     .and_then(|servers| servers.first())
@@ -106,6 +113,7 @@ fn quarantined(
             status: "rejected",
             languages: Vec::new(),
             declared_settings: Vec::new(),
+            declares_tests: false,
             primary_language_id: None,
             rejection: Some(rejection),
         },

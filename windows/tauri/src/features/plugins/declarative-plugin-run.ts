@@ -10,7 +10,9 @@ import { useUIState } from "@/features/window/stores/ui-state.store";
 import type { RunActionItem } from "@/features/run-actions/types/run-action.types";
 import {
   invokeDeclarativePluginOwner,
+  listDeclarativePlugins,
   resolveDeclarativeRunPlan,
+  resolveDeclarativeTestPlan,
   type DeclarativeRunPlan,
 } from "./declarative-plugin-launch";
 import { declarativePluginProcessOwner } from "./declarative-plugin-process-owner";
@@ -30,6 +32,15 @@ export async function declarativeRunActionForFile(
 ): Promise<RunActionItem | null> {
   const owner = await invokeDeclarativePluginOwner(filePath);
   if (!owner) return null;
+  // A plugin whose manifest declares a test template also gets a test action
+  // routed through the same run pipeline with the file scope.
+  const hasTests = (await listDeclarativePlugins()).some(
+    (plugin) =>
+      plugin.pluginId === owner.pluginId &&
+      plugin.status === "accepted" &&
+      plugin.enabled &&
+      plugin.declaresTests,
+  );
   return {
     id: `declarative:${owner.pluginId}:${owner.languageId}`,
     name: owner.displayName,
@@ -37,6 +48,7 @@ export async function declarativeRunActionForFile(
     source: "declarative",
     sourceLabel: owner.displayName,
     declarativeOwner: { pluginId: owner.pluginId, languageId: owner.languageId },
+    declarativeTest: hasTests,
   };
 }
 
@@ -48,11 +60,21 @@ export async function runDeclarativeAction(
 ): Promise<void> {
   const owner = action.declarativeOwner;
   if (!owner) throw new Error("The action does not name a declarative plugin.");
-  const plan = await resolveDeclarativeRunPlan(
-    owner.pluginId,
-    owner.languageId,
-    toWorkspaceRelative(filePath, root),
-  );
+  // The plan chosen depends on the action kind: run plans take the file,
+  // test plans (when the action carries declarativeTest) reuse the run
+  // entry with the file's test template when the plugin declares one.
+  const relative = toWorkspaceRelative(filePath, root);
+  const plan = action.declarativeTest
+    ? // Test-plan project markers are answered from the workspace file list
+      // the host frontend can supply; v1 passes the opened file so marker
+      // detection at minimum sees the active project file. Full workspace
+      // scanning lands with the test-panel integration.
+      await resolveDeclarativeTestPlan(
+        owner.pluginId,
+        owner.languageId,
+        [relative],
+      ).catch(() => resolveDeclarativeRunPlan(owner.pluginId, owner.languageId, relative))
+    : await resolveDeclarativeRunPlan(owner.pluginId, owner.languageId, relative);
   await startDeclarativePlan(plan, workspaceId, root, filePath);
 }
 

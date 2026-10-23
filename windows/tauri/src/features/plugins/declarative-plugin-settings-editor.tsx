@@ -3,6 +3,7 @@ import { useTranslation } from "@/i18n/locale-provider";
 import Switch from "@/ui/switch";
 import NumberInput from "@/ui/number-input";
 import SettingsSelect from "@/ui/settings-select";
+import { pushDeclarativeWorkspaceConfiguration } from "@/platform/lsp-core-adapter";
 import {
   getDeclarativePluginManifest,
   resolveDeclarativeSettings,
@@ -76,8 +77,21 @@ export function DeclarativePluginSettingsEditor({
       const stored = value === setting.default ? null : value;
       await storeDeclarativeSetting(pluginId, setting.id, scope, workspacePath ?? "", stored);
       await refresh();
-      if (setting.effect === "immediate" && languageId && manifest) {
-        await declarativeWorkspaceConfiguration(manifest, languageId, workspacePath ?? "");
+      if (setting.effect === "immediate" && languageId && manifest && workspacePath) {
+        // Expand the configuration from the stored values, then push it to
+        // the running language server through the LSP session.
+        const outcome = await declarativeWorkspaceConfiguration(
+          manifest,
+          languageId,
+          workspacePath,
+        );
+        if (outcome.status === "ok" && outcome.configuration !== null) {
+          await pushDeclarativeWorkspaceConfiguration({
+            workspacePath,
+            languageId,
+            configuration: outcome.configuration,
+          });
+        }
       }
     } catch (reason) {
       setError(String(reason));

@@ -70,6 +70,8 @@ pub struct CatalogEntry {
     pub languages: Vec<CatalogLanguage>,
     /// Declared settings (settings capability), as Core normalizes them.
     pub declared_settings: Vec<Value>,
+    /// Whether any execution provider declares a test template.
+    pub declares_tests: bool,
     /// First language with a language server, for workspace configuration.
     pub primary_language_id: Option<String>,
     pub rejection: Option<CatalogRejection>,

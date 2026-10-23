@@ -33,6 +33,7 @@ export interface DeclarativePluginSummary {
   status: "accepted" | "rejected";
   languages: DeclarativePluginLanguage[];
   declaredSettings: DeclarativePluginSetting[];
+  declaresTests: boolean;
   primaryLanguageId: string | null;
   rejection: DeclarativePluginRejection | null;
 }

@@ -16,6 +16,8 @@ export type RunActionSource =
 export interface RunActionItem {
   /** Owning declarative plugin, for `source: "declarative"` items. */
   declarativeOwner?: { pluginId: string; languageId: string };
+  /** Route this declarative action through the plugin's test template. */
+  declarativeTest?: boolean;
   id: string;
   name: string;
   command?: string;
