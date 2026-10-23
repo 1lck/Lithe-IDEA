@@ -2,7 +2,7 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import { createBackend, PluginError } from '../../../src/index.mjs';
 
-const backend = createBackend({ name: 'native-ui-lab', version: '0.3.2' });
+const backend = createBackend({ name: 'native-ui-lab', version: '0.3.3' });
 backend.build.model(() => ({ projects: [{ name: 'UI Lab', path: '.' }] }));
 backend.build.dependencies(() => ({ dependencies: [] }));
 
@@ -76,6 +76,7 @@ for (const kind of ['tree', 'list']) {
   action('invalid', () => { invalid = true; return { message: '返回重复 ID：宿主应拒绝数据并保留之前的行；顶部“重置”恢复。' }; });
 }
 
+backend.function('buttons.inspect', () => ({ message: 'UI Lab 0.3.3：按钮动作已执行；外观完全由当前 IDE 宿主公共样式绘制。' }));
 backend.function('form.nodes', () => ({ nodes: [] }));
 backend.function('form.changed', ({ values }) => {
   if (!values || typeof values.name !== 'string' || typeof values.query !== 'string'

@@ -2,7 +2,7 @@
   "schemaVersion": 2,
   "id": "org.example.native-ui-lab",
   "displayName": "UI 验收实验室",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "pluginAPIVersion": 3,
   "requires": {
     "buildProviders": 1,
@@ -27,7 +27,8 @@
     "onView:org.example.native-ui-lab.static-tree",
     "onView:org.example.native-ui-lab.static-list",
     "onView:org.example.native-ui-lab.empty",
-    "onView:org.example.native-ui-lab.form"
+    "onView:org.example.native-ui-lab.form",
+    "onView:org.example.native-ui-lab.buttons"
   ],
   "languages": [],
   "buildSystems": [
@@ -798,6 +799,97 @@
               "id": "disabled-primary",
               "label": "禁用主要按钮",
               "action": "changed",
+              "primary": true,
+              "enabled": false,
+              "info": "禁用主要按钮：动作已禁用；说明仍可查看，点击此提示不会执行动作。"
+            },
+            {
+              "id": "slow-button",
+              "label": "慢提交（3秒，检查禁用/取消）",
+              "action": "form-slow"
+            },
+            {
+              "id": "failure-button",
+              "label": "模拟提交失败",
+              "action": "form-fail"
+            }
+          ]
+        }
+      },
+      {
+        "id": "org.example.native-ui-lab.buttons",
+        "title": "UI Lab · 按钮验收 0.3.3",
+        "placement": "bottom",
+        "native": {
+          "schemaVersion": 1,
+          "id": "buttons",
+          "kind": "form",
+          "controls": [],
+          "source": {
+            "buildSystemID": "native-ui-lab",
+            "function": "form.nodes"
+          },
+          "actions": [
+            {
+              "id": "inspect-buttons",
+              "title": "检查按钮动作",
+              "kind": "invoke",
+              "function": "buttons.inspect",
+              "requiresSelection": false
+            },
+            {
+              "id": "form-slow",
+              "title": "慢提交",
+              "kind": "invoke",
+              "function": "form.slow",
+              "requiresSelection": false
+            },
+            {
+              "id": "form-fail",
+              "title": "模拟提交失败",
+              "kind": "invoke",
+              "function": "form.fail",
+              "requiresSelection": false
+            }
+          ],
+          "toolbar": [],
+          "contextMenu": [],
+          "buttons": [
+            {
+              "id": "secondary-content",
+              "label": "取消",
+              "action": "inspect-buttons",
+              "info": "短文案使用共享最小宽度；鼠标、键盘和禁用状态都复用公共按钮。"
+            },
+            {
+              "id": "secondary-fill",
+              "label": "普通按钮 · 较长文案自然增长",
+              "action": "inspect-buttons",
+              "info": "按钮按文案自然增长，不填满栅格；颜色、字体和内边距均由宿主统一。"
+            },
+            {
+              "id": "primary-content",
+              "label": "应用",
+              "action": "inspect-buttons",
+              "primary": true
+            },
+            {
+              "id": "primary-fill",
+              "label": "主要按钮 · 较长文案自然增长",
+              "action": "inspect-buttons",
+              "primary": true
+            },
+            {
+              "id": "disabled-button",
+              "label": "禁用普通按钮",
+              "action": "inspect-buttons",
+              "enabled": false,
+              "info": "禁用普通按钮：动作已禁用；说明仍可查看，点击此提示不会执行动作。"
+            },
+            {
+              "id": "disabled-primary",
+              "label": "禁用主要按钮",
+              "action": "inspect-buttons",
               "primary": true,
               "enabled": false,
               "info": "禁用主要按钮：动作已禁用；说明仍可查看，点击此提示不会执行动作。"

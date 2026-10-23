@@ -23,7 +23,7 @@ test('UI lab exposes every declared action and exercises data mutations and reco
     return reply.result;
   };
   const manifest = JSON.parse(await readFile(join(packageRoot, 'plugin.json'), 'utf8'));
-  assert.equal(manifest.ui.toolWindows.length, 6);
+  assert.equal(manifest.ui.toolWindows.length, 7);
   assert.deepEqual(new Set(manifest.ui.toolWindows.map((panel) => panel.placement)), new Set(['left', 'right', 'bottom']));
   const offered = new Set(initialized.result.capabilities.experimental.litheFunctions.functions.map((fn) => fn.id));
   for (const panel of manifest.ui.toolWindows) {
@@ -38,10 +38,15 @@ test('UI lab exposes every declared action and exercises data mutations and reco
   assert.equal(form.toolbar.length, 0, 'Form actions must remain separate from header actions');
   assert.deepEqual(new Set(form.buttons.map((button) => button.width ?? 'content')), new Set(['content']));
   assert.ok(form.controls.every((control) => control.info));
-  assert.equal(manifest.version, '0.3.2');
+  assert.equal(manifest.version, '0.3.3');
   assert.ok(form.controls.filter((control) => control.enabled === false).every((control) => control.info.includes('键盘')));
   assert.ok(form.buttons.filter((button) => button.enabled === false).every((button) => button.info));
   for (const button of form.buttons) assert.ok(form.actions.some((action) => action.id === button.action));
+  const buttonsOnly = manifest.ui.toolWindows.find((panel) => panel.native.id === 'buttons').native;
+  assert.deepEqual(buttonsOnly.controls, []);
+  assert.equal(buttonsOnly.buttons.length, 8);
+  assert.deepEqual(buttonsOnly.buttons.filter((button) => button.enabled === false).map((button) => button.primary ?? false), [false, true]);
+  assert.match((await result('buttons.inspect')).message, /0\.3\.3/);
   const values = Object.fromEntries(form.controls.map((control) => [control.id, control.value]));
   Object.assign(values, { name: '中文 😀 / English', query: '输入值', environment: 'prod', notify: false });
   const reply = await result('form.changed', { values, selectedID: null });
