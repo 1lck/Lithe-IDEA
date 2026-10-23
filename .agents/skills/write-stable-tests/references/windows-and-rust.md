@@ -43,6 +43,14 @@ native Git process/AskPass tests in `git-host-rust.json` and Core tests in
 `shared-rust.json`. Testing a Cargo package does not run its dependencies' own
 tests. macOS's `verify-rust-core.sh` runs the same native adapter timing lane.
 
+In macOS's Rust-only lane, Agent Host uses the Rust runner's default 20-minute
+suite budget, including compilation. Run 39939156503 exhausted the old two-minute
+override while still compiling Agent Host and its ACP/MCP dependencies; no test
+had started. Git Host keeps its smaller two-minute suite allowance. Agent Host's
+individual cases retain the default 15-second watchdog, and the CI job keeps its
+30-minute limit. A warm-cache pass does not verify this path: use an empty Cargo
+target directory and inspect both compilation time and per-case report budgets.
+
 Every Bun and Rust lane writes JUnit XML plus a self-contained HTML dashboard
 below `.artifacts/test-stability/`. The dashboard groups Rust cases by crate
 module and Bun cases by their JUnit class or suite.
