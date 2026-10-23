@@ -152,7 +152,7 @@ struct LanguageExtensionProcessLifecycleTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let operations = DeclarativePluginTestSupport.operations
         let descriptor = try operations.validate(manifest: Data(contentsOf: DeclarativePluginTestSupport.repositoryRoot
-            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/java-support.plugin.json")))
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/language-host-integration.plugin.json")))
         let packageURL = root.appendingPathComponent("package", isDirectory: true)
         let installed = InstalledPluginPackage(
             descriptor: descriptor,

@@ -17,22 +17,22 @@ const FIXTURES_DIR: &str = concat!(
 
 /// Valid manifests that this host's capability declaration accepts.
 const ACCEPTED_FIXTURES: [&str; 6] = [
-    "go-support.plugin.json",
+    "language-system-command.plugin.json",
     "hello-lithe.plugin.json",
-    "java-support.plugin.json",
+    "language-host-integration.plugin.json",
     "node-runtime.plugin.json",
-    "php-support.plugin.json",
+    "language-packaged-server.plugin.json",
     "web-panel.plugin.json",
 ];
 
 /// Valid manifests whose capabilities exceed the host declaration; Core
 /// rejects them through the capability gate, not through manifest semantics.
 const CAPABILITY_GATED_FIXTURES: [&str; 5] = [
-    "cargo-build.plugin.json",
-    "go-build.plugin.json",
-    "gradle-build.plugin.json",
-    "gradle-provider.plugin.json",
-    "maven-build.plugin.json",
+    "build-static-file.plugin.json",
+    "build-command-stdout.plugin.json",
+    "build-command-output-file.plugin.json",
+    "build-provider.plugin.json",
+    "build-host-integration.plugin.json",
 ];
 
 fn fixture_path(name: &str) -> PathBuf {
@@ -163,7 +163,7 @@ fn scan_accepts_valid_packages_and_quarantines_broken_ones() {
     let root = unique_temp_root("scan");
     let package_root = root.join("acme.php");
     std::fs::create_dir_all(&package_root).expect("package dir");
-    let manifest = read_fixture("php-support.plugin.json");
+    let manifest = read_fixture("language-packaged-server.plugin.json");
     std::fs::write(
         package_root.join("plugin.json"),
         serde_json::to_string_pretty(&manifest).expect("manifest text"),
@@ -200,7 +200,8 @@ fn store_problems_quarantine_packages_with_valid_manifests() {
     std::fs::create_dir_all(&version_directory).expect("version dir");
     std::fs::write(
         version_directory.join("plugin.json"),
-        serde_json::to_string(&read_fixture("php-support.plugin.json")).expect("manifest"),
+        serde_json::to_string(&read_fixture("language-packaged-server.plugin.json"))
+            .expect("manifest"),
     )
     .expect("manifest file");
 
@@ -262,7 +263,8 @@ fn catalog_build_combines_bundled_and_installed_sources() {
     std::fs::create_dir_all(&installed_version).expect("installed dir");
     std::fs::write(
         installed_version.join("plugin.json"),
-        serde_json::to_string(&read_fixture("php-support.plugin.json")).expect("manifest"),
+        serde_json::to_string(&read_fixture("language-packaged-server.plugin.json"))
+            .expect("manifest"),
     )
     .expect("manifest file");
     std::fs::write(
@@ -275,7 +277,8 @@ fn catalog_build_combines_bundled_and_installed_sources() {
     std::fs::create_dir_all(&bundled_directory).expect("bundled dir");
     std::fs::write(
         bundled_directory.join("plugin.json"),
-        serde_json::to_string(&read_fixture("go-support.plugin.json")).expect("manifest"),
+        serde_json::to_string(&read_fixture("language-system-command.plugin.json"))
+            .expect("manifest"),
     )
     .expect("manifest file");
 
@@ -291,7 +294,10 @@ fn catalog_build_combines_bundled_and_installed_sources() {
         .iter()
         .find(|package| package.entry.source == "bundled")
         .expect("bundled entry");
-    assert_eq!(bundled.entry.plugin_id, "dev.lithe.fixture.go-support");
+    assert_eq!(
+        bundled.entry.plugin_id,
+        "dev.lithe.fixture.language-system-command"
+    );
     assert!(bundled.entry.enabled);
 
     let _ = std::fs::remove_dir_all(&temporary);

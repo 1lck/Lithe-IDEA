@@ -26,7 +26,7 @@ mod install_tests {
     fn package_directory(root: &std::path::Path, version: &str) -> PathBuf {
         let directory = root.join(format!("pkg-{version}"));
         std::fs::create_dir_all(&directory).expect("package dir");
-        let mut manifest = read_fixture_for_tests("php-support.plugin.json");
+        let mut manifest = read_fixture_for_tests("language-packaged-server.plugin.json");
         manifest["version"] = serde_json::json!(version);
         std::fs::write(
             directory.join("plugin.json"),

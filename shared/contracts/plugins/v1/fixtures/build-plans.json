@@ -4,7 +4,7 @@
   "cases": [
     {
       "name": "cargo invocation is the cargo command",
-      "plugin": "cargo-build.plugin.json",
+      "plugin": "build-static-file.plugin.json",
       "buildSystemID": "cargo",
       "operation": "invocationPlan",
       "request": {
@@ -35,7 +35,7 @@
     },
     {
       "name": "cargo version meets the minimum",
-      "plugin": "cargo-build.plugin.json",
+      "plugin": "build-static-file.plugin.json",
       "buildSystemID": "cargo",
       "operation": "checkToolVersion",
       "request": {
@@ -51,7 +51,7 @@
     },
     {
       "name": "cargo version below the minimum",
-      "plugin": "cargo-build.plugin.json",
+      "plugin": "build-static-file.plugin.json",
       "buildSystemID": "cargo",
       "operation": "checkToolVersion",
       "request": {
@@ -67,7 +67,7 @@
     },
     {
       "name": "cargo build puts options after the subcommand",
-      "plugin": "cargo-build.plugin.json",
+      "plugin": "build-static-file.plugin.json",
       "buildSystemID": "cargo",
       "operation": "taskPlan",
       "request": {
@@ -107,7 +107,7 @@
     },
     {
       "name": "cargo example needs its target",
-      "plugin": "cargo-build.plugin.json",
+      "plugin": "build-static-file.plugin.json",
       "buildSystemID": "cargo",
       "operation": "taskPlan",
       "request": {
@@ -143,7 +143,7 @@
     },
     {
       "name": "cargo example refuses a binary target",
-      "plugin": "cargo-build.plugin.json",
+      "plugin": "build-static-file.plugin.json",
       "buildSystemID": "cargo",
       "operation": "taskPlan",
       "request": {
@@ -170,7 +170,7 @@
     },
     {
       "name": "cargo example refuses the project scope",
-      "plugin": "cargo-build.plugin.json",
+      "plugin": "build-static-file.plugin.json",
       "buildSystemID": "cargo",
       "operation": "taskPlan",
       "request": {
@@ -191,7 +191,7 @@
     },
     {
       "name": "cargo test selects one exact case",
-      "plugin": "cargo-build.plugin.json",
+      "plugin": "build-static-file.plugin.json",
       "buildSystemID": "cargo",
       "operation": "testPlan",
       "request": {
@@ -223,7 +223,7 @@
     },
     {
       "name": "cargo test selects an integration target",
-      "plugin": "cargo-build.plugin.json",
+      "plugin": "build-static-file.plugin.json",
       "buildSystemID": "cargo",
       "operation": "testPlan",
       "request": {
@@ -263,7 +263,7 @@
     },
     {
       "name": "cargo test refuses a binary target",
-      "plugin": "cargo-build.plugin.json",
+      "plugin": "build-static-file.plugin.json",
       "buildSystemID": "cargo",
       "operation": "testPlan",
       "request": {
@@ -289,7 +289,7 @@
     },
     {
       "name": "cargo test cannot select a suite",
-      "plugin": "cargo-build.plugin.json",
+      "plugin": "build-static-file.plugin.json",
       "buildSystemID": "cargo",
       "operation": "testPlan",
       "request": {
@@ -310,7 +310,7 @@
     },
     {
       "name": "cargo options keep known values and drop the rest",
-      "plugin": "cargo-build.plugin.json",
+      "plugin": "build-static-file.plugin.json",
       "buildSystemID": "cargo",
       "operation": "resolveOptions",
       "request": {
@@ -382,7 +382,7 @@
     },
     {
       "name": "cargo options accept model values before a model exists",
-      "plugin": "cargo-build.plugin.json",
+      "plugin": "build-static-file.plugin.json",
       "buildSystemID": "cargo",
       "operation": "resolveOptions",
       "request": {
@@ -433,7 +433,7 @@
     },
     {
       "name": "cargo short diagnostics",
-      "plugin": "cargo-build.plugin.json",
+      "plugin": "build-static-file.plugin.json",
       "buildSystemID": "cargo",
       "operation": "decodeDiagnostics",
       "request": {
@@ -463,7 +463,7 @@
     },
     {
       "name": "go runs through the host-managed runtime",
-      "plugin": "go-build.plugin.json",
+      "plugin": "build-command-stdout.plugin.json",
       "buildSystemID": "go",
       "operation": "invocationPlan",
       "request": {
@@ -503,7 +503,7 @@
     },
     {
       "name": "go runtime version",
-      "plugin": "go-build.plugin.json",
+      "plugin": "build-command-stdout.plugin.json",
       "buildSystemID": "go",
       "operation": "checkToolVersion",
       "request": {
@@ -520,7 +520,7 @@
     },
     {
       "name": "go runtime below the minimum",
-      "plugin": "go-build.plugin.json",
+      "plugin": "build-command-stdout.plugin.json",
       "buildSystemID": "go",
       "operation": "checkToolVersion",
       "request": {
@@ -537,7 +537,7 @@
     },
     {
       "name": "go model is a json stream on stdout",
-      "plugin": "go-build.plugin.json",
+      "plugin": "build-command-stdout.plugin.json",
       "buildSystemID": "go",
       "operation": "modelPlan",
       "request": {
@@ -566,7 +566,7 @@
     },
     {
       "name": "go list output becomes projects, targets, and run entries",
-      "plugin": "go-build.plugin.json",
+      "plugin": "build-command-stdout.plugin.json",
       "buildSystemID": "go",
       "operation": "decodeModel",
       "request": {
@@ -680,7 +680,7 @@
     },
     {
       "name": "go dependencies of a module",
-      "plugin": "go-build.plugin.json",
+      "plugin": "build-command-stdout.plugin.json",
       "buildSystemID": "go",
       "operation": "dependencyPlan",
       "request": {
@@ -714,7 +714,7 @@
     },
     {
       "name": "go module list skips the main module",
-      "plugin": "go-build.plugin.json",
+      "plugin": "build-command-stdout.plugin.json",
       "buildSystemID": "go",
       "operation": "decodeDependencies",
       "request": {
@@ -748,7 +748,7 @@
     },
     {
       "name": "go test escapes the case name",
-      "plugin": "go-build.plugin.json",
+      "plugin": "build-command-stdout.plugin.json",
       "buildSystemID": "go",
       "operation": "testPlan",
       "request": {
@@ -786,7 +786,7 @@
     },
     {
       "name": "go diagnostics relative to the module",
-      "plugin": "go-build.plugin.json",
+      "plugin": "build-command-stdout.plugin.json",
       "buildSystemID": "go",
       "operation": "decodeDiagnostics",
       "request": {
@@ -815,7 +815,7 @@
     },
     {
       "name": "gradle prefers the unix wrapper",
-      "plugin": "gradle-build.plugin.json",
+      "plugin": "build-command-output-file.plugin.json",
       "buildSystemID": "gradle",
       "operation": "invocationPlan",
       "request": {
@@ -874,7 +874,7 @@
     },
     {
       "name": "gradle prefers the batch wrapper on windows",
-      "plugin": "gradle-build.plugin.json",
+      "plugin": "build-command-output-file.plugin.json",
       "buildSystemID": "gradle",
       "operation": "invocationPlan",
       "request": {
@@ -933,7 +933,7 @@
     },
     {
       "name": "gradle two-part version",
-      "plugin": "gradle-build.plugin.json",
+      "plugin": "build-command-output-file.plugin.json",
       "buildSystemID": "gradle",
       "operation": "checkToolVersion",
       "request": {
@@ -949,7 +949,7 @@
     },
     {
       "name": "gradle model runs the init script into the output file",
-      "plugin": "gradle-build.plugin.json",
+      "plugin": "build-command-output-file.plugin.json",
       "buildSystemID": "gradle",
       "operation": "modelPlan",
       "request": {
@@ -987,7 +987,7 @@
     },
     {
       "name": "gradle model needs an output file",
-      "plugin": "gradle-build.plugin.json",
+      "plugin": "build-command-output-file.plugin.json",
       "buildSystemID": "gradle",
       "operation": "modelPlan",
       "request": {
@@ -1004,7 +1004,7 @@
     },
     {
       "name": "gradle build of one project",
-      "plugin": "gradle-build.plugin.json",
+      "plugin": "build-command-output-file.plugin.json",
       "buildSystemID": "gradle",
       "operation": "taskPlan",
       "request": {
@@ -1041,7 +1041,7 @@
     },
     {
       "name": "gradle build of the whole build",
-      "plugin": "gradle-build.plugin.json",
+      "plugin": "build-command-output-file.plugin.json",
       "buildSystemID": "gradle",
       "operation": "taskPlan",
       "request": {
@@ -1066,7 +1066,7 @@
     },
     {
       "name": "gradle model task runs by its path",
-      "plugin": "gradle-build.plugin.json",
+      "plugin": "build-command-output-file.plugin.json",
       "buildSystemID": "gradle",
       "operation": "taskPlan",
       "request": {
@@ -1106,7 +1106,7 @@
     },
     {
       "name": "gradle arbitrary tasks need arguments",
-      "plugin": "gradle-build.plugin.json",
+      "plugin": "build-command-output-file.plugin.json",
       "buildSystemID": "gradle",
       "operation": "taskPlan",
       "request": {
@@ -1138,7 +1138,7 @@
     },
     {
       "name": "gradle build takes no user arguments",
-      "plugin": "gradle-build.plugin.json",
+      "plugin": "build-command-output-file.plugin.json",
       "buildSystemID": "gradle",
       "operation": "taskPlan",
       "request": {
@@ -1158,7 +1158,7 @@
     },
     {
       "name": "gradle test of one method",
-      "plugin": "gradle-build.plugin.json",
+      "plugin": "build-command-output-file.plugin.json",
       "buildSystemID": "gradle",
       "operation": "testPlan",
       "request": {
@@ -1199,7 +1199,7 @@
     },
     {
       "name": "gradle test refuses a case without its suite",
-      "plugin": "gradle-build.plugin.json",
+      "plugin": "build-command-output-file.plugin.json",
       "buildSystemID": "gradle",
       "operation": "testPlan",
       "request": {
@@ -1223,7 +1223,7 @@
     },
     {
       "name": "gradle workspace test collects every model project's reports",
-      "plugin": "gradle-build.plugin.json",
+      "plugin": "build-command-output-file.plugin.json",
       "buildSystemID": "gradle",
       "operation": "testPlan",
       "request": {
@@ -1259,7 +1259,7 @@
     },
     {
       "name": "gradle dependencies of the root project",
-      "plugin": "gradle-build.plugin.json",
+      "plugin": "build-command-output-file.plugin.json",
       "buildSystemID": "gradle",
       "operation": "dependencyPlan",
       "request": {
@@ -1293,7 +1293,7 @@
     },
     {
       "name": "gradle javac and kotlin diagnostics",
-      "plugin": "gradle-build.plugin.json",
+      "plugin": "build-command-output-file.plugin.json",
       "buildSystemID": "gradle",
       "operation": "decodeDiagnostics",
       "request": {
@@ -1328,7 +1328,7 @@
     },
     {
       "name": "maven package of a nested module",
-      "plugin": "maven-build.plugin.json",
+      "plugin": "build-host-integration.plugin.json",
       "buildSystemID": "maven",
       "operation": "taskPlan",
       "request": {
@@ -1373,7 +1373,7 @@
     },
     {
       "name": "maven clean of the reactor root",
-      "plugin": "maven-build.plugin.json",
+      "plugin": "build-host-integration.plugin.json",
       "buildSystemID": "maven",
       "operation": "taskPlan",
       "request": {
@@ -1408,7 +1408,7 @@
     },
     {
       "name": "maven goal of a reactor below the workspace root",
-      "plugin": "maven-build.plugin.json",
+      "plugin": "build-host-integration.plugin.json",
       "buildSystemID": "maven",
       "operation": "taskPlan",
       "request": {
@@ -1443,7 +1443,7 @@
     },
     {
       "name": "maven test of one method",
-      "plugin": "maven-build.plugin.json",
+      "plugin": "build-host-integration.plugin.json",
       "buildSystemID": "maven",
       "operation": "testPlan",
       "request": {
@@ -1481,7 +1481,7 @@
     },
     {
       "name": "maven test refuses a case without its suite",
-      "plugin": "maven-build.plugin.json",
+      "plugin": "build-host-integration.plugin.json",
       "buildSystemID": "maven",
       "operation": "testPlan",
       "request": {
@@ -1498,7 +1498,7 @@
     },
     {
       "name": "maven dependency tree of a nested module",
-      "plugin": "maven-build.plugin.json",
+      "plugin": "build-host-integration.plugin.json",
       "buildSystemID": "maven",
       "operation": "dependencyPlan",
       "request": {
@@ -1552,7 +1552,7 @@
     },
     {
       "name": "maven dependency tree of the reactor root",
-      "plugin": "maven-build.plugin.json",
+      "plugin": "build-host-integration.plugin.json",
       "buildSystemID": "maven",
       "operation": "dependencyPlan",
       "request": {
@@ -1592,7 +1592,7 @@
     },
     {
       "name": "maven compiler diagnostics",
-      "plugin": "maven-build.plugin.json",
+      "plugin": "build-host-integration.plugin.json",
       "buildSystemID": "maven",
       "operation": "decodeDiagnostics",
       "request": {
@@ -1622,7 +1622,7 @@
     },
     {
       "name": "unknown build system",
-      "plugin": "maven-build.plugin.json",
+      "plugin": "build-host-integration.plugin.json",
       "buildSystemID": "gradle",
       "operation": "taskPlan",
       "request": {
@@ -1639,7 +1639,7 @@
     },
     {
       "name": "gradle provider model is a request for the provider with the option values",
-      "plugin": "gradle-provider.plugin.json",
+      "plugin": "build-provider.plugin.json",
       "buildSystemID": "gradle",
       "operation": "modelPlan",
       "request": {
@@ -1676,7 +1676,7 @@
     },
     {
       "name": "gradle provider model covers the whole instance",
-      "plugin": "gradle-provider.plugin.json",
+      "plugin": "build-provider.plugin.json",
       "buildSystemID": "gradle",
       "operation": "modelPlan",
       "request": {
@@ -1696,7 +1696,7 @@
     },
     {
       "name": "gradle provider dependencies of a project name the project",
-      "plugin": "gradle-provider.plugin.json",
+      "plugin": "build-provider.plugin.json",
       "buildSystemID": "gradle",
       "operation": "dependencyPlan",
       "request": {
@@ -1737,7 +1737,7 @@
     },
     {
       "name": "gradle provider model reload carries refresh and the resolved tool",
-      "plugin": "gradle-provider.plugin.json",
+      "plugin": "build-provider.plugin.json",
       "buildSystemID": "gradle",
       "operation": "modelPlan",
       "request": {
@@ -1782,7 +1782,7 @@
     },
     {
       "name": "gradle provider model without a reload leaves refresh out",
-      "plugin": "gradle-provider.plugin.json",
+      "plugin": "build-provider.plugin.json",
       "buildSystemID": "gradle",
       "operation": "modelPlan",
       "request": {
@@ -1820,7 +1820,7 @@
     },
     {
       "name": "gradle provider dependency reload carries refresh and the resolved tool",
-      "plugin": "gradle-provider.plugin.json",
+      "plugin": "build-provider.plugin.json",
       "buildSystemID": "gradle",
       "operation": "dependencyPlan",
       "request": {
@@ -1869,7 +1869,7 @@
     },
     {
       "name": "gradle provider tool must be an absolute path",
-      "plugin": "gradle-provider.plugin.json",
+      "plugin": "build-provider.plugin.json",
       "buildSystemID": "gradle",
       "operation": "modelPlan",
       "request": {
@@ -1891,7 +1891,7 @@
     },
     {
       "name": "gradle model command ignores the provider refresh and tool",
-      "plugin": "gradle-build.plugin.json",
+      "plugin": "build-command-output-file.plugin.json",
       "buildSystemID": "gradle",
       "operation": "modelPlan",
       "request": {
@@ -1933,7 +1933,7 @@
     },
     {
       "name": "gradle provider model result becomes projects, tasks, and run entries",
-      "plugin": "gradle-provider.plugin.json",
+      "plugin": "build-provider.plugin.json",
       "buildSystemID": "gradle",
       "operation": "decodeModel",
       "request": {
@@ -2079,7 +2079,7 @@
     },
     {
       "name": "gradle provider model needs the provider's result",
-      "plugin": "gradle-provider.plugin.json",
+      "plugin": "build-provider.plugin.json",
       "buildSystemID": "gradle",
       "operation": "decodeModel",
       "request": {
@@ -2096,7 +2096,7 @@
     },
     {
       "name": "gradle provider dependency result is a litheDependencies tree",
-      "plugin": "gradle-provider.plugin.json",
+      "plugin": "build-provider.plugin.json",
       "buildSystemID": "gradle",
       "operation": "decodeDependencies",
       "request": {
@@ -2149,7 +2149,7 @@
     },
     {
       "name": "gradle provider dependency result of another format is refused",
-      "plugin": "gradle-provider.plugin.json",
+      "plugin": "build-provider.plugin.json",
       "buildSystemID": "gradle",
       "operation": "decodeDependencies",
       "request": {
@@ -2205,7 +2205,7 @@
     },
     {
       "name": "mix model goes to the shared language server",
-      "plugin": "mix-provider.plugin.json",
+      "plugin": "build-provider-language-server.plugin.json",
       "buildSystemID": "mix",
       "operation": "modelPlan",
       "request": {
@@ -2235,7 +2235,7 @@
     },
     {
       "name": "mix provider lists dependencies of the workspace only",
-      "plugin": "mix-provider.plugin.json",
+      "plugin": "build-provider-language-server.plugin.json",
       "buildSystemID": "mix",
       "operation": "dependencyPlan",
       "request": {
@@ -2255,7 +2255,7 @@
     },
     {
       "name": "mix dependencies of the workspace",
-      "plugin": "mix-provider.plugin.json",
+      "plugin": "build-provider-language-server.plugin.json",
       "buildSystemID": "mix",
       "operation": "dependencyPlan",
       "request": {
@@ -2286,7 +2286,7 @@
     },
     {
       "name": "maven accepts Java 8 stderr with environment options",
-      "plugin": "maven-build.plugin.json",
+      "plugin": "build-host-integration.plugin.json",
       "buildSystemID": "maven",
       "operation": "checkToolVersion",
       "request": {
@@ -2303,7 +2303,7 @@
     },
     {
       "name": "maven rejects Java 7 against minimum 8",
-      "plugin": "maven-build.plugin.json",
+      "plugin": "build-host-integration.plugin.json",
       "buildSystemID": "maven",
       "operation": "checkToolVersion",
       "request": {
@@ -2320,7 +2320,7 @@
     },
     {
       "name": "gradle reports Java 8 as below minimum 17",
-      "plugin": "gradle-build.plugin.json",
+      "plugin": "build-command-output-file.plugin.json",
       "buildSystemID": "gradle",
       "operation": "checkToolVersion",
       "request": {

@@ -517,8 +517,9 @@ mod tests {
         std::fs::write(&server, b"binary").expect("server file");
         // The bundled fixture is API 1 (no settings requirement) with a
         // packaged launch, so a real plan request succeeds.
-        let mut manifest =
-            crate::plugin_host::tests::read_fixture_for_tests("php-support.plugin.json");
+        let mut manifest = crate::plugin_host::tests::read_fixture_for_tests(
+            "language-packaged-server.plugin.json",
+        );
         manifest["languageServers"][0]["launch"] = serde_json::json!({
             "kind": "packaged",
             "path": "bin/server.exe"
