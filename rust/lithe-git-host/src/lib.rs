@@ -3,6 +3,8 @@
 //! This adapter does not construct Git arguments or interpret Git output.
 //! The compatibility Core caller supplies policy and cancellation; both hosts
 //! share this native adapter while the existing Git command ABI is retained.
+//! [`ProcessTree`] exposes the same process-tree ownership to long-lived
+//! processes whose output a host streams itself.
 
 pub mod authentication;
 pub mod configuration;
@@ -189,21 +191,15 @@ struct OwnedChild {
 }
 impl OwnedChild {
     fn new(mut child: Child) -> io::Result<Self> {
-        match platform::Group::new(&child) {
+        // Git helpers must never outlive the command, so none may break away.
+        match platform::Group::new(&child, false) {
             Ok(group) => Ok(Self {
                 child,
                 group,
                 cleaned: false,
             }),
             Err(error) => {
-                let _ = child.kill();
-                let deadline = Instant::now() + CLEANUP_TIMEOUT;
-                while Instant::now() < deadline {
-                    if child.try_wait()?.is_some() {
-                        break;
-                    }
-                    std::thread::sleep(POLL_INTERVAL);
-                }
+                discard_unowned_child(&mut child)?;
                 Err(error)
             }
         }
@@ -241,6 +237,89 @@ impl Drop for OwnedChild {
     fn drop(&mut self) {
         if !self.cleaned {
             self.cleanup();
+        }
+    }
+}
+
+/// A prepared child the host could not take ownership of is still suspended
+/// on Windows; it is killed and reaped instead of being left behind.
+fn discard_unowned_child(child: &mut Child) -> io::Result<()> {
+    let _ = child.kill();
+    let deadline = Instant::now() + CLEANUP_TIMEOUT;
+    while Instant::now() < deadline {
+        if child.try_wait()?.is_some() {
+            break;
+        }
+        std::thread::sleep(POLL_INTERVAL);
+    }
+    Ok(())
+}
+
+/// A child process together with every descendant it starts.
+///
+/// Long-lived processes whose output a host streams itself, such as Run
+/// sessions, debug adapters and language servers, use this instead of [`run`].
+///
+/// On Windows the suspended child joins a Job Object with
+/// `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` before its first instruction runs, so
+/// no descendant can start outside the tree, and ending the tree does not
+/// depend on walking parent process IDs that break when an intermediate
+/// process exits. The kernel also ends the tree when this value is dropped,
+/// including when the host process itself crashes or is killed. A descendant
+/// that explicitly asks to leave (`CREATE_BREAKAWAY_FROM_JOB`) is allowed to,
+/// matching a Unix process that starts its own session.
+///
+/// On Unix the child leads a new process group. Only [`ProcessTree::kill`]
+/// and [`ProcessTree::terminate`] end it; crash cleanup belongs to the host.
+pub struct ProcessTree {
+    group: platform::Group,
+}
+
+impl ProcessTree {
+    /// Configures `command` so [`ProcessTree::adopt`] can claim the child
+    /// before it runs. Call it after any other creation flags are set: on
+    /// Windows it replaces them with `CREATE_NO_WINDOW | CREATE_SUSPENDED`.
+    pub fn prepare(command: &mut Command) {
+        platform::prepare(command);
+    }
+
+    /// Takes ownership of the tree of a child spawned from a prepared command
+    /// and lets the child start. On failure the child is killed and reaped, so
+    /// a suspended process is never left behind.
+    pub fn adopt(child: &mut Child) -> io::Result<Self> {
+        match platform::Group::new(child, true) {
+            Ok(group) => Ok(Self { group }),
+            Err(error) => {
+                discard_unowned_child(child)?;
+                Err(error)
+            }
+        }
+    }
+
+    /// Asks every process of the tree to end now, without waiting.
+    pub fn kill(&self) -> io::Result<()> {
+        self.group.kill()
+    }
+
+    /// Ends every process of the tree and waits until none is left.
+    ///
+    /// Returns `ErrorKind::TimedOut` when processes are still alive after
+    /// `timeout`. On Unix a root that its owner has not reaped yet still
+    /// counts, so the owner must keep waiting on its `Child` concurrently.
+    pub fn terminate(&self, timeout: Duration) -> io::Result<()> {
+        self.group.kill()?;
+        let deadline = Instant::now() + timeout;
+        loop {
+            if !self.group.has_live_processes()? {
+                return Ok(());
+            }
+            if Instant::now() >= deadline {
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "Processes of the tree are still running after they were told to end",
+                ));
+            }
+            std::thread::sleep(POLL_INTERVAL);
         }
     }
 }
@@ -314,13 +393,39 @@ mod platform {
     }
     pub struct Group(i32);
     impl Group {
-        pub fn new(child: &Child) -> io::Result<Self> {
+        /// A process that starts its own session leaves the group on its own,
+        /// so Unix has nothing to configure for breakaway.
+        pub fn new(child: &Child, _allow_breakaway: bool) -> io::Result<Self> {
             Ok(Self(child.id() as i32))
         }
         pub fn terminate(&self, force: bool) {
             // SAFETY: a negative PID addresses only the process group we created.
             unsafe {
                 libc::kill(-self.0, if force { libc::SIGKILL } else { libc::SIGTERM });
+            }
+        }
+        pub fn kill(&self) -> io::Result<()> {
+            // SAFETY: a negative PID addresses only the process group we created.
+            if unsafe { libc::kill(-self.0, libc::SIGKILL) } == 0 {
+                return Ok(());
+            }
+            let error = io::Error::last_os_error();
+            if error.raw_os_error() == Some(libc::ESRCH) {
+                return Ok(());
+            }
+            Err(error)
+        }
+        pub fn has_live_processes(&self) -> io::Result<bool> {
+            // SAFETY: signal 0 only checks whether the group still has members.
+            if unsafe { libc::kill(-self.0, 0) } == 0 {
+                return Ok(true);
+            }
+            let error = io::Error::last_os_error();
+            match error.raw_os_error() {
+                Some(libc::ESRCH) => Ok(false),
+                // A member exists but belongs to another user, so it is alive.
+                Some(libc::EPERM) => Ok(true),
+                _ => Err(error),
             }
         }
     }
@@ -369,8 +474,12 @@ mod platform {
         reader.read(&mut buffer[..count])
     }
     pub struct Group(HANDLE);
+    // SAFETY: a Job Object handle may be used and closed from any thread; the
+    // group is its only owner and closes it exactly once in `Drop`.
+    unsafe impl Send for Group {}
+    unsafe impl Sync for Group {}
     impl Group {
-        pub fn new(child: &Child) -> io::Result<Self> {
+        pub fn new(child: &Child, allow_breakaway: bool) -> io::Result<Self> {
             unsafe {
                 let handle = CreateJobObjectW(std::ptr::null(), std::ptr::null());
                 if handle.is_null() {
@@ -378,7 +487,12 @@ mod platform {
                 }
                 let group = Self(handle);
                 let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
-                info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+                info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+                    | if allow_breakaway {
+                        JOB_OBJECT_LIMIT_BREAKAWAY_OK
+                    } else {
+                        0
+                    };
                 if SetInformationJobObject(
                     handle,
                     JobObjectExtendedLimitInformation,
@@ -396,6 +510,30 @@ mod platform {
         pub fn terminate(&self, _force: bool) {
             unsafe {
                 TerminateJobObject(self.0, 1);
+            }
+        }
+        pub fn kill(&self) -> io::Result<()> {
+            // SAFETY: the job handle is owned by this group and still open.
+            if unsafe { TerminateJobObject(self.0, 1) } == 0 {
+                return Err(io::Error::last_os_error());
+            }
+            Ok(())
+        }
+        pub fn has_live_processes(&self) -> io::Result<bool> {
+            // SAFETY: the job handle is open and the buffer matches the class.
+            unsafe {
+                let mut info: JOBOBJECT_BASIC_ACCOUNTING_INFORMATION = std::mem::zeroed();
+                if QueryInformationJobObject(
+                    self.0,
+                    JobObjectBasicAccountingInformation,
+                    &mut info as *mut _ as *mut _,
+                    std::mem::size_of_val(&info) as u32,
+                    std::ptr::null_mut(),
+                ) == 0
+                {
+                    return Err(io::Error::last_os_error());
+                }
+                Ok(info.ActiveProcesses > 0)
             }
         }
     }

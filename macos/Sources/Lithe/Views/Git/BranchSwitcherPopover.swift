@@ -631,13 +631,13 @@ struct TopBarNewBranchDialog: View {
                 .toggleStyle(.checkbox)
                 .lithePointer()
                 .font(LitheTheme.uiFont(size: 12.5))
-            HStack {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Spacer()
-                Button("Cancel") { dismiss() }
+                Button("Cancel") { dismiss() }.buttonStyle(LitheActionButtonStyle())
                     .keyboardShortcut(.cancelAction)
                     .lithePointer()
                 Button("Create", action: submit)
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(LitheActionButtonStyle(isPrimary: true))
                     .lithePointer()
                     .tint(LitheTheme.accent)
                     .keyboardShortcut(.defaultAction)
@@ -683,13 +683,13 @@ struct CheckoutRevisionDialog: View {
             Text("The repository will be opened in detached HEAD state.")
                 .font(LitheTheme.uiFont(size: 10.5))
                 .foregroundStyle(LitheTheme.warning)
-            HStack {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Spacer()
-                Button("Cancel") { dismiss() }
+                Button("Cancel") { dismiss() }.buttonStyle(LitheActionButtonStyle())
                     .keyboardShortcut(.cancelAction)
                     .lithePointer()
                 Button("Checkout", action: submit)
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(LitheActionButtonStyle(isPrimary: true))
                     .lithePointer()
                     .tint(LitheTheme.accent)
                     .keyboardShortcut(.defaultAction)

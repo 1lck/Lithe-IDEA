@@ -82,7 +82,7 @@ struct McpServerLibraryView: View {
             Spacer(minLength: 12)
 
             Button("Refresh") { feature.refresh() }
-                .buttonStyle(LitheSecondaryButtonStyle(horizontalPadding: 12, height: 26, fontSize: 11.5))
+                .buttonStyle(LitheActionButtonStyle())
         }
     }
 
@@ -112,7 +112,7 @@ struct McpServerLibraryView: View {
                         Label("Add server", systemImage: "plus")
                             .font(LitheTheme.uiFont(size: 12, weight: .medium))
                     }
-                    .buttonStyle(LitheSecondaryButtonStyle(horizontalPadding: 12, height: 28, fontSize: 12))
+                    .buttonStyle(LitheActionButtonStyle())
                 }
             }
         }
@@ -510,16 +510,16 @@ private struct McpServerEditorView: View {
     }
 
     private var footer: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: LitheTheme.ActionButton.spacing) {
             Spacer(minLength: 12)
             Button("Cancel", action: onClose)
-                .buttonStyle(LitheSecondaryButtonStyle(horizontalPadding: 12, height: 28, fontSize: 12))
+                .buttonStyle(LitheActionButtonStyle())
             Button("Save") {
                 didAttemptSave = true
                 guard feature.save(draft) else { return }
                 onClose()
             }
-            .buttonStyle(LithePrimaryButtonStyle(horizontalPadding: 14, height: 28))
+            .buttonStyle(LitheActionButtonStyle(isPrimary: true))
             .disabled(validationMessage != nil)
         }
         .padding(.top, 2)

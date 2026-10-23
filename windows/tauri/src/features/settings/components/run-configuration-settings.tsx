@@ -4,11 +4,50 @@ import { useFileSystemStore } from "@/features/file-system/stores/file-system.st
 import { runOptionsFor, useRunStore } from "@/features/run/stores/run.store";
 import { mavenLaunchContextForWorkspace, useMavenStore } from "@/features/maven/stores/maven.store";
 import { RunConfigurationEditor } from "@/features/run/components/run-configuration-editor";
+import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import type { RunServicesOnExit } from "@/features/settings/types/settings.types";
 import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
+import SettingsSelect from "@/ui/settings-select";
 import { ensureRunSettingsProject } from "../services/run-settings-project";
+import SettingsGroup, { SettingRow } from "./settings-section";
 
 export function RunConfigurationSettings() {
+  return (
+    <div className="flex flex-col gap-4">
+      <RunServicesExitSettings />
+      <ProjectRunConfigurations />
+    </div>
+  );
+}
+
+/** Applies to every project, so it is shown even when no project is open. */
+function RunServicesExitSettings() {
+  const { t } = useTranslation();
+  const policy = useSettingsStore((state) => state.settings.runServicesOnExit);
+  const updateSetting = useSettingsStore((state) => state.actions.updateSetting);
+  return (
+    <SettingsGroup title={t("runningServices.settingsGroup")}>
+      <SettingRow
+        label={t("runningServices.setting")}
+        description={t("runningServices.settingDescription")}
+      >
+        <SettingsSelect
+          aria-label={t("runningServices.setting")}
+          className="w-40"
+          value={policy}
+          onChange={(value) => void updateSetting("runServicesOnExit", value as RunServicesOnExit)}
+          options={[
+            { value: "ask", label: t("runningServices.ask") },
+            { value: "terminate", label: t("runningServices.terminate") },
+          ]}
+        />
+      </SettingRow>
+    </SettingsGroup>
+  );
+}
+
+function ProjectRunConfigurations() {
   const { t } = useTranslation();
   const root = useFileSystemStore((state) => state.rootFolderPath);
   const state = useRunStore(

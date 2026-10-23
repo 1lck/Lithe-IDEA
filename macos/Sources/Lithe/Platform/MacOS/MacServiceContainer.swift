@@ -222,7 +222,12 @@ final class MacServiceContainer {
             })
             try moduleRegistry.register(ModuleFactory(manifest: TerminalModule.moduleManifest, contributions: TerminalModule.moduleContributions) {
                 TerminalModule(
-                    terminalFactory: { MacTerminalTransport(scrollbackLines: settings.terminalScrollbackLines) },
+                    terminalFactory: {
+                        MacTerminalTransport(
+                            scrollbackLines: settings.terminalScrollbackLines,
+                            preferredAppearanceIsDark: { settings.themePreference.preferredIsDark }
+                        )
+                    },
                     shellDiscovery: { MacTerminalTransport.availableShells() }
                 )
             })

@@ -2,12 +2,13 @@
   "id": "window-controls",
   "area": "工作台",
   "group": "窗口管理",
-  "capability": "标题栏控制窗口最小化、最大化/还原与关闭；命令面板可最小化、最大化及切换全屏",
+  "capability": "标题栏控制窗口最小化、最大化/还原与关闭；macOS 绿色按钮可进入原生全屏 Space（而非主桌面最大化）；命令面板可最小化、最大化及切换全屏",
   "macos": {
     "evidence": [
       "macos/Sources/Lithe/LitheApp.swift",
       "macos/Sources/Lithe/Views/App/RootView.swift",
-      "macos/Tests/LitheTests/LitheCoreLogicTests.swift"
+      "macos/Tests/LitheTests/LitheCoreLogicTests.swift",
+      "macos/Tests/LitheTests/WindowFullScreenCapabilityGuardTests.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -22,5 +23,5 @@
     "verificationStatus": "pending"
   },
   "owner": "Workbench",
-  "verification": "在 macOS 检查系统标题栏控制及全屏入口；在 Windows 验证标题栏最小化、最大化/还原和关闭，以及命令面板的窗口操作，确认图标语义、最大化/还原状态与按钮标签一致，并确认悬停关闭按钮背景贴合窗口右边缘。 macOS 同一窗口角色下更新模型和标题时保留 SwiftUI 宿主测量的最小内容尺寸，切换欢迎页/工作台角色仍应用对应尺寸，避免重复覆盖引发窗口布局反馈。"
+  "verification": "在 macOS 检查系统标题栏控制及全屏入口，并确认绿色按钮进入独立全屏 Space（窗口 styleMask 出现 fullScreen、frame 覆盖整屏）而不是在主桌面最大化，退出后窗口回到原位置；进入全屏后确认工作台顶栏内容从左缘开始、不再保留红绿灯按钮空位，退出全屏后恢复按钮预留；在 Windows 验证标题栏最小化、最大化/还原和关闭，以及命令面板的窗口操作，确认图标语义、最大化/还原状态与按钮标签一致，并确认悬停关闭按钮背景贴合窗口右边缘。 macOS 同一窗口角色下更新模型和标题时保留 SwiftUI 宿主测量的最小内容尺寸，切换欢迎页/工作台角色仍应用对应尺寸，避免重复覆盖引发窗口布局反馈。"
 }

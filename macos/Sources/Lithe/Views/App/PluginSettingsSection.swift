@@ -73,8 +73,7 @@ struct PluginSettingsSection: View {
                         handlers.restartLanguageServers()
                         pendingRestart = false
                     }
-                    .buttonStyle(.borderless)
-                    .font(LitheTheme.uiFont(size: 12, weight: .semibold))
+                    .buttonStyle(LitheActionButtonStyle())
                 }
             }
             ForEach(groups) { group in
@@ -99,7 +98,7 @@ struct PluginSettingsSection: View {
                     Spacer()
                     LitheInfoTip(LocalizedStringKey("Valid values are saved as you type."))
                     Button(LocalizedStringKey("Restore Defaults"), action: restoreDefaults)
-                        .buttonStyle(LitheSecondaryButtonStyle())
+                        .buttonStyle(LitheActionButtonStyle())
                         .disabled(!settings.contains { hasStoredValue($0, in: editedLayer(of: $0)) })
                 }
                 .padding(.horizontal, 6)
@@ -290,7 +289,7 @@ private struct PluginSettingRow: View {
                 Button(LocalizedStringKey("Choose…")) {
                     if let url = choosePath(directory) { write(.string(url.path)) }
                 }
-                .controlSize(.small)
+                .buttonStyle(LitheActionButtonStyle())
             }
         }
     }
@@ -338,7 +337,7 @@ private struct PluginSettingActionBar: View {
     @State private var confirming: DeclarativePluginSettingAction?
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: LitheTheme.ActionButton.spacing) {
             ForEach(actions) { action in
                 Button {
                     if action.requiresConfirmation { confirming = action } else { start(action) }
@@ -350,7 +349,7 @@ private struct PluginSettingActionBar: View {
                         Text(LocalizedStringKey(action.title))
                     }
                 }
-                .controlSize(.small)
+                .buttonStyle(LitheActionButtonStyle())
                 .disabled(running.contains(action.id))
                 .help(action.summary.map { Text(LocalizedStringKey($0)) } ?? Text(verbatim: ""))
             }
