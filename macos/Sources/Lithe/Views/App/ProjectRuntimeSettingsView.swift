@@ -74,7 +74,7 @@ struct ProjectRuntimeSettingsView: View {
             } label: {
                 Label("Refresh detected runtimes", systemImage: "arrow.clockwise")
             }
-            .buttonStyle(LitheSecondaryButtonStyle())
+            .buttonStyle(LitheActionButtonStyle())
             .disabled(feature.isDiscovering)
         }
         .padding(.horizontal, 16)

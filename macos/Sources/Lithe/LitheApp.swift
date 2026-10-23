@@ -51,6 +51,7 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
     weak var projectSessions: ProjectSessionManager? {
         didSet {
             guard let projectSessions else { return }
+            configureRunServiceCloseConfirmation(projectSessions)
             let pendingURLs = pendingFileURLs
             pendingFileURLs.removeAll()
             pendingURLs.forEach { projectSessions.openStandaloneFile($0) }
@@ -379,6 +380,7 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
         let services = MacProcessInstance.current.map { MacProcessInventoryReader().backgroundServices(instance: $0) } ?? []
         let (outcome, updatedSettings) = await processExitCoordinator.confirmQuit(
             settings: settings.processTermination,
+            runServices: projectSessions.sessions.flatMap(\.runServiceExitCandidates),
             terminals: terminals,
             agentTasks: agentTasks.map(\.candidate),
             resources: services.map(\.candidate)
@@ -423,6 +425,16 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
         guard let instance = MacProcessInstance.current else { return }
         instance.retain(keptBackgroundProcesses)
         instance.finalSweep(gracePeriod: finalSweepGracePeriod)
+    }
+
+    private func configureRunServiceCloseConfirmation(_ projectSessions: ProjectSessionManager) {
+        let coordinator = processExitCoordinator
+        projectSessions.confirmRunServicesOnClose = { [weak self] services in
+            await coordinator.confirmCloseProject(
+                settings: self?.settings?.processTermination ?? ProcessTerminationSettings(),
+                runServices: services
+            )
+        }
     }
 
     private func configureAgentDisconnectConfirmation() {
@@ -1293,6 +1305,14 @@ extension AppThemePreference {
         }
     }
 
+    /// Light/dark the app theme pins while a view is outside any window; nil follows the system appearance.
+    var preferredIsDark: Bool? {
+        switch self {
+        case .system: nil
+        case .light: false
+        case .dark: true
+        }
+    }
     var preferredColorScheme: ColorScheme? {
         switch self {
         case .system: nil

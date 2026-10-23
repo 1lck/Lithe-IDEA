@@ -1743,22 +1743,22 @@ struct GitLogView: View {
                 .focused($gitLogPathFocused)
                 .litheSearchField(isFocused: gitLogPathFocused)
                 .onSubmit { applyGitLogPathFilter() }
-            HStack(spacing: 8) {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Button("Clear") {
                     gitLogPathDraft = ""
                     gitLogPathFilter = ""
                     showsGitLogPathPopover = false
                 }
-                .buttonStyle(LitheSecondaryButtonStyle(horizontalPadding: 12, height: 30))
+                .buttonStyle(LitheActionButtonStyle())
                 Spacer()
                 Button("Cancel") {
                     showsGitLogPathPopover = false
                 }
-                .buttonStyle(LitheSecondaryButtonStyle(horizontalPadding: 12, height: 30))
+                .buttonStyle(LitheActionButtonStyle())
                 Button("Apply") {
                     applyGitLogPathFilter()
                 }
-                .buttonStyle(LithePrimaryButtonStyle(horizontalPadding: 12, height: 30))
+                .buttonStyle(LitheActionButtonStyle(isPrimary: true))
                 .keyboardShortcut(.defaultAction)
             }
         }
@@ -2209,13 +2209,13 @@ private struct GitBranchNameDialog: View {
                     .font(LitheTheme.uiFont(size: 12.5))
             }
 
-            HStack {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Spacer()
-                Button("Cancel") { dismiss() }
+                Button("Cancel") { dismiss() }.buttonStyle(LitheActionButtonStyle())
                     .keyboardShortcut(.cancelAction)
                     .lithePointer()
                 Button(LocalizedStringKey(actionTitle), action: submit)
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(LitheActionButtonStyle(isPrimary: true))
                     .lithePointer()
                     .tint(LitheTheme.accent)
                     .keyboardShortcut(.defaultAction)
@@ -2309,13 +2309,13 @@ private struct GitTagNameDialog: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            HStack {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Spacer()
-                Button("Cancel") { dismiss() }
+                Button("Cancel") { dismiss() }.buttonStyle(LitheActionButtonStyle())
                     .keyboardShortcut(.cancelAction)
                     .lithePointer()
                 Button("Create", action: submit)
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(LitheActionButtonStyle(isPrimary: true))
                     .lithePointer()
                     .tint(LitheTheme.accent)
                     .keyboardShortcut(.defaultAction)
@@ -2458,16 +2458,16 @@ struct GitIntegrationConflictDialog: View {
                 .foregroundStyle(LitheTheme.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
 
-            HStack {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Spacer()
-                Button("Cancel") { dismiss() }
+                Button("Cancel") { dismiss() }.buttonStyle(LitheActionButtonStyle())
                     .keyboardShortcut(.cancelAction)
                     .lithePointer()
                 Button(LocalizedStringKey(savePolicy == .shelve ? "Shelve and Continue" : "Stash and Continue")) {
                     onStash()
                     dismiss()
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(LitheActionButtonStyle(isPrimary: true))
                 .lithePointer()
                 .tint(LitheTheme.accent)
                 .keyboardShortcut(.defaultAction)
@@ -2547,12 +2547,12 @@ struct GitPullStrategyDialog: View {
 
             Spacer(minLength: 22)
 
-            HStack(spacing: 10) {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Spacer(minLength: 16)
 
                 Button("Cancel") {
                     dismiss()
-                }
+                }.buttonStyle(LitheActionButtonStyle())
                 .keyboardShortcut(.cancelAction)
                 .lithePointer()
 
@@ -2560,8 +2560,7 @@ struct GitPullStrategyDialog: View {
                     onResolve(selectedStrategy)
                     dismiss()
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(LitheTheme.accent)
+                .buttonStyle(LitheActionButtonStyle(isPrimary: true))
                 .keyboardShortcut(.defaultAction)
                 .lithePointer()
             }
@@ -2634,15 +2633,15 @@ struct GitCheckoutConflictDialog: View {
                 .foregroundStyle(LitheTheme.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
 
-            HStack {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Button("Force Checkout", role: .destructive) { resolve(.force) }
                     .lithePointer()
                 Spacer()
-                Button("Cancel") { dismiss() }
+                Button("Cancel") { dismiss() }.buttonStyle(LitheActionButtonStyle())
                     .keyboardShortcut(.cancelAction)
                     .lithePointer()
                 Button(LocalizedStringKey(savePolicy == .shelve ? "Smart Checkout (Shelve)" : "Smart Checkout")) { resolve(.smart) }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(LitheActionButtonStyle(isPrimary: true))
                     .lithePointer()
                     .tint(LitheTheme.accent)
                     .keyboardShortcut(.defaultAction)

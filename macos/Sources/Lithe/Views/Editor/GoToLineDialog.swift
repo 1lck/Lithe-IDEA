@@ -97,27 +97,10 @@ enum GoToLineDialog {
         coordinator.field = field
         content.addSubview(field)
 
-        let cancelButton = NSButton(
-            title: String(localized: "Cancel"),
-            target: coordinator,
-            action: #selector(DialogCoordinator.cancelFromButton)
-        )
-        cancelButton.bezelStyle = .rounded
-        cancelButton.keyEquivalent = "\u{1b}"
-        cancelButton.frame = NSRect(x: 340 - 16 - 78 - 10 - 78, y: 12, width: 78, height: 30)
-        content.addSubview(cancelButton)
-
-        let okButton = NSButton(
-            title: String(localized: "OK"),
-            target: coordinator,
-            action: #selector(DialogCoordinator.confirmFromButton)
-        )
-        okButton.bezelStyle = .rounded
-        okButton.keyEquivalent = "\r"
-        okButton.frame = NSRect(x: 340 - 16 - 78, y: 12, width: 78, height: 30)
-        okButton.isEnabled = GoToLineInput.parse(initialValue) != nil
-        coordinator.okButton = okButton
-        content.addSubview(okButton)
+        coordinator.canConfirm = GoToLineInput.parse(initialValue) != nil
+        let buttons = NSHostingView(rootView: GoToLineActions(coordinator: coordinator))
+        buttons.frame = NSRect(x: 16, y: 12, width: 308, height: 28)
+        content.addSubview(buttons)
 
         panel.contentView = content
     }
@@ -139,9 +122,9 @@ enum GoToLineDialog {
 }
 
 @MainActor
-private final class DialogCoordinator: NSObject, NSWindowDelegate, NSTextFieldDelegate {
+private final class DialogCoordinator: NSObject, ObservableObject, NSWindowDelegate, NSTextFieldDelegate {
     weak var field: NSTextField?
-    weak var okButton: NSButton?
+    @Published var canConfirm = false
     private(set) var confirmedText: String?
     var onConfirm: (() -> Void)?
     var onCancel: (() -> Void)?
@@ -154,7 +137,7 @@ private final class DialogCoordinator: NSObject, NSWindowDelegate, NSTextFieldDe
     /// Gray out OK while the input is not a valid line or line:column.
     func controlTextDidChange(_ notification: Notification) {
         guard let field else { return }
-        okButton?.isEnabled = GoToLineInput.parse(field.stringValue) != nil
+        canConfirm = GoToLineInput.parse(field.stringValue) != nil
     }
 
     func control(
@@ -195,6 +178,23 @@ private final class DialogCoordinator: NSObject, NSWindowDelegate, NSTextFieldDe
 
     private func cancel() {
         onCancel?()
+    }
+}
+
+private struct GoToLineActions: View {
+    @ObservedObject var coordinator: DialogCoordinator
+
+    var body: some View {
+        HStack(spacing: LitheTheme.ActionButton.spacing) {
+            Spacer(minLength: 0)
+            Button("Cancel") { coordinator.cancelFromButton() }
+                .buttonStyle(LitheActionButtonStyle())
+                .keyboardShortcut(.cancelAction)
+            Button("OK") { coordinator.confirmFromButton() }
+                .buttonStyle(LitheActionButtonStyle(isPrimary: true))
+                .keyboardShortcut(.defaultAction)
+                .disabled(!coordinator.canConfirm)
+        }
     }
 }
 

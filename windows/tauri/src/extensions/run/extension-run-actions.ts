@@ -65,6 +65,7 @@ export async function runExtensionAction(
         await startRunProcess({
           sessionId: id,
           executionId: id,
+          title: action.name,
           ...resolved,
           arguments: command.arguments,
         });

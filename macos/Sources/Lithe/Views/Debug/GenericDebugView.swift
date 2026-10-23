@@ -1135,15 +1135,14 @@ struct GenericDebugView: View {
                     .font(LitheTheme.uiFont(size: 13))
                     .foregroundStyle(LitheTheme.error)
 
-                HStack(spacing: 8) {
+                HStack(spacing: LitheTheme.ActionButton.spacing) {
                     if feature.canRetry {
                         Button {
                             _ = feature.retry()
                         } label: {
                             Label("Retry Debug", systemImage: "arrow.clockwise")
                         }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
+                        .buttonStyle(LitheActionButtonStyle())
                         .accessibilityIdentifier("debug-error-retry")
                     }
 
@@ -1153,8 +1152,7 @@ struct GenericDebugView: View {
                         } label: {
                             Label("Open Run Configuration", systemImage: "slider.horizontal.3")
                         }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
+                        .buttonStyle(LitheActionButtonStyle())
                         .accessibilityIdentifier("debug-error-open-run-configuration")
                     }
                 }
@@ -1345,7 +1343,7 @@ struct DebugBreakpointManagerDialog: View {
                     feature.toggleBreakpointMute()
                 }
                 .disabled(feature.breakpoints.isEmpty)
-                Button("Done") { dismiss() }
+                Button("Done") { dismiss() }.buttonStyle(LitheActionButtonStyle())
                     .keyboardShortcut(.defaultAction)
             }
             .padding(.horizontal, 14)
@@ -1913,15 +1911,15 @@ private struct JavaAttachView: View {
                         .textFieldStyle(.roundedBorder)
                 }
             }
-            HStack {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Spacer()
-                Button("Cancel", role: .cancel) { dismiss() }
+                Button("Cancel", role: .cancel) { dismiss() }.buttonStyle(LitheActionButtonStyle())
                     .keyboardShortcut(.cancelAction)
                 Button("Connect") {
                     guard let parsedPort else { return }
                     onAttach(host.trimmingCharacters(in: .whitespacesAndNewlines), parsedPort)
                     dismiss()
-                }
+                }.buttonStyle(LitheActionButtonStyle(isPrimary: true))
                 .keyboardShortcut(.defaultAction)
                 .disabled(
                     host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -2009,13 +2007,14 @@ private struct JavaSteppingFiltersView: View {
                     .frame(minHeight: 185)
             }
 
-            HStack {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Button("Reset Defaults") {
                     onReset()
                     dismiss()
                 }
+                .buttonStyle(LitheActionButtonStyle())
                 Spacer()
-                Button("Cancel", role: .cancel) { dismiss() }
+                Button("Cancel", role: .cancel) { dismiss() }.buttonStyle(LitheActionButtonStyle())
                     .keyboardShortcut(.cancelAction)
                 Button("Save") {
                     var patterns = classPatterns
@@ -2031,7 +2030,7 @@ private struct JavaSteppingFiltersView: View {
                         hideFilteredStackFrames: hideFilteredStackFrames
                     ))
                     dismiss()
-                }
+                }.buttonStyle(LitheActionButtonStyle(isPrimary: true))
                 .keyboardShortcut(.defaultAction)
             }
         }
@@ -2101,9 +2100,9 @@ private struct FunctionBreakpointEditorView: View {
                 functionEditorRow("Hit count", text: $hitCondition)
             }
             Spacer(minLength: 0)
-            HStack {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Spacer()
-                Button("Cancel") { dismiss() }
+                Button("Cancel") { dismiss() }.buttonStyle(LitheActionButtonStyle())
                     .keyboardShortcut(.cancelAction)
                 Button("Save") {
                     onSave(FunctionBreakpointEditorValue(
@@ -2113,7 +2112,7 @@ private struct FunctionBreakpointEditorView: View {
                         hitCondition: optionalFunctionText(hitCondition)
                     ))
                     dismiss()
-                }
+                }.buttonStyle(LitheActionButtonStyle(isPrimary: true))
                 .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 .keyboardShortcut(.defaultAction)
             }
@@ -2181,9 +2180,9 @@ private struct ExceptionBreakpointEditorView: View {
             .textFieldStyle(.roundedBorder)
             .font(LitheTheme.uiFont(size: 11, design: .monospaced))
             Spacer(minLength: 0)
-            HStack {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Spacer()
-                Button("Cancel") { dismiss() }
+                Button("Cancel") { dismiss() }.buttonStyle(LitheActionButtonStyle())
                     .keyboardShortcut(.cancelAction)
                 Button("Save") {
                     let normalized = condition.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2192,7 +2191,7 @@ private struct ExceptionBreakpointEditorView: View {
                         condition: normalized.isEmpty ? nil : normalized
                     ))
                     dismiss()
-                }
+                }.buttonStyle(LitheActionButtonStyle(isPrimary: true))
                 .keyboardShortcut(.defaultAction)
             }
         }
@@ -2267,9 +2266,9 @@ struct BreakpointEditorView: View {
                 )
             }
             Spacer(minLength: 0)
-            HStack {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Spacer()
-                Button("Cancel") { dismiss() }
+                Button("Cancel") { dismiss() }.buttonStyle(LitheActionButtonStyle())
                     .keyboardShortcut(.cancelAction)
                 Button("Save") {
                     onSave(BreakpointEditorValue(
@@ -2279,7 +2278,7 @@ struct BreakpointEditorView: View {
                         logMessage: supportsLogMessage ? optional(logMessage) : nil
                     ))
                     dismiss()
-                }
+                }.buttonStyle(LitheActionButtonStyle(isPrimary: true))
                 .keyboardShortcut(.defaultAction)
             }
         }
@@ -2369,9 +2368,9 @@ private struct DataBreakpointEditorView: View {
                 dataEditorRow("Hit count", text: $hitCondition)
             }
             Spacer(minLength: 0)
-            HStack {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Spacer()
-                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Cancel") { dismiss() }.buttonStyle(LitheActionButtonStyle()).keyboardShortcut(.cancelAction)
                 Button("Save") {
                     onSave(DataBreakpointEditorValue(
                         enabled: enabled,
@@ -2380,7 +2379,7 @@ private struct DataBreakpointEditorView: View {
                         hitCondition: optionalDataText(hitCondition)
                     ))
                     dismiss()
-                }
+                }.buttonStyle(LitheActionButtonStyle(isPrimary: true))
                 .keyboardShortcut(.defaultAction)
             }
         }
@@ -2463,13 +2462,13 @@ private struct WatchEditorView: View {
                 .focused($expressionFocused)
                 .litheSearchField(isFocused: expressionFocused)
                 .onSubmit { save() }
-            HStack {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Spacer()
                 Button("Cancel", action: onCancel)
-                    .buttonStyle(LitheSecondaryButtonStyle())
+                    .buttonStyle(LitheActionButtonStyle())
                     .keyboardShortcut(.cancelAction)
                 Button("Save") { save() }
-                .buttonStyle(LithePrimaryButtonStyle())
+                .buttonStyle(LitheActionButtonStyle(isPrimary: true))
                 .disabled(expression.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 .keyboardShortcut(.defaultAction)
             }
@@ -2509,13 +2508,13 @@ private struct VariableValueEditorView: View {
             TextField("Value", text: $value)
                 .textFieldStyle(.roundedBorder)
                 .font(LitheTheme.uiFont(size: 11, design: .monospaced))
-            HStack {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Spacer()
-                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Cancel") { dismiss() }.buttonStyle(LitheActionButtonStyle()).keyboardShortcut(.cancelAction)
                 Button("Set") {
                     onSave(value)
                     dismiss()
-                }
+                }.buttonStyle(LitheActionButtonStyle(isPrimary: true))
                 .keyboardShortcut(.defaultAction)
             }
         }

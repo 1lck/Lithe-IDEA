@@ -110,6 +110,22 @@ describe("editor tab layout mode normalization", () => {
   });
 });
 
+describe("running services on exit normalization", () => {
+  test("asks by default, like macOS", () => {
+    expect(defaultSettings.runServicesOnExit).toBe("ask");
+  });
+
+  test("keeps a supported policy and asks for unknown or missing values", () => {
+    expect(normalizeSettingValue("runServicesOnExit", "terminate")).toBe("terminate");
+    expect(
+      normalizeSettingValue("runServicesOnExit", "keep" as Settings["runServicesOnExit"]),
+    ).toBe("ask");
+    const settings = getDefaultSettingsSnapshot();
+    (settings as { runServicesOnExit?: unknown }).runServicesOnExit = undefined;
+    expect(normalizeSettings(settings).runServicesOnExit).toBe("ask");
+  });
+});
+
 describe("project open destination normalization", () => {
   test("keeps a supported destination and falls back for unknown values", () => {
     expect(normalizeSettingValue("projectOpenDefaultDestination", "attach")).toBe("attach");

@@ -33,28 +33,3 @@ struct LitheCommitDialogInputStyle: ViewModifier {
             }
     }
 }
-
-struct LitheCommitDialogButtonStyle: ButtonStyle {
-    var primary = false
-    @Environment(\.isEnabled) private var enabled
-    @State private var hovering = false
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(LitheTheme.uiFont(size: 13))
-            .foregroundStyle(primary ? .white : LitheTheme.primaryText)
-            .padding(.horizontal, LitheTheme.Commit.buttonHorizontalPadding)
-            .frame(minWidth: 72, minHeight: 28)
-            .background(primary ? LitheTheme.settingsControlAccent : LitheCommitDialogStyle.background)
-            .overlay {
-                if hovering || configuration.isPressed { Color.primary.opacity(configuration.isPressed ? 0.12 : 0.06) }
-            }
-            .clipShape(RoundedRectangle(cornerRadius: 4))
-            .overlay {
-                RoundedRectangle(cornerRadius: 4)
-                    .strokeBorder(primary ? LitheTheme.settingsControlAccent : LitheTheme.settingsControlBorder, lineWidth: 1)
-            }
-            .opacity(enabled ? 1 : 0.5)
-            .onHover { hovering = $0 }
-    }
-}

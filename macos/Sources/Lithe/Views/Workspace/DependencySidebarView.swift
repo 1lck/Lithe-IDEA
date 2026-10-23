@@ -555,9 +555,9 @@ private struct DependencyPathConfigurationEditor: View {
                     .lineLimit(2)
             }
 
-            HStack {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Spacer(minLength: 0)
-                Button("Cancel") { onDismiss() }
+                Button("Cancel") { onDismiss() }.buttonStyle(LitheActionButtonStyle())
                     .keyboardShortcut(.cancelAction)
                 Button("Save") {
                     onSave(DependencyPathConfiguration(
@@ -568,7 +568,7 @@ private struct DependencyPathConfigurationEditor: View {
                         excludedPaths: excludedPaths
                     ))
                     onDismiss()
-                }
+                }.buttonStyle(LitheActionButtonStyle(isPrimary: true))
                 .keyboardShortcut(.defaultAction)
             }
         }
@@ -590,7 +590,7 @@ private struct DependencyPathConfigurationEditor: View {
                 } label: {
                     Label("Browse", systemImage: "folder.badge.plus")
                 }
-                .controlSize(.small)
+                .buttonStyle(LitheActionButtonStyle())
                 .disabled(workspaceURL == nil)
             }
             if paths.isEmpty {
@@ -758,7 +758,7 @@ private struct DependencyFolderBrowser: View {
                     .font(LitheTheme.uiFont(size: 14, weight: .semibold))
                 Spacer(minLength: 0)
                 Button("Open Folder...") { openFolder() }
-                    .controlSize(.small)
+                    .buttonStyle(LitheActionButtonStyle())
             }
 
             HStack(spacing: 6) {
@@ -814,14 +814,14 @@ private struct DependencyFolderBrowser: View {
                     .stroke(LitheTheme.divider, lineWidth: 1)
             }
 
-            HStack {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Text("\(selectedURLs.count) selected")
                     .font(LitheTheme.uiFont(size: 11))
                     .foregroundStyle(LitheTheme.secondaryText)
                 Spacer(minLength: 0)
-                Button("Cancel", action: onCancel)
+                Button("Cancel", action: onCancel).buttonStyle(LitheActionButtonStyle())
                     .keyboardShortcut(.cancelAction)
-                Button("Add Selected") { onAdd(Array(selectedURLs)) }
+                Button("Add Selected") { onAdd(Array(selectedURLs)) }.buttonStyle(LitheActionButtonStyle(isPrimary: true))
                     .keyboardShortcut(.defaultAction)
                     .disabled(selectedURLs.isEmpty)
             }

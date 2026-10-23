@@ -44,8 +44,7 @@ struct BranchComparisonView: View {
             Button("Close") {
                 feature.closeBranchComparison()
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
+            .buttonStyle(LitheActionButtonStyle())
             .lithePointer()
             .help("Close comparison")
         }
@@ -59,14 +58,13 @@ struct BranchComparisonView: View {
     }
 
     private var comparisonToolbar: some View {
-        HStack(spacing: 7) {
+        HStack(spacing: LitheTheme.ActionButton.spacing) {
             Button {
                 refreshComparison()
             } label: {
                 Label("Refresh", systemImage: "arrow.clockwise")
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
+            .buttonStyle(LitheActionButtonStyle())
             .lithePointer()
             .disabled(feature.isLoadingBranchComparison)
 
@@ -75,8 +73,7 @@ struct BranchComparisonView: View {
             } label: {
                 Label("Previous File", systemImage: "chevron.up")
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
+            .buttonStyle(LitheActionButtonStyle())
             .lithePointer()
             .disabled(previousFile == nil || feature.isLoadingBranchComparison)
 
@@ -85,8 +82,7 @@ struct BranchComparisonView: View {
             } label: {
                 Label("Next File", systemImage: "chevron.down")
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
+            .buttonStyle(LitheActionButtonStyle())
             .lithePointer()
             .disabled(nextFile == nil || feature.isLoadingBranchComparison)
 

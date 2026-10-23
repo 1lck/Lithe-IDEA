@@ -3336,15 +3336,28 @@ bridge exposes the same lifetime and result contract. Fixtures live in
 `processLifecycle.resolve` accepts `{ context, settings, records }` and returns
 `{ gracefulStopMilliseconds, decisions }` with exactly one decision per record,
 in request order. `context` is `quit`, `closeTerminalTab`, `agentDisconnect`,
-`crashRecovery`, `startupSweep`, or `finalSweep`. Each record carries a host-chosen `id`, a
+`crashRecovery`, `startupSweep`, `finalSweep`, or `closeWorkspace` (a project or
+window closes while Lithe keeps running). Each record carries a host-chosen `id`, a
 `kind` (`run`, `terminal`, `agentTask`, `languageServer`, `debugAdapter`,
 `pluginTool`, `sidecar`, `daemon`, `container`, `oneShot`), the `ownership` proof
 (`launched`, `scopeToken`, `instanceLabel`, `unproven`), and optionally
 `declaredPolicy`, `recognizerId`, `recognizedPolicy`, `detached`, `idle`, and
 `retained`, and `terminationApproved` (default `false`). Omitted settings take the documented defaults: busy terminals and
 Agent tasks are confirmed one by one, closing a busy terminal tab asks,
-daemons and containers are asked about, startup leftovers are asked about, and
+daemons and containers are asked about, startup leftovers are asked about, Run
+sessions are listed before they are stopped (`runServicesOnExit: ask`), and
 ordinary processes get five seconds to stop (clamped to 1–60).
+
+A `run` record with `launched` ownership is a Run session the host tracks
+itself. During `quit` and `closeWorkspace` its action is `confirmStop` with
+`runServicesOnExit: ask` and `terminate` with `runServicesOnExit: terminate`
+(reason `runServicesSetting`). Hosts show every `confirmStop` record in one
+confirmation whose only choices are stopping all of them or cancelling the
+close; a Run session cannot be kept, because its process tree and output pipes
+belong to Lithe. Other `run` records, such as inventory items found only by
+their scope token, keep the default `terminate`. During `closeWorkspace`,
+records that would need any other question (`confirmEach`, `askOnExit`)
+`defer` with reason `decidedOnQuit`.
 
 `finalSweep` runs after confirmation and without dialogs. Owned Agent tasks need
 `terminationApproved: true` to terminate; otherwise their action is `defer` and
@@ -3361,7 +3374,8 @@ only through ancestry proved in the same snapshot.
 
 A decision reports the pre-setting `policy` (`terminate`, `confirmEach`,
 `askOnExit`, `external`), the `action` the host performs (`terminate`,
-`confirm`, `ask`, `retain`, `defer`, `ignore`), and a stable `reason` for logs.
+`confirm`, `ask`, `retain`, `defer`, `ignore`, `confirmStop`), and a stable
+`reason` for logs.
 Unproven ownership is always `ignore`; a record the user kept is `retain`.
 Agent tasks are never ended during `crashRecovery` and are always confirmed
 during `startupSweep`, whatever the settings say. Hosts own discovery,
@@ -3414,7 +3428,8 @@ scope-token ownership. Fixtures live in
 `recognizerId`. `answers` maps IDs to `terminate` or `keep`. It returns
 `{ terminate, keep, settings }`:
 
-- `terminate` records end and `retain` records are kept.
+- `terminate` and `confirmStop` records end and `retain` records are kept.
+  Hosts settle a `confirmStop` record only after the user approved stopping.
 - `confirm` and `ask` records follow their answer, and an unanswered one is
   kept.
 - `defer` and `ignore` appear in neither list.

@@ -88,7 +88,7 @@ struct ProjectSidebarView: View {
                     Button("Retry") {
                         Task { await model.refreshWorkspace() }
                     }
-                    .buttonStyle(LitheSecondaryButtonStyle())
+                    .buttonStyle(LitheActionButtonStyle())
                 }
                 .padding(18)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1190,17 +1190,17 @@ private struct ProjectItemNameDialog: View {
                 .focused($nameFieldFocused)
                 .onSubmit(submit)
 
-            HStack {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Spacer()
                 Button("Cancel") {
                     onCancel()
                     dismiss()
-                }
+                }.buttonStyle(LitheActionButtonStyle())
                 .keyboardShortcut(.cancelAction)
                 .lithePointer()
 
                 Button(actionTitle, action: submit)
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(LitheActionButtonStyle(isPrimary: true))
                     .lithePointer()
                     .tint(LitheTheme.accent)
                     .keyboardShortcut(.defaultAction)

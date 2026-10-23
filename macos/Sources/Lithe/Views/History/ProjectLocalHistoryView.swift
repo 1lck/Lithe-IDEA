@@ -62,10 +62,9 @@ struct ProjectLocalHistoryView: View {
             Button("Restore") {
                 isRestoreConfirmationPresented = true
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(LitheActionButtonStyle(isPrimary: true))
             .lithePointer()
             .tint(LitheTheme.accent)
-            .controlSize(.small)
             .disabled(model.selectedProjectLocalHistoryEntry == nil)
             Button {
                 model.projectLocalHistoryRequest = nil
