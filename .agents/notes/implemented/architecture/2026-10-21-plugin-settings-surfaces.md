@@ -65,9 +65,73 @@ macOS 设置窗口现在可以由插件“注册”页面：插件在 `plugin.js
 
 为了保证“立即生效”真的不需要新进程，Core 在校验时拒绝把 `immediate` 设置用在命令行参数或 `initializationOptions` 里。
 
-### 5. 宿主能力版本
+### 5. 构建工具的可执行文件路径
 
-macOS 的 `hostCapabilities` 声明 `settings: [1, 2]` 和 `languageServers: [1, 2]`。Windows 还没有这些界面和推送，所以仍只声明 1，需要 v2 的插件在 Windows 上会被市场隐藏，而不是装上后行为不完整。
+路径选择使用同一个 `invocation.executables` 数组。插件需要用户覆盖时，声明
+`kind: "setting"`、`settingID`，引用全局 file 设置（reload 或 nextRun）；不需要
+覆盖的插件保持原来的自动发现列表，不额外声明设置。该通用机制按
+`executableResolution: 1` 协商，不要求所有构建插件升级。
+
+Core 先校验完整候选集、排定顺序，再按平台过滤。数组从前到后是首选写法；
+可选 priority 以较大值优先，同分按原序；insertBefore/insertAfter 使用同集合的稳定
+id 建立相对顺序约束。插入约束优先，不能在同一候选混用 priority 或两个插入字段；
+重复 id、未知锚点、自环与循环都拒绝。契约正文定义完整的确定性算法，供后续使用方复用。
+
+macOS 的 `ExecutableCandidateResolver`（候选文件解析器）由宿主注入文件系统、
+环境变量、Runtime 和工具发现服务，返回跳过、已解析或终止失败。设置值来自 Core
+检查后的同一操作快照；空值跳过，非空无效值直接拒绝，不能经过普通设置解析的
+“无效则回默认值”。普通设置的显示与配置容错不变。平台检查权限与版本，显式路径
+失败时 Provider 不得独立发现另一安装。带空格路径保持完整参数，父目录进入 PATH。
+
+共享源类型和排序在 `plugins::executables`；本次 Build 与自定义 Runtime Dependencies
+使用共享解析器，已有 Build Provider 继续通过 ServerProcess 适配和 tool 提示复用。
+Language Server、Execution Provider 等后续可接入相同机制，各自保留包内文件边界、
+自动启动限制和工作区信任；当前不在这些清单位置开放新候选语法。
+参考 xiaoyumuxi 的 #1318、#1356、#1382 以及 Maven 插件 #3，宿主仍只负责通用机制，
+Provider 继续接受宿主选中的工具，不重新实现一套覆盖路径。
+
+已发布预览 Cargo 0.1.1 使用旧 `executableSetting`（buildSystems 2）。保留只读的兼容
+输入适配：转换为数组首位 setting 候选，后续只走共享解析器，不再返回
+configuredExecutable。新插件必须用第五种候选和新能力；既有发行包不覆盖，迁移以新版本发布。
+
+路径偏好仍写既有用户存储，候选计划只在操作内存活，没有额外缓存或安装目录写入，
+不影响签名和 Sparkle delta。Core、Swift 与独立 Cargo CI 覆盖统一的选择和失败语义。
+
+### 6. 宿主能力版本
+
+macOS 的 `hostCapabilities` 声明 `settings: [1, 2]`、`languageServers: [1, 2]` 和 `buildSystems: [1, 2]`。Windows 还没有这些界面和推送，所以仍只声明 1，需要 v2 的插件在 Windows 上会被市场隐藏，而不是装上后行为不完整。
+
+### 7. 路径选择按钮保留完整宽度
+
+插件详情页比完整设置窗口窄。路径输入框若固定占用 220 点，同时右侧作用域和
+生效标签保持完整，SwiftUI 会把“选择…”按钮压成没有文字的灰条。通用路径
+控件因此固定按钮的自然宽度，让输入框随剩余空间缩短；共享设置行的标题列
+以原来的 230 点为上限，窄面板时也允许缩短。宽面板仍保持原来的列宽。
+缩放只调整布局，不替换输入框实例，以免丢失尚未提交的路径。
+
+这与 IDEA Community 的文本框加浏览按钮采用相同的空间分配：检查的版本是
+`c7f91397daa3a961b4e78bc634fe467a0a7d9ade`，源码为
+`platform/platform-api/src/com/intellij/openapi/ui/TextFieldWithBrowseButton.java`
+及 `ComponentWithBrowseButton.java`。后者把文本框放在 `BorderLayout.CENTER`，
+把 `FixedSizeButton` 放在 `BorderLayout.EAST`，让输入部分承担宽度变化。
+macOS 保留既有原生控件和主题，只在通用 owner 中修复压缩规则，不为 Cargo
+增加专门的宽度或页面。
+
+### 8. 插件详情不能越过分隔线
+
+分隔容器分配了确定矩形，不代表子内容一定接受这个宽度。插件详情的表单
+有自己的最小宽度；窗口缩小后，原来的根容器会按更宽的内容居中，导致名称、
+页签和卡片跨进左侧列表，分隔线看起来穿过了详情。
+
+详情根视图必须接受分隔容器给出的宽度，并在自己的边界内绘制。设置页的
+原生表单在宽面板填满可用宽度；面板不足以容纳完整设置行时，使用同一个
+滚动容器横向查看，保留输入框、选择器和右侧状态标签。只裁剪超出的表单会
+让部分设置无法访问；提高整个设置窗口的最小宽度又会限制其他页面，因此
+不采用这两种单独修补方式。
+
+宽度只在详情正文的小容器里读取，用于分配可见区域。已构建的正文作为值
+传入，不在几何回调里重新加载插件、重建列表或保存宽度。拖动和持久化仍由
+既有 `LitheSplitPaneView` 负责，窄宽切换不替换表单实例。
 
 ## 考虑过的备选方案
 
@@ -78,6 +142,11 @@ macOS 的 `hostCapabilities` 声明 `settings: [1, 2]` 和 `languageServers: [1,
 ### 让插件用网页画设置页
 
 插件已经可以声明网页 UI，理论上可以自己画设置页。但网页无法和宿主设置窗口的搜索、分组、项目/全局切换保持一致，用户偏好也是原生优先。网页 UI 仍可用于复杂的工具窗口，设置项本身走原生控件。
+
+### 顶层增加可执行文件覆盖旁路
+
+单独增加 executableSetting/configuredExecutable 会让 Build 的设置路径绕过候选顺序，
+其它进程模块也不能复用。只为已发布预览包保留输入适配，新 API 使用统一候选与宿主能力注入。
 
 ### 宿主自己合并取值
 
@@ -97,6 +166,8 @@ Swift 和 Windows 各写一遍合并规则最直接，但两边一旦有细微�
 - `cargo test -p lithe-core --lib plugin_configuration`：会话按 section 应答、更新推送、宿主会话拒绝更新。
 - `./scripts/test-macos.sh --filter PluginSettingsTests`：项目层存储、作用域规则、页面注册、配置展开。
 - `./scripts/test-macos.sh --filter SettingsSidebarLayoutTests`：静态页面仍各归一个分组。
+- `./scripts/test-macos.sh --filter PluginSettingsLayoutTests`：480、640、900 点宽的深浅主题下，路径输入框和完整选择按钮都在容器内，按钮可调用选择器并写入所选路径。
+- `./scripts/test-macos.sh --filter PluginDetailLayoutTests`：实际 Java 插件表单在深浅主题中往返缩放，详情边界始终跟随分隔条，窄面板下右侧设置可经原生横向滚动到达。
 - 共享夹具：`shared/contracts/plugins/v1/fixtures/settings-v2.plugin.json`。
 
 ## 适用范围
@@ -108,5 +179,6 @@ Swift 和 Windows 各写一遍合并规则最直接，但两边一旦有细微�
 - `macos/Sources/Lithe/Models/AppModel/AppModel+PluginSettings.swift`
 - `macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginSettingsStore.swift`
 - `macos/Sources/Lithe/Views/App/PluginSettingsSection.swift`
+- `macos/Sources/Lithe/Views/Components/LitheSettingsControls.swift`
 - `macos/Sources/Lithe/Views/App/ContributedSettingsPageView.swift`
 - `shared/contracts/plugins/v1/README.md`

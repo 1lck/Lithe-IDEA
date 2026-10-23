@@ -491,7 +491,7 @@ public struct PluginManifest: Equatable, Codable, Sendable {
     /// not running it, so an entry is added only with its host support.
     public static let hostCapabilities: [String: [Int]] = [
         "buildProviders": [1],
-        "buildSystems": [1],
+        "buildSystems": [1, 2], "executableResolution": [1],
         "executionProviders": [1],
         "languageServers": [1, 2],
         "languages": [1],

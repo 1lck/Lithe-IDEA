@@ -119,6 +119,7 @@ package final class BuildSystemService: ObservableObject {
     private let stateLocator: any BuildSystemStateLocating
     private let runner: any BuildCommandRunning
     private let providers: (any BuildProviderRequesting)?
+    private let settings: @MainActor (String) -> [String: ToolingJSONValue]
     private let waitForRedetection: @Sendable () async throws -> Void
     private let sources: @MainActor () -> [BuildSystemPluginSource]
 
@@ -178,6 +179,7 @@ package final class BuildSystemService: ObservableObject {
         stateLocator: any BuildSystemStateLocating,
         runner: any BuildCommandRunning,
         providers: (any BuildProviderRequesting)? = nil,
+        settings: @escaping @MainActor (String) -> [String: ToolingJSONValue] = { _ in [:] },
         waitForRedetection: @escaping @Sendable () async throws -> Void = {
             try await Task.sleep(for: .milliseconds(500))
         },
@@ -189,6 +191,7 @@ package final class BuildSystemService: ObservableObject {
         self.stateLocator = stateLocator
         self.runner = runner
         self.providers = providers
+        self.settings = settings
         self.waitForRedetection = waitForRedetection
         self.sources = sources
     }
@@ -331,7 +334,10 @@ package final class BuildSystemService: ObservableObject {
                     var executables: [String: URL] = [:]
                     for input in inputs {
                         guard case .maven? = imports[input.entry.id],
-                              let invocation = try? planner.invocationPlan(input.entry.target, root: input.entry.instance.root)
+                              let invocation = try? planner.invocationPlan(
+                                input.entry.target, root: input.entry.instance.root,
+                                settings: self.settings(input.entry.source.pluginID)
+                              )
                         else { continue }
                         executables[input.entry.id] = self.tools.languageImportExecutable(invocation, workspaceURL: workspaceURL)
                     }
@@ -1192,7 +1198,9 @@ package final class BuildSystemService: ObservableObject {
     ) async throws -> BuildCommandRequest {
         let planner = planner
         let target = entry.target
-        let invocation = try planner.invocationPlan(target, root: entry.instance.root)
+        let invocation = try planner.invocationPlan(
+            target, root: entry.instance.root, settings: settings(entry.source.pluginID)
+        )
         let tool = try await tools.resolve(
             invocation,
             displayName: entry.instance.displayName,
@@ -1262,13 +1270,15 @@ package final class BuildSystemService: ObservableObject {
     }
 
     /// The executable the build system's invocation resolves to, as a run
-    /// would use it. A failure is not the provider's: it still loads and
-    /// looks the tool up itself, so the reason only goes to Build Output.
+    /// would use it. Automatic discovery may fall back to the provider's lookup;
+    /// an explicit selection must fail rather than use a different installation.
     private func providerTool(_ entry: BuildSystemEntry, workspaceURL: URL, owner: CommandOwner) async throws -> URL? {
         let planner = planner
         let target = entry.target
+        let invocation = try planner.invocationPlan(
+            target, root: entry.instance.root, settings: settings(entry.source.pluginID)
+        )
         do {
-            let invocation = try planner.invocationPlan(target, root: entry.instance.root)
             guard !invocation.executables.isEmpty else { return nil }
             return try await tools.resolve(
                 invocation, displayName: entry.instance.displayName, workspaceURL: workspaceURL
@@ -1278,6 +1288,9 @@ package final class BuildSystemService: ObservableObject {
         } catch is CancellationError {
             throw CancellationError()
         } catch {
+            // Runtime resolution can fail before the selected tool is visited.
+            // Delegating then would lose the invocation's explicit selection.
+            if invocation.hasExplicitExecutableSelection || (error as? BuildToolResolutionError)?.terminal == true { throw error }
             if canAppend(owner) {
                 appendOutput(
                     "\n" + String(localized: "The provider looks up the build tool itself: \(error.localizedDescription)") + "\n",

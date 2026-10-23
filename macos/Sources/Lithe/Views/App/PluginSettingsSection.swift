@@ -281,6 +281,7 @@ private struct PluginSettingRow: View {
                     value: shownString,
                     placeholder: placeholder,
                     width: 220,
+                    isFlexible: true,
                     accessibilityLabel: declaration.title,
                     savesWhileTyping: savesWhileTyping,
                     accepts: { declaration.accepts(.string($0)) },
@@ -290,6 +291,7 @@ private struct PluginSettingRow: View {
                     if let url = choosePath(directory) { write(.string(url.path)) }
                 }
                 .buttonStyle(LitheActionButtonStyle())
+                .fixedSize()
             }
         }
     }
@@ -451,6 +453,7 @@ private struct PluginTextSettingField: View {
     let value: String
     let placeholder: String?
     let width: CGFloat
+    var isFlexible = false
     let accessibilityLabel: String
     let savesWhileTyping: Bool
     let accepts: (String) -> Bool
@@ -461,7 +464,7 @@ private struct PluginTextSettingField: View {
     var body: some View {
         HStack(spacing: 6) {
             LitheTextField(verbatim: placeholder ?? "", text: $text, focus: $isFocused)
-                .frame(width: width)
+                .frame(minWidth: isFlexible ? 0 : width, idealWidth: width, maxWidth: width)
                 .accessibilityLabel(Text(verbatim: accessibilityLabel))
                 .onSubmit(commit)
                 .onChange(of: text) { _ in

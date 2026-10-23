@@ -42,12 +42,16 @@ pub(crate) const BUILD_SYSTEMS: &str = "buildSystems";
 /// `buildSystems[].provider`, whether it owns or shares a language server process.
 pub(crate) const BUILD_PROVIDERS: &str = "buildProviders";
 
+/// Shared executable candidate order and strict explicit selection.
+pub(crate) const EXECUTABLE_RESOLUTION: &str = "executableResolution";
+
 /// Capability versions this Core build validates and plans. Version 1 of a
 /// capability keeps the meaning its section had at API level 2.
 pub const SUPPORTED_CAPABILITIES: &[(&str, &[u32])] = &[
     (BUILD_PROVIDERS, &[1]),
-    (BUILD_SYSTEMS, &[1]),
+    (BUILD_SYSTEMS, &[1, 2]),
     (EXECUTION_PROVIDERS, &[1]),
+    (EXECUTABLE_RESOLUTION, &[1]),
     (LANGUAGE_SERVERS, &[1, 2]),
     (LANGUAGES, &[1]),
     (SERVER_PROCESS, &[1]),

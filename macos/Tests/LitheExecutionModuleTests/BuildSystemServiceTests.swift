@@ -1482,6 +1482,27 @@ struct BuildSystemServiceTests {
         #expect(harness.service.output.contains("Maven is not installed."))
     }
 
+    @Test
+    func providerDoesNotFallBackWhenAnExplicitExecutableFails() async throws {
+        let planner = FakeBuildPlanner()
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "provider")])
+        planner.providerRequest = Self.providerRequest(method: "lithe/build/model")
+        let providers = FakeBuildProviders()
+        let harness = Harness(planner: planner, providers: providers, settings: { pluginID in
+            #expect(pluginID == "dev.example")
+            return ["toolPath": .string("/custom tools/build")]
+        })
+        harness.tools.failure = BuildToolResolutionError("Selected executable is unavailable.", terminal: true)
+        defer { harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        #expect(await harness.waitForEntries { $0.first?.modelState == .notLoaded })
+        harness.service.loadModel(Self.instanceID)
+        #expect(await harness.waitForEntries { if case .failed = $0.first?.modelState { return true }; return false })
+        #expect(providers.sent.isEmpty)
+        guard case .failed(let message)? = harness.service.entries.first?.modelState else { return }
+        #expect(message.contains("Selected executable is unavailable."))
+    }
+
     /// Command sources resolve their tool when the command runs; planning
     /// never resolves it a second time for them.
     @Test
@@ -1726,6 +1747,7 @@ private final class Harness {
         runner: any BuildCommandRunning = FakeBuildRunner(),
         sources: [BuildSystemPluginSource] = [fixtureSource()],
         providers: (any BuildProviderRequesting)? = nil,
+        settings: @escaping @MainActor (String) -> [String: ToolingJSONValue] = { _ in [:] },
         waitForRedetection: @escaping @Sendable () async throws -> Void = {}
     ) {
         let enabledSources = SourceList(sources)
@@ -1737,6 +1759,7 @@ private final class Harness {
             stateLocator: stateLocator,
             runner: runner,
             providers: providers,
+            settings: settings,
             waitForRedetection: waitForRedetection,
             sources: { enabledSources.value }
         )
@@ -2032,8 +2055,9 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
         ))
     }
 
-    func invocationPlan(_ target: BuildSystemTarget, root: String) throws -> BuildInvocation {
-        BuildInvocation(executables: [.command("fake")])
+    func invocationPlan(_ target: BuildSystemTarget, root: String, settings: [String: ToolingJSONValue]) throws -> BuildInvocation {
+        let configured: String? = if case .string(let path)? = settings["toolPath"] { path } else { nil }
+        return BuildInvocation(executables: [.setting(id: "toolPath", path: configured), .command("fake")])
     }
 
     func checkToolVersion(_ target: BuildSystemTarget, runtime: String?, output: String) throws -> BuildVersionCheck {
