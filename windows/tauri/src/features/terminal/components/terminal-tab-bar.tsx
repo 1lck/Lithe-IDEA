@@ -31,6 +31,7 @@ import { useTerminalShellsStore } from "@/features/terminal/stores/shells.store"
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { BOTTOM_PANE_ID } from "@/features/panes/constants/pane";
 import { getChromeNavigationIndex } from "@/features/layout/utils/chrome-keyboard";
+import { TerminalDockHandle } from "@/features/layout/components/terminal-dock-layout";
 import { activateBufferInPaneAndSync } from "@/features/panes/utils/pane-activation";
 import { getOrCreatePaneDropTarget } from "@/features/panes/utils/pane-drop-actions";
 import {
@@ -515,6 +516,7 @@ const TerminalTabBar = ({
         orientation === "vertical" ? "px-1.5 py-1" : "h-8 pl-1",
       )}
     >
+      <TerminalDockHandle disabled={isFullScreen} />
       {onSearchTerminal && (
         <Button
           onClick={onSearchTerminal}
@@ -790,6 +792,7 @@ const TerminalTabBar = ({
         )}
       >
         <div className="flex items-center gap-1.5">
+          <TerminalDockHandle disabled={isFullScreen} />
           <TerminalIcon className="text-subtle-foreground" />
           <span className="font-sans ui-text-sm text-subtle-foreground">
             {t("terminal.noTerminals")}

@@ -73,7 +73,7 @@ macOS 的工具窗口位置由工作台维护，功能模块继续维护自己�
 ## 后果
 
 收益是现有内容可以在不同区域显示，位置、顺序与尺寸可以重启恢复。
-代价是新增内置工具窗口必须提供稳定标识和默认布局；Windows 尚未同步此次移动能力，功能矩阵明确记录差距。
+代价是新增内置工具窗口必须提供稳定标识和默认布局；Windows 目前只支持终端底部与右侧互移，完整分组和排序的差距由功能矩阵记录。
 移动可能重建原生呈现容器，但功能状态仍归原模块所有；终端与编辑器等原生资源必须继续遵守既有挂载生命周期。
 
 ## 验证
@@ -94,6 +94,34 @@ macOS 的工具窗口位置由工作台维护，功能模块继续维护自己�
 - `macos/Sources/Lithe/Services/Workbench/WorkbenchLayoutStore.swift`
 - `macos/Sources/Lithe/Views/Workbench/`
 - `macos/Tests/LitheTests/ToolWindowDockingTests.swift`
+- `windows/tauri/src/features/layout/components/terminal-dock-layout.tsx`
+- `windows/tauri/src/features/layout/components/bottom-pane/bottom-pane.tsx`
+
+## Windows 终端底部与右侧停靠
+
+Windows 的终端工具栏提供移动按钮：拖动显示底部或右侧的落点预览，松开才提交；
+也可通过按钮的点击或键盘激活切换位置。Esc、窗口失焦、窗口大小变化、无效区域释放、
+切换项目及卸载都会取消拖动，不保存位置。落点按拖动开始时的工作区和面板实际边界计算，
+底部角落优先保留来源边，避免底部水平拖动突然跳到右侧。
+
+布局使用 CSS Grid（网格布局）的区域名移动同一份 BottomPane，不能把它分别放到两个条件分支。
+例如正确做法是只把 panel 区域从底行改到右列；不要销毁 TerminalContainer 再在右侧重建它，
+否则会重复注册创建终端的监听器并丢失局部分屏状态。改变底部全宽/编辑区宽度、停靠、
+隐藏和再次展开都保留容器；PTY（终端进程连接）和 xterm 输出仍由原来的 TerminalHost 管理。
+原有终端标签页的拖动继续用于排序或送入编辑器，与整个面板的移动按钮分开。
+
+位置、右侧宽度和底部高度使用现有 Windows 设置存储保存，作用于当前应用设置，
+并非 macOS 的按工作区六组布局。旧设置默认底部、400px 宽、320px 高，未知位置安全回到底部；
+尺寸在加载和使用时分别校验，并按剩余工作区限制。持续调整复用 document-resize-session，
+每帧只改局部 DOM，结束才保存；切换位置/项目及卸载清理监听器。
+其他底部工具仍使用原来的单活动工具语义，不支持和终端同时展开，也不随终端移到右侧。
+本次没有新增运行时资源目录或原生协议。
+
+验证：Windows Frontend 计时 harness 运行
+`windows/tauri/src/features/layout/components/bottom-pane/bottom-pane-terminal-lifecycle.test.tsx`，
+覆盖真实 BottomPane 的来回停靠、预览先于保存、取消/迟到释放、宽度边界、
+全宽切换、隐藏再打开、输入 DOM 和请求监听器保留；设置归一化测试覆盖旧数据和损坏数据恢复。
+这些组件测试不等同于 Windows WebView2 实机验收，矩阵保持 pending。
 
 拖动回归补充：`ToolWindowDockingTests.horizontalDragUsesTheBottomPanelHeightAndActualSplitBounds`
 覆盖底部平移、编辑区排除、遮罩保持实际高度及不等宽双组；
