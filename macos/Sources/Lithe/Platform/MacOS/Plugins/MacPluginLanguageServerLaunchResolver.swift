@@ -53,6 +53,20 @@ struct MacPluginStateDirectories: Sendable {
             .appendingPathComponent(Self.workspaceDigest(workspaceRootURL), isDirectory: true)
     }
 
+    /// `${stateDir}` of one VCS provider process.
+    func vcsProviderStateDirectory(pluginID: String, vcs: String) -> URL {
+        pluginDirectory(pluginID: pluginID)
+            .appendingPathComponent("vcs-providers", isDirectory: true)
+            .appendingPathComponent(vcs, isDirectory: true)
+    }
+
+    /// `${workspaceStateDir}` of one VCS provider.
+    func vcsProviderWorkspaceStateDirectory(pluginID: String, vcs: String, workspaceRootURL: URL) -> URL {
+        vcsProviderStateDirectory(pluginID: pluginID, vcs: vcs)
+            .appendingPathComponent("workspaces", isDirectory: true)
+            .appendingPathComponent(Self.workspaceDigest(workspaceRootURL), isDirectory: true)
+    }
+
     static func workspaceDigest(_ workspaceRootURL: URL) -> String {
         SHA256.hash(data: Data(workspaceRootURL.standardizedFileURL.path.utf8))
             .map { String(format: "%02x", $0) }
@@ -209,6 +223,75 @@ struct MacPluginLanguageServerLaunchResolver {
             )
         }
         if let languageID = provider.languageServer { return .languageServer(languageID) }
+        return .process(try providerProcess(
+            plan, request: request, packageURL: packageURL,
+            executesProjectCode: provider.executesProjectCode, mayUseNetwork: provider.mayUseNetwork,
+            settings: launchSettings
+        ))
+    }
+
+    /// A VCS provider process with every package path verified and its
+    /// state directories created. The VCS client is resolved separately and
+    /// named in each request.
+    struct VcsProviderProcess: Equatable {
+        let process: BuildProviderProcess
+        let vcs: String
+        let toolCommands: [String]
+        let toolValidationArguments: [String]
+    }
+
+    /// Expands the provider launch of one VCS for one workspace. Its state
+    /// directories belong to the provider, apart from the plugin's language
+    /// servers and build systems.
+    func resolveVcsProvider(
+        pluginID: String,
+        vcs: String,
+        manifest: Data,
+        packageURL: URL,
+        workspaceRootURL: URL
+    ) throws -> VcsProviderProcess {
+        let launchSettings = self.settingValues(forPlugin: pluginID, workspaceRootURL: workspaceRootURL)
+        let request = DeclarativeLanguageServerLaunchRequest(
+            pluginDirectory: packageURL.standardizedFileURL,
+            stateDirectory: directories.vcsProviderStateDirectory(pluginID: pluginID, vcs: vcs),
+            workspaceStateDirectory: directories.vcsProviderWorkspaceStateDirectory(
+                pluginID: pluginID,
+                vcs: vcs,
+                workspaceRootURL: workspaceRootURL
+            ),
+            architecture: Self.hostArchitecture,
+            settings: settings.values(forPlugin: pluginID),
+            projectSettings: settings.projectValues(forPlugin: pluginID, projectRoot: workspaceRootURL)
+        )
+        let plan = try planner.vcsProviderLaunchPlan(manifest: manifest, vcs: vcs, request: request)
+        guard let provider = plan.vcsProvider, provider.vcs == vcs else {
+            throw DeclarativePluginRejection(
+                code: "plugin.launch.unavailable",
+                message: "Rust Core returned no VCS provider for \(vcs)."
+            )
+        }
+        let process = try providerProcess(
+            plan, request: request, packageURL: packageURL,
+            executesProjectCode: false, mayUseNetwork: provider.mayUseNetwork, settings: launchSettings
+        )
+        return VcsProviderProcess(
+            process: process,
+            vcs: vcs,
+            toolCommands: provider.toolCommands,
+            toolValidationArguments: provider.toolValidationArguments
+        )
+    }
+
+    /// The executable of a plan's own process, with its package paths
+    /// verified and state directories created.
+    private func providerProcess(
+        _ plan: DeclarativeLanguageServerLaunchPlan,
+        request: DeclarativeLanguageServerLaunchRequest,
+        packageURL: URL,
+        executesProjectCode: Bool,
+        mayUseNetwork: Bool,
+        settings launchSettings: [String: ToolingJSONValue]
+    ) throws -> BuildProviderProcess {
         try verifyPackagePaths(plan.requiredPackagePaths, packageURL: packageURL)
         let root = packageURL.standardizedFileURL
         let executable: BuildProviderProcess.Executable
@@ -236,15 +319,15 @@ struct MacPluginLanguageServerLaunchResolver {
             }
             try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
         }
-        return .process(BuildProviderProcess(
+        return BuildProviderProcess(
             executable: executable,
             arguments: plan.arguments,
             initializationOptions: plan.initializationOptions,
             runtimeTools: plan.runtimeRequirements.map(\.tool),
-            executesProjectCode: provider.executesProjectCode,
-            mayUseNetwork: provider.mayUseNetwork,
+            executesProjectCode: executesProjectCode,
+            mayUseNetwork: mayUseNetwork,
             settings: launchSettings
-        ))
+        )
     }
 
     /// A declared host integration with its resources located in the package.

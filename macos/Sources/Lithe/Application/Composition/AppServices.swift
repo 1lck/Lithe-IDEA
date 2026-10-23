@@ -27,6 +27,8 @@ final class AppServices {
     /// Gives build providers that share a language server the language
     /// sessions; `nil` when the platform starts no build providers.
     var connectBuildProviderLanguageSessions: ((@escaping @MainActor () -> LanguageToolingSessionManager?) -> Void)?
+    /// Plugin VCS providers; `nil` when no installed plugin declares one.
+    var vcsProviders: VcsProvidersFeatureModel?
     let moduleRuntime: ModuleRuntime
     let pluginManager: any PluginManaging
     let pluginMarketplace: any PluginMarketplaceServicing

@@ -44,6 +44,9 @@ const PERMISSION_UI_WEB: &str = "ui.web";
 /// Running a declared build system's executable: model, task, test, and
 /// dependency commands. API level 3.
 const PERMISSION_BUILD: &str = "process.build";
+/// Letting a VCS provider change the working copy and contact its server.
+/// API level 3.
+const PERMISSION_VCS: &str = "process.vcs";
 /// Creating projects: writing template files, running scaffolding tools,
 /// and downloading project archives. API level 3.
 const PERMISSION_PROJECT_GENERATE: &str = "project.generate";
@@ -55,6 +58,7 @@ const KNOWN_PERMISSIONS: &[&str] = &[
     PERMISSION_TEST,
     PERMISSION_UI,
     PERMISSION_UI_WEB,
+    PERMISSION_VCS,
 ];
 /// Runtime tools the host knows how to discover and pass to a language
 /// server. The host exports each as `LITHE_<TOOL>_PATH` and puts its
@@ -160,6 +164,10 @@ pub struct DeclarativePluginManifest {
     /// shape and its validation live in `crate::build`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     build_systems: Vec<crate::build::BuildSystemDeclaration>,
+    /// Version control systems the plugin implements. API level 3; the
+    /// shape and its validation live in `crate::vcs`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    vcs_providers: Vec<crate::vcs::VcsProviderDeclaration>,
     /// Entries of the New Project window. API level 3; the shape and its
     /// validation live in `crate::project_generators`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -424,6 +432,7 @@ pub(crate) struct ServerProcess {
 pub(crate) enum ServerRole {
     LanguageServer,
     BuildProvider,
+    VcsProvider,
 }
 
 impl ServerRole {
@@ -431,6 +440,7 @@ impl ServerRole {
         match self {
             Self::LanguageServer => "language server",
             Self::BuildProvider => "build provider",
+            Self::VcsProvider => "VCS provider",
         }
     }
 }
@@ -769,6 +779,7 @@ impl DeclarativePluginManifest {
         if self.languages.is_empty()
             && self.ui.is_none()
             && self.build_systems.is_empty()
+            && self.vcs_providers.is_empty()
             && self.project_generators.is_empty()
         {
             return Err(invalid("languages", "The plugin declares no languages."));
@@ -896,6 +907,7 @@ impl DeclarativePluginManifest {
             && self.execution_providers.is_empty()
             && self.ui.is_none()
             && self.build_systems.is_empty()
+            && self.vcs_providers.is_empty()
             && self.project_generators.is_empty()
         {
             return Err(invalid(
@@ -922,13 +934,20 @@ impl DeclarativePluginManifest {
                 language_servers: &server_languages,
             },
         )?;
+        crate::vcs::validate_declarations(
+            &mut self.vcs_providers,
+            &crate::vcs::DeclarationContext {
+                plugin_api_version: self.plugin_api_version,
+                declared_settings: &declared_settings,
+            },
+        )?;
         self.validate_permissions()?;
         self.validate_activation_events()?;
         Ok(self)
     }
 
     /// Capabilities whose sections the manifest declares. Every language
-    /// server and every own build provider is a `serverProcess`.
+    /// server, own build provider, and VCS provider is a `serverProcess`.
     fn used_capabilities(&self) -> BTreeSet<&'static str> {
         let sections = [
             (
@@ -956,6 +975,7 @@ impl DeclarativePluginManifest {
             (
                 capabilities::SERVER_PROCESS,
                 !self.language_servers.is_empty()
+                    || !self.vcs_providers.is_empty()
                     || self
                         .build_systems
                         .iter()
@@ -981,6 +1001,7 @@ impl DeclarativePluginManifest {
                     .iter()
                     .any(|system| system.provider.is_some()),
             ),
+            (capabilities::VCS_PROVIDERS, !self.vcs_providers.is_empty()),
         ];
         sections
             .into_iter()
@@ -1103,6 +1124,7 @@ impl DeclarativePluginManifest {
         // A provider process of its own is a server process like a language
         // server, so it needs the same consent.
         if !self.language_servers.is_empty()
+            || !self.vcs_providers.is_empty()
             || self
                 .build_systems
                 .iter()
@@ -1120,6 +1142,9 @@ impl DeclarativePluginManifest {
         }
         if !self.build_systems.is_empty() {
             required.insert(PERMISSION_BUILD);
+        }
+        if !self.vcs_providers.is_empty() {
+            required.insert(PERMISSION_VCS);
         }
         if !self.project_generators.is_empty() {
             required.insert(PERMISSION_PROJECT_GENERATE);
@@ -1155,6 +1180,9 @@ impl DeclarativePluginManifest {
         }
         for build_system in &self.build_systems {
             expected.insert(crate::build::activation_event(build_system));
+        }
+        for provider in &self.vcs_providers {
+            expected.insert(crate::vcs::activation_event(provider));
         }
         if let Some(ui) = &self.ui {
             for window in &ui.tool_windows {
@@ -1233,6 +1261,11 @@ impl DeclarativePluginManifest {
     /// Validated build systems, sorted by ID.
     pub(crate) fn build_systems(&self) -> &[crate::build::BuildSystemDeclaration] {
         &self.build_systems
+    }
+
+    /// Validated VCS providers, sorted by VCS ID.
+    pub(crate) fn vcs_providers(&self) -> &[crate::vcs::VcsProviderDeclaration] {
+        &self.vcs_providers
     }
 
     /// Checks the declared settings, sorts them by ID, and returns the IDs
@@ -1383,6 +1416,9 @@ impl DeclarativePluginManifest {
         }
         for build_system in &self.build_systems {
             programs.extend(crate::build::programs(build_system));
+        }
+        for provider in &self.vcs_providers {
+            programs.extend(crate::vcs::programs(provider));
         }
         // Order by kind, then language or tool, then the full serialized
         // value as a total tie-breaker; duplicates (two servers needing the
@@ -1809,6 +1845,7 @@ impl ServerProcess {
         let suffix = match role {
             ServerRole::LanguageServer => "LanguageServer",
             ServerRole::BuildProvider => "BuildProvider",
+            ServerRole::VcsProvider => "VcsProvider",
         };
         let mut program = match &self.launch {
             LanguageServerLaunch::Packaged { path } => json!({
@@ -2679,6 +2716,29 @@ fn build_provider_launch_plan(
     Ok(plan)
 }
 
+/// The launch plan of a VCS provider. `vcsProvider` repeats what the host
+/// needs to resolve the client tool and to check the provider's answer in
+/// `initialize`, which must name the same VCS.
+fn vcs_provider_launch_plan(
+    manifest: &DeclarativePluginManifest,
+    vcs_id: &str,
+    request: &LanguageServerLaunchPlanRequest,
+) -> Validation<Value> {
+    let provider = manifest
+        .vcs_providers
+        .iter()
+        .find(|provider| provider.id == vcs_id)
+        .ok_or_else(|| {
+            PluginRejection::new(
+                "plugin.launch.unavailable",
+                format!("The plugin declares no VCS provider {vcs_id}."),
+            )
+        })?;
+    let mut plan = server_launch_plan(manifest, &provider.process, None, request)?;
+    plan["vcsProvider"] = provider.descriptor(&manifest.id);
+    Ok(plan)
+}
+
 fn server_launch_plan(
     manifest: &DeclarativePluginManifest,
     process: &ServerProcess,
@@ -3213,8 +3273,8 @@ struct PlanPayload<Request> {
     request: Request,
 }
 
-/// A launch plan names the process by the language whose server it is, or
-/// by the build system whose provider it is.
+/// A launch plan names the process by the language whose server it is, by
+/// the build system whose provider it is, or by the VCS it provides.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct LaunchPlanPayload {
@@ -3223,12 +3283,15 @@ struct LaunchPlanPayload {
     language_id: Option<String>,
     #[serde(default, rename = "buildSystemID")]
     build_system_id: Option<String>,
+    #[serde(default, rename = "vcsProviderID")]
+    vcs_provider_id: Option<String>,
     request: LanguageServerLaunchPlanRequest,
 }
 
 enum LaunchSelection<'a> {
     Language(&'a str),
     BuildSystem(&'a str),
+    VcsProvider(&'a str),
 }
 
 pub(crate) fn decode_payload<T: for<'de> Deserialize<'de>>(
@@ -3311,15 +3374,20 @@ pub fn test_plan_command(payload: Value) -> Result<Value, CoreError> {
 pub fn language_server_launch_plan_command(payload: Value) -> Result<Value, CoreError> {
     const COMMAND: &str = "plugins.declarative.languageServerLaunchPlan";
     let payload: LaunchPlanPayload = decode_payload(payload, COMMAND)?;
-    let selected = match (&payload.language_id, &payload.build_system_id) {
-        (Some(language_id), None) => LaunchSelection::Language(language_id),
-        (None, Some(build_system_id)) => LaunchSelection::BuildSystem(build_system_id),
+    let selected = match (
+        &payload.language_id,
+        &payload.build_system_id,
+        &payload.vcs_provider_id,
+    ) {
+        (Some(language_id), None, None) => LaunchSelection::Language(language_id),
+        (None, Some(build_system_id), None) => LaunchSelection::BuildSystem(build_system_id),
+        (None, None, Some(vcs_id)) => LaunchSelection::VcsProvider(vcs_id),
         _ => {
             return Err(CoreError::new(
                 ErrorCode::InvalidRequest,
                 format!("Invalid {COMMAND} payload"),
             )
-            .with_details("Name exactly one of languageID and buildSystemID."))
+            .with_details("Name exactly one of languageID, buildSystemID, and vcsProviderID."))
         }
     };
     Ok(outcome(validate_manifest_value(payload.manifest).and_then(
@@ -3330,6 +3398,9 @@ pub fn language_server_launch_plan_command(payload: Value) -> Result<Value, Core
                 }
                 LaunchSelection::BuildSystem(build_system_id) => {
                     build_provider_launch_plan(&manifest, build_system_id, &payload.request)
+                }
+                LaunchSelection::VcsProvider(vcs_id) => {
+                    vcs_provider_launch_plan(&manifest, vcs_id, &payload.request)
                 }
             }
             .map(|plan| ("plan", plan))

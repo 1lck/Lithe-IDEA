@@ -443,6 +443,8 @@ public struct DeclarativeLanguageServerLaunchPlan: Equatable, Sendable {
     public let executable: Executable?
     /// Set when the plan was selected by build system.
     public let buildProvider: BuildProvider?
+    /// Set when the plan was selected by VCS provider.
+    public var vcsProvider: VcsProvider? = nil
 
     public enum Executable: Equatable, Sendable {
         /// Package-relative file.
@@ -465,6 +467,21 @@ public struct DeclarativeLanguageServerLaunchPlan: Equatable, Sendable {
         public init(buildSystemID: String, executesProjectCode: Bool, mayUseNetwork: Bool, languageServer: String?) {
             self.buildSystemID = buildSystemID; self.executesProjectCode = executesProjectCode
             self.mayUseNetwork = mayUseNetwork; self.languageServer = languageServer
+        }
+    }
+
+    /// What the host needs besides the process: the VCS the provider must
+    /// negotiate and the client tool it resolves for every request.
+    public struct VcsProvider: Equatable, Sendable {
+        public let vcs: String
+        /// Bare command names, resolved like a `systemCommand` launch.
+        public let toolCommands: [String]
+        public let toolValidationArguments: [String]
+        public let mayUseNetwork: Bool
+
+        public init(vcs: String, toolCommands: [String], toolValidationArguments: [String], mayUseNetwork: Bool) {
+            self.vcs = vcs; self.toolCommands = toolCommands
+            self.toolValidationArguments = toolValidationArguments; self.mayUseNetwork = mayUseNetwork
         }
     }
 
@@ -559,6 +576,8 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
     public let languageServers: [DeclarativeLanguageServer]
     public let executionProviders: [DeclarativeExecutionProvider]
     public let buildSystems: [DeclarativeBuildSystem]
+    /// VCS providers the plugin adds (`vcsProviders` capability).
+    public let vcsProviders: [DeclarativeVcsProvider]
     public let settings: [DeclarativePluginSetting]
     /// Buttons the plugin adds to settings pages (settings capability 2).
     public let settingActions: [DeclarativePluginSettingAction]
@@ -606,6 +625,7 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
             )
         }
         buildSystems = decoded.buildSystems.map { $0.declaration() }
+        vcsProviders = decoded.vcsProviders.map { DeclarativeVcsProvider(id: $0.id, displayName: $0.displayName) }
         projectGenerators = decoded.projectGenerators.map {
             DeclarativeProjectGenerator(id: $0.id, displayName: $0.displayName, icon: $0.icon)
         }
@@ -656,6 +676,20 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 ),
                 contributions: buildSystems.enumerated().flatMap { index, buildSystem in
                     buildSystem.contributions(pluginID: decoded.id, order: index)
+                }
+            ))
+        }
+        if !vcsProviders.isEmpty {
+            // One version-control window per provider, enabled with the
+            // plugin. Root detection, launch, and replies belong to Rust Core.
+            modules.append(PluginModuleDeclaration(
+                manifest: LanguageExtensionModuleManifests.vcsProviders(
+                    pluginID: decoded.id,
+                    displayName: decoded.displayName,
+                    enabledByDefault: enabledByDefault
+                ),
+                contributions: vcsProviders.enumerated().flatMap { index, provider in
+                    provider.contributions(pluginID: decoded.id, order: index)
                 }
             ))
         }
@@ -934,6 +968,13 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
         struct JSONPresence: Decodable {
             init(from decoder: Decoder) throws {}
         }
+        /// The parts of a VCS provider the host shows. Root detection,
+        /// commands, and reply checks stay with Rust Core.
+        struct VcsProvider: Decodable {
+            let id: String
+            let displayName: String
+        }
+
         /// The parts of a build system the tool window lists. Detection,
         /// commands, and decoders stay with Rust Core.
         struct BuildSystem: Decodable {
@@ -1051,6 +1092,7 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
         let languageServers: [LanguageServer]
         let executionProviders: [ExecutionProvider]
         let buildSystems: [BuildSystem]
+        let vcsProviders: [VcsProvider]
         let ui: DeclarativeUIContributions?
         let settings: [Setting]
         let settingActions: [SettingAction]
@@ -1078,6 +1120,7 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
             languageServers = try values.decodeIfPresent([LanguageServer].self, forKey: .languageServers) ?? []
             executionProviders = try values.decodeIfPresent([ExecutionProvider].self, forKey: .executionProviders) ?? []
             buildSystems = try values.decodeIfPresent([BuildSystem].self, forKey: .buildSystems) ?? []
+            vcsProviders = try values.decodeIfPresent([VcsProvider].self, forKey: .vcsProviders) ?? []
             settings = try values.decodeIfPresent([Setting].self, forKey: .settings) ?? []
             settingActions = try values.decodeIfPresent([SettingAction].self, forKey: .settingActions) ?? []
             projectGenerators = try values.decodeIfPresent([ProjectGenerator].self, forKey: .projectGenerators) ?? []
@@ -1085,7 +1128,7 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
 
         private enum CodingKeys: String, CodingKey {
             case id, displayName, version, pluginAPIVersion, vendor, permissions, activationEvents
-            case languages, languageServers, executionProviders, buildSystems, ui, settings, settingActions
+            case languages, languageServers, executionProviders, buildSystems, vcsProviders, ui, settings, settingActions
             case projectGenerators
         }
     }
@@ -1184,6 +1227,12 @@ public protocol DeclarativeLanguageServerLaunchPlanning: Sendable {
         buildSystemID: String,
         request: DeclarativeLanguageServerLaunchRequest
     ) throws -> DeclarativeLanguageServerLaunchPlan
+    /// The launch plan of a VCS provider, with `vcsProvider` set.
+    func vcsProviderLaunchPlan(
+        manifest: Data,
+        vcs: String,
+        request: DeclarativeLanguageServerLaunchRequest
+    ) throws -> DeclarativeLanguageServerLaunchPlan
 }
 
 public extension DeclarativeLanguageServerLaunchPlanning {
@@ -1195,6 +1244,17 @@ public extension DeclarativeLanguageServerLaunchPlanning {
         throw DeclarativePluginRejection(
             code: "plugin.launch.unavailable",
             message: "This host cannot plan build provider launches."
+        )
+    }
+
+    func vcsProviderLaunchPlan(
+        manifest _: Data,
+        vcs _: String,
+        request _: DeclarativeLanguageServerLaunchRequest
+    ) throws -> DeclarativeLanguageServerLaunchPlan {
+        throw DeclarativePluginRejection(
+            code: "plugin.launch.unavailable",
+            message: "This host cannot plan VCS provider launches."
         )
     }
 }

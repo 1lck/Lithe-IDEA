@@ -112,6 +112,12 @@ pub enum CoreCommand {
     BuildSyncFingerprint,
     /// Maps build options to the Java language server's project import (`build.languageImport`).
     BuildLanguageImport,
+    /// Detects VCS roots and registered providers of a workspace (`vcs.detectRoots`).
+    VcsDetectRoots,
+    /// Assigns workspace paths to detected VCS roots (`vcs.ownerOf`).
+    VcsOwnerOf,
+    /// Validates and normalizes a VCS provider's reply (`vcs.decodeReply`).
+    VcsDecodeReply,
     ProjectGeneratorCatalog,
     ProjectGeneratorForm,
     ProjectGenerationPlan,
@@ -281,6 +287,8 @@ pub enum CoreCommand {
     LspRequest,
     /// Queues one build-provider request (`lsp.buildRequest`).
     LspBuildRequest,
+    /// Queues one VCS-provider request (`lsp.vcsRequest`).
+    LspVcsRequest,
     /// Invokes one plugin function (`lsp.functionRequest`).
     LspFunctionRequest,
     /// Queues shared Java gutter marker resolution (`java.navigationMarkers`).
@@ -486,6 +494,9 @@ impl CoreCommand {
             "build.decodeDependencies" => Some(Self::BuildDecodeDependencies),
             "build.syncFingerprint" => Some(Self::BuildSyncFingerprint),
             "build.languageImport" => Some(Self::BuildLanguageImport),
+            "vcs.detectRoots" => Some(Self::VcsDetectRoots),
+            "vcs.ownerOf" => Some(Self::VcsOwnerOf),
+            "vcs.decodeReply" => Some(Self::VcsDecodeReply),
             "project.generatorCatalog" => Some(Self::ProjectGeneratorCatalog),
             "project.generatorForm" => Some(Self::ProjectGeneratorForm),
             "project.generationPlan" => Some(Self::ProjectGenerationPlan),
@@ -571,6 +582,7 @@ impl CoreCommand {
             "lsp.closeDocument" => Some(Self::LspCloseDocument),
             "lsp.request" => Some(Self::LspRequest),
             "lsp.buildRequest" => Some(Self::LspBuildRequest),
+            "lsp.vcsRequest" => Some(Self::LspVcsRequest),
             "lsp.functionRequest" => Some(Self::LspFunctionRequest),
             "java.resolveNavigation" => Some(Self::JavaResolveNavigation),
             "lsp.cancelOperation" => Some(Self::LspCancelOperation),
@@ -668,6 +680,7 @@ mod tests {
             "lsp.closeDocument",
             "lsp.request",
             "lsp.buildRequest",
+            "lsp.vcsRequest",
             "lsp.functionRequest",
             "lsp.cancelOperation",
             "lsp.pollEvents",

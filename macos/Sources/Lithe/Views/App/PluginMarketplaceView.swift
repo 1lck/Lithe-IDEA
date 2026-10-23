@@ -834,6 +834,28 @@ enum PluginMarketplacePresentation {
                 String(format: localized("Builds %@ projects", locale: locale), program.buildSystemID ?? ""),
                 lines.joined(separator: "\n")
             )
+        case .packagedVcsProvider, .systemVcsProvider, .runtimeVcsProvider:
+            let vcs = program.vcs ?? ""
+            var lines: [String]
+            let title: String
+            switch program.kind {
+            case .packagedVcsProvider:
+                title = String(format: localized("%@ provider (inside the plugin)", locale: locale), vcs)
+                lines = [serverDetail([program.path ?? ""])]
+            case .systemVcsProvider:
+                title = String(format: localized("%@ provider (installed on this Mac)", locale: locale), vcs)
+                lines = [serverDetail([program.commands.joined(separator: " | ")])]
+            default:
+                title = String(format: localized("%1$@ provider (runs with %2$@)", locale: locale), vcs, program.tool ?? "")
+                lines = [line([program.tool ?? ""] + program.runtimeArguments + [program.entry ?? ""] + program.arguments)]
+            }
+            if !program.vcsClientCommands.isEmpty {
+                lines.append(labeled("Client: %@", [program.vcsClientCommands.joined(separator: " | ")]))
+            }
+            if program.mayUseNetwork {
+                lines.append(localized("May connect to the repository server", locale: locale))
+            }
+            return (title, lines.joined(separator: "\n"))
         case .unknown:
             // The full declaration stays behind the disclosure below so an
             // unfamiliar kind cannot push the sheet's buttons off screen.

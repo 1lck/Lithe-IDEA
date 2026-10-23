@@ -305,6 +305,11 @@ public extension ModuleID {
         ModuleID("\(pluginID).build-systems")
     }
 
+    /// The VCS providers one declarative plugin declares, enabled together.
+    static func vcsProvidersExtension(_ pluginID: String) -> ModuleID {
+        ModuleID("\(pluginID).vcs-providers")
+    }
+
     /// The New Project entries one declarative plugin declares, enabled
     /// together. Nothing runs while it is enabled; it only gates the entries.
     static func projectGeneratorsExtension(_ pluginID: String) -> ModuleID {

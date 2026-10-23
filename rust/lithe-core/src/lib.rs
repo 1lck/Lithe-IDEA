@@ -21,6 +21,7 @@ mod project;
 mod project_generators;
 mod protocol;
 mod runtime;
+mod vcs;
 
 pub use protocol::{
     CoreCommand, CoreError, CoreEvent, CoreRequest, CoreResponse, ErrorCode, ResponseData,

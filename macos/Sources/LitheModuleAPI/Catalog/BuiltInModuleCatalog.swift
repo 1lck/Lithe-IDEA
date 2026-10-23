@@ -379,6 +379,24 @@ public enum LanguageExtensionModuleManifests {
         )
     }
 
+    /// One module for all VCS providers of a plugin. Like build systems, it
+    /// owns no process: the host starts a provider only for a root of its VCS
+    /// while the module is enabled.
+    public static func vcsProviders(
+        pluginID: String,
+        displayName: String,
+        enabledByDefault: Bool = false
+    ) -> ModuleManifest {
+        ModuleManifest(
+            id: .vcsProvidersExtension(pluginID),
+            displayName: "\(displayName) Version Control",
+            scope: .workspace,
+            defaultState: enabledByDefault ? .enabled : .disabled,
+            activationPolicy: .onDemand,
+            dependencies: [.module(.workspace)]
+        )
+    }
+
     /// One module for all project generators of a plugin. The New Project
     /// window runs without a workspace, so the module is application-scoped
     /// and owns no process: Core plans and the host creates the project.
