@@ -3,6 +3,7 @@ name: Verify Shared i18n
 on:
   pull_request:
     paths:
+      - ".gitattributes"
       - "shared/i18n/**"
       - "shared/fixtures/i18n/**"
       - "scripts/*i18n*"
@@ -14,6 +15,7 @@ on:
   push:
     branches: [preview]
     paths:
+      - ".gitattributes"
       - "shared/i18n/**"
       - "shared/fixtures/i18n/**"
       - "scripts/*i18n*"

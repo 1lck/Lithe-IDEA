@@ -361,7 +361,7 @@ Swift 单元、插件和数据库 CI 通道复用已有 Cargo 下载缓存。先
 macOS 字符串表、`AppLanguage.generated.swift`、Windows `shared.generated.ts`，
 然后运行 `node scripts/generate-i18n.mjs --check` 校验。修改源翻译后运行不带
 `--check` 的同一命令，在当前工作树重新生成。资源身份由当前语言清单、词条、翻译
-和未迁移的原生字符串表共同决定，跨平台和架构均不需要下载；没有独立的工具链或
+共同决定，跨平台和架构均不需要下载；没有独立的工具链或
 可复用 identity stamp。`worktree-resources.json` 将它登记为 `shared-i18n` 不可复用项，
 复用脚本拒绝所有复制阶段。不要从其他工作树或已签名应用复制生成文件。
 macOS 打包只在本次构建的目标目录转换为二进制字符串表，签名前完成；应用运行时

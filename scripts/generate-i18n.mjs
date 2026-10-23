@@ -106,6 +106,14 @@ export async function loadContract(root = ROOT) {
         "static",
         "import",
         "protocol",
+        "as", "associatedtype", "break", "catch", "continue", "defer", "deinit", "do",
+        "else", "extension", "fallthrough", "false", "fileprivate", "for", "func",
+        "guard", "if", "in", "init", "inout", "internal", "is", "nil", "open",
+        "operator", "precedencegroup", "private", "public", "repeat", "rethrows", "subscript", "super",
+        "throw", "throws", "true", "try", "typealias", "where", "while",
+        // These names are emitted by AppLanguage or its synthesized conformances.
+        "allCases", "rawValue", "defaultLanguage", "id", "locale", "title",
+        "localizedFormat", "localizedString",
       ].includes(locale.swiftCase)
     )
       fail(`invalid Swift case: ${locale.id}`);
@@ -227,14 +235,19 @@ export async function loadContract(root = ROOT) {
       const directives = [
         ...message.macos.key.matchAll(/%%|%(?:([1-9]\d*)\$)?(lld|llu|d|@)/g),
       ].filter((match) => match[0] !== "%%");
+      const positions = directives.map((match, index) => Number(match[1] ?? index + 1) - 1);
+      const positioned = directives.filter((match) => match[1] !== undefined).length;
       if (
         /%[a-zA-Z]/.test(message.macos.key.replace(/%%|%(?:[1-9]\d*\$)?(?:lld|llu|d|@)/g, "")) ||
         directives.length !== argumentNames.length ||
+        (positioned !== 0 && positioned !== directives.length) ||
+        new Set(positions).size !== positions.length ||
+        positions.some((position) => !Number.isSafeInteger(position) || position < 0 || position >= argumentNames.length) ||
         directives.some(
           (match, index) =>
             match[2] !==
-            (formats[argumentNames[Number(match[1] ?? index + 1) - 1]] ??
-              defaultFormat(message.parameters[argumentNames[Number(match[1] ?? index + 1) - 1]])),
+            (formats[argumentNames[positions[index]]] ??
+              defaultFormat(message.parameters[argumentNames[positions[index]]])),
         )
       )
         fail(`${message.id}: alias format differs from parameter types`);

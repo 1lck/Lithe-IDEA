@@ -1,0 +1,5 @@
+# Shared i18n generation compares exact bytes on every host, including Windows
+# checkouts with core.autocrlf=true. Keep generated resources deterministic.
+macos/Resources/*.lproj/Localizable.strings text eol=lf
+macos/Sources/Lithe/Models/Settings/AppLanguage.generated.swift text eol=lf
+windows/tauri/src/i18n/shared.generated.ts text eol=lf

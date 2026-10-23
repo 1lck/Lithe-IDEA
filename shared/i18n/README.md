@@ -27,6 +27,8 @@ node --test --test-timeout=15000 scripts/test-i18n.mjs
 `AppLanguage.generated.swift` 和各语言的整个 `Localizable.strings` 都是生成物。
 不要手工维护这些文件，不要在 Windows 再添加一份翻译字典，也不要在页面重新判断中英文。
 开发、构建、打包与独立跨平台 CI 会检查结果是否最新；`--check` 只读，不写文件。
+生成文件由根目录 `.gitattributes` 固定使用 LF 换行，Windows 启用 Git 自动换行转换时
+也应保持相同字节；不要通过重新生成或跳过校验掩盖检出格式差异。
 
 ## 使用正确的语义和平台范围
 

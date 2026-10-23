@@ -41,7 +41,10 @@ Windows 只替换一轮占位符，避免把用户传入的 `{name}` 当成另�
 
 语言文件的覆盖率统计全部共享词条。完整语言缺词会失败；明确允许回退的语言可缺词，
 但回退链必须到达完整默认语言。生成器还拒绝重复 key、未知字段、非法平台、越界覆盖、
-参数不匹配、双重定义和过期产物。检查模式只读；所有输入及生成计划验证完成后才写文件。
+参数不匹配、原生位置格式越界或混用、Swift 关键字及生成成员重名、双重定义和过期产物。
+检查模式只读；所有输入及生成计划验证完成后才写文件。
+生成文件通过 `.gitattributes` 固定为 LF 换行，避免 Windows Git 自动转换换行后误报
+产物过期；集成测试在临时仓库中开启 `core.autocrlf`，实际检出后比较生成文件字节。
 
 资源生命周期由 Git 和本次构建管理，不创建下载、运行时缓存或可跨工作树复用的生成物。
 原生打包只在目标副本转换二进制 plist，随后签名；运行时不写 bundle 或 Windows 安装
@@ -62,14 +65,14 @@ Windows 只替换一轮占位符，避免把用户传入的 `{name}` 当成另�
 ## 后果
 
 已迁移词条有一个编辑来源，新增语言能贯通选择、生成和打包；平台差异和旧设置值保留。
-代价是提交中包含可复验的生成产物，并需要遵循增量迁移规则。macOS 旧英文 key 的语义
+代价是提交中包含可复验的生成产物，并需要同时提交共享源与生成结果。macOS 旧英文 key 的语义
 歧义仍存在，新用途应使用独立语义 key；原资源缺少的译文以英文回退，不声称这些句子都已人工翻译。
 现有词条生成检查通过不等于两端整机语言切换验收完成。
 
 ## 验证
 
 - `node scripts/generate-i18n.mjs --check`：清单、参数、覆盖和产物一致性；只读。
-- `node --test --test-timeout=15000 scripts/test-i18n.mjs`：非法输入、增量保留、新增语言、
+- `node --test --test-timeout=15000 scripts/test-i18n.mjs`：非法输入、生成物所有权、新增语言、
   平台覆盖、回退链和 macOS 二进制打包；比较打包前后源文件字节。
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`：稳定性静态规则。
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'SharedI18nTests|AppLocalizationTests|LocalizationPackagingTests|GitLocalizationTests'`：原生资源查找、兼容 key、实际参数格式化、切换及原有行为。
