@@ -80,6 +80,18 @@ suite deadline remains unchanged. Both SharedRust and the real-JDT lane use
 these narrowly scoped budgets. Core rebase requests use a nested 20-second
 deadline. The workspace commit submodule publication test also gets 30 seconds
 because it creates two local remotes and runs multiple real Git pushes. Other
+workspace coverage includes
+`tests::git_workspace_commit::git_workspace_commit_push_confirms_each_repository_separately`,
+which gets 60 seconds in both SharedRust and real-JDT. It initializes two working
+repositories and two bare remotes, prepares three independent confirmation states,
+then commits and pushes both repositories. Windows run 39925982060 reached the
+15-second process deadline in SharedRust without an assertion failure; the same
+revision passed it in 12.3 seconds in real-JDT. A local Windows profile completed
+all assertions in 49.9 seconds across 287 Git processes, with every Git process
+exiting and no individual Git operation taking more than 0.6 seconds internally.
+The total process and filesystem cost also exceeded a 30-second trial budget.
+Each Git request retains its native
+deadline and process-tree cleanup, and the suite deadline remains unchanged. Other
 multi-repository coverage includes
 `tests::git::git_write_updates_a_noncurrent_branch_without_switching_head`,
 which also gets 30 seconds in both SharedRust and real-JDT lanes: it builds a
