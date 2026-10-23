@@ -3723,6 +3723,19 @@ mod tests {
         assert_eq!(left, run_session_key("project-a", "primary"));
     }
 
+    #[cfg(windows)]
+    struct SessionCleanup(&'static [&'static str]);
+
+    #[cfg(windows)]
+    impl Drop for SessionCleanup {
+        fn drop(&mut self) {
+            // Closing these job handles also cleans up fixtures if an assertion fails.
+            drop(take_owned_sessions(|key| {
+                self.0.contains(&key.window_label.as_str())
+            }));
+        }
+    }
+
     /// A Run session like `cmd -> mvn -> java`, owned the way
     /// `start_reserved_process` owns one: the suspended root joins its tree
     /// before ping can start.
@@ -3731,7 +3744,11 @@ mod tests {
         window: &str,
         session: &str,
         title: &str,
-    ) -> (Child, std::process::ChildStdout, u32) {
+    ) -> (
+        Child,
+        std::process::ChildStdout,
+        std::os::windows::io::OwnedHandle,
+    ) {
         let mut command = Command::new("cmd");
         command
             .args(["/C", "ping -n 30 127.0.0.1"])
@@ -3749,6 +3766,17 @@ mod tests {
         let descendant = *child_process_ids(child.id())
             .first()
             .expect("service descendant");
+        use std::os::windows::io::{FromRawHandle, OwnedHandle};
+        use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_SYNCHRONIZE};
+        // Capture this process instance before closing the job. PID enumeration
+        // after termination can still see an exiting process (or a reused PID).
+        let handle = unsafe { OpenProcess(PROCESS_SYNCHRONIZE, 0, descendant) };
+        assert!(
+            !handle.is_null(),
+            "open descendant: {}",
+            std::io::Error::last_os_error()
+        );
+        let descendant = unsafe { OwnedHandle::from_raw_handle(handle) };
         sessions().lock().unwrap().insert(
             run_session_key(window, session),
             RunningSession {
@@ -3777,15 +3805,27 @@ mod tests {
     }
 
     #[cfg(windows)]
-    fn process_is_alive(pid: u32) -> bool {
-        let mut system = sysinfo::System::new();
-        system.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
-        system.process(sysinfo::Pid::from_u32(pid)).is_some()
+    fn process_has_exited(
+        process: &impl std::os::windows::io::AsRawHandle,
+        timeout_ms: u32,
+    ) -> bool {
+        use windows_sys::Win32::Foundation::{WAIT_OBJECT_0, WAIT_TIMEOUT};
+        use windows_sys::Win32::System::Threading::WaitForSingleObject;
+        // Waiting for the root alone does not synchronize descendant teardown.
+        match unsafe { WaitForSingleObject(process.as_raw_handle(), timeout_ms) } {
+            WAIT_OBJECT_0 => true,
+            WAIT_TIMEOUT => false,
+            result => panic!(
+                "wait for process returned {result}: {}",
+                std::io::Error::last_os_error()
+            ),
+        }
     }
 
     #[cfg(windows)]
     #[test]
     fn window_release_ends_its_process_trees_and_keeps_other_windows() {
+        let _cleanup = SessionCleanup(&["release-closed-window", "release-kept-window"]);
         // Regression for #1137: closing a window left Run services and their
         // descendants running. Another window's service must survive the close.
         let (mut closed, _closed_output, closed_descendant) =
@@ -3798,10 +3838,20 @@ mod tests {
             RUN_STOP_TIMEOUT,
         )
         .expect("the closed window's trees end");
+        assert!(
+            process_has_exited(&closed, 5_000),
+            "closed root did not exit"
+        );
         assert!(closed.wait().is_ok());
-        assert!(!process_is_alive(closed_descendant));
+        assert!(
+            process_has_exited(&closed_descendant, 5_000),
+            "closed descendant did not exit"
+        );
         assert!(kept.try_wait().unwrap().is_none());
-        assert!(process_is_alive(kept_descendant));
+        assert!(
+            !process_has_exited(&kept_descendant, 0),
+            "other window descendant exited"
+        );
 
         // A second destroy/exit pass finds nothing left and must not reap again.
         assert!(take_owned_sessions(|key| key.window_label == "release-closed-window").is_empty());
@@ -3811,13 +3861,18 @@ mod tests {
             RUN_STOP_TIMEOUT,
         )
         .expect("the kept window's trees end");
+        assert!(process_has_exited(&kept, 5_000), "kept root did not exit");
         assert!(kept.wait().is_ok());
-        assert!(!process_is_alive(kept_descendant));
+        assert!(
+            process_has_exited(&kept_descendant, 5_000),
+            "kept descendant did not exit"
+        );
     }
 
     #[cfg(windows)]
     #[test]
     fn dropping_a_session_ends_its_tree_like_a_crashed_lithe() {
+        let _cleanup = SessionCleanup(&["crash-window"]);
         // When Lithe dies, Windows closes its job handles. Dropping the session
         // closes the handle the same way, so no stop call is involved.
         let (mut root, _output, descendant) =
@@ -3825,13 +3880,21 @@ mod tests {
         let owned = take_owned_sessions(|key| key.window_label == "crash-window");
         assert_eq!(owned.len(), 1);
         drop(owned);
+        assert!(
+            process_has_exited(&root, 5_000),
+            "dropped root did not exit"
+        );
         assert!(root.wait().is_ok());
-        assert!(!process_is_alive(descendant));
+        assert!(
+            process_has_exited(&descendant, 5_000),
+            "dropped descendant did not exit"
+        );
     }
 
     #[cfg(windows)]
     #[test]
     fn owned_listing_includes_every_session_in_start_order() {
+        let _cleanup = SessionCleanup(&["listing-window", "listing-other-window"]);
         // Maven goals and services of closed projects have no webview store,
         // so the close confirmation must come from the native table.
         let window = "listing-window";
@@ -3879,6 +3942,7 @@ mod tests {
             .expect("listing fixtures end");
         }
         for root in [&mut first, &mut second, &mut other] {
+            assert!(process_has_exited(root, 5_000), "listing root did not exit");
             assert!(root.wait().is_ok());
         }
     }
