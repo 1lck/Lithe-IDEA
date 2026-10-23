@@ -309,6 +309,48 @@ struct AppLocalizationTests {
         #expect(translations["Developer Tools"] == "开发者工具")
     }
 
+    @Test
+    func simplifiedChineseResourcesCoverPluginVcsProviders() throws {
+        let translations = try simplifiedChineseTranslations()
+        let requiredKeys = [
+            // Install review.
+            "%@ provider (inside the plugin)", "%@ provider (installed on this Mac)",
+            "%1$@ provider (runs with %2$@)", "Client: %@", "May connect to the repository server",
+            // Tool window.
+            "Conflicts", "Changes", "Unversioned Files", "History", "Update Project", "Roll Back…",
+            "Show Diff", "Mark as Resolved", "Clean Up Working Copy", "More Actions", "Working copy",
+            "%@ holds the metadata of several version control systems. Choose the one that manages it.",
+            "Detecting working copies…", "No %@ working copy was detected in this workspace.", "Detect Again",
+            "Moved from %@", "Tree conflict", "Locked in this working copy", "Locked by another user",
+            "%lld files selected", "Committed revision %@.", "Updated to revision %@.", "%lld files have conflicts.",
+            "Roll back the selected changes?", "Local edits to these files are lost.", "History of %@",
+            "Restart Lithe to use %@.",
+            // Diff and history.
+            "Show %@ Diff", "Base revision", "Binary files cannot be compared.",
+            "The file is too large to compare.", "No revisions", "More paths changed than are shown.",
+            // Provider failures.
+            "Wait for the running version control action to finish.",
+            "The working copy is out of date. Update it, then commit again.",
+            "The working copy is locked by an interrupted action. Run Cleanup, then try again.",
+            "Authentication failed. Lithe cannot ask for credentials yet: sign in once with the command-line client so it stores them, then try again.",
+            "%1$@ does not provide %2$@ because %3$@ already does."
+        ]
+
+        for key in requiredKeys {
+            let value = translations[key]
+            #expect(value != nil, "Missing VCS provider translation: \(key)")
+            // A translation must keep every placeholder, or String(format:) misreads its arguments.
+            #expect(value.map(Self.placeholders) == Self.placeholders(key), "Placeholders differ: \(key)")
+        }
+        #expect(translations["Base revision"] == "基线版本")
+        #expect(translations["Mark as Resolved"] == "标记为已解决")
+    }
+
+    private static func placeholders(_ format: String) -> [String] {
+        let regex = /%(?:\d+\$)?(?:@|lld)/
+        return format.matches(of: regex).map { String($0.output) }.sorted()
+    }
+
     private func simplifiedChineseTranslations() throws -> [String: String] {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

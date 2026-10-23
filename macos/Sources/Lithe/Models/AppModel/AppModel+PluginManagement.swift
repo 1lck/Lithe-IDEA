@@ -40,6 +40,7 @@ extension AppModel {
         do {
             try await services.pluginManager.uninstall(pluginID)
             buildSystemsFeatureIfActive?.pluginsChanged()
+            vcsProvidersFeature?.pluginsChanged()
             closeStalePluginWebPages()
             objectWillChange.send()
         } catch {
@@ -72,6 +73,7 @@ extension AppModel {
         }
         if !appliedPluginIDs.isEmpty {
             buildSystemsFeatureIfActive?.pluginsChanged()
+            vcsProvidersFeature?.pluginsChanged()
             closeStalePluginWebPages()
         }
         objectWillChange.send()

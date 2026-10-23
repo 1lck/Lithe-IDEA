@@ -1,8 +1,10 @@
 import Foundation
 
 package struct FileVisibilityRules: Hashable, Sendable {
+    /// VCS metadata (`.git`, `.svn`) is hidden like IDEA's default ignore
+    /// list; providers watch their own metadata directories.
     package static let builtInHiddenDirectories = [
-        ".git", ".worktree", ".worktrees", ".build", ".swiftpm", "node_modules", "target", "build",
+        ".git", ".svn", ".worktree", ".worktrees", ".build", ".swiftpm", "node_modules", "target", "build",
         "DerivedData", ".gradle", ".next", "dist", "coverage", "design-qa-artifacts", ".artifacts"
     ]
     /// Names and globs omitted from the project tree, search index, watchers,

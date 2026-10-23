@@ -242,6 +242,9 @@ public struct PluginProgram: Equatable, Hashable, Sendable {
         case run
         case test
         case buildSystem
+        case packagedVcsProvider
+        case systemVcsProvider
+        case runtimeVcsProvider
         case unknown
     }
 
@@ -304,6 +307,27 @@ public struct PluginProgram: Equatable, Hashable, Sendable {
             guard let description, seen.insert(description).inserted else { return nil }
             return description
         }
+    }
+
+    /// VCS ID of a VCS provider program.
+    public var vcs: String? { string("vcs") }
+
+    /// Client commands a VCS provider may run, in resolution order. They
+    /// belong to the approved program, so another client is a new approval.
+    public var vcsClientCommands: [String] {
+        guard case .object(let fields) = json, case .object(let tool)? = fields["vcsTool"],
+              case .array(let commands)? = tool["commands"] else { return [] }
+        return commands.compactMap { if case .string(let command) = $0 { command } else { nil } }
+    }
+
+    /// Script a runtime launch runs, inside the plugin.
+    public var entry: String? { string("entry") }
+    public var runtimeArguments: [String] { strings("runtimeArguments") }
+
+    /// The provider may reach a server, such as a Subversion repository.
+    public var mayUseNetwork: Bool {
+        guard case .object(let fields) = json, case .bool(let value)? = fields["mayUseNetwork"] else { return false }
+        return value
     }
 
     /// Task IDs of a `buildSystem` program.

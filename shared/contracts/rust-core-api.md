@@ -965,6 +965,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `lsp.request` | Submit a typed semantic request and return an opaque operation ID |
 | `lsp.buildRequest` | Forward one planned `lithe/build/*` request to a session that negotiated the build-provider protocol |
 | `lsp.functionRequest` | Invoke one registered plugin function on a session its plugin started |
+| `lsp.vcsRequest` | Send one VCS operation, planned by Core, to a session that negotiated the VCS-provider protocol |
 | `java.navigationMarkers` | Resolve versioned Java gutter markers from bounded JDT LS semantic requests |
 | `java.resolveNavigation` | Resolve one Java gutter marker to normalized parent or implementation locations |
 | `lsp.cancelOperation` | Cancel one pending semantic operation |
@@ -1040,7 +1041,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `plugins.declarative.runPlan` | Expand a declarative plugin's run template for one workspace file |
 | `plugins.declarative.discoverTests` | List a declarative plugin's workspace and file test items |
 | `plugins.declarative.testPlan` | Expand a declarative plugin's test template for a workspace, file, or test case |
-| `plugins.declarative.languageServerLaunchPlan` | Expand a declarative plugin's language-server or build-provider launch with host directories and architecture |
+| `plugins.declarative.languageServerLaunchPlan` | Expand a declarative plugin's language-server, build-provider, or VCS-provider launch with host directories and architecture |
 | `plugins.declarative.resolveSettings` | Merge a plugin's stored global and project setting layers into effective values with their source |
 | `plugins.declarative.workspaceConfiguration` | Expand a language server's `workspaceConfiguration` with the merged setting values |
 | `plugins.declarative.checkRuntimeVersion` | Decide whether a launch runtime's version output meets the declared minimum version |
@@ -1058,6 +1059,9 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `build.decodeDependencies` | Decode dependency output or a provider result into one project's bounded tree |
 | `build.syncFingerprint` | Digest the files a build model depends on, to tell whether it is stale |
 | `build.languageImport` | Map a build system's options to the Java language server's Maven or Gradle project import |
+| `vcs.detectRoots` | Find the VCS roots of a workspace from static markers, with registered providers, ambiguous directories, and applied mappings |
+| `vcs.ownerOf` | Assign workspace paths to the detected root that owns each |
+| `vcs.decodeReply` | Validate a VCS provider's reply and return the normalized result |
 | `plugins.marketplace.validateIndex` | Validate a marketplace index and report each plugin's availability for one platform |
 | `plugins.marketplace.resolveSource` | Resolve a user-entered marketplace source to the index URL to fetch |
 | `plugins.marketplace.installReview` | List a package's permissions and programs, and those not yet approved |
@@ -2479,6 +2483,23 @@ event carries the provider's reply unchanged as `result.value`, which the host
 passes to `build.decodeModel` or `build.decodeDependencies` as `result`;
 cancellation and late results follow `lsp.cancelOperation`.
 
+`lsp.vcsRequest` accepts `{ sessionId, operationId?, vcs, operation, root,
+tool?, arguments?, timeoutMilliseconds? }` and returns `{ operationId }`.
+`operation` is a [VCS provider contract](vcs-provider-v1.md#lspvcsrequest)
+operation name, never a method; Core checks `arguments`, adds the absolute
+`root` and `tool` paths, and writes the operation's `lithe/vcs/*` request.
+Only plugin-owned sessions offer `capabilities.experimental.litheVcs:
+{ versions: [1] }`; a session whose process did not answer with a VCS ID and
+every required capability, or answered another VCS than `vcs`, refuses the
+request with `not_supported` and details `vcs.provider.unavailable`, and an
+operation whose capability was not negotiated is `not_supported` with details
+`vcs.capability.unsupported`. A successful negotiation emits a `vcsProvider`
+runtime event whose `result` is `{ vcs, capabilities }`. The
+`requestCompleted` event carries the provider's reply as `result.value`, which
+the host passes to `vcs.decodeReply`; a failed request carries a `vcs.*`
+`error.code` (the provider's own code only when the contract lists it).
+Timeout, cancellation, and late results follow `lsp.buildRequest`.
+
 A plugin-owned session started with `workspaceConfiguration` answers each
 `workspace/configuration` item from it by `section` (an exact key wins over
 a dotted path; no section returns the whole object, a missing one `null`) and
@@ -3264,6 +3285,26 @@ file refuses a plan without it. Unlike the `plugins.declarative.*` commands,
 inside `workspaceRoot` (and the given `outputFile`); none of the commands
 writes anything or starts a process. `shared/contracts/plugins/v1/fixtures/build-plans.json`
 holds the golden plans and decoded outputs.
+
+### VCS providers
+
+The `vcs.*` commands implement API level 3 `vcsProviders` of
+[`plugins/v1`](plugins/v1/README.md) and the
+[VCS provider contract](vcs-provider-v1.md). Results use the
+`plugins.declarative.*` envelope; a malformed payload, a relative
+`workspaceRoot`, or an unknown operation is an `invalid_request` failure.
+
+| Command | Request | Result |
+| --- | --- | --- |
+| `vcs.detectRoots` | `{ workspaceRoot, plugins: [{ manifest }], mappings?: [{ id, vcs }] }` | `detection`: `{ providers, roots: [{ id, vcs, path, mapped }], ambiguous: [{ id, vcs }], unusedMappings, truncated, rejected: [{ index, error }], conflicts: [{ pluginID, vcs, by }] }` |
+| `vcs.ownerOf` | `{ roots: [id], ambiguous?: [id], paths: [path] }` | `owners`: `[{ path, root }]` in request order; `root` is `null` outside every root or inside an unmapped ambiguous directory |
+| `vcs.decodeReply` | `{ operation, capabilities, request?, reply }` | `result`: the normalized reply, or `plugin.vcs.invalidOutput` |
+
+`vcs.detectRoots` reads directory entries below `workspaceRoot` (at most eight
+levels and 20,000 directories) and the marker names in its ancestors; it never
+reads file contents, writes anything, or starts a process. The other two
+commands touch no file. `shared/fixtures/vcs/model-v1.json` holds the
+detection cases, decoded snapshots, and reply validation cases.
 
 ### Git patch discovery and rebase amendment preconditions
 

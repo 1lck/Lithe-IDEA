@@ -282,6 +282,15 @@ fn execute(request: &str) -> CoreResponse {
             parsed.payload,
             crate::build::build_language_import_command,
         ),
+        CoreCommand::VcsDetectRoots => {
+            plugin_response(id, parsed.payload, crate::vcs::vcs_detect_roots_command)
+        }
+        CoreCommand::VcsOwnerOf => {
+            plugin_response(id, parsed.payload, crate::vcs::vcs_owner_of_command)
+        }
+        CoreCommand::VcsDecodeReply => {
+            plugin_response(id, parsed.payload, crate::vcs::vcs_decode_reply_command)
+        }
         CoreCommand::PluginsMarketplaceValidateIndex => plugin_response(
             id,
             parsed.payload,
@@ -1607,6 +1616,21 @@ fn execute(request: &str) -> CoreResponse {
                 Ok(data) => CoreResponse::success(
                     id,
                     serde_json::to_value(data).expect("Build-provider response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::LspVcsRequest => {
+            match serde_json::from_value::<crate::lsp::VcsProviderRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid VCS-provider request")
+                        .with_details(error.to_string())
+                })
+                .and_then(crate::lsp::vcs_provider_request)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("VCS-provider response should encode"),
                 ),
                 Err(error) => CoreResponse::failure(id, error),
             }

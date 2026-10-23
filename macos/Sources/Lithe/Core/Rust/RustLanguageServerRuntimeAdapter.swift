@@ -218,6 +218,23 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
             .mapError(Self.runtimeFailure)
     }
 
+    func requestVcsProvider(
+        sessionID: String,
+        vcs: String,
+        operation: String,
+        root: String,
+        tool: String?,
+        arguments: ToolingJSONValue,
+        timeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
+        lspVcsRequest(
+            sessionID: sessionID, vcs: vcs, operation: operation, root: root, tool: tool,
+            arguments: arguments, timeout: timeout
+        )
+        .map { LanguageServerRuntimeOperation(operationID: $0.operationId) }
+        .mapError(Self.runtimeFailure)
+    }
+
     func startPluginLanguageServer(
         pluginID: String,
         providerID: String,
