@@ -1,4 +1,6 @@
 import AppKit
+import LitheCoreContracts
+import LitheExecutionModule
 import SwiftUI
 import Testing
 
@@ -217,6 +219,90 @@ struct LitheTreeListTests {
         let action = try #require(find(contentView))
         #expect(action.accessibilityPerformPress?() == true)
         #expect(executions == 1)
+    }
+
+    @Test func realDependencySidebarMenuExcludesTheConfiguredPath() async throws {
+        let app = NSApplication.shared
+        let attribute = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
+        let previous = (app.accessibilityAttributeValue(attribute) as? Bool) ?? false
+        app.accessibilitySetValue(true, forAttribute: attribute)
+        defer { app.accessibilitySetValue(previous, forAttribute: attribute) }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("acceptance-library"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let domain = "Lithe.DependencyMenuAcceptance.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let store = MacUserDefaultsStore(defaults: defaults)
+        let settings = AppSettings(store: store)
+        let model = AppModel(settings: settings,
+            services: MacServiceContainer(store: store, settings: settings, moduleLaunchMode: .normal).services)
+        do {
+            let access = try #require(await model.activateExecutionModule())
+            let feature = access.runFeature
+            await feature.loadProject(at: root, files: [], mavenProject: nil)
+            // Use a registered source with an explicit local path, isolating UI dispatch
+            // from language-server startup while exercising the real dependency feature.
+            feature.registerDependencySource(languageID: "acceptance", displayName: "Acceptance dependencies")
+            feature.updateDependencyPaths(DependencyPathConfiguration(sourcePaths: ["acceptance-library"]),
+                                          serviceID: "language:acceptance")
+            let host = NSHostingView(rootView: DependencySidebarView(refreshRevision: 0)
+                .environmentObject(model).environmentObject(settings).frame(width: 400, height: 500))
+            let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 400, height: 500),
+                                  styleMask: [.titled], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.contentView = host
+            window.makeKeyAndOrderFront(nil)
+            defer { LitheContextMenuPresenter.shared.dismiss(); window.contentView = nil; window.close() }
+            func hasText(_ value: Any, _ text: String) -> Bool {
+                let item = value as AnyObject
+                let stringValue: String? = item.accessibilityValue?()
+                if stringValue == text || item.accessibilityLabel?() == text { return true }
+                return (item.accessibilityChildren?() ?? []).contains { hasText($0, text) }
+            }
+            func row(_ value: Any, _ text: String) -> AnyObject? {
+                let item = value as AnyObject
+                if item.accessibilityRole?() == .button, hasText(item, text) { return item }
+                return (item.accessibilityChildren?() ?? []).lazy.compactMap { row($0, text) }.first
+            }
+            func waitForRow(_ text: String) async -> AnyObject? {
+                let clock = ContinuousClock()
+                let deadline = clock.now.advanced(by: .seconds(2))
+                repeat {
+                    host.layoutSubtreeIfNeeded()
+                    if let found = row(host, text) { return found }
+                    await Task.yield()
+                } while clock.now < deadline
+                return nil
+            }
+            let service = try #require(await waitForRow("Acceptance dependencies"))
+            #expect(service.accessibilityPerformPress?() == true)
+            let sources = try #require(await waitForRow("Source Code"))
+            #expect(sources.accessibilityPerformPress?() == true)
+            let library = try #require(await waitForRow("acceptance-library"))
+            let rect = try #require(library.accessibilityFrame?())
+            let point = window.convertPoint(fromScreen: NSPoint(x: rect.midX, y: rect.midY))
+            func views(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(views) }
+            let capture = try #require(views(host).filter {
+                String(describing: type(of: $0)) == "LitheRightClickCaptureView"
+                    && $0.convert($0.bounds, to: nil).contains(point)
+            }.min { $0.bounds.width * $0.bounds.height < $1.bounds.width * $1.bounds.height })
+            capture.rightMouseDown(with: try #require(NSEvent.mouseEvent(with: .rightMouseDown, location: point,
+                modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil,
+                eventNumber: 1, clickCount: 1, pressure: 1)))
+            let clock = ContinuousClock()
+            let deadline = clock.now.advanced(by: .seconds(2))
+            func menu() -> NSPanel? { NSApp.windows.compactMap { $0 as? NSPanel }.first { $0.isVisible } }
+            while menu() == nil && clock.now < deadline { await Task.yield() }
+            let popup = try #require(menu())
+            let content = try #require(popup.contentView)
+            let action = try #require(row(content, "Exclude from dependency tree"))
+            #expect(action.accessibilityPerformPress?() == true)
+            #expect(feature.dependencyPaths(for: "language:acceptance").excludedPaths == ["acceptance-library"])
+            let graph = try #require(try await feature.resolveDependencies(serviceID: "language:acceptance"))
+            #expect(graph.roots.first?.children.first?.children.isEmpty == true)
+        } catch { await model.shutdownProjectSession(); throw error }
+        await model.shutdownProjectSession()
     }
 
     @Test func productRowsCannotUseTheRetiredStyleRecipe() throws {
