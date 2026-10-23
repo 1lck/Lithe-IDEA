@@ -35,7 +35,7 @@ PLUGIN_ROOT=$(scripts/build-official-plugins.sh "${BUILD_ARGS[@]}")
     exit 1
 }
 # A verification that sees zero packages must fail, not pass vacuously.
-for official_plugin in dev.lithe.plugin.java-support; do
+for official_plugin in dev.lithe.plugin.java-support dev.lithe.plugin.java-project-templates; do
     [[ -d "$PLUGIN_ROOT/$official_plugin" ]] || {
         print -u2 -- "Official plugin package was not built: $official_plugin"
         exit 1

@@ -112,6 +112,11 @@ pub enum CoreCommand {
     BuildSyncFingerprint,
     /// Maps build options to the Java language server's project import (`build.languageImport`).
     BuildLanguageImport,
+    ProjectGeneratorCatalog,
+    ProjectGeneratorForm,
+    ProjectGenerationPlan,
+    ProjectCheckName,
+    ProjectExtractArchive,
     /// Validates and filters a marketplace index (`plugins.marketplace.validateIndex`).
     PluginsMarketplaceValidateIndex,
     /// Resolves a user-entered marketplace source URL (`plugins.marketplace.resolveSource`).
@@ -481,6 +486,11 @@ impl CoreCommand {
             "build.decodeDependencies" => Some(Self::BuildDecodeDependencies),
             "build.syncFingerprint" => Some(Self::BuildSyncFingerprint),
             "build.languageImport" => Some(Self::BuildLanguageImport),
+            "project.generatorCatalog" => Some(Self::ProjectGeneratorCatalog),
+            "project.generatorForm" => Some(Self::ProjectGeneratorForm),
+            "project.generationPlan" => Some(Self::ProjectGenerationPlan),
+            "project.checkName" => Some(Self::ProjectCheckName),
+            "project.extractArchive" => Some(Self::ProjectExtractArchive),
             "plugins.marketplace.validateIndex" => Some(Self::PluginsMarketplaceValidateIndex),
             "plugins.marketplace.resolveSource" => Some(Self::PluginsMarketplaceResolveSource),
             "plugins.marketplace.installReview" => Some(Self::PluginsMarketplaceInstallReview),

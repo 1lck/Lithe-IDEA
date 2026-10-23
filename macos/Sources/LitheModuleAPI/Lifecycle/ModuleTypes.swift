@@ -304,6 +304,12 @@ public extension ModuleID {
     static func buildSystemsExtension(_ pluginID: String) -> ModuleID {
         ModuleID("\(pluginID).build-systems")
     }
+
+    /// The New Project entries one declarative plugin declares, enabled
+    /// together. Nothing runs while it is enabled; it only gates the entries.
+    static func projectGeneratorsExtension(_ pluginID: String) -> ModuleID {
+        ModuleID("\(pluginID).project-generators")
+    }
 }
 
 public extension ModuleCapabilityID {

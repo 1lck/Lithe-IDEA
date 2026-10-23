@@ -41,13 +41,15 @@ struct PluginManagerTests {
         #expect(yaml.languageServerModuleID == .languageServerExtension("yaml"))
         // Java Support also proves that a plugin may own the Java language
         // alongside every built-in and bundled catalog without a collision.
-        let officialLanguagePlugins = try ["GoSupport", "JavaSupport", "PhpSupport"].map {
+        let officialLanguagePlugins = try ["GoSupport", "JavaProjectTemplates", "JavaSupport", "PhpSupport"].map {
             try DeclarativePluginTestSupport.officialDescriptor($0).pluginManifest
         }
         #expect(Set(officialLanguagePlugins.map(\.id)) == Set(OfficialPluginCatalog.entries.map(\.id)))
         // Go and PHP moved to Lithe Store: installed copies keep their pinned
         // publisher signature, but the host no longer suggests them.
-        #expect(OfficialPluginCatalog.publishedEntries.map(\.id) == [OfficialPluginCatalog.javaPluginID])
+        #expect(OfficialPluginCatalog.publishedEntries.map(\.id) == [
+            OfficialPluginCatalog.javaPluginID, OfficialPluginCatalog.javaProjectTemplatesPluginID
+        ])
         #expect(OfficialPluginCatalog.entry(for: OfficialPluginCatalog.goPluginID)?.communityReplacementID
             == PluginID("io.github.lithe-idea.go-support"))
         #expect(OfficialPluginCatalog.entry(for: OfficialPluginCatalog.phpPluginID)?.communityReplacementID

@@ -20,6 +20,7 @@ mod marketplace_plugins;
 mod mybatis;
 mod plugins;
 mod project;
+mod project_generators;
 mod protocol;
 mod run_configuration;
 mod spring;

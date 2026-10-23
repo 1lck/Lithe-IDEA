@@ -233,11 +233,33 @@ public enum OfficialPluginCatalog {
         public let displayName: String
         public let signatureRequirement: PluginSignatureRequirement
         public let distribution: Distribution
-        public let languageID: String
-        public let languageDisplayName: String
+        /// The language the plugin supports; nil for a plugin that adds no
+        /// language, such as project templates.
+        public let languageID: String?
+        public let languageDisplayName: String?
         /// Used to suggest the plugin for a project before it is installed.
         public let fileExtensions: [String]
         public let projectFileNames: [String]
+
+        public init(
+            id: PluginID,
+            displayName: String,
+            signatureRequirement: PluginSignatureRequirement,
+            distribution: Distribution,
+            languageID: String? = nil,
+            languageDisplayName: String? = nil,
+            fileExtensions: [String] = [],
+            projectFileNames: [String] = []
+        ) {
+            self.id = id
+            self.displayName = displayName
+            self.signatureRequirement = signatureRequirement
+            self.distribution = distribution
+            self.languageID = languageID
+            self.languageDisplayName = languageDisplayName
+            self.fileExtensions = fileExtensions
+            self.projectFileNames = projectFileNames
+        }
 
         /// The community plugin that replaces this retired official plugin.
         public var communityReplacementID: PluginID? {
@@ -249,6 +271,7 @@ public enum OfficialPluginCatalog {
     public static let phpPluginID = PluginID("dev.lithe.plugin.php-support")
     public static let goPluginID = PluginID("dev.lithe.plugin.go-support")
     public static let javaPluginID = PluginID("dev.lithe.plugin.java-support")
+    public static let javaProjectTemplatesPluginID = PluginID("dev.lithe.plugin.java-project-templates")
 
     public static let entries: [Entry] = [
         Entry(
@@ -260,6 +283,14 @@ public enum OfficialPluginCatalog {
             languageDisplayName: "Java",
             fileExtensions: ["java"],
             projectFileNames: ["pom.xml", "build.gradle", "build.gradle.kts"]
+        ),
+        // New Project entries for Java, Maven Archetype, and Spring Boot. Kept
+        // apart from Java Support so turning either off leaves the other.
+        Entry(
+            id: javaProjectTemplatesPluginID,
+            displayName: "Java Project Templates",
+            signatureRequirement: .sameTeamAsHost,
+            distribution: .bundled
         ),
         Entry(
             id: goPluginID,
@@ -345,6 +376,23 @@ public enum LanguageExtensionModuleManifests {
             defaultState: enabledByDefault ? .enabled : .disabled,
             activationPolicy: .onDemand,
             dependencies: [.module(.workspace)]
+        )
+    }
+
+    /// One module for all project generators of a plugin. The New Project
+    /// window runs without a workspace, so the module is application-scoped
+    /// and owns no process: Core plans and the host creates the project.
+    public static func projectGenerators(
+        pluginID: String,
+        displayName: String,
+        enabledByDefault: Bool = false
+    ) -> ModuleManifest {
+        ModuleManifest(
+            id: .projectGeneratorsExtension(pluginID),
+            displayName: "\(displayName) Project Templates",
+            scope: .application,
+            defaultState: enabledByDefault ? .enabled : .disabled,
+            activationPolicy: .onDemand
         )
     }
 }

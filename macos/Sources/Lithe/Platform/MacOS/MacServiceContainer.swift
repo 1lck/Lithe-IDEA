@@ -794,6 +794,38 @@ final class MacServiceContainer {
             core: RustProcessLifecycleDecider(core: rustCore),
             presenter: MacProcessExitConfirmationPresenter.shared
         )
+        // New Project window. Plugin packages are read-only; projects are
+        // written into a staging directory inside the folder the user chose.
+        services.projectGeneration = ProjectGenerationService(
+            planner: RustProjectGeneratorOperations(core: rustCore),
+            platform: MacProjectGenerationPlatform(
+                runtime: runtimeService,
+                runner: MacBuildCommandRunner(processRegistry: processRegistry)
+            ),
+            initializeGitRepository: { root in
+                switch gitOperations.initializeRepository(at: root) {
+                case .success: nil
+                case .failure(let failure): failure.message
+                }
+            },
+            recordJavaHome: { root, home in
+                await runtimeService.presetJavaHome(home, for: root)
+            }
+        )
+        let installedPlugins = pluginStartup.registeredPlugins
+        services.projectGeneratorSources = { [pluginManager] in
+            // Enablement is read on every call, so a plugin enabled from the
+            // window shows its entries and satisfies requirements at once.
+            let enabled = Set(pluginManager.snapshots.filter(\.isEnabled).map(\.id))
+            return installedPlugins.map { plugin in
+                ProjectGeneratorPluginSource(
+                    pluginID: plugin.descriptor.id,
+                    manifest: plugin.descriptor.normalizedManifest,
+                    packageURL: plugin.packageURL,
+                    isEnabled: enabled.contains(plugin.descriptor.id)
+                )
+            }
+        }
         moduleLifecycleCoordinator.start()
         Task {
             do {

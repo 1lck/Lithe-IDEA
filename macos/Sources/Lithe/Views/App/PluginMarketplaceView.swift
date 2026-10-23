@@ -46,6 +46,10 @@ struct PluginMarketplaceView: View {
             flexible: { detail }
         )
         .task { await feature.refreshIfNeeded() }
+        .onReceive(feature.$requestedSearch.compactMap { $0 }) { query in
+            searchText = query
+            feature.requestedSearch = nil
+        }
     }
 
     // MARK: List

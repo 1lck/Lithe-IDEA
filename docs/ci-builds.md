@@ -661,8 +661,23 @@ Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono
 可下载的官方插件包是声明式插件包（只含 `plugin.json` 和它声明的资源，不含宿主加载的代码，与架构无关；自带运行时的 Java Support 见下文），在 `.build/<triple>/<configuration>/OfficialPlugins` 中独立组装，`--triple` 只决定输出目录和签名工具的构建布局；组装后通过 `LitheOfficialPluginVerifier` 验证声明、打包的可执行文件和“Mach-O 原生代码只出现在清单声明的运行时目录内”；发布配置还要求 repository secret `LITHE_PLUGIN_PACKAGE_PRIVATE_KEY`，由 `LithePluginPackageSigner` 对完整包生成 `lithe-plugin-signature.json`，客户端按宿主内置官方插件策略和 publisher 公钥验证后才允许安装。该 secret 的值是与客户端内置公钥匹配的 base64 编码 32 字节 Ed25519 私钥，可用 `gh secret set LITHE_PLUGIN_PACKAGE_PRIVATE_KEY --repo 1lck/Lithe-IDEA < /secure/path/lithe-plugin-package-private-key.base64` 配置；私钥文件和 shell 历史都不得进入仓库或日志。没有该 key 时，普通 debug 全量构建会跳过 publisher 签名包，指定其中一个包 ID 的构建会失败，不会留下缺少签名文档的目录。本地调试插件时可以显式传入 `--development-unsigned`（仅 debug 配置可用），生成不含签名文档的开发包，只能由 debug 构建的 Lithe 从磁盘安装；这类开发包同样不跨工作树复用。无可靠 identity stamp，不跨工作树复制。插件安装后打包的语言服务器位于
 `<app-support>/Lithe/Plugins/<plugin-id>/versions/<version>/language-server`，由插件版本目录拥有，运行时只读，重装、回滚和卸载随插件一起处理，不是工作树构建缓存。Go Support 和 PHP Support 已迁移为 Lithe Store 社区插件（`Lithe-IDEA/lithe-plugin-go`、`Lithe-IDEA/lithe-plugin-php`），不再由本仓库构建。PHPUnit 测试夹具的 `shared/fixtures/phpunit-project/vendor` 也由当前工作树独立安装。以上项目在资源清单 `excludedResources` 中明确排除，复用脚本会拒绝显式复制请求。
 
-Java Support（`dev.lithe.plugin.java-support`）是唯一随 Lithe.app 发行的官方插件包，
-也是唯一自带运行时的包，因此它与架构有关：
+随 Lithe.app 发行的官方插件包有两个：Java Support（`dev.lithe.plugin.java-support`）和
+Java Project Templates（`dev.lithe.plugin.java-project-templates`）。
+
+Java Project Templates 只提供新建项目窗口里的 Java、Maven Archetype、Spring Boot 条目：
+
+- **资源路径**：组装结果在 `.build/<triple>/<configuration>/OfficialPlugins/dev.lithe.plugin.java-project-templates/`，
+  包内只有 `plugin.json`、`icons/` 和 `templates/`，打包后位于 `Lithe.app/Contents/Resources/OfficialPlugins/` 下。
+- **组装入口**：`Plugins/mac/Official/JavaProjectTemplates/assemble-package.sh` 从源码目录复制图标和模板，
+  不下载任何东西，与架构无关。
+- **是否允许跨 worktree 复用**：不复用。组装只是复制源码目录，在每个工作树里重新组装即可；
+  它和其他官方插件包一样没有可靠的 identity stamp。
+- **校验来源**：`LitheOfficialPluginVerifier` 检查信任策略、包内无符号链接和原生代码；
+  Rust Core 测试 `project_generators` 用源码目录里的模板生成每个生成器的计划。
+- **运行时**：模板只读。新项目先写进用户所选目录下的临时目录，完成后整体移动到位，
+  不写 app bundle 或插件包，不影响代码签名和 Sparkle delta。
+
+Java Support 是唯一自带运行时的包，因此它与架构有关：
 
 - **资源路径**：组装结果在 `.build/<triple>/<configuration>/OfficialPlugins/dev.lithe.plugin.java-support/`，
   打包后位于 `Lithe.app/Contents/Resources/OfficialPlugins/` 下。包内 `language-server/` 是固定版本的

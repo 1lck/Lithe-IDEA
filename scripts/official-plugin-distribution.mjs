@@ -2,11 +2,15 @@
 // A package must opt into the base application; all other official plugins
 // remain separately buildable and installable through plugin management.
 // Go Support and PHP Support moved to community plugins in Lithe Store. Java
-// Support ships inside Lithe.app so Java works offline on first launch; its
-// manifest uses `sameTeamAsHost`, and the user can remove and restore it in
-// plugin management.
+// Support ships inside Lithe.app so Java works offline on first launch; Java
+// Project Templates ships with it so New Project offers Java entries offline.
+// Both manifests use `sameTeamAsHost`, and the user can remove and restore
+// them in plugin management.
 import { pathToFileURL } from "node:url";
-const bundledOfficialPluginIDs = new Set(["dev.lithe.plugin.java-support"]);
+const bundledOfficialPluginIDs = new Set([
+  "dev.lithe.plugin.java-support",
+  "dev.lithe.plugin.java-project-templates",
+]);
 export function isBundledOfficialPlugin(id) {
   return bundledOfficialPluginIDs.has(id);
 }

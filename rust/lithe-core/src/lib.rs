@@ -18,6 +18,7 @@ mod mcp;
 pub mod plugins;
 pub mod process;
 mod project;
+mod project_generators;
 mod protocol;
 mod runtime;
 

@@ -18,6 +18,7 @@ java_plugin_manifest="$ROOT_DIR/Plugins/mac/Official/JavaSupport/plugin.json"
 java_launcher_path=$(/usr/bin/plutil -extract languageServers.0.launch.entry raw "$java_plugin_manifest")
 java_launcher_name="${java_launcher_path:t}"
 java_plugin_package="Contents/Resources/OfficialPlugins/dev.lithe.plugin.java-support"
+java_templates_package="Contents/Resources/OfficialPlugins/dev.lithe.plugin.java-project-templates"
 
 temporary_directory=$(mktemp -d "${TMPDIR:-/tmp}/lithe-package-verification.XXXXXX")
 trap 'rm -rf -- "$temporary_directory"' EXIT
@@ -223,6 +224,9 @@ required_resources=(
     "$app_path/$java_plugin_package/runtime/arm64/lib"
     "$app_path/$java_plugin_package/runtime/x86_64/bin/java"
     "$app_path/$java_plugin_package/runtime/x86_64/lib"
+    "$app_path/$java_templates_package/plugin.json"
+    "$app_path/$java_templates_package/icons/java.svg"
+    "$app_path/$java_templates_package/templates/java/maven/pom.xml"
 )
 for resource in "${required_resources[@]}"; do
     if [[ ! -e "$resource" ]]; then

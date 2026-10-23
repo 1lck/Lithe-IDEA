@@ -17,6 +17,8 @@ This directory is the cross-platform source of truth:
 | `fixtures/runtime-versions.json` | Golden outcomes of the launch runtime version check |
 | `fixtures/build-plans.json` | Golden build-system plans and decoded outputs |
 | `fixtures/function-protocol.json` | Golden plugin-function negotiation, registration, invocation, outcome, progress, and refusal cases |
+| `fixtures/project-generator.plugin.json`, `fixtures/project-generator-templates/` | Project generators: template files, a scaffolding command, and an archive download |
+| `fixtures/project-plans.json` | Golden `project.*` form evaluations, generation plans, and name checks |
 | `plugin-index.schema.json` | JSON shape of a marketplace source index |
 | `fixtures/marketplace/*.json` | Marketplace index, availability, source URL, and install review golden cases |
 
@@ -368,7 +370,7 @@ files sorted by path, or an empty list when no project marker is present.
 | --- | --- |
 | `1` | Languages, `packaged` and `systemCommand` language servers, `node` and `go` runtime dependencies, run and test providers. |
 | `2` | `runtime` launches with a packaged or discovered runtime, host integrations, the `java` runtime, launch templates, `initializationOptions`, and plugin settings. |
-| `3` | Capability versions (`requires`), and `buildSystems`: declarative build tools with detection, options, a project model, tasks, run entries, tests, diagnostics, dependencies, and sync. |
+| `3` | Capability versions (`requires`), and `buildSystems`: declarative build tools with detection, options, a project model, tasks, run entries, tests, diagnostics, dependencies, and sync. Later capabilities, such as `projectGenerators`, join level 3 through `requires`. |
 
 A level 2 feature in a level 1 manifest is refused with
 `plugin.manifest.invalid` (`plugin.runtime.unsupported` for the `java` tool),
@@ -398,6 +400,7 @@ hosts. Level 3 versions each section on its own. A level 3 manifest lists in
 | `ui` | `ui` | `1`, `2` (adds [web content](#web-content-ui-2)) |
 | `buildSystems` | Declarative build detection, models, and command plans | `1` |
 | `buildProviders` | `buildSystems[].provider`, including own-process and shared language-server providers | `1` |
+| `projectGenerators` | [`projectGenerators[]`](#project-generators): entries of the New Project window | `1` |
 
 Version 1 of every capability means what its section means at level 2
 (runtime launches, launch templates, `initializationOptions`, and so on), so
@@ -477,6 +480,7 @@ Rules for publishing across levels and capability versions:
 | `process.run` | any provider declares `run` |
 | `process.test` | any provider declares `test` |
 | `process.build` | `buildSystems` is not empty |
+| `project.generate` | `projectGenerators` is not empty |
 | `ui.contribute` | `ui` is declared |
 | `ui.web` | a tool window shows [web content](#web-content-ui-2) |
 
@@ -965,6 +969,131 @@ digests the watched files. A selection the declaration does not allow is
 `plugin.build.invalidSelection`; an operation it does not declare is
 `plugin.build.unavailable`.
 
+## Project generators
+
+`projectGenerators` (requires `projectGenerators` 1 and the `project.generate`
+permission) adds entries to the host's New Project window. The host owns the
+window: the entry list and its search, the project name and location, the
+"create Git repository" option, the empty project, and the Create button. A
+generator declares only its own fields, the languages and build systems the
+result needs, and the steps that produce it. No host code branches on a
+generator ID.
+
+```json
+"projectGenerators": [{
+  "id": "spring-boot",
+  "displayName": "Spring Boot",
+  "section": "generator",
+  "icon": {"path": "icons/spring-boot.svg", "mode": "original"},
+  "fields": [
+    {"id": "groupId", "type": "text", "title": "Group", "default": "com.example", "pattern": "[a-z][a-z0-9.]*"},
+    {"id": "packageName", "type": "text", "title": "Package name",
+     "default": "${field.groupId}.${project.name|package}", "pattern": "[a-z][a-z0-9.]*"},
+    {"id": "jdk", "type": "runtime", "title": "JDK", "runtime": "java", "minimumVersion": "17"}
+  ],
+  "requirements": [{"languageID": "java"}, {"buildSystemID": "maven"}],
+  "steps": [{"kind": "archive", "url": "https://start.spring.io/starter.zip",
+             "query": [{"name": "packageName", "value": "${field.packageName}"}]}]
+}]
+```
+
+| Field | Meaning |
+| --- | --- |
+| `id` | Lowercase letters, digits, and hyphens; unique in the plugin. |
+| `section` | `project` lists the entry under "New Project" (a plain project of a language); `generator` lists it under "Generators" (a framework or scaffolding tool). |
+| `order` | 0–1000, default 100. Entries are sorted by section, `order`, then name. |
+| `fields` | The generator's inputs, drawn and evaluated in order. A field may read only fields declared before it. |
+| `requirements` | `languageID` or `buildSystemID` (optionally `when`) the created project needs. The catalog lists the installed plugins that provide each, with their enabled state, so the host can offer to enable one or open the marketplace. A requirement never blocks creation. |
+| `steps` | Run in order in a staging directory that becomes the project root. |
+| `openFiles` | Project-relative files the host opens after creating the project, optionally with `when`. |
+
+### Fields
+
+| `type` | Value | Properties |
+| --- | --- | --- |
+| `text` | A string | `default` (a template over `${project.name}` and earlier fields, re-evaluated until the user edits the field), `pattern` (matched as a whole), `maxLength` (default 256, at most 1024), `placeholder`, `optional` |
+| `enum` | One option | `options` (1–16 `{value, title}`), `default` (the first option otherwise), `presentation` (`segmented` or `menu`) |
+| `boolean` | `true` or `false` | `default` |
+| `multiSelect` | A list of options, kept in declaration order | `options` (1–128, each with an optional `group` heading), `default` |
+| `runtime` | A host-discovered installation | `runtime` (`java`), `minimumVersion`, `optional`. The host chooses the initial value. |
+
+Every field takes `id` (lowerCamelCase), `title`, `description` (shown behind
+an info tip), `advanced` (listed under the collapsed "Advanced Settings"
+group), and `visibleWhen`. A hidden field is not validated, and templates and
+conditions read it as absent.
+
+Text values never start with `-` and never contain control characters, so a
+value cannot become an option or split a line. A project name is one
+directory name: not empty, at most 128 characters, no `/`, `\`, `:`, or
+control characters, not `.` or `..`, no leading `-`, and no surrounding
+spaces.
+
+### Conditions
+
+`when` and `visibleWhen` take one condition or a list that must all hold:
+`{"field": "<id>", "equals" | "notEquals": <value>}` or `{"field": "<id>",
+"oneOf": [<value>, …]}`. Values are option values for `enum`, `true`/`false`
+for `boolean`, and strings for `text` and `runtime` (`notEquals: ""` tests
+that an optional field is filled). A condition on a hidden field is false.
+
+### Templates
+
+Strings in the manifest use `${…}`: `${project.name}`, `${field.<id>}` (a
+text or option value, `true`/`false`, a comma-separated list, or a runtime's
+home directory), `${field.<id>.version}`, and `${field.<id>.major}` (`21` for
+`21.0.4`, `8` for `1.8.0_412`). Modifiers follow `|` and apply in order:
+`path` turns dots into `/`, `package` makes a valid package name
+(`com.Example.my-app` → `com.example.myapp`), and `lower` lowercases.
+
+Template files use `{{ … }}` with the same variables, because POMs, Gradle
+scripts, and properties files already contain `${…}` that must reach the
+project unchanged. Only `{{` followed by `project.` or `field.` is a
+variable; any other `{{` is copied as text. A file name may also contain
+`${…}` variables, although a step's `target` is the portable place for them.
+A path segment that starts with `dot-` becomes a dotfile (`dot-gitignore` →
+`.gitignore`), because packages keep no hidden files. Hidden files in a
+template directory are skipped; symbolic links are refused.
+
+### Steps
+
+| `kind` | Properties | The host… |
+| --- | --- | --- |
+| `files` | `source` (package-relative directory), `target` (project-relative directory template), `when` | writes the files of the plan, setting the executable bit where the template file has one. |
+| `command` | `command` (a bare executable name), `arguments` (strings or `{value, when}`), `environment`, `collect`, `mayUseNetwork`, `timeoutSeconds` (default 600, at most 1800), `when` | resolves the executable like a build tool, runs it with the staging directory as the working directory, and, with `collect`, moves the contents of that subdirectory up into the project root. Arguments that expand to an empty string are left out. |
+| `archive` | `url` (no query or fragment), `query` (`{name, value, when, omitEmpty}`), `when` | downloads the zip and calls `project.extractArchive` into the staging directory. |
+
+Archive addresses must expand to HTTPS URLs (HTTP only for `localhost`,
+`127.0.0.1`, or `[::1]`) without credentials. The URL may come from a field,
+such as a configurable Spring Initializr server; the host shows the server
+before creating. Template directories are limited to 1024 files, 1 MiB per
+file, and 8 MiB in total; archives to 20,000 entries and 512 MiB extracted.
+
+### Commands
+
+| Command | Payload | Result |
+| --- | --- | --- |
+| `project.generatorCatalog` | `{plugins: [{manifest, enabled}], hostCapabilities?}` | `catalog: {generators: [{pluginID, pluginName, pluginEnabled, generator, requirements: [{languageID or buildSystemID, providers: [{pluginID, pluginName, enabled}]}], usesNetwork}], issues: [{pluginID, error}]}` |
+| `project.generatorForm` | `{manifest, generatorID, form}` | `form: {projectName: {problem}, fields: [{id, visible, value, problem?}], activeRequirements, valid}` |
+| `project.generationPlan` | `{manifest, generatorID, packagePath, form}` | `plan: {projectName, steps, openFiles, runtimes: [{field, runtime, home, version}], usesNetwork}` |
+| `project.checkName` | `{projectName}` | `name: {problem}` |
+| `project.extractArchive` | `{archivePath, destination}` | `extracted: {files}` |
+
+`form` is `{projectName, values, edited, runtimes}`. `values` maps field IDs
+to values; a text value counts only when its ID is in `edited`, so derived
+defaults keep following the fields they read. `runtimes` maps runtime field
+IDs to `{home, version}` of the user's selection. A field `problem` is one of
+`required`, `tooLong`, `invalidFormat`, `unsupportedValue`, and
+`runtimeTooOld`; hosts localize by code. Plan steps are `{kind:
+"writeFiles", files: [{path, contents, executable}]}`, `{kind: "command",
+command, arguments, environment, collect, mayUseNetwork, timeoutSeconds}`, and
+`{kind: "archive", url, host, format: "zip"}`.
+
+After the steps, the host moves the staging directory to its final location
+(refusing an existing one), may record a `java` runtime as the project's JDK,
+creates the Git repository when asked, and opens the project. A failure or
+cancellation removes the staging directory and leaves nothing behind
+(`plugin.project.generationFailed`).
+
 ## Plugin functions
 
 A plugin backend (a language server or build provider process the plugin
@@ -1169,7 +1298,7 @@ valid.
 
 ## Outcomes and error codes
 
-`plugins.declarative.*`, `plugins.marketplace.*`, and `build.*` commands return `{"status": "ok", …}` or
+`plugins.declarative.*`, `plugins.marketplace.*`, `build.*`, and `project.*` commands return `{"status": "ok", …}` or
 `{"status": "rejected", "error": {"code", "message", "field"?}}`. A malformed
 command payload is a Core `invalid_request` failure instead.
 
@@ -1213,6 +1342,12 @@ command payload is a Core `invalid_request` failure instead.
 | `plugin.function.invalidReference`, `plugin.function.invalidParams`, `plugin.function.unavailable`, `plugin.function.wrongPlugin`, `plugin.function.unknown` | Core | A [plugin-function](#plugin-functions) call is refused before it reaches the backend |
 | `plugin.function.failed`, `plugin.function.invalidResult`, `plugin.function.revoked` | Core | A plugin-function call ended without a usable result |
 | `plugin.function.invalidRegistration` | Core | A backend's register or unregister request was refused as a whole |
+| `plugin.project.unavailable` | Core | The plugin declares no such project generator |
+| `plugin.project.invalidInput` | Core | The project name or a field value is not accepted; `field` is `projectName` or `values.<id>`, or a step whose expanded path leaves the project |
+| `plugin.project.templateInvalid` | Core | A template directory is missing, too large, contains a symbolic link or non-UTF-8 file, or uses an unknown variable |
+| `plugin.project.invalidURL` | Core | An archive address does not expand to an HTTPS URL (HTTP only for loopback hosts) without credentials, query, or fragment |
+| `plugin.project.archiveInvalid` | Core | A downloaded archive is not a zip, has an entry outside the destination, a symbolic link, a file that already exists, or expands beyond the size limit |
+| `plugin.project.generationFailed` | Host | A command step failed or timed out, a download failed, or the project could not be moved into place |
 | `plugin.function.recursiveCall` | Core | A backend asked the host to dispatch a domain operation or function |
 | `plugin.host.unavailable` | Core | A backend asked for a host capability the negotiated protocol does not offer |
 

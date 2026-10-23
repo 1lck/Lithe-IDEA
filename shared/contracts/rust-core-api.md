@@ -1058,6 +1058,11 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `build.decodeDependencies` | Decode dependency output or a provider result into one project's bounded tree |
 | `build.syncFingerprint` | Digest the files a build model depends on, to tell whether it is stale |
 | `build.languageImport` | Map a build system's options to the Java language server's Maven or Gradle project import |
+| `project.generatorCatalog` | List the project generators of the given plugins, with the plugins that provide each requirement |
+| `project.generatorForm` | Evaluate a generator's form: derived defaults, visibility, problems, and active requirements |
+| `project.generationPlan` | Expand a filled-in form into the files, commands, and archive downloads that create a project |
+| `project.checkName` | Check that a name can be a new project's directory name |
+| `project.extractArchive` | Extract a downloaded project archive into the staging directory, refusing unsafe entries |
 | `plugins.marketplace.validateIndex` | Validate a marketplace index and report each plugin's availability for one platform |
 | `plugins.marketplace.resolveSource` | Resolve a user-entered marketplace source to the index URL to fetch |
 | `plugins.marketplace.installReview` | List a package's permissions and programs, and those not yet approved |
@@ -3264,6 +3269,23 @@ file refuses a plan without it. Unlike the `plugins.declarative.*` commands,
 inside `workspaceRoot` (and the given `outputFile`); none of the commands
 writes anything or starts a process. `shared/contracts/plugins/v1/fixtures/build-plans.json`
 holds the golden plans and decoded outputs.
+
+### Project generators
+
+The `project.*` commands back the New Project window. Payloads, results, and
+problem codes are specified in the plugin contract's
+[Project generators](plugins/v1/README.md#project-generators) section, and
+`shared/contracts/plugins/v1/fixtures/project-plans.json` holds the golden
+answers. Results use the `plugins.declarative.*` envelope: `catalog`, `form`,
+`plan`, `name`, and `extracted`. Commands that take a manifest revalidate it
+and answer `plugin.project.unavailable` for an undeclared generator.
+
+`project.generationPlan` reads template files below `packagePath` (bounded,
+no symbolic links). `project.extractArchive` is the only command that writes:
+it extracts into an existing staging directory the host created and never
+replaces a file. Neither starts a process or downloads anything; the host
+runs command steps, downloads archives, and moves the finished project into
+place.
 
 ### Git patch discovery and rebase amendment preconditions
 

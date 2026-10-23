@@ -1,0 +1,419 @@
+import Foundation
+import LitheCoreContracts
+import LitheModuleAPI
+import Testing
+@testable import Lithe
+
+@Suite("New project generation")
+@MainActor
+struct ProjectGenerationTests {
+    private static let templatesDirectory = "JavaProjectTemplates"
+    private static let jdk = JavaRuntimeCandidate(homePath: "/opt/jdk-21", version: "21.0.4", vendor: "Temurin")
+
+    // MARK: Plugin declaration
+
+    @Test
+    func templatesPluginDeclaresGeneratorsAndItsOwnModule() throws {
+        let descriptor = try DeclarativePluginDescriptor(
+            normalizedManifest: DeclarativePluginTestSupport.officialDescriptor(Self.templatesDirectory).normalizedManifest,
+            enabledByDefault: true
+        )
+        #expect(descriptor.projectGenerators.map(\.id) == ["java", "maven-archetype", "spring-boot"])
+        let module = try #require(descriptor.pluginManifest.modules.first {
+            $0.manifest.id == .projectGeneratorsExtension(descriptor.id.rawValue)
+        })
+        // The window runs without a workspace, and a bundled package is on
+        // from the first launch.
+        #expect(module.manifest.scope == .application)
+        #expect(module.manifest.defaultState == .enabled)
+        let capabilities = PluginCapability.capabilities(of: descriptor.pluginManifest, descriptor: descriptor)
+        #expect(capabilities.filter { $0.kind == .projectGenerator }.map(\.title) == ["Java", "Maven Archetype", "Spring Boot"])
+    }
+
+    // MARK: Rust Core
+
+    @Test
+    func catalogListsProvidersOfEachRequirement() throws {
+        let catalog = try Self.planner.catalog([
+            try Self.source(Self.templatesDirectory, enabled: true),
+            try Self.source("JavaSupport", enabled: false),
+        ])
+        #expect(catalog.generators.map(\.generator.id) == ["java", "maven-archetype", "spring-boot"])
+        let java = try #require(catalog.generators.first)
+        #expect(java.generator.section == .project)
+        #expect(java.requirements.first?.subject == .language("java"))
+        #expect(java.requirements.first?.providers == [
+            ProjectRequirementProvider(pluginID: "dev.lithe.plugin.java-support", pluginName: "Java Support", enabled: false)
+        ])
+        // No installed plugin declares the Maven build system.
+        #expect(java.requirements.dropFirst().allSatisfy { $0.providers.isEmpty })
+    }
+
+    @Test
+    func formDerivesDefaultsAndHidesFieldsOfOtherBuildSystems() throws {
+        let target = try Self.target("spring-boot")
+        var input = ProjectGeneratorFormInput(projectName: "Order-Service")
+        input.runtimes["jdk"] = ProjectRuntimeSelection(home: Self.jdk.homePath, version: Self.jdk.version)
+        let form = try Self.planner.form(target, input: input)
+        #expect(form.field("artifactId")?.value == .string("Order-Service"))
+        #expect(form.field("packageName")?.value == .string("com.example.orderservice"))
+        #expect(form.valid)
+
+        let java = try Self.planner.form(
+            try Self.target("java"),
+            input: ProjectGeneratorFormInput(projectName: "demo", values: ["buildSystem": .string("none")])
+        )
+        #expect(java.field("groupId")?.visible == false)
+        #expect(java.field("jdk")?.problem == .required)
+    }
+
+    // MARK: Creating projects
+
+    @Test
+    func createsAMavenProjectFromTemplates() async throws {
+        let directory = try TemporaryDirectory()
+        defer { directory.remove() }
+        let recorder = JavaHomeRecorder()
+        let service = Self.service(recorder: recorder)
+        var input = ProjectGeneratorFormInput(projectName: "demo")
+        input.runtimes["jdk"] = ProjectRuntimeSelection(home: Self.jdk.homePath, version: Self.jdk.version)
+
+        let project = try await service.create(
+            try Self.target("java"), input: input, in: directory.url, createGitRepository: false
+        )
+
+        let root = directory.url.appendingPathComponent("demo")
+        #expect(project.url.path == root.path)
+        let pom = try String(contentsOf: root.appendingPathComponent("pom.xml"), encoding: .utf8)
+        #expect(pom.contains("<maven.compiler.release>21</maven.compiler.release>"))
+        #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent(".gitignore").path))
+        #expect(project.openFiles.map(\.path) == [root.appendingPathComponent("src/main/java/org/example/Main.java").path])
+        #expect(await recorder.records == [Record(root: root.path, home: Self.jdk.homePath)])
+        #expect(try Self.stagingEntries(in: directory.url).isEmpty)
+    }
+
+    @Test
+    func collectsTheDirectoryAScaffoldingToolCreated() async throws {
+        let directory = try TemporaryDirectory()
+        defer { directory.remove() }
+        let runner = ScaffoldingRunner(creates: "demo/pom.xml")
+        let service = Self.service(runner: runner)
+        var input = ProjectGeneratorFormInput(projectName: "demo")
+        input.runtimes["jdk"] = ProjectRuntimeSelection(home: Self.jdk.homePath, version: Self.jdk.version)
+
+        _ = try await service.create(
+            try Self.target("maven-archetype"), input: input, in: directory.url, createGitRepository: false
+        )
+
+        let request = try #require(runner.requests.first)
+        #expect(request.executableURL.path == "/usr/local/bin/mvn")
+        #expect(request.environment["JAVA_HOME"] == Self.jdk.homePath)
+        #expect(request.environment["PATH"]?.hasPrefix(Self.jdk.homePath + "/bin:") == true)
+        #expect(request.arguments.contains("-DartifactId=demo"))
+        let root = directory.url.appendingPathComponent("demo")
+        #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent("pom.xml").path))
+        #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("demo").path))
+    }
+
+    @Test
+    func aFailedStepLeavesNothingBehind() async throws {
+        let directory = try TemporaryDirectory()
+        defer { directory.remove() }
+        let service = Self.service(runner: ScaffoldingRunner(creates: "demo/pom.xml", exitStatus: 1))
+        var input = ProjectGeneratorFormInput(projectName: "demo")
+        input.runtimes["jdk"] = ProjectRuntimeSelection(home: Self.jdk.homePath, version: Self.jdk.version)
+
+        await #expect(throws: ProjectGenerationError.self) {
+            try await service.create(
+                try Self.target("maven-archetype"), input: input, in: directory.url, createGitRepository: false
+            )
+        }
+        #expect(try FileManager.default.contentsOfDirectory(atPath: directory.url.path).isEmpty)
+    }
+
+    @Test
+    func refusesAnExistingDestination() async throws {
+        let directory = try TemporaryDirectory()
+        defer { directory.remove() }
+        let existing = directory.url.appendingPathComponent("demo")
+        try FileManager.default.createDirectory(at: existing, withIntermediateDirectories: false)
+        try Data("keep".utf8).write(to: existing.appendingPathComponent("notes.txt"))
+
+        await #expect(throws: ProjectGenerationError.self) {
+            try await Self.service().createEmptyProject(named: "demo", in: directory.url, createGitRepository: false)
+        }
+        #expect(try String(contentsOf: existing.appendingPathComponent("notes.txt"), encoding: .utf8) == "keep")
+        #expect(try Self.stagingEntries(in: directory.url).isEmpty)
+    }
+
+    @Test
+    func extractsADownloadedArchive() async throws {
+        let directory = try TemporaryDirectory()
+        defer { directory.remove() }
+        let archive = DeclarativePluginTestSupport.repositoryRoot
+            .appendingPathComponent("macos/Tests/LitheTests/Fixtures/ProjectGeneration/starter.zip")
+        let platform = DownloadStubPlatform(base: Self.platform(), archive: archive)
+        let service = ProjectGenerationService(
+            planner: Self.planner, platform: platform,
+            initializeGitRepository: { _ in nil }, recordJavaHome: { _, _ in }
+        )
+        var input = ProjectGeneratorFormInput(projectName: "demo")
+        input.runtimes["jdk"] = ProjectRuntimeSelection(home: Self.jdk.homePath, version: Self.jdk.version)
+
+        let project = try await service.create(
+            try Self.target("spring-boot"), input: input, in: directory.url, createGitRepository: false
+        )
+
+        #expect(platform.requestedURL?.host == "start.spring.io")
+        let mvnw = project.url.appendingPathComponent("mvnw").path
+        #expect(FileManager.default.isExecutableFile(atPath: mvnw))
+        #expect(project.openFiles.map(\.path) == [project.url.appendingPathComponent("pom.xml").path])
+        // The downloaded copy is removed after extraction.
+        #expect(!FileManager.default.fileExists(atPath: platform.downloadedCopy?.path ?? "/nonexistent"))
+    }
+
+    // MARK: Window state
+
+    @Test
+    func offersToEnableDisabledProvidersAndFindsMissingOnes() async throws {
+        let plugins = PluginStates(enabled: [PluginID("dev.lithe.plugin.java-project-templates")])
+        let feature = NewProjectFeatureModel(environment: try Self.environment(plugins: plugins))
+        await feature.load()
+        #expect(feature.selectedEntry?.generator.id == "java")
+        #expect(feature.requirementNotices.map(\.action) == [
+            .enable(PluginID("dev.lithe.plugin.java-support"), name: "Java Support"),
+            .findInMarketplace("maven"),
+        ])
+        // A requirement never blocks creation.
+        #expect(feature.canCreate)
+
+        await feature.enablePlugin(PluginID("dev.lithe.plugin.java-support"))
+        #expect(feature.requirementNotices.map(\.action) == [.findInMarketplace("maven")])
+    }
+
+    @Test
+    func aDisabledTemplatePluginMustBeEnabledBeforeCreating() async throws {
+        let feature = NewProjectFeatureModel(environment: try Self.environment(plugins: PluginStates(enabled: [])))
+        await feature.load()
+        #expect(feature.selectedEntry?.pluginEnabled == false)
+        #expect(!feature.canCreate)
+
+        await feature.enablePlugin(PluginID("dev.lithe.plugin.java-project-templates"))
+        #expect(feature.selectedEntry?.pluginEnabled == true)
+        #expect(feature.canCreate)
+    }
+
+    @Test
+    func derivedFieldsFollowTheProjectNameUntilEdited() async throws {
+        let plugins = PluginStates(enabled: [PluginID("dev.lithe.plugin.java-project-templates")])
+        let feature = NewProjectFeatureModel(environment: try Self.environment(plugins: plugins))
+        await feature.load()
+        let spring = try #require(feature.entries.first { $0.generator.id == "spring-boot" })
+        feature.selection = .generator(spring.id)
+        let artifact = try #require(spring.generator.fields.first { $0.id == "artifactId" })
+
+        feature.projectName = "billing"
+        #expect(feature.value(of: artifact) == .string("billing"))
+        feature.setValue(.string("billing-api"), for: artifact)
+        feature.projectName = "payments"
+        #expect(feature.value(of: artifact) == .string("billing-api"))
+    }
+
+    // MARK: Helpers
+
+    private static var planner: RustProjectGeneratorOperations {
+        RustProjectGeneratorOperations(core: RustCoreBridge())
+    }
+
+    private static func source(_ directory: String, enabled: Bool) throws -> ProjectGeneratorPluginSource {
+        let descriptor = try DeclarativePluginTestSupport.officialDescriptor(directory)
+        return ProjectGeneratorPluginSource(
+            pluginID: descriptor.id,
+            manifest: descriptor.normalizedManifest,
+            packageURL: DeclarativePluginTestSupport.officialPackageURL(directory),
+            isEnabled: enabled
+        )
+    }
+
+    private static func target(_ generatorID: String) throws -> ProjectGeneratorTarget {
+        let source = try source(templatesDirectory, enabled: true)
+        return ProjectGeneratorTarget(
+            pluginID: source.pluginID, generatorID: generatorID, manifest: source.manifest, packageURL: source.packageURL
+        )
+    }
+
+    private static func platform(runner: any BuildCommandRunning = ScaffoldingRunner(creates: nil)) -> MacProjectGenerationPlatform {
+        MacProjectGenerationPlatform(
+            environment: { $0.merging(["PATH": "/usr/bin:/bin"]) { override, _ in override } },
+            executable: { $0 == "mvn" ? URL(fileURLWithPath: "/usr/local/bin/mvn") : nil },
+            runner: runner
+        )
+    }
+
+    private static func service(
+        runner: any BuildCommandRunning = ScaffoldingRunner(creates: nil),
+        recorder: JavaHomeRecorder = JavaHomeRecorder()
+    ) -> ProjectGenerationService {
+        ProjectGenerationService(
+            planner: planner,
+            platform: platform(runner: runner),
+            initializeGitRepository: { _ in nil },
+            recordJavaHome: { root, home in await recorder.record(root: root, home: home) }
+        )
+    }
+
+    private static func environment(plugins: PluginStates) throws -> NewProjectEnvironment {
+        let templates = try source(templatesDirectory, enabled: true)
+        let javaSupport = try source("JavaSupport", enabled: true)
+        return NewProjectEnvironment(
+            sources: {
+                [templates, javaSupport].map {
+                    ProjectGeneratorPluginSource(
+                        pluginID: $0.pluginID, manifest: $0.manifest, packageURL: $0.packageURL,
+                        isEnabled: plugins.enabled.contains($0.pluginID)
+                    )
+                }
+            },
+            iconResources: [:],
+            javaRuntimes: { [jdk] },
+            service: service(),
+            setPluginEnabled: { _ = plugins.enabled.insert($0) },
+            openMarketplace: { _ in },
+            openProject: { _ in },
+            store: InMemoryStore()
+        )
+    }
+
+    private static func stagingEntries(in directory: URL) throws -> [String] {
+        try FileManager.default.contentsOfDirectory(atPath: directory.path).filter { $0.contains(".lithe-creating-") }
+    }
+}
+
+// MARK: - Test doubles
+
+private struct Record: Equatable, Sendable {
+    let root: String
+    let home: String
+}
+
+private actor JavaHomeRecorder {
+    private(set) var records: [Record] = []
+
+    func record(root: URL, home: String) {
+        records.append(Record(root: root.path, home: home))
+    }
+}
+
+@MainActor
+private final class PluginStates {
+    var enabled: Set<PluginID>
+
+    init(enabled: Set<PluginID>) { self.enabled = enabled }
+}
+
+/// Stands in for a scaffolding tool: records the request and creates one
+/// file in its working directory, as `mvn archetype:generate` creates the
+/// project in a subdirectory.
+private final class ScaffoldingRunner: BuildCommandRunning, @unchecked Sendable {
+    private let creates: String?
+    private let exitStatus: Int32
+    private let lock = NSLock()
+    private var recorded: [BuildCommandRequest] = []
+
+    init(creates: String?, exitStatus: Int32 = 0) {
+        self.creates = creates
+        self.exitStatus = exitStatus
+    }
+
+    var requests: [BuildCommandRequest] { lock.withLock { recorded } }
+
+    func run(_ request: BuildCommandRequest, onOutput: @escaping @Sendable (String) -> Void) async throws
+        -> BuildCommandResult {
+        lock.withLock { recorded.append(request) }
+        if let creates {
+            let file = request.workingDirectory.appendingPathComponent(creates)
+            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data("<project/>".utf8).write(to: file)
+        }
+        onOutput("[INFO] done\n")
+        return BuildCommandResult(termination: .exited(exitStatus))
+    }
+}
+
+/// Serves a local zip for an archive step instead of the network.
+private final class DownloadStubPlatform: ProjectGenerationPlatform, @unchecked Sendable {
+    private let base: MacProjectGenerationPlatform
+    private let archive: URL
+    private let lock = NSLock()
+    private var requested: URL?
+    private var copy: URL?
+
+    init(base: MacProjectGenerationPlatform, archive: URL) {
+        self.base = base
+        self.archive = archive
+    }
+
+    var requestedURL: URL? { lock.withLock { requested } }
+    var downloadedCopy: URL? { lock.withLock { copy } }
+
+    func download(_ url: URL) async throws -> URL {
+        let destination = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lithe-project-test-\(UUID().uuidString).zip")
+        try FileManager.default.copyItem(at: archive, to: destination)
+        lock.withLock {
+            requested = url
+            copy = destination
+        }
+        return destination
+    }
+
+    func makeStagingDirectory(in parent: URL, for projectName: String) throws -> URL {
+        try base.makeStagingDirectory(in: parent, for: projectName)
+    }
+
+    func writeFile(_ contents: String, to url: URL, executable: Bool) throws {
+        try base.writeFile(contents, to: url, executable: executable)
+    }
+
+    func createDirectory(at url: URL) throws { try base.createDirectory(at: url) }
+
+    func runCommand(
+        _ command: ProjectGenerationPlan.Command,
+        in directory: URL,
+        environment: [String: String],
+        onOutput: @escaping @Sendable (String) -> Void
+    ) async throws {
+        try await base.runCommand(command, in: directory, environment: environment, onOutput: onOutput)
+    }
+
+    func collect(_ subdirectory: URL, into root: URL) throws { try base.collect(subdirectory, into: root) }
+    func moveItem(at source: URL, to destination: URL) throws { try base.moveItem(at: source, to: destination) }
+    func removeItem(at url: URL) { base.removeItem(at: url) }
+    func itemExists(at url: URL) -> Bool { base.itemExists(at: url) }
+}
+
+private final class InMemoryStore: KeyValueStore, @unchecked Sendable {
+    private var values: [String: Any] = [:]
+
+    func object(forKey key: String) -> Any? { values[key] }
+    func string(forKey key: String) -> String? { values[key] as? String }
+    func stringArray(forKey key: String) -> [String]? { values[key] as? [String] }
+    func data(forKey key: String) -> Data? { values[key] as? Data }
+    func set(_ value: Any?, forKey key: String) { values[key] = value }
+}
+
+/// A directory below the system temporary directory, removed by `remove()`.
+private struct TemporaryDirectory {
+    let url: URL
+
+    init() throws {
+        url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lithe-new-project-\(UUID().uuidString)", isDirectory: true)
+            .resolvingSymlinksInPath()
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+    }
+
+    func remove() {
+        try? FileManager.default.removeItem(at: url)
+    }
+}
