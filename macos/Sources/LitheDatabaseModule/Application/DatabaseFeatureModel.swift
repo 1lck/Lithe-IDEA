@@ -64,6 +64,11 @@ package struct DatabaseTreeTableKey: Hashable, Sendable {
     }
 }
 
+private struct DatabaseTreeDatabaseKey: Hashable {
+    let profileID: UUID
+    let database: String
+}
+
 package struct DatabaseTreeTable: Sendable {
     package var state: DatabaseTreeLoadState = .idle
     package var columns: [DatabaseRow] = []
@@ -83,6 +88,8 @@ package final class DatabaseFeatureModel: ObservableObject {
     // Navigation caches are independent of the active editor; never persist credentials or rows here.
     @Published package private(set) var databaseTrees: [UUID: DatabaseConnectionTree] = [:]
     @Published private var treeRequests: Set<UUID> = []
+    private var databaseNameTasks: [UUID: Task<[String], Error>] = [:]
+    private var databaseStructureTasks: [DatabaseTreeDatabaseKey: Task<DatabaseTreeDatabase, Error>] = [:]
     @Published package private(set) var tableTrees: [DatabaseTreeTableKey: DatabaseTreeTable] = [:]
     private var tableMetadataTasks: [DatabaseTreeTableKey: Task<DatabaseTreeTable, Error>] = [:]
     @Published package var selectedTable: String? {
@@ -215,6 +222,10 @@ package final class DatabaseFeatureModel: ObservableObject {
         for task in scheduledBackupTasks.values { task.cancel() }
         scheduledBackupTasks.removeAll()
         workspaceSelections.removeAll()
+        for task in databaseNameTasks.values { task.cancel() }
+        databaseNameTasks.removeAll()
+        for task in databaseStructureTasks.values { task.cancel() }
+        databaseStructureTasks.removeAll()
         databaseTrees.removeAll()
         tableTrees.removeAll()
         for task in tableMetadataTasks.values { task.cancel() }
@@ -599,6 +610,9 @@ package final class DatabaseFeatureModel: ObservableObject {
             try connectionStore.save(updated)
             profiles = updated
             let visible = Set(visibleDatabaseNames(for: profileID))
+            for name in databaseTrees[profileID]?.databases.keys.filter({ !visible.contains($0) }) ?? [] {
+                cancelDatabaseTreeLoad(for: profileID, database: name)
+            }
             databaseTrees[profileID]?.databases = databaseTrees[profileID]?.databases.filter { visible.contains($0.key) } ?? [:]
             for key in tableTrees.keys.filter({ $0.profileID == profileID && !visible.contains($0.database) }) {
                 tableTrees.removeValue(forKey: key)
@@ -618,6 +632,8 @@ package final class DatabaseFeatureModel: ObservableObject {
               profile.kind == .mysql || profile.kind == .mariadb else { return }
         var tree = databaseTrees[profileID] ?? DatabaseConnectionTree()
         guard tree.state != .loading, force || tree.state != .ready else { return }
+        let previousState = tree.state
+        let previousStatus = connectionStatus(for: profile)
         tree.state = .loading
         tree.requestID = UUID()
         let requestID = tree.requestID
@@ -627,11 +643,28 @@ package final class DatabaseFeatureModel: ObservableObject {
         setConnectionStatus(.connecting, for: profileID)
         let connection = await tableConnection(profile, database: profile.database)
         do {
-            let names = try await Task.detached { [operations] in
-                try operations.listDatabases(connection: connection)
-            }.value
+            try Task.checkCancellation()
+            guard databaseTrees[profileID]?.requestID == requestID else { return }
+            let worker = Task.detached { [operations] in
+                try Task.checkCancellation()
+                return try operations.listDatabases(connection: connection)
+            }
+            databaseNameTasks[profileID] = worker
+            defer {
+                if databaseTrees[profileID]?.requestID == requestID { databaseNameTasks.removeValue(forKey: profileID) }
+            }
+            let names = try await withTaskCancellationHandler {
+                let names = try await worker.value
+                try Task.checkCancellation()
+                return names
+            } onCancel: {
+                worker.cancel()
+            }
             guard databaseTrees[profileID]?.requestID == requestID else { return }
             databaseTrees[profileID]?.names = Array(Set(names)).sorted()
+            for name in databaseTrees[profileID]?.databases.keys.filter({ !names.contains($0) }) ?? [] {
+                cancelDatabaseTreeLoad(for: profileID, database: name)
+            }
             databaseTrees[profileID]?.databases = databaseTrees[profileID]?.databases.filter { names.contains($0.key) } ?? [:]
             for key in tableTrees.keys.filter({ $0.profileID == profileID && !names.contains($0.database) }) {
                 tableTrees.removeValue(forKey: key)
@@ -641,8 +674,13 @@ package final class DatabaseFeatureModel: ObservableObject {
             setConnectionStatus(.connected, for: profileID)
         } catch {
             guard databaseTrees[profileID]?.requestID == requestID else { return }
-            databaseTrees[profileID]?.state = .failed(executionError(error))
-            setConnectionStatus(.failed, for: profileID)
+            if Task.isCancelled || error is CancellationError {
+                databaseTrees[profileID]?.state = previousState
+                setConnectionStatus(previousStatus, for: profileID)
+            } else {
+                databaseTrees[profileID]?.state = .failed(executionError(error))
+                setConnectionStatus(.failed, for: profileID)
+            }
         }
     }
 
@@ -652,6 +690,7 @@ package final class DatabaseFeatureModel: ObservableObject {
               databaseTrees[profileID]?.names.contains(database) == true else { return }
         var snapshot = databaseTrees[profileID]?.databases[database] ?? DatabaseTreeDatabase()
         guard snapshot.state != .loading, force || snapshot.state != .ready else { return }
+        let previousState = snapshot.state
         snapshot.state = .loading
         snapshot.requestID = UUID()
         let requestID = snapshot.requestID
@@ -660,20 +699,40 @@ package final class DatabaseFeatureModel: ObservableObject {
         databaseTrees[profileID]?.databases[database] = snapshot
         let target = await tableConnection(profile, database: database)
         do {
-            let rows = try await Task.detached { [operations] in
-                try operations.listTables(connection: target, schema: "")
-            }.value
-            let objects = try await loadObjects(connection: target)
+            try Task.checkCancellation()
             guard databaseTrees[profileID]?.databases[database]?.requestID == requestID else { return }
-            let tables = rows.compactMap { $0["table_name"]?.text ?? $0["TABLE_NAME"]?.text ?? $0["name"]?.text }
-            databaseTrees[profileID]?.databases[database] = DatabaseTreeDatabase(state: .ready, tables: tables, objects: objects)
-            for key in tableTrees.keys.filter({ $0.profileID == profileID && $0.database == database && !tables.contains($0.table) }) {
-                tableTrees.removeValue(forKey: key)
-                tableMetadataTasks.removeValue(forKey: key)?.cancel()
+            let key = DatabaseTreeDatabaseKey(profileID: profileID, database: database)
+            let worker = Task.detached { [operations] in
+                try Task.checkCancellation()
+                let rows = try operations.listTables(connection: target, schema: "")
+                try Task.checkCancellation()
+                let objects = try await Self.loadObjects(operations: operations, connection: target)
+                try Task.checkCancellation()
+                let tables = rows.compactMap { $0["table_name"]?.text ?? $0["TABLE_NAME"]?.text ?? $0["name"]?.text }
+                return DatabaseTreeDatabase(state: .ready, tables: tables, objects: objects)
+            }
+            databaseStructureTasks[key] = worker
+            defer {
+                if databaseTrees[profileID]?.databases[database]?.requestID == requestID { databaseStructureTasks.removeValue(forKey: key) }
+            }
+            var loaded = try await withTaskCancellationHandler {
+                let loaded = try await worker.value
+                try Task.checkCancellation()
+                return loaded
+            } onCancel: {
+                worker.cancel()
+            }
+            guard databaseTrees[profileID]?.databases[database]?.requestID == requestID else { return }
+            loaded.requestID = requestID
+            databaseTrees[profileID]?.databases[database] = loaded
+            for tableKey in tableTrees.keys.filter({ $0.profileID == profileID && $0.database == database && !loaded.tables.contains($0.table) }) {
+                tableTrees.removeValue(forKey: tableKey)
+                tableMetadataTasks.removeValue(forKey: tableKey)?.cancel()
             }
         } catch {
             guard databaseTrees[profileID]?.databases[database]?.requestID == requestID else { return }
-            databaseTrees[profileID]?.databases[database]?.state = .failed(executionError(error))
+            databaseTrees[profileID]?.databases[database]?.state = Task.isCancelled || error is CancellationError
+                ? previousState : .failed(executionError(error))
         }
     }
 
@@ -699,10 +758,36 @@ package final class DatabaseFeatureModel: ObservableObject {
     }
 
     private func invalidateDatabaseTree(for profileID: UUID) {
+        cancelDatabaseTreeLoad(for: profileID)
         databaseTrees.removeValue(forKey: profileID)
         for key in tableTrees.keys.filter({ $0.profileID == profileID }) {
             tableTrees.removeValue(forKey: key)
             tableMetadataTasks.removeValue(forKey: key)?.cancel()
+        }
+    }
+
+    /// Collapsed nodes keep completed metadata but stop requests no longer visible in the tree.
+    package func cancelDatabaseTreeLoad(for profileID: UUID, database: String? = nil) {
+        if let database {
+            databaseStructureTasks.removeValue(forKey: DatabaseTreeDatabaseKey(profileID: profileID, database: database))?.cancel()
+            if databaseTrees[profileID]?.databases[database]?.state == .loading {
+                databaseTrees[profileID]?.databases[database]?.state = .idle
+                databaseTrees[profileID]?.databases[database]?.requestID = UUID()
+            }
+            return
+        }
+        databaseNameTasks.removeValue(forKey: profileID)?.cancel()
+        for key in databaseStructureTasks.keys.filter({ $0.profileID == profileID }) {
+            databaseStructureTasks.removeValue(forKey: key)?.cancel()
+        }
+        if databaseTrees[profileID]?.state == .loading {
+            databaseTrees[profileID]?.state = .idle
+            databaseTrees[profileID]?.requestID = UUID()
+            setConnectionStatus(.idle, for: profileID)
+        }
+        for name in databaseTrees[profileID]?.databases.keys.map({ $0 }) ?? [] where databaseTrees[profileID]?.databases[name]?.state == .loading {
+            databaseTrees[profileID]?.databases[name]?.state = .idle
+            databaseTrees[profileID]?.databases[name]?.requestID = UUID()
         }
     }
 
@@ -738,13 +823,14 @@ package final class DatabaseFeatureModel: ObservableObject {
         // Each key owns one worker. Collapsing its view does not cancel another consumer's request.
         let base = connection(profile, password: "")
         let task = Task.detached { [operations, connectionStore] in
+            try Task.checkCancellation()
             var connection = base
             connection.database = key.database
             connection.password = connectionStore.password(for: key.profileID)
             let target = connection
-            async let columns = Task.detached { try operations.describeTable(connection: target, schema: "", table: key.table) }.value
-            async let indexes = Task.detached { try operations.listIndexes(connection: target, schema: "", table: key.table) }.value
-            async let foreignKeys = Task.detached { try operations.listForeignKeys(connection: target, schema: "", table: key.table) }.value
+            async let columns = operations.describeTable(connection: target, schema: "", table: key.table)
+            async let indexes = operations.listIndexes(connection: target, schema: "", table: key.table)
+            async let foreignKeys = operations.listForeignKeys(connection: target, schema: "", table: key.table)
             let loaded = try await (columns, indexes, foreignKeys)
             var result = DatabaseTreeTable()
             result.state = .ready
@@ -964,7 +1050,7 @@ package final class DatabaseFeatureModel: ObservableObject {
               let profile = profiles.first(where: { $0.id == profileID }) else { return }
         let connection = connection(profile)
         do {
-            let loaded = try await loadObjects(connection: connection)
+            let loaded = try await Self.loadObjects(operations: operations, connection: connection)
             guard isCurrent(profileID: profileID, generation: generation), self.tableListRequestID == tableRequestID, self.databaseListRequestID == databaseRequestID else { return }
             objects = loaded
         } catch {
@@ -975,10 +1061,10 @@ package final class DatabaseFeatureModel: ObservableObject {
         }
     }
 
-    private func loadObjects(connection: DatabaseConnection) async throws -> [DatabaseObjectKind: [DatabaseRow]] {
+    nonisolated private static func loadObjects(operations: any DatabaseOperations, connection: DatabaseConnection) async throws -> [DatabaseObjectKind: [DatabaseRow]] {
         try await withThrowingTaskGroup(of: (DatabaseObjectKind, [DatabaseRow]).self) { group in
             for kind in DatabaseObjectKind.allCases {
-                group.addTask { [operations] in
+                group.addTask {
                     (kind, try operations.listObjects(connection: connection, schema: "", kind: kind))
                 }
             }

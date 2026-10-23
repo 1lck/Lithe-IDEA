@@ -964,8 +964,8 @@ struct DatabaseSidebarView: View {
         if profile.kind == .mysql || profile.kind == .mariadb {
             let path = DatabaseTreePath(profile)
             expandedDatabasePaths.formSymmetricDifference([path])
-            if expandedDatabasePaths.contains(path) {
-                Task { await feature.loadDatabaseTree(profile.database, for: profile.id) }
+            if !expandedDatabasePaths.contains(path) {
+                feature.cancelDatabaseTreeLoad(for: profile.id, database: profile.database)
             }
         } else {
             collapsedDatabaseProfileIDs.formSymmetricDifference([profile.id])
@@ -1454,9 +1454,6 @@ struct DatabaseSidebarView: View {
         treeSelection = .connection(profile.id)
         if expand {
             expandedProfileIDs.insert(profile.id)
-            if profile.kind == .mysql || profile.kind == .mariadb {
-                Task { await feature.loadDatabaseTree(for: profile.id) }
-            }
         }
         model.selectDatabaseWorkspace(profileID: profile.id, refresh: feature.selectedProfileID != profile.id)
     }
@@ -1464,17 +1461,17 @@ struct DatabaseSidebarView: View {
     private func toggleProfile(_ profile: DatabaseProfile) {
         if expandedProfileIDs.contains(profile.id) {
             expandedProfileIDs.remove(profile.id)
+            feature.cancelDatabaseTreeLoad(for: profile.id)
         } else {
             expandedProfileIDs.insert(profile.id)
-            if profile.kind == .mysql || profile.kind == .mariadb {
-                Task { await feature.loadDatabaseTree(for: profile.id) }
-            } else {
+            if profile.kind != .mysql && profile.kind != .mariadb {
                 selectProfile(profile, expand: true)
             }
         }
     }
 
     private func collapseAll() {
+        for id in expandedProfileIDs { feature.cancelDatabaseTreeLoad(for: id) }
         collapsedFolderIDs = Set(feature.folders.map(\.id))
         expandedProfileIDs.removeAll()
         collapsedObjectKinds.removeAll()

@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 import LitheTestDesktopIsolation
 import LitheApplicationKernel
 @testable import LitheDatabaseModule
@@ -1160,6 +1161,65 @@ struct DatabaseWorkspaceLifecycleTests {
         await task.value
         #expect(feature.databaseTrees[profile.id] == nil)
         #expect(feature.tableTrees[key] == nil)
+        #expect(!feature.hasActiveModuleWork)
+    }
+
+    @Test(arguments: [
+        ("listDatabases", "cancel"), ("listDatabases", "collapse"), ("listDatabases", "release"),
+        ("listTables", "collapse"), ("listTables", "disconnect"), ("listTables", "forceRefresh"),
+        ("describeTable", "release")
+    ])
+    func databaseTreeCancellationStopsSidecarWithoutReleasingARequest(scenario: (String, String)) async throws {
+        let (method, action) = scenario
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-tree-cancel-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let executable = directory.appendingPathComponent("blocked-sidecar.sh")
+        let pidFile = directory.appendingPathComponent("sidecar.pid")
+        try "#!/bin/sh\nprintf '%s' \"$$\" > \"$LITHE_TEST_PID_FILE\"\ntrap '' TERM\nwhile :; do :; done\n"
+            .write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+        let runner = CancellableTreeSidecarRunner(blockedMethod: method, pidFile: pidFile)
+        let store = DatabaseConnectionStore(store: DatabaseLifecyclePreferences(), secureStore: DatabaseLifecycleSecrets())
+        let profile = DatabaseProfile(name: "Server", kind: .mysql)
+        try store.save([profile])
+        let feature = DatabaseFeatureModel(operations: DatabaseSidecarService(processRunner: runner, executableURL: executable), connectionStore: store)
+        defer { feature.prepareForModuleRelease() }
+        if method != "listDatabases" { await feature.loadDatabaseTree(for: profile.id) }
+        if method == "describeTable" { await feature.loadDatabaseTree("alpha", for: profile.id) }
+        let loading = Task { @MainActor in
+            switch method {
+            case "describeTable": await feature.loadTableTree(DatabaseTreeTableKey(profileID: profile.id, database: "alpha", table: "shared"))
+            case "listTables": await feature.loadDatabaseTree("alpha", for: profile.id)
+            default: await feature.loadDatabaseTree(for: profile.id)
+            }
+        }
+        defer { loading.cancel() }
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        var processID: Int32?
+        while clock.now < deadline {
+            processID = (try? String(contentsOf: pidFile, encoding: .utf8)).flatMap { Int32($0) }
+            if processID != nil { break }
+            // test-stability: allow(swift-real-sleep) reason: sidecar startup exposes only a PID file, so poll it with a local deadline.
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        let pid = try #require(processID)
+        defer { if Darwin.kill(pid, 0) == 0 { _ = Darwin.kill(pid, SIGKILL) } }
+        let started = clock.now
+        switch action {
+        case "cancel": loading.cancel()
+        case "release": feature.prepareForModuleRelease()
+        case "collapse": feature.cancelDatabaseTreeLoad(for: profile.id, database: method == "listTables" ? "alpha" : nil)
+        case "disconnect": feature.disconnect(profile)
+        default:
+            runner.shouldBlock = false
+            await feature.refreshDatabaseTree(for: profile.id, force: true)
+        }
+        await loading.value
+        #expect(clock.now - started < .seconds(2))
+        errno = 0
+        #expect(Darwin.kill(pid, 0) == -1 && errno == ESRCH)
         #expect(!feature.hasActiveModuleWork)
     }
 
@@ -2759,6 +2819,37 @@ private final class GatedDatabaseApplyRunner: DatabaseProcessRunning, @unchecked
         if fails { return DatabaseProcessResult(output: "Fixture write failed", exitCode: 1) }
         let output = "{\"id\":\"\(id)\",\"ok\":true,\"result\":{\"rowsAffected\":1}}"
         return DatabaseProcessResult(output: output, exitCode: 0)
+    }
+}
+
+private final class CancellableTreeSidecarRunner: DatabaseProcessRunning, @unchecked Sendable {
+    private let lock = NSLock()
+    private var blocks = true
+    private let blockedMethod: String
+    private let pidFile: URL
+    private let fallback = DatabaseTreeRunner()
+
+    init(blockedMethod: String, pidFile: URL) {
+        self.blockedMethod = blockedMethod
+        self.pidFile = pidFile
+    }
+
+    var shouldBlock: Bool {
+        get { lock.withLock { blocks } }
+        set { lock.withLock { blocks = newValue } }
+    }
+
+    func runDatabaseProcess(_ request: DatabaseProcessRequest) -> DatabaseProcessResult {
+        let method = request.standardInput.flatMap {
+            (try? JSONSerialization.jsonObject(with: $0) as? [String: Any])?["method"] as? String
+        }
+        guard method == blockedMethod, shouldBlock else { return fallback.runDatabaseProcess(request) }
+        return MacProcessRunner().runDatabaseProcess(DatabaseProcessRequest(
+            executablePath: request.executablePath,
+            environment: ["LITHE_TEST_PID_FILE": pidFile.path],
+            standardInput: request.standardInput,
+            timeoutMilliseconds: 2_500
+        ))
     }
 }
 
