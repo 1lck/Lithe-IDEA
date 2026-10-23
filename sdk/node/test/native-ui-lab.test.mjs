@@ -38,7 +38,7 @@ test('UI lab exposes every declared action and exercises data mutations and reco
   assert.equal(form.toolbar.length, 0, 'Form actions must remain separate from header actions');
   assert.deepEqual(new Set(form.buttons.map((button) => button.width ?? 'content')), new Set(['content']));
   assert.ok(form.controls.every((control) => control.info));
-  assert.equal(manifest.version, '0.3.3');
+  assert.equal(manifest.version, '0.3.4');
   assert.ok(form.controls.filter((control) => control.enabled === false).every((control) => control.info.includes('键盘')));
   assert.ok(form.buttons.filter((button) => button.enabled === false).every((button) => button.info));
   for (const button of form.buttons) assert.ok(form.actions.some((action) => action.id === button.action));
@@ -46,7 +46,7 @@ test('UI lab exposes every declared action and exercises data mutations and reco
   assert.deepEqual(buttonsOnly.controls, []);
   assert.equal(buttonsOnly.buttons.length, 8);
   assert.deepEqual(buttonsOnly.buttons.filter((button) => button.enabled === false).map((button) => button.primary ?? false), [false, true]);
-  assert.match((await result('buttons.inspect')).message, /0\.3\.3/);
+  assert.match((await result('buttons.inspect')).message, /0\.3\.4/);
   const values = Object.fromEntries(form.controls.map((control) => [control.id, control.value]));
   Object.assign(values, { name: '中文 😀 / English', query: '输入值', environment: 'prod', notify: false });
   const reply = await result('form.changed', { values, selectedID: null });

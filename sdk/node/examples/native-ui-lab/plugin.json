@@ -2,7 +2,7 @@
   "schemaVersion": 2,
   "id": "org.example.native-ui-lab",
   "displayName": "UI 验收实验室",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "pluginAPIVersion": 3,
   "requires": {
     "buildProviders": 1,
@@ -818,7 +818,7 @@
       },
       {
         "id": "org.example.native-ui-lab.buttons",
-        "title": "UI Lab · 按钮验收 0.3.3",
+        "title": "UI Lab · 按钮验收 0.3.4",
         "placement": "bottom",
         "native": {
           "schemaVersion": 1,
@@ -904,7 +904,8 @@
               "label": "模拟提交失败",
               "action": "form-fail"
             }
-          ]
+          ],
+          "nodes": []
         }
       }
     ]

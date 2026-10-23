@@ -648,6 +648,18 @@ fn ui_icon_declarations_validate_and_preserve_theme_resources() {
     }
 }
 
+/// Validate the shipped acceptance plugin through the same boundary as installation.
+#[test]
+fn native_ui_lab_package_manifest_is_installable() {
+    let manifest: Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../sdk/node/examples/native-ui-lab/plugin.json"
+    )))
+    .unwrap();
+    let result = validate(manifest);
+    assert_eq!(result["status"], "ok", "{result}");
+}
+
 /// Native controls are opt-in; legacy hosts reject them before presentation.
 #[test]
 fn native_ui_validates_version_ownership_actions_and_budgets() {
