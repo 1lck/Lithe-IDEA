@@ -269,6 +269,16 @@ final class MacServiceContainer {
             core: rustCore,
             processRegistry: processRegistry
         )
+        // Provider processes of plugin VCS providers, one per plugin, VCS,
+        // and workspace; one starts on the first request for a detected root.
+        let vcsProviderSessions = MacVcsProviderSessions(
+            launchResolver: pluginLaunchResolver,
+            tools: MacBuildToolResolver(runtime: runtimeService, processRunner: processRunner, fileStorage: fileStorage),
+            versionChecker: declarativePluginOperations,
+            runtime: runtimeService,
+            core: rustCore,
+            processRegistry: processRegistry
+        )
         let rustLanguageProviderCatalogSource = RustLanguageProviderCatalogSource(core: rustCore)
         // Installation owns the process-backed language boundary even when a
         // package is disabled, quarantined, or failed to load. Only the active
@@ -676,6 +686,7 @@ final class MacServiceContainer {
                 // build systems' plugin list is a startup snapshot and does
                 // not see the replacement.
                 buildProviderSessions.stopProviders(ofPlugin: id.rawValue)
+                vcsProviderSessions.stopProviders(ofPlugin: id.rawValue)
             },
             reviewPrograms: { [pluginMarketplaceEvaluator] manifest, id, version in
                 try pluginMarketplaceEvaluator.installReview(
@@ -790,6 +801,34 @@ final class MacServiceContainer {
         services.connectBuildProviderLanguageSessions = { sessions in
             buildProviderSessions.languageSessions = sessions
         }
+        let vcsProviderPlugins = pluginStartup.registeredPlugins.filter { !$0.descriptor.vcsProviders.isEmpty }
+        if !vcsProviderPlugins.isEmpty {
+            services.vcsProviders = VcsProvidersFeatureModel(
+                planner: RustVcsOperations(core: rustCore),
+                providers: vcsProviderSessions,
+                mappingStore: MacVcsRootMappingStore(store: store),
+                readFile: { url in try? fileStorage.readData(from: url, options: .mappedIfSafe) },
+                fileExists: { url in fileStorage.fileExists(at: url) },
+                metadataWatcherFactory: MacDirectoryWatcherFactory(),
+                sources: {
+                    // Enablement is read on every detection, so turning a
+                    // plugin off takes its roots away at once.
+                    vcsProviderPlugins.compactMap { plugin -> VcsProviderPluginSource? in
+                        let id = plugin.descriptor.id.rawValue
+                        guard let snapshot = try? moduleRuntime.snapshot(for: .vcsProvidersExtension(id)),
+                              snapshot.state != .disabled,
+                              !snapshot.isQuarantined,
+                              !snapshot.isSuppressedBySafeMode else { return nil }
+                        return VcsProviderPluginSource(
+                            pluginID: id,
+                            manifest: plugin.descriptor.normalizedManifest,
+                            packageURL: plugin.packageURL,
+                            providers: plugin.descriptor.vcsProviders
+                        )
+                    }
+                }
+            )
+        }
         services.processExitCoordinator = ProcessExitCoordinator(
             core: RustProcessLifecycleDecider(core: rustCore),
             presenter: MacProcessExitConfirmationPresenter.shared
@@ -879,10 +918,13 @@ final class MacServiceContainer {
                     )
                 }
             }
-            // The build-systems module also carries the enabled state; the
-            // execution module reads it before handing the plugin to Rust Core.
+            // The build-systems and VCS-providers modules also carry the
+            // enabled state; the host reads it before handing the plugin to
+            // Rust Core.
             let workbench = descriptor.pluginManifest.modules.filter {
-                !$0.contributions.isEmpty || $0.manifest.id == .buildSystemsExtension(descriptor.id.rawValue)
+                !$0.contributions.isEmpty
+                    || $0.manifest.id == .buildSystemsExtension(descriptor.id.rawValue)
+                    || $0.manifest.id == .vcsProvidersExtension(descriptor.id.rawValue)
             }.map { declaration in
                 ModuleFactory(manifest: declaration.manifest, contributions: declaration.contributions) {
                     DeclarativeWorkbenchModule(declaration: declaration)
