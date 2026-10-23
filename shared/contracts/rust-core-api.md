@@ -3170,7 +3170,9 @@ The shared JDT adapter sends `java.completion.guessMethodArguments: "off"`
 through initialization, configuration notifications and section queries on both
 platforms. JDT LS therefore leaves constructor and method argument lists empty
 while preserving the snippet cursor inside the parentheses. Other completion
-settings declared by the provider are retained. This does not disable snippet
+settings declared in the provider's initialization options are retained for the
+session in initialize, didChangeConfiguration, and parent/leaf section pulls
+(including favoriteStaticMembers and filteredTypes). This does not disable snippet
 support or strip parameter text from arbitrary completion items; the shared
 configuration fixture is `shared/fixtures/lsp/java-completion-v1.json`.
 

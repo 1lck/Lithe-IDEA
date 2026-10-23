@@ -133,6 +133,7 @@ dev.lithe.plugin.java-support/
 来源是当前固定的 [JDT LS v1.61.0](https://github.com/eclipse-jdtls/eclipse.jdt.ls/tree/v1.61.0)：`Preferences.java` 默认选择 `INSERT_PARAMETER_NAMES`，`CompletionProposalReplacementProvider.appendGuessingCompletion` 在 `OFF` 时只插入光标。正确做法是使用该上游设置，同时保留插件声明的其他 completion 项；不要在 Monaco 中用正则删除参数或禁用通用 snippet。后两种方案会误伤方法体模板、其他语言和补全解析后的自动导入。代价是 Java 默认不再提供可逐个替换的参数名占位，JDT LS 也会将构造器重载候选合并为类型候选；这次不增加新的设置界面。
 
 `java_completion_leaves_arguments_empty_across_configuration_channels` 和 `shared/fixtures/lsp/java-completion-v1.json` 验证三个配置入口及插件其他 completion 项的保留；实机验收仍需分别确认两端 Tab 接受候选后的位置和自动导入。
+运行会话保留初始化时插件声明的 completion 对象，配置通知和 `java`、`java.completion` 及其叶节点请求均从同一份对象应用 `guessMethodArguments=off`。例如插件声明的 `favoriteStaticMembers`、`filteredTypes` 不得在初始化后被通知或拉取结果清空；引擎测试同时检查真实会话接线，不能只用默认设置证明三个入口一致。
 
 ## 考虑过的备选方案
 

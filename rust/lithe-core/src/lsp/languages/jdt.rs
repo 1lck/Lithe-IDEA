@@ -162,6 +162,9 @@ pub(crate) struct JdtJavaRuntime {
 /// Values Lithe owns in JDT LS's `settings.java`, borrowed from one session.
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct JdtSettings<'a> {
+    /// Plugin-declared completion options from this session's initialization;
+    /// all leaves survive except the provider-owned guessMethodArguments.
+    pub completion: Option<&'a Value>,
     pub maven: Option<&'a JdtMavenConfiguration>,
     /// Gradle import settings, present only for Gradle workspaces.
     pub gradle: Option<&'a JdtGradleConfiguration>,
@@ -472,7 +475,12 @@ fn merge_java_settings(options: &mut Map<String, Value>, provider_settings: Valu
             if !completion.is_object() {
                 *completion = json!({});
             }
-            completion["guessMethodArguments"] = value["guessMethodArguments"].clone();
+            completion.as_object_mut().unwrap().extend(
+                value
+                    .as_object()
+                    .expect("completion settings are an object")
+                    .clone(),
+            );
             continue;
         }
         // `java.import.gradle` is the only `import` leaf Lithe owns. The options
@@ -1084,9 +1092,7 @@ fn java_settings(settings: JdtSettings<'_>) -> Value {
             },
             // JDT LS otherwise inserts parameter names into calls. Its "off"
             // mode keeps the argument list empty and the snippet cursor inside.
-            "completion": {
-                "guessMethodArguments": "off"
-            },
+            "completion": java_completion_settings(settings.completion),
             "inlayHints": {
                 "parameterNames": {
                     "enabled": "all"
@@ -1115,6 +1121,17 @@ fn java_settings(settings: JdtSettings<'_>) -> Value {
         java["java"]["configuration"]["runtimes"] = java_runtimes_value(settings.java_runtimes);
     }
     java
+}
+
+/// Retains the plugin's completion leaves while applying Lithe's argument policy.
+/// Invalid section shapes are normalized without mutating the session input.
+fn java_completion_settings(declared: Option<&Value>) -> Value {
+    let mut completion = declared
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    completion.insert("guessMethodArguments".to_string(), json!("off"));
+    Value::Object(completion)
 }
 
 fn java_runtimes_value(runtimes: &[JdtJavaRuntime]) -> Value {
@@ -1177,7 +1194,14 @@ fn java_configuration_for_section(section: Option<&str>, settings: JdtSettings<'
     match section {
         Some("java") => java_settings(settings)["java"].clone(),
         Some("java.completion") => java_settings(settings)["java"]["completion"].clone(),
-        Some("java.completion.guessMethodArguments") => json!("off"),
+        Some(section) if section.starts_with("java.completion.") => {
+            let completion = java_completion_settings(settings.completion);
+            section["java.completion.".len()..]
+                .split('.')
+                .try_fold(&completion, |value, key| value.get(key))
+                .cloned()
+                .unwrap_or(Value::Null)
+        }
         Some("java.inlayHints") => json!({
             "parameterNames": {
                 "enabled": "all"
@@ -1439,6 +1463,7 @@ mod tests {
             maven: None,
             gradle: None,
             java_runtimes: &runtimes,
+            ..Default::default()
         };
         let expected = json!([{ "name": "JavaSE-25", "path": "C:/Program Files/Java/jdk-25" }]);
         let options = adapt_initialization_options("java", None, &[], settings).unwrap();
@@ -1477,6 +1502,7 @@ mod tests {
             maven: Some(configuration),
             gradle: None,
             java_runtimes: &[],
+            ..Default::default()
         }
     }
 
@@ -1485,6 +1511,7 @@ mod tests {
             maven: None,
             gradle: Some(configuration),
             java_runtimes: &[],
+            ..Default::default()
         }
     }
 
@@ -1992,14 +2019,15 @@ mod tests {
         ))
         .expect("Java completion fixture should be valid");
         let expected = &fixture["javaSettings"]["completion"];
+        let settings = JdtSettings {
+            completion: Some(&fixture["pluginCompletion"]),
+            ..Default::default()
+        };
         let options = adapt_initialization_options(
             "java",
-            Some(json!({ "settings": { "java": { "completion": {
-                "guessMethodArguments": "insertParameterNames",
-                "favoriteStaticMembers": ["java.util.Objects.*"]
-            } } } })),
+            Some(json!({ "settings": { "java": { "completion": fixture["pluginCompletion"] } } })),
             &[],
-            JdtSettings::default(),
+            settings,
         )
         .unwrap();
         assert_eq!(
@@ -2011,7 +2039,8 @@ mod tests {
             json!(["java.util.Objects.*"])
         );
 
-        let notification = initialized_notification("java", JdtSettings::default()).unwrap();
+        assert_eq!(options["settings"]["java"]["completion"], *expected);
+        let notification = initialized_notification("java", settings).unwrap();
         assert_eq!(
             notification.params["settings"]["java"]["completion"],
             *expected
@@ -2025,10 +2054,17 @@ mod tests {
                 section: Some(section.as_str().unwrap().to_string()),
             })
             .collect::<Vec<_>>();
-        let values = workspace_configuration("java", &items, JdtSettings::default()).unwrap();
+        let values = workspace_configuration("java", &items, settings).unwrap();
         assert_eq!(values[0]["completion"], *expected);
         assert_eq!(values[1], *expected);
         assert_eq!(values[2], expected["guessMethodArguments"]);
+        assert_eq!(values[3], expected["favoriteStaticMembers"]);
+        assert_eq!(values[4], expected["filteredTypes"]);
+        assert_eq!(values[5], Value::Null);
+        assert_eq!(
+            fixture["pluginCompletion"]["guessMethodArguments"],
+            "insertParameterNames"
+        );
     }
 
     #[test]
