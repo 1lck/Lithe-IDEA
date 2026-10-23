@@ -155,7 +155,7 @@ Git未跟踪目录摘要和可见行缓存；这些界面仍使用完整公共�
 - `./scripts/verify-shared-contracts.sh`
 - `cargo test --manifest-path rust/lithe-core/Cargo.toml --lib native_ui_validates_version_ownership_actions_and_budgets`
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'PluginNativeUI|PluginWeb|WorkbenchContributionHostTests'`
-- `node --test sdk/node/test/sample-build.test.mjs`
+- `LITHE_PLUGIN_SDK_ROOT=<lithe-plugin-docs/sdk/node> node --test macos/Tests/Fixtures/native-ui-lab/native-ui-lab.test.mjs`
 - `./scripts/verify-service-boundaries.sh`
 - `./scripts/verify-runtime-bundle-immutability.sh`
 - `./scripts/verify-platform-feature-matrix.sh`
@@ -167,4 +167,8 @@ Git未跟踪目录摘要和可见行缓存；这些界面仍使用完整公共�
 - `macos/Sources/LitheModuleAPI/Plugins/PluginNativeUI.swift`
 - `macos/Sources/Lithe/Application/Features/PluginNativeUIFeature.swift`
 - `macos/Sources/Lithe/Views/Workbench/PluginNativeToolWindowView.swift`
-- `sdk/node/examples/sample-build/`
+- `macos/Tests/Fixtures/native-ui-lab/`（宿主验收 fixture，打包使用外部官方 SDK）
+
+## 2026-10-23 SDK 迁移后的验收归属
+
+遵循 #1442，主仓库不恢复 SDK 及其端到端测试。UI Lab 作为 macOS 宿主的回归与人工验收 fixture 保留在 `macos/Tests/Fixtures/native-ui-lab/`；Core 继续验证其完整清单。打包和 Node 验收显式通过 `LITHE_PLUGIN_SDK_ROOT` 使用外部 lithe-plugin-docs 的官方 Node SDK，复制结果仅进入忽略的 `.artifacts/native-ui-lab/`，不写入已安装包或应用 bundle。插件开发者说明与 SDK 发版继续归 lithe-plugin-docs。

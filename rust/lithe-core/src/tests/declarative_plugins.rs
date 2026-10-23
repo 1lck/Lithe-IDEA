@@ -15,18 +15,19 @@ macro_rules! contract_file {
     };
 }
 
-const PHP_FIXTURE: &str = contract_file!("fixtures/php-support.plugin.json");
+const PHP_FIXTURE: &str = contract_file!("fixtures/language-packaged-server.plugin.json");
 const HELLO_FIXTURE: &str = contract_file!("fixtures/hello-lithe.plugin.json");
 const WEB_PANEL_FIXTURE: &str = contract_file!("fixtures/web-panel.plugin.json");
-const GO_FIXTURE: &str = contract_file!("fixtures/go-support.plugin.json");
-const JAVA_FIXTURE: &str = contract_file!("fixtures/java-support.plugin.json");
+const GO_FIXTURE: &str = contract_file!("fixtures/language-system-command.plugin.json");
+const JAVA_FIXTURE: &str = contract_file!("fixtures/language-host-integration.plugin.json");
 const NODE_RUNTIME_FIXTURE: &str = contract_file!("fixtures/node-runtime.plugin.json");
-const CARGO_BUILD_FIXTURE: &str = contract_file!("fixtures/cargo-build.plugin.json");
-const GO_BUILD_FIXTURE: &str = contract_file!("fixtures/go-build.plugin.json");
-const GRADLE_BUILD_FIXTURE: &str = contract_file!("fixtures/gradle-build.plugin.json");
-const MAVEN_BUILD_FIXTURE: &str = contract_file!("fixtures/maven-build.plugin.json");
-const GRADLE_PROVIDER_FIXTURE: &str = contract_file!("fixtures/gradle-provider.plugin.json");
-const MIX_PROVIDER_FIXTURE: &str = contract_file!("fixtures/mix-provider.plugin.json");
+const CARGO_BUILD_FIXTURE: &str = contract_file!("fixtures/build-static-file.plugin.json");
+const GO_BUILD_FIXTURE: &str = contract_file!("fixtures/build-command-stdout.plugin.json");
+const GRADLE_BUILD_FIXTURE: &str = contract_file!("fixtures/build-command-output-file.plugin.json");
+const MAVEN_BUILD_FIXTURE: &str = contract_file!("fixtures/build-host-integration.plugin.json");
+const GRADLE_PROVIDER_FIXTURE: &str = contract_file!("fixtures/build-provider.plugin.json");
+const MIX_PROVIDER_FIXTURE: &str =
+    contract_file!("fixtures/build-provider-language-server.plugin.json");
 const SETTINGS_V2_FIXTURE: &str = contract_file!("fixtures/settings-v2.plugin.json");
 const INVALID_MANIFESTS: &str = contract_file!("fixtures/invalid-manifests.json");
 const COMMAND_PLANS: &str = contract_file!("fixtures/command-plans.json");
@@ -38,18 +39,18 @@ const OFFICIAL_JAVA: &str = include_str!(concat!(
 
 fn fixture(name: &str) -> Value {
     let source = match name {
-        "php-support.plugin.json" => PHP_FIXTURE,
-        "go-support.plugin.json" => GO_FIXTURE,
+        "language-packaged-server.plugin.json" => PHP_FIXTURE,
+        "language-system-command.plugin.json" => GO_FIXTURE,
         "hello-lithe.plugin.json" => HELLO_FIXTURE,
         "web-panel.plugin.json" => WEB_PANEL_FIXTURE,
-        "java-support.plugin.json" => JAVA_FIXTURE,
+        "language-host-integration.plugin.json" => JAVA_FIXTURE,
         "node-runtime.plugin.json" => NODE_RUNTIME_FIXTURE,
-        "cargo-build.plugin.json" => CARGO_BUILD_FIXTURE,
-        "go-build.plugin.json" => GO_BUILD_FIXTURE,
-        "gradle-build.plugin.json" => GRADLE_BUILD_FIXTURE,
-        "maven-build.plugin.json" => MAVEN_BUILD_FIXTURE,
-        "gradle-provider.plugin.json" => GRADLE_PROVIDER_FIXTURE,
-        "mix-provider.plugin.json" => MIX_PROVIDER_FIXTURE,
+        "build-static-file.plugin.json" => CARGO_BUILD_FIXTURE,
+        "build-command-stdout.plugin.json" => GO_BUILD_FIXTURE,
+        "build-command-output-file.plugin.json" => GRADLE_BUILD_FIXTURE,
+        "build-host-integration.plugin.json" => MAVEN_BUILD_FIXTURE,
+        "build-provider.plugin.json" => GRADLE_PROVIDER_FIXTURE,
+        "build-provider-language-server.plugin.json" => MIX_PROVIDER_FIXTURE,
         "settings-v2.plugin.json" => SETTINGS_V2_FIXTURE,
         other => panic!("unknown fixture {other}"),
     };
@@ -78,7 +79,7 @@ fn contract_fixtures_and_official_plugins_validate() {
 
 #[test]
 fn validation_normalizes_order_and_spelling_without_touching_arguments() {
-    let mut manifest = fixture("php-support.plugin.json");
+    let mut manifest = fixture("language-packaged-server.plugin.json");
     manifest["languages"][0]["fileExtensions"] = json!(["PHTML", ".php", "php"]);
     manifest["permissions"] = json!(["process.test", "process.run", "languageServer.launch"]);
     let outcome = validate(manifest);
@@ -103,7 +104,7 @@ fn validation_normalizes_order_and_spelling_without_touching_arguments() {
 /// `.toolrc` keep matching after normalization.
 #[test]
 fn validation_keeps_the_leading_dot_of_hidden_file_names() {
-    let mut manifest = fixture("go-support.plugin.json");
+    let mut manifest = fixture("language-system-command.plugin.json");
     manifest["languages"][0]["fileExtensions"] = json!([".go"]);
     manifest["languages"][0]["fileNames"] = json!([".toolrc"]);
     manifest["languages"][0]["projectFileNames"] = json!(["go.mod", ".env.example"]);
@@ -149,7 +150,7 @@ fn invalid_manifest_fixtures_report_their_stable_codes() {
 /// feature that integration has, with its files, and with no second owner.
 #[test]
 fn host_integration_capabilities_are_normalized_and_checked_against_the_integration() {
-    let mut manifest = fixture("java-support.plugin.json");
+    let mut manifest = fixture("language-host-integration.plugin.json");
     let capabilities = "/languageServers/0/hostIntegration/capabilities";
     *manifest.pointer_mut(capabilities).unwrap() = json!(["testing", "debug", "testing"]);
     let outcome = validate(manifest.clone());
@@ -178,12 +179,12 @@ fn host_integration_capabilities_are_normalized_and_checked_against_the_integrat
     };
     let field = "languageServers[0].hostIntegration.capabilities";
 
-    let mut unknown = fixture("java-support.plugin.json");
+    let mut unknown = fixture("language-host-integration.plugin.json");
     *unknown.pointer_mut(capabilities).unwrap() = json!(["formatting"]);
     assert_eq!(rejected_field(unknown), field);
 
     // Debugging loads the debugger as a JDT LS extension bundle.
-    let mut without_bundles = fixture("java-support.plugin.json");
+    let mut without_bundles = fixture("language-host-integration.plugin.json");
     *without_bundles.pointer_mut(capabilities).unwrap() = json!(["debug"]);
     let resources = "/languageServers/0/hostIntegration/resources";
     let resources = without_bundles.pointer_mut(resources).unwrap();
@@ -193,7 +194,7 @@ fn host_integration_capabilities_are_normalized_and_checked_against_the_integrat
         .remove("extensionBundleDirectories");
     assert_eq!(rejected_field(without_bundles), field);
 
-    let mut owned_twice = fixture("java-support.plugin.json");
+    let mut owned_twice = fixture("language-host-integration.plugin.json");
     owned_twice["permissions"] = json!(["languageServer.launch", "process.run"]);
     owned_twice["activationEvents"] = json!(["onLanguage:java", "onRun:java"]);
     owned_twice["executionProviders"] = json!([{
@@ -248,7 +249,7 @@ fn command_plan_fixtures_match_golden_expansions() {
 /// would change the command line of an installed plugin.
 #[test]
 fn api_level_1_language_server_arguments_stay_literal() {
-    let mut manifest = fixture("php-support.plugin.json");
+    let mut manifest = fixture("language-packaged-server.plugin.json");
     manifest["languageServers"][0]["arguments"] = json!(["--stdio", "--log=${pluginDir}"]);
     assert_eq!(validate(manifest.clone())["status"], "ok");
     let outcome = language_server_launch_plan_command(json!({
@@ -274,7 +275,7 @@ fn api_level_1_language_server_arguments_stay_literal() {
 #[test]
 fn runtime_launch_and_initialization_options_are_reviewed_programs() {
     let outcome = crate::plugins::marketplace::install_review_command(json!({
-        "manifest": fixture("java-support.plugin.json"),
+        "manifest": fixture("language-host-integration.plugin.json"),
     }))
     .expect("payload is well formed");
     let programs = outcome["review"]["programs"].as_array().unwrap();
@@ -327,7 +328,7 @@ fn runtime_version_fixtures_match_golden_outcomes() {
 /// so it cannot depend on one.
 #[test]
 fn validation_probe_cannot_use_settings() {
-    let mut manifest = fixture("go-support.plugin.json");
+    let mut manifest = fixture("language-system-command.plugin.json");
     manifest["pluginAPIVersion"] = json!(2);
     manifest["settings"] = json!([
         { "id": "verbose", "type": "boolean", "title": "Verbose", "default": false }
@@ -370,14 +371,14 @@ fn level_3_manifests_list_exactly_the_capabilities_they_use() {
             outcome["error"]["field"].as_str().unwrap().to_string(),
         )
     };
-    let mix = fixture("mix-provider.plugin.json");
+    let mix = fixture("build-provider-language-server.plugin.json");
     let outcome = validate(mix.clone());
     assert_eq!(outcome["status"], "ok", "{outcome}");
     assert_eq!(
         outcome["plugin"]["requires"],
         json!({ "buildProviders": 1, "buildSystems": 1, "languageServers": 1, "languages": 1, "serverProcess": 1 })
     );
-    let legacy = validate(fixture("php-support.plugin.json"));
+    let legacy = validate(fixture("language-packaged-server.plugin.json"));
     assert!(legacy["plugin"].get("requires").is_none(), "{legacy}");
 
     let mut future = mix.clone();
@@ -404,7 +405,7 @@ fn level_3_manifests_list_exactly_the_capabilities_they_use() {
     );
 
     // A level 3 plugin without build systems never depends on them.
-    let mut language_only = fixture("php-support.plugin.json");
+    let mut language_only = fixture("language-packaged-server.plugin.json");
     language_only["pluginAPIVersion"] = json!(3);
     language_only["requires"] = json!({
         "executionProviders": 1, "languageServers": 1, "languages": 1, "serverProcess": 1
@@ -433,7 +434,7 @@ fn level_3_manifests_list_exactly_the_capabilities_they_use() {
     assert_eq!(validate_on(&mix, &host_with_builds)["status"], "ok");
     // Capability versions do not apply below level 3.
     assert_eq!(
-        validate_on(&fixture("php-support.plugin.json"), &json!({}))["status"],
+        validate_on(&fixture("language-packaged-server.plugin.json"), &json!({}))["status"],
         "ok"
     );
 }
@@ -447,14 +448,14 @@ fn build_providers_require_their_own_host_capability() {
         "serverProcess": [1], "settings": [1]
     });
     let template = validate_command(json!({
-        "manifest": fixture("cargo-build.plugin.json"), "hostCapabilities": host
+        "manifest": fixture("build-static-file.plugin.json"), "hostCapabilities": host
     }))
     .unwrap();
     assert_eq!(template["status"], "ok", "{template}");
 
     for (name, build_system_id) in [
-        ("gradle-provider.plugin.json", "gradle"),
-        ("mix-provider.plugin.json", "mix"),
+        ("build-provider.plugin.json", "gradle"),
+        ("build-provider-language-server.plugin.json", "mix"),
     ] {
         let manifest = fixture(name);
         for versions in [None, Some(json!([2])), Some(json!([1]))] {
@@ -653,7 +654,7 @@ fn ui_icon_declarations_validate_and_preserve_theme_resources() {
 fn native_ui_lab_package_manifest_is_installable() {
     let manifest: Value = serde_json::from_str(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../sdk/node/examples/native-ui-lab/plugin.json"
+        "/../../macos/Tests/Fixtures/native-ui-lab/plugin.json"
     )))
     .unwrap();
     let result = validate(manifest);

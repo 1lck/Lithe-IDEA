@@ -80,7 +80,6 @@ individual upstream commands were called.
 | `Plugins/win/` | Windows-owned plugin packages |
 | `frontend/editor/` | Shared Monaco presentation, tokenization, and editor model lifecycle; no platform APIs |
 | `shared/` | Cross-platform contracts and fixtures, not compiled implementation |
-| `sdk/` | Official plugin backend SDKs and their samples; they implement `shared/contracts/plugins/` and never define protocol |
 | `infra/` | Repository-level development and validation infrastructure |
 | `third_party/` | Upstream code; leave unchanged unless the task explicitly targets it |
 

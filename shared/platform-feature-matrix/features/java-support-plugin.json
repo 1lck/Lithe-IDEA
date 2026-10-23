@@ -12,7 +12,7 @@
       "macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginPackageStore.swift",
       "macos/Tests/LitheTests/PluginLanguageServerLaunchResolverTests.swift",
       "macos/Tests/LitheTests/RealJavaDebugIntegrationTests.swift",
-      "shared/contracts/plugins/v1/fixtures/java-support.plugin.json",
+      "shared/contracts/plugins/v1/fixtures/language-host-integration.plugin.json",
       "macos/Sources/Lithe/Core/Language/PluginLanguageProviderCatalogSource.swift",
       "macos/Tests/LitheTests/LanguageProviderCatalogSourceTests.swift",
       "macos/Tests/LitheTests/RunWorkflowCoordinatorTests.swift"

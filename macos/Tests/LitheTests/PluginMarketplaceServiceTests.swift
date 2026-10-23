@@ -361,7 +361,7 @@ struct PluginMarketplaceServiceTests {
             sourceKind: .official,
             platform: "darwin-arm64"
         )
-        let php = try #require(index.plugins.first { $0.id == "dev.lithe.fixture.php-support" })
+        let php = try #require(index.plugins.first { $0.id == "dev.lithe.fixture.language-packaged-server" })
         #expect(php.latestVersion == "1.1.0")
         #expect(php.availability.download?.version == "1.0.0")
         #expect(php.installableVersion?.version == "1.0.0")
@@ -374,7 +374,7 @@ struct PluginMarketplaceServiceTests {
         #expect(future.presentedVersion.version == "3.0.0")
     }
 
-    @Test(arguments: ["gradle-provider", "mix-provider"])
+    @Test(arguments: ["build-provider", "build-provider-language-server"])
     func buildProvidersAreAcceptedByTheMacOSHost(_ fixture: String) throws {
         let fixtures = DeclarativePluginTestSupport.repositoryRoot
             .appendingPathComponent("shared/contracts/plugins/v1/fixtures")
@@ -393,7 +393,7 @@ struct PluginMarketplaceServiceTests {
     func changedRunArgumentsNeedApprovalAgainAfterStorage() throws {
         let fixtures = DeclarativePluginTestSupport.repositoryRoot
             .appendingPathComponent("shared/contracts/plugins/v1/fixtures")
-        let original = try Data(contentsOf: fixtures.appendingPathComponent("php-support.plugin.json"))
+        let original = try Data(contentsOf: fixtures.appendingPathComponent("language-packaged-server.plugin.json"))
         var manifest = try #require(JSONSerialization.jsonObject(with: original) as? [String: Any])
         var providers = try #require(manifest["executionProviders"] as? [[String: Any]])
         var run = try #require(providers[0]["run"] as? [String: Any])

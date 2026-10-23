@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://lithe.dev/contracts/plugins/v1/native-ui.schema.json",
+  "$id": "https://raw.githubusercontent.com/Lithe-IDEA/lithe-plugin-docs/main/contract/v1/native-ui.schema.json",
   "title": "Host-rendered native plugin UI schema 1",
   "type": "object",
   "additionalProperties": false,

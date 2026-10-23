@@ -74,6 +74,27 @@
 [LSP 插件构建与语言服务器资源归属](.agents/notes/implemented/architecture/2026-09-30-lsp-plugin-build-and-distribution.md)。
 所有 LSP 插件都必须在构建阶段固定来源并校验语言服务器，把完整资源放入插件包后签名；运行时只能从已安装插件发现入口，不能把下载物、解压物或插件状态写入 app bundle、安装目录或跨工作树共享缓存。
 
+## 插件契约的两仓库同步
+
+插件契约在本仓库的 `shared/contracts/plugins/v1/` 定义，和执行它的 Rust Core 一起修改。
+公开仓库 [Lithe-IDEA/lithe-plugin-docs](https://github.com/Lithe-IDEA/lithe-plugin-docs)
+的 `contract/v1/` 保存这个目录的逐字节副本，连同开发指南、教程和两个官方插件后端 SDK（Node、Java）的
+源码、发版和端到端测试。插件开发者只看 lithe-plugin-docs 就能开发，不需要克隆本仓库，所以两个仓库的契约
+必须保持一致：
+
+- 修改 `shared/contracts/plugins/v1/` 下任何文件（README、schema、fixture）的 PR 合并后，在
+  lithe-plugin-docs 运行 `node scripts/contract.mjs sync --revision <合并后的 preview commit>`
+  并提交。不要在 lithe-plugin-docs 里直接改副本。
+- 契约 README 里指向该目录以外的链接必须写成绝对 URL；`scripts/verify-shared-contracts.sh`
+  会拒绝离开该目录的相对链接。
+- 面向插件开发者的新说明写进 lithe-plugin-docs，不写进本仓库或 Lithe Store。
+- 本仓库不保存 SDK。修改插件后端协议（例如 `rust/lithe-core/src/lsp/interface/plugin_function.rs`）时，
+  合并前在 lithe-plugin-docs 运行 `node scripts/sdk-e2e.mjs --source <本仓库路径> --ref <分支>`，确认两个
+  SDK 的示例后端仍能跑通。
+
+决策原因、同步工具和被否方案见
+[插件契约、SDK 与开发者资料的发布](.agents/notes/implemented/architecture/2026-10-23-plugin-contract-publishing.md)。
+
 ## 跨平台功能同步
 
 跨平台功能矩阵的字段、状态语义、更新流程和 CI 例外规则以
