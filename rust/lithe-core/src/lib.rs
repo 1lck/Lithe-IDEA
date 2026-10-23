@@ -20,6 +20,7 @@ pub mod process;
 mod project;
 mod protocol;
 mod runtime;
+mod vcs;
 
 pub use protocol::{
     CoreCommand, CoreError, CoreEvent, CoreRequest, CoreResponse, ErrorCode, ResponseData,

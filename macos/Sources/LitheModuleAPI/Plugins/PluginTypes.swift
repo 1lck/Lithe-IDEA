@@ -497,7 +497,8 @@ public struct PluginManifest: Equatable, Codable, Sendable {
         "languages": [1],
         "serverProcess": [1],
         "settings": [1, 2],
-        "ui": [1, 2]
+        "ui": [1, 2],
+        "vcsProviders": [1]
     ]
 
     public let schemaVersion: Int

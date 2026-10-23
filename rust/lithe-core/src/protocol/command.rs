@@ -38,6 +38,14 @@ pub enum CoreCommand {
     Ping,
     /// Detects Node.js and npm and lists catalog agent installs (`agent.status`).
     AgentStatus,
+    /// Reads the effective native global instruction file (`agent.instructions.read`).
+    AgentInstructionsRead,
+    /// Saves a guarded native global instruction draft (`agent.instructions.save`).
+    AgentInstructionsSave,
+    /// Synchronizes a marked shared block in native user files (`agent.instructions.shared`).
+    AgentInstructionsShared,
+    /// Lists native skills or creates/imports one explicitly (`agent.skills`).
+    AgentSkills,
     /// Installs a catalog ACP adapter with the user's npm (`agent.install`).
     AgentInstall,
     /// Removes a Lithe-managed ACP adapter install (`agent.uninstall`).
@@ -48,8 +56,18 @@ pub enum CoreCommand {
     AgentParseProviderConfiguration,
     /// Parses one Agent MCP configuration file into normalized servers (`mcp.parseConfiguration`).
     McpParseConfiguration,
+    /// Normalizes a public Registry response into discoverable server drafts (`mcp.parseRegistry`).
+    McpParseRegistry,
+    /// Returns the bundled, offline discovery catalog (`mcp.featuredRegistry`).
+    McpFeaturedRegistry,
     /// Plans a format-preserving MCP entry write or removal (`mcp.planWrite`).
     McpPlanWrite,
+    /// Probes an explicitly selected server without calling its tools.
+    McpProbe,
+    /// Reads or plans native per-tool exclusion lists.
+    McpToolPolicy,
+    /// Round-trips a quoted command line into exact argv boundaries.
+    McpCommandLine,
     /// Validates and normalizes a declarative plugin manifest (`plugins.declarative.validate`).
     PluginsDeclarativeValidate,
     /// Expands a declarative plugin's run template (`plugins.declarative.runPlan`).
@@ -94,6 +112,12 @@ pub enum CoreCommand {
     BuildSyncFingerprint,
     /// Maps build options to the Java language server's project import (`build.languageImport`).
     BuildLanguageImport,
+    /// Detects VCS roots and registered providers of a workspace (`vcs.detectRoots`).
+    VcsDetectRoots,
+    /// Assigns workspace paths to detected VCS roots (`vcs.ownerOf`).
+    VcsOwnerOf,
+    /// Validates and normalizes a VCS provider's reply (`vcs.decodeReply`).
+    VcsDecodeReply,
     /// Validates and filters a marketplace index (`plugins.marketplace.validateIndex`).
     PluginsMarketplaceValidateIndex,
     /// Resolves a user-entered marketplace source URL (`plugins.marketplace.resolveSource`).
@@ -258,6 +282,8 @@ pub enum CoreCommand {
     LspRequest,
     /// Queues one build-provider request (`lsp.buildRequest`).
     LspBuildRequest,
+    /// Queues one VCS-provider request (`lsp.vcsRequest`).
+    LspVcsRequest,
     /// Invokes one plugin function (`lsp.functionRequest`).
     LspFunctionRequest,
     /// Queues shared Java gutter marker resolution (`java.navigationMarkers`).
@@ -420,12 +446,21 @@ impl CoreCommand {
             "core.ping" => Some(Self::Ping),
             "ideHost.control" => Some(Self::IdeHostControl),
             "agent.status" => Some(Self::AgentStatus),
+            "agent.instructions.read" => Some(Self::AgentInstructionsRead),
+            "agent.instructions.save" => Some(Self::AgentInstructionsSave),
+            "agent.instructions.shared" => Some(Self::AgentInstructionsShared),
+            "agent.skills" => Some(Self::AgentSkills),
             "agent.install" => Some(Self::AgentInstall),
             "agent.uninstall" => Some(Self::AgentUninstall),
             "agent.installCli" => Some(Self::AgentInstallCli),
             "agent.parseProviderConfiguration" => Some(Self::AgentParseProviderConfiguration),
             "mcp.parseConfiguration" => Some(Self::McpParseConfiguration),
+            "mcp.parseRegistry" => Some(Self::McpParseRegistry),
+            "mcp.featuredRegistry" => Some(Self::McpFeaturedRegistry),
             "mcp.planWrite" => Some(Self::McpPlanWrite),
+            "mcp.probe" => Some(Self::McpProbe),
+            "mcp.toolPolicy" => Some(Self::McpToolPolicy),
+            "mcp.commandLine" => Some(Self::McpCommandLine),
             "plugins.declarative.validate" => Some(Self::PluginsDeclarativeValidate),
             "plugins.declarative.runPlan" => Some(Self::PluginsDeclarativeRunPlan),
             "plugins.declarative.discoverTests" => Some(Self::PluginsDeclarativeDiscoverTests),
@@ -454,6 +489,9 @@ impl CoreCommand {
             "build.decodeDependencies" => Some(Self::BuildDecodeDependencies),
             "build.syncFingerprint" => Some(Self::BuildSyncFingerprint),
             "build.languageImport" => Some(Self::BuildLanguageImport),
+            "vcs.detectRoots" => Some(Self::VcsDetectRoots),
+            "vcs.ownerOf" => Some(Self::VcsOwnerOf),
+            "vcs.decodeReply" => Some(Self::VcsDecodeReply),
             "plugins.marketplace.validateIndex" => Some(Self::PluginsMarketplaceValidateIndex),
             "plugins.marketplace.resolveSource" => Some(Self::PluginsMarketplaceResolveSource),
             "plugins.marketplace.installReview" => Some(Self::PluginsMarketplaceInstallReview),
@@ -534,6 +572,7 @@ impl CoreCommand {
             "lsp.closeDocument" => Some(Self::LspCloseDocument),
             "lsp.request" => Some(Self::LspRequest),
             "lsp.buildRequest" => Some(Self::LspBuildRequest),
+            "lsp.vcsRequest" => Some(Self::LspVcsRequest),
             "lsp.functionRequest" => Some(Self::LspFunctionRequest),
             "java.resolveNavigation" => Some(Self::JavaResolveNavigation),
             "lsp.cancelOperation" => Some(Self::LspCancelOperation),
@@ -631,6 +670,7 @@ mod tests {
             "lsp.closeDocument",
             "lsp.request",
             "lsp.buildRequest",
+            "lsp.vcsRequest",
             "lsp.functionRequest",
             "lsp.cancelOperation",
             "lsp.pollEvents",

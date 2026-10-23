@@ -21,9 +21,10 @@ node .agents/skills/write-stable-tests/scripts/run-rust-tests-with-timing.mjs \
     --manifest rust/Cargo.toml --package lithe-git-host \
     --suite-timeout-ms 120000 \
     --report .artifacts/test-stability/git-host-rust.json
+# Agent Host's ACP/MCP dependencies need the runner's default cold-build budget;
+# its suite deadline includes compilation, while each test remains capped at 15s.
 node .agents/skills/write-stable-tests/scripts/run-rust-tests-with-timing.mjs \
     --manifest rust/Cargo.toml --package lithe-agent-host \
-    --suite-timeout-ms 120000 \
     --report .artifacts/test-stability/agent-host-rust.json
 node .agents/skills/write-stable-tests/scripts/run-rust-tests-with-timing.mjs \
     --manifest rust/Cargo.toml --package lithe-ide-host \

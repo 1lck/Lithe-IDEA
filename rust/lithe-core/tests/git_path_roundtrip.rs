@@ -32,9 +32,11 @@ impl Drop for Fixture {
 }
 
 fn run(command: &mut Command) -> String {
-    // Git/Node startup can exceed five seconds on Windows CI. Keep a local
-    // deadline inside the timing harness's 15-second case watchdog.
-    let deadline = Instant::now() + Duration::from_secs(10);
+    run_with_timeout(command, Duration::from_secs(10))
+}
+
+fn run_with_timeout(command: &mut Command, timeout: Duration) -> String {
+    let deadline = Instant::now() + timeout;
     let result = lithe_git_host::run(
         command,
         None,
@@ -44,8 +46,10 @@ fn run(command: &mut Command) -> String {
     );
     assert!(
         result.failure.is_none(),
-        "{command:?}: {:?}",
-        result.failure
+        "{command:?} within {timeout:?}: {:?}; status: {:?}; stderr: {}",
+        result.failure,
+        result.status,
+        String::from_utf8_lossy(&result.stderr)
     );
     assert!(
         result.status.is_some_and(|status| status.success()),
@@ -88,11 +92,15 @@ fn frontend_path(path: &str) -> String {
         .join("../../windows/tauri/src/features/git/api/git-repository-path.ts");
     // Node is already required by both platform timing harnesses. Import the
     // production TypeScript function rather than duplicating it in Rust.
-    run(Command::new("node").args([
+    // Windows CI reached the old 10s deadline in this Node/TypeScript process.
+    // Keep Git and Core request deadlines unchanged;
+    // only this frontend subprocess gets 20s within the scoped 60s case budget.
+    let timeout = Duration::from_secs(if cfg!(windows) { 20 } else { 10 });
+    run_with_timeout(Command::new("node").args([
         "--experimental-strip-types", "--input-type=module", "-e",
         "import { pathToFileURL } from 'node:url'; const { normalizeRepositoryPath } = await import(pathToFileURL(process.argv[1]).href); console.log(normalizeRepositoryPath(process.argv[2]));",
         module.to_str().unwrap(), path,
-    ]))
+    ]), timeout)
 }
 
 fn initialize(root: &Path) -> String {

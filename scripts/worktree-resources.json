@@ -36,7 +36,10 @@
     {
       "id": "agent-edit-and-paste-state",
       "reusable": false,
-      "locations": ["<platform-app-cache>/agent/pasted-images/pasted-<UUID>.<image-extension>", "<workspace-parent>/.lithe-agent-recovery-<pid>-<sequence>-<filename>"],
+      "locations": [
+        "<platform-app-cache>/agent/pasted-images/pasted-<UUID>.<image-extension>",
+        "<workspace-parent>/.lithe-agent-recovery-<pid>-<sequence>-<filename>"
+      ],
       "identity": "One user attachment or guarded revert operation owns these mutable bytes. No reusable version/platform/architecture/toolchain identity stamp exists.",
       "reason": "The Windows attachment adapter writes only to platform application cache; abandoned batches delete their own files, accepted references remain available to history. Revert stages a same-directory file until Windows recycling succeeds, restoring on failure without overwriting a recreated destination. A conflicting restoration reports the recovery location for manual action. Neither resource may enter any worktree copy stage or installation directory; signatures and update baselines remain unchanged."
     },
@@ -288,6 +291,7 @@
       "reusable": false,
       "locations": [
         ".artifacts/test-stability/*.png",
+        ".artifacts/test-stability/{mcp-ui,instructions-ui}/*.png",
         ".artifacts/<test-report>/screenshots/*.png",
         "<temporary>/lithe-localized-logging.*/Lithe Logging UI.app/"
       ],
@@ -308,6 +312,41 @@
       "reason": "Native adapters create module logs in user log storage, expire at 30 days and enforce disk budgets. macOS owns one cache staging directory until export/cancel; Windows keeps at most four five-minute previews only in memory and atomically publishes a destination-owned temporary ZIP. Never reuse, copy or share at any worktree stage, and never write into signed packages or installed resources."
     },
     {
+      "id": "mcp-registry-metadata",
+      "reusable": false,
+      "locations": [
+        "<process-memory>/MCPRegistry/search-results",
+        "rust/lithe-core/src/mcp/featured.json",
+        "macos/Sources/Lithe/Resources/McpIcons"
+      ],
+      "identity": "Fetched public directory responses are bounded to 1 MiB, normalized by Rust Core and owned by one cancellable search; there is no persistent cache or build identity stamp. The separate featured.json catalog is Git-owned compile-time source, not a reusable generated or downloaded resource. Bundled McpIcons are Git source assets with reviewed source URLs and SHA-256 in NOTICE.json, not generated cache entries; they have no reusable version/platform/architecture/toolchain stamp.",
+      "reason": "The macOS ephemeral URLSessions keep fetched directory metadata in memory only. Never copy, bundle or share fetched search responses between worktrees; query, pagination and the explicitly selected system/direct route belong to the current page. The static rust/lithe-core/src/mcp/featured.json catalog follows the source checkout and is compiled read-only into Core; never copy it from a runtime cache. McpIcons are copied from the same checkout only during SwiftPM packaging, read-only at runtime, and never extracted from another worktree or installed app. No server packages or images are downloaded at runtime, and no runtime writes touch the installed bundle or Sparkle delta baseline."
+    },
+    {
+      "id": "agent-instruction-library-state",
+      "reusable": false,
+      "locations": [
+        "<app-support>/Lithe/AgentInstructions/Shared.md",
+        "<app-support>/Lithe/AgentInstructions/.sync.lock",
+        "<app-support>/Lithe/AgentInstructions/.lithe-instructions-<UUID>.tmp",
+        "<native-agent-profile>/{AGENTS.md,AGENTS.override.md,CLAUDE.md}"
+      ],
+      "identity": "Mutable user-authored instruction text, native snapshots and nonblocking synchronization locks; no version/platform/architecture/toolchain build identity.",
+      "reason": "The platform storage adapter supplies the writable application-support root. Agent Host owns bounded UTF-8 reads and guarded atomic saves; only explicit saves and switches write. Temporary siblings are removed after success/failure, the empty lock stays with the user library, and native files retain upstream ownership outside the Lithe block. Never copy, bundle, share or validate these as worktree build resources; installed packages and Sparkle baselines remain read-only."
+    },
+    {
+      "id": "mcp-tool-probe-state",
+      "reusable": false,
+      "locations": [
+        "<process-memory>/MCPTools/{connections,tool-descriptions,policy-snapshots}",
+        "<user-preferences>/settings.mcpToolExclusions.<native-path>.<server>",
+        "<user-preferences>/settings.mcpServerRegistrations.<native-path>.<server>.toolFilters",
+        "<native-agent-profile>/{config.toml,settings.json}"
+      ],
+      "identity": "User-requested, bounded SDK connections and mutable native exclusion rules. No generated build identity, version/platform/architecture/toolchain stamp or reusable artifact.",
+      "reason": "Probes run only after an explicit action, list metadata without tool calls, and cancel on page exit. Process trees and HTTP sessions are cleaned up; temporary policy snapshots stay in memory. Native rules use the existing platform atomic writer and Application Support backups. User preferences remember added exclusion ownership and retained Codex allow/deny tool names after removal, never credentials. Retained filters survive page/process exit until re-registration and do not prove live source ownership. No copy stage, runtime bundle writes, or cross-worktree transfer is allowed. Upstream package caches created by an explicitly run command remain owned by that runtime, not Lithe build resources."
+    },
+    {
       "id": "shared-i18n",
       "reusable": false,
       "locations": [
@@ -318,7 +357,6 @@
         "windows/tauri/src/i18n/shared.generated.ts"
       ],
       "identity": "Current worktree shared locale manifest, message registry, per-locale translations and all generated native string-table bytes. Generated outputs have no sealed version/platform/architecture/toolchain reuse identity stamp.",
-      "reason": "Git owns source and checked-in generated outputs. Regenerate and validate them in each target worktree with scripts/generate-i18n.mjs; no download, cache validator or cross-worktree copy stage is permitted. Packaging copies registered native tables into its own build destination before signing and converts only that copy to binary plist. Runtime only reads bundled tables; it creates no state and changes neither code-signature bytes nor the Sparkle delta baseline."
-    }
+      "reason": "Git owns source and checked-in generated outputs. Regenerate and validate them in each target worktree with scripts/generate-i18n.mjs; no download, cache validator or cross-worktree copy stage is permitted. Packaging copies registered native tables into its own build destination before signing and converts only that copy to binary plist. Runtime only reads bundled tables; it creates no state and changes neither code-signature bytes nor the Sparkle delta baseline."    }
   ]
 }

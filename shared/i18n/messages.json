@@ -77051,6 +77051,2957 @@
       "platforms": [
         "windows"
       ]
+    },
+    {
+      "id": "native.aSecureConnectionToTheMcpRegistryCouldNotBeEstablishedCheckTheProxyOrRetryDirectly",
+      "description": "Native UI: A secure connection to the MCP Registry could not be established. Check the proxy or retry directly.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "A secure connection to the MCP Registry could not be established. Check the proxy or retry directly.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.aSkillHasAnUnknownScopeAndCannotBeClassified",
+      "description": "Native UI: A skill has an unknown scope and cannot be classified.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "A skill has an unknown scope and cannot be classified.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.aSkillWasOmittedBecauseItsNativeMetadataIsIncomplete",
+      "description": "Native UI: A skill was omitted because its native metadata is incomplete.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "A skill was omitted because its native metadata is incomplete.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.aSkillWithThisDirectoryNameAlreadyExistsExistingSkillsAreNeverOverwritten",
+      "description": "Native UI: A skill with this directory name already exists. Existing skills are never overwritten.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "A skill with this directory name already exists. Existing skills are never overwritten.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.addAtLeastOneAbsoluteAllowedFolderPathAfterTheFilesystemPackageArgument",
+      "description": "Native UI: Add at least one absolute allowed folder path after the Filesystem package argument.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Add at least one absolute allowed folder path after the Filesystem package argument.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.addAtLeastOneAbsoluteFolderPathAfterThePackageArgumentOnePerLineFilesystemCanReadAndWriteOnlyInTheFoldersYouAllowRequiresNodeJs24OrLater",
+      "description": "Native UI: Add at least one absolute folder path after the package argument, one per line. Filesystem can read and write only in the folders you allow. Requires Node.js 24 or later.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Add at least one absolute folder path after the package argument, one per line. Filesystem can read and write only in the folders you allow. Requires Node.js 24 or later.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.agentSkills",
+      "description": "Native UI: Agent skills",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Agent skills",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.agents2",
+      "description": "Native UI: Instruction Agents",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Instruction Agents",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.allSources",
+      "description": "Native UI: All sources",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "All sources",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.anotherInstructionSaveIsRunningTryAgain",
+      "description": "Native UI: Another instruction save is running. Try again.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Another instruction save is running. Try again.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.arg1LinesOfItsOwn",
+      "description": "Native UI: %d lines of its own",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%d lines of its own",
+        "arguments": [
+          "arg1"
+        ],
+        "formats": {
+          "arg1": "d"
+        }
+      },
+      "parameters": {
+        "arg1": "integer"
+      }
+    },
+    {
+      "id": "native.arg1Tools",
+      "description": "Native UI: %d tools",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%d tools",
+        "arguments": [
+          "arg1"
+        ],
+        "formats": {
+          "arg1": "d"
+        }
+      },
+      "parameters": {
+        "arg1": "integer"
+      }
+    },
+    {
+      "id": "native.askQuestionsAboutPublicGithubRepositoriesAndReadTheirGeneratedDocumentation",
+      "description": "Native UI: Ask questions about public GitHub repositories and read their generated documentation.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Ask questions about public GitHub repositories and read their generated documentation.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.cannotAccessTheGlobalInstructionFileCheckItsPermissionsAndTryAgain",
+      "description": "Native UI: Cannot access the global instruction file. Check its permissions and try again.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Cannot access the global instruction file. Check its permissions and try again.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.cannotLocateTheAgentUserDirectory",
+      "description": "Native UI: Cannot locate the Agent user directory.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Cannot locate the Agent user directory.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.checkCommandLineQuotesBeforeSaving",
+      "description": "Native UI: Check command-line quotes before saving.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Check command-line quotes before saving.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.checkTheMcpCommandUrlAndHeaders",
+      "description": "Native UI: Check the MCP command, URL and headers.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Check the MCP command, URL and headers.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.chooseWhetherToEnableTheSkill",
+      "description": "Native UI: Choose whether to enable the skill.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Choose whether to enable the skill.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.claudeCodeHasMcpToolRestrictionsUpdateItsNativeRulesBeforeRenamingAServerSoDisabledToolsDoNotBecomeAvailableUnderANewName",
+      "description": "Native UI: Claude Code has MCP tool restrictions. Update its native rules before renaming a server so disabled tools do not become available under a new name.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Claude Code has MCP tool restrictions. Update its native rules before renaming a server so disabled tools do not become available under a new name.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.claudePluginSkillsMustBeManagedThroughClaudeSPluginSettings",
+      "description": "Native UI: Claude plugin skills must be managed through Claude's plugin settings.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Claude plugin skills must be managed through Claude's plugin settings.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.claudeSavesVisibilityByNameGlobalSkillsUseUserSettingsProjectSkillsUseProjectLocalSettingsProjectAndManagedSettingsMayOverrideGlobalSettingsSkillsWithTheSameNameShareThisSetting",
+      "description": "Native UI: Claude saves visibility by name: global skills use user settings; project skills use project-local settings. Project and managed settings may override global settings. Skills with the same name share this setting.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Claude saves visibility by name: global skills use user settings; project skills use project-local settings. Project and managed settings may override global settings. Skills with the same name share this setting.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.claudeSkillSettingsCouldNotBeReadFixInvalidSettingsAndRefreshBeforeToggling",
+      "description": "Native UI: Claude skill settings could not be read. Fix invalid settings and refresh before toggling.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Claude skill settings could not be read. Fix invalid settings and refresh before toggling.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.codexIsUsingAgentsOverrideMdClearingItRestoresTheBaseAgentsMdInstructions",
+      "description": "Native UI: Codex is using AGENTS.override.md. Clearing it restores the base AGENTS.md instructions.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Codex is using AGENTS.override.md. Clearing it restores the base AGENTS.md instructions.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.codexReportedSkillDiscoveryErrorsCheckTheAffectedSkillMdFilesAndRefresh",
+      "description": "Native UI: Codex reported skill discovery errors. Check the affected SKILL.md files and refresh.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Codex reported skill discovery errors. Check the affected SKILL.md files and refresh.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.codexReportsItsDiscoveredSkillsClaudeListsFilesInTheSelectedProjectAndUserDirectoriesInheritedAndPluginSkillsMayAlsoBeAvailableInItsSessions",
+      "description": "Native UI: Codex reports its discovered skills. Claude lists files in the selected project and user directories; inherited and plugin skills may also be available in its sessions.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Codex reports its discovered skills. Claude lists files in the selected project and user directories; inherited and plugin skills may also be available in its sessions.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.codexSavesThisSettingByPathForAllProjectsUsingThisSkill",
+      "description": "Native UI: Codex saves this setting by path for all projects using this skill.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Codex saves this setting by path for all projects using this skill.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.codexSkillDiscoveryFailedCheckTheCliAndRetry",
+      "description": "Native UI: Codex skill discovery failed. Check the CLI and retry.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Codex skill discovery failed. Check the CLI and retry.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.codexSkillSettingsCouldNotBeConfirmedRefreshToCheckTheCurrentState",
+      "description": "Native UI: Codex skill settings could not be confirmed. Refresh to check the current state.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Codex skill settings could not be confirmed. Refresh to check the current state.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.configure2",
+      "description": "Native UI: Configure…",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Configure…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.copyPath2",
+      "description": "Native UI: Copy path",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Copy path",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.couldNotImportMcpJsonCheckTheMcpserversObjectAndTryAgain",
+      "description": "Native UI: Could not import MCP JSON. Check the mcpServers object and try again.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Could not import MCP JSON. Check the mcpServers object and try again.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.couldNotReadTheCommandLine",
+      "description": "Native UI: Could not read the command line.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Could not read the command line.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.couldNotStartTheMcpCommandCheckItsExecutableAndRuntime",
+      "description": "Native UI: Could not start the MCP command. Check its executable and runtime.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Could not start the MCP command. Check its executable and runtime.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.createSkill",
+      "description": "Native UI: Create skill",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Create skill",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.currentLibraryDocumentationAndCodeExamplesForCodingAgents",
+      "description": "Native UI: Current library documentation and code examples for coding agents.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Current library documentation and code examples for coding agents.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.defaultInstructions",
+      "description": "Native UI: Default instructions",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Default instructions",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.detectAgain",
+      "description": "Native UI: Detect again",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Detect again",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.detectTools",
+      "description": "Native UI: Detect tools",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Detect tools",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.detectionConnectsToThisServerAndListsToolMetadataWithoutCallingAnyToolLocalCommandsMayRunCodeOrDownloadPackagesResultsDescribeThisCheckNotTheAvailabilityOfAnExistingAgentSessionToolSwitchesApplyToTheSelectedAgentSUserConfigurationProjectAndManagedPoliciesCanStillRestrictAccessStartANewAgentSessionAfterChanges",
+      "description": "Native UI: Detection connects to this server and lists tool metadata without calling any tool. Local commands may run code or download packages. Results describe this check, not the availability of an existing Agent session. Tool switches apply to the selected Agent's user configuration; project and managed policies can still restrict access. Start a new Agent session after changes.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Detection connects to this server and lists tool metadata without calling any tool. Local commands may run code or download packages. Results describe this check, not the availability of an existing Agent session. Tool switches apply to the selected Agent's user configuration; project and managed policies can still restrict access. Start a new Agent session after changes.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.detectionStartsTheConfiguredExecutableAndMayDownloadPackagesContinueOnlyIfYouTrustThisServerLitheWillListToolsThenStopTheProbeProcess",
+      "description": "Native UI: Detection starts the configured executable and may download packages. Continue only if you trust this server. Lithe will list tools, then stop the probe process.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Detection starts the configured executable and may download packages. Continue only if you trust this server. Lithe will list tools, then stop the probe process.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.directConnection",
+      "description": "Native UI: Direct connection",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Direct connection",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.directRetryAppliesOnlyToPublicMcpRegistrySearchesOnThisPageSystemProxySettingsAndAgentServerConnectionsAreUnchangedTlsCertificateValidationRemainsEnabled",
+      "description": "Native UI: Direct retry applies only to public MCP Registry searches on this page. System proxy settings and Agent server connections are unchanged. TLS certificate validation remains enabled.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Direct retry applies only to public MCP Registry searches on this page. System proxy settings and Agent server connections are unchanged. TLS certificate validation remains enabled.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.directoryImportsPreserveScriptsTemplatesAndOtherSupportingFilesExistingSkillsAreNeverOverwritten",
+      "description": "Native UI: Directory imports preserve scripts, templates and other supporting files. Existing skills are never overwritten.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Directory imports preserve scripts, templates and other supporting files. Existing skills are never overwritten.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.disabledInAgent",
+      "description": "Native UI: Disabled in Agent",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Disabled in Agent",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.discardDraftAndReload",
+      "description": "Native UI: Discard draft and reload?",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Discard draft and reload?",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.discoverMcpServers",
+      "description": "Native UI: Discover MCP servers",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Discover MCP servers",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editMcpServer",
+      "description": "Native UI: Edit MCP server",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Edit MCP server",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.empty",
+      "description": "Native UI: Empty",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Empty",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.enableSkill",
+      "description": "Native UI: Enable skill",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Enable skill",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.enabledInAgent",
+      "description": "Native UI: Enabled in Agent",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Enabled in Agent",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.enterADescriptionAndInstructions",
+      "description": "Native UI: Enter a description and instructions.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Enter a description and instructions.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.enterAnAuthorizationHeaderWithBearerAndYourGithubToken",
+      "description": "Native UI: Enter an Authorization header with Bearer and your GitHub token.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Enter an Authorization header with Bearer and your GitHub token.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.enterTheExecutableAndArgumentsAsInATerminalQuotePathsWithSpacesLithePassesExactArgumentsWithoutRunningAShellPipesAndRedirectsAreNotEvaluated",
+      "description": "Native UI: Enter the executable and arguments as in a terminal. Quote paths with spaces. Lithe passes exact arguments without running a shell; pipes and redirects are not evaluated.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Enter the executable and arguments as in a terminal. Quote paths with spaces. Lithe passes exact arguments without running a shell; pipes and redirects are not evaluated.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.featured",
+      "description": "Native UI: Featured",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Featured",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.featuredAndTheOfficialMcpRegistry",
+      "description": "Native UI: Featured and the official MCP Registry",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Featured and the official MCP Registry",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.featuredServersShipWithLitheAndWorkOfflineSearchingAlsoChecksTheOfficialMcpRegistryListingIsNotASecurityReviewAddingOpensAConfigurationToReviewPackagesAreNotDownloadedOrRunFollowThePublisherSDocumentationForAuthenticationAndOtherRequirements",
+      "description": "Native UI: Featured servers ship with Lithe and work offline. Searching also checks the official MCP Registry. Listing is not a security review. Adding opens a configuration to review; packages are not downloaded or run. Follow the publisher's documentation for authentication and other requirements.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Featured servers ship with Lithe and work offline. Searching also checks the official MCP Registry. Listing is not a security review. Adding opens a configuration to review; packages are not downloaded or run. Follow the publisher's documentation for authentication and other requirements.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.fetchWebPagesAndConvertTheirContentToMarkdownRequiresUvAndPython310OrLater",
+      "description": "Native UI: Fetch web pages and convert their content to Markdown. Requires uv and Python 3.10 or later.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Fetch web pages and convert their content to Markdown. Requires uv and Python 3.10 or later.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.fileInventoryOnlyClaudeDeterminesWhetherThisSkillIsAvailableInASession",
+      "description": "Native UI: File inventory only. Claude determines whether this skill is available in a session.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "File inventory only. Claude determines whether this skill is available in a session.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.githubRequiresAPersonalAccessTokenSetTheAuthorizationHeaderToBearerFollowedByYourTokenItIsStoredInTheAgentConfigurationFile",
+      "description": "Native UI: GitHub requires a personal access token. Set the Authorization header to Bearer followed by your token. It is stored in the Agent configuration file.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "GitHub requires a personal access token. Set the Authorization header to Bearer followed by your token. It is stored in the Agent configuration file.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.globalInstructions",
+      "description": "Native UI: Global instructions",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Global instructions",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.globalInstructionsApplyToAllProjectsUsingThisAgentEachAgentKeepsItsOwnNativeFile",
+      "description": "Native UI: Global instructions apply to all projects using this Agent. Each Agent keeps its own native file.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Global instructions apply to all projects using this Agent. Each Agent keeps its own native file.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.globalInstructionsAreAvailableForCodexAndClaudeCode",
+      "description": "Native UI: Global instructions are available for Codex and Claude Code.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Global instructions are available for Codex and Claude Code.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.globalInstructionsChangedOutsideThisEditorYourDraftIsKeptReloadBeforeSaving",
+      "description": "Native UI: Global instructions changed outside this editor. Your draft is kept; reload before saving.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Global instructions changed outside this editor. Your draft is kept; reload before saving.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.globalInstructionsMustBeNoLargerThan1Mib",
+      "description": "Native UI: Global instructions must be no larger than 1 MiB.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Global instructions must be no larger than 1 MiB.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.globalSkills",
+      "description": "Native UI: Global skills",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Global skills",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.importARegularFileOrDirectoryInsteadOfASymbolicLink",
+      "description": "Native UI: Import a regular file or directory instead of a symbolic link.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Import a regular file or directory instead of a symbolic link.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.importJson",
+      "description": "Native UI: Import JSON",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Import JSON",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.importMcpConfiguration",
+      "description": "Native UI: Import MCP configuration",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Import MCP configuration",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.importSkill",
+      "description": "Native UI: Import skill",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Import skill",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.importSkillDirectory",
+      "description": "Native UI: Import skill directory",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Import skill directory",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.importSkillMd",
+      "description": "Native UI: Import SKILL.md",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Import SKILL.md",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.importSource",
+      "description": "Native UI: Import source",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Import source",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.inspectChromePagesConsoleMessagesNetworkRequestsAndPerformance",
+      "description": "Native UI: Inspect Chrome pages, console messages, network requests and performance.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Inspect Chrome pages, console messages, network requests and performance.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.installCodexCliToDiscoverItsSkills",
+      "description": "Native UI: Install Codex CLI to discover its skills.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Install Codex CLI to discover its skills.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.instructionAgent",
+      "description": "Native UI: Instruction Agent",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Instruction Agent",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.instructionSynchronizationWasCancelled",
+      "description": "Native UI: Instruction synchronization was cancelled.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Instruction synchronization was cancelled.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.instructions",
+      "description": "Native UI: Instructions",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Instructions",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.instructionsSaved",
+      "description": "Native UI: Instructions saved.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Instructions saved.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.invalidMcpToolConfiguration",
+      "description": "Native UI: Invalid MCP tool configuration",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Invalid MCP tool configuration",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.invalidSharedInstructionRequest",
+      "description": "Native UI: Invalid shared instruction request.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Invalid shared instruction request.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.keepAPersistentKnowledgeGraphBetweenConversationsRequiresNodeJs24OrLater",
+      "description": "Native UI: Keep a persistent knowledge graph between conversations. Requires Node.js 24 or later.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Keep a persistent knowledge graph between conversations. Requires Node.js 24 or later.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.legacySseProbingIsUnavailableUseThePublisherSStreamableHttpEndpoint",
+      "description": "Native UI: Legacy SSE probing is unavailable. Use the publisher's Streamable HTTP endpoint.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Legacy SSE probing is unavailable. Use the publisher's Streamable HTTP endpoint.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.loadMore2",
+      "description": "Native UI: Load more",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Load more",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.manageSkills",
+      "description": "Native UI: Manage Skills…",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Manage Skills…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.managed",
+      "description": "Native UI: Managed",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Managed",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.mcpConnectionFailedCheckTheServerNetworkAndAuthentication",
+      "description": "Native UI: MCP connection failed. Check the server, network and authentication.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "MCP connection failed. Check the server, network and authentication.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.mcpDetectionTimedOutAfter30Seconds",
+      "description": "Native UI: MCP detection timed out after 30 seconds.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "MCP detection timed out after 30 seconds.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.mcpDetectionWasCancelled",
+      "description": "Native UI: MCP detection was cancelled.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "MCP detection was cancelled.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.mcpJson",
+      "description": "Native UI: MCP JSON",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "MCP JSON",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.mcpToolMetadataExceededTheInspectionLimit",
+      "description": "Native UI: MCP tool metadata exceeded the inspection limit.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "MCP tool metadata exceeded the inspection limit.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.nativeInstructionFile",
+      "description": "Native UI: Native instruction file",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Native instruction file",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.newMcpServer",
+      "description": "Native UI: New MCP server",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "New MCP server",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.newSkill",
+      "description": "Native UI: New skill",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "New skill",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.noMatchingMcpServers",
+      "description": "Native UI: No matching MCP servers",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No matching MCP servers",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.noMatchingSkills",
+      "description": "Native UI: No matching skills.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No matching skills.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.noSkillsInThisScope",
+      "description": "Native UI: No skills in this scope.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No skills in this scope.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.notDetected",
+      "description": "Native UI: Not detected",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Not detected",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.officialMcpRegistry",
+      "description": "Native UI: Official MCP Registry",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Official MCP Registry",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.openAProjectToManageItsSkills",
+      "description": "Native UI: Open a project to manage its skills.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Open a project to manage its skills.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.openPagesClickTypeAndInspectABrowserThroughItsAccessibilityTree",
+      "description": "Native UI: Open pages, click, type and inspect a browser through its accessibility tree.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Open pages, click, type and inspect a browser through its accessibility tree.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.openSkillMd",
+      "description": "Native UI: Open SKILL.md",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Open SKILL.md",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.pasteAJsonObjectContainingMcpservers",
+      "description": "Native UI: Paste a JSON object containing mcpServers.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Paste a JSON object containing mcpServers.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.pasteStandardJsonWithAnMcpserversObjectChooseAServerToReviewBeforeSavingOnlyTheEditorSSupportedCommandArgumentsEnvironmentUrlAndHeaderFieldsAreImportedAuthenticationAndClientSpecificOptionsMustBeConfiguredSeparatelyImportingDoesNotTakeOwnershipOfAnExistingEntry",
+      "description": "Native UI: Paste standard JSON with an mcpServers object. Choose a server to review before saving. Only the editor's supported command, arguments, environment, URL and header fields are imported; authentication and client-specific options must be configured separately. Importing does not take ownership of an existing entry.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Paste standard JSON with an mcpServers object. Choose a server to review before saving. Only the editor's supported command, arguments, environment, URL and header fields are imported; authentication and client-specific options must be configured separately. Importing does not take ownership of an existing entry.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.plugin",
+      "description": "Native UI: Plugin",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Plugin",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.previewImport",
+      "description": "Native UI: Preview import",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Preview import",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.projectSkills",
+      "description": "Native UI: Project skills",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Project skills",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.publicDirectoryMetadataIsSuppliedByTheOfficialMcpRegistryListingIsNotAnEndorsementOrASecurityReviewAddingOpensAnEditableConfigurationLitheDoesNotDownloadOrRunServerPackagesServersWithComplexInputsMustBeConfiguredUsingThePublisherSDocumentation",
+      "description": "Native UI: Public directory metadata is supplied by the official MCP Registry. Listing is not an endorsement or a security review. Adding opens an editable configuration; Lithe does not download or run server packages. Servers with complex inputs must be configured using the publisher's documentation.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Public directory metadata is supplied by the official MCP Registry. Listing is not an endorsement or a security review. Adding opens an editable configuration; Lithe does not download or run server packages. Servers with complex inputs must be configured using the publisher's documentation.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.readWriteAndSearchFilesOnlyInTheDirectoriesYouAllowRequiresNodeJs24OrLater",
+      "description": "Native UI: Read, write and search files only in the directories you allow. Requires Node.js 24 or later.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Read, write and search files only in the directories you allow. Requires Node.js 24 or later.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.refreshSkills",
+      "description": "Native UI: Refresh skills",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Refresh skills",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.registryWebsite",
+      "description": "Native UI: Registry website",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Registry website",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.reloadFromDisk",
+      "description": "Native UI: Reload from disk",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Reload from disk",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.reloadThisAgentBeforeSynchronizingInstructions",
+      "description": "Native UI: Reload this Agent before synchronizing instructions.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Reload this Agent before synchronizing instructions.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.reloadToolSettings",
+      "description": "Native UI: Reload tool settings",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Reload tool settings",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.reloadingReplacesThisDraftWithTheCurrentFileContents",
+      "description": "Native UI: Reloading replaces this draft with the current file contents.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Reloading replaces this draft with the current file contents.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.removeFromLibrary",
+      "description": "Native UI: Remove from library",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Remove from library",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.retryDirectly",
+      "description": "Native UI: Retry directly",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Retry directly",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.reviewConfiguration",
+      "description": "Native UI: Review configuration",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Review configuration",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.runAndDetect",
+      "description": "Native UI: Run and detect",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Run and detect",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.runThisMcpCommand",
+      "description": "Native UI: Run this MCP command?",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Run this MCP command?",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.saveInstructions",
+      "description": "Native UI: Save instructions",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Save instructions",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.saveSharedInstructions",
+      "description": "Native UI: Save shared instructions",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Save shared instructions",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.searchMcpServers",
+      "description": "Native UI: Search MCP servers",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Search MCP servers",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.searchMcpServersGithubBrowsersDocumentation",
+      "description": "Native UI: Search MCP servers — GitHub, browsers, documentation…",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Search MCP servers — GitHub, browsers, documentation…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.searchOfficialMicrosoftAndAzureDocumentationAndCodeSamples",
+      "description": "Native UI: Search official Microsoft and Azure documentation and code samples.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Search official Microsoft and Azure documentation and code samples.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.searchSkills",
+      "description": "Native UI: Search skills",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Search skills",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.searchTheOfficialMcpRegistry",
+      "description": "Native UI: Search the official MCP Registry",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Search the official MCP Registry",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.searchTheWebAndCodeAndRetrievePageContentForCodingAgents",
+      "description": "Native UI: Search the web and code, and retrieve page content for coding agents.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Search the web and code, and retrieve page content for coding agents.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.selectSkillMdOrItsContainingDirectory",
+      "description": "Native UI: Select SKILL.md or its containing directory.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Select SKILL.md or its containing directory.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.serverTools",
+      "description": "Native UI: Server tools",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Server tools",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.sharedInstructions",
+      "description": "Native UI: Shared instructions",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Shared instructions",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.sharedInstructionsCannotContainLitheSynchronizationMarkers",
+      "description": "Native UI: Shared instructions cannot contain Lithe synchronization markers.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Shared instructions cannot contain Lithe synchronization markers.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.sharedInstructionsChangedOutsideThisEditorReloadBeforeSaving",
+      "description": "Native UI: Shared instructions changed outside this editor. Reload before saving.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Shared instructions changed outside this editor. Reload before saving.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.sharedInstructionsSaved",
+      "description": "Native UI: Shared instructions saved.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Shared instructions saved.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.showingAvailableMatches",
+      "description": "Native UI: Showing available matches.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Showing available matches.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.skillActions",
+      "description": "Native UI: Skill actions",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Skill actions",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.skillFiles",
+      "description": "Native UI: Skill files",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Skill files",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.skillImportsCannotContainSymbolicLinksOrSpecialFiles",
+      "description": "Native UI: Skill imports cannot contain symbolic links or special files.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Skill imports cannot contain symbolic links or special files.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.skillInstructions",
+      "description": "Native UI: Skill instructions",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Skill instructions",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.skillMdExceedsThe128KibLimit",
+      "description": "Native UI: SKILL.md exceeds the 128 KiB limit.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "SKILL.md exceeds the 128 KiB limit.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.skillMdFrontmatterIsNotClosed",
+      "description": "Native UI: SKILL.md frontmatter is not closed.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "SKILL.md frontmatter is not closed.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.skillMdHasInvalidYamlFrontmatter",
+      "description": "Native UI: SKILL.md has invalid YAML frontmatter.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "SKILL.md has invalid YAML frontmatter.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.skillMdMustUseUtf8Text",
+      "description": "Native UI: SKILL.md must use UTF-8 text.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "SKILL.md must use UTF-8 text.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.skillMdNeedsANameAndDescription",
+      "description": "Native UI: SKILL.md needs a name and description.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "SKILL.md needs a name and description.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.skillMdNeedsInstructionsAfterItsFrontmatter",
+      "description": "Native UI: SKILL.md needs instructions after its frontmatter.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "SKILL.md needs instructions after its frontmatter.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.skillMdNeedsYamlFrontmatter",
+      "description": "Native UI: SKILL.md needs YAML frontmatter.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "SKILL.md needs YAML frontmatter.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.skillNameLowercaseWithHyphens",
+      "description": "Native UI: Skill name (lowercase-with-hyphens)",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Skill name (lowercase-with-hyphens)",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.skillProject",
+      "description": "Native UI: Skill project",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Skill project",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.skillSavedRefreshOrReconnectTheAgentIfItDoesNotAppearInTheConversation",
+      "description": "Native UI: Skill saved. Refresh or reconnect the Agent if it does not appear in the conversation.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Skill saved. Refresh or reconnect the Agent if it does not appear in the conversation.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.skillSettingSaved",
+      "description": "Native UI: Skill setting saved.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Skill setting saved.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.skillSettingsAreBusyRetryAfterTheOtherChangeFinishes",
+      "description": "Native UI: Skill settings are busy. Retry after the other change finishes.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Skill settings are busy. Retry after the other change finishes.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.skillSettingsChangedElsewhereRefreshAndRetry",
+      "description": "Native UI: Skill settings changed elsewhere. Refresh and retry.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Skill settings changed elsewhere. Refresh and retry.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.skillSettingsCouldNotBeUpdatedCheckTheSettingsFileAndRefresh",
+      "description": "Native UI: Skill settings could not be updated. Check the settings file and refresh.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Skill settings could not be updated. Check the settings file and refresh.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.skillSource",
+      "description": "Native UI: Skill source",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Skill source",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.skillTargetAgent",
+      "description": "Native UI: Skill target Agent",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Skill target Agent",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.skills",
+      "description": "Native UI: Skills",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Skills",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.startANewConversationAfterSavingToLoadTheUpdatedInstructionsProjectInstructionsStillApply",
+      "description": "Native UI: Start a new conversation after saving to load the updated instructions. Project instructions still apply.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Start a new conversation after saving to load the updated instructions. Project instructions still apply.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.stateUnknown",
+      "description": "Native UI: State unknown",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "State unknown",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.switchesSaveNativeAgentSettingsReconnectExistingConversationsToRefreshAvailableSkills",
+      "description": "Native UI: Switches save native Agent settings. Reconnect existing conversations to refresh available skills.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Switches save native Agent settings. Reconnect existing conversations to refresh available skills.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.syncAgain",
+      "description": "Native UI: Sync again",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Sync again",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.syncNeeded",
+      "description": "Native UI: Sync needed",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Sync needed",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.thatSkillNameIsReservedByClaudeChooseADifferentName",
+      "description": "Native UI: That skill name is reserved by Claude. Choose a different name.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "That skill name is reserved by Claude. Choose a different name.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theAgentDidNotApplyTheSkillSettingRefreshAndCheckProjectOrManagedConfiguration",
+      "description": "Native UI: The Agent did not apply the skill setting. Refresh and check project or managed configuration.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The Agent did not apply the skill setting. Refresh and check project or managed configuration.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theAgentUserDirectoryMustBeAnAbsolutePathCheckCodexHomeOrClaudeConfigDir",
+      "description": "Native UI: The Agent user directory must be an absolute path. Check CODEX_HOME or CLAUDE_CONFIG_DIR.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The Agent user directory must be an absolute path. Check CODEX_HOME or CLAUDE_CONFIG_DIR.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theFeaturedMcpCatalogCouldNotBeLoaded",
+      "description": "Native UI: The featured MCP catalog could not be loaded.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The featured MCP catalog could not be loaded.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theFileWillBeCreatedWhenYouSave",
+      "description": "Native UI: The file will be created when you save.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The file will be created when you save.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theGlobalInstructionFileMustUseUtf8Encoding",
+      "description": "Native UI: The global instruction file must use UTF-8 encoding.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The global instruction file must use UTF-8 encoding.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theInstructionDirectoryChangedReloadBeforeSaving",
+      "description": "Native UI: The instruction directory changed. Reload before saving.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The instruction directory changed. Reload before saving.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theInstructionPathMustBeARegularFileNotASymbolicLinkOrDirectory",
+      "description": "Native UI: The instruction path must be a regular file, not a symbolic link or directory.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The instruction path must be a regular file, not a symbolic link or directory.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theLitheSharedInstructionMarkersWereChangedRepairTheNativeFileBeforeSyncing",
+      "description": "Native UI: The Lithe shared instruction markers were changed. Repair the native file before syncing.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The Lithe shared instruction markers were changed. Repair the native file before syncing.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theMcpRegistryCouldNotBeLoadedTryAgainOrAddAServerManually",
+      "description": "Native UI: The MCP Registry could not be loaded. Try again or add a server manually.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The MCP Registry could not be loaded. Try again or add a server manually.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theMcpRegistryIsUnreachableCheckTheNetworkOrProxy",
+      "description": "Native UI: The MCP Registry is unreachable. Check the network or proxy.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The MCP Registry is unreachable. Check the network or proxy.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theMcpRegistryRequestTimedOutTryAgain",
+      "description": "Native UI: The MCP Registry request timed out. Try again.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The MCP Registry request timed out. Try again.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theSharedInstructionDirectoryMustBeAbsolute",
+      "description": "Native UI: The shared instruction directory must be absolute.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The shared instruction directory must be absolute.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theSkillCouldNotBePublishedCheckPermissionsAndExistingSkillNames",
+      "description": "Native UI: The skill could not be published. Check permissions and existing skill names.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The skill could not be published. Check permissions and existing skill names.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theSkillDestinationContainsASymbolicLinkOrNonDirectoryChooseARegularNativeSkillDirectory",
+      "description": "Native UI: The skill destination contains a symbolic link or non-directory. Choose a regular native skill directory.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The skill destination contains a symbolic link or non-directory. Choose a regular native skill directory.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theSkillDocumentIsUnavailableRefreshAndRetry",
+      "description": "Native UI: The skill document is unavailable. Refresh and retry.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The skill document is unavailable. Refresh and retry.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theSkillFileCouldNotBeOpened",
+      "description": "Native UI: The skill file could not be opened.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The skill file could not be opened.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theSkillFileCouldNotBeRead",
+      "description": "Native UI: The skill file could not be read.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The skill file could not be read.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theSkillIsNoLongerAvailableInThisScopeRefreshAndRetry",
+      "description": "Native UI: The skill is no longer available in this scope. Refresh and retry.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The skill is no longer available in this scope. Refresh and retry.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theSwitchControlsTheLitheSharedBlockNotTheAgentOrItsOwnInstructionsSaveSharedChangesBeforeSwitchingOpenARowToEditTheCompleteNativeFile",
+      "description": "Native UI: The switch controls the Lithe shared block, not the Agent or its own instructions. Save shared changes before switching. Open a row to edit the complete native file.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The switch controls the Lithe shared block, not the Agent or its own instructions. Save shared changes before switching. Open a row to edit the complete native file.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.thisEditorShowsTheCompleteNativeFileIncludingAnyLitheSharedBlockEditingSharedTextHereCanLeaveItOutOfSyncUseTheSharedEditorToUpdateAllEnabledAgents",
+      "description": "Native UI: This editor shows the complete native file, including any Lithe shared block. Editing shared text here can leave it out of sync; use the shared editor to update all enabled Agents.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This editor shows the complete native file, including any Lithe shared block. Editing shared text here can leave it out of sync; use the shared editor to update all enabled Agents.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.thisServerReportedNoTools",
+      "description": "Native UI: This server reported no tools.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This server reported no tools.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.thisToolIsRestrictedOutsideLitheEditTheNativeAgentPolicyToEnableIt",
+      "description": "Native UI: This tool is restricted outside Lithe. Edit the native Agent policy to enable it.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This tool is restricted outside Lithe. Edit the native Agent policy to enable it.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.unsavedChanges",
+      "description": "Native UI: Unsaved changes",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Unsaved changes",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.useSharedInstructions",
+      "description": "Native UI: Use shared instructions",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Use shared instructions",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.useSystemProxy",
+      "description": "Native UI: Use system proxy",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Use system proxy",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.useUpTo64LowercaseLettersDigitsAndSingleHyphensForTheSkillName",
+      "description": "Native UI: Use up to 64 lowercase letters, digits and single hyphens for the skill name.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Use up to 64 lowercase letters, digits and single hyphens for the skill name.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.viewSkill",
+      "description": "Native UI: View skill",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "View skill",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.whenShouldThisSkillBeUsed",
+      "description": "Native UI: When should this skill be used?",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "When should this skill be used?",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.workWithGithubRepositoriesIssuesPullRequestsAndActionsAPersonalAccessTokenIsRequired",
+      "description": "Native UI: Work with GitHub repositories, issues, pull requests and Actions. A personal access token is required.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Work with GitHub repositories, issues, pull requests and Actions. A personal access token is required.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.writeSharedInstructionsOnceThenEnableThemForEachAgentLitheOnlyChangesItsMarkedBlockTheRestOfEachNativeFileStaysYoursStartANewConversationToLoadChangesProjectInstructionsStillApply",
+      "description": "Native UI: Write shared instructions once, then enable them for each Agent. Lithe only changes its marked block; the rest of each native file stays yours. Start a new conversation to load changes. Project instructions still apply.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Write shared instructions once, then enable them for each Agent. Lithe only changes its marked block; the rest of each native file stays yours. Start a new conversation to load changes. Project instructions still apply.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.arg1DoesNotProvideArg2BecauseArg3AlreadyDoes",
+      "description": "Native UI: %1$@ does not provide %2$@ because %3$@ already does.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%1$@ does not provide %2$@ because %3$@ already does.",
+        "arguments": [
+          "arg1",
+          "arg2",
+          "arg3"
+        ]
+      },
+      "parameters": {
+        "arg1": "string",
+        "arg2": "string",
+        "arg3": "string"
+      }
+    },
+    {
+      "id": "native.arg1FilesHaveConflicts",
+      "description": "Native UI: %lld files have conflicts.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%lld files have conflicts.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "integer"
+      }
+    },
+    {
+      "id": "native.arg1FilesSelected",
+      "description": "Native UI: %lld files selected",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%lld files selected",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "integer"
+      }
+    },
+    {
+      "id": "native.arg1HoldsTheMetadataOfSeveralVersionControlSystemsChooseTheOneThatManagesIt",
+      "description": "Native UI: %@ holds the metadata of several version control systems. Choose the one that manages it.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%@ holds the metadata of several version control systems. Choose the one that manages it.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.arg1ProviderInsideThePlugin",
+      "description": "Native UI: %@ provider (inside the plugin)",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%@ provider (inside the plugin)",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.arg1ProviderInstalledOnThisMac",
+      "description": "Native UI: %@ provider (installed on this Mac)",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%@ provider (installed on this Mac)",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.arg1ProviderRunsWithArg2",
+      "description": "Native UI: %1$@ provider (runs with %2$@)",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%1$@ provider (runs with %2$@)",
+        "arguments": [
+          "arg1",
+          "arg2"
+        ]
+      },
+      "parameters": {
+        "arg1": "string",
+        "arg2": "string"
+      }
+    },
+    {
+      "id": "native.authenticationFailedLitheCannotAskForCredentialsYetSignInOnceWithTheCommandLineClientSoItStoresThemThenTryAgain",
+      "description": "Native UI: Authentication failed. Lithe cannot ask for credentials yet: sign in once with the command-line client so it stores them, then try again.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Authentication failed. Lithe cannot ask for credentials yet: sign in once with the command-line client so it stores them, then try again.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.baseRevision",
+      "description": "Native UI: Base revision",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Base revision",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.binaryFilesCannotBeCompared",
+      "description": "Native UI: Binary files cannot be compared.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Binary files cannot be compared.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.cleanUpWorkingCopy",
+      "description": "Native UI: Clean Up Working Copy",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Clean Up Working Copy",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.cleaningUp",
+      "description": "Native UI: Cleaning up…",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Cleaning up…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.clientArg1",
+      "description": "Native UI: Client: %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Client: %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.committed2",
+      "description": "Native UI: Committed.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Committed.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.committedRevisionArg1",
+      "description": "Native UI: Committed revision %@.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Committed revision %@.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.committing",
+      "description": "Native UI: Committing…",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Committing…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.detectAgain2",
+      "description": "Native UI: Detect Again",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Detect Again",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.detectingWorkingCopies",
+      "description": "Native UI: Detecting working copies…",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Detecting working copies…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.historyOfArg1",
+      "description": "Native UI: History of %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "History of %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.ignored",
+      "description": "Native UI: Ignored",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Ignored",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.litheCouldNotEvaluateTheVersionControlDataArg1",
+      "description": "Native UI: Lithe could not evaluate the version control data: %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Lithe could not evaluate the version control data: %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.localEditsToTheseFilesAreLost",
+      "description": "Native UI: Local edits to these files are lost.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Local edits to these files are lost.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.lockedByAnotherUser",
+      "description": "Native UI: Locked by another user",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Locked by another user",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.lockedInThisWorkingCopy",
+      "description": "Native UI: Locked in this working copy",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Locked in this working copy",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.markAsResolved",
+      "description": "Native UI: Mark as Resolved",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Mark as Resolved",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.markingAsResolved",
+      "description": "Native UI: Marking as resolved…",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Marking as resolved…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.mayConnectToTheRepositoryServer",
+      "description": "Native UI: May connect to the repository server",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "May connect to the repository server",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.missing",
+      "description": "Native UI: Missing",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Missing",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.moreActions2",
+      "description": "Native UI: More Actions",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "More Actions",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.morePathsChangedThanAreShown",
+      "description": "Native UI: More paths changed than are shown.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "More paths changed than are shown.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.movedFromArg1",
+      "description": "Native UI: Moved from %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Moved from %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.moving",
+      "description": "Native UI: Moving…",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Moving…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.noArg1WorkingCopyWasDetectedInThisWorkspace",
+      "description": "Native UI: No %@ working copy was detected in this workspace.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No %@ working copy was detected in this workspace.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.noRevisions",
+      "description": "Native UI: No revisions",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No revisions",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.openFile2",
+      "description": "Native UI: Open File",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Open File",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.propertiesModified",
+      "description": "Native UI: Properties modified",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Properties modified",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.readingChanges",
+      "description": "Native UI: Reading changes…",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Reading changes…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.replaced",
+      "description": "Native UI: Replaced",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Replaced",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.restartLitheToUseArg1",
+      "description": "Native UI: Restart Lithe to use %@.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Restart Lithe to use %@.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.rollBackTheSelectedChanges",
+      "description": "Native UI: Roll back the selected changes?",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Roll back the selected changes?",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.rollingBack",
+      "description": "Native UI: Rolling back…",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Rolling back…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.showAll",
+      "description": "Native UI: Show All",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Show All",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.showArg1Diff",
+      "description": "Native UI: Show %@ Diff",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Show %@ Diff",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.showHistory",
+      "description": "Native UI: Show History",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Show History",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.switched",
+      "description": "Native UI: Switched",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Switched",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theActionStoppedOnConflictedFilesResolveThemThenTryAgain",
+      "description": "Native UI: The action stopped on conflicted files. Resolve them, then try again.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The action stopped on conflicted files. Resolve them, then try again.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theFileIsTooLargeToCompare",
+      "description": "Native UI: The file is too large to compare.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The file is too large to compare.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theVersionControlClientCouldNotBeRunCheckThatItIsInstalled",
+      "description": "Native UI: The version control client could not be run. Check that it is installed.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The version control client could not be run. Check that it is installed.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theVersionControlProviderFailedToStart",
+      "description": "Native UI: The version control provider failed to start.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The version control provider failed to start.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theVersionControlProviderStoppedBeforeItWasReady",
+      "description": "Native UI: The version control provider stopped before it was ready.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The version control provider stopped before it was ready.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theWorkingCopyIsLockedByAnInterruptedActionRunCleanupThenTryAgain",
+      "description": "Native UI: The working copy is locked by an interrupted action. Run Cleanup, then try again.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The working copy is locked by an interrupted action. Run Cleanup, then try again.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theWorkingCopyIsOutOfDateUpdateItThenCommitAgain",
+      "description": "Native UI: The working copy is out of date. Update it, then commit again.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The working copy is out of date. Update it, then commit again.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theWorkingCopyWasCleanedUp",
+      "description": "Native UI: The working copy was cleaned up.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The working copy was cleaned up.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theWorkspace",
+      "description": "Native UI: The workspace",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The workspace",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theWorkspaceIsTooLargeToSearchCompletelySomeWorkingCopiesMayBeMissing",
+      "description": "Native UI: The workspace is too large to search completely; some working copies may be missing.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The workspace is too large to search completely; some working copies may be missing.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.thereAreTooManyChangesToListSomeAreNotShown",
+      "description": "Native UI: There are too many changes to list; some are not shown.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "There are too many changes to list; some are not shown.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.thisVersionControlProviderDoesNotSupportThisAction",
+      "description": "Native UI: This version control provider does not support this action.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This version control provider does not support this action.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.thisWorkingCopyFormatIsNotSupportedUpgradeItWithTheCommandLineClient",
+      "description": "Native UI: This working copy format is not supported. Upgrade it with the command-line client.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This working copy format is not supported. Upgrade it with the command-line client.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.thisWorkingCopyIsNoLongerAvailableRefreshAndTryAgain",
+      "description": "Native UI: This working copy is no longer available. Refresh and try again.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This working copy is no longer available. Refresh and try again.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.treeConflict",
+      "description": "Native UI: Tree conflict",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Tree conflict",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.typeChanged",
+      "description": "Native UI: Type changed",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Type changed",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.unversioned",
+      "description": "Native UI: Unversioned",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Unversioned",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.updated2",
+      "description": "Native UI: Updated.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Updated.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.updatedToRevisionArg1",
+      "description": "Native UI: Updated to revision %@.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Updated to revision %@.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.updating",
+      "description": "Native UI: Updating…",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Updating…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.versionControlProvider",
+      "description": "Native UI: Version control provider",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Version control provider",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.waitForTheRunningVersionControlActionToFinish",
+      "description": "Native UI: Wait for the running version control action to finish.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Wait for the running version control action to finish.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.workingCopy",
+      "description": "Native UI: Working copy",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Working copy",
+        "arguments": []
+      }
     }
   ]
 }

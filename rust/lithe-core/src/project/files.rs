@@ -17,6 +17,7 @@ use std::path::{Path, PathBuf};
 /// Default workspace exclusions, also used by Git discovery for generated directories.
 pub(crate) const BUILT_IN_HIDDEN_DIRECTORIES: &[&str] = &[
     ".git",
+    ".svn",
     ".worktree",
     ".worktrees",
     ".build",
@@ -439,7 +440,7 @@ pub fn search_everywhere(request: SearchRequest) -> Result<SearchResponse, CoreE
                 .filter(|name| {
                     !request.include_generated_file_names
                         || !BUILT_IN_HIDDEN_DIRECTORIES.contains(&name.as_str())
-                        || [".git", ".worktree", ".worktrees"].contains(&name.as_str())
+                        || [".git", ".svn", ".worktree", ".worktrees"].contains(&name.as_str())
                 })
                 .cloned()
                 .collect(),

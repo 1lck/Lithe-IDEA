@@ -32,6 +32,31 @@ to native positional formatting, literal percent signs and unmodified argument d
 
 ## Feature Contracts
 
+Global Agent instructions edit each upstream Agent's native user file, independently
+of the current project and provider. Opening settings is read-only. Codex uses
+`CODEX_HOME` (otherwise the user home `.codex`) and its first non-empty
+`AGENTS.override.md` / `AGENTS.md`; Claude uses `CLAUDE_CONFIG_DIR` (otherwise
+the user home `.claude`) and `CLAUDE.md`. The host resolves these locations;
+UI supplies no arbitrary read/write destination. Absolute native paths in snapshots
+are display and optimistic-write guards, not portable identifiers. A save checks
+the snapshot's path and revision, replaces the file atomically, and reads the
+effective source back. Failures retain the draft; reloading explicitly discards it
+only after a successful read. Drafts stay separate by Agent. Updated instructions
+load in a new native conversation; existing sessions are not rewritten or stopped.
+Project instructions retain the upstream Agent's precedence rules. See
+`fixtures/agent/agent-instructions-v1.json`.
+
+A user can also author one shared instruction text in platform-owned application
+support storage and opt each supported Agent into a delimited block in its native
+file. Synchronization preserves every byte outside that block. Turning a switch
+off removes only that block. Enabled, unknown and out-of-date states come from
+native snapshots, not a stored preference. Source saves and each target replacement
+are atomic individually, not a cross-file transaction: per-Agent conflicts remain
+visible and retryable while the saved shared draft and successful targets survive.
+No startup/background synchronization or extra prompt injection occurs. A malformed
+or duplicate marker is never repaired by overwriting it automatically. See
+`fixtures/agent/shared-instructions-v1.json`.
+
 Shared Monaco highlighting is owned by the current view/model pair. A queued
 callback for a closed or replaced model must finish without running against the
 new model or locking surviving documents. Primary, split and diff views share
@@ -768,3 +793,12 @@ JDT-owned workspace build paths and the existing platform-owned JDT state.
 - 固定 codex-acp 的 `session_info_update._meta.codex.error.willRetry == true` 和非空 `turnId` 是 macOS 重试显示的证据；该通知可能没有 `title`。共享样例 `codexRetry` 由官方 ACP SDK 往返验证，Host 继续透传元数据，不新增请求/事件种类或网络重试策略。
 - 状态隔离到会话，新进度清除重试显示，完成/失败/断连清理本轮状态，正在停止时不因迟到进度回退；不得显示未经脱敏的原始错误或从文本猜测重试次数。请求仍等待上游完成/取消确认，既有十分钟 prompt 上限和十秒取消上限不变。
 - 这次交付 macOS 展示；Windows 对话 UI 的消费与真实验收仍待完成。展示状态只在内存中，不写入 bundle、安装目录或上游历史。
+
+
+Agent skill management groups files by Global/Project and retains their Agent
+provenance. Codex-reported capabilities and Claude's partial directory inventory
+are distinct; neither file presence nor a management-list row proves that the
+current conversation has used a skill. Explicit create/import operations write
+only to native user/project directories and preserve existing skills. Explicit toggles write native settings: Codex by discovered path via its official App Server API, Claude by name via skillOverrides in user or project-local settings. Claude states are configured visibility, not effective managed/session policy. Never persist a separate Lithe enabled flag, move packages to simulate disablement, or claim that a change revokes already loaded session content. File
+contents remain untrusted document data. Settings discovery and file management
+must not create conversations, send prompts, or interrupt existing Agent work.

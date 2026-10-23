@@ -514,11 +514,12 @@ final class LitheDropdownResizeHandle: ProjectReplaceCornerHandleView {
 
 @MainActor
 private final class LitheContextMenuPanel: NSPanel {
+    var retainsParentKey = false
     var handleKey: ((NSEvent) -> Bool)?
     var handleContentKey: ((NSEvent) -> Bool)?
     var handleMouseMoved: ((NSEvent) -> Void)?
     var handleResizeCursor: ((NSEvent) -> Void)?
-    override var canBecomeKey: Bool { true }
+    override var canBecomeKey: Bool { !retainsParentKey }
     override func sendEvent(_ event: NSEvent) {
         if event.type == .keyDown, handleKey?(event) == true { return }
         if event.type == .mouseMoved { handleMouseMoved?(event) }
@@ -587,6 +588,8 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
     private var panel: LitheContextMenuPanel?
     private var localEventMonitor: Any?
     private var globalEventMonitor: Any?
+    private var parentKeyObserver: NSObjectProtocol?
+    private var applicationObserver: NSObjectProtocol?
     private var visibleFrame: NSRect = .zero
     private weak var customContentController: NSViewController?
     private var contentDismissed: (() -> Void)?
@@ -678,6 +681,11 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
         .environment(\.locale, locale)
 
         let panel = makePanel(contentController: NSHostingController(rootView: content), appearance: appearance)
+        // Action menus need keyboard navigation, but no text editor. Keep the
+        // originating window key so its native switches retain their on tint.
+        // Searchable/custom dropdowns still take key focus in the other show path.
+        let owner = parentWindow ?? NSApp.currentEvent?.window ?? NSApp.keyWindow
+        panel.retainsParentKey = owner?.isKeyWindow == true
         panel.handleKey = { selection.handle($0) }
         panel.acceptsMouseMovedEvents = true
         panel.handleMouseMoved = { [weak panel] event in
@@ -692,11 +700,22 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
 
         self.panel = panel
         triggerView = trigger
-        parentWindow?.addChildWindow(panel, ordered: .above)
+        owner?.addChildWindow(panel, ordered: .above)
         contentDismissed = onDismiss
         installEventMonitors()
         panel.orderFrontRegardless()
-        panel.makeKey()
+        if panel.retainsParentKey, let owner {
+            parentKeyObserver = NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification,
+                object: owner, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.dismiss() }
+            }
+            applicationObserver = NotificationCenter.default.addObserver(forName: NSApplication.didResignActiveNotification,
+                object: NSApp, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.dismiss() }
+            }
+        } else {
+            panel.makeKey()
+        }
     }
 
     private func makePanel(contentController: NSViewController, appearance: NSAppearance?) -> LitheContextMenuPanel {
@@ -1061,8 +1080,19 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
             matching: [.leftMouseDown, .rightMouseDown, .keyDown]
         ) { [weak self] event in
             guard let self else { return event }
-            if event.type == .keyDown, event.window === self.panel, self.panel?.handleKey?(event) == true {
-                return nil
+            if event.type == .keyDown,
+               self.panel?.childWindows?.contains(where: { ($0 as? LitheContextMenuPanel)?.retainsParentKey == true && $0.isVisible }) == true {
+                // A child action menu routes the key from this window itself.
+                return event
+            }
+            if event.type == .keyDown,
+               event.window === self.panel || (self.panel?.retainsParentKey == true && event.window === self.panel?.parent) {
+                if self.panel?.handleKey?(event) == true { return nil }
+                if self.panel?.retainsParentKey == true {
+                    // Unhandled typing/shortcuts belong to the parent only after dismissal.
+                    self.dismiss()
+                    return event
+                }
             }
             var eventWindow = event.window
             while let window = eventWindow {
@@ -1087,6 +1117,8 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
     }
 
     private func removeEventMonitors() {
+        if let parentKeyObserver { NotificationCenter.default.removeObserver(parentKeyObserver); self.parentKeyObserver = nil }
+        if let applicationObserver { NotificationCenter.default.removeObserver(applicationObserver); self.applicationObserver = nil }
         if let localEventMonitor {
             NSEvent.removeMonitor(localEventMonitor)
             self.localEventMonitor = nil

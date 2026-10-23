@@ -151,9 +151,27 @@ final class TranscriptReplay {
         try update(["sessionUpdate": "agent_message_chunk",
             "content": ["type": "text", "text": "Changes complete.\n\n```text\nTEST_PASSED\n```"]])
         try finish()
-        for value in [280.0, 350, 620, 350] {
-            window.setContentSize(NSSize(width: value, height: 600))
-            try await layout("finished-width-\(value)")
+        for (theme, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
+            window.appearance = NSAppearance(named: appearance)
+            for value in [280.0, 350, 486, 620, 350] {
+                window.setContentSize(NSSize(width: value, height: 600))
+                try await layout("finished-\(theme)-width-\(value)")
+                if !navigating {
+                    guard let document = scroll.documentView else { throw ReplayError.missingScrollView }
+                    let anchors = navigationAnchors(in: host)
+                    guard !anchors.isEmpty else { throw ReplayError.missingReply }
+                    // A narrow tool window must use the recovered leading space
+                    // while retaining the trailing clearance for navigation.
+                    for anchor in anchors {
+                        let row = anchor.convert(anchor.bounds, to: document)
+                        guard abs(row.minX - 12) < 1,
+                              abs(document.bounds.maxX - row.maxX - 40) < 1 else {
+                            throw ReplayError.messageColumnDoesNotFit(row: row, document: document.bounds)
+                        }
+                    }
+                    try capture("tool-window-\(theme)-width-\(value)")
+                }
+            }
         }
         guard feature.selectedConversation?.completedTurns.count == 5,
               feature.selectedConversation?.messages.last?.text.contains("TEST_PASSED") == true else {
@@ -273,5 +291,6 @@ private final class ReplayConnection: AgentConnection {
 private enum ReplayError: Error {
     case missingSession, missingPermission, remainingPermission, missingNotice, remainingNotice, missingReply, invalidCommand, missingScrollView, historyPositionWasLost
     case scrollbarWasNotAtEdge, navigationFailed(stage: String)
+    case messageColumnDoesNotFit(row: CGRect, document: CGRect)
     case latestReplyWasNotVisible(document: CGFloat, viewport: CGFloat, frame: CGFloat, inset: CGFloat)
 }

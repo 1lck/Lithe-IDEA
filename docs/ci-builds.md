@@ -351,9 +351,11 @@ Swift 文本文件策略直接调用 Rust Core，因此 `scripts/test-macos.sh` 
 当前工作树的 Core 静态库。它复用现有 `rust/target/macos` 构建路径；这是可变编译状态，
 不允许跨工作树复制或共享，也没有新增可复用资源目录。依赖下载仍按下文清单复用。
 Swift 单元、插件和数据库 CI 通道复用已有 Cargo 下载缓存。先通过
-`./scripts/test-macos.sh list` 构建并发现测试，独立步骤上限为 20 分钟；随后计时工具
+`./scripts/test-macos.sh list` 构建并发现测试，独立步骤上限为 40 分钟；随后计时工具
 传入 `--skip-build`，测试阶段保留 960 秒总时限及 17 分钟外层步骤时限，给超时清理
-与报告留出一分钟。冷构建不再消耗测试执行预算；单测试预算和无输出看门狗保持不变。
+与报告留出一分钟。构建失败时不生成合并报告，避免同一失败被重复计为“未生成测试
+报告”；构建成功而报告缺失仍会失败。冷构建不再消耗测试执行预算；单测试预算和无
+输出看门狗保持不变。
 
 ### 独立工作树的本地编译
 
@@ -367,6 +369,41 @@ macOS 字符串表、`AppLanguage.generated.swift`、Windows `shared.generated.t
 macOS 打包只在本次构建的目标目录转换为二进制字符串表，签名前完成；应用运行时
 只读取，不产生缓存或修改安装资源。维护步骤见 [共享翻译说明](../shared/i18n/README.md)。
 
+共享指令的 `Lithe/AgentInstructions/Shared.md`、`.sync.lock` 和同目录原子保存暂存文件登记为
+`agent-instruction-library-state`，由平台 storage adapter 的 Application Support 根目录提供。
+它们是可变用户配置，不具有版本/平台/架构/工具链身份；所有工作树复用阶段均拒绝复制，
+不从其他工作树或发行包导入。原生 Agent 指令文件同样保留用户归属；暂存文件随保存完成或失败清理，
+空锁文件属于用户资料的生命周期。运行时不写 app bundle、安装目录或 Sparkle delta 基线。
+
+MCP 工具检测会话、工具描述、原生规则快照和工具排除所有权登记为 `mcp-tool-probe-state`。
+这些内容属于用户资料和一次页面操作，没有版本/平台/架构/工具链 identity stamp，所有复用阶段均拒绝复制。
+官方 SDK 沿用 Cargo 锁定版本构建，stdio/HTTP 检测只在用户主动操作时运行；
+HTTP/SSE 响应体和 stdio 元数据限制为 2 MiB，原生文件由现有平台 adapter 条件替换并备份到 Application Support。
+工具名称所有权保存在平台偏好中，不存令牌；Codex 移除服务器后，允许/禁用工具名保留在
+同一用户资料的服务器账本 `toolFilters`，重新添加时恢复，不作为活动文件的所有权证明。
+这些保留值随资料持久化，不能复制到其他工作树；取消/离页释放进程与内存，不写 app bundle 或安装目录。
+用户明确运行包命令可能产生的 npm/uv 缓存归上游运行时管理，不属于可跨工作树复用的 Lithe 构建资源。
+
+MCP 编辑器、工具面板和指令页的原生验收截图分别输出到
+`.artifacts/test-stability/mcp-ui/` 与 `.artifacts/test-stability/instructions-ui/`，随
+`test-stability-macos` artifact 提供给评审下载。截图只渲染隔离 fixture 的实际产品视图，
+不读取桌面或真实用户配置；按 `agent-ui-test-evidence` 排除于所有工作树资源复制阶段，
+本地随报告保留，CI 按 artifact retention 回收，不进入发行包。
+
+MCP 发现页读取的官方 Registry 在线响应登记为 `mcp-registry-metadata`，仅在当前进程内存中保存。
+响应最多 1 MiB，由 Rust Core 校验；按搜索、分页和取消请求管理生命周期，没有持久缓存、
+平台/架构/工具链身份或允许复制的阶段。资源复用脚本明确拒绝该项，不下载服务器包或图片，
+也不写入 app bundle 或 Windows 安装目录，因此不改变签名和 Sparkle delta 基线。
+内置精选 `rust/lithe-core/src/mcp/featured.json` 属于 Git 跟踪的编译输入，随本工作树
+源码编译进 Core，运行时只读；不从缓存或其他工作树复制，不登记为下载/生成资源。
+查询路由默认使用系统代理，显式直连只改变当前页面的内存请求，不产生可复用状态。
+
+精选品牌图标 `macos/Sources/Lithe/Resources/McpIcons` 也是 Git 跟踪的固定输入，
+`NOTICE.json` 记录每个来源与 SHA-256，随 SwiftPM 资源 bundle 在构建时打包。
+该目录与精选 JSON 一起归入 `mcp-registry-metadata` 的不可复用说明：没有下载缓存、
+生成 identity stamp 或跨工作树复制阶段；版本由当前 Git 源码和清单哈希决定，
+不从其他工作树或已安装应用提取。运行时只读并在内存缓存解码结果，不访问图标网络，
+不改写签名包或 Sparkle delta 基线；Windows 未消费此 macOS 资源目录。
 Cargo 社区插件在 [独立仓库](https://github.com/Lithe-IDEA/lithe-plugin-cargo) 中构建，
 最终 ZIP、摘要、vendored Node SDK 和集成测试产物由该仓库的 `dist/`、`.artifacts/` 持有，
 不作为 Lithe 主仓库的下载缓存或可复用资源。Cargo 专属清单、模型金样与兼容性测试也由
