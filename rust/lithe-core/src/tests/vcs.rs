@@ -21,7 +21,7 @@ const MODEL: &str = include_str!(concat!(
 ));
 const SVN_PROVIDER: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../../shared/contracts/plugins/v1/fixtures/svn-provider.plugin.json"
+    "/../../shared/contracts/plugins/v1/fixtures/vcs-provider.plugin.json"
 ));
 
 fn model() -> Value {
@@ -75,7 +75,7 @@ fn the_provider_fixture_validates_and_is_reviewed_with_its_tool() {
         .unwrap_or_else(|| panic!("no provider program: {programs:?}"));
     assert_eq!(provider["vcs"], "svn");
     assert_eq!(provider["tool"], "node", "{provider}");
-    assert_eq!(provider["entry"], "provider/svn-provider.mjs");
+    assert_eq!(provider["entry"], "provider/main.mjs");
     assert_eq!(
         provider["vcsTool"],
         json!({ "commands": ["svn"], "validationArguments": ["--version", "--quiet"] })
@@ -162,7 +162,7 @@ fn a_launch_plan_names_the_vcs_provider_it_starts() {
     assert_eq!(plan["vcsProvider"]["vcs"], "svn", "{plan}");
     assert_eq!(
         plan["vcsProvider"]["origin"],
-        json!({ "kind": "plugin", "pluginID": "dev.lithe.fixture.svn-provider" })
+        json!({ "kind": "plugin", "pluginID": "dev.lithe.fixture.vcs-provider" })
     );
     assert_eq!(plan["vcsProvider"]["metadataPaths"], json!([".svn/wc.db"]));
 
@@ -314,7 +314,7 @@ fn detection_lists_providers_and_reports_conflicts_and_rejections() {
             json!([{
                 "pluginID": "com.example.svn",
                 "vcs": "svn",
-                "by": "dev.lithe.fixture.svn-provider"
+                "by": "dev.lithe.fixture.vcs-provider"
             }])
         );
         let rejected = detection["rejected"].as_array().unwrap();

@@ -91,8 +91,7 @@ struct LSPControlCenterView: View {
                 Button(usesChinese ? "重试 Maven 配置" : "Retry Maven configuration") {
                     sessions.retryMavenProfiles(providerID: descriptor.id)
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+                .buttonStyle(LitheActionButtonStyle())
             }
 
         }

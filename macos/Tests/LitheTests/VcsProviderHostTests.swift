@@ -99,6 +99,8 @@ struct VcsProviderHostTests {
         fixture.metadataWatchers.deliver([metadata.appendingPathComponent("wc.db")])
         #expect(await fixture.settled { fixture.providers.statusCount(root: enclosing) == 2 })
         #expect(fixture.providers.statusCount(root: lib) == 1)
+        // That status read starts the host's quiet period for every root.
+        fixture.clock.advance(by: .seconds(3))
         fixture.metadataWatchers.deliver([fixture.url("lib/.svn/wc.db")])
         #expect(await fixture.settled { fixture.providers.statusCount(root: lib) == 2 })
         #expect(fixture.providers.statusCount(root: enclosing) == 2)
@@ -300,6 +302,12 @@ struct VcsProviderHostTests {
         #expect(VcsProvidersFeatureModel.workspacePath("app/web", rootID: "../..", workspaceURL: workspace) == "")
         #expect(VcsProvidersFeatureModel.workspacePath("app/webapp/a.txt", rootID: "../..", workspaceURL: workspace) == nil)
         #expect(VcsProvidersFeatureModel.workspacePath("README", rootID: "../..", workspaceURL: workspace) == nil)
+        // Core's rule: only IDs made of `..` segments enclose the workspace;
+        // a folder inside it named `..repo` is an ordinary nested root.
+        #expect(VcsProvidersFeatureModel.workspacePath("a.txt", rootID: "..repo", workspaceURL: workspace) == "..repo/a.txt")
+        #expect(VcsRootState.isEnclosingRootID("..") && VcsRootState.isEnclosingRootID("../.."))
+        #expect(!VcsRootState.isEnclosingRootID("..repo") && !VcsRootState.isEnclosingRootID("../..repo")
+            && !VcsRootState.isEnclosingRootID(""))
     }
 
     // MARK: Tool window rules
@@ -411,7 +419,7 @@ struct VcsProviderHostTests {
             try JSONSerialization.jsonObject(with: VcsTestData.svnProviderManifest()) as? [String: Any]
         )
         _ = try DeclarativePluginTestSupport.writePackage(at: packageURL, manifest: object)
-        let entry = packageURL.appendingPathComponent("provider/svn-provider.mjs")
+        let entry = packageURL.appendingPathComponent("provider/main.mjs")
         try FileManager.default.createDirectory(at: entry.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data().write(to: entry)
         let operations = DeclarativePluginTestSupport.operations
@@ -460,7 +468,7 @@ struct VcsProviderHostTests {
         #expect(description.title == "svn provider (runs with node)")
         let lines = description.detail.components(separatedBy: "\n")
         #expect(lines.first?.hasPrefix("node ") == true, "\(lines)")
-        #expect(lines.first?.contains("svn-provider.mjs") == true, "\(lines)")
+        #expect(lines.first?.contains("provider/main.mjs") == true, "\(lines)")
         #expect(lines.dropFirst() == ["Client: svn", "May connect to the repository server"])
     }
 }
@@ -577,7 +585,7 @@ private enum VcsTestData {
     /// community plugin in its own repository.
     static func svnProviderManifest() throws -> Data {
         try Data(contentsOf: DeclarativePluginTestSupport.repositoryRoot
-            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/svn-provider.plugin.json"))
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/vcs-provider.plugin.json"))
     }
 
     static func detection(

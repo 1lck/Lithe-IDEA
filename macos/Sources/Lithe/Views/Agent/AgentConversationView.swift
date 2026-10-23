@@ -737,7 +737,7 @@ private struct AgentConnectionView: View {
                     onRestoreFile: onRestoreFile, isEditorLayout: isEditorLayout
                 )
                 AgentInlineNotice(text: message, status: .error)
-                Button("Reconnect", action: onConnect).padding(.bottom, 8)
+                Button("Reconnect", action: onConnect).buttonStyle(LitheActionButtonStyle()).padding(.bottom, 8)
             } else {
             AgentEmptyStateView(
                 systemImage: "exclamationmark.triangle",
@@ -798,14 +798,14 @@ struct AgentEmptyStateView: View {
                 .foregroundStyle(LitheTheme.EditorEmptyState.label)
                 .multilineTextAlignment(.center)
                 .textSelection(.enabled)
-            HStack(spacing: 8) {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 if let actionTitle, let action {
                     Button(actionTitle, action: action)
-                        .buttonStyle(LitheSecondaryButtonStyle())
+                        .buttonStyle(LitheActionButtonStyle())
                 }
                 if let secondaryActionTitle, let secondaryAction {
                     Button(secondaryActionTitle, action: secondaryAction)
-                        .buttonStyle(LitheSecondaryButtonStyle())
+                        .buttonStyle(LitheActionButtonStyle())
                 }
             }
             .padding(.top, 4)

@@ -11,8 +11,14 @@ mock.module("../utils/run-window-context", () => ({
   getRunWindowLabel: () => "project-window",
 }));
 
-const { executePreLaunchStep, startRunProcess, stopRunProcess, writeRunStdin } =
-  await import("../api/run-host-api");
+const {
+  executePreLaunchStep,
+  listOwnedRunProcesses,
+  startRunProcess,
+  stopOwnedRunProcesses,
+  stopRunProcess,
+  writeRunStdin,
+} = await import("../api/run-host-api");
 
 describe("run host API window scoping", () => {
   beforeEach(() => {
@@ -96,5 +102,19 @@ describe("run host API window scoping", () => {
         environment: { JAVA_HOME: "C:/jdk" },
       },
     });
+  });
+
+  test("owned process commands scope to this window or to every window", async () => {
+    await listOwnedRunProcesses("window");
+    await stopOwnedRunProcesses("window");
+    await listOwnedRunProcesses("application");
+    await stopOwnedRunProcesses("application");
+
+    expect(invoke.mock.calls as unknown[]).toEqual([
+      ["run_list_owned_processes", { windowLabel: "project-window" }],
+      ["run_stop_owned_processes", { windowLabel: "project-window" }],
+      ["run_list_owned_processes", { windowLabel: null }],
+      ["run_stop_owned_processes", { windowLabel: null }],
+    ]);
   });
 });

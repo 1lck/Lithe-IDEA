@@ -348,7 +348,7 @@ Git Log 文件点击始终走历史 Diff；保存记录内的前后文件导航�
 
 Worktrees 的列表与提交搜索直接使用共享搜索框，新增、刷新和复制按钮使用已有
 IDEA SVG 与工具栏按钮样式；详情标签使用 `LitheToolWindowTabStyle`，新建表单与
-操作按钮复用 `LitheCommitDialogInputStyle` / `LitheCommitDialogButtonStyle`。
+操作按钮复用 `LitheCommitDialogInputStyle` / `LitheActionButtonStyle`。
 详情按普通分区呈现，不另画一套卡片、搜索边框或蓝色列表描边。
 
 工作树仍保留原生多行列表和原生滚动容器，以免样式调整恢复逐行 SwiftUI 布局成本。
@@ -842,7 +842,7 @@ Agent 输入区底栏的切换菜单向上展开，菜单底边锚定触发控�
 欢迎页 New Project、Open、Clone Repository 与 Commit、Test Performance 共用
 `Views/Components/LitheActionButtonStyle.swift` 的 `LitheActionButtonStyle`，不再保留页面私有按钮样式。
 统一圆角半径 4pt、最小宽度 72pt、内容留白 14pt、可见高度 28pt、13pt Regular；
-欢迎页按钮组间距仍为 6pt。表单默认保留 3pt 外部边框留白；欢迎页使用 0pt，
+欢迎页按钮组间距仍为 6pt。全部普通文字按钮取消外部焦点留白，欢迎页与表单均为 0pt，
 悬停底色统一读取 `LitheTheme.hoverBackground`，页面不得再传入自己的按钮悬停颜色；
 该规则同时适用于欢迎页、Commit、Test 和打开项目弹窗。主按钮和禁用样式保留各自语义。
 依据 Community `b75ab523e6adbe1d26112219729eacbcfd24daa0`（`idea/262.9437.185`）的
@@ -852,10 +852,63 @@ Agent 输入区底栏的切换菜单向上展开，菜单底边锚定触发控�
 
 按钮文字保持 13pt Regular，水平内容留白按 `DarculaButtonUI.HORIZONTAL_PADDING` 使用 14pt；
 28pt 高度、边框和焦点逻辑保持不变；悬停底色由共享主题维护。
-共享入口支持主按钮与禁用状态，不改变欢迎页字重及按压反馈。后续全项目普通文字动作按钮
-均以此入口迁移，避免在页面另写 `.bordered`、局部悬停色或重复的按钮几何；本轮不批量迁移其他页面。
+共享入口支持主按钮与禁用状态，不改变欢迎页字重及按压反馈。全项目普通文字动作按钮
+均以此入口迁移，避免在页面另写 `.bordered`、局部悬停色或重复的按钮几何。
 工具栏图标、标签和选择器仍由各自共享入口管理，其悬停配色继续复用主题 token。
 最小宽度允许长文案继续增长，不能把全部按钮固定为 72pt。
+普通文字按钮不设固定最大宽度，不使用等宽拉伸；文案较长时保留14pt内边距并自然增长。
+相邻按钮的可见边缘间距固定6pt，横排、竖排都读取共享间距。SwiftUI 的动作行使用
+`LitheTheme.ActionButton.spacing`，表单 Footer 与业务动作行消费同一值。左右不同功能区间原有 Spacer 不充当按钮组间距，
+链接、选择器、标签、工具栏图标与连体拆分按钮保留各自布局。
+页面不得用 min/max width、height、padding、局部 font 或额外焦点留白覆盖普通动作几何。
+提交区狭窄时换行，不再把按钮压成小字、减半内边距或截断按钮文字。
+父分隔面板的默认及最小高度同时为顶部Amend换行和底部按钮纵排各预留两行动作高度，
+再加至少50pt输入区及共享留白（当前195pt），
+不再沿用124pt预算。横排时保留这份最小预算，避免连续缩窄过程中向父页面发布测量状态；
+真实 `CommitAreaView` 与 `LitheSplitPaneView` 的回归覆盖宽→窄→宽及深浅主题的控件边界。
+Java 构建失败弹窗也按实际可用宽度在横排和竖排之间选择，英文恢复索引动作不得溢出590pt窗口。
+设置页确认/取消不再保留旧的文字最小宽度，避免52pt文字槽叠加新内边距后变成80pt按钮。
+插件安装确认的两个按钮均走共享样式和6pt间距，但仍由取消承接Return，避免误安装。
+
+
+全项目文字动作按钮复用 `LitheActionButtonStyle`，参数、颜色和按钮组间距归 `LitheTheme.ActionButton`；
+删除旧的 Primary、Secondary、CommitDialog 和 ProjectReplace 按钮绘制，不保留兼容包装层。
+原来使用 SwiftUI bordered/borderedProminent 的产品按钮也走该入口，不再保留页面私有的紧凑几何。
+普通文字动作一律28pt高、72pt最小宽，保留常规字体、4pt圆角、共享禁用颜色与欢迎页hover。
+系统文件选择器、
+系统警告、菜单项、链接、标签、选择器和工具栏图标不套用文字按钮的最小宽度。
+Go To Line 的原生输入和 Return/Esc 验证不变，仅以 SwiftUI 承载共享的 Cancel/OK 按钮。
+
+用户选定的“标准实蓝”为主操作专用色：常态 `#2D62CC`、hover `#2453B3`、按下
+`#1D4699`，三种状态均为实色白字，不用透明度制造浅蓝。该选择独立于全局主题 accent，
+不改变输入框焦点、列表选择、复选框、链接及工具栏运行/停止语义色；危险操作仍保留红色。
+按钮不绘制 IDEA 的焦点外圈；SwiftUI 隐藏系统焦点效果，保留焦点及键盘激活，
+使用文字下划线提示焦点。
+macOS 14+ 使用系统提供的焦点效果关闭接口；macOS 13 不调用不可用 API，
+目前未在 13 实机完成 Tab 焦点外圈验收，不能用新系统截图代替该兼容性结论。
+
+共享文字动作样式内部复用 `lithePointer()`，恢复迁移前主/次按钮的悬停手形反馈。
+指针修饰器通过已有环境开关让后代指针停止压入光标栈，已有外层指针仍由外层负责；
+禁用、显式关闭手形的页面和视图卸载仍沿用原有清理逻辑。不要为同一按钮再增加独立光标实现。
+插件详情操作组也按横向可用宽度切换为纵排，内部不再强制整组理想宽度；
+极长目标版本放不下单个按钮时显示本地化“更新”，完整目标版本保留在悬停提示及无障碍值中。
+代价是最窄布局的按钮不直接展示版本号；换取 160pt 详情下限仍能使用全部操作，
+不压缩共享按钮内边距。`PluginDetailLayoutTests` 覆盖真实详情视图的中英文、深浅主题、
+最小设置窗口对应的内容宽度以及详情分隔容器下限，并检查紧凑更新动作仍可点击。
+提交结果中的清除/查看重试、历史改写的刷新预览、交互变基的重载范围也使用共享文字按钮。
+提交结果动作和结果列表共处原有最高90pt滚动区，采用6pt间距，避免新增的28pt按钮侵占
+父面板中的输入区和提交页脚。父面板仅在存在结果时额外预留90pt（共285pt），
+结果清除后恢复原195pt下限；这由业务状态决定，不读取连续缩放中的内容测量。重试按钮使用较短的“查看并重试…”并保留完整操作提示；
+真实父面板回归同时覆盖有/无失败结果，仍检查输入区和页脚边界。
+
+本次只迁移 macOS；Windows 仍保留原有按钮组件，完整标准尚未同步。
+
+不采用的方案是全局修改 accent/primary（会连带改变选择和输入焦点），以及保留多套
+外观相近的按钮 renderer（会继续让 hover、禁用和字重分叉）。代价是原来30px高、
+Medium字重的普通按钮会变为欢迎页的28px、Regular；不再以 xs 或局部 frame/padding 缩小普通动作。
+回归依据为 `CommitActionButtonStyleTests` 的深浅、主/普通、禁用及几何检查，
+以及原生 Go To Line、Search Everywhere 的键盘与点击回归。
+
 按钮同时保留内容所需的水平宽度（`fixedSize(horizontal: true, vertical: false)`），
 避免搜索区与按钮组分配空间时把长文案压缩成省略号；搜索区仍可随可用空间收缩。
 
@@ -1485,7 +1538,7 @@ chevron SVG和Tree的图标槽、19pt层级缩进，保留加载与展开动作�
 内联 Add to Watch 只提交求值输入框中的非空表达式；空白时禁用，避免模型拒绝空值而按钮看似无响应。
 Watches 标题的＋继续打开新增弹窗，已有监视的编辑菜单复用同一弹窗。
 弹窗输入复用 `LitheSearchTextField` 和 `litheSearchField` 的普通字体、占位色、边框及焦点环，
-取消/保存复用 `LitheSecondaryButtonStyle` / `LithePrimaryButtonStyle`；不保留原生 roundedBorder 或另画输入框。
+取消/保存复用 `LitheActionButtonStyle` 的普通/主操作分支；不保留原生 roundedBorder 或另画输入框。
 打开后聚焦表达式，Enter 仅在非空时保存，Esc 取消；空白保护同时覆盖按钮和键盘提交。
 复验新增与编辑初值、中文输入法、深浅主题、聚焦/失焦及原有去重和暂停求值流程。
 
@@ -1622,9 +1675,9 @@ Islands `*.foreground`→`text-default`（dark #D1D3D9/light black）；共享 A
 Test Performance 的 Show Results 改为复用 `LitheActionButtonStyle`：从 CommitAreaView
 移至共享组件，Commit 操作继续消费同一个实现。依据同 revision 的 DarculaButtonUI、
 DarculaButtonPainter、DarculaButtonBorder 与 ManyIslands 明暗主题：28pt 可见高度、
-72pt 最小宽度、14pt 文字内边距、3pt 外部边框留白、4pt 圆角和13pt常规字。普通按钮
+72pt 最小宽度、14pt 文字内边距、4pt 圆角和13pt常规字。Lithe 按欢迎页去掉上游用于焦点外圈的3pt外部留白。普通按钮
 深色透明、浅色白底；禁用使用独立 text-disabled/control-border-disabled，不能整块降透明度。
-上游普通文字按钮不另外叠加 hover/pressed 底色，保留默认箭头。录制图标仍走共享工具栏
+上游普通文字按钮不另外叠加 hover/pressed 底色；Lithe 按用户确认的欢迎页标准保留 hover，文字动作通过共享样式提供手形光标。录制图标仍走共享工具栏
 按钮，原始 SVG 已应用 IDEA GrayFilter，禁用时不再叠加按钮透明度。
 
 Show Results 的结果窗口同时复用 Git Patch 等表单的 `LitheCenteredPopup(dialogTitle:)`，

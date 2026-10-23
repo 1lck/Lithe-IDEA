@@ -442,7 +442,7 @@ private struct InstalledPluginsView: View {
                     Button(LocalizedStringKey("Uninstall")) {
                         performPackageAction { await model.uninstallPlugin(pluginID) }
                     }
-                    .controlSize(.small)
+                    .buttonStyle(LitheActionButtonStyle())
                     .disabled(isManagingPackage)
                 }
             }
@@ -522,7 +522,7 @@ private struct InstalledPluginsView: View {
     }
 
     private var footer: some View {
-        HStack {
+        HStack(spacing: LitheTheme.ActionButton.spacing) {
             Spacer()
             Text(LocalizedStringKey("Pending plugin changes: \(pendingEnabledStates.count)"))
                 .font(LitheTheme.smallFont)
@@ -530,7 +530,7 @@ private struct InstalledPluginsView: View {
             Button(LocalizedStringKey("Cancel")) {
                 settingsState.pendingPluginEnabledStates.removeAll()
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(LitheActionButtonStyle())
             .disabled(isApplyingChanges)
             Button {
                 Task { @MainActor in
@@ -543,8 +543,7 @@ private struct InstalledPluginsView: View {
                     Text(LocalizedStringKey("Confirm"))
                 }
             }
-            .buttonStyle(.borderedProminent)
-            .tint(LitheTheme.accent)
+            .buttonStyle(LitheActionButtonStyle(isPrimary: true))
             .disabled(isApplyingChanges)
         }
         .padding(.horizontal, 14)

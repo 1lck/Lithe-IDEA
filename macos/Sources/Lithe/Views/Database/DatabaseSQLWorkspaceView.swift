@@ -755,11 +755,11 @@ private struct DatabaseSchemaEditorView: View {
                 }.padding(16)
             }.litheScrollViewChrome()
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
-            HStack {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Spacer()
-                Button("Cancel", action: onCancel).buttonStyle(LitheCommitDialogButtonStyle()).keyboardShortcut(.cancelAction)
+                Button("Cancel", action: onCancel).buttonStyle(LitheActionButtonStyle()).keyboardShortcut(.cancelAction)
                 Button("Apply") { onSave(makeChange()) }
-                    .buttonStyle(LitheCommitDialogButtonStyle(primary: true)).keyboardShortcut(.defaultAction).disabled(!isValid)
+                    .buttonStyle(LitheActionButtonStyle(isPrimary: true)).keyboardShortcut(.defaultAction).disabled(!isValid)
             }.padding(16)
         }
         .font(LitheTheme.uiFont(size: 13)).foregroundStyle(LitheTheme.primaryText)
@@ -1001,14 +1001,14 @@ private struct DatabaseBackupScheduleEditor: View {
                 Stepper("Keep \(retentionCount) recovery points", value: $retentionCount, in: 1...365)
             }
             .formStyle(.grouped)
-            HStack {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Spacer()
-                Button("Cancel") { dismiss() }
+                Button("Cancel") { dismiss() }.buttonStyle(LitheActionButtonStyle())
                 Button("Save") {
                     feature.configureBackupSchedule(profileID: profile.id, isEnabled: enabled, intervalHours: intervalHours, retentionCount: retentionCount)
                     dismiss()
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(LitheActionButtonStyle(isPrimary: true))
             }
             .padding(16)
         }

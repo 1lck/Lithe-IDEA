@@ -150,6 +150,8 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     private var requestProjectOpen: ((URL) -> Void)?
     private var requestProjectOpenAtPlacement: ((URL, ProjectOpenPlacement) -> Void)?
     private var didCloseProject: (() -> Void)?
+    /// Asks whether this project's Run services may stop; set by the session manager.
+    private var confirmRunServicesBeforeClose: (@MainActor ([RunServiceExitCandidate]) async -> Bool)?
     var javaTestWorkflowState: JavaTestWorkflowState {
         featureGraph.javaTestWorkflow
     }
@@ -518,6 +520,12 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
                 beginDocumentClose: { [weak self] in
                     self?.documentFeature.beginProjectClose() ?? false
                 },
+                runServicesCloseConfirmation: { [weak self] in
+                    guard let self, let confirm = self.confirmRunServicesBeforeClose else { return nil }
+                    let services = self.runServiceExitCandidates
+                    guard !services.isEmpty else { return nil }
+                    return { await confirm(services) }
+                },
                 restoreDebugBreakpoints: { [weak self] url in
                     await self?.restoreDebugBreakpoints(for: url)
                 },
@@ -678,11 +686,13 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     func configureProjectSession(
         requestOpen: @escaping (URL) -> Void,
         didClose: @escaping () -> Void,
-        requestOpenAtPlacement: ((URL, ProjectOpenPlacement) -> Void)? = nil
+        requestOpenAtPlacement: ((URL, ProjectOpenPlacement) -> Void)? = nil,
+        confirmRunServicesBeforeClose: (@MainActor ([RunServiceExitCandidate]) async -> Bool)? = nil
     ) {
         requestProjectOpen = requestOpen
         didCloseProject = didClose
         requestProjectOpenAtPlacement = requestOpenAtPlacement
+        self.confirmRunServicesBeforeClose = confirmRunServicesBeforeClose
     }
 
     func setProjectSessionActive(_ isActive: Bool) {

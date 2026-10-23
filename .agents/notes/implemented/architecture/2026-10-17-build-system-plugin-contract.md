@@ -35,7 +35,7 @@ Rust Core 负责校验声明、识别工程、展开每一条命令行，并把�
 
 没有声明的能力不报错，也不会出现在界面上。例如 Cargo fixture 没有声明依赖树，Build 工具窗口就不显示依赖区。
 
-字段全集只写在 `shared/contracts/plugins/v1/README.md` 的 “API level 3: build systems” 一节和 `plugin-manifest.schema.json` 里，本 Note 不重复。四个 fixture（`cargo-build`、`go-build`、`gradle-build`、`maven-build`）是完整示例，`gradle-provider`、`mix-provider` 分别示范 Provider 的两种写法。
+字段全集只写在 `shared/contracts/plugins/v1/README.md` 的 “API level 3: build systems” 一节和 `plugin-manifest.schema.json` 里，本 Note 不重复。四个 fixture 各示范一种模型来源，按能力命名而不是按真实插件命名：`build-static-file`（读项目文件，内容用 Cargo）、`build-command-stdout`（解码命令输出，内容用 Go）、`build-command-output-file`（解码命令写出的文件，内容用 Gradle）、`build-host-integration`（交给宿主集成，内容用 Maven）。`build-provider`、`build-provider-language-server` 分别示范 Provider 的两种写法。
 
 ### 2. Core 与宿主的分工
 
@@ -69,7 +69,7 @@ Rust Core 负责校验声明、识别工程、展开每一条命令行，并把�
 插件可以自由描述（不需要改 Core）：
 
 - **任何构建工具**：ID、标记文件、任务、选项、运行入口、测试过滤器、诊断正则、依赖命令都是数据。
-- **可执行文件**：按偏好顺序列出候选，有四种：
+- **可执行文件**：按偏好顺序列出候选，有四种基础来源：
   - `projectFile`：工程里的 Wrapper（例如 `gradlew`），可以要求某些文件存在。它一律被视为执行仓库代码。
   - `environment`：某个环境变量下的相对路径，例如 `MAVEN_HOME` 下的 `bin/mvn`。变量必须列在 `environmentInputs` 里，宿主只传这些变量。
   - `command`：在 `PATH` 上查找的裸命令名。
@@ -333,11 +333,11 @@ macOS 接入规则（2026-10-18）：
 ## 验证
 
 - `cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib build_systems`：四个 fixture 通过校验；`build-plans.json` 的全部标准答案；在临时工作区里验证 Cargo 运行入口与内置探测器逐字一致、嵌套、优先级与拒绝、Maven reactor 识别、Gradle 规范格式输出文件、JUnit 报告、同步指纹、Maven 任务参数与内置实现一致，以及互斥条件下允许重复引用选项。
-- `cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib build_systems` 还覆盖 Provider：`build-plans.json` 里 `gradle-provider`、`mix-provider` 的请求计划和 `result` 解码；`provider_processes_are_install_review_programs`（自有进程和共享写法在安装审查中的条目）；`launch_plans_name_exactly_one_process`；`provider_models_are_not_read_during_detection`。
+- `cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib build_systems` 还覆盖 Provider：`build-plans.json` 里 `build-provider`、`build-provider-language-server` 的请求计划和 `result` 解码；`provider_processes_are_install_review_programs`（自有进程和共享写法在安装审查中的条目）；`launch_plans_name_exactly_one_process`；`provider_models_are_not_read_during_detection`。
 - `cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib declarative_plugins`：`invalid-manifests.json` 里的非法清单，包括社区插件声明 `hostIntegration`、未声明权限、路径越界、未保护的模板变量和选项重复放置，以及 Provider 的十种错误写法（没有来源使用、混写、缺少标志、缺少权限、入口越界、不支持的运行时、未声明的设置等），和裁剪后不再接受的九种写法（静态 `yaml`、命令 `json`、任务规则、顶层目标、`parent`、映射标签、`parentDirectory`、依赖 `children`、`layout.generated`）；`command-plans.json` 里按 `buildSystemID` 选中的启动计划。
 - `declarative_plugins::build_providers_require_their_own_host_capability` 与 `marketplace_plugins::build_provider_versions_require_host_support_before_download` 验证 Provider 能力与声明式构建分开，安装审查的共享 fixture 同时覆盖自有进程和共享写法。
 - `cargo test -p lithe-core --lib lsp`：`lsp/interface/build_provider.rs` 验证只有宿主提供过的版本算协商成功、版本 1 只接受两个方法；`engine.rs` 的测试验证协商后的会话写出 `lithe/build/*` 并返回结果，未协商或方法不在版本里时直接失败、不写入进程。
-- `./scripts/test-macos.sh --filter 'BuildSystemServiceTests'` 的 Provider 用例：`providerModelSendsThePlannedRequestAndDecodesItsReply`、`providerDependenciesDecodeTheProvidersReply` 验证请求原样发给按插件、构建系统和工作区确定的目标，回复作为 `providerResult` 交给 Core 解码且不启动命令；`workspaceSwitchAndDisabledPluginStopTheirProviders` 验证停用插件和切换工作区停止进程、插件列表不变时保留；`providerModelFailsWithoutAProviderHost`、`failedProviderRequestReportsItsMessage` 验证失败路径。`providerModelLoadCarriesTheResolvedToolWithoutRefresh`、`providerReloadsAskForARefresh`、`providerLoadsWithoutTheToolWhenResolutionFails`、`commandModelLoadsDoNotResolveAProviderTool` 验证加载原因和工具路径：首次加载不带 `refresh`、重新加载的模型和依赖都带，工具只在 Provider 请求时解析，解析失败时请求照常发出且 Build Output 写明原因；`MacBuildProviderSessionsTests.providerHintsReachTheProcessUnchanged` 验证这两个字段原样到达进程，`PluginWebBridgeTests.pageRefreshReloadsTheModel` 验证网页的 `build.refresh` 算重新加载。`build-plans.json` 的 `gradle provider … refresh …`、`… tool must be an absolute path`、`gradle model command ignores …` 用例覆盖 Core 的写入、校验和命令来源忽略。`PluginMarketplaceServiceTests.buildProvidersAreAcceptedByTheMacOSHost` 验证 `gradle-provider`、`mix-provider` 能通过 macOS 的安装审查。`MacBuildProviderSessionsTests` 用真实的 `MacBuildProviderSessions` 和脚本化 Core 验证：重复请求复用进程，按插件停止后下一次请求重新启动；设置变化后按新参数重启；包内入口不可执行时不启动进程。`PluginPackageStoreTests.unusablePackagedBuildProviderIsRefused`、`buildProviderRuntimeEntryMustBeInThePackage` 验证安装时校验 Provider 的包内入口：缺失、不可执行、经过符号链接都被拒绝，运行时入口缺失也被拒绝。
+- `./scripts/test-macos.sh --filter 'BuildSystemServiceTests'` 的 Provider 用例：`providerModelSendsThePlannedRequestAndDecodesItsReply`、`providerDependenciesDecodeTheProvidersReply` 验证请求原样发给按插件、构建系统和工作区确定的目标，回复作为 `providerResult` 交给 Core 解码且不启动命令；`workspaceSwitchAndDisabledPluginStopTheirProviders` 验证停用插件和切换工作区停止进程、插件列表不变时保留；`providerModelFailsWithoutAProviderHost`、`failedProviderRequestReportsItsMessage` 验证失败路径。`providerModelLoadCarriesTheResolvedToolWithoutRefresh`、`providerReloadsAskForARefresh`、`providerLoadsWithoutTheToolWhenResolutionFails`、`commandModelLoadsDoNotResolveAProviderTool` 验证加载原因和工具路径：首次加载不带 `refresh`、重新加载的模型和依赖都带，工具只在 Provider 请求时解析，解析失败时请求照常发出且 Build Output 写明原因；`MacBuildProviderSessionsTests.providerHintsReachTheProcessUnchanged` 验证这两个字段原样到达进程，`PluginWebBridgeTests.pageRefreshReloadsTheModel` 验证网页的 `build.refresh` 算重新加载。`build-plans.json` 的 `gradle provider … refresh …`、`… tool must be an absolute path`、`gradle model command ignores …` 用例覆盖 Core 的写入、校验和命令来源忽略。`PluginMarketplaceServiceTests.buildProvidersAreAcceptedByTheMacOSHost` 验证 `build-provider`、`build-provider-language-server` 能通过 macOS 的安装审查。`MacBuildProviderSessionsTests` 用真实的 `MacBuildProviderSessions` 和脚本化 Core 验证：重复请求复用进程，按插件停止后下一次请求重新启动；设置变化后按新参数重启；包内入口不可执行时不启动进程。`PluginPackageStoreTests.unusablePackagedBuildProviderIsRefused`、`buildProviderRuntimeEntryMustBeInThePackage` 验证安装时校验 Provider 的包内入口：缺失、不可执行、经过符号链接都被拒绝，运行时入口缺失也被拒绝。
 - `./scripts/verify-shared-contracts.sh`：schema 与 fixture 一致；`build-plans.json` 的用例名唯一、操作合法、拒绝码都有文档、不含机器路径；`command-plans.json` 的每个用例只给出 `languageID`、`buildSystemID` 之一。
 - `./scripts/verify-rust-core-comments.sh`：`build/` 模块的注释规范。
 - `./scripts/test-macos.sh --filter 'BuildSystemToolWindowTests'`：选项根选择保留各实例的候选和生效值，原生菜单动作覆盖自定义单选替换、多选追加及取消已选自定义值；原生 `NSTextField` 提交验证 text/file/directory 清空后提交 `""` 而非重置。设置 `LITHE_BUILD_CAPTURE_DIR` 后可导出选项行的明暗截图。`BuildSystemServiceTests.instanceOptionEditsPreserveSiblingOnlySelections` 验证编辑一个实例不会丢掉另一个实例独有的选择；`languageImportPublishesTheSameEffectiveOptionsAsBuildPlansAndClearsDisabledPlugins` 验证插件配置与构建计划使用同一份生效值、修改后重新发布、停用及重置清理；`RustBuildSystemOperationsTests.languageImportMapsPluginOptionIDsWithoutBuildSystemNameAssumptions` 验证真实 Core 的导入映射和 Maven 可选执行字段解码。本地 Maven、Gradle fixture 副本经真实 Core 校验后读出 `icon`、`presentation`、选项图标和 `category`；模型任务自带的 `category`；每个构建系统推导出的窗口和命令（ID、标题、停靠、命令与窗口分开的动作），以及注册表校验通过。补充回归覆盖窗口所属模块激活、命令 pending 状态、独立窗口停靠与显隐恢复、旧 Maven 贡献及命令移除、参数任务根工程与目标作用范围。临时插件包中的窗口与选项明暗 SVG 加载后，目录清单和每个文件的字节必须完全不变。
@@ -365,3 +365,31 @@ macOS 接入规则（2026-10-18）：
 - `shared/contracts/plugins/v1/`
 - `shared/contracts/rust-core-api.md`
 - `scripts/verify-shared-contracts.sh`
+
+
+### 统一的候选解析扩展
+
+在原有自动发现来源之上，可选 `executableResolution: 1` 增加 setting 来源与
+确定性排序；候选仍声明在同一个 executables 数组里，不增加新的 Build 覆盖路径。
+数组顺序是默认优先级，不需要路径覆盖的插件不用声明设置。
+共享类型与拓扑排序位于 `plugins::executables`，macOS 由
+`ExecutableCandidateResolver` 注入文件系统、环境、Runtime 和工具发现能力，
+区分跳过、解析成功和终止失败。Provider 的可选 tool 提示继续复用宿主解析结果；
+无显式选择的自动发现失败仍可让 Provider 自行查找，显式失败则停止本次模型或依赖加载。
+这个限制也覆盖前置 Runtime 先失败的情况：Provider 回退前检查整个调用计划里的
+工具和 Runtime 是否有非空 setting，不能仅依赖失败候选的 terminal 标志。
+例如用户选了工具 A，先解析的 Runtime 不可用时，应报告 Runtime 错误；不能丢掉
+A，发出不带 tool 的请求。空 setting 仍允许自动发现失败后交给 Provider。
+只在解析失败时检查这项约束，前面候选成功后不会被后面未使用的 setting 阻止。
+Runtime 每个候选先构造自己的环境，把所选目录加入 PATH，再以同一环境探测和
+执行；失败候选的 PATH 不传给下一个候选。否则同目录 helper 会在探测时缺失，
+合法的 Runtime 就会被误判为版本不足。
+设置值非法时 Core 直接拒绝计划，普通设置的容错显示规则不变。
+自定义 Runtime 候选复用同一机制；其余进程模块的分步迁移边界见
+[插件设置面](2026-10-21-plugin-settings-surfaces.md)。
+
+`BuildToolProviderResolutionTests` 使用真实 Core 计划、MacBuildToolResolver 和
+BuildSystemService 验证上述组合：前置 Runtime 缺失或版本不足时，工具或后置
+Runtime 的显式选择均阻止模型和依赖 Provider 请求；全部设置为空时仍发送无 tool 的请求。
+`MacBuildToolResolverTests.customRuntimeProbeAndExecutionUseTheSameSiblingHelper`
+用临时可执行脚本验证带空格目录里的 Runtime 在探测和执行时都能找到同目录 helper。

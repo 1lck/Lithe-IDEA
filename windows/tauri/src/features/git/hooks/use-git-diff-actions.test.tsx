@@ -33,21 +33,22 @@ const spies: Array<{ mockRestore(): void }> = [];
 const pending = new Map<string, () => void>();
 const requests: Promise<void>[] = [];
 
-function Harness({ repo, files = [], previewScope = null }: { repo: string; files?: GitFile[]; previewScope?: string | null }) {
+function Harness({ repo, files = [], orderedFiles, previewScope = null }: { repo: string; files?: GitFile[]; orderedFiles?: GitFile[]; previewScope?: string | null }) {
   actions = useGitDiffActions({
     activeRepoPath: repo,
     commitPreviewScope: previewScope,
     commitByHash: commits,
     gitFileByPath: new Map(files.map(file => [file.path, file])),
+    orderedWorkingTreeFiles: orderedFiles,
     workingTreeDiffEntriesByScope: { all: files.map(file => [`unstaged:${file.path}`, file]), staged: [], unstaged: [] },
   });
   return null;
 }
-async function render(repo = "C:/repo-a", files: GitFile[] = []) {
+async function render(repo = "C:/repo-a", files: GitFile[] = [], orderedFiles?: GitFile[]) {
   await act(async () => {
     root.render(
       <LocaleProvider language="en-US">
-        <Harness repo={repo} files={files} />
+        <Harness repo={repo} files={files} orderedFiles={orderedFiles} />
       </LocaleProvider>,
     );
   });
@@ -191,5 +192,22 @@ test("Commit file click captures the file order without eagerly reading other co
   expect(openBuffer.mock.calls[0][7]).toMatchObject({ workingTreeFileOrder: [
     { fileKey: "unstaged:a.txt", target: { repoPath: "C:/repo-a", filePath: "a.txt", untracked: false } },
     { fileKey: "unstaged:b.txt", target: { repoPath: "C:/repo-a", filePath: "b.txt", untracked: true } },
+  ] });
+});
+
+test("Commit file navigation keeps the panel order instead of status order", async () => {
+  const worktree = spyOn(diffApi, "getWorkingTreePathDiff").mockResolvedValue(null);
+  spies.push(worktree);
+  const statusOrder: GitFile[] = [
+    { path: "a.md", status: "untracked", staged: false, worktree: true },
+    { path: "a/b.txt", status: "modified", staged: false, worktree: true },
+  ];
+  // Folder view lists the a/ directory before the a.md file.
+  const panelOrder = [statusOrder[1], statusOrder[0]];
+  await render("C:/repo-a", statusOrder, panelOrder);
+  await act(async () => { await actions.viewFileDiff("a/b.txt"); });
+  expect(openBuffer.mock.calls[0][7]).toMatchObject({ workingTreeFileOrder: [
+    { fileKey: "unstaged:a/b.txt" },
+    { fileKey: "unstaged:a.md" },
   ] });
 });

@@ -113,6 +113,7 @@ export const defaultSettings: Settings = {
   footerTrailingItemsOrder: [...FOOTER_TRAILING_ITEM_IDS],
   askWhereToOpenProjects: true,
   projectOpenDefaultDestination: "new-window",
+  runServicesOnExit: "ask",
   // AI
   aiProviderId: DEFAULT_AI_PROVIDER_ID,
   aiModelId: DEFAULT_AI_MODEL_ID,

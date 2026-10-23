@@ -73,8 +73,7 @@ struct PluginSettingsSection: View {
                         handlers.restartLanguageServers()
                         pendingRestart = false
                     }
-                    .buttonStyle(.borderless)
-                    .font(LitheTheme.uiFont(size: 12, weight: .semibold))
+                    .buttonStyle(LitheActionButtonStyle())
                 }
             }
             ForEach(groups) { group in
@@ -99,7 +98,7 @@ struct PluginSettingsSection: View {
                     Spacer()
                     LitheInfoTip(LocalizedStringKey("Valid values are saved as you type."))
                     Button(LocalizedStringKey("Restore Defaults"), action: restoreDefaults)
-                        .buttonStyle(LitheSecondaryButtonStyle())
+                        .buttonStyle(LitheActionButtonStyle())
                         .disabled(!settings.contains { hasStoredValue($0, in: editedLayer(of: $0)) })
                 }
                 .padding(.horizontal, 6)
@@ -282,6 +281,7 @@ private struct PluginSettingRow: View {
                     value: shownString,
                     placeholder: placeholder,
                     width: 220,
+                    isFlexible: true,
                     accessibilityLabel: declaration.title,
                     savesWhileTyping: savesWhileTyping,
                     accepts: { declaration.accepts(.string($0)) },
@@ -290,7 +290,8 @@ private struct PluginSettingRow: View {
                 Button(LocalizedStringKey("Choose…")) {
                     if let url = choosePath(directory) { write(.string(url.path)) }
                 }
-                .controlSize(.small)
+                .buttonStyle(LitheActionButtonStyle())
+                .fixedSize()
             }
         }
     }
@@ -338,7 +339,7 @@ private struct PluginSettingActionBar: View {
     @State private var confirming: DeclarativePluginSettingAction?
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: LitheTheme.ActionButton.spacing) {
             ForEach(actions) { action in
                 Button {
                     if action.requiresConfirmation { confirming = action } else { start(action) }
@@ -350,7 +351,7 @@ private struct PluginSettingActionBar: View {
                         Text(LocalizedStringKey(action.title))
                     }
                 }
-                .controlSize(.small)
+                .buttonStyle(LitheActionButtonStyle())
                 .disabled(running.contains(action.id))
                 .help(action.summary.map { Text(LocalizedStringKey($0)) } ?? Text(verbatim: ""))
             }
@@ -452,6 +453,7 @@ private struct PluginTextSettingField: View {
     let value: String
     let placeholder: String?
     let width: CGFloat
+    var isFlexible = false
     let accessibilityLabel: String
     let savesWhileTyping: Bool
     let accepts: (String) -> Bool
@@ -463,7 +465,7 @@ private struct PluginTextSettingField: View {
         HStack(spacing: 6) {
             TextField(placeholder ?? "", text: $text)
                 .litheSettingsTextField()
-                .frame(width: width)
+                .frame(minWidth: isFlexible ? 0 : width, idealWidth: width, maxWidth: width)
                 .focused($isFocused)
                 .accessibilityLabel(Text(verbatim: accessibilityLabel))
                 .onSubmit(commit)

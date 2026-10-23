@@ -200,6 +200,36 @@ struct TerminalModuleTests {
         #expect(!output.joined().contains("�"))
         feature.stopAllSessions()
     }
+
+    @Test
+    func interactiveShellEnvironmentReportsTermProgramVersion() {
+        let transport = TestTransport()
+        transport.termProgramVersion = "9.9.9"
+        let feature = TerminalFeatureModel(terminalFactory: { transport })
+        defer { feature.stopAllSessions() }
+        feature.createSession(in: URL(fileURLWithPath: "/workspace"), shellPath: "/bin/zsh")
+        #expect(transport.shellEnvironments.last?["TERM_PROGRAM"] == "Lithe")
+        #expect(transport.shellEnvironments.last?["TERM_PROGRAM_VERSION"] == "9.9.9")
+    }
+
+    @Test
+    func interactiveShellEnvironmentOmitsUnknownTermProgramVersion() {
+        let transport = TestTransport()
+        let feature = TerminalFeatureModel(terminalFactory: { transport })
+        defer { feature.stopAllSessions() }
+        feature.createSession(in: URL(fileURLWithPath: "/workspace"), shellPath: "/bin/zsh")
+        #expect(transport.shellEnvironments.last?["TERM_PROGRAM_VERSION"] == nil)
+    }
+
+    @Test
+    func interactiveShellEnvironmentClearsInheritedTermProgramVersionWhenUnknown() {
+        let transport = TestTransport()
+        transport.inheritedEnvironment["TERM_PROGRAM_VERSION"] = "3.5.13"
+        let feature = TerminalFeatureModel(terminalFactory: { transport })
+        defer { feature.stopAllSessions() }
+        feature.createSession(in: URL(fileURLWithPath: "/workspace"), shellPath: "/bin/zsh")
+        #expect(transport.shellEnvironments.last?["TERM_PROGRAM_VERSION"] == nil)
+    }
 }
 
 @MainActor
@@ -208,7 +238,10 @@ private final class TestTransport: TerminalTransport {
     var isRunning = false
     var processID: Int32? { isRunning ? 1234 : nil }
     var shellName = "Shell"
+    var termProgramVersion: String?
     var shellStarts: [String] = []
+    var shellEnvironments: [[String: String]] = []
+    var inheritedEnvironment: [String: String] = ["REMOVE_ME": "old"]
     var startError: Error?
     var onTermination: ((Int32?) -> Void)?
     var onOutput: ((Data) -> Void)?
@@ -221,9 +254,10 @@ private final class TestTransport: TerminalTransport {
     var sentInputs: [String] = []
     var outputOnStart: String?
     func defaultShellPath() -> String { "/bin/zsh" }
-    func defaultEnvironment() -> [String: String] { ["REMOVE_ME": "old"] }
+    func defaultEnvironment() -> [String: String] { inheritedEnvironment }
     func start(workingDirectory: String, shellPath: String, environment: [String: String]) throws {
         shellStarts.append(shellPath)
+        shellEnvironments.append(environment)
         if let startError { throw startError }
         isRunning = true
     }

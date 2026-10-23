@@ -213,7 +213,7 @@ struct MediaViewerView: View {
                 Button("Open in Default App") {
                     model.openMediaInDefaultApplication(media)
                 }
-                .buttonStyle(LitheSecondaryButtonStyle())
+                .buttonStyle(LitheActionButtonStyle())
                 Button {
                     model.revealProjectItemInFinder(media.url)
                 } label: {

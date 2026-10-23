@@ -2568,6 +2568,7 @@
 "Review remaining steps" = "确认剩余步骤";
 "Review repository commits" = "确认各仓库提交";
 "Each repository has its own commit. Completed steps are kept if another repository fails." = "每个仓库会分别提交。某个仓库失败时，已完成的步骤仍会保留。";
+"Review and Retry…" = "查看并重试…";
 "Review and Retry Unfinished Steps…" = "查看并重试未完成的步骤…";
 "Dismiss Results" = "清除结果";
 "Update parent repository references" = "更新父仓库引用";
@@ -3286,6 +3287,16 @@
 "Programs started in Lithe that left their terminal or tool to keep running on their own, like daemons or background dev servers. They are listed together when you quit, and you choose which ones to end. Only programs started in this Lithe are listed; containers and services started outside Lithe are never touched." = "在 Lithe 中启动、但已脱离终端或工具独立运行的程序，例如守护进程或后台开发服务器。退出时会把它们列在一起，由你选择结束哪些。只会列出在本次 Lithe 中启动的程序；在 Lithe 之外启动的容器和服务一律不处理。";
 "Ask in one list" = "统一列表确认";
 "End all" = "全部结束";
+"Run services" = "运行服务";
+"Run configurations and Maven goals started in Lithe. They always stop when their project or window closes or Lithe quits, together with the processes they started; this only decides whether Lithe lists them and asks first." = "在 Lithe 中启动的运行配置和 Maven 目标。项目或窗口关闭、或退出 Lithe 时，它们总会连同自己启动的进程一起停止；这里只决定 Lithe 是否先列出并询问。";
+"Ask before stopping" = "停止前询问";
+"Stop without asking" = "直接停止";
+"Run services are still running" = "仍有运行服务在运行";
+"Quitting Lithe stops these services and the processes they started." = "退出 Lithe 会停止这些服务及其启动的进程。";
+"Closing the project stops these services and the processes they started." = "关闭项目会停止这些服务及其启动的进程。";
+"Unnamed service" = "未命名服务";
+"Stop and Quit" = "停止并退出";
+"Stop and Close" = "停止并关闭";
 "Closing a terminal tab" = "关闭终端标签页";
 "Ask before closing a tab with running programs" = "关闭仍有程序运行的标签页前先确认";
 "Closing a tab ends every program started in it, including jobs sent to the background. Turn this off to close tabs immediately. Background services that left the terminal are not ended here; they are asked about when you quit." = "关闭标签页会结束其中启动的所有程序，包括放到后台的任务。关闭此选项后标签页会立即关闭。已脱离终端的后台服务不会在这里结束，而是在退出 Lithe 时再询问。";
@@ -3675,6 +3686,7 @@
 "Reset Page Zoom (100%)" = "恢复页面缩放（100%）";
 "Page Zoom" = "页面缩放";
 
+"The configured build tool is not executable: %@" = "配置的构建工具无法执行：%@";
 /* 内嵌 HTML 预览浏览器：摄像头和麦克风。 */
 "“%@” wants to use your camera." = "“%@”想使用你的摄像头。";
 "“%@” wants to use your microphone." = "“%@”想使用你的麦克风。";

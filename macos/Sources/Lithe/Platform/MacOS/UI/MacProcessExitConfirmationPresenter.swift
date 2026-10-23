@@ -40,6 +40,22 @@ final class MacProcessExitConfirmationPresenter: ProcessExitConfirmationPresenti
         return alert.runModal() == .alertFirstButtonReturn
     }
 
+    func confirmStopRunServices(_ services: [RunServiceExitCandidate], purpose: RunServiceStopPurpose) async -> Bool {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = String(localized: "Run services are still running")
+        let consequence = purpose == .quit
+            ? String(localized: "Quitting Lithe stops these services and the processes they started.")
+            : String(localized: "Closing the project stops these services and the processes they started.")
+        alert.informativeText = services.map { service in
+            let title = service.title.isEmpty ? String(localized: "Unnamed service") : service.title
+            return service.projectName.isEmpty ? "• \(title)" : "• \(title) — \(service.projectName)"
+        }.joined(separator: "\n") + "\n\n" + consequence
+        alert.addButton(withTitle: purpose == .quit ? String(localized: "Stop and Quit") : String(localized: "Stop and Close"))
+        alert.addButton(withTitle: String(localized: "Cancel"))
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
     func confirmAgentTask(
         _ task: AgentTaskCandidate,
         position: Int,

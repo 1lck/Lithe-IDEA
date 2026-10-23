@@ -15,7 +15,7 @@
 //!
 //! Note: the decision is recorded in .agents/notes/implemented/architecture/2026-10-21-plugin-settings-surfaces.md
 
-use super::declarative::{invalid, Validation};
+use super::declarative::{invalid, PluginRejection, Validation};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -246,6 +246,8 @@ struct SettingOption {
 /// Setting IDs a template may name, with the restrictions their kinds carry.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct DeclaredSettings {
+    /// Global paths that may explicitly select a build executable.
+    executables: BTreeSet<String>,
     /// Settings a launch reads when it starts.
     launch: BTreeSet<String>,
     /// Settings that are only pushed to a running server.
@@ -256,6 +258,11 @@ pub(crate) struct DeclaredSettings {
 }
 
 impl DeclaredSettings {
+    /// Whether the global file setting may select the build executable.
+    pub(crate) fn is_executable(&self, id: &str) -> bool {
+        self.executables.contains(id)
+    }
+
     /// Whether a start-time template may name the setting.
     pub(crate) fn contains(&self, id: &str) -> bool {
         self.launch.contains(id)
@@ -317,6 +324,31 @@ pub(crate) struct SettingLayers<'a> {
 }
 
 impl SettingDeclaration {
+    /// Unlike display/configuration settings, an explicit invalid executable
+    /// value must terminate resolution rather than silently choose a default.
+    pub(crate) fn executable_value(&self, stored: Option<&Value>) -> Validation<Option<String>> {
+        let value = stored.unwrap_or(&self.default);
+        let valid = self.accepts(value)
+            && value.as_str().is_some_and(|path| {
+                path.is_empty()
+                    || (path.trim() == path
+                        && !path.chars().any(char::is_control)
+                        && (path.starts_with('/')
+                            || (path.len() >= 3
+                                && path.as_bytes()[0].is_ascii_alphabetic()
+                                && path.as_bytes()[1] == b':'
+                                && matches!(path.as_bytes()[2], b'/' | b'\\'))
+                            || path.starts_with("\\\\")))
+            });
+        if !valid {
+            return Err(PluginRejection::at("plugin.build.invalidSelection", format!("settings.{}", self.id), "The configured executable must be an absolute file path satisfying the setting constraints."));
+        }
+        Ok(value
+            .as_str()
+            .filter(|path| !path.is_empty())
+            .map(str::to_owned))
+    }
+
     fn is_version_2_kind(&self) -> bool {
         matches!(
             self.kind.as_str(),
@@ -606,6 +638,15 @@ impl SettingDeclaration {
 pub(crate) fn declared(settings: &[SettingDeclaration]) -> DeclaredSettings {
     let mut declared = DeclaredSettings::default();
     for setting in settings {
+        if setting.kind == "file"
+            && setting.scope() == SettingScope::Global
+            && matches!(
+                setting.effect(),
+                SettingEffect::Reload | SettingEffect::NextRun
+            )
+        {
+            declared.executables.insert(setting.id.clone());
+        }
         if setting.effect() == SettingEffect::Immediate {
             declared.immediate.insert(setting.id.clone());
         } else {

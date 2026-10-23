@@ -18,11 +18,11 @@ const INDEX_CASES: &str = contract_file!("fixtures/marketplace/index-cases.json"
 const INVALID_ENTRIES: &str = contract_file!("fixtures/marketplace/invalid-index-entries.json");
 const SOURCE_URLS: &str = contract_file!("fixtures/marketplace/source-urls.json");
 const INSTALL_REVIEWS: &str = contract_file!("fixtures/marketplace/install-reviews.json");
-const PHP_FIXTURE: &str = contract_file!("fixtures/php-support.plugin.json");
-const GO_FIXTURE: &str = contract_file!("fixtures/go-support.plugin.json");
-const MIX_FIXTURE: &str = contract_file!("fixtures/mix-provider.plugin.json");
-const GRADLE_FIXTURE: &str = contract_file!("fixtures/gradle-provider.plugin.json");
-const CARGO_FIXTURE: &str = contract_file!("fixtures/cargo-build.plugin.json");
+const PHP_FIXTURE: &str = contract_file!("fixtures/language-packaged-server.plugin.json");
+const GO_FIXTURE: &str = contract_file!("fixtures/language-system-command.plugin.json");
+const MIX_FIXTURE: &str = contract_file!("fixtures/build-provider-language-server.plugin.json");
+const GRADLE_FIXTURE: &str = contract_file!("fixtures/build-provider.plugin.json");
+const CARGO_FIXTURE: &str = contract_file!("fixtures/build-static-file.plugin.json");
 const OFFICIAL_INDEX: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../Plugins/marketplace/index.json"
@@ -34,11 +34,11 @@ fn json_file(source: &str) -> Value {
 
 fn manifest_fixture(name: &str) -> Value {
     match name {
-        "php-support.plugin.json" => json_file(PHP_FIXTURE),
-        "go-support.plugin.json" => json_file(GO_FIXTURE),
-        "mix-provider.plugin.json" => json_file(MIX_FIXTURE),
-        "gradle-provider.plugin.json" => json_file(GRADLE_FIXTURE),
-        "cargo-build.plugin.json" => json_file(CARGO_FIXTURE),
+        "language-packaged-server.plugin.json" => json_file(PHP_FIXTURE),
+        "language-system-command.plugin.json" => json_file(GO_FIXTURE),
+        "build-provider-language-server.plugin.json" => json_file(MIX_FIXTURE),
+        "build-provider.plugin.json" => json_file(GRADLE_FIXTURE),
+        "build-static-file.plugin.json" => json_file(CARGO_FIXTURE),
         other => panic!("unknown fixture {other}"),
     }
 }

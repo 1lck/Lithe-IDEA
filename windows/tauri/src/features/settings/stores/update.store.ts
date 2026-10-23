@@ -4,7 +4,9 @@ import { create } from "zustand";
 import { getServiceUrls } from "@/config/services";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { prepareProjectTransitionWithUnsavedBuffers } from "@/features/file-system/controllers/workspace-project-transition";
+import { stopRunServicesBeforeLeaving } from "@/features/window/services/run-services-exit";
 import { openExternalBrowserUrl } from "@/features/window/utils/external-navigation";
+import { invoke } from "@/platform/tauri-core";
 import {
   isUpdateChannel,
   persistUpdateChannel,
@@ -325,7 +327,7 @@ const useUpdateStore = create<UpdateStore>()((set, get) => ({
 
         let contentLength = 0;
         let downloaded = 0;
-        await update.downloadAndInstall((event) => {
+        await update.download((event) => {
           switch (event.event) {
             case "Started":
               contentLength = event.data.contentLength ?? 0;
@@ -352,6 +354,16 @@ const useUpdateStore = create<UpdateStore>()((set, get) => ({
               break;
           }
         });
+
+        // The installer replaces Lithe while the updater exits the process
+        // directly, without the exit cleanup. Run services of every window are
+        // asked about and stopped first; the host then ends what remains.
+        if (!(await stopRunServicesBeforeLeaving("application", "update"))) {
+          set({ status: "available", downloadProgress: null });
+          return;
+        }
+        await invoke("app_prepare_update_install");
+        await update.install();
 
         useWhatsNewStore.getState().actions.queuePendingUpdate(updateInfo);
         await relaunch();

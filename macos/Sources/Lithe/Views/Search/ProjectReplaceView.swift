@@ -162,7 +162,7 @@ struct ProjectReplaceView: View {
                 previewNeedsRefresh = false
                 Task { await previewReplacement(query, replacement, optionsForPreview) }
             }
-            .buttonStyle(ProjectReplaceButtonStyle(isPrimary: true))
+            .buttonStyle(LitheActionButtonStyle(isPrimary: true))
             .disabled(query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || feature.isLoadingProjectReplacement)
 
             Spacer()
@@ -421,41 +421,6 @@ private struct ProjectReplaceCheckboxStyle: ToggleStyle {
         }
         .buttonStyle(.litheNoPress)
         .lithePointer()
-    }
-}
-
-private struct ProjectReplaceButtonStyle: ButtonStyle {
-    var isPrimary = false
-    @Environment(\.isEnabled) private var isEnabled
-    @State private var isHovering = false
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(LitheTheme.uiFont(size: 12, weight: .medium))
-            .foregroundStyle(foreground)
-            .padding(.horizontal, 12)
-            .frame(height: 28)
-            .background {
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(background(configuration: configuration))
-            }
-            .overlay {
-                RoundedRectangle(cornerRadius: 4)
-                    .stroke(isPrimary && isEnabled ? .clear : LitheTheme.panelBorder, lineWidth: 1)
-            }
-            .contentShape(Rectangle())
-            .onHover { isHovering = $0 }
-            .lithePointer()
-    }
-
-    private var foreground: Color {
-        isPrimary && isEnabled ? .white : LitheTheme.secondaryText
-    }
-
-    private func background(configuration: Configuration) -> Color {
-        guard isEnabled else { return LitheTheme.raised.opacity(0.55) }
-        guard isPrimary else { return isHovering ? LitheTheme.raised : LitheTheme.popupBackground }
-        return LitheTheme.accent.opacity(configuration.isPressed ? 0.78 : (isHovering ? 1 : 0.9))
     }
 }
 

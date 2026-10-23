@@ -5,6 +5,9 @@
 //! place for the Windows client to substitute, and it lets the engine's
 //! lifecycle rules -- deadlines, crash handling, restart isolation -- be tested
 //! against a scripted server instead of a real one.
+//!
+//! On Windows a server and everything it starts share one Job Object, so a
+//! batch launcher's JVM ends with it and none outlives a crashed host.
 
 use crate::protocol::{CoreError, ErrorCode};
 use std::collections::BTreeMap;
@@ -78,11 +81,20 @@ impl LspProcessLauncher for SystemProcessLauncher {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        apply_language_server_creation_flags(&mut command);
+        #[cfg(target_os = "windows")]
+        lithe_git_host::ProcessTree::prepare(&mut command);
         let mut child = command.spawn().map_err(|error| {
             CoreError::new(
                 ErrorCode::ProcessStartFailed,
                 "Could not start the language-server process.",
+            )
+            .with_details(error.to_string())
+        })?;
+        #[cfg(target_os = "windows")]
+        let tree = lithe_git_host::ProcessTree::adopt(&mut child).map_err(|error| {
+            CoreError::new(
+                ErrorCode::ProcessStartFailed,
+                "Could not take ownership of the language-server process tree.",
             )
             .with_details(error.to_string())
         })?;
@@ -99,6 +111,8 @@ impl LspProcessLauncher for SystemProcessLauncher {
             handle: Arc::new(SystemProcess {
                 input: Mutex::new(Some(stdin)),
                 child: Mutex::new(child),
+                #[cfg(target_os = "windows")]
+                tree,
             }),
             output: Box::new(stdout),
             errors: Box::new(stderr),
@@ -184,23 +198,12 @@ fn windows_batch_env_value(value: &str) -> String {
     escaped
 }
 
-fn apply_language_server_creation_flags(command: &mut Command) {
-    #[cfg(target_os = "windows")]
-    command.creation_flags(language_server_process_creation_flags());
-
-    #[cfg(not(target_os = "windows"))]
-    let _ = command;
-}
-
-#[cfg(target_os = "windows")]
-fn language_server_process_creation_flags() -> u32 {
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    CREATE_NO_WINDOW
-}
-
 struct SystemProcess {
     input: Mutex<Option<ChildStdin>>,
     child: Mutex<Child>,
+    /// The server and its descendants; dropping the handle ends all of them.
+    #[cfg(target_os = "windows")]
+    tree: lithe_git_host::ProcessTree,
 }
 
 impl LspProcessHandle for SystemProcess {
@@ -249,6 +252,8 @@ impl LspProcessHandle for SystemProcess {
     }
 
     fn terminate(&self) {
+        #[cfg(target_os = "windows")]
+        let _ = self.tree.kill();
         if let Ok(mut child) = self.child.lock() {
             let _ = child.kill();
         }
@@ -272,14 +277,11 @@ mod tests {
     use std::collections::BTreeMap;
     use std::ffi::OsStr;
     use std::fs;
-    use std::io::Read;
+    use std::io::{Read, Write};
     use std::path::PathBuf;
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    #[test]
-    fn background_language_servers_do_not_create_windows_console() {
-        assert_eq!(super::language_server_process_creation_flags(), 0x0800_0000);
-    }
+    use std::sync::mpsc;
+    use std::thread;
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     #[test]
     fn batch_language_server_uses_cmd_exe() {
@@ -323,6 +325,98 @@ mod tests {
             .skip(1)
             .collect::<Vec<_>>();
         fs::write(output, arguments.join("\r\n")).expect("argument echo output");
+    }
+
+    /// Libtest name of [`stdin_hold_helper`], which the termination test
+    /// re-launches from a batch script.
+    const STDIN_HOLD_TEST: &str = "lsp::interface::process::tests::stdin_hold_helper";
+    const STDIN_HOLD_ENV: &str = "LITHE_TEST_STDIN_HOLD";
+    const STDIN_HOLD_READY: &str = "lithe-stdin-hold-ready";
+
+    /// Not a scenario of its own: a no-op unless the termination test launches
+    /// this test binary with it. It then stays alive until its inherited stdin
+    /// closes, like the JVM a batch language-server launcher starts.
+    #[test]
+    fn stdin_hold_helper() {
+        if std::env::var_os(STDIN_HOLD_ENV).is_none() {
+            return;
+        }
+        // Written past libtest's output capture, so the parent sees it at once.
+        let mut stdout = std::io::stdout().lock();
+        writeln!(stdout, "{STDIN_HOLD_READY}").expect("ready marker");
+        stdout.flush().expect("ready marker");
+        let _ = std::io::stdin().read_to_end(&mut Vec::new());
+    }
+
+    #[test]
+    fn terminating_a_batch_language_server_ends_the_process_it_started() {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("lithe lsp tree {stamp}"));
+        fs::create_dir_all(&root).expect("temp directory");
+        let executable = root.join("holding server.cmd");
+        fs::write(
+            &executable,
+            format!(
+                "@echo off\r\n\"%{ARGV_ECHO_EXECUTABLE_ENV}%\" --exact {STDIN_HOLD_TEST} --test-threads 1\r\n"
+            ),
+        )
+        .expect("batch script");
+        let spec = LspProcessSpec {
+            executable,
+            arguments: Vec::new(),
+            working_directory: root.clone(),
+            environment: BTreeMap::from([
+                (
+                    ARGV_ECHO_EXECUTABLE_ENV.to_string(),
+                    std::env::current_exe()
+                        .expect("test executable")
+                        .to_string_lossy()
+                        .into_owned(),
+                ),
+                (STDIN_HOLD_ENV.to_string(), "1".to_string()),
+            ]),
+        };
+
+        let streams = SystemProcessLauncher
+            .launch(spec)
+            .expect("launch batch script");
+        let mut output = streams.output;
+        let (events, received) = mpsc::channel();
+        thread::spawn(move || {
+            let mut seen = String::new();
+            let mut buffer = [0_u8; 1024];
+            let mut ready = false;
+            while let Ok(count) = output.read(&mut buffer) {
+                if count == 0 {
+                    break;
+                }
+                seen.push_str(&String::from_utf8_lossy(&buffer[..count]));
+                if !ready && seen.contains(STDIN_HOLD_READY) {
+                    ready = true;
+                    let _ = events.send("ready");
+                }
+            }
+            let _ = events.send("closed");
+        });
+        assert_eq!(
+            received.recv_timeout(Duration::from_secs(10)),
+            Ok("ready"),
+            "the batch script should start its native child"
+        );
+
+        streams.handle.terminate();
+
+        // The child holds the stdout pipe; it closes only once the child is
+        // gone too, not just the cmd.exe that started it.
+        assert_eq!(
+            received.recv_timeout(Duration::from_secs(10)),
+            Ok("closed"),
+            "terminating the server should end the process its script started"
+        );
+        fs::remove_dir_all(root).ok();
     }
 
     #[test]

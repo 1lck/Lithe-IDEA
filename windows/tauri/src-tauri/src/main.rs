@@ -19,6 +19,7 @@ mod logging;
 mod lsp;
 mod maven;
 mod memory;
+mod owned_processes;
 mod platform;
 mod profile_migration;
 mod project_window_registry;
@@ -144,7 +145,7 @@ fn main() {
         })
         .on_window_event(|window, event| {
             if matches!(event, tauri::WindowEvent::Destroyed) {
-                run::cancel_window_prelaunches(window.label());
+                run::release_window_processes(window.label());
                 core::close_ide_hosts(window.label());
                 agent::close_window_connections(window.label());
                 project_windows::release_window(window.app_handle(), window.label().to_owned());
@@ -270,15 +271,16 @@ fn main() {
             run::run_execute_prelaunch,
             run::run_start_process,
             run::run_stop_process,
+            run::run_list_owned_processes,
+            run::run_stop_owned_processes,
+            owned_processes::app_prepare_update_install,
         ])
         .build(context)
         .expect("error while building Lithe desktop shell");
 
     application.run(|app, event| {
         if matches!(event, tauri::RunEvent::Exit) {
-            language_tools::shutdown();
-            debug::shutdown();
-            agent::shutdown();
+            owned_processes::shutdown();
             if let Some(manager) = app.try_state::<Arc<logging::LogManager>>() {
                 manager.shutdown();
             }

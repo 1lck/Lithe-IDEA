@@ -67,6 +67,65 @@ private enum WorkbenchTopBarMetrics {
     static let projectAvatarCenterX = leadingInset + projectAvatarLeadingInset + projectAvatarSize / 2
 }
 
+/// Reports whether the hosting window is in native fullscreen. macOS hides
+/// the traffic-light controls there, so the workbench toolbar must not
+/// reserve their leading space. The window update pass drives the binding,
+/// which keeps the transition deterministic without polling.
+struct WindowFullScreenStateReader: NSViewRepresentable {
+    @Binding var isFullScreen: Bool
+
+    func makeNSView(context: Context) -> ReaderView {
+        let view = ReaderView()
+        view.onRefresh = { value in
+            if isFullScreen != value { isFullScreen = value }
+        }
+        return view
+    }
+
+    func updateNSView(_ view: ReaderView, context: Context) {
+        view.onRefresh = { value in
+            if isFullScreen != value { isFullScreen = value }
+        }
+        view.refresh()
+    }
+
+    final class ReaderView: NSView {
+        var onRefresh: ((Bool) -> Void)?
+        /// Injectable so tests can drive fullscreen state without starting a
+        /// real transition: writing the style mask directly throws outside
+        /// AppKit's own fullscreen flow.
+        var isFullScreen: (NSWindow) -> Bool = { $0.styleMask.contains(.fullScreen) }
+
+        override func viewDidMoveToWindow() {
+            NotificationCenter.default.removeObserver(
+                self,
+                name: NSWindow.didUpdateNotification,
+                object: nil
+            )
+            guard window != nil else { return }
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(windowDidUpdate(_:)),
+                name: NSWindow.didUpdateNotification,
+                object: window
+            )
+            refresh()
+        }
+
+        @objc private func windowDidUpdate(_ notification: Notification) {
+            refresh()
+        }
+
+        deinit {
+            NotificationCenter.default.removeObserver(self)
+        }
+
+        func refresh() {
+            onRefresh?(window.map(isFullScreen) ?? false)
+        }
+    }
+}
+
 enum WorkbenchFrameGradient {
     static let coordinateSpace = "workbenchFrame"
     static let width: CGFloat = 600
@@ -242,6 +301,7 @@ struct WorkbenchView: View {
     @State private var isBackgroundPickerPresented = false
     @State private var isRunConfigurationPickerPresented = false
     @State private var isSettingsMenuPresented = false
+    @State private var isWindowFullScreen = false
 
     var body: some View {
         let encodingRequest = model.pendingEncodingReopen
@@ -794,7 +854,7 @@ struct WorkbenchView: View {
                 settingsMenuButton
             }
         }
-        .padding(.leading, WorkbenchTopBarMetrics.leadingInset)
+        .padding(.leading, isWindowFullScreen ? 0 : WorkbenchTopBarMetrics.leadingInset)
         .frame(height: LitheTheme.Metrics.toolbarHeight)
         .background {
             frameChromeBackground
@@ -804,6 +864,7 @@ struct WorkbenchView: View {
                         .toggleWorkspaceZoom()
                 }
         }
+        .background(WindowFullScreenStateReader(isFullScreen: $isWindowFullScreen))
     }
 
     private func registeredToolbarButton(_ contribution: ModuleContribution) -> some View {
@@ -2467,7 +2528,7 @@ struct WorkbenchBackgroundPicker: View {
                 Button("Choose Image…") {
                     model.workbenchBackgroundFeature.chooseCustomImage()
                 }
-                .buttonStyle(LitheSecondaryButtonStyle())
+                .buttonStyle(LitheActionButtonStyle())
 
                 if settings.hasConfiguredWorkbenchBackground {
                     Button("Remove") {

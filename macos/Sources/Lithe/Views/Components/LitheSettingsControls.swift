@@ -127,7 +127,7 @@ private struct LitheSettingsCardLines: _VariadicView_UnaryViewRoot {
     }
 }
 
-/// One setting: a fixed label column, the control after it, and optional
+/// One setting: a bounded label column, the control after it, and optional
 /// status pills on the trailing edge (effective value, scope, when it takes
 /// effect). Matches the `.srow` row of the settings mockup.
 struct LitheSettingsRow<Control: View, Badges: View>: View {
@@ -161,7 +161,7 @@ struct LitheSettingsRow<Control: View, Badges: View>: View {
                     .fixedSize(horizontal: false, vertical: true)
                 if let info { LitheInfoTip(info) }
             }
-            .frame(width: Self.labelWidth, alignment: .leading)
+            .frame(minWidth: 0, idealWidth: Self.labelWidth, maxWidth: Self.labelWidth, alignment: .leading)
             HStack(spacing: 6) { control }
                 .frame(maxWidth: .infinity, alignment: .leading)
             HStack(spacing: 4) { badges }

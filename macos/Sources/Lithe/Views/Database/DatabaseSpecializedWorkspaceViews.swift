@@ -229,7 +229,7 @@ struct RedisWorkspaceView: View {
             HStack(spacing: 7) {
                 TextField("Key name", text: $renameDraft).focused($detailField, equals: "key").modifier(LitheCommitDialogInputStyle(focused: detailField == "key"))
                 Button("Rename") { request(.rename(detail.key, renameDraft)) }
-                    .buttonStyle(LitheSecondaryButtonStyle())
+                    .buttonStyle(LitheActionButtonStyle())
                     .disabled(renameDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || renameDraft == detail.key)
             }
             HStack(spacing: 7) {
@@ -241,7 +241,7 @@ struct RedisWorkspaceView: View {
                     }
                     request(.setTTL(detail.key, ttl))
                 }
-                .buttonStyle(LitheSecondaryButtonStyle())
+                .buttonStyle(LitheActionButtonStyle())
             }
         }
     }
@@ -260,7 +260,7 @@ struct RedisWorkspaceView: View {
                     .font(LitheTheme.uiFont(size: 9.5)).foregroundStyle(LitheTheme.secondaryText)
                 Spacer()
                 Button("Save value") { request(.saveString(detail.key, stringDraft, ttlForSave)) }
-                    .buttonStyle(LithePrimaryButtonStyle())
+                    .buttonStyle(LitheActionButtonStyle(isPrimary: true))
             }
         }
     }
@@ -279,7 +279,7 @@ struct RedisWorkspaceView: View {
             HStack {
                 Spacer()
                 Button("Save hash") { request(.saveHash(detail.key, hashEntries)) }
-                    .buttonStyle(LithePrimaryButtonStyle())
+                    .buttonStyle(LitheActionButtonStyle(isPrimary: true))
             }
         }
     }
@@ -450,7 +450,7 @@ struct NacosWorkspaceView: View {
                         feature.nacosSelectedConfig = nil
                         draftDataID = ""; draftGroup = "DEFAULT_GROUP"; draftType = ""; draftContent = ""
                     }
-                    .buttonStyle(LitheSecondaryButtonStyle())
+                    .buttonStyle(LitheActionButtonStyle())
                 }
                 .padding(.horizontal, 10).padding(.bottom, 8)
                 Rectangle().fill(LitheTheme.divider).frame(height: 1)
@@ -501,7 +501,7 @@ struct NacosWorkspaceView: View {
                     .font(LitheTheme.uiFont(size: 10)).foregroundStyle(LitheTheme.secondaryText)
                 Spacer()
                 Button("Publish configuration") { request(.publish(draftDataID, draftGroup, draftContent, draftType)) }
-                    .buttonStyle(LithePrimaryButtonStyle())
+                    .buttonStyle(LitheActionButtonStyle(isPrimary: true))
                     .disabled(draftDataID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || draftGroup.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
             .padding(.horizontal, 12).frame(height: 48).litheWorkbenchSurface(LitheTheme.toolHeader)

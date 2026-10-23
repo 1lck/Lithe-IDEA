@@ -60,6 +60,73 @@ enum ProjectWindowAppKitDismisser {
     }
 }
 
+/// Restores native fullscreen capability on the hosting window. SwiftUI marks
+/// hiddenTitleBar windows `fullScreenNone` by default on current macOS, which
+/// turns the zoom button into a plain maximize and refuses
+/// `toggleFullScreen:`; Lithe follows IDEA and keeps its main windows in the
+/// native fullscreen Space. SwiftUI reapplies the flag during scene updates,
+/// so the host view keeps re-stripping it for as long as this window lives.
+struct WindowFullScreenCapabilityGuard: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        WindowFullScreenCapabilityView()
+    }
+
+    func updateNSView(_ view: NSView, context: Context) {}
+}
+
+final class WindowFullScreenCapabilityView: NSView {
+    override func viewDidMoveToWindow() {
+        NotificationCenter.default.removeObserver(
+            self,
+            name: NSWindow.didUpdateNotification,
+            object: nil
+        )
+        guard window != nil else { return }
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(windowDidUpdate(_:)),
+            name: NSWindow.didUpdateNotification,
+            object: window
+        )
+        refreshFullScreenCapability()
+    }
+
+    @objc private func windowDidUpdate(_ notification: Notification) {
+        refreshFullScreenCapability()
+    }
+
+    /// Zoom-button entry point: clears the refusal, then toggles native
+    /// fullscreen, so the click cannot land while SwiftUI's flag is set.
+    /// The view and the button share the window's lifetime, which keeps the
+    /// unretained NSButton.target valid.
+    @objc func zoomButtonClicked(_ sender: NSButton?) {
+        stripFullScreenRefusal(from: window)
+        window?.toggleFullScreen(sender)
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    private func refreshFullScreenCapability() {
+        guard let window, window.collectionBehavior.contains(.fullScreenNone) else { return }
+        stripFullScreenRefusal(from: window)
+        // AppKit wires the zoom button's target and action while the window is
+        // created, so a button configured while the refusal was still set keeps
+        // maximizing until it is rewired to the guarded fullscreen toggle.
+        if let zoomButton = window.standardWindowButton(.zoomButton) {
+            zoomButton.target = self
+            zoomButton.action = #selector(zoomButtonClicked(_:))
+        }
+    }
+
+    private func stripFullScreenRefusal(from window: NSWindow?) {
+        guard let window, window.collectionBehavior.contains(.fullScreenNone) else { return }
+        window.collectionBehavior.remove(.fullScreenNone)
+        window.collectionBehavior.insert(.fullScreenPrimary)
+    }
+}
+
 struct RootView: View {
     let scope: ProjectWindowScope
     @EnvironmentObject private var projectSessions: ProjectSessionManager
@@ -91,6 +158,7 @@ struct RootView: View {
             minWidth: windowLayout.minimumContentSize.width,
             minHeight: windowLayout.minimumContentSize.height
         )
+        .background(WindowFullScreenCapabilityGuard())
         .background(LitheTheme.window)
         .tint(LitheTheme.accent)
         .background {
@@ -407,6 +475,8 @@ protocol ProjectWindowSessionHandling: UnsavedDocumentHandling {
     func requestCloseActiveWorkbenchItem() -> Bool
     func requestCloseActiveSession() -> Bool
     func resetForProjectWindowClose() async
+    /// Whether closing the window may stop its projects' Run services.
+    func confirmRunServicesBeforeClose() async -> Bool
     func noteWindowBecameKey()
 }
 
@@ -427,6 +497,12 @@ final class LitheWindowCoordinator: NSObject, NSWindowDelegate {
     private var nativeWindowCloseTask: Task<Void, Never>?
     private let confirmUnsavedDocuments: @MainActor (any UnsavedDocumentHandling) async -> Bool
     private var isDetached = false
+    /// Set when a layout transition was deferred because the window was in
+    /// native fullscreen; the frame is reconciled on exit.
+    private var needsFrameReconcileAfterFullScreen = false
+    /// Injectable for tests: real transitions set `.fullScreen` on the style
+    /// mask, and AppKit throws when tests write it outside its own transition.
+    var isInFullScreen: (NSWindow) -> Bool = { $0.styleMask.contains(.fullScreen) }
 
     init(
         projectSessions: any ProjectWindowSessionHandling,
@@ -493,6 +569,12 @@ final class LitheWindowCoordinator: NSObject, NSWindowDelegate {
 
     func windowDidExitFullScreen(_ notification: Notification) {
         guard let window, notification.object as? NSWindow === window, let layout else { return }
+        if needsFrameReconcileAfterFullScreen {
+            needsFrameReconcileAfterFullScreen = false
+            // AppKit restored the pre-fullscreen frame of the old layout;
+            // reapply the current layout's frame before the buttons align.
+            applyFrame(for: layout, to: window, animate: false)
+        }
         alignWindowButtons(in: window, for: layout)
     }
 
@@ -547,6 +629,13 @@ final class LitheWindowCoordinator: NSObject, NSWindowDelegate {
             defer { preparation.release() }
             guard await confirmUnsavedDocuments(projectSessions), !Task.isCancelled,
                   preparation.matches(projectSessions.closingDocuments) else {
+                self?.nativeWindowCloseTask = nil
+                self?.pendingNativeWindowCloseIntent = nil
+                return
+            }
+            // Asked after the documents, which are not closed until the reset
+            // below, so a cancel here still leaves everything as it was.
+            guard await projectSessions.confirmRunServicesBeforeClose(), !Task.isCancelled else {
                 self?.nativeWindowCloseTask = nil
                 self?.pendingNativeWindowCloseIntent = nil
                 return
@@ -629,6 +718,19 @@ final class LitheWindowCoordinator: NSObject, NSWindowDelegate {
         // only for a new window/role, not every model update during layout.
         window.contentMinSize = layout.minimumContentSize
 
+        // setFrame on a native-fullscreen window shrinks it to a centered box
+        // inside its Space (content surrounded by black), so a layout
+        // transition that happens while fullscreen defers the frame swap
+        // until the user leaves fullscreen.
+        if isInFullScreen(window) {
+            needsFrameReconcileAfterFullScreen = true
+            return
+        }
+        applyFrame(for: layout, to: window, animate: shouldAnimate)
+        alignWindowButtons(in: window, for: layout)
+    }
+
+    private func applyFrame(for layout: LitheWindowLayout, to window: NSWindow, animate: Bool) {
         let currentFrame = window.frame
         let visibleFrame = (window.screen ?? NSScreen.main)?.visibleFrame
         let targetContentSize: NSSize
@@ -646,8 +748,7 @@ final class LitheWindowCoordinator: NSObject, NSWindowDelegate {
         if let visibleFrame {
             targetFrame = LitheWindowLayout.frame(targetFrame, fitting: visibleFrame)
         }
-        window.setFrame(targetFrame, display: true, animate: shouldAnimate)
-        alignWindowButtons(in: window, for: layout)
+        window.setFrame(targetFrame, display: true, animate: animate)
     }
 
     private func alignWindowButtons(in window: NSWindow, for layout: LitheWindowLayout) {

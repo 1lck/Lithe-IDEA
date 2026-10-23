@@ -639,9 +639,9 @@ struct VcsProviderToolWindowView: View {
                     .foregroundStyle(LitheTheme.secondaryText)
                 Spacer(minLength: 0)
             }
-            .padding(.leading, LitheTheme.Commit.contentInset - LitheTheme.Commit.buttonBorderInset)
+            .padding(.leading, LitheTheme.Commit.contentInset)
             .padding(.trailing, LitheTheme.Commit.contentInset)
-            .padding(.bottom, LitheTheme.Commit.buttonBorderInset + 4)
+            .padding(.bottom, LitheTheme.ActionButton.spacing + 4)
         }
         .background(LitheTheme.toolHeader)
     }

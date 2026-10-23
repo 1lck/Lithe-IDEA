@@ -33,7 +33,16 @@ struct VcsRootState: Identifiable, Equatable {
     /// The root folder's own name for the workspace root and an enclosing
     /// working copy; the relative path for a nested one.
     var title: String {
-        root.id.isEmpty || root.id.hasPrefix("..") ? url.lastPathComponent : root.id
+        root.id.isEmpty || isEnclosing ? url.lastPathComponent : root.id
+    }
+
+    /// Whether the root encloses the workspace (`..`, `../..`). Core's rule:
+    /// only IDs made entirely of `..` segments, so a folder inside the
+    /// workspace may still be named `..repo`.
+    var isEnclosing: Bool { Self.isEnclosingRootID(root.id) }
+
+    nonisolated static func isEnclosingRootID(_ id: String) -> Bool {
+        !id.isEmpty && id.split(separator: "/", omittingEmptySubsequences: false).allSatisfy { $0 == ".." }
     }
 
     func supports(_ capability: VcsCapability) -> Bool {
@@ -818,7 +827,7 @@ final class VcsProvidersFeatureModel: ObservableObject {
     /// The workspace-relative path of a root-relative one; nil outside the
     /// workspace, which only an enclosing working copy can report.
     nonisolated static func workspacePath(_ path: String, rootID: String, workspaceURL: URL) -> String? {
-        guard rootID.hasPrefix("..") else { return rootID.isEmpty ? path : rootID + "/" + path }
+        guard VcsRootState.isEnclosingRootID(rootID) else { return rootID.isEmpty ? path : rootID + "/" + path }
         let levels = rootID.split(separator: "/").count
         let inside = workspaceURL.standardizedFileURL.pathComponents.suffix(levels).joined(separator: "/")
         if path == inside { return "" }

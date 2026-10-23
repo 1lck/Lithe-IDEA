@@ -6,7 +6,7 @@
 > The decision record is
 > [Unified VCS model and providers](../../.agents/notes/proposed/architecture/2026-10-22-unified-vcs-provider-model.md);
 > example data is in [`shared/fixtures/vcs/model-v1.json`](../fixtures/vcs/model-v1.json)
-> and [`plugins/v1/fixtures/svn-provider.plugin.json`](plugins/v1/fixtures/svn-provider.plugin.json).
+> and [`plugins/v1/fixtures/vcs-provider.plugin.json`](plugins/v1/fixtures/vcs-provider.plugin.json).
 
 This contract defines one VCS-neutral model for the features every version
 control system has: roots, file status, base content, history, annotation,
@@ -49,7 +49,7 @@ not modeled here.
       "detection": { "markers": [{ "name": ".svn", "type": "directory" }] },
       "metadataPaths": [".svn/wc.db"],
       "tool": { "commands": ["svn"], "validationArguments": ["--version", "--quiet"] },
-      "launch": { "kind": "runtime", "tool": "node", "minimumVersion": "20.3", "entry": "provider/svn-provider.mjs" },
+      "launch": { "kind": "runtime", "tool": "node", "minimumVersion": "20.3", "entry": "provider/main.mjs" },
       "arguments": ["--stdio"],
       "mayUseNetwork": true
     }

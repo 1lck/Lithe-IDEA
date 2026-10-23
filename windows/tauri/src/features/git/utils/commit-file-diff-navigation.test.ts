@@ -51,29 +51,30 @@ test("file navigation preserves repeated revisions, updates the tab and stops at
     filePath: "b.ts",
     label: "C",
   })!;
+  // The tree groups the two a.ts revisions before b.ts.
   const middle = preview.diffData;
-  const first = moveCommitFile(middle, -1)!;
-  const last = moveCommitFile(middle, 1)!;
-  expect(selectedCommitFileIndex(middle)).toBe(1);
+  expect(selectedCommitFileIndex(middle)).toBe(2);
+  expect(middle.initiallySelectedFileKey).toBe("C:b");
+  expect(middle.fileKeys).toEqual(["C:a", "A:a", "C:b"]);
+  const previous = moveCommitFile(middle, -1)!;
+  const first = moveCommitFile(previous, -1)!;
+  expect(previous.initiallySelectedFileKey).toBe("A:a");
+  expect(previous.initialDifference).toBe("last");
   expect(first.initiallySelectedFileKey).toBe("C:a");
   expect(first.initialDifference).toBe("last");
-  expect(last.initiallySelectedFileKey).toBe("A:a");
-  expect(last.initialDifference).toBe("first");
-  expect(last.files).toBe(middle.files);
-  expect(last.fileLabels?.[selectedCommitFileIndex(last)]).toBe("A");
-  expect(last.repoPath).toBe("C:/nested/repo");
+  expect(first.files).toBe(middle.files);
+  expect(first.fileLabels?.[selectedCommitFileIndex(first)]).toBe("C");
+  expect(first.repoPath).toBe("C:/nested/repo");
   expect(moveCommitFile(first, -1)).toBeNull();
-  expect(moveCommitFile(last, 1)).toBeNull();
-  const passive = { ...middle, preserveFocus: true };
-  expect(moveCommitFile(passive, 1)?.preserveFocus).toBe(false);
-  expect(moveCommitFile(passive, -1)?.preserveFocus).toBe(false);
+  expect(moveCommitFile(middle, 1)).toBeNull();
+  expect(moveCommitFile({ ...previous, preserveFocus: true }, 1)?.preserveFocus).toBe(false);
+  expect(moveCommitFile({ ...middle, preserveFocus: true }, -1)?.preserveFocus).toBe(false);
   expect(formatDiffBufferLabel(preview.displayName, preview.virtualPath, undefined, middle)).toBe(
     "Repository Diff: b.ts",
   );
-  expect(formatDiffBufferLabel(preview.displayName, preview.virtualPath, undefined, last)).toBe(
+  expect(formatDiffBufferLabel(preview.displayName, preview.virtualPath, undefined, previous)).toBe(
     "Repository Diff: a.ts",
   );
-  expect(middle.initiallySelectedFileKey).toBe("C:b");
 });
 
 test("an empty preview has no navigation and the bare IDEA tab title", () => {

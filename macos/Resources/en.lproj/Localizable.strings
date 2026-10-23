@@ -1305,6 +1305,7 @@
 "Review remaining steps" = "Review remaining steps";
 "Review repository commits" = "Review repository commits";
 "Each repository has its own commit. Completed steps are kept if another repository fails." = "Each repository has its own commit. Completed steps are kept if another repository fails.";
+"Review and Retry…" = "Review and Retry…";
 "Review and Retry Unfinished Steps…" = "Review and Retry Unfinished Steps…";
 "Dismiss Results" = "Dismiss Results";
 "Update parent repository references" = "Update parent repository references";
@@ -1869,6 +1870,16 @@
 "Programs started in Lithe that left their terminal or tool to keep running on their own, like daemons or background dev servers. They are listed together when you quit, and you choose which ones to end. Only programs started in this Lithe are listed; containers and services started outside Lithe are never touched." = "Programs started in Lithe that left their terminal or tool to keep running on their own, like daemons or background dev servers. They are listed together when you quit, and you choose which ones to end. Only programs started in this Lithe are listed; containers and services started outside Lithe are never touched.";
 "Ask in one list" = "Ask in one list";
 "End all" = "End all";
+"Run services" = "Run services";
+"Run configurations and Maven goals started in Lithe. They always stop when their project or window closes or Lithe quits, together with the processes they started; this only decides whether Lithe lists them and asks first." = "Run configurations and Maven goals started in Lithe. They always stop when their project or window closes or Lithe quits, together with the processes they started; this only decides whether Lithe lists them and asks first.";
+"Ask before stopping" = "Ask before stopping";
+"Stop without asking" = "Stop without asking";
+"Run services are still running" = "Run services are still running";
+"Quitting Lithe stops these services and the processes they started." = "Quitting Lithe stops these services and the processes they started.";
+"Closing the project stops these services and the processes they started." = "Closing the project stops these services and the processes they started.";
+"Unnamed service" = "Unnamed service";
+"Stop and Quit" = "Stop and Quit";
+"Stop and Close" = "Stop and Close";
 "Closing a terminal tab" = "Closing a terminal tab";
 "Ask before closing a tab with running programs" = "Ask before closing a tab with running programs";
 "Closing a tab ends every program started in it, including jobs sent to the background. Turn this off to close tabs immediately. Background services that left the terminal are not ended here; they are asked about when you quit." = "Closing a tab ends every program started in it, including jobs sent to the background. Turn this off to close tabs immediately. Background services that left the terminal are not ended here; they are asked about when you quit.";
@@ -2098,6 +2109,7 @@
 "Reset Page Zoom (100%)" = "Reset Page Zoom (100%)";
 "Page Zoom" = "Page Zoom";
 
+"The configured build tool is not executable: %@" = "The configured build tool is not executable: %@";
 /* Embedded HTML preview browser: camera and microphone. */
 "“%@” wants to use your camera." = "“%@” wants to use your camera.";
 "“%@” wants to use your microphone." = "“%@” wants to use your microphone.";

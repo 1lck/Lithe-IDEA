@@ -1,0 +1,31 @@
+{
+  "id": "shared-action-button-style",
+  "area": "工作台",
+  "group": "外观",
+  "capability": "普通文字动作按钮采用欢迎页完整几何与间距：28高、4圆角、14水平留白、72最小宽、内容自适应且无固定最大宽、相邻间距6；主操作使用独立标准实蓝及无外框焦点提示",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/Components/LitheActionButtonStyle.swift",
+      "macos/Sources/Lithe/Theme/LitheTheme.swift",
+      "macos/Sources/Lithe/Views/Editor/GoToLineDialog.swift",
+      "macos/Tests/LitheTests/CommitActionButtonStyleTests.swift",
+      "macos/Sources/Lithe/Views/Run/JavaLaunchDecisionDialog.swift",
+      "macos/Tests/LitheTests/RunEntryPointTests.swift",
+      "macos/Sources/Lithe/Views/App/PluginDetailView.swift",
+      "macos/Tests/LitheTests/PluginDetailLayoutTests.swift"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/ui/button.tsx",
+      "windows/tauri/src/styles/theme.css"
+    ],
+    "implementationStatus": "partial",
+    "verificationStatus": "pending"
+  },
+  "owner": "Workbench",
+  "notes": "普通文字按钮以 macOS Welcome 的28高、4圆角、13常规字、14水平留白、72最小宽为准；普通文字动作取消紧凑/额外焦点留白/局部宽度覆盖，横竖相邻间距6，不设固定最大宽且按文案自然增长；图标/链接/菜单/选择器保留各自形态。主操作常态#2D62CC、hover#2453B3、按下#1D4699，不改变全局主题accent/primary；危险操作保留红色语义。组件检查不替代完整产品及Windows实机验收。 本次仅交付macOS；Windows保留原有按钮组件，尚未同步本条完整标准。 提交区默认/最小195pt预算同时覆盖Amend换行和底部按钮纵排，输入区至少50pt，不通过拖动中的测量状态更新父页面。 共享样式恢复手形反馈并避免外层指针重复压栈；插件详情组内支持纵排，极长版本使用紧凑更新文案并保留提示/无障碍版本值。macOS 13 Tab焦点外圈尚未实机验证。 提交结果的清除/查看重试动作纳入原有90pt结果滚动区，避免共享按钮尺寸挤压输入区和页脚。",
+  "verification": "分别在macOS和Windows深浅主题检查Welcome、设置、插件管理、Git提交/推送/工作树、数据库和运行/调试表单的普通及主操作按钮；核对悬停、按下、禁用、加载、长中文文案、紧凑布局、Tab和Return/Esc，无点击焦点外框；确认列表选择、输入焦点、复选框及运行/停止颜色不变。Go To Line 输入无效值时OK禁用，Return不跳转，Esc取消。 检查短文案最小宽72、长中文/英文按钮随内容增长且不省略，水平留白14、可见边缘间距6；确认/取消组在窄窗口换行并保持完整内边距；选择器、标签和图标按钮不被扩大成文字按钮。 Java构建失败窗口在英文及中文、带/不带重建索引动作时所有按钮完整位于内容区；设置页短文案按钮最小宽72；插件安装确认两个按钮采用共享样式、间距6，Return仍取消。 提交区使用父分隔容器默认/最小高度，在宽→窄→宽过程中核对输入区至少50pt、纵排按钮完整位于分配范围且不重叠；Search Everywhere过滤弹窗宽238pt并保留批量按钮和勾选状态。 插件详情中英文、深浅主题、长版本号及多个操作在最小设置窗口可用宽度和160pt详情下限均不越界，更新动作可用；核对共享样式及已有外层指针的后代所有权和页面关闭手形的环境开关，实际悬停/退出仍需产品交互验收。 提交区在无结果195pt/有失败结果285pt父面板高度、输入区至少50pt和页脚完整边界。"
+}

@@ -217,11 +217,11 @@ struct DatabaseQueryHistoryDialog: View {
                         .background(LitheTheme.editor)
                 }
             }.padding(12)
-            HStack {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Spacer()
-                Button("Close", action: onClose).buttonStyle(LitheCommitDialogButtonStyle()).keyboardShortcut(.cancelAction)
+                Button("Close", action: onClose).buttonStyle(LitheActionButtonStyle()).keyboardShortcut(.cancelAction)
                 Button("Paste") { if let selected { onPaste(selected) } }
-                    .buttonStyle(LitheCommitDialogButtonStyle(primary: true)).disabled(selected == nil).keyboardShortcut(.defaultAction)
+                    .buttonStyle(LitheActionButtonStyle(isPrimary: true)).disabled(selected == nil).keyboardShortcut(.defaultAction)
             }.padding(12)
         }.foregroundStyle(LitheTheme.primaryText).frame(width: 500, height: 500).background(LitheCommitDialogStyle.background)
     }

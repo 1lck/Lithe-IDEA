@@ -4,133 +4,133 @@
   "cases": [
     {
       "name": "legacy native manifest schema",
-      "base": "php-support.plugin.json",
+      "base": "language-packaged-server.plugin.json",
       "edits": [{ "op": "set", "path": "/schemaVersion", "value": 1 }],
       "expectedCode": "plugin.schema.unsupported"
     },
     {
       "name": "future plugin API",
-      "base": "php-support.plugin.json",
+      "base": "language-packaged-server.plugin.json",
       "edits": [{ "op": "set", "path": "/pluginAPIVersion", "value": 99 }],
       "expectedCode": "plugin.api.unsupported"
     },
     {
       "name": "unknown top-level field",
-      "base": "php-support.plugin.json",
+      "base": "language-packaged-server.plugin.json",
       "edits": [{ "op": "set", "path": "/entrypoint", "value": { "kind": "nativeBundle" } }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "uppercase plugin id",
-      "base": "php-support.plugin.json",
+      "base": "language-packaged-server.plugin.json",
       "edits": [{ "op": "set", "path": "/id", "value": "Dev.Lithe.Fixture" }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "packaged language server escapes the package",
-      "base": "php-support.plugin.json",
+      "base": "language-packaged-server.plugin.json",
       "edits": [{ "op": "set", "path": "/languageServers/0/launch/path", "value": "../bin/intelephense" }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "system command is a path",
-      "base": "go-support.plugin.json",
+      "base": "language-system-command.plugin.json",
       "edits": [{ "op": "set", "path": "/languageServers/0/launch/commands", "value": ["/usr/local/bin/gopls"] }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "language server for an undeclared language",
-      "base": "php-support.plugin.json",
+      "base": "language-packaged-server.plugin.json",
       "edits": [{ "op": "set", "path": "/languageServers/0/languageID", "value": "hack" }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "unsupported runtime dependency",
-      "base": "php-support.plugin.json",
+      "base": "language-packaged-server.plugin.json",
       "edits": [{ "op": "set", "path": "/languageServers/0/runtimeDependencies", "value": [{ "tool": "python" }] }],
       "expectedCode": "plugin.runtime.unsupported"
     },
     {
       "name": "unknown permission",
-      "base": "php-support.plugin.json",
+      "base": "language-packaged-server.plugin.json",
       "edits": [{ "op": "set", "path": "/permissions/0", "value": "network.fetch" }],
       "expectedCode": "plugin.permission.unknown"
     },
     {
       "name": "language server without its permission",
-      "base": "php-support.plugin.json",
+      "base": "language-packaged-server.plugin.json",
       "edits": [{ "op": "set", "path": "/permissions", "value": ["process.run", "process.test"] }],
       "expectedCode": "plugin.permission.undeclared"
     },
     {
       "name": "missing activation event",
-      "base": "php-support.plugin.json",
+      "base": "language-packaged-server.plugin.json",
       "edits": [{ "op": "set", "path": "/activationEvents", "value": ["onLanguage:php", "onRun:php"] }],
       "expectedCode": "plugin.activation.invalid"
     },
     {
       "name": "activation event without a provider",
-      "base": "php-support.plugin.json",
+      "base": "language-packaged-server.plugin.json",
       "edits": [{ "op": "remove", "path": "/executionProviders/0/run" }],
       "expectedCode": "plugin.activation.invalid"
     },
     {
       "name": "unknown template variable",
-      "base": "php-support.plugin.json",
+      "base": "language-packaged-server.plugin.json",
       "edits": [{ "op": "set", "path": "/executionProviders/0/run/arguments", "value": ["${workspaceRoot}/${file}"] }],
       "expectedCode": "plugin.template.invalid"
     },
     {
       "name": "user arguments embedded in an element",
-      "base": "php-support.plugin.json",
+      "base": "language-packaged-server.plugin.json",
       "edits": [{ "op": "set", "path": "/executionProviders/0/run/arguments", "value": ["${file}", "--args=${userArguments}"] }],
       "expectedCode": "plugin.template.invalid"
     },
     {
       "name": "test case uses the file without a guard",
-      "base": "php-support.plugin.json",
+      "base": "language-packaged-server.plugin.json",
       "edits": [{ "op": "set", "path": "/executionProviders/0/test/testCaseArguments", "value": ["vendor/bin/phpunit", "--filter", "${testName:regex}", "${file}"] }],
       "expectedCode": "plugin.template.invalid"
     },
     {
       "name": "test case never names the test",
-      "base": "php-support.plugin.json",
+      "base": "language-packaged-server.plugin.json",
       "edits": [{ "op": "set", "path": "/executionProviders/0/test/testCaseArguments", "value": ["vendor/bin/phpunit"] }],
       "expectedCode": "plugin.template.invalid"
     },
     {
       "name": "executable is an absolute path",
-      "base": "php-support.plugin.json",
+      "base": "language-packaged-server.plugin.json",
       "edits": [{ "op": "set", "path": "/executionProviders/0/run/executable", "value": { "command": "/usr/bin/php" } }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "runtime launch in an API 1 manifest",
-      "base": "php-support.plugin.json",
+      "base": "language-packaged-server.plugin.json",
       "edits": [{ "op": "set", "path": "/languageServers/0/launch", "value": { "kind": "runtime", "tool": "node", "entry": "language-server/lib/intelephense.js" } }, { "op": "set", "path": "/languageServers/0/runtimeDependencies", "value": [] }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "initialization options in an API 1 manifest",
-      "base": "php-support.plugin.json",
+      "base": "language-packaged-server.plugin.json",
       "edits": [{ "op": "set", "path": "/languageServers/0/initializationOptions", "value": { "storagePath": "cache" } }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "host integration in an API 1 manifest",
-      "base": "php-support.plugin.json",
+      "base": "language-packaged-server.plugin.json",
       "edits": [{ "op": "set", "path": "/languageServers/0/hostIntegration", "value": { "id": "jdt" } }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "runtime dependency states a minimum version",
-      "base": "php-support.plugin.json",
+      "base": "language-packaged-server.plugin.json",
       "edits": [{ "op": "set", "path": "/languageServers/0/runtimeDependencies", "value": [{ "tool": "node", "minimumVersion": "18" }] }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "java runtime in an API 1 manifest",
-      "base": "php-support.plugin.json",
+      "base": "language-packaged-server.plugin.json",
       "edits": [{ "op": "set", "path": "/languageServers/0/runtimeDependencies", "value": [{ "tool": "java" }] }],
       "expectedCode": "plugin.runtime.unsupported"
     },
@@ -166,19 +166,19 @@
     },
     {
       "name": "packaged runtime escapes the package",
-      "base": "java-support.plugin.json",
+      "base": "language-host-integration.plugin.json",
       "edits": [{ "op": "set", "path": "/languageServers/0/launch/packagedRuntime", "value": "../jdk/bin/java" }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "packaged runtime varies by something other than the architecture",
-      "base": "java-support.plugin.json",
+      "base": "language-host-integration.plugin.json",
       "edits": [{ "op": "set", "path": "/languageServers/0/launch/packagedRuntime", "value": "${stateDir}/jdk/bin/java" }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "packaged runtime also states a minimum version",
-      "base": "java-support.plugin.json",
+      "base": "language-host-integration.plugin.json",
       "edits": [{ "op": "set", "path": "/languageServers/0/launch/minimumVersion", "value": "21" }],
       "expectedCode": "plugin.manifest.invalid"
     },
@@ -226,61 +226,61 @@
     },
     {
       "name": "unknown host integration",
-      "base": "java-support.plugin.json",
+      "base": "language-host-integration.plugin.json",
       "edits": [{ "op": "set", "path": "/languageServers/0/hostIntegration/id", "value": "roslyn" }],
       "expectedCode": "plugin.integration.unsupported"
     },
     {
       "name": "host integration requested outside the official namespace",
-      "base": "java-support.plugin.json",
+      "base": "language-host-integration.plugin.json",
       "edits": [{ "op": "set", "path": "/id", "value": "io.example.java" }, { "op": "set", "path": "/vendor/signatureRequirement", "value": "none" }],
       "expectedCode": "plugin.integration.unsupported"
     },
     {
       "name": "jdt integration without a java runtime launch",
-      "base": "java-support.plugin.json",
+      "base": "language-host-integration.plugin.json",
       "edits": [{ "op": "set", "path": "/languageServers/0/launch", "value": { "kind": "packaged", "path": "language-server/bin/jdtls" } }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "jdt integration misses a required resource",
-      "base": "java-support.plugin.json",
+      "base": "language-host-integration.plugin.json",
       "edits": [{ "op": "remove", "path": "/languageServers/0/hostIntegration/resources/configuration" }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "jdt integration declares a resource it does not use",
-      "base": "java-support.plugin.json",
+      "base": "language-host-integration.plugin.json",
       "edits": [{ "op": "set", "path": "/languageServers/0/hostIntegration/resources/indexer", "value": "language-server/indexer.jar" }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "integration resource leaves the package",
-      "base": "java-support.plugin.json",
+      "base": "language-host-integration.plugin.json",
       "edits": [{ "op": "set", "path": "/languageServers/0/hostIntegration/resources/lombokAgent", "value": "../lombok.jar" }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "integration resource list given as a single path",
-      "base": "java-support.plugin.json",
+      "base": "language-host-integration.plugin.json",
       "edits": [{ "op": "set", "path": "/languageServers/0/hostIntegration/resources/extensionBundleDirectories", "value": "language-server/java-debug" }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "integration capability the integration does not provide",
-      "base": "java-support.plugin.json",
+      "base": "language-host-integration.plugin.json",
       "edits": [{ "op": "set", "path": "/languageServers/0/hostIntegration/capabilities", "value": ["formatting"] }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "integration capability without the resource its host code reads",
-      "base": "java-support.plugin.json",
+      "base": "language-host-integration.plugin.json",
       "edits": [{ "op": "remove", "path": "/languageServers/0/hostIntegration/resources/testRunner" }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "integration capability that the plugin's execution provider already provides",
-      "base": "java-support.plugin.json",
+      "base": "language-host-integration.plugin.json",
       "edits": [
         { "op": "set", "path": "/permissions", "value": ["languageServer.launch", "process.run"] },
         { "op": "set", "path": "/activationEvents", "value": ["onLanguage:java", "onRun:java"] },
@@ -295,7 +295,7 @@
       ],
       "expectedCode": "plugin.manifest.invalid"
     },
-    {"name": "settings on API level 1", "base": "php-support.plugin.json", "edits": [{"op": "set", "path": "/settings", "value": [{"id": "x", "type": "boolean", "title": "X", "default": true}]}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "settings on API level 1", "base": "language-packaged-server.plugin.json", "edits": [{"op": "set", "path": "/settings", "value": [{"id": "x", "type": "boolean", "title": "X", "default": true}]}], "expectedCode": "plugin.manifest.invalid"},
     {"name": "launch template names an undeclared setting", "base": "node-runtime.plugin.json", "edits": [{"op": "set", "path": "/languageServers/0/arguments/1", "value": "--log-level=${setting:verbosity}"}], "expectedCode": "plugin.template.invalid"},
     {"name": "setting shapes a package path", "base": "node-runtime.plugin.json", "edits": [{"op": "set", "path": "/languageServers/0/launch/runtimeArguments/1", "value": "--require=${pluginDir}/language-server/${setting:logLevel}.js"}], "expectedCode": "plugin.template.invalid"},
     {"name": "setting identifier with a separator", "base": "node-runtime.plugin.json", "edits": [{"op": "set", "path": "/settings/0/id", "value": "heap-mb"}], "expectedCode": "plugin.manifest.invalid"},
@@ -449,7 +449,7 @@
     },
     {
       "name": "build systems need plugin API 3",
-      "base": "cargo-build.plugin.json",
+      "base": "build-static-file.plugin.json",
       "edits": [
         { "op": "set", "path": "/pluginAPIVersion", "value": 2 },
         { "op": "remove", "path": "/requires" }
@@ -458,25 +458,25 @@
     },
     {
       "name": "build systems need the build permission",
-      "base": "cargo-build.plugin.json",
+      "base": "build-static-file.plugin.json",
       "edits": [{ "op": "set", "path": "/permissions", "value": [] }],
       "expectedCode": "plugin.permission.undeclared"
     },
     {
       "name": "build systems need their activation event",
-      "base": "cargo-build.plugin.json",
+      "base": "build-static-file.plugin.json",
       "edits": [{ "op": "set", "path": "/activationEvents", "value": [] }],
       "expectedCode": "plugin.activation.invalid"
     },
     {
       "name": "build activation names an undeclared build system",
-      "base": "cargo-build.plugin.json",
+      "base": "build-static-file.plugin.json",
       "edits": [{ "op": "set", "path": "/activationEvents", "value": ["onBuildSystem:cargo", "onBuildSystem:bazel"] }],
       "expectedCode": "plugin.activation.invalid"
     },
     {
       "name": "build system ID is not an identifier",
-      "base": "cargo-build.plugin.json",
+      "base": "build-static-file.plugin.json",
       "edits": [
         { "op": "set", "path": "/buildSystems/0/id", "value": "Cargo" },
         { "op": "set", "path": "/activationEvents", "value": ["onBuildSystem:Cargo"] }
@@ -485,7 +485,7 @@
     },
     {
       "name": "host integration is reserved to official plugins",
-      "base": "maven-build.plugin.json",
+      "base": "build-host-integration.plugin.json",
       "edits": [
         { "op": "set", "path": "/id", "value": "org.example.maven-build" },
         { "op": "set", "path": "/vendor/id", "value": "org.example" }
@@ -494,97 +494,97 @@
     },
     {
       "name": "host integration the host does not provide",
-      "base": "maven-build.plugin.json",
+      "base": "build-host-integration.plugin.json",
       "edits": [{ "op": "set", "path": "/buildSystems/0/hostIntegration", "value": "sbt" }],
       "expectedCode": "plugin.integration.unsupported"
     },
     {
       "name": "host-integration model without a host integration",
-      "base": "maven-build.plugin.json",
+      "base": "build-host-integration.plugin.json",
       "edits": [{ "op": "remove", "path": "/buildSystems/0/hostIntegration" }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "option arguments placed twice",
-      "base": "cargo-build.plugin.json",
+      "base": "build-static-file.plugin.json",
       "edits": [{ "op": "set", "path": "/buildSystems/0/tasks/0/arguments", "value": ["build", "${optionArguments}", "${optionArguments:release}"] }],
       "expectedCode": "plugin.template.invalid"
     },
     {
       "name": "option arguments name an undeclared option",
-      "base": "cargo-build.plugin.json",
+      "base": "build-static-file.plugin.json",
       "edits": [{ "op": "set", "path": "/buildSystems/0/tasks/2/arguments", "value": ["clean", "${optionArguments:profile}"] }],
       "expectedCode": "plugin.template.invalid"
     },
     {
       "name": "target variable without its guard",
-      "base": "cargo-build.plugin.json",
+      "base": "build-static-file.plugin.json",
       "edits": [{ "op": "set", "path": "/buildSystems/0/test/arguments", "value": ["test", "${target.name}"] }],
       "expectedCode": "plugin.template.invalid"
     },
     {
       "name": "test case variable without its guard",
-      "base": "cargo-build.plugin.json",
+      "base": "build-static-file.plugin.json",
       "edits": [{ "op": "set", "path": "/buildSystems/0/test/arguments", "value": ["test", "--", "${test.case}"] }],
       "expectedCode": "plugin.template.invalid"
     },
     {
       "name": "test variables outside a test command",
-      "base": "cargo-build.plugin.json",
+      "base": "build-static-file.plugin.json",
       "edits": [{ "op": "set", "path": "/buildSystems/0/tasks/0/arguments", "value": ["build", "${test.case}"] }],
       "expectedCode": "plugin.template.invalid"
     },
     {
       "name": "user arguments in a model command",
-      "base": "go-build.plugin.json",
+      "base": "build-command-stdout.plugin.json",
       "edits": [{ "op": "set", "path": "/buildSystems/0/model/arguments", "value": ["list", "-json", "${userArguments}"] }],
       "expectedCode": "plugin.template.invalid"
     },
     {
       "name": "output file without the file channel",
-      "base": "gradle-build.plugin.json",
+      "base": "build-command-output-file.plugin.json",
       "edits": [{ "op": "remove", "path": "/buildSystems/0/model/output" }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "file channel without the output file",
-      "base": "gradle-build.plugin.json",
+      "base": "build-command-output-file.plugin.json",
       "edits": [{ "op": "set", "path": "/buildSystems/0/model/arguments", "value": ["-q", "litheModel"] }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "plugin directory in a task",
-      "base": "gradle-build.plugin.json",
+      "base": "build-command-output-file.plugin.json",
       "edits": [{ "op": "set", "path": "/buildSystems/0/tasks/1/arguments", "value": ["--init-script", "${pluginDir}/x.gradle", "build"] }],
       "expectedCode": "plugin.template.invalid"
     },
     {
       "name": "user arguments required but never placed",
-      "base": "maven-build.plugin.json",
+      "base": "build-host-integration.plugin.json",
       "edits": [{ "op": "set", "path": "/buildSystems/0/tasks/4/arguments", "value": ["validate"] }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "run entries from a task that is not a model template",
-      "base": "gradle-build.plugin.json",
+      "base": "build-command-output-file.plugin.json",
       "edits": [{ "op": "set", "path": "/buildSystems/0/run/0/fromTasks/templates", "value": ["build"] }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "host-managed runtime with its own executables",
-      "base": "go-build.plugin.json",
+      "base": "build-command-stdout.plugin.json",
       "edits": [{ "op": "set", "path": "/buildSystems/0/invocation/runtimeDependencies/0/executables", "value": [{ "kind": "command", "command": "go" }] }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "runtime executable without its dependency",
-      "base": "go-build.plugin.json",
+      "base": "build-command-stdout.plugin.json",
       "edits": [{ "op": "set", "path": "/buildSystems/0/invocation/runtimeDependencies", "value": [] }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "plugin-described runtime without executables",
-      "base": "go-build.plugin.json",
+      "base": "build-command-stdout.plugin.json",
       "edits": [
         { "op": "set", "path": "/buildSystems/0/invocation/executables/0/runtime", "value": "zig" },
         { "op": "set", "path": "/buildSystems/0/invocation/runtimeDependencies/0/id", "value": "zig" }
@@ -593,229 +593,229 @@
     },
     {
       "name": "environment executable not declared as an input",
-      "base": "gradle-build.plugin.json",
+      "base": "build-command-output-file.plugin.json",
       "edits": [{ "op": "set", "path": "/buildSystems/0/invocation/environmentInputs", "value": [] }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "project-file executable leaves the root",
-      "base": "gradle-build.plugin.json",
+      "base": "build-command-output-file.plugin.json",
       "edits": [{ "op": "set", "path": "/buildSystems/0/invocation/executables/0/path", "value": "../gradlew" }],
       "expectedCode": "plugin.path.invalid"
     },
     {
       "name": "version pattern without a capture group",
-      "base": "cargo-build.plugin.json",
+      "base": "build-static-file.plugin.json",
       "edits": [{ "op": "set", "path": "/buildSystems/0/invocation/version/pattern", "value": "cargo \\d+" }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "minimum version without a probe",
-      "base": "cargo-build.plugin.json",
+      "base": "build-static-file.plugin.json",
       "edits": [{ "op": "remove", "path": "/buildSystems/0/invocation/version" }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "static model file leaves the root",
-      "base": "cargo-build.plugin.json",
+      "base": "build-static-file.plugin.json",
       "edits": [{ "op": "set", "path": "/buildSystems/0/model/file", "value": "../Cargo.toml" }],
       "expectedCode": "plugin.path.invalid"
     },
     {
       "name": "selector without a pointer",
-      "base": "cargo-build.plugin.json",
+      "base": "build-static-file.plugin.json",
       "edits": [{ "op": "set", "path": "/buildSystems/0/model/map/projects/0/name", "value": "name" }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "literal field with a control character",
-      "base": "cargo-build.plugin.json",
+      "base": "build-static-file.plugin.json",
       "edits": [{ "op": "set", "path": "/buildSystems/0/model/map/projects/0/contentRoots/0/path", "value": { "value": "src\n" } }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "predicate with both equals and exists",
-      "base": "go-build.plugin.json",
+      "base": "build-command-stdout.plugin.json",
       "edits": [{ "op": "set", "path": "/buildSystems/0/dependencies/map/where/0/equals", "value": true }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "a static model in a format the map does not read",
-      "base": "cargo-build.plugin.json",
+      "base": "build-static-file.plugin.json",
       "edits": [{ "op": "set", "path": "/buildSystems/0/model/decoder", "value": "yaml" }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "a model command printing a single JSON document reads it as jsonStream",
-      "base": "go-build.plugin.json",
+      "base": "build-command-stdout.plugin.json",
       "edits": [{ "op": "set", "path": "/buildSystems/0/model/decoder", "value": "json" }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "a model map lists no tasks",
-      "base": "cargo-build.plugin.json",
+      "base": "build-static-file.plugin.json",
       "edits": [{ "op": "set", "path": "/buildSystems/0/model/map/projects/0/tasks", "value": [] }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "a model map has no top-level targets",
-      "base": "cargo-build.plugin.json",
+      "base": "build-static-file.plugin.json",
       "edits": [{ "op": "set", "path": "/buildSystems/0/model/map/targets", "value": [] }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "a project rule names no parent",
-      "base": "go-build.plugin.json",
+      "base": "build-command-stdout.plugin.json",
       "edits": [{ "op": "set", "path": "/buildSystems/0/model/map/projects/0/parent", "value": "/Dir" }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "target tags are a literal list",
-      "base": "cargo-build.plugin.json",
+      "base": "build-static-file.plugin.json",
       "edits": [{ "op": "set", "path": "/buildSystems/0/model/map/projects/0/targets/0/tags", "value": { "from": "/kind", "map": { "bin": ["application"] } } }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "lastSegment is the only transform",
-      "base": "go-build.plugin.json",
+      "base": "build-command-stdout.plugin.json",
       "edits": [{ "op": "set", "path": "/buildSystems/0/model/map/projects/0/targets/0/properties/short/transform", "value": "parentDirectory" }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "a dependency map is flat",
-      "base": "go-build.plugin.json",
+      "base": "build-command-stdout.plugin.json",
       "edits": [{ "op": "set", "path": "/buildSystems/0/dependencies/map/children", "value": "/Deps/*" }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "layout lists only excluded directories",
-      "base": "cargo-build.plugin.json",
+      "base": "build-static-file.plugin.json",
       "edits": [{ "op": "set", "path": "/buildSystems/0/layout/generated", "value": ["target/generated"] }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "diagnostic capture group beyond the pattern",
-      "base": "cargo-build.plugin.json",
+      "base": "build-static-file.plugin.json",
       "edits": [{ "op": "set", "path": "/buildSystems/0/diagnostics/patterns/0/message", "value": 9 }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "option environment name is not uppercase",
-      "base": "cargo-build.plugin.json",
+      "base": "build-static-file.plugin.json",
       "edits": [{ "op": "set", "path": "/buildSystems/0/options/0/environment", "value": { "cargo_release": "1" } }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "sync watch leaves the root",
-      "base": "cargo-build.plugin.json",
+      "base": "build-static-file.plugin.json",
       "edits": [{ "op": "set", "path": "/buildSystems/0/sync/watch", "value": ["../Cargo.toml"] }],
       "expectedCode": "plugin.path.invalid"
     },
     {
       "name": "test target tags without the target scope",
-      "base": "cargo-build.plugin.json",
+      "base": "build-static-file.plugin.json",
       "edits": [{ "op": "set", "path": "/buildSystems/0/test/scopes", "value": ["project"] }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "provider that no source uses",
-      "base": "gradle-build.plugin.json",
+      "base": "build-command-output-file.plugin.json",
       "edits": [{ "op": "set", "path": "/buildSystems/0/provider", "value": { "launch": { "kind": "systemCommand", "commands": ["gradle-provider"] }, "executesProjectCode": true, "mayUseNetwork": true } }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "provider source without a provider",
-      "base": "gradle-provider.plugin.json",
+      "base": "build-provider.plugin.json",
       "edits": [{ "op": "remove", "path": "/buildSystems/0/provider" }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "shared provider names a language without a language server",
-      "base": "mix-provider.plugin.json",
+      "base": "build-provider-language-server.plugin.json",
       "edits": [{ "op": "set", "path": "/buildSystems/0/provider/languageServer", "value": "erlang" }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "provider mixes the shared and own forms",
-      "base": "mix-provider.plugin.json",
+      "base": "build-provider-language-server.plugin.json",
       "edits": [{ "op": "set", "path": "/buildSystems/0/provider/launch", "value": { "kind": "systemCommand", "commands": ["mix-provider"] } }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "provider without its execution flags",
-      "base": "gradle-provider.plugin.json",
+      "base": "build-provider.plugin.json",
       "edits": [{ "op": "remove", "path": "/buildSystems/0/provider/executesProjectCode" }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "own provider without the language server permission",
-      "base": "gradle-provider.plugin.json",
+      "base": "build-provider.plugin.json",
       "edits": [{ "op": "set", "path": "/permissions", "value": ["process.build"] }],
       "expectedCode": "plugin.permission.undeclared"
     },
     {
       "name": "provider entry leaves the package",
-      "base": "gradle-provider.plugin.json",
+      "base": "build-provider.plugin.json",
       "edits": [{ "op": "set", "path": "/buildSystems/0/provider/launch/entry", "value": "../provider.jar" }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "provider runtime the host cannot start",
-      "base": "gradle-provider.plugin.json",
+      "base": "build-provider.plugin.json",
       "edits": [{ "op": "set", "path": "/buildSystems/0/provider/launch/tool", "value": "go" }],
       "expectedCode": "plugin.runtime.unsupported"
     },
     {
       "name": "provider argument names an undeclared setting",
-      "base": "gradle-provider.plugin.json",
+      "base": "build-provider.plugin.json",
       "edits": [{ "op": "set", "path": "/buildSystems/0/provider/arguments", "value": ["--heap=${setting:missing}"] }],
       "expectedCode": "plugin.template.invalid"
     },
     {
       "name": "provider dependencies of a target",
-      "base": "gradle-provider.plugin.json",
+      "base": "build-provider.plugin.json",
       "edits": [{ "op": "set", "path": "/buildSystems/0/dependencies/scopes", "value": ["target"] }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "plugin API 3 without requires",
-      "base": "cargo-build.plugin.json",
+      "base": "build-static-file.plugin.json",
       "edits": [{ "op": "remove", "path": "/requires" }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "requires below plugin API 3",
-      "base": "php-support.plugin.json",
+      "base": "language-packaged-server.plugin.json",
       "edits": [{ "op": "set", "path": "/requires", "value": { "languageServers": 1, "languages": 1, "serverProcess": 1 } }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "empty requires",
-      "base": "cargo-build.plugin.json",
+      "base": "build-static-file.plugin.json",
       "edits": [{ "op": "set", "path": "/requires", "value": {} }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "capability version is not a positive integer",
-      "base": "cargo-build.plugin.json",
+      "base": "build-static-file.plugin.json",
       "edits": [{ "op": "set", "path": "/requires/buildSystems", "value": 0 }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "malformed capability ID",
-      "base": "cargo-build.plugin.json",
+      "base": "build-static-file.plugin.json",
       "edits": [{ "op": "set", "path": "/requires/build-systems", "value": 1 }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "future capability",
-      "base": "cargo-build.plugin.json",
+      "base": "build-static-file.plugin.json",
       "edits": [{ "op": "set", "path": "/requires/debuggers", "value": 1 }],
       "expectedCode": "plugin.api.unsupported"
     },
     {
       "name": "future capability is reported before its unknown section",
-      "base": "cargo-build.plugin.json",
+      "base": "build-static-file.plugin.json",
       "edits": [
         { "op": "set", "path": "/requires/debuggers", "value": 1 },
         { "op": "set", "path": "/debuggers", "value": [{ "id": "lldb" }] }
@@ -824,43 +824,43 @@
     },
     {
       "name": "future capability version",
-      "base": "cargo-build.plugin.json",
-      "edits": [{ "op": "set", "path": "/requires/buildSystems", "value": 2 }],
+      "base": "build-static-file.plugin.json",
+      "edits": [{ "op": "set", "path": "/requires/buildSystems", "value": 3 }],
       "expectedCode": "plugin.api.unsupported"
     },
     {
       "name": "used capability missing from requires",
-      "base": "mix-provider.plugin.json",
+      "base": "build-provider-language-server.plugin.json",
       "edits": [{ "op": "remove", "path": "/requires/languageServers" }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "requires lists an unused capability",
-      "base": "cargo-build.plugin.json",
+      "base": "build-static-file.plugin.json",
       "edits": [{ "op": "set", "path": "/requires/ui", "value": 1 }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "own provider without buildProviders capability",
-      "base": "gradle-provider.plugin.json",
+      "base": "build-provider.plugin.json",
       "edits": [{ "op": "remove", "path": "/requires/buildProviders" }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "shared provider without buildProviders capability",
-      "base": "mix-provider.plugin.json",
+      "base": "build-provider-language-server.plugin.json",
       "edits": [{ "op": "remove", "path": "/requires/buildProviders" }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "template build lists unused buildProviders capability",
-      "base": "cargo-build.plugin.json",
+      "base": "build-static-file.plugin.json",
       "edits": [{ "op": "set", "path": "/requires/buildProviders", "value": 1 }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "own provider process without serverProcess",
-      "base": "gradle-provider.plugin.json",
+      "base": "build-provider.plugin.json",
       "edits": [{ "op": "remove", "path": "/requires/serverProcess" }],
       "expectedCode": "plugin.manifest.invalid"
     },
@@ -920,43 +920,43 @@
     },
     {
       "name": "build system icon leaves the package",
-      "base": "gradle-build.plugin.json",
+      "base": "build-command-output-file.plugin.json",
       "edits": [{ "op": "set", "path": "/buildSystems/0/icon", "value": {"path": "../gradle.svg"} }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "toolbar option without an icon",
-      "base": "gradle-build.plugin.json",
+      "base": "build-command-output-file.plugin.json",
       "edits": [{ "op": "set", "path": "/buildSystems/0/options/0/presentation", "value": "toolbar" }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "toolbar option that is not boolean",
-      "base": "maven-build.plugin.json",
+      "base": "build-host-integration.plugin.json",
       "edits": [{ "op": "set", "path": "/buildSystems/0/options/0/presentation", "value": "toolbar" }, { "op": "set", "path": "/buildSystems/0/options/0/icon", "value": {"host": "settings"} }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "tree option that is not multiSelect",
-      "base": "gradle-build.plugin.json",
+      "base": "build-command-output-file.plugin.json",
       "edits": [{ "op": "set", "path": "/buildSystems/0/options/0/presentation", "value": "tree" }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "option icon outside the toolbar",
-      "base": "gradle-build.plugin.json",
+      "base": "build-command-output-file.plugin.json",
       "edits": [{ "op": "set", "path": "/buildSystems/0/options/0/icon", "value": {"host": "settings"} }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "task category deeper than four headings",
-      "base": "gradle-build.plugin.json",
+      "base": "build-command-output-file.plugin.json",
       "edits": [{ "op": "set", "path": "/buildSystems/0/tasks/0/category", "value": ["a", "b", "c", "d", "e"] }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "task category with an empty heading",
-      "base": "gradle-build.plugin.json",
+      "base": "build-command-output-file.plugin.json",
       "edits": [{ "op": "set", "path": "/buildSystems/0/tasks/0/category", "value": ["Tasks", " "] }],
       "expectedCode": "plugin.manifest.invalid"
     }

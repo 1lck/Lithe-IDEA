@@ -73,8 +73,7 @@ struct DatabaseSchemaDiffView: View {
                     .help("Copy migration SQL")
                     .disabled(diff.items.isEmpty)
                 Button { requestMigration(diff) } label: { Label("Apply", systemImage: "play.fill") }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
+                    .buttonStyle(LitheActionButtonStyle(isPrimary: true))
                     .disabled(diff.items.isEmpty || feature.isLoading)
             }
             .padding(.horizontal, 10)

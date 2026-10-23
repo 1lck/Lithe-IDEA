@@ -11,7 +11,7 @@ This directory is the cross-platform source of truth:
 | File | Purpose |
 | --- | --- |
 | `plugin-manifest.schema.json` | JSON shape of `plugin.json` |
-| `fixtures/*.plugin.json` | Valid example manifests: language plugins (PHP, Go, Java, a discovered Node runtime), UI (`hello-lithe`), and level 3 build systems (Cargo, Go, Gradle, Maven, and two build providers) |
+| `fixtures/*.plugin.json` | Valid example manifests, named after the capability they exercise rather than a published plugin: `language-*` (packaged, system-command, and host-integration language servers; `node-runtime` for a discovered runtime), `hello-lithe` and `web-panel` (UI), `settings-v2`, and `build-*` (level 3 build systems and the two forms of a build provider) |
 | `fixtures/invalid-manifests.json` | Edits to a valid manifest and the rejection code every host must report |
 | `fixtures/command-plans.json` | Golden run/test command expansions and language-server launch plans |
 | `fixtures/runtime-versions.json` | Golden outcomes of the launch runtime version check |
@@ -23,8 +23,17 @@ This directory is the cross-platform source of truth:
 Validation and template expansion are implemented once in Rust Core
 (`rust/lithe-core/src/plugins/`, with build systems in
 `rust/lithe-core/src/build/`) and exposed through the
-`plugins.declarative.*` commands in `../../rust-core-api.md`. Hosts must not
+`plugins.declarative.*` commands in [`shared/contracts/rust-core-api.md`](https://github.com/1lck/Lithe-IDEA/blob/preview/shared/contracts/rust-core-api.md). Hosts must not
 reimplement them.
+
+Plugin authors do not need this repository. The public
+[`Lithe-IDEA/lithe-plugin-docs`](https://github.com/Lithe-IDEA/lithe-plugin-docs)
+repository holds the developer guide and a byte-identical copy of this whole
+directory under `contract/v1/`, pinned to a revision of this repository; each
+schema's `$id` is its URL there. Contract changes land here first and must then
+be synced to that repository, so links in this file that leave this directory
+are absolute. `plugin.json` may not carry a `$schema` key, because unknown
+fields are rejected; editors associate the schema by file name instead.
 
 ## Package layout
 
@@ -204,7 +213,7 @@ receives:
 | `requiredPackagePaths` | Sorted package-relative paths the launch points at. The host verifies each is inside the package and not a symbolic link before starting the server. |
 | `settings` | Effective value of every declared setting that produced this plan; absent when the plugin declares none. |
 | `buildProvider` | Present only for a `buildSystemID` selection: `{buildSystemID, executesProjectCode, mayUseNetwork, languageServer?}`. `languageServer` names the language whose server is the provider; the rest of the plan is then that server's plan, and the host reuses its running session instead of starting a second process. |
-| `vcsProvider` | Present only for a `vcsProviderID` selection: the [provider descriptor](../../vcs-provider-v1.md#provider-descriptor) the host keeps for the session. |
+| `vcsProvider` | Present only for a `vcsProviderID` selection: the [provider descriptor](https://github.com/1lck/Lithe-IDEA/blob/preview/shared/contracts/vcs-provider-v1.md#provider-descriptor) the host keeps for the session. |
 
 A language without a server, an undeclared build system, a build system
 without a provider, and an undeclared VCS provider are
@@ -725,8 +734,12 @@ commands: Core validates the declaration, detects instances, decodes the
 model, and expands every command line; the host only runs the processes Core
 planned and passes their output back. A community plugin therefore needs no
 host change to add a build tool, and no host code branches on a build-system
-ID. The fixtures `cargo-build`, `go-build`, `gradle-build`, and `maven-build`
-are complete examples, `gradle-provider` and `mix-provider` show the two
+ID. One complete fixture covers each model source: `build-static-file` reads
+a project file, `build-command-stdout` decodes a command's standard output,
+`build-command-output-file` decodes a file the command writes, and
+`build-host-integration` hands the model to a host integration. They use
+Cargo, Go, Gradle, and Maven as realistic inputs; they are not those
+plugins. `build-provider` and `build-provider-language-server` show the two
 forms of a build provider, and `fixtures/build-plans.json` is the golden list
 of plans and decoded outputs every host gets from them.
 
@@ -978,7 +991,7 @@ found. The install review lists the provider as a `…VcsProvider` program with
 its VCS client (`vcsTool`) and `mayUseNetwork`. Requests go through
 `lsp.vcsRequest` by operation name and replies are normalized by
 `vcs.decodeReply`. The fields, operations, reply shapes, and error codes are
-defined in [the VCS provider contract](../../vcs-provider-v1.md).
+defined in [the VCS provider contract](https://github.com/1lck/Lithe-IDEA/blob/preview/shared/contracts/vcs-provider-v1.md).
 
 ## Plugin functions
 
@@ -1154,25 +1167,30 @@ running on that session, is dropped.
 
 ### Official backend SDK
 
-[`sdk/node`](../../../../sdk/node/README.md) is the official SDK for backends
+The official SDKs live in
+[lithe-plugin-docs](https://github.com/Lithe-IDEA/lithe-plugin-docs), which
+also releases them; they implement this contract and never define protocol.
+
+[`sdk/node`](https://github.com/Lithe-IDEA/lithe-plugin-docs/blob/main/sdk/node/README.md) is the official SDK for backends
 started through a `node` runtime launch. It implements this protocol and
-`litheBuild` 1, so a plugin author writes only handlers. It enforces the
-rules above on the backend side: `lithe/*` methods are never sent, stdout
+`litheBuild` 1, so a plugin author writes only handlers. It is released
+(`sdk-node-v<version>`) as a `.tgz` with its SHA-256 for plugins to vendor
+into their package. It enforces the rules above on the backend side: `lithe/*` methods are never sent, stdout
 carries only protocol frames, `PluginError` is the only way to set a
 `pluginErrorCode`, processes started for a call end with it, and its state
-store refuses the plugin package. Its sample plugin
-(`sdk/node/examples/sample-build`) is driven through a real Core session by
-`rust/lithe-core/tests/plugin_sdk_node.rs`, which the Rust Core lane runs with
-`LITHE_PLUGIN_SDK_NODE` set.
+store refuses the plugin package.
 
-[`sdk/java`](../../../../sdk/java/README.md) is the Java twin for backends
+[`sdk/java`](https://github.com/Lithe-IDEA/lithe-plugin-docs/blob/main/sdk/java/README.md) is the Java twin for backends
 started through a `java` runtime launch. It needs Java 8 or newer, has no
 runtime dependencies, and is released as a JAR with its SHA-256 for plugins
 to shade into their backend. It enforces the same rules with the same error
 mapping, with one difference: on Java 8 it stops only a cancelled tool's
-direct child, and the host's process scope ends the rest. Its sample plugin
-(`sdk/java/examples/sample-build`) runs the same Core scenario through
-`rust/lithe-core/tests/plugin_sdk_java.rs`.
+direct child, and the host's process scope ends the rest.
+
+Each SDK has a sample plugin (`sdk/*/examples/sample-build`), and both samples
+answer one end-to-end scenario driven through a real Core session. That
+repository runs it against the Lithe commit its contract copy pins, and weekly
+against the latest `preview`, the branch Lithe changes merge into.
 
 Neither SDK adds a wire field: a backend written without one is equally
 valid.
@@ -1204,7 +1222,7 @@ command payload is a Core `invalid_request` failure instead.
 | `plugin.build.invalidOutput` | Core | Build-tool output or a report does not fit its decoder |
 | `plugin.launch.invalidRequest` | Core | A launch plan request has an unusable directory or an unknown architecture |
 | `plugin.vcs.reserved` | Core | A VCS provider claims the ID of the built-in Git support |
-| `plugin.vcs.invalidOutput` | Core | A VCS provider's reply does not fit the [VCS provider contract](../../vcs-provider-v1.md) |
+| `plugin.vcs.invalidOutput` | Core | A VCS provider's reply does not fit the [VCS provider contract](https://github.com/1lck/Lithe-IDEA/blob/preview/shared/contracts/vcs-provider-v1.md) |
 | `plugin.index.invalid` | Core | Malformed index root or entry, or an invalid URL, checksum, platform, version, or date |
 | `plugin.index.schemaUnsupported` | Core | The index `schemaVersion` is not `1` |
 | `plugin.index.officialNamespace` | Core | A third-party source lists a `dev.lithe` ID |
@@ -1406,8 +1424,8 @@ existing Debug UI. Each must verify disable/re-enable, resource ownership and
 restoration; view-bearing samples also verify layout persistence. These samples
 are future acceptance criteria, not claims about current runtime support.
 
-The design source is the [proposed public Extension Contract and Provider API](../../../../.agents/notes/proposed/architecture/2026-10-13-public-extension-contract-and-provider-api.md).
-Current runtime behavior is recorded in the [first-stage workbench UI Note](../../../../.agents/notes/implemented/architecture/2026-10-12-workbench-ui-contributions.md).
+The design source is the [proposed public Extension Contract and Provider API](https://github.com/1lck/Lithe-IDEA/blob/preview/.agents/notes/proposed/architecture/2026-10-13-public-extension-contract-and-provider-api.md).
+Current runtime behavior is recorded in the [first-stage workbench UI Note](https://github.com/1lck/Lithe-IDEA/blob/preview/.agents/notes/implemented/architecture/2026-10-12-workbench-ui-contributions.md).
 
 ### Current Windows availability
 Windows can validate API level 2 through Rust Core but its UI adapter has not
@@ -1501,3 +1519,85 @@ macOS 动作的可见、可用、勾选和激活中状态由宿主计算，不�
 条件脚本。窗口尚在激活时，其打开命令在工具栏、菜单和命令面板禁用；窗口入口
 仍可取消显示。多个窗口同时请求同一插件模块时只构造一次；禁用或关闭会取消
 并清理在途激活，旧的菜单或命令引用不能重新调用已禁用的贡献。
+
+#### Shared executable candidates (`executableResolution` 1)
+
+Declare executable sources in `invocation.executables`, in preference order.
+Array order is the recommended form; no custom path setting is required for a
+plugin that only needs automatic discovery. Existing `projectFile`, `environment`,
+`command` and `runtime` sources retain their v1 behavior. The shared
+`executableResolution: 1` capability adds `setting` and ordering metadata:
+
+```json
+"executables": [
+  { "id": "selected", "kind": "setting", "settingID": "toolPath" },
+  { "id": "wrapper", "kind": "projectFile", "path": "mvnw" },
+  { "id": "system", "kind": "command", "command": "mvn" }
+]
+```
+
+A `setting` references a declared **global file** setting with `effect: "reload"`
+or `"nextRun"` (`settings: 2`). Core receives raw `request.settings`. An absent
+value uses the declared default; an explicit empty string emits a setting candidate
+with `path: null`, which skips. A nonempty value must satisfy the setting rules,
+be absolute, and have no surrounding whitespace or controls. Invalid stored
+values reject the invocation instead of invoking the normal settings display
+resolver's fallback-to-default behavior. Project overrides never select tools.
+The host checks file permissions and versions: a configured failure is terminal,
+including a failure to probe, and must not fall back to subsequent candidates or
+a Provider's own lookup. Paths with spaces remain single paths. The selected
+setting's directory precedes PATH. Runtime candidates construct their environment
+before version probing and reuse it for execution; a rejected candidate's
+environment does not leak into the next choice. Provider hints and task/test
+execution use this same plan/selection mechanism. If resolution fails before a
+configured candidate is reached (for example, an earlier Runtime is missing),
+any nonempty setting in the tool or Runtime candidate sets still forbids the
+Provider's independent lookup. All-empty settings retain automatic-discovery
+fallback. This check applies after failure, so an earlier successful candidate
+is unaffected by a later unused setting.
+
+Optional metadata applies within **one candidate set owned by one plugin**:
+
+- `id` is a unique stable identifier; anonymous candidates cannot be anchors.
+- `priority` is a signed 32-bit integer; higher wins, absent means 0. Ties retain
+  original array order.
+- `insertBefore` or `insertAfter` names an ID in this set. One candidate cannot
+  combine either with `priority`, or declare both insertion fields. Constraints
+  mean relative order, not immediate adjacency.
+- Normalize the complete set into a directed graph before platform filtering.
+  Repeatedly select a zero-indegree node by descending priority, then original
+  index; emit it and remove its edges. Explicit edges take precedence over
+  priority. Duplicate/invalid IDs, unknown anchors, cycles/self-edges and
+  conflicting metadata are manifest errors. Filter platforms only after sorting,
+  so anchors remain valid even if they do not apply to the current platform.
+
+`plugins::executables` owns the reusable source types and deterministic order;
+`ExecutableCandidateResolver` receives file-system, Setting (already validated by
+Core), Environment, Runtime and command-discovery capabilities from the host.
+Results distinguish `skip`, `resolved` and `terminalFailure`; plugins declare data
+and cannot inject host native code. Each operation uses a value snapshot for its
+settings/environment and ordered plan. Passive import does not resolve/probe
+runtimes or execute project wrappers. A project candidate remains project code
+and is only executed through the consumer's existing trust/user-action workflow.
+
+This PR connects Build Systems and their custom Runtime Dependencies. Own Build
+Providers already adapt command/runtime launches through BuildToolResolver and
+receive the selected build tool as `tool.executable`; their ServerProcess protocol
+is unchanged. Language Servers, Execution Providers, and other ServerProcess
+launch forms can later adapt into this same resolver without changing their
+manifest structure all at once: preserve package-realpath/executable checks,
+workspace trust, auto-start restrictions, runtime ownership and cancellation.
+They do **not** advertise support for new candidate declarations until their
+adapter is implemented; this capability currently authorizes the Build candidate
+positions only. Windows does not advertise it yet.
+
+Compatibility: Cargo 0.1.1 already shipped as a preview with `buildSystems: 2`
+and `invocation.executableSetting`. That field is deprecated and supported only
+as a v2 input adapter: prepend an equivalent setting candidate to the normal
+list; never emit `configuredExecutable` or use a separate resolution branch.
+New plugins use the fifth candidate and `executableResolution: 1` (Build v1
+remains sufficient). Legacy manifests do not need the new capability; hosts
+without it reject new-style plugins before decoding unknown fields. Published
+0.1.0/0.1.1 archives remain immutable; migration is a new plugin version.
+
+See [`build-tool-path.plugin.json`](fixtures/build-tool-path.plugin.json).
