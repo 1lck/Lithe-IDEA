@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://lithe.dev/contracts/plugins/v1/plugin-manifest.schema.json",
+  "$id": "https://raw.githubusercontent.com/Lithe-IDEA/lithe-plugin-docs/main/contract/v1/plugin-manifest.schema.json",
   "title": "Lithe declarative plugin manifest (plugin contract v1)",
   "description": "Shape of plugin.json for a declarative plugin. Semantic rules that JSON Schema cannot express (cross references, permissions, activation events, template variables) are defined in README.md and enforced by plugins.declarative.validate.",
   "type": "object",

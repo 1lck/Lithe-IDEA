@@ -20,7 +20,7 @@
   },
   "windows": {
     "evidence": [
-      "shared/contracts/plugins/v1/fixtures/go-support.plugin.json"
+      "shared/contracts/plugins/v1/fixtures/language-system-command.plugin.json"
     ],
     "implementationStatus": "missing",
     "verificationStatus": "not-applicable"

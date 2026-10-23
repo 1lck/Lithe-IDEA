@@ -148,13 +148,13 @@ if pluginID == "dev.lithe.maven" { 启动带函数的会话 }   // 宿主按插�
   - 每个 Provider 带独有的 `LITHE_PLUGIN_BACKEND_SCOPE`，会话结束后宿主按该标记优雅结束遗留进程。
 - `./scripts/verify-runtime-bundle-immutability.sh`：确认没有新增写入 bundle 的路径。
 - macOS 原生验收（2026-10-20，PR #1366 合并 PR #1365 后的 debug 应用）：
-  - 环境：`sdk/node/examples/sample-build` 加一个只用于验收的网页窗口，作为开发包从磁盘安装；另装一个带自己构建系统和网页窗口的验收插件；示例工作区含成功、失败（退出码 3）和长时间运行三个项目。页面把每一步结果写进 `ui.setState`，验收读取 Application Support 中的状态文件核对。
+  - 环境：Node SDK 的示例插件 `sdk/node/examples/sample-build`（当时在主仓库，现位于 lithe-plugin-docs）加一个只用于验收的网页窗口，作为开发包从磁盘安装；另装一个带自己构建系统和网页窗口的验收插件；示例工作区含成功、失败（退出码 3）和长时间运行三个项目。页面把每一步结果写进 `ui.setState`，验收读取 Application Support 中的状态文件核对。
   - `functions.list` 返回 `snapshot.read`、`workspace.build`；一次成功构建后再列出，多了运行时注册的 `snapshot.clear`。
   - `functions.invoke` 带 `call` 时，页面依次收到 `Preparing`、`Building app`、`Done` 三个 `functions.progress`，结果作为 `{ value }` 到达；失败项目返回 `plugin.function.failed`，并带上插件自己的 `pluginErrorCode: sample.buildFailed`。
   - `functions.cancel` 后调用以 `requestCancelled` 结束；构建子进程在取消后立刻退出（采样中最后一次出现早于取消约 0.1 秒）。对已结束的 `call` 再取消返回 `{}`。未注册的函数返回 `plugin.function.unknown`，`params` 不是对象返回 `plugin.web.invalidRequest`。
   - 另一个插件的页面用 `sample:.` 调用 `functions.list` / `functions.invoke` 都得到 `plugin.web.forbidden`，并且在弹同意框之前就被拒绝；它调用自己实例上的 `snapshot.read` 得到 `plugin.function.unknown`，说明函数按进程隔离。
   - 进程清理：调用进行中关闭项目、或在设置里停用插件，Provider 及其构建子进程都会退出（`ps`/`pgrep` 确认）；从磁盘替换插件包时旧 Provider 也会停止；退出应用后没有任何 Lithe 或插件进程残留。重启应用后 `snapshot.read` 返回上次会话的快照。
-  - 验收发现示例的路径检查在宿主 `rootUri` 带尾部斜杠时拒绝所有路径（macOS 传的是目录 URL 的 `absoluteString`），所有构建都报 `sample.config`。已在示例里用 `path.resolve` 规范化根目录，并让 `rust/lithe-core/tests/plugin_sdk_node.rs` 用带尾部斜杠的 `rootUri`；未修复时该测试失败，修复后通过。
+  - 验收发现示例的路径检查在宿主 `rootUri` 带尾部斜杠时拒绝所有路径（macOS 传的是目录 URL 的 `absoluteString`），所有构建都报 `sample.config`。已在示例里用 `path.resolve` 规范化根目录，并让当时主仓库的 `rust/lithe-core/tests/plugin_sdk_node.rs`（现为 lithe-plugin-docs 的 `sdk/e2e/plugin_sdk_node.rs`）用带尾部斜杠的 `rootUri`；未修复时该测试失败，修复后通过。
 - `./scripts/verify-platform-feature-matrix.sh`：`plugin-functions` 的 macOS 证据已更新。
 
 ## 适用范围

@@ -314,7 +314,7 @@ struct PluginPackageStoreTests {
             try FileManager.default.createSymbolicLink(atPath: executable.path, withDestinationPath: "/bin/sh")
         }
 
-        let pluginID = PluginID("dev.lithe.fixture.gradle-provider")
+        let pluginID = PluginID("dev.lithe.fixture.build-provider")
         #expect(throws: PluginPackageStoreError.invalidInstalledPlugin(
             pluginID,
             PluginPackageStoreError.buildProviderLaunchMissing(
@@ -793,7 +793,7 @@ struct PluginPackageStoreTests {
     /// `launch` is given. A packaged launch gets an executable script.
     private func makeProviderPackage(root: URL, launch: [String: Any]?) throws -> URL {
         let fixtureURL = DeclarativePluginTestSupport.repositoryRoot
-            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/gradle-provider.plugin.json")
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/build-provider.plugin.json")
         var manifest = try #require(
             try JSONSerialization.jsonObject(with: Data(contentsOf: fixtureURL)) as? [String: Any]
         )

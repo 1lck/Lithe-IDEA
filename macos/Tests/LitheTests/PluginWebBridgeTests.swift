@@ -392,7 +392,7 @@ struct PluginWebBridgeTests {
 
     @Test func cargoExampleSelectionReachesTheRealCorePlan() async throws {
         let manifest = try Data(contentsOf: DeclarativePluginTestSupport.repositoryRoot
-            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/cargo-build.plugin.json"))
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/build-static-file.plugin.json"))
         let descriptor = try DeclarativePluginTestSupport.operations.validate(manifest: manifest)
         let source = BuildSystemPluginSource(
             pluginID: descriptor.id.rawValue, manifest: descriptor.normalizedManifest,

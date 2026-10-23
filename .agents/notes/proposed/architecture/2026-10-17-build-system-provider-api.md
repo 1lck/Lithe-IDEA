@@ -164,7 +164,7 @@ BSP 本身也是 JSON-RPC 上的进程外构建协议，生命周期与 LSP 几�
 
 1. **P0 契约骨架（Core 已完成）**：API 3 的 `buildSystems`、13 个 `build.*` 命令、Cargo/Go/Gradle/Maven 四个 fixture 和 `build-plans.json` 标准答案。
 2. **P1 通用工具窗口与运行配置**：两端实现第 2 节的宿主能力和 Build 工具窗口；`runConfig.generate` 接入构建模型，先迁移 Cargo；把 npm、just、Make、Composer 等现有探测器改写成内置声明；定下 `buildSystems.test` 与 `executionProviders.test` 在同一工程里谁优先。
-3. **P2 进程型 Provider 与 Gradle**：`provider` 声明、启动计划和回复解码的 Core 部分已完成（`gradle-provider`、`mix-provider` fixture 和标准答案）。macOS 宿主部分（协商、发送 `lithe/build/*`、进程生命周期）已完成，剩下 Windows 宿主。Gradle 先用插件包内的 init script 输出 `litheBuildModel`（fixture 已验证这条路）关闭 Issue #10，再评估改用 Tooling API 的 Provider 以获得结构化进度和测试事件；Go、Cargo 的依赖树走模型命令档。
+3. **P2 进程型 Provider 与 Gradle**：`provider` 声明、启动计划和回复解码的 Core 部分已完成（`build-provider`、`build-provider-language-server` fixture 和标准答案）。macOS 宿主部分（协商、发送 `lithe/build/*`、进程生命周期）已完成，剩下 Windows 宿主。Gradle 先用插件包内的 init script 输出 `litheBuildModel`（fixture 已验证这条路）关闭 Issue #10，再评估改用 Tooling API 的 Provider 以获得结构化进度和测试事件；Go、Cargo 的依赖树走模型命令档。
 4. **P3 BSP**：有实际需求（Scala、Bazel、SwiftPM）时，在同一传输层上加入 `bsp/2` 协议。
 5. **P4 Maven 收编**：官方插件 `dev.lithe.maven` 先以 `hostIntegration: maven` 进入同一领域模型，由通用工具窗口渲染，Windows 随后用同一组 fixture 切换。最后改为插件自带的 Provider，从 Core 删除 `maven` 集成。逐项对照见下一节。
 
@@ -179,7 +179,7 @@ BSP 本身也是 JSON-RPC 上的进程外构建协议，生命周期与 LSP 几�
 
 除特别标注外，各项都在 P4 迁移。
 
-Core 侧已经具备的部分：fixture `maven-build.plugin.json`（插件 ID 为 `dev.lithe.fixture.maven-build`）声明了 Wrapper、`MAVEN_HOME` 和 `PATH` 三类候选，Profile、`settings.xml`、本地仓库、离线和跳过测试五个选项，`clean`、`compile`、`package`、`install` 和自由输入的 goal，统一后的单测模板，以及诊断正则；`maven` 集成负责 reactor 模型、依赖树和 Surefire 结果。表里“迁移做法”剩下的主要是宿主工作、正式的 `dev.lithe.maven` 清单，以及删除旧命令。
+Core 侧已经具备的部分：fixture `build-host-integration.plugin.json`（插件 ID 为 `dev.lithe.fixture.build-host-integration`）声明了 Wrapper、`MAVEN_HOME` 和 `PATH` 三类候选，Profile、`settings.xml`、本地仓库、离线和跳过测试五个选项，`clean`、`compile`、`package`、`install` 和自由输入的 goal，统一后的单测模板，以及诊断正则；`maven` 集成负责 reactor 模型、依赖树和 Surefire 结果。表里“迁移做法”剩下的主要是宿主工作、正式的 `dev.lithe.maven` 清单，以及删除旧命令。
 
 #### 工程模型
 
@@ -317,7 +317,7 @@ Core 契约部分的验收已在已实现的 Note 里完成。剩下的工作按
 - 安装一个第三方 Gradle 构建插件后，它注入的每个运行任务各自生成一条运行配置，名字包含 project 路径和任务名，满足 Issue #10 的验收条件，Core 和宿主都不改代码。
 - 在未信任的工作区打开项目时，没有任何 `command` 档进程被启动；Wrapper 只在用户操作后运行。
 - 只有 `buildSystems: [1]` 的宿主可安装模板构建插件，但市场、清单校验和安装审查必须拒绝自有与共享 Provider；宿主真正实现 Provider 后才加入 `buildProviders: [1]`。已有 `declarative_plugins` 和 `marketplace_plugins` 回归覆盖这一边界，后续宿主实现要保留这些断言。
-- `gradle-provider` 这类自有 Provider 只在用户操作或工作区信任后启动，并登记进进程账本；`mix-provider` 这类共享写法不启动第二个进程，在工作区信任前不发送 `lithe/build/*`。
+- `build-provider` 这类自有 Provider 只在用户操作或工作区信任后启动，并登记进进程账本；`build-provider-language-server` 这类共享写法不启动第二个进程，在工作区信任前不发送 `lithe/build/*`。
 - 任务通过现有执行链路运行，具备取消、期限和输出上限；禁用插件会停止它登记的守护进程，用户在终端启动的同一工具不受影响。
 - `junitXml` 和 `lineMatcher` 解码出的诊断与测试结果能跳转到编辑器位置。
 - 迁移过程中 Maven 工具窗口的生命周期、Profile、依赖树和执行目标行为不变；`build.*` 与 `maven.*` 并行期间，两者对同一组 Maven fixture 的结果一致。

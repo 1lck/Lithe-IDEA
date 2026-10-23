@@ -16,7 +16,7 @@ import Testing
 struct BuildSystemToolWindowTests {
     @Test
     func mavenPresentationFieldsDecodeThroughCore() throws {
-        let descriptor = try Self.descriptor("maven-build")
+        let descriptor = try Self.descriptor("build-host-integration")
         let maven = try #require(descriptor.buildSystems.first)
 
         #expect(maven.icon?.host == "tool-window")
@@ -31,7 +31,7 @@ struct BuildSystemToolWindowTests {
 
     @Test
     func gradleTemplateCategoryIsTheDefaultOfModelTasks() throws {
-        let gradle = try #require(try Self.descriptor("gradle-build").buildSystems.first)
+        let gradle = try #require(try Self.descriptor("build-command-output-file").buildSystems.first)
 
         #expect(gradle.option("offline")?.presentation == .toolbar)
         #expect(gradle.tasks.first { $0.id == "gradle-task" }?.category == ["Tasks", "other"])
@@ -56,7 +56,7 @@ struct BuildSystemToolWindowTests {
 
     @Test @MainActor
     func everyBuildSystemDerivesItsOwnWindowAndToggleCommand() throws {
-        let descriptor = try Self.descriptor("gradle-build")
+        let descriptor = try Self.descriptor("build-command-output-file")
         let module = try #require(descriptor.pluginManifest.modules.first {
             $0.manifest.id == .buildSystemsExtension(descriptor.id.rawValue)
         })
@@ -85,7 +85,7 @@ struct BuildSystemToolWindowTests {
 
     @Test @MainActor
     func enabledBuildSystemWindowShowsInAWorkspaceWithoutAnInstance() throws {
-        let descriptor = try Self.descriptor("gradle-build")
+        let descriptor = try Self.descriptor("build-command-output-file")
         let module = try #require(descriptor.pluginManifest.modules.first {
             $0.manifest.id == .buildSystemsExtension(descriptor.id.rawValue)
         })
@@ -150,7 +150,7 @@ struct BuildSystemToolWindowTests {
 
     @Test @MainActor
     func restoringBuildWindowActivatesItsOwnerAndPaletteTracksPendingState() async throws {
-        let descriptor = try Self.descriptor("gradle-build")
+        let descriptor = try Self.descriptor("build-command-output-file")
         let declaration = try #require(descriptor.pluginManifest.modules.first {
             $0.manifest.id == .buildSystemsExtension(descriptor.id.rawValue)
         })
@@ -182,8 +182,8 @@ struct BuildSystemToolWindowTests {
 
     @Test @MainActor
     func independentBuildWindowsRestoreDockAndVisibilityWithoutLegacyMavenEntries() throws {
-        let first = try Self.descriptor("maven-build")
-        let second = try Self.descriptor("gradle-build")
+        let first = try Self.descriptor("build-host-integration")
+        let second = try Self.descriptor("build-command-output-file")
         let declarations = [first, second].flatMap { $0.pluginManifest.modules }.filter { !$0.contributions.isEmpty }
         let owners = Dictionary(uniqueKeysWithValues: declarations.map { ($0.manifest.id, $0.contributions) })
         let windows = declarations.flatMap(\.contributions).filter { $0.kind == .toolWindow }
@@ -219,7 +219,7 @@ struct BuildSystemToolWindowTests {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-build-icons-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        var manifest = try #require(JSONSerialization.jsonObject(with: Self.descriptor("maven-build").normalizedManifest) as? [String: Any])
+        var manifest = try #require(JSONSerialization.jsonObject(with: Self.descriptor("build-host-integration").normalizedManifest) as? [String: Any])
         var builds = try #require(manifest["buildSystems"] as? [[String: Any]])
         let icon: [String: Any] = ["path": "light.svg", "darkPath": "dark.svg", "mode": "original"]
         builds[0]["icon"] = icon
@@ -250,7 +250,7 @@ struct BuildSystemToolWindowTests {
 
     @Test @MainActor
     func optionRootSelectionPreservesEachInstancesChoicesAndEffectiveValue() throws {
-        let descriptor = try Self.descriptor("maven-build")
+        let descriptor = try Self.descriptor("build-host-integration")
         let declaration = try #require(descriptor.buildSystems.first)
         let source = BuildSystemPluginSource(
             pluginID: descriptor.id.rawValue, manifest: descriptor.normalizedManifest,

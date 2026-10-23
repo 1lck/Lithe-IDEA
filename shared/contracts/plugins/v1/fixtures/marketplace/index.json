@@ -45,8 +45,8 @@
       ]
     },
     {
-      "id": "dev.lithe.fixture.php-support",
-      "name": "PHP Support Fixture",
+      "id": "dev.lithe.fixture.language-packaged-server",
+      "name": "Packaged Language Server Fixture",
       "author": "Lithe",
       "repository": "https://github.com/Lithe-IDEA/Lithe-IDEA",
       "description": "PHP language server, run and test support.",

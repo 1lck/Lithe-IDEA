@@ -26,22 +26,23 @@ macro_rules! contract_file {
     };
 }
 
-const CARGO_FIXTURE: &str = contract_file!("fixtures/cargo-build.plugin.json");
-const GO_FIXTURE: &str = contract_file!("fixtures/go-build.plugin.json");
-const GRADLE_FIXTURE: &str = contract_file!("fixtures/gradle-build.plugin.json");
-const MAVEN_FIXTURE: &str = contract_file!("fixtures/maven-build.plugin.json");
-const GRADLE_PROVIDER_FIXTURE: &str = contract_file!("fixtures/gradle-provider.plugin.json");
-const MIX_PROVIDER_FIXTURE: &str = contract_file!("fixtures/mix-provider.plugin.json");
+const CARGO_FIXTURE: &str = contract_file!("fixtures/build-static-file.plugin.json");
+const GO_FIXTURE: &str = contract_file!("fixtures/build-command-stdout.plugin.json");
+const GRADLE_FIXTURE: &str = contract_file!("fixtures/build-command-output-file.plugin.json");
+const MAVEN_FIXTURE: &str = contract_file!("fixtures/build-host-integration.plugin.json");
+const GRADLE_PROVIDER_FIXTURE: &str = contract_file!("fixtures/build-provider.plugin.json");
+const MIX_PROVIDER_FIXTURE: &str =
+    contract_file!("fixtures/build-provider-language-server.plugin.json");
 const BUILD_PLANS: &str = contract_file!("fixtures/build-plans.json");
 
 fn fixture(name: &str) -> Value {
     let source = match name {
-        "cargo-build.plugin.json" => CARGO_FIXTURE,
-        "go-build.plugin.json" => GO_FIXTURE,
-        "gradle-build.plugin.json" => GRADLE_FIXTURE,
-        "maven-build.plugin.json" => MAVEN_FIXTURE,
-        "gradle-provider.plugin.json" => GRADLE_PROVIDER_FIXTURE,
-        "mix-provider.plugin.json" => MIX_PROVIDER_FIXTURE,
+        "build-static-file.plugin.json" => CARGO_FIXTURE,
+        "build-command-stdout.plugin.json" => GO_FIXTURE,
+        "build-command-output-file.plugin.json" => GRADLE_FIXTURE,
+        "build-host-integration.plugin.json" => MAVEN_FIXTURE,
+        "build-provider.plugin.json" => GRADLE_PROVIDER_FIXTURE,
+        "build-provider-language-server.plugin.json" => MIX_PROVIDER_FIXTURE,
         other => panic!("unknown fixture {other}"),
     };
     serde_json::from_str(source).expect("fixture manifest is JSON")
@@ -126,12 +127,12 @@ fn substitute(value: &mut Value, workspace: &str) {
 #[test]
 fn build_fixtures_validate() {
     for name in [
-        "cargo-build.plugin.json",
-        "go-build.plugin.json",
-        "gradle-build.plugin.json",
-        "maven-build.plugin.json",
-        "gradle-provider.plugin.json",
-        "mix-provider.plugin.json",
+        "build-static-file.plugin.json",
+        "build-command-stdout.plugin.json",
+        "build-command-output-file.plugin.json",
+        "build-host-integration.plugin.json",
+        "build-provider.plugin.json",
+        "build-provider-language-server.plugin.json",
     ] {
         let outcome = validate(fixture(name));
         assert_eq!(outcome["status"], "ok", "{name}: {outcome}");
@@ -228,7 +229,7 @@ fn cargo_run_entries_match_the_builtin_detector() {
         );
     let detection = detect(
         &workspace,
-        vec![fixture("cargo-build.plugin.json")],
+        vec![fixture("build-static-file.plugin.json")],
         json!({}),
     );
     let mut planned: Vec<Value> = detection["instances"]
@@ -316,7 +317,7 @@ fn cargo_implicit_main_survives_test_and_example_targets() {
         .write("cli/src/bin/cli-bin.rs", "fn main() {}\n");
     let detection = detect(
         &workspace,
-        vec![fixture("cargo-build.plugin.json")],
+        vec![fixture("build-static-file.plugin.json")],
         json!({}),
     );
     let targets = |id: &str| -> Vec<(String, String)> {
@@ -376,18 +377,18 @@ fn detection_applies_nesting_priority_and_rejections() {
         )
         .write("target/debug/Cargo.toml", "[package]\nname = \"ignored\"\n");
 
-    let mut preferred = fixture("cargo-build.plugin.json");
+    let mut preferred = fixture("build-static-file.plugin.json");
     preferred["id"] = json!("dev.lithe.fixture.cargo-preferred");
     preferred["buildSystems"][0]["detection"]["priority"] = json!(80);
-    let mut broken = fixture("go-build.plugin.json");
+    let mut broken = fixture("build-command-stdout.plugin.json");
     broken["permissions"] = json!([]);
 
     let detection = detect(
         &workspace,
         vec![
-            fixture("cargo-build.plugin.json"),
+            fixture("build-static-file.plugin.json"),
             broken,
-            fixture("gradle-build.plugin.json"),
+            fixture("build-command-output-file.plugin.json"),
             preferred,
         ],
         json!({}),
@@ -408,7 +409,7 @@ fn detection_applies_nesting_priority_and_rejections() {
     assert_eq!(
         detection["shadowed"],
         json!([{
-            "pluginID": "dev.lithe.fixture.cargo-build",
+            "pluginID": "dev.lithe.fixture.build-static-file",
             "buildSystemID": "cargo",
             "by": "dev.lithe.fixture.cargo-preferred",
         }])
@@ -455,7 +456,7 @@ fn maven_method_durations_survive_report_aggregation_and_build_decoding() {
     );
     let decoded = call(
         "decodeTestResults",
-        fixture("maven-build.plugin.json"),
+        fixture("build-host-integration.plugin.json"),
         "maven",
         json!({
             "workspaceRoot": workspace.root(), "root": ".", "project": ".", "output": "", "notBeforeMillis": 0
@@ -492,7 +493,7 @@ fn maven_reactor_detects_through_the_host_integration() {
         .write("backend/api/src/main/java/demo/App.java", "class App {}\n");
     let detection = detect(
         &workspace,
-        vec![fixture("maven-build.plugin.json")],
+        vec![fixture("build-host-integration.plugin.json")],
         json!({ "maven": { "profiles": ["dev", "removed"] } }),
     );
     assert_eq!(instance_ids(&detection), ["maven:backend"]);
@@ -527,7 +528,7 @@ fn maven_task_plans_match_the_builtin_arguments() {
     let settings = "/opt/maven/settings.xml";
     let outcome = call(
         "taskPlan",
-        fixture("maven-build.plugin.json"),
+        fixture("build-host-integration.plugin.json"),
         "maven",
         json!({
             "root": ".",
@@ -598,7 +599,7 @@ fn gradle_canonical_outputs_are_read_from_the_output_file() {
 
     let model = call(
         "decodeModel",
-        fixture("gradle-build.plugin.json"),
+        fixture("build-command-output-file.plugin.json"),
         "gradle",
         json!({
             "workspaceRoot": workspace.root(),
@@ -641,7 +642,7 @@ fn gradle_canonical_outputs_are_read_from_the_output_file() {
 
     let dependencies = call(
         "decodeDependencies",
-        fixture("gradle-build.plugin.json"),
+        fixture("build-command-output-file.plugin.json"),
         "gradle",
         json!({
             "workspaceRoot": workspace.root(),
@@ -661,7 +662,7 @@ fn gradle_canonical_outputs_are_read_from_the_output_file() {
 
     let missing = call(
         "decodeModel",
-        fixture("gradle-build.plugin.json"),
+        fixture("build-command-output-file.plugin.json"),
         "gradle",
         json!({ "workspaceRoot": workspace.root(), "root": "." }),
     );
@@ -692,7 +693,7 @@ fn junit_reports_become_case_results() {
         );
     let outcome = call(
         "decodeTestResults",
-        fixture("gradle-build.plugin.json"),
+        fixture("build-command-output-file.plugin.json"),
         "gradle",
         json!({
             "workspaceRoot": workspace.root(),
@@ -737,7 +738,7 @@ fn junit_reports_become_case_results() {
 
     let later = call(
         "decodeTestResults",
-        fixture("gradle-build.plugin.json"),
+        fixture("build-command-output-file.plugin.json"),
         "gradle",
         json!({
             "workspaceRoot": workspace.root(),
@@ -770,7 +771,7 @@ fn workspace_test_results_cover_every_model_project() {
     let decode = |request: Value| {
         call(
             "decodeTestResults",
-            fixture("gradle-build.plugin.json"),
+            fixture("build-command-output-file.plugin.json"),
             "gradle",
             request,
         )
@@ -848,7 +849,7 @@ fn canonical_model_paths_stay_inside_the_instance_root() {
         workspace.write("model.json", &document.to_string());
         let result = call(
             "decodeModel",
-            fixture("gradle-build.plugin.json"),
+            fixture("build-command-output-file.plugin.json"),
             "gradle",
             json!({
                 "workspaceRoot": workspace.root(), "root": root, "outputFile": workspace.0.join("model.json")
@@ -881,7 +882,7 @@ fn canonical_model_paths_stay_inside_the_instance_root() {
 #[test]
 fn selector_model_paths_stay_inside_the_instance_root() {
     let workspace = TemporaryWorkspace::new("selector-model-boundary");
-    let mut manifest = fixture("gradle-build.plugin.json");
+    let mut manifest = fixture("build-command-output-file.plugin.json");
     manifest["buildSystems"][0]["model"] = json!({
         "source": "command", "arguments": ["model"], "output": "stdout", "decoder": "jsonStream",
         "executesProjectCode": false, "mayUseNetwork": false,
@@ -942,7 +943,7 @@ fn selector_model_paths_stay_inside_the_instance_root() {
 #[test]
 fn rejected_selector_paths_do_not_suppress_valid_fallbacks() {
     let workspace = TemporaryWorkspace::new("selector-model-boundary-fallback");
-    let mut manifest = fixture("gradle-build.plugin.json");
+    let mut manifest = fixture("build-command-output-file.plugin.json");
     manifest["buildSystems"][0]["model"] = json!({
         "source": "command", "arguments": ["model"], "output": "stdout", "decoder": "jsonStream",
         "executesProjectCode": false, "mayUseNetwork": false,
@@ -1001,7 +1002,7 @@ fn canonical_content_roots_are_relative_to_the_instance_root() {
     );
     let outcome = call(
         "decodeModel",
-        fixture("gradle-build.plugin.json"),
+        fixture("build-command-output-file.plugin.json"),
         "gradle",
         json!({
             "workspaceRoot": workspace.root(),
@@ -1042,7 +1043,7 @@ fn sync_fingerprint_follows_watched_files() {
     let fingerprint = || {
         let outcome = call(
             "syncFingerprint",
-            fixture("cargo-build.plugin.json"),
+            fixture("build-static-file.plugin.json"),
             "cargo",
             json!({ "workspaceRoot": workspace.root(), "root": ".", "projects": ["."] }),
         );
@@ -1070,7 +1071,7 @@ fn sync_fingerprint_follows_watched_files() {
 fn resolve_options_describe_explicit_empty_text_values() {
     let outcome = call(
         "resolveOptions",
-        fixture("go-build.plugin.json"),
+        fixture("build-command-stdout.plugin.json"),
         "go",
         json!({ "options": { "tags": "" } }),
     );
@@ -1087,7 +1088,7 @@ fn resolve_options_describe_explicit_empty_text_values() {
 
 #[test]
 fn option_arguments_may_repeat_under_opposite_conditions() {
-    let mut manifest = fixture("cargo-build.plugin.json");
+    let mut manifest = fixture("build-static-file.plugin.json");
     manifest["buildSystems"][0]["test"]["arguments"] = json!([
         "test",
         { "value": "${optionArguments}", "when": "targetSelected" },
@@ -1117,7 +1118,7 @@ fn provider_processes_are_install_review_programs() {
         assert_eq!(outcome["status"], "ok", "{outcome}");
         outcome["review"]["programs"].as_array().unwrap().clone()
     };
-    let own = programs("gradle-provider.plugin.json");
+    let own = programs("build-provider.plugin.json");
     let provider = own
         .iter()
         .find(|program| program["kind"] == "runtimeBuildProvider")
@@ -1131,7 +1132,7 @@ fn provider_processes_are_install_review_programs() {
     assert_eq!(provider["executesProjectCode"], true);
     assert!(own.contains(&json!({ "kind": "runtime", "tool": "java", "minimumVersion": "17" })));
 
-    let shared = programs("mix-provider.plugin.json");
+    let shared = programs("build-provider-language-server.plugin.json");
     let build_system = shared
         .iter()
         .find(|program| program["kind"] == "buildSystem")
@@ -1158,7 +1159,7 @@ fn cargo_run_entries_drop_features_removed_from_the_model() {
             "[package]\nname = \"app\"\nversion = \"0.1.0\"\n[features]\ncli = []\n",
         )
         .write("src/main.rs", "fn main() {}\n");
-    let manifest = fixture("cargo-build.plugin.json");
+    let manifest = fixture("build-static-file.plugin.json");
     let options = json!({ "features": ["cli", "removed"] });
     let detection = detect(
         &workspace,
@@ -1192,7 +1193,7 @@ fn cargo_run_entries_drop_features_removed_from_the_model() {
 /// A changed default can select a different script without changing its argv template.
 #[test]
 fn build_option_defaults_require_install_review_again() {
-    let mut manifest = fixture("gradle-build.plugin.json");
+    let mut manifest = fixture("build-command-output-file.plugin.json");
     manifest["buildSystems"][0]["options"]
         .as_array_mut()
         .unwrap()
@@ -1238,7 +1239,7 @@ fn static_models_and_sync_fingerprints_reject_escaping_symlinks() {
     let outside = TemporaryWorkspace::new("build-external-files");
     outside.write("Cargo.toml", "[package]\nname = \"private\"\n");
     symlink(outside.0.join("Cargo.toml"), workspace.0.join("Cargo.toml")).unwrap();
-    let manifest = fixture("cargo-build.plugin.json");
+    let manifest = fixture("build-static-file.plugin.json");
     let decoded = call(
         "decodeModel",
         manifest.clone(),
@@ -1299,7 +1300,7 @@ fn maven_models_do_not_read_poms_outside_the_workspace() {
     let outside = TemporaryWorkspace::new("build-external-maven");
     outside.write("pom.xml", "<project><modelVersion>4.0.0</modelVersion><artifactId>private-artifact</artifactId><version>9.9</version></project>");
     symlink(outside.0.join("pom.xml"), workspace.0.join("pom.xml")).unwrap();
-    let manifest = fixture("maven-build.plugin.json");
+    let manifest = fixture("build-host-integration.plugin.json");
     let decoded = call(
         "decodeModel",
         manifest.clone(),
@@ -1340,7 +1341,7 @@ fn junit_reports_do_not_follow_escaping_project_directories() {
     symlink(outside.0.join("app"), workspace.0.join("app")).unwrap();
     let outcome = call(
         "decodeTestResults",
-        fixture("gradle-build.plugin.json"),
+        fixture("build-command-output-file.plugin.json"),
         "gradle",
         json!({
             "workspaceRoot": workspace.root(), "root": ".", "project": "app", "output": "",
@@ -1368,7 +1369,7 @@ fn reported_output_paths_reject_escaping_symlinks() {
     symlink(workspace.0.join("src"), workspace.0.join("alias")).unwrap();
     symlink(workspace.0.join("src"), workspace.0.join("app/alias")).unwrap();
 
-    let manifest = fixture("gradle-build.plugin.json");
+    let manifest = fixture("build-command-output-file.plugin.json");
     let diagnostics = |manifest: &Value, output: &str| {
         call(
             "decodeDiagnostics",
@@ -1467,8 +1468,7 @@ fn launch_plans_name_exactly_one_process() {
         json!({}),
         json!({ "languageID": "elixir", "buildSystemID": "mix" }),
     ] {
-        let mut payload =
-            json!({ "manifest": fixture("mix-provider.plugin.json"), "request": request });
+        let mut payload = json!({ "manifest": fixture("build-provider-language-server.plugin.json"), "request": request });
         payload
             .as_object_mut()
             .unwrap()
@@ -1489,7 +1489,7 @@ fn provider_models_are_not_read_during_detection() {
     workspace.write("mix.exs", "").write("apps/web/mix.exs", "");
     let detection = detect(
         &workspace,
-        vec![fixture("mix-provider.plugin.json")],
+        vec![fixture("build-provider-language-server.plugin.json")],
         json!({}),
     );
     assert_eq!(instance_ids(&detection), ["mix:."]);
@@ -1504,7 +1504,7 @@ fn provider_models_are_not_read_during_detection() {
 #[test]
 fn task_categories_and_option_placements_are_display_only() {
     let workspace = TemporaryWorkspace::new("build-task-category");
-    let mut gradle = fixture("gradle-build.plugin.json");
+    let mut gradle = fixture("build-command-output-file.plugin.json");
     let build_system = &mut gradle["buildSystems"][0];
     build_system["icon"] = json!({ "path": "icons/gradle.svg" });
     build_system["tasks"][0]["category"] = json!(["Tasks", "other"]);
