@@ -414,11 +414,6 @@ classify_path() {
         infra/docker/*)
             rust_database=true
             ;;
-        sdk/*)
-            # Plugin backend SDKs are verified in the Rust Core lane, which runs
-            # their unit tests and drives their samples through Core sessions.
-            rust_core=true
-            ;;
         *)
             # New or unclassified repository areas are validated conservatively
             # until their ownership is made explicit above.

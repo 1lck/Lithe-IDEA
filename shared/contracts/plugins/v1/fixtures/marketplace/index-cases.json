@@ -8,7 +8,7 @@
       "platform": "darwin-arm64",
       "expected": {
         "plugins": [
-          { "id": "dev.lithe.fixture.php-support", "latestVersion": "1.1.0", "platforms": ["darwin-arm64", "darwin-x64"], "availability": { "status": "available", "version": "1.0.0", "sha256": "5555555555555555555555555555555555555555555555555555555555555555" } },
+          { "id": "dev.lithe.fixture.language-packaged-server", "latestVersion": "1.1.0", "platforms": ["darwin-arm64", "darwin-x64"], "availability": { "status": "available", "version": "1.0.0", "sha256": "5555555555555555555555555555555555555555555555555555555555555555" } },
           { "id": "io.example.elixir-tools", "latestVersion": "3.0.0", "platforms": ["darwin-arm64", "windows-x64"], "availability": { "status": "unsupported", "code": "plugin.index.apiUnsupported" } },
           { "id": "io.example.future-tools", "latestVersion": "3.0.0", "platforms": ["darwin-arm64", "linux-x64"], "availability": { "status": "unsupported", "code": "plugin.index.apiUnsupported" } },
           { "id": "io.example.zig-support", "latestVersion": "2.0.0", "platforms": ["darwin-arm64", "windows-x64"], "availability": { "status": "available", "version": "2.0.0", "downloadURL": "https://github.com/example/lithe-zig/releases/download/v2.0.0/zig-support-2.0.0-darwin-arm64.zip" } }
@@ -29,7 +29,7 @@
           { "id": "io.example.zig-support", "availability": { "status": "unsupported", "code": "plugin.index.platformUnsupported", "platform": "darwin-x64" } }
         ],
         "rejected": [
-          { "id": "dev.lithe.fixture.php-support", "code": "plugin.index.officialNamespace" },
+          { "id": "dev.lithe.fixture.language-packaged-server", "code": "plugin.index.officialNamespace" },
           { "id": "io.example.zig-support", "code": "plugin.index.duplicate" }
         ]
       }
@@ -45,7 +45,7 @@
           { "id": "io.example.zig-support", "availability": { "status": "available", "version": "2.0.0", "sha256": "3333333333333333333333333333333333333333333333333333333333333333" } }
         ],
         "rejected": [
-          { "id": "dev.lithe.fixture.php-support", "code": "plugin.index.officialNamespace" },
+          { "id": "dev.lithe.fixture.language-packaged-server", "code": "plugin.index.officialNamespace" },
           { "id": "io.example.zig-support", "code": "plugin.index.duplicate" }
         ]
       }
@@ -62,7 +62,7 @@
           { "id": "io.example.zig-support", "availability": { "status": "available", "version": "2.0.0" } }
         ],
         "rejected": [
-          { "id": "dev.lithe.fixture.php-support", "code": "plugin.index.officialNamespace" },
+          { "id": "dev.lithe.fixture.language-packaged-server", "code": "plugin.index.officialNamespace" },
           { "id": "io.example.zig-support", "code": "plugin.index.duplicate" }
         ]
       }
@@ -79,7 +79,7 @@
           { "id": "io.example.zig-support", "availability": { "status": "available", "version": "2.0.0" } }
         ],
         "rejected": [
-          { "id": "dev.lithe.fixture.php-support", "code": "plugin.index.officialNamespace" },
+          { "id": "dev.lithe.fixture.language-packaged-server", "code": "plugin.index.officialNamespace" },
           { "id": "io.example.zig-support", "code": "plugin.index.duplicate" }
         ]
       }
@@ -96,7 +96,7 @@
           { "id": "io.example.zig-support", "availability": { "status": "available", "version": "2.0.0", "sha256": "3333333333333333333333333333333333333333333333333333333333333333" } }
         ],
         "rejected": [
-          { "id": "dev.lithe.fixture.php-support", "code": "plugin.index.officialNamespace" },
+          { "id": "dev.lithe.fixture.language-packaged-server", "code": "plugin.index.officialNamespace" },
           { "id": "io.example.zig-support", "code": "plugin.index.duplicate" }
         ]
       }

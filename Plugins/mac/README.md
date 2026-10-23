@@ -65,6 +65,10 @@ key in a protected file or environment variable and never commit it.
 
 ## Local development packages
 
+This section is for official plugins built in this repository. Community plugin
+authors follow [lithe-plugin-docs](https://github.com/Lithe-IDEA/lithe-plugin-docs)
+instead.
+
 Plugin authors can test without the publisher key. Build an unsigned
 development package with `--development-unsigned`, then install it from disk in
 a debug build of Lithe:
