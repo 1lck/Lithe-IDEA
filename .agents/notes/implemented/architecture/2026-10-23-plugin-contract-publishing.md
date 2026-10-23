@@ -45,7 +45,7 @@
   - `sync --revision <commit>`：按来源目录在该 commit 的 git tree 整体替换副本，新增、删除、修改的文件都跟上，然后重写锁文件。
   - `verify`：离线检查锁文件、哈希、schema `$id`、Markdown 相对链接和未锁定文件。
   - `verify --upstream`：用 GitHub API 取锁定 commit 的 tree，按 git blob ID 比较整个目录。
-  - `drift`：检查主仓库默认分支上的契约是否已经变化。
+  - `drift`：检查主仓库 `preview` 分支上的契约是否已经变化。不用默认分支：主仓库的默认分支是稳定版 `main`，只在发版时追上 `preview`，拿它比较会让刚同步过的副本每周都报差异。
 
   docs 仓库的 CI 每次提交运行前两项检查和脚本测试，每周运行一次 `drift`。
 - `scripts/sdk-e2e.mjs`：SDK 端到端测试，见下文“SDK 整体移到 lithe-plugin-docs”。
@@ -110,7 +110,7 @@ SDK 是给插件开发者用的库，不是契约。开发者要读它的 README
 - **发版**：lithe-plugin-docs 打 `sdk-node-v<版本>` 或 `sdk-java-v<版本>` 标签，`release-node-sdk.yml`、`release-java-sdk.yml` 发布包和 `.sha256`。具体规则见 [官方插件后端 SDK](2026-10-20-plugin-backend-sdk.md)。Java SDK 0.1.0 是迁移前从主仓库发布的，那个 Release 保留，Maven 插件锁定的下载地址不变。
 - **单元测试**：SDK 自己的测试读 `contract/v1/fixtures/function-protocol.json`，也就是契约副本，不再读主仓库。
 - **端到端测试**：场景仍是 Rust 测试，要链接 Rust Core。`sdk-e2e.mjs` 把锁文件记录的主仓库 commit 稀疏检出到 `.artifacts/lithe`（只取 `rust/` 和 `shared/`），把 `sdk/e2e` 复制进它的 `rust/lithe-core/tests/`，再用 `cargo test --locked` 运行。`LITHE_PLUGIN_SDK_ROOT` 告诉测试示例插件在哪里。这和 Cargo 插件测 Core 的方式相同。
-- **两个版本的 Core**：每次提交测契约副本锁定的那个 commit，保证 SDK、契约副本和 Core 是同一个版本；每周再用 `--ref HEAD` 测主仓库默认分支的最新 Core，提前发现 Core 的改动破坏了 SDK。
+- **两个版本的 Core**：每次提交测契约副本锁定的那个 commit，保证 SDK、契约副本和 Core 是同一个版本；每周再用 `--ref preview` 测主仓库 `preview` 分支的最新 Core，提前发现 Core 的改动破坏了 SDK。
 
 代价是主仓库的 PR 不再当场发现“Core 改动破坏 SDK”。改插件后端协议（`rust/lithe-core/src/lsp/interface/plugin_function.rs`、`litheBuild` 相关代码）时，合并前要在 lithe-plugin-docs 用 `--source <本地主仓库> --ref <分支>` 手动跑一次。
 

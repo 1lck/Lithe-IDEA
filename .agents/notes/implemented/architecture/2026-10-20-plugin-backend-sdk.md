@@ -110,7 +110,7 @@ Maven、Gradle 这类插件需要在后端里调用 JVM 生态的工具，并长
 ## 后果
 
 - 收益：插件作者只写处理器；取消、清理、错误映射和状态存储默认正确，Lithe 的统一管理规则不依赖作者自觉。
-- 收益：示例插件经过真实 Core 会话验证。lithe-plugin-docs 每次提交都用契约副本锁定的那个主仓库 commit 跑端到端测试，每周再用主仓库默认分支的最新 Core 跑一次，Core 改动破坏 SDK 时会在这里失败。
+- 收益：示例插件经过真实 Core 会话验证。lithe-plugin-docs 每次提交都用契约副本锁定的那个主仓库 commit 跑端到端测试，每周再用主仓库 `preview` 分支的最新 Core 跑一次，Core 改动破坏 SDK 时会在这里失败。
 - 代价：Node SDK 以复制源码方式分发，Java SDK 被 shade 进插件 JAR，插件里的副本都不会自动升级；修复安全问题时需要插件重新发布。
 - 代价：SDK 移出主仓库后，主仓库的 PR 不再当场发现“Core 改动破坏 SDK”，最晚由 lithe-plugin-docs 的每周检查发现。改 Core 的插件后端协议时，应在合并前用 lithe-plugin-docs 的 `node scripts/sdk-e2e.mjs --source <本地主仓库> --ref <分支>` 手动跑一次。
 - 代价：lithe-plugin-docs 的端到端测试需要 Rust、Node、JDK 和 Maven，每次都要编译一遍 Core；CI 用 Java 8 运行时跑 Java SDK 测试和示例后端，用 JDK 21 编译。
@@ -123,7 +123,7 @@ Maven、Gradle 这类插件需要在后端里调用 JVM 生态的工具，并长
 - `node --test sdk/node/test/*.test.mjs`：协商、ID 规则（对照 `contract/v1/fixtures/function-protocol.json`）、保留方法、调用/进度/错误/取消、运行时注册、构建结果、生命周期和退出码、分帧、进程树取消、状态存储与只读包拒绝、类型声明与运行时导出一致。
 - `mvn -B -f sdk/java/pom.xml verify [-Djvm=<java8>]`：Java SDK 的 JUnit 测试，覆盖与 Node 测试相同的协议场景，另含 JSON、分帧、进程树取消和状态存储。
 - `node scripts/sdk-e2e.mjs`：把 `sdk/e2e` 复制进锁定版本主仓库的 `rust/lithe-core/tests/`，运行 `plugin_sdk_node` 和 `plugin_sdk_java`。Node 示例经 Core 校验、启动计划、版本检查、构建模型/依赖、函数结果/进度/失败/取消、重启后状态恢复，最后确认插件包文件清单不变；Java 示例按插件实际打包方式（`plugin.json` + shade 后的 JAR）装进临时包目录，跑同一套场景。设置 `LITHE_PLUGIN_SDK_JAVA_RUNTIME` 时，Java 示例在该运行时（CI 为 Java 8）上运行。
-- `node scripts/sdk-e2e.mjs --ref HEAD`：同上，换成主仓库默认分支的最新 Core；CI 每周运行。
+- `node scripts/sdk-e2e.mjs --ref preview`：同上，换成主仓库 `preview` 分支的最新 Core；CI 每周运行。
 
 ## 适用范围
 

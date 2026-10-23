@@ -1162,7 +1162,7 @@ direct child, and the host's process scope ends the rest.
 Each SDK has a sample plugin (`sdk/*/examples/sample-build`), and both samples
 answer one end-to-end scenario driven through a real Core session. That
 repository runs it against the Lithe commit its contract copy pins, and weekly
-against Lithe's latest default branch.
+against the latest `preview`, the branch Lithe changes merge into.
 
 Neither SDK adds a wire field: a backend written without one is equally
 valid.
