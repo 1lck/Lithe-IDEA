@@ -98,6 +98,12 @@ cases retain the normal 15-second budget. The Rust runner's repeatable
 `--test-budget prefix=milliseconds` option uses the most specific matching
 prefix, records each case's effective budget in JSON, uses that budget for
 HTML/JUnit classification, and remains capped by the shared suite deadline.
+The `watch_context_resolves_a_submodule_git_directory_outside_its_workspace`
+integration case also gets 30 seconds in SharedRust: it initializes and commits
+in two real repositories, clones one as a submodule, and resolves its external
+Git directory. Windows run 39933498873 terminated it at 16.1 seconds under the
+15-second watchdog; the resulting clean rebuild/retry then exhausted the CI
+step. Other cases and suite/step deadlines retain their existing budgets.
 Use scoped budgets only for measured
 integration costs, never to bypass an unbounded wait or an assertion failure.
 
