@@ -3218,6 +3218,14 @@ selections the declaration does not allow are `plugin.build.invalidSelection`,
 output that does not fit its decoder is `plugin.build.invalidOutput`, and a
 malformed payload is an `invalid_request` failure.
 
+Executable candidates are normalized by the shared plugin executable-resolution
+mechanism before platform filtering. A `setting` candidate emits
+`{kind: "setting", settingID, path: absolutePath | null}` in the same `executables`
+list; null skips, invalid stored values reject the plan, and native validation
+failure is terminal. There is no separate `configuredExecutable` result.
+See the plugin contract's **Shared executable candidates** section for ordering,
+capability negotiation and the compatibility adapter for published v2 previews.
+
 Host-managed runtime probes use `java -version` (including Java 8),
 `node --version`, and `go version`. Hosts execute the returned arguments and
 pass combined stdout and stderr as `build.checkToolVersion.request.output`:

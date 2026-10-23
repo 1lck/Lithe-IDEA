@@ -3686,6 +3686,7 @@
 "Reset Page Zoom (100%)" = "恢复页面缩放（100%）";
 "Page Zoom" = "页面缩放";
 
+"The configured build tool is not executable: %@" = "配置的构建工具无法执行：%@";
 /* 内嵌 HTML 预览浏览器：摄像头和麦克风。 */
 "“%@” wants to use your camera." = "“%@”想使用你的摄像头。";
 "“%@” wants to use your microphone." = "“%@”想使用你的麦克风。";

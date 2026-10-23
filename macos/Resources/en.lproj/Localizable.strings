@@ -2109,6 +2109,7 @@
 "Reset Page Zoom (100%)" = "Reset Page Zoom (100%)";
 "Page Zoom" = "Page Zoom";
 
+"The configured build tool is not executable: %@" = "The configured build tool is not executable: %@";
 /* Embedded HTML preview browser: camera and microphone. */
 "“%@” wants to use your camera." = "“%@” wants to use your camera.";
 "“%@” wants to use your microphone." = "“%@” wants to use your microphone.";
