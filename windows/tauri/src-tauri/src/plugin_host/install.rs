@@ -157,6 +157,10 @@ pub fn declarative_plugins_confirm_disk_install(
         // anything is written into the install root.
         validate_manifest(&manifest).map_err(|rejection| rejection.message)?;
 
+        // A version switch invalidates the page's package bytes and bridge
+        // authorization, so destroy all owned webviews before staging starts.
+        close_plugin_web_windows(&app, &plugin_id);
+        notify_plugin_lifecycle_change(&app, &plugin_id);
         staging_install(&install_root, &plugin_id, &version, &snapshot)?;
         write_installation_record(&install_root, &plugin_id, &version)?;
         rescan_after_change(&app);
@@ -302,6 +306,8 @@ pub fn declarative_plugins_rollback(app: AppHandle, plugin_id: String) -> Result
             "{plugin_id} has no previous version to roll back to"
         ));
     };
+    close_plugin_web_windows(&app, &plugin_id);
+    notify_plugin_lifecycle_change(&app, &plugin_id);
     staging_install(
         &install_root,
         &plugin_id,

@@ -1,7 +1,8 @@
 import { listen } from "@tauri-apps/api/event";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
+import { invokeLsp } from "@/platform/lsp-core-adapter";
 import { declarativePluginProcessOwner } from "./declarative-plugin-process-owner";
-import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
+import { normalizeWorkspacePath, pathIsInsideWorkspace } from "./plugin-web-path";
 
 interface PluginWebOpenFilePayload {
   pluginId: string;
@@ -22,13 +23,14 @@ export async function initializePluginWebOpenFileListener(): Promise<() => void>
     "plugin-web-open-file",
     ({ payload }) => {
       if (!payload?.path) return;
-      const workspaceId = workspaceRuntimeRegistry.getActiveWorkspaceId();
       const store = useFileSystemStore.getState();
       const root = store.rootFolderPath;
       if (!root || !pathIsInsideWorkspace(payload.path, root)) return;
+      const normalizedPath = normalizeWorkspacePath(payload.path);
+      if (!normalizedPath) return;
       void store
         .handleFileSelect(
-          payload.path,
+          normalizedPath,
           false,
           payload.line ?? undefined,
           payload.column ?? undefined,
@@ -44,13 +46,6 @@ export async function initializePluginWebOpenFileListener(): Promise<() => void>
   return unlisten;
 }
 
-function pathIsInsideWorkspace(path: string, root: string): boolean {
-  const normalized = path.replace(/\\/g, "/");
-  const normalizedRoot = root.replace(/\\/g, "/").replace(/\/$/, "");
-  if (normalized.toLowerCase() === normalizedRoot.toLowerCase()) return false;
-  return normalized.toLowerCase().startsWith(`${normalizedRoot.toLowerCase()}/`);
-}
-
 /**
  * Stops declarative run sessions owned by a plugin whose state changed
  * (disable/uninstall) and releases its web-page state.
@@ -59,7 +54,10 @@ async function initializePluginLifecycleListener(): Promise<() => void> {
   const unlisten = await listen<{ pluginId: string }>(
     "declarative-plugin-lifecycle",
     ({ payload }) => {
-      void declarativePluginProcessOwner.stop(undefined, payload.pluginId);
+      void Promise.allSettled([
+        declarativePluginProcessOwner.stop(undefined, payload.pluginId),
+        invokeLsp("lsp_stop_for_provider", { providerId: payload.pluginId }),
+      ]);
     },
   );
   return unlisten;

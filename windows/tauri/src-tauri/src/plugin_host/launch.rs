@@ -14,13 +14,23 @@ use super::ScannedPackage;
 use serde::Serialize;
 use serde_json::Value;
 use std::collections::BTreeMap;
+use std::io::Read;
 use std::path::Path;
 use std::path::PathBuf;
+use std::process::{Child, Command, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager};
 
 /// Windows reparse-point attribute; covers symlinks and junctions alike.
 #[cfg(windows)]
 const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0400;
+
+/// Runtime version probes are untrusted package-selected executables. Keep
+/// both their lifetime and captured output bounded before handing the text to
+/// Core's shared version parser.
+const RUNTIME_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
+const MAX_RUNTIME_PROBE_OUTPUT_BYTES: usize = 64 * 1024;
 
 #[cfg(windows)]
 use std::os::windows::fs::MetadataExt;
@@ -73,7 +83,11 @@ pub fn declarative_plugins_language_launch(
         ));
     }
     // Core wraps the plan in `{status, plan}`; resolve the inner value.
-    resolve_launch(&package, &language_id, &plan["plan"]).map(Some)
+    let resolved_plan = &plan["plan"];
+    let workspace_state_directory =
+        state_directory.join(store::workspace_state_key(&workspace_path));
+    prepare_required_directories(resolved_plan, &state_directory, &workspace_state_directory)?;
+    resolve_launch(&package, &language_id, resolved_plan).map(Some)
 }
 
 /// Finds an accepted, enabled scanned package by plugin ID.
@@ -175,6 +189,41 @@ fn launch_request(
     })
 }
 
+/// Creates the host-owned directories requested by Core before the frontend
+/// starts the process. The plan only names the two directories from the
+/// shared contract; arbitrary paths are rejected at this boundary.
+fn prepare_required_directories(
+    plan: &Value,
+    state_directory: &Path,
+    workspace_state_directory: &Path,
+) -> Result<(), String> {
+    let Some(required) = plan.get("requiredDirectories") else {
+        return Ok(());
+    };
+    let required = required
+        .as_array()
+        .ok_or("launch plan requiredDirectories is not an array")?;
+    for directory in required {
+        let path = match directory.as_str() {
+            Some("state") => state_directory,
+            Some("workspaceState") => workspace_state_directory,
+            Some(other) => {
+                return Err(format!(
+                    "launch plan requested an unknown directory {other}"
+                ));
+            }
+            None => return Err("launch plan requiredDirectories contains a non-string".to_string()),
+        };
+        std::fs::create_dir_all(path).map_err(|error| {
+            format!(
+                "could not create launch directory {}: {error}",
+                path.display()
+            )
+        })?;
+    }
+    Ok(())
+}
+
 fn resolve_launch(
     package: &ScannedPackage,
     language_id: &str,
@@ -269,14 +318,11 @@ fn verify_runtime_version(path: &Path, tool: &str, launch: &Value) -> Result<(),
         .ok_or_else(|| {
             format!("runtime launch declares minimumVersion without versionArguments")
         })?;
-    let output = std::process::Command::new(path)
-        .args(&version_arguments)
-        .output()
-        .map_err(|error| format!("runtime tool {tool} could not be executed: {error}"))?;
+    let output = bounded_version_probe(path, &version_arguments, tool)?;
     let text = format!(
         "{}{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
+        String::from_utf8_lossy(&output.0),
+        String::from_utf8_lossy(&output.1)
     );
     // Version parsing and comparison are Core semantics (shared
     // runtime-versions fixtures); the host only runs the probe and forwards
@@ -307,6 +353,112 @@ fn verify_runtime_version(path: &Path, tool: &str, launch: &Value) -> Result<(),
         ));
     }
     Ok(())
+}
+
+/// Runs a runtime version command with bounded lifetime and output capture.
+/// The two reader threads continue draining pipes after the memory cap is
+/// reached so a noisy child cannot deadlock on a full pipe before the timeout.
+fn bounded_version_probe(
+    path: &Path,
+    arguments: &[String],
+    tool: &str,
+) -> Result<(Vec<u8>, Vec<u8>), String> {
+    let mut child = Command::new(path)
+        .args(arguments)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| format!("runtime tool {tool} could not be executed: {error}"))?;
+    let stdout = match child.stdout.take() {
+        Some(stdout) => stdout,
+        None => {
+            terminate_probe(&mut child);
+            return Err(format!("runtime tool {tool} has no stdout pipe"));
+        }
+    };
+    let stderr = match child.stderr.take() {
+        Some(stderr) => stderr,
+        None => {
+            terminate_probe(&mut child);
+            return Err(format!("runtime tool {tool} has no stderr pipe"));
+        }
+    };
+    let stdout_reader = thread::spawn(move || read_probe_stream(stdout));
+    let stderr_reader = thread::spawn(move || read_probe_stream(stderr));
+    let deadline = Instant::now() + RUNTIME_PROBE_TIMEOUT;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if Instant::now() < deadline => {
+                thread::sleep(Duration::from_millis(10));
+            }
+            Ok(None) => {
+                terminate_probe(&mut child);
+                let _ = stdout_reader.join();
+                let _ = stderr_reader.join();
+                return Err(format!("runtime tool {tool} version probe timed out"));
+            }
+            Err(error) => {
+                terminate_probe(&mut child);
+                let _ = stdout_reader.join();
+                let _ = stderr_reader.join();
+                return Err(format!("runtime tool {tool} version probe failed: {error}"));
+            }
+        }
+    };
+    let stdout = stdout_reader
+        .join()
+        .map_err(|_| format!("runtime tool {tool} stdout reader failed"))?
+        .map_err(|error| format!("runtime tool {tool} stdout could not be read: {error}"))?;
+    let stderr = stderr_reader
+        .join()
+        .map_err(|_| format!("runtime tool {tool} stderr reader failed"))?
+        .map_err(|error| format!("runtime tool {tool} stderr could not be read: {error}"))?;
+    if stdout.1 || stderr.1 {
+        return Err(format!(
+            "runtime tool {tool} version probe output exceeds {} bytes",
+            MAX_RUNTIME_PROBE_OUTPUT_BYTES
+        ));
+    }
+    if !status.success() && stdout.0.is_empty() && stderr.0.is_empty() {
+        return Err(format!(
+            "runtime tool {tool} version probe exited with {status}"
+        ));
+    }
+    Ok((stdout.0, stderr.0))
+}
+
+fn read_probe_stream<R: Read>(mut stream: R) -> std::io::Result<(Vec<u8>, bool)> {
+    let mut output = Vec::with_capacity(MAX_RUNTIME_PROBE_OUTPUT_BYTES.min(8192));
+    let mut buffer = [0_u8; 8192];
+    let mut truncated = false;
+    loop {
+        let count = stream.read(&mut buffer)?;
+        if count == 0 {
+            break;
+        }
+        let remaining = MAX_RUNTIME_PROBE_OUTPUT_BYTES.saturating_sub(output.len());
+        if remaining > 0 {
+            output.extend_from_slice(&buffer[..count.min(remaining)]);
+        }
+        if count > remaining {
+            truncated = true;
+        }
+    }
+    Ok((output, truncated))
+}
+
+/// Kills a probe process and any descendants that may have inherited its
+/// output handles, then waits for the direct child to leave the process table.
+fn terminate_probe(child: &mut Child) {
+    #[cfg(windows)]
+    {
+        let _ = Command::new("taskkill")
+            .args(["/PID", &child.id().to_string(), "/T", "/F"])
+            .status();
+    }
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 /// Joins a package-relative plan path and proves it stays inside the package
@@ -385,6 +537,7 @@ fn string_arguments(value: &Value) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Cursor;
 
     /// Unique per-run temp root; mirrors the temp-dir convention used by the
     /// other src-tauri tests (std::env::temp_dir + pid + timestamp).
@@ -506,6 +659,34 @@ mod tests {
             store::workspace_state_key(r"D:\work\demo"),
             store::workspace_state_key(r"D:\work\demo2")
         );
+    }
+
+    #[test]
+    fn required_launch_directories_are_created_from_contract_names() {
+        let temporary = unique_temp_root("required-directories");
+        let state = temporary.join("state");
+        let workspace = state.join("workspace");
+        let plan = serde_json::json!({
+            "requiredDirectories": ["state", "workspaceState"]
+        });
+        prepare_required_directories(&plan, &state, &workspace).expect("directories created");
+        assert!(state.is_dir());
+        assert!(workspace.is_dir());
+        assert!(prepare_required_directories(
+            &serde_json::json!({ "requiredDirectories": ["arbitrary"] }),
+            &state,
+            &workspace,
+        )
+        .is_err());
+        let _ = std::fs::remove_dir_all(&temporary);
+    }
+
+    #[test]
+    fn runtime_probe_output_is_capped_without_truncating_the_reader() {
+        let input = vec![b'x'; MAX_RUNTIME_PROBE_OUTPUT_BYTES + 1];
+        let (output, truncated) = read_probe_stream(Cursor::new(input)).expect("read probe");
+        assert_eq!(output.len(), MAX_RUNTIME_PROBE_OUTPUT_BYTES);
+        assert!(truncated);
     }
 
     #[test]

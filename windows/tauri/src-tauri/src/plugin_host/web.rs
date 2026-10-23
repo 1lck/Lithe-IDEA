@@ -333,11 +333,13 @@ fn bridge_dispatch(
     let params = args.params.unwrap_or(Value::Null);
     let identity = bridge_identity(app, webview.label())?;
     match method {
-        "ui.getState" => Ok(declarative_plugins_web_get_state(
-            app.clone(),
-            identity.plugin_id,
-            identity.window_id,
-        )),
+        "ui.getState" => Ok(json!({
+            "state": declarative_plugins_web_get_state(
+                app.clone(),
+                identity.plugin_id,
+                identity.window_id,
+            )
+        })),
         "ui.setState" => {
             let Some(state) = params.get("state") else {
                 return Err(bridge_error(

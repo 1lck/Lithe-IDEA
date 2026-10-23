@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "@/i18n/locale-provider";
 import Switch from "@/ui/switch";
+import { Checkbox } from "@/ui/checkbox";
 import NumberInput from "@/ui/number-input";
 import SettingsSelect from "@/ui/settings-select";
 import { pushDeclarativeWorkspaceConfiguration } from "@/platform/lsp-core-adapter";
@@ -73,8 +74,10 @@ export function DeclarativePluginSettingsEditor({
     setError(null);
     try {
       const scope = setting.scope === "project" && workspacePath ? "project" : "global";
-      // The default is forgotten so later default changes flow through.
-      const stored = value === setting.default ? null : value;
+      // Only the global layer forgets values equal to the declaration default.
+      // A project layer must retain an explicit default to override a
+      // different global value; null means “inherit global” there.
+      const stored = scope === "global" && valuesEqual(value, setting.default) ? null : value;
       await storeDeclarativeSetting(pluginId, setting.id, scope, workspacePath ?? "", stored);
       await refresh();
       if (setting.effect === "immediate" && languageId && manifest && workspacePath) {
@@ -199,6 +202,33 @@ function SettingControl({
           }))}
           onChange={onApply}
         />
+      ) : setting.type === "multiSelect" ? (
+        <div className="flex max-w-64 flex-wrap justify-end gap-x-3 gap-y-1">
+          {(setting.options ?? []).map((option) => {
+            const selected = Array.isArray(resolved.value)
+              ? resolved.value.some((value) => String(value) === option.value)
+              : false;
+            return (
+              <label key={option.value} className="flex items-center gap-1 ui-text-sm">
+                <Checkbox
+                  checked={selected}
+                  disabled={disabled}
+                  onCheckedChange={(checked) => {
+                    const current = Array.isArray(resolved.value)
+                      ? resolved.value.map(String)
+                      : [];
+                    const next = checked
+                      ? [...new Set([...current, option.value])]
+                      : current.filter((value) => value !== option.value);
+                    onApply(next);
+                  }}
+                  aria-label={option.title}
+                />
+                <span>{option.title}</span>
+              </label>
+            );
+          })}
+        </div>
       ) : (
         <input
           type="text"
@@ -214,3 +244,12 @@ function SettingControl({
 }
 
 export type { DeclarativePluginSetting, ResolvedDeclarativeSetting };
+
+function valuesEqual(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true;
+  try {
+    return JSON.stringify(left) === JSON.stringify(right);
+  } catch {
+    return false;
+  }
+}

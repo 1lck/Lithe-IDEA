@@ -59,6 +59,8 @@ interface Session {
   id: string;
   workspacePath: string;
   languageId: string;
+  /** Provider identity used to stop all sessions owned by a plugin. */
+  providerId: string;
   files: Set<string>;
   lifecycle: LspSessionLifecycle;
   eventPump: EventPumpOwner | null;
@@ -83,6 +85,7 @@ interface StoredSession {
   id: string;
   workspacePath: string;
   languageId: string;
+  providerId?: string;
   files: string[];
   features?: string[];
 }
@@ -170,6 +173,7 @@ function persistSessions(): void {
       id: session.id,
       workspacePath: session.workspacePath,
       languageId: session.languageId,
+      providerId: session.providerId,
       files: [...session.files].sort(),
       features:
         session.featureState.phase === "known"
@@ -254,6 +258,7 @@ function restorePersistedSessions(): void {
         typeof stored.languageId !== "string" ||
         !Array.isArray(stored.files) ||
         !stored.files.every((file: unknown) => typeof file === "string") ||
+        (stored.providerId !== undefined && typeof stored.providerId !== "string") ||
         (stored.features !== undefined &&
           (!Array.isArray(stored.features) ||
             !stored.features.every((feature: unknown) => typeof feature === "string")))
@@ -265,6 +270,7 @@ function restorePersistedSessions(): void {
         id: stored.id,
         workspacePath: stored.workspacePath,
         languageId: stored.languageId,
+        providerId: stored.providerId ?? stored.languageId,
         files: new Set(),
         // Persisted entries are projections of Core state. They must be
         // validated before any new document can attach after a reload.
@@ -830,6 +836,7 @@ async function createSession(args: JsonRecord, key: string): Promise<Session> {
     id: started.sessionId,
     workspacePath,
     languageId,
+    providerId,
     files: new Set(),
     lifecycle: createSessionLifecycle(started.state ?? "initializing", operationId),
     eventPump: null,
@@ -1475,6 +1482,13 @@ function snapshotForSession(session: Session): LspSessionSnapshot {
 export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Promise<T> {
   if (command === "lsp_start" || command === "lsp_start_for_file") {
     await start(args);
+    return undefined as T;
+  }
+  if (command === "lsp_stop_for_provider") {
+    const providerId = typeof args.providerId === "string" ? args.providerId : "";
+    if (!providerId) return undefined as T;
+    const matches = [...sessions.values()].filter((session) => session.providerId === providerId);
+    await Promise.all(matches.map(stopSession));
     return undefined as T;
   }
   if (command === "lsp_stop") {
