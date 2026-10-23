@@ -253,6 +253,12 @@ JDT 通道曾触发其 15 秒测试期限，同一提交在 SharedRust 通道用
 所有测试的时限来隐藏这类问题。计时工具用可控时钟验证普通、集成和总截止
 时间，并验证 HTML 与 JUnit 不会把合法的集成耗时误判为失败。
 
+checkout/clone 完整流程用例 `git_write_executes_checkout_preflight_clone_and_validation`
+在 Windows CI 39935852248 中全部断言通过，Rust 内部计时 15.22 秒、测试进程计时
+18.529 秒，超过默认十五秒后触发清缓存重编，继而耗尽原套件期限。该用例创建分叉
+分支，覆盖干净、脏和未跟踪文件预检、智能/强制切换以及本地 clone，因此只为它在
+SharedRust 和真实 JDT 两个入口设置三十秒预算；不延长请求或整套期限，不重试失败断言。
+
 取消模块的确定性回归核对 mutation 后正常读取保留原截止时间和取消能力，
 已取消或超时请求的独立读取仍受清理期限约束，错误和异常退出后恢复原状态。
 真实仓库 rebase 回归核对 edit、conflict、continue、skip、abort 和过期 amendment；

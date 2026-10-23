@@ -33,6 +33,7 @@ Issue #627 中，前端先判断绝对路径再替换反斜杠，把原生 UNC �
 
 - `shared/fixtures/git/windows-paths.json` 由前端与 Rust 测试共同读取。
 - `git_path_roundtrip` 原生集成测试使用真实 Git 仓库，把发现结果交给实际前端 TypeScript 规范化函数后回传 Core，核对提交、分支、stash 和链接工作树的监听目录。它需要 Git 和 Node.js 22.6+，子进程通过现有 Git Host 设置本地期限并清理进程树。
+  - Windows CI 39933419913 的超长路径用例在 Node 子进程十秒截止时返回 `Cancelled`，没有产生路径结果不匹配。测试仅将 Windows 的真实 Node/TypeScript 加载期限改为二十秒，Git 夹具命令仍为十秒、Core 请求仍为五秒；SharedRust 与真实 JDT 两个入口为 `git_paths_roundtrip_` 设置单例六十秒上限，容纳多次进程交换，不调整其他测试或总套件期限。超时仍走原生进程树清理，并在失败诊断保留进程状态与 stderr；不能通过重试断言、复制前端逻辑或跳过长路径用例来绕开验证。
 - 长路径用例先在短路径建立真实仓库，再移入超长目录。Windows CI 已观察到文件系统可访问但创建 Git 进程的工作目录被 `ERROR_DIRECTORY` 拒绝；用例仅接受成功读到原提交，或带原生错误 267 的 `process_start_failed`，不能返回空仓库或访问其他目录。
 - Windows 专属测试真实创建末尾点/空格目录及普通同名目录，确认请求明确拒绝，不误用普通目录。
 - 原生 watcher 测试用有界事件接收验证外部提交/切换所写的共享引用与独立 HEAD 元数据会通知对应工作树；没有用 sleep 等待防抖。

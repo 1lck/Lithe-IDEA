@@ -983,6 +983,7 @@ private struct SettingsWindow: View {
                 viewState: viewState,
                 initialCategory: requestedCategory,
                 categoryRequest: categoryRequest,
+                skillProjects: projectSessions.openProjects.compactMap(\.workspaceURL),
                 onDismiss: close
             )
             .environmentObject(settingsContext)

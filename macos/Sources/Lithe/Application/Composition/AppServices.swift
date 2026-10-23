@@ -14,6 +14,8 @@ final class AppServices {
     /// Codex and Claude Code MCP configuration files. `nil` before platform
     /// composition, which leaves the settings page read-only.
     var mcpConfigurationStore: (any McpConfigurationStore)?
+    var mcpRegistry: (any McpRegistryProviding)?
+    var mcpTools: (any McpToolsManaging)?
     /// Confirms closing terminals with running programs; `nil` closes directly.
     var processExitCoordinator: ProcessExitCoordinator?
     /// Gives build providers that share a language server the language
@@ -65,6 +67,7 @@ final class AppServices {
     let credentialResolver: any AIProviderCredentialResolver
     /// Detects Node.js and installs ACP adapters for the Agents settings page.
     let agentManagement: any AgentManagementService
+    let agentInstructions: any AgentInstructionsService
     let agentProviderConfigurationParser: any AgentProviderConfigurationParsing
     let aiConfigurationSources: [any AIConfigurationSource]
     let recentProjectsStore: RecentProjectsStore
@@ -110,6 +113,7 @@ final class AppServices {
         diagnosticsExportService: DiagnosticsExportService,
         credentialResolver: any AIProviderCredentialResolver,
         agentManagement: any AgentManagementService = UnavailableAgentManagementService(),
+        agentInstructions: any AgentInstructionsService = UnavailableAgentInstructionsService(),
         agentProviderConfigurationParser: any AgentProviderConfigurationParsing = UnavailableAgentProviderConfigurationParser(),
         aiConfigurationSources: [any AIConfigurationSource],
         recentProjectsStore: RecentProjectsStore,
@@ -167,6 +171,7 @@ final class AppServices {
         self.diagnosticsExportService = diagnosticsExportService
         self.credentialResolver = credentialResolver
         self.agentManagement = agentManagement
+        self.agentInstructions = agentInstructions
         self.agentProviderConfigurationParser = agentProviderConfigurationParser
         self.aiConfigurationSources = aiConfigurationSources
         self.recentProjectsStore = recentProjectsStore

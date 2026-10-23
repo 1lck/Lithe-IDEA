@@ -2139,3 +2139,223 @@
 /* Embedded HTML preview browser: context menu, print and PDF. */
 "Print…" = "Print…";
 "Export as PDF…" = "Export as PDF…";
+"Instructions" = "Instructions";
+"Global instructions" = "Global instructions";
+"Instruction Agent" = "Instruction Agent";
+"Global instructions apply to all projects using this Agent. Each Agent keeps its own native file." = "Global instructions apply to all projects using this Agent. Each Agent keeps its own native file.";
+"The file will be created when you save." = "The file will be created when you save.";
+"Codex is using AGENTS.override.md. Clearing it restores the base AGENTS.md instructions." = "Codex is using AGENTS.override.md. Clearing it restores the base AGENTS.md instructions.";
+"Save instructions" = "Save instructions";
+"Reload from disk" = "Reload from disk";
+"Instructions saved." = "Instructions saved.";
+"Unsaved changes" = "Unsaved changes";
+"Start a new conversation after saving to load the updated instructions. Project instructions still apply." = "Start a new conversation after saving to load the updated instructions. Project instructions still apply.";
+"Discard draft and reload?" = "Discard draft and reload?";
+"Reloading replaces this draft with the current file contents." = "Reloading replaces this draft with the current file contents.";
+"Global instructions must be no larger than 1 MiB." = "Global instructions must be no larger than 1 MiB.";
+"Cannot access the global instruction file. Check its permissions and try again." = "Cannot access the global instruction file. Check its permissions and try again.";
+"Global instructions are available for Codex and Claude Code." = "Global instructions are available for Codex and Claude Code.";
+"Cannot locate the Agent user directory." = "Cannot locate the Agent user directory.";
+"The Agent user directory must be an absolute path. Check CODEX_HOME or CLAUDE_CONFIG_DIR." = "The Agent user directory must be an absolute path. Check CODEX_HOME or CLAUDE_CONFIG_DIR.";
+"The instruction path must be a regular file, not a symbolic link or directory." = "The instruction path must be a regular file, not a symbolic link or directory.";
+"The global instruction file must use UTF-8 encoding." = "The global instruction file must use UTF-8 encoding.";
+"Another instruction save is running. Try again." = "Another instruction save is running. Try again.";
+"The instruction directory changed. Reload before saving." = "The instruction directory changed. Reload before saving.";
+"Global instructions changed outside this editor. Your draft is kept; reload before saving." = "Global instructions changed outside this editor. Your draft is kept; reload before saving.";
+/* Agent skill management */
+"Skills" = "Skills";
+"Agent skills" = "Agent skills";
+"Global skills" = "Global skills";
+"Project skills" = "Project skills";
+"Manage Skills…" = "Manage Skills…";
+"Search skills" = "Search skills";
+"Skill files" = "Skill files";
+"All sources" = "All sources";
+"Skill source" = "Skill source";
+"Skill project" = "Skill project";
+"Skill actions" = "Skill actions";
+"Refresh skills" = "Refresh skills";
+"New skill" = "New skill";
+"Import skill" = "Import skill";
+"Import SKILL.md" = "Import SKILL.md";
+"Import skill directory" = "Import skill directory";
+"View skill" = "View skill";
+"Skill target Agent" = "Skill target Agent";
+"Copy path" = "Copy path";
+"Open SKILL.md" = "Open SKILL.md";
+"Reveal in Finder" = "Reveal in Finder";
+"No skills in this scope." = "No skills in this scope.";
+"No matching skills." = "No matching skills.";
+"Open a project to manage its skills." = "Open a project to manage its skills.";
+"Enabled in Agent" = "Enabled in Agent";
+"Disabled in Agent" = "Disabled in Agent";
+"Built-in" = "Built-in";
+"Managed" = "Managed";
+"Plugin" = "Plugin";
+"Import source" = "Import source";
+"Create skill" = "Create skill";
+"Skill instructions" = "Skill instructions";
+"Skill name (lowercase-with-hyphens)" = "Skill name (lowercase-with-hyphens)";
+"When should this skill be used?" = "When should this skill be used?";
+"Skill saved. Refresh or reconnect the Agent if it does not appear in the conversation." = "Skill saved. Refresh or reconnect the Agent if it does not appear in the conversation.";
+"Codex reports its discovered skills. Claude lists files in the selected project and user directories; inherited and plugin skills may also be available in its sessions." = "Codex reports its discovered skills. Claude lists files in the selected project and user directories; inherited and plugin skills may also be available in its sessions.";
+"File inventory only. Claude determines whether this skill is available in a session." = "File inventory only. Claude determines whether this skill is available in a session.";
+"Directory imports preserve scripts, templates and other supporting files. Existing skills are never overwritten." = "Directory imports preserve scripts, templates and other supporting files. Existing skills are never overwritten.";
+"Install Codex CLI to discover its skills." = "Install Codex CLI to discover its skills.";
+"Codex skill discovery failed. Check the CLI and retry." = "Codex skill discovery failed. Check the CLI and retry.";
+"The skill file could not be opened." = "The skill file could not be opened.";
+"The skill file could not be read." = "The skill file could not be read.";
+"The skill document is unavailable. Refresh and retry." = "The skill document is unavailable. Refresh and retry.";
+"SKILL.md must use UTF-8 text." = "SKILL.md must use UTF-8 text.";
+"SKILL.md needs YAML frontmatter." = "SKILL.md needs YAML frontmatter.";
+"SKILL.md has invalid YAML frontmatter." = "SKILL.md has invalid YAML frontmatter.";
+"SKILL.md needs a name and description." = "SKILL.md needs a name and description.";
+"SKILL.md frontmatter is not closed." = "SKILL.md frontmatter is not closed.";
+"Enter a description and instructions." = "Enter a description and instructions.";
+"Use up to 64 lowercase letters, digits and single hyphens for the skill name." = "Use up to 64 lowercase letters, digits and single hyphens for the skill name.";
+"Select SKILL.md or its containing directory." = "Select SKILL.md or its containing directory.";
+"A skill with this directory name already exists. Existing skills are never overwritten." = "A skill with this directory name already exists. Existing skills are never overwritten.";
+"Skill imports cannot contain symbolic links or special files." = "Skill imports cannot contain symbolic links or special files.";
+"Import a regular file or directory instead of a symbolic link." = "Import a regular file or directory instead of a symbolic link.";
+"The skill destination contains a symbolic link or non-directory. Choose a regular native skill directory." = "The skill destination contains a symbolic link or non-directory. Choose a regular native skill directory.";
+"The skill could not be published. Check permissions and existing skill names." = "The skill could not be published. Check permissions and existing skill names.";
+"Codex reported skill discovery errors. Check the affected SKILL.md files and refresh." = "Codex reported skill discovery errors. Check the affected SKILL.md files and refresh.";
+"A skill was omitted because its native metadata is incomplete." = "A skill was omitted because its native metadata is incomplete.";
+"A skill has an unknown scope and cannot be classified." = "A skill has an unknown scope and cannot be classified.";
+"That skill name is reserved by Claude. Choose a different name." = "That skill name is reserved by Claude. Choose a different name.";
+"SKILL.md exceeds the 128 KiB limit." = "SKILL.md exceeds the 128 KiB limit.";
+"SKILL.md needs instructions after its frontmatter." = "SKILL.md needs instructions after its frontmatter.";
+
+"Enable skill" = "Enable skill";
+
+"State unknown" = "State unknown";
+
+"Switches save native Agent settings. Reconnect existing conversations to refresh available skills." = "Switches save native Agent settings. Reconnect existing conversations to refresh available skills.";
+
+"Skill setting saved." = "Skill setting saved.";
+
+"Codex saves this setting by path for all projects using this skill." = "Codex saves this setting by path for all projects using this skill.";
+
+"Claude saves visibility by name: global skills use user settings; project skills use project-local settings. Project and managed settings may override global settings. Skills with the same name share this setting." = "Claude saves visibility by name: global skills use user settings; project skills use project-local settings. Project and managed settings may override global settings. Skills with the same name share this setting.";
+
+"Skill settings could not be updated. Check the settings file and refresh." = "Skill settings could not be updated. Check the settings file and refresh.";
+
+"Claude skill settings could not be read. Fix invalid settings and refresh before toggling." = "Claude skill settings could not be read. Fix invalid settings and refresh before toggling.";
+
+"Choose whether to enable the skill." = "Choose whether to enable the skill.";
+
+"Codex skill settings could not be confirmed. Refresh to check the current state." = "Codex skill settings could not be confirmed. Refresh to check the current state.";
+
+"The Agent did not apply the skill setting. Refresh and check project or managed configuration." = "The Agent did not apply the skill setting. Refresh and check project or managed configuration.";
+
+"The skill is no longer available in this scope. Refresh and retry." = "The skill is no longer available in this scope. Refresh and retry.";
+
+"Claude plugin skills must be managed through Claude's plugin settings." = "Claude plugin skills must be managed through Claude's plugin settings.";
+
+"Skill settings are busy. Retry after the other change finishes." = "Skill settings are busy. Retry after the other change finishes.";
+
+"Skill settings changed elsewhere. Refresh and retry." = "Skill settings changed elsewhere. Refresh and retry.";
+
+/* MCP discovery and import */
+"Discover MCP servers" = "Discover MCP servers";
+"Search MCP servers" = "Search MCP servers";
+"Import JSON" = "Import JSON";
+"Search the official MCP Registry" = "Search the official MCP Registry";
+"Official MCP Registry" = "Official MCP Registry";
+"Featured and the official MCP Registry" = "Featured and the official MCP Registry";
+"Registry website" = "Registry website";
+"No matching MCP servers" = "No matching MCP servers";
+"Documentation" = "Documentation";
+"Configure…" = "Configure…";
+"Load more" = "Load more";
+"Import MCP configuration" = "Import MCP configuration";
+"MCP JSON" = "MCP JSON";
+"Review configuration" = "Review configuration";
+"Preview import" = "Preview import";
+"New MCP server" = "New MCP server";
+"Edit MCP server" = "Edit MCP server";
+"The MCP Registry could not be loaded. Try again or add a server manually." = "The MCP Registry could not be loaded. Try again or add a server manually.";
+"Paste a JSON object containing mcpServers." = "Paste a JSON object containing mcpServers.";
+"Could not import MCP JSON. Check the mcpServers object and try again." = "Could not import MCP JSON. Check the mcpServers object and try again.";
+"Public directory metadata is supplied by the official MCP Registry. Listing is not an endorsement or a security review. Adding opens an editable configuration; Lithe does not download or run server packages. Servers with complex inputs must be configured using the publisher's documentation." = "Public directory metadata is supplied by the official MCP Registry. Listing is not an endorsement or a security review. Adding opens an editable configuration; Lithe does not download or run server packages. Servers with complex inputs must be configured using the publisher's documentation.";
+"Paste standard JSON with an mcpServers object. Choose a server to review before saving. Only the editor's supported command, arguments, environment, URL and header fields are imported; authentication and client-specific options must be configured separately. Importing does not take ownership of an existing entry." = "Paste standard JSON with an mcpServers object. Choose a server to review before saving. Only the editor's supported command, arguments, environment, URL and header fields are imported; authentication and client-specific options must be configured separately. Importing does not take ownership of an existing entry.";
+
+"Featured" = "Featured";
+"The featured MCP catalog could not be loaded." = "The featured MCP catalog could not be loaded.";
+"A secure connection to the MCP Registry could not be established. Check the proxy or retry directly." = "A secure connection to the MCP Registry could not be established. Check the proxy or retry directly.";
+"The MCP Registry request timed out. Try again." = "The MCP Registry request timed out. Try again.";
+"The MCP Registry is unreachable. Check the network or proxy." = "The MCP Registry is unreachable. Check the network or proxy.";
+"Search MCP servers — GitHub, browsers, documentation…" = "Search MCP servers — GitHub, browsers, documentation…";
+"Featured servers ship with Lithe and work offline. Searching also checks the official MCP Registry. Listing is not a security review. Adding opens a configuration to review; packages are not downloaded or run. Follow the publisher's documentation for authentication and other requirements." = "Featured servers ship with Lithe and work offline. Searching also checks the official MCP Registry. Listing is not a security review. Adding opens a configuration to review; packages are not downloaded or run. Follow the publisher's documentation for authentication and other requirements.";
+"Direct connection" = "Direct connection";
+"Direct retry applies only to public MCP Registry searches on this page. System proxy settings and Agent server connections are unchanged. TLS certificate validation remains enabled." = "Direct retry applies only to public MCP Registry searches on this page. System proxy settings and Agent server connections are unchanged. TLS certificate validation remains enabled.";
+"Use system proxy" = "Use system proxy";
+"Showing available matches." = "Showing available matches.";
+"Retry directly" = "Retry directly";
+"Current library documentation and code examples for coding agents." = "Current library documentation and code examples for coding agents.";
+"Open pages, click, type and inspect a browser through its accessibility tree." = "Open pages, click, type and inspect a browser through its accessibility tree.";
+"Inspect Chrome pages, console messages, network requests and performance." = "Inspect Chrome pages, console messages, network requests and performance.";
+"Search official Microsoft and Azure documentation and code samples." = "Search official Microsoft and Azure documentation and code samples.";
+
+/* Shared instruction library */
+"Shared instructions" = "Shared instructions";
+"Default instructions" = "Default instructions";
+"Empty" = "Empty";
+"Save shared instructions" = "Save shared instructions";
+"Shared instructions saved." = "Shared instructions saved.";
+"Use shared instructions" = "Use shared instructions";
+"Sync needed" = "Sync needed";
+"Sync again" = "Sync again";
+"%d lines of its own" = "%d lines of its own";
+"Native instruction file" = "Native instruction file";
+"Write shared instructions once, then enable them for each Agent. Lithe only changes its marked block; the rest of each native file stays yours. Start a new conversation to load changes. Project instructions still apply." = "Write shared instructions once, then enable them for each Agent. Lithe only changes its marked block; the rest of each native file stays yours. Start a new conversation to load changes. Project instructions still apply.";
+"The switch controls the Lithe shared block, not the Agent or its own instructions. Save shared changes before switching. Open a row to edit the complete native file." = "The switch controls the Lithe shared block, not the Agent or its own instructions. Save shared changes before switching. Open a row to edit the complete native file.";
+"This editor shows the complete native file, including any Lithe shared block. Editing shared text here can leave it out of sync; use the shared editor to update all enabled Agents." = "This editor shows the complete native file, including any Lithe shared block. Editing shared text here can leave it out of sync; use the shared editor to update all enabled Agents.";
+"The shared instruction directory must be absolute." = "The shared instruction directory must be absolute.";
+"Shared instructions changed outside this editor. Reload before saving." = "Shared instructions changed outside this editor. Reload before saving.";
+"Invalid shared instruction request." = "Invalid shared instruction request.";
+"Instruction synchronization was cancelled." = "Instruction synchronization was cancelled.";
+"Reload this Agent before synchronizing instructions." = "Reload this Agent before synchronizing instructions.";
+"The Lithe shared instruction markers were changed. Repair the native file before syncing." = "The Lithe shared instruction markers were changed. Repair the native file before syncing.";
+"Shared instructions cannot contain Lithe synchronization markers." = "Shared instructions cannot contain Lithe synchronization markers.";
+"Instruction Agents" = "Agents";
+
+/* Featured MCP publishers and setup */
+"Work with GitHub repositories, issues, pull requests and Actions. A personal access token is required." = "Work with GitHub repositories, issues, pull requests and Actions. A personal access token is required.";
+"Ask questions about public GitHub repositories and read their generated documentation." = "Ask questions about public GitHub repositories and read their generated documentation.";
+"Search the web and code, and retrieve page content for coding agents." = "Search the web and code, and retrieve page content for coding agents.";
+"Read, write and search files only in the directories you allow. Requires Node.js 24 or later." = "Read, write and search files only in the directories you allow. Requires Node.js 24 or later.";
+"Fetch web pages and convert their content to Markdown. Requires uv and Python 3.10 or later." = "Fetch web pages and convert their content to Markdown. Requires uv and Python 3.10 or later.";
+"Keep a persistent knowledge graph between conversations. Requires Node.js 24 or later." = "Keep a persistent knowledge graph between conversations. Requires Node.js 24 or later.";
+"GitHub requires a personal access token. Set the Authorization header to Bearer followed by your token. It is stored in the Agent configuration file." = "GitHub requires a personal access token. Set the Authorization header to Bearer followed by your token. It is stored in the Agent configuration file.";
+"Add at least one absolute folder path after the package argument, one per line. Filesystem can read and write only in the folders you allow. Requires Node.js 24 or later." = "Add at least one absolute folder path after the package argument, one per line. Filesystem can read and write only in the folders you allow. Requires Node.js 24 or later.";
+"Enter an Authorization header with Bearer and your GitHub token." = "Enter an Authorization header with Bearer and your GitHub token.";
+"Add at least one absolute allowed folder path after the Filesystem package argument." = "Add at least one absolute allowed folder path after the Filesystem package argument.";
+
+/* MCP native tools inspection and compact editor */
+"Server tools" = "Server tools";
+"Detecting…" = "Detecting…";
+"%d tools" = "%d tools";
+"Not detected" = "Not detected";
+"Detect again" = "Detect again";
+"Detect tools" = "Detect tools";
+"Reload tool settings" = "Reload tool settings";
+"This server reported no tools." = "This server reported no tools.";
+"Run this MCP command?" = "Run this MCP command?";
+"Run and detect" = "Run and detect";
+"Remove from library" = "Remove from library";
+"Detection starts the configured executable and may download packages. Continue only if you trust this server. Lithe will list tools, then stop the probe process." = "Detection starts the configured executable and may download packages. Continue only if you trust this server. Lithe will list tools, then stop the probe process.";
+"Detection connects to this server and lists tool metadata without calling any tool. Local commands may run code or download packages. Results describe this check, not the availability of an existing Agent session. Tool switches apply to the selected Agent's user configuration; project and managed policies can still restrict access. Start a new Agent session after changes." = "Detection connects to this server and lists tool metadata without calling any tool. Local commands may run code or download packages. Results describe this check, not the availability of an existing Agent session. Tool switches apply to the selected Agent's user configuration; project and managed policies can still restrict access. Start a new Agent session after changes.";
+"This tool is restricted outside Lithe. Edit the native Agent policy to enable it." = "This tool is restricted outside Lithe. Edit the native Agent policy to enable it.";
+"Enter the executable and arguments as in a terminal. Quote paths with spaces. Lithe passes exact arguments without running a shell; pipes and redirects are not evaluated." = "Enter the executable and arguments as in a terminal. Quote paths with spaces. Lithe passes exact arguments without running a shell; pipes and redirects are not evaluated.";
+"Could not read the command line." = "Could not read the command line.";
+"Check command-line quotes before saving." = "Check command-line quotes before saving.";
+"Check the MCP command, URL and headers." = "Check the MCP command, URL and headers.";
+"Legacy SSE probing is unavailable. Use the publisher's Streamable HTTP endpoint." = "Legacy SSE probing is unavailable. Use the publisher's Streamable HTTP endpoint.";
+"Could not start the MCP command. Check its executable and runtime." = "Could not start the MCP command. Check its executable and runtime.";
+"MCP connection failed. Check the server, network and authentication." = "MCP connection failed. Check the server, network and authentication.";
+"MCP tool metadata exceeded the inspection limit." = "MCP tool metadata exceeded the inspection limit.";
+"MCP detection timed out after 30 seconds." = "MCP detection timed out after 30 seconds.";
+"MCP detection was cancelled." = "MCP detection was cancelled.";
+"Invalid MCP tool configuration" = "Invalid MCP tool configuration";
+"Claude Code has MCP tool restrictions. Update its native rules before renaming a server so disabled tools do not become available under a new name." = "Claude Code has MCP tool restrictions. Update its native rules before renaming a server so disabled tools do not become available under a new name.";

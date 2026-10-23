@@ -1,0 +1,40 @@
+{
+  "id": "agent-global-instructions",
+  "area": "AI",
+  "group": "Agent 对话",
+  "capability": "全局指令卡片：一份共享正文按 Agent 显式启停同步到原生用户文件的 Lithe 区块，保留自有内容、实际路径、独立草稿及逐项错误；支持展开编辑、外部修改校验、原子保存和显式重新加载；取消在 Core 登记边界同步交付，已取消保存不因后台任务启动竞态写入",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "macos/Sources/Lithe/Views/Agent/AgentInstructionsSettingsView.swift",
+      "macos/Sources/Lithe/Application/Features/AgentInstructionsFeatureModel.swift",
+      "macos/Sources/Lithe/Core/Rust/RustAgentInstructionsService.swift",
+      "macos/Tests/LitheTests/AgentInstructionsFeatureModelTests.swift",
+      "macos/Tests/LitheTests/AgentInstructionsAppearanceTests.swift",
+      "rust/lithe-agent-host/src/instructions.rs",
+      "macos/Sources/Lithe/Views/App/SettingsView.swift",
+      "macos/Tests/LitheTests/SettingsSidebarLayoutTests.swift",
+      "macos/Tests/LitheTests/SharedInstructionsFeatureTests.swift",
+      "rust/lithe-agent-host/src/instructions/shared.rs",
+      "rust/lithe-agent-host/src/instructions/shared/tests.rs",
+      "macos/Sources/Lithe/Core/Rust/RustCoreCancellation.swift",
+      "macos/Tests/LitheTests/AgentInstructionsCancellationTests.swift"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
+    "evidence": [
+      "rust/lithe-agent-host/src/instructions.rs",
+      "rust/lithe-core/src/agent/instructions.rs",
+      "windows/tauri/src-tauri/src/platform.rs",
+      "shared/fixtures/agent/agent-instructions-v1.json",
+      "rust/lithe-agent-host/src/instructions/shared.rs",
+      "shared/fixtures/agent/shared-instructions-v1.json"
+    ]
+  },
+  "owner": "Agent",
+  "verification": "在同一份 macOS 预览的 AI 分组中同时检查「指令」与「技能」入口，来回切换确认两个功能都可加载。macOS：打开设置 AI > 指令，分别查看 Codex、Claude 的实际用户路径，编辑保存后新建对话验证原生加载；确认 CODEX_HOME/CLAUDE_CONFIG_DIR、自定义目录、Codex 非空 override 优先和清空 override 后返回基础文件；切换 Agent 和设置页保留未保存草稿，文件被外部修改时拒绝覆盖并保留草稿，显式重新加载需确认且读取失败不丢草稿；回归中文/英文、深浅主题和窄宽窗口的原生编辑器、选择器、搜索及保存状态。运行 AgentInstructionsFeatureModelTests、AgentInstructionsAppearanceTests、AgentInstructionsContractTests、SettingsSidebarLayoutTests、SettingsSearchVocabularyTests，以及 Host/Core 计时测试；Windows 共享文件命令可经通用 platform_invoke 分派，设置页与 Windows 原生运行验收待完成。 新增共享卡片、Agent 图标/路径/自有行数与展开编辑；隔离用户目录真实保存、启用两 Agent、更新、关闭其中一个，逐字节确认私有内容不变，重新打开从原生区块回读开关；外部修改、损坏标记、只读目标与取消后不覆盖，单项失败继续其他项并保留错误。SharedInstructionsFeatureTests 覆盖连续开关排队、取消、失败和草稿；深浅色中英文宽窄布局需实机检查。 注册前取消回归：确定性控制调用前取消、请求编码时取消，真实 Core 返回 cancelled，已有共享源不变、缺失源和锁不创建，后续有效操作仍成功。CI test-stability-macos 产物包含 instructions-ui 的中英文、深浅主题、宽窄原生截图。",
+  "notes": "共享源保存在平台 storage adapter 的 Application Support/Lithe/AgentInstructions/Shared.md，不额外拼接提示词。开关只控制 Lithe 区块，新会话由上游加载；按文件原子替换，跨文件部分失败可见。源、锁、暂存文件及原生指令均为用户状态，不可工作树复用，不写发行资源。"
+}
