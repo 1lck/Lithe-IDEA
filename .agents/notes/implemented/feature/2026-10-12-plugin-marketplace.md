@@ -59,6 +59,17 @@ Lithe 的插件管理改成和 IntelliJ IDEA 一样的“插件市场 / 已安�
 
 **展示的版本。** Core 会跳过当前平台或插件 API 不满足的新版本，选择能安装的旧版本。详情里的版本、发布日期和支持平台都描述“点安装会装的那个版本”；最新版本不同时，单独一行注明它在当前 Lithe 或这台 Mac 上无法使用。
 
+**市场详情的分栏边界。** 市场和“已安装”使用不同的详情视图，必须分别验证。
+市场信息行和来源选择器有最小宽度；直接把它们放在纵向 ScrollView（滚动视口）里，
+会让 SwiftUI 按内容宽度重新居中，拖窄后文字和图标就跨到分隔线左侧。
+市场视口现在先接受分栏给出的矩形，再以该宽度布局详情。正文最小宽度由现有
+标签列、间距、来源选择器和提示卡的尺寸推导；较窄时可横向滚动查看完整内容，
+较宽时描述仍按可见宽度换行。短详情在高度变化后也保持顶部对齐。
+这里只测量视口的宽高，内容在测量闭包外构建；不在拖动中重读市场、重建模型或写偏好。
+正确做法是约束视口并保留内容的滚动可达性；不要只裁掉越界正文、把详情最小宽度
+传回外层撑宽设置窗口，或因为“已安装”测试通过就认为市场也通过。
+这是原生视图布局修改，没有新增运行时文件、缓存或安装资源写入。
+
 正确做法：新增官方插件时登记到 `official-plugins.json`，改插件内容时同时升 `plugin.json` 的版本。
 
 不要这样做：手工改 `index.json` 里的下载地址或 SHA-256，或者把插件包重新挂到 Lithe 的版本 Release 上。
@@ -93,6 +104,7 @@ Lithe 的插件管理改成和 IntelliJ IDEA 一样的“插件市场 / 已安�
 
 - `cargo test --manifest-path rust/lithe-core/Cargo.toml --lib marketplace_plugins`：索引校验、平台与 API 判断、命名空间、源地址解析、安装审查的标准答案。
 - `./scripts/verify-shared-contracts.sh`：市场 fixture 与错误码登记。
+- `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'PluginMarketplaceLayoutTests|PluginDetailLayoutTests|PluginSettingsLayoutTests'`：市场用内存索引驱动真实页面，覆盖中英文描述、深浅主题、窗口宽高变化、原生分隔条拖动、释放后刷新不移位，以及窄视口横向滚动到正文末端；单独保留“已安装”详情和路径控件回归。可用 `LITHE_MARKETPLACE_LAYOUT_CAPTURES` 导出市场原生视图截图；测试拥有并清理自己的偏好域和窗口。
 - `node --test scripts/official-plugin-releases.test.mjs`：只为版本变化的插件生成标签，内容变化未升版本时失败；已发布未登记的版本会被重新登记。
 - `node scripts/test-reuse-worktree-resources.mjs`：磁盘快照、安装 staging、版本和审批记录不出现在可复用列表，显式选择时在访问工作树或复制前拒绝。
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'PluginMarketplace|PluginDiskInstallation|MacPluginDiskPackageImporter|MacPluginPackageDownloader|PluginManagementPresentation|PluginManager|PluginPackageStore'`：校验和先于解压、下载和展开上限、磁盘快照隔离、源与签名要求、完整程序审查、安装 staging/扫描/回滚摘要复查、来源保留及同 ID 不自动接管。过滤器只是运行入口，必须核对报告确实包含 `MacPluginDiskPackageImporterTests`、`PluginDiskInstallationTests` 和磁盘 FeatureModel 场景，不能以零匹配当作通过。
