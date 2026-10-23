@@ -1,4 +1,5 @@
 import { useGlobalSearchStore } from "../stores/global-search.store";
+import { useFileOpenTarget } from "@/features/keymaps/hooks/use-file-open-target";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import type {
@@ -237,6 +238,30 @@ const GlobalSearchBuffer = ({ compact = false }: GlobalSearchBufferProps) => {
     selectedFilePath && fileNavigatorKeySet.has(selectedFilePath)
       ? selectedFilePath
       : (selectedMatch?.filePath ?? fileNavigatorItems[0]?.key ?? null);
+
+  useFileOpenTarget(inputRef, () => {
+    if (isResultNavigationDisabled || !selectedMatch) return;
+    return () =>
+      handleFileSelect(
+        selectedMatch.filePath,
+        false,
+        selectedMatch.targetLine,
+        selectedMatch.targetColumn,
+      );
+  });
+
+  const handleFileNavigatorOpen = useCallback(
+    (filePath: string) => {
+      if (isResultNavigationDisabled) return;
+      if (selectedMatch?.filePath === filePath) {
+        handleFileClick(filePath, selectedMatch.targetLine, selectedMatch.targetColumn);
+        return;
+      }
+      const match = results.find((result) => result.file_path === filePath)?.matches[0];
+      if (match) handleFileClick(filePath, match.line_number, match.column_start + 1);
+    },
+    [handleFileClick, isResultNavigationDisabled, results, selectedMatch],
+  );
 
   const handleFileNavigatorSelect = useCallback(
     (filePath: string) => {
@@ -570,11 +595,13 @@ const GlobalSearchBuffer = ({ compact = false }: GlobalSearchBufferProps) => {
             fileNavigatorItems={fileNavigatorItems}
             selectedFileNavigatorKey={selectedFileNavigatorKey}
             onFileNavigatorSelect={handleFileNavigatorSelect}
+            onFileNavigatorOpen={handleFileNavigatorOpen}
             fileNavigatorViewMode={fileNavigatorViewMode}
             onFileNavigatorViewModeChange={setFileNavigatorViewMode}
             navigatorSearchResetKey={searchKey}
             excerpts={excerpts}
             selectedItemKey={selectedItemKey}
+            isNavigationDisabled={isResultNavigationDisabled}
             onOpen={handleFileClick}
             onExpandContext={handleExpandContext}
             onCollapseContext={handleCollapseContext}

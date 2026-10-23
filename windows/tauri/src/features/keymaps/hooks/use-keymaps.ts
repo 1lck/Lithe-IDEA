@@ -15,6 +15,7 @@ import { isTerminalAltTextInput } from "@/features/terminal/utils/terminal-keybo
 import { useUIState } from "@/features/window/stores/ui-state.store";
 import { IS_LINUX } from "@/utils/platform";
 import { useKeymapStore } from "../stores/keymaps.store";
+import { resolveFocusedFileOpenTarget } from "./use-file-open-target";
 import { getEffectiveKeybindings } from "../utils/effective-keymaps";
 import { isEditorKeyboardTarget } from "../utils/editor-keyboard-target";
 import { resolveEffectiveKeymapContexts } from "../utils/effective-contexts";
@@ -35,7 +36,11 @@ const CHORD_TIMEOUT = 1000; // 1 second to complete chord
 const CLOSE_TAB_CLOSE_REQUEST_WINDOW_MS = 1000;
 const closeTabShortcut = parseKeybinding("cmd+w").parts[0];
 const closeWindowShortcut = parseKeybinding("cmd+shift+w").parts[0];
-const INPUT_ALLOWED_COMMANDS = new Set(["file.quickOpen", "workbench.commandPalette"]);
+const INPUT_ALLOWED_COMMANDS = new Set([
+  "file.quickOpen",
+  "file.openSelected",
+  "workbench.commandPalette",
+]);
 
 function isCloseTabShortcut(event: KeyboardEvent) {
   return keysMatch(eventToKey(event), closeTabShortcut);
@@ -152,6 +157,7 @@ export function useKeymaps() {
         isEditorTarget,
         isTerminalTarget,
       });
+      effectiveContexts.fileOpenTargetFocus = !!resolveFocusedFileOpenTarget();
 
       // Prevent modifier-shortcut floods when key is held down (e.g. Cmd+R auto-repeat)
       if (e.repeat && (e.metaKey || e.ctrlKey || e.altKey)) {
@@ -212,7 +218,12 @@ export function useKeymaps() {
       // Vim mode bypass - let vim handle keys without modifiers
       const hasModifiers = e.metaKey || e.ctrlKey || e.altKey;
 
-      if (settings.vimMode && !hasModifiers && !e.shiftKey) {
+      if (
+        settings.vimMode &&
+        !hasModifiers &&
+        !e.shiftKey &&
+        !effectiveContexts.fileOpenTargetFocus
+      ) {
         return;
       }
 
@@ -241,6 +252,8 @@ export function useKeymaps() {
       if (isNativeTextInput && !isEditorTextarea && !isTerminalTextarea) {
         for (const keybinding of allKeybindings) {
           if (!INPUT_ALLOWED_COMMANDS.has(keybinding.command)) continue;
+          if (keybinding.command === "file.openSelected" && !effectiveContexts.fileOpenTargetFocus)
+            continue;
           if (!keybinding.enabled && keybinding.enabled !== undefined) continue;
           if (keybinding.when && !evaluateWhenClause(keybinding.when, effectiveContexts)) continue;
 
@@ -260,6 +273,8 @@ export function useKeymaps() {
 
       // Try to match against registered keybindings
       for (const keybinding of allKeybindings) {
+        if (keybinding.command === "file.openSelected" && !effectiveContexts.fileOpenTargetFocus)
+          continue;
         if (!keybinding.enabled && keybinding.enabled !== undefined) {
           continue;
         }

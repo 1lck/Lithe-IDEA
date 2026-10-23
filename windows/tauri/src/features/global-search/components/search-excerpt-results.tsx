@@ -6,10 +6,12 @@ import { useEditorSettingsStore } from "@/features/editor/stores/settings.store"
 import { calculateLineHeight } from "@/features/editor/utils/lines";
 import { useZoomStore } from "@/features/window/stores/zoom.store";
 import { Button } from "@/ui/button";
+import { useFileOpenTarget } from "@/features/keymaps/hooks/use-file-open-target";
 import type { SearchExcerpt } from "../utils/search-excerpts";
 import { SearchExcerptCode, type SearchExcerptTypography } from "./search-excerpt-code";
 
 interface SearchExcerptResultsProps {
+  isNavigationDisabled?: boolean;
   excerpts: SearchExcerpt[];
   selectedItemKey: string | null;
   onOpen: (filePath: string, lineNumber?: number, columnNumber?: number) => void;
@@ -19,6 +21,7 @@ interface SearchExcerptResultsProps {
 }
 
 interface SearchExcerptItemProps {
+  isNavigationDisabled: boolean;
   excerpt: SearchExcerpt;
   index: number;
   selectedItemKey: string | null;
@@ -33,6 +36,7 @@ const SYNTAX_PREFETCH_MARGIN = "240px 0px";
 const INITIAL_SYNTAX_HIGHLIGHT_COUNT = 1;
 
 function SearchExcerptItemComponent({
+  isNavigationDisabled,
   excerpt,
   index,
   selectedItemKey,
@@ -58,6 +62,10 @@ function SearchExcerptItemComponent({
     if (!selectedMatch) return;
     onOpen(excerpt.filePath, selectedMatch.targetLine, selectedMatch.targetColumn);
   }, [excerpt.filePath, onOpen, selectedMatch]);
+
+  useFileOpenTarget(sectionRef, () =>
+    !isNavigationDisabled && selectedMatch ? openTarget : undefined,
+  );
 
   const openReadonlyLocation = useCallback(
     ({ line, column }: { line: number; column: number }) => {
@@ -105,6 +113,7 @@ function SearchExcerptItemComponent({
   return (
     <section
       ref={sectionRef}
+      tabIndex={0}
       data-excerpt-index={index}
       className="relative isolate min-w-0 max-w-full rounded-xl bg-background"
     >
@@ -153,6 +162,7 @@ function SearchExcerptItemComponent({
 const SearchExcerptItem = memo(SearchExcerptItemComponent, (previous, next) => {
   return (
     previous.excerpt === next.excerpt &&
+    previous.isNavigationDisabled === next.isNavigationDisabled &&
     previous.index === next.index &&
     previous.selectedItemKey === next.selectedItemKey &&
     previous.onOpen === next.onOpen &&
@@ -164,6 +174,7 @@ const SearchExcerptItem = memo(SearchExcerptItemComponent, (previous, next) => {
 });
 
 export const SearchExcerptResults = memo(function SearchExcerptResults({
+  isNavigationDisabled = false,
   excerpts,
   selectedItemKey,
   onOpen,
@@ -207,6 +218,7 @@ export const SearchExcerptResults = memo(function SearchExcerptResults({
     <div className="flex min-w-0 max-w-full flex-col gap-2 rounded-xl">
       {excerpts.map((excerpt, index) => (
         <SearchExcerptItem
+          isNavigationDisabled={isNavigationDisabled}
           key={excerpt.id}
           excerpt={excerpt}
           index={index}
