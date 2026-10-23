@@ -58,6 +58,7 @@ function harness(writable = true) {
   });
   const model = emitter<editor.IModelChangedEvent>({ oldModelUrl: null, newModelUrl: null });
   const calls: string[] = [];
+  let cursorActionsMove = true;
   const from = cursorSelection(1, 4, 1, 4);
   const to = cursorSelection(2, 4, 2, 4);
   const move = (overrides: Partial<editor.ICursorSelectionChangedEvent> = {}) => {
@@ -82,6 +83,7 @@ function harness(writable = true) {
       onDidChangeModel: model.subscribe,
       trigger(_source, command) {
         calls.push(command);
+        if (!cursorActionsMove && (command === "cursorUndo" || command === "cursorRedo")) return;
         // Monaco's native cursor actions synchronously emit an API selection;
         // text actions change the model before publishing their new selection.
         if (command === "undo" || command === "redo") content.fire();
@@ -90,10 +92,43 @@ function harness(writable = true) {
     },
     writable,
   );
-  return { history, calls, move, from, content, model, selection };
+  return {
+    history, calls, move, from, content, model, selection,
+    setCursorActionsMove: (value: boolean) => {
+      cursorActionsMove = value;
+    },
+  };
 }
 
 describe("cursor-aware text undo", () => {
+  test("independent cursor undo lets generic redo restore the cursor before text", () => {
+    const h = harness();
+    try {
+      h.move();
+      h.history.cursorUndo();
+      h.history.redo();
+      h.history.redo();
+      expect(h.calls).toEqual(["cursorUndo", "cursorRedo", "redo"]);
+    } finally {
+      h.history.dispose();
+    }
+  });
+
+  test("explicit cursor redo consumes recovery and empty cursor undo leaves text redo available", () => {
+    const h = harness();
+    try {
+      h.history.cursorUndo();
+      h.history.cursorRedo();
+      h.history.redo();
+      h.setCursorActionsMove(false);
+      h.history.cursorUndo();
+      h.history.redo();
+      expect(h.calls).toEqual(["cursorUndo", "cursorRedo", "redo", "cursorUndo", "redo"]);
+    } finally {
+      h.history.dispose();
+    }
+  });
+
   test("recovers one keyboard move, then undoes text even after multiple moves", () => {
     const h = harness();
     try {

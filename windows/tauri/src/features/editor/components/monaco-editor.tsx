@@ -1806,6 +1806,11 @@ export function MonacoEditor({
     const executeCommand = (command: EditorCommand) => {
       const editor = editorRef.current;
       if (!editor) return;
+      if (cursorAwareUndo && (command.type === "cursorUndo" || command.type === "cursorRedo")) {
+        cursorAwareUndo[command.type]();
+        syncCursorAndSelection();
+        return;
+      }
       void runEditorCommand(editor, command, canEdit).catch((error) => {
         console.error("Failed to execute editor command:", command.type, error);
       });
