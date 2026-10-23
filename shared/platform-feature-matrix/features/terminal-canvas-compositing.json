@@ -2,7 +2,7 @@
   "id": "terminal-canvas-compositing",
   "area": "工作台",
   "group": "终端",
-  "capability": "macOS 终端 Metal 画布按预乘语义清屏：无壁纸时画布自身承载不透明编辑器底色，有壁纸时清屏为透明 (0,0,0,0) 由壁纸透出；OSC 11 应答与画布清屏色一致（无壁纸报告编辑器底色，有壁纸报告黑色）；已打开终端随 Color theme 变化刷新背景和前景及 OSC 11/10 应答；背景实际变化时向终端应用推送 OSC 11 报告与 kitty 变更通知 DSR 997",
+  "capability": "macOS 终端 Metal 画布按预乘语义清屏：无壁纸时画布自身承载不透明编辑器底色，有壁纸时清屏为透明 (0,0,0,0) 由壁纸透出；OSC 11 应答与画布清屏色一致（无壁纸报告编辑器底色，有壁纸报告黑色）；已打开终端随 Color theme 变化刷新背景和前景及 OSC 11/10 应答；背景变化时仅向订阅 kitty DEC mode 2031 的终端应用推送 OSC 11 与 DSR 997，997;1n 报暗、997;2n 报亮",
   "macos": {
     "implementationStatus": "implemented",
     "verificationStatus": "pending",
@@ -21,5 +21,5 @@
     ]
   },
   "owner": "Terminal",
-  "verification": "无壁纸时分别使用 Dark+Lithe、Dark+Codex、Dark+Linear，在同一已打开终端切换 Color theme 后查询 OSC 11，确认分别报告 rgb:1919/1a1a/1c1c、rgb:1111/1111/1111、rgb:0f0f/0f0f/1111；Light 模式分别查询 OSC 11 和 OSC 10，确认 Lithe 与 Codex 的 OSC 11 都为白色、Linear 为 rgb:fcfc/fcfc/fdfd，OSC 10 可区分 Lithe rgb:1f3b/2312/2937、Codex rgb:0d0d/0d0d/0d0d、Linear rgb:1b1b/1b1b/1b1b。Dark OSC 10 前景依次应为 Lithe rgb:dfff/e1c9/e5e2、Codex rgb:fcfc/fcfc/fcfc、Linear rgb:e3e3/e4e4/e6e6。切换主题后 shell PID 不变；开启壁纸后确认壁纸透出、字缘干净且 OSC 11 报告 rgb:0000/0000/0000。明暗切换或开关壁纸时，已运行且跟踪背景的 TUI（如 oh-my-pi）应无需重启即跟随重查；不跟踪的程序不受推送影响。亮色主题下同时确认字缘无白色小框、正文不发浅。SwiftTerm 1.15 的 nativeBackgroundColor 同时用作 Metal 清屏色与 OSC 11 应答值且无法拆分，因此有壁纸时按既有取舍报告黑色；若上游改为预乘清屏可恢复报告编辑器底色。"
+  "verification": "无壁纸时分别使用 Dark+Lithe、Dark+Codex、Dark+Linear，在同一已打开终端切换 Color theme 后查询 OSC 11，确认分别报告 rgb:1919/1a1a/1c1c、rgb:1111/1111/1111、rgb:0f0f/0f0f/1111；Light 模式分别查询 OSC 11 和 OSC 10，确认 Lithe 与 Codex 的 OSC 11 都为白色、Linear 为 rgb:fcfc/fcfc/fdfd，OSC 10 可区分 Lithe rgb:1f3b/2312/2937、Codex rgb:0d0d/0d0d/0d0d、Linear rgb:1b1b/1b1b/1b1b。Dark OSC 10 前景依次应为 Lithe rgb:dfff/e1c9/e5e2、Codex rgb:fcfc/fcfc/fcfc、Linear rgb:e3e3/e4e4/e6e6。切换主题后 shell PID 不变；开启壁纸后确认壁纸透出、字缘干净且 OSC 11 报告 rgb:0000/0000/0000。明暗切换或开关壁纸时，仅已运行且订阅 kitty DEC mode 2031 的 TUI（如 oh-my-pi）应收到背景变化通知并无需重启即跟随重查；未订阅的 zsh/cat 切换时不得收到回显字节；验证订阅、退订、跨输出块切分及终端 RIS 重置；DSR 997 暗色发送 997;1n、亮色发送 997;2n。亮色主题下同时确认字缘无白色小框、正文不发浅。SwiftTerm 1.15 的 nativeBackgroundColor 同时用作 Metal 清屏色与 OSC 11 应答值且无法拆分，因此有壁纸时按既有取舍报告黑色；有壁纸时 COLORFGBG 导出深色 15;0，与 OSC 11 黑色应答和 DSR 997;1n 同源一致；若上游改为预乘清屏可恢复报告编辑器底色。"
 }

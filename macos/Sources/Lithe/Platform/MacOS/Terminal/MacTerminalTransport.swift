@@ -17,14 +17,7 @@ final class LitheTerminalView: LocalProcessTerminalView {
     /// App theme light/dark preference while the view is not yet in a window; nil follows the system appearance.
     var preferredAppearanceIsDark: (() -> Bool?)?
     private var lastReportedBackgroundPayload: String?
-
-    /// Whether the background the host reports is light: the app theme while outside any window, then the window's appearance.
-    var rendersLightBackground: Bool {
-        if window == nil, let preferredAppearanceIsDark, let pinned = preferredAppearanceIsDark() {
-            return !pinned
-        }
-        return effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) != .darkAqua
-    }
+    private var backgroundChangeNotifications = MacTerminalBackgroundSubscription()
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -221,13 +214,17 @@ final class LitheTerminalView: LocalProcessTerminalView {
         reportBackgroundChangeIfNeeded()
     }
 
-    /// On reported-background change, sends the OSC 11 answer plus kitty DSR 997; trackers re-query, others ignore.
+    /// Reports background changes only to programs subscribed to kitty DEC mode 2031.
     private func reportBackgroundChangeIfNeeded() {
         let payload = MacTerminalBackgroundReporting.osc11Payload(for: nativeBackgroundColor)
         guard payload != lastReportedBackgroundPayload else { return }
         lastReportedBackgroundPayload = payload
-        guard process.running else { return }
-        terminal.sendResponse(text: MacTerminalBackgroundReporting.changeNotification(for: nativeBackgroundColor))
+        guard process.running,
+              let notification = MacTerminalBackgroundReporting.changeNotification(
+                for: nativeBackgroundColor,
+                isSubscribed: backgroundChangeNotifications.isSubscribed
+              ) else { return }
+        terminal.sendResponse(text: notification)
     }
 
     func updateWorkbenchSurface(isVisible: Bool) {
@@ -246,8 +243,13 @@ final class LitheTerminalView: LocalProcessTerminalView {
     }
 
     override func dataReceived(slice: ArraySlice<UInt8>) {
+        backgroundChangeNotifications.feed(slice)
         onProcessOutput?(Data(slice))
         super.dataReceived(slice: slice)
+    }
+
+    func resetBackgroundChangeNotifications() {
+        backgroundChangeNotifications.reset()
     }
 
     deinit {
@@ -256,7 +258,7 @@ final class LitheTerminalView: LocalProcessTerminalView {
 }
 
 
-/// Report pushed when the background changes: SwiftTerm's own OSC 11 answer plus the kitty DSR 997 notification.
+/// Reports changed backgrounds to subscribers; kitty DSR 997 uses 1 for dark and 2 for light.
 enum MacTerminalBackgroundReporting {
     static func osc11Payload(for color: NSColor) -> String {
         let srgb = color.usingColorSpace(.sRGB) ?? color
@@ -268,8 +270,99 @@ enum MacTerminalBackgroundReporting {
         return "rgb:\(channel(red))/\(channel(green))/\(channel(blue))"
     }
 
-    static func changeNotification(for color: NSColor) -> String {
-        "\u{1b}]11;\(osc11Payload(for: color))\u{1b}\\\u{1b}[?997;2n"
+    static func reportsDarkBackground(for color: NSColor) -> Bool {
+        let srgb = color.usingColorSpace(.sRGB) ?? color
+        var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 1
+        srgb.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+        func linearize(_ component: CGFloat) -> Double {
+            let value = min(1, max(0, Double(component)))
+            return value <= 0.04045 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4)
+        }
+        let luminance = 0.2126 * linearize(red) + 0.7152 * linearize(green) + 0.0722 * linearize(blue)
+        return luminance < 0.5
+    }
+
+    static func changeNotification(for color: NSColor, isSubscribed: Bool) -> String? {
+        guard isSubscribed else { return nil }
+        let backgroundState = reportsDarkBackground(for: color) ? 1 : 2
+        return "\u{1b}]11;\(osc11Payload(for: color))\u{1b}\\\u{1b}[?997;\(backgroundState)n"
+    }
+}
+
+/// Tracks kitty DEC mode 2031 so change notifications are sent only to programs that requested them.
+struct MacTerminalBackgroundSubscription {
+    private(set) var isSubscribed = false
+    private var pendingEscape: [UInt8] = []
+
+    private static let escape = UInt8(0x1b)
+    private static let mode2031: [UInt8] = [0x32, 0x30, 0x33, 0x31]
+    private static let altScreenModes: [[UInt8]] = [
+        [0x34, 0x37],
+        [0x31, 0x30, 0x34, 0x37],
+        [0x31, 0x30, 0x34, 0x39],
+    ]
+    private static let maximumSequenceLength = 64
+
+    init() {
+        pendingEscape.reserveCapacity(Self.maximumSequenceLength)
+    }
+
+    mutating func feed<S: Sequence>(_ bytes: S) where S.Element == UInt8 {
+        for byte in bytes {
+            if pendingEscape.isEmpty {
+                if byte == Self.escape { pendingEscape.append(byte) }
+                continue
+            }
+            if byte == Self.escape {
+                pendingEscape = [Self.escape]
+                continue
+            }
+            pendingEscape.append(byte)
+            if pendingEscape == [Self.escape, 0x63] {
+                isSubscribed = false
+                pendingEscape.removeAll(keepingCapacity: true)
+                continue
+            }
+            if pendingEscape.count == 2 {
+                if byte != 0x5b { pendingEscape.removeAll(keepingCapacity: true) }
+                continue
+            }
+            if pendingEscape.count == 3 {
+                if byte != 0x3f { pendingEscape.removeAll(keepingCapacity: true) }
+                continue
+            }
+            if (0x40...0x7e).contains(byte) {
+                if byte == 0x68 || byte == 0x6c,
+                   contains(Self.mode2031, in: pendingEscape[3..<(pendingEscape.count - 1)]) {
+                    isSubscribed = byte == 0x68
+                } else if byte == 0x6c,
+                          leavesAltScreen(pendingEscape[3..<(pendingEscape.count - 1)]) {
+                    // A subscribed TUI runs inside the alternate screen; when it leaves, the shell must not inherit pushes.
+                    isSubscribed = false
+                }
+                pendingEscape.removeAll(keepingCapacity: true)
+            } else if pendingEscape.count >= Self.maximumSequenceLength {
+                pendingEscape.removeAll(keepingCapacity: true)
+            }
+        }
+    }
+
+    mutating func reset() {
+        isSubscribed = false
+        pendingEscape.removeAll(keepingCapacity: true)
+    }
+
+    private func contains(_ parameter: [UInt8], in parameters: ArraySlice<UInt8>) -> Bool {
+        var start = parameters.startIndex
+        for index in parameters.indices where parameters[index] == 0x3b {
+            if parameters[start..<index].elementsEqual(parameter) { return true }
+            start = parameters.index(after: index)
+        }
+        return parameters[start..<parameters.endIndex].elementsEqual(parameter)
+    }
+
+    private func leavesAltScreen(_ parameters: ArraySlice<UInt8>) -> Bool {
+        Self.altScreenModes.contains { contains($0, in: parameters) }
     }
 }
 
@@ -445,7 +538,8 @@ final class MacTerminalTransport: NSObject, TerminalTransport, @preconcurrency L
         view.updateWorkbenchSurface(isVisible: showsWorkbenchBackground)
     }
 
-    var reportsLightBackground: Bool? { view.rendersLightBackground }
+    // Keep the exported COLORFGBG in sync with the OSC 11 answer: wallpaper transparency reports black, so it must export dark.
+    var reportsLightBackground: Bool? { !MacTerminalBackgroundReporting.reportsDarkBackground(for: view.nativeBackgroundColor) }
 
     private let scrollbackLines: Int
 
@@ -545,6 +639,7 @@ final class MacTerminalTransport: NSObject, TerminalTransport, @preconcurrency L
         selectedShellPath = executablePath
 
         view.terminal.resetToInitialState()
+        view.resetBackgroundChangeNotifications()
         var options = view.terminal.options
         options.termName = environment["TERM"] ?? "xterm-256color"
         view.terminal.options = options
