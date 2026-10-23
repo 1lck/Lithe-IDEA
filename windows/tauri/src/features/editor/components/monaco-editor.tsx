@@ -1,6 +1,7 @@
 import { useDebuggerStore } from "@/features/debugger/stores/debugger.store";
 import { bindMonacoDebugDecorations } from "@/features/debugger/services/monaco-debug-decorations";
 import { runEditorCommand, type EditorCommand } from "@lithe/editor/editor-commands";
+import { createCursorAwareUndo } from "../engines/monaco/cursor-aware-undo";
 import "../engines/monaco/monaco-environment";
 import "monaco-editor/min/vs/editor/editor.main.css";
 import "../styles/monaco-editor.css";
@@ -1796,6 +1797,9 @@ export function MonacoEditor({
 
     const adapterOwnerId = viewStateKey ?? activeBufferId ?? modelUri.toString();
     const canEdit = !readOnly && !isPreviewMode;
+    const cursorAwareUndo = editorRef.current
+      ? createCursorAwareUndo(editorRef.current, canEdit)
+      : null;
     const container = containerRef.current;
     editorAPI.setTextareaRef(null);
     if (container) editorAPI.setViewportRef(container);
@@ -1927,13 +1931,11 @@ export function MonacoEditor({
         runMonacoSelectionAction("editor.action.insertCursorAtEndOfEachLineSelected"),
       removeSecondaryCursors: () => runMonacoSelectionAction("removeSecondaryCursors"),
       undo: () => {
-        if (!canEdit) return;
-        editorRef.current?.trigger("lithe-api", "undo", null);
+        cursorAwareUndo?.undo();
         syncCursorAndSelection();
       },
       redo: () => {
-        if (!canEdit) return;
-        editorRef.current?.trigger("lithe-api", "redo", null);
+        cursorAwareUndo?.redo();
         syncCursorAndSelection();
       },
     });
@@ -1987,6 +1989,7 @@ export function MonacoEditor({
     const focusTimerId = canEdit ? window.setTimeout(() => editorRef.current?.focus(), 0) : null;
 
     return () => {
+      cursorAwareUndo?.dispose();
       if (focusTimerId !== null) window.clearTimeout(focusTimerId);
       if (benchmarkRafId !== null) cancelAnimationFrame(benchmarkRafId);
       if (benchmarkTimeoutId !== null) window.clearTimeout(benchmarkTimeoutId);

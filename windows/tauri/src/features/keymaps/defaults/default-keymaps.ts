@@ -78,6 +78,18 @@ export const defaultKeymaps: Keybinding[] = [
     when: "editorFocus",
   },
   {
+    key: "cmd+u",
+    command: "editor.cursorUndo",
+    source: "default",
+    when: "editorFocus",
+  },
+  {
+    key: "cmd+shift+u",
+    command: "editor.cursorRedo",
+    source: "default",
+    when: "editorFocus",
+  },
+  {
     key: "cmd+shift+z",
     command: "editor.redo",
     source: "default",

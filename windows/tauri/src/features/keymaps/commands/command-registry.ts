@@ -57,6 +57,7 @@ import {
   moveActiveEditorLineUp,
   pasteIntoActiveEditor,
   redoActiveEditor,
+  redoActiveEditorCursor,
   removeActiveEditorBrackets,
   removeActiveEditorSecondaryCursors,
   runQuickFixForActiveEditor,
@@ -74,6 +75,7 @@ import {
   triggerActiveEditorSuggest,
   unfoldAllActiveEditor,
   undoActiveEditor,
+  undoActiveEditorCursor,
 } from "./editor-command-actions";
 import {
   goBack,
@@ -368,6 +370,22 @@ const editCommands: Command[] = [
     category: "Edit",
     keybinding: "cmd+shift+z",
     execute: redoActiveEditor,
+  },
+  {
+    id: "editor.cursorUndo",
+    title: "Cursor Undo",
+    description: "Restore the previous cursor and selection without changing text",
+    category: "Edit",
+    keybinding: "cmd+u",
+    execute: undoActiveEditorCursor,
+  },
+  {
+    id: "editor.cursorRedo",
+    title: "Cursor Redo",
+    description: "Restore the next cursor and selection without changing text",
+    category: "Edit",
+    keybinding: "cmd+shift+u",
+    execute: redoActiveEditorCursor,
   },
   {
     id: "editor.copy",

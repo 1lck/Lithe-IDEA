@@ -56,14 +56,16 @@ beforeAll(async () => {
   });
 });
 
-afterEach(() => {
-  nativeMenuBar = false;
-  keymapRegistry.clear();
-  useKeymapStore.getState().actions.resetToDefaults();
-  useKeymapStore.getState().actions.setContexts({
-    editorFocus: false,
-    terminalFocus: false,
-    isRecordingKeybinding: false,
+afterEach(async () => {
+  await act(async () => {
+    nativeMenuBar = false;
+    keymapRegistry.clear();
+    useKeymapStore.getState().actions.resetToDefaults();
+    useKeymapStore.getState().actions.setContexts({
+      editorFocus: false,
+      terminalFocus: false,
+      isRecordingKeybinding: false,
+    });
   });
   document.body.querySelector(".monaco-editor")?.remove();
 });
@@ -76,6 +78,87 @@ afterAll(async () => {
 });
 
 describe("keymap input routing", () => {
+  test("routes cursor history separately from text undo and keeps find input native", async () => {
+    const executed: string[] = [];
+    for (const id of ["editor.cursorUndo", "editor.cursorRedo", "editor.undo"]) {
+      keymapRegistry.registerCommand({
+        id,
+        title: id,
+        execute: () => {
+          executed.push(id);
+        },
+      });
+    }
+    registerDefaultKeymaps();
+    const monaco = document.createElement("div");
+    monaco.className = "monaco-editor";
+    const editorInput = document.createElement("textarea");
+    editorInput.className = "inputarea";
+    const findInput = document.createElement("input");
+    monaco.append(editorInput, findInput);
+    document.body.append(monaco);
+    editorInput.focus();
+
+    for (const [key, shiftKey] of [
+      ["u", false],
+      ["u", true],
+      ["z", false],
+    ] as const) {
+      const event = new KeyboardEvent("keydown", {
+        key,
+        shiftKey,
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true,
+      });
+      await act(async () => {
+        editorInput.dispatchEvent(event);
+      });
+      expect(event.defaultPrevented).toBe(true);
+    }
+    expect(executed).toEqual(["editor.cursorUndo", "editor.cursorRedo", "editor.undo"]);
+
+    findInput.focus();
+    const nativeEvent = new KeyboardEvent("keydown", {
+      key: "u",
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    await act(async () => {
+      findInput.dispatchEvent(nativeEvent);
+    });
+    expect(nativeEvent.defaultPrevented).toBe(false);
+    expect(executed).toHaveLength(3);
+
+    editorInput.focus();
+    await act(async () => {
+      useKeymapStore.getState().actions.addKeybinding({
+        key: "ctrl+alt+z",
+        command: "editor.cursorUndo",
+        source: "user",
+        when: "editorFocus",
+      });
+    });
+    const customizedEvent = new KeyboardEvent("keydown", {
+      key: "z",
+      ctrlKey: true,
+      altKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    await act(async () => {
+      editorInput.dispatchEvent(customizedEvent);
+    });
+    expect(customizedEvent.defaultPrevented).toBe(true);
+    expect(executed).toEqual([
+      "editor.cursorUndo",
+      "editor.cursorRedo",
+      "editor.undo",
+      "editor.cursorUndo",
+    ]);
+  });
+
   test("routes Ctrl+Alt+L and the existing Shift+Alt+F alias to document formatting", async () => {
     const formatDocument = mock(() => undefined);
     keymapRegistry.registerCommand({

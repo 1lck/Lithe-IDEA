@@ -1,6 +1,8 @@
 import type { editor } from "monaco-editor";
 
 const actions = {
+  cursorUndo: "cursorUndo",
+  cursorRedo: "cursorRedo",
   duplicateLine: "editor.action.duplicateSelection",
   deleteLine: "editor.action.deleteLines",
   toggleComment: "editor.action.commentLine",
