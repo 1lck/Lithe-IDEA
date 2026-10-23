@@ -84,7 +84,8 @@ Windows 只替换一轮占位符，避免把用户传入的 `{name}` 当成另�
 
 生成器测试与原生测试共同消费 `shared/fixtures/i18n/format-v1.json` 和 `native-abi-v1.json`，覆盖32位有符号、64位无符号参数及参数重排、重复、
 大整数、零、Unicode 和用户值中的格式符。独立 CI 在 Linux、macOS、Windows 执行生成器
-测试并输出单项计时；macOS 才运行原生打包用例。完整产品在中英文设置中切换、关闭重开并
+测试并输出单项计时；Draft PR 只运行 Linux，转为 ready 后再触发三系统校验，
+同一 PR 的旧 i18n 校验会取消。macOS 才运行原生打包用例。完整产品在中英文设置中切换、关闭重开并
 检查保存值和其他模块页面；Windows WebView2 整机验收仍须在 Windows 上执行。
 
 ## 适用范围

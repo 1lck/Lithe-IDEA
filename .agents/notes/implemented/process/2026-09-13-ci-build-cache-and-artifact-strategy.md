@@ -189,6 +189,9 @@ macOS runner（GitHub 托管的 Mac 构建机）按组织共享，Free 计划同
   Windows lane，只保留 Linux 上的分类、diff、Rust 数据库、注释和元数据检查；
   PR 标记为 ready for review 时，macOS CI、Windows CI 和 macOS Plugin CI 重新
   触发完整分类。
+- 独立共享 i18n 校验同样遵循 Draft 限制：Draft 只展开 Linux 生成器检查，
+  ready PR、preview 推送和手动运行展开三系统矩阵。工作流监听
+  `ready_for_review`，并取消同一 PR 的旧 i18n 校验，避免重复占用 runner。
 
 正确做法：新增 Swift 专项测试时，在共用 **Swift tests** job 里加一个按分类
 结果执行的过滤步骤。不要这样做：新建一个 macOS job 再跑一遍
