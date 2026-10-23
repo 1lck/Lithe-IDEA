@@ -46,48 +46,26 @@ final class MacBuildToolResolver: BuildToolResolving {
         }
 
         var problems: [String] = []
+        let resolver = candidateResolver(runtimeExecutables)
         for candidate in invocation.executables {
-            switch candidate {
-            case .projectFile(let path, let requires):
-                let url = workspaceURL.appendingPathComponent(path).standardizedFileURL
-                guard requires.allSatisfy({ fileStorage.fileExists(at: workspaceURL.appendingPathComponent($0)) }),
-                      fileStorage.isExecutable(at: url) else { continue }
-                return ResolvedBuildTool(
-                    executableURL: url,
-                    environment: environment,
-                    executesProjectCode: true,
-                    version: nil
-                )
-            case .environment(let variable, let path):
-                guard let url = environmentExecutable(
-                    variable: variable, path: path, invocation: invocation, environment: environment
-                ) else { continue }
-                if let tool = try await accept(
-                    url, invocation: invocation, environment: environment,
-                    checkVersion: checkVersion, problems: &problems
-                ) {
-                    return tool
-                }
-            case .command(let command):
-                let candidates = commandCandidates(command)
-                if candidates.isEmpty {
-                    problems.append(runtime.missingToolMessage(command))
-                }
-                for url in candidates {
-                    if let tool = try await accept(
-                        url, invocation: invocation, environment: environment,
-                        checkVersion: checkVersion, problems: &problems
-                    ) {
-                        return tool
+            switch resolver.resolve(candidate, workspaceURL: workspaceURL, environment: environment, environmentInputs: invocation.environmentInputs) {
+            case .skip: continue
+            case .terminalFailure(let message): throw BuildToolResolutionError(message, terminal: true)
+            case .resolved(let choices):
+                for choice in choices {
+                    var selectedEnvironment = environment
+                    if choice.terminal {
+                        selectedEnvironment["PATH"] = choice.url.deletingLastPathComponent().path + ":" + (environment["PATH"] ?? "")
                     }
-                }
-            case .runtime(let id):
-                guard let url = runtimeExecutables[id] else { continue }
-                if let tool = try await accept(
-                    url, invocation: invocation, environment: environment,
-                    checkVersion: checkVersion, problems: &problems
-                ) {
-                    return tool
+                    if choice.executesProjectCode {
+                        return ResolvedBuildTool(executableURL: choice.url, environment: selectedEnvironment, executesProjectCode: true, version: nil)
+                    }
+                    do {
+                        if let tool = try await accept(choice.url, invocation: invocation, environment: selectedEnvironment,
+                                                       checkVersion: checkVersion, problems: &problems) { return tool }
+                    } catch is CancellationError { throw CancellationError() }
+                    catch { throw BuildToolResolutionError(error.localizedDescription, terminal: choice.terminal) }
+                    if choice.terminal { throw BuildToolResolutionError(Self.unavailableMessage(displayName, problems: problems), terminal: true) }
                 }
             }
         }
@@ -98,25 +76,22 @@ final class MacBuildToolResolver: BuildToolResolving {
     /// must not run build code or a version probe merely by opening a project.
     func languageImportExecutable(_ invocation: BuildInvocation, workspaceURL: URL) -> URL? {
         let environment = runtime.processEnvironment()
+        let resolver = candidateResolver([:])
         for candidate in invocation.executables {
-            switch candidate {
-            case .projectFile(let path, let requires):
-                let url = workspaceURL.appendingPathComponent(path).standardizedFileURL
-                if requires.allSatisfy({ fileStorage.fileExists(at: workspaceURL.appendingPathComponent($0)) }),
-                   fileStorage.isExecutable(at: url) { return url }
-            case .environment(let variable, let path):
-                if let url = environmentExecutable(
-                    variable: variable, path: path, invocation: invocation, environment: environment
-                ) { return url }
-            case .command(let command):
-                if let url = commandCandidates(command).first { return url }
-            case .runtime:
-                // Runtime selection can probe a JDK; it is unnecessary for an
-                // optional installation settings path and stays lazy.
-                continue
+            // No runtime selection or version probes during passive import.
+            switch resolver.resolve(candidate, workspaceURL: workspaceURL, environment: environment, environmentInputs: invocation.environmentInputs) {
+            case .skip: continue
+            case .terminalFailure: return nil
+            case .resolved(let choices): return choices.first?.url
             }
         }
         return nil
+    }
+
+    private func candidateResolver(_ runtimes: [String: URL]) -> ExecutableCandidateResolver {
+        ExecutableCandidateResolver(fileExists: { [fileStorage] in fileStorage.fileExists(at: $0) },
+            isExecutable: { [fileStorage] in fileStorage.metadata(for: $0)?.isDirectory == false && fileStorage.isExecutable(at: $0) },
+            commands: { [self] in commandCandidates($0) }, runtimes: { runtimes[$0] })
     }
 
     /// Keeps a candidate when the build tool declares no minimum version or
@@ -151,66 +126,42 @@ final class MacBuildToolResolver: BuildToolResolving {
         checkVersion: @escaping @Sendable (String?, String) throws -> BuildVersionCheck
     ) async throws -> URL {
         let name = dependency.displayName ?? dependency.id
-        var javaHome: URL?
-        var candidates: [URL] = []
-        /// Project-local runtimes run repository code, so they are never
-        /// probed; the user starts them by running a command.
-        var projectOwned: Set<URL> = []
-        if dependency.hostManaged {
-            if dependency.id == "java" {
-                javaHome = runtime.javaHomeURL()
-                candidates = javaHome.map { [$0.appendingPathComponent("bin/java")] } ?? []
-            } else {
-                candidates = commandCandidates(dependency.id)
-            }
-        } else {
-            for executable in dependency.executables {
-                switch executable {
-                case .command(let command):
-                    candidates += commandCandidates(command)
-                case .environment(let variable, let path):
-                    if let url = environmentExecutable(
-                        variable: variable, path: path, invocation: invocation, environment: environment
-                    ) {
-                        candidates.append(url)
-                    }
-                case .projectFile(let path, let requires):
-                    let url = workspaceURL.appendingPathComponent(path).standardizedFileURL
-                    guard requires.allSatisfy({
-                        fileStorage.fileExists(at: workspaceURL.appendingPathComponent($0))
-                    }), fileStorage.isExecutable(at: url) else { continue }
-                    candidates.append(url)
-                    projectOwned.insert(url)
-                case .runtime:
-                    // A runtime is not another runtime.
-                    continue
-                }
-            }
-        }
-        guard !candidates.isEmpty else {
-            throw BuildToolResolutionError(dependency.id == "java"
-                ? String(localized: "No JDK is configured for this project.")
-                : runtime.missingToolMessage(dependency.id))
-        }
-
+        let javaHome = dependency.hostManaged && dependency.id == "java" ? runtime.javaHomeURL() : nil
+        let sources: [ExecutableCandidate] = dependency.hostManaged
+            ? (dependency.id == "java" ? [.runtime("java")] : [.command(dependency.id)])
+            : dependency.executables
+        let resolver = candidateResolver(javaHome.map { ["java": $0.appendingPathComponent("bin/java")] } ?? [:])
         var problems: [String] = []
-        for url in candidates {
-            if !projectOwned.contains(url),
-               let minimum = dependency.minimumVersion, let arguments = dependency.versionArguments {
-                let output = await probe(url, arguments: arguments, environment: environment)
-                let check = try checkVersion(dependency.id, output)
-                guard check.satisfied else {
-                    problems.append(Self.tooOldMessage(url.path, found: check.version, minimum: minimum))
-                    continue
+        for source in sources {
+            switch resolver.resolve(source, workspaceURL: workspaceURL, environment: environment, environmentInputs: invocation.environmentInputs) {
+            case .skip: continue
+            case .terminalFailure(let message): throw BuildToolResolutionError(message, terminal: true)
+            case .resolved(let choices):
+                for choice in choices {
+                    // Probes and execution need the same PATH, including helpers
+                    // next to a selected runtime. Failed candidates must not
+                    // contribute their environment to the next choice.
+                    var selectedEnvironment = environment
+                    if let javaHome { selectedEnvironment["JAVA_HOME"] = javaHome.path }
+                    let directory = choice.url.deletingLastPathComponent().path
+                    let path = environment["PATH"] ?? ""
+                    selectedEnvironment["PATH"] = path.isEmpty ? directory : directory + ":" + path
+                    if !choice.executesProjectCode,
+                       let minimum = dependency.minimumVersion, let arguments = dependency.versionArguments {
+                        let output = await probe(choice.url, arguments: arguments, environment: selectedEnvironment)
+                        let check: BuildVersionCheck
+                        do { check = try checkVersion(dependency.id, output) }
+                        catch { throw BuildToolResolutionError(error.localizedDescription, terminal: choice.terminal) }
+                        guard check.satisfied else {
+                            problems.append(Self.tooOldMessage(choice.url.path, found: check.version, minimum: minimum))
+                            if choice.terminal { throw BuildToolResolutionError(Self.unavailableMessage(name, problems: problems), terminal: true) }
+                            continue
+                        }
+                    }
+                    environment = selectedEnvironment
+                    return choice.url
                 }
             }
-            if let javaHome {
-                environment["JAVA_HOME"] = javaHome.path
-            }
-            let directory = url.deletingLastPathComponent().path
-            let path = environment["PATH"] ?? ""
-            environment["PATH"] = path.isEmpty ? directory : directory + ":" + path
-            return url
         }
         throw BuildToolResolutionError(Self.unavailableMessage(name, problems: problems))
     }
@@ -219,19 +170,6 @@ final class MacBuildToolResolver: BuildToolResolving {
         runtime.executableCandidates(command)
             .filter { $0.source != .project }
             .map(\.executableURL)
-    }
-
-    /// Only variables the build system lists in `environmentInputs` are read.
-    private func environmentExecutable(
-        variable: String,
-        path: String,
-        invocation: BuildInvocation,
-        environment: [String: String]
-    ) -> URL? {
-        guard invocation.environmentInputs.contains(variable),
-              let base = environment[variable], base.hasPrefix("/") else { return nil }
-        let url = URL(fileURLWithPath: base).appendingPathComponent(path).standardizedFileURL
-        return fileStorage.isExecutable(at: url) ? url : nil
     }
 
     private func probe(_ url: URL, arguments: [String], environment: [String: String]) async -> String {

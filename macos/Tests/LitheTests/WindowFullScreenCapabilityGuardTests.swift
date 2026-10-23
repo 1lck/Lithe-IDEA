@@ -115,6 +115,7 @@ struct WindowLayoutFullScreenTransitionTests {
         func requestCloseActiveWorkbenchItem() -> Bool { false }
         func requestCloseActiveSession() -> Bool { true }
         func resetForProjectWindowClose() async {}
+        func confirmRunServicesBeforeClose() async -> Bool { true }
         func noteWindowBecameKey() {}
     }
 

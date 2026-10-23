@@ -41,11 +41,13 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
         return outcome.value.languageImport
     }
 
-    func invocationPlan(_ target: BuildSystemTarget, root: String) throws -> BuildInvocation {
+    func invocationPlan(
+        _ target: BuildSystemTarget, root: String, settings: [String: ToolingJSONValue] = [:]
+    ) throws -> BuildInvocation {
         let outcome: Outcome<InvocationResult> = try execute(
             "build.invocationPlan",
             target: target,
-            request: InvocationRequest(root: root, platform: "macos")
+            request: InvocationRequest(root: root, platform: "macos", settings: settings)
         )
         return try outcome.value.invocation.invocation()
     }
@@ -289,6 +291,7 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
     private struct InvocationRequest: Encodable {
         let root: String
         let platform: String
+        let settings: [String: ToolingJSONValue]
     }
 
     private struct VersionRequest: Encodable {
@@ -470,8 +473,10 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
         let variable: String?
         let command: String?
         let runtime: String?
+        let settingID: String?
 
         func executable() throws -> BuildInvocation.Executable {
+            if kind == "setting", let settingID { return .setting(id: settingID, path: path) }
             switch (kind, path, variable, command, runtime) {
             case ("projectFile", let path?, _, _, _):
                 return .projectFile(path: path, requires: requires ?? [])
