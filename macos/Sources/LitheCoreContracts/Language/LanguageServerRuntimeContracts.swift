@@ -461,6 +461,18 @@ package protocol LanguageServerRuntimeCore: Sendable {
         params: ToolingJSONValue,
         timeout: TimeInterval
     ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure>
+    /// Sends one operation of the negotiated VCS-provider protocol. Its
+    /// completion arrives as a `requestCompleted` event with the reply under
+    /// `result.value`; a failure carries a `vcs.*` code.
+    func requestVcsProvider(
+        sessionID: String,
+        vcs: String,
+        operation: String,
+        root: String,
+        tool: String?,
+        arguments: ToolingJSONValue,
+        timeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure>
     /// Starts a process a plugin owns. Only such a session negotiates plugin
     /// functions, and Core lets it serve that plugin's functions alone.
     func startPluginLanguageServer(
@@ -622,6 +634,21 @@ package extension LanguageServerRuntimeCore {
         .failure(LanguageServerRuntimeFailure(
             code: "not_supported",
             message: "Build-provider requests are not supported by this runtime."
+        ))
+    }
+
+    func requestVcsProvider(
+        sessionID _: String,
+        vcs _: String,
+        operation _: String,
+        root _: String,
+        tool _: String?,
+        arguments _: ToolingJSONValue,
+        timeout _: TimeInterval
+    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
+        .failure(LanguageServerRuntimeFailure(
+            code: "not_supported",
+            message: "VCS-provider requests are not supported by this runtime."
         ))
     }
 

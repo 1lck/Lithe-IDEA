@@ -67,6 +67,26 @@ struct PluginManagerTests {
     }
 
     @Test
+    func vcsProviderPluginGetsOneDisabledModuleForItsProviders() throws {
+        // VCS providers come from community plugins; the SDK's sample
+        // provider stands in for one. Core accepts it because this host
+        // declares `vcsProviders`, and one module carries its enablement.
+        #expect(PluginManifest.hostCapabilities["vcsProviders"] == [1])
+        let manifest = try Data(contentsOf: DeclarativePluginTestSupport.repositoryRoot
+            .appendingPathComponent("sdk/node/examples/sample-vcs/plugin.json"))
+        let sample = try DeclarativePluginTestSupport.operations.validate(manifest: manifest)
+        #expect(sample.vcsProviders == [DeclarativeVcsProvider(id: "sample", displayName: "Sample VCS")])
+        #expect(sample.pluginManifest.modules.map(\.manifest.id) == [.vcsProvidersExtension(sample.id.rawValue)])
+        #expect(sample.pluginManifest.modules.allSatisfy { $0.manifest.defaultState == .disabled })
+        _ = try ValidatedPluginCatalog(
+            manifests: BuiltInPluginCatalog.manifests
+                + BundledLanguagePluginCatalog.manifests
+                + [sample.pluginManifest],
+            hostVersion: BuiltInPluginCatalog.hostVersion
+        )
+    }
+
+    @Test
     func internalLifecycleModulesAreNotShownAsInstalledPlugins() {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }

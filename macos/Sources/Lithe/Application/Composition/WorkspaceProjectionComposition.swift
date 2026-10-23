@@ -53,6 +53,9 @@ enum WorkspaceProjectionComposition {
                 guard let feature = await model?.activateHistoryModule() else { return }
                 await feature.relocateHistory(from: source, to: destination)
             },
+            moveTrackedItem: { [weak model] source, destination in
+                await model?.vcsProvidersFeature?.move(from: source, to: destination) ?? false
+            },
             relocateOpenDocuments: { [weak document] source, destination in
                 document?.relocateOpenDocuments(from: source, to: destination)
             },

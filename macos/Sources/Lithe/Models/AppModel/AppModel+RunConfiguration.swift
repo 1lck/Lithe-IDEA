@@ -143,6 +143,7 @@ extension AppModel {
                 ($0.url.standardizedFileURL, $0.text)
             })
         )
+        loadVcsProviders(at: target)
         guard let execution = await activateExecutionModule() else { return }
         guard isCurrentWorkspace(identity) else { return }
         loadBuildSystems(execution)

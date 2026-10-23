@@ -88,7 +88,7 @@ the process and adds `vcsProvider`, the descriptor below.
 {
   "vcs": "svn",
   "displayName": "Subversion",
-  "origin": { "kind": "plugin", "pluginID": "dev.lithe.plugin.svn-support" },
+  "origin": { "kind": "plugin", "pluginID": "io.github.lithe-idea.svn-support" },
   "markers": [{ "name": ".svn", "type": "directory" }],
   "metadataPaths": [".svn/wc.db"],
   "tool": { "commands": ["svn"], "validationArguments": ["--version", "--quiet"] },
@@ -169,8 +169,8 @@ directory it belongs to no root (`null`), not to an enclosing one. At most
 
 ```json
 {
-  "sessionID": "…",
-  "operationID": "…",
+  "sessionId": "…",
+  "operationId": "…",
   "vcs": "svn",
   "operation": "checkin",
   "root": "/abs/workspace/services/legacy",
@@ -354,8 +354,9 @@ must not contain credentials.
 
 ## Subversion provider notes
 
-The official Subversion plugin calls the user's `svn` client and parses its
-`--xml` output (`status`, `info`, `log`, `blame`). Every invocation uses
-`--non-interactive`, so only Subversion's own credential cache answers.
-Working copies older than format 1.7 (one `.svn` per directory) are reported
-as `vcs.workingCopy.unsupported`.
+Subversion is provided by the community plugin
+[lithe-plugin-svn](https://github.com/Lithe-IDEA/lithe-plugin-svn)
+(`io.github.lithe-idea.svn-support`), released independently of Lithe. It calls
+the user's `svn` client, 1.8 or newer, and parses its `--xml` output. Its README
+documents how each operation maps to svn and how svn errors map to contract
+codes; its tests check those replies against a pinned Lithe Core.

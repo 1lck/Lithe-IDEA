@@ -944,6 +944,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
             tests: languageTestServiceIfActive,
             buildSystems: buildSystemsFeatureIfActive
         )
+        vcsProvidersFeature?.reset(workspaceURL: nil)
         runWorkflowCoordinator.resetPendingAction()
         debugModuleCoordinator.resetFeature(genericDebugFeatureIfActive)
         debugBreakpointPresentation.reset()
@@ -1010,6 +1011,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
             tests: languageTestServiceIfActive,
             buildSystems: buildSystemsFeatureIfActive
         )
+        vcsProvidersFeature?.reset(workspaceURL: nil)
         runWorkflowCoordinator.resetPendingAction()
         debugModuleCoordinator.resetFeature(genericDebugFeatureIfActive)
         debugBreakpointPresentation.reset()

@@ -347,4 +347,22 @@ public enum LanguageExtensionModuleManifests {
             dependencies: [.module(.workspace)]
         )
     }
+
+    /// One module for all VCS providers of a plugin. Like build systems, it
+    /// owns no process: the host starts a provider only for a root of its VCS
+    /// while the module is enabled.
+    public static func vcsProviders(
+        pluginID: String,
+        displayName: String,
+        enabledByDefault: Bool = false
+    ) -> ModuleManifest {
+        ModuleManifest(
+            id: .vcsProvidersExtension(pluginID),
+            displayName: "\(displayName) Version Control",
+            scope: .workspace,
+            defaultState: enabledByDefault ? .enabled : .disabled,
+            activationPolicy: .onDemand,
+            dependencies: [.module(.workspace)]
+        )
+    }
 }

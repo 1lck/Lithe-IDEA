@@ -47,6 +47,16 @@ Cargo-specific compatibility tests run in the plugin repository against a pinned
 Lithe Core through its public JSON API. This repository retains generic plugin
 contract tests; it does not keep Cargo community plugin snapshots.
 
+## Subversion community plugin
+
+[Subversion](https://github.com/Lithe-IDEA/lithe-plugin-svn)
+(`io.github.lithe-idea.svn-support`) is a VCS provider plugin maintained and
+released independently in the same way. It needs a Lithe build that declares
+the `vcsProviders` host capability, and runs the user's `svn` 1.8+ through a
+Node SDK provider. Its svn output fixtures and Core compatibility tests live in
+the plugin repository. This repository keeps the generic VCS provider contract
+tests and the SDK's sample provider (`sdk/node/examples/sample-vcs`).
+
 ## Downloadable official plugins
 
 No downloadable official plugin is configured right now:

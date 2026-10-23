@@ -2,7 +2,7 @@
 // version control system: a working copy is a directory with a
 // `.samplevcs/revisions.json` file that stores every revision as a full
 // snapshot of the files' text, so the sample shows the protocol without a
-// VCS client. A real provider, such as the official Subversion plugin, runs
+// VCS client. A real provider, such as the Subversion community plugin, runs
 // its client through `context.run` and parses the output instead.
 //
 // Rust Core's end-to-end test (rust/lithe-core/tests/plugin_sdk/vcs.rs)
