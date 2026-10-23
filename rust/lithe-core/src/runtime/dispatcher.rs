@@ -139,6 +139,16 @@ fn execute(request: &str) -> CoreResponse {
             }),
         ),
         CoreCommand::AgentStatus => agent_response(id, parsed.payload, crate::agent::status),
+        CoreCommand::AgentInstructionsRead => {
+            agent_response(id, parsed.payload, crate::agent::instructions::read)
+        }
+        CoreCommand::AgentInstructionsSave => {
+            agent_response(id, parsed.payload, crate::agent::instructions::save)
+        }
+        CoreCommand::AgentInstructionsShared => {
+            agent_response(id, parsed.payload, crate::agent::instructions::shared)
+        }
+        CoreCommand::AgentSkills => agent_response(id, parsed.payload, crate::agent::skills),
         CoreCommand::AgentParseProviderConfiguration => {
             match crate::ai::parse_provider_configuration(parsed.payload) {
                 Ok(data) => CoreResponse::success(id, data),
@@ -151,6 +161,23 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::McpParseRegistry => match crate::mcp::parse_registry(parsed.payload) {
+            Ok(data) => CoreResponse::success(id, data),
+            Err(error) => CoreResponse::failure(id, error),
+        },
+        CoreCommand::McpFeaturedRegistry => match crate::mcp::featured_registry() {
+            Ok(data) => CoreResponse::success(id, data),
+            Err(error) => CoreResponse::failure(id, error),
+        },
+        CoreCommand::McpProbe => agent_response(id, parsed.payload, crate::mcp::probe),
+        CoreCommand::McpToolPolicy => match crate::mcp::tool_policy(parsed.payload) {
+            Ok(data) => CoreResponse::success(id, data),
+            Err(error) => CoreResponse::failure(id, error),
+        },
+        CoreCommand::McpCommandLine => match crate::mcp::command_line(parsed.payload) {
+            Ok(data) => CoreResponse::success(id, data),
+            Err(error) => CoreResponse::failure(id, error),
+        },
         CoreCommand::McpPlanWrite => match crate::mcp::plan_write(parsed.payload) {
             Ok(data) => CoreResponse::success(id, data),
             Err(error) => CoreResponse::failure(id, error),
@@ -260,6 +287,15 @@ fn execute(request: &str) -> CoreResponse {
             parsed.payload,
             crate::build::build_language_import_command,
         ),
+        CoreCommand::VcsDetectRoots => {
+            plugin_response(id, parsed.payload, crate::vcs::vcs_detect_roots_command)
+        }
+        CoreCommand::VcsOwnerOf => {
+            plugin_response(id, parsed.payload, crate::vcs::vcs_owner_of_command)
+        }
+        CoreCommand::VcsDecodeReply => {
+            plugin_response(id, parsed.payload, crate::vcs::vcs_decode_reply_command)
+        }
         CoreCommand::PluginsMarketplaceValidateIndex => plugin_response(
             id,
             parsed.payload,
@@ -1585,6 +1621,21 @@ fn execute(request: &str) -> CoreResponse {
                 Ok(data) => CoreResponse::success(
                     id,
                     serde_json::to_value(data).expect("Build-provider response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::LspVcsRequest => {
+            match serde_json::from_value::<crate::lsp::VcsProviderRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid VCS-provider request")
+                        .with_details(error.to_string())
+                })
+                .and_then(crate::lsp::vcs_provider_request)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("VCS-provider response should encode"),
                 ),
                 Err(error) => CoreResponse::failure(id, error),
             }

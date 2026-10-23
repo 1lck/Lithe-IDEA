@@ -43,6 +43,6 @@
     "verificationStatus": "pending"
   },
   "owner": "Run",
-  "verification": "运行一个长驻服务（如 Spring Boot）、一个 setsid 脱离的后台进程和一个忽略终止信号的程序，分别通过菜单退出、更新重启和对主进程 kill -9 关闭 IDE，确认除用户选择保留的项目外，带本实例 LITHE_PROCESS_SCOPE 的进程全部退出、端口已释放；主进程和监护进程同时被结束后再次启动，确认残留进程出现在启动清扫确认中。",
+  "verification": "运行一个长驻服务（如 Spring Boot）、一个 setsid 脱离的后台进程和一个忽略终止信号的程序，分别通过菜单退出、更新重启和对主进程 kill -9 关闭 IDE，确认除用户选择保留的项目外，带本实例 LITHE_PROCESS_SCOPE 的进程全部退出、端口已释放；主进程和监护进程同时被结束后再次启动，确认残留进程出现在启动清扫确认中。 Windows Run 原生测试在停止前持有后代进程句柄，以两秒退出信号确认根进程和后代结束，以零等待确认另一窗口仍在运行；首字节就绪等待有界，夹具在断言失败时也清理所属进程树。",
   "notes": "macOS 用 LITHE_PROCESS_SCOPE 标记本实例启动的进程，退出时做最终清扫；崩溃由随应用启动的监护进程兜底（Agent 任务和后台服务留到下次启动再确认）。分类规则在 Rust Core（processLifecycle.inventory），Windows 可直接复用。两端在关闭项目或窗口、退出、安装更新前按 Rust Core 的 runServicesOnExit 规则列出运行服务并询问（可设为直接停止）。Windows 的运行会话、调试适配器和语言服务器放在 Job Object 中，停止和 IDE 崩溃时都按整组结束；菜单退出走窗口关闭守卫，更新安装前先停止运行服务。Windows 终端和 Agent 进程树尚未放入 Job Object，也没有监护进程和启动清扫，IDE 崩溃时它们仍可能残留。"
 }

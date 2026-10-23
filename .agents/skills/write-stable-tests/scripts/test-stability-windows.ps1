@@ -69,6 +69,9 @@ function Invoke-TimedRustTests {
             $arguments += @("--package", $Package)
         }
         if ($Package -eq "lithe-core") {
+            # These cases start real Git and the production TypeScript module
+            # in Node. One Node startup hit its old 10s local deadline on CI.
+            $arguments += @("--test-budget", "git_paths_roundtrip_=60000")
             # Integration tests that create multiple real repositories or push
             # through Git subprocesses need a bounded allowance on Windows.
             foreach ($prefix in @(
@@ -79,6 +82,7 @@ function Invoke-TimedRustTests {
                 "tests::git::git_write_deletes_a_local_commit_",
                 "tests::git::git_write_edits_a_local_commit_message_",
                 "tests::git::git_write_updates_a_noncurrent_branch_without_switching_head",
+                "tests::git::git_write_executes_checkout_preflight_clone_and_validation",
                 "tests::git_patch_exchange::patch_exchange_detects_index_flags_and_hidden_destination_edits",
                 "tests::git_patch_exchange::patch_exchange_rejects_stale_preview_and_forward_conflicts_without_writing",
                 "tests::git_patch_exchange::patch_exchange_roundtrips_renames_deletes_and_platform_file_modes",

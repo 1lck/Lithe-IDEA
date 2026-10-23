@@ -327,6 +327,10 @@ private struct ActiveSessionChrome: View {
                 ProjectLocalHistoryView(request: request, fontFamily: session.settings.editorFontFamily)
                     .environmentObject(session)
             }
+            .modifier(VcsDiffPresentation(
+                feature: session.vcsProvidersFeature, fontFamily: session.settings.editorFontFamily,
+                openFile: { [weak session] in session?.openFile($0, allowsOutsideWorkspace: true) }
+            ))
 
     }
 

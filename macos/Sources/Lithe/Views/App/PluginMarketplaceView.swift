@@ -181,17 +181,22 @@ struct PluginMarketplaceView: View {
 
     @ViewBuilder private var detail: some View {
         if let listing = selectedListing, let offer = feature.offer(for: listing) {
-            ScrollView {
-                PluginMarketplaceDetail(
-                    feature: feature,
-                    listing: listing,
-                    offer: offer,
-                    install: { install(offer) },
-                    uninstall: { uninstall(listing.pluginID) }
-                )
+            let content = PluginMarketplaceDetail(
+                feature: feature, listing: listing, offer: offer,
+                install: { install(offer) }, uninstall: { uninstall(listing.pluginID) }
+            )
+            // Measure only this viewport. Its content must not widen or center
+            // the pane across the divider when a row cannot shrink further.
+            GeometryReader { geometry in
+                ScrollView([.horizontal, .vertical]) {
+                    content.frame(width: max(geometry.size.width, PluginMarketplaceDetail.minimumWidth), alignment: .leading)
+                        .frame(minHeight: geometry.size.height, alignment: .topLeading)
+                }
+                .litheScrollViewChrome()
             }
-            .litheScrollViewChrome()
+            .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
             .background(LitheTheme.settingsSurface)
+            .clipped()
         } else {
             VStack(spacing: 10) {
                 PluginMarketplaceIcon(icons: feature.icons, entry: nil, size: 36)
@@ -228,6 +233,13 @@ struct PluginMarketplaceView: View {
 /// shows (version, license, release date, platforms, links), and the notice
 /// about who maintains it.
 private struct PluginMarketplaceDetail: View {
+    private static let inset: CGFloat = 24
+    private static let labelWidth: CGFloat = 96
+    private static let metadataSpacing: CGFloat = 12
+    private static let sourcePickerWidth: CGFloat = 180
+    /// Keep the existing source selector and banner usable at the split's
+    /// smallest width; the viewport scrolls instead of clipping those controls.
+    static let minimumWidth = 2 * inset + max(LitheTheme.Banner.minimumWidth, labelWidth + metadataSpacing + sourcePickerWidth)
     @Environment(\.locale) private var locale
     @ObservedObject var feature: PluginMarketplaceFeatureModel
     let listing: PluginMarketplaceListing
@@ -265,13 +277,14 @@ private struct PluginMarketplaceDetail: View {
                 .font(LitheTheme.settingsFont)
                 .foregroundStyle(LitheTheme.primaryText)
                 .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("plugin-marketplace-description")
             metadata
             links
             maintainerNotice
             Spacer(minLength: 0)
         }
-        .padding(24)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(Self.inset)
+        .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
     }
 
     private var header: some View {
@@ -284,6 +297,7 @@ private struct PluginMarketplaceDetail: View {
                 Text(verbatim: entry.name)
                     .font(LitheTheme.uiFont(size: 20, weight: .bold))
                     .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("plugin-marketplace-name")
                 HStack(spacing: 8) {
                     PluginTrustBadge(isOfficial: offer.source.isOfficial)
                     Text(verbatim: "\(entry.author) · \(PluginMarketplacePresentation.repositoryName(entry.repository))")
@@ -307,6 +321,7 @@ private struct PluginMarketplaceDetail: View {
             case .installable:
                 Button(LocalizedStringKey("Install"), action: install)
                     .buttonStyle(LitheActionButtonStyle(isPrimary: true))
+                    .accessibilityIdentifier("plugin-marketplace-install")
             case .updateAvailable(_, let available):
                 Button(String(format: PluginMarketplacePresentation.localized("Update to %@", locale: locale), available), action: install)
                     .buttonStyle(LitheActionButtonStyle(isPrimary: true))
@@ -451,7 +466,7 @@ private struct PluginMarketplaceDetail: View {
                 set: { feature.selectedSourceIDs[listing.pluginID] = $0 }
             ),
             options: listing.offers.map(\.source.id),
-            width: 180,
+            width: Self.sourcePickerWidth,
             accessibilityLabel: "Install from repository",
             title: { id in
                 listing.offers.first { $0.source.id == id }
@@ -489,10 +504,10 @@ private struct PluginMarketplaceDetail: View {
     }
 
     private func metadataRow<Content: View>(_ title: String, @ViewBuilder value: () -> Content) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
+        HStack(alignment: .firstTextBaseline, spacing: Self.metadataSpacing) {
             Text(LocalizedStringKey(title))
                 .foregroundStyle(LitheTheme.secondaryText)
-                .frame(width: 96, alignment: .leading)
+                .frame(width: Self.labelWidth, alignment: .leading)
             value()
                 .textSelection(.enabled)
         }
@@ -807,6 +822,28 @@ enum PluginMarketplacePresentation {
                 String(format: localized("Builds %@ projects", locale: locale), program.buildSystemID ?? ""),
                 lines.joined(separator: "\n")
             )
+        case .packagedVcsProvider, .systemVcsProvider, .runtimeVcsProvider:
+            let vcs = program.vcs ?? ""
+            var lines: [String]
+            let title: String
+            switch program.kind {
+            case .packagedVcsProvider:
+                title = String(format: localized("%@ provider (inside the plugin)", locale: locale), vcs)
+                lines = [serverDetail([program.path ?? ""])]
+            case .systemVcsProvider:
+                title = String(format: localized("%@ provider (installed on this Mac)", locale: locale), vcs)
+                lines = [serverDetail([program.commands.joined(separator: " | ")])]
+            default:
+                title = String(format: localized("%1$@ provider (runs with %2$@)", locale: locale), vcs, program.tool ?? "")
+                lines = [line([program.tool ?? ""] + program.runtimeArguments + [program.entry ?? ""] + program.arguments)]
+            }
+            if !program.vcsClientCommands.isEmpty {
+                lines.append(labeled("Client: %@", [program.vcsClientCommands.joined(separator: " | ")]))
+            }
+            if program.mayUseNetwork {
+                lines.append(localized("May connect to the repository server", locale: locale))
+            }
+            return (title, lines.joined(separator: "\n"))
         case .unknown:
             // The full declaration stays behind the disclosure below so an
             // unfamiliar kind cannot push the sheet's buttons off screen.

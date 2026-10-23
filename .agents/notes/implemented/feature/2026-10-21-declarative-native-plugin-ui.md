@@ -172,3 +172,9 @@ Git未跟踪目录摘要和可见行缓存；这些界面仍使用完整公共�
 ## 2026-10-23 SDK 迁移后的验收归属
 
 遵循 #1442，主仓库不恢复 SDK 及其端到端测试。UI Lab 作为 macOS 宿主的回归与人工验收 fixture 保留在 `macos/Tests/Fixtures/native-ui-lab/`；Core 继续验证其完整清单。打包和 Node 验收显式通过 `LITHE_PLUGIN_SDK_ROOT` 使用外部 lithe-plugin-docs 的官方 Node SDK，复制结果仅进入忽略的 `.artifacts/native-ui-lab/`，不写入已安装包或应用 bundle。插件开发者说明与 SDK 发版继续归 lithe-plugin-docs。
+
+## 与 MCP 和 Agent 设置的公共输入入口兼容
+
+MCP 命令行的新编辑行为继续由 MCP 功能层解析并校验引号，公共 `LitheTextField(axis: .vertical)` 仅负责允许换行和共享外观，调用方可限制可见行数。默认单行输入及密码框高度保持原规则。Agent 指令编辑器把外部布尔焦点传入完整公共编辑器，使 Command-S 仍对应当前编辑区；不在外层容器重装焦点或旧样式 modifier。新增的技能、指令和 MCP 页面都使用同一搜索、输入和多行编辑入口，避免上游合并后重新出现并行样式。
+
+VCS Provider 的变更分组与文件行也通过 `LitheTreeList` 呈现，使用分组/文件两类稳定 ID 映射原有路径选择；包含勾选仍由业务控制，公共入口负责展开、选择、菜单、键盘及默认无障碍激活。新增文件激活回归应验证最终打开文件，而非仅改变选中状态。

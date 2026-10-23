@@ -4,7 +4,9 @@ import LitheTerminalModule
 
 struct TerminalSurfaceView: View {
     @ObservedObject var session: TerminalSession
+    @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var settings: AppSettings
     @State private var focusRequestID = 0
 
     var body: some View {
@@ -13,6 +15,8 @@ struct TerminalSurfaceView: View {
                 TerminalNativeSurface(
                     nativeView: nativeView,
                     focusRequestID: focusRequestID,
+                    theme: settings.colorTheme,
+                    isDark: colorScheme == .dark,
                     showsWorkbenchBackground: model.workbenchBackgroundFeature.hasImage
                 )
             } else {
@@ -71,24 +75,38 @@ struct TerminalSurfaceView: View {
 private struct TerminalNativeSurface: NSViewRepresentable {
     let nativeView: NSView
     let focusRequestID: Int
+    let theme: AppColorTheme
+    let isDark: Bool
     let showsWorkbenchBackground: Bool
 
-    func makeCoordinator() -> Coordinator {
-        Coordinator()
-    }
-
+    func makeCoordinator() -> Coordinator { Coordinator() }
     func makeNSView(context: Context) -> TerminalSurfaceHostView {
         let hostView = TerminalSurfaceHostView(frame: .zero)
         hostView.attach(nativeView)
-        (nativeView as? WorkbenchBackgroundRendering)?
-            .setWorkbenchBackgroundVisible(showsWorkbenchBackground)
+        (nativeView as? LitheTerminalView)?.updateWorkbenchSurface(
+            isVisible: showsWorkbenchBackground,
+            theme: theme,
+            isDark: isDark
+        )
+        context.coordinator.lastTheme = theme
+        context.coordinator.lastIsDark = isDark
+        context.coordinator.lastShowsWorkbenchBackground = showsWorkbenchBackground
         return hostView
     }
 
     func updateNSView(_ hostView: TerminalSurfaceHostView, context: Context) {
         hostView.attach(nativeView)
-        (nativeView as? WorkbenchBackgroundRendering)?
-            .setWorkbenchBackgroundVisible(showsWorkbenchBackground)
+        if context.coordinator.lastTheme != theme || context.coordinator.lastIsDark != isDark
+            || context.coordinator.lastShowsWorkbenchBackground != showsWorkbenchBackground {
+            (nativeView as? LitheTerminalView)?.updateWorkbenchSurface(
+                isVisible: showsWorkbenchBackground,
+                theme: theme,
+                isDark: isDark
+            )
+            context.coordinator.lastTheme = theme
+            context.coordinator.lastIsDark = isDark
+            context.coordinator.lastShowsWorkbenchBackground = showsWorkbenchBackground
+        }
         guard context.coordinator.lastFocusRequestID != focusRequestID else { return }
         context.coordinator.lastFocusRequestID = focusRequestID
         DispatchQueue.main.async {
@@ -106,8 +124,12 @@ private struct TerminalNativeSurface: NSViewRepresentable {
 
     final class Coordinator: NSObject {
         var lastFocusRequestID = -1
+        var lastTheme: AppColorTheme?
+        var lastIsDark: Bool?
+        var lastShowsWorkbenchBackground: Bool?
     }
 }
+
 
 private final class TerminalSurfaceHostView: NSView {
     private weak var terminalView: NSView?

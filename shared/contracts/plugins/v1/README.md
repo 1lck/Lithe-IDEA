@@ -197,8 +197,8 @@ contains a machine path, and the host decides where state lives.
 | `${setting:<id>}` | Current value of a declared [plugin setting](#plugin-settings-api-2). Not available in `validationArguments`, and never inside a package path. |
 
 `plugins.declarative.languageServerLaunchPlan` expands a server's launch. The
-host selects the process with exactly one of `languageID` (a language server)
-and `buildSystemID` (a build provider), passes `{pluginDirectory,
+host selects the process with exactly one of `languageID` (a language server),
+`buildSystemID` (a build provider), and `vcsProviderID` (a VCS provider), passes `{pluginDirectory,
 stateDirectory, workspaceStateDirectory, architecture, settings?}`, and
 receives:
 
@@ -213,9 +213,11 @@ receives:
 | `requiredPackagePaths` | Sorted package-relative paths the launch points at. The host verifies each is inside the package and not a symbolic link before starting the server. |
 | `settings` | Effective value of every declared setting that produced this plan; absent when the plugin declares none. |
 | `buildProvider` | Present only for a `buildSystemID` selection: `{buildSystemID, executesProjectCode, mayUseNetwork, languageServer?}`. `languageServer` names the language whose server is the provider; the rest of the plan is then that server's plan, and the host reuses its running session instead of starting a second process. |
+| `vcsProvider` | Present only for a `vcsProviderID` selection: the [provider descriptor](https://github.com/1lck/Lithe-IDEA/blob/preview/shared/contracts/vcs-provider-v1.md#provider-descriptor) the host keeps for the session. |
 
-A language without a server, an undeclared build system, and a build system
-without a provider are `plugin.launch.unavailable`. Core never creates or
+A language without a server, an undeclared build system, a build system
+without a provider, and an undeclared VCS provider are
+`plugin.launch.unavailable`. Core never creates or
 reads any of these paths. The command also serves API 1
 manifests, whose arguments are returned unchanged.
 
@@ -368,7 +370,7 @@ files sorted by path, or an empty list when no project marker is present.
 | --- | --- |
 | `1` | Languages, `packaged` and `systemCommand` language servers, `node` and `go` runtime dependencies, run and test providers. |
 | `2` | `runtime` launches with a packaged or discovered runtime, host integrations, the `java` runtime, launch templates, `initializationOptions`, and plugin settings. |
-| `3` | Capability versions (`requires`), and `buildSystems`: declarative build tools with detection, options, a project model, tasks, run entries, tests, diagnostics, dependencies, and sync. |
+| `3` | Capability versions (`requires`), `buildSystems`: declarative build tools with detection, options, a project model, tasks, run entries, tests, diagnostics, dependencies, and sync, and [`vcsProviders`](#api-level-3-vcs-providers). |
 
 A level 2 feature in a level 1 manifest is refused with
 `plugin.manifest.invalid` (`plugin.runtime.unsupported` for the `java` tool),
@@ -392,12 +394,13 @@ hosts. Level 3 versions each section on its own. A level 3 manifest lists in
 | --- | --- | --- |
 | `languages` | `languages[]` | `1` |
 | `languageServers` | `languageServers[]` apart from their launch fields | `1`, `2` (adds [`workspaceConfiguration`](#workspace-configuration-languageservers-2)) |
-| `serverProcess` | The launch fields of language servers and of build providers with a process of their own: `launch`, `arguments`, `validationArguments`, `runtimeDependencies`, `initializationOptions` | `1` |
+| `serverProcess` | The launch fields of language servers, of build providers with a process of their own, and of VCS providers: `launch`, `arguments`, `validationArguments`, `runtimeDependencies`, `initializationOptions` | `1` |
 | `executionProviders` | `executionProviders[]` | `1` |
 | `settings` | `settings[]` and `settingActions[]` | `1`, `2` (adds [placement, scope, effect, page buttons](#settings-v2-placement-scope-effect-and-page-buttons)) |
 | `ui` | `ui` | `1`, `2` (adds [web content](#web-content-ui-2)) |
 | `buildSystems` | Declarative build detection, models, and command plans | `1` |
 | `buildProviders` | `buildSystems[].provider`, including own-process and shared language-server providers | `1` |
+| `vcsProviders` | `vcsProviders[]` | `1` |
 
 Version 1 of every capability means what its section means at level 2
 (runtime launches, launch templates, `initializationOptions`, and so on), so
@@ -418,7 +421,8 @@ moving a level 2 manifest to level 3 only adds `requires`.
   `buildSystems[].provider` requires `buildProviders: 1`, whether it starts its
   own process or shares a language server. A template-only build plugin must
   omit `buildProviders`. Launch support alone does not implement Provider
-  negotiation, requests, and lifecycle.
+  negotiation, requests, and lifecycle. Every VCS provider starts its own
+  process, so `vcsProviders` always comes with `serverProcess`.
 - The base fields (`schemaVersion`, `id`, `displayName`, `version`, `vendor`,
   `permissions`, `activationEvents`, and `requires` itself) change only with a
   new `pluginAPIVersion`.
@@ -443,8 +447,10 @@ The macOS host runs levels 1 to 3 and sends its capability table, including
 `buildSystems: [1]`, with all three commands. It does not implement build
 providers and does not declare `buildProviders`. Provider plugins are therefore
 filtered from the market and refused by declarative validation and install
-review; template-only build plugins remain available. Core supports
-`buildProviders: 1` for validation and plans without a host table. Windows has
+review; template-only build plugins remain available. It does not declare
+`vcsProviders` either, so VCS provider plugins are filtered the same way until
+the macOS host starts providers. Core supports `buildProviders: 1` and
+`vcsProviders: 1` for validation and plans without a host table. Windows has
 no declarative plugin host and sends no `hostCapabilities`, so it offers no
 level 3 version.
 
@@ -473,10 +479,11 @@ Rules for publishing across levels and capability versions:
 
 | Permission | Required when |
 | --- | --- |
-| `languageServer.launch` | `languageServers` is not empty |
+| `languageServer.launch` | `languageServers` or `vcsProviders` is not empty, or a build provider starts its own process |
 | `process.run` | any provider declares `run` |
 | `process.test` | any provider declares `test` |
 | `process.build` | `buildSystems` is not empty |
+| `process.vcs` | `vcsProviders` is not empty |
 | `ui.contribute` | `ui` is declared |
 | `ui.web` | a tool window shows [web content](#web-content-ui-2) |
 
@@ -486,6 +493,7 @@ Rules for publishing across levels and capability versions:
 | `onRun:<id>` | Activate the run provider when the user runs a file of the language. |
 | `onTest:<id>` | Activate the test provider when the user lists or runs tests. |
 | `onBuildSystem:<id>` | Activate the build system before its first plan, model, or decode. |
+| `onVcsRoot:<id>` | Start the VCS provider once a root of its VCS is detected in the workspace. |
 
 Each provider needs its event and each event needs a provider. Enabling a
 plugin only permits activation; nothing starts until its event occurs.
@@ -622,7 +630,8 @@ the plugin, sorted by `kind`, language, and tool:
 | `runtimeLanguageServer` | `languageID`, `tool`, `packagedRuntime`, `entry`, `runtimeArguments`, `arguments`, `validationArguments` | Package entry started by a runtime; `packagedRuntime` is `null` for a discovered runtime |
 | `buildSystem` | `buildSystemID`, `invocation`, `options`, `tasks`, `run`, `test`, `model`, `dependencies`, `hostIntegration`?, `provider`? | Every command line the build system can plan; `provider` is the shared form, which sends build requests to a language server |
 | `packagedBuildProvider`, `systemBuildProvider`, `runtimeBuildProvider` | the matching language-server fields with `buildSystemID`, `executesProjectCode`, `mayUseNetwork` instead of `languageID` | A build provider with a process of its own |
-| `runtime` | `tool`, `minimumVersion`? | Runtime the host discovers and passes to a language server or build provider |
+| `packagedVcsProvider`, `systemVcsProvider`, `runtimeVcsProvider` | the matching language-server fields with `vcs`, `vcsTool`, `mayUseNetwork` instead of `languageID` | A VCS provider process; `vcsTool` is the declared VCS client or `null` |
+| `runtime` | `tool`, `minimumVersion`? | Runtime the host discovers and passes to a language server, build provider, or VCS provider |
 | `run` | `languageID`, `executable`, `arguments` | Run command and its argument template |
 | `test` | `languageID`, `executable`, `workspaceArguments`, `fileArguments`, `testCaseArguments` | Test command and its argument templates |
 
@@ -965,6 +974,25 @@ digests the watched files. A selection the declaration does not allow is
 `plugin.build.invalidSelection`; an operation it does not declare is
 `plugin.build.unavailable`.
 
+## API level 3: VCS providers
+
+`vcsProviders[]` declares version control systems the plugin implements, each
+through its own LSP base-protocol process: the VCS ID, the static markers that
+identify a root, metadata paths the host watches, the VCS client the provider
+drives, and the shared [`serverProcess`](#capability-versions-level-3) launch
+fields. The ID `git` is reserved for the built-in support
+(`plugin.vcs.reserved`). Capabilities belong to the running process and are
+negotiated in `initialize` under `experimental.litheVcs`, never declared in
+the manifest.
+
+Detection never starts a process: `vcs.detectRoots` finds roots from the
+markers, and the host starts a provider only after a root of its VCS is
+found. The install review lists the provider as a `…VcsProvider` program with
+its VCS client (`vcsTool`) and `mayUseNetwork`. Requests go through
+`lsp.vcsRequest` by operation name and replies are normalized by
+`vcs.decodeReply`. The fields, operations, reply shapes, and error codes are
+defined in [the VCS provider contract](https://github.com/1lck/Lithe-IDEA/blob/preview/shared/contracts/vcs-provider-v1.md).
+
 ## Plugin functions
 
 A plugin backend (a language server or build provider process the plugin
@@ -1169,7 +1197,7 @@ valid.
 
 ## Outcomes and error codes
 
-`plugins.declarative.*`, `plugins.marketplace.*`, and `build.*` commands return `{"status": "ok", …}` or
+`plugins.declarative.*`, `plugins.marketplace.*`, `build.*`, and `vcs.*` commands return `{"status": "ok", …}` or
 `{"status": "rejected", "error": {"code", "message", "field"?}}`. A malformed
 command payload is a Core `invalid_request` failure instead.
 
@@ -1188,11 +1216,13 @@ command payload is a Core `invalid_request` failure instead.
 | `plugin.test.unsupportedProject` | Core | No project marker in the workspace |
 | `plugin.execution.unavailable` | Core | The plugin has no run/test provider for the language |
 | `plugin.integration.unsupported` | Core | A host integration the host does not implement, or one requested by a plugin outside the official namespace |
-| `plugin.launch.unavailable` | Core | The plugin has no language server for the language, or no provider process for the build system |
+| `plugin.launch.unavailable` | Core | The plugin has no language server for the language, no provider process for the build system, or no such VCS provider |
 | `plugin.build.unavailable` | Core | The plugin declares no such build system, or the build system does not declare the requested operation |
 | `plugin.build.invalidSelection` | Core | A build request selects a scope, target, filter, or argument the declaration does not allow, or misses a required path |
 | `plugin.build.invalidOutput` | Core | Build-tool output or a report does not fit its decoder |
 | `plugin.launch.invalidRequest` | Core | A launch plan request has an unusable directory or an unknown architecture |
+| `plugin.vcs.reserved` | Core | A VCS provider claims the ID of the built-in Git support |
+| `plugin.vcs.invalidOutput` | Core | A VCS provider's reply does not fit the [VCS provider contract](https://github.com/1lck/Lithe-IDEA/blob/preview/shared/contracts/vcs-provider-v1.md) |
 | `plugin.index.invalid` | Core | Malformed index root or entry, or an invalid URL, checksum, platform, version, or date |
 | `plugin.index.schemaUnsupported` | Core | The index `schemaVersion` is not `1` |
 | `plugin.index.officialNamespace` | Core | A third-party source lists a `dev.lithe` ID |

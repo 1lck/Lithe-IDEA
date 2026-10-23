@@ -603,6 +603,80 @@ stable error code and a user-facing message:
 
 ### MCP configuration
 
+`mcp.probe` accepts a user-reviewed connection `{transport, command?, args?, env?,
+url?, headers?}` with only those fields. Agent Host uses the pinned official
+rmcp SDK for initialization, session handling and paginated `tools/list`; it
+never sends `tools/call`. Results are `{tools:[{name,description}]}`, sorted by
+name, deduplicated, bounded to 1000 tools/20 pages/2 MiB of metadata. stdio input
+and each HTTP response body are bounded before decoding. A probe has a
+30-second request budget plus bounded cleanup, cancellation is cooperative,
+and stdio children and their process groups are reaped on completion or cancel.
+HTTP accepts HTTPS and loopback HTTP, rejects credential-bearing URLs and
+redirects, preserves TLS verification and explicit headers, and uses no cookie
+store. It does not inherit another Agent's OAuth session or unmapped native
+configuration options. Legacy `sse` remains a configurable transport but this
+SDK probe returns `not_supported` rather than inventing a healthy status.
+The host must require an explicit detection action; launching local code or
+package runners also requires the product's execution confirmation.
+
+`mcp.toolPolicy` is a pure text operation with `{source,content,server,tools,
+owned?,tool?,enabled?}`. `source` is `codex` or `claude`; omission of `tool` and
+`enabled` reads current policy. It returns `{content,changed,owned,tools,
+hasRestrictions}`. The returned tools contain `{name,enabled,editable}`.
+Codex uses entry-local `disabled_tools`, preserving `enabled_tools`; Claude's
+input is its user `settings.json`, editing only `permissions.deny` with exact
+`mcp__<normalized-server>__<normalized-tool>` rules. Unknown settings/formatting
+outside the targeted value survive. Existing unowned denies, broad wildcard
+rules, allow-list exclusions and ambiguous normalized names are not relaxed.
+Hosts retain the exact added tool names by native path/server, validate full
+file snapshots before atomic writes, and never treat a read as ownership.
+Policies describe the user configuration; project/managed settings and live
+Agent sessions may differ. Claude server renames are refused while user MCP
+restrictions exist, to avoid re-enabling tools under a new name.
+
+`mcp.commandLine` accepts `{action:"format",command,args}` to return `{line}`,
+or `{action:"parse",line}` to return `{command,args}`. POSIX shell-style quoting
+is only a lossless text projection: hosts pass argv directly, never evaluate a
+shell, substitutions, pipes or redirects. Blank and embedded-newline arguments
+are preserved; malformed quoting is rejected. These operations and probe
+results use `shared/fixtures/mcp/tools-v1.json` as a synthetic contract fixture.
+
+`mcp.parseRegistry` accepts `{ content: string }` (at most 1 MiB UTF-8) and
+normalizes an official MCP Registry v0.1 response into `{ entries, nextCursor }`.
+Each entry has `id`, `title`, `summary`, `version`, nullable `publisher`,
+`source: "registry"`, nullable HTTPS `website` and
+nullable `draft: McpServer`. At most 100 input entries are accepted. Inactive
+records are skipped, pagination cursors remain opaque, and links containing
+credentials or unresolved variables are not offered. Only static HTTPS remote
+endpoints without header/variable inputs, or versioned npm/PyPI stdio packages
+without additional runtime/package/environment inputs, using the public default
+registry and runner, produce drafts. npm versions must be complete releases;
+mutable tags and major/minor ranges remain documentation-only. Other
+records remain documentation-only. This operation never fetches, installs or
+executes anything. Hosts own cancellable directory requests and require the
+user to review and save a draft before modifying Agent configurations.
+`shared/contracts/mcp-registry-page.json` is a portable synthetic response.
+
+`mcp.featuredRegistry` accepts `{}` and returns the same page shape with
+`source: "featured"` from the Git-owned, compile-time catalog at
+`rust/lithe-core/src/mcp/featured.json`. It performs no network, filesystem,
+package resolution or execution. Catalog package versions are pinned; remote
+requirements remain subject to the publisher's documentation. Hosts show this
+page without contacting the Registry, extend matching entries on explicit
+search, and retain available results when a directory request fails.
+The release catalog includes Context7, Playwright, Chrome DevTools, Microsoft
+Learn, GitHub, DeepWiki, Exa, Filesystem, Fetch and Memory. A featured entry may
+add `setup: "bearer-token" | "allowed-directories"`: its draft is an incomplete
+template, requiring an Authorization bearer value or at least one absolute
+directory argument after the fixed Filesystem package argument. Hosts must
+collect and validate these inputs before saving and must not select Agents by
+default. Public Registry parsing never copies `setup`, even when input uses a
+featured-looking ID. `shared/fixtures/mcp/featured-setup-v1.json` illustrates the
+optional field; ordinary entries omit it. Brand marks are platform-owned,
+read-only bundled assets, selected only for known featured IDs; public entries
+keep the transport fallback. No response can select arbitrary resources or
+cause remote image fetching.
+
 `mcp.parseConfiguration` accepts `{ source: "codex" | "claude", scope:
 "global" | "project", content: string, projectPath?: string }` and returns
 `{ servers: McpServer[] }`. Claude project scope requires `projectPath` and reads
@@ -628,11 +702,21 @@ lowercase SHA-256 hashes with separate purposes:
 
 `mcp.planWrite` accepts `{ source, scope, projectPath?, content?: string | null,
 operation: "set" | "remove", server?: McpServer, name?: string,
-previousName?: string, expectedHash?: string, owned?: OwnedEntry[] }`. `set`
+previousName?: string, expectedHash?: string, owned?: OwnedEntry[],
+toolFilters?: {enabledTools?: string[], disabledTools?: string[]} }`. `set`
 requires `server`, `remove` requires `name`, and project scope requires
 `projectPath`. `previousName` identifies the original of a rename. Each owned
 entry is `{ name, definitionHash, sourceHash?: string }`; hosts must record the
 hashes returned from the actual write plan rather than hashes from the draft.
+
+Successful Codex removals also return `toolFilters` when native `enabled_tools`
+or `disabled_tools` exists. These lists contain tool names only; an empty
+allow-list stays empty and malformed lists reject removal. Hosts retain them
+by native path/server only after the complete write batch succeeds, separately
+from live source ownership. A later `set` applies retained filters only when
+inserting a new Codex entry; existing/renamed native policy always takes
+precedence. Returned hashes cover the restored policy. Claude's user deny
+rules remain in its separate settings file during server removal.
 
 Automatic replacement/removal, including unchanged set plans used for repeated
 registration, requires an owned record whose name, `definitionHash` and
@@ -654,11 +738,11 @@ it is not owned. For rename, it refers to `previousName`, and cannot authorize
 an unrelated existing destination; destination ownership checks still apply.
 
 The response is `{ content, changed, action, conflict, definitionHash?,
-sourceHash? }`. Actions are `inserted`, `updated`, `unchanged`, `removed`, `absent`,
+sourceHash?, toolFilters? }`. Actions are `inserted`, `updated`, `unchanged`, `removed`, `absent`,
 or `conflict`; conflicts leave the input unchanged. Successful set plans return
 both hashes computed by parsing the actual output entry, including preserved
 unknown fields. Unchanged set plans also return the current entry's hashes;
-removal/absence normally has no entry hashes. Hashes sent on the draft server
+removal can return the old definition hash for filter retention; absence has no entry hashes. Hashes sent on the draft server
 are never trusted as write output or persisted into Agent configuration.
 
 ### Agent adapters
@@ -682,6 +766,51 @@ host-owned and may return an empty key only in this draft mode. Malformed text
 and the 64 KiB limit still fail with redacted errors. Omitting this flag keeps
 the existing parser behavior; saving still requires all fields, a compatible
 protocol and explicit consent for HTTP.
+
+`agent.instructions.read` takes `{agentId}` (`codex-acp` or `claude-acp`) and
+returns `{agentId, path, content, exists, revision}`. It does not create files.
+`agent.instructions.save` takes `{agentId, content, expectedPath, expectedRevision}`.
+The host resolves the native user profile again and rejects a changed effective
+path or byte revision before replacing the file. The result is a fresh effective
+snapshot: clearing a Codex override may return the base `AGENTS.md` instead.
+No prompt injection, account settings, repository files, or native history are
+modified. Files must be regular UTF-8 files at most 1 MiB; terminal symlinks are
+rejected. Read-only files cannot be overwritten. Existing file permissions are
+preserved; Unix new files use `0600` and new directories use `0700`.
+Save staging is a sibling temporary file removed on completion/failure.
+Other Lithe saves are serialized by a non-waiting lock; external writers do not
+share it, so revision checks are optimistic rather than an OS-wide transaction.
+Errors use the existing envelope codes with stable `details` reasons including
+`unsupported_agent`, `file_access`, `unsafe_file`, `file_changed`, `file_too_large`,
+`invalid_utf8`, `profile_missing`, `profile_relative`, and `busy`.
+The fixture is `shared/fixtures/agent/agent-instructions-v1.json`.
+
+`agent.instructions.shared` takes a platform-selected absolute `dataDirectory`
+from the writable application-support adapter plus one tagged action:
+
+- `read`: returns `{file, agents}` without creating files. `file` is the shared
+  `Shared.md` snapshot; each Agent reports `{agentId, file, enabled, needsSync,
+  ownLineCount, issue}`. A native read or marker failure sets `enabled: null` and
+  an actionable issue rather than claiming disabled.
+- `save`: takes `content`, `expectedRevision` for Shared.md and `files` guards
+  (`{agentId,path,revision}`) for targets. It saves the shared source, then updates
+  already-enabled native targets. A failed target retains its bytes and an issue;
+  other targets continue. `needsSync` compares the actual block with the saved source.
+- `setEnabled`: takes `agentId`, `enabled`, the shared `expectedRevision` and one
+  `file` guard. It inserts/replaces or removes only the Lithe-delimited block in the
+  effective native file; it never disables the Agent or removes its own instructions.
+
+Marker tokens are `<!-- LITHE:SHARED-INSTRUCTIONS:BEGIN -->` and
+`<!-- LITHE:SHARED-INSTRUCTIONS:END -->`. The owned range includes its separator
+newlines, so disabling restores the original bytes. Duplicate, incomplete or edited
+markers are rejected; shared content may not contain the marker tokens. Native
+source selection, size, permission, symlink and optimistic revision guards remain
+those of `agent.instructions.save`. A nonblocking OS file lock in `.sync.lock`
+serializes shared writes across app processes. Shared.md uses the same 1 MiB bound,
+private Unix modes and atomic replacement; source/target commits are individually
+atomic and partial success is explicit. Cancellation stops remaining targets and the
+next page read reconciles actual state. None of these files is a build cache or
+installed resource. The fixture is `fixtures/agent/shared-instructions-v1.json`.
 
 `agent.status`, `agent.install`, `agent.uninstall`, and `agent.installCli` manage ACP adapters in
 `<dataDirectory>/agents/<agentId>`, using the Node.js and npm the user installed.
@@ -836,6 +965,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `lsp.request` | Submit a typed semantic request and return an opaque operation ID |
 | `lsp.buildRequest` | Forward one planned `lithe/build/*` request to a session that negotiated the build-provider protocol |
 | `lsp.functionRequest` | Invoke one registered plugin function on a session its plugin started |
+| `lsp.vcsRequest` | Send one VCS operation, planned by Core, to a session that negotiated the VCS-provider protocol |
 | `java.navigationMarkers` | Resolve versioned Java gutter markers from bounded JDT LS semantic requests |
 | `java.resolveNavigation` | Resolve one Java gutter marker to normalized parent or implementation locations |
 | `lsp.cancelOperation` | Cancel one pending semantic operation |
@@ -911,7 +1041,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `plugins.declarative.runPlan` | Expand a declarative plugin's run template for one workspace file |
 | `plugins.declarative.discoverTests` | List a declarative plugin's workspace and file test items |
 | `plugins.declarative.testPlan` | Expand a declarative plugin's test template for a workspace, file, or test case |
-| `plugins.declarative.languageServerLaunchPlan` | Expand a declarative plugin's language-server or build-provider launch with host directories and architecture |
+| `plugins.declarative.languageServerLaunchPlan` | Expand a declarative plugin's language-server, build-provider, or VCS-provider launch with host directories and architecture |
 | `plugins.declarative.resolveSettings` | Merge a plugin's stored global and project setting layers into effective values with their source |
 | `plugins.declarative.workspaceConfiguration` | Expand a language server's `workspaceConfiguration` with the merged setting values |
 | `plugins.declarative.checkRuntimeVersion` | Decide whether a launch runtime's version output meets the declared minimum version |
@@ -929,6 +1059,9 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `build.decodeDependencies` | Decode dependency output or a provider result into one project's bounded tree |
 | `build.syncFingerprint` | Digest the files a build model depends on, to tell whether it is stale |
 | `build.languageImport` | Map a build system's options to the Java language server's Maven or Gradle project import |
+| `vcs.detectRoots` | Find the VCS roots of a workspace from static markers, with registered providers, ambiguous directories, and applied mappings |
+| `vcs.ownerOf` | Assign workspace paths to the detected root that owns each |
+| `vcs.decodeReply` | Validate a VCS provider's reply and return the normalized result |
 | `plugins.marketplace.validateIndex` | Validate a marketplace index and report each plugin's availability for one platform |
 | `plugins.marketplace.resolveSource` | Resolve a user-entered marketplace source to the index URL to fetch |
 | `plugins.marketplace.installReview` | List a package's permissions and programs, and those not yet approved |
@@ -2350,6 +2483,23 @@ event carries the provider's reply unchanged as `result.value`, which the host
 passes to `build.decodeModel` or `build.decodeDependencies` as `result`;
 cancellation and late results follow `lsp.cancelOperation`.
 
+`lsp.vcsRequest` accepts `{ sessionId, operationId?, vcs, operation, root,
+tool?, arguments?, timeoutMilliseconds? }` and returns `{ operationId }`.
+`operation` is a [VCS provider contract](vcs-provider-v1.md#lspvcsrequest)
+operation name, never a method; Core checks `arguments`, adds the absolute
+`root` and `tool` paths, and writes the operation's `lithe/vcs/*` request.
+Only plugin-owned sessions offer `capabilities.experimental.litheVcs:
+{ versions: [1] }`; a session whose process did not answer with a VCS ID and
+every required capability, or answered another VCS than `vcs`, refuses the
+request with `not_supported` and details `vcs.provider.unavailable`, and an
+operation whose capability was not negotiated is `not_supported` with details
+`vcs.capability.unsupported`. A successful negotiation emits a `vcsProvider`
+runtime event whose `result` is `{ vcs, capabilities }`. The
+`requestCompleted` event carries the provider's reply as `result.value`, which
+the host passes to `vcs.decodeReply`; a failed request carries a `vcs.*`
+`error.code` (the provider's own code only when the contract lists it).
+Timeout, cancellation, and late results follow `lsp.buildRequest`.
+
 A plugin-owned session started with `workspaceConfiguration` answers each
 `workspace/configuration` item from it by `section` (an exact key wins over
 a dotted path; no section returns the whole object, a missing one `null`) and
@@ -3136,6 +3286,26 @@ inside `workspaceRoot` (and the given `outputFile`); none of the commands
 writes anything or starts a process. `shared/contracts/plugins/v1/fixtures/build-plans.json`
 holds the golden plans and decoded outputs.
 
+### VCS providers
+
+The `vcs.*` commands implement API level 3 `vcsProviders` of
+[`plugins/v1`](plugins/v1/README.md) and the
+[VCS provider contract](vcs-provider-v1.md). Results use the
+`plugins.declarative.*` envelope; a malformed payload, a relative
+`workspaceRoot`, or an unknown operation is an `invalid_request` failure.
+
+| Command | Request | Result |
+| --- | --- | --- |
+| `vcs.detectRoots` | `{ workspaceRoot, plugins: [{ manifest }], mappings?: [{ id, vcs }] }` | `detection`: `{ providers, roots: [{ id, vcs, path, mapped }], ambiguous: [{ id, vcs }], unusedMappings, truncated, rejected: [{ index, error }], conflicts: [{ pluginID, vcs, by }] }` |
+| `vcs.ownerOf` | `{ roots: [id], ambiguous?: [id], paths: [path] }` | `owners`: `[{ path, root }]` in request order; `root` is `null` outside every root or inside an unmapped ambiguous directory |
+| `vcs.decodeReply` | `{ operation, capabilities, request?, reply }` | `result`: the normalized reply, or `plugin.vcs.invalidOutput` |
+
+`vcs.detectRoots` reads directory entries below `workspaceRoot` (at most eight
+levels and 20,000 directories) and the marker names in its ancestors; it never
+reads file contents, writes anything, or starts a process. The other two
+commands touch no file. `shared/fixtures/vcs/model-v1.json` holds the
+detection cases, decoded snapshots, and reply validation cases.
+
 ### Git patch discovery and rebase amendment preconditions
 
 `git.patchExport` accepts optional `metadataOnly` (default false). In metadata
@@ -3501,3 +3671,54 @@ require empty nodes. Hosts inject this typed operation into their
 presentation feature; views never call the C ABI. Windows can reuse validation
 when it later adds a native renderer; Core support does not advertise ui 3 on
 that platform.
+
+### Agent skill management
+
+`agent.skills` accepts explicit `action` values `list`, `directories`, `read`,
+`create`, `import`, and `setEnabled`, with `agentId` (`codex-acp` or `claude-acp`) and optional
+absolute `workspace`. These management operations never create an Agent session,
+send a prompt or stop a running conversation. Only an explicit `setEnabled` action changes native visibility settings.
+The shared fixture is `shared/fixtures/agent/skills-management-v1.json`.
+
+`list` returns `skills`, `source`, `issues`, and native `directories` (`user`,
+plus `repo` when a workspace is present). Each row has `name`, `description`,
+absolute `path`, native `scope` (`user`, `repo`, `system`, `admin`), optional
+`enabled` and optional `pluginId`. Paths are transient platform file-operation
+metadata, not portable persisted identifiers. Rows are sorted by lowercased name
+and path. Native Codex discovery uses the installed CLI's official `skills/list`
+with the selected cwd and `forceReload: true`, reusing the bounded App Server
+probe and process-tree cleanup. Unknown enablement remains null. Missing or
+malformed native results fail explicitly; refresh failure retains previous rows
+only within the same workspace and Agent.
+
+Claude `source: directory` is an explicitly partial inventory of
+`CLAUDE_CONFIG_DIR/skills` (default `~/.claude/skills`) and the selected workspace's
+`.claude/skills`. It does not emulate inherited-directory, plugin, policy or
+session discovery. Its `enabled` reports configured visibility: user rows read user settings; repo rows merge user, project shared and project-local settings. Absent overrides mean on, off means false, name-only/user-invocable-only mean true. Invalid or unreadable configuration leaves the affected state null. This is not effective managed policy or evidence of session availability. Codex `source: agent` is native discovery. Platform UI
+uses Global/Project as the main categories and Agent provenance as a filter.
+
+`setEnabled` requires an absolute discovered `source` path and boolean `enabled`; Claude also requires matching `scope`. It returns a fresh listing using the same shape as `list`. Codex validates the path with `skills/list`, calls official `skills/config/write`, then forces native readback and verifies the desired state. Its setting is global by path even for a project skill. Claude merges only the named `skillOverrides` on/off value into user `settings.json` for global skills, or project `.claude/settings.local.json` for project skills; it preserves unrelated JSON values and permissions, refuses malformed, linked or over-1-MiB files, uses a nonblocking cross-process lock and same-directory atomic replacement with a pre-publish snapshot check. Claude settings are by name, so same-named skills share a setting; project/managed settings can override user settings. Plugin skills are not managed through this operation. Existing session contents cannot be withdrawn: clients advise reconnecting, and never automatically interrupt a running conversation. No skill file is renamed or edited by toggling.
+
+`directories` returns only the native destination map and needs no installed
+CLI. `read` takes the selected absolute `source` path to a `SKILL.md`, reads at
+most 128 KiB of regular UTF-8 text and returns `content`. It never interprets or
+executes instructions, scripts or dynamic content in the document.
+
+`create` requires `scope` (`user` or `repo`), portable `name` (1–64 lowercase
+letters/digits separated by single hyphens), `description`, and `instructions`.
+`import` requires `scope` and an absolute, user-selected `source` (`SKILL.md` or
+its package directory). Writes return the resulting `path`. Codex targets
+`~/.agents/skills` or `<workspace>/.agents/skills`; Claude targets its native
+configuration directory or `<workspace>/.claude/skills`. Project writes require
+an opened workspace. Imports preserve package contents and file permissions,
+reject special files and symbolic links, and enforce 2,000 entries, 20 nested
+levels, 128 KiB per SKILL.md, 8 MiB per resource file and 32 MiB total. Hidden staging is removed on failure or
+cancellation; publication atomically refuses an existing target, including an
+empty directory. Existing skills and import sources are never overwritten.
+These are explicit user-owned documents, not downloaded/build/cache resources;
+no app bundle, installation resource or shared worktree cache is writable.
+
+The macOS settings surface offers search, refresh, file details, native open and
+reveal, creation and import. It keeps native loading separate from management
+and rejects stale results after project changes. Windows can use the same Core
+operations; the settings UI and Windows runtime validation remain pending.

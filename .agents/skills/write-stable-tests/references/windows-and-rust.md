@@ -45,6 +45,14 @@ native Git process/AskPass tests in `git-host-rust.json` and Core tests in
 `shared-rust.json`. Testing a Cargo package does not run its dependencies' own
 tests. macOS's `verify-rust-core.sh` runs the same native adapter timing lane.
 
+In macOS's Rust-only lane, Agent Host uses the Rust runner's default 20-minute
+suite budget, including compilation. Run 39939156503 exhausted the old two-minute
+override while still compiling Agent Host and its ACP/MCP dependencies; no test
+had started. Git Host keeps its smaller two-minute suite allowance. Agent Host's
+individual cases retain the default 15-second watchdog, and the CI job keeps its
+30-minute limit. A warm-cache pass does not verify this path: use an empty Cargo
+target directory and inspect both compilation time and per-case report budgets.
+
 Every Bun and Rust lane writes JUnit XML plus a self-contained HTML dashboard
 below `.artifacts/test-stability/`. The dashboard groups Rust cases by crate
 module and Bun cases by their JUnit class or suite.
@@ -112,6 +120,29 @@ Git directory. Windows run 39933498873 terminated it at 16.1 seconds under the
 step. Other cases and suite/step deadlines retain their existing budgets.
 Use scoped budgets only for measured
 integration costs, never to bypass an unbounded wait or an assertion failure.
+
+`git_paths_roundtrip_` imports the production TypeScript path normalizer in
+real Node subprocesses between native Git/Core requests. Windows run 39933419913
+cancelled Node at the fixture's 10-second subprocess deadline in the long-path
+case; no path-result mismatch was reported. Only Node's Windows allowance is
+20 seconds; Git setup stays at 10 seconds and Core requests at 5 seconds. Both
+SharedRust and real-JDT give these path roundtrip cases a 60-second case budget
+for the repeated subprocess exchanges. Other cases keep their default budget,
+the suite deadline is unchanged, and cancellation still reclaims the process
+tree through the native Git Host. Do not replace the frontend import with a
+Rust copy of its normalization logic or retry a failed assertion.
+The prefix matches the raw Rust test name, without the Cargo target printed
+before it in the console. Check each report's `maxMs` to confirm the allowance
+actually applies; a successful fast run alone does not prove prefix matching.
+
+`tests::git::git_write_executes_checkout_preflight_clone_and_validation`
+gets 30 seconds in both Windows lanes. Run 39935852248 reported its assertions
+passing in 15.22 seconds, but the complete test process took 18.529 seconds and
+exceeded the default 15-second budget. It creates divergent branches, checks
+clean/dirty/untracked checkout preflights, performs smart and forced checkouts,
+and clones a real local repository. The cache retry then exhausted the existing
+suite deadline; that secondary timeout does not justify extending the whole
+suite. Keep every checkout/clone assertion and the existing request deadlines.
 
 ## Windows verification
 

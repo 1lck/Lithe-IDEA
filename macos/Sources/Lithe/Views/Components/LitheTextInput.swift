@@ -23,16 +23,18 @@ struct LitheTextField: View {
     private let placeholder: Text
     @Binding private var text: String
     private let secure: Bool
+    private let axis: Axis
     private let focus: FocusState<Bool>.Binding?
     private let label: Text?
     private let info: String?
     private let isEnabled: Bool
 
-    init(_ placeholder: LocalizedStringKey, text: Binding<String>, secure: Bool = false,
+    init(_ placeholder: LocalizedStringKey, text: Binding<String>, secure: Bool = false, axis: Axis = .horizontal,
          focus: FocusState<Bool>.Binding? = nil) {
         self.placeholder = Text(placeholder)
         _text = text
         self.secure = secure
+        self.axis = axis
         self.focus = focus
         label = nil; info = nil; isEnabled = true
     }
@@ -42,6 +44,7 @@ struct LitheTextField: View {
         self.placeholder = Text(verbatim: placeholder)
         _text = text
         self.secure = false
+        self.axis = .horizontal
         self.focus = focus
         self.label = label.map { Text(verbatim: $0) }
         self.info = info
@@ -54,10 +57,10 @@ struct LitheTextField: View {
                 if secure {
                     SecureField(text: $text, prompt: placeholder) { label ?? placeholder }
                 } else {
-                    TextField(text: $text, prompt: placeholder) { label ?? placeholder }
+                    TextField(text: $text, prompt: placeholder, axis: axis) { label ?? placeholder }
                 }
             }
-            .modifier(LitheSettingsTextFieldModifier(externalFocus: focus))
+            .modifier(LitheSettingsTextFieldModifier(externalFocus: focus, multiline: axis == .vertical))
             .accessibilityLabel(label ?? placeholder)
         }
     }
@@ -96,6 +99,7 @@ private struct LitheSettingsTextFieldModifier: ViewModifier {
     @Environment(\.isEnabled) private var isEnabled
     @FocusState private var isFocused: Bool
     var externalFocus: FocusState<Bool>.Binding? = nil
+    var multiline = false
 
     func body(content: Content) -> some View {
         content
@@ -103,7 +107,8 @@ private struct LitheSettingsTextFieldModifier: ViewModifier {
             .font(LitheTheme.settingsFont)
             .focused(externalFocus ?? $isFocused)
             .padding(.horizontal, 9)
-            .frame(height: SettingsSelectMetrics.controlHeight)
+            .padding(.vertical, multiline ? 6 : 0)
+            .frame(minHeight: SettingsSelectMetrics.controlHeight, maxHeight: multiline ? nil : SettingsSelectMetrics.controlHeight)
             .litheSettingsControlChrome(
                 background: LitheTheme.settingsTextFieldBackground,
                 border: (externalFocus?.wrappedValue ?? isFocused) ? LitheTheme.settingsControlAccent : LitheTheme.settingsControlBorder

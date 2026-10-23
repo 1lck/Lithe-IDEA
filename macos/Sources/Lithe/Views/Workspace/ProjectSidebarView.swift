@@ -61,18 +61,13 @@ struct ProjectSidebarView: View {
                 .foregroundStyle(LitheTheme.secondaryText)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let root = model.rootNode {
-                ProjectSidebarTree(
-                    model: model,
-                    root: root,
-                    rowHeight: rowHeight,
-                    activeDocumentURL: model.activeDocument?.url,
-                    gitStatus: ProjectGitStatusSnapshot(repositoryRoot: model.gitRepositoryRoot, projection: model.gitTreeStatusProjection),
-                    directoryMarks: model.projectDirectoryMarks,
-                    revealRequest: model.projectTreeRevealRequest,
-                    stateSnapshot: treeState,
-                    state: $treeState
-                )
-                .equatable()
+                // Plugin VCS statuses publish on their own model, so only
+                // this reader observes it.
+                if let feature = model.vcsProvidersFeature {
+                    VcsTreeStatusReader(feature: feature) { tree(root, vcsStatus: $0) }
+                } else {
+                    tree(root, vcsStatus: VcsTreeStatusProjection())
+                }
             } else if let error = model.workspaceLoadErrorMessage {
                 VStack(spacing: 10) {
                     Image(systemName: "folder.badge.questionmark")
@@ -162,6 +157,23 @@ struct ProjectSidebarView: View {
         } message: { _ in
             Text("The item can be recovered from the macOS Trash.")
         }
+    }
+
+    private func tree(_ root: FileNode, vcsStatus: VcsTreeStatusProjection) -> some View {
+        ProjectSidebarTree(
+            model: model,
+            root: root,
+            rowHeight: rowHeight,
+            activeDocumentURL: model.activeDocument?.url,
+            gitStatus: ProjectGitStatusSnapshot(
+                repositoryRoot: model.gitRepositoryRoot, projection: model.gitTreeStatusProjection, vcs: vcsStatus
+            ),
+            directoryMarks: model.projectDirectoryMarks,
+            revealRequest: model.projectTreeRevealRequest,
+            stateSnapshot: treeState,
+            state: $treeState
+        )
+        .equatable()
     }
 
     private var sidebarHeader: some View {
@@ -465,9 +477,18 @@ private struct ProjectTreeTaskID: Equatable {
     let revealRequestID: UUID?
 }
 
+private struct VcsTreeStatusReader<Content: View>: View {
+    @ObservedObject var feature: VcsProvidersFeatureModel
+    let content: (VcsTreeStatusProjection) -> Content
+
+    var body: some View { content(feature.treeStatus) }
+}
+
 private struct ProjectGitStatusSnapshot: Equatable {
     let repositoryRoot: URL?
     let projection: GitTreeStatusProjection
+    /// Statuses of plugin VCS roots; Git's own win where both report.
+    var vcs = VcsTreeStatusProjection()
 
     func kind(for url: URL, isDirectory: Bool) -> GitChangeKind? {
         return projection.kind(relativePath: url.standardizedFileURL.path, isDirectory: isDirectory)
@@ -475,6 +496,10 @@ private struct ProjectGitStatusSnapshot: Equatable {
 
     func change(for url: URL) -> GitChange? {
         return projection.change(relativePath: url.standardizedFileURL.path)
+    }
+
+    func vcsStatus(for url: URL) -> VcsChangeStatus? {
+        vcs.isEmpty ? nil : vcs.status(for: url)
     }
 
     private static func relativePath(for url: URL, root: URL) -> String? {
@@ -495,6 +520,16 @@ private final class ProjectTreeActions: @unchecked Sendable {
     @MainActor
     func agentAttachmentMenuItems(_ urls: [URL]) -> [LitheContextMenuItem] {
         AgentFileAttachmentMenu.items(model: model, urls: urls)
+    }
+
+    /// "Show <VCS> Diff" for a file a plugin VCS lists as changed.
+    @MainActor
+    func vcsDiffMenuItem(_ url: URL) -> LitheContextMenuItem? {
+        guard let feature = model.vcsProvidersFeature, let (root, change) = feature.change(at: url),
+              root.comparesWithBase(change) else { return nil }
+        return .action(String(format: String(localized: "Show %@ Diff"), root.displayName), localizesTitle: false) {
+            feature.showDiff(change, in: root.id)
+        }
     }
 
     // Button and context-menu closures are not MainActor-isolated under the
@@ -742,7 +777,7 @@ private struct FileNodeRow: View {
                     .frame(width: LitheTheme.Metrics.treeIconSize, height: LitheTheme.Metrics.treeIconSize)
                 Text(node.name)
                     .font(LitheTheme.uiFont(size: LitheTheme.Metrics.treeFontSize, weight: depth == 0 ? .semibold : .regular))
-                    .foregroundStyle(gitStatusColor ?? LitheTheme.primaryText)
+                    .foregroundStyle(statusColor ?? LitheTheme.primaryText)
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .layoutPriority(1)
@@ -776,7 +811,7 @@ private struct FileNodeRow: View {
                     .frame(width: LitheTheme.Metrics.treeIconSize)
                 Text(node.name)
                     .font(LitheTheme.uiFont(size: LitheTheme.Metrics.treeFontSize))
-                    .foregroundStyle(gitStatusColor ?? LitheTheme.primaryText)
+                    .foregroundStyle(statusColor ?? LitheTheme.primaryText)
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .layoutPriority(1)
@@ -786,6 +821,11 @@ private struct FileNodeRow: View {
                         .font(LitheTheme.uiFont(size: 9, weight: .bold, design: .monospaced))
                         .foregroundStyle(gitStatusColor ?? LitheTheme.secondaryText)
                         .accessibilityLabel(status.kind.title)
+                } else if let status = gitStatus.vcsStatus(for: node.url), status != .ignored {
+                    Text(verbatim: status.letter)
+                        .font(LitheTheme.uiFont(size: 9, weight: .bold, design: .monospaced))
+                        .foregroundStyle(status.treeColor)
+                        .accessibilityLabel(status.title)
                 }
             }
             .padding(.leading, CGFloat(depth) * LitheTheme.Tree.indent)
@@ -1008,6 +1048,8 @@ private struct FileNodeRow: View {
                     actions.selectChange(change)
                 }
             ]
+        } else if let item = actions.vcsDiffMenuItem(node.url) {
+            items.append(item)
         }
 
         // Windows parity: a Git submenu with the remaining single-file actions.
@@ -1062,6 +1104,10 @@ private struct FileNodeRow: View {
             }
         ]
         return items
+    }
+
+    private var statusColor: Color? {
+        gitStatusColor ?? gitStatus.vcsStatus(for: node.url)?.treeColor
     }
 
     private var gitStatusColor: Color? {

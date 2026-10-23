@@ -268,7 +268,15 @@ struct SearchEverywhereBehaviorTests {
         try await WorkbenchTestScope.withCleanup({ await model.shutdownProjectSession() }) { scope in
             model.openProjectDirectly(root)
             try #require(await loaded.waitUntilOpen())
+            // Project inventory can arrive before the module teardown started
+            // by opening the workspace finishes. Join that boundary before
+            // injecting the Safe Mode capability, or a late shutdown removes
+            // it between queries and all later results become empty.
+            try await scope.run("initial workspace module teardown", timeout: .seconds(5)) {
+                await model.awaitModuleRuntimeShutdown()
+            }
             model.cacheModuleCapability(SearchModuleCapability(feature: feature), id: .searchWorkspace, moduleID: .search)
+            try #require(model.searchFeatureIfActive === feature)
             var bare: [AgentFileMention] = [], named: [AgentFileMention] = []
             try await scope.run("bare and named agent mentions", timeout: .seconds(5)) {
                 bare = await model.agentFileMentions(matching: "")

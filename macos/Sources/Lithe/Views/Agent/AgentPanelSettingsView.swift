@@ -53,6 +53,8 @@ private struct AgentsManagementPage: View {
             statisticsRow
         }
         agentPicker
+        Button("Manage Skills…") { model.showSettings(category: .skills) }
+            .buttonStyle(LitheActionButtonStyle())
         checkFeedback
         switch selectedEntry {
         case .agent(let id):

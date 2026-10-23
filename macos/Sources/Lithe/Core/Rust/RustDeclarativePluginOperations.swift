@@ -129,6 +129,20 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
         ))
     }
 
+    func vcsProviderLaunchPlan(
+        manifest: Data,
+        vcs: String,
+        request: DeclarativeLanguageServerLaunchRequest
+    ) throws -> DeclarativeLanguageServerLaunchPlan {
+        try launchPlan(LaunchPlanPayload(
+            manifest: try Self.json(manifest),
+            languageID: nil,
+            buildSystemID: nil,
+            vcsProviderID: vcs,
+            request: LaunchRequest(request)
+        ))
+    }
+
     private func launchPlan(_ payload: LaunchPlanPayload) throws -> DeclarativeLanguageServerLaunchPlan {
         let outcome: Outcome<LaunchPlanResult> = try execute(
             "plugins.declarative.languageServerLaunchPlan",
@@ -169,6 +183,14 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
             }
         )
         result.workspaceConfiguration = plan.workspaceConfiguration
+        result.vcsProvider = plan.vcsProvider.map {
+            .init(
+                vcs: $0.vcs,
+                toolCommands: $0.tool?.commands ?? [],
+                toolValidationArguments: $0.tool?.validationArguments ?? [],
+                mayUseNetwork: $0.mayUseNetwork ?? false
+            )
+        }
         return result
     }
 
@@ -377,6 +399,18 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
         let requiredDirectories: [String]
         let requiredPackagePaths: [String]
         let buildProvider: BuildProvider?
+        let vcsProvider: VcsProvider?
+
+        struct VcsProvider: Decodable {
+            struct Tool: Decodable {
+                let commands: [String]
+                let validationArguments: [String]?
+            }
+
+            let vcs: String
+            let tool: Tool?
+            let mayUseNetwork: Bool?
+        }
 
         struct BuildProvider: Decodable {
             let buildSystemID: String
@@ -412,6 +446,7 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
         let manifest: ToolingJSONValue
         let languageID: String?
         let buildSystemID: String?
+        var vcsProviderID: String? = nil
         let request: LaunchRequest
     }
 

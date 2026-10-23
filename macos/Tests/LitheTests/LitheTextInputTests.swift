@@ -27,6 +27,23 @@ struct LitheTextInputTests {
     }
 
     @Test(arguments: [ColorScheme.dark, .light])
+    func commandFieldGrowsWithinItsLineLimit(scheme: ColorScheme) {
+        func height(_ text: String) -> CGFloat {
+            let host = NSHostingView(rootView:
+                LitheTextField("Command", text: .constant(text), axis: .vertical)
+                    .lineLimit(1...3).frame(width: 240)
+                    .environment(\.colorScheme, scheme))
+            host.layoutSubtreeIfNeeded()
+            return host.fittingSize.height
+        }
+        let single = height("command")
+        let three = height("command\nargument\nvalue")
+        #expect(single >= SettingsSelectMetrics.controlHeight)
+        #expect(three > single)
+        #expect(abs(height("command\nargument\nvalue\nmore\nlines") - three) < 1)
+    }
+
+    @Test(arguments: [ColorScheme.dark, .light])
     func searchFocusClearAndNativeEditorsSurviveTheCompleteOwner(scheme: ColorScheme) async throws {
         let app = NSApplication.shared
         let attribute = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
