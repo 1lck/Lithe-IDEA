@@ -63,9 +63,18 @@ function SearchExcerptItemComponent({
     onOpen(excerpt.filePath, selectedMatch.targetLine, selectedMatch.targetColumn);
   }, [excerpt.filePath, onOpen, selectedMatch]);
 
-  useFileOpenTarget(sectionRef, () =>
-    !isNavigationDisabled && selectedMatch ? openTarget : undefined,
-  );
+  useFileOpenTarget(sectionRef, (focusedElement) => {
+    if (isNavigationDisabled) return;
+    const lineButton = focusedElement.closest<HTMLElement>("[data-search-excerpt-line-index]");
+    if (lineButton) {
+      const lineIndex = Number(lineButton.dataset.searchExcerptLineIndex);
+      const mappedLine = excerpt.lineNumberMap[lineIndex];
+      if (mappedLine === null || mappedLine === undefined) return;
+      const match = excerpt.matches.find((item) => item.targetLine === mappedLine);
+      return () => onOpen(excerpt.filePath, mappedLine, match?.targetColumn ?? 1);
+    }
+    return selectedMatch ? openTarget : undefined;
+  });
 
   const openReadonlyLocation = useCallback(
     ({ line, column }: { line: number; column: number }) => {

@@ -222,6 +222,20 @@ test("F4 opens a result file before its excerpt is rendered", async () => {
   expect(openFile).toHaveBeenLastCalledWith(secondPath, false, 13, 3);
 });
 
+test("F4 on a focused code line overrides the earlier selected match in that excerpt", async () => {
+  const line = container.querySelector<HTMLButtonElement>('button[aria-label="Open line 27"]')!;
+  expect(line).not.toBeNull();
+  expect((await press(line, "F4")).defaultPrevented).toBe(true);
+  expect(openFile).toHaveBeenLastCalledWith(firstPath, false, 27, 5);
+  // Header/section focus continues to use the independently selected match.
+  await press(container.querySelector<HTMLElement>('[data-excerpt-index="0"]')!, "F4");
+  expect(openFile).toHaveBeenLastCalledWith(firstPath, false, 8, 1);
+  search = { ...search, isSearchPending: true };
+  await render();
+  expect((await press(line, "F4")).defaultPrevented).toBe(false);
+  expect(openFile).toHaveBeenCalledTimes(2);
+});
+
 test("custom shortcut replaces F4 and remains scoped to a valid file target", async () => {
   await act(async () =>
     useKeymapStore
