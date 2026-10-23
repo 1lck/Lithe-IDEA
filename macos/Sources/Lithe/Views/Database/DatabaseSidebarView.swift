@@ -15,11 +15,35 @@ private struct DatabaseTableContextAction {
     }
 }
 
+private struct DatabaseTreePath: Hashable {
+    let profileID: UUID
+    let database: String
+
+    init(_ profile: DatabaseProfile) {
+        profileID = profile.id
+        database = profile.database
+    }
+}
+
+private enum DatabaseTreeSelection: Hashable {
+    case folder(UUID)
+    case connection(UUID)
+    case database(DatabaseTreePath)
+    case table(DatabaseTreeTableKey)
+    case objects(DatabaseTreePath, DatabaseObjectKind)
+}
+
+private enum DatabaseFolderMoveTarget {
+    case connection(UUID)
+    case folder(UUID)
+}
+
 struct DatabaseSidebarView: View {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var feature: DatabaseFeatureModel
     @Environment(\.controlActiveState) private var controlActiveState
     @State private var treeActive = false
+    @State private var treeSelection: DatabaseTreeSelection?
     @State private var showsConnectionEditor = false
     @State private var editingProfile: DatabaseProfile?
     @State private var connectionEditorPresentationID = UUID()
@@ -30,18 +54,25 @@ struct DatabaseSidebarView: View {
     /// collapsed state. Keeping the negative state avoids refreshes reopening
     /// folders behind the user's back.
     @State private var collapsedFolderIDs: Set<UUID> = []
-    @State private var collapsedObjectKinds: Set<DatabaseObjectKind> = []
+    @State private var collapsedObjectKinds: [DatabaseTreePath: Set<DatabaseObjectKind>] = [:]
     @State private var expandedProfileIDs: Set<UUID> = []
+    @State private var databaseScopeProfileID: UUID?
+    @State private var databaseScopeSelection: [String]?
+    @State private var hoveredScopeProfileID: UUID?
     @State private var collapsedDatabaseProfileIDs: Set<UUID> = []
-    @State private var expandedTableKey: String?
+    @State private var expandedDatabasePaths: Set<DatabaseTreePath> = []
+    @State private var expandedTableKeys: Set<DatabaseTreeTableKey> = []
     @State private var targetedFolderID: UUID?
-    @State private var isUnfiledDropTarget = false
+    @State private var isRootDropTarget = false
     @State private var kindFilter: DatabaseKind?
     @State private var connectionSort = DatabaseConnectionSort.name
     @State private var showsFolderEditor = false
+    @State private var showsFolderDestination = false
+    @State private var folderMoveTarget: DatabaseFolderMoveTarget?
     @State private var editingFolder: DatabaseConnectionFolder?
     @State private var creatingFolderParentID: UUID?
     @State private var newConnectionFolderID: UUID?
+    @State private var newConnectionKind: DatabaseKind = .mysql
     @State private var folderPendingDeletion: DatabaseConnectionFolder?
     @State private var showsFolderDeletionConfirmation = false
     @State private var profilePendingDeletion: DatabaseProfile?
@@ -75,13 +106,19 @@ struct DatabaseSidebarView: View {
             HStack(spacing: 2) {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 2) {
-                        Button { presentConnectionEditor() } label: {
+                        LitheMenu { newMenuItems } label: {
                             LitheIDEAIcon(resourcePath: "expui/general/add.svg",
                                 size: LitheTheme.Metrics.toolbarIconSize, preservesOriginalColors: true)
+                                .overlay {
+                                    // IDEA ActionButtonLook.paintDownArrow offsets the 16pt overlay by (1, 1).
+                                    LitheIDEAIcon(resourcePath: "expui/general/dropdown.svg",
+                                        size: LitheTheme.Metrics.toolbarIconSize, preservesOriginalColors: true)
+                                        .offset(x: 1, y: 1).allowsHitTesting(false)
+                                }
                         }
-                            .litheToolbarIconButton().workbenchHoverHelp(Text("Add database connection"))
-                            .accessibilityLabel("Add database connection")
-                        Button { editingFolder = nil; creatingFolderParentID = nil; showsFolderEditor = true } label: {
+                            .litheToolbarIconButton().workbenchHoverHelp(Text("New"))
+                            .accessibilityLabel("New")
+                        Button { presentFolderEditor() } label: {
                             LitheIDEAIcon(resourcePath: "expui/actions/newFolder.svg",
                                 size: LitheTheme.Metrics.toolbarIconSize, preservesOriginalColors: true)
                         }
@@ -99,13 +136,13 @@ struct DatabaseSidebarView: View {
                         }
                             .litheToolbarIconButton().workbenchHoverHelp(Text("Collapse all"))
                             .accessibilityLabel("Collapse all")
-                        Button { refreshSelectedConnection() } label: {
+                        Button { refreshSelection() } label: {
                             LitheIDEAIcon(resourcePath: "expui/general/refresh.svg",
                                 size: LitheTheme.Metrics.toolbarIconSize, preservesOriginalColors: true)
                         }
-                            .litheToolbarIconButton(isEnabled: feature.selectedProfile != nil)
-                            .workbenchHoverHelp(Text("Refresh connection structure"))
-                            .accessibilityLabel("Refresh connection structure")
+                            .litheToolbarIconButton(isEnabled: canRefreshSelection)
+                            .workbenchHoverHelp(Text("Refresh selected structure"))
+                            .accessibilityLabel("Refresh selected structure")
                         Button {
                             if let profile = feature.selectedProfile { openSQLQuery(profile) }
                         } label: {
@@ -207,28 +244,50 @@ struct DatabaseSidebarView: View {
 
             if feature.profiles.isEmpty && feature.folders.isEmpty {
                 emptyConnections
+                    .contentShape(Rectangle())
+                    .litheContextMenu { panelContextMenu }
             } else {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 1) {
-                        connectionTree
+                GeometryReader { geometry in
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 0) {
+                            LazyVStack(alignment: .leading, spacing: 1) { connectionTree }
+                                .padding(.horizontal, LitheTheme.Tree.horizontalInset)
+                                .padding(.top, LitheTheme.Tree.verticalInset)
+                            Color.clear
+                                .frame(maxWidth: .infinity, minHeight: LitheTheme.Tree.rowHeight, maxHeight: .infinity)
+                                .contentShape(Rectangle())
+                                .litheContextMenu { panelContextMenu }
+                                .dropDestination(for: String.self) { items, _ in
+                                    moveDroppedProfile(items, to: nil)
+                                } isTargeted: { targeted in
+                                    isRootDropTarget = targeted
+                                }
+                                .background(isRootDropTarget ? LitheTheme.accent.opacity(0.18) : .clear)
+                        }
+                        .frame(maxWidth: .infinity, minHeight: geometry.size.height, alignment: .topLeading)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, LitheTheme.Tree.horizontalInset)
-                    .padding(.vertical, LitheTheme.Tree.verticalInset)
+                    .background(LitheToolWindowActivityTracker(isActive: $treeActive))
                 }
-                .background(LitheToolWindowActivityTracker(isActive: $treeActive))
             }
             if feature.isLoading { ProgressView().controlSize(.small).padding(8) }
         }
         .workbenchHoverTooltipScope()
-        .background(LitheCenteredPopup(isPresented: $showsConnectionEditor, dialogTitle: String(localized: editingProfile == nil ? "Add Database Connection" : "Edit Database Connection")) {
-            DatabaseConnectionEditor(isPresented: $showsConnectionEditor, profile: editingProfile, defaultFolderID: newConnectionFolderID)
+        .background(LitheCenteredPopup(isPresented: $showsConnectionEditor, dialogTitle: String(localized: editingProfile == nil ? "Add Database Connection" : "Edit Database Connection"), resizesToContent: true) {
+            DatabaseConnectionEditor(isPresented: $showsConnectionEditor, profile: editingProfile, defaultFolderID: newConnectionFolderID, defaultKind: newConnectionKind)
                 .id(connectionEditorPresentationID)
                 .environment(\.locale, model.settings.language.locale)
                 .id(model.settings.language)
         })
-        .background(LitheCenteredPopup(isPresented: $showsFolderEditor, dialogTitle: String(localized: editingFolder == nil ? "New Folder" : "Rename Folder")) {
-            DatabaseFolderEditor(isPresented: $showsFolderEditor, folder: editingFolder, parentID: creatingFolderParentID)
+        .background(LitheCenteredPopup(isPresented: $showsFolderEditor, focusFirstTextField: true, resizesToContent: true) {
+            DatabaseFolderEditor(isPresented: $showsFolderEditor, folder: editingFolder, parentID: creatingFolderParentID, moveTarget: folderMoveTarget) {
+                if let target = folderMoveTarget {
+                    switch target {
+                    case .connection(let id): revealFolder(feature.profiles.first(where: { $0.id == id })?.folderID)
+                    case .folder(let id): revealFolder(feature.folders.first(where: { $0.id == id })?.parentID)
+                    }
+                } else { revealFolder(creatingFolderParentID) }
+                folderMoveTarget = nil
+            }
                 .environment(\.locale, model.settings.language.locale)
                 .id(model.settings.language)
         })
@@ -242,6 +301,8 @@ struct DatabaseSidebarView: View {
         .onChange(of: showsDBXImportSheet) { shown in
             if !shown { dbxImportData = nil }
         }
+        .background(LitheDropdownPopover(centersMenu: true, isPresented: $showsFolderDestination, items: folderDestinationItems) { EmptyView() }
+            .environment(\.locale, model.settings.language.locale))
         .alert("Remove folder?", isPresented: $showsFolderDeletionConfirmation, presenting: folderPendingDeletion) { folder in
             Button("Remove Folder", role: .destructive) {
                 feature.removeFolder(folder)
@@ -270,7 +331,7 @@ struct DatabaseSidebarView: View {
             Button("Clear Current Redis DB", role: .destructive) {
                 pendingRedisProfile = nil
                 Task {
-                    if feature.selectedProfileID != profile.id { await feature.select(profile) }
+                    guard await feature.selectDatabaseContext(profile) else { return }
                     _ = await feature.flushRedisDatabase(confirmed: true)
                 }
             }
@@ -296,7 +357,9 @@ struct DatabaseSidebarView: View {
             importDBXFile(result)
         }
         .onChange(of: feature.selectedProfileID) { selectedID in
-            if let selectedID { expandedProfileIDs = [selectedID] }
+            if let selectedID, treeSelection != .connection(selectedID) {
+                expandedProfileIDs.insert(selectedID)
+            }
         }
     }
 
@@ -324,6 +387,41 @@ struct DatabaseSidebarView: View {
         }
     }
 
+    private var newMenuItems: [LitheContextMenuItem] {
+        let folderID: UUID? = if case .folder(let id) = treeSelection { id } else { nil }
+        return [
+            .action("Query Console", icon: AnyView(LitheIDEAIcon(resourcePath: "expui/fileTypes/shell.svg",
+                size: LitheDropdownMetrics.iconSize, preservesOriginalColors: true)),
+                isEnabled: feature.selectedProfile?.kind.isSQLDatabase == true) {
+                    if let profile = feature.selectedProfile { openSQLQuery(profile) }
+                },
+            .submenu("Data Source", icon: AnyView(LitheIDEAIcon(resourcePath: "database/expui/dbms@20x20.svg",
+                size: LitheDropdownMetrics.iconSize, preservesOriginalColors: true)), items: DatabaseKind.allCases.map { kind in
+                .action(kind.displayName, localizesTitle: false,
+                    icon: AnyView(DatabaseBrandIcon(kind: kind, size: LitheDropdownMetrics.iconSize))) {
+                    presentConnectionEditor(defaultFolderID: folderID, defaultKind: kind)
+                }
+            }),
+            .action("Folder", icon: AnyView(LitheIDEAIcon(resourcePath: "expui/nodes/folder.svg",
+                size: LitheDropdownMetrics.iconSize, preservesOriginalColors: true))) {
+                presentFolderEditor(parentID: folderID)
+            },
+            .separator,
+            .action("Import Data Sources…", icon: AnyView(LitheIDEAIcon(resourcePath: "expui/general/import.svg",
+                size: LitheDropdownMetrics.iconSize, preservesOriginalColors: true))) { showsDBXImporter = true }
+        ]
+    }
+
+    private var panelContextMenu: [LitheContextMenuItem] {
+        [
+            .submenu("New", items: newMenuItems),
+            .action("Import connections from DBX") { showsDBXImporter = true },
+            .separator,
+            .action("Refresh selected structure", isEnabled: canRefreshSelection) { refreshSelection() },
+            .action("Collapse all", isEnabled: !feature.profiles.isEmpty || !feature.folders.isEmpty) { collapseAll() }
+        ]
+    }
+
     @ViewBuilder
     private var connectionTree: some View {
         let rootProfiles = unfiledProfiles
@@ -338,19 +436,6 @@ struct DatabaseSidebarView: View {
         }
 
         if !rootProfiles.isEmpty {
-            Text("Unfiled connections")
-                .font(LitheTheme.uiFont(size: 9.5, weight: .semibold))
-                .foregroundStyle(LitheTheme.tertiaryText)
-                .textCase(.uppercase)
-                .padding(.top, feature.folders.isEmpty ? 3 : 9)
-                .padding(.horizontal, 9)
-                .dropDestination(for: String.self) { items, _ in
-                    moveDroppedProfile(items, to: nil)
-                } isTargeted: { targeted in
-                    isUnfiledDropTarget = targeted
-                }
-                .background(isUnfiledDropTarget ? LitheTheme.accent.opacity(0.18) : .clear)
-                .clipShape(RoundedRectangle(cornerRadius: 5))
             ForEach(rootProfiles) { profile in
                 profileRow(profile)
             }
@@ -383,41 +468,34 @@ struct DatabaseSidebarView: View {
         let totalCount = recursiveProfileCount(in: folder)
 
         return AnyView(VStack(alignment: .leading, spacing: 1) {
-            HStack(spacing: 1) {
-                Button {
-                    if collapsedFolderIDs.contains(folder.id) {
-                        collapsedFolderIDs.remove(folder.id)
-                    } else {
-                        collapsedFolderIDs.insert(folder.id)
-                    }
-                } label: {
+            HStack(spacing: LitheTheme.Tree.iconTextGap) {
+                Button { toggleFolder(folder) } label: {
+                    LitheIDEAIcon(resourcePath: isExpanded ? "expui/general/chevronDown.svg" : "expui/general/chevronRight.svg", size: LitheTheme.Tree.iconSize)
+                        .foregroundStyle(LitheTheme.tertiaryText)
+                        .frame(width: LitheTheme.Tree.disclosureSlot, height: LitheTheme.Tree.rowHeight)
+                }
+                .buttonStyle(.litheNoPress)
+                .accessibilityLabel(Text(verbatim: "\(String(localized: isExpanded ? "Collapse Folder" : "Expand Folder")) \(folder.name)"))
+                Button { treeSelection = .folder(folder.id) } label: {
                     HStack(spacing: LitheTheme.Tree.iconTextGap) {
-                        LitheIDEAIcon(resourcePath: isExpanded ? "expui/general/chevronDown.svg" : "expui/general/chevronRight.svg", size: LitheTheme.Tree.iconSize)
-                            .foregroundStyle(LitheTheme.tertiaryText)
-                            .frame(width: LitheTheme.Tree.disclosureSlot)
                         LitheIcon(kind: .folder, size: LitheTheme.Metrics.treeIconSize)
-                        Text(folder.name)
-                            .lineLimit(1)
-                            .font(LitheTheme.uiFont(size: 13))
+                        Text(folder.name).lineLimit(1)
                         Spacer(minLength: 4)
                         if totalCount > 0 {
-                            Text("\(totalCount)")
-                                .font(LitheTheme.uiFont(size: 13))
-                                .foregroundStyle(LitheTheme.tertiaryText)
+                            Text("\(totalCount)").foregroundStyle(LitheTheme.tertiaryText)
                         }
                     }
-                    .padding(.leading, indent)
-                    .padding(.trailing, 3)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .frame(height: LitheTheme.Tree.rowHeight)
+                    .font(LitheTheme.uiFont(size: 13))
+                    .frame(maxWidth: .infinity, minHeight: LitheTheme.Tree.rowHeight, alignment: .leading)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.litheNoPress)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-                .litheTreeRow()
-
+                .simultaneousGesture(TapGesture(count: 2).onEnded { toggleFolder(folder) })
+                .accessibilityLabel(Text(verbatim: folder.name))
             }
+            .padding(.leading, indent)
+            .padding(.trailing, 3)
+            .litheTreeRow(isSelected: treeSelection == .folder(folder.id), isFocused: treeActive && controlActiveState == .key)
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
             .background(targetedFolderID == folder.id ? LitheTheme.accent.opacity(0.18) : .clear)
@@ -425,21 +503,21 @@ struct DatabaseSidebarView: View {
             .litheContextMenu {
                 var items: [LitheContextMenuItem] = []
                 items.append(.action(isExpanded ? "Collapse Folder" : "Expand Folder", action: {
-                    if isExpanded { collapsedFolderIDs.insert(folder.id) }
-                    else { collapsedFolderIDs.remove(folder.id) }
+                    toggleFolder(folder)
                 }))
                 items.append(.action("New Connection", action: {
                     presentConnectionEditor(defaultFolderID: folder.id)
                 }))
                 items.append(.action("New Subfolder", action: {
-                    editingFolder = nil
-                    creatingFolderParentID = folder.id
-                    showsFolderEditor = true
+                    presentFolderEditor(parentID: folder.id)
                 }))
                 items.append(.action("Rename Folder", action: {
-                    editingFolder = folder
-                    showsFolderEditor = true
+                    presentFolderEditor(folder: folder)
                 }))
+                items.append(.submenu("Move", items: [
+                    .action("To Folder…") { presentFolderMove(.folder(folder.id)) },
+                    .action("To Top Level", isEnabled: folder.parentID != nil) { feature.moveFolder(folder.id, toParent: nil) }
+                ]))
                 items.append(.action("Remove Folder", role: .destructive, action: {
                     folderPendingDeletion = folder
                     showsFolderDeletionConfirmation = true
@@ -480,7 +558,7 @@ struct DatabaseSidebarView: View {
                 .accessibilityLabel(Text(isExpanded ? "Collapse connection" : "Expand connection"))
 
                 Button {
-                    selectProfile(profile, expand: true)
+                    selectProfile(profile, expand: false)
                 } label: {
                     HStack(spacing: LitheTheme.Tree.iconTextGap) {
                         DatabaseBrandIcon(kind: profile.kind, size: LitheTheme.Tree.iconSize)
@@ -495,63 +573,228 @@ struct DatabaseSidebarView: View {
                                 .font(LitheTheme.uiFont(size: 8))
                                 .foregroundStyle(LitheTheme.warning)
                         }
-                        Spacer(minLength: 4)
                     }
-                    .padding(.trailing, 9)
-                    .frame(maxWidth: .infinity, alignment: .leading)
                     .frame(height: LitheTheme.Tree.rowHeight)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.litheNoPress)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .simultaneousGesture(TapGesture(count: 2).onEnded {
+                    toggleProfile(profile)
+                })
+                .layoutPriority(1)
                 .contentShape(Rectangle())
+                if (profile.kind == .mysql || profile.kind == .mariadb),
+                   let tree = feature.databaseTrees[profile.id], tree.state == .ready || !tree.names.isEmpty {
+                    let selected = feature.visibleDatabaseNames(for: profile.id).count
+                    Button {
+                        treeSelection = .connection(profile.id)
+                        if databaseScopeProfileID == profile.id { applyDatabaseScope(for: profile.id) }
+                        else {
+                            databaseScopeSelection = profile.visibleDatabases
+                            databaseScopeProfileID = profile.id
+                        }
+                    } label: {
+                        // This is a selected/available count, never the localized ordinal "%lld of %lld".
+                        Text(verbatim: " \(selected) of \(tree.names.count) ")
+                            .font(LitheTheme.uiFont(size: 11))
+                            .foregroundStyle(LitheTheme.Tree.secondaryText)
+                            .frame(height: LitheTheme.Tree.rowHeight)
+                            .background {
+                                // IDEA SimpleColoredComponent.drawClickableFrag: 1/2 insets, arc diameter 6.
+                                let shape = RoundedRectangle(cornerRadius: 3)
+                                let hovered = hoveredScopeProfileID == profile.id
+                                    && !(treeSelection == .connection(profile.id) && treeActive && controlActiveState == .key)
+                                shape.fill(hovered ? LitheTheme.toolbarHoverBackground : .clear)
+                                    .overlay(shape.stroke(hovered ? .clear : LitheTheme.toolbarHoverBackground, lineWidth: 1))
+                                    .padding(.horizontal, 1).padding(.vertical, 2)
+                            }
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.litheNoPress)
+                    .fixedSize()
+                    .accessibilityLabel("Select databases")
+                    .accessibilityValue(Text(verbatim: "\(selected) of \(tree.names.count)"))
+                    .accessibilityIdentifier("database-schema-scope")
+                    // IDEA separates the connection name with an en space at the normal 13pt tree font.
+                    .padding(.leading, 13 / 2 - LitheTheme.Tree.iconTextGap)
+                    .onHover { hoveredScopeProfileID = $0 ? profile.id : nil }
+                    .lithePointer()
+                    .litheDropdown(isPresented: Binding(
+                        get: { databaseScopeProfileID == profile.id },
+                        set: { databaseScopeProfileID = $0 ? profile.id : nil }
+                    ), searchOnTyping: true, onAccept: {
+                        applyDatabaseScope(for: profile.id)
+                    }) {
+                        DatabaseSchemaSelector(profileID: profile.id, names: tree.names, selection: $databaseScopeSelection) {
+                            applyDatabaseScope(for: profile.id)
+                        }
+                        .environmentObject(feature)
+                        .environment(\.locale, model.settings.language.locale)
+                    }
+                }
+                Button {
+                    selectProfile(profile, expand: false)
+                } label: {
+                    Color.clear
+                        .frame(maxWidth: .infinity, minHeight: LitheTheme.Tree.rowHeight)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.litheNoPress)
+                .simultaneousGesture(TapGesture(count: 2).onEnded { toggleProfile(profile) })
+                .accessibilityHidden(true)
             }
+            .padding(.trailing, 9)
             .padding(.leading, indent)
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
-            .litheTreeRow(isSelected: isSelected, isFocused: treeActive && controlActiveState == .key)
+            .litheTreeRow(isSelected: treeSelection == .connection(profile.id), isFocused: treeActive && controlActiveState == .key)
             .draggable(profile.id.uuidString)
             .litheContextMenu { connectionContextMenu(profile) }
 
-            if isExpanded, isSelected {
-                profileObjectTree(profile, indent: indent + LitheTheme.Tree.indent)
+            if isExpanded {
+                if profile.kind == .mysql || profile.kind == .mariadb {
+                    mysqlDatabaseTree(profile, indent: indent + LitheTheme.Tree.indent)
+                        .task(id: profile) { await feature.loadDatabaseTree(for: profile.id) }
+                } else if isSelected {
+                    profileObjectTree(profile, indent: indent + LitheTheme.Tree.indent)
+                }
             }
         }
+    }
+
+    private func applyDatabaseScope(for profileID: UUID) {
+        if feature.setVisibleDatabases(databaseScopeSelection, for: profileID) { databaseScopeProfileID = nil }
+    }
+
+    @ViewBuilder
+    private func mysqlDatabaseTree(_ profile: DatabaseProfile, indent: CGFloat) -> some View {
+        let tree = feature.databaseTrees[profile.id] ?? DatabaseConnectionTree()
+        treeLoadStatus(tree.state, indent: indent) {
+            Task { await feature.loadDatabaseTree(for: profile.id, force: true) }
+        }
+        ForEach(feature.visibleDatabaseNames(for: profile.id), id: \.self) { database in
+            let target = databaseProfile(profile, database: database)
+            let path = DatabaseTreePath(target)
+            let isExpanded = expandedDatabasePaths.contains(path)
+            let snapshot = tree.databases[database] ?? DatabaseTreeDatabase()
+            HStack(spacing: LitheTheme.Tree.iconTextGap) {
+                Button {
+                    toggleDatabase(target)
+                } label: {
+                    LitheIDEAIcon(resourcePath: isExpanded ? "expui/general/chevronDown.svg" : "expui/general/chevronRight.svg", size: LitheTheme.Tree.iconSize)
+                        .frame(width: LitheTheme.Tree.disclosureSlot)
+                }
+                .buttonStyle(.litheNoPress)
+                .accessibilityLabel(Text(verbatim: "\(String(localized: isExpanded ? "Collapse database" : "Expand database")) \(database)"))
+                Button {
+                    treeSelection = .database(path)
+                } label: {
+                    HStack(spacing: LitheTheme.Tree.iconTextGap) {
+                        LitheIDEAIcon(resourcePath: "database/expui/schema.svg", size: LitheTheme.Tree.iconSize, preservesOriginalColors: true)
+                        Text(verbatim: database).lineLimit(1)
+                        Spacer(minLength: 0)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.litheNoPress)
+                .simultaneousGesture(TapGesture(count: 2).onEnded { toggleDatabase(target) })
+            }
+            .font(LitheTheme.uiFont(size: 13))
+            .padding(.leading, indent)
+            .frame(maxWidth: .infinity, minHeight: LitheTheme.Tree.rowHeight, alignment: .leading)
+            .litheTreeRow(isSelected: treeSelection == .database(path),
+                          isFocused: treeActive && controlActiveState == .key)
+            .litheContextMenu { databaseContextMenu(target) }
+            if isExpanded {
+                VStack(alignment: .leading, spacing: 0) {
+                    treeLoadStatus(snapshot.state, indent: indent + LitheTheme.Tree.indent) {
+                        Task { await feature.loadDatabaseTree(database, for: profile.id, force: true) }
+                    }
+                    if snapshot.state == .ready || !snapshot.tables.isEmpty || !snapshot.objects.isEmpty {
+                        databaseObjects(for: target, indent: indent + LitheTheme.Tree.indent, snapshot: snapshot)
+                    }
+                }
+                .task(id: profile) { await feature.loadDatabaseTree(database, for: profile.id) }
+            }
+        }
+        if tree.state == .ready, tree.names.isEmpty {
+            Text("No accessible databases")
+                .font(LitheTheme.uiFont(size: 13)).foregroundStyle(LitheTheme.Tree.secondaryText)
+                .padding(.leading, indent).frame(height: LitheTheme.Tree.rowHeight)
+        } else if tree.state == .ready, feature.visibleDatabaseNames(for: profile.id).isEmpty {
+            Text("No schemas selected")
+                .font(LitheTheme.uiFont(size: 11)).foregroundStyle(LitheTheme.Tree.secondaryText)
+                .padding(.leading, indent + LitheTheme.Tree.indent).frame(height: LitheTheme.Tree.rowHeight)
+                .accessibilityIdentifier("database-no-schemas-selected")
+        }
+    }
+
+    @ViewBuilder
+    private func treeLoadStatus(_ state: DatabaseTreeLoadState, indent: CGFloat, retry: @escaping () -> Void) -> some View {
+        switch state {
+        case .idle, .loading:
+            HStack(spacing: LitheTheme.Tree.iconTextGap) {
+                ProgressView().controlSize(.mini)
+                Text("Loading…")
+            }
+            .font(LitheTheme.uiFont(size: 13)).foregroundStyle(LitheTheme.Tree.secondaryText)
+            .padding(.leading, indent).frame(height: LitheTheme.Tree.rowHeight)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(Text("Loading…"))
+        case .failed(let message):
+            Button(action: retry) {
+                HStack(spacing: LitheTheme.Tree.iconTextGap) {
+                    LitheIDEAIcon(resourcePath: "expui/general/refresh.svg", size: LitheTheme.Tree.iconSize)
+                    Text("Retry").lineLimit(1)
+                }
+                .padding(.leading, indent).frame(maxWidth: .infinity, minHeight: LitheTheme.Tree.rowHeight, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.litheNoPress).litheTreeRow().help(message)
+            .accessibilityLabel(Text(message))
+        case .ready:
+            EmptyView()
+        }
+    }
+
+    private func databaseProfile(_ profile: DatabaseProfile, database: String) -> DatabaseProfile {
+        var target = profile
+        target.database = database
+        return target
     }
 
     @ViewBuilder
     private func profileObjectTree(_ profile: DatabaseProfile, indent: CGFloat) -> some View {
         if profile.kind.supportsDataGrid {
             let databaseExpanded = !collapsedDatabaseProfileIDs.contains(profile.id)
-            Button {
-                if databaseExpanded { collapsedDatabaseProfileIDs.insert(profile.id) }
-                else { collapsedDatabaseProfileIDs.remove(profile.id) }
-            } label: {
-                HStack(spacing: LitheTheme.Tree.iconTextGap) {
+            HStack(spacing: LitheTheme.Tree.iconTextGap) {
+                Button { toggleDatabase(profile) } label: {
                     LitheIDEAIcon(resourcePath: databaseExpanded ? "expui/general/chevronDown.svg" : "expui/general/chevronRight.svg", size: LitheTheme.Tree.iconSize)
                         .foregroundStyle(LitheTheme.tertiaryText)
-                        .frame(width: LitheTheme.Tree.disclosureSlot)
-                    LitheIDEAIcon(resourcePath: "database/expui/schema.svg", size: LitheTheme.Tree.iconSize, preservesOriginalColors: true)
-                    Group {
-                        if profile.database.isEmpty {
-                            Text(profile.kind == .mongodb ? "admin" : "Default database")
-                        } else {
-                            Text(verbatim: profile.database)
-                        }
-                    }
-                    .font(LitheTheme.uiFont(size: 13))
-                    .lineLimit(1)
-                    Spacer()
+                        .frame(width: LitheTheme.Tree.disclosureSlot, height: LitheTheme.Tree.rowHeight)
                 }
-                .padding(.leading, indent)
-                .padding(.trailing, 8)
-                .frame(maxWidth: .infinity, minHeight: LitheTheme.Tree.rowHeight, alignment: .leading)
-                .contentShape(Rectangle())
+                .buttonStyle(.litheNoPress)
+                .accessibilityLabel(Text(verbatim: "\(String(localized: databaseExpanded ? "Collapse database" : "Expand database")) \(profile.database.isEmpty ? (profile.kind == .mongodb ? "admin" : String(localized: "Default database")) : profile.database)"))
+                Button { treeSelection = .database(DatabaseTreePath(profile)) } label: {
+                    HStack(spacing: LitheTheme.Tree.iconTextGap) {
+                        LitheIDEAIcon(resourcePath: "database/expui/schema.svg", size: LitheTheme.Tree.iconSize, preservesOriginalColors: true)
+                        Group {
+                            if profile.database.isEmpty { Text(profile.kind == .mongodb ? "admin" : "Default database") }
+                            else { Text(verbatim: profile.database) }
+                        }
+                        .lineLimit(1)
+                        Spacer(minLength: 0)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: LitheTheme.Tree.rowHeight, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.litheNoPress)
+                .simultaneousGesture(TapGesture(count: 2).onEnded { toggleDatabase(profile) })
             }
-            .buttonStyle(.litheNoPress)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
-            .litheTreeRow()
+            .font(LitheTheme.uiFont(size: 13))
+            .padding(.leading, indent)
+            .padding(.trailing, 8)
+            .litheTreeRow(isSelected: treeSelection == .database(DatabaseTreePath(profile)), isFocused: treeActive && controlActiveState == .key)
             .litheContextMenu {
                 var items: [LitheContextMenuItem] = []
                 if profile.kind == .mongodb { items.append(contentsOf: mongoDatabaseContextMenu(profile)) }
@@ -580,55 +823,65 @@ struct DatabaseSidebarView: View {
     }
 
     @ViewBuilder
-    private func databaseObjects(for profile: DatabaseProfile, indent: CGFloat) -> some View {
+    private func databaseObjects(for profile: DatabaseProfile, indent: CGFloat, snapshot: DatabaseTreeDatabase? = nil) -> some View {
+        let path = DatabaseTreePath(profile)
+        let collapsed = collapsedObjectKinds[path] ?? []
+        let tables = snapshot?.tables ?? feature.tables
+        let objects = snapshot?.objects ?? feature.objects
+        let isLoading = snapshot.map { $0.state == .loading } ?? feature.isLoading
         if profile.kind.supportsDataGrid {
-            objectSectionHeader(kind: .tables, title: profile.kind == .mongodb ? "Collections" : "Tables", count: feature.tables.count, indent: indent)
+            objectSectionHeader(kind: .tables, title: profile.kind == .mongodb ? "Collections" : "Tables", profile: profile, count: tables.count, indent: indent)
                 .litheContextMenu {
                     var items: [LitheContextMenuItem] = []
                     if profile.kind == .mongodb { items.append(.action("Refresh Collections", action: { refresh(profile) })) }
                     else { items.append(contentsOf: tableGroupContextMenu(profile)) }
                     return items
                 }
-            if !collapsedObjectKinds.contains(.tables), feature.tables.isEmpty && !feature.isLoading {
+            if !collapsed.contains(.tables), tables.isEmpty && !isLoading {
                 Text(profile.kind == .mongodb ? "No collections yet" : "No tables yet")
                     .font(LitheTheme.uiFont(size: 13))
                     .foregroundStyle(LitheTheme.Tree.secondaryText)
                     .padding(.leading, indent + LitheTheme.Tree.indent)
                     .frame(maxWidth: .infinity, minHeight: LitheTheme.Tree.rowHeight, alignment: .leading)
             }
-            if !collapsedObjectKinds.contains(.tables) {
-                ForEach(feature.tables, id: \.self) { table in
-                    let tableKey = "\(profile.id.uuidString)|\(table)"
-                    let isExpanded = expandedTableKey == tableKey
-                    Button {
-                        expandedTableKey = isExpanded ? nil : tableKey
-                        openTable(profile, table: table, section: .data)
-                    } label: {
-                        HStack(spacing: LitheTheme.Tree.iconTextGap) {
+            if !collapsed.contains(.tables) {
+                ForEach(tables, id: \.self) { table in
+                    let tableKey = DatabaseTreeTableKey(profileID: profile.id, database: profile.database, table: table)
+                    let isExpanded = expandedTableKeys.contains(tableKey)
+                    HStack(spacing: LitheTheme.Tree.iconTextGap) {
+                        Button {
+                            if isExpanded { expandedTableKeys.remove(tableKey) }
+                            else { expandedTableKeys.insert(tableKey) }
+                        } label: {
                             LitheIDEAIcon(resourcePath: isExpanded ? "expui/general/chevronDown.svg" : "expui/general/chevronRight.svg", size: LitheTheme.Tree.iconSize)
                                 .foregroundStyle(LitheTheme.tertiaryText)
                                 .frame(width: LitheTheme.Tree.disclosureSlot)
-                            if profile.kind == .mongodb {
-                                LitheIDEAIcon(resourcePath: "database/expui/collection.svg", size: LitheTheme.Tree.iconSize, preservesOriginalColors: true)
-                                    .frame(width: LitheTheme.Tree.iconSize)
-                            } else {
-                                LitheIDEAIcon(resourcePath: "database/expui/table.svg", size: LitheTheme.Tree.iconSize,
-                                              preservesOriginalColors: true)
-                            }
-                            Text(table)
-                                .font(LitheTheme.uiFont(size: 13))
-                                .lineLimit(1)
-                            Spacer(minLength: 0)
                         }
-                        .padding(.leading, indent + 14)
-                        .padding(.trailing, 8)
-                        .frame(maxWidth: .infinity, minHeight: LitheTheme.Tree.rowHeight, alignment: .leading)
-                        .contentShape(Rectangle())
+                        .buttonStyle(.litheNoPress)
+                        .accessibilityLabel(Text(verbatim: "\(String(localized: isExpanded ? "Collapse table" : "Expand table")) \(table)"))
+                        Button {
+                            treeSelection = .table(tableKey)
+                        } label: {
+                            HStack(spacing: LitheTheme.Tree.iconTextGap) {
+                                LitheIDEAIcon(resourcePath: profile.kind == .mongodb ? "database/expui/collection.svg" : "database/expui/table.svg", size: LitheTheme.Tree.iconSize, preservesOriginalColors: true)
+                                Text(table).font(LitheTheme.uiFont(size: 13)).lineLimit(1)
+                                Spacer(minLength: 0)
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.litheNoPress)
+                        .simultaneousGesture(TapGesture(count: 2).onEnded {
+                            openTable(profile, table: table, section: .data)
+                        })
+                        .accessibilityAction(named: Text("Open")) {
+                            openTable(profile, table: table, section: .data)
+                        }
                     }
-                    .buttonStyle(.litheNoPress)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.leading, indent + LitheTheme.Tree.indent)
+                    .padding(.trailing, 8)
+                    .frame(maxWidth: .infinity, minHeight: LitheTheme.Tree.rowHeight, alignment: .leading)
                     .contentShape(Rectangle())
-                    .litheTreeRow(isSelected: feature.selectedTable == table,
+                    .litheTreeRow(isSelected: treeSelection == .table(tableKey),
                                   isFocused: treeActive && controlActiveState == .key)
                     .litheContextMenu {
                         var items: [LitheContextMenuItem] = []
@@ -637,31 +890,29 @@ struct DatabaseSidebarView: View {
                         return items
                     }
 
-                    if isExpanded, feature.selectedTable == table {
-                        if feature.isLoading {
-                            HStack(spacing: LitheTheme.Tree.iconTextGap) {
-                                ProgressView().controlSize(.mini)
-                                Text("Loading table metadata…")
-                                    .font(LitheTheme.uiFont(size: 13))
-                                    .foregroundStyle(LitheTheme.tertiaryText)
+                    if isExpanded {
+                        let metadata = feature.tableTrees[tableKey] ?? DatabaseTreeTable()
+                        VStack(alignment: .leading, spacing: 0) {
+                            treeLoadStatus(metadata.state, indent: indent + LitheTheme.Tree.indent * 2) {
+                                Task { await feature.loadTableTree(tableKey, force: true) }
                             }
-                            .padding(.leading, indent + 48)
-                            .frame(height: 24)
-                        } else {
-                            sidebarLeaf(title: profile.kind == .mongodb ? "Fields" : "Columns", symbol: "expui/nodes/dataTables.svg", count: feature.columns.count, indent: indent + 36, tint: LitheTheme.success)
-                            sidebarLeaf(title: "Indexes", symbol: "database/expui/goldKey.svg", count: feature.indexes.count, indent: indent + 36, tint: LitheTheme.warning)
-                            if profile.kind != .mongodb {
-                                sidebarLeaf(title: "Foreign Keys", symbol: "database/expui/blueKey.svg", count: feature.foreignKeys.count, indent: indent + 36, tint: LitheTheme.accent)
+                            if metadata.state == .ready {
+                                sidebarLeaf(title: profile.kind == .mongodb ? "Fields" : "Columns", symbol: "database/expui/column.svg", count: metadata.columns.count, indent: indent + LitheTheme.Tree.indent * 2)
+                                sidebarLeaf(title: "Indexes", symbol: "database/expui/goldKey.svg", count: metadata.indexes.count, indent: indent + LitheTheme.Tree.indent * 2)
+                                if profile.kind != .mongodb {
+                                    sidebarLeaf(title: "Foreign Keys", symbol: "database/expui/blueKey.svg", count: metadata.foreignKeys.count, indent: indent + LitheTheme.Tree.indent * 2)
+                                }
                             }
                         }
+                        .task(id: feature.tableTrees[tableKey]?.requestID) { await feature.loadTableTree(tableKey) }
                     }
                 }
             }
             ForEach(profile.kind == .mongodb ? [] : DatabaseObjectKind.allCases.filter { $0 != .tables }, id: \.self) { kind in
-                let entries = feature.objects[kind] ?? []
+                let entries = objects[kind] ?? []
                 if !entries.isEmpty {
-                    objectSectionHeader(kind: kind, title: LocalizedStringKey(kind.title), count: entries.count, indent: indent)
-                    if !collapsedObjectKinds.contains(kind) {
+                    objectSectionHeader(kind: kind, title: LocalizedStringKey(kind.title), profile: profile, count: entries.count, indent: indent)
+                    if !collapsed.contains(kind) {
                         ForEach(Array(entries.enumerated()), id: \.offset) { _, row in
                             Text(objectLabel(row)).font(LitheTheme.uiFont(size: 13)).lineLimit(1)
                                 .padding(.leading, indent + LitheTheme.Tree.indent)
@@ -674,34 +925,55 @@ struct DatabaseSidebarView: View {
         }
     }
 
-    private func objectSectionHeader(kind: DatabaseObjectKind, title: LocalizedStringKey, count: Int, indent: CGFloat) -> some View {
-        Button {
-            if collapsedObjectKinds.contains(kind) { collapsedObjectKinds.remove(kind) }
-            else { collapsedObjectKinds.insert(kind) }
-        } label: {
-            HStack(spacing: LitheTheme.Tree.iconTextGap) {
-                LitheIDEAIcon(resourcePath: !collapsedObjectKinds.contains(kind) ? "expui/general/chevronDown.svg" : "expui/general/chevronRight.svg", size: LitheTheme.Tree.iconSize)
-                    .frame(width: LitheTheme.Tree.disclosureSlot)
-                LitheIDEAIcon(resourcePath: "database/expui/objectGroup.svg", size: LitheTheme.Tree.iconSize,
-                              preservesOriginalColors: true)
-                Text(title)
-                    .foregroundStyle(LitheTheme.Tree.text)
-                Spacer()
-                Text("\(count)")
-                    .monospacedDigit()
-                    .foregroundStyle(LitheTheme.Tree.secondaryText)
+    private func objectSectionHeader(kind: DatabaseObjectKind, title: LocalizedStringKey, profile: DatabaseProfile, count: Int, indent: CGFloat) -> some View {
+        let path = DatabaseTreePath(profile)
+        let collapsed = collapsedObjectKinds[path] ?? []
+        return HStack(spacing: LitheTheme.Tree.iconTextGap) {
+            Button { toggleObjectSection(kind, profile: profile) } label: {
+                LitheIDEAIcon(resourcePath: !collapsed.contains(kind) ? "expui/general/chevronDown.svg" : "expui/general/chevronRight.svg", size: LitheTheme.Tree.iconSize)
+                    .frame(width: LitheTheme.Tree.disclosureSlot, height: LitheTheme.Tree.rowHeight)
             }
-            .font(LitheTheme.uiFont(size: 13))
-            .foregroundStyle(LitheTheme.secondaryText)
-            .padding(.leading, indent)
-            .padding(.trailing, 8)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
+            .buttonStyle(.litheNoPress)
+            .accessibilityLabel((collapsed.contains(kind) ? Text("Expand") : Text("Collapse")) + Text(" ") + Text(title))
+            Button { treeSelection = .objects(path, kind) } label: {
+                HStack(spacing: LitheTheme.Tree.iconTextGap) {
+                    LitheIDEAIcon(resourcePath: "database/expui/objectGroup.svg", size: LitheTheme.Tree.iconSize, preservesOriginalColors: true)
+                    Text(title).foregroundStyle(LitheTheme.Tree.text)
+                    Spacer(minLength: 0)
+                    Text("\(count)").monospacedDigit().foregroundStyle(LitheTheme.Tree.secondaryText)
+                }
+                .frame(maxWidth: .infinity, minHeight: LitheTheme.Tree.rowHeight, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.litheNoPress)
+            .simultaneousGesture(TapGesture(count: 2).onEnded { toggleObjectSection(kind, profile: profile) })
+            .accessibilityLabel(Text(title))
         }
-        .buttonStyle(.litheNoPress)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .contentShape(Rectangle())
-        .litheTreeRow()
+        .font(LitheTheme.uiFont(size: 13))
+        .foregroundStyle(LitheTheme.secondaryText)
+        .padding(.leading, indent)
+        .padding(.trailing, 8)
+        .litheTreeRow(isSelected: treeSelection == .objects(path, kind), isFocused: treeActive && controlActiveState == .key)
+    }
+
+    private func toggleFolder(_ folder: DatabaseConnectionFolder) {
+        collapsedFolderIDs.formSymmetricDifference([folder.id])
+    }
+
+    private func toggleDatabase(_ profile: DatabaseProfile) {
+        if profile.kind == .mysql || profile.kind == .mariadb {
+            let path = DatabaseTreePath(profile)
+            expandedDatabasePaths.formSymmetricDifference([path])
+            if expandedDatabasePaths.contains(path) {
+                Task { await feature.loadDatabaseTree(profile.database, for: profile.id) }
+            }
+        } else {
+            collapsedDatabaseProfileIDs.formSymmetricDifference([profile.id])
+        }
+    }
+
+    private func toggleObjectSection(_ kind: DatabaseObjectKind, profile: DatabaseProfile) {
+        collapsedObjectKinds[DatabaseTreePath(profile), default: []].formSymmetricDifference([kind])
     }
 
     private func sidebarLeaf(
@@ -743,9 +1015,9 @@ struct DatabaseSidebarView: View {
               let profile = feature.profiles.first(where: { $0.id == profileID }) else {
             return false
         }
-        feature.move(profile, toFolder: folderID)
+        guard feature.move(profile, toFolder: folderID) else { return false }
         targetedFolderID = nil
-        isUnfiledDropTarget = false
+        isRootDropTarget = false
         return true
     }
 
@@ -762,6 +1034,8 @@ struct DatabaseSidebarView: View {
         let status = feature.connectionStatus(for: profile)
         items.append(.action(status == .connected ? "Disconnect" : "Connect", isEnabled: !(status == .connecting), action: {
             if status == .connected {
+                expandedProfileIDs.remove(profile.id)
+                expandedDatabasePaths = expandedDatabasePaths.filter { $0.profileID != profile.id }
                 feature.disconnect(profile)
             } else {
                 selectProfile(profile, expand: true)
@@ -771,28 +1045,22 @@ struct DatabaseSidebarView: View {
             items.append(.action("New Query", action: { openSQLQuery(profile) }))
         }
         items.append(.action("Refresh", action: { refresh(profile) }))
+        if profile.kind == .mysql || profile.kind == .mariadb {
+            items.append(.submenu("Diagnostics", items: [
+                .action("Force Refresh") {
+                    Task { await feature.refreshDatabaseTree(for: profile.id, force: true) }
+                }
+            ]))
+        }
         items.append(.separator)
         items.append(.action("Copy Name", action: { copyToPasteboard(profile.name) }))
         items.append(.action("Edit Connection", action: {
             presentConnectionEditor(profile: profile)
         }))
-        items.append(.submenu("Move to Folder", items: {
-            var submenuItems: [LitheContextMenuItem] = []
-            submenuItems.append(.action("Move to root", isEnabled: !(profile.folderID == nil), action: { feature.move(profile, toFolder: nil) }))
-            if !feature.folders.isEmpty {
-                submenuItems.append(.separator)
-                for folder in feature.folders {
-                    submenuItems.append(.action(folder.name, isEnabled: !(profile.folderID == folder.id), action: { feature.move(profile, toFolder: folder.id) }))
-                }
-            }
-            submenuItems.append(.separator)
-            submenuItems.append(.action("New Folder", action: {
-                editingFolder = nil
-                creatingFolderParentID = nil
-                showsFolderEditor = true
-            }))
-            return submenuItems
-        }()))
+        items.append(.submenu("Move", items: [
+            .action("To Folder…") { presentFolderMove(.connection(profile.id)) },
+            .action("To Top Level", isEnabled: profile.folderID != nil) { feature.move(profile, toFolder: nil) }
+        ]))
         items.append(.action("Duplicate Connection", action: { _ = feature.duplicate(profile) }))
         items.append(.separator)
         items.append(.action("Remove Connection", role: .destructive, action: {
@@ -802,17 +1070,119 @@ struct DatabaseSidebarView: View {
         return items
     }
 
-    private func refresh(_ profile: DatabaseProfile) {
-        Task { await feature.refresh(profile) }
+    private func presentFolderEditor(folder: DatabaseConnectionFolder? = nil, parentID: UUID? = nil, moving target: DatabaseFolderMoveTarget? = nil) {
+        editingFolder = folder
+        creatingFolderParentID = parentID
+        folderMoveTarget = target
+        showsFolderEditor = true
     }
 
-    private func refreshSelectedConnection() {
-        guard let profile = feature.selectedProfile else { return }
-        refresh(profile)
+    private func presentFolderMove(_ target: DatabaseFolderMoveTarget) {
+        folderMoveTarget = target
+        if feature.folders.isEmpty { presentFolderEditor(moving: target) }
+        else { showsFolderDestination = true }
+    }
+
+    private func folderPath(_ folder: DatabaseConnectionFolder) -> String {
+        // ponytail: Ancestors scan the small saved folder list; index IDs if large trees make menu construction slow.
+        var names = [folder.name], parent = folder.parentID, visited: Set<UUID> = [folder.id]
+        while let id = parent, visited.insert(id).inserted, let ancestor = feature.folders.first(where: { $0.id == id }) {
+            names.insert(ancestor.name, at: 0)
+            parent = ancestor.parentID
+        }
+        return names.joined(separator: "/")
+    }
+
+    private func revealFolder(_ id: UUID?) {
+        var cursor = id, visited: Set<UUID> = []
+        while let id = cursor, visited.insert(id).inserted {
+            collapsedFolderIDs.remove(id)
+            cursor = feature.folders.first(where: { $0.id == id })?.parentID
+        }
+    }
+
+    private func moveToFolder(_ destination: UUID?) {
+        let moved: Bool
+        switch folderMoveTarget {
+        case .connection(let id):
+            guard let profile = feature.profiles.first(where: { $0.id == id }) else { return }
+            moved = feature.move(profile, toFolder: destination)
+        case .folder(let id): moved = feature.moveFolder(id, toParent: destination)
+        case nil: return
+        }
+        if moved {
+            revealFolder(destination)
+            showsFolderDestination = false
+            folderMoveTarget = nil
+        }
+    }
+
+    private var folderDestinationItems: [LitheContextMenuItem] {
+        let destinations = feature.folders.filter { folder in
+            if case .folder(let id) = folderMoveTarget { return feature.canMoveFolder(id, toParent: folder.id) }
+            return true
+        }.sorted { folderPath($0).localizedStandardCompare(folderPath($1)) == .orderedAscending }
+        let canMoveToRoot: Bool
+        if case .folder(let id) = folderMoveTarget { canMoveToRoot = feature.canMoveFolder(id, toParent: nil) }
+        else { canMoveToRoot = true }
+        return [.heading("Move to Folder", centered: true),
+                .action("To Top Level", isEnabled: canMoveToRoot) { moveToFolder(nil) }, .separator]
+            + destinations.map { folder in
+                .action(folderPath(folder), localizesTitle: false) { moveToFolder(folder.id) }
+            }
+            + [.separator, .action("New Folder…") {
+                let target = folderMoveTarget
+                showsFolderDestination = false
+                presentFolderEditor(moving: target)
+            }]
+    }
+
+    private func refresh(_ profile: DatabaseProfile) {
+        Task {
+            if profile.kind == .mysql || profile.kind == .mariadb {
+                await feature.refreshDatabaseTree(for: profile.id)
+            } else {
+                await feature.refresh(profile)
+            }
+        }
+    }
+
+    private func refreshDatabase(_ profile: DatabaseProfile) {
+        Task {
+            if profile.kind == .mysql || profile.kind == .mariadb {
+                await feature.refreshDatabaseTree(for: profile.id, database: profile.database)
+            } else {
+                await feature.refresh(profile)
+            }
+        }
+    }
+
+    private var canRefreshSelection: Bool {
+        if case .folder = treeSelection { return false }
+        return treeSelection != nil || feature.selectedProfile != nil
+    }
+
+    private func refreshSelection() {
+        switch treeSelection {
+        case .connection(let id):
+            if let profile = feature.profiles.first(where: { $0.id == id }) { refresh(profile) }
+        case .database(let path), .objects(let path, _):
+            if let profile = feature.profiles.first(where: { $0.id == path.profileID }) {
+                refreshDatabase(databaseProfile(profile, database: path.database))
+            }
+        case .table(let key):
+            Task { await feature.loadTableTree(key, force: true) }
+        case .folder: break
+        case nil:
+            if let profile = feature.selectedProfile { refresh(profile) }
+        }
     }
 
     private func openSQLQuery(_ profile: DatabaseProfile, sql: String = "") {
-        model.openDatabaseQuery(profileID: profile.id, sql: sql)
+        Task {
+            guard await feature.selectDatabaseContext(profile), model.databaseFeatureIfActive === feature else { return }
+            model.openDatabaseQuery(profileID: profile.id, sql: sql)
+        }
     }
 
     private func copyToPasteboard(_ value: String) {
@@ -829,7 +1199,7 @@ struct DatabaseSidebarView: View {
         if profile.kind != .sqlserver {
             items.append(.action("Import SQL Backup…", isEnabled: !(profile.readOnly), action: {
                 Task {
-                    if feature.selectedProfileID != profile.id { await feature.select(profile) }
+                    guard await feature.selectDatabaseContext(profile) else { return }
                     importFormat = .sql; pendingImportFormat = .sql; showsImporter = true
                 }
             }))
@@ -837,13 +1207,13 @@ struct DatabaseSidebarView: View {
         }
         items.append(.separator)
         items.append(.action("Copy Name", action: { copyToPasteboard(profile.database.isEmpty ? "Default database" : profile.database) }))
-        items.append(.action("Refresh", action: { refresh(profile) }))
+        items.append(.action("Refresh", action: { refreshDatabase(profile) }))
         return items
     }
 
     private func mongoDatabaseContextMenu(_ profile: DatabaseProfile) -> [LitheContextMenuItem] {
         var items: [LitheContextMenuItem] = []
-        items.append(.action("Refresh Collections", action: { refresh(profile) }))
+        items.append(.action("Refresh Collections", action: { refreshDatabase(profile) }))
         items.append(.action("Copy Name", action: { copyToPasteboard(profile.database.isEmpty ? "admin" : profile.database) }))
         return items
     }
@@ -855,7 +1225,7 @@ struct DatabaseSidebarView: View {
         items.append(.separator)
         items.append(.action("Refresh", action: {
             Task {
-                if feature.selectedProfileID != profile.id { await feature.select(profile) }
+                guard await feature.selectDatabaseContext(profile) else { return }
                 await feature.openTable(collection)
             }
         }))
@@ -865,7 +1235,7 @@ struct DatabaseSidebarView: View {
     private func tableGroupContextMenu(_ profile: DatabaseProfile) -> [LitheContextMenuItem] {
         var items: [LitheContextMenuItem] = []
         items.append(.action("New Table", isEnabled: !(profile.readOnly), action: { openSQLQuery(profile, sql: "CREATE TABLE new_table (\n    id INTEGER PRIMARY KEY\n);\n") }))
-        items.append(.action("Refresh", action: { refresh(profile) }))
+        items.append(.action("Refresh", action: { refreshDatabase(profile) }))
         return items
     }
 
@@ -894,9 +1264,11 @@ struct DatabaseSidebarView: View {
 
     private func presentConnectionEditor(
         profile: DatabaseProfile? = nil,
-        defaultFolderID: UUID? = nil
+        defaultFolderID: UUID? = nil,
+        defaultKind: DatabaseKind = .mysql
     ) {
         editingProfile = profile
+        newConnectionKind = defaultKind
         newConnectionFolderID = defaultFolderID
         connectionEditorPresentationID = UUID()
         showsConnectionEditor = true
@@ -927,17 +1299,23 @@ struct DatabaseSidebarView: View {
             showsTableActionConfirmation = true
         }))
         items.append(.separator)
-        items.append(.action("Refresh", action: { refresh(profile) }))
+        items.append(.action("Refresh", action: {
+            Task { await feature.loadTableTree(DatabaseTreeTableKey(profileID: profile.id, database: profile.database, table: table), force: true) }
+        }))
         return items
     }
 
     private func openTable(_ profile: DatabaseProfile, table: String, section: DatabaseWorkspaceSection, sql: String = "") {
-        if section == .sql {
-            model.openDatabaseQuery(profileID: profile.id, sql: sql)
-        } else {
-            model.selectDatabaseWorkspace(profileID: profile.id, table: table)
-            guard model.databaseFeatureIfActive === feature, feature.selectedProfileID == profile.id else { return }
-            feature.workspaceSection = section
+        treeSelection = .table(DatabaseTreeTableKey(profileID: profile.id, database: profile.database, table: table))
+        Task {
+            guard await feature.selectDatabaseContext(profile), model.databaseFeatureIfActive === feature else { return }
+            if section == .sql {
+                model.openDatabaseQuery(profileID: profile.id, sql: sql)
+            } else {
+                model.selectDatabaseWorkspace(profileID: profile.id, table: table)
+                guard feature.selectedProfileID == profile.id else { return }
+                feature.workspaceSection = section
+            }
         }
     }
 
@@ -946,12 +1324,11 @@ struct DatabaseSidebarView: View {
         let sql = action.kind == .clear
             ? "DELETE FROM \(quotedIdentifier(action.table, kind: action.profile.kind));"
             : "DROP TABLE \(quotedIdentifier(action.table, kind: action.profile.kind));"
-        model.openDatabaseQuery(profileID: action.profile.id, sql: sql)
-        guard model.databaseFeatureIfActive === feature, feature.selectedProfileID == action.profile.id else { return }
-        guard let tabID = feature.selectedSQLTabID else { return }
-        model.showToolWindow(.databaseServices)
         Task {
-            guard model.databaseFeatureIfActive === feature, feature.selectedProfileID == action.profile.id else { return }
+            guard await feature.selectDatabaseContext(action.profile), model.databaseFeatureIfActive === feature else { return }
+            model.openDatabaseQuery(profileID: action.profile.id, sql: sql)
+            guard feature.selectedProfileID == action.profile.id, let tabID = feature.selectedSQLTabID else { return }
+            model.showToolWindow(.databaseServices)
             await feature.runSQL(in: tabID, confirmedRisk: true)
             guard model.databaseFeatureIfActive === feature, feature.selectedProfileID == action.profile.id else { return }
             if action.kind == .clear { await feature.openTable(action.table) }
@@ -961,7 +1338,7 @@ struct DatabaseSidebarView: View {
 
     private func beginImport(_ format: DatabaseTransferFormat, profile: DatabaseProfile, table: String?) {
         Task {
-            if feature.selectedProfileID != profile.id { await feature.select(profile) }
+            guard await feature.selectDatabaseContext(profile) else { return }
             if let table { await feature.openTable(table) }
             importFormat = format
             pendingImportFormat = format
@@ -971,7 +1348,7 @@ struct DatabaseSidebarView: View {
 
     private func exportTable(_ profile: DatabaseProfile, table: String, format: DatabaseTransferFormat) {
         Task {
-            if feature.selectedProfileID != profile.id { await feature.select(profile) }
+            guard await feature.selectDatabaseContext(profile) else { return }
             await feature.openTable(table)
             exportFormat = format
             guard let data = await feature.exportData(format: format) else { return }
@@ -982,7 +1359,7 @@ struct DatabaseSidebarView: View {
 
     private func exportDatabase(_ profile: DatabaseProfile) {
         Task {
-            if feature.selectedProfileID != profile.id { await feature.select(profile) }
+            guard await feature.selectDatabaseContext(profile) else { return }
             exportFormat = .sql
             guard let url = await feature.exportDataFile(format: .sql) else { return }
             temporaryExportURL = url
@@ -1074,8 +1451,14 @@ struct DatabaseSidebarView: View {
     }
 
     private func selectProfile(_ profile: DatabaseProfile, expand: Bool) {
-        if expand { expandedProfileIDs = [profile.id] }
-        model.selectDatabaseWorkspace(profileID: profile.id, refresh: true)
+        treeSelection = .connection(profile.id)
+        if expand {
+            expandedProfileIDs.insert(profile.id)
+            if profile.kind == .mysql || profile.kind == .mariadb {
+                Task { await feature.loadDatabaseTree(for: profile.id) }
+            }
+        }
+        model.selectDatabaseWorkspace(profileID: profile.id, refresh: feature.selectedProfileID != profile.id)
     }
 
     private func toggleProfile(_ profile: DatabaseProfile) {
@@ -1083,15 +1466,20 @@ struct DatabaseSidebarView: View {
             expandedProfileIDs.remove(profile.id)
         } else {
             expandedProfileIDs.insert(profile.id)
-            selectProfile(profile, expand: true)
+            if profile.kind == .mysql || profile.kind == .mariadb {
+                Task { await feature.loadDatabaseTree(for: profile.id) }
+            } else {
+                selectProfile(profile, expand: true)
+            }
         }
     }
 
     private func collapseAll() {
         collapsedFolderIDs = Set(feature.folders.map(\.id))
         expandedProfileIDs.removeAll()
-        collapsedObjectKinds = Set(DatabaseObjectKind.allCases)
-        expandedTableKey = nil
+        collapsedObjectKinds.removeAll()
+        expandedDatabasePaths.removeAll()
+        expandedTableKeys.removeAll()
     }
 
     private var searchQuery: String {
@@ -1488,98 +1876,206 @@ extension Color {
     }
 }
 
+private struct DatabaseSchemaSelector: View {
+    @EnvironmentObject private var feature: DatabaseFeatureModel
+    let profileID: UUID
+    let names: [String]
+    @Binding var selection: [String]?
+    let onApply: () -> Void
+    @State private var query = ""
+    @State private var selectedRow: String?
+    @FocusState private var searchFocused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Spacer()
+                Button {
+                    Task { await feature.loadDatabaseTree(for: profileID, force: true) }
+                } label: {
+                    LitheIDEAIcon(resourcePath: "expui/general/refresh.svg", size: LitheTheme.Tree.iconSize, preservesOriginalColors: true)
+                }
+                .litheToolbarIconButton()
+                .accessibilityLabel("Refresh")
+                .workbenchHoverHelp(Text("Refresh"))
+            }
+            .padding(.horizontal, LitheDropdownMetrics.popupPadding)
+            .frame(height: LitheTheme.Metrics.toolbarHeight)
+            Rectangle().fill(LitheTheme.divider).frame(height: 1)
+            // Keep the native editor mounted for the shared host's type-to-search/IME routing.
+            LitheSearchTextField("Search databases", text: $query)
+                .focused($searchFocused)
+                .litheSearchField(isFocused: searchFocused)
+                .padding(.horizontal, LitheTheme.Tree.horizontalInset)
+                .frame(height: searchFocused || !query.isEmpty ? LitheTheme.Tree.rowHeight : 0)
+                .clipped()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    schemaRow(title: Text("All schemas"), name: nil, isOn: selection == nil) {
+                        selection = selection == nil ? [] : nil
+                    }
+                    Rectangle().fill(LitheTheme.divider).frame(height: 1)
+                        .padding(.leading, LitheTheme.Tree.indent)
+                    ForEach(names.filter { query.isEmpty || $0.localizedStandardContains(query) }, id: \.self) { name in
+                        schemaRow(title: Text(verbatim: name), name: name, isOn: selection?.contains(name) ?? true) {
+                            var selected = Set(selection ?? names)
+                            if selected.contains(name) { selected.remove(name) } else { selected.insert(name) }
+                            selection = names.filter { selected.contains($0) }
+                        }
+                    }
+                }
+                .padding(.horizontal, LitheTheme.Tree.horizontalInset)
+                .padding(.vertical, LitheTheme.Tree.verticalInset)
+            }
+            .litheScrollViewChrome()
+            // Use the shared tall-list viewport; the popup host bounds it to the available screen.
+            .frame(height: LitheDropdownMetrics.historyViewportHeight)
+            Text("Press Enter or click outside the list to apply")
+                // Community Popup.Advertiser: regular UI font minus 1pt, 8/12 insets.
+                .font(LitheTheme.uiFont(size: 12))
+                .foregroundStyle(LitheTheme.Tree.secondaryText)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, LitheTheme.Tree.horizontalInset)
+                .padding(.vertical, LitheDropdownMetrics.itemHorizontalPadding)
+                .background(LitheTheme.popupBackground)
+        }
+        .background(LitheTheme.sidebar)
+        .frame(width: LitheDropdownMetrics.maximumWidth)
+        .environment(\.lithePointingHandCursorEnabled, false)
+        .onSubmit(onApply)
+        .litheDropdownKeyHandler { event in
+            guard event.modifierFlags.intersection([.command, .control, .option]).isEmpty,
+                  event.keyCode == 36 || event.keyCode == 76 else { return false }
+            onApply()
+            return true
+        }
+    }
+
+    private func schemaRow(title: Text, name: String?, isOn: Bool, action: @escaping () -> Void) -> some View {
+        LitheTreeCheckbox(state: isOn ? .on : .off, accessibilityTitle: "", title: title) {
+            selectedRow = name ?? ""
+            action()
+        }
+        // CheckboxTree hides the root but reserves its handle, using the shared tree indent.
+        .padding(.leading, LitheTheme.Tree.indent)
+        .litheTreeRow(isSelected: selectedRow == (name ?? ""), isFocused: true)
+    }
+}
+
 private struct DatabaseFolderEditor: View {
     @EnvironmentObject private var feature: DatabaseFeatureModel
     @Binding var isPresented: Bool
     let folder: DatabaseConnectionFolder?
     let parentID: UUID?
-    @State private var name = ""
+    let moveTarget: DatabaseFolderMoveTarget?
+    let onSaved: () -> Void
     @State private var validationMessage: String?
-    @FocusState private var nameFocused: Bool
 
-    init(isPresented: Binding<Bool>, folder: DatabaseConnectionFolder?, parentID: UUID? = nil) {
-        _isPresented = isPresented
-        self.folder = folder
-        self.parentID = parentID
-        _name = State(initialValue: folder?.name ?? "")
+    var body: some View {
+        LitheNamePopup(title: folder == nil ? "New Folder" : "Rename Folder", initialName: folder?.name ?? "",
+                       validationMessage: validationMessage, onSubmit: save, onCancel: { isPresented = false })
+    }
+
+    private func save(_ name: String) {
+        let didSave: Bool
+        if let folder { didSave = feature.renameFolder(folder, to: name) }
+        else {
+            switch moveTarget {
+            case .connection(let id): didSave = feature.createFolder(name: name, parentID: parentID, movingProfileID: id)
+            case .folder(let id): didSave = feature.createFolder(name: name, parentID: parentID, movingFolderID: id)
+            case nil: didSave = feature.createFolder(name: name, parentID: parentID)
+            }
+        }
+        if didSave { isPresented = false; onSaved() }
+        else { validationMessage = feature.errorMessage }
+    }
+}
+
+/// Content layout follows the supplied Database Tools reference; that plugin is not in Community.
+/// Community c7f91397 supplies BalloonImpl geometry and LafManagerImpl's locale-aware fonts.
+struct DatabaseConnectionResultView: View {
+    @Environment(\.locale) private var locale
+    let summary: String
+    let pointerX: CGFloat
+    var onCopy: () -> Void = {}
+    @State private var copyHovered = false
+
+    private func font(bold: Bool = false) -> Font {
+        // LafManagerImpl.shouldFallbackToSystemFont: CJK uses the macOS LaF (Helvetica Neue, 13).
+        let cjk = ["zh", "ja", "ko"].contains(locale.language.languageCode?.identifier ?? "")
+        return .custom(cjk ? (bold ? "HelveticaNeue-Bold" : "HelveticaNeue") : (bold ? "Inter-Bold" : "Inter-Regular"), size: 13)
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            Text(folder == nil ? "Keep connections organized in the sidebar." : "Update the folder name without changing its connections.")
-                .font(LitheTheme.uiFont(size: 13))
-                .foregroundStyle(LitheTheme.secondaryText)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(16)
-            Rectangle().fill(LitheTheme.divider).frame(height: 1)
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    LabeledContent {
-                        TextField("", text: $name)
-                            .accessibilityLabel("Folder name")
-                            .focused($nameFocused)
-                            .modifier(LitheCommitDialogInputStyle(focused: nameFocused))
-                            .frame(width: 200)
-                    } label: {
-                        Text("Folder name")
-                            .frame(width: 150, alignment: .leading)
-                    }
-                        .onSubmit(save)
-                    if let validationMessage {
-                        DatabaseLocalization.error(validationMessage)
-                            .font(LitheTheme.uiFont(size: 10.5))
-                            .foregroundStyle(LitheTheme.error)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-                .padding(16)
-            }
-
-            Rectangle().fill(LitheTheme.divider).frame(height: 1)
-            HStack(spacing: LitheTheme.ActionButton.spacing) {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Connection successful")
+                    .font(font(bold: true))
+                    .foregroundStyle(LitheTheme.DatabaseConnectionResult.success)
                 Spacer()
-                Button("Cancel") { isPresented = false }
-                    .buttonStyle(LitheActionButtonStyle())
-                    .keyboardShortcut(.cancelAction)
-                Button(folder == nil ? "Create folder" : "Save folder") { save() }
-                    .buttonStyle(LitheActionButtonStyle(isPrimary: true))
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                Button("Copy") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(summary, forType: .string)
+                    onCopy()
+                }
+                .buttonStyle(.litheNoPress)
+                .foregroundStyle(LitheTheme.accent)
+                .lithePointer()
+                .underline(copyHovered)
+                .onHover { copyHovered = $0 }
             }
-            .padding(.horizontal, 16)
-            .frame(height: 58)
-            .background(LitheCommitDialogStyle.background)
+            Text(summary).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
         }
-        .task { nameFocused = true }
-        .frame(width: 390, height: 240)
-        .background(LitheCommitDialogStyle.background)
+        .font(font())
+        .foregroundStyle(LitheTheme.DatabaseConnectionResult.foreground)
+        .padding(16)
+        .frame(width: 728, alignment: .leading)
+        .padding(.bottom, 10)
+        .background(DatabaseConnectionResultOutline(pointerX: pointerX).fill(LitheTheme.DatabaseConnectionResult.background))
+        .overlay(DatabaseConnectionResultOutline(pointerX: pointerX).stroke(LitheTheme.DatabaseConnectionResult.border, lineWidth: 1).allowsHitTesting(false))
     }
+}
 
-    private func save() {
-        let didSave: Bool
-        if let folder {
-            didSave = feature.renameFolder(folder, to: name)
-        } else {
-            didSave = feature.createFolder(name: name, parentID: parentID)
-        }
-        if didSave {
-            isPresented = false
-        } else {
-            validationMessage = feature.errorMessage
+/// BalloonImpl: non-dialog ARC=4, TOPBOTTOM_POINTER_WIDTH=14, TOPBOTTOM_POINTER_LENGTH=10.
+private struct DatabaseConnectionResultOutline: Shape {
+    let pointerX: CGFloat
+
+    func path(in bounds: CGRect) -> Path {
+        // BalloonImpl.Shaper uses integer edges, with the far edge at size - 1.
+        // A half-point inset instead makes the outer stroke heavier on the pixel grid.
+        let rect = CGRect(x: bounds.minX, y: bounds.minY, width: bounds.width - 1, height: bounds.height - 1)
+        let bottom = rect.maxY - 10
+        let x = min(max(pointerX, rect.minX + 11), rect.maxX - 11)
+        return Path { path in
+            path.move(to: CGPoint(x: rect.minX + 4, y: rect.minY))
+            path.addLine(to: CGPoint(x: rect.maxX - 4, y: rect.minY))
+            path.addQuadCurve(to: CGPoint(x: rect.maxX, y: rect.minY + 4), control: CGPoint(x: rect.maxX, y: rect.minY))
+            path.addLine(to: CGPoint(x: rect.maxX, y: bottom - 4))
+            path.addQuadCurve(to: CGPoint(x: rect.maxX - 4, y: bottom), control: CGPoint(x: rect.maxX, y: bottom))
+            path.addLine(to: CGPoint(x: x + 7, y: bottom))
+            path.addLine(to: CGPoint(x: x, y: rect.maxY))
+            path.addLine(to: CGPoint(x: x - 7, y: bottom))
+            path.addLine(to: CGPoint(x: rect.minX + 4, y: bottom))
+            path.addQuadCurve(to: CGPoint(x: rect.minX, y: bottom - 4), control: CGPoint(x: rect.minX, y: bottom))
+            path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + 4))
+            path.addQuadCurve(to: CGPoint(x: rect.minX + 4, y: rect.minY), control: CGPoint(x: rect.minX, y: rect.minY))
+            path.closeSubpath()
         }
     }
 }
 
 struct DatabaseConnectionEditor: View {
     @EnvironmentObject private var feature: DatabaseFeatureModel
+    @Environment(\.locale) private var locale
     @Binding var isPresented: Bool
     @State private var name = ""
+    @State private var usesDefaultName = true
     @State private var kind = DatabaseKind.mysql
     @State private var host = "127.0.0.1"
     @State private var port = "3306"
-    @State private var username = "root"
+    @State private var username = ""
     @State private var password = ""
+    @State private var passwordPersistence: DatabasePasswordPersistence = .forever
     @State private var database = ""
     @State private var path = ""
     @State private var ssl = false
@@ -1597,8 +2093,15 @@ struct DatabaseConnectionEditor: View {
     @State private var sshKeyPath = ""
     @State private var sshLocalPort = ""
     @State private var proxyURL = ""
-    @State private var safetyExpanded = false
-    @State private var networkExpanded = false
+    private enum Section: String, CaseIterable { case general = "General", network = "SSH / TLS", safety = "Safety and Labels" }
+    @State private var section: Section = .general
+    @State private var draftID = UUID()
+    @State private var testTask: Task<Void, Never>?
+    @State private var isTesting = false
+    @State private var testSucceeded = false
+    @State private var showsTestResult = false
+    @State private var testDurationMilliseconds = 0
+    @State private var testError: String?
     @State private var usesSSHTunnel = false
     @State private var hasSavedPassword = false
     @State private var isConnecting = false
@@ -1606,14 +2109,16 @@ struct DatabaseConnectionEditor: View {
 
     private let profile: DatabaseProfile?
 
-    init(isPresented: Binding<Bool>, profile: DatabaseProfile? = nil, defaultFolderID: UUID? = nil) {
+    init(isPresented: Binding<Bool>, profile: DatabaseProfile? = nil, defaultFolderID: UUID? = nil, defaultKind: DatabaseKind = .mysql) {
         _isPresented = isPresented
         self.profile = profile
         _name = State(initialValue: profile?.name ?? "")
-        _kind = State(initialValue: profile?.kind ?? .mysql)
+        _usesDefaultName = State(initialValue: profile == nil)
+        _kind = State(initialValue: profile?.kind ?? defaultKind)
         _host = State(initialValue: profile?.host ?? "127.0.0.1")
         _port = State(initialValue: String(profile?.port ?? 3306))
-        _username = State(initialValue: profile?.username ?? "root")
+        _passwordPersistence = State(initialValue: profile?.passwordPersistence ?? .forever)
+        _username = State(initialValue: profile?.username ?? "")
         _database = State(initialValue: profile?.database ?? "")
         _path = State(initialValue: profile?.path ?? "")
         _ssl = State(initialValue: profile?.ssl ?? false)
@@ -1636,156 +2141,271 @@ struct DatabaseConnectionEditor: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Text("Configure connection and safety options.")
-                .font(LitheTheme.uiFont(size: 13))
-                .foregroundStyle(LitheTheme.secondaryText)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(16)
-            Rectangle().fill(LitheTheme.divider).frame(height: 1)
-            ScrollView {
-                Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 12) {
+            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 12) {
                     GridRow {
                         Text("Name")
                             .frame(width: 140, alignment: .leading)
-                        TextField("", text: $name)
+                        TextField("", text: Binding(get: { connectionName }, set: { name = $0; usesDefaultName = false }))
                             .accessibilityLabel("Name")
                             .focused($focusedField, equals: "name")
-                            .modifier(LitheCommitDialogInputStyle(focused: focusedField == "name"))
+                            .litheSettingsTextField()
                             .frame(maxWidth: .infinity)
                     }
-                    GridRow {
-                        Text("Engine")
-                            .frame(width: 140, alignment: .leading)
-                        LitheSettingsSelect(selection: $kind, options: DatabaseKind.allCases, width: 496, accessibilityLabel: "Engine", title: { $0.displayName })
+            }.padding(16)
+            HStack(spacing: 6) {
+                ForEach(Section.allCases, id: \.self) { item in
+                    Button { focusedField = nil; section = item } label: {
+                        Text(LocalizedStringKey(item.rawValue)).font(LitheTheme.uiFont(size: 13)).padding(.horizontal, 10)
                     }
+                    .buttonStyle(.litheNoPress)
+                    .modifier(LitheToolWindowTabStyle(isSelected: section == item, isActive: true))
+                    .accessibilityAddTraits(section == item ? .isSelected : [])
+                }
+                Spacer()
+            }.padding(.horizontal, 16).padding(.bottom, 8)
+            Rectangle().fill(LitheTheme.divider).frame(height: 1)
+            ScrollView {
+                Group {
+                    switch section {
+                    case .general:
+                        Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 12) {
+                            GridRow {
+                                Text("Engine")
+                                    .frame(width: 140, alignment: .leading)
+                                LitheSettingsSelect(selection: $kind, options: DatabaseKind.allCases, width: 576, accessibilityLabel: "Engine", title: { $0.displayName })
+                            }
 
-                    if kind == .sqlite {
-                        GridRow {
-                            Text("Database file path")
-                                .frame(width: 140, alignment: .leading)
-                            TextField("", text: $path)
-                                .accessibilityLabel("Database file path")
-                                .focused($focusedField, equals: "path")
-                                .modifier(LitheCommitDialogInputStyle(focused: focusedField == "path"))
-                                .frame(maxWidth: .infinity)
-                        }
-                    } else {
-                        GridRow {
-                            Text(kind == .mongodb ? "Host or MongoDB URI" : "Host")
-                                .frame(width: 140, alignment: .leading)
-                            HStack(spacing: 12) {
-                                TextField("", text: $host)
-                                    .accessibilityLabel(kind == .mongodb ? "Host or MongoDB URI" : "Host")
-                                    .focused($focusedField, equals: "host")
-                                    .modifier(LitheCommitDialogInputStyle(focused: focusedField == "host"))
-                                    .frame(maxWidth: .infinity)
-                                Text("Port")
-                                TextField("", text: $port)
-                                    .accessibilityLabel("Port")
-                                    .focused($focusedField, equals: "port")
-                                    .modifier(LitheCommitDialogInputStyle(focused: focusedField == "port"))
-                                    .frame(width: 90)
-                            }
-                        }
-                        GridRow {
-                            Text(kind == .nacos || kind == .mongodb ? "Username (optional)" : (kind == .redis ? "Username / ACL user (optional)" : "Username"))
-                                .frame(width: 140, alignment: .leading)
-                            TextField("", text: $username)
-                                .accessibilityLabel(kind == .nacos || kind == .mongodb ? "Username (optional)" : (kind == .redis ? "Username / ACL user (optional)" : "Username"))
-                                .focused($focusedField, equals: "username")
-                                .modifier(LitheCommitDialogInputStyle(focused: focusedField == "username"))
-                                .frame(maxWidth: .infinity)
-                        }
-                        GridRow {
-                            Text(profile == nil ? "Password" : (hasSavedPassword ? "Password (leave blank to keep current)" : "Password (no saved password)"))
-                                .frame(width: 140, alignment: .leading)
-                            SecureField("", text: $password)
-                                .accessibilityLabel("Password")
-                                .focused($focusedField, equals: "password")
-                                .modifier(LitheCommitDialogInputStyle(focused: focusedField == "password"))
-                                .frame(maxWidth: .infinity)
-                        }
-                        if kind == .redis {
-                            GridRow {
-                                Text("Redis database index")
-                                    .frame(width: 140, alignment: .leading)
-                                TextField("", text: $database)
-                                    .accessibilityLabel("Redis database index")
-                                    .focused($focusedField, equals: "database")
-                                    .modifier(LitheCommitDialogInputStyle(focused: focusedField == "database"))
-                                    .frame(maxWidth: .infinity)
-                            }
-                                .onChange(of: database) { value in
-                                    let digitsOnly = value.filter(\.isNumber)
-                                    if digitsOnly != value { database = digitsOnly }
-                                }
-                            if let redisDatabaseValidationMessage {
+                            if kind == .sqlite {
                                 GridRow {
-                                    Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
-                                    Text(redisDatabaseValidationMessage)
-                                        .font(LitheTheme.uiFont(size: 10.5))
-                                        .foregroundStyle(LitheTheme.error)
-                                        .gridCellUnsizedAxes(.horizontal)
+                                    Text("Database file path")
+                                        .frame(width: 140, alignment: .leading)
+                                    TextField("", text: $path)
+                                        .accessibilityLabel("Database file path")
+                                        .focused($focusedField, equals: "path")
+                                        .litheSettingsTextField()
+                                        .frame(maxWidth: .infinity)
+                                }
+                            } else {
+                                GridRow {
+                                    Text(kind == .mongodb ? "Host or MongoDB URI" : "Host")
+                                        .frame(width: 140, alignment: .leading)
+                                    HStack(spacing: 12) {
+                                        TextField("", text: $host)
+                                            .accessibilityLabel(kind == .mongodb ? "Host or MongoDB URI" : "Host")
+                                            .focused($focusedField, equals: "host")
+                                            .litheSettingsTextField()
+                                            .frame(maxWidth: .infinity)
+                                        Text("Port").frame(width: 42, alignment: .trailing)
+                                        TextField("", text: $port)
+                                            .accessibilityLabel("Port")
+                                            .focused($focusedField, equals: "port")
+                                            .litheSettingsTextField()
+                                            .frame(width: 140)
+                                    }
+                                }
+                                GridRow {
+                                    Text(kind == .nacos || kind == .mongodb ? "Username (optional)" : (kind == .redis ? "Username / ACL user (optional)" : "Username"))
+                                        .frame(width: 140, alignment: .leading)
+                                    HStack(spacing: 12) {
+                                        TextField("", text: $username)
+                                            .accessibilityLabel(kind == .nacos || kind == .mongodb ? "Username (optional)" : (kind == .redis ? "Username / ACL user (optional)" : "Username"))
+                                            .focused($focusedField, equals: "username")
+                                            .litheSettingsTextField()
+                                            .frame(maxWidth: .infinity)
+                                        HStack(spacing: 12) {
+                                            Text("Port").frame(width: 42, alignment: .trailing)
+                                            Color.clear.frame(width: 140, height: SettingsSelectMetrics.controlHeight)
+                                        }.hidden().accessibilityHidden(true)
+                                    }
+                                }
+                                GridRow {
+                                    Text(profile == nil ? "Password" : (hasSavedPassword ? "Password (leave blank to keep current)" : "Password (no saved password)"))
+                                        .frame(width: 140, alignment: .leading)
+                                    HStack(spacing: 12) {
+                                        SecureField("", text: $password)
+                                            .accessibilityLabel("Password")
+                                            .focused($focusedField, equals: "password")
+                                            .litheSettingsTextField()
+                                            .frame(maxWidth: .infinity)
+                                        HStack(spacing: 12) {
+                                            Text("Save:").frame(width: 42, alignment: .trailing)
+                                            LitheSettingsSelect(selection: $passwordPersistence, options: DatabasePasswordPersistence.allCases, width: 140, accessibilityLabel: "Save password", title: {
+                                                let key = $0 == .forever ? "Forever" : "Until restart"
+                                                return AppLanguage(rawValue: locale.identifier)?.localizedString(key) ?? key
+                                            })
+                                        }
+                                    }
+                                }
+                                if kind == .redis {
+                                    GridRow {
+                                        Text("Redis database index")
+                                            .frame(width: 140, alignment: .leading)
+                                        TextField("", text: $database)
+                                            .accessibilityLabel("Redis database index")
+                                            .focused($focusedField, equals: "database")
+                                            .litheSettingsTextField()
+                                            .frame(maxWidth: .infinity)
+                                    }
+                                        .onChange(of: database) { value in
+                                            let digitsOnly = value.filter(\.isNumber)
+                                            if digitsOnly != value { database = digitsOnly }
+                                        }
+                                    if let redisDatabaseValidationMessage {
+                                        GridRow {
+                                            Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
+                                            Text(redisDatabaseValidationMessage)
+                                                .font(LitheTheme.uiFont(size: 10.5))
+                                                .foregroundStyle(LitheTheme.error)
+                                                .gridCellUnsizedAxes(.horizontal)
+                                        }
+                                    }
+                                    GridRow {
+                                        Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
+                                        Text("Leave the database index at 0 for the standard Redis database.")
+                                            .font(LitheTheme.uiFont(size: 10.5))
+                                            .foregroundStyle(LitheTheme.secondaryText)
+                                            .gridCellUnsizedAxes(.horizontal)
+                                    }
+                                } else if kind == .nacos {
+                                    GridRow {
+                                        Text("Namespace ID (optional)")
+                                            .frame(width: 140, alignment: .leading)
+                                        TextField("", text: $database)
+                                            .accessibilityLabel("Namespace ID (optional)")
+                                            .focused($focusedField, equals: "database")
+                                            .litheSettingsTextField()
+                                            .frame(maxWidth: .infinity)
+                                    }
+                                    GridRow {
+                                        Text("API context path")
+                                            .frame(width: 140, alignment: .leading)
+                                        TextField("", text: $path)
+                                            .accessibilityLabel("API context path")
+                                            .focused($focusedField, equals: "path")
+                                            .litheSettingsTextField()
+                                            .frame(maxWidth: .infinity)
+                                    }
+                                    GridRow {
+                                        Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
+                                        Text("Use /nacos for a standard Nacos server, or / for a reverse proxy at its root.")
+                                            .font(LitheTheme.uiFont(size: 10.5))
+                                            .foregroundStyle(LitheTheme.secondaryText)
+                                            .gridCellUnsizedAxes(.horizontal)
+                                    }
+                                } else {
+                                    GridRow {
+                                        Text("Database name")
+                                            .frame(width: 140, alignment: .leading)
+                                        TextField("", text: $database)
+                                            .accessibilityLabel("Database name")
+                                            .focused($focusedField, equals: "database")
+                                            .litheSettingsTextField()
+                                            .frame(maxWidth: .infinity)
+                                    }
+                                }
+                            }
+                        }
+                    case .network:
+                        Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 12) {
+                            if kind != .sqlite {
+                                GridRow {
+                                    Text("Use TLS")
+                                        .frame(width: 140, alignment: .leading)
+                                    Toggle("Use TLS", isOn: $ssl)
+                                        .labelsHidden()
+                                        .toggleStyle(.switch)
+                                }
+                            }
+                            if ssl {
+                                GridRow {
+                                    Text("TLS CA certificate path")
+                                        .frame(width: 140, alignment: .leading)
+                                    TextField("", text: $caCertificatePath)
+                                        .accessibilityLabel("TLS CA certificate path")
+                                        .focused($focusedField, equals: "caCertificatePath")
+                                        .litheSettingsTextField()
+                                        .frame(maxWidth: .infinity)
+                                }
+                                GridRow {
+                                    Text("TLS server name")
+                                        .frame(width: 140, alignment: .leading)
+                                    TextField("", text: $serverName)
+                                        .accessibilityLabel("TLS server name")
+                                        .focused($focusedField, equals: "serverName")
+                                        .litheSettingsTextField()
+                                        .frame(maxWidth: .infinity)
                                 }
                             }
                             GridRow {
-                                Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
-                                Text("Leave the database index at 0 for the standard Redis database.")
-                                    .font(LitheTheme.uiFont(size: 10.5))
-                                    .foregroundStyle(LitheTheme.secondaryText)
-                                    .gridCellUnsizedAxes(.horizontal)
-                            }
-                        } else if kind == .nacos {
-                            GridRow {
-                                Text("Namespace ID (optional)")
+                                Text("Use SSH tunnel")
                                     .frame(width: 140, alignment: .leading)
-                                TextField("", text: $database)
-                                    .accessibilityLabel("Namespace ID (optional)")
-                                    .focused($focusedField, equals: "database")
-                                    .modifier(LitheCommitDialogInputStyle(focused: focusedField == "database"))
-                                    .frame(maxWidth: .infinity)
+                                Toggle("Use SSH tunnel", isOn: $usesSSHTunnel)
+                                    .labelsHidden()
+                                    .toggleStyle(.switch)
                             }
-                            GridRow {
-                                Text("API context path")
-                                    .frame(width: 140, alignment: .leading)
-                                TextField("", text: $path)
-                                    .accessibilityLabel("API context path")
-                                    .focused($focusedField, equals: "path")
-                                    .modifier(LitheCommitDialogInputStyle(focused: focusedField == "path"))
-                                    .frame(maxWidth: .infinity)
-                            }
-                            GridRow {
-                                Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
-                                Text("Use /nacos for a standard Nacos server, or / for a reverse proxy at its root.")
-                                    .font(LitheTheme.uiFont(size: 10.5))
-                                    .foregroundStyle(LitheTheme.secondaryText)
-                                    .gridCellUnsizedAxes(.horizontal)
-                            }
-                        } else {
-                            GridRow {
-                                Text("Database name")
-                                    .frame(width: 140, alignment: .leading)
-                                TextField("", text: $database)
-                                    .accessibilityLabel("Database name")
-                                    .focused($focusedField, equals: "database")
-                                    .modifier(LitheCommitDialogInputStyle(focused: focusedField == "database"))
-                                    .frame(maxWidth: .infinity)
+                            if usesSSHTunnel {
+                                GridRow {
+                                    Text("SSH host")
+                                        .frame(width: 140, alignment: .leading)
+                                    TextField("", text: $sshHost)
+                                        .accessibilityLabel("SSH host")
+                                        .focused($focusedField, equals: "sshHost")
+                                        .litheSettingsTextField()
+                                        .frame(maxWidth: .infinity)
+                                }
+                                GridRow {
+                                    Text("SSH port")
+                                        .frame(width: 140, alignment: .leading)
+                                    TextField("", text: $sshPort)
+                                        .accessibilityLabel("SSH port")
+                                        .focused($focusedField, equals: "sshPort")
+                                        .litheSettingsTextField()
+                                        .frame(maxWidth: .infinity)
+                                }
+                                GridRow {
+                                    Text("SSH username")
+                                        .frame(width: 140, alignment: .leading)
+                                    TextField("", text: $sshUsername)
+                                        .accessibilityLabel("SSH username")
+                                        .focused($focusedField, equals: "sshUsername")
+                                        .litheSettingsTextField()
+                                        .frame(maxWidth: .infinity)
+                                }
+                                GridRow {
+                                    Text("SSH key path")
+                                        .frame(width: 140, alignment: .leading)
+                                    TextField("", text: $sshKeyPath)
+                                        .accessibilityLabel("SSH key path")
+                                        .focused($focusedField, equals: "sshKeyPath")
+                                        .litheSettingsTextField()
+                                        .frame(maxWidth: .infinity)
+                                }
+                                GridRow {
+                                    Text("SSH local port")
+                                        .frame(width: 140, alignment: .leading)
+                                    TextField("", text: $sshLocalPort)
+                                        .accessibilityLabel("SSH local port")
+                                        .focused($focusedField, equals: "sshLocalPort")
+                                        .litheSettingsTextField()
+                                        .frame(maxWidth: .infinity)
+                                }
+                                GridRow {
+                                    Text("Proxy URL (optional)")
+                                        .frame(width: 140, alignment: .leading)
+                                    TextField("", text: $proxyURL)
+                                        .accessibilityLabel("Proxy URL (optional)")
+                                        .focused($focusedField, equals: "proxyURL")
+                                        .litheSettingsTextField()
+                                        .frame(maxWidth: .infinity)
+                                }
                             }
                         }
-                        GridRow {
-                            Text("Use TLS")
-                                .frame(width: 140, alignment: .leading)
-                            Toggle("Use TLS", isOn: $ssl)
-                                .labelsHidden()
-                                .toggleStyle(.switch)
-                        }
-                    }
-                    DisclosureGroup(isExpanded: $safetyExpanded) {
+                    case .safety:
                         Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 12) {
                             GridRow {
                                 Text("Folder")
                                     .frame(width: 140, alignment: .leading)
-                                LitheSettingsSelect(selection: $folderID, options: [UUID?.none] + feature.folders.map { Optional($0.id) }, width: 496, accessibilityLabel: "Folder", title: { id in feature.folders.first { $0.id == id }?.name ?? String(localized: "No folder") })
+                                LitheSettingsSelect(selection: $folderID, options: [UUID?.none] + feature.folders.map { Optional($0.id) }, width: 576, accessibilityLabel: "Folder", title: { id in feature.folders.first { $0.id == id }?.name ?? String(localized: "No folder") })
                             }
                             GridRow {
                                 Text("Color hex (optional)")
@@ -1793,7 +2413,7 @@ struct DatabaseConnectionEditor: View {
                                 TextField("", text: $colorHex)
                                     .accessibilityLabel("Color hex (optional)")
                                     .focused($focusedField, equals: "colorHex")
-                                    .modifier(LitheCommitDialogInputStyle(focused: focusedField == "colorHex"))
+                                    .litheSettingsTextField()
                                     .frame(maxWidth: .infinity)
                             }
                             GridRow {
@@ -1824,116 +2444,49 @@ struct DatabaseConnectionEditor: View {
                                     TextField("", text: $sensitiveColumnPatterns)
                                         .accessibilityLabel("Sensitive column patterns")
                                         .focused($focusedField, equals: "sensitiveColumnPatterns")
-                                        .modifier(LitheCommitDialogInputStyle(focused: focusedField == "sensitiveColumnPatterns"))
+                                        .litheSettingsTextField()
                                         .frame(maxWidth: .infinity)
                                 }
                             }
                         }
-                    } label: {
-                        Text("Safety")
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .contentShape(Rectangle())
-                            .onTapGesture { safetyExpanded.toggle() }
                     }
-                    DisclosureGroup(isExpanded: $networkExpanded) {
-                        Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 12) {
-                            if ssl {
-                                GridRow {
-                                    Text("TLS CA certificate path")
-                                        .frame(width: 140, alignment: .leading)
-                                    TextField("", text: $caCertificatePath)
-                                        .accessibilityLabel("TLS CA certificate path")
-                                        .focused($focusedField, equals: "caCertificatePath")
-                                        .modifier(LitheCommitDialogInputStyle(focused: focusedField == "caCertificatePath"))
-                                        .frame(maxWidth: .infinity)
-                                }
-                                GridRow {
-                                    Text("TLS server name")
-                                        .frame(width: 140, alignment: .leading)
-                                    TextField("", text: $serverName)
-                                        .accessibilityLabel("TLS server name")
-                                        .focused($focusedField, equals: "serverName")
-                                        .modifier(LitheCommitDialogInputStyle(focused: focusedField == "serverName"))
-                                        .frame(maxWidth: .infinity)
-                                }
-                            }
-                            GridRow {
-                                Text("Use SSH tunnel")
-                                    .frame(width: 140, alignment: .leading)
-                                Toggle("Use SSH tunnel", isOn: $usesSSHTunnel)
-                                    .labelsHidden()
-                                    .toggleStyle(.switch)
-                            }
-                            if usesSSHTunnel {
-                                GridRow {
-                                    Text("SSH host")
-                                        .frame(width: 140, alignment: .leading)
-                                    TextField("", text: $sshHost)
-                                        .accessibilityLabel("SSH host")
-                                        .focused($focusedField, equals: "sshHost")
-                                        .modifier(LitheCommitDialogInputStyle(focused: focusedField == "sshHost"))
-                                        .frame(maxWidth: .infinity)
-                                }
-                                GridRow {
-                                    Text("SSH port")
-                                        .frame(width: 140, alignment: .leading)
-                                    TextField("", text: $sshPort)
-                                        .accessibilityLabel("SSH port")
-                                        .focused($focusedField, equals: "sshPort")
-                                        .modifier(LitheCommitDialogInputStyle(focused: focusedField == "sshPort"))
-                                        .frame(maxWidth: .infinity)
-                                }
-                                GridRow {
-                                    Text("SSH username")
-                                        .frame(width: 140, alignment: .leading)
-                                    TextField("", text: $sshUsername)
-                                        .accessibilityLabel("SSH username")
-                                        .focused($focusedField, equals: "sshUsername")
-                                        .modifier(LitheCommitDialogInputStyle(focused: focusedField == "sshUsername"))
-                                        .frame(maxWidth: .infinity)
-                                }
-                                GridRow {
-                                    Text("SSH key path")
-                                        .frame(width: 140, alignment: .leading)
-                                    TextField("", text: $sshKeyPath)
-                                        .accessibilityLabel("SSH key path")
-                                        .focused($focusedField, equals: "sshKeyPath")
-                                        .modifier(LitheCommitDialogInputStyle(focused: focusedField == "sshKeyPath"))
-                                        .frame(maxWidth: .infinity)
-                                }
-                                GridRow {
-                                    Text("SSH local port")
-                                        .frame(width: 140, alignment: .leading)
-                                    TextField("", text: $sshLocalPort)
-                                        .accessibilityLabel("SSH local port")
-                                        .focused($focusedField, equals: "sshLocalPort")
-                                        .modifier(LitheCommitDialogInputStyle(focused: focusedField == "sshLocalPort"))
-                                        .frame(maxWidth: .infinity)
-                                }
-                                GridRow {
-                                    Text("Proxy URL (optional)")
-                                        .frame(width: 140, alignment: .leading)
-                                    TextField("", text: $proxyURL)
-                                        .accessibilityLabel("Proxy URL (optional)")
-                                        .focused($focusedField, equals: "proxyURL")
-                                        .modifier(LitheCommitDialogInputStyle(focused: focusedField == "proxyURL"))
-                                        .frame(maxWidth: .infinity)
-                                }
-                            }
-                        }
-                    } label: {
-                        Text("Advanced network")
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .contentShape(Rectangle())
-                            .onTapGesture { networkExpanded.toggle() }
-                    }
-                .padding(.top, 2)
-                }
-                .padding(16)
+                }.frame(maxWidth: .infinity, alignment: .leading).padding(16)
             }
             if let error = feature.errorMessage { DatabaseLocalization.error(error).font(LitheTheme.uiFont(size: 11)).foregroundStyle(LitheTheme.error).padding(.horizontal, 16) }
+            if isTesting || testError != nil {
+                HStack {
+                    if let testError { DatabaseLocalization.error(testError).foregroundStyle(LitheTheme.error) }
+                    else { Text("Testing connection…").foregroundStyle(LitheTheme.secondaryText) }
+                    Spacer(minLength: 0)
+                }.font(LitheTheme.uiFont(size: 11)).padding(.horizontal, 16).padding(.bottom, 8)
+            }
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
             HStack(spacing: LitheTheme.ActionButton.spacing) {
+                HStack(spacing: LitheTheme.ActionButton.spacing) {
+                    Button("Test Connection") { testConnection() }
+                        .buttonStyle(LitheBannerActionStyle(linkColor: LitheTheme.accent))
+                        .disabled(!canTestConnection || isTesting || isConnecting)
+                    if testSucceeded {
+                        Button { showsTestResult.toggle() } label: {
+                            HStack(spacing: 6) {
+                                LitheIDEAIcon(resourcePath: "expui/general/greenCheckmark.svg", size: 16, preservesOriginalColors: true)
+                                Text(kind.displayName).foregroundStyle(LitheTheme.secondaryText)
+                            }
+                        }
+                        .buttonStyle(.litheNoPress)
+                        .accessibilityLabel("Connection test result")
+                    }
+                }
+                    .overlay {
+                        if showsTestResult {
+                            GeometryReader { anchor in
+                                // Community BalloonPopupBuilderImpl defaults to a 500ms alpha animation.
+                                LitheDropdownPopover(opensUpward: true, contentProvidesSurface: true, fadeInDuration: 0.5, isPresented: $showsTestResult) {
+                                    DatabaseConnectionResultView(summary: connectionTestSummary, pointerX: anchor.size.width / 2, onCopy: { showsTestResult = false })
+                                }
+                            }
+                        }
+                    }
                 Spacer()
                 Button("Cancel") { cancel() }
                     .buttonStyle(LitheActionButtonStyle())
@@ -1948,7 +2501,7 @@ struct DatabaseConnectionEditor: View {
                 }
                     .buttonStyle(LitheActionButtonStyle(isPrimary: true))
                     .keyboardShortcut(.defaultAction)
-                    .disabled(name.isEmpty || (kind == .sqlite ? path.isEmpty : host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) || redisDatabaseValidationMessage != nil || isConnecting)
+                    .disabled(connectionName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !canTestConnection || isConnecting || isTesting)
             }
             .padding(.horizontal, 16)
             .frame(height: 58)
@@ -1956,26 +2509,99 @@ struct DatabaseConnectionEditor: View {
         }
         .onChange(of: kind) { newKind in
             guard profile == nil else { return }
-            switch newKind {
-            case .mysql: port = "3306"; username = "root"; database = ""; path = ""
-            case .mariadb: port = "3306"; username = "root"; database = ""; path = ""
-            case .postgresql: port = "5432"; username = "postgres"; database = ""; path = ""
-            case .sqlite: path = ""; database = ""
-            case .sqlserver: port = "1433"; username = "sa"; database = "master"; path = ""
-            case .mongodb: port = "27017"; username = ""; database = "admin"; path = ""
-            case .redis: port = "6379"; username = ""; database = "0"; path = ""
-            case .nacos: port = "8848"; username = ""; database = ""; path = "/nacos"
-            }
+            applyNewConnectionDefaults(kind)
         }
         .task { focusedField = "name" }
         .onAppear {
             feature.errorMessage = nil
             if let profile {
                 hasSavedPassword = feature.hasSavedPassword(for: profile)
+            } else {
+                applyNewConnectionDefaults(kind)
             }
         }
-        .onDisappear { feature.errorMessage = nil }
-        .frame(width: 680, height: safetyExpanded || networkExpanded ? 640 : (kind == .sqlite ? 360 : (kind == .nacos ? 580 : 520))).background(LitheCommitDialogStyle.background)
+        .onChange(of: candidate) { _ in cancelConnectionTest() }
+        .onChange(of: password) { _ in cancelConnectionTest() }
+        .onDisappear { cancelConnectionTest(); feature.errorMessage = nil }
+        .frame(width: 760, height: 580).background(LitheCommitDialogStyle.background)
+    }
+
+    private func applyNewConnectionDefaults(_ kind: DatabaseKind) {
+        switch kind {
+        case .mysql: port = "3306"; username = ""; database = ""; path = ""
+        case .mariadb: port = "3306"; username = ""; database = ""; path = ""
+        case .postgresql: port = "5432"; username = ""; database = ""; path = ""
+        case .sqlite: path = ""; database = ""
+        case .sqlserver: port = "1433"; username = ""; database = "master"; path = ""
+        case .mongodb: port = "27017"; username = ""; database = "admin"; path = ""
+        case .redis: port = "6379"; username = ""; database = "0"; path = ""
+        case .nacos: port = "8848"; username = ""; database = ""; path = "/nacos"
+        }
+    }
+
+    private var connectionName: String {
+        usesDefaultName ? Self.defaultConnectionName(kind: kind, host: host, database: database, path: path) : name
+    }
+
+    static func defaultConnectionName(kind: DatabaseKind, host: String, database: String, path: String) -> String {
+        if kind == .sqlite {
+            let file = (path.trimmingCharacters(in: .whitespacesAndNewlines) as NSString).lastPathComponent
+            return file.isEmpty ? kind.displayName : file
+        }
+        var hostname = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        // MongoDB accepts a URI in Host. Never copy URI credentials or query parameters into a display name.
+        if hostname.contains("://") { hostname = URLComponents(string: hostname)?.host ?? "" }
+        guard !hostname.isEmpty else { return kind.displayName }
+        return "\(database.trimmingCharacters(in: .whitespacesAndNewlines))@\(hostname)"
+    }
+
+    private var candidate: DatabaseProfile {
+        var candidate = DatabaseProfile(id: profile?.id ?? draftID, name: connectionName, kind: kind, host: host, port: UInt16(port) ?? 0, username: username, database: database, path: path, ssl: ssl, group: "", folderID: folderID, colorHex: colorHex, readOnly: readOnly, productionProtection: productionProtection, maskSensitiveFields: maskSensitiveFields, sensitiveColumnPatterns: sensitiveColumnPatterns.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }, caCertificatePath: ssl ? caCertificatePath : "", serverName: ssl ? serverName : "", sshHost: usesSSHTunnel ? sshHost : "", sshPort: usesSSHTunnel ? (UInt16(sshPort) ?? 22) : 0, sshUsername: usesSSHTunnel ? sshUsername : "", sshKeyPath: usesSSHTunnel ? sshKeyPath : "", sshLocalPort: usesSSHTunnel ? (UInt16(sshLocalPort) ?? 0) : 0, proxyURL: usesSSHTunnel ? proxyURL : "")
+        candidate.passwordPersistence = passwordPersistence
+        candidate.visibleDatabases = profile?.visibleDatabases
+        return candidate
+    }
+
+    private var canTestConnection: Bool {
+        (kind == .sqlite ? !path.isEmpty : !host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            && redisDatabaseValidationMessage == nil
+    }
+
+    private var connectionTestSummary: String {
+        "DBMS: \(kind.displayName)\n\n" + String(format: AppLanguage(rawValue: locale.identifier)?.localizedString("Connection test duration: %lld ms") ?? String(localized: "Connection test duration: %lld ms", locale: locale), locale: locale, Int64(testDurationMilliseconds))
+    }
+
+    private func cancelConnectionTest() {
+        testTask?.cancel()
+        testTask = nil
+        isTesting = false
+        testSucceeded = false
+        showsTestResult = false
+        testError = nil
+    }
+
+    private func testConnection() {
+        guard canTestConnection, !isTesting, !isConnecting else { return }
+        cancelConnectionTest()
+        isTesting = true
+        let candidate = candidate
+        let testPassword: String? = profile != nil && password.isEmpty ? nil : password
+        let started = ContinuousClock.now
+        testTask = Task {
+            do {
+                try await feature.testConnection(candidate, password: testPassword)
+                guard !Task.isCancelled else { return }
+                let elapsed = started.duration(to: .now).components
+                testDurationMilliseconds = Int(elapsed.seconds * 1_000 + elapsed.attoseconds / 1_000_000_000_000_000)
+                testSucceeded = true
+                showsTestResult = true
+            } catch {
+                guard !Task.isCancelled else { return }
+                testError = error.localizedDescription
+            }
+            isTesting = false
+            testTask = nil
+        }
     }
 
     private func cancel() {
@@ -1984,13 +2610,14 @@ struct DatabaseConnectionEditor: View {
     }
 
     private func connect() {
-        guard !isConnecting else { return }
+        guard !isConnecting, !isTesting else { return }
         if let redisDatabaseValidationMessage {
             feature.errorMessage = redisDatabaseValidationMessage
             return
         }
-        let candidate = DatabaseProfile(id: profile?.id ?? UUID(), name: name, kind: kind, host: host, port: UInt16(port) ?? 0, username: username, database: database, path: path, ssl: ssl, group: "", folderID: folderID, colorHex: colorHex, readOnly: readOnly, productionProtection: productionProtection, maskSensitiveFields: maskSensitiveFields, sensitiveColumnPatterns: sensitiveColumnPatterns.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }, caCertificatePath: ssl ? caCertificatePath : "", serverName: ssl ? serverName : "", sshHost: usesSSHTunnel ? sshHost : "", sshPort: usesSSHTunnel ? (UInt16(sshPort) ?? 22) : 0, sshUsername: usesSSHTunnel ? sshUsername : "", sshKeyPath: usesSSHTunnel ? sshKeyPath : "", sshLocalPort: usesSSHTunnel ? (UInt16(sshLocalPort) ?? 0) : 0, proxyURL: usesSSHTunnel ? proxyURL : "")
         isConnecting = true
+        let candidate = candidate
+        let password = password
         Task {
             defer { isConnecting = false }
             let saved = if profile == nil {

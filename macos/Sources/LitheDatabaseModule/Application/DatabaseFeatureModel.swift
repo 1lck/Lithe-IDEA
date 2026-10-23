@@ -26,6 +26,53 @@ package enum DatabaseConnectionStatus: Equatable, Sendable {
     }
 }
 
+package enum DatabaseTreeLoadState: Equatable, Sendable {
+    case idle, loading, ready
+    case failed(String)
+}
+
+package struct DatabaseTreeDatabase: Sendable {
+    package var state: DatabaseTreeLoadState = .idle
+    package var tables: [String] = []
+    package var objects: [DatabaseObjectKind: [DatabaseRow]] = [:]
+    var requestID = UUID()
+
+    package init(state: DatabaseTreeLoadState = .idle, tables: [String] = [], objects: [DatabaseObjectKind: [DatabaseRow]] = [:]) {
+        self.state = state
+        self.tables = tables
+        self.objects = objects
+    }
+}
+
+package struct DatabaseConnectionTree: Sendable {
+    package var state: DatabaseTreeLoadState = .idle
+    package var names: [String] = []
+    package var databases: [String: DatabaseTreeDatabase] = [:]
+    var requestID = UUID()
+
+    package init() {}
+}
+
+package struct DatabaseTreeTableKey: Hashable, Sendable {
+    package let profileID: UUID
+    package let database: String
+    package let table: String
+    package init(profileID: UUID, database: String, table: String) {
+        self.profileID = profileID
+        self.database = database
+        self.table = table
+    }
+}
+
+package struct DatabaseTreeTable: Sendable {
+    package var state: DatabaseTreeLoadState = .idle
+    package var columns: [DatabaseRow] = []
+    package var indexes: [DatabaseRow] = []
+    package var foreignKeys: [DatabaseRow] = []
+    package var requestID = UUID()
+    package init() {}
+}
+
 @MainActor
 package final class DatabaseFeatureModel: ObservableObject {
     @Published package private(set) var profiles: [DatabaseProfile]
@@ -33,6 +80,11 @@ package final class DatabaseFeatureModel: ObservableObject {
     @Published package var selectedProfileID: UUID?
     @Published package private(set) var tables: [String] = []
     @Published package private(set) var databaseOptions: [String] = []
+    // Navigation caches are independent of the active editor; never persist credentials or rows here.
+    @Published package private(set) var databaseTrees: [UUID: DatabaseConnectionTree] = [:]
+    @Published private var treeRequests: Set<UUID> = []
+    @Published package private(set) var tableTrees: [DatabaseTreeTableKey: DatabaseTreeTable] = [:]
+    private var tableMetadataTasks: [DatabaseTreeTableKey: Task<DatabaseTreeTable, Error>] = [:]
     @Published package var selectedTable: String? {
         didSet { if selectedTable != oldValue { tableRequestID = nil; discardTableEdits() } }
     }
@@ -149,6 +201,7 @@ package final class DatabaseFeatureModel: ObservableObject {
 
     package var hasActiveModuleWork: Bool {
         isLoading
+            || !treeRequests.isEmpty
             || !applyingTableProfileGenerations.isEmpty
             || !runningSQLTabs.isEmpty
             || backupProgress != nil
@@ -162,6 +215,11 @@ package final class DatabaseFeatureModel: ObservableObject {
         for task in scheduledBackupTasks.values { task.cancel() }
         scheduledBackupTasks.removeAll()
         workspaceSelections.removeAll()
+        databaseTrees.removeAll()
+        tableTrees.removeAll()
+        for task in tableMetadataTasks.values { task.cancel() }
+        tableMetadataTasks.removeAll()
+        treeRequests.removeAll()
         tableListRequestID = nil
         databaseListRequestID = nil
         tableRequestID = nil
@@ -185,6 +243,21 @@ package final class DatabaseFeatureModel: ObservableObject {
         connectionStore.hasPassword(for: profile.id)
     }
 
+    /// Probe the draft without persisting credentials, changing selection, or publishing connection status.
+    package func testConnection(_ profile: DatabaseProfile, password: String?) async throws {
+        try Task.checkCancellation()
+        let generation = profileGeneration
+        let connection = connection(profile, password: password)
+        let task = Task.detached { [operations] in try operations.testConnection(connection) }
+        try await withTaskCancellationHandler {
+            try await task.value
+            try Task.checkCancellation()
+            guard profileGeneration == generation else { throw CancellationError() }
+        } onCancel: {
+            task.cancel()
+        }
+    }
+
     private func save(_ profile: DatabaseProfile, password: String?) async -> Bool {
         let generation = profileGeneration
         let tracksUI = selectedProfileID == profile.id
@@ -200,13 +273,17 @@ package final class DatabaseFeatureModel: ObservableObject {
             try await Task.detached { [operations] in try operations.testConnection(connection) }.value
             let previousProfiles = profiles
             var updated = previousProfiles.filter { $0.id != profile.id }; updated.append(profile)
-            if let password { try connectionStore.savePassword(password, for: profile.id) }
+            let previousPersistence = previousProfiles.first { $0.id == profile.id }?.passwordPersistence ?? .forever
+            let changesPassword = password != nil || previousPersistence != profile.passwordPersistence
+            if changesPassword {
+                try connectionStore.savePassword(password ?? previousPassword, for: profile.id, persistence: profile.passwordPersistence)
+            }
             do {
                 try connectionStore.save(updated)
             } catch {
-                if password != nil {
+                if changesPassword {
                     if hadPreviousPassword {
-                        try? connectionStore.savePassword(previousPassword, for: profile.id)
+                        try? connectionStore.savePassword(previousPassword, for: profile.id, persistence: previousPersistence)
                     } else {
                         try? connectionStore.deletePassword(for: profile.id)
                     }
@@ -214,6 +291,7 @@ package final class DatabaseFeatureModel: ObservableObject {
                 throw error
             }
             profiles = sortedProfiles(updated)
+            invalidateDatabaseTree(for: profile.id)
             setConnectionStatus(.connected, for: profile.id)
             guard profileGeneration == generation else { return true }
             guard selectedProfileID == profile.id else { return true }
@@ -240,6 +318,7 @@ package final class DatabaseFeatureModel: ObservableObject {
             let updated = profiles.filter { $0.id != profile.id }
             try connectionStore.save(updated); try connectionStore.deletePassword(for: profile.id); try connectionStore.deleteSQLHistory(for: profile.id); try connectionStore.deleteBackupSchedule(for: profile.id); try recoveryStore.deleteExecutionEvents(for: profile.id)
             profiles = updated
+            invalidateDatabaseTree(for: profile.id)
             workspaceSelections.removeValue(forKey: profile.id)
             connectionStatuses.removeValue(forKey: profile.id)
             sqlHistory.removeAll { $0.profileID == profile.id }
@@ -253,27 +332,78 @@ package final class DatabaseFeatureModel: ObservableObject {
         } catch { errorMessage = error.localizedDescription; return false }
     }
 
-    package func createFolder(name: String, parentID: UUID? = nil) -> Bool {
-        let normalized = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalized.isEmpty else {
-            errorMessage = "Folder name is required."
-            return false
-        }
+    package func createFolder(name: String, parentID: UUID? = nil, movingProfileID: UUID? = nil, movingFolderID: UUID? = nil) -> Bool {
+        let components = name.split(separator: "/", omittingEmptySubsequences: false).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        guard !components.isEmpty, !components.contains(where: \.isEmpty) else { errorMessage = "Folder name is required."; return false }
         guard parentID == nil || folders.contains(where: { $0.id == parentID }),
-              !folders.contains(where: { $0.parentID == parentID && $0.name.caseInsensitiveCompare(normalized) == .orderedSame }) else {
-            errorMessage = "A folder with this name already exists."
-            return false
+              movingProfileID == nil || profiles.contains(where: { $0.id == movingProfileID }),
+              movingProfileID == nil || movingFolderID == nil else {
+            errorMessage = "The selected connection folder no longer exists."; return false
+        }
+        var updatedFolders = folders
+        var destination = parentID
+        for (index, component) in components.enumerated() {
+            if let existing = updatedFolders.first(where: { $0.parentID == destination && $0.name.caseInsensitiveCompare(component) == .orderedSame }) {
+                guard index < components.count - 1 else { errorMessage = "A folder with this name already exists."; return false }
+                destination = existing.id
+            } else {
+                let folder = DatabaseConnectionFolder(name: component, parentID: destination)
+                updatedFolders.append(folder)
+                destination = folder.id
+            }
+        }
+        if let movingFolderID {
+            guard folderMoveAllowed(movingFolderID, toParent: destination, in: updatedFolders),
+                  let index = updatedFolders.firstIndex(where: { $0.id == movingFolderID }) else {
+                errorMessage = "The selected folder cannot be moved there."; return false
+            }
+            updatedFolders[index].parentID = destination
+        }
+        var updatedProfiles = profiles
+        if let movingProfileID, let index = updatedProfiles.firstIndex(where: { $0.id == movingProfileID }) {
+            updatedProfiles[index].folderID = destination
+            updatedProfiles[index].group = ""
         }
         do {
-            var updated = folders
-            updated.append(DatabaseConnectionFolder(name: normalized, parentID: parentID))
+            if movingProfileID != nil { try connectionStore.saveOrganization(profiles: updatedProfiles, folders: updatedFolders) }
+            else { try connectionStore.saveFolders(updatedFolders) }
+            folders = sortedFolders(updatedFolders)
+            profiles = sortedProfiles(updatedProfiles)
+            errorMessage = nil
+            return true
+        } catch { errorMessage = error.localizedDescription; return false }
+    }
+
+    package func canMoveFolder(_ id: UUID, toParent parentID: UUID?) -> Bool {
+        folderMoveAllowed(id, toParent: parentID, in: folders)
+    }
+
+    private func folderMoveAllowed(_ id: UUID, toParent parentID: UUID?, in candidates: [DatabaseConnectionFolder]) -> Bool {
+        guard let folder = candidates.first(where: { $0.id == id }),
+              parentID == nil || candidates.contains(where: { $0.id == parentID }),
+              !candidates.contains(where: { $0.id != id && $0.parentID == parentID && $0.name.caseInsensitiveCompare(folder.name) == .orderedSame }) else { return false }
+        // ponytail: Parent scans are bounded by the saved folder count; use an ID index for large folder catalogs.
+        var cursor = parentID, visited: Set<UUID> = []
+        while let current = cursor {
+            guard current != id, visited.insert(current).inserted else { return false }
+            cursor = candidates.first(where: { $0.id == current })?.parentID
+        }
+        return true
+    }
+
+    @discardableResult
+    package func moveFolder(_ id: UUID, toParent parentID: UUID?) -> Bool {
+        guard canMoveFolder(id, toParent: parentID), let index = folders.firstIndex(where: { $0.id == id }) else {
+            errorMessage = "The selected folder cannot be moved there."; return false
+        }
+        var updated = folders
+        updated[index].parentID = parentID
+        do {
             try connectionStore.saveFolders(updated)
             folders = sortedFolders(updated)
+            errorMessage = nil
             return true
-        } catch {
-            errorMessage = error.localizedDescription
-            return false
-        }
+        } catch { errorMessage = error.localizedDescription; return false }
     }
 
     package func renameFolder(_ folder: DatabaseConnectionFolder, to name: String) -> Bool {
@@ -324,20 +454,24 @@ package final class DatabaseFeatureModel: ObservableObject {
         }
     }
 
-    package func move(_ profile: DatabaseProfile, toFolder folderID: UUID?) {
+    @discardableResult
+    package func move(_ profile: DatabaseProfile, toFolder folderID: UUID?) -> Bool {
         guard folderID == nil || folders.contains(where: { $0.id == folderID }) else {
             errorMessage = "The selected connection folder no longer exists."
-            return
+            return false
         }
         do {
             var updated = profiles
-            guard let index = updated.firstIndex(where: { $0.id == profile.id }) else { return }
+            guard let index = updated.firstIndex(where: { $0.id == profile.id }) else { return false }
             updated[index].folderID = folderID
             updated[index].group = ""
             try connectionStore.save(updated)
             profiles = sortedProfiles(updated)
+            errorMessage = nil
+            return true
         } catch {
             errorMessage = error.localizedDescription
+            return false
         }
     }
 
@@ -394,6 +528,7 @@ package final class DatabaseFeatureModel: ObservableObject {
     }
 
     package func disconnect(_ profile: DatabaseProfile) {
+        invalidateDatabaseTree(for: profile.id)
         setConnectionStatus(.idle, for: profile.id)
         if selectedProfileID == profile.id {
             clearProfileScopedState()
@@ -412,6 +547,7 @@ package final class DatabaseFeatureModel: ObservableObject {
             sshUsername: profile.sshUsername, sshKeyPath: profile.sshKeyPath, sshLocalPort: profile.sshLocalPort,
             proxyURL: profile.proxyURL
         )
+        copy.passwordPersistence = profile.passwordPersistence
         do {
             var updated = profiles
             updated.append(copy)
@@ -431,8 +567,223 @@ package final class DatabaseFeatureModel: ObservableObject {
     package func select(_ profile: DatabaseProfile) async {
         activateProfile(profile)
         if profile.kind.supportsDataGrid {
-            await refreshTables()
+            await refreshTables(invalidateMetadata: false)
         }
+    }
+
+    package func visibleDatabaseNames(for profileID: UUID) -> [String] {
+        let names = databaseTrees[profileID]?.names ?? []
+        guard let selection = profiles.first(where: { $0.id == profileID })?.visibleDatabases else { return names }
+        let selected = Set(selection)
+        return names.filter { selected.contains($0) }
+    }
+
+    /// A tree scope change saves preferences only; it must not reconnect or navigate the editor.
+    @discardableResult
+    package func setVisibleDatabases(_ names: [String]?, for profileID: UUID) -> Bool {
+        guard let index = profiles.firstIndex(where: { $0.id == profileID }),
+              profiles[index].kind == .mysql || profiles[index].kind == .mariadb,
+              databaseTrees[profileID]?.state == .ready,
+              Set(names ?? []).isSubset(of: Set(databaseTrees[profileID]?.names ?? [])) else {
+            errorMessage = "The database selection is no longer available. Refresh and try again."
+            return false
+        }
+        do {
+            var updated = profiles
+            updated[index].visibleDatabases = names.map { Array(Set($0)).sorted() }
+            try connectionStore.save(updated)
+            profiles = updated
+            let visible = Set(visibleDatabaseNames(for: profileID))
+            databaseTrees[profileID]?.databases = databaseTrees[profileID]?.databases.filter { visible.contains($0.key) } ?? [:]
+            for key in tableTrees.keys.filter({ $0.profileID == profileID && !visible.contains($0.database) }) {
+                tableTrees.removeValue(forKey: key)
+                tableMetadataTasks.removeValue(forKey: key)?.cancel()
+            }
+            errorMessage = nil
+            return true
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
+    }
+
+    /// Expanding a connection inspects only its accessible database names, without moving the editor.
+    package func loadDatabaseTree(for profileID: UUID, force: Bool = false) async {
+        guard let profile = profiles.first(where: { $0.id == profileID }),
+              profile.kind == .mysql || profile.kind == .mariadb else { return }
+        var tree = databaseTrees[profileID] ?? DatabaseConnectionTree()
+        guard tree.state != .loading, force || tree.state != .ready else { return }
+        tree.state = .loading
+        tree.requestID = UUID()
+        let requestID = tree.requestID
+        treeRequests.insert(requestID)
+        defer { treeRequests.remove(requestID) }
+        databaseTrees[profileID] = tree
+        setConnectionStatus(.connecting, for: profileID)
+        let connection = await tableConnection(profile, database: profile.database)
+        do {
+            let names = try await Task.detached { [operations] in
+                try operations.listDatabases(connection: connection)
+            }.value
+            guard databaseTrees[profileID]?.requestID == requestID else { return }
+            databaseTrees[profileID]?.names = Array(Set(names)).sorted()
+            databaseTrees[profileID]?.databases = databaseTrees[profileID]?.databases.filter { names.contains($0.key) } ?? [:]
+            for key in tableTrees.keys.filter({ $0.profileID == profileID && !names.contains($0.database) }) {
+                tableTrees.removeValue(forKey: key)
+                tableMetadataTasks.removeValue(forKey: key)?.cancel()
+            }
+            databaseTrees[profileID]?.state = .ready
+            setConnectionStatus(.connected, for: profileID)
+        } catch {
+            guard databaseTrees[profileID]?.requestID == requestID else { return }
+            databaseTrees[profileID]?.state = .failed(executionError(error))
+            setConnectionStatus(.failed, for: profileID)
+        }
+    }
+
+    /// Each expanded database owns its request token, including after navigation or disconnect.
+    package func loadDatabaseTree(_ database: String, for profileID: UUID, force: Bool = false) async {
+        guard let profile = profiles.first(where: { $0.id == profileID }),
+              databaseTrees[profileID]?.names.contains(database) == true else { return }
+        var snapshot = databaseTrees[profileID]?.databases[database] ?? DatabaseTreeDatabase()
+        guard snapshot.state != .loading, force || snapshot.state != .ready else { return }
+        snapshot.state = .loading
+        snapshot.requestID = UUID()
+        let requestID = snapshot.requestID
+        treeRequests.insert(requestID)
+        defer { treeRequests.remove(requestID) }
+        databaseTrees[profileID]?.databases[database] = snapshot
+        let target = await tableConnection(profile, database: database)
+        do {
+            let rows = try await Task.detached { [operations] in
+                try operations.listTables(connection: target, schema: "")
+            }.value
+            let objects = try await loadObjects(connection: target)
+            guard databaseTrees[profileID]?.databases[database]?.requestID == requestID else { return }
+            let tables = rows.compactMap { $0["table_name"]?.text ?? $0["TABLE_NAME"]?.text ?? $0["name"]?.text }
+            databaseTrees[profileID]?.databases[database] = DatabaseTreeDatabase(state: .ready, tables: tables, objects: objects)
+            for key in tableTrees.keys.filter({ $0.profileID == profileID && $0.database == database && !tables.contains($0.table) }) {
+                tableTrees.removeValue(forKey: key)
+                tableMetadataTasks.removeValue(forKey: key)?.cancel()
+            }
+        } catch {
+            guard databaseTrees[profileID]?.databases[database]?.requestID == requestID else { return }
+            databaseTrees[profileID]?.databases[database]?.state = .failed(executionError(error))
+        }
+    }
+
+    /// Refresh only inspected structure; row data and the active editor remain unchanged.
+    package func refreshDatabaseTree(for profileID: UUID, database: String? = nil, force: Bool = false) async {
+        guard let profile = profiles.first(where: { $0.id == profileID }),
+              profile.kind == .mysql || profile.kind == .mariadb else { return }
+        let tables = tableTrees.keys.filter { $0.profileID == profileID && (database == nil || $0.database == database) }
+        let databases = database.map { [$0] } ?? Set(Array((databaseTrees[profileID]?.databases ?? [:]).keys) + tables.map(\.database)).sorted()
+        if force { invalidateDatabaseTree(for: profileID) }
+        if database == nil || force { await loadDatabaseTree(for: profileID, force: true) }
+        guard databaseTrees[profileID]?.state == .ready else { return }
+        let visible = Set(visibleDatabaseNames(for: profileID))
+        for name in databases where database != nil || visible.contains(name) {
+            await loadDatabaseTree(name, for: profileID, force: true)
+        }
+        for key in tables {
+            guard database != nil || visible.contains(key.database) else { continue }
+            guard databaseTrees[profileID]?.databases[key.database]?.state == .ready,
+                  databaseTrees[profileID]?.databases[key.database]?.tables.contains(key.table) == true else { continue }
+            await loadTableTree(key, force: true)
+        }
+    }
+
+    private func invalidateDatabaseTree(for profileID: UUID) {
+        databaseTrees.removeValue(forKey: profileID)
+        for key in tableTrees.keys.filter({ $0.profileID == profileID }) {
+            tableTrees.removeValue(forKey: key)
+            tableMetadataTasks.removeValue(forKey: key)?.cancel()
+        }
+    }
+
+    package func loadTableTree(_ key: DatabaseTreeTableKey, force: Bool = false) async {
+        guard let profile = profiles.first(where: { $0.id == key.profileID }) else { return }
+        do { _ = try await tableMetadata(key, profile: profile, force: force) }
+        catch {
+            // The node owns the failed state and Retry action; do not replace an unrelated editor error.
+        }
+    }
+
+    private func tableConnection(_ profile: DatabaseProfile, database: String) async -> DatabaseConnection {
+        var target = connection(profile, password: "")
+        target.database = database
+        let base = target
+        // Keychain access is synchronous too; keep it off the UI actor along with database I/O.
+        return await Task.detached { [connectionStore] in
+            var target = base
+            target.password = connectionStore.password(for: profile.id)
+            return target
+        }.value
+    }
+
+    private func tableMetadata(_ key: DatabaseTreeTableKey, profile: DatabaseProfile, force: Bool = false) async throws -> DatabaseTreeTable {
+        if let task = tableMetadataTasks[key] { return try await task.value }
+        if !force, let cached = tableTrees[key], cached.state == .ready { return cached }
+        var snapshot = tableTrees[key] ?? DatabaseTreeTable()
+        snapshot.state = .loading
+        snapshot.requestID = UUID()
+        let requestID = snapshot.requestID
+        tableTrees[key] = snapshot
+        treeRequests.insert(requestID)
+        // Each key owns one worker. Collapsing its view does not cancel another consumer's request.
+        let base = connection(profile, password: "")
+        let task = Task.detached { [operations, connectionStore] in
+            var connection = base
+            connection.database = key.database
+            connection.password = connectionStore.password(for: key.profileID)
+            let target = connection
+            async let columns = Task.detached { try operations.describeTable(connection: target, schema: "", table: key.table) }.value
+            async let indexes = Task.detached { try operations.listIndexes(connection: target, schema: "", table: key.table) }.value
+            async let foreignKeys = Task.detached { try operations.listForeignKeys(connection: target, schema: "", table: key.table) }.value
+            let loaded = try await (columns, indexes, foreignKeys)
+            var result = DatabaseTreeTable()
+            result.state = .ready
+            result.columns = loaded.0
+            result.indexes = loaded.1
+            result.foreignKeys = loaded.2
+            result.requestID = requestID
+            return result
+        }
+        tableMetadataTasks[key] = task
+        defer {
+            treeRequests.remove(requestID)
+            if tableTrees[key]?.requestID == requestID { tableMetadataTasks.removeValue(forKey: key) }
+        }
+        do {
+            let loaded = try await task.value
+            if tableTrees[key]?.requestID == requestID { tableTrees[key] = loaded }
+            return loaded
+        } catch {
+            if tableTrees[key]?.requestID == requestID { tableTrees[key]?.state = .failed(executionError(error)) }
+            throw error
+        }
+    }
+
+    /// Resolve a tree action against its database before invoking existing editor or mutation actions.
+    package func selectDatabaseContext(_ profile: DatabaseProfile) async -> Bool {
+        guard let current = profiles.first(where: { $0.id == profile.id }) else { return false }
+        if current.kind == .mysql || current.kind == .mariadb {
+            if current.database == profile.database {
+                if selectedProfileID != profile.id { await select(current) }
+                return selectedProfileID == profile.id
+            }
+            await loadDatabaseTree(for: profile.id)
+            guard databaseTrees[profile.id]?.names.contains(profile.database) == true else {
+                errorMessage = "The selected database is no longer accessible. Refresh the connection."
+                return false
+            }
+            if selectedProfileID != profile.id { activateProfile(current) }
+            databaseOptions = databaseTrees[profile.id]?.names ?? []
+            await selectDatabase(profile.database, for: current)
+            return selectedProfileID == profile.id && selectedProfile?.database == profile.database
+        }
+        if selectedProfileID != profile.id { await select(current) }
+        return selectedProfileID == profile.id
     }
 
     // Refreshing a background connection must not navigate the active editor.
@@ -456,7 +807,7 @@ package final class DatabaseFeatureModel: ObservableObject {
         }
     }
 
-    package func refreshTables() async {
+    package func refreshTables(invalidateMetadata: Bool = true) async {
         if let id = selectedProfileID, let applyingGeneration = applyingTableProfileGenerations[id] {
             // Returning to a connection needs a fresh load after its older write releases the lock.
             if applyingGeneration != profileGeneration { deferredTableRefreshProfileIDs.insert(id) }
@@ -471,6 +822,11 @@ package final class DatabaseFeatureModel: ObservableObject {
             tables = []
             databaseOptions = []
             return
+        }
+        if invalidateMetadata {
+            for key in tableTrees.keys.filter({ $0.profileID == profile.id && $0.database == profile.database }) {
+                if tableMetadataTasks[key] == nil { tableTrees.removeValue(forKey: key) }
+            }
         }
         let generation = profileGeneration
         let requestID = UUID()
@@ -492,6 +848,18 @@ package final class DatabaseFeatureModel: ObservableObject {
                 }.value
                 guard isCurrent(profileID: profile.id, generation: generation), tableListRequestID == requestID, databaseListRequestID == databaseRequestID else { return }
                 databaseOptions = databaseRows
+                var tree = databaseTrees[profile.id] ?? DatabaseConnectionTree()
+                tree.names = Array(Set(databaseRows)).sorted()
+                tree.databases = tree.databases.filter { databaseRows.contains($0.key) }
+                if tree.state != .loading { tree.state = .ready }
+                databaseTrees[profile.id] = tree
+                // A server connection need not choose a default database just to browse its tree.
+                if profile.database.isEmpty {
+                    objects = [:]
+                    setConnectionStatus(.connected, for: profile.id)
+                    isLoading = false
+                    return
+                }
             } else {
                 databaseOptions = []
             }
@@ -505,6 +873,18 @@ package final class DatabaseFeatureModel: ObservableObject {
                 await refreshObjects(profileID: profile.id, generation: generation, tableRequestID: requestID, databaseRequestID: databaseRequestID)
             }
             guard isCurrent(profileID: profile.id, generation: generation), tableListRequestID == requestID, databaseListRequestID == databaseRequestID else { return }
+            if profile.kind == .mysql || profile.kind == .mariadb {
+                var tree = databaseTrees[profile.id] ?? DatabaseConnectionTree()
+                tree.names = Array(Set(databaseOptions)).sorted()
+                tree.databases = tree.databases.filter { databaseOptions.contains($0.key) }
+                if tree.state != .loading { tree.state = .ready }
+                if !profile.database.isEmpty, databaseOptions.contains(profile.database) {
+                    tree.databases[profile.database] = DatabaseTreeDatabase(
+                        state: errorMessage.map { .failed($0) } ?? .ready, tables: tables, objects: objects
+                    )
+                }
+                databaseTrees[profile.id] = tree
+            }
             if let tableToRefresh, selectedTable == tableToRefresh {
                 if tables.contains(tableToRefresh) {
                     // Keep the original row/key snapshot while edits are pending, including
@@ -566,7 +946,7 @@ package final class DatabaseFeatureModel: ObservableObject {
             selectedTable = nil
             profiles = sortedProfiles(updated)
             activateProfile(updatedProfile)
-            await refreshTables()
+            await refreshTables(invalidateMetadata: false)
         } catch {
             errorMessage = executionError(error)
         }
@@ -579,16 +959,7 @@ package final class DatabaseFeatureModel: ObservableObject {
               let profile = profiles.first(where: { $0.id == profileID }) else { return }
         let connection = connection(profile)
         do {
-            let loaded = try await withThrowingTaskGroup(of: (DatabaseObjectKind, [DatabaseRow]).self) { group in
-                for kind in DatabaseObjectKind.allCases {
-                    group.addTask { [operations] in
-                        (kind, try operations.listObjects(connection: connection, schema: "", kind: kind))
-                    }
-                }
-                var result: [DatabaseObjectKind: [DatabaseRow]] = [:]
-                for try await (kind, rows) in group { result[kind] = rows }
-                return result
-            }
+            let loaded = try await loadObjects(connection: connection)
             guard isCurrent(profileID: profileID, generation: generation), self.tableListRequestID == tableRequestID, self.databaseListRequestID == databaseRequestID else { return }
             objects = loaded
         } catch {
@@ -596,6 +967,19 @@ package final class DatabaseFeatureModel: ObservableObject {
                 objects = [:]
                 errorMessage = executionError(error)
             }
+        }
+    }
+
+    private func loadObjects(connection: DatabaseConnection) async throws -> [DatabaseObjectKind: [DatabaseRow]] {
+        try await withThrowingTaskGroup(of: (DatabaseObjectKind, [DatabaseRow]).self) { group in
+            for kind in DatabaseObjectKind.allCases {
+                group.addTask { [operations] in
+                    (kind, try operations.listObjects(connection: connection, schema: "", kind: kind))
+                }
+            }
+            var result: [DatabaseObjectKind: [DatabaseRow]] = [:]
+            for try await (kind, rows) in group { result[kind] = rows }
+            return result
         }
     }
 
@@ -822,12 +1206,15 @@ package final class DatabaseFeatureModel: ObservableObject {
         tableRequestID = requestID
         isLoading = true; errorMessage = nil
         do {
-            let connection = connection(profile)
-            async let metadata = Task.detached { [operations] in try operations.describeTable(connection: connection, schema: "", table: table) }.value
+            let connection = await tableConnection(profile, database: profile.database)
+            guard isCurrent(profileID: profile.id, generation: generation), selectedTable == table, tableRequestID == requestID else { return }
+            let key = DatabaseTreeTableKey(profileID: profile.id, database: profile.database, table: table)
+            async let metadata = tableMetadata(key, profile: profile)
             async let page = Task.detached { [operations, pageSize] in try operations.pageTable(connection: connection, schema: "", table: table, limit: pageSize, offset: 0, filters: [], sort: []) }.value
-            async let tableIndexes = Task.detached { [operations] in try operations.listIndexes(connection: connection, schema: "", table: table) }.value
-            async let tableForeignKeys = Task.detached { [operations] in try operations.listForeignKeys(connection: connection, schema: "", table: table) }.value
-            let (description, result, loadedIndexes, loadedForeignKeys) = try await (metadata, page, tableIndexes, tableForeignKeys)
+            let (structure, result) = try await (metadata, page)
+            let description = structure.columns
+            let loadedIndexes = structure.indexes
+            let loadedForeignKeys = structure.foreignKeys
             guard isCurrent(profileID: profile.id, generation: generation),
                   selectedTable == table,
                   tableRequestID == requestID else { return }

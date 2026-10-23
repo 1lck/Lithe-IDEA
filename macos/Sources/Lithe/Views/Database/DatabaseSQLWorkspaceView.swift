@@ -669,8 +669,7 @@ struct DatabaseStructureView: View {
                 Text("Dropping \(change.name) cannot be undone by the table editor. A recovery snapshot should be taken before this operation.")
             }
         } else {
-            LitheUnavailableView("No Table Selected", systemImage: "list.bullet.rectangle", description: Text("Choose a table to inspect its columns, indexes, and foreign keys."))
-                .foregroundStyle(LitheTheme.secondaryText)
+            LitheToolWindowStatusText("Open a table to inspect its structure")
         }
     }
 

@@ -1164,35 +1164,10 @@ struct ProjectItemNameDialogContent: View {
     let request: ProjectItemEditRequest
     let onSubmit: (String) -> Void
     let onCancel: () -> Void
-    @State private var name = ""
-    @FocusState private var nameFocused: Bool
 
     var body: some View {
-        VStack(spacing: 8) {
-            Text(LocalizedStringKey(title))
-                .font(LitheTheme.uiFont(size: 14, weight: .semibold))
-                .foregroundStyle(LitheTheme.primaryText)
-
-            TextField("Name", text: $name)
-                .lithePopupNameField()
-                .focused($nameFocused)
-                .onSubmit {
-                    guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-                    onSubmit(name)
-                }
-        }
-        .padding(.vertical, 11)
-        .frame(width: 340, height: 78)
-        .litheContextMenuSurface()
-        .task {
-            await Task.yield()
-            nameFocused = true
-        }
-        .onExitCommand(perform: onCancel)
-    }
-
-    private var title: String {
-        request.kind == .createDirectory ? "New Directory" : "New File"
+        LitheNamePopup(title: request.kind == .createDirectory ? "New Directory" : "New File",
+                       onSubmit: onSubmit, onCancel: onCancel)
     }
 }
 

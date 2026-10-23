@@ -380,7 +380,7 @@ Commit 文件树参考同一 Community revision 的 `ChangesTreeCellRenderer`、
 `#70AEFF`、新增 `#73BD79`、删除 `#6F737A`、冲突 `#DE6A66`、未跟踪 `#E88F89`。
 使用既有文件类型图标映射，不再用铅笔/加号色块代替类型图标。
 
-`GitChangeInclusionCheckbox` 复用上游 expUI 三态 SVG，24pt 画布中包含 16pt 方框，
+`LitheTreeCheckbox`（原 GitChangeInclusionCheckbox）复用上游 expUI 三态 SVG，24pt 画布中包含 16pt 方框，
 分别保留开/关/部分选中、禁用、焦点状态。深色原图不改，浅色按同 revision 的
 `Checkbox ColorPalette` 生成颜色变体，图形路径不改；出处记录在图标目录 NOTICE。
 这是构建期固定资源，只通过既有 bundle 图标解析器读取，不增加运行时下载或写入。
@@ -402,7 +402,9 @@ Commit 文件树参考同一 Community revision 的 `ChangesTreeCellRenderer`、
 New UI 行高 32、左侧 empty border 为 13，`ErrorBorder` 仅在错误/警告时绘制，
 不能套用设置页的常规输入框 chrome。`focusedNewItemFieldBlendsIntoPopup` 在
 深浅模式下渲染真实新建文件/目录内容，聚焦后检查输入区域与弹窗背景一致。
-新建文件/目录继续使用 `lithePopupNameField`；Commit 变更列表不消费轻量名称框。
+数据库的 Move → To Folder 目的地列表使用 `LitheDropdownPopover.centersMenu`，由现有菜单 presenter 在所属窗口居中并限制到屏幕内；调用者只提供菜单项，不复制列表样式或键盘处理。
+
+新建文件/目录和数据库新建/重命名分组共用 `LitheNamePopup`（`macos/Sources/Lithe/Views/Components/LitheNamePopup.swift`），内部继续使用 `lithePopupNameField`；保留项目区的 340×78 普通状态布局，验证错误时自然增高；数据库名称弹窗通过共享 `LitheCenteredPopup.resizesToContent` 显式开启内容尺寸跟随，其他弹窗保持原有尺寸策略。`ProjectItemNameDialogContent` 只映射标题与动作，不能为数据库复制另一份名称框。Commit 变更列表不消费轻量名称框。
 Commit 新建、编辑变更列表依据 Community `c7f91397daa3a961b4e78bc634fe467a0a7d9ade`
 的 `NewChangelistDialog.java`、`NewEditChangelistPanel.kt`、
 `DarculaEditorTextFieldBorder.java` 和 Islands 明暗主题，使用原生带标题栏对话框。
@@ -1886,3 +1888,15 @@ JDT Run marker 的测试元数据，不根据文件名包含 Test 推断。深�
 ### 2026-10-17 软换行覆盖按钮光标
 
 软换行按钮已改为 WebKit 文档内的标准 HTML 按钮，与 Monaco 正文使用同一套光标系统；旧的 `EditorSoftWrapToggle` 原生覆盖层及手动光标回调已删除，不再使用 `onContinuousHover` 强制设置箭头。按钮尺寸和绘制参数仍来自共享图标按钮样式，悬停使用小手，正文与空白编辑区保留 I 形光标。可见性、禁用和点击继续通过现有 configure 与同源消息处理。原因和真实 WebKit 验证见[Monaco 可行性与原生桥接 Note](../architecture/2026-09-15-macos-monaco-feasibility-probe.md)的软换行按钮决策；独立组件测试不代替完整应用悬停验收。
+
+
+### 2026-10-23 数据库范围列表的外部点击提交
+
+`litheDropdown` 可显式传入 `onAccept`，由共享 `LitheContextMenuPresenter` 在外部点击或失去键盘焦点时调用一次再关闭。数据库范围列表据此对齐 IDEA 的 Enter/点击外部应用、Esc 取消；Enter 复用已有 `litheDropdownKeyHandler`。程序化关闭、锚点卸载和 Esc 只关闭，不提交；未传入回调的菜单保留既有行为。回调在调用前清空，避免关闭窗口引发再次失焦而重复保存。深浅主题数据库宿主回归覆盖 Enter、Esc、父窗口重新获得焦点及实际持久化结果。
+
+
+数据库范围列表复用共享树样式，不使用普通菜单行。Git 原有的 IDEA 三态复选框提升为 `LitheTreeCheckbox`，仍消费原 `commit/checkBox*.svg` 的完整深浅/焦点/禁用状态，Git 调用显式传入提交语义，Run 浏览器沿用批量选择语义；数据库通过可选标题组成完整可点击树行。`LitheSettingsCheckbox` 保持设置页原行为，不增加菜单专用变体。范围列表使用 `litheTreeRow` 与共享树边距，底部说明复用弹层背景；整个选择面板局部禁用小手，入口徽标保留小手且没有悬停提示。数据库宿主回归在库名右侧空白发送真实鼠标事件，Git 原资源检查继续覆盖全部状态。
+
+### 2026-10-23 结果气泡保留宿主、独立绘制表面
+
+数据库测试结果并非菜单。`LitheDropdownPopover.contentProvidesSurface` 默认为 false，仅该结果气泡显式启用，跳过 `litheContextMenuSurface` 的背景/圆角/字体包装；仍复用现有 presenter 的定位、父子窗口、键盘/外部点击关闭与销毁。不改普通菜单背景或全局圆角，不复制窗口生命周期。气泡的 Community 来源、locale 字体分支与截图适配边界见[数据库多库树 Note](../feature/2026-10-22-database-multi-schema-tree.md)。用 ContextMenuCoverageTests 验证默认调用者，数据库深浅主题像素检查验证背景、边框、指针和透明底带。

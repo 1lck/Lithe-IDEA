@@ -443,7 +443,7 @@ struct VcsProviderToolWindowView: View {
             .buttonStyle(.litheNoPress)
             .accessibilityLabel(Text(collapsed ? "Expand" : "Collapse"))
             if group != .conflicts && root.supports(.checkin) {
-                GitChangeInclusionCheckbox(
+                LitheTreeCheckbox(
                     state: included == 0 ? .off : included == changes.count ? .on : .mixed,
                     accessibilityTitle: String(localized: "Include in commit")
                 ) {
@@ -467,7 +467,7 @@ struct VcsProviderToolWindowView: View {
         let detail = change.oldPath.map { "← " + $0 } ?? directory
         return HStack(spacing: LitheTheme.Tree.iconTextGap) {
             if root.supports(.checkin) {
-                GitChangeInclusionCheckbox(
+                LitheTreeCheckbox(
                     state: isIncluded(change) ? .on : .off,
                     accessibilityTitle: String(localized: "Include in commit")
                 ) {

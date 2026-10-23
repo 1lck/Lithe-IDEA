@@ -593,6 +593,7 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
     private var visibleFrame: NSRect = .zero
     private weak var customContentController: NSViewController?
     private var contentDismissed: (() -> Void)?
+    private var contentAccepted: (() -> Void)?
     private var contentAnchor: NSPoint?
     private var contentOpensUpward = false
     private var contentIsAboveAnchor = false
@@ -741,8 +742,10 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
     /// Searchable filters share the action-menu window and dismissal lifecycle.
     func show(contentController: NSViewController, at screenPoint: NSPoint,
               appearance: NSAppearance?, opensUpward: Bool = false, searchOnTyping: Bool = false,
+              hasShadow: Bool = true, fadeInDuration: TimeInterval = 0,
               parentWindow: NSWindow? = nil,
               trigger: NSView? = nil,
+              onAccept: (() -> Void)? = nil,
               resizableWidth: CGFloat? = nil, minimumWidth: CGFloat = 0,
               resizableHeight: CGFloat? = nil, minimumHeight: CGFloat = 0,
               onSizeChanged: ((CGSize) -> Void)? = nil,
@@ -761,6 +764,10 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
             container = contentController
         }
         let panel = makePanel(contentController: container, appearance: appearance)
+        // AppKit's window shadow also adds a bright perimeter to custom balloon surfaces.
+        panel.hasShadow = hasShadow
+        let fadesIn = fadeInDuration > 0 && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        panel.alphaValue = fadesIn ? 0 : 1
         customContentController = contentController
         contentWidth = resizableWidth.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
         contentMinimumWidth = minimumWidth
@@ -810,6 +817,7 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
             }
         }
         contentDismissed = onDismiss
+        contentAccepted = onAccept
         contentAnchor = screenPoint
         contentOpensUpward = opensUpward
         contentIsAnchored = parentWindow != nil
@@ -861,6 +869,13 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
         panel.orderFrontRegardless()
         panel.makeKey()
         if searchOnTyping { panel.makeFirstResponder(panel) }
+        if fadesIn {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = fadeInDuration
+                context.timingFunction = CAMediaTimingFunction(name: .linear)
+                panel.animator().alphaValue = 1
+            }
+        }
     }
 
     func resize(contentController: NSViewController) {
@@ -962,7 +977,7 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
         )
     }
 
-    fileprivate static func menuHeight(for items: [LitheContextMenuItem], width: CGFloat, locale: Locale) -> CGFloat {
+    static func menuHeight(for items: [LitheContextMenuItem], width: CGFloat, locale: Locale) -> CGFloat {
         let showsIcons = items.contains { $0.leadingCheckmark || $0.systemImage != nil || $0.iconKind != nil || $0.icon != nil }
         return items.reduce(LitheDropdownMetrics.verticalPadding) { height, item in
             switch item.kind {
@@ -1010,6 +1025,7 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
     }
 
     func dismiss() {
+        contentAccepted = nil
         (customContentController as? LitheDropdownHostingController)?.sizeChanged = nil
         removeEventMonitors()
         contentResizeHandle?.endTracking()
@@ -1066,6 +1082,13 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
     func windowDidResignKey(_ notification: Notification) {
         guard panel?.childWindows?.contains(where: { $0.isVisible }) != true else { return }
         guard !isTriggerClick(NSApp.currentEvent) else { return }
+        acceptAndDismiss()
+    }
+
+    private func acceptAndDismiss() {
+        let accept = contentAccepted
+        contentAccepted = nil
+        accept?()
         dismiss()
     }
 
@@ -1103,7 +1126,7 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
                 // The trigger owns its toggle. Dismissing here would reset its
                 // binding before the same click reaches the button and reopen it.
                 if self.isTriggerClick(event) { return event }
-                self.dismiss()
+                self.acceptAndDismiss()
                 // Let the same click reach another menu trigger or the underlying control.
                 return event
             }
@@ -1112,7 +1135,7 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
         globalEventMonitor = NSEvent.addGlobalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown]
         ) { [weak self] _ in
-            self?.dismiss()
+            self?.acceptAndDismiss()
         }
     }
 

@@ -707,6 +707,15 @@ enum LitheTheme {
         static var infoForeground: Color { controlColor(light: 0x5F6269, dark: 0x9FA2A8) }
     }
 
+    /// Community c7f91397 ManyIslands: dialog-bg, popup-border, text-default, Label.successForeground.
+    /// A connection result is a balloon over the dialog, not a popup-menu surface.
+    enum DatabaseConnectionResult {
+        static var background: Color { activeTheme == .lithe ? controlColor(light: 0xF7F8F9, dark: 0x191A1C) : editor }
+        static var border: Color { activeTheme == .lithe ? controlColor(light: 0xDDDFE4, dark: 0x33353B) : divider }
+        static var foreground: Color { activeTheme == .lithe ? controlColor(light: 0x000000, dark: 0xD1D3D9) : primaryText }
+        static var success: Color { activeTheme == .lithe ? controlColor(light: 0x338555, dark: 0x6DB083) : LitheTheme.success }
+    }
+
     /// Community 915c3c26: Banner status tokens and InlineBannerBase/EditorNotificationPanel metrics.
     enum Banner {
         static let cornerRadius: CGFloat = 8 // fillRoundRect's 16pt arc is a diameter.

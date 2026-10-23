@@ -413,7 +413,7 @@ struct ChangesSidebarView: View {
             .buttonStyle(.litheNoPress)
             .help(LocalizedStringKey(isExpanded ? "Collapse repository" : "Expand repository"))
 
-            GitChangeInclusionCheckbox(state: stagingState(for: activeChanges)) {
+            LitheTreeCheckbox(state: stagingState(for: activeChanges), accessibilityTitle: "Include in commit") {
                 setStaging(activeChanges, !allChangesStaged(activeChanges))
             }
             .disabled(feature.isCommitting || feature.changelistStorageFailed || !activeChanges.contains(where: \.canToggleStaging))
@@ -467,7 +467,7 @@ struct ChangesSidebarView: View {
             .buttonStyle(.litheNoPress)
             .help(LocalizedStringKey(isExpanded ? "Collapse section" : "Expand section"))
 
-            GitChangeInclusionCheckbox(state: stagingState(for: changes)) {
+            LitheTreeCheckbox(state: stagingState(for: changes), accessibilityTitle: "Include in commit") {
                 setStaging(changes, !allChangesStaged(changes))
             }
             .disabled(feature.isCommitting || feature.changelistStorageFailed || !changes.contains(where: \.canToggleStaging))
@@ -511,7 +511,7 @@ struct ChangesSidebarView: View {
             if change.isUntrackedDirectory {
                 untrackedDirectoryDisclosure(change)
             }
-            GitChangeInclusionCheckbox(state: isEffectivelyStaged(change) ? .on : .off) {
+            LitheTreeCheckbox(state: isEffectivelyStaged(change) ? .on : .off, accessibilityTitle: "Include in commit") {
                 let targets = selection.actionTargets(in: displayedChanges, clicked: change)
                 setStaging(targets, !isEffectivelyStaged(change))
             }
@@ -866,34 +866,6 @@ private enum CommitTab: String, CaseIterable, Identifiable {
     var title: String { self == .shelf ? "Stash" : "Commit" }
 }
 
-/// ChangesTreeCellRenderer uses a 24pt ThreeStateCheckBox with a 16pt painted square.
-struct GitChangeInclusionCheckbox: View {
-    let state: NSControl.StateValue
-    var accessibilityTitle = "Include in commit"
-    let action: () -> Void
-    @Environment(\.isEnabled) private var isEnabled
-    @FocusState private var isFocused: Bool
-
-    static func assetPath(state: NSControl.StateValue, enabled: Bool, focused: Bool) -> String {
-        let name = state == .mixed ? "checkBoxIndeterminateSelected" : state == .on ? "checkBoxSelected" : "checkBox"
-        let suffix = !enabled ? "Disabled" : focused ? "Focused" : ""
-        return "commit/" + name + suffix + ".svg"
-    }
-
-    var body: some View {
-        Button(action: action) {
-            LitheIDEAIcon(resourcePath: Self.assetPath(state: state, enabled: isEnabled, focused: isFocused),
-                          size: 24, preservesOriginalColors: true)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.litheNoPress)
-        .focused($isFocused)
-        .accessibilityRepresentation {
-            Toggle(LocalizedStringKey(accessibilityTitle), isOn: Binding(get: { state == .on }, set: { _ in action() }))
-                .accessibilityValue(Text(state == .mixed ? "Partially selected" : state == .on ? "Selected" : "Not selected"))
-        }
-    }
-}
 
 extension GitChange {
     var fileNameColor: Color {
