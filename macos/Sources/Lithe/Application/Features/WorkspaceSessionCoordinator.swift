@@ -22,6 +22,9 @@ final class WorkspaceSessionCoordinator: ObservableObject {
         let prepareForStandaloneOpen: @MainActor (URL) -> Void
         let finishStandaloneClose: @MainActor () -> Void
         let beginDocumentClose: @MainActor () -> Bool
+        /// The question to ask before a workspace close that would stop Run
+        /// services, or `nil` when nothing is running.
+        let runServicesCloseConfirmation: @MainActor () -> (@MainActor () async -> Bool)?
         let restoreDebugBreakpoints: @MainActor (URL) async -> Void
         let visibilityRules: @MainActor () -> FileVisibilityRules
     }
@@ -206,6 +209,26 @@ final class WorkspaceSessionCoordinator: ObservableObject {
             return
         }
         pendingCloseRequest = request
+        // Asked before the documents: they close one by one, so a later cancel
+        // would leave the project open without them. Nothing stops until the
+        // workspace close finishes.
+        if request == .workspace, let confirm = lifecycleHandlers.runServicesCloseConfirmation() {
+            Task { @MainActor [weak self] in
+                let confirmed = await confirm()
+                guard let self, self.pendingCloseRequest == request else { return }
+                guard confirmed else {
+                    self.pendingCloseRequest = nil
+                    return
+                }
+                self.beginDocumentClose()
+            }
+            return
+        }
+        beginDocumentClose()
+    }
+
+    private func beginDocumentClose() {
+        guard let lifecycleHandlers else { return }
         if !lifecycleHandlers.beginDocumentClose() {
             projectCloseReady()
         }

@@ -33,7 +33,7 @@ Swift 源码，也不得依赖 macOS 类型。
 | `macos/Sources/Lithe/Core/` | 平台无关端口和类型化 Rust 操作 |
 | `macos/Sources/Lithe/Platform/MacOS/` | macOS 适配器和组合根 |
 | `rust/lithe-core/` | 确定性的共享命令、模型、校验和 C ABI |
-| `rust/lithe-git-host/` | 原生 Git 子进程、管道、临时输入和有界清理 |
+| `rust/lithe-git-host/` | 原生 Git 子进程、管道、临时输入和有界清理；以及长期子进程的进程树归属（`ProcessTree`，Windows Job Object / Unix 进程组） |
 | `windows/` | React/Tauri Windows 产品和 Windows Rust 适配器 |
 | `Plugins/mac/` | macOS 所有的插件包 |
 | `Plugins/win/` | Windows 所有的插件包 |
@@ -128,6 +128,9 @@ Swift 源码。新文件以主要类型
 
 原生 Git 适配器 `rust/lithe-git-host/` 负责子进程、管道、临时输入文件，
 以及进程组或 Windows 作业对象的限时清理，不负责 Git 参数策略或界面模型。
+运行会话、调试适配器和 Windows 语言服务器这类宿主自己读写输出的长期进程，
+也通过它的 `ProcessTree` 把整棵进程树交给 Job Object 或进程组，不在各自模块里
+重复实现 Windows 作业对象。
 现有 Core Git 输出捕获入口调用此适配器，以保留 JSON 和 C ABI（C 语言
 调用边界）的兼容性；共享事件解码和凭据脱敏留在 `rust/lithe-core/src/git/`。
 认证界面和凭据存储仍由各平台负责。新增 Git 操作应复用此执行边界，

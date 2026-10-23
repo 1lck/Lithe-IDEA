@@ -524,7 +524,7 @@ Windows 尚未实现，所以本笔记仍放在 `proposed/`。macOS 首批已落
 
 | 命令 | 负责什么 | fixture |
 | --- | --- | --- |
-| `processLifecycle.resolve` | 每条记录在给定场景（退出、关闭终端标签、断开 Agent、崩溃兜底、启动清扫）下的动作 | `exit-plan-v1.json` |
+| `processLifecycle.resolve` | 每条记录在给定场景（退出、关闭终端标签、断开 Agent、崩溃兜底、启动清扫、关闭项目或窗口）下的动作 | `exit-plan-v1.json` |
 | `processLifecycle.inventory` | 把一份进程快照分成 Agent 任务、Agent 基础设施、后台服务、终端和其他，并可附带该场景的计划 | `inventory-v1.json` |
 | `processLifecycle.settle` | 把用户的回答变成“结束 / 保留”清单，并写入记住的选择 | `settle-v1.json` |
 
@@ -687,6 +687,16 @@ shell 身份和当前可执行文件都吻合时算空闲；同 PID 的 exec 替
 - **Job Object 限制**：嵌套 Job 需要 Windows 8 以上版本，产品已满足。第三方
   程序如果自己创建了不允许嵌套的 Job，加入时会失败，此时退回到 `taskkill /T`
   并记录诊断。崩溃时 Windows 的保留项也会被结束，见第二层说明。
+### 运行服务确认与 Windows 进程树（2026-10-22，#1137）
+
+这一批把“运行服务”从静默结束改为两端一致的确认，并让 Windows 的运行、调试和语言服务器进程有了 Job Object：
+
+- `processLifecycle.resolve` 新增 `closeWorkspace` 场景和 `confirmStop` 动作。宿主自己跟踪的运行会话（`kind: run`、`ownership: launched`）在退出和关闭项目或窗口时列在同一个问题里，只能“全部停止”或“取消关闭”；`runServicesOnExit: terminate` 时直接停止。`closeWorkspace` 下其他需要提问的记录一律 `defer` 到退出时。
+- Windows 的运行会话、调试适配器和语言服务器用 `lithe-git-host::ProcessTree`（挂起创建、先入 Job 再恢复）。停止和崩溃都以 Job 为单位，不再依赖 `taskkill` 的 PID 链。
+- Windows 的菜单退出改走每个窗口的关闭守卫，更新安装在启动安装程序前先确认并停止运行服务，再结束其余受管进程。
+
+Windows 仍未完成的部分：终端（ConPTY）和 Agent 进程树还没有 Job Object，没有监护进程和启动清扫，也没有接入 `inventory`。所以本笔记继续留在 `proposed/`。具体修复和验证见 [Lithe 退出时结束它启动的全部子进程](../../implemented/bug-fix/2026-10-14-child-processes-end-with-the-ide.md)。
+
 - **退出变慢**：优雅停止会延长退出时间。缓解：各阶段并行执行，总时限可配置，
   超时后由用户选择“强制退出”。
 - **回退方式**：账本、退出确认窗口、兜底、启动清扫分别加开关，独立落地。
