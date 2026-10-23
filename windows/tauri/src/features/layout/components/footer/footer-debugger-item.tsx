@@ -153,7 +153,7 @@ export function useFooterDebuggerItem(
       id: ITEM_ID,
       label: t("debugger.runAndDebug"),
       content: (
-        <FooterTabControl tooltip={BACKEND_UNAVAILABLE_TOOLTIP} disabled onClick={() => {}}>
+        <FooterTabControl tooltip={t(BACKEND_UNAVAILABLE_TOOLTIP)} disabled onClick={() => {}}>
           <BugIcon />
         </FooterTabControl>
       ),

@@ -13,7 +13,7 @@ import { commitDiffWritePending } from "../runtime/commit-diff-write-state";
 import { workspaceCommitBindings } from "../utils/git-workspace-commit-bindings";
 import { GitPushTargetPrompt } from "./git-push-target-prompt";
 import { GitWorkspaceCommitReview } from "./git-workspace-commit-review";
-import { workspaceCommitEnglish } from "@/i18n/git-workspace-commit";
+import { getLocaleCatalog } from "@/i18n/locale";
 import type { TranslationKey } from "@/i18n/locale";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { useTranslation } from "@/i18n/locale-provider";
@@ -376,7 +376,7 @@ const GitCommitPanel = ({
             {Object.entries(batch.session.results).map(([id, result]) => {
               const key = `git.workspaceCommit.${result.status}`;
               const label =
-                key in workspaceCommitEnglish
+                Object.prototype.hasOwnProperty.call(getLocaleCatalog("en-US"), key)
                   ? (key as TranslationKey)
                   : "git.workspaceCommit.attention";
               return (

@@ -1,3 +1,5 @@
+import { createTranslator, type DisplayLanguage } from "@/i18n/locale";
+
 /**
  * Search and labels for the session selectors, as
  * `AgentSessionSelectorPresentation` on macOS. The Agent still owns option ids,
@@ -12,23 +14,23 @@ import type { AgentSessionConfigChoice, AgentSessionConfigOption } from "../type
  * mode and thinking-level choice names are upstream product names and are
  * never translated; anything else unlisted is shown as the Agent sent it.
  */
-const ZH_AGENT_LABELS: Record<string, string> = {
-  "Approval mode": "权限模式",
+const AGENT_LABEL_KEYS: Record<string, string> = {
+  "Approval mode": "agent.reportedLabels.approvalMode",
   "Always ask to edit external files and use the internet":
-    "修改工作区外文件或访问网络时先请求批准。",
+    "agent.reportedLabels.alwaysAskToEditExternalFilesAndUseTheInternet",
   "Only ask for actions detected as potentially unsafe":
-    "自动审批，仅在检测到潜在风险时请求你的确认。",
+    "agent.reportedLabels.onlyAskForActionsDetectedAsPotentiallyUnsafe",
   "Unrestricted access to the internet and any file on your computer":
-    "允许访问网络和电脑上的所有文件。",
-  "Collaboration mode": "协作模式",
-  "Plan before making changes": "先制定计划，再进行修改。",
-  "Reasoning effort": "推理强度",
-  "Fast mode": "快速模式",
-  Model: "模型",
+    "agent.reportedLabels.unrestrictedAccessToTheInternetAndAnyFileOnYourComputer",
+  "Collaboration mode": "agent.reportedLabels.collaborationMode",
+  "Plan before making changes": "agent.reportedLabels.planBeforeMakingChanges",
+  "Reasoning effort": "agent.reportedLabels.reasoningEffort",
+  "Fast mode": "agent.reportedLabels.fastMode",
+  Model: "agent.reportedLabels.model",
 };
 
 export interface AgentSelectorLabels {
-  language: "en-US" | "zh-CN";
+  language: DisplayLanguage;
   thinkingLevel: string;
   speed: string;
   standard: string;
@@ -36,7 +38,10 @@ export interface AgentSelectorLabels {
 }
 
 export function localizedAgentLabel(text: string, labels: AgentSelectorLabels): string {
-  return labels.language === "zh-CN" ? (ZH_AGENT_LABELS[text] ?? text) : text;
+  const key = Object.prototype.hasOwnProperty.call(AGENT_LABEL_KEYS, text)
+    ? AGENT_LABEL_KEYS[text]
+    : undefined;
+  return key ? createTranslator(labels.language)(key) : text;
 }
 
 export function filteredChoices(

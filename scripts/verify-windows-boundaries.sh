@@ -3,6 +3,8 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+node scripts/generate-i18n.mjs --check
+
 if find windows \
   \( -path '*/node_modules' -o -path '*/target' -o -path '*/dist' \) -prune -o \
   -type f \( -name '*.cpp' -o -name '*.h' \) -print -quit | grep -q .; then

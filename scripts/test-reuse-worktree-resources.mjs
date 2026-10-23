@@ -64,6 +64,18 @@ function reuse(extraArguments = []) {
 }
 
 try {
+  await test("shared translations are regenerated locally rather than reused", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const resource = registry.excludedResources.find(item => item.id === "shared-i18n");
+    assert.equal(resource.reusable, false);
+    assert.ok(resource.locations.includes("windows/tauri/src/i18n/shared.generated.ts"));
+    const listed = run(process.execPath, [reuseScript, "--list"]);
+    assertSucceeded(listed);
+    assert.ok(!listed.stdout.includes(resource.id));
+    const refused = reuse(["--resource", resource.id]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /shared-i18n.*cannot be reused/);
+  });
   await test("distribution runtime state cannot be listed or imported as a build cache", { timeout: 15000 }, async () => {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
     const state = registry.excludedResources.find(item => item.id === "distribution-runtime-state");

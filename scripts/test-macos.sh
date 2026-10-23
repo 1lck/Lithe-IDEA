@@ -20,6 +20,8 @@ if [[ "$LITHE_TEST_WINDOW_MODE" == isolated && "${LITHE_RUN_GIT_COMPOSITOR_TESTS
     exit 2
 fi
 
+node "$ROOT_DIR/scripts/generate-i18n.mjs" --check
+
 "$ROOT_DIR/scripts/verify-runtime-bundle-immutability.sh"
 
 SWIFT_ARGS=(

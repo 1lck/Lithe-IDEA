@@ -242,7 +242,7 @@ final class AppSettings: ObservableObject {
         themePreference = AppThemePreference(
             rawValue: defaults.string(forKey: Key.themePreference) ?? ""
         ) ?? .dark
-        language = AppLanguage(rawValue: defaults.string(forKey: Key.language) ?? "") ?? .english
+        language = AppLanguage(rawValue: defaults.string(forKey: Key.language) ?? "") ?? .defaultLanguage
         editorFontSize = defaults.object(forKey: Key.editorFontSize) as? Double ?? 13
         editorFontFamily = EditorFontResolution.normalizedFamily(
             defaults.string(forKey: Key.editorFontFamily)
@@ -431,7 +431,7 @@ final class AppSettings: ObservableObject {
     func restoreDefaults() {
         colorTheme = .lithe
         themePreference = .dark
-        language = .english
+        language = .defaultLanguage
         editorFontSize = 13
         editorFontFamily = EditorFontDefaults.monospacedFamily
         editorSoftWrapEnabled = false
@@ -977,29 +977,6 @@ enum ProjectOpenBehavior: String, CaseIterable, Identifiable {
         case .thisWindow: "This window"
         case .newWindow: "New window"
         }
-    }
-}
-
-enum AppLanguage: String, CaseIterable, Identifiable {
-    case english = "en"
-    case simplifiedChinese = "zh-Hans"
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .english: "English"
-        case .simplifiedChinese: "简体中文"
-        }
-    }
-
-    func localizedString(_ key: String, bundle: Bundle = .main) -> String {
-        (bundle.url(forResource: rawValue, withExtension: "lproj").flatMap(Bundle.init(url:)) ?? bundle)
-            .localizedString(forKey: key, value: key, table: nil)
-    }
-
-    var locale: Locale {
-        Locale(identifier: rawValue)
     }
 }
 

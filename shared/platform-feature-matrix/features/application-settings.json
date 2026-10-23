@@ -69,7 +69,7 @@
       ".agents/notes/implemented/feature/2026-10-08-windows-settings-hierarchy.md",
       "windows/tauri/src/extensions/ui/components/extensions-browser-layout.tsx",
       "windows/tauri/src/i18n/locale.ts",
-      "windows/tauri/src/i18n/ai-commit.ts",
+      "shared/i18n/messages.json",
       "windows/tauri/src/features/settings/lib/settings-effects.ts",
       "windows/tauri/src/features/settings/lib/theme-resolution.ts",
       "windows/tauri/src/features/settings/lib/settings-theme-sync.test.ts",

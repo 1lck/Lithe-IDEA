@@ -90,10 +90,9 @@ extension AppModel {
     /// functions, served by the plugin's provider process for this project.
     /// The host knows nothing about what the function does.
     func runPluginSettingAction(_ action: DeclarativePluginSettingAction, of pluginID: PluginID) async {
-        let chinese = settings.language == .simplifiedChinese
         guard let workspaceURL, let access = await activateExecutionModule(),
               let feature = access.buildSystems else {
-            showNotification(chinese ? "请先打开使用该插件的项目" : "Open a project that uses this plugin first.")
+            showNotification(settings.language.localizedString("native.inline.openAProjectThatUsesThisPluginFirst"))
             return
         }
         loadBuildSystems(access)
@@ -113,16 +112,14 @@ extension AppModel {
             nil
         }
         guard let entry = preferred ?? candidates.first else {
-            showNotification(chinese
-                ? "“\(action.title)”需要该插件的构建系统，当前项目中没有找到"
-                : "\u{201C}\(action.title)\u{201D} needs this plugin's build system, which this project does not use.")
+            showNotification(settings.language.localizedFormat("native.inline.arg1NeedsThisPluginSBuildSystemWhichThisProjectDoesNotUse", String(describing: action.title)))
             return
         }
         do {
             _ = try await feature.invokePluginFunction(
                 entry.id, functionID: action.functionID, params: .object([:]), timeout: .seconds(600)
             ) { _ in }
-            showNotification(chinese ? "“\(action.title)”已完成" : "\u{201C}\(action.title)\u{201D} finished")
+            showNotification(settings.language.localizedFormat("native.inline.arg1Finished", String(describing: action.title)))
         } catch is CancellationError {
             return
         } catch {

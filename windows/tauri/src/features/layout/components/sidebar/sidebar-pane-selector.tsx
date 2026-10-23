@@ -191,7 +191,7 @@ export const SidebarPaneSelector = ({
               tooltip: {
                 content: isBackendCapabilityAvailable("terminal")
                   ? t("workbench.terminal")
-                  : BACKEND_UNAVAILABLE_TOOLTIP,
+                  : t(BACKEND_UNAVAILABLE_TOOLTIP),
                 shortcut: isBackendCapabilityAvailable("terminal") ? "Mod+J" : undefined,
                 side: tooltipSide,
               },

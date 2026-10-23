@@ -1,3 +1,4 @@
+import { LANGUAGE_OPTIONS, type DisplayLanguage } from "@/i18n/locale";
 import { UpdateChannelSelector } from "./update-channel-selector";
 import { getInstalledVersionLabel } from "../lib/update-channel";
 import SettingsSelect from "@/ui/settings-select";
@@ -190,12 +191,9 @@ function GeneralPanel() {
             className="w-40"
             value={settings.displayLanguage}
             onChange={(selectedValue) =>
-              void updateSetting("displayLanguage", selectedValue as "en-US" | "zh-CN")
+              void updateSetting("displayLanguage", selectedValue as DisplayLanguage)
             }
-            options={[
-              { value: "en-US", label: "English" },
-              { value: "zh-CN", label: "简体中文" },
-            ]}
+            options={LANGUAGE_OPTIONS.map((option) => ({ ...option }))}
           />
         </SettingsRow>
       </SettingsGroup>

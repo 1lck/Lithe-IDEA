@@ -18,6 +18,18 @@ verification scripts are the executable source of boundary checks.
 - Every asynchronous operation exposes `idle`, `loading`, `ready`, and `failed` outcomes.
 - Failures contain a stable `code` and user-facing `message`; platform details belong in `details`.
 
+## Shared built-in translations
+
+[Shared i18n](../i18n/README.md) owns migrated semantic keys, typed named parameters,
+locale registration, platform scopes and documented platform wording overrides.
+Build-time generation supplies native macOS string tables and the Windows catalog;
+no runtime JSON loading, package download or write to installed resources occurs.
+The locale registry preserves each platform's persisted identifiers and default
+language. Explicit fallback chains resolve shared entries during generation;
+all existing platform catalogs and presentation-owned bilingual copy use this source. Translation coverage is not a
+capability claim. [Format fixtures](../fixtures/i18n/format-v1.json) bind generation
+to native positional formatting, literal percent signs and unmodified argument data.
+
 ## Feature Contracts
 
 Shared Monaco highlighting is owned by the current view/model pair. A queued

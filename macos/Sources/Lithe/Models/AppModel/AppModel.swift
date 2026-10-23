@@ -779,11 +779,10 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     }
 
     var languageServerStatusMessage: String {
-        let usesChinese = settings.language == .simplifiedChinese
         guard let document = activeDocument,
               let descriptor = languageProviderCatalog.provider(for: document.url),
               descriptor.capabilities.contains(.languageServer) else {
-            return usesChinese ? "打开一个受支持的源码文件" : "Open a supported source file"
+            return settings.language.localizedString("native.inline.openASupportedSourceFile")
         }
 
         let status = LSPControlCenterPresenter.serverStatus(
@@ -792,33 +791,19 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         )
         switch status {
         case .starting:
-            return usesChinese
-                ? "正在启动 \(descriptor.displayName) LSP 进程"
-                : "Starting the \(descriptor.displayName) LSP process"
+            return settings.language.localizedFormat("native.inline.startingTheArg1LspProcess", String(describing: descriptor.displayName))
         case .initializing:
-            return usesChinese
-                ? "正在初始化 \(descriptor.displayName) LSP"
-                : "Initializing \(descriptor.displayName) LSP"
+            return settings.language.localizedFormat("native.inline.initializingArg1Lsp", String(describing: descriptor.displayName))
         case .active:
-            return usesChinese
-                ? "\(descriptor.displayName) 语言服务器已就绪"
-                : "\(descriptor.displayName) language server ready"
+            return settings.language.localizedFormat("native.inline.arg1LanguageServerReady", String(describing: descriptor.displayName))
         case .stopping:
-            return usesChinese
-                ? "正在停止 \(descriptor.displayName) LSP"
-                : "Stopping \(descriptor.displayName) LSP"
+            return settings.language.localizedFormat("native.inline.stoppingArg1Lsp", String(describing: descriptor.displayName))
         case .stopped:
-            return usesChinese
-                ? "\(descriptor.displayName) 已由 catalog 声明，但当前没有运行中的 LSP 会话"
-                : "\(descriptor.displayName) is declared by the catalog, but no LSP session is running"
+            return settings.language.localizedFormat("native.inline.arg1IsDeclaredByTheCatalogButNoLspSessionIsRunning", String(describing: descriptor.displayName))
         case .disabled:
-            return usesChinese
-                ? "\(descriptor.displayName) LSP 已在当前工作区禁用"
-                : "\(descriptor.displayName) LSP is disabled in this workspace"
+            return settings.language.localizedFormat("native.inline.arg1LspIsDisabledInThisWorkspace", String(describing: descriptor.displayName))
         case .error:
-            return usesChinese
-                ? "\(descriptor.displayName) LSP 异常退出"
-                : "\(descriptor.displayName) LSP exited unexpectedly"
+            return settings.language.localizedFormat("native.inline.arg1LspExitedUnexpectedly", String(describing: descriptor.displayName))
         }
     }
 
@@ -831,14 +816,14 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         let didStart = activateCurrentDocumentLanguageServerIfAvailable()
         showNotification(
             didStart
-                ? (settings.language == .simplifiedChinese ? "语言服务器已启动" : "Language server started")
-                : (settings.language == .simplifiedChinese ? "当前没有运行中的 LSP 会话" : "No LSP session is running")
+                ? (settings.language.localizedString("native.inline.languageServerStarted"))
+                : (settings.language.localizedString("native.inline.noLspSessionIsRunning"))
         )
     }
 
     func clearLanguageServerDiagnostics() {
         languageIntelligenceModuleCoordinator.clearDiagnostics(languageToolingSessionsIfActive)
-        showNotification(settings.language == .simplifiedChinese ? "语言服务器诊断已清空" : "Language server diagnostics cleared")
+        showNotification(settings.language.localizedString("native.inline.languageServerDiagnosticsCleared"))
     }
 
     func javaStructure(source: String, declarationSources: [String] = []) async -> JavaStructureResult? {

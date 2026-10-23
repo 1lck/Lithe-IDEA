@@ -278,7 +278,7 @@ export default function RunActionsButton() {
           content={
             isBackendCapabilityAvailable("runActions")
               ? t("run.projectAction")
-              : BACKEND_UNAVAILABLE_TOOLTIP
+              : t(BACKEND_UNAVAILABLE_TOOLTIP)
           }
           side="bottom"
         >
@@ -292,7 +292,7 @@ export default function RunActionsButton() {
             aria-label={
               isBackendCapabilityAvailable("runActions")
                 ? t("run.projectAction")
-                : BACKEND_UNAVAILABLE_TOOLTIP
+                : t(BACKEND_UNAVAILABLE_TOOLTIP)
             }
             size="icon-xs"
             disabled={!isBackendCapabilityAvailable("runActions")}
