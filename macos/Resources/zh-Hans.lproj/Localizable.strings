@@ -3755,6 +3755,7 @@
 "The workspace is too large to search completely; some working copies may be missing." = "工作区过大，无法完整搜索；可能有工作副本未被识别。";
 "There are too many changes to list; some are not shown." = "更改过多，部分未显示。";
 "Detecting working copies…" = "正在识别工作副本…";
+"Reading changes…" = "正在读取更改…";
 "No %@ working copy was detected in this workspace." = "此工作区中没有识别到 %@ 工作副本。";
 "Detect Again" = "重新识别";
 "Moved from %@" = "从 %@ 移动";

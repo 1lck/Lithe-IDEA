@@ -59,7 +59,7 @@ Core 能校验一个能力，不代表宿主能运行它。宿主在 `plugins.de
 
 能力表放在宿主代码里，写在能力实现的旁边，Core 不再按平台去猜。原来按 `darwin-` 前缀和级别写死的判断，就是 Core 替宿主猜、又容易和宿主实现漂移的例子。
 
-macOS 宿主接受级别 1 到 3（`supportedDeclarativeAPIVersions = [1, 2, 3]`），能力表是 `PluginManifest.hostCapabilities`，在校验、索引和安装审查时都发给 Core；其中的 `buildSystems: [1]` 随 macOS 的 Build 工具窗口一起加入，但 macOS 尚未实现 Provider，所以不声明 `buildProviders`；市场过滤、清单校验和安装审查都会拒绝需要它的插件，纯模板构建插件仍可用。Core 自己支持 `buildProviders: 1`，不传宿主表时仍可校验并生成 Provider 计划。`vcsProviders: 1` 也是这样：Core 已经能校验清单、识别工作副本根并转发请求，但 macOS 和 Windows 都还没有接入 VCS Provider 会话，所以两端的能力表都不包含它，需要它的插件在两端都不可安装。Windows 还没有声明式插件宿主，不发送能力表，所以 Windows 不列出级别 3 的插件。宿主接入某个能力时，要做两件事：让宿主接受级别 3，并在宿主自己的能力表里加上这个能力的版本，而且只在宿主真正能运行它时才加。
+macOS 宿主接受级别 1 到 3（`supportedDeclarativeAPIVersions = [1, 2, 3]`），能力表是 `PluginManifest.hostCapabilities`，在校验、索引和安装审查时都发给 Core；其中的 `buildSystems: [1]` 随 macOS 的 Build 工具窗口一起加入，`buildProviders: [1]` 在 macOS 接入构建 Provider 会话后才加入。`vcsProviders: [1]` 同样等 macOS 接入 VCS Provider 会话（版本控制工具窗口、项目树状态和文件移动）后才加入，见[统一 VCS 模型提案](../../proposed/architecture/2026-10-22-unified-vcs-provider-model.md)的 P3。Core 自己支持 `buildProviders: 1` 和 `vcsProviders: 1`，不传宿主表时仍可校验清单、生成 Provider 计划、识别工作副本根并转发请求。Windows 还没有声明式插件宿主，不发送能力表，所以 Windows 不列出级别 3 的插件。宿主接入某个能力时，要做两件事：让宿主接受级别 3，并在宿主自己的能力表里加上这个能力的版本，而且只在宿主真正能运行它时才加。
 
 ### 3. 市场索引带上能力版本
 

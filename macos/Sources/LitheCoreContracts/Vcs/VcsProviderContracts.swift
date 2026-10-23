@@ -33,20 +33,22 @@ public struct DeclarativeVcsProvider: Equatable, Sendable {
 
     /// The tool window and its toggle command, derived from the declaration
     /// like a build system's: every provider gets the same window, which
-    /// sits next to the Git commit window.
+    /// sits next to the Git commit window and shares its version control
+    /// icon (the `git` host icon), since a provider declares none.
     public func contributions(pluginID: String, order: Int) -> [ModuleContribution] {
         let windowID = Self.toolWindowID(pluginID: pluginID, vcs: id)
         let visibility = [Self.pluginIDKey: pluginID, Self.vcsKey: id]
+        let icon = PluginUIIcon(host: "git")
         return [
             ModuleContribution(
                 id: windowID, kind: .toolWindow, title: displayName, placement: .leftSidebar,
                 order: 210 + order, actionID: windowID + ".toggle", rendererID: windowID,
-                visibility: visibility
+                visibility: visibility, uiIcon: icon
             ),
             ModuleContribution(
                 id: windowID + ".command", kind: .command, title: displayName, placement: .commandPalette,
                 order: order, actionID: windowID + ".command",
-                visibility: visibility.merging(["toolWindowID": windowID]) { _, new in new }
+                visibility: visibility.merging(["toolWindowID": windowID]) { _, new in new }, uiIcon: icon
             )
         ]
     }

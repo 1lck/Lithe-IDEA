@@ -80,6 +80,39 @@ struct VcsProviderHostTests {
         #expect(await fixture.settled { fixture.planner.detectCount == 2 })
     }
 
+    /// The workspace watcher never sees `../.svn` of a working copy that
+    /// encloses the workspace, so that metadata directory is watched on its
+    /// own while the enclosing root is detected.
+    @Test
+    func watchesTheMetadataOfAWorkingCopyThatEnclosesTheWorkspace() async throws {
+        let fixture = try VcsFeatureFixture(
+            workspaceURL: URL(fileURLWithPath: "/virtual/wc/app", isDirectory: true),
+            roots: [("..", "svn"), ("lib", "svn")]
+        )
+        defer { fixture.close() }
+        fixture.providers.replies["status"] = try VcsTestData.statusReply([])
+        let enclosing = fixture.workspaceURL.appendingPathComponent("..").path
+        let metadata = URL(fileURLWithPath: "/virtual/wc/.svn", isDirectory: true)
+        #expect(await fixture.open())
+        // `lib/.svn` is inside the workspace, which the workspace watcher covers.
+        #expect(fixture.metadataWatchers.running == [metadata.path])
+        #expect(fixture.providers.statusCount(root: enclosing) == 1)
+        fixture.clock.advance(by: .seconds(3))
+
+        fixture.metadataWatchers.deliver([metadata.appendingPathComponent("wc.db")])
+        #expect(await fixture.settled { fixture.providers.statusCount(root: enclosing) == 2 })
+        #expect(fixture.providers.statusCount(root: fixture.url("lib").path) == 1)
+
+        // A watch that lost its events detects the roots again.
+        fixture.clock.advance(by: .seconds(3))
+        fixture.metadataWatchers.deliver(DirectoryChangeBatch(requiresFullRescan: true))
+        #expect(await fixture.settled { fixture.planner.detectCount == 2 })
+        #expect(fixture.metadataWatchers.running == [metadata.path])
+
+        fixture.close()
+        #expect(fixture.metadataWatchers.running.isEmpty)
+    }
+
     @Test
     func runsOneWorkingCopyActionAtATime() async throws {
         let fixture = try VcsFeatureFixture(roots: [("", "svn")])
@@ -108,7 +141,9 @@ struct VcsProviderHostTests {
 
     @Test
     func movesTrackedItemsThroughTheProviderAndLeavesTheRestToTheDisk() async throws {
-        let fixture = try VcsFeatureFixture(roots: [("", "svn"), ("module", "svn")])
+        let fixture = try VcsFeatureFixture(
+            roots: [("", "svn"), ("module", "svn"), ("lib", "git")], ambiguous: ["mixed"]
+        )
         defer { fixture.close() }
         fixture.providers.replies["status"] = try VcsTestData.statusReply([
             ("a.txt", "modified"), ("new.txt", "unversioned"), ("out", "unversioned")
@@ -126,6 +161,12 @@ struct VcsProviderHostTests {
         #expect(await feature.move(from: fixture.url("new.txt"), to: fixture.url("docs/new.txt")) == false)
         #expect(await feature.move(from: fixture.url("b.txt"), to: fixture.url("out/b.txt")) == false)
         #expect(await feature.move(from: fixture.url("b.txt"), to: fixture.url("module/b.txt")) == false)
+        // A nested Git repository and a directory with no VCS chosen are not
+        // the working copy's, on either end of the move.
+        #expect(await feature.move(from: fixture.url("b.txt"), to: fixture.url("lib/b.txt")) == false)
+        #expect(await feature.move(from: fixture.url("lib/c.txt"), to: fixture.url("c.txt")) == false)
+        #expect(await feature.move(from: fixture.url("b.txt"), to: fixture.url("mixed/b.txt")) == false)
+        #expect(await feature.move(from: fixture.url("mixed/c.txt"), to: fixture.url("c.txt")) == false)
         #expect(fixture.providers.requests.filter { $0.operation.name == "fileOperation" }.count == 1)
 
         // A refusal is reported; the caller then moves the item on disk.
@@ -218,6 +259,17 @@ struct VcsProviderHostTests {
         #expect(changes.filter(VcsProviderToolWindowView.isIncludedByDefault).map(\.path) == ["z.txt", "c.txt"])
     }
 
+    /// A provider declares no icon; its window and command show the host's
+    /// version control icon, not the generic tool window one.
+    @Test
+    func providerWindowsShowTheVersionControlIcon() {
+        let contributions = DeclarativeVcsProvider(id: "svn", displayName: "Subversion")
+            .contributions(pluginID: VcsTestData.pluginID, order: 0)
+        #expect(contributions.map(\.uiIcon) == [PluginUIIcon(host: "git"), PluginUIIcon(host: "git")])
+        let asset = WorkbenchContributionIcon.Asset(contributions[0].uiIcon, resources: nil)
+        #expect(asset.hostPath == "expui/toolwindows/vcs@20x20.svg")
+    }
+
     @Test
     func commitCarriesBothHalvesOfAMoveOnce() {
         let paths = VcsProviderToolWindowView.commitPaths([
@@ -304,16 +356,16 @@ struct VcsProviderHostTests {
     }
 }
 
-/// Project tree moves through the production app model: a tracked file goes
-/// to the provider, an unversioned one stays a plain disk move.
-@Suite("VCS provider project tree moves", .serialized)
+/// The provider feature through the production app model: project tree
+/// moves and the project window's teardown.
+@Suite("VCS providers in the app model", .serialized)
 @MainActor
-struct VcsProviderProjectMoveTests {
+struct VcsProviderAppModelTests {
+    /// A tracked file goes to the provider, an unversioned one stays a plain
+    /// disk move.
     @Test
     func projectTreeMovesGoThroughTheProviderThatTracksTheFile() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("lithe-vcs-move-\(UUID().uuidString)", isDirectory: true)
-            .standardizedFileURL
+        let root = try Self.makeWorkspace()
         defer { try? FileManager.default.removeItem(at: root) }
         try FileManager.default.createDirectory(at: root.appendingPathComponent("docs"), withIntermediateDirectories: true)
         try Data("alpha".utf8).write(to: root.appendingPathComponent("a.txt"))
@@ -329,13 +381,7 @@ struct VcsProviderProjectMoveTests {
             let base = URL(fileURLWithPath: rootPath)
             try FileManager.default.moveItem(at: base.appendingPathComponent(from), to: base.appendingPathComponent(to))
         }
-        let store = VcsTestKeyValueStore()
-        let settings = AppSettings(store: store)
-        let services = MacServiceContainer(
-            store: store, settings: settings, moduleLaunchMode: .safeMode, platformUI: VcsMoveTestUI()
-        ).services
-        services.vcsProviders = fixture.feature
-        let model = AppModel(settings: settings, services: services)
+        let model = Self.makeModel(fixture)
         defer { model.workspaceFeature.reset() }
 
         model.openProjectDirectly(root)
@@ -354,6 +400,62 @@ struct VcsProviderProjectMoveTests {
         #expect(FileManager.default.fileExists(atPath: url("docs/b.txt").path))
         // Not tracking a file is no failure; the disk move reports as usual.
         #expect(fixture.feature.failure == nil)
+    }
+
+    /// Closing the native project window ends the session without closing
+    /// the workspace. The workspace's providers stop all the same, without
+    /// waiting for a status read still in flight, and a workspace load that
+    /// lands after the close does not start them again.
+    @Test
+    func closingTheProjectWindowStopsTheWorkspaceProviders() async throws {
+        let root = try Self.makeWorkspace()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent("a.txt").standardizedFileURL
+        try Data("alpha".utf8).write(to: file)
+        let fixture = try VcsFeatureFixture(workspaceURL: root, roots: [("", "svn")])
+        defer { fixture.close() }
+        fixture.providers.replies["status"] = try VcsTestData.statusReply([("a.txt", "modified")])
+        let model = Self.makeModel(fixture)
+        defer { model.workspaceFeature.reset() }
+
+        model.openProjectDirectly(root)
+        #expect(await awaitChange(on: model) { model.projectFiles.contains(file) })
+        model.loadVcsProviders(at: root)
+        #expect(await fixture.settled())
+        #expect(fixture.providers.running.map(\.workspaceURL) == [root])
+        let statusHeld = TestGate()
+        fixture.providers.holds["status"] = statusHeld
+        defer { statusHeld.open() }
+        let feature = fixture.feature
+        feature.refresh("")
+        #expect(feature.root("")?.isRefreshing == true)
+
+        await model.shutdownProjectSession()
+        // A scan that was still loading the workspace finishes afterwards.
+        model.loadVcsProviders(at: root)
+
+        #expect(fixture.providers.running.isEmpty)
+        #expect(feature.workspaceURL == nil)
+        #expect(feature.roots.isEmpty)
+        #expect(!feature.isDetecting)
+    }
+
+    private static func makeWorkspace() throws -> URL {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lithe-vcs-model-\(UUID().uuidString)", isDirectory: true)
+            .standardizedFileURL
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        return root
+    }
+
+    private static func makeModel(_ fixture: VcsFeatureFixture) -> AppModel {
+        let store = VcsTestKeyValueStore()
+        let settings = AppSettings(store: store)
+        let services = MacServiceContainer(
+            store: store, settings: settings, moduleLaunchMode: .safeMode, platformUI: VcsMoveTestUI()
+        ).services
+        services.vcsProviders = fixture.feature
+        return AppModel(settings: settings, services: services)
     }
 }
 
@@ -443,8 +545,17 @@ private final class FakeVcsPlanner: VcsRootPlanning, @unchecked Sendable {
     }
 
     func owners(roots: [String], ambiguous: [String], paths: [String]) throws -> [String?] {
-        paths.map { path in
-            roots.filter { $0.isEmpty || path == $0 || path.hasPrefix($0 + "/") }.max { $0.count < $1.count }
+        func contains(_ id: String, _ path: String) -> Bool {
+            id.isEmpty || id.hasPrefix("..") || path == id || path.hasPrefix(id + "/")
+        }
+        func depth(_ id: String) -> Int {
+            id.isEmpty ? 0 : id.split(separator: "/").count * (id.hasPrefix("..") ? -1 : 1)
+        }
+        return paths.map { path in
+            let root = roots.filter { contains($0, path) }.max { depth($0) < depth($1) }
+            let directory = ambiguous.filter { contains($0, path) }.map(depth).max()
+            if let root, let directory, directory > depth(root) { return nil }
+            return root
         }
     }
 
@@ -473,6 +584,8 @@ private final class FakeVcsProviders: VcsProviderRequesting {
     var onFileOperation: ((VcsOperation, String) throws -> Void)?
     private(set) var requests: [Request] = []
     private(set) var retainCount = 0
+    /// Targets that answered a request and were not stopped since.
+    private(set) var running: Set<VcsProviderTarget> = []
 
     func statusCount(root: String) -> Int {
         requests.filter { $0.operation.name == "status" && $0.root == root }.count
@@ -489,6 +602,7 @@ private final class FakeVcsProviders: VcsProviderRequesting {
         timeout: Duration
     ) async throws -> VcsProviderReply {
         requests.append(Request(operation: operation, root: root))
+        running.insert(target)
         if let hold = holds[operation.name] {
             _ = await hold.waitUntilOpen(timeout: .seconds(5))
         }
@@ -499,12 +613,53 @@ private final class FakeVcsProviders: VcsProviderRequesting {
 
     func retainProviders(_ keep: (VcsProviderTarget) -> Bool) {
         retainCount += 1
+        running = running.filter(keep)
     }
 
     private static func negotiation(_ vcs: String) -> VcsProviderNegotiation {
         VcsProviderNegotiation(
             vcs: vcs, capabilities: Dictionary(uniqueKeysWithValues: VcsCapability.allCases.map { ($0.rawValue, 1) })
         )
+    }
+}
+
+/// Metadata directory watchers that deliver only what a test sends.
+private final class FakeMetadataWatchers: DirectoryWatcherFactory, @unchecked Sendable {
+    final class Watcher: DirectoryChangeSource, @unchecked Sendable {
+        let directory: URL
+        let onChange: @Sendable (DirectoryChangeBatch) -> Void
+        private(set) var isRunning = false
+
+        init(directory: URL, onChange: @escaping @Sendable (DirectoryChangeBatch) -> Void) {
+            self.directory = directory
+            self.onChange = onChange
+        }
+
+        func start() { isRunning = true }
+        func stop() { isRunning = false }
+    }
+
+    private(set) var watchers: [Watcher] = []
+
+    /// The paths of the directories watched now.
+    var running: [String] { watchers.filter(\.isRunning).map(\.directory.path).sorted() }
+
+    func make(
+        configuration: DirectoryWatchConfiguration,
+        visibilityRules: FileVisibilityRules,
+        onChange: @escaping @Sendable (DirectoryChangeBatch) -> Void
+    ) -> any DirectoryChangeSource {
+        let watcher = Watcher(directory: configuration.workspaceRoot, onChange: onChange)
+        watchers.append(watcher)
+        return watcher
+    }
+
+    func deliver(_ urls: [URL]) {
+        deliver(DirectoryChangeBatch(workspacePaths: urls.map(\.path)))
+    }
+
+    func deliver(_ batch: DirectoryChangeBatch) {
+        watchers.filter(\.isRunning).forEach { $0.onChange(batch) }
     }
 }
 
@@ -515,6 +670,7 @@ private final class VcsFeatureFixture {
     let workspaceURL: URL
     let planner: FakeVcsPlanner
     let providers = FakeVcsProviders()
+    let metadataWatchers = FakeMetadataWatchers()
     let keyValues = VcsTestKeyValueStore()
     let clock = VcsTestClock()
     let feature: VcsProvidersFeatureModel
@@ -535,6 +691,7 @@ private final class VcsFeatureFixture {
             mappingStore: MacVcsRootMappingStore(store: keyValues),
             sleep: { _ in try Task.checkCancellation() },
             now: { clock.now },
+            metadataWatcherFactory: metadataWatchers,
             sources: {
                 [VcsProviderPluginSource(
                     pluginID: VcsTestData.pluginID, manifest: Data("{}".utf8),

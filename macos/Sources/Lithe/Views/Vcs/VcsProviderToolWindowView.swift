@@ -358,7 +358,18 @@ struct VcsProviderToolWindowView: View {
             ScrollView(.vertical) {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     let groups = Self.groups(root.snapshot?.changes ?? [])
-                    if groups.isEmpty, root.snapshot != nil {
+                    if root.snapshot == nil, root.isRefreshing {
+                        // The first read also starts the provider process,
+                        // which can take a few seconds.
+                        HStack(spacing: 6) {
+                            ProgressView().controlSize(.small)
+                            Text("Reading changes…")
+                        }
+                        .font(LitheTheme.uiFont(size: 12))
+                        .foregroundStyle(LitheTheme.secondaryText)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 20)
+                    } else if groups.isEmpty, root.snapshot != nil {
                         Text("No local changes")
                             .font(LitheTheme.uiFont(size: 12))
                             .foregroundStyle(LitheTheme.secondaryText)
@@ -493,8 +504,19 @@ struct VcsProviderToolWindowView: View {
         .litheContextMenu(items: { contextMenu(for: change, root: root) }, onRightClick: {
             if !selection.contains(change.path) { selection = [change.path] }
         })
+        // The combined row would otherwise only toggle its checkbox, so
+        // selecting, opening and including are separate actions.
         .accessibilityElement(children: .combine)
         .accessibilityLabel(Text(verbatim: "\(change.path), \(change.status.title)"))
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityAction { select(change) }
+        .accessibilityAction(named: Text(Self.opensDiff(change, in: root) ? "Show Diff" : "Open File")) {
+            open(change, in: root)
+        }
+        .accessibilityAction(named: Text("Include in commit")) {
+            guard root.supports(.checkin), group != .conflicts else { return }
+            inclusion[change.path] = !isIncluded(change)
+        }
     }
 
     static func rowHelp(_ change: VcsChange) -> String {
@@ -519,11 +541,15 @@ struct VcsProviderToolWindowView: View {
     /// deleted file has nothing to compare, so it opens or does nothing.
     private func open(_ change: VcsChange, in root: VcsRootState) {
         selection = [change.path]
-        if root.supports(.baseContent) && ![.unversioned, .added, .copied].contains(change.status) {
+        if Self.opensDiff(change, in: root) {
             showDiff(change, in: root)
         } else if ![.deleted, .missing].contains(change.status) {
             actions.openFile(root.url.appendingPathComponent(change.path))
         }
+    }
+
+    static func opensDiff(_ change: VcsChange, in root: VcsRootState) -> Bool {
+        root.supports(.baseContent) && ![.unversioned, .added, .copied].contains(change.status)
     }
 
     private func contextMenu(for change: VcsChange, root: VcsRootState) -> [LitheContextMenuItem] {

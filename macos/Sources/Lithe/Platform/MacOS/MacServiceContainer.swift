@@ -796,6 +796,7 @@ final class MacServiceContainer {
                 providers: vcsProviderSessions,
                 mappingStore: MacVcsRootMappingStore(store: store),
                 readFile: { url in try? fileStorage.readData(from: url, options: .mappedIfSafe) },
+                metadataWatcherFactory: MacDirectoryWatcherFactory(),
                 sources: {
                     // Enablement is read on every detection, so turning a
                     // plugin off takes its roots away at once.

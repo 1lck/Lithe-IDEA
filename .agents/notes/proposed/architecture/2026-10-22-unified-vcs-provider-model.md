@@ -148,11 +148,12 @@ P3 第一部分已完成（2026-10-23），在 macOS 上：
 
 - 宿主在 `PluginManifest.hostCapabilities` 声明 `vcsProviders: [1]`，声明了 VCS Provider 的插件从这时起能安装。宿主读清单时给这类插件生成一个 `<插件 ID>.vcs-providers` 模块，只承载插件的启用状态，默认关闭，做法和构建系统插件的 `.build-systems` 模块一样。安装审查给三种 Provider 程序（插件内、系统已装、运行时启动）显示启动命令、`vcsTool` 里的客户端命令，以及 `mayUseNetwork` 声明的“可能连接仓库服务器”，让用户批准前知道插件会运行哪个 `svn`。
 - Provider 会话按窗口创建：启动时已安装的插件声明了 `vcsProviders`，`MacServiceContainer` 才建 `VcsProvidersFeatureModel`。启动后再安装的插件要重启才生效，工具窗口这时只显示“重启 Lithe 后使用”。这样做是因为服务在窗口组合时一次建好，运行中插桩会话要改动整个组合根，收益只是省一次重启。
-- 每个 Provider 贡献一个左侧工具窗口，宿主只认贡献上的 `vcsProviderPluginID`、`vcsProviderID` 两个可见性键，代码里没有任何 VCS 或插件的名字（与构建系统窗口同一套注册方式）。窗口按冲突、变更、未版本化文件分组：默认只勾选“变更”组，未版本化文件要用户勾选才提交，冲突文件不能勾选，要先“标记为已解决”；移动的文件提交时连同原路径一起提交，否则 SVN 会只提交一半。按钮是否出现看 Provider 协商的能力，不看 VCS 名字。
+- 每个 Provider 贡献一个左侧工具窗口，宿主只认贡献上的 `vcsProviderPluginID`、`vcsProviderID` 两个可见性键，代码里没有任何 VCS 或插件的名字（与构建系统窗口同一套注册方式）。Provider 不声明图标，派生的窗口和命令统一用宿主的版本控制图标（`git` 宿主图标，即 `vcs@20x20.svg`），不用通用工具窗口图标。第一次读状态时 Provider 进程才启动，可能要几秒，变更列表这时显示“正在读取更改…”，不留空白。变更行在辅助功能里是一个合并元素，默认动作是选中，另有“显示差异/打开文件”和“包含在提交中”两个命名动作，否则辅助功能只能切换复选框。窗口按冲突、变更、未版本化文件分组：默认只勾选“变更”组，未版本化文件要用户勾选才提交，冲突文件不能勾选，要先“标记为已解决”；移动的文件提交时连同原路径一起提交，否则 SVN 会只提交一半。按钮是否出现看 Provider 协商的能力，不看 VCS 名字。
 - 与基线比较做成窗口级的弹出面板（`VcsProvidersFeatureModel.presentedDiff`，由 `RootView` 显示），不挂在工具窗口里，因为项目树右键的“显示差异”在工具窗口隐藏时也要能用。比较复用本地历史的 `LocalHistoryDiffBuilder` 和 Git 的 `DiffPaneView`；超过 2 万行时退成左右两栏纯文本，避免逐行比较卡住界面。
 - 项目树颜色：插件根的状态通过一个只观察 `VcsProvidersFeatureModel` 的包装视图传给项目树，项目树本身仍是 `.equatable()`，刷新状态不重绘整棵树。同一文件 Git 和插件都有状态时用 Git 的，因为第一期 Git 不在统一层，嵌套时以 Git 的显示为准，不让两套颜色互相覆盖。
-- 文件操作跟踪：工作区模块只多一个注入的 `moveTrackedItem` 回调，不认识任何 VCS。项目树里的重命名和移动先交给拥有该文件的 Provider（`svn move`）；Provider 不跟踪这个文件或拒绝时，退回原来的磁盘移动。
-- 刷新：沿用工作区的文件变化事件，合并后再刷新受影响的根；元数据目录里只有 Provider 声明的 `metadataPaths`（SVN 是 `.svn/wc.db`）会触发刷新。宿主自己的请求执行期间和结束后的短暂时间内忽略元数据变化，否则每次提交都会再刷新一遍。出现或消失标记目录时重新识别根。
+- 文件操作跟踪：工作区模块只多一个注入的 `moveTrackedItem` 回调，不认识任何 VCS。项目树里的重命名和移动先交给拥有该文件的 Provider（`svn move`）；Provider 不跟踪这个文件或拒绝时，退回原来的磁盘移动。源路径和目标路径都要用 Core 的 `vcs.ownerOf` 判断归属，两端都属于同一个插件根才交给 Provider：嵌套的 Git 仓库、还没选 VCS 的歧义目录都不属于外层工作副本。只按“最深的插件根”判断会把移进嵌套 Git 仓库的文件也交给 `svn move`。
+- 刷新：沿用工作区的文件变化事件，合并后再刷新受影响的根；元数据目录里只有 Provider 声明的 `metadataPaths`（SVN 是 `.svn/wc.db`）会触发刷新。宿主自己的请求执行期间和结束后的短暂时间内忽略元数据变化，否则每次提交都会再刷新一遍。出现或消失标记目录时重新识别根。工作区开在工作副本子目录里时，`../.svn` 不在工作区监听范围内，所以给这类外层根单独监听元数据目录（只监听 `metadataPaths` 所在的标记目录，不监听整个外层工作副本），事件走同一条过滤和合并逻辑；这个监听丢了事件时按标记变化处理，重新识别根。
+- 生命周期：关闭工作区、切换工作区，以及原生项目窗口关闭（`shutdownProjectSession`，这时工作区可能被设置窗口保留而不关闭）都会在第一次挂起前清空 `VcsProvidersFeatureModel`：取消识别和刷新任务，停止该工作区启动中和运行中的 Provider 进程，停掉外层元数据监听。窗口关闭走 `shutdown()`，之后这个窗口的模型不再加载任何工作区：关闭时还在进行的工作区扫描随后调用 `loadVcsProviders` 也不会把 Provider 重新拉起来；关闭的会话模型不会被复用，所以不需要恢复入口。
 - 歧义目录的选择按工作区存在应用偏好里（`Vcs.RootMappings.<工作区摘要>`），不写工作区，也不写 app bundle。识别时目录不再歧义，就丢掉旧选择。
 
 P3 剩下的部分：编辑器 gutter 与 Annotate、交互式认证（`lithe/vcs/authenticate` 仍按未知请求回绝）、把 `lithe/vcs/execution` 执行报告接到项目控制台，以及在 Lithe Store 上架 SVN 插件。上架要等带 `vcsProviders` 能力的 Lithe 版本发布后再做，否则旧版本用户会在市场里看到装不上的插件；P1 合入后，插件仓库的 `sdk.lock.json` 也要改指向 `preview` 上的提交。
