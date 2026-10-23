@@ -345,6 +345,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
         // allow that surface through when a background image is configured.
         view.setValue(false, forKey: "drawsBackground")
         view.navigationDelegate = self
+        view.uiDelegate = WebMediaCaptureDenier.shared
         webView = view
         loadingInterval = LitheSignpost.begin("monaco.webview.load")
         view.load(URLRequest(url: URL(string: "lithe-editor://app/index.html")!))

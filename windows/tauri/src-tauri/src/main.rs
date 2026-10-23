@@ -1,6 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod agent;
+mod agent_clipboard;
+mod agent_provider_settings;
 mod ai_commit;
 mod core;
 mod date_time;
@@ -17,6 +19,7 @@ mod logging;
 mod lsp;
 mod maven;
 mod memory;
+mod owned_processes;
 mod platform;
 mod profile_migration;
 mod project_window_registry;
@@ -142,7 +145,7 @@ fn main() {
         })
         .on_window_event(|window, event| {
             if matches!(event, tauri::WindowEvent::Destroyed) {
-                run::cancel_window_prelaunches(window.label());
+                run::release_window_processes(window.label());
                 core::close_ide_hosts(window.label());
                 agent::close_window_connections(window.label());
                 project_windows::release_window(window.app_handle(), window.label().to_owned());
@@ -168,6 +171,9 @@ fn main() {
             document::read_document_file_details,
             document::read_document_file_change,
             document::save_document_file,
+            document::resolve_agent_document_path,
+            document::save_agent_document,
+            document::trash_agent_document,
             document::set_document_watches,
             core::core_execute,
             core::core_cancel,
@@ -200,6 +206,7 @@ fn main() {
             secure_storage::store_secure_secret,
             secure_storage::get_secure_secret,
             secure_storage::remove_secure_secret,
+            agent_provider_settings::commit_agent_panel_settings,
             logging::get_log_settings,
             logging::set_log_directory,
             logging::set_diagnostic_logging,
@@ -234,6 +241,7 @@ fn main() {
             host::clipboard_paste,
             host::clipboard_clear,
             host::clipboard_sequence_number,
+            agent_clipboard::agent_clipboard_file_paths,
             host::wsl_automount_root,
             host::create_app_window,
             project_windows::claim_project_window,
@@ -263,15 +271,16 @@ fn main() {
             run::run_execute_prelaunch,
             run::run_start_process,
             run::run_stop_process,
+            run::run_list_owned_processes,
+            run::run_stop_owned_processes,
+            owned_processes::app_prepare_update_install,
         ])
         .build(context)
         .expect("error while building Lithe desktop shell");
 
     application.run(|app, event| {
         if matches!(event, tauri::RunEvent::Exit) {
-            language_tools::shutdown();
-            debug::shutdown();
-            agent::shutdown();
+            owned_processes::shutdown();
             if let Some(manager) = app.try_state::<Arc<logging::LogManager>>() {
                 manager.shutdown();
             }

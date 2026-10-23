@@ -334,6 +334,19 @@ struct TerminalInputFocusTests {
 @Suite("Terminal canvas compositing", .serialized)
 @MainActor
 struct TerminalCanvasCompositingTests {
+
+    @Test
+    func unmountedTerminalUsesAppAppearancePreference() {
+        let terminal = LitheTerminalView(frame: .zero)
+        terminal.appearance = NSAppearance(named: .darkAqua)
+        terminal.preferredAppearanceIsDark = { false }
+
+        terminal.applyThemeColors(theme: .lithe)
+
+        let expected = LitheTheme.nsColor(.editor, theme: .lithe, isDark: false)
+        #expect(terminal.window == nil)
+        #expect(terminal.nativeBackgroundColor.isEqual(expected))
+    }
     @Test
     func canvasLeavesSharedPaneBackgroundVisibleWithWallpaper() {
         let terminal = LitheTerminalView(frame: NSRect(x: 0, y: 0, width: 400, height: 200))

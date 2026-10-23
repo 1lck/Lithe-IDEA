@@ -295,7 +295,7 @@ struct AgentActivityDetailsView: View {
         VStack(alignment: .leading, spacing: 0) {
             if activity.files.isEmpty { emptyState("No file edits") }
             else {
-                HStack(spacing: 8) {
+                HStack(spacing: LitheTheme.ActionButton.spacing) {
                     Spacer(minLength: 0)
                     Button("Roll back all", role: .destructive) { onRequestRestore(activity.files) }
                         .disabled(isResponding || isReviewing || !activity.files.allSatisfy(\.canRevert))
@@ -305,6 +305,7 @@ struct AgentActivityDetailsView: View {
                         .help("The Agent already saved these files. Mark the current changes as reviewed.")
                         .accessibilityIdentifier("agent-edits-keep-all")
                 }
+                .buttonStyle(LitheActionButtonStyle())
                 .font(LitheTheme.uiFont(size: 11))
                 .padding(8)
                 .background(AgentPanelStyle.context)

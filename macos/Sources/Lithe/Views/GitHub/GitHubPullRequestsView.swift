@@ -133,9 +133,7 @@ struct GitHubPullRequestsSidebarView: View {
                 Button("Sign in to GitHub") {
                     Task { await model.connectGitHubWithDeviceFlow() }
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .frame(maxWidth: 220)
+                .buttonStyle(LitheActionButtonStyle(isPrimary: true))
 
                 if message != nil {
                     Text("Unable to sign in. Please try again.")
@@ -198,7 +196,7 @@ struct GitHubPullRequestsSidebarView: View {
                         model.platformUI.open(url)
                     }
                 }
-                Button("Cancel") { Task { await model.disconnectGitHub() } }
+                Button("Cancel") { Task { await model.disconnectGitHub() } }.buttonStyle(LitheActionButtonStyle())
             }
         }
         .padding(20)
@@ -281,8 +279,7 @@ struct GitHubPullRequestsSidebarView: View {
                 Button { model.githubFeature.beginCreatingPullRequest() } label: {
                     Label("Create pull request", systemImage: "plus")
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
+                .buttonStyle(LitheActionButtonStyle(isPrimary: true))
                 .disabled(model.githubFeature.repository == nil)
                 .help("Create pull request")
             }
@@ -737,7 +734,7 @@ struct GitHubPullRequestDetailView: View {
                                 .foregroundStyle(LitheTheme.tertiaryText)
                             Spacer()
                             Button(composerAction.buttonTitle) { submitComposer() }
-                                .buttonStyle(.borderedProminent)
+                                .buttonStyle(LitheActionButtonStyle(isPrimary: true))
                                 .disabled(!canSubmitComposer || isOperationRunning)
                         }
                     }
@@ -1449,8 +1446,7 @@ private struct GitHubCreatePullRequestWorkspaceView: View {
                         Text(model.githubFeature.isPublishingPullRequestBranch ? "Publishing…" : "Publish Branch")
                     }
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
+                .buttonStyle(LitheActionButtonStyle(isPrimary: true))
                 .disabled(
                     publishBranchName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                         || model.githubFeature.isPublishingPullRequestBranch
@@ -1582,12 +1578,12 @@ private struct GitHubCreatePullRequestWorkspaceView: View {
 
                 operationMessage
 
-                HStack {
+                HStack(spacing: LitheTheme.ActionButton.spacing) {
                     Toggle("Create as draft", isOn: $draft)
                         .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                         .toggleStyle(.checkbox)
                     Spacer()
-                    Button("Cancel") { model.githubFeature.cancelCreatingPullRequest() }
+                    Button("Cancel") { model.githubFeature.cancelCreatingPullRequest() }.buttonStyle(LitheActionButtonStyle())
                         .keyboardShortcut(.cancelAction)
                         .disabled(isOperationRunning)
                     Button {
@@ -1600,7 +1596,7 @@ private struct GitHubCreatePullRequestWorkspaceView: View {
                             Text(draft ? "Create Draft" : "Create Pull Request")
                         }
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(LitheActionButtonStyle(isPrimary: true))
                     .keyboardShortcut(.defaultAction)
                     .disabled(isSubmitDisabled)
                 }
@@ -1631,8 +1627,7 @@ private struct GitHubCreatePullRequestWorkspaceView: View {
                         Text(isGeneratingDescription ? "Generating…" : "Generate with AI")
                     }
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+                .buttonStyle(LitheActionButtonStyle())
                 .disabled(isGenerateDescriptionDisabled)
                 .help("Generate a title and description from the selected branch changes")
             }
@@ -1879,8 +1874,7 @@ private struct GitHubBranchPicker: View {
                     .multilineTextAlignment(.center)
                     .lineLimit(3)
                 Button("Retry", action: retry)
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
+                    .buttonStyle(LitheActionButtonStyle())
             }
             Spacer()
         case .ready:
@@ -2006,14 +2000,14 @@ private struct GitHubPullRequestForm: View {
             .padding(18)
 
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
-            HStack {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Text("Required fields are marked with *")
                     .font(LitheTheme.uiFont(size: 9.5))
                     .foregroundStyle(LitheTheme.tertiaryText)
                 Spacer()
-                Button("Cancel", action: cancel)
+                Button("Cancel", action: cancel).buttonStyle(LitheActionButtonStyle())
                 Button(LocalizedStringKey(primaryTitle), action: submit)
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(LitheActionButtonStyle(isPrimary: true))
                     .disabled(isPrimaryDisabled)
             }
             .padding(.horizontal, 18)

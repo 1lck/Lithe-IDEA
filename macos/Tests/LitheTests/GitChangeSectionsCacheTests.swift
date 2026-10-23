@@ -157,4 +157,54 @@ struct GitChangeSectionsCacheTests {
         #expect(sections.repositories[0].changes.map(\.path) == ["second.swift"])
     }
 
+    @Test
+    func everyHeaderAndChangeIsItsOwnRow() {
+        // #1385: nesting a repository's rows inside one stack child made the lazy
+        // list build all 5,000 rows at once. Each row must be a direct child.
+        let other = URL(fileURLWithPath: "/tmp/other")
+        let changes = [change("a.swift"), change("b.swift"), change("c.swift", at: other)]
+        let cache = GitChangeSectionsCache()
+        let sections = cache.sections(changes: changes, conflictFilterPaths: [])
+
+        let rows = cache.rows(for: sections, groupsByRepository: true,
+                              repositoryExpanded: [:], changelistExpanded: [:])
+        #expect(rows.map(\.id) == [
+            "repository:/tmp/repo", "changelist:/tmp/repo:default", changes[0].id, changes[1].id,
+            "repository:/tmp/other", "changelist:/tmp/other:default", changes[2].id
+        ])
+        #expect(rows.filter(\.closesRepository).map(\.id) == [changes[1].id, changes[2].id])
+
+        let collapsed = cache.rows(for: sections, groupsByRepository: true,
+                                   repositoryExpanded: ["/tmp/repo": false],
+                                   changelistExpanded: ["/tmp/other:default": false])
+        #expect(collapsed.map(\.id) == [
+            "repository:/tmp/repo", "repository:/tmp/other", "changelist:/tmp/other:default"
+        ])
+        #expect(collapsed.filter(\.closesRepository).map(\.id)
+            == ["repository:/tmp/repo", "changelist:/tmp/other:default"])
+
+        let single = cache.rows(for: sections, groupsByRepository: false,
+                                repositoryExpanded: [:], changelistExpanded: [:])
+        #expect(single.map(\.id) == ["changelist::default"] + changes.map(\.id))
+    }
+
+    @Test
+    func listedUntrackedDirectoryContentsNestBelowTheirSummaryAndCountOnce() {
+        func untracked(_ path: String, count: Int? = nil) -> GitChange {
+            GitChange(repositoryRoot: root, path: path, originalPath: nil,
+                      indexStatus: "?", workTreeStatus: "?", untrackedFileCount: count)
+        }
+        let changes = [
+            untracked("target/", count: 120),
+            untracked("target/a.json"),
+            untracked("target/debug/", count: 119),
+            untracked("target/debug/app"),
+            change("z.swift")
+        ]
+        let section = GitChangeSectionsCache()
+            .sections(changes: changes, conflictFilterPaths: []).changelists[0]
+
+        #expect(section.depths == [0, 1, 1, 2, 0])
+        #expect(section.fileCount == 121)
+    }
 }

@@ -627,6 +627,8 @@
 "Show all changes" = "Show all changes";
 "Collapse section" = "Collapse section";
 "Expand section" = "Expand section";
+"Collapse directory" = "Collapse directory";
+"Expand directory" = "Expand directory";
 "Unstage all files" = "Unstage all files";
 "Stage all files" = "Stage all files";
 "Local changes were restored with conflicts" = "Local changes were restored with conflicts";
@@ -637,7 +639,6 @@
 "Date" = "Date";
 "Review" = "Review";
 "%@: %@" = "%@: %@";
-"Push '%@'?" = "Push '%@'?";
 "Deleted branch '%@'" = "Deleted branch '%@'";
 "Deleted tag '%@'" = "Deleted tag '%@'";
 "Delete tag '%@'?" = "Delete tag '%@'?";
@@ -647,8 +648,19 @@
 "Create on commit %@. Leave the message empty for a lightweight tag." = "Create on commit %@. Leave the message empty for a lightweight tag.";
 "Updating %@ (%lld incoming, %lld local)" = "Updating %@ (%lld incoming, %lld local)";
 "Push to %@" = "Push to %@";
-"Tracking %@" = "Tracking %@";
-"Publish %@ (Core selects default remote)" = "Publish %@ (Core selects default remote)";
+"Resolving push destination…" = "Resolving push destination…";
+"Branch '%@' tracks '%@', which has a different name. Choose which branch to update." = "Branch '%@' tracks '%@', which has a different name. Choose which branch to update.";
+"Publish to %@/%@" = "Publish to %@/%@";
+"Commits" = "Commits";
+"No new commits. Pushing creates the remote branch." = "No new commits. Pushing creates the remote branch.";
+"Nothing to push" = "Nothing to push";
+"Older commits are not listed." = "Older commits are not listed.";
+"Could not load the changed files." = "Could not load the changed files.";
+"Choose which branch to update before pushing." = "Choose which branch to update before pushing.";
+"Creates a new branch on %@" = "Creates a new branch on %@";
+"Sets %@ as the upstream" = "Sets %@ as the upstream";
+"Review commit and push" = "Review commit and push";
+"Commit and Push" = "Commit and Push";
 "Your changes to these files conflict with '%@':" = "Your changes to these files conflict with '%@':";
 "Diff: %@ with %@" = "Diff: %@ with %@";
 "File %lld of %lld" = "File %lld of %lld";
@@ -829,7 +841,6 @@
 "The repository will be opened in detached HEAD state." = "The repository will be opened in detached HEAD state.";
 "This removes the saved patch from Lithe and cannot be undone." = "This removes the saved patch from Lithe and cannot be undone.";
 "This removes the stash from Git and cannot be undone." = "This removes the stash from Git and cannot be undone.";
-"This sends the selected local branch to its configured remote." = "This sends the selected local branch to its configured remote.";
 "Title" = "Title";
 "Toggle preview" = "Toggle preview";
 "Tracking Branch" = "Tracking Branch";
@@ -1294,6 +1305,7 @@
 "Review remaining steps" = "Review remaining steps";
 "Review repository commits" = "Review repository commits";
 "Each repository has its own commit. Completed steps are kept if another repository fails." = "Each repository has its own commit. Completed steps are kept if another repository fails.";
+"Review and Retry…" = "Review and Retry…";
 "Review and Retry Unfinished Steps…" = "Review and Retry Unfinished Steps…";
 "Dismiss Results" = "Dismiss Results";
 "Update parent repository references" = "Update parent repository references";
@@ -1858,6 +1870,16 @@
 "Programs started in Lithe that left their terminal or tool to keep running on their own, like daemons or background dev servers. They are listed together when you quit, and you choose which ones to end. Only programs started in this Lithe are listed; containers and services started outside Lithe are never touched." = "Programs started in Lithe that left their terminal or tool to keep running on their own, like daemons or background dev servers. They are listed together when you quit, and you choose which ones to end. Only programs started in this Lithe are listed; containers and services started outside Lithe are never touched.";
 "Ask in one list" = "Ask in one list";
 "End all" = "End all";
+"Run services" = "Run services";
+"Run configurations and Maven goals started in Lithe. They always stop when their project or window closes or Lithe quits, together with the processes they started; this only decides whether Lithe lists them and asks first." = "Run configurations and Maven goals started in Lithe. They always stop when their project or window closes or Lithe quits, together with the processes they started; this only decides whether Lithe lists them and asks first.";
+"Ask before stopping" = "Ask before stopping";
+"Stop without asking" = "Stop without asking";
+"Run services are still running" = "Run services are still running";
+"Quitting Lithe stops these services and the processes they started." = "Quitting Lithe stops these services and the processes they started.";
+"Closing the project stops these services and the processes they started." = "Closing the project stops these services and the processes they started.";
+"Unnamed service" = "Unnamed service";
+"Stop and Quit" = "Stop and Quit";
+"Stop and Close" = "Stop and Close";
 "Closing a terminal tab" = "Closing a terminal tab";
 "Ask before closing a tab with running programs" = "Ask before closing a tab with running programs";
 "Closing a tab ends every program started in it, including jobs sent to the background. Turn this off to close tabs immediately. Background services that left the terminal are not ended here; they are asked about when you quit." = "Closing a tab ends every program started in it, including jobs sent to the background. Turn this off to close tabs immediately. Background services that left the terminal are not ended here; they are asked about when you quit.";
@@ -2086,3 +2108,33 @@
 "Zoom Out" = "Zoom Out";
 "Reset Page Zoom (100%)" = "Reset Page Zoom (100%)";
 "Page Zoom" = "Page Zoom";
+
+/* Embedded HTML preview browser: camera and microphone. */
+"“%@” wants to use your camera." = "“%@” wants to use your camera.";
+"“%@” wants to use your microphone." = "“%@” wants to use your microphone.";
+"“%@” wants to use your camera and microphone." = "“%@” wants to use your camera and microphone.";
+"The plugin “%@” wants to use your camera." = "The plugin “%@” wants to use your camera.";
+"The plugin “%@” wants to use your microphone." = "The plugin “%@” wants to use your microphone.";
+"The plugin “%@” wants to use your camera and microphone." = "The plugin “%@” wants to use your camera and microphone.";
+"You can mute or stop the device from the address bar while the page is using it." = "You can mute or stop the device from the address bar while the page is using it.";
+"Plugin ID: %@. It can keep using the device until you close or hide its window." = "Plugin ID: %@. It can keep using the device until you close or hide its window.";
+"Lithe can’t give pages access to the camera or microphone in this version." = "Lithe can’t give pages access to the camera or microphone in this version.";
+"Camera in use" = "Camera in use";
+"Microphone in use" = "Microphone in use";
+"Camera and microphone in use" = "Camera and microphone in use";
+"Mute Camera" = "Mute Camera";
+"Unmute Camera" = "Unmute Camera";
+"Stop Camera" = "Stop Camera";
+"Mute Microphone" = "Mute Microphone";
+"Unmute Microphone" = "Unmute Microphone";
+"Stop Microphone" = "Stop Microphone";
+
+/* Embedded HTML preview browser: find in page. */
+"Find in page" = "Find in page";
+"Previous Match" = "Previous Match";
+"Next Match" = "Next Match";
+"Close Find" = "Close Find";
+
+/* Embedded HTML preview browser: context menu, print and PDF. */
+"Print…" = "Print…";
+"Export as PDF…" = "Export as PDF…";

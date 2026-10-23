@@ -505,6 +505,44 @@ test("word highlighting mutes compared blocks and retains full backgrounds when 
   ).toBe(true);
 });
 
+test("display blocks paint inserted rows and keep one block control per Git change", async () => {
+  const f = fixture();
+  const menu = (key: string, order: number) => `{"type": "menu", "menu_key": "${key}", "order": ${order}}`;
+  const rows: ReviewRow[] = [
+    { id: "ctx", left: menu("bossCockpit", 0), right: menu("bossCockpit", 0), oldLine: 1, newLine: 1, kind: "context" },
+    { id: "old-1", left: menu("businessCards", 1), right: null, oldLine: 2, newLine: null, kind: "removal" },
+    { id: "old-2", left: menu("businessCards.assetSafety", 2), right: null, oldLine: 3, newLine: null, kind: "removal" },
+    { id: "new-1", left: null, right: menu("dashboard", 1), oldLine: null, newLine: 2, kind: "addition" },
+    { id: "new-2", left: null, right: menu("dashboard.chairman", 2), oldLine: null, newLine: 3, kind: "addition" },
+    { id: "new-3", left: null, right: menu("businessCards", 3), oldLine: null, newLine: 4, kind: "addition" },
+    { id: "new-4", left: null, right: menu("businessCards.assetSafety", 4), oldLine: null, newLine: 5, kind: "addition" },
+  ];
+  await owner!.update(rows, "plaintext", false, true);
+  f.flush();
+  const classes = (side: 0 | 1) => f.viewStates[side].items.map((item) => item.options.className ?? "").join(" ");
+  expect(owner!.plan.changes).toHaveLength(1);
+  expect(owner!.plan.displayChanges.map((change) => change.kind)).toEqual(["inserted", "modified"]);
+  expect(classes(1)).toContain("commit-diff-line-inserted");
+  expect(classes(1)).toContain("commit-diff-line-modified");
+  expect(classes(0)).not.toContain("commit-diff-line-inserted");
+  expect(classes(0)).toContain("commit-diff-line-modified");
+
+  const gitChange = owner!.plan.changes[0];
+  owner!.setBlockControls({
+    blocks: [{
+      id: owner!.plan.left[gitChange.leftStart].id,
+      checked: false, indeterminate: false, canToggle: true, canRollback: true,
+      leftStart: gitChange.leftStart, rightStart: gitChange.rightStart,
+    }],
+    disabled: false,
+    includeTitle: "include", excludeTitle: "exclude", rollbackTitle: "rollback",
+    onToggle: () => {}, onRollback: () => {},
+  });
+  f.flush();
+  expect(f.host.querySelectorAll(".commit-diff-block-toggle")).toHaveLength(1);
+  expect(f.host.querySelectorAll(".commit-diff-block-rollback")).toHaveLength(1);
+});
+
 test("explicit difference navigation reveals both boundaries before resuming vertical synchronization", async () => {
   const f = fixture();
   await owner!.update(f.rows, "plaintext", false, false);

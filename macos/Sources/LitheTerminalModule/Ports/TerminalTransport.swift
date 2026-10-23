@@ -59,6 +59,10 @@ public protocol TerminalTransport: AnyObject {
     var processID: Int32? { get }
     var shellName: String { get }
     var nativeView: AnyObject { get }
+    /// Product version advertised through `TERM_PROGRAM_VERSION`. Windows
+    /// already reports the packaged app version; hosts that cannot expose one
+    /// keep the variable unset.
+    var termProgramVersion: String? { get }
     var onTermination: ((Int32?) -> Void)? { get set }
     /// Raw bytes received from the child process before terminal emulation.
     /// Hosts may mirror this output into another product surface.
@@ -87,6 +91,7 @@ public protocol TerminalTransport: AnyObject {
 }
 
 public extension TerminalTransport {
+    var termProgramVersion: String? { nil }
     func stopAndWait() async { stop() }
     func runningPrograms() -> [TerminalRunningProgram] { [] }
 }

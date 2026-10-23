@@ -7,13 +7,14 @@ final class HTMLPreviewFixture {
     let root: URL
     let workspace: URL
 
-    init(files: [String: String] = [:]) throws {
+    init(files: [String: String] = [:], binaryFiles: [String: Data] = [:]) throws {
         root = FileManager.default.temporaryDirectory
             .appendingPathComponent("lithe-html-preview-\(UUID().uuidString)", isDirectory: true)
             .resolvingSymlinksInPath()
         workspace = root.appendingPathComponent("workspace", isDirectory: true)
         try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
         for (path, text) in files { try write(text, to: path) }
+        for (path, data) in binaryFiles { try write(data, to: path) }
     }
 
     deinit { try? FileManager.default.removeItem(at: root) }
@@ -24,14 +25,28 @@ final class HTMLPreviewFixture {
     }
 
     func write(_ text: String, to path: String) throws {
+        try write(Data(text.utf8), to: path)
+    }
+
+    /// For files that are not text, such as a WebAssembly module.
+    func write(_ data: Data, to path: String) throws {
         let file = url(path)
         try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try Data(text.utf8).write(to: file)
+        try data.write(to: file)
     }
 
     func scope(document: String) -> HTMLPreviewScope {
         HTMLPreviewScope(documentURL: url(document), workspaceURL: workspace)
     }
+
+    /// The smallest useful WebAssembly module: it exports `add(i32, i32) -> i32`.
+    static let addModule = Data([
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, // magic, version 1
+        0x01, 0x07, 0x01, 0x60, 0x02, 0x7f, 0x7f, 0x01, 0x7f, // type section: (i32, i32) -> i32
+        0x03, 0x02, 0x01, 0x00, // function section: one function of that type
+        0x07, 0x07, 0x01, 0x03, 0x61, 0x64, 0x64, 0x00, 0x00, // export section: "add"
+        0x0a, 0x09, 0x01, 0x07, 0x00, 0x20, 0x00, 0x20, 0x01, 0x6a, 0x0b // code: local.get 0, local.get 1, i32.add
+    ])
 }
 
 struct HTMLPreviewResourcesTests {
@@ -98,6 +113,14 @@ struct HTMLPreviewResourcesTests {
         #expect(text(script) == "export const a = 1")
         #expect(respond(request("/site/style.css"), fixture: fixture).headers["Content-Type"] == "text/css")
         #expect(respond(request("/data/info.json"), fixture: fixture).headers["Content-Type"] == "application/json")
+    }
+
+    @Test func servesWebAssemblyModulesByteForByteWithTheirMIMEType() throws {
+        let fixture = try HTMLPreviewFixture(files: ["site/page.html": "disk"], binaryFiles: ["assets/add.wasm": HTMLPreviewFixture.addModule])
+        let response = respond(request("/assets/add.wasm"), fixture: fixture)
+        #expect(response.statusCode == 200)
+        #expect(response.headers["Content-Type"] == "application/wasm")
+        #expect(response.body == HTMLPreviewFixture.addModule)
     }
 
     @Test func servesTheIndexFileForADirectory() throws {

@@ -8,6 +8,8 @@ let interceptWrite: ((args: Record<string, unknown>) => Promise<unknown>) | unde
 // Keyed by command: repository discovery may or may not run first, depending
 // on what earlier tests in a randomized order have already cached.
 let fileDiffResponse: unknown = null;
+let statusFiles: unknown[] | null = null;
+let directoryListings: Record<string, unknown[]> | null = null;
 
 const invoke = mock(async (command: string, args?: Record<string, unknown>): Promise<unknown> => {
   if (command === "git.write" && interceptWrite) return interceptWrite(args ?? {});
@@ -16,10 +18,16 @@ const invoke = mock(async (command: string, args?: Record<string, unknown>): Pro
     const path = String(args?.path ?? "");
     return path.startsWith("C:/workspace/") ? path : "C:/repo";
   }
+  if (command === "git.untrackedDirectory") {
+    const listing = directoryListings?.[String(args?.directory ?? "")];
+    if (!listing) throw new Error("Git untracked file listing failed");
+    return { files: listing };
+  }
   if (command === "git_status") {
     const repoPath = String(args?.repoPath ?? "");
     if (statusFailure) throw statusFailure;
     if (repoPath === unavailableRepo) return null;
+    if (statusFiles) return { branch: "main", ahead: 0, behind: 0, files: statusFiles };
     return {
       branch: repoPath.endsWith("service-a") ? "main" : "develop",
       ahead: repoPath.endsWith("service-a") ? 1 : 0,
@@ -47,7 +55,11 @@ const {
   getWorkspaceGitStatus,
   getWorkspaceRootGitStatus,
   getGitStatus,
+  getRepositoryGitStatuses,
 } = await import("./git-status-api");
+const { isUntrackedDirectoryExpanded, setUntrackedDirectoryExpanded } = await import(
+  "../services/git-untracked-directory-expansions"
+);
 const { getFullContextFileDiff, getWorkingTreePathDiff } = await import("./git-diff-api");
 const gitEvents = await import("../events/git-events");
 
@@ -58,6 +70,8 @@ beforeEach(() => {
   fileDiffResponse = null;
   unavailableRepo = null;
   statusFailure = null;
+  statusFiles = null;
+  directoryListings = null;
 });
 afterEach(() => invokeSpy.mockRestore());
 
@@ -394,5 +408,69 @@ describe("Git status query failures", () => {
   test("keeps an empty repository list distinct from a failed query", async () => {
     await expect(getWorkspaceGitStatus([])).resolves.toBeNull();
     expect(invoke).not.toHaveBeenCalled();
+  });
+});
+
+describe("Untracked directory summaries", () => {
+  const repo = "C:/workspace/summaries";
+  const untracked = (path: string, untrackedFileCount?: number) => ({
+    path,
+    status: "untracked",
+    staged: false,
+    ...(untrackedFileCount === undefined ? {} : { untrackedFileCount }),
+  });
+  const paths = async () =>
+    ((await getRepositoryGitStatuses([repo]))[repo]?.files ?? []).map((file) => file.path);
+
+  test("store reads summarize large directories while one-off reads stay file-level", async () => {
+    // Regression for #1385: an unignored build directory published one record per file.
+    statusFiles = [untracked("target/", 5_273)];
+    await expect(paths()).resolves.toEqual(["target/"]);
+    await getGitStatus(repo);
+    const queries = invoke.mock.calls.filter(([command]) => command === "git_status");
+    expect(queries[0]?.[1]).toMatchObject({ summarizeUntrackedDirectories: true });
+    expect(queries[1]?.[1]).not.toHaveProperty("summarizeUntrackedDirectories");
+  });
+
+  test("lists expanded summaries on every read and forgets them once the summary is gone", async () => {
+    statusFiles = [untracked("src/App.tsx"), untracked("target/", 5_273)];
+    directoryListings = {
+      "target/": [untracked("target/.rustc_info.json"), untracked("target/debug/", 5_272)],
+      "target/debug/": [untracked("target/debug/app")],
+    };
+    try {
+      setUntrackedDirectoryExpanded(repo, "target/", true);
+      setUntrackedDirectoryExpanded(repo, "target/debug/", true);
+      const expanded = [
+        "src/App.tsx",
+        "target/",
+        "target/.rustc_info.json",
+        "target/debug/",
+        "target/debug/app",
+      ];
+      await expect(paths()).resolves.toEqual(expanded);
+      expect(
+        invoke.mock.calls.find(([command]) => command === "git.untrackedDirectory")?.[1],
+      ).toMatchObject({ repoPath: repo, directory: "target/", repositoryRoots: [repo] });
+
+      // A failed listing keeps the summary collapsed and retries on the next read.
+      directoryListings = null;
+      const logged = spyOn(console, "error").mockImplementation(() => {});
+      try {
+        await expect(paths()).resolves.toEqual(["src/App.tsx", "target/"]);
+        expect(logged).toHaveBeenCalledTimes(1);
+      } finally {
+        logged.mockRestore();
+      }
+      expect(isUntrackedDirectoryExpanded(repo, "target/")).toBe(true);
+
+      // Staging or deleting the directory removes its summary and its expansion.
+      statusFiles = [untracked("src/App.tsx")];
+      await expect(paths()).resolves.toEqual(["src/App.tsx"]);
+      expect(isUntrackedDirectoryExpanded(repo, "target/")).toBe(false);
+      expect(isUntrackedDirectoryExpanded(repo, "target/debug/")).toBe(false);
+    } finally {
+      setUntrackedDirectoryExpanded(repo, "target/", false);
+    }
   });
 });

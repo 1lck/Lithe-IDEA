@@ -298,6 +298,16 @@ jobs:
         shell: pwsh
         run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-agent-connection-service.json -- ./tests/agent-connection-service.test.ts
 
+      - name: Test Agent native adapters and settings in isolation
+        shell: pwsh
+        run: |
+          $suites = @('agent-linked-launch', 'agent-pasted-images', 'agent-provider-editor', 'agent-edit-review-buffer', 'agent-settings-persistence', 'agent-file-context-menu')
+          foreach ($suite in $suites) {
+            $path = Get-ChildItem "windows/tauri/tests/$suite.test.*" | Select-Object -ExpandProperty FullName
+            node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report ".artifacts/test-stability/windows-$suite.json" -- $path
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
       - name: Test Java debug session ownership and cleanup
         shell: pwsh
         timeout-minutes: 5
@@ -355,6 +365,16 @@ jobs:
           node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-title-sync.json -- src/features/window/services/window-title-sync.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-title-focus.json -- src/features/window/services/window-title-focus.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Test Run services confirmation before close, quit and update
+        shell: pwsh
+        timeout-minutes: 2
+        run: |
+          $runner = ".agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs"
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-run-services-exit.json -- src/features/window/services/run-services-exit.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-settings-normalization.json -- src/features/settings/lib/settings-normalization.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Test Git gutter changes and inline review lifecycle
@@ -515,7 +535,7 @@ jobs:
         shell: pwsh
         run: |
           $runner = ".agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs"
-          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-workspace-commit.json -- git-workspace-commit git-status-api.test.ts git-status-model.test.ts ai-commit-context.test.ts working-tree-diff-refresh.test.ts file-context-menu-git-file-items.test.ts
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-workspace-commit.json -- git-workspace-commit git-status-api.test.ts git-status-model.test.ts git-untracked-director ai-commit-context.test.ts working-tree-diff-refresh.test.ts file-context-menu-git-file-items.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-workspace-status.json -- git-workspace-status-panel.test.tsx
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

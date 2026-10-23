@@ -23,6 +23,7 @@ struct HTMLPreviewView: View {
         VStack(spacing: 0) {
             toolbar
             LitheToolWindowHeaderDivider()
+            HTMLPreviewFindBar(find: browser.find)
             if let loadError = browser.loadError {
                 errorBanner(loadError)
             }
@@ -98,6 +99,7 @@ struct HTMLPreviewView: View {
                     addressFocused = false
                 }
 
+            HTMLPreviewCaptureIndicator(capture: browser.capture)
             zoomControls
 
             toolbarButton("Open HTML in Browser", isEnabled: !isOpeningBrowser) {

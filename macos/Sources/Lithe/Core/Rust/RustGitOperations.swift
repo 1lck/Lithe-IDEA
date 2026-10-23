@@ -96,7 +96,8 @@ struct RustGitOperations: GitOperations, Sendable {
         checkout: Bool = false,
         amend: Bool = false,
         force: Bool = false,
-        autoStash: Bool = false
+        autoStash: Bool = false,
+        pushTarget: String? = nil
     ) -> GitProcessResult? {
         switch core.gitWriteResult(
             at: rootURL,
@@ -115,7 +116,8 @@ struct RustGitOperations: GitOperations, Sendable {
             checkout: checkout,
             amend: amend,
             force: force,
-            autoStash: autoStash
+            autoStash: autoStash,
+            pushTarget: pushTarget
         ) {
         case .success(let response):
             return makeProcessResult(response)
@@ -420,8 +422,11 @@ struct RustGitOperations: GitOperations, Sendable {
         write(at: rootURL, operation: "checkoutRevision", revision: revision)
     }
 
-    func push(_ reference: GitReference, at rootURL: URL) -> GitProcessResult? {
-        write(at: rootURL, operation: "push", gitReference: reference)
+    /// Pushes `reference`. `pushTarget` is required only when the branch tracks a
+    /// differently named upstream (`publish` or `upstream`); routine pushes pass
+    /// `nil` and keep their previous behaviour.
+    func push(_ reference: GitReference, pushTarget: String? = nil, at rootURL: URL) -> GitProcessResult? {
+        write(at: rootURL, operation: "push", gitReference: reference, pushTarget: pushTarget)
     }
 
     func cloneRepository(from remote: String, to destination: URL) -> GitProcessResult? {
@@ -481,6 +486,17 @@ struct RustGitOperations: GitOperations, Sendable {
 
     func snapshot(at rootURL: URL, repositoryRoots: [URL]) -> GitSnapshot? {
         core.gitStatus(at: rootURL, repositoryRoots: repositoryRoots)?.makeSnapshot(at: rootURL)
+    }
+
+    func changesSnapshot(at rootURL: URL, repositoryRoots: [URL]) -> GitSnapshot? {
+        core.gitStatus(at: rootURL, repositoryRoots: repositoryRoots, summarizeUntrackedDirectories: true)?
+            .makeSnapshot(at: rootURL)
+    }
+
+    func untrackedDirectoryChildren(of directory: GitChange, repositoryRoots: [URL]) -> [GitChange]? {
+        let root = directory.repositoryRoot.standardizedFileURL
+        return core.gitUntrackedDirectory(at: root, directory: directory.path, repositoryRoots: repositoryRoots)?
+            .changes.map { $0.makeChange(repositoryRoot: root) }
     }
 
     func repositories(in workspaceURL: URL) -> [URL] {

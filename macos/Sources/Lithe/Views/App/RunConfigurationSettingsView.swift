@@ -87,6 +87,7 @@ private struct RunConfigurationSettingsContent: View {
                             ProgressView("Identifying project…")
                         } else {
                             Button("Identify Again") { confirmGeneration = true }
+                                .buttonStyle(LitheActionButtonStyle())
                                 .disabled(feature.recoveryAction == .upgradeApplication)
                         }
                         LitheInfoTip("Select a service or task to configure its arguments, environment and project-environment overrides. Changes apply after Save.")

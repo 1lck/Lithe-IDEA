@@ -5,151 +5,6 @@ import Testing
 import WebKit
 @testable import Lithe
 
-/// Answers page dialogs without showing any, and records what the page asked.
-@MainActor
-private final class RecordingDialogs: ObservableObject, HTMLPreviewDialogPresenting {
-    var alerts: [String] = []
-    var confirms: [String] = []
-    var prompts: [(message: String, defaultText: String?)] = []
-    var sources: [String] = []
-    var confirmAnswer = true
-    var promptAnswer: String? = "Ada"
-    @Published var downloadNames: [String] = []
-    var downloadDestination: URL?
-
-    func presentAlert(message: String, source: String, in window: NSWindow?, completion: @escaping () -> Void) {
-        alerts.append(message)
-        sources.append(source)
-        completion()
-    }
-
-    func presentConfirm(message: String, source: String, in window: NSWindow?, completion: @escaping (Bool) -> Void) {
-        confirms.append(message)
-        completion(confirmAnswer)
-    }
-
-    func presentPrompt(
-        message: String,
-        defaultText: String?,
-        source: String,
-        in window: NSWindow?,
-        completion: @escaping (String?) -> Void
-    ) {
-        prompts.append((message, defaultText))
-        completion(promptAnswer)
-    }
-
-    func chooseFiles(
-        allowsMultiple: Bool,
-        allowsDirectories: Bool,
-        in window: NSWindow?,
-        completion: @escaping ([URL]?) -> Void
-    ) {
-        completion(nil)
-    }
-
-    func chooseDownloadDestination(suggestedFilename: String, in window: NSWindow?, completion: @escaping (URL?) -> Void) {
-        downloadNames.append(suggestedFilename)
-        completion(downloadDestination)
-    }
-}
-
-/// Resumes a continuation exactly once, from the observation or the deadline,
-/// both of which run on the main thread.
-private final class WaitGate: @unchecked Sendable {
-    private var continuation: CheckedContinuation<Bool, Never>?
-    private var observation: AnyCancellable?
-
-    init(_ continuation: CheckedContinuation<Bool, Never>) { self.continuation = continuation }
-
-    func hold(_ observation: AnyCancellable) {
-        guard continuation != nil else { return observation.cancel() }
-        self.observation = observation
-    }
-
-    func finish(_ value: Bool) {
-        guard let pending = continuation else { return }
-        continuation = nil
-        observation?.cancel()
-        observation = nil
-        pending.resume(returning: value)
-    }
-}
-
-/// A controller whose web view sits in a real window, so layout, scrolling and
-/// dialogs behave as they do in the app.
-@MainActor
-private final class BrowserHarness {
-    let fixture: HTMLPreviewFixture
-    let dialogs = RecordingDialogs()
-    let controller: HTMLPreviewBrowserController
-    let window: NSWindow
-
-    init(files: [String: String]) throws {
-        fixture = try HTMLPreviewFixture(files: files)
-        controller = HTMLPreviewBrowserController(dialogs: dialogs)
-        window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
-            styleMask: [.titled],
-            backing: .buffered,
-            defer: false
-        )
-        window.isReleasedWhenClosed = false
-        window.contentView = controller.containerView
-        window.orderFront(nil)
-    }
-
-    func tearDown() {
-        controller.webView.stopLoading()
-        window.contentView = nil
-        window.close()
-    }
-
-    var webView: WKWebView { controller.webView }
-
-    func show(_ html: String, document: String = "site/page.html") {
-        controller.update(.init(html: html, documentURL: fixture.url(document), workspaceURL: fixture.workspace))
-    }
-
-    /// Waits for `isSatisfied`, re-checking after every change WebKit or the
-    /// controller publishes. Returns false at the deadline instead of hanging.
-    func wait(timeout: DispatchTimeInterval = .seconds(15), until isSatisfied: @escaping @MainActor () -> Bool) async -> Bool {
-        if isSatisfied() { return true }
-        let webView = webView
-        let controller = controller
-        let dialogs = dialogs
-        return await withCheckedContinuation { continuation in
-            let gate = WaitGate(continuation)
-            let changes = Publishers.MergeMany(
-                webView.publisher(for: \.title).map { _ in () }.eraseToAnyPublisher(),
-                webView.publisher(for: \.url).map { _ in () }.eraseToAnyPublisher(),
-                webView.publisher(for: \.isLoading).map { _ in () }.eraseToAnyPublisher(),
-                controller.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
-                dialogs.objectWillChange.map { _ in () }.eraseToAnyPublisher()
-            )
-            gate.hold(changes.sink { _ in
-                Task { @MainActor in
-                    if isSatisfied() { gate.finish(true) }
-                }
-            })
-            DispatchQueue.main.asyncAfter(deadline: .now() + timeout) { gate.finish(false) }
-        }
-    }
-
-    func waitForTitle(_ title: String) async -> Bool {
-        await wait { [webView] in webView.title == title }
-    }
-
-    func evaluate(_ script: String) async throws -> Any? {
-        try await webView.evaluateJavaScript(script)
-    }
-
-    /// Runs a function body that may `await`, in the page's own world.
-    func evaluateAsync(_ body: String, arguments: [String: Any] = [:]) async throws -> Any? {
-        try await webView.callAsyncJavaScript(body, arguments: arguments, contentWorld: .page)
-    }
-}
-
 @MainActor
 struct HTMLPreviewBrowserTests {
     @Test func modulePagesFetchAndImportRootRelativeResources() async throws {
@@ -622,5 +477,77 @@ struct HTMLPreviewBrowserTests {
         // The inspector is private WebKit API; this fails if a system update removes it.
         #expect(harness.controller.isDeveloperToolsAvailable)
         #expect(!harness.controller.isDeveloperToolsVisible)
+    }
+
+    // MARK: - WebAssembly
+
+    @Test func wasmModulesLoadThroughFetch() async throws {
+        let harness = try BrowserHarness(files: ["site/page.html": "disk"])
+        defer { harness.tearDown() }
+        try harness.fixture.write(HTMLPreviewFixture.addModule, to: "assets/add.wasm")
+
+        harness.show("""
+            <script type="module">
+            try {
+              const response = await fetch('/assets/add.wasm');
+              const bytes = new Uint8Array(await response.arrayBuffer());
+              const { instance } = await WebAssembly.instantiate(bytes);
+              document.title = ['fetch', response.status, response.headers.get('content-type'), bytes.length, instance.exports.add(2, 3)].join(':');
+            } catch (error) {
+              document.title = 'error:' + error;
+            }
+            </script>
+            """)
+
+        let expected = "fetch:200:application/wasm:\(HTMLPreviewFixture.addModule.count):5"
+        #expect(await harness.waitForTitle(expected), "Title was \(harness.webView.title ?? "nil")")
+    }
+
+    @Test func wasmModulesCompileWhileStreamingFromRootRelativeAndRelativeAddresses() async throws {
+        let harness = try BrowserHarness(files: ["site/page.html": "disk"])
+        defer { harness.tearDown() }
+        try harness.fixture.write(HTMLPreviewFixture.addModule, to: "assets/add.wasm")
+
+        harness.show("""
+            <script type="module">
+            try {
+              const sums = [];
+              for (const path of ['/assets/add.wasm', '../assets/add.wasm']) {
+                const { instance } = await WebAssembly.instantiateStreaming(fetch(path));
+                sums.push(instance.exports.add(40, 2));
+              }
+              document.title = 'streaming:' + sums.join(',');
+            } catch (error) {
+              document.title = 'error:' + error;
+            }
+            </script>
+            """)
+
+        #expect(await harness.waitForTitle("streaming:42,42"), "Title was \(harness.webView.title ?? "nil")")
+    }
+
+    @Test func streamingCompilationNeedsTheWasmMIMEType() async throws {
+        let harness = try BrowserHarness(files: ["site/page.html": "disk"])
+        defer { harness.tearDown() }
+        // The same bytes under an extension that is not served as application/wasm.
+        try harness.fixture.write(HTMLPreviewFixture.addModule, to: "assets/add.bin")
+
+        harness.show("""
+            <script type="module">
+            const outcome = [];
+            try {
+              await WebAssembly.instantiateStreaming(fetch('/assets/add.bin'));
+              outcome.push('streamed');
+            } catch (error) {
+              outcome.push(error.name, /MIME/i.test(error.message));
+            }
+            const bytes = await (await fetch('/assets/add.bin')).arrayBuffer();
+            const { instance } = await WebAssembly.instantiate(bytes);
+            outcome.push(instance.exports.add(1, 1));
+            document.title = outcome.join(':');
+            </script>
+            """)
+
+        #expect(await harness.waitForTitle("TypeError:true:2"), "Title was \(harness.webView.title ?? "nil")")
     }
 }

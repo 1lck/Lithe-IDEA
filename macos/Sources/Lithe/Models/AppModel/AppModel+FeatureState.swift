@@ -331,6 +331,7 @@ extension AppModel {
     var isPendingProjectClose: Bool { documentFeature.isPendingProjectClose }
 
     var gitChanges: [GitChange] { gitFeatureIfActive?.gitChanges ?? [] }
+    var gitChangedFileCount: Int { gitFeatureIfActive?.gitChangedFileCount ?? 0 }
     var gitTreeStatusProjection: GitTreeStatusProjection {
         gitFeatureIfActive?.gitTreeStatus ?? GitTreeStatusProjection(changes: [])
     }

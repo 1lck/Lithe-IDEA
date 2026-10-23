@@ -31,6 +31,11 @@ package protocol GitOperations: Sendable {
 
     func snapshot(at rootURL: URL) -> GitSnapshot?
     func snapshot(at rootURL: URL, repositoryRoots: [URL]) -> GitSnapshot?
+    /// Status for the changes panel: a large wholly untracked directory arrives
+    /// as one summary change instead of one change per file.
+    func changesSnapshot(at rootURL: URL, repositoryRoots: [URL]) -> GitSnapshot?
+    /// Immediate files and subdirectory summaries of an untracked directory summary.
+    func untrackedDirectoryChildren(of directory: GitChange, repositoryRoots: [URL]) -> [GitChange]?
     func repositories(in workspaceURL: URL) -> [URL]
     func watchContext(at rootURL: URL) -> GitWatchContext?
     func worktrees(at rootURL: URL) -> [GitWorktree]?
@@ -170,7 +175,25 @@ package protocol GitOperations: Sendable {
     func abortOperation(at rootURL: URL) -> GitProcessResult?
     func skipOperationStep(at rootURL: URL) -> GitProcessResult?
     func checkoutRevision(_ revision: String, at rootURL: URL) -> GitProcessResult?
-    func push(_ reference: GitReference, at rootURL: URL) -> GitProcessResult?
+    /// Pushes `reference`. `pushTarget` is required only for a branch that tracks a
+    /// differently named upstream; routine pushes pass `nil`.
+    func push(_ reference: GitReference, pushTarget: String?, at rootURL: URL) -> GitProcessResult?
+    /// Resolves where pushing `reference` would go and which commits it would send.
+    /// `pushTarget` previews the destination a differently named upstream was
+    /// confirmed to use; routine pushes pass `nil`.
+    func pushPreview(
+        _ reference: GitReference,
+        pushTarget: GitPushTargetChoice?,
+        at rootURL: URL
+    ) -> Result<GitPushPreview, GitPushFailure>
+    /// Pushes exactly what `preview` showed. Core rejects the push as stale when the
+    /// branch, destination or tracking commit moved after the preview was resolved.
+    func pushReviewed(
+        _ reference: GitReference,
+        preview: GitPushPreview,
+        pushTarget: GitPushTargetChoice?,
+        at rootURL: URL
+    ) -> GitProcessResult?
     func cloneRepository(from remote: String, to destination: URL) -> GitProcessResult?
     func stash(message: String, includeUntracked: Bool, at rootURL: URL) -> GitProcessResult?
     func applyStash(_ stash: GitStash, at rootURL: URL) -> GitProcessResult?
@@ -193,12 +216,31 @@ package extension GitOperations {
         .failure(GitWorkspaceCommitFailure("Workspace commit execution is unavailable"))
     }
     func snapshot(at rootURL: URL, repositoryRoots: [URL]) -> GitSnapshot? { snapshot(at: rootURL) }
+    func changesSnapshot(at rootURL: URL, repositoryRoots: [URL]) -> GitSnapshot? {
+        snapshot(at: rootURL, repositoryRoots: repositoryRoots)
+    }
+    func untrackedDirectoryChildren(of directory: GitChange, repositoryRoots: [URL]) -> [GitChange]? { nil }
 
     func consolePresentation(_ request: GitConsolePresentationRequest) -> GitConsolePresentation? { nil }
     func executableResolution() -> Result<GitExecutableResolution, GitFetchFailure> { .failure(GitFetchFailure("Git executable resolution is unavailable.")) }
     func executionSettings(_ request: GitConfigurationEdit, save: Bool) -> Result<GitExecutionSettingsSnapshot, GitFetchFailure> { .failure(GitFetchFailure("Git configuration inspection is unavailable.")) }
     func remoteURL(at rootURL: URL, remote: String) -> String? { nil }
     func answerAuthentication(requestID: String, answer: String?) -> Bool { false }
+    func pushPreview(
+        _ reference: GitReference,
+        pushTarget: GitPushTargetChoice?,
+        at rootURL: URL
+    ) -> Result<GitPushPreview, GitPushFailure> {
+        .failure(GitPushFailure("Push preview is unavailable."))
+    }
+    func pushReviewed(
+        _ reference: GitReference,
+        preview: GitPushPreview,
+        pushTarget: GitPushTargetChoice?,
+        at rootURL: URL
+    ) -> GitProcessResult? {
+        GitProcessResult(output: "Reviewed push is unavailable.", exitCode: 1)
+    }
     func fetchPlan(options: GitFetchOptions, at root: URL) -> Result<GitFetchPlan, GitFetchFailure> { fetchPlan(options: options) }
     func fetchPlan(options: GitFetchOptions) -> Result<GitFetchPlan, GitFetchFailure> {
         .failure(GitFetchFailure("Fetch preview is unavailable."))
@@ -388,6 +430,14 @@ package struct GitService: Sendable {
         await read(priority: .utility) { $0.snapshot(at: workspace, repositoryRoots: repositoryRoots) }
     }
 
+    func changesSnapshot(for workspace: URL, repositoryRoots: [URL]) async -> GitSnapshot? {
+        await read(priority: .utility) { $0.changesSnapshot(at: workspace, repositoryRoots: repositoryRoots) }
+    }
+
+    func untrackedDirectoryChildren(of directory: GitChange, repositoryRoots: [URL]) async -> [GitChange]? {
+        await read { $0.untrackedDirectoryChildren(of: directory, repositoryRoots: repositoryRoots) }
+    }
+
     func repositories(in workspace: URL) async -> [URL] {
         await read(priority: .utility) { $0.repositories(in: workspace) } ?? []
     }
@@ -504,10 +554,11 @@ package struct GitService: Sendable {
     /// Returns only the working-tree delta against the current index. This is
     /// kept separate from `diffPatch(for:)` so Shelve can preserve staged and
     /// unstaged edits independently for a file that has both.
+    /// Nil when Git could not export the change, which Shelve must not clean.
     func workingDiffPatch(
         for change: GitChange,
         whitespace: GitDiffWhitespaceMode = .doNotIgnore
-    ) async -> String {
+    ) async -> String? {
         await read {
             $0.diffPatch(
                 at: change.repositoryRoot,
@@ -516,7 +567,7 @@ package struct GitService: Sendable {
                 untracked: change.isUntracked,
                 whitespace: whitespace
             )
-        } ?? ""
+        }
     }
 
     /// Applies a complete patch outside the diff-hunk convenience methods.
@@ -540,10 +591,11 @@ package struct GitService: Sendable {
 
     /// Returns exactly what Git would include for this file in the next
     /// commit, even when the file also has unstaged working-tree changes.
+    /// Nil when Git could not export the staged change.
     func stagedDiffPatch(
         for change: GitChange,
         whitespace: GitDiffWhitespaceMode = .doNotIgnore
-    ) async -> String {
+    ) async -> String? {
         await read {
             $0.diffPatch(
                 at: change.repositoryRoot,
@@ -552,7 +604,7 @@ package struct GitService: Sendable {
                 untracked: false,
                 whitespace: whitespace
             )
-        } ?? ""
+        }
     }
 
     func stage(_ change: GitChange) async -> CommandResult {
@@ -1112,8 +1164,36 @@ package struct GitService: Sendable {
         await command(at: repositoryRoot) { $0.checkoutRevision(revision, at: repositoryRoot) }
     }
 
-    func push(_ reference: GitReference, at repositoryRoot: URL) async -> CommandResult {
-        await command(at: repositoryRoot) { $0.push(reference, at: repositoryRoot) }
+    func push(
+        _ reference: GitReference,
+        pushTarget: String? = nil,
+        at repositoryRoot: URL
+    ) async -> CommandResult {
+        await command(at: repositoryRoot) {
+            $0.push(reference, pushTarget: pushTarget, at: repositoryRoot)
+        }
+    }
+
+    func pushPreview(
+        _ reference: GitReference,
+        pushTarget: GitPushTargetChoice? = nil,
+        at repositoryRoot: URL
+    ) async -> Result<GitPushPreview, GitPushFailure> {
+        let operations = self.operations
+        return await Task.detached(priority: .userInitiated) {
+            operations.pushPreview(reference, pushTarget: pushTarget, at: repositoryRoot)
+        }.value
+    }
+
+    func pushReviewed(
+        _ reference: GitReference,
+        preview: GitPushPreview,
+        pushTarget: GitPushTargetChoice?,
+        at repositoryRoot: URL
+    ) async -> CommandResult {
+        await command(at: repositoryRoot) {
+            $0.pushReviewed(reference, preview: preview, pushTarget: pushTarget, at: repositoryRoot)
+        }
     }
 
     func cloneRepository(from remote: String, to destination: URL) async -> CommandResult {

@@ -1,5 +1,7 @@
 import { load, type Store } from "@tauri-apps/plugin-store";
 import isEqual from "fast-deep-equal";
+import { invoke } from "@/platform/tauri-core";
+import { normalizeAgentPanelSettings, type AgentPanelSettings } from "@/features/agent/types/agent-settings.types";
 import {
   defaultSettings,
   getDefaultSettingsSnapshot,
@@ -14,6 +16,45 @@ import {
 let storeInstance: Store | null = null;
 let storePromise: Promise<Store> | null = null;
 let initialStoreEntries: Map<string, unknown> | null = null;
+let agentPanelRevision: unknown;
+let agentPanelQueue: Promise<unknown> = Promise.resolve();
+let agentPanelPending = 0;
+let publishAgentPanel: ((settings: AgentPanelSettings) => void) | null = null;
+
+export function observeAgentPanelSettings(publish: (settings: AgentPanelSettings) => void) {
+  publishAgentPanel = publish;
+}
+
+export interface AgentCredentialChange {
+  agentId: string;
+  providerId?: string;
+  value: string;
+}
+
+/** Serialize this window's edits; the host compares the persisted revision atomically. */
+export function commitAgentPanelSettings(expected: AgentPanelSettings, next: AgentPanelSettings, credential?: AgentCredentialChange): Promise<AgentPanelSettings> {
+  agentPanelPending += 1;
+  const operation = agentPanelQueue.then(async () => {
+    await getSettingsStore();
+    if (!isEqual(normalizeAgentPanelSettings(agentPanelRevision), normalizeAgentPanelSettings(expected))) {
+      throw new Error("agent.settings.conflict");
+    }
+    await invoke("commit_agent_panel_settings", { expected: agentPanelRevision ?? null, next, credential: credential ?? null });
+    agentPanelRevision = JSON.parse(JSON.stringify(next));
+    return normalizeAgentPanelSettings(agentPanelRevision);
+  });
+  const settled = operation.finally(async () => {
+    try {
+      const store = await getSettingsStore();
+      agentPanelRevision = await store.get("agentPanel");
+      if (agentPanelPending === 1) publishAgentPanel?.(normalizeAgentPanelSettings(agentPanelRevision));
+    } finally {
+      agentPanelPending -= 1;
+    }
+  });
+  agentPanelQueue = settled.catch(() => undefined);
+  return settled;
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -38,7 +79,8 @@ async function initializeStoreDefaults(store: Store) {
     }
 
     entries.set(key, nextValue);
-    if (!isEqual(currentValue, nextValue)) changes.push([key, nextValue]);
+    // Agent settings have a native compare-and-swap writer, including first use.
+    if (key !== "agentPanel" && !isEqual(currentValue, nextValue)) changes.push([key, nextValue]);
   }
 
   if (changes.length > 0 || retiredKeys.length > 0) {
@@ -61,6 +103,12 @@ export async function getSettingsStore() {
         autoSave: true,
       } as Parameters<typeof load>[1]);
       await initializeStoreDefaults(store);
+      agentPanelRevision = await store.get("agentPanel");
+      await store.onKeyChange("agentPanel", (value) => {
+        if (agentPanelPending > 0) return;
+        agentPanelRevision = value;
+        publishAgentPanel?.(normalizeAgentPanelSettings(value));
+      });
       storeInstance = store;
       return store;
     })();
@@ -95,7 +143,10 @@ export async function saveSettingsToStore(settings: Partial<Settings>) {
   try {
     const store = await getSettingsStore();
 
-    await Promise.all(Object.entries(settings).map(([key, value]) => store.set(key, value)));
+    if (settings.agentPanel) {
+      await commitAgentPanelSettings(normalizeAgentPanelSettings(agentPanelRevision), settings.agentPanel);
+    }
+    await Promise.all(Object.entries(settings).filter(([key]) => key !== "agentPanel").map(([key, value]) => store.set(key, value)));
 
     await store.save();
   } catch (error) {

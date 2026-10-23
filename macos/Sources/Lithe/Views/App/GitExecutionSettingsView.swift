@@ -135,8 +135,7 @@ private struct GitSettingsLoadedPage: View {
                 LitheInfoTip("Defaults for ordinary Fetch in every project. A repository's own Git configuration above still wins where it is set.")
                 Spacer(minLength: 0)
                 Button("Reset") { settings.gitFetchOptions = GitFetchOptions() }
-                    .buttonStyle(.borderless)
-                    .font(LitheTheme.smallFont)
+                    .buttonStyle(LitheActionButtonStyle())
                     .disabled(settings.gitFetchOptions == GitFetchOptions())
             }) {
                 GitFetchDefaultRows(options: $settings.gitFetchOptions)
@@ -297,7 +296,7 @@ private struct GitRepositoryCard: View {
                 .help(Text("Where the rows below that are backed by Git configuration are written."))
                 HStack(spacing: 12) {
                     Button("Reload Configuration", action: reload)
-                        .buttonStyle(.borderless)
+                        .buttonStyle(LitheActionButtonStyle())
                     if let remoteURL, let browserURL = GitRemoteURLPresentation(remoteURL)?.browserURL {
                         Link("Open Remote ↗", destination: browserURL)
                     }
@@ -366,7 +365,7 @@ private struct GitProgramSection<Extra: View>: View {
                     .onSubmit(save)
                 if trimmed != settings.gitExecutable {
                     Button("Save", action: save)
-                        .buttonStyle(LithePrimaryButtonStyle(backgroundColor: LitheTheme.settingsPrimaryAction, restingOpacity: 1))
+                        .buttonStyle(LitheActionButtonStyle(isPrimary: true))
                 }
                 Button("Choose…") {
                     let panel = NSOpenPanel()
@@ -377,7 +376,7 @@ private struct GitProgramSection<Extra: View>: View {
                         save()
                     }
                 }
-                .buttonStyle(LitheSecondaryButtonStyle())
+                .buttonStyle(LitheActionButtonStyle())
             } badges: {
                 if let execution {
                     GitExecutableStatus(editor: execution)
@@ -540,7 +539,7 @@ private struct GitIdentityRow: View {
                 .onSubmit { if isDirty { save(field, false) } }
             if isDirty {
                 Button("Save") { save(field, false) }
-                    .buttonStyle(LithePrimaryButtonStyle(backgroundColor: LitheTheme.settingsPrimaryAction, restingOpacity: 1))
+                    .buttonStyle(LitheActionButtonStyle(isPrimary: true))
             }
         } badges: {
             if let effective, !effective.isEmpty {

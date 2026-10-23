@@ -5,12 +5,15 @@ import { changelistsChinese, changelistsEnglish } from "./git-changelists";
 import { workspaceCommitChinese, workspaceCommitEnglish } from "./git-workspace-commit";
 import { aiCommitChinese, aiCommitEnglish } from "./ai-commit";
 import { updateChannelEnglish, updateChannelChinese } from "./update-channel";
+import { agentParityEnglish, agentParityChinese } from "./agent-parity";
+import { runningServicesChinese, runningServicesEnglish } from "./running-services";
 export const DISPLAY_LANGUAGES = ["en-US", "zh-CN"] as const;
 
 export type DisplayLanguage = (typeof DISPLAY_LANGUAGES)[number];
 
 const catalogs = {
   "en-US": {
+    ...agentParityEnglish,
     "agent.quietNotice": "No recent progress has been received. The task is still active.",
     "agent.continueWaiting": "Continue waiting",
     "agent.stop": "Stop",
@@ -20,6 +23,7 @@ const catalogs = {
     ...workspaceCommitEnglish,
     ...changelistsEnglish,
     ...updateChannelEnglish,
+    ...runningServicesEnglish,
     ...modularLoggingEnglish,
     "git.console.details": "Command details",
     "git.console.historyTruncated": "Earlier Git commands were truncated to limit memory use.",
@@ -3136,6 +3140,7 @@ const catalogs = {
     "git.removed": "Removed",
     "git.uncommittedChanges": "Uncommitted Changes",
     "git.diffFileCount": "{count} file{plural}",
+    "git.untrackedDirectorySummary": "{path} — {count} untracked files. Expand to list its contents.",
     "git.expandAll": "Expand all",
     "git.expandAllFiles": "Expand all files",
     "git.collapseAll": "Collapse all",
@@ -4606,6 +4611,14 @@ const catalogs = {
     "git.pushDialog.noChangedFiles": "This commit has no changed files.",
     "git.pushDialog.moreCommits": "More commits are not shown in this bounded preview.",
     "git.pushDialog.newUpstream": "New upstream",
+    "git.pushDialog.createsRemoteBranch": "New remote branch",
+    "git.pushDialog.divergentWarning":
+      '"{branch}" tracks "{upstream}", a different branch. Choose where this push should go.',
+    "git.pushDialog.publishSameName": "Publish to {remote}/{branch}",
+    "git.pushDialog.pushToUpstream": "Push to {branch}",
+    "git.pushDialog.chooseTargetTitle": "Choose the push destination",
+    "git.pushDialog.chooseTargetDescription":
+      "These branches track a branch with a different name. Choose where each push goes; nothing is committed until you confirm.",
     "git.pushDialog.upstreamConfigurationFailed":
       "Push succeeded, but the branch upstream could not be configured.",
     "git.pushDialog.pushTags": "Push tags:",
@@ -4895,6 +4908,7 @@ const catalogs = {
     "welcome.backToProjects": "Back to projects",
   },
   "zh-CN": {
+    ...agentParityChinese,
     "agent.quietNotice": "暂未收到新的进度，任务仍在进行。",
     "agent.continueWaiting": "继续等待",
     "agent.stop": "停止",
@@ -4904,6 +4918,7 @@ const catalogs = {
     ...workspaceCommitChinese,
     ...changelistsChinese,
     ...updateChannelChinese,
+    ...runningServicesChinese,
     ...modularLoggingChinese,
     "git.console.details": "命令详情",
     "git.console.historyTruncated": "为限制内存占用，较早的 Git 执行记录已截断，无法展开。",
@@ -7882,6 +7897,7 @@ const catalogs = {
     "git.removed": "已删除",
     "git.uncommittedChanges": "未提交的更改",
     "git.diffFileCount": "{count} 个文件",
+    "git.untrackedDirectorySummary": "{path} — {count} 个未跟踪文件，展开可查看内容。",
     "git.expandAll": "全部展开",
     "git.expandAllFiles": "展开所有文件",
     "git.collapseAll": "全部折叠",
@@ -9316,6 +9332,14 @@ const catalogs = {
     "git.pushDialog.noChangedFiles": "此提交没有变更文件。",
     "git.pushDialog.moreCommits": "有更多提交未显示在当前有界预览中。",
     "git.pushDialog.newUpstream": "新建上游",
+    "git.pushDialog.createsRemoteBranch": "新建远端分支",
+    "git.pushDialog.divergentWarning":
+      "「{branch}」跟踪的是另一个分支「{upstream}」。请选择这次推送的目标。",
+    "git.pushDialog.publishSameName": "发布到 {remote}/{branch}",
+    "git.pushDialog.pushToUpstream": "推送到 {branch}",
+    "git.pushDialog.chooseTargetTitle": "选择推送目标",
+    "git.pushDialog.chooseTargetDescription":
+      "这些分支跟踪的是名称不同的远端分支。请为每个推送选择目标，确认之前不会写入任何提交。",
     "git.pushDialog.upstreamConfigurationFailed": "推送已成功，但无法配置分支上游。",
     "git.pushDialog.pushTags": "推送标签：",
     "git.pushDialog.tagsAll": "所有",
