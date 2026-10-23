@@ -456,13 +456,30 @@ pub(super) fn publish(source: &Path, target: &Path) -> Result<(), Error> {
         }
         Ok(())
     }
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    #[cfg(windows)]
     {
-        // Windows MoveFile semantics reject an existing destination directory.
-        fs::rename(source, target).map_err(|_| {
-            failure("The skill could not be published. Check permissions and existing skill names.")
-        })
+        use std::os::windows::ffi::OsStrExt;
+        use windows_sys::Win32::Storage::FileSystem::{MoveFileExW, MOVEFILE_WRITE_THROUGH};
+        let from: Vec<u16> = source.as_os_str().encode_wide().chain(Some(0)).collect();
+        let to: Vec<u16> = target.as_os_str().encode_wide().chain(Some(0)).collect();
+        if from[..from.len() - 1].contains(&0) || to[..to.len() - 1].contains(&0) {
+            return Err(failure("Invalid skill path."));
+        }
+        // std::fs::rename can replace empty directories via FileRenameInfoEx.
+        // Omit REPLACE_EXISTING and COPY_ALLOWED: publication must stay an
+        // exclusive same-volume move, including when another writer races us.
+        // SAFETY: both terminated UTF-16 buffers stay alive throughout the call.
+        if unsafe { MoveFileExW(from.as_ptr(), to.as_ptr(), MOVEFILE_WRITE_THROUGH) } == 0 {
+            return Err(failure(
+                "The skill could not be published. Check permissions and existing skill names.",
+            ));
+        }
+        Ok(())
     }
+    #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
+    Err(failure(
+        "Atomic skill publication is unavailable on this platform.",
+    ))
 }
 
 /// Native destinations are returned as display metadata; discovery creates no directories.

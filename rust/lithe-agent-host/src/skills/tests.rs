@@ -389,11 +389,77 @@ fn publication_cannot_replace_an_existing_empty_directory() {
     let source = fixture.0.join("stage");
     let target = fixture.0.join("target");
     fs::create_dir(&source).unwrap();
-    fs::create_dir(&target).unwrap();
     fs::write(source.join("SKILL.md"), DOCUMENT).unwrap();
+    // The final native move must reject a destination created after staging,
+    // even when the competing directory is empty.
+    fs::create_dir(&target).unwrap();
     assert!(files::publish(&source, &target).is_err());
     assert_eq!(fs::read_dir(target).unwrap().count(), 0);
     assert!(source.join("SKILL.md").is_file());
+}
+
+#[test]
+fn publication_preserves_existing_files_and_directory_contents() {
+    for directory in [false, true] {
+        let fixture = Sandbox::new();
+        let source = fixture.0.join("stage");
+        let target = fixture.0.join("target");
+        fs::create_dir(&source).unwrap();
+        fs::write(source.join("SKILL.md"), DOCUMENT).unwrap();
+        let existing = if directory {
+            fs::create_dir(&target).unwrap();
+            target.join("keep.txt")
+        } else {
+            target.clone()
+        };
+        fs::write(&existing, "keep existing bytes").unwrap();
+        assert!(files::publish(&source, &target).is_err());
+        assert_eq!(fs::read_to_string(existing).unwrap(), "keep existing bytes");
+        assert_eq!(
+            fs::read_to_string(source.join("SKILL.md")).unwrap(),
+            DOCUMENT
+        );
+    }
+}
+
+#[test]
+fn publication_moves_a_complete_package_to_a_missing_unicode_destination() {
+    let fixture = Sandbox::new();
+    let source = fixture.0.join("stage with spaces");
+    let target = fixture.0.join("skill 中文");
+    fs::create_dir_all(source.join("scripts")).unwrap();
+    fs::write(source.join("SKILL.md"), DOCUMENT).unwrap();
+    fs::write(source.join("scripts/example.txt"), "resource bytes").unwrap();
+    files::publish(&source, &target).unwrap();
+    assert!(!source.exists());
+    assert_eq!(
+        fs::read_to_string(target.join("SKILL.md")).unwrap(),
+        DOCUMENT
+    );
+    assert_eq!(
+        fs::read_to_string(target.join("scripts/example.txt")).unwrap(),
+        "resource bytes"
+    );
+}
+
+#[cfg(windows)]
+#[test]
+fn publication_rejects_nul_paths_without_publishing_the_truncated_name() {
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+    let fixture = Sandbox::new();
+    let source = fixture.0.join("stage");
+    let prefix = fixture.0.join("target");
+    let mut name: Vec<u16> = prefix.as_os_str().encode_wide().collect();
+    name.extend([0, b'x' as u16]);
+    let target = PathBuf::from(std::ffi::OsString::from_wide(&name));
+    fs::create_dir(&source).unwrap();
+    fs::write(source.join("SKILL.md"), DOCUMENT).unwrap();
+    assert!(files::publish(&source, &target).is_err());
+    assert!(!prefix.exists());
+    assert_eq!(
+        fs::read_to_string(source.join("SKILL.md")).unwrap(),
+        DOCUMENT
+    );
 }
 
 #[test]

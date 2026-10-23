@@ -46,6 +46,17 @@ Claude 配置仅合并目标 skillOverrides 键，保留其他 JSON 值与既有
 
 导入保留完整目录中的脚本、模板和文件权限，源目录只读。名称、YAML 文件头、UTF-8、目录深度、文件数和大小都有边界；拒绝导入中的符号链接和特殊文件，以及通过链接的目标容器。先写随机隐藏暂存目录，再以不覆盖模式发布；已有空目录也算冲突。失败或取消回收暂存目录，不改已有技能。查看正文仅返回有界文本，不执行文件中的命令或指令。
 
+最终发布必须由操作系统原子地拒绝已有目标，不能只在准备暂存前检查目录是否存在。
+macOS 使用 `RENAME_EXCL`，Linux 使用 `RENAME_NOREPLACE`；Windows 使用
+`windows-sys` 的 `MoveFileExW`，只启用 `MOVEFILE_WRITE_THROUGH`，不启用替换和跨卷复制。
+UTF-16 路径保留 Unicode、空格和长路径前缀，内嵌 NUL 拒绝传入原生 API。
+不能把 Windows 的 `std::fs::rename` 当成不覆盖操作：[Rust 官方文档](https://doc.rust-lang.org/std/fs/fn.rename.html)
+说明支持 `FileRenameInfoEx` 的文件系统可替换已有空目录，而
+[MoveFileExW 文档](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-movefileexw)
+提供显式控制替换的标志。Windows CI 曾在这个边界实际覆盖空目标，故回归必须保留失败
+断言；正确做法是让最后一次移动失败并保留源包和已有目标，不是增加另一次易竞争的存在检查。
+未实现排他发布的平台直接拒绝，不退回可能覆盖目标的普通重命名。
+
 刷新独立查询两个 Agent，单方不可用不遮住另一方结果；同一项目刷新失败保留旧列表，切项目先清除旧数据。请求与写入捕获项目，迟到结果须核对版本；页面离开时取消自有任务。原生探测的取消必须进入已有交换清理路径，初始化卡住时也先终止并回收子进程，再销毁短生命周期的 Tokio 运行时；不能只丢弃读取 future，把子进程回收留给已经退出的事件循环。保存后刷新列表，是否被运行中的会话发现继续由原生 Agent 决定，不停止会话，也不承诺一次导入会让所有 Agent 都可用。
 
 这些文件是用户明确创建或导入的工作资料，不是构建产物、下载缓存或可跨工作树复用资源。它们的生命周期由用户和原生 Agent 管理，写入位置仅为原生用户或所选项目目录；不写应用包、已安装适配器、签名资源或发行目录，不改变代码签名和 Sparkle 增量更新基线。没有新增可复用的构建资源，因此工作树资源清单不登记用户技能。
@@ -67,6 +78,7 @@ Windows 已能使用共享 Core 与 Host 操作，但设置页面和真实 Windo
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'AgentSkillsFeatureModelTests|AgentSkillsRustBridgeTests|AgentSkillsAppearanceTests|SettingsSidebarLayoutTests|SettingsSearchVocabularyTests'`
 - `node .agents/skills/write-stable-tests/scripts/run-rust-tests-with-timing.mjs --manifest rust/Cargo.toml --package lithe-agent-host --report .artifacts/test-stability/agent-skills-rust.json`
+- Windows 在原生 CI 中运行相同 Host 测试，覆盖暂存后出现的空目录、普通文件和非空目录都不覆盖，缺失的 Unicode 目标完整发布，以及 NUL 路径不按截断名称发布。这些文件系统用例不等于 Windows 设置页或真实 Agent 会话验收。
 - `./scripts/verify-shared-contracts.sh`
 - `./scripts/verify-service-boundaries.sh`
 - `./scripts/verify-runtime-bundle-immutability.sh`
