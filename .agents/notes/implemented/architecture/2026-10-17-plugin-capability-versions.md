@@ -32,6 +32,7 @@
 | `ui` | `ui`；版本 `2` 增加工具窗口里的网页内容 |
 | `buildSystems` | 声明式构建识别、模型和命令计划 |
 | `buildProviders` | 任一 `buildSystems[].provider`，包括自有进程和共享语言服务器两种写法 |
+| `vcsProviders` | `vcsProviders[]`：插件进程实现的版本控制系统（工作副本标记、元数据路径、命令行工具） |
 
 规则：
 
@@ -46,6 +47,8 @@
 
 为什么 `serverProcess` 单独作为一个能力：启动字段由语言服务器和构建系统的自有 Provider 共用。以后新增一种启动方式时，只升级 `serverProcess`，`languageServers` 和 `buildSystems` 的其它字段不受牵连。共享写法的 Provider 复用插件里的语言服务器，所以不单独计入 `serverProcess`。两种 Provider 都必须声明 `buildProviders: 1`：能启动语言服务器或执行构建命令，并不代表能完成构建协议协商、请求和生命周期管理。纯模板构建插件不声明 `buildProviders`，否则会因多列能力被拒绝。
 
+`vcsProviders` 同样依赖 `serverProcess`：每个 VCS Provider 都是插件自己的进程，启动字段按 `serverProcess` 校验，所以清单要同时写 `vcsProviders: 1` 和 `serverProcess: 1`。只写前者，Core 会报少列了 `serverProcess`。工作副本标记和元数据路径留在 `vcsProviders` 里，因为宿主在进程启动前就要靠它们找到工作副本根，见[统一 VCS 模型提案](../../proposed/architecture/2026-10-22-unified-vcs-provider-model.md)。
+
 ### 2. 宿主自己声明能运行什么
 
 Core 能校验一个能力，不代表宿主能运行它。宿主在 `plugins.declarative.validate`、`plugins.marketplace.validateIndex` 和 `plugins.marketplace.installReview` 里发送 `hostCapabilities: {"<能力>": [版本…]}`，由 Core 判断：
@@ -56,7 +59,7 @@ Core 能校验一个能力，不代表宿主能运行它。宿主在 `plugins.de
 
 能力表放在宿主代码里，写在能力实现的旁边，Core 不再按平台去猜。原来按 `darwin-` 前缀和级别写死的判断，就是 Core 替宿主猜、又容易和宿主实现漂移的例子。
 
-macOS 宿主接受级别 1 到 3（`supportedDeclarativeAPIVersions = [1, 2, 3]`），能力表是 `PluginManifest.hostCapabilities`，在校验、索引和安装审查时都发给 Core；其中的 `buildSystems: [1]` 随 macOS 的 Build 工具窗口一起加入，但 macOS 尚未实现 Provider，所以不声明 `buildProviders`；市场过滤、清单校验和安装审查都会拒绝需要它的插件，纯模板构建插件仍可用。Core 自己支持 `buildProviders: 1`，不传宿主表时仍可校验并生成 Provider 计划。Windows 还没有声明式插件宿主，不发送能力表，所以 Windows 不列出级别 3 的插件。宿主接入某个能力时，要做两件事：让宿主接受级别 3，并在宿主自己的能力表里加上这个能力的版本，而且只在宿主真正能运行它时才加。
+macOS 宿主接受级别 1 到 3（`supportedDeclarativeAPIVersions = [1, 2, 3]`），能力表是 `PluginManifest.hostCapabilities`，在校验、索引和安装审查时都发给 Core；其中的 `buildSystems: [1]` 随 macOS 的 Build 工具窗口一起加入，但 macOS 尚未实现 Provider，所以不声明 `buildProviders`；市场过滤、清单校验和安装审查都会拒绝需要它的插件，纯模板构建插件仍可用。Core 自己支持 `buildProviders: 1`，不传宿主表时仍可校验并生成 Provider 计划。`vcsProviders: 1` 也是这样：Core 已经能校验清单、识别工作副本根并转发请求，但 macOS 和 Windows 都还没有接入 VCS Provider 会话，所以两端的能力表都不包含它，需要它的插件在两端都不可安装。Windows 还没有声明式插件宿主，不发送能力表，所以 Windows 不列出级别 3 的插件。宿主接入某个能力时，要做两件事：让宿主接受级别 3，并在宿主自己的能力表里加上这个能力的版本，而且只在宿主真正能运行它时才加。
 
 ### 3. 市场索引带上能力版本
 
@@ -69,7 +72,7 @@ macOS 宿主接受级别 1 到 3（`supportedDeclarativeAPIVersions = [1, 2, 3]`
 
 清单回答的问题只有三个：启动什么进程、需要哪些权限、对哪些文件和工程生效。进程启动以后能回答哪些请求、支持哪些可选数据，在 LSP `initialize` 里协商：
 
-- 宿主发送 `capabilities.experimental.litheBuild: {"versions": [1]}`。
+- 宿主发送 `capabilities.experimental.litheBuild: {"versions": [1]}`。VCS Provider 用同样的方式协商 `litheVcs`，回复里还带上它实现了哪些 VCS 能力（例如 `history`、`annotate`），宿主据此决定显示哪些操作，见 `shared/contracts/vcs-provider-v1.md`。
 - Provider 从中选一个版本，回复 `{"version": 1}`。没有回复版本、或回复了宿主没提供的版本时，宿主不把它当作 Provider 使用。
 - 双方都忽略协商对象、请求参数和结果里自己不认识的字段，所以同一个版本内可以继续增加可选数据。另一方不能忽略的改动，才需要新的协议版本。
 

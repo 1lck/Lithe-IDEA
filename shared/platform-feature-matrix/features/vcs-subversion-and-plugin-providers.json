@@ -7,6 +7,10 @@
     "evidence": [
       "shared/contracts/vcs-provider-v1.md",
       "shared/fixtures/vcs/model-v1.json",
+      "rust/lithe-core/src/vcs",
+      "rust/lithe-core/src/lsp/interface/vcs_provider.rs",
+      "rust/lithe-core/src/tests/vcs.rs",
+      "shared/contracts/plugins/v1/fixtures/vcs-provider.plugin.json",
       ".agents/notes/proposed/architecture/2026-10-22-unified-vcs-provider-model.md"
     ],
     "implementationStatus": "missing",
@@ -15,12 +19,16 @@
   "windows": {
     "evidence": [
       "shared/contracts/vcs-provider-v1.md",
-      "shared/fixtures/vcs/model-v1.json"
+      "shared/fixtures/vcs/model-v1.json",
+      "rust/lithe-core/src/vcs",
+      "rust/lithe-core/src/lsp/interface/vcs_provider.rs",
+      "rust/lithe-core/src/tests/vcs.rs",
+      "shared/contracts/plugins/v1/fixtures/vcs-provider.plugin.json"
     ],
     "implementationStatus": "missing",
     "verificationStatus": "not-applicable"
   },
   "owner": "Git",
-  "verification": "安装 Subversion 官方插件后，在本地 svnadmin create 建立的 file:// 仓库检出的工作副本上验证根识别、文件状态颜色、gutter、提交、更新、回滚、add/move/delete 跟踪、文件历史、Annotate 和冲突显示；同时打开一个包含 Git 仓库与 SVN 工作副本的工作区，确认文件只归属最深的根，Git 行为不变。",
-  "notes": "Issue #827。当前只有提议 Note、契约草案和 fixtures，两端都没有实现入口；分阶段计划见提议 Note。"
+  "verification": "Core 共享层自动化：cargo test -p lithe-core vcs、cargo test -p lithe-core --lib lsp 与 scripts/verify-shared-contracts.sh，覆盖 vcsProviders 清单校验与 git 保留、onVcsRoot 激活、svn 根识别（嵌套、歧义目录与映射、git worktree 文件、工作区位于工作副本内部、剪枝目录、深度上限）、vcs.ownerOf 最深根归属、litheVcs 只向插件会话提供、协商缺必需能力时拒绝、lsp.vcsRequest 按操作生成请求与能力检查、Provider 错误码白名单、vcs.decodeReply 的回复校验用例；Node SDK 的 litheVcs 与示例 Provider 端到端测试在 lithe-plugin-docs 运行（scripts/sdk-e2e.mjs）。宿主验收：安装 Subversion 官方插件后，在本地 svnadmin create 建立的 file:// 仓库检出的工作副本上验证根识别、文件状态颜色、gutter、提交、更新、回滚、add/move/delete 跟踪、文件历史、Annotate 和冲突显示；同时打开一个包含 Git 仓库与 SVN 工作副本的工作区，确认文件只归属最深的根，Git 行为不变；运行前后 app bundle 文件清单不变（scripts/verify-runtime-bundle-immutability.sh）。",
+  "notes": "Issue #827。Rust Core 已实现 vcs.detectRoots、vcs.ownerOf、vcs.decodeReply、lsp.vcsRequest 与 litheVcs 协商，Node SDK 的 litheVcs 支持随 SDK 迁到 lithe-plugin-docs（P1）；两端宿主尚未声明 vcsProviders，也没有调用这些命令，所以仍记为未实现。分阶段计划见提议 Note。"
 }

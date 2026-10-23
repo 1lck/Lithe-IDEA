@@ -6,9 +6,11 @@
 
 Lithe 现在只认识 Git：Rust Core、macOS 和 Windows 的变更列表、提交面板、项目树文件颜色、编辑器行标记（gutter）都直接使用 Git 类型。[Issue #827](https://github.com/1lck/Lithe-IDEA/issues/827) 要求支持 SVN，以后还可能有 Mercurial、Perforce 等其他 VCS（Version Control System，版本控制系统）。
 
-提案照搬[构建系统插件契约](../../implemented/architecture/2026-10-17-build-system-plugin-contract.md)已经验证过的做法：Rust Core 定义一份与具体 VCS 无关的统一模型和 `vcs.*` 命令，每种 VCS 是一个 Provider（回答“这个目录现在是什么状态、怎样提交、怎样回滚”的实现）。Git 是内置 Provider，只在 Core 里加一层转换，现有 `git.*` 代码和契约不动；SVN 作为官方插件，以插件进程的形式接入，后续其他 VCS 走同一条路。
+提案照搬[构建系统插件契约](../../implemented/architecture/2026-10-17-build-system-plugin-contract.md)已经验证过的做法：Rust Core 定义一份与具体 VCS 无关的统一模型和 `vcs.*` 命令，每种 VCS 是一个 Provider（回答“这个目录现在是什么状态、怎样提交、怎样回滚”的实现）。SVN 作为第一个官方插件 Provider，后端用官方 Node SDK 编写，以插件进程的形式接入，后续其他 VCS 走同一条路。
 
-对日常开发的影响：在统一层落地之前，新的 Git 功能照常写在 Git 模块里；但凡是“任何 VCS 都会有”的界面（文件状态颜色、gutter、提交、回滚、文件历史、Annotate），不要再新增对 Git 类型的直接依赖，等统一层就绪后改读 `vcs.*`。
+2026-10-22 评审决定：**Git 暂不接入统一层**。现有 Git 代码约 8 万行（Rust、Swift、TypeScript 合计，不含测试），两端还有重复的确定性逻辑，直接“包一层”会把这些债一起带进统一层。所以第一期统一层只服务插件 Provider，Git 保持现有 `git.*` 和 Git 模块不变；Git 的精简、迁移和改成内置官方插件另起提案（第 10 节）。
+
+对日常开发的影响：新的 Git 功能照常写在 Git 模块里；但凡是“任何 VCS 都会有”的界面（文件状态颜色、gutter、提交、回滚、文件历史、Annotate），不要再新增对 Git 类型的直接依赖，以免 Git 迁移时多一处要拆。
 
 ## 问题
 
@@ -34,11 +36,11 @@ Lithe 现在只认识 Git：Rust Core、macOS 和 Windows 的变更列表、提�
 
 | 层 | 位置（计划） | 负责 | 不负责 |
 | --- | --- | --- | --- |
-| Rust Core 的 `vcs` 模块 | `rust/lithe-core/src/vcs/`（新） | 统一模型、`vcs.*` 命令、Provider 注册表（Registry，按 VCS ID 登记和查找实现的目录）、根目录识别、插件回复的解码和校验 | 启动进程、弹窗、存储 |
-| 宿主 | macOS 新的 VCS 工作区模块；Windows 的 VCS 状态 store | 根映射与用户覆盖、文件监听触发刷新、Changelist、Shelve、凭据交互、Provider 进程生命周期、项目控制台 | 解析任何 VCS 的输出 |
-| Provider | Git：Core 内置；其他 VCS：插件进程 | 回答状态、基线内容、历史、Annotate、提交、回滚、更新等事实 | 界面和跨根聚合 |
+| Rust Core 的 `vcs` 模块 | `rust/lithe-core/src/vcs/`（新） | 统一模型、`vcs.*` 命令、根目录识别、请求计划、插件回复的解码和校验 | 启动进程、弹窗、存储 |
+| 宿主 | macOS 新的 VCS 工作区模块；Windows 的 VCS 状态 store | 根映射与用户覆盖、文件监听触发刷新、凭据交互、Provider 进程生命周期、项目控制台 | 解析任何 VCS 的输出 |
+| Provider | 插件进程（第一期只有 SVN）；Git 暂不接入 | 回答状态、基线内容、历史、Annotate、提交、回滚、更新等事实 | 界面和跨根聚合 |
 
-内置 Git Provider 在 Core 内部直接调用现有 `git::*` 函数，再把结果转换成统一形状。`git.*` 命令保持原样，现有 Git 界面和老调用方不受影响。插件 Provider 的回复先由 Core 校验（路径必须在根内、排序稳定、数量和大小有上限），再转换成和 Git 完全相同的形状。所以宿主拿到的 `vcs.status` 结果不区分来自哪个 Provider。
+插件 Provider 的回复先由 Core 校验（路径必须在根内、排序稳定、数量和大小有上限），再转换成统一形状。所以宿主拿到的结果不区分来自哪个 Provider，以后 Git 接入时也只需要产出同一形状。
 
 ### 2. 统一模型只收所有 VCS 都成立的概念
 
@@ -58,7 +60,7 @@ Lithe 现在只认识 Git：Rust Core、macOS 和 Windows 的变更列表、提�
 
 ### 3. 界面看能力，不看 VCS 的名字
 
-每个 Provider 声明自己支持哪些能力，界面只按能力出现入口。必备能力是状态、基线内容、提交和回滚；其余都可选：历史、文件历史、Annotate、更新、推送、暂存区（staging）、分支、冲突处理、文件操作跟踪、锁、属性、清理等。
+每个 Provider 声明自己支持哪些能力，界面只按能力出现入口。必备能力是状态、基线内容、提交和回滚；协议版本 1 的可选能力是历史、文件历史、Annotate、更新、推送、暂存区（staging）、文件操作跟踪、冲突处理和清理。分支、锁、属性、忽略规则等到有第二个 Provider 需要时，再按能力版本加入。
 
 集中式与分布式 VCS 的差别也表达成能力：
 
@@ -90,31 +92,50 @@ Git Log 图、Rebase、Worktree、Stash、Push 和 Fetch 对话框、历史改�
 - 进程启动后，宿主在 `initialize` 里通过 `capabilities.experimental.litheVcs` 协商版本，Provider 在回复里给出自己的能力集。能力集描述的是运行中的进程，所以不写进清单，这遵守[声明式插件按能力分版本](../../implemented/architecture/2026-10-17-plugin-capability-versions.md)第 4 节的规则。
 - 请求方法统一以 `lithe/vcs/` 开头。宿主不按 Provider ID 写分支；进程按“插件 ID + VCS ID + 工作区”隔离，生命周期规则与构建 Provider 相同。
 
-字段和方法的草案见 [VCS Provider 契约草案](../../../../shared/contracts/vcs-provider-v1.md)，示例数据见 [`shared/fixtures/vcs/model-v1.json`](../../../../shared/fixtures/vcs/model-v1.json)。草案在 P1 落地前都可以修改，任何 Core 命令、清单校验和宿主能力表都还不接受这些名字。
+字段和方法见 [VCS Provider 契约](../../../../shared/contracts/vcs-provider-v1.md)，示例数据见 [`shared/fixtures/vcs/model-v1.json`](../../../../shared/fixtures/vcs/model-v1.json)。Core 已按契约实现（见第 9 节的进度），但还没有宿主声明 `vcsProviders`，所以插件市场不会列出这类插件；宿主接入前契约仍可以修改，改动要同时更新 fixtures 和 Core 测试。
 
 ### 7. SVN 作为官方插件
 
 SVN 插件调用用户系统里的 `svn` 命令行，解析它稳定的 `--xml` 输出。IDEA 的 svn4idea 也是这样做的（`plugins/svn4idea/src/org/jetbrains/idea/svn/status/CmdStatusClient.kt` 使用 `svn status --xml`）。这和 Lithe 使用系统 Git 的方式一致，不需要打包 JVM 或跨平台编译 libsvn。
 
-凭据规则沿用[Git 执行与项目控制台](../../implemented/architecture/2026-09-12-git-execution-and-project-console.md)：SVN 自己的认证缓存优先回答；需要交互时，Provider 通过协议向宿主发出认证挑战，宿主复用现有认证界面。命令始终带 `--non-interactive`，密码通过 `--password-from-stdin` 传入，不出现在命令参数、控制台和日志里，Lithe 也不保存密码。
+后端进程用官方 Node SDK（[lithe-plugin-docs](https://github.com/Lithe-IDEA/lithe-plugin-docs) 的 `sdk/node`）编写，以 `runtime` 方式启动（`tool: node`）。SDK 已经负责线协议、协商、取消、子进程清理和错误映射，Cargo 社区插件也走这条路；同一份后端在 macOS 和 Windows 上都能运行，插件包里没有原生二进制，不涉及按架构编译和 Gatekeeper。代价是用户除了 `svn` 还需要 Node 20.3 以上，安装审查和缺少运行时的提示要说清楚。SDK 新增 `litheVcs` 支持，和 `litheBuild` 并列；2026-10-23 起 SDK 不在主仓库，这部分改动在 lithe-plugin-docs 提交（见[插件契约、SDK 与开发者资料的发布](../../implemented/architecture/2026-10-23-plugin-contract-publishing.md)）。
+
+凭据规则沿用[Git 执行与项目控制台](../../implemented/architecture/2026-09-12-git-execution-and-project-console.md)：命令始终带 `--non-interactive`，SVN 自己的认证缓存优先回答。第一版只依赖这份缓存，认证失败时返回 `vcs.authentication.failed`，宿主提示原因；交互式认证（宿主弹窗收集用户名和密码，经 `--password-from-stdin` 传给 `svn`）在宿主阶段实现。密码不出现在命令参数、控制台和日志里，Lithe 也不保存密码。
 
 ### 8. 宿主接手与 VCS 无关的状态
 
-- **根映射**：一个工作区可以同时有 Git 和 SVN 根。文件归属最深的那个根；同一目录同时出现两种标记时，要求用户在设置里选择，不能猜。IDEA 用 `VcsDirectoryMapping` 保存这种映射。
-- **Changelist 和 Shelve**：从 `LitheGitModule` 上移到宿主的 VCS 层，存储键从“Git 仓库路径”改为“VCS 根 ID”，迁移时继续读取旧格式。IDEA 的 `ChangeListManagerImpl` 同样在 `platform/vcs-impl`，不属于任何一种 VCS。
+- **根映射**：一个工作区可以同时有 Git 和 SVN 根。文件归属最深的那个根；同一目录同时出现两种标记时，要求用户在设置里选择，不能猜。IDEA 用 `VcsDirectoryMapping` 保存这种映射。Git 暂不接入统一层，但 Core 识别根时仍认得 `.git` 标记，这样嵌套和歧义的判断对 Git 也成立，Git 根继续交给 Git 模块。
+- **Changelist 和 Shelve**：长期应从 `LitheGitModule` 上移到宿主的 VCS 层（IDEA 的 `ChangeListManagerImpl` 在 `platform/vcs-impl`，不属于任何一种 VCS）。这一步和 Git 迁移一起做；第一期 SVN 根的变更不分组，也不支持 Shelve。
 - **监听刷新**：[单仓库 Git 状态监听提案](../bug-fix/2026-09-13-single-repository-git-status-observation.md)里要求的监听范围，扩展成“每个 Provider 声明的元数据目录”，例如 SVN 的 `.svn/wc.db`。
-- **项目控制台**：现有 Git 执行事件多带一个 VCS ID 字段，插件 Provider 用通知上报实际执行的命令和输出。展示、折叠和脱敏规则不变。
+- **项目控制台**：现有 Git 执行事件多带一个 VCS ID 字段。插件 Provider 用 `lithe/vcs/execution` 通知上报实际执行的命令和输出，Core 把它转成会话日志事件交给宿主。展示、折叠和脱敏规则不变。
 
 ### 9. 分阶段落地
+
+2026-10-22 起按“先底层、再 SVN、Git 最后”的顺序：
 
 | 阶段 | 内容 | 完成标志 |
 | --- | --- | --- |
 | P0 | 本提案、契约草案和 fixtures | 评审通过 |
-| P1 | Core `vcs` 模块：类型、注册表、根识别；内置 Git Provider 的读路径（状态、基线内容、历史、文件历史、Annotate） | 同一批测试仓库上 `vcs.*` 与 `git.*` 的结果等价 |
-| P2 | macOS 只读的通用界面改读 `vcs.*`：项目树颜色、gutter、状态栏 | Git 项目的行为和外观没有变化 |
-| P3 | 插件 `vcsProviders` 能力、`litheVcs` 协商、宿主 Provider 会话（复用构建 Provider 的会话代码）；Changelist/Shelve 上移；通用提交面板 | 测试用的假 Provider 插件跑通完整流程 |
-| P4 | SVN 官方插件 MVP | 见验收标准 |
-| P5 | Windows 按同一契约和 fixtures 接入 | Windows 通过同一组 fixtures |
+| P1 | Core：插件清单 `vcsProviders` 能力、根识别、请求计划与插件回复解码、`litheVcs` 协商和 `lsp.vcsRequest`；Node SDK 支持 `litheVcs` | fixtures 和用 SDK 写的假 Provider 经真实 Core 会话跑通 |
+| P2 | SVN 官方插件（Node SDK 后端） | 录制的 `svn --xml` 样例解析测试；本地 `file://` 仓库上的端到端测试 |
+| P3 | macOS 宿主：Provider 会话（复用构建 Provider 的会话代码）、项目树颜色和 gutter 合并展示插件根、通用“版本控制”工具窗口（变更、提交、回滚、更新）、文件操作跟踪、交互式认证 | 见验收标准 |
+| P4 | Windows 按同一契约和 fixtures 接入 | Windows 通过同一组 fixtures |
+| 之后 | Git 精简并接入统一层，见第 10 节 | 另起提案 |
+
+P1 已完成（2026-10-22）：
+
+- 插件清单：API 级别 3 的 `vcsProviders`、`process.vcs` 权限和 `onVcsRoot:<id>` 激活事件；`git` 是保留 ID。安装审查列出 Provider 进程，SVN 这类工具路径另放在 `vcsTool` 字段，不覆盖运行时的 `tool`。
+- 根识别 `vcs.detectRoots`：只读目录项，不读文件、不启动进程；工作区自己没有标记时向上查祖先目录，所以“工作区开在 SVN 工作副本的子目录里”也能识别。新增 `vcs.ownerOf`，让各宿主用同一条“最深根”规则给文件找归属，不必各写一份。
+- 会话：`litheVcs` 只提供给插件启动的会话；`lsp.vcsRequest` 按操作名生成 `lithe/vcs/*` 请求，未协商的能力在写出前就拒绝；Provider 只能使用契约列出的错误码，其余一律变成 `vcs.provider.failed`。`lithe/vcs/authenticate` 在宿主实现交互式认证前按未知请求回绝。
+- Node SDK：`backend.vcs(id, handlers, traits)` 按声明的处理函数协商能力，VCS 处理函数里的 `context.run` 会自动发出 `lithe/vcs/execution` 执行报告（只带命令行、退出码、耗时和截断后的 stderr，不带 stdout）。示例 `sdk/node/examples/sample-vcs` 是一个把修订存在 JSON 文件里的玩具 VCS，端到端场景经真实 Core 会话跑通它的协商和全部 11 种操作。SDK、示例和端到端场景随 SDK 迁到 lithe-plugin-docs，在那里用 `scripts/sdk-e2e.mjs --ref <本分支>` 运行；主仓库只保留契约、fixtures 和 Core 测试。
+
+### 10. Git 什么时候、怎样接入
+
+Git 接入不在本提案的范围内，这里只记下评审时已经确认的方向，供以后的提案使用：
+
+- **先精简再接入。** 提交图投影在 Core 里已有一份（`git/graph.rs` 的 `project_graph`），但生产代码没有调用，macOS 和 Windows 又各写了一份布局；执行日志、Changelist、状态模型等确定性逻辑也是两端各一份。接入时按切片迁移，每一片两端同时切换，并在同一个 PR 里删掉旧路径。
+- **Git 改成随应用内置的官方插件**，和 SVN 走同一个注册入口；通用界面不再直接依赖 `LitheGitModule`。是否搬到独立进程是传输方式问题，可以单独决定。
+- **平台层功能先做在统一层**：三方合并工具、行级历史、Changelist、Shelf 在 IDEA 里都属于平台而不属于 git4idea，补齐时直接给所有 VCS 用。
 
 ## 考虑过的备选方案
 
@@ -126,9 +147,17 @@ SVN 插件调用用户系统里的 `svn` 命令行，解析它稳定的 `--xml` 
 
 界面只需要面对一套 API，看起来最“统一”。但 Rebase、Worktree、暂存区这些概念在 SVN 里不存在，要么让通用层变成 Git 的翻版，要么为了照顾最弱的 VCS 削掉 Git 的能力。IDEA 也没有这样做，因此只统一跨 VCS 成立的概念。
 
+### 第一期就把 Git 包成内置 Provider
+
+最初的方案是在 Core 里给现有 `git::*` 加一层转换，让 Git 和插件同时产出统一形状。评审时发现这样会把两端重复的逻辑和 Git 专属的结果类型原样带进统一层，以后再精简反而更难，因此改为第一期不接 Git，先用 SVN 把底层跑通（第 10 节）。
+
 ### Git 也改成插件进程
 
-这样内置和插件完全对称。但 Git 是 Lithe 的核心体验，状态读取在热路径上，认证、取消和执行事件链路也刚稳定；搬到进程外对用户没有收益，迁移风险却很大。内置 Provider 和插件 Provider 共用 Core 里同一套转换和校验，结果形状已经对称，因此不搬。
+这样内置和插件完全对称。但 Git 是 Lithe 的核心体验，状态读取在热路径上，认证、取消和执行事件链路也刚稳定；第一期不动 Git。以后 Git 改成内置官方插件时，进程内还是进程外只是传输方式，可以单独决定。
+
+### SVN 后端用 Rust 写成原生可执行文件
+
+不需要用户安装 Node，启动也更快。但插件包要为每个平台和架构各编译一份、单独签名，macOS 上下载来的原生可执行文件还要处理 Gatekeeper 隔离；而 Node SDK 已经实现协议、取消和子进程清理，社区构建插件也在用。SVN 后端的工作主要是调用 `svn` 和解析 XML，不是性能热点，因此选 Node SDK。
 
 ### SVN 内置到宿主
 
@@ -144,23 +173,25 @@ SVN 插件调用用户系统里的 `svn` 命令行，解析它稳定的 `--xml` 
 
 ## 验收标准
 
-- P1：在同一批 Git 测试仓库上，`vcs.status`、基线内容、历史、文件历史和 Annotate 与对应 `git.*` 结果等价；大仓库上 `vcs.status` 比 `git.status` 只多出转换开销，不额外启动进程。
-- P2：macOS 项目树颜色、gutter 和状态栏改读统一模型后，Git 项目的现有测试和截图检查全部通过，行为没有变化。
-- P3：一个只用于测试的假 VCS Provider 插件完成安装审查、协商、状态、提交、回滚和进程清理；停用或卸载插件后进程退出，它的根从界面消失；未协商成功的进程收不到 `lithe/vcs/*` 请求。
-- P4：SVN 官方插件在本地 `svnadmin create` 建立的 `file://` 仓库上完成状态、提交、更新、回滚、add/move/delete 跟踪、Annotate、文件历史和冲突显示；密码不出现在进程参数、控制台和日志中。
+- P1：清单校验接受和拒绝的情况都有 fixture；根识别覆盖嵌套、歧义和 Git worktree 文件标记；插件回复的校验用例全部通过；用 Node SDK 写的假 Provider 经真实 Core 会话完成协商和每种请求，未协商成功的进程收不到 `lithe/vcs/*` 请求。
+- P2：SVN 插件对录制的 `svn status/info/log/blame --xml` 样例解析正确；在本地 `svnadmin create` 建立的 `file://` 仓库上完成状态、提交、更新、回滚、add/move/delete、Annotate、文件历史和冲突显示。
+- P3：macOS 上安装 SVN 插件后完成安装审查、根识别、文件颜色、gutter、提交、回滚、更新和进程清理；停用或卸载插件后进程退出，它的根从界面消失；Git 项目的行为没有变化；密码不出现在进程参数、控制台和日志中。
 - 每个阶段都运行对应的 Core、契约、Note 和平台验证脚本；Windows 的结论只来自 Windows 上的实际运行。
 
 ## 风险
 
-- **Git 仍在快速变化。** Issue 评论里提到 Git 还没稳定。缓解办法：统一层只包装稳定的概念，`git.*` 不冻结，Git 专属功能继续在 Git 模块里演进。
-- **状态读取是热路径。** 内置 Git Provider 在 Core 内直接转换，不额外起进程。SVN 在大工作副本上 `svn status` 较慢，由 Provider 按变化路径做增量查询，宿主合并刷新事件。
-- **Changelist 和 Shelve 的存储迁移。** 改变存储键可能丢失用户已有分组。迁移时保留读取旧格式，并用旧数据做回归测试。
+- **统一层只被一种 VCS 验证过。** 第一期只有 SVN 用统一层，模型里可能藏着 SVN 的偏见。缓解办法：模型只收第 2 节表里 Git 和 SVN 都成立的概念，Git 专属的暂存维度已经作为可选能力进入 fixtures；Git 接入时如果发现缺口，按能力版本加字段。
+- **Git 仍在快速变化。** Issue 评论里提到 Git 还没稳定。第一期不碰 Git，`git.*` 不冻结。
+- **状态读取是热路径。** SVN 在大工作副本上 `svn status` 较慢，由 Provider 按变化路径做增量查询，宿主合并刷新事件。
 - **混合根和嵌套根。** Git 仓库里嵌套 SVN 工作副本时，文件必须只归属一个根，否则会重复显示或重复提交。识别规则和用户映射都要有 fixture 覆盖。
 - **插件进程常驻的成本。** 只在识别到对应根时启动，关闭工作区即回收，规则与构建 Provider 相同。
-- **回退方式。** 每个阶段都只新增路径。P2 切换后保留旧读取路径一个版本，出问题可以切回。
+- **回退方式。** 每个阶段都只新增路径，停用 SVN 插件即回到现状。
 
 ## 适用范围
 
+- `rust/lithe-core/src/vcs/`
+- `rust/lithe-core/src/plugins/`
+- `rust/lithe-core/src/lsp/interface/`
 - `rust/lithe-core/src/git/`
 - `rust/lithe-git-host/`
 - `macos/Sources/LitheGitModule/`
