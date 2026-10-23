@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "javaSettings": {
+    "completion": {
+      "guessMethodArguments": "off"
+    }
+  },
+  "workspaceConfigurationSections": [
+    "java",
+    "java.completion",
+    "java.completion.guessMethodArguments"
+  ]
+}

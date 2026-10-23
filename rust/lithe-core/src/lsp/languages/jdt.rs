@@ -443,7 +443,7 @@ pub(crate) fn adapt_initialization_options(
 /// initialization options.
 ///
 /// Catalog keys that the provider does not own are preserved, while the Maven,
-/// build, and code-lens values Lithe depends on stay authoritative.
+/// build, completion, and code-lens values Lithe depends on stay authoritative.
 fn merge_java_settings(options: &mut Map<String, Value>, provider_settings: Value) {
     let settings = options.entry("settings").or_insert_with(|| json!({}));
     if !settings.is_object() {
@@ -467,6 +467,14 @@ fn merge_java_settings(options: &mut Map<String, Value>, provider_settings: Valu
         return;
     };
     for (key, value) in provider_java {
+        if key == "completion" {
+            let completion = java.entry(key).or_insert_with(|| json!({}));
+            if !completion.is_object() {
+                *completion = json!({});
+            }
+            completion["guessMethodArguments"] = value["guessMethodArguments"].clone();
+            continue;
+        }
         // `java.import.gradle` is the only `import` leaf Lithe owns. The options
         // Lithe deliberately never guesses (`java.home`, `version`,
         // `offline.enabled`, ...) have to survive, so the owned leaves merge
@@ -1074,6 +1082,11 @@ fn java_settings(settings: JdtSettings<'_>) -> Value {
             "configuration": {
                 "updateBuildConfiguration": "automatic"
             },
+            // JDT LS otherwise inserts parameter names into calls. Its "off"
+            // mode keeps the argument list empty and the snippet cursor inside.
+            "completion": {
+                "guessMethodArguments": "off"
+            },
             "inlayHints": {
                 "parameterNames": {
                     "enabled": "all"
@@ -1163,6 +1176,8 @@ fn java_configuration_for_section(section: Option<&str>, settings: JdtSettings<'
     let gradle_configuration = settings.gradle;
     match section {
         Some("java") => java_settings(settings)["java"].clone(),
+        Some("java.completion") => java_settings(settings)["java"]["completion"].clone(),
+        Some("java.completion.guessMethodArguments") => json!("off"),
         Some("java.inlayHints") => json!({
             "parameterNames": {
                 "enabled": "all"
@@ -1966,6 +1981,54 @@ mod tests {
         // Catalog values outside the provider-owned keys survive the overlay.
         assert_eq!(options["settings"]["java"]["custom"], true);
         assert_eq!(options["workspace"]["custom"], true);
+    }
+
+    #[test]
+    fn java_completion_leaves_arguments_empty_across_configuration_channels() {
+        // Initialization, notifications and pull configuration must agree, or
+        // JDT LS can restore parameter placeholders after the first completion.
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../../../shared/fixtures/lsp/java-completion-v1.json"
+        ))
+        .expect("Java completion fixture should be valid");
+        let expected = &fixture["javaSettings"]["completion"];
+        let options = adapt_initialization_options(
+            "java",
+            Some(json!({ "settings": { "java": { "completion": {
+                "guessMethodArguments": "insertParameterNames",
+                "favoriteStaticMembers": ["java.util.Objects.*"]
+            } } } })),
+            &[],
+            JdtSettings::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            options["settings"]["java"]["completion"]["guessMethodArguments"],
+            expected["guessMethodArguments"]
+        );
+        assert_eq!(
+            options["settings"]["java"]["completion"]["favoriteStaticMembers"],
+            json!(["java.util.Objects.*"])
+        );
+
+        let notification = initialized_notification("java", JdtSettings::default()).unwrap();
+        assert_eq!(
+            notification.params["settings"]["java"]["completion"],
+            *expected
+        );
+        let items = fixture["workspaceConfigurationSections"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|section| WorkspaceConfigurationItem {
+                scope_uri: None,
+                section: Some(section.as_str().unwrap().to_string()),
+            })
+            .collect::<Vec<_>>();
+        let values = workspace_configuration("java", &items, JdtSettings::default()).unwrap();
+        assert_eq!(values[0]["completion"], *expected);
+        assert_eq!(values[1], *expected);
+        assert_eq!(values[2], expected["guessMethodArguments"]);
     }
 
     #[test]
