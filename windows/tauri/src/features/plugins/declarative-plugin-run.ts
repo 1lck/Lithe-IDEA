@@ -7,10 +7,12 @@ import {
   useRunStore,
 } from "@/features/run/stores/run.store";
 import { useUIState } from "@/features/window/stores/ui-state.store";
+import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import { createTranslator } from "@/i18n/locale";
 import type { RunActionItem } from "@/features/run-actions/types/run-action.types";
 import {
   invokeDeclarativePluginOwner,
-  listDeclarativePlugins,
+  getDeclarativePluginManifest,
   resolveDeclarativeRunPlan,
   resolveDeclarativeTestPlan,
   type DeclarativeRunPlan,
@@ -26,30 +28,30 @@ import { declarativePluginProcessOwner } from "./declarative-plugin-process-owne
  * so there is no second catalog to drift.
  */
 
-/** The declarative run action for the file's owner, or null. */
-export async function declarativeRunActionForFile(
+/** Run and test actions declared for the file's owning language. */
+export async function declarativeRunActionsForFile(
   filePath: string,
-): Promise<RunActionItem | null> {
+): Promise<RunActionItem[]> {
   const owner = await invokeDeclarativePluginOwner(filePath);
-  if (!owner) return null;
-  // A plugin whose manifest declares a test template also gets a test action
-  // routed through the same run pipeline with the file scope.
-  const hasTests = (await listDeclarativePlugins()).some(
-    (plugin) =>
-      plugin.pluginId === owner.pluginId &&
-      plugin.status === "accepted" &&
-      plugin.enabled &&
-      plugin.declaresTests,
-  );
-  return {
-    id: `declarative:${owner.pluginId}:${owner.languageId}`,
-    name: owner.displayName,
-    description: owner.languageId,
-    source: "declarative",
-    sourceLabel: owner.displayName,
-    declarativeOwner: { pluginId: owner.pluginId, languageId: owner.languageId },
-    declarativeTest: hasTests,
-  };
+  if (!owner) return [];
+  const manifest = await getDeclarativePluginManifest(owner.pluginId);
+  const providers = Array.isArray(manifest?.executionProviders)
+    ? manifest.executionProviders as Array<Record<string, unknown>>
+    : [];
+  const provider = providers.find((item) => item.languageID === owner.languageId);
+  if (!provider) return [];
+  const t = createTranslator(useSettingsStore.getState().settings.displayLanguage);
+  return (["run", "test"] as const)
+    .filter((kind) => provider[kind] != null)
+    .map((kind) => ({
+      id: `declarative:${owner.pluginId}:${owner.languageId}:${kind}`,
+      name: `${t(`runActions.${kind}`)} ${owner.displayName}`,
+      description: owner.languageId,
+      source: "declarative" as const,
+      sourceLabel: owner.displayName,
+      declarativeOwner: { pluginId: owner.pluginId, languageId: owner.languageId },
+      declarativeTest: kind === "test",
+    }));
 }
 
 export async function runDeclarativeAction(
@@ -60,20 +62,9 @@ export async function runDeclarativeAction(
 ): Promise<void> {
   const owner = action.declarativeOwner;
   if (!owner) throw new Error("The action does not name a declarative plugin.");
-  // The plan chosen depends on the action kind: run plans take the file,
-  // test plans (when the action carries declarativeTest) reuse the run
-  // entry with the file's test template when the plugin declares one.
   const relative = toWorkspaceRelative(filePath, root);
   const plan = action.declarativeTest
-    ? // Test-plan project markers are answered from the workspace file list
-      // the host frontend can supply; v1 passes the opened file so marker
-      // detection at minimum sees the active project file. Full workspace
-      // scanning lands with the test-panel integration.
-      await resolveDeclarativeTestPlan(
-        owner.pluginId,
-        owner.languageId,
-        [relative],
-      ).catch(() => resolveDeclarativeRunPlan(owner.pluginId, owner.languageId, relative))
+    ? await resolveDeclarativeTestPlan(owner.pluginId, owner.languageId, root)
     : await resolveDeclarativeRunPlan(owner.pluginId, owner.languageId, relative);
   await startDeclarativePlan(plan, workspaceId, root, filePath);
 }

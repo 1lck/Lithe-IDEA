@@ -15,6 +15,7 @@ use super::store::{self, InstallationRecord};
 use super::{CatalogEntry, PluginHostState};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
@@ -26,6 +27,32 @@ const MAX_PACKAGE_ENTRIES: usize = 2_000;
 /// Maximum snapshot lifetime is one review session; a session id ties prepare
 /// and confirm calls together so abandoned snapshots are cleaned up.
 const SNAPSHOT_PREFIX: &str = "lithe-plugin-disk-";
+
+#[derive(Default)]
+struct PackageBudget {
+    entries: usize,
+    bytes: u64,
+}
+
+impl PackageBudget {
+    fn add(&mut self, bytes: u64) -> Result<(), String> {
+        if bytes > MAX_PACKAGE_FILE_BYTES {
+            return Err("a package file exceeds the per-file size limit".to_string());
+        }
+        self.entries += 1;
+        if self.entries > MAX_PACKAGE_ENTRIES {
+            return Err("the package contains too many entries".to_string());
+        }
+        self.bytes = self
+            .bytes
+            .checked_add(bytes)
+            .ok_or("the package is too large")?;
+        if self.bytes > MAX_PACKAGE_TOTAL_BYTES {
+            return Err("the package exceeds the total size limit".to_string());
+        }
+        Ok(())
+    }
+}
 
 /// A prepared disk import awaiting user confirmation.
 #[derive(Debug, Serialize)]
@@ -69,29 +96,32 @@ pub fn declarative_plugins_prepare_disk_install(
     let session_id = format!("{}{}", SNAPSHOT_PREFIX, uuid_like_suffix());
     let snapshot = temporary_root.join(&session_id);
     let source = PathBuf::from(&source_path);
-    if source.extension().and_then(|extension| extension.to_str()) == Some("zip") {
-        extract_zip_snapshot(&source, &snapshot)?;
-    } else if source.is_dir() {
-        copy_directory_snapshot(&source, &snapshot)?;
-    } else {
-        return Err(format!(
-            "{} is neither a .zip archive nor an unpacked package directory",
-            source.display()
-        ));
+    let result = (|| {
+        if source.extension().and_then(|extension| extension.to_str()) == Some("zip") {
+            extract_zip_snapshot(&source, &snapshot)?;
+        } else if source.is_dir() {
+            copy_directory_snapshot(&source, &snapshot)?;
+        } else {
+            return Err(format!(
+                "{} is neither a .zip archive nor an unpacked package directory",
+                source.display()
+            ));
+        }
+        let manifest = read_snapshot_manifest(&snapshot)?;
+        Ok(PreparedInstall {
+            session_id,
+            review: review_snapshot(&manifest, None)?,
+            manifest_digest: content_digest(&manifest),
+            display_name: manifest["displayName"]
+                .as_str()
+                .unwrap_or("plugin")
+                .to_string(),
+        })
+    })();
+    if result.is_err() {
+        discard_snapshot(&snapshot);
     }
-    let manifest = read_snapshot_manifest(&snapshot)?;
-    let manifest_digest = content_digest(&manifest);
-    let review = review_snapshot(&manifest, None)?;
-    std::fs::create_dir_all(&temporary_root).map_err(|error| error.to_string())?;
-    Ok(PreparedInstall {
-        session_id,
-        review,
-        manifest_digest,
-        display_name: manifest["displayName"]
-            .as_str()
-            .unwrap_or("plugin")
-            .to_string(),
-    })
+    result
 }
 
 /// Installs a previously prepared snapshot after the user confirmed the
@@ -103,6 +133,54 @@ pub fn declarative_plugins_confirm_disk_install(
     session_id: String,
     manifest_digest: String,
 ) -> Result<CatalogEntry, String> {
+    let snapshot = snapshot_path(&app, &session_id)?;
+    let result = (|| {
+        let manifest = read_snapshot_manifest(&snapshot)?;
+        if content_digest(&manifest) != manifest_digest {
+            return Err("the package changed after review; the import was cancelled".to_string());
+        }
+        // Re-review with no previously approved programs: a disk install always
+        // requires a fresh full confirmation, matching the macOS rule.
+        let _ = review_snapshot(&manifest, None)?;
+
+        let install_root = store::install_root(&app)?;
+        let plugin_id = manifest["id"]
+            .as_str()
+            .ok_or("manifest has no id")?
+            .to_string();
+        let version = manifest["version"]
+            .as_str()
+            .ok_or("manifest has no version")?
+            .to_string();
+
+        // Validate the final manifest against this host's capabilities before
+        // anything is written into the install root.
+        validate_manifest(&manifest).map_err(|rejection| rejection.message)?;
+
+        staging_install(&install_root, &plugin_id, &version, &snapshot)?;
+        write_installation_record(&install_root, &plugin_id, &version)?;
+        rescan_after_change(&app);
+        Ok(catalog_entry_of(&app, &plugin_id)
+            .unwrap_or_else(|| accepted_entry_fallback(&plugin_id, &version)))
+    })();
+    discard_snapshot(&snapshot);
+    result
+}
+
+/// Abandons an installation review and removes its private snapshot.
+#[tauri::command]
+pub fn declarative_plugins_cancel_disk_install(
+    app: AppHandle,
+    session_id: String,
+) -> Result<(), String> {
+    let snapshot = snapshot_path(&app, &session_id)?;
+    if snapshot.exists() {
+        std::fs::remove_dir_all(snapshot).map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+fn snapshot_path(app: &AppHandle, session_id: &str) -> Result<PathBuf, String> {
     if !session_id.starts_with(SNAPSHOT_PREFIX)
         || session_id.contains('/')
         || session_id.contains('\\')
@@ -110,41 +188,12 @@ pub fn declarative_plugins_confirm_disk_install(
     {
         return Err("invalid install session".to_string());
     }
-    let snapshot = app
+    Ok(app
         .path()
         .app_local_data_dir()
         .map_err(|error| error.to_string())?
         .join("plugin-temp")
-        .join(&session_id);
-    let manifest = read_snapshot_manifest(&snapshot)?;
-    if content_digest(&manifest) != manifest_digest {
-        discard_snapshot(&snapshot);
-        return Err("the package changed after review; the import was cancelled".to_string());
-    }
-    // Re-review with no previously approved programs: a disk install always
-    // requires a fresh full confirmation, matching the macOS rule.
-    let _ = review_snapshot(&manifest, None)?;
-
-    let install_root = store::install_root(&app)?;
-    let plugin_id = manifest["id"]
-        .as_str()
-        .ok_or("manifest has no id")?
-        .to_string();
-    let version = manifest["version"]
-        .as_str()
-        .ok_or("manifest has no version")?
-        .to_string();
-
-    // Validate the final manifest against this host's capabilities before
-    // anything is written into the install root.
-    validate_manifest(&manifest).map_err(|rejection| rejection.message)?;
-
-    staging_install(&install_root, &plugin_id, &version, &snapshot)?;
-    write_installation_record(&install_root, &plugin_id, &version)?;
-    discard_snapshot(&snapshot);
-    rescan_after_change(&app);
-    Ok(catalog_entry_of(&app, &plugin_id)
-        .unwrap_or_else(|| accepted_entry_fallback(&plugin_id, &version)))
+        .join(session_id))
 }
 
 /// Closes every web window of one plugin and drops its page state. Called
@@ -153,7 +202,7 @@ pub fn declarative_plugins_confirm_disk_install(
 fn close_plugin_web_windows(app: &AppHandle, plugin_id: &str) {
     let windows = crate::plugin_host::web::web_windows_of_plugin(app, plugin_id);
     for window_id in windows {
-        let _ = crate::plugin_host::web::close_web_window_by_id(app, &window_id);
+        let _ = crate::plugin_host::web::close_web_window_by_id(app, plugin_id, &window_id);
     }
     crate::plugin_host::web::forget_plugin_state(app, plugin_id);
 }
@@ -392,7 +441,12 @@ fn content_digest(manifest: &serde_json::Value) -> String {
 /// package budgets. The copy is the safety boundary: everything reviewed and
 /// installed afterwards comes from this snapshot, not the mutable source.
 pub(crate) fn copy_directory_snapshot(source: &Path, snapshot: &Path) -> Result<(), String> {
-    copy_tree_bounded(source, source, snapshot, 0)
+    let mut budget = PackageBudget::default();
+    let result = copy_tree_bounded(source, source, snapshot, 0, &mut budget);
+    if result.is_err() {
+        discard_snapshot(snapshot);
+    }
+    result
 }
 
 fn copy_tree_bounded(
@@ -400,6 +454,7 @@ fn copy_tree_bounded(
     directory: &Path,
     snapshot: &Path,
     depth: usize,
+    budget: &mut PackageBudget,
 ) -> Result<(), String> {
     if depth > 64 {
         return Err("the package directory nesting exceeds 64 levels".to_string());
@@ -432,24 +487,35 @@ fn copy_tree_bounded(
             ));
         }
         if metadata.is_dir() {
-            copy_tree_bounded(root, &entry_path, snapshot, depth + 1)?;
+            budget.add(0)?;
+            copy_tree_bounded(root, &entry_path, snapshot, depth + 1, budget)?;
         } else if metadata.is_file() {
-            if metadata.len() > MAX_PACKAGE_FILE_BYTES {
+            budget.add(metadata.len())?;
+            let mut input = std::fs::File::open(&entry_path).map_err(|error| error.to_string())?;
+            let mut output = std::fs::File::create(target.join(entry.file_name()))
+                .map_err(|error| error.to_string())?;
+            let copied = std::io::copy(&mut input.by_ref().take(metadata.len() + 1), &mut output)
+                .map_err(|error| error.to_string())?;
+            if copied != metadata.len() {
                 return Err(format!(
-                    "{} exceeds the {} MiB per-file limit",
-                    entry_path.display(),
-                    MAX_PACKAGE_FILE_BYTES / (1024 * 1024)
+                    "{} changed while being copied",
+                    entry_path.display()
                 ));
             }
-            std::fs::copy(&entry_path, &target.join(entry.file_name())).map_err(|error| {
-                format!("{} could not be copied: {error}", entry_path.display())
-            })?;
         }
     }
     Ok(())
 }
 
 pub(crate) fn extract_zip_snapshot(source: &Path, snapshot: &Path) -> Result<(), String> {
+    let result = extract_zip_snapshot_inner(source, snapshot);
+    if result.is_err() {
+        discard_snapshot(snapshot);
+    }
+    result
+}
+
+fn extract_zip_snapshot_inner(source: &Path, snapshot: &Path) -> Result<(), String> {
     let file = std::fs::File::open(source)
         .map_err(|error| format!("{} could not be opened: {error}", source.display()))?;
     let mut archive = zip::ZipArchive::new(file).map_err(|error| {
@@ -461,7 +527,7 @@ pub(crate) fn extract_zip_snapshot(source: &Path, snapshot: &Path) -> Result<(),
     if archive.len() > MAX_PACKAGE_ENTRIES {
         return Err("the archive contains too many entries".to_string());
     }
-    let mut total_bytes: u64 = 0;
+    let mut budget = PackageBudget::default();
     for index in 0..archive.len() {
         let mut entry = archive
             .by_index(index)
@@ -469,26 +535,25 @@ pub(crate) fn extract_zip_snapshot(source: &Path, snapshot: &Path) -> Result<(),
         let Some(name) = entry.enclosed_name().map(|path| path.to_path_buf()) else {
             return Err(format!("archive entry {index} has an unsafe path"));
         };
+        budget.add(if entry.is_dir() { 0 } else { entry.size() })?;
         if entry.is_dir() {
             std::fs::create_dir_all(snapshot.join(&name)).map_err(|error| error.to_string())?;
             continue;
-        }
-        if entry.size() > MAX_PACKAGE_FILE_BYTES {
-            return Err(format!(
-                "archive entry {} exceeds the per-file size limit",
-                name.display()
-            ));
-        }
-        total_bytes += entry.size();
-        if total_bytes > MAX_PACKAGE_TOTAL_BYTES {
-            return Err("the archive exceeds the total decompressed size limit".to_string());
         }
         let target = snapshot.join(&name);
         if let Some(parent) = target.parent() {
             std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
         }
         let mut output = std::fs::File::create(&target).map_err(|error| error.to_string())?;
-        std::io::copy(&mut entry, &mut output).map_err(|error| error.to_string())?;
+        let declared_size = entry.size();
+        let copied = std::io::copy(&mut entry.by_ref().take(declared_size + 1), &mut output)
+            .map_err(|error| error.to_string())?;
+        if copied != declared_size {
+            return Err(format!(
+                "archive entry {} has an invalid size",
+                name.display()
+            ));
+        }
     }
     // A ZIP that unpacked into a single wrapper directory still yields a
     // package root containing plugin.json directly.
@@ -601,5 +666,27 @@ pub fn cleanup_stale_snapshots(app: &AppHandle) {
         if name.starts_with(SNAPSHOT_PREFIX) {
             let _ = std::fs::remove_dir_all(entry.path());
         }
+    }
+}
+
+#[cfg(test)]
+mod budget_tests {
+    use super::*;
+
+    #[test]
+    fn package_budget_enforces_total_bytes_and_entry_count_for_both_import_formats() {
+        let mut bytes = PackageBudget::default();
+        for _ in 0..8 {
+            bytes
+                .add(MAX_PACKAGE_FILE_BYTES)
+                .expect("within total limit");
+        }
+        assert!(bytes.add(1).is_err());
+
+        let mut entries = PackageBudget::default();
+        for _ in 0..MAX_PACKAGE_ENTRIES {
+            entries.add(0).expect("within entry limit");
+        }
+        assert!(entries.add(0).is_err());
     }
 }

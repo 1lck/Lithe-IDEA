@@ -132,7 +132,7 @@ export default function RunActionsButton() {
   const [draft, setDraft] = useState<RunActionDraft>(EMPTY_DRAFT);
   const triggerRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const { projectActions, declarativeAction, lspActions, isDiscovering, discoveryError, refresh } =
+  const { projectActions, declarativeActions, lspActions, isDiscovering, discoveryError, refresh } =
     useRunActionDiscovery(
       workspaceId,
       workspacePath,
@@ -166,9 +166,8 @@ export default function RunActionsButton() {
     [customRunActions, query],
   );
   const visibleDeclarativeActions = useMemo(
-    () =>
-      declarativeAction && matchesRunAction(declarativeAction, query) ? [declarativeAction] : [],
-    [declarativeAction, query],
+    () => declarativeActions.filter((action) => matchesRunAction(action, query)),
+    [declarativeActions, query],
   );
   const firstVisibleAction =
     visibleLspActions[0] ??

@@ -808,6 +808,7 @@ async function createSession(args: JsonRecord, key: string): Promise<Session> {
         rootUri: fileUri(workspacePath),
         workingDirectory: workspacePath,
         initializationOptions: args.initializationOptions ?? null,
+        workspaceConfiguration: args.workspaceConfiguration ?? null,
         runtimeExecutablePath: args.runtimeExecutablePath ?? null,
         jdtlsLaunchResources: args.jdtlsLaunchResources ?? null,
         cacheDirectory: args.cacheDirectory ?? null,

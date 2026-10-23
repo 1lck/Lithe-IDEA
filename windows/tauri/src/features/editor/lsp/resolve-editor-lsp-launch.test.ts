@@ -100,6 +100,7 @@ test("falls back to a declarative plugin launch when the registry has no server"
     serverPath: "C:/Users/example/AppData/Local/Lithe/plugins/dev.lithe.plugin.php-support/1.0.0/language-server/bin/intelephense.js",
     serverArgs: ["--stdio"],
     initializationOptions: { memory: 4096 },
+    workspaceConfiguration: { php: { format: true } },
     environment: { LITHE_NODE_PATH: "C:/Lithe/tools/node/node.exe" },
   }));
   const launch = await resolveEditorLspLaunch(
@@ -123,6 +124,7 @@ test("falls back to a declarative plugin launch when the registry has no server"
     serverPath: "C:/Users/example/AppData/Local/Lithe/plugins/dev.lithe.plugin.php-support/1.0.0/language-server/bin/intelephense.js",
     serverArgs: ["--stdio"],
     initializationOptions: { memory: 4096 },
+    workspaceConfiguration: { php: { format: true } },
     environment: { LITHE_NODE_PATH: "C:/Lithe/tools/node/node.exe" },
   });
 });

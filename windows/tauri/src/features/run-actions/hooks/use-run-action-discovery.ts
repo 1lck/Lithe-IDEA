@@ -1,5 +1,5 @@
 import { uiExtensionHost } from "@/extensions/ui/services/ui-extension-host";
-import { declarativeRunActionForFile } from "@/features/plugins/declarative-plugin-run";
+import { declarativeRunActionsForFile } from "@/features/plugins/declarative-plugin-run";
 import { useExtensionStore } from "@/extensions/registry/extension-store";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
@@ -99,16 +99,20 @@ export function useRunActionDiscovery(
     };
   }, [activeFilePath, enabled, workspacePath]);
 
-  const [declarativeAction, setDeclarativeAction] = useState<RunActionItem | null>(null);
+  const [declarativeActions, setDeclarativeActions] = useState<RunActionItem[]>([]);
   useEffect(() => {
     if (!enabled || !activeFilePath) {
-      setDeclarativeAction(null);
+      setDeclarativeActions([]);
       return;
     }
     let cancelled = false;
-    void declarativeRunActionForFile(activeFilePath).then((action) => {
-      if (!cancelled) setDeclarativeAction(action);
-    });
+    void declarativeRunActionsForFile(activeFilePath)
+      .then((actions) => {
+        if (!cancelled) setDeclarativeActions(actions);
+      })
+      .catch(() => {
+        if (!cancelled) setDeclarativeActions([]);
+      });
     return () => {
       cancelled = true;
     };
@@ -130,7 +134,7 @@ export function useRunActionDiscovery(
     projectActions: projectActions.filter(
       (action) => !action.extensionId || enabledExtensions.split("\n").includes(action.extensionId),
     ),
-    declarativeAction,
+    declarativeActions,
     lspActions,
     isDiscovering,
     discoveryError,

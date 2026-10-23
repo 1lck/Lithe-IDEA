@@ -11,7 +11,7 @@
   },
   "app": {
     "security": {
-      "capabilities": ["main-capability"],
+      "capabilities": ["main-capability", "plugin-web-capability"],
       "assetProtocol": {
         "enable": true,
         "scope": ["**"]

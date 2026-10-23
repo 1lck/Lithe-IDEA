@@ -64,6 +64,18 @@ mod install_tests {
     }
 
     #[test]
+    fn directory_snapshot_rejects_oversized_file_and_removes_partial_copy() {
+        let root = unique_temp_root("snapshot-budget");
+        let package = package_directory(&root, "1.0.0");
+        let oversized = std::fs::File::create(package.join("oversized.bin")).expect("file");
+        oversized.set_len(16 * 1024 * 1024 + 1).expect("size");
+        let snapshot = root.join("snapshot");
+        assert!(copy_directory_snapshot(&package, &snapshot).is_err());
+        assert!(!snapshot.exists(), "failed copy must release its snapshot");
+        std::fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
     fn zip_snapshot_extracts_and_rejects_unsafe_paths() {
         let root = unique_temp_root("zip");
         let package = package_directory(&root, "1.0.0");

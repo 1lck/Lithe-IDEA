@@ -94,15 +94,21 @@ fn collect_web_windows(package: &ScannedPackage, windows: &mut Vec<WebToolWindow
 #[tauri::command]
 pub fn declarative_plugins_open_web_window(
     app: AppHandle,
+    plugin_id: String,
     window_id: String,
 ) -> Result<(), String> {
     let Some(window) = declarative_plugins_web_windows(app.clone())
         .into_iter()
-        .find(|window| window.window_id == window_id)
+        .find(|window| window.plugin_id == plugin_id && window.window_id == window_id)
     else {
-        return Err(format!("{window_id} is not a declared web tool window"));
+        return Err(format!(
+            "{plugin_id}/{window_id} is not a declared web tool window"
+        ));
     };
-    let label = format!("plugin-web-{}", web_window_label(&window.window_id));
+    let label = format!(
+        "plugin-web-{}",
+        web_window_label(&window.plugin_id, &window.window_id)
+    );
     if let Some(existing) = app.get_webview_window(&label) {
         let _ = existing.set_focus();
         return Ok(());
@@ -132,9 +138,10 @@ pub fn declarative_plugins_open_web_window(
 #[tauri::command]
 pub fn declarative_plugins_close_web_window(
     app: AppHandle,
+    plugin_id: String,
     window_id: String,
 ) -> Result<(), String> {
-    let label = format!("plugin-web-{}", web_window_label(&window_id));
+    let label = format!("plugin-web-{}", web_window_label(&plugin_id, &window_id));
     if let Some(existing) = app.get_webview_window(&label) {
         existing
             .close()
@@ -259,7 +266,6 @@ fn const_bridge_script() -> &'static str {
 /// through this path.
 pub fn declarative_plugins_web_bridge_request(invoke: tauri::ipc::Invoke<tauri::Wry>) {
     let webview = invoke.message.webview_ref().clone();
-    let method = invoke.message.command().to_string();
     // The bridge payload arrives as the command's JSON arguments envelope.
     let params: BridgeArgs = match invoke.message.payload() {
         tauri::ipc::InvokeBody::Json(value) => match serde_json::from_value(value.clone()) {
@@ -289,7 +295,7 @@ pub fn declarative_plugins_web_bridge_request(invoke: tauri::ipc::Invoke<tauri::
         }
     };
     let app = webview.app_handle().clone();
-    let result = bridge_dispatch(&app, &webview, &method, params);
+    let result = bridge_dispatch(&app, &webview, params);
     match result {
         Ok(value) => {
             invoke
@@ -311,12 +317,9 @@ pub fn declarative_plugins_web_bridge_request(invoke: tauri::ipc::Invoke<tauri::
 }
 
 #[derive(serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct BridgeArgs {
-    #[allow(dead_code)]
-    plugin_id: Option<String>,
-    #[allow(dead_code)]
-    window_id: Option<String>,
+    method: String,
     #[serde(default)]
     params: Option<Value>,
 }
@@ -324,9 +327,9 @@ struct BridgeArgs {
 fn bridge_dispatch(
     app: &AppHandle,
     webview: &tauri::Webview,
-    method: &str,
     args: BridgeArgs,
 ) -> Result<Value, String> {
+    let method = args.method.as_str();
     let params = args.params.unwrap_or(Value::Null);
     let identity = bridge_identity(app, webview.label())?;
     match method {
@@ -424,7 +427,7 @@ fn bridge_identity<R: tauri::Runtime>(
             if window["web"]["entry"].is_null() {
                 continue;
             }
-            if web_window_label(window_id) == remainder {
+            if web_window_label(&package.entry.plugin_id, window_id) == remainder {
                 return Ok(BridgeIdentity {
                     plugin_id: package.entry.plugin_id.clone(),
                     window_id: window_id.to_string(),
@@ -438,18 +441,21 @@ fn bridge_identity<R: tauri::Runtime>(
     ))
 }
 
-/// The webview label of one tool window: a sanitized form of the declared
-/// window ID, safe for Tauri labels.
-pub(crate) fn web_window_label(window_id: &str) -> String {
-    window_id
-        .chars()
-        .map(|character| {
-            if character.is_ascii_alphanumeric() || character == '-' || character == '_' {
-                character
-            } else {
-                '-'
-            }
-        })
+/// The webview label of one tool window: a collision-free hexadecimal encoding
+/// of the plugin and window IDs, safe for Tauri labels.
+pub(crate) fn web_window_label(plugin_id: &str, window_id: &str) -> String {
+    format!(
+        "p{}--w{}",
+        hex_label_part(plugin_id),
+        hex_label_part(window_id)
+    )
+}
+
+fn hex_label_part(value: &str) -> String {
+    value
+        .as_bytes()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
         .collect()
 }
 
@@ -481,8 +487,12 @@ pub fn web_windows_of_plugin<R: tauri::Runtime>(
 }
 
 /// Closes one web window by declared window ID, tolerating absence.
-pub fn close_web_window_by_id<R: tauri::Runtime>(app: &AppHandle<R>, window_id: &str) {
-    let label = format!("plugin-web-{}", web_window_label(window_id));
+pub fn close_web_window_by_id<R: tauri::Runtime>(
+    app: &AppHandle<R>,
+    plugin_id: &str,
+    window_id: &str,
+) {
+    let label = format!("plugin-web-{}", web_window_label(plugin_id, window_id));
     if let Some(existing) = app.get_webview_window(&label) {
         let _ = existing.close();
     }
@@ -502,7 +512,11 @@ pub fn serve_package_file<R: tauri::Runtime>(
         .state::<super::PluginHostState>()
         .packages()
         .into_iter()
-        .find(|package| package.entry.status == "accepted" && package.entry.plugin_id == plugin_id)
+        .find(|package| {
+            package.entry.status == "accepted"
+                && package.entry.enabled
+                && package.entry.plugin_id == plugin_id
+        })
         .ok_or_else(|| format!("{plugin_id} is not an accepted declarative plugin"))?;
     let relative = sanitize_package_path(raw_path)?;
     if relative
@@ -713,11 +727,36 @@ mod tests {
     }
 
     #[test]
-    fn web_window_labels_are_stable_and_sanitized() {
-        // Declared IDs are reverse-DNS with dots; labels replace them.
-        assert_eq!(web_window_label("dev.lithe.window"), "dev-lithe-window");
-        assert_eq!(web_window_label("acme:panel"), "acme-panel");
-        assert_eq!(web_window_label("acme-panel"), "acme-panel");
+    fn bridge_payload_uses_its_method_and_refuses_claimed_identity() {
+        let args: BridgeArgs = serde_json::from_value(json!({
+            "method": "ui.getState",
+            "params": null
+        }))
+        .expect("bridge request");
+        assert_eq!(args.method, "ui.getState");
+        assert!(serde_json::from_value::<BridgeArgs>(json!({
+            "method": "ui.getState",
+            "pluginId": "another.plugin",
+            "params": null
+        }))
+        .is_err());
+    }
+
+    #[test]
+    fn web_window_labels_are_stable_and_collision_free() {
+        // Hex encoding preserves the full plugin/window identity in a label.
+        assert_eq!(
+            web_window_label("dev.lithe", "window"),
+            "p6465762e6c69746865--w77696e646f77"
+        );
+        assert_eq!(
+            web_window_label("acme", "panel:one"),
+            "p61636d65--w70616e656c3a6f6e65"
+        );
+        assert_ne!(
+            web_window_label("acme", "panel"),
+            web_window_label("other", "panel")
+        );
     }
     #[test]
     fn state_keys_separate_plugins_and_windows() {

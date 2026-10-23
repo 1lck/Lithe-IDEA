@@ -34,6 +34,8 @@ pub struct ResolvedLaunch {
     pub server_path: String,
     pub server_args: Vec<String>,
     pub initialization_options: Option<Value>,
+    /// Expanded configuration provided to the server at session start.
+    pub workspace_configuration: Option<Value>,
     /// Extra process environment (PATH prepends and LITHE_* exports).
     pub environment: BTreeMap<String, String>,
 }
@@ -238,6 +240,10 @@ fn resolve_launch(
         server_args: string_arguments(&plan["arguments"]),
         initialization_options: plan
             .get("initializationOptions")
+            .filter(|value| value.is_object())
+            .cloned(),
+        workspace_configuration: plan
+            .get("workspaceConfiguration")
             .filter(|value| value.is_object())
             .cloned(),
         environment,

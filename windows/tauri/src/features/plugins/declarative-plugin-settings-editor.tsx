@@ -195,7 +195,7 @@ function SettingControl({
           disabled={disabled}
           options={(setting.options ?? []).map((option) => ({
             value: option.value,
-            label: option.label,
+            label: option.title,
           }))}
           onChange={onApply}
         />

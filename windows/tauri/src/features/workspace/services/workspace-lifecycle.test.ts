@@ -8,6 +8,7 @@ const released: string[] = [];
 // Native registry owners claimed by this window, so tests can observe leaked claims.
 const ownedByThisWindow = new Set<string>();
 const revokedIdeWorkspaces: string[] = [];
+const stoppedDeclarativeWorkspaces: string[] = [];
 mock.module("@/features/host-api/mcp-connection", () => ({
   disableMcp: async (id: string) => {
     revokedIdeWorkspaces.push(id);
@@ -38,6 +39,13 @@ const actions = {
 };
 mock.module("@/extensions/run/extension-process-owner", () => ({
   extensionProcessOwner: { stop: async () => {} },
+}));
+mock.module("@/features/plugins/declarative-plugin-process-owner", () => ({
+  declarativePluginProcessOwner: {
+    stop: async (workspaceId: string) => {
+      stoppedDeclarativeWorkspaces.push(workspaceId);
+    },
+  },
 }));
 mock.module("@/features/settings/stores/settings.store", () => ({
   useSettingsStore: { getState: () => ({ settings: { theme: "dark" } }) },
@@ -91,6 +99,7 @@ beforeEach(() => {
   released.length = 0;
   ownedByThisWindow.clear();
   revokedIdeWorkspaces.length = 0;
+  stoppedDeclarativeWorkspaces.length = 0;
 });
 afterEach(() => {
   mock.restore();
@@ -171,6 +180,7 @@ test("closing a project revokes IDE access before disposal and then releases own
     }),
   ).toBe(true);
   expect(disposed).toBe(true);
+  expect(stoppedDeclarativeWorkspaces).toEqual([id]);
   expect(released).toEqual([id]);
   expect(tabs).toEqual([]);
 });

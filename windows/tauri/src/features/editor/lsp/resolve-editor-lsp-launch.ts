@@ -19,6 +19,7 @@ export interface EditorLspLaunch {
   serverPath: string;
   serverArgs: string[];
   initializationOptions?: Record<string, unknown>;
+  workspaceConfiguration?: Record<string, unknown>;
   tools?: BackendLanguageToolConfigSet;
   runtimeExecutablePath?: string | null;
   jdtlsLaunchResources?: JdtlsLaunchResources | null;
@@ -122,6 +123,7 @@ async function resolveDeclarativeFallback(
     serverPath: launch.serverPath,
     serverArgs: launch.serverArgs,
     initializationOptions: launch.initializationOptions ?? undefined,
+    workspaceConfiguration: launch.workspaceConfiguration ?? undefined,
     environment: launch.environment,
   };
 }

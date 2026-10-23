@@ -9,6 +9,7 @@
 use super::scan::core_execute;
 use serde::Serialize;
 use serde_json::Value;
+use std::path::Path;
 use tauri::AppHandle;
 
 /// An expanded run or test plan ready for the shared run pipeline.
@@ -48,17 +49,19 @@ pub fn declarative_plugins_run_plan(
 }
 
 /// Expands the workspace test template for a language a plugin owns.
-/// `relative_project_file_paths` is the workspace's file list; the template's
-/// project markers decide whether tests can run at all.
+/// The host checks declared project markers in the workspace before Core
+/// decides whether the test template applies.
 #[tauri::command]
 pub fn declarative_plugins_test_plan(
     app: AppHandle,
     plugin_id: String,
     language_id: String,
-    relative_project_file_paths: Vec<String>,
+    workspace_path: String,
 ) -> Result<DeclarativeRunPlan, String> {
     let package = super::launch::package_by_id(&app, &plugin_id)
         .ok_or_else(|| format!("{plugin_id} is not an accepted declarative plugin"))?;
+    let relative_project_file_paths =
+        existing_project_markers(&package.manifest, &language_id, Path::new(&workspace_path));
     expand_plan(
         &package.manifest,
         &plugin_id,
@@ -69,6 +72,27 @@ pub fn declarative_plugins_test_plan(
             "relativeProjectFilePaths": relative_project_file_paths,
         }),
     )
+}
+
+fn existing_project_markers(manifest: &Value, language_id: &str, root: &Path) -> Vec<String> {
+    let mut markers: Vec<String> = manifest["executionProviders"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|provider| provider["languageID"] == language_id)
+        .flat_map(|provider| {
+            provider["test"]["projectMarkers"]
+                .as_array()
+                .into_iter()
+                .flatten()
+        })
+        .filter_map(|marker| marker.as_str())
+        .filter(|marker| root.join(marker).is_file())
+        .map(str::to_string)
+        .collect();
+    markers.sort();
+    markers.dedup();
+    markers
 }
 
 fn expand_plan(
@@ -108,4 +132,35 @@ fn expand_plan(
             .unwrap_or_default(),
         working_directory: body["workingDirectory"].as_str().unwrap_or(".").to_string(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_markers_come_from_existing_workspace_files_for_the_language() {
+        let root = std::env::temp_dir().join(format!(
+            "lithe-test-markers-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).expect("workspace");
+        std::fs::write(root.join("composer.json"), "{}").expect("marker");
+        let manifest = serde_json::json!({
+            "executionProviders": [
+                {"languageID": "php", "test": {"projectMarkers": ["composer.json", "phpunit.xml"]}},
+                {"languageID": "go", "test": {"projectMarkers": ["go.mod"]}}
+            ]
+        });
+        assert_eq!(
+            existing_project_markers(&manifest, "php", &root),
+            vec!["composer.json"]
+        );
+        assert!(existing_project_markers(&manifest, "go", &root).is_empty());
+        std::fs::remove_dir_all(root).expect("cleanup");
+    }
 }

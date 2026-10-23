@@ -4,6 +4,7 @@ import { Button } from "@/ui/button";
 import Switch from "@/ui/switch";
 import {
   closeDeclarativeWebWindow,
+  cancelDeclarativeDiskInstall,
   confirmDeclarativeDiskInstall,
   listDeclarativePlugins,
   listDeclarativeWebWindows,
@@ -18,6 +19,7 @@ import {
   type PreparedDeclarativeInstall,
 } from "./declarative-plugin-launch";
 import { DeclarativePluginSettingsEditor } from "./declarative-plugin-settings-editor";
+import { useWorkspaceTabsStore } from "@/features/window/stores/workspace-tabs.store";
 
 /**
  * Management surface for contract v1 declarative plugins. This block is
@@ -33,6 +35,9 @@ export function DeclarativePluginsSection() {
   const [pending, setPending] = useState<PreparedDeclarativeInstall | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const workspacePath = useWorkspaceTabsStore((state) =>
+    state.projectTabs.find((tab) => tab.isActive)?.path ?? null,
+  );
 
   const refresh = useCallback(async () => {
     await rescanDeclarativePlugins();
@@ -43,6 +48,15 @@ export function DeclarativePluginsSection() {
   useEffect(() => {
     refresh().catch((reason: unknown) => setError(String(reason)));
   }, [refresh]);
+
+  useEffect(() => {
+    if (!pending) return;
+    return () => {
+      void cancelDeclarativeDiskInstall(pending.sessionId).catch((reason: unknown) =>
+        console.warn("Could not discard plugin install review", reason),
+      );
+    };
+  }, [pending]);
 
   const importPackage = async () => {
     const selection = await import("@tauri-apps/plugin-dialog").then(({ open }) =>
@@ -87,7 +101,7 @@ export function DeclarativePluginsSection() {
         title={t("settings.declarativePlugins.title")}
         description={t("settings.declarativePlugins.description")}
         action={
-          <Button variant="accent" size="sm" disabled={busy} onClick={() => void importPackage()}>
+          <Button variant="accent" size="sm" disabled={busy || Boolean(pending)} onClick={() => void importPackage()}>
             {t("settings.declarativePlugins.import")}
           </Button>
         }
@@ -98,13 +112,19 @@ export function DeclarativePluginsSection() {
         </p>
       )}
       {pending && (
-        <InstallReviewCard pending={pending} onConfirm={() => void confirmInstall()} busy={busy} />
+        <InstallReviewCard
+          pending={pending}
+          onConfirm={() => void confirmInstall()}
+          onCancel={() => setPending(null)}
+          busy={busy}
+        />
       )}
       <ul className="flex flex-col gap-1" data-testid="declarative-plugin-list">
         {plugins.map((plugin) => (
           <DeclarativePluginRow
             key={`${plugin.source}-${plugin.pluginId}`}
             plugin={plugin}
+            workspacePath={workspacePath}
             onChanged={() => void refresh()}
           />
         ))}
@@ -121,7 +141,7 @@ export function DeclarativePluginsSection() {
           </h3>
           <ul className="flex flex-col gap-1" data-testid="declarative-web-window-list">
             {webWindows.map((window) => (
-              <WebWindowRow key={window.windowId} window={window} />
+            <WebWindowRow key={`${window.pluginId}:${window.windowId}`} window={window} />
             ))}
           </ul>
         </div>
@@ -149,9 +169,9 @@ function WebWindowRow({ window }: { window: DeclarativeWebToolWindow }) {
         size="sm"
         onClick={() => {
           if (open) {
-            void closeDeclarativeWebWindow(window.windowId).then(() => setOpen(false));
+            void closeDeclarativeWebWindow(window.pluginId, window.windowId).then(() => setOpen(false));
           } else {
-            void openDeclarativeWebWindow(window.windowId).then(() => setOpen(true));
+            void openDeclarativeWebWindow(window.pluginId, window.windowId).then(() => setOpen(true));
           }
         }}
       >
@@ -166,10 +186,12 @@ function WebWindowRow({ window }: { window: DeclarativeWebToolWindow }) {
 function InstallReviewCard({
   pending,
   onConfirm,
+  onCancel,
   busy,
 }: {
   pending: PreparedDeclarativeInstall;
   onConfirm: () => void;
+  onCancel: () => void;
   busy: boolean;
 }) {
   const { t } = useTranslation();
@@ -202,6 +224,9 @@ function InstallReviewCard({
         <Button size="sm" disabled={busy} onClick={onConfirm}>
           {t("settings.declarativePlugins.confirmInstall")}
         </Button>
+        <Button size="sm" variant="accent" disabled={busy} onClick={onCancel}>
+          {t("ui.cancel")}
+        </Button>
       </div>
     </div>
   );
@@ -230,9 +255,11 @@ function ProgramDeclarationList({ programs }: { programs: unknown[] }) {
 
 function DeclarativePluginRow({
   plugin,
+  workspacePath,
   onChanged,
 }: {
   plugin: DeclarativePluginSummary;
+  workspacePath: string | null;
   onChanged: () => void;
 }) {
   const { t } = useTranslation();
@@ -317,7 +344,7 @@ function DeclarativePluginRow({
         <DeclarativePluginSettingsEditor
           pluginId={plugin.pluginId}
           settings={declaredSettings}
-          workspacePath={null}
+          workspacePath={workspacePath}
           languageId={plugin.primaryLanguageId}
         />
       )}

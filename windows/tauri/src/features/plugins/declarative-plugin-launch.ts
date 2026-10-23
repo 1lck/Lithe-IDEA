@@ -47,7 +47,7 @@ export interface DeclarativePluginSetting {
   minimum?: number | null;
   maximum?: number | null;
   unit?: string | null;
-  options?: Array<{ value: string; label: string }> | null;
+  options?: Array<{ value: string; title: string }> | null;
   scope?: "global" | "project" | null;
   effect?: "restart" | "immediate" | "reload" | "nextRun" | null;
 }
@@ -58,6 +58,7 @@ export interface DeclarativePluginLaunch {
   serverPath: string;
   serverArgs: string[];
   initializationOptions: Record<string, unknown> | null;
+  workspaceConfiguration: Record<string, unknown> | null;
   environment: Record<string, string>;
 }
 
@@ -124,6 +125,10 @@ export function confirmDeclarativeDiskInstall(
   });
 }
 
+export function cancelDeclarativeDiskInstall(sessionId: string): Promise<void> {
+  return invoke<void>("declarative_plugins_cancel_disk_install", { sessionId });
+}
+
 /** Removes an installed package and its state directory. */
 export function uninstallDeclarativePlugin(pluginId: string): Promise<void> {
   return invoke<void>("declarative_plugins_uninstall", { pluginId });
@@ -149,7 +154,7 @@ export interface DeclarativePluginSetting {
   minimum?: number | null;
   maximum?: number | null;
   unit?: string | null;
-  options?: Array<{ value: string; label: string }> | null;
+  options?: Array<{ value: string; title: string }> | null;
   scope?: "global" | "project" | null;
   effect?: "restart" | "immediate" | "reload" | "nextRun" | null;
   section?: { languageID?: string; buildSystemID?: string } | null;
@@ -228,12 +233,12 @@ export function resolveDeclarativeRunPlan(
 export function resolveDeclarativeTestPlan(
   pluginId: string,
   languageId: string,
-  relativeProjectFilePaths: string[],
+  workspacePath: string,
 ): Promise<DeclarativeRunPlan> {
   return invoke<DeclarativeRunPlan>("declarative_plugins_test_plan", {
     pluginId,
     languageId,
-    relativeProjectFilePaths,
+    workspacePath,
   });
 }
 
@@ -253,13 +258,13 @@ export function listDeclarativeWebWindows(): Promise<DeclarativeWebToolWindow[]>
 }
 
 /** Opens (or focuses) the web view of one tool window. */
-export function openDeclarativeWebWindow(windowId: string): Promise<void> {
-  return invoke<void>("declarative_plugins_open_web_window", { windowId });
+export function openDeclarativeWebWindow(pluginId: string, windowId: string): Promise<void> {
+  return invoke<void>("declarative_plugins_open_web_window", { pluginId, windowId });
 }
 
 /** Destroys the web view of one tool window. */
-export function closeDeclarativeWebWindow(windowId: string): Promise<void> {
-  return invoke<void>("declarative_plugins_close_web_window", { windowId });
+export function closeDeclarativeWebWindow(pluginId: string, windowId: string): Promise<void> {
+  return invoke<void>("declarative_plugins_close_web_window", { pluginId, windowId });
 }
 
 /** Returns the raw manifest of one accepted declarative plugin. */
