@@ -20,6 +20,30 @@ struct ProcessLifecycleFixtureTests {
         }
     }
 
+    @Test func exitPlanFixturesDecodeIntoSwiftTypes() throws {
+        let core = RustCoreBridge()
+        for testCase in try cases("exit-plan-v1.json") {
+            let result: ProcessLifecyclePlan = try core.executeResult(
+                command: "processLifecycle.resolve",
+                payload: testCase.request
+            ).get()
+            #expect(result == (try testCase.expected.decode(ProcessLifecyclePlan.self)), "\(testCase.name)")
+        }
+    }
+
+    @Test func runServicePolicySurvivesSettingsRoundTripAndOlderSettings() throws {
+        var settings = ProcessTerminationSettings()
+        settings.runServicesOnExit = .terminate
+        let decoded = try JSONDecoder().decode(
+            ProcessTerminationSettings.self,
+            from: JSONEncoder().encode(settings)
+        )
+        #expect(decoded.runServicesOnExit == .terminate)
+        let older = try JSONDecoder().decode(ProcessTerminationSettings.self, from: Data(#"{"startupSweep":"terminate"}"#.utf8))
+        #expect(older.runServicesOnExit == .ask)
+        #expect(older.startupSweep == .terminate)
+    }
+
     @Test func settleFixturesDecodeIntoSwiftTypes() throws {
         let core = RustCoreBridge()
         for testCase in try cases("settle-v1.json") {
@@ -140,6 +164,93 @@ struct ProcessExitCoordinatorTests {
         #expect(approval.gracefulStopMilliseconds == 5_000)
     }
 
+    @Test func quitListsRunServicesOnceBeforeAnyOtherQuestion() async {
+        let presenter = ScriptedPresenter(terminal: .terminate, agentTask: .keep, resources: nil)
+        let coordinator = ProcessExitCoordinator(core: RustProcessLifecycleDecider(core: RustCoreBridge()), presenter: presenter)
+        let busy = terminal(programs: [TerminalRunningProgram(processID: 10, commandLine: "npm run dev")])
+
+        let (outcome, _) = await coordinator.confirmQuit(
+            settings: ProcessTerminationSettings(),
+            runServices: [service("run:api"), service("maven:install")],
+            terminals: [busy],
+            agentTasks: [],
+            resources: []
+        )
+
+        #expect(presenter.asked == ["runServices:quit:run:api,maven:install", "terminal:\(busy.sessionID)"])
+        guard case .proceed = outcome else {
+            Issue.record("Expected to proceed, got \(outcome)")
+            return
+        }
+    }
+
+    @Test func cancellingTheRunServiceQuestionKeepsEverything() async {
+        let presenter = ScriptedPresenter(terminal: .terminate, agentTask: .keep, resources: nil, runServices: false)
+        let coordinator = ProcessExitCoordinator(core: RustProcessLifecycleDecider(core: RustCoreBridge()), presenter: presenter)
+
+        let (outcome, _) = await coordinator.confirmQuit(
+            settings: ProcessTerminationSettings(),
+            runServices: [service("run:api")],
+            terminals: [terminal(programs: [TerminalRunningProgram(processID: 10, commandLine: "top")])],
+            agentTasks: [],
+            resources: []
+        )
+
+        #expect(outcome == .cancelled)
+        #expect(presenter.asked == ["runServices:quit:run:api"])
+    }
+
+    @Test func runServicesStopWithoutAQuestionWhenTheSettingSaysSo() async {
+        let presenter = ScriptedPresenter(terminal: .terminate, agentTask: .keep, resources: nil, runServices: false)
+        let coordinator = ProcessExitCoordinator(core: RustProcessLifecycleDecider(core: RustCoreBridge()), presenter: presenter)
+        var settings = ProcessTerminationSettings()
+        settings.runServicesOnExit = .terminate
+
+        let closes = await coordinator.confirmCloseProject(settings: settings, runServices: [service("run:api")])
+        let (outcome, _) = await coordinator.confirmQuit(
+            settings: settings,
+            runServices: [service("run:api")],
+            terminals: [],
+            agentTasks: [],
+            resources: []
+        )
+
+        #expect(closes)
+        #expect(outcome == .proceed(ProcessExitApproval()))
+        #expect(presenter.asked.isEmpty)
+    }
+
+    @Test func closingAProjectAsksAboutItsRunServicesAndCanBeCancelled() async {
+        let agreeing = ScriptedPresenter(terminal: .cancel, agentTask: .cancel, resources: nil)
+        let refusing = ScriptedPresenter(terminal: .cancel, agentTask: .cancel, resources: nil, runServices: false)
+        let decider = RustProcessLifecycleDecider(core: RustCoreBridge())
+
+        let closes = await ProcessExitCoordinator(core: decider, presenter: agreeing)
+            .confirmCloseProject(settings: ProcessTerminationSettings(), runServices: [service("run:api")])
+        let cancelled = await ProcessExitCoordinator(core: decider, presenter: refusing)
+            .confirmCloseProject(settings: ProcessTerminationSettings(), runServices: [service("run:api")])
+        let idle = await ProcessExitCoordinator(core: decider, presenter: refusing)
+            .confirmCloseProject(settings: ProcessTerminationSettings(), runServices: [])
+
+        #expect(closes)
+        #expect(agreeing.asked == ["runServices:closeProject:run:api"])
+        #expect(!cancelled)
+        #expect(idle)
+    }
+
+    @Test func runServicesAreStillAskedAboutWhenTheRustRuleFails() async {
+        let presenter = ScriptedPresenter(terminal: .cancel, agentTask: .cancel, resources: nil)
+        let coordinator = ProcessExitCoordinator(core: FailingLifecycleCore(), presenter: presenter)
+
+        let closes = await coordinator.confirmCloseProject(
+            settings: ProcessTerminationSettings(),
+            runServices: [service("run:api")]
+        )
+
+        #expect(closes)
+        #expect(presenter.asked == ["runServices:closeProject:run:api"])
+    }
+
     @Test func cancellingAnAgentTaskStopsAskingAndKeepsEverything() async {
         let presenter = ScriptedPresenter(terminal: .terminate, agentTask: .cancel, resources: nil)
         let coordinator = ProcessExitCoordinator(core: RustProcessLifecycleDecider(core: RustCoreBridge()), presenter: presenter)
@@ -196,6 +307,10 @@ struct ProcessExitCoordinatorTests {
         )
     }
 
+    private func service(_ id: String) -> RunServiceExitCandidate {
+        RunServiceExitCandidate(id: id, title: id, projectName: "demo")
+    }
+
     private func task(_ id: String) -> AgentTaskCandidate {
         AgentTaskCandidate(
             id: id,
@@ -245,12 +360,24 @@ private final class ScriptedPresenter: ProcessExitConfirmationPresenting {
     private let terminal: TerminalExitAnswer
     private let agentTask: AgentTaskExitAnswer
     private let resources: BackgroundResourceAnswer?
+    private let runServices: Bool
     private(set) var asked: [String] = []
 
-    init(terminal: TerminalExitAnswer, agentTask: AgentTaskExitAnswer, resources: BackgroundResourceAnswer?) {
+    init(
+        terminal: TerminalExitAnswer,
+        agentTask: AgentTaskExitAnswer,
+        resources: BackgroundResourceAnswer?,
+        runServices: Bool = true
+    ) {
         self.terminal = terminal
         self.agentTask = agentTask
         self.resources = resources
+        self.runServices = runServices
+    }
+
+    func confirmStopRunServices(_ services: [RunServiceExitCandidate], purpose: RunServiceStopPurpose) async -> Bool {
+        asked.append("runServices:\(purpose == .quit ? "quit" : "closeProject"):" + services.map(\.id).joined(separator: ","))
+        return runServices
     }
 
     func confirmTerminalOnQuit(_ terminal: TerminalExitCandidate, position: Int, count: Int) async -> TerminalExitAnswer {
@@ -279,5 +406,26 @@ private final class ScriptedPresenter: ProcessExitConfirmationPresenting {
     ) async -> BackgroundResourceAnswer? {
         asked.append("resources:" + resources.map(\.id).joined(separator: ","))
         return self.resources
+    }
+}
+
+/// A Rust Core that cannot answer, as when the bridge fails to load.
+private struct FailingLifecycleCore: ProcessLifecycleClassifying {
+    struct Unavailable: Error {}
+
+    func resolve(
+        context: ProcessLifecycleContext,
+        settings: ProcessTerminationSettings,
+        records: [ProcessLifecycleRecord]
+    ) throws -> ProcessLifecyclePlan {
+        throw Unavailable()
+    }
+
+    func inventory(_ request: ProcessInventoryRequest) throws -> ProcessInventory {
+        throw Unavailable()
+    }
+
+    func settle(_ request: ProcessSettlementRequest) throws -> ProcessSettlement {
+        throw Unavailable()
     }
 }

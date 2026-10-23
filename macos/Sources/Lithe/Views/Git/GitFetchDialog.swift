@@ -51,14 +51,14 @@ struct GitFetchDialog: View {
             .padding(12).frame(maxWidth: .infinity, alignment: .leading)
             .background(LitheTheme.editor, in: RoundedRectangle(cornerRadius: 6))
             if let defaultsError { Text(verbatim: defaultsError).foregroundStyle(LitheTheme.error) }
-            HStack {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Spacer()
-                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Cancel") { dismiss() }.buttonStyle(LitheActionButtonStyle()).keyboardShortcut(.cancelAction)
                 Button("Fetch") {
                     guard let plan, plan.options == options else { return }
                     onFetch(plan.options)
                     dismiss()
-                }
+                }.buttonStyle(LitheActionButtonStyle(isPrimary: true))
                 .keyboardShortcut(.defaultAction)
                 .disabled(loadingDefaults || defaultsError != nil || plan?.options != options || feature.isPerformingBranchOperation || feature.gitRepositoryRoot == nil)
             }

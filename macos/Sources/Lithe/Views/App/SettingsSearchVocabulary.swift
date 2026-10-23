@@ -40,7 +40,7 @@ enum SettingsSearchVocabulary {
         case .updates:
             ["Updates", "Application version", "Update status", "Check for Updates", "Update channel", "Stable (Recommended)", "AutoBuild Rolling"]
         case .processTermination:
-            ["Process Termination Policy", "Process", "Quit", "Terminals with running programs", "Agent tasks", "Background services", "Closing a terminal tab", "After Lithe closes unexpectedly", "Time to exit", "Remembered choices", "Daemon"]
+            ["Process Termination Policy", "Process", "Quit", "Run services", "Terminals with running programs", "Agent tasks", "Background services", "Closing a terminal tab", "After Lithe closes unexpectedly", "Time to exit", "Remembered choices", "Daemon"]
         case .diagnostics:
             ["Logs and Diagnostics", "Logs", "Log directory", "Log timeline", "Diagnostics", "Diagnostic bundle", "Export logs", "Bug report", "Detailed diagnostics", "Module", "Session", "Minimum level", "Filter log messages", "From (UTC ISO 8601)", "Until (UTC ISO 8601)", "Retention and cleanup"]
         case .plugins:

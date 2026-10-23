@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://lithe.dev/contracts/plugins/v1/plugin-manifest.schema.json",
+  "$id": "https://raw.githubusercontent.com/Lithe-IDEA/lithe-plugin-docs/main/contract/v1/plugin-manifest.schema.json",
   "title": "Lithe declarative plugin manifest (plugin contract v1)",
   "description": "Shape of plugin.json for a declarative plugin. Semantic rules that JSON Schema cannot express (cross references, permissions, activation events, template variables) are defined in README.md and enforced by plugins.declarative.validate.",
   "type": "object",
@@ -22,8 +22,9 @@
       "additionalProperties": false,
       "properties": {
         "buildProviders": { "description": "Required exactly when any buildSystems[].provider is present, including own-process and shared language-server providers. Declares host support for Provider orchestration, independent of declarative buildSystems and serverProcess launch support.", "enum": [1] },
-        "buildSystems": { "description": "Declarative build detection, models, and command plans; does not imply buildProviders support.", "enum": [1] },
-        "executionProviders": { "enum": [1] },
+        "buildSystems": { "description": "Declarative build detection, models, and command plans; does not imply buildProviders support.", "enum": [1, 2] },
+        "executableResolution": { "enum": [1], "description": "Shared executable candidate ordering and strict selection." },
+    "executionProviders": { "enum": [1] },
         "languageServers": { "enum": [1] },
         "languages": { "enum": [1] },
         "serverProcess": { "description": "The launch fields of language servers, of build providers that start their own process, and of VCS providers.", "enum": [1] },
@@ -650,7 +651,7 @@
       },
       "maxItems": 64
     },
-    "buildExecutable": {
+    "executableCandidate": {
       "oneOf": [
         {
           "type": "object",
@@ -685,8 +686,52 @@
                   "windows"
                 ]
               }
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "priority": {
+              "type": "integer",
+              "minimum": -2147483648,
+              "maximum": 2147483647
+            },
+            "insertBefore": {
+              "type": "string",
+              "minLength": 1
+            },
+            "insertAfter": {
+              "type": "string",
+              "minLength": 1
             }
-          }
+          },
+          "allOf": [
+            {
+              "not": {
+                "required": [
+                  "priority",
+                  "insertBefore"
+                ]
+              }
+            },
+            {
+              "not": {
+                "required": [
+                  "priority",
+                  "insertAfter"
+                ]
+              }
+            },
+            {
+              "not": {
+                "required": [
+                  "insertBefore",
+                  "insertAfter"
+                ]
+              }
+            }
+          ]
         },
         {
           "type": "object",
@@ -719,8 +764,52 @@
                   "windows"
                 ]
               }
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "priority": {
+              "type": "integer",
+              "minimum": -2147483648,
+              "maximum": 2147483647
+            },
+            "insertBefore": {
+              "type": "string",
+              "minLength": 1
+            },
+            "insertAfter": {
+              "type": "string",
+              "minLength": 1
             }
-          }
+          },
+          "allOf": [
+            {
+              "not": {
+                "required": [
+                  "priority",
+                  "insertBefore"
+                ]
+              }
+            },
+            {
+              "not": {
+                "required": [
+                  "priority",
+                  "insertAfter"
+                ]
+              }
+            },
+            {
+              "not": {
+                "required": [
+                  "insertBefore",
+                  "insertAfter"
+                ]
+              }
+            }
+          ]
         },
         {
           "type": "object",
@@ -746,8 +835,52 @@
                   "windows"
                 ]
               }
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "priority": {
+              "type": "integer",
+              "minimum": -2147483648,
+              "maximum": 2147483647
+            },
+            "insertBefore": {
+              "type": "string",
+              "minLength": 1
+            },
+            "insertAfter": {
+              "type": "string",
+              "minLength": 1
             }
-          }
+          },
+          "allOf": [
+            {
+              "not": {
+                "required": [
+                  "priority",
+                  "insertBefore"
+                ]
+              }
+            },
+            {
+              "not": {
+                "required": [
+                  "priority",
+                  "insertAfter"
+                ]
+              }
+            },
+            {
+              "not": {
+                "required": [
+                  "insertBefore",
+                  "insertAfter"
+                ]
+              }
+            }
+          ]
         },
         {
           "type": "object",
@@ -774,11 +907,127 @@
                   "windows"
                 ]
               }
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "priority": {
+              "type": "integer",
+              "minimum": -2147483648,
+              "maximum": 2147483647
+            },
+            "insertBefore": {
+              "type": "string",
+              "minLength": 1
+            },
+            "insertAfter": {
+              "type": "string",
+              "minLength": 1
             }
-          }
+          },
+          "allOf": [
+            {
+              "not": {
+                "required": [
+                  "priority",
+                  "insertBefore"
+                ]
+              }
+            },
+            {
+              "not": {
+                "required": [
+                  "priority",
+                  "insertAfter"
+                ]
+              }
+            },
+            {
+              "not": {
+                "required": [
+                  "insertBefore",
+                  "insertAfter"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "settingID"
+          ],
+          "properties": {
+            "kind": {
+              "const": "setting"
+            },
+            "settingID": {
+              "type": "string",
+              "minLength": 1
+            },
+            "platforms": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "macos",
+                  "linux",
+                  "windows"
+                ]
+              }
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "priority": {
+              "type": "integer",
+              "minimum": -2147483648,
+              "maximum": 2147483647
+            },
+            "insertBefore": {
+              "type": "string",
+              "minLength": 1
+            },
+            "insertAfter": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "allOf": [
+            {
+              "not": {
+                "required": [
+                  "priority",
+                  "insertBefore"
+                ]
+              }
+            },
+            {
+              "not": {
+                "required": [
+                  "priority",
+                  "insertAfter"
+                ]
+              }
+            },
+            {
+              "not": {
+                "required": [
+                  "insertBefore",
+                  "insertAfter"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
+    "buildExecutable": {"$ref": "#/$defs/executableCandidate"},
     "buildVersionProbe": {
       "type": "object",
       "additionalProperties": false,
@@ -1162,6 +1411,13 @@
             "executables"
           ],
           "properties": {
+            "executableSetting": {
+              "deprecated": true,
+              "type": "string",
+              "description": "buildSystems 2: global file setting with effect reload or nextRun; empty uses discovery, nonempty must be used without fallback.",
+              "pattern": "^[a-z][a-zA-Z0-9]*$",
+              "maxLength": 120
+            },
             "executables": {
               "type": "array",
               "items": {

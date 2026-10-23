@@ -2,6 +2,7 @@
 
 pub mod capabilities;
 pub mod declarative;
+pub(crate) mod executables;
 pub mod marketplace;
 pub(crate) mod settings;
 

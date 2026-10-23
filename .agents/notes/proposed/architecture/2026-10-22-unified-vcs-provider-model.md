@@ -98,7 +98,7 @@ Git Log 图、Rebase、Worktree、Stash、Push 和 Fetch 对话框、历史改�
 
 SVN 插件调用用户系统里的 `svn` 命令行，解析它稳定的 `--xml` 输出。IDEA 的 svn4idea 也是这样做的（`plugins/svn4idea/src/org/jetbrains/idea/svn/status/CmdStatusClient.kt` 使用 `svn status --xml`）。这和 Lithe 使用系统 Git 的方式一致，不需要打包 JVM 或跨平台编译 libsvn。
 
-后端进程用官方 Node SDK（`sdk/node`）编写，以 `runtime` 方式启动（`tool: node`）。SDK 已经负责线协议、协商、取消、子进程清理和错误映射，Cargo 社区插件也走这条路；同一份后端在 macOS 和 Windows 上都能运行，插件包里没有原生二进制，不涉及按架构编译和 Gatekeeper。代价是用户除了 `svn` 还需要 Node 20.3 以上，安装审查和缺少运行时的提示要说清楚。SDK 新增 `litheVcs` 支持，和 `litheBuild` 并列。
+后端进程用官方 Node SDK（[lithe-plugin-docs](https://github.com/Lithe-IDEA/lithe-plugin-docs) 的 `sdk/node`）编写，以 `runtime` 方式启动（`tool: node`）。SDK 已经负责线协议、协商、取消、子进程清理和错误映射，Cargo 社区插件也走这条路；同一份后端在 macOS 和 Windows 上都能运行，插件包里没有原生二进制，不涉及按架构编译和 Gatekeeper。代价是用户除了 `svn` 还需要 Node 20.3 以上，安装审查和缺少运行时的提示要说清楚。SDK 新增 `litheVcs` 支持，和 `litheBuild` 并列；2026-10-23 起 SDK 不在主仓库，这部分改动在 lithe-plugin-docs 提交（见[插件契约、SDK 与开发者资料的发布](../../implemented/architecture/2026-10-23-plugin-contract-publishing.md)）。
 
 凭据规则沿用[Git 执行与项目控制台](../../implemented/architecture/2026-09-12-git-execution-and-project-console.md)：命令始终带 `--non-interactive`，SVN 自己的认证缓存优先回答。第一版只依赖这份缓存，认证失败时返回 `vcs.authentication.failed`，宿主提示原因；交互式认证（宿主弹窗收集用户名和密码，经 `--password-from-stdin` 传给 `svn`）在宿主阶段实现。密码不出现在命令参数、控制台和日志里，Lithe 也不保存密码。
 
@@ -127,7 +127,7 @@ P1 已完成（2026-10-22）：
 - 插件清单：API 级别 3 的 `vcsProviders`、`process.vcs` 权限和 `onVcsRoot:<id>` 激活事件；`git` 是保留 ID。安装审查列出 Provider 进程，SVN 这类工具路径另放在 `vcsTool` 字段，不覆盖运行时的 `tool`。
 - 根识别 `vcs.detectRoots`：只读目录项，不读文件、不启动进程；工作区自己没有标记时向上查祖先目录，所以“工作区开在 SVN 工作副本的子目录里”也能识别。新增 `vcs.ownerOf`，让各宿主用同一条“最深根”规则给文件找归属，不必各写一份。
 - 会话：`litheVcs` 只提供给插件启动的会话；`lsp.vcsRequest` 按操作名生成 `lithe/vcs/*` 请求，未协商的能力在写出前就拒绝；Provider 只能使用契约列出的错误码，其余一律变成 `vcs.provider.failed`。`lithe/vcs/authenticate` 在宿主实现交互式认证前按未知请求回绝。
-- Node SDK：`backend.vcs(id, handlers, traits)` 按声明的处理函数协商能力，VCS 处理函数里的 `context.run` 会自动发出 `lithe/vcs/execution` 执行报告（只带命令行、退出码、耗时和截断后的 stderr，不带 stdout）。`sdk/node/examples/sample-vcs` 是一个把修订存在 JSON 文件里的玩具 VCS，Rust 端到端测试经真实 Core 会话跑通它的协商和全部 11 种操作。
+- Node SDK：`backend.vcs(id, handlers, traits)` 按声明的处理函数协商能力，VCS 处理函数里的 `context.run` 会自动发出 `lithe/vcs/execution` 执行报告（只带命令行、退出码、耗时和截断后的 stderr，不带 stdout）。示例 `sdk/node/examples/sample-vcs` 是一个把修订存在 JSON 文件里的玩具 VCS，端到端场景经真实 Core 会话跑通它的协商和全部 11 种操作。SDK、示例和端到端场景随 SDK 迁到 lithe-plugin-docs，在那里用 `scripts/sdk-e2e.mjs --ref <本分支>` 运行；主仓库只保留契约、fixtures 和 Core 测试。
 
 ### 10. Git 什么时候、怎样接入
 
@@ -192,7 +192,6 @@ Git 接入不在本提案的范围内，这里只记下评审时已经确认的�
 - `rust/lithe-core/src/vcs/`
 - `rust/lithe-core/src/plugins/`
 - `rust/lithe-core/src/lsp/interface/`
-- `sdk/node/`
 - `rust/lithe-core/src/git/`
 - `rust/lithe-git-host/`
 - `macos/Sources/LitheGitModule/`

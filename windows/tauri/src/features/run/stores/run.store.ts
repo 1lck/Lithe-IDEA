@@ -1099,6 +1099,7 @@ export const createRunStore = (
             const outcome = await dependencies.executePreLaunchStep({
               sessionId,
               executionId,
+              title: configuration.name,
               executable: stepResolved.executable,
               arguments: stepArguments,
               workingDirectory: stepResolved.workingDirectory,
@@ -1114,6 +1115,7 @@ export const createRunStore = (
           await dependencies.startRunProcess({
             sessionId,
             executionId,
+            title: configuration.name,
             executable: resolved.executable,
             arguments: mainArguments,
             workingDirectory: resolved.workingDirectory,

@@ -403,10 +403,10 @@ struct BuildSystemToolWindowView: View {
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 220)
                 .onSubmit(add)
-            HStack {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Spacer()
-                Button("Cancel") { customValueOptionID = nil }
-                Button("Add", action: add)
+                Button("Cancel") { customValueOptionID = nil }.buttonStyle(LitheActionButtonStyle())
+                Button("Add", action: add).buttonStyle(LitheActionButtonStyle(isPrimary: true))
                     .keyboardShortcut(.defaultAction)
                     .disabled(customValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
@@ -1051,11 +1051,11 @@ private struct BuildArgumentsSheet: View {
             Text("Separate arguments with spaces; quote an argument that contains spaces.")
                 .font(LitheTheme.uiFont(size: 11))
                 .foregroundStyle(LitheTheme.secondaryText)
-            HStack {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Spacer()
-                Button("Cancel", action: onCancel)
+                Button("Cancel", action: onCancel).buttonStyle(LitheActionButtonStyle())
                     .keyboardShortcut(.cancelAction)
-                Button("Run", action: run)
+                Button("Run", action: run).buttonStyle(LitheActionButtonStyle(isPrimary: true))
                     .keyboardShortcut(.defaultAction)
             }
         }
@@ -1241,10 +1241,10 @@ struct BuildOptionRow: View {
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 220)
                 .onSubmit(submitCustomValue)
-            HStack {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Spacer()
-                Button("Cancel") { isCustomPresented = false }
-                Button("Add", action: submitCustomValue)
+                Button("Cancel") { isCustomPresented = false }.buttonStyle(LitheActionButtonStyle())
+                Button("Add", action: submitCustomValue).buttonStyle(LitheActionButtonStyle(isPrimary: true))
                     .keyboardShortcut(.defaultAction)
                     .disabled(BuildOptionEditing.customValue(customText, in: option) == nil)
             }

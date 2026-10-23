@@ -157,12 +157,10 @@ struct PluginMarketplaceView: View {
             switch feature.installState(for: offer) {
             case .installable:
                 Button(LocalizedStringKey("Install")) { install(offer) }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
+                    .buttonStyle(LitheActionButtonStyle())
             case .updateAvailable:
                 Button(LocalizedStringKey("Update")) { install(offer) }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
+                    .buttonStyle(LitheActionButtonStyle())
             case .installed, .installedFromOtherSource, .managedOutsideMarketplace:
                 if feature.requiresRestart(pluginID) {
                     RestartLitheButton(prominent: false)
@@ -191,17 +189,22 @@ struct PluginMarketplaceView: View {
 
     @ViewBuilder private var detail: some View {
         if let listing = selectedListing, let offer = feature.offer(for: listing) {
-            ScrollView {
-                PluginMarketplaceDetail(
-                    feature: feature,
-                    listing: listing,
-                    offer: offer,
-                    install: { install(offer) },
-                    uninstall: { uninstall(listing.pluginID) }
-                )
+            let content = PluginMarketplaceDetail(
+                feature: feature, listing: listing, offer: offer,
+                install: { install(offer) }, uninstall: { uninstall(listing.pluginID) }
+            )
+            // Measure only this viewport. Its content must not widen or center
+            // the pane across the divider when a row cannot shrink further.
+            GeometryReader { geometry in
+                ScrollView([.horizontal, .vertical]) {
+                    content.frame(width: max(geometry.size.width, PluginMarketplaceDetail.minimumWidth), alignment: .leading)
+                        .frame(minHeight: geometry.size.height, alignment: .topLeading)
+                }
+                .litheScrollViewChrome()
             }
-            .litheScrollViewChrome()
+            .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
             .background(LitheTheme.settingsSurface)
+            .clipped()
         } else {
             VStack(spacing: 10) {
                 PluginMarketplaceIcon(icons: feature.icons, entry: nil, size: 36)
@@ -238,6 +241,13 @@ struct PluginMarketplaceView: View {
 /// shows (version, license, release date, platforms, links), and the notice
 /// about who maintains it.
 private struct PluginMarketplaceDetail: View {
+    private static let inset: CGFloat = 24
+    private static let labelWidth: CGFloat = 96
+    private static let metadataSpacing: CGFloat = 12
+    private static let sourcePickerWidth: CGFloat = 180
+    /// Keep the existing source selector and banner usable at the split's
+    /// smallest width; the viewport scrolls instead of clipping those controls.
+    static let minimumWidth = 2 * inset + max(LitheTheme.Banner.minimumWidth, labelWidth + metadataSpacing + sourcePickerWidth)
     @Environment(\.locale) private var locale
     @ObservedObject var feature: PluginMarketplaceFeatureModel
     let listing: PluginMarketplaceListing
@@ -275,13 +285,14 @@ private struct PluginMarketplaceDetail: View {
                 .font(LitheTheme.settingsFont)
                 .foregroundStyle(LitheTheme.primaryText)
                 .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("plugin-marketplace-description")
             metadata
             links
             maintainerNotice
             Spacer(minLength: 0)
         }
-        .padding(24)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(Self.inset)
+        .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
     }
 
     private var header: some View {
@@ -294,6 +305,7 @@ private struct PluginMarketplaceDetail: View {
                 Text(verbatim: entry.name)
                     .font(LitheTheme.uiFont(size: 20, weight: .bold))
                     .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("plugin-marketplace-name")
                 HStack(spacing: 8) {
                     PluginTrustBadge(isOfficial: offer.source.isOfficial)
                     Text(verbatim: "\(entry.author) · \(PluginMarketplacePresentation.repositoryName(entry.repository))")
@@ -316,24 +328,23 @@ private struct PluginMarketplaceDetail: View {
             switch state {
             case .installable:
                 Button(LocalizedStringKey("Install"), action: install)
-                    .buttonStyle(.borderedProminent)
-                    .tint(LitheTheme.accent)
+                    .buttonStyle(LitheActionButtonStyle(isPrimary: true))
+                    .accessibilityIdentifier("plugin-marketplace-install")
             case .updateAvailable(_, let available):
                 Button(String(format: PluginMarketplacePresentation.localized("Update to %@", locale: locale), available), action: install)
-                    .buttonStyle(.borderedProminent)
-                    .tint(LitheTheme.accent)
+                    .buttonStyle(LitheActionButtonStyle(isPrimary: true))
             case .installed, .installedFromOtherSource, .managedOutsideMarketplace:
-                HStack(spacing: 8) {
+                HStack(spacing: LitheTheme.ActionButton.spacing) {
                     if feature.requiresRestart(PluginID(entry.id)) {
                         RestartLitheButton()
                     } else {
                         Button(LocalizedStringKey("Installed")) {}
-                            .buttonStyle(.bordered)
+                            .buttonStyle(LitheActionButtonStyle())
                             .disabled(true)
                     }
                     if feature.canUninstall(PluginID(entry.id)) {
                         Button(LocalizedStringKey("Uninstall")) { confirmingUninstall = true }
-                            .buttonStyle(.bordered)
+                            .buttonStyle(LitheActionButtonStyle())
                     }
                 }
                 .confirmationDialog(
@@ -348,12 +359,12 @@ private struct PluginMarketplaceDetail: View {
                 }
             case .unsupported:
                 Button(LocalizedStringKey("Not Supported")) {}
-                    .buttonStyle(.bordered)
+                    .buttonStyle(LitheActionButtonStyle())
                     .disabled(true)
             case .blockedByRetiredPlugin(_, let uninstallPending):
                 HStack(spacing: 8) {
                     Button(LocalizedStringKey("Install")) {}
-                        .buttonStyle(.bordered)
+                        .buttonStyle(LitheActionButtonStyle())
                         .disabled(true)
                     if uninstallPending { RestartLitheButton() }
                 }
@@ -463,7 +474,7 @@ private struct PluginMarketplaceDetail: View {
                 set: { feature.selectedSourceIDs[listing.pluginID] = $0 }
             ),
             options: listing.offers.map(\.source.id),
-            width: 180,
+            width: Self.sourcePickerWidth,
             accessibilityLabel: "Install from repository",
             title: { id in
                 listing.offers.first { $0.source.id == id }
@@ -501,10 +512,10 @@ private struct PluginMarketplaceDetail: View {
     }
 
     private func metadataRow<Content: View>(_ title: String, @ViewBuilder value: () -> Content) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
+        HStack(alignment: .firstTextBaseline, spacing: Self.metadataSpacing) {
             Text(LocalizedStringKey(title))
                 .foregroundStyle(LitheTheme.secondaryText)
-                .frame(width: 96, alignment: .leading)
+                .frame(width: Self.labelWidth, alignment: .leading)
             value()
                 .textSelection(.enabled)
         }
@@ -851,12 +862,13 @@ struct PluginInstallConfirmationSheet: View {
             }
             .frame(maxHeight: 480)
 
-            HStack {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Spacer()
                 // Cancel is the default so pressing Return never installs.
-                Button(LocalizedStringKey("Cancel"), action: cancel)
+                Button(LocalizedStringKey("Cancel"), action: cancel).buttonStyle(LitheActionButtonStyle(isPrimary: true))
                     .keyboardShortcut(.defaultAction)
                 Button(LocalizedStringKey(confirmation.isUpdate ? "Update" : "Install"), action: confirm)
+                    .buttonStyle(LitheActionButtonStyle())
             }
         }
         .padding(22)
@@ -997,16 +1009,15 @@ struct PluginRepositoriesSheet: View {
                 }
                 .frame(maxHeight: 320)
             }
-            HStack {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Button(LocalizedStringKey("Refresh All")) {
                     Task { await feature.refreshAll() }
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(LitheActionButtonStyle())
                 .disabled(!feature.sources.contains(where: \.isEnabled))
                 Spacer()
                 Button(LocalizedStringKey("Done"), action: close)
-                    .buttonStyle(.borderedProminent)
-                    .tint(LitheTheme.accent)
+                    .buttonStyle(LitheActionButtonStyle(isPrimary: true))
                     .keyboardShortcut(.defaultAction)
             }
         }
@@ -1035,14 +1046,14 @@ struct PluginRepositoriesSheet: View {
                     Text(LocalizedStringKey("Add"))
                 }
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(LitheActionButtonStyle())
             .disabled(!canAdd)
         }
     }
 
     private func sourceRow(_ source: PluginMarketplaceSource, now: Date) -> some View {
         let status = feature.sourceStatuses[source.id] ?? .init()
-        return HStack(spacing: 10) {
+        return HStack(spacing: LitheTheme.ActionButton.spacing) {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(verbatim: PluginMarketplacePresentation.sourceName(source, locale: locale))
@@ -1080,8 +1091,7 @@ struct PluginRepositoriesSheet: View {
             Button(LocalizedStringKey("Refresh")) {
                 Task { await feature.refresh(sourceID: source.id) }
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
+            .buttonStyle(LitheActionButtonStyle())
             .disabled(!source.isEnabled || status.isRefreshing)
             if source.isOfficial {
                 // The built-in source can be disabled but never removed.
@@ -1094,8 +1104,7 @@ struct PluginRepositoriesSheet: View {
                 } label: {
                     Text(LocalizedStringKey("Remove")).foregroundStyle(LitheTheme.error)
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+                .buttonStyle(LitheActionButtonStyle())
             }
         }
         .padding(.vertical, 4)

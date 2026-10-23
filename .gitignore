@@ -10,7 +10,6 @@ DerivedData/
 dist/
 .artifacts/
 shared/fixtures/projects/**/target/
-sdk/java/**/target/
 *.xcuserstate
 *.xcuserdata/
 design-qa-artifacts/

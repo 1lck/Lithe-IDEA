@@ -133,10 +133,10 @@ private struct GitInteractiveRebaseSessionBanner: View {
             Text("Create a branch at the history saved before this rebase. Your current checkout stays in place.").font(LitheTheme.uiFont(size: 12))
             TextField("Branch name", text: $recoveryName).textFieldStyle(.roundedBorder).disabled(isCreatingRecovery)
             if let recoveryError { Text(LocalizedStringKey(recoveryError)).font(LitheTheme.uiFont(size: 12)).foregroundStyle(LitheTheme.error) }
-            HStack {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 if isCreatingRecovery { ProgressView().controlSize(.small) }
                 Spacer()
-                Button("Cancel") { showsRecoveryDialog = false }.keyboardShortcut(.cancelAction).disabled(isCreatingRecovery)
+                Button("Cancel") { showsRecoveryDialog = false }.buttonStyle(LitheActionButtonStyle()).keyboardShortcut(.cancelAction).disabled(isCreatingRecovery)
                 Button("Create Branch") {
                     isCreatingRecovery = true
                     Task {
@@ -145,7 +145,7 @@ private struct GitInteractiveRebaseSessionBanner: View {
                         if recoveryError == nil { showsRecoveryDialog = false }
                     }
                 }
-                .buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+                .buttonStyle(LitheActionButtonStyle(isPrimary: true)).keyboardShortcut(.defaultAction)
                 .disabled(isCreatingRecovery || recoveryName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }.padding(20).frame(width: 460).interactiveDismissDisabled(isCreatingRecovery)
@@ -174,17 +174,17 @@ private struct GitRebaseAmendDialog: View {
                 .accessibilityLabel("Complete commit message")
             Text("\(message.count) characters").font(LitheTheme.uiFont(size: 11)).foregroundStyle(LitheTheme.secondaryText)
             if let error = editor.errorMessage { Text(LocalizedStringKey(error)).font(LitheTheme.uiFont(size: 12)).foregroundStyle(LitheTheme.error) }
-            HStack {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 if editor.isExecuting { ProgressView().controlSize(.small) }
                 Spacer()
-                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction).disabled(editor.isExecuting)
+                Button("Cancel") { dismiss() }.buttonStyle(LitheActionButtonStyle()).keyboardShortcut(.cancelAction).disabled(editor.isExecuting)
                 Button("Amend and Continue") {
                     Task {
                         await editor.amendAndContinue(message, from: session)
                         if editor.errorMessage == nil || editor.session?.status != .edit { dismiss() }
                     }
                 }
-                .buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+                .buttonStyle(LitheActionButtonStyle(isPrimary: true)).keyboardShortcut(.defaultAction)
                 .disabled(editor.isBusy || message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }.padding(20).frame(width: 520).interactiveDismissDisabled(editor.isExecuting)

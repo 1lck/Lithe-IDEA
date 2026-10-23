@@ -93,8 +93,7 @@ private struct ContributedLanguageStatusSection: View {
             if model.workspaceURL != nil, descriptor != nil {
                 Spacer(minLength: 0)
                 Button(LocalizedStringKey("Restart Language Servers")) { model.restartLanguageServers() }
-                    .buttonStyle(.borderless)
-                    .font(LitheTheme.uiFont(size: 11.5))
+                    .buttonStyle(LitheActionButtonStyle())
                     .disabled(!isEnabled)
             }
         }) {

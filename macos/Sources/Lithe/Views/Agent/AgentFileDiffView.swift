@@ -14,11 +14,11 @@ struct AgentFileDiffView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Text(change.path).font(LitheTheme.uiFont(size: 12, weight: .semibold)).lineLimit(1).truncationMode(.middle)
                 Spacer()
-                Button("Open file") { onOpenFile(AgentToolDetails.Location(path: change.path)) }
-                Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Open file") { onOpenFile(AgentToolDetails.Location(path: change.path)) }.buttonStyle(LitheActionButtonStyle())
+                Button("Done") { dismiss() }.buttonStyle(LitheActionButtonStyle()).keyboardShortcut(.cancelAction)
             }.padding(12)
             if change.diffs.count > 1 {
                 LitheSettingsSelect(selection: $selectedIndex, options: Array(change.diffs.indices), width: 120,

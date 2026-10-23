@@ -233,7 +233,8 @@ struct GitPushDialog: View {
             statusMessage {
                 VStack(spacing: 10) {
                     Text(verbatim: message).foregroundStyle(LitheTheme.error).multilineTextAlignment(.center)
-                    Button("Retry") { Task { await model.load() } }.lithePointer()
+                    Button("Retry") { Task { await model.load() } }
+                        .buttonStyle(LitheActionButtonStyle()).lithePointer()
                 }
             }
         case .ready(let preview):
@@ -459,7 +460,7 @@ struct GitPushDialog: View {
 
     private var footer: some View {
         let presentation = model.preview.map { GitPushDialogPresentation(preview: $0, locale: locale) }
-        return HStack(spacing: 12) {
+        return HStack(spacing: LitheTheme.ActionButton.spacing) {
             if let error = model.pushError {
                 Text(verbatim: error)
                     .font(LitheTheme.uiFont(size: 12))
@@ -474,6 +475,7 @@ struct GitPushDialog: View {
             Spacer(minLength: 16)
 
             Button("Cancel") { dismiss() }
+                .buttonStyle(LitheActionButtonStyle())
                 .keyboardShortcut(.cancelAction)
                 .disabled(model.isPushing)
                 .lithePointer()
@@ -487,8 +489,7 @@ struct GitPushDialog: View {
                     Text(LocalizedStringKey(presentation?.actionTitle ?? "Push"))
                 }
             }
-            .buttonStyle(.borderedProminent)
-            .tint(LitheTheme.accent)
+            .buttonStyle(LitheActionButtonStyle(isPrimary: true))
             .keyboardShortcut(.defaultAction)
             .disabled(!model.canPush)
             .lithePointer()

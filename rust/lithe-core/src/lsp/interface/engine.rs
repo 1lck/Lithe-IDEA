@@ -11024,7 +11024,7 @@ public class Main {
     // ID and every required capability receives requests, each planned by
     // Core from an operation name.
 
-    const VCS_PLUGIN: &str = "dev.lithe.fixture.svn-provider";
+    const VCS_PLUGIN: &str = "dev.lithe.fixture.vcs-provider";
 
     fn vcs_capabilities() -> Value {
         json!({ "status": 1, "baseContent": 1, "checkin": 1, "rollback": 1, "update": 1 })

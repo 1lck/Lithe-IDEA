@@ -14,6 +14,9 @@ final class LitheTerminalView: LocalProcessTerminalView {
     private weak var metalActivationFailedWindow: NSWindow?
     private var metalFocusDelegates: [TerminalMetalFocusDelegate] = []
     private var shellShowsCursor = true
+    /// App theme light/dark preference while the view is not yet in a window; nil follows the system appearance.
+    var preferredAppearanceIsDark: (() -> Bool?)?
+    private var lastReportedBackgroundPayload: String?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -159,7 +162,14 @@ final class LitheTerminalView: LocalProcessTerminalView {
     }
 
     func applyThemeColors() {
-        let isDark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        // Outside a window, effectiveAppearance follows the system; the app theme decides the reported background.
+        let isDark: Bool
+        if window == nil, let preferredAppearanceIsDark {
+            isDark = preferredAppearanceIsDark()
+                ?? (effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua)
+        } else {
+            isDark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        }
         let editorColor = LitheTheme.nsColor(.editor, isDark: isDark)
         let palette = MacTerminalPalette(
             preferences: UserDefaults.standard.persistentDomain(forName: "com.apple.Terminal"),
@@ -199,6 +209,16 @@ final class LitheTerminalView: LocalProcessTerminalView {
             )
         })
         needsDisplay = true
+        reportBackgroundChangeIfNeeded()
+    }
+
+    /// On reported-background change, sends the OSC 11 answer plus kitty DSR 997; trackers re-query, others ignore.
+    private func reportBackgroundChangeIfNeeded() {
+        let payload = MacTerminalBackgroundReporting.osc11Payload(for: nativeBackgroundColor)
+        guard payload != lastReportedBackgroundPayload else { return }
+        lastReportedBackgroundPayload = payload
+        guard process.running else { return }
+        terminal.sendResponse(text: MacTerminalBackgroundReporting.changeNotification(for: nativeBackgroundColor))
     }
 
     func setWorkbenchBackgroundVisible(_ isVisible: Bool) {
@@ -222,6 +242,23 @@ final class LitheTerminalView: LocalProcessTerminalView {
 }
 
 extension LitheTerminalView: WorkbenchBackgroundRendering {}
+
+/// Report pushed when the background changes: SwiftTerm's own OSC 11 answer plus the kitty DSR 997 notification.
+enum MacTerminalBackgroundReporting {
+    static func osc11Payload(for color: NSColor) -> String {
+        let srgb = color.usingColorSpace(.sRGB) ?? color
+        var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 1
+        srgb.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+        func channel(_ value: CGFloat) -> String {
+            String(format: "%04x", UInt16(max(0, min(1, value)) * 65535))
+        }
+        return "rgb:\(channel(red))/\(channel(green))/\(channel(blue))"
+    }
+
+    static func changeNotification(for color: NSColor) -> String {
+        "\u{1b}]11;\(osc11Payload(for: color))\u{1b}\\\u{1b}[?997;2n"
+    }
+}
 
 /// Read colors from Terminal.app's default profile. ANSI entries are imported
 /// only when their WCAG contrast against Lithe's editor background is at least 4.5:1.
@@ -393,7 +430,7 @@ final class MacTerminalTransport: NSObject, TerminalTransport, @preconcurrency L
 
     private let scrollbackLines: Int
 
-    init(scrollbackLines: Int = 2_000) {
+    init(scrollbackLines: Int = 2_000, preferredAppearanceIsDark: (() -> Bool?)? = nil) {
         self.scrollbackLines = scrollbackLines
         view = LitheTerminalView(frame: .zero)
         super.init()
@@ -406,6 +443,7 @@ final class MacTerminalTransport: NSObject, TerminalTransport, @preconcurrency L
             self?.onOutput?(data)
         }
         view.font = Self.preferredTerminalFont()
+        view.preferredAppearanceIsDark = preferredAppearanceIsDark
         view.applyThemeColors()
         view.allowMouseReporting = true
         view.linkReporting = .implicit
@@ -439,6 +477,10 @@ final class MacTerminalTransport: NSObject, TerminalTransport, @preconcurrency L
 
     func defaultShellPath() -> String {
         ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
+    }
+
+    var termProgramVersion: String? {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
     }
 
     func defaultEnvironment() -> [String: String] {

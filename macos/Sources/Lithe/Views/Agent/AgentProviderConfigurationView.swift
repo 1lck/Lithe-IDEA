@@ -30,13 +30,13 @@ struct AgentProviderConfigurationView: View {
         LitheSettingsSection(title: "Providers", accessory: {
             LitheInfoTip("Local configuration follows your CLI files. Custom providers are saved in Lithe and do not change those files. Switching restarts this project's Agent connection; open history again to continue a saved conversation.")
         }) {
-            HStack {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Text("Use local configuration or add your own provider.")
                     .font(LitheTheme.uiFont(size: 12)).foregroundStyle(LitheTheme.secondaryText)
                 Spacer(minLength: 8)
                 if let source {
                     Button { openEditor(source: source) } label: { Label("Add", systemImage: "plus") }
-                        .buttonStyle(LitheSecondaryButtonStyle())
+                        .buttonStyle(LitheActionButtonStyle())
                 } else {
                     LitheMenu {
                         for kind in sources {
@@ -45,7 +45,7 @@ struct AgentProviderConfigurationView: View {
                     } label: {
                         Label("Add", systemImage: "plus")
                     }
-                    .buttonStyle(LitheSecondaryButtonStyle())
+                    .buttonStyle(LitheActionButtonStyle())
                 }
             }
             if agentID == "codex-acp" { subscriptionRow }
@@ -66,7 +66,7 @@ struct AgentProviderConfigurationView: View {
                 Button("Unlink") {
                     perform { try await model.useAgentProvider(nil, agentID: agentID, name: name) }
                 }
-                .buttonStyle(LitheSecondaryButtonStyle())
+                .buttonStyle(LitheActionButtonStyle())
             }
             if let errorMessage {
                 AgentSettingsIssue(errorMessage)
@@ -101,7 +101,7 @@ struct AgentProviderConfigurationView: View {
             Button(usesSubscription ? "Enabled" : "Enable") {
                 perform { try await model.useCodexSubscription() }
             }
-            .buttonStyle(LitheSecondaryButtonStyle())
+            .buttonStyle(LitheActionButtonStyle())
             .disabled(usesSubscription)
         }
         .padding(.vertical, 6)
@@ -119,7 +119,7 @@ struct AgentProviderConfigurationView: View {
                 Button(active ? "Refresh" : "Use") {
                     perform { try await model.useLocalAgentProvider(source: kind, agentID: agentID, name: name) }
                 }
-                .buttonStyle(LitheSecondaryButtonStyle())
+                .buttonStyle(LitheActionButtonStyle())
             }
             if active, let selected {
                 metadata(selected)
@@ -151,7 +151,7 @@ struct AgentProviderConfigurationView: View {
                 Button(active ? "Enabled" : "Enable") {
                     perform { try await model.useAgentProvider(provider, agentID: agentID, name: name) }
                 }
-                .buttonStyle(LitheSecondaryButtonStyle())
+                .buttonStyle(LitheActionButtonStyle())
                 .disabled(active)
                 Button { openEditor(source: provider.apiProtocol == .responses ? .codex : .claude, provider: provider) } label: {
                     Image(systemName: "pencil")
@@ -223,7 +223,7 @@ private struct AgentProviderEditorView: View {
                             errorMessage = nil
                         } catch { errorMessage = error.localizedDescription }
                     }
-                    .buttonStyle(LitheSecondaryButtonStyle())
+                    .buttonStyle(LitheActionButtonStyle())
                     if draft.isEditingConfigurationText {
                         AgentSettingsHint("Only the API URL, model and API key are saved. Other CLI options continue to use your local configuration. The key is stored separately from settings. Editing shows a template of these saved fields.")
                     } else {
@@ -235,13 +235,13 @@ private struct AgentProviderEditorView: View {
             if let errorMessage {
                 AgentSettingsIssue(errorMessage)
             }
-            HStack {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Spacer()
                 if saveTask != nil { ProgressView().controlSize(.small) }
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-                    .buttonStyle(LitheSecondaryButtonStyle())
+                    .buttonStyle(LitheActionButtonStyle())
                 Button("Save") { save() }.keyboardShortcut(.defaultAction)
-                    .buttonStyle(LithePrimaryButtonStyle(backgroundColor: LitheTheme.settingsPrimaryAction, restingOpacity: 1))
+                    .buttonStyle(LitheActionButtonStyle(isPrimary: true))
                     .disabled(draft.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
                         (!draft.isEditingConfigurationText && [draft.endpoint, draft.model, draft.apiKey].contains {
                             $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -269,7 +269,7 @@ private struct AgentProviderEditorView: View {
                     .litheSettingsTextField()
                     .accessibilityLabel("API Key")
                     Button(showsAPIKey ? "Hide API key" : "Show API key") { showsAPIKey.toggle() }
-                        .buttonStyle(LitheSecondaryButtonStyle())
+                        .buttonStyle(LitheActionButtonStyle())
                 }
             }
             requiredField("API request URL") {
@@ -311,7 +311,7 @@ private struct AgentProviderEditorView: View {
                             text.wrappedValue = String(decoding: data, as: UTF8.self)
                             errorMessage = nil
                         } catch { errorMessage = "Invalid JSON. Check the configuration format." }
-                    }.buttonStyle(LitheSecondaryButtonStyle())
+                    }.buttonStyle(LitheActionButtonStyle())
                 }
             }
             MacConfigurationTextEditor(text: text, label: title)

@@ -208,7 +208,7 @@ struct LanguageServerSetupView: View {
                 Button(copy.savePath) {
                     savePath()
                 }
-                .buttonStyle(LitheSecondaryButtonStyle())
+                .buttonStyle(LitheActionButtonStyle())
                 .disabled(executablePathDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
 
@@ -226,7 +226,7 @@ struct LanguageServerSetupView: View {
                 .font(LitheTheme.uiFont(size: 10.5))
                 .foregroundStyle(LitheTheme.secondaryText)
 
-            HStack(spacing: 8) {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Button {
                     installWithHomebrew()
                 } label: {
@@ -240,7 +240,7 @@ struct LanguageServerSetupView: View {
                     }
                     .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(LithePrimaryButtonStyle())
+                .buttonStyle(LitheActionButtonStyle(isPrimary: true))
                 .disabled(!canInstallWithHomebrew)
 
                 Button {
@@ -250,7 +250,7 @@ struct LanguageServerSetupView: View {
                     Label(copy.officialDownload, systemImage: "arrow.up.right.square")
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(LitheSecondaryButtonStyle())
+                .buttonStyle(LitheActionButtonStyle())
                 .disabled(installPlan?.officialDownloadURL == nil)
             }
 

@@ -54,6 +54,65 @@ test("word highlighting uses exact text offsets and bounds oversized replacement
   expect(commitDiffWordRanges("x".repeat(9000), "y")).toEqual({ left: [], right: [] });
 });
 
+const menu = (key: string, order: number) => `{"type": "menu", "menu_key": "${key}", "order": ${order}}`;
+
+test("display blocks keep inserted lines visible inside one renumbered Git change", () => {
+  // Git reports the whole JSONL file as one change when every `order` shifts;
+  // IDEA still paints the two new menu rows as inserted (PyCharm parity).
+  const rows: ReviewRow[] = [
+    context(0),
+    { id: "old-1", left: menu("businessCards", 1), right: null, oldLine: 2, newLine: null, kind: "removal" },
+    { id: "old-2", left: menu("businessCards.assetSafety", 2), right: null, oldLine: 3, newLine: null, kind: "removal" },
+    { id: "old-3", left: menu("businessCards.deviceAsset", 3), right: null, oldLine: 4, newLine: null, kind: "removal" },
+    { id: "new-1", left: null, right: menu("dashboard", 1), oldLine: null, newLine: 2, kind: "addition" },
+    { id: "new-2", left: null, right: menu("dashboard.chairman", 2), oldLine: null, newLine: 3, kind: "addition" },
+    { id: "new-3", left: null, right: menu("businessCards", 3), oldLine: null, newLine: 4, kind: "addition" },
+    { id: "new-4", left: null, right: menu("businessCards.assetSafety", 4), oldLine: null, newLine: 5, kind: "addition" },
+    { id: "new-5", left: null, right: menu("businessCards.deviceAsset", 5), oldLine: null, newLine: 6, kind: "addition" },
+  ];
+  const plan = planIndependentCommitDiff(rows, false, new Set());
+  expect(plan.changes).toHaveLength(1);
+  expect(plan.changes[0].kind).toBe("modified");
+  expect(plan.displayChanges.map(({ leftStart, leftEnd, rightStart, rightEnd, kind, first }) => ({
+    leftStart, leftEnd, rightStart, rightEnd, kind, first,
+  }))).toEqual([
+    { leftStart: 1, leftEnd: 1, rightStart: 1, rightEnd: 3, kind: "inserted", first: true },
+    { leftStart: 1, leftEnd: 4, rightStart: 3, rightEnd: 6, kind: "modified", first: false },
+  ]);
+  expect(plan.displayChanges.every((change) => change.change === plan.changes[0])).toBe(true);
+});
+
+test("display blocks without equal words stay one modified block", () => {
+  const rows: ReviewRow[] = [
+    context(0),
+    { id: "old", left: "old", right: null, oldLine: 1, newLine: null, kind: "removal" },
+    ...["new 1", "new 2"].map((text, index) => ({
+      id: `new${index}`, left: null, right: text, oldLine: null, newLine: index + 1,
+      kind: "addition" as const,
+    })),
+  ];
+  const plan = planIndependentCommitDiff(rows, false, new Set());
+  expect(plan.displayChanges).toHaveLength(1);
+  expect(plan.displayChanges[0]).toMatchObject({ kind: "modified", first: true });
+});
+
+test("display alignment falls back to the Git block beyond its pairing budget", () => {
+  const rows: ReviewRow[] = [
+    ...Array.from({ length: 600 }, (_, index) => ({
+      id: `old${index}`, left: `a ${index}`, right: null, oldLine: index + 1, newLine: null,
+      kind: "removal" as const,
+    })),
+    ...Array.from({ length: 600 }, (_, index) => ({
+      id: `new${index}`, left: null, right: `b ${index}`, oldLine: null, newLine: index + 1,
+      kind: "addition" as const,
+    })),
+  ];
+  const plan = planIndependentCommitDiff(rows, false, new Set());
+  expect(plan.changes).toHaveLength(1);
+  expect(plan.displayChanges).toHaveLength(1);
+  expect(plan.displayChanges[0]).toMatchObject({ ...plan.changes[0], first: true });
+});
+
 test("synchronized lines clamp unequal replacements and resume matching context in both directions", () => {
   const anchors = commitDiffScrollAnchors(
     [{ leftStart: 5, leftEnd: 6, rightStart: 5, rightEnd: 15, kind: "modified" }],

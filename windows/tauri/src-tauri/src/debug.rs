@@ -27,13 +27,15 @@ use std::thread;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 
-use crate::run::{apply_creation_flags, decode_process_bytes, incomplete_suffix_len};
+use crate::run::{decode_process_bytes, incomplete_suffix_len};
+use lithe_git_host::ProcessTree;
 
 const CORE_TIMEOUT_MILLISECONDS: u64 = 30_000;
 const MAX_FRAME_BYTES: usize = 64 * 1024 * 1024;
 const MAX_BUFFERED_STARTUP_EVENTS: usize = 128;
 const DEBUG_ADAPTER_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const MAX_DEBUG_PORT_WAIT_MILLISECONDS: u64 = 60_000;
+const ADAPTER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 
 trait DebugEventSink: Clone + Send + Sync + 'static {
     fn emit_event(&self, name: &str, payload: Value);
@@ -62,6 +64,9 @@ impl Default for DebugAdapterManager {
 struct AdapterSession {
     /// Child adapter process id, or zero for an externally owned TCP adapter.
     pid: u32,
+    /// The adapter and every process it starts, including the debuggee; absent
+    /// for an externally owned TCP adapter.
+    tree: Option<Arc<ProcessTree>>,
     /// Workspace root that owns this session, used to reap adapters when the
     /// owning project closes without touching sessions of other projects.
     workspace: String,
@@ -198,14 +203,19 @@ async fn start_debug_adapter_session<S: DebugEventSink>(
     if !launch.env.is_empty() {
         child_command.envs(&launch.env);
     }
-    apply_creation_flags(&mut child_command);
+    ProcessTree::prepare(&mut child_command);
 
     let mut child = child_command
         .spawn()
         .map_err(|error| format!("Unable to start debug adapter: {error}"))?;
+    let tree = Arc::new(ProcessTree::adopt(&mut child).map_err(|error| {
+        format!(
+            "Unable to start debug adapter: Lithe could not take ownership of its process tree: {error}"
+        )
+    })?);
     let pid = child.id();
     let Some(stdin) = child.stdin.take() else {
-        let _ = child.kill();
+        let _ = tree.kill();
         return Err("The debug adapter did not expose an input pipe.".to_string());
     };
     let stdin = Arc::new(Mutex::new(AdapterInput::Process(stdin)));
@@ -245,12 +255,12 @@ async fn start_debug_adapter_session<S: DebugEventSink>(
     )
     .await
     .map_err(|error| {
-        let _ = child.kill();
+        let _ = tree.kill();
         error
     })?;
 
     if let Err(error) = write_outbound_frames(&stdin, &update) {
-        let _ = child.kill();
+        let _ = tree.kill();
         let _ = execute_core_async(
             "debug.destroySession".to_string(),
             json!({ "sessionId": session_id }),
@@ -261,7 +271,7 @@ async fn start_debug_adapter_session<S: DebugEventSink>(
     if update_state_failed(&update) {
         let message = session_failure_message(&update);
         emit_update_events(&app, &session_id, &update);
-        let _ = child.kill();
+        let _ = tree.kill();
         let _ = execute_core_async(
             "debug.destroySession".to_string(),
             json!({ "sessionId": session_id }),
@@ -280,7 +290,7 @@ async fn start_debug_adapter_session<S: DebugEventSink>(
 
     {
         let mut current = sessions().lock().map_err(|_| {
-            let _ = child.kill();
+            let _ = tree.kill();
             let _ = execute_core_sync("debug.destroySession", json!({ "sessionId": session_id }));
             "Debug session state is unavailable.".to_string()
         })?;
@@ -288,6 +298,7 @@ async fn start_debug_adapter_session<S: DebugEventSink>(
             session_id.clone(),
             AdapterSession {
                 pid,
+                tree: Some(tree.clone()),
                 workspace,
                 stdin: stdin.clone(),
                 startup_gate: startup_gate.clone(),
@@ -312,6 +323,7 @@ async fn start_debug_adapter_session<S: DebugEventSink>(
         app,
         session_id.clone(),
         child,
+        tree,
         pid,
         stdout_reader,
         stderr_reader,
@@ -414,6 +426,7 @@ async fn connect_debug_adapter_session<S: DebugEventSink>(
             session_id.clone(),
             AdapterSession {
                 pid: 0,
+                tree: None,
                 workspace: workspace.clone(),
                 stdin: stdin.clone(),
                 startup_gate: startup_gate.clone(),
@@ -615,9 +628,9 @@ async fn stop_session<S: DebugEventSink>(app: &S, session_id: &str) -> Result<()
             .map_err(|_| "Debug session state is unavailable.".to_string())?;
         current
             .remove(session_id)
-            .map(|session| (session.pid, session.stdin))
+            .map(|session| (session.tree, session.stdin))
     };
-    let Some((pid, stdin)) = removed else {
+    let Some((tree, stdin)) = removed else {
         // Repeated or late stops are no-ops and never touch a newer session.
         return Ok(());
     };
@@ -631,7 +644,7 @@ async fn stop_session<S: DebugEventSink>(app: &S, session_id: &str) -> Result<()
         Ok(update) => {
             if let Err(error) = write_outbound_frames(&stdin, &update) {
                 shutdown_adapter_input(&stdin);
-                kill_adapter_process(pid);
+                kill_adapter_tree(tree.as_deref());
                 let _ = execute_core_async(
                     "debug.destroySession".to_string(),
                     json!({ "sessionId": session_id }),
@@ -652,7 +665,7 @@ async fn stop_session<S: DebugEventSink>(app: &S, session_id: &str) -> Result<()
     }
 
     shutdown_adapter_input(&stdin);
-    kill_adapter_process(pid);
+    kill_adapter_tree(tree.as_deref());
     let _ = execute_core_async(
         "debug.destroySession".to_string(),
         json!({ "sessionId": session_id }),
@@ -666,20 +679,25 @@ async fn stop_session<S: DebugEventSink>(app: &S, session_id: &str) -> Result<()
 }
 
 /// Closes every live adapter during application exit so no child process,
-/// socket, or reader task outlives the shell.
+/// socket, or reader task outlives the shell. Waits until each adapter tree,
+/// debuggee included, is gone, so an update installer never races it.
 pub fn shutdown() {
     let sessions_to_stop = {
-        let Ok(mut current) = sessions().lock() else {
-            return;
-        };
+        let mut current = sessions()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         current
             .drain()
-            .map(|(session_id, session)| (session_id, session.pid, session.stdin))
+            .map(|(session_id, session)| (session_id, session.tree, session.stdin))
             .collect::<Vec<_>>()
     };
-    for (session_id, pid, stdin) in sessions_to_stop {
+    for (session_id, tree, stdin) in sessions_to_stop {
         shutdown_adapter_input(&stdin);
-        kill_adapter_process(pid);
+        if let Some(tree) = tree {
+            if let Err(error) = tree.terminate(ADAPTER_SHUTDOWN_TIMEOUT) {
+                eprintln!("Debug adapter of session {session_id} did not end: {error}");
+            }
+        }
         let _ = execute_core_sync("debug.destroySession", json!({ "sessionId": session_id }));
     }
 }
@@ -1017,8 +1035,8 @@ fn spawn_stdout_reader<S: DebugEventSink, T: Read + Send + 'static>(
                     // adapter cannot leave the session registered forever.
                     if pid == 0 {
                         finish_tcp_session(&app, &session_id);
-                    } else if is_current_session(&session_id, pid) {
-                        kill_adapter_process(pid);
+                    } else {
+                        kill_current_adapter(&session_id, pid);
                     }
                     break;
                 }
@@ -1142,6 +1160,7 @@ fn spawn_exit_waiter<S: DebugEventSink>(
     app: S,
     session_id: String,
     mut child: Child,
+    tree: Arc<ProcessTree>,
     pid: u32,
     stdout_reader: thread::JoinHandle<()>,
     stderr_reader: thread::JoinHandle<()>,
@@ -1152,6 +1171,9 @@ fn spawn_exit_waiter<S: DebugEventSink>(
             .ok()
             .and_then(|status| status.code())
             .unwrap_or(-1);
+        // A debuggee or helper the adapter left behind would keep the output
+        // pipes open and the readers blocked; the session ends with its root.
+        let _ = tree.kill();
         let _ = stdout_reader.join();
         let _ = stderr_reader.join();
         if !remove_session(&session_id, pid) {
@@ -1200,7 +1222,7 @@ fn fail_session<S: DebugEventSink>(app: &S, session_id: &str, pid: u32, message:
         return;
     };
     shutdown_adapter_input(&session.stdin);
-    kill_adapter_process(pid);
+    kill_adapter_tree(session.tree.as_deref());
     let _ = execute_core_sync("debug.destroySession", json!({ "sessionId": session_id }));
     app.emit_event(
         "debugger_output",
@@ -1229,14 +1251,23 @@ fn shutdown_adapter_input(stdin: &Arc<Mutex<AdapterInput>>) {
     }
 }
 
-fn kill_adapter_process(pid: u32) {
-    if pid == 0 {
-        return;
+/// Ends the adapter and everything it started; the exit waiter reaps the root.
+fn kill_adapter_tree(tree: Option<&ProcessTree>) {
+    if let Some(Err(error)) = tree.map(ProcessTree::kill) {
+        eprintln!("Could not end a debug adapter process tree: {error}");
     }
-    let mut command = Command::new("taskkill");
-    command.args(["/F", "/T", "/PID", &pid.to_string()]);
-    apply_creation_flags(&mut command);
-    let _ = command.output();
+}
+
+/// Ends the adapter tree only while this process generation still owns the
+/// session, so a late reader never touches a newer adapter.
+fn kill_current_adapter(session_id: &str, pid: u32) {
+    let tree = sessions().lock().ok().and_then(|current| {
+        current
+            .get(session_id)
+            .filter(|session| session.pid == pid)
+            .and_then(|session| session.tree.clone())
+    });
+    kill_adapter_tree(tree.as_deref());
 }
 
 fn adapter_identifier(command: &str) -> String {
@@ -1508,6 +1539,7 @@ mod tests {
             session_id.to_string(),
             AdapterSession {
                 pid: 0,
+                tree: None,
                 workspace: String::new(),
                 stdin: Arc::new(Mutex::new(AdapterInput::Tcp(client))),
                 startup_gate: Arc::new(Mutex::new(StartupGate {
@@ -1759,13 +1791,15 @@ mod tests {
     #[test]
     fn fake_dap_adapter_runs_through_stdout_reader_and_exit_waiter() {
         let adapter = fake_adapter_path();
-        let mut child = Command::new(adapter)
+        let mut command = Command::new(adapter);
+        command
             .arg("eof-live")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .expect("fake DAP adapter should start");
+            .stderr(Stdio::piped());
+        ProcessTree::prepare(&mut command);
+        let mut child = command.spawn().expect("fake DAP adapter should start");
+        let tree = Arc::new(ProcessTree::adopt(&mut child).expect("own the adapter tree"));
         let pid = child.id();
         let stdin = Arc::new(Mutex::new(AdapterInput::Process(
             child.stdin.take().expect("adapter stdin"),
@@ -1785,6 +1819,7 @@ mod tests {
             session_id.clone(),
             AdapterSession {
                 pid,
+                tree: Some(tree.clone()),
                 workspace: String::new(),
                 stdin: stdin.clone(),
                 startup_gate: Arc::new(Mutex::new(StartupGate {
@@ -1812,6 +1847,7 @@ mod tests {
             sink,
             session_id.clone(),
             child,
+            tree,
             pid,
             stdout_reader,
             stderr_reader,

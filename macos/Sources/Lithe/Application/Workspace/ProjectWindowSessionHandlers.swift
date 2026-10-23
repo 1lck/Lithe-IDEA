@@ -68,6 +68,10 @@ final class PrimaryProjectWindowSessions: ProjectWindowSessionHandling {
         await manager.resetPrimaryWindowSessions()
     }
 
+    func confirmRunServicesBeforeClose() async -> Bool {
+        await manager.confirmRunServicesBeforeClosing(manager.primarySessions)
+    }
+
     func noteWindowBecameKey() {
         manager.noteWindowBecameKey(.primary)
     }
@@ -138,6 +142,10 @@ final class DedicatedProjectWindowSessions: ProjectWindowSessionHandling {
 
     func resetForProjectWindowClose() async {
         await manager.resetDedicatedWindowSession(windowID: windowID)
+    }
+
+    func confirmRunServicesBeforeClose() async -> Bool {
+        await manager.confirmRunServicesBeforeClosing(scopedSessions)
     }
 
     func noteWindowBecameKey() {

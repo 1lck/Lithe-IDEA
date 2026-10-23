@@ -34,11 +34,7 @@ struct CommitAreaView: View {
                     }
                 }
                 .buttonStyle(
-                    LitheSecondaryButtonStyle(
-                        horizontalPadding: LitheTheme.Commit.compactButtonPadding,
-                        height: LitheTheme.Commit.compactButtonHeight,
-                        fontSize: LitheTheme.Commit.compactButtonFontSize
-                    )
+                    LitheActionButtonStyle()
                 )
                 .disabled(
                     stagedChanges.isEmpty ||
@@ -46,6 +42,7 @@ struct CommitAreaView: View {
                         draft.isGenerating
                 )
                 .help("Generate a commit message from staged diffs")
+                .accessibilityIdentifier("git-commit-ai")
                 Text("\(stagedChanges.count) staged")
                     .font(LitheTheme.uiFont(size: LitheTheme.Commit.metadataFontSize))
                     .foregroundStyle(LitheTheme.secondaryText)
@@ -54,7 +51,7 @@ struct CommitAreaView: View {
             .padding(.top, LitheTheme.Commit.messageVerticalGap)
 
             CommitMessageEditor(text: $draft.message, focused: $commitMessageFocused)
-            .frame(maxWidth: .infinity, minHeight: 50, maxHeight: .infinity, alignment: .topLeading)
+            .frame(maxWidth: .infinity, minHeight: LitheTheme.Commit.messageMinimumHeight, maxHeight: .infinity, alignment: .topLeading)
             .background {
                 RoundedRectangle(cornerRadius: LitheTheme.Commit.controlCornerRadius)
                     .fill(LitheTheme.editor)
@@ -74,42 +71,35 @@ struct CommitAreaView: View {
 
             if !feature.workspaceCommitResults.isEmpty {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 3) {
-                        ForEach(feature.workspaceCommitResults) { result in
-                            (Text("\(result.root.lastPathComponent): ") + Text(LocalizedStringKey(result.detail))
-                                + Text(verbatim: result.diagnostic.isEmpty ? "" : ": \(result.diagnostic)"))
-                                .font(LitheTheme.uiFont(.caption)).help(result.root.path)
+                    VStack(alignment: .leading, spacing: LitheTheme.ActionButton.spacing) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            ForEach(feature.workspaceCommitResults) { result in
+                                (Text("\(result.root.lastPathComponent): ") + Text(LocalizedStringKey(result.detail))
+                                    + Text(verbatim: result.diagnostic.isEmpty ? "" : ": \(result.diagnostic)"))
+                                    .font(LitheTheme.uiFont(.caption)).help(result.root.path)
+                            }
+                        }.frame(maxWidth: .infinity, alignment: .leading)
+                        Button("Dismiss Results") { feature.dismissWorkspaceCommitResults() }
+                            .buttonStyle(LitheActionButtonStyle())
+                            .disabled(feature.isCommitting)
+                        if feature.canRetryWorkspaceCommit {
+                            Button("Review and Retry…") {
+                                Task { await feature.prepareWorkspaceCommitRetry() }
+                            }
+                            .buttonStyle(LitheActionButtonStyle())
+                            .help("Review and Retry Unfinished Steps…")
+                            .disabled(feature.isCommitting)
+                            .accessibilityIdentifier("git-commit-retry")
                         }
-                    }.frame(maxWidth: .infinity, alignment: .leading)
-                }.frame(maxHeight: 90)
-                Button("Dismiss Results") { feature.dismissWorkspaceCommitResults() }
-                    .disabled(feature.isCommitting)
-                if feature.canRetryWorkspaceCommit {
-                    Button("Review and Retry Unfinished Steps…") {
-                        Task { await feature.prepareWorkspaceCommitRetry() }
-                    }.disabled(feature.isCommitting)
-                }
+                    }
+                }.frame(minHeight: 0, maxHeight: LitheTheme.Commit.resultsMaximumHeight)
             }
 
-            HStack(spacing: 0) {
-                Button {
-                    Task { await commitWorkflow.commit() }
-                } label: {
-                    HStack(spacing: 6) {
-                        if feature.isCommitting {
-                            ProgressView().controlSize(.mini)
-                        }
-                        Text("Commit")
-                    }
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: LitheTheme.ActionButton.spacing) { commitActionButtons }
+                    VStack(alignment: .leading, spacing: LitheTheme.ActionButton.spacing) { commitActionButtons }
                 }
-                .buttonStyle(LitheActionButtonStyle(isPrimary: true))
-                .disabled(!canCommit)
-
-                Button("Commit and Push…") {
-                    Task { await commitWorkflow.commit(push: true) }
-                }
-                .buttonStyle(LitheActionButtonStyle())
-                .disabled(!canCommit)
 
                 Spacer(minLength: 0)
                 Button {
@@ -121,10 +111,11 @@ struct CommitAreaView: View {
                 .buttonStyle(LitheIconButtonStyle(size: 22, cornerRadius: 4))
                 .workbenchHoverHelp(Text("Open AI & Commit settings"))
                 .accessibilityLabel("Open AI & Commit settings")
+                .accessibilityIdentifier("git-commit-settings")
             }
-            .padding(.leading, LitheTheme.Commit.contentInset - LitheTheme.Commit.buttonBorderInset)
+            .padding(.leading, LitheTheme.Commit.contentInset)
             .padding(.trailing, LitheTheme.Commit.contentInset)
-            .padding(.vertical, LitheTheme.Commit.buttonBorderInset)
+            .padding(.vertical, LitheTheme.ActionButton.spacing)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .background(hasBackgroundImage ? Color.clear : LitheTheme.toolHeader)
@@ -153,6 +144,30 @@ struct CommitAreaView: View {
         )) {
             WorkspaceCommitPlanView(feature: feature, commitWorkflow: commitWorkflow)
         }
+    }
+
+    @ViewBuilder
+    private var commitActionButtons: some View {
+        Button {
+            Task { await commitWorkflow.commit() }
+        } label: {
+            HStack(spacing: 6) {
+                if feature.isCommitting {
+                    ProgressView().controlSize(.mini)
+                }
+                Text("Commit")
+            }
+        }
+        .buttonStyle(LitheActionButtonStyle(isPrimary: true))
+        .accessibilityIdentifier("git-commit-submit")
+        .disabled(!canCommit)
+
+        Button("Commit and Push…") {
+            Task { await commitWorkflow.commit(push: true) }
+        }
+        .buttonStyle(LitheActionButtonStyle())
+        .accessibilityIdentifier("git-commit-and-push")
+        .disabled(!canCommit)
     }
 
     private var stagedChanges: [GitChange] {
@@ -212,17 +227,18 @@ private struct WorkspaceCommitPlanView: View {
                     set: { include in Task { await feature.setCommitPlanParentReferences(include) } }
                 )).disabled(feature.isCommitting)
                 if plan.push { Text("Each submodule is pushed before its parent.").font(LitheTheme.uiFont(.caption)) }
-                HStack {
+                HStack(spacing: LitheTheme.ActionButton.spacing) {
                     if plan.needsPushTargetChoice {
                         Text("Choose which branch to update before pushing.")
                             .font(LitheTheme.uiFont(.caption))
                             .foregroundStyle(LitheTheme.secondaryText)
                     }
                     Spacer()
-                    Button("Cancel") { feature.cancelPendingSubmoduleCommit() }
+                    Button("Cancel") { feature.cancelPendingSubmoduleCommit() }.buttonStyle(LitheActionButtonStyle())
                     Button(LocalizedStringKey(plan.push ? "Commit and Push" : "Continue")) {
                         Task { await commitWorkflow.confirmPendingSubmoduleCommit() }
                     }
+                    .buttonStyle(LitheActionButtonStyle(isPrimary: true))
                     .keyboardShortcut(.defaultAction)
                     .disabled(plan.needsPushTargetChoice)
                 }.disabled(feature.isCommitting)

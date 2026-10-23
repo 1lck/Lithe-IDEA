@@ -20,16 +20,16 @@ struct DiagnosticsExportSheet: View {
             content
                 .frame(maxWidth: .infinity, minHeight: 120, alignment: .topLeading)
 
-            HStack {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Spacer()
                 Button("Cancel") {
                     feature.dismiss()
-                }
+                }.buttonStyle(LitheActionButtonStyle())
                 .keyboardShortcut(.cancelAction)
 
                 Button("Export…") {
                     exportToChosenLocation()
-                }
+                }.buttonStyle(LitheActionButtonStyle(isPrimary: true))
                 .keyboardShortcut(.defaultAction)
                 .disabled(!isReadyToExport)
             }

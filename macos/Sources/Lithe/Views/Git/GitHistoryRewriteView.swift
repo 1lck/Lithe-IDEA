@@ -97,7 +97,7 @@ struct GitHistoryRewriteOutcomeView: View {
                             Text("Git could not confirm the final state. Refresh history before performing another action.")
                                 .font(LitheTheme.uiFont(size: 11)).foregroundStyle(LitheTheme.warning)
                         }
-                        HStack(spacing: 8) {
+                        HStack(spacing: LitheTheme.ActionButton.spacing) {
                             Text("Recovery reference: \(rewrite.recoveryReference)")
                                 .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
                                 .textSelection(.enabled)
@@ -113,6 +113,7 @@ struct GitHistoryRewriteOutcomeView: View {
                             }
                             .lithePointer()
                         }
+                        .buttonStyle(LitheActionButtonStyle())
                         Text("Original HEAD: \(rewrite.originalHead.prefix(12)). Create a branch from the recovery reference to inspect the original history.")
                             .font(LitheTheme.uiFont(size: 10.5)).foregroundStyle(LitheTheme.secondaryText)
                     }
@@ -138,10 +139,10 @@ struct GitHistoryRewriteOutcomeView: View {
             TextField("Branch name", text: $recoveryBranchName).textFieldStyle(.roundedBorder)
                 .disabled(isCreatingRecoveryBranch)
             if let recoveryError { Text(LocalizedStringKey(recoveryError)).font(LitheTheme.uiFont(size: 12)).foregroundStyle(LitheTheme.error) }
-            HStack {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 if isCreatingRecoveryBranch { ProgressView().controlSize(.small) }
                 Spacer()
-                Button("Cancel") { showsRecoveryDialog = false }.disabled(isCreatingRecoveryBranch)
+                Button("Cancel") { showsRecoveryDialog = false }.buttonStyle(LitheActionButtonStyle()).disabled(isCreatingRecoveryBranch)
                     .keyboardShortcut(.cancelAction).lithePointer()
                 Button("Create Branch") {
                     guard let rewrite = editor.outcome?.rewrite else { return }
@@ -152,7 +153,7 @@ struct GitHistoryRewriteOutcomeView: View {
                         if recoveryError == nil { showsRecoveryDialog = false }
                     }
                 }
-                .buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction).lithePointer()
+                .buttonStyle(LitheActionButtonStyle(isPrimary: true)).keyboardShortcut(.defaultAction).lithePointer()
                 .disabled(isCreatingRecoveryBranch || recoveryBranchName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
@@ -181,19 +182,19 @@ private struct GitHistoryRewriteDialog: View {
             if editor.operation.editsMessage, editor.preview != nil {
                 messageEditor
             }
-            HStack(spacing: 10) {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 if !editor.isLoading {
                     Button("Refresh Preview") { editor.reloadPreview() }
+                        .buttonStyle(LitheActionButtonStyle())
                         .disabled(editor.isExecuting).lithePointer()
                 }
                 Spacer()
-                Button("Cancel") { editor.dismiss() }
+                Button("Cancel") { editor.dismiss() }.buttonStyle(LitheActionButtonStyle())
                     .keyboardShortcut(.cancelAction).disabled(editor.isExecuting).lithePointer()
                 Button(LocalizedStringKey(editor.operation.actionTitle), role: editor.operation == .deleteCommit ? .destructive : nil) {
                     Task { await editor.confirm() }
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(editor.operation == .deleteCommit ? LitheTheme.error : LitheTheme.accent)
+                .buttonStyle(LitheActionButtonStyle(isPrimary: true))
                 .keyboardShortcut(.defaultAction)
                 .disabled(!editor.canExecute)
                 .lithePointer()

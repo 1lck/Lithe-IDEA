@@ -125,17 +125,17 @@ struct StandaloneEditorView: View {
                 .foregroundStyle(LitheTheme.secondaryText)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 420)
-            HStack(spacing: 8) {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Button("Try Again") {
                     if let url = model.standaloneFileURL {
                         model.openStandaloneFile(url)
                     }
                 }
-                .buttonStyle(LitheSecondaryButtonStyle())
+                .buttonStyle(LitheActionButtonStyle())
                 Button("Close File") {
                     model.closeStandaloneFile()
                 }
-                .buttonStyle(LithePrimaryButtonStyle())
+                .buttonStyle(LitheActionButtonStyle(isPrimary: true))
             }
             .padding(.top, 4)
         }

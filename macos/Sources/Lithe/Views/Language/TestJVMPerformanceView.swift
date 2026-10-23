@@ -73,7 +73,7 @@ struct TestJVMPerformanceView: View {
                 HStack {
                     Spacer()
                     Button("Close") { feature.report = nil }
-                        .buttonStyle(LitheCommitDialogButtonStyle())
+                        .buttonStyle(LitheActionButtonStyle())
                         .keyboardShortcut(.cancelAction)
                 }
             }

@@ -23,7 +23,7 @@ struct OpenProjectLocationDialog: View {
             }
             .padding(.horizontal, 3)
 
-            HStack(spacing: 0) {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Spacer()
                 Button("Cancel", action: onCancel)
                     .buttonStyle(LitheActionButtonStyle())

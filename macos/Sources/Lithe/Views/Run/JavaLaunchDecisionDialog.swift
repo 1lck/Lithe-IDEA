@@ -48,37 +48,48 @@ struct JavaLaunchDecisionDialog: View {
                 .font(LitheTheme.uiFont(size: 12))
                 .foregroundStyle(LitheTheme.secondaryText)
 
-            HStack(spacing: 8) {
-                Button(chinese ? "仍然运行" : "Run Anyway") {
-                    model.completeJavaLaunchDecision(.runOnce, requestID: request.id)
-                }
-                .buttonStyle(.borderedProminent)
-
-                Button(chinese ? "对此工作区始终继续" : "Always Continue in This Workspace") {
-                    model.completeJavaLaunchDecision(.alwaysContinue, requestID: request.id)
-                }
-
-                if report?.recovery == .rebuildJavaIndex {
-                    Button(chinese ? "重建 Java 索引" : "Rebuild Java Index") {
-                        model.completeJavaLaunchDecision(.rebuildIndex, requestID: request.id)
-                    }
-                }
-
-                Spacer(minLength: 8)
-
-                Button(chinese ? "查看日志" : "Open Logs") {
-                    model.completeJavaLaunchDecision(.cancel, requestID: request.id)
-                    model.showSettings(category: .diagnostics)
-                }
-                Button(chinese ? "取消" : "Cancel", role: .cancel) {
-                    model.completeJavaLaunchDecision(.cancel, requestID: request.id)
-                }
-                .keyboardShortcut(.cancelAction)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: LitheTheme.ActionButton.spacing) { actionButtons }
+                VStack(alignment: .leading, spacing: LitheTheme.ActionButton.spacing) { actionButtons }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .buttonStyle(LitheActionButtonStyle())
         .padding(20)
         .frame(width: 590)
         .interactiveDismissDisabled()
+    }
+
+    @ViewBuilder
+    private var actionButtons: some View {
+        Button(chinese ? "仍然运行" : "Run Anyway") {
+            model.completeJavaLaunchDecision(.runOnce, requestID: request.id)
+        }
+        .buttonStyle(LitheActionButtonStyle(isPrimary: true))
+        .accessibilityIdentifier("java-build-run-anyway")
+
+        Button(chinese ? "对此工作区始终继续" : "Always Continue in This Workspace") {
+            model.completeJavaLaunchDecision(.alwaysContinue, requestID: request.id)
+        }
+        .accessibilityIdentifier("java-build-always-continue")
+
+        if report?.recovery == .rebuildJavaIndex {
+            Button(chinese ? "重建 Java 索引" : "Rebuild Java Index") {
+                model.completeJavaLaunchDecision(.rebuildIndex, requestID: request.id)
+            }
+            .accessibilityIdentifier("java-build-rebuild-index")
+        }
+
+        Button(chinese ? "查看日志" : "Open Logs") {
+            model.completeJavaLaunchDecision(.cancel, requestID: request.id)
+            model.showSettings(category: .diagnostics)
+        }
+        .accessibilityIdentifier("java-build-open-logs")
+        Button(chinese ? "取消" : "Cancel", role: .cancel) {
+            model.completeJavaLaunchDecision(.cancel, requestID: request.id)
+        }
+        .keyboardShortcut(.cancelAction)
+        .accessibilityIdentifier("java-build-cancel")
     }
 
     private var explanation: String {

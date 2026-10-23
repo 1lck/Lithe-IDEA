@@ -36,7 +36,7 @@ struct WelcomeView: View {
             VStack(alignment: .leading, spacing: 16) {
                 Text("Return to Stable").font(LitheTheme.uiFont(.headline))
                 StableRollbackControl()
-                Button("Close") { showingStableRollback = false }
+                Button("Close") { showingStableRollback = false }.buttonStyle(LitheActionButtonStyle())
             }
             .padding(20)
             .frame(width: 420)
@@ -116,21 +116,21 @@ struct WelcomeView: View {
 
                 Spacer()
 
-                HStack(spacing: 6) {
+                HStack(spacing: LitheTheme.ActionButton.spacing) {
                     Button("New Project") {
                         model.chooseProject(title: "New Project", prompt: "Choose Folder")
                     }
-                    .buttonStyle(LitheActionButtonStyle(borderInset: 0))
+                    .buttonStyle(LitheActionButtonStyle())
 
                     Button("Open") {
                         model.chooseProject()
                     }
-                    .buttonStyle(LitheActionButtonStyle(borderInset: 0))
+                    .buttonStyle(LitheActionButtonStyle())
 
                     Button("Clone Repository") {
                         model.showCloneRepository()
                     }
-                    .buttonStyle(LitheActionButtonStyle(borderInset: 0))
+                    .buttonStyle(LitheActionButtonStyle())
                 }
             }
             .padding(.horizontal, 14)

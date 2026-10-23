@@ -392,13 +392,13 @@ struct DatabaseTableView: View {
                     .litheToolbarIconButton()
                 }
             }
-            HStack {
-                Button("Clear Filters") { clearFilters() }.buttonStyle(LitheCommitDialogButtonStyle())
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
+                Button("Clear Filters") { clearFilters() }.buttonStyle(LitheActionButtonStyle())
                 Spacer()
                 Button("Reset Conditions") { filterConditions = [.init(column: feature.columns.first ?? "")] }
-                    .buttonStyle(LitheCommitDialogButtonStyle())
+                    .buttonStyle(LitheActionButtonStyle())
                 Button("Apply Filter") { applyFilter(); showsFilterPopover = false }
-                    .buttonStyle(LitheCommitDialogButtonStyle(primary: true))
+                    .buttonStyle(LitheActionButtonStyle(isPrimary: true))
             }
         }
         .padding(16)
@@ -439,11 +439,11 @@ struct DatabaseTableView: View {
                         .litheToolbarIconButton()
                 }
             }
-            HStack {
-                Button("Clear Sorting") { clearSorting() }.buttonStyle(LitheCommitDialogButtonStyle())
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
+                Button("Clear Sorting") { clearSorting() }.buttonStyle(LitheActionButtonStyle())
                 Spacer()
                 Button("Apply Sorting") { applySorting(); showsSortPopover = false }
-                    .buttonStyle(LitheCommitDialogButtonStyle(primary: true))
+                    .buttonStyle(LitheActionButtonStyle(isPrimary: true))
             }
         }
         .padding(16)
@@ -1131,11 +1131,11 @@ private struct DatabaseBatchUpdateSheet: View {
                 }
             }.padding(16)
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
-            HStack {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Spacer()
-                Button("Cancel", action: onCancel).buttonStyle(LitheCommitDialogButtonStyle()).keyboardShortcut(.cancelAction)
+                Button("Cancel", action: onCancel).buttonStyle(LitheActionButtonStyle()).keyboardShortcut(.cancelAction)
                 Button("Stage Batch Edit") { onApply(column, value, setNull); onCancel() }
-                    .buttonStyle(LitheCommitDialogButtonStyle(primary: true)).keyboardShortcut(.defaultAction)
+                    .buttonStyle(LitheActionButtonStyle(isPrimary: true)).keyboardShortcut(.defaultAction)
                     .disabled(column.isEmpty || selectedCount == 0)
             }.padding(16)
         }
@@ -1230,7 +1230,7 @@ private struct DatabaseRowDetailsSheet: View {
                 }.padding(16)
             }.litheScrollViewChrome()
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
-            HStack { Spacer(); Button("Close", action: onCancel).buttonStyle(LitheCommitDialogButtonStyle()).keyboardShortcut(.cancelAction) }.padding(16)
+            HStack { Spacer(); Button("Close", action: onCancel).buttonStyle(LitheActionButtonStyle()).keyboardShortcut(.cancelAction) }.padding(16)
         }
         .font(LitheTheme.uiFont(size: 13)).foregroundStyle(LitheTheme.primaryText)
         .frame(width: 620, height: 460).background(LitheCommitDialogStyle.background)
@@ -1267,11 +1267,11 @@ private struct DatabaseReplaceSheet: View {
                 }
             }.padding(16)
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
-            HStack {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Spacer()
-                Button("Cancel", action: onCancel).buttonStyle(LitheCommitDialogButtonStyle()).keyboardShortcut(.cancelAction)
+                Button("Cancel", action: onCancel).buttonStyle(LitheActionButtonStyle()).keyboardShortcut(.cancelAction)
                 Button("Replace") { onReplace(); onCancel() }
-                    .buttonStyle(LitheCommitDialogButtonStyle(primary: true)).keyboardShortcut(.defaultAction)
+                    .buttonStyle(LitheActionButtonStyle(isPrimary: true)).keyboardShortcut(.defaultAction)
                     .disabled(searchText.isEmpty)
             }.padding(16)
         }

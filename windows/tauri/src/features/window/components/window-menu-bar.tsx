@@ -4,7 +4,6 @@ import { useUIState } from "@/features/window/stores/ui-state.store";
 import { invoke } from "@/platform/tauri-core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { exit } from "@tauri-apps/plugin-process";
 import type React from "react";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import {
@@ -14,6 +13,7 @@ import {
 import { useRegisteredThemes } from "@/extensions/themes/use-registered-themes";
 import { useTranslation } from "@/i18n/locale-provider";
 import { createAppWindow } from "@/features/window/utils/create-app-window";
+import { requestApplicationQuit } from "@/features/window/utils/request-window-close";
 import {
   Menubar,
   MenubarContent,
@@ -244,7 +244,7 @@ const WindowMenuBar = ({
             {t("menu.reopenClosedTab")}
           </MenubarItem>
           <MenubarSeparator />
-          <MenubarItem shortcut="mod+q" onClick={async () => await exit(0)}>
+          <MenubarItem shortcut="mod+q" onClick={() => void requestApplicationQuit()}>
             {t("menu.quit")}
           </MenubarItem>
         </MenubarContent>

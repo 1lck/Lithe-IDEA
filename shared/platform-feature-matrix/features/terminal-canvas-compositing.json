@@ -2,13 +2,14 @@
   "id": "terminal-canvas-compositing",
   "area": "工作台",
   "group": "终端",
-  "capability": "macOS 终端 Metal 画布按预乘语义清屏：无壁纸时画布自身承载不透明编辑器底色，有壁纸时清屏为透明 (0,0,0,0) 由壁纸透出；OSC 11 应答与画布清屏色一致（无壁纸报告编辑器底色，有壁纸报告黑色）",
+  "capability": "macOS 终端 Metal 画布按预乘语义清屏：无壁纸时画布自身承载不透明编辑器底色，有壁纸时清屏为透明 (0,0,0,0) 由壁纸透出；OSC 11 应答与画布清屏色一致（无壁纸报告编辑器底色，有壁纸报告黑色），背景实际变化时向终端应用推送 OSC 11 报告与 kitty 变更通知 DSR 997",
   "macos": {
     "implementationStatus": "implemented",
     "verificationStatus": "pending",
     "evidence": [
       "macos/Sources/Lithe/Platform/MacOS/Terminal/MacTerminalTransport.swift",
-      "macos/Tests/LitheTests/TerminalInputFocusTests.swift"
+      "macos/Tests/LitheTests/TerminalInputFocusTests.swift",
+      "macos/Tests/LitheTests/MacTerminalBackgroundReportingTests.swift"
     ]
   },
   "windows": {
@@ -19,5 +20,5 @@
     ]
   },
   "owner": "Terminal",
-  "verification": "亮色主题无壁纸时确认终端字缘无白色小框、正文不发浅，画布不透明且底色随明暗外观切换；开启壁纸后确认壁纸正常透出且字缘干净。OSC 11 探针无壁纸应答编辑器底色（亮色 rgb:ffff/ffff/ffff），有壁纸应答 rgb:0000/0000/0000。已知取舍：SwiftTerm 1.15 的 nativeBackgroundColor 同时用作 Metal 清屏色与 OSC 11 应答值且无法拆分，有壁纸时报告黑色；若上游改为预乘清屏可恢复报告编辑器底色。"
+  "verification": "亮色主题无壁纸时确认终端字缘无白色小框、正文不发浅，画布不透明且底色随明暗外观切换；开启壁纸后确认壁纸正常透出且字缘干净。OSC 11 探针无壁纸应答编辑器底色（亮色 rgb:ffff/ffff/ffff），有壁纸应答 rgb:0000/0000/0000。明暗切换或开关壁纸时，已运行且跟踪背景的 TUI（如 oh-my-pi）应无需重启即跟随重查；不跟踪的程序不受推送影响。已知取舍：SwiftTerm 1.15 的 nativeBackgroundColor 同时用作 Metal 清屏色与 OSC 11 应答值且无法拆分，有壁纸时报告黑色；若上游改为预乘清屏可恢复报告编辑器底色。"
 }

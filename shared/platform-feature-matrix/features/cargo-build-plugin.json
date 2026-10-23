@@ -2,14 +2,17 @@
   "id": "cargo-build-plugin",
   "area": "扩展",
   "group": "插件与主题",
-  "capability": "Cargo 社区构建插件：由 Cargo metadata 提供 workspace/package/target/features，使用原生构建窗口执行编译、检查、测试、清理和 binary/example 运行，支持 Release、Features、Offline；用户安装 Cargo 与 Node，插件独立打包且运行时只读",
+  "capability": "Cargo 社区构建插件：由 Cargo metadata 提供 workspace/package/target/features，使用原生构建窗口执行编译、检查、测试、清理和 binary/example 运行，支持 Release、Features、Offline；用户安装 Cargo 与 Node，插件独立打包且运行时只读；通过共享 executableResolution 候选解析支持可选设置路径、优先级与相对排序，空值自动发现、显式失败不回退",
   "macos": {
     "implementationStatus": "implemented",
     "verificationStatus": "pending",
     "evidence": [
       "Plugins/mac/README.md",
       "docs/ci-builds.md",
-      ".agents/notes/implemented/feature/2026-10-22-cargo-build-plugin.md"
+      ".agents/notes/implemented/feature/2026-10-22-cargo-build-plugin.md",
+      "shared/contracts/plugins/v1/fixtures/build-tool-path.plugin.json",
+      "rust/lithe-core/src/plugins/executables.rs",
+      "macos/Sources/LitheCoreContracts/Execution/ExecutableResolution.swift"
     ]
   },
   "windows": {
@@ -20,5 +23,5 @@
     ]
   },
   "owner": "Plugin Platform",
-  "verification": "独立源码与预发布包由 https://github.com/Lithe-IDEA/lithe-plugin-cargo 维护；插件 CI 按 sdk.lock.json 的宿主提交构建公开 JSON API 测试桥接，运行 3 项 Cargo 专属 Core 兼容性回归（清单/安装审查/能力拒绝、识别/模型解码、任务与测试选择），并以 LITHE_CARGO_INTEGRATION=1 执行真实双包 workspace：模型由 Core 规划请求并解码，编译/检查/测试/同名 binary 与 example/单测试/清理由 Core 生成参数，验证 Release/Features/Offline、编译失败及诊断解码、后端退出和包字节不变；SDK 固定源码和哈希、打包校验及逐测试 HTML/JUnit 由插件仓库 CI 持有。固定宿主基线不代表已验证未来 preview。主仓库只保留通用插件契约回归；scripts/verify-runtime-bundle-immutability.sh。原生验收待完成：macOS 从磁盘安装预发布 ZIP、确认 Cargo/Node、重启并启用；打开插件仓库 fixture workspace，检查 Cargo 原生窗口、模型与选项，执行构建/检查/测试/运行，制造错误并跳转源码；停止运行、关闭项目与停用插件后确认无后端和 Cargo 子进程。基础版不提供依赖树、调试或逐用例图形报告；Windows 尚无 API 3 构建宿主。"
+  "verification": "独立源码与预发布包由 https://github.com/Lithe-IDEA/lithe-plugin-cargo 维护；插件 CI 按 sdk.lock.json 的宿主提交构建公开 JSON API 测试桥接，运行 3 项 Cargo 专属 Core 兼容性回归（清单/安装审查/能力拒绝、识别/模型解码、任务与测试选择），并以 LITHE_CARGO_INTEGRATION=1 执行真实双包 workspace：模型由 Core 规划请求并解码，编译/检查/测试/同名 binary 与 example/单测试/清理由 Core 生成参数，验证 Release/Features/Offline、编译失败及诊断解码、后端退出和包字节不变；SDK 固定源码和哈希、打包校验及逐测试 HTML/JUnit 由插件仓库 CI 持有。固定宿主基线不代表已验证未来 preview。主仓库只保留通用插件契约回归；scripts/verify-runtime-bundle-immutability.sh。原生验收待完成：macOS 从磁盘安装预发布 ZIP、确认 Cargo/Node、重启并启用；打开插件仓库 fixture workspace，检查 Cargo 原生窗口、模型与选项，执行构建/检查/测试/运行，制造错误并跳转源码；停止运行、关闭项目与停用插件后确认无后端和 Cargo 子进程。基础版不提供依赖树、调试或逐用例图形报告；Windows 尚无 API 3 构建宿主。；新路径选择使用 executableResolution 1 + settings 2，已发布 buildSystems 2 旧字段只作统一候选输入适配：MacBuildToolResolverTests 验证带空格绝对路径、权限与版本失败不回退，BuildSystemServiceTests 验证 Provider 失败不独立发现，RustBuildSystemOperationsTests 验证全局值接入。Cargo 独立仓库以显式本地 Core bridge 验证自选路径用于 metadata 和全部构建/测试/运行/清理；发布前需把独立仓库 sdk.lock.json 的宿主 pin 更新到包含该能力的已发布提交。；回归增加非法存储值不回默认、数组/priority/插入顺序与拒绝循环、宿主注入发现、空设置跳过和被动选择不探测；Language Server/Execution Provider 新清单语法尚未开放，Windows 不声明 executableResolution。"
 }

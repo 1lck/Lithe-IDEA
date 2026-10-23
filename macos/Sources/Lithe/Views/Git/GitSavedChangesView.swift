@@ -163,7 +163,7 @@ struct GitSavedChangesView: View {
         else if let failure {
             VStack(spacing: 8) {
                 Text(failure).foregroundStyle(LitheTheme.warning)
-                Button("Retry") { retry += 1 }.buttonStyle(LitheCommitDialogButtonStyle())
+                Button("Retry") { retry += 1 }.buttonStyle(LitheActionButtonStyle())
             }.padding(12).frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if files.isEmpty {
             Text(snapshot == nil ? "Select saved changes" : "No changed files")
@@ -178,14 +178,14 @@ struct GitSavedChangesView: View {
     }
 
     private var actions: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: LitheTheme.ActionButton.spacing) {
             Button(shelf == nil ? "Apply" : "Restore") {
                 if let stash { Task { await feature.applyStash(stash) } }
                 if let shelf { Task { await feature.applyShelf(shelf) } }
-            }.buttonStyle(LitheCommitDialogButtonStyle(primary: true)).disabled(busy || (stash == nil && shelf == nil))
+            }.buttonStyle(LitheActionButtonStyle(isPrimary: true)).disabled(busy || (stash == nil && shelf == nil))
             if shelf == nil {
                 Button("Pop") { if let stash { Task { await feature.applyStash(stash, pop: true) } } }
-                    .buttonStyle(LitheCommitDialogButtonStyle()).disabled(busy || stash == nil)
+                    .buttonStyle(LitheActionButtonStyle()).disabled(busy || stash == nil)
             }
             Spacer()
             if busy { ProgressView().controlSize(.small) }
@@ -247,11 +247,11 @@ private struct GitSaveChangesDialog: View {
                     .onSubmit(save)
             }
             if !shelf { Toggle("Untracked", isOn: $includeUntracked).toggleStyle(.checkbox) }
-            HStack(spacing: 8) {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Spacer()
-                Button("Cancel", action: cancel).buttonStyle(LitheCommitDialogButtonStyle()).keyboardShortcut(.cancelAction)
+                Button("Cancel", action: cancel).buttonStyle(LitheActionButtonStyle()).keyboardShortcut(.cancelAction)
                 Button(shelf ? "Shelf" : "Stash", action: save)
-                    .buttonStyle(LitheCommitDialogButtonStyle(primary: true)).keyboardShortcut(.defaultAction)
+                    .buttonStyle(LitheActionButtonStyle(isPrimary: true)).keyboardShortcut(.defaultAction)
             }
         }.font(LitheTheme.uiFont(size: 13)).padding(12).frame(width: 360)
             .background(LitheCommitDialogStyle.background).disabled(busy)

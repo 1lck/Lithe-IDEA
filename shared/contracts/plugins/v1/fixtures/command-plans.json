@@ -4,7 +4,7 @@
   "cases": [
     {
       "name": "php run passes user arguments after the file",
-      "plugin": "php-support.plugin.json",
+      "plugin": "language-packaged-server.plugin.json",
       "languageID": "php",
       "operation": "runPlan",
       "request": { "relativeFilePath": "public/index.php", "arguments": ["--verbose", "two words"] },
@@ -15,7 +15,7 @@
     },
     {
       "name": "php run protects a file name that looks like an option",
-      "plugin": "php-support.plugin.json",
+      "plugin": "language-packaged-server.plugin.json",
       "languageID": "php",
       "operation": "runPlan",
       "request": { "relativeFilePath": "-weird.php" },
@@ -26,7 +26,7 @@
     },
     {
       "name": "php run keeps surrounding spaces in a file name",
-      "plugin": "php-support.plugin.json",
+      "plugin": "language-packaged-server.plugin.json",
       "languageID": "php",
       "operation": "runPlan",
       "request": { "relativeFilePath": " spaced.php" },
@@ -37,7 +37,7 @@
     },
     {
       "name": "php run refuses a path outside the workspace",
-      "plugin": "php-support.plugin.json",
+      "plugin": "language-packaged-server.plugin.json",
       "languageID": "php",
       "operation": "runPlan",
       "request": { "relativeFilePath": "../outside.php" },
@@ -45,7 +45,7 @@
     },
     {
       "name": "php discovery lists the workspace then sorted test files",
-      "plugin": "php-support.plugin.json",
+      "plugin": "language-packaged-server.plugin.json",
       "languageID": "php",
       "operation": "discoverTests",
       "request": { "relativeProjectFilePaths": ["tests/StoreTest.php", "composer.json", "src/Store.php", "tests/Helpers.php", "tests/LegacyTEST.php"] },
@@ -60,7 +60,7 @@
     },
     {
       "name": "php discovery returns nothing outside a PHP project",
-      "plugin": "php-support.plugin.json",
+      "plugin": "language-packaged-server.plugin.json",
       "languageID": "php",
       "operation": "discoverTests",
       "request": { "relativeProjectFilePaths": ["README.md", "index.php", "tests/IndexTest.php"] },
@@ -68,7 +68,7 @@
     },
     {
       "name": "php workspace test",
-      "plugin": "php-support.plugin.json",
+      "plugin": "language-packaged-server.plugin.json",
       "languageID": "php",
       "operation": "testPlan",
       "request": { "scope": { "kind": "workspace" }, "relativeProjectFilePaths": ["phpunit.xml.dist"] },
@@ -79,7 +79,7 @@
     },
     {
       "name": "php file test",
-      "plugin": "php-support.plugin.json",
+      "plugin": "language-packaged-server.plugin.json",
       "languageID": "php",
       "operation": "testPlan",
       "request": { "scope": { "kind": "file", "relativeFilePath": "tests/StoreTest.php" }, "relativeProjectFilePaths": ["composer.json"] },
@@ -90,7 +90,7 @@
     },
     {
       "name": "php single test case with its file",
-      "plugin": "php-support.plugin.json",
+      "plugin": "language-packaged-server.plugin.json",
       "languageID": "php",
       "operation": "testPlan",
       "request": { "scope": { "kind": "testCase", "identifier": " testKeepsInsertionOrder ", "relativeFilePath": "tests/StoreTest.php" }, "relativeProjectFilePaths": ["composer.json"] },
@@ -101,7 +101,7 @@
     },
     {
       "name": "php single test case escapes regex characters and omits the missing file",
-      "plugin": "php-support.plugin.json",
+      "plugin": "language-packaged-server.plugin.json",
       "languageID": "php",
       "operation": "testPlan",
       "request": { "scope": { "kind": "testCase", "identifier": "testA.b/c" }, "relativeProjectFilePaths": ["composer.json"] },
@@ -112,7 +112,7 @@
     },
     {
       "name": "php blank test identifier",
-      "plugin": "php-support.plugin.json",
+      "plugin": "language-packaged-server.plugin.json",
       "languageID": "php",
       "operation": "testPlan",
       "request": { "scope": { "kind": "testCase", "identifier": "  " }, "relativeProjectFilePaths": ["composer.json"] },
@@ -120,7 +120,7 @@
     },
     {
       "name": "php test outside a PHP project",
-      "plugin": "php-support.plugin.json",
+      "plugin": "language-packaged-server.plugin.json",
       "languageID": "php",
       "operation": "testPlan",
       "request": { "scope": { "kind": "workspace" }, "relativeProjectFilePaths": ["index.php"] },
@@ -128,7 +128,7 @@
     },
     {
       "name": "language without an execution provider",
-      "plugin": "php-support.plugin.json",
+      "plugin": "language-packaged-server.plugin.json",
       "languageID": "python",
       "operation": "runPlan",
       "request": { "relativeFilePath": "main.py" },
@@ -136,7 +136,7 @@
     },
     {
       "name": "go run uses the project toolchain",
-      "plugin": "go-support.plugin.json",
+      "plugin": "language-system-command.plugin.json",
       "languageID": "go",
       "operation": "runPlan",
       "request": { "relativeFilePath": "cmd/app/main.go", "arguments": ["-port", "8080"] },
@@ -147,7 +147,7 @@
     },
     {
       "name": "go discovery",
-      "plugin": "go-support.plugin.json",
+      "plugin": "language-system-command.plugin.json",
       "languageID": "go",
       "operation": "discoverTests",
       "request": { "relativeProjectFilePaths": ["go.mod", "main.go", "pkg/store/store_test.go", "main_test.go"] },
@@ -162,7 +162,7 @@
     },
     {
       "name": "go file test runs the file's package",
-      "plugin": "go-support.plugin.json",
+      "plugin": "language-system-command.plugin.json",
       "languageID": "go",
       "operation": "testPlan",
       "request": { "scope": { "kind": "file", "relativeFilePath": "pkg/store/store_test.go" }, "relativeProjectFilePaths": ["go.mod"] },
@@ -173,7 +173,7 @@
     },
     {
       "name": "go test case in a root file targets the root package",
-      "plugin": "go-support.plugin.json",
+      "plugin": "language-system-command.plugin.json",
       "languageID": "go",
       "operation": "testPlan",
       "request": { "scope": { "kind": "testCase", "identifier": "TestMain", "relativeFilePath": "main_test.go" }, "relativeProjectFilePaths": ["go.work"] },
@@ -184,7 +184,7 @@
     },
     {
       "name": "go test case without a file searches every package",
-      "plugin": "go-support.plugin.json",
+      "plugin": "language-system-command.plugin.json",
       "languageID": "go",
       "operation": "testPlan",
       "request": { "scope": { "kind": "testCase", "identifier": "TestStore/sub(case)" }, "relativeProjectFilePaths": ["go.mod"] },
@@ -195,7 +195,7 @@
     },
     {
       "name": "java launch pins the packaged runtime and lists the jdt integration resources",
-      "plugin": "java-support.plugin.json",
+      "plugin": "language-host-integration.plugin.json",
       "languageID": "java",
       "operation": "languageServerLaunchPlan",
       "request": {
@@ -252,7 +252,7 @@
     },
     {
       "name": "java launch selects per-architecture package paths and drops a trailing separator",
-      "plugin": "java-support.plugin.json",
+      "plugin": "language-host-integration.plugin.json",
       "languageID": "java",
       "operation": "languageServerLaunchPlan",
       "request": {
@@ -579,7 +579,7 @@
     },
     {
       "name": "php launch keeps API 1 arguments literal and names the packaged executable",
-      "plugin": "php-support.plugin.json",
+      "plugin": "language-packaged-server.plugin.json",
       "languageID": "php",
       "operation": "languageServerLaunchPlan",
       "request": {
@@ -613,7 +613,7 @@
     },
     {
       "name": "go launch resolves a system command and needs nothing from the package",
-      "plugin": "go-support.plugin.json",
+      "plugin": "language-system-command.plugin.json",
       "languageID": "go",
       "operation": "languageServerLaunchPlan",
       "request": {
@@ -647,7 +647,7 @@
     },
     {
       "name": "launch plan refuses an unknown architecture",
-      "plugin": "java-support.plugin.json",
+      "plugin": "language-host-integration.plugin.json",
       "languageID": "java",
       "operation": "languageServerLaunchPlan",
       "request": {
@@ -663,7 +663,7 @@
     },
     {
       "name": "launch plan refuses an empty plugin directory",
-      "plugin": "java-support.plugin.json",
+      "plugin": "language-host-integration.plugin.json",
       "languageID": "java",
       "operation": "languageServerLaunchPlan",
       "request": {
@@ -679,7 +679,7 @@
     },
     {
       "name": "launch plan refuses a language without a server",
-      "plugin": "java-support.plugin.json",
+      "plugin": "language-host-integration.plugin.json",
       "languageID": "kotlin",
       "operation": "languageServerLaunchPlan",
       "request": {
@@ -695,7 +695,7 @@
     },
     {
       "name": "gradle provider launch is a java runtime launch selected by build system",
-      "plugin": "gradle-provider.plugin.json",
+      "plugin": "build-provider.plugin.json",
       "buildSystemID": "gradle",
       "operation": "languageServerLaunchPlan",
       "request": {
@@ -757,7 +757,7 @@
     },
     {
       "name": "mix provider launch is the elixir language server plan and names that server",
-      "plugin": "mix-provider.plugin.json",
+      "plugin": "build-provider-language-server.plugin.json",
       "buildSystemID": "mix",
       "operation": "languageServerLaunchPlan",
       "request": {
@@ -793,7 +793,7 @@
     },
     {
       "name": "elixir language server launch carries no build provider",
-      "plugin": "mix-provider.plugin.json",
+      "plugin": "build-provider-language-server.plugin.json",
       "languageID": "elixir",
       "operation": "languageServerLaunchPlan",
       "request": {
@@ -823,7 +823,7 @@
     },
     {
       "name": "launch plan refuses a build system without a provider",
-      "plugin": "cargo-build.plugin.json",
+      "plugin": "build-static-file.plugin.json",
       "buildSystemID": "cargo",
       "operation": "languageServerLaunchPlan",
       "request": {
@@ -839,7 +839,7 @@
     },
     {
       "name": "launch plan refuses an undeclared build system",
-      "plugin": "gradle-provider.plugin.json",
+      "plugin": "build-provider.plugin.json",
       "buildSystemID": "maven",
       "operation": "languageServerLaunchPlan",
       "request": {

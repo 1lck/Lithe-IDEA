@@ -1210,7 +1210,7 @@ private struct DatabaseDBXImportSheet: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
-            HStack {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 if plan != nil {
                     Text("\(selectedIDs.count) connections selected")
                         .font(LitheTheme.uiFont(size: 10.5))
@@ -1219,14 +1219,14 @@ private struct DatabaseDBXImportSheet: View {
                 }
                 Spacer()
                 Button("Cancel") { isPresented = false }
-                    .buttonStyle(LitheCommitDialogButtonStyle())
+                    .buttonStyle(LitheActionButtonStyle())
                     .keyboardShortcut(.cancelAction)
                 if let plan {
                     Button("Import Selected") {
                         let count = feature.importDBXConnections(plan: plan, selectedIDs: selectedIDs)
                         if count > 0 { isPresented = false }
                     }
-                    .buttonStyle(LitheCommitDialogButtonStyle(primary: true))
+                    .buttonStyle(LitheActionButtonStyle(isPrimary: true))
                     .disabled(selectedIDs.isEmpty)
                 }
             }
@@ -1273,7 +1273,7 @@ private struct DatabaseDBXImportSheet: View {
                     .controlSize(.small)
             } else if isEncrypted {
                 Button("Read DBX Export") { readFile() }
-                    .buttonStyle(LitheCommitDialogButtonStyle(primary: true))
+                    .buttonStyle(LitheActionButtonStyle(isPrimary: true))
                     .disabled(passphrase.isEmpty)
             }
             Spacer()
@@ -1537,13 +1537,13 @@ private struct DatabaseFolderEditor: View {
             }
 
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
-            HStack(spacing: 8) {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Spacer()
                 Button("Cancel") { isPresented = false }
-                    .buttonStyle(LitheCommitDialogButtonStyle())
+                    .buttonStyle(LitheActionButtonStyle())
                     .keyboardShortcut(.cancelAction)
                 Button(folder == nil ? "Create folder" : "Save folder") { save() }
-                    .buttonStyle(LitheCommitDialogButtonStyle(primary: true))
+                    .buttonStyle(LitheActionButtonStyle(isPrimary: true))
                     .keyboardShortcut(.defaultAction)
                     .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
@@ -1933,10 +1933,10 @@ struct DatabaseConnectionEditor: View {
             }
             if let error = feature.errorMessage { DatabaseLocalization.error(error).font(LitheTheme.uiFont(size: 11)).foregroundStyle(LitheTheme.error).padding(.horizontal, 16) }
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
-            HStack(spacing: 8) {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Spacer()
                 Button("Cancel") { cancel() }
-                    .buttonStyle(LitheCommitDialogButtonStyle())
+                    .buttonStyle(LitheActionButtonStyle())
                     .keyboardShortcut(.cancelAction)
                 Button {
                     connect()
@@ -1946,7 +1946,7 @@ struct DatabaseConnectionEditor: View {
                         Text(isConnecting ? "Connecting…" : "Connect")
                     }
                 }
-                    .buttonStyle(LitheCommitDialogButtonStyle(primary: true))
+                    .buttonStyle(LitheActionButtonStyle(isPrimary: true))
                     .keyboardShortcut(.defaultAction)
                     .disabled(name.isEmpty || (kind == .sqlite ? path.isEmpty : host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) || redisDatabaseValidationMessage != nil || isConnecting)
             }

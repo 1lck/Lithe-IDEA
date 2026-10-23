@@ -816,9 +816,11 @@ pub(crate) fn dependency_plan(
 /// entries then need no executable resolution of their own.
 fn sole_command(build_system: &BuildSystemDeclaration) -> Option<&str> {
     match build_system.invocation.executables.as_slice() {
-        [ExecutableCandidate::Command { command, platforms }] if platforms.is_empty() => {
-            Some(command)
-        }
+        [ExecutableCandidate {
+            source: super::manifest::ExecutableSource::Command { command },
+            platforms,
+            ..
+        }] if platforms.is_empty() => Some(command),
         _ => None,
     }
 }

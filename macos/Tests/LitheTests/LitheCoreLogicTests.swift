@@ -97,9 +97,29 @@ struct LitheCoreLogicTests {
 
         #expect(!coordinator.windowShouldClose(window))
         #expect(await sessions.projectWindowCleanupFinished.waitUntilOpen())
+        #expect(sessions.confirmRunServicesCallCount == 1)
         #expect(sessions.resetForProjectWindowCloseCallCount == 1)
         #expect(sessions.requestCloseActiveSessionCallCount == 0)
         #expect(!sessions.hasActiveProject)
+        #expect(window.performCloseCallCount == 0)
+    }
+
+    @Test
+    @MainActor
+    func cancellingTheRunServiceQuestionKeepsTheWindowAndItsProjects() async {
+        let sessions = TestProjectWindowSessions(hasActiveProject: true)
+        sessions.confirmRunServicesResult = false
+        let coordinator = LitheWindowCoordinator(
+            projectSessions: sessions, confirmUnsavedDocuments: { _ in true }
+        )
+        let window = CloseCommandTestWindow()
+        coordinator.attach(to: window, layout: .workspace)
+
+        #expect(!coordinator.windowShouldClose(window))
+        #expect(await sessions.runServicesAsked.waitUntilOpen())
+
+        #expect(sessions.resetForProjectWindowCloseCallCount == 0)
+        #expect(sessions.hasActiveProject)
         #expect(window.performCloseCallCount == 0)
     }
 
@@ -3947,6 +3967,9 @@ private final class TestProjectWindowSessions: ProjectWindowSessionHandling {
     var hasUnsavedDocuments = false
     var unsavedDocumentNames: [String] = []
     var saveAllDocumentsResult = true
+    var confirmRunServicesResult = true
+    private(set) var confirmRunServicesCallCount = 0
+    let runServicesAsked = TestGate()
     var projectWindowCleanupStarted: TestGate?
     var projectWindowCleanupRelease: TestGate?
     let projectWindowCleanupFinished = TestGate()
@@ -3989,6 +4012,12 @@ private final class TestProjectWindowSessions: ProjectWindowSessionHandling {
         }
         hasActiveProject = false
         projectWindowCleanupFinished.open()
+    }
+
+    func confirmRunServicesBeforeClose() async -> Bool {
+        confirmRunServicesCallCount += 1
+        runServicesAsked.open()
+        return confirmRunServicesResult
     }
 
     func noteWindowBecameKey() {

@@ -73,7 +73,7 @@ struct PluginDiskInstallationTests {
             signatureRequirement: PluginSignatureRequirement = .unsigned
         ) throws -> URL {
             let data = try Data(contentsOf: DeclarativePluginTestSupport.repositoryRoot
-                .appendingPathComponent("shared/contracts/plugins/v1/fixtures/php-support.plugin.json"))
+                .appendingPathComponent("shared/contracts/plugins/v1/fixtures/language-packaged-server.plugin.json"))
             var manifest = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
             manifest["id"] = id.rawValue
             manifest["displayName"] = "Disk Fixture"

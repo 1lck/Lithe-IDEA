@@ -139,3 +139,14 @@ macOS 宿主接受级别 1 到 3（`supportedDeclarativeAPIVersions = [1, 2, 3]`
 - `rust/lithe-core/src/plugins/marketplace.rs`
 - `shared/contracts/plugins/v1/`
 - `shared/contracts/rust-core-api.md`
+
+
+### 共享可执行文件候选能力
+
+`executableResolution: 1` 是候选解析机制的可选能力，不是所有构建插件都要列的新字段。
+只有使用 setting 来源或 id/priority/insertBefore/insertAfter 时才声明；自动发现数组
+保持原序和原来的 buildSystems 1。macOS 先通过 Build 与自定义 Runtime 适配接入，
+Windows 暂不声明；Language Server、Execution Provider 的新候选语法需各自后续接入后
+才可开放。底层源类型、排序与终止失败规则共用，启动安全约束仍属于各适配器。
+已发布 Cargo 0.1.1 的 buildSystems 2 输入通过兼容适配转换为同一个候选列表，
+不维持独立 configuredExecutable 输出；细节见[插件设置面](2026-10-21-plugin-settings-surfaces.md)。
