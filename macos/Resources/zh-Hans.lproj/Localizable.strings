@@ -247,6 +247,9 @@
 "Maven" = "Maven";
 "Maven source" = "Maven 来源";
 "Automatic" = "自动";
+"Accept edits" = "接受编辑";
+"Manual" = "手动";
+"Auto" = "自动";
 "Maven Wrapper" = "Maven Wrapper";
 "Custom Maven Home" = "自定义 Maven 主目录";
 "Maven Home" = "Maven 主目录";
@@ -2617,6 +2620,7 @@
 
 "%@ · %@ used" = "%@ · 已用 %@";
 
+"Quota" = "额度";
 "Quota —" = "额度 —";
 
 "Codex subscription quota" = "Codex 订阅额度";
@@ -2948,6 +2952,14 @@
 "Refresh All" = "全部刷新";
 "Refreshed %@" = "已于 %@ 刷新";
 "just now" = "刚刚";
+"Delete chat" = "删除会话";
+"Archive conversation" = "归档会话";
+"Fork conversation" = "分叉会话";
+"Unpin conversation" = "取消置顶";
+"Pin conversation" = "置顶会话";
+"Unpin" = "取消置顶";
+"Pin" = "置顶";
+"%d minutes ago" = "%d分钟前";
 "Not refreshed yet" = "尚未刷新";
 "Ignored entries: %lld" = "已忽略条目：%lld";
 "Uninstall %@?" = "卸载 %@？";
@@ -3209,6 +3221,7 @@
 "Errors" = "错误输出";
 "Exit code %lld" = "退出码 %lld";
 "Show less" = "收起";
+"Show more" = "显示更多";
 "Show all %lld lines" = "显示全部 %lld 行";
 /* Explicit update channel selection. */
 "Update channel" = "更新渠道";

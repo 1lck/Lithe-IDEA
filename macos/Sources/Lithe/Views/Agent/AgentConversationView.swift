@@ -517,7 +517,9 @@ private struct AgentConnectionView: View {
                                 errorNotice.modifier(AgentEditorColumn(isEditor: true))
                             }
                         } composer: {
-                            conversationComposer
+                            // The editor keeps the card alone; the activity summary
+                            // and session controls live in the details column.
+                            composer
                                 .modifier(AgentEditorColumn(isEditor: true))
                         }
                     }
@@ -532,11 +534,16 @@ private struct AgentConnectionView: View {
 
     private var detailsPanel: some View {
         let conversation = feature.selectedConversation
-        return AgentEditorDetailsPanel(
+        return AgentEditorDetailsColumn(
             statistics: conversation?.sessionStatistics,
             contextUsage: conversation?.contextUsage,
             changes: AgentActivity(messages: conversation?.messages ?? [],
                                    reviewed: conversation?.reviewedFileChanges ?? [:]).files,
+            showsSubscriptionQuota: feature.usesSubscription,
+            subscriptionQuota: feature.subscriptionQuota,
+            subscriptionAccount: feature.subscriptionEmail,
+            quotaFailure: feature.quotaFailure,
+            activity: activity,
             onOpenFile: onOpenFile
         )
     }

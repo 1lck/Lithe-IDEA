@@ -8,7 +8,7 @@ enum AgentHistoryFilter: String, CaseIterable {
     var menuTitle: String {
         switch self {
         case .all: "All conversations"
-        case .favorites: "Favorites"
+        case .favorites: "Pinned"
         case .removed: "Removed conversations"
         }
     }
@@ -20,7 +20,7 @@ enum AgentHistoryGroup: Hashable {
 
     var title: String {
         switch self {
-        case .favorites: "Favorites"
+        case .favorites: "Pinned"
         case .today: "Today"
         case .yesterday: "Yesterday"
         case .previous7Days: "Previous 7 days"
@@ -38,6 +38,35 @@ struct AgentHistorySection: Identifiable {
     var id: AgentHistoryGroup? { group }
 }
 
+/// Row data computed once per history change. Rows compare by value, so a model
+/// publish that changes nothing visible (streaming text, quota ticks) skips
+/// rebuilding and diffing the rows.
+struct AgentHistoryRowModel: Identifiable, Equatable {
+    let session: AgentSessionSummary
+    let title: String
+    let messageCount: Int?
+    let timeText: String?
+    let isCurrent: Bool
+    let isFavorite: Bool
+    let canOpen: Bool
+    var id: String { session.id }
+}
+
+/// One flat row for the history list: a section header or a conversation.
+/// A single flat `ForEach` keeps `LazyVStack` from mistracking nested,
+/// optional-id sections when every conversation lands in one date group.
+enum AgentHistoryListItem: Identifiable, Equatable {
+    case header(AgentHistoryGroup, Int)
+    case row(AgentHistoryRowModel)
+
+    var id: String {
+        switch self {
+        case .header(let group, _): "header-\(group.title)"
+        case .row(let model): model.id
+        }
+    }
+}
+
 enum AgentHistoryPresentation {
     enum EmptyState { case loading, incomplete, noMatches, noHistory }
 
@@ -51,13 +80,35 @@ enum AgentHistoryPresentation {
     static func popupTitle(_ session: AgentSessionSummary, metadata: AgentHistoryMetadata?,
                            conversation: AgentConversation?, locale: Locale = .current) -> String {
         if let title = metadata?.title ?? session.title { return title }
-        if let prompt = conversation?.transcriptMessages.first(where: { $0.role == .user && !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
+        if let prompt = firstPrompt(conversation) {
             return AgentSessionTitle.provisional(prompt.text)
         }
-        if let conversation, conversation.isAttached, !conversation.isLoading, conversation.transcriptMessages.isEmpty {
+        if let conversation, conversation.isAttached, !conversation.isLoading, !hasTranscript(conversation) {
             return AgentLocalization.string("New Chat", locale: locale)
         }
         return AgentLocalization.string("Untitled conversation", locale: locale)
+    }
+
+    // `transcriptMessages` filters and copies the whole conversation. History
+    // rows are rebuilt on every model publish, so these helpers scan in place
+    // and stop at the first match instead.
+
+    /// The first non-empty user prompt of the main Agent (users never belong to a subagent).
+    private static func firstPrompt(_ conversation: AgentConversation?) -> AgentConversationMessage? {
+        conversation?.messages.first {
+            $0.role == .user && $0.subagentSessionID == nil
+                && !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
+
+    private static func hasTranscript(_ conversation: AgentConversation) -> Bool {
+        conversation.messages.contains { $0.subagentSessionID == nil || $0.role == .tool }
+    }
+
+    /// Everything about a loaded conversation that can change a history title.
+    /// Streaming text past the first prompt leaves it unchanged.
+    static func titleKey(_ conversation: AgentConversation) -> String {
+        "\(firstPrompt(conversation)?.text ?? "")|\(conversation.isAttached)|\(conversation.isLoading)|\(hasTranscript(conversation))"
     }
 
     static func sessions(_ sessions: [AgentSessionSummary], metadata: [String: AgentHistoryMetadata],
@@ -115,14 +166,15 @@ enum AgentHistoryPresentation {
                                    conversations: [String: AgentConversation], archivedSessionIDs: Set<String> = [],
                                    metadata: [String: AgentHistoryMetadata],
                                    query: String, filter: AgentHistoryFilter, locale: Locale = .current) -> [AgentSessionSummary] {
+        // One O(n) pass builds the rows and `sessions` sorts them once: O(n log n).
+        // The final order is by activity date, so pre-sorting here was redundant.
         let activeSessions = sessions.filter { !archivedSessionIDs.contains($0.id) }
-        let activeOpenIDs = openSessionIDs.filter { !archivedSessionIDs.contains($0) }
         let listedIDs = Set(activeSessions.map(\.id))
-        let rows = popupSessions(activeSessions, openSessionIDs: activeOpenIDs, metadata: [:], locale: locale).map { session in
+        let pending = openSessionIDs.reversed().filter { !archivedSessionIDs.contains($0) && !listedIDs.contains($0) }
+            .map { AgentSessionSummary(id: $0, title: AgentLocalization.string("New Chat", locale: locale)) }
+        let rows = (pending + activeSessions).map { session in
             var row = session
-            if !listedIDs.contains(session.id), let prompt = conversations[session.id]?.transcriptMessages.first(where: {
-                $0.role == .user && !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            }) {
+            if !listedIDs.contains(session.id), let prompt = firstPrompt(conversations[session.id]) {
                 row.title = AgentSessionTitle.provisional(prompt.text)
             }
             row.title = popupTitle(row, metadata: metadata[session.id], conversation: conversations[session.id], locale: locale)
@@ -136,15 +188,140 @@ enum AgentHistoryPresentation {
     private static let fractionalDateStyle = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
     private static let dateStyle = Date.ISO8601FormatStyle()
 
+    /// Upstream timestamps repeat across every list refresh; parse each one once.
+    private static let parsedDates = NSCache<NSString, NSDate>()
+
     static func date(_ value: String?) -> Date? {
         guard let value else { return nil }
-        return (try? fractionalDateStyle.parse(value)) ?? (try? dateStyle.parse(value))
+        if let cached = parsedDates.object(forKey: value as NSString) { return cached as Date }
+        guard let parsed = (try? fractionalDateStyle.parse(value)) ?? (try? dateStyle.parse(value)) else { return nil }
+        parsedDates.setObject(parsed as NSDate, forKey: value as NSString)
+        return parsed
     }
 
+    /// Counts main-Agent prompts and replies in one pass without copying the transcript.
     static func messageCount(_ conversation: AgentConversation?) -> Int? {
-        guard let conversation, !conversation.isLoading,
-              conversation.isAttached || !conversation.transcriptMessages.isEmpty else { return nil }
-        return conversation.transcriptMessages.filter { $0.role == .user || $0.role == .agent }.count
+        guard let conversation, !conversation.isLoading else { return nil }
+        var count = 0
+        var hasTranscript = false
+        for message in conversation.messages where message.subagentSessionID == nil || message.role == .tool {
+            hasTranscript = true
+            if message.role == .user || message.role == .agent { count += 1 }
+        }
+        return conversation.isAttached || hasTranscript ? count : nil
+    }
+
+    /// Time label for a history row: "N minutes ago" inside the first hour, then
+    /// the concrete last-update time (clock time today, date + time otherwise).
+    static func updatedTime(_ value: String?, now: Date = Date(), calendar: Calendar = .current, locale: Locale = .current) -> String? {
+        timeLabel(value, now: now, calendar: calendar, locale: locale)?.text
+    }
+
+    /// Parses the timestamp once and returns both the concrete date and its label.
+    /// History rows scroll a long list, so every row must avoid re-parsing the
+    /// ISO 8601 timestamp several times per layout pass.
+    static func timeLabel(_ value: String?, now: Date = Date(), calendar: Calendar = .current, locale: Locale = .current) -> (date: Date, text: String)? {
+        guard let date = date(value) else { return nil }
+        let seconds = now.timeIntervalSince(date)
+        guard seconds >= 0 else { return nil }
+        let minutes = Int(seconds / 60)
+        if minutes < 60 {
+            if minutes < 1 { return (date, AgentLocalization.string("just now", locale: locale)) }
+            return (date, String(format: AgentLocalization.string("%d minutes ago", locale: locale), minutes))
+        }
+        return (date, AgentTurnStatisticsPresentation.completionTime(date, now: now, calendar: calendar, locale: locale))
+    }
+}
+
+/// Remembers the last built history so that model publishes which change nothing
+/// the list shows cost O(1)–O(n) comparisons instead of a rebuild.
+///
+/// Streaming in an open conversation publishes the connection model every few
+/// dozen milliseconds. Sorting is O(n log n) and only reruns when the sessions,
+/// annotations, search or filter change; row data only rebuilds when a visible
+/// input changes; the list compares one revision number instead of every row.
+@MainActor
+final class AgentHistoryRowsCache {
+    struct Key: Equatable {
+        let sessions: [AgentSessionSummary]
+        let openSessionIDs: [String]
+        let archivedSessionIDs: Set<String>
+        let metadata: [String: AgentHistoryMetadata]
+        let conversationTitles: [String: String]
+        let query: String
+        let filter: AgentHistoryFilter
+        let localeIdentifier: String
+    }
+
+    /// Everything that changes how rows look, apart from the sorted sessions.
+    struct ItemsKey: Equatable {
+        let rowsRevision: Int
+        let archivedRevision: Int
+        let selectedSessionID: String?
+        let canOpenListed: Bool
+        let canOpenArchived: Bool
+        let conversations: [String: ConversationState]
+        let groupsByDate: Bool
+        /// Relative labels ("5 minutes ago") and date groups advance per minute.
+        let minute: Int
+        let localeIdentifier: String
+    }
+
+    struct ConversationState: Equatable {
+        let messageCount: Int?
+        let isAttached: Bool
+    }
+
+    private var key: Key?
+    private var cached: [AgentSessionSummary] = []
+    private(set) var rowsRevision = 0
+    private var archivedKey: [AgentSessionSummary]?
+    private(set) var archivedRevision = 0
+    private var itemsKey: ItemsKey?
+    private var items: [AgentHistoryListItem] = []
+    private var archivedItems: [AgentHistoryRowModel] = []
+    private(set) var itemsRevision = 0
+    /// Message counts keyed by the transcript length they were computed for.
+    private var counts: [String: (length: Int, isLoading: Bool, isAttached: Bool, count: Int?)] = [:]
+
+    func rows(for key: Key, build: () -> [AgentSessionSummary]) -> [AgentSessionSummary] {
+        if key != self.key {
+            cached = build()
+            self.key = key
+            rowsRevision &+= 1
+        }
+        return cached
+    }
+
+    func noteArchived(_ archived: [AgentSessionSummary]) {
+        if archived != archivedKey {
+            archivedKey = archived
+            archivedRevision &+= 1
+        }
+    }
+
+    /// Streaming appends text to the last message without changing the count.
+    func conversationState(_ id: String, _ conversation: AgentConversation) -> ConversationState {
+        let length = conversation.messages.count
+        if let entry = counts[id], entry.length == length, entry.isLoading == conversation.isLoading,
+           entry.isAttached == conversation.isAttached {
+            return ConversationState(messageCount: entry.count, isAttached: entry.isAttached)
+        }
+        let count = AgentHistoryPresentation.messageCount(conversation)
+        counts[id] = (length, conversation.isLoading, conversation.isAttached, count)
+        return ConversationState(messageCount: count, isAttached: conversation.isAttached)
+    }
+
+    func items(for key: ItemsKey,
+               build: () -> (items: [AgentHistoryListItem], archived: [AgentHistoryRowModel])) -> (items: [AgentHistoryListItem], archived: [AgentHistoryRowModel], revision: Int) {
+        if key != itemsKey {
+            let built = build()
+            items = built.items
+            archivedItems = built.archived
+            itemsKey = key
+            itemsRevision &+= 1
+        }
+        return (items, archivedItems, itemsRevision)
     }
 }
 
@@ -165,7 +342,6 @@ struct AgentHistoryView: View {
     @State private var selectedIDs: Set<String> = []
     @State private var editingID: String?
     @State private var editingTitle = ""
-    @State private var copiedID: String?
     @State private var pendingRemovalIDs: [String]?
     /// The user's explicit toggle; a new search falls back to the default.
     @State private var archivedExpansion: Bool?
@@ -173,28 +349,31 @@ struct AgentHistoryView: View {
     /// Opens a conversation once its unarchive completes. Leaving the page
     /// cancels only the navigation; the confirmed upstream restore still finishes.
     @State private var unarchiveOpenTask: Task<Void, Never>?
+    @State private var rowsCache = AgentHistoryRowsCache()
 
     private var sessions: [AgentSessionSummary] {
-        AgentHistoryPresentation.managementSessions(feature.sessions, openSessionIDs: feature.openSessionIDs,
-            conversations: feature.conversations, archivedSessionIDs: Set(feature.archivedSessions.map(\.id)),
-            metadata: history.metadata, query: query, filter: filter, locale: locale)
+        let archivedIDs = Set(feature.archivedSessions.map(\.id))
+        let key = AgentHistoryRowsCache.Key(
+            sessions: feature.sessions, openSessionIDs: feature.openSessionIDs, archivedSessionIDs: archivedIDs,
+            metadata: history.metadata, conversationTitles: feature.conversations.mapValues(AgentHistoryPresentation.titleKey),
+            query: query, filter: filter, localeIdentifier: locale.identifier)
+        return rowsCache.rows(for: key) {
+            AgentHistoryPresentation.managementSessions(feature.sessions, openSessionIDs: feature.openSessionIDs,
+                conversations: feature.conversations, archivedSessionIDs: archivedIDs,
+                metadata: history.metadata, query: query, filter: filter, locale: locale)
+        }
     }
     /// Searched and filtered like active rows; local restoration never loads a transcript.
     private var archived: [AgentSessionSummary] {
         AgentHistoryPresentation.sessions(feature.archivedSessions, metadata: history.metadata, query: query, filter: filter)
     }
     private var isSearching: Bool { !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-    /// Collapsed by default; a search that matches archived rows reveals them.
-    private var isArchivedExpanded: Bool { archivedExpansion ?? (isSearching && !archived.isEmpty) }
-    private var visibleIDs: [String] { sessions.map(\.id) }
-    private var selected: [String] { visibleIDs.filter(selectedIDs.contains) }
 
     var body: some View {
         // Sorting and filtering run once per evaluation, not once per use.
         let rows = sessions
         let archivedRows = archived
-        let sections = AgentHistoryPresentation.sections(rows, metadata: history.metadata,
-                                                         groupsByDate: filter == .all && !isSearching)
+        let rowIDs = rows.map(\.id)
         return VStack(spacing: 0) {
             LitheToolWindowHeader(title: "Conversation history", usesWorkbenchSurface: true) {
                 Button(action: onBack) {
@@ -207,7 +386,7 @@ struct AgentHistoryView: View {
                 .accessibilityIdentifier("agent-history-back")
             }
             divider
-            toolbar(count: rows.count, visible: rows.map(\.id))
+            toolbar(count: rows.count, visible: rowIDs)
             divider
             if let error = history.errorMessage ?? feature.historyError ?? feature.archivedHistoryError {
                 AgentInlineNotice(text: error, status: .error)
@@ -235,22 +414,12 @@ struct AgentHistoryView: View {
             if rows.isEmpty && archivedRows.isEmpty {
                 emptyState
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(sections) { section in
-                            if let group = section.group { sectionHeader(group, count: section.sessions.count) }
-                            ForEach(section.sessions) { session in row(session) }
-                        }
-                        if !archivedRows.isEmpty { archivedSection(archivedRows) }
-                    }
-                }
-                .litheScrollViewChrome()
-                .background(LitheToolWindowActivityTracker(isActive: $historyListActive))
+                list(rows: rows, archivedRows: archivedRows)
             }
         }
         .litheWorkbenchSurface(AgentPanelStyle.canvas)
         .onAppear { feature.refreshSessionsIfNeeded() }
-        .onChange(of: visibleIDs) { selectedIDs.formIntersection($0) }
+        .onChange(of: rowIDs) { selectedIDs.formIntersection($0) }
         .onChange(of: query) { _ in archivedExpansion = nil }
         .alert("Confirm deletion", isPresented: Binding(
             get: { pendingRemovalIDs != nil },
@@ -405,7 +574,162 @@ struct AgentHistoryView: View {
 
     private var agentDisplayName: String { agentName ?? AgentLocalization.string("This Agent", locale: locale) }
 
-    private func sectionHeader(_ group: AgentHistoryGroup, count: Int) -> some View {
+    private func list(rows: [AgentSessionSummary], archivedRows: [AgentSessionSummary]) -> some View {
+        rowsCache.noteArchived(archivedRows)
+        var conversationStates: [String: AgentHistoryRowsCache.ConversationState] = [:]
+        for (id, conversation) in feature.conversations {
+            conversationStates[id] = rowsCache.conversationState(id, conversation)
+        }
+        let now = Date()
+        let groupsByDate = filter == .all && !isSearching
+        let key = AgentHistoryRowsCache.ItemsKey(
+            rowsRevision: rowsCache.rowsRevision, archivedRevision: rowsCache.archivedRevision,
+            selectedSessionID: feature.selectedSessionID,
+            canOpenListed: feature.canLoadSessions && feature.connectionState == .ready,
+            canOpenArchived: feature.connectionState == .ready && feature.unarchivingSessionID == nil,
+            conversations: conversationStates, groupsByDate: groupsByDate,
+            minute: Int(now.timeIntervalSinceReferenceDate / 60), localeIdentifier: locale.identifier)
+        let built = rowsCache.items(for: key) {
+            buildItems(rows: rows, archivedRows: archivedRows, key: key, now: now)
+        }
+        return ScrollView {
+            AgentHistoryList(
+                items: built.items, archived: built.archived, revision: built.revision,
+                isArchivedExpanded: archivedExpansion ?? (isSearching && !archivedRows.isEmpty),
+                isArchivedBusy: feature.isRefreshingArchivedSessions || feature.unarchivingSessionID != nil,
+                isRemovedFilter: filter == .removed, isSelecting: isSelecting, selectedIDs: selectedIDs,
+                editingID: editingID, editingText: editingTitle, editingTitle: $editingTitle,
+                isFocused: historyListActive, actions: rowActions
+            )
+            .equatable()
+        }
+        .litheScrollViewChrome()
+        .background(LitheToolWindowActivityTracker(isActive: $historyListActive))
+    }
+
+    /// One O(n) pass. Model properties are read once, not once per row.
+    private func buildItems(rows: [AgentSessionSummary], archivedRows: [AgentSessionSummary],
+                            key: AgentHistoryRowsCache.ItemsKey, now: Date) -> (items: [AgentHistoryListItem], archived: [AgentHistoryRowModel]) {
+        let metadata = history.metadata
+        let calendar = Calendar.current
+        func row(_ session: AgentSessionSummary, canOpen: Bool, state: AgentHistoryRowsCache.ConversationState?) -> AgentHistoryRowModel {
+            let annotation = metadata[session.id]
+            return AgentHistoryRowModel(
+                session: session,
+                title: AgentSessionTitle.title(of: AgentSessionSummary(id: session.id, title: annotation?.title ?? session.title), locale: locale),
+                messageCount: state?.messageCount,
+                timeText: AgentHistoryPresentation.timeLabel(session.updatedAt, now: now, calendar: calendar, locale: locale)?.text,
+                isCurrent: session.id == key.selectedSessionID,
+                isFavorite: annotation?.isFavorite == true,
+                canOpen: canOpen)
+        }
+        var items: [AgentHistoryListItem] = []
+        items.reserveCapacity(rows.count + 8)
+        for section in AgentHistoryPresentation.sections(rows, metadata: metadata, groupsByDate: key.groupsByDate,
+                                                         now: now, calendar: calendar) {
+            if let group = section.group { items.append(.header(group, section.sessions.count)) }
+            for session in section.sessions {
+                let state = key.conversations[session.id]
+                items.append(.row(row(session, canOpen: key.canOpenListed || state?.isAttached == true, state: state)))
+            }
+        }
+        // Upstream unarchive requires consent. Restoring Lithe visibility only clears
+        // local metadata, so it is available independently in Removed conversations.
+        let archived = archivedRows.map { row($0, canOpen: key.canOpenArchived, state: nil) }
+        return (items, archived)
+    }
+
+    private var rowActions: AgentHistoryRowActions {
+        AgentHistoryRowActions(
+            open: { onSelect($0) },
+            openArchived: { pendingUnarchiveID = $0 },
+            toggleSelection: { id in if !selectedIDs.insert(id).inserted { selectedIDs.remove(id) } },
+            copy: { onCopySessionID($0) },
+            rename: { model in editingTitle = model.title; editingID = model.id },
+            save: { id in if history.rename(id, title: editingTitle) { editingID = nil } },
+            cancel: { editingID = nil },
+            export: { history.export([$0]) },
+            canExport: { history.canExport([$0]) },
+            favorite: { id in history.setFavorite([id], history.metadata[id]?.isFavorite != true) },
+            remove: { id in
+                if filter == .removed { history.setHidden([id], false) }
+                else { pendingRemovalIDs = [id] }
+            },
+            restoreArchived: { history.setHidden([$0], false) },
+            toggleArchived: { archivedExpansion = !(archivedExpansion ?? (isSearching && !archived.isEmpty)) })
+    }
+
+    private var divider: some View { Rectangle().fill(AgentPanelStyle.border).frame(height: 1) }
+}
+
+/// Row callbacks keyed by session; closures are excluded from the list's equality.
+struct AgentHistoryRowActions {
+    let open: (String) -> Void
+    let openArchived: (String) -> Void
+    let toggleSelection: (String) -> Void
+    let copy: (String) -> Void
+    let rename: (AgentHistoryRowModel) -> Void
+    let save: (String) -> Void
+    let cancel: () -> Void
+    let export: (String) -> Void
+    /// Evaluated when a row's menu opens, never for every row on each refresh.
+    let canExport: (String) -> Bool
+    let favorite: (String) -> Void
+    let remove: (String) -> Void
+    let restoreArchived: (String) -> Void
+    let toggleArchived: () -> Void
+}
+
+/// The scrolling content of the history page, compared by value. The page view
+/// observes the whole connection model; this keeps unrelated publishes from
+/// rebuilding every visible row.
+private struct AgentHistoryList: View, Equatable {
+    @Environment(\.locale) private var locale
+    let items: [AgentHistoryListItem]
+    let archived: [AgentHistoryRowModel]
+    /// Bumped by the cache whenever `items` or `archived` are rebuilt.
+    let revision: Int
+    let isArchivedExpanded: Bool
+    let isArchivedBusy: Bool
+    let isRemovedFilter: Bool
+    let isSelecting: Bool
+    let selectedIDs: Set<String>
+    let editingID: String?
+    /// Compared so typing in the rename field still refreshes the row.
+    let editingText: String
+    let editingTitle: Binding<String>
+    let isFocused: Bool
+    let actions: AgentHistoryRowActions
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.revision == rhs.revision
+            && lhs.isArchivedExpanded == rhs.isArchivedExpanded && lhs.isArchivedBusy == rhs.isArchivedBusy
+            && lhs.isRemovedFilter == rhs.isRemovedFilter && lhs.isSelecting == rhs.isSelecting
+            && lhs.selectedIDs == rhs.selectedIDs && lhs.editingID == rhs.editingID
+            && lhs.editingText == rhs.editingText && lhs.isFocused == rhs.isFocused
+    }
+
+    var body: some View {
+        LazyVStack(spacing: 0) {
+            ForEach(items) { item in itemView(item) }
+            if !archived.isEmpty { archivedSection }
+        }
+    }
+
+    @ViewBuilder private func itemView(_ item: AgentHistoryListItem) -> some View {
+        switch item {
+        case .header(let group, let count): header(group, count: count)
+        case .row(let model): row(model)
+        }
+    }
+
+    private func row(_ model: AgentHistoryRowModel) -> AgentHistoryRow {
+        AgentHistoryRow(model: model, isRemoved: isRemovedFilter, isSelecting: isSelecting,
+                        isSelected: selectedIDs.contains(model.id), isFocused: isFocused,
+                        isEditing: editingID == model.id, editingTitle: editingTitle, actions: actions)
+    }
+
+    private func header(_ group: AgentHistoryGroup, count: Int) -> some View {
         HStack(spacing: 6) {
             Text(AgentLocalization.string(String.LocalizationValue(group.title), locale: locale))
             Text(verbatim: String(count)).monospacedDigit().foregroundStyle(AgentPanelStyle.muted)
@@ -417,16 +741,14 @@ struct AgentHistoryView: View {
         .accessibilityAddTraits(.isHeader)
     }
 
-    private func archivedSection(_ archived: [AgentSessionSummary]) -> some View {
+    private var archivedSection: some View {
         VStack(spacing: 0) {
-            Button { archivedExpansion = !isArchivedExpanded } label: {
+            Button(action: actions.toggleArchived) {
                 HStack(spacing: 6) {
                     LitheSystemIcon(systemImage: isArchivedExpanded ? "chevron.down" : "chevron.right", size: 10)
                     Text(String(format: AgentLocalization.string("Archived (%d)", locale: locale), archived.count))
                         .font(LitheTheme.uiFont(size: 12, weight: .semibold))
-                    if feature.isRefreshingArchivedSessions || feature.unarchivingSessionID != nil {
-                        ProgressView().controlSize(.mini)
-                    }
+                    if isArchivedBusy { ProgressView().controlSize(.mini) }
                     Spacer(minLength: 0)
                 }
                 .contentShape(Rectangle())
@@ -434,218 +756,150 @@ struct AgentHistoryView: View {
             .buttonStyle(.litheNoPress).lithePointer()
             .foregroundStyle(AgentPanelStyle.secondary)
             .padding(.horizontal, 20).padding(.vertical, 10)
-            .overlay(alignment: .bottom) { divider }
+            .overlay(alignment: .bottom) { Rectangle().fill(AgentPanelStyle.border).frame(height: 1) }
             .accessibilityIdentifier("agent-history-archived")
             if isArchivedExpanded {
-                ForEach(archived) { session in archivedRow(session) }
+                ForEach(archived) { model in
+                    AgentHistoryRow(model: model, isArchived: true, isRemoved: isRemovedFilter, isSelecting: false,
+                                    isSelected: false, isFocused: isFocused, isEditing: false,
+                                    editingTitle: editingTitle, actions: actions)
+                }
             }
         }
     }
-
-    /// Upstream unarchive requires consent. Restoring Lithe visibility only clears
-    /// local metadata, so it is available independently in Removed conversations.
-    private func archivedRow(_ session: AgentSessionSummary) -> some View {
-        AgentHistoryRow(
-            session: session, title: displayTitle(session), agentName: agentName, messageCount: nil,
-            isCurrent: false, isFavorite: false, isRemoved: filter == .removed, isArchived: true, isSelecting: false,
-            isSelected: false, isFocused: historyListActive, isEditing: false,
-            editingTitle: $editingTitle, isCopied: copiedID == session.id, canExport: false,
-            canOpen: feature.connectionState == .ready && feature.unarchivingSessionID == nil,
-            onOpen: { pendingUnarchiveID = session.id }, onToggleSelection: {},
-            onCopy: { onCopySessionID(session.id); copiedID = session.id },
-            onRename: {}, onSave: {}, onCancel: {}, onExport: {}, onFavorite: {},
-            onRemove: { history.setHidden([session.id], false) }
-        )
-    }
-
-    private func row(_ session: AgentSessionSummary) -> some View {
-        AgentHistoryRow(
-            session: session, title: displayTitle(session), agentName: agentName,
-            messageCount: AgentHistoryPresentation.messageCount(feature.conversations[session.id]),
-            isCurrent: session.id == feature.selectedSessionID,
-            isFavorite: history.metadata[session.id]?.isFavorite == true,
-            isRemoved: filter == .removed, isSelecting: isSelecting,
-            isSelected: selectedIDs.contains(session.id), isFocused: historyListActive, isEditing: editingID == session.id,
-            editingTitle: $editingTitle, isCopied: copiedID == session.id,
-            canExport: history.canExport([session.id]),
-            canOpen: feature.canLoadSessions && feature.connectionState == .ready
-                || feature.conversations[session.id]?.isAttached == true,
-            onOpen: { onSelect(session.id) },
-            onToggleSelection: {
-                if !selectedIDs.insert(session.id).inserted { selectedIDs.remove(session.id) }
-            },
-            onCopy: { onCopySessionID(session.id); copiedID = session.id },
-            onRename: { editingTitle = displayTitle(session); editingID = session.id },
-            onSave: { if history.rename(session.id, title: editingTitle) { editingID = nil } },
-            onCancel: { editingID = nil },
-            onExport: { history.export([session.id]) },
-            onFavorite: { history.setFavorite([session.id], history.metadata[session.id]?.isFavorite != true) },
-            onRemove: {
-                if filter == .removed { history.setHidden([session.id], false) }
-                else { pendingRemovalIDs = [session.id] }
-            }
-        )
-    }
-
-    private func displayTitle(_ session: AgentSessionSummary) -> String {
-        AgentSessionTitle.title(of: AgentSessionSummary(id: session.id, title: history.title(for: session)), locale: locale)
-    }
-
-    private var divider: some View { Rectangle().fill(AgentPanelStyle.border).frame(height: 1) }
 }
 
 private struct AgentHistoryRow: View {
     @Environment(\.locale) private var locale
-    let session: AgentSessionSummary
-    let title: String
-    let agentName: String?
-    let messageCount: Int?
-    let isCurrent: Bool
-    let isFavorite: Bool
-    let isRemoved: Bool
+    let model: AgentHistoryRowModel
     var isArchived = false
+    let isRemoved: Bool
     let isSelecting: Bool
     let isSelected: Bool
     let isFocused: Bool
     let isEditing: Bool
-    @Binding var editingTitle: String
-    let isCopied: Bool
-    let canExport: Bool
-    let canOpen: Bool
-    let onOpen: () -> Void
-    let onToggleSelection: () -> Void
-    let onCopy: () -> Void
-    let onRename: () -> Void
-    let onSave: () -> Void
-    let onCancel: () -> Void
-    let onExport: () -> Void
-    let onFavorite: () -> Void
-    let onRemove: () -> Void
+    let editingTitle: Binding<String>
+    let actions: AgentHistoryRowActions
     @State private var isHovering = false
     @FocusState private var isTitleFocused: Bool
+
+    /// A fixed height lets the lazy stack place rows without measuring them.
+    static let height: CGFloat = 56
 
     private var showsMenu: Bool { !isSelecting && !isEditing && !isArchived }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: 12) {
-                rowContent
-            }
-            detailLine.padding(.leading, 44 + (isSelecting ? 28 : 0))
+            titleLine
+            if !isEditing { detailLine }
         }
         .foregroundStyle(AgentPanelStyle.text)
-        .padding(.horizontal, 16).padding(.vertical, 10)
+        .padding(.horizontal, 16)
+        .frame(maxWidth: .infinity, minHeight: Self.height, maxHeight: Self.height, alignment: .leading)
         .litheSelectionRow(isSelected: isSelected, isFocused: isFocused, cornerRadius: 0)
-        .background(isCurrent && !isSelected ? AgentPanelStyle.header : .clear)
+        .background(model.isCurrent && !isSelected ? AgentPanelStyle.header : .clear)
         .overlay(alignment: .bottom) { Rectangle().fill(AgentPanelStyle.border).frame(height: 1) }
         .onHover { isHovering = $0 }
         .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("agent-history-row-\(session.id)")
+        .accessibilityIdentifier("agent-history-row-\(model.id)")
     }
 
-    @ViewBuilder private var rowContent: some View {
+    @ViewBuilder private var titleLine: some View {
+        HStack(spacing: 10) {
             if isSelecting {
-                Button(action: onToggleSelection) {
+                Button { actions.toggleSelection(model.id) } label: {
                     Image(systemName: isSelected ? "checkmark.square.fill" : "square")
                 }.buttonStyle(.litheNoPress).help("Select conversation")
             }
             if isEditing {
-                tile
-                TextField("Conversation title", text: $editingTitle)
+                TextField("Conversation title", text: editingTitle)
                     .textFieldStyle(.plain).focused($isTitleFocused)
                     .font(LitheTheme.uiFont(size: 14, weight: .semibold))
-                    .onSubmit(onSave).onExitCommand(perform: onCancel)
+                    .onSubmit { actions.save(model.id) }.onExitCommand(perform: actions.cancel)
                     .onAppear { isTitleFocused = true }
-                icon("checkmark", "Save title", onSave)
-                    .disabled(editingTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                icon("xmark", "Cancel", onCancel)
+                icon("checkmark", "Save title") { actions.save(model.id) }
+                    .disabled(editingTitle.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                icon("xmark", "Cancel", actions.cancel)
             } else {
-                Button(action: isSelecting ? onToggleSelection : onOpen) {
-                    HStack(spacing: 12) {
-                        tile
-                        Text(title).font(LitheTheme.uiFont(size: 14, weight: .semibold))
-                            .lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .contentShape(Rectangle())
+                titleButton
+                if showsMenu {
+                    // Only the hovered or current row mounts the shared menu anchor;
+                    // a scrolling list must not keep one native anchor per row.
+                    if isHovering || model.isCurrent { menu }
+                    else { Color.clear.frame(width: LitheTheme.Metrics.toolbarIconButtonSize,
+                                             height: LitheTheme.Metrics.toolbarIconButtonSize) }
+                } else if isArchived && isRemoved {
+                    icon("arrow.uturn.backward", "Restore conversations") { actions.restoreArchived(model.id) }
+                        .accessibilityIdentifier("agent-history-restore-\(model.id)")
                 }
-                .buttonStyle(.litheNoPress).lithePointer()
-                .disabled(!isSelecting && !canOpen).help(title)
-                .accessibilityIdentifier("agent-history-open-\(session.id)")
-                trailing
-            }
-    }
-
-    /// The Agent's mark on a quiet tile, as in Claude Desktop's list.
-    private var tile: some View {
-        AgentBrandIcon(name: agentName, size: 16, style: .brand)
-            .frame(width: 32, height: 32)
-            .background(AgentPanelStyle.context, in: RoundedRectangle(cornerRadius: 8))
-    }
-
-    private var trailing: some View {
-        HStack(spacing: 4) {
-            if isFavorite && !isRemoved {
-                LitheSystemIcon(systemImage: "pin.fill", size: 11).foregroundStyle(AgentPanelStyle.secondary)
-                    .help("Favorites")
-            }
-            if let date = AgentHistoryPresentation.date(session.updatedAt) {
-                Text(date, format: .relative(presentation: .named, unitsStyle: .abbreviated))
-                    .font(LitheTheme.uiFont(size: 11)).foregroundStyle(AgentPanelStyle.secondary)
-                    .lineLimit(1).fixedSize()
-                    .help(date.formatted(date: .abbreviated, time: .shortened))
-            }
-            if showsMenu {
-                LitheMenu {
-                    if isRemoved {
-                        LitheContextMenuItem.action("Restore conversations", action: onRemove)
-                    } else {
-                        LitheContextMenuItem.action(isFavorite ? "Remove from favorites" : "Add to favorites", action: onFavorite)
-                        LitheContextMenuItem.action("Rename conversation", action: onRename)
-                        LitheContextMenuItem.action("Export conversations", isEnabled: canExport, action: onExport)
-                    }
-                    LitheContextMenuItem.action("Copy session ID", action: onCopy)
-                    if !isRemoved {
-                        LitheContextMenuItem.separator
-                        LitheContextMenuItem.action("Remove from history",
-                            icon: AnyView(LitheIDEAIcon(resourcePath: "expui/general/delete.svg", size: LitheDropdownMetrics.iconSize,
-                                                       fallbackSystemImage: "trash", preservesOriginalColors: true)),
-                            role: .destructive, action: onRemove)
-                    }
-                } label: {
-                    LitheSystemIcon(systemImage: "ellipsis", size: LitheTheme.Metrics.toolbarIconSize)
-                }
-                .litheToolbarIconButton()
-                .opacity(isHovering || isCurrent ? 1 : 0)
-                .help("Conversation actions")
-                .accessibilityLabel("Conversation actions")
-                .accessibilityIdentifier("agent-history-menu-\(session.id)")
-            } else if isArchived && isRemoved {
-                icon("arrow.uturn.backward", "Restore conversations", onRemove)
-                    .accessibilityIdentifier("agent-history-restore-\(session.id)")
             }
         }
-        .foregroundStyle(AgentPanelStyle.secondary)
+    }
+
+    private var titleButton: some View {
+        Button {
+            if isSelecting { actions.toggleSelection(model.id) }
+            else if isArchived { actions.openArchived(model.id) }
+            else { actions.open(model.id) }
+        } label: {
+            HStack(spacing: 6) {
+                if model.isFavorite && !isRemoved {
+                    LitheSystemIcon(systemImage: "pin.fill", size: 10).foregroundStyle(AgentPanelStyle.secondary)
+                }
+                Text(model.title).font(LitheTheme.uiFont(size: 14, weight: .semibold))
+                    .lineLimit(1).truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.litheNoPress)
+        .disabled(!isSelecting && !model.canOpen)
+        .accessibilityIdentifier("agent-history-open-\(model.id)")
+    }
+
+    private var menu: some View {
+        LitheMenu {
+            if isRemoved {
+                LitheContextMenuItem.action("Restore conversations") { actions.remove(model.id) }
+            } else {
+                LitheContextMenuItem.action(model.isFavorite ? "Unpin conversation" : "Pin conversation") { actions.favorite(model.id) }
+                LitheContextMenuItem.action("Rename conversation") { actions.rename(model) }
+                LitheContextMenuItem.action("Fork conversation", isEnabled: false) {}
+                LitheContextMenuItem.action("Archive conversation", isEnabled: false) {}
+                LitheContextMenuItem.action("Copy session ID") { actions.copy(model.id) }
+                LitheContextMenuItem.action("Export conversations", isEnabled: actions.canExport(model.id)) { actions.export(model.id) }
+                LitheContextMenuItem.separator
+                LitheContextMenuItem.action("Delete chat",
+                    icon: AnyView(LitheIDEAIcon(resourcePath: "expui/general/delete.svg", size: LitheDropdownMetrics.iconSize,
+                                               fallbackSystemImage: "trash", preservesOriginalColors: true)),
+                    role: .destructive) { actions.remove(model.id) }
+            }
+        } label: {
+            LitheSystemIcon(systemImage: "ellipsis", size: LitheTheme.Metrics.toolbarIconSize)
+        }
+        .litheToolbarIconButton()
+        .help("Conversation actions")
+        .accessibilityLabel("Conversation actions")
+        .accessibilityIdentifier("agent-history-menu-\(model.id)")
     }
 
     private var detailLine: some View {
         HStack(spacing: 6) {
-            if let messageCount {
+            if let messageCount = model.messageCount {
                 Text(String(format: AgentLocalization.string("%d messages", locale: locale), messageCount))
-                    .lineLimit(1)
-                Text("·")
             }
+            if model.messageCount != nil, model.timeText != nil { Text(verbatim: "·") }
+            if let timeText = model.timeText { Text(verbatim: timeText) }
             if isArchived {
                 Text("Archived")
                     .padding(.horizontal, 5).padding(.vertical, 1)
                     .overlay(Capsule().stroke(AgentPanelStyle.border))
-                Text("·")
             }
-            Text(String(session.id.prefix(8))).font(LitheTheme.uiFont(size: 10, design: .monospaced))
-                .help(session.id)
-            icon(isCopied ? "checkmark" : "doc.on.doc", "Copy session ID", onCopy)
-                .accessibilityIdentifier("agent-history-copy-\(session.id)")
+            Spacer(minLength: 0)
         }
+        .lineLimit(1)
         .font(LitheTheme.uiFont(size: 11)).foregroundStyle(AgentPanelStyle.secondary)
+        .padding(.leading, isSelecting ? 28 : 0)
     }
 
     private func icon(_ name: String, _ title: LocalizedStringKey, _ action: @escaping () -> Void) -> some View {

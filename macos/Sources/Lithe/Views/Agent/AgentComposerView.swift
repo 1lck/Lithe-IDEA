@@ -83,7 +83,7 @@ struct AgentComposerView: View {
     }
 
     var body: some View {
-        composerStack
+        composerContent
         .dropDestination(for: URL.self) { urls, _ in
             addFiles(urls)
         } isTargeted: { isDropTargeted = $0 }
@@ -114,20 +114,6 @@ struct AgentComposerView: View {
         .onExitCommand { _ = handleCommandKey(.escape) }
     }
 
-    @ViewBuilder private var composerStack: some View {
-        if isEditorLayout {
-            VStack(spacing: 6) {
-                composerContent
-                if showsToolbar { editorFooter }
-            }
-            .transformPreference(AgentComposerMinimumHeightKey.self) {
-                if showsToolbar { $0 += AgentComposerMetrics.editorFooterHeight + 6 }
-            }
-        } else {
-            composerContent
-        }
-    }
-
     private var composerContent: some View {
         AgentComposerContent(files: attachments, commands: commandSuggestions,
                              highlightedIndex: completion.highlightedIndex,
@@ -149,19 +135,10 @@ struct AgentComposerView: View {
         }
     }
 
-    /// Claude Desktop layout: the card keeps only attach and send.
+    /// Claude Desktop layout: the agent switcher, approval mode, model selector
+    /// and send action all live inside the card. Quota, context and the activity
+    /// summary move to the trailing details column so the reading area stays clean.
     private var editorCardToolbar: some View {
-        HStack(spacing: 4) {
-            attachButton
-            Spacer(minLength: 0)
-            primaryActionButton
-        }
-        .padding(.horizontal, AgentComposerMetrics.toolbarHorizontalInset + 3)
-        .frame(height: AgentComposerMetrics.toolbarHeight - 2)
-    }
-
-    /// Mode on the left, model on the right, then quota and the context ring.
-    private var editorFooter: some View {
         HStack(spacing: 4) {
             agentMenu
             if isPreparingSession {
@@ -170,28 +147,22 @@ struct AgentComposerView: View {
                     .foregroundStyle(AgentPanelStyle.secondary)
                     .lineLimit(1)
                     .accessibilityIdentifier("agent-session-settings-loading")
-                Spacer(minLength: 0)
             } else if !configOptions.isEmpty {
                 AgentSessionSelectors(options: configOptions, agentName: selectedAgent?.name,
                     isDisabled: isBlocked || isConfiguring, appliesToNextTurn: isResponding,
-                    spreadsAcrossRow: true, onSelect: onSetConfig)
+                    showsMode: true, showsSettings: false, onSelect: onSetConfig)
                     .id(sessionID ?? selectedAgent?.id)
                 if isConfiguring { ProgressView().controlSize(.mini) }
-            } else {
-                if let model = selectedAgent?.modelName, !model.isEmpty {
-                    Text(model).font(LitheTheme.uiFont(size: 11)).lineLimit(1).truncationMode(.middle)
-                        .foregroundStyle(AgentPanelStyle.secondary).help(model)
-                }
-                Spacer(minLength: 0)
+            } else if let model = selectedAgent?.modelName, !model.isEmpty {
+                Text(model).font(LitheTheme.uiFont(size: 11)).lineLimit(1).truncationMode(.middle)
+                    .foregroundStyle(AgentPanelStyle.secondary).help(model)
             }
-            if showsSubscriptionQuota {
-                AgentSubscriptionQuotaView(quota: subscriptionQuota, account: subscriptionAccount, failure: quotaFailure)
-                    .id(sessionID ?? selectedAgent?.id)
-            }
-            detailsButton
+            Spacer(minLength: 0)
+            attachButton
+            primaryActionButton
         }
-        .padding(.horizontal, AgentComposerMetrics.toolbarHorizontalInset)
-        .frame(height: AgentComposerMetrics.editorFooterHeight)
+        .padding(.horizontal, AgentComposerMetrics.toolbarHorizontalInset + 3)
+        .frame(height: AgentComposerMetrics.toolbarHeight - 2)
     }
 
     private var attachButton: some View {

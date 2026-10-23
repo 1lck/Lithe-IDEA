@@ -19,6 +19,17 @@ enum AgentSessionSelectorPresentation {
             if choice.id == "off" { return localized("Standard", bundle: bundle, locale: locale) }
             if choice.id == "on" { return localized("Fast", bundle: bundle, locale: locale) }
         }
+        // Known approval modes keep a stable localized label. Unknown mode,
+        // model and thinking-level names stay verbatim below.
+        if option.category == "mode" {
+            switch choice.id {
+            case "auto": return localized("Auto", bundle: bundle, locale: locale)
+            case "manual": return localized("Manual", bundle: bundle, locale: locale)
+            case "plan": return localized("Plan", bundle: bundle, locale: locale)
+            case "acceptEdits": return localized("Accept edits", bundle: bundle, locale: locale)
+            default: break
+            }
+        }
         // Agent-owned names must not collide with translations used elsewhere in the app.
         if option.category == "model" || option.category == "mode" || option.category == "thought_level" {
             return choice.name
@@ -72,6 +83,11 @@ struct AgentSessionSelectors: View {
     var appliesToNextTurn = false
     /// Editor footer: approval mode at the leading edge, model at the trailing edge.
     var spreadsAcrossRow = false
+    /// Hides the approval-mode selector; the editor card shows only the model.
+    var showsMode = true
+    var showsModel = true
+    /// Hides the fallback "more settings" menu when there is no model selector.
+    var showsSettings = true
     let onSelect: (String, String) -> Void
     @State private var showsModels = false
 
@@ -86,7 +102,7 @@ struct AgentSessionSelectors: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            if let mode {
+            if showsMode, let mode {
                 LitheMenu(opensUpward: true) {
                     LitheContextMenuItem.heading("Mode", centered: true)
                     for choice in mode.choices {
@@ -115,7 +131,7 @@ struct AgentSessionSelectors: View {
                 .accessibilityIdentifier("agent-session-mode-selector")
             }
             if spreadsAcrossRow { Spacer(minLength: 8) }
-            if let model {
+            if showsModel, let model {
                 Button { showsModels.toggle() } label: {
                     selectorLabel(expandsDownward: true) {
                         AgentBrandIcon(name: agentName, size: 12, style: .brand)
@@ -131,7 +147,7 @@ struct AgentSessionSelectors: View {
                     AgentModelPopover(option: model, settings: settings, agentName: agentName, onSelect: select)
                         .onExitCommand { showsModels = false }
                 }
-            } else if !settings.isEmpty {
+            } else if showsSettings, !settings.isEmpty {
                 LitheMenu {
                     for option in settings {
                         LitheContextMenuItem.submenu(AgentSessionSelectorPresentation.title(option, locale: locale)) {

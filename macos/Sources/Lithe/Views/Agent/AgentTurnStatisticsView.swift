@@ -49,12 +49,24 @@ enum AgentTurnStatisticsPresentation {
 
     /// `14:03` for a turn that ended today, `2026-10-15 14:03` otherwise.
     static func completionTime(_ date: Date, now: Date = Date(), calendar: Calendar = .current, locale: Locale) -> String {
+        let format = calendar.isDate(date, inSameDayAs: now) ? "HH:mm" : "yyyy-MM-dd HH:mm"
+        return completionFormatter(format, calendar: calendar).string(from: date)
+    }
+
+    /// Creating a `DateFormatter` costs far more than formatting with one; history
+    /// rows and turn footers format many timestamps per render.
+    private static let completionFormatters = NSCache<NSString, DateFormatter>()
+
+    private static func completionFormatter(_ format: String, calendar: Calendar) -> DateFormatter {
+        let cacheKey = "\(calendar.identifier)|\(calendar.timeZone.identifier)|\(format)" as NSString
+        if let cached = completionFormatters.object(forKey: cacheKey) { return cached }
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.calendar = calendar
         formatter.timeZone = calendar.timeZone
-        formatter.dateFormat = calendar.isDate(date, inSameDayAs: now) ? "HH:mm" : "yyyy-MM-dd HH:mm"
-        return formatter.string(from: date)
+        formatter.dateFormat = format
+        completionFormatters.setObject(formatter, forKey: cacheKey)
+        return formatter
     }
 
     static func details(_ usage: AgentTurnUsage, locale: Locale) -> String {
