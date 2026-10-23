@@ -100,6 +100,7 @@ Windows 原来有五个漏洞，叠在一起导致“关闭 Lithe 后服务还�
 - `./scripts/test-macos.sh --filter '(MacProcessRunnerTests|ExecutionModule)'`。
 - `rust/lithe-git-host/tests/process.rs`：`process_tree_terminate_ends_the_root_and_its_descendants` 启动一个会再启动后代的进程，确认 `terminate` 返回时两者都已结束；Windows 上 `dropping_a_process_tree_ends_it_like_a_crashed_host` 只丢弃句柄，确认内核结束整组。
 - `windows/tauri/src-tauri/src/run.rs` 测试（仅 Windows）：关闭一个窗口只结束它自己的进程树、丢弃会话等同 Lithe 崩溃、原生列表按启动顺序包含全部会话。
+  - Windows CI 39919376382 在关闭窗口和丢弃会话两例中，根进程已退出，但立即读取的 `sysinfo` 快照仍包含后代 PID。测试改为停止前打开后代的只等待句柄，停止后分别在两秒内等待根进程和后代的退出信号；另一窗口的后代用零等待确认仍在运行。依据 [Windows 进程终止语义](https://learn.microsoft.com/en-us/windows/win32/procthread/terminating-a-process)，退出进程的对象可以因尚未关闭的句柄而继续存在，进程退出信号才是结束依据。保留原来的窗口隔离、重复关闭和崩溃清理断言，不改产品停止流程。夹具的首字节就绪信号有两秒期限，失败路径和断言展开时也按所属会话清理进程树、等待退出并释放管道和句柄；不依赖任意睡眠或 PID 重查。
 - `rust/lithe-core/src/lsp/interface/process.rs` 测试（仅 Windows）：结束批处理启动的语言服务器时，脚本启动的子进程一起结束。
 - `shared/fixtures/process-lifecycle/exit-plan-v1.json`、`settle-v1.json`：运行服务在退出、关闭项目、直接停止设置和崩溃恢复下的动作；macOS `ProcessLifecycleFixtureTests` 用 Swift 类型解码同一批 fixture，并覆盖提问顺序、取消和规则失败时仍询问。
 - `windows/tauri/src/features/window/services/run-services-exit.test.ts`：询问、取消、停止失败后重试、直接停止、后台任务不询问、Core 不可用时询问。
