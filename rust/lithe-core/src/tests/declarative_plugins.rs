@@ -29,6 +29,7 @@ const GRADLE_PROVIDER_FIXTURE: &str = contract_file!("fixtures/build-provider.pl
 const MIX_PROVIDER_FIXTURE: &str =
     contract_file!("fixtures/build-provider-language-server.plugin.json");
 const SETTINGS_V2_FIXTURE: &str = contract_file!("fixtures/settings-v2.plugin.json");
+const BACKEND_FIXTURE: &str = contract_file!("fixtures/backend.plugin.json");
 const INVALID_MANIFESTS: &str = contract_file!("fixtures/invalid-manifests.json");
 const COMMAND_PLANS: &str = contract_file!("fixtures/command-plans.json");
 const RUNTIME_VERSIONS: &str = contract_file!("fixtures/runtime-versions.json");
@@ -52,6 +53,7 @@ fn fixture(name: &str) -> Value {
         "build-provider.plugin.json" => GRADLE_PROVIDER_FIXTURE,
         "build-provider-language-server.plugin.json" => MIX_PROVIDER_FIXTURE,
         "settings-v2.plugin.json" => SETTINGS_V2_FIXTURE,
+        "backend.plugin.json" => BACKEND_FIXTURE,
         other => panic!("unknown fixture {other}"),
     };
     serde_json::from_str(source).expect("fixture manifest is JSON")
@@ -70,6 +72,7 @@ fn contract_fixtures_and_official_plugins_validate() {
         WEB_PANEL_FIXTURE,
         JAVA_FIXTURE,
         NODE_RUNTIME_FIXTURE,
+        BACKEND_FIXTURE,
         OFFICIAL_JAVA,
     ] {
         let outcome = validate(serde_json::from_str(source).unwrap());
@@ -603,6 +606,96 @@ fn web_tool_windows_need_ui_2_their_permission_and_a_package_page() {
         let expected = matches!(entry, "index.html" | "ui/pages/tree.html");
         assert_eq!(accepted, expected, "{entry}");
     }
+}
+
+/// A plugin backend is a reviewed server process of the plugin itself. It is
+/// planned without a workspace, its plan names exactly the host services its
+/// permissions grant, and a host that does not run `backend` never gets it.
+#[test]
+fn plugin_backend_is_planned_without_a_workspace_and_names_its_host_services() {
+    let outcome = validate(fixture("backend.plugin.json"));
+    assert_eq!(outcome["status"], "ok", "{outcome}");
+    assert_eq!(
+        outcome["plugin"]["backend"]["launch"],
+        json!({ "kind": "packaged", "path": "bin/backend" })
+    );
+
+    let plan_for = |manifest: Value, request: Value| {
+        language_server_launch_plan_command(json!({
+            "manifest": manifest,
+            "backend": true,
+            "request": request,
+        }))
+        .expect("payload is well formed")
+    };
+    let request = json!({
+        "pluginDirectory": "/plugins/backend",
+        "stateDirectory": "/state/backend",
+        "architecture": "arm64"
+    });
+    let launch = plan_for(fixture("backend.plugin.json"), request.clone());
+    assert_eq!(launch["status"], "ok", "{launch}");
+    assert_eq!(
+        launch["plan"]["launch"],
+        json!({ "kind": "packaged", "path": "bin/backend" })
+    );
+    assert_eq!(
+        launch["plan"]["arguments"],
+        json!(["--state", "/state/backend"])
+    );
+    assert_eq!(launch["plan"]["requiredDirectories"], json!(["state"]));
+    assert_eq!(
+        launch["plan"]["backend"],
+        json!({ "hostServices": ["credentials"] })
+    );
+
+    // Without credentials.store the session may request no host service.
+    let mut manifest = fixture("backend.plugin.json");
+    manifest["permissions"] = json!(["backend.launch", "ui.contribute", "ui.web"]);
+    let launch = plan_for(manifest, request.clone());
+    assert_eq!(launch["plan"]["backend"], json!({ "hostServices": [] }));
+
+    // A plugin without a backend has nothing to start.
+    let launch = plan_for(fixture("web-panel.plugin.json"), request.clone());
+    assert_eq!(launch["error"]["code"], "plugin.launch.unavailable");
+
+    // A selection names one process only.
+    assert!(language_server_launch_plan_command(json!({
+        "manifest": fixture("backend.plugin.json"),
+        "backend": true,
+        "languageID": "php",
+        "request": request,
+    }))
+    .is_err());
+
+    let review = crate::plugins::marketplace::install_review_command(json!({
+        "manifest": fixture("backend.plugin.json"),
+    }))
+    .expect("payload is well formed");
+    assert!(review["review"]["programs"]
+        .as_array()
+        .unwrap()
+        .contains(&json!({
+            "kind": "packagedBackend",
+            "path": "bin/backend",
+            "arguments": ["--state", "${stateDir}"],
+            "validationArguments": [],
+        })));
+
+    let hosted = |host: Value| {
+        validate_command(json!({
+            "manifest": fixture("backend.plugin.json"),
+            "hostCapabilities": host,
+        }))
+        .expect("payload is well formed")
+    };
+    let without_backend = hosted(json!({ "ui": [1, 2], "serverProcess": [1] }));
+    assert_eq!(without_backend["error"]["code"], "plugin.api.unsupported");
+    assert_eq!(without_backend["error"]["field"], "requires.backend");
+    assert_eq!(
+        hosted(json!({ "backend": [1], "ui": [1, 2], "serverProcess": [1] }))["status"],
+        "ok"
+    );
 }
 
 /// Icon trust boundaries are shared; native decoding remains with the macOS host.

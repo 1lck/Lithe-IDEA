@@ -1003,6 +1003,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `lsp.request` | Submit a typed semantic request and return an opaque operation ID |
 | `lsp.buildRequest` | Forward one planned `lithe/build/*` request to a session that negotiated the build-provider protocol |
 | `lsp.functionRequest` | Invoke one registered plugin function on a session its plugin started |
+| `lsp.hostResponse` | Answer one host-service request a plugin backend sent |
 | `lsp.vcsRequest` | Send one VCS operation, planned by Core, to a session that negotiated the VCS-provider protocol |
 | `java.navigationMarkers` | Resolve versioned Java gutter markers from bounded JDT LS semantic requests |
 | `java.resolveNavigation` | Resolve one Java gutter marker to normalized parent or implementation locations |
@@ -2269,7 +2270,9 @@ provider ID, selected executable/arguments/environment, root URI, working
 directory, initialization options, optional runtime executable,
 `jdtlsLaunchResources`, cache directory, `workspaceFingerprint`, and the
 optional `pluginId` of the plugin that owns the process, its optional
-`workspaceConfiguration` (an object, plugin-owned sessions only), plus
+`workspaceConfiguration` (an object, plugin-owned sessions only), its
+optional `hostServices` (the launch plan's `backend.hostServices`;
+plugin-owned sessions only, and only services Core defines), plus
 initialize, post-initialize readiness, request, Java project build
 (`javaBuildTimeoutMilliseconds`), and shutdown deadlines.
 Java callers may also provide the versioned `mavenContext` accepted by
@@ -2563,8 +2566,8 @@ sessions refuse it with `invalid_request`.
 functionID }, params?, timeoutMilliseconds? }` and returns `{ operationId }`.
 It sends `lithe/function/invoke` to a session started with
 `lsp.startServer.pluginId` equal to `function.pluginID` that negotiated
-`capabilities.experimental.litheFunctions` version 1 and registered the
-function. `params` must be a JSON object and defaults to `{}`. Refusals are
+`capabilities.experimental.litheFunctions` version 1 or 2 and registered
+the function. `params` must be a JSON object and defaults to `{}`. Refusals are
 `invalid_request`, `not_supported`, or `permission_denied` with a
 `plugin.function.*` code in `details`, in the order the
 [plugin contract](plugins/v1/README.md#plugin-functions) defines. The
@@ -2591,6 +2594,18 @@ unregister requests publish
 is `pluginFunctions` in the session's client state. Sessions without
 `lsp.startServer.pluginId` neither offer nor accept `litheFunctions`, retain no
 registry, and publish no function-discovery events.
+
+A session that negotiated `litheFunctions` version 2 may send the
+[host-service requests](plugins/v1/README.md#host-services-protocol-version-2)
+its `hostServices` grant. Core checks method, grant, and params, then
+publishes the runtime event `hostRequest` with `method` and `result: {
+hostRequestID, service, params }`; refusals go back to the backend without an
+event. `lsp.hostResponse` accepts `{ sessionId, hostRequestID, result? }` or
+`{ sessionId, hostRequestID, error: { message } }`, returns `{}`, and sends
+`result` (default `null`) or `-32603` with `data.code: "plugin.host.failed"`
+to the backend. An unknown or already answered `hostRequestID` is
+`invalid_request`. At most 16 host requests are unanswered per session; more
+are refused with `plugin.host.failed`.
 
 `lsp.request` accepts a semantic `operation` plus
 the operation-specific URI, position, range, diagnostics, item, action, or
@@ -2686,7 +2701,7 @@ channel until events are queued or the timeout elapses, then drains the same
 typed events. Hosts should use `waitEvents` so idle sessions do not poll.
 Event types
 include `stateChanged`, `featuresChanged`, `diagnostics`,
-`requestCompleted`, `requestProgress`, `functionsChanged`,
+`requestCompleted`, `requestProgress`, `functionsChanged`, `hostRequest`,
 `serverInfoChanged`, and `log`. Every request completes at
 most once with either `result` or a structured runtime error containing
 provider/session, stage, optional method/document/request, stable code, and

@@ -1,5 +1,6 @@
 //! Plugin manifest parsing, compatibility checks, and deterministic catalog merging.
 
+pub(crate) mod backend;
 pub mod capabilities;
 pub mod declarative;
 pub(crate) mod executables;

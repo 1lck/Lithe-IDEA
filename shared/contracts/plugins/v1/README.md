@@ -194,15 +194,18 @@ contains a machine path, and the host decides where state lives.
 | --- | --- |
 | `${pluginDir}` | Root of the installed, read-only package. It must be used at most once per value and be followed by a `/`-rooted path inside the package; that path may vary only by `${arch}`. |
 | `${stateDir}` | Writable directory the host keeps for this plugin's server and removes when the plugin is uninstalled. Not available in `validationArguments`. |
-| `${workspaceStateDir}` | Writable directory for the server's state of the current workspace. Not available in `validationArguments`. |
+| `${workspaceStateDir}` | Writable directory for the server's state of the current workspace. Not available in `validationArguments`, nor in a [plugin backend](#plugin-backend), which belongs to no workspace. |
 | `${arch}` | Host CPU architecture: `arm64` or `x86_64`. |
 | `${setting:<id>}` | Current value of a declared [plugin setting](#plugin-settings-api-2). Not available in `validationArguments`, and never inside a package path. |
 
 `plugins.declarative.languageServerLaunchPlan` expands a server's launch. The
 host selects the process with exactly one of `languageID` (a language server),
-`buildSystemID` (a build provider), and `vcsProviderID` (a VCS provider), passes `{pluginDirectory,
-stateDirectory, workspaceStateDirectory, architecture, settings?}`, and
-receives:
+`buildSystemID` (a build provider), `vcsProviderID` (a VCS provider), and
+`backend: true` (the [plugin backend](#plugin-backend)), passes `{pluginDirectory,
+stateDirectory, workspaceStateDirectory?, architecture, settings?}`, and
+receives. `workspaceStateDirectory` may be omitted only when the selected
+process does not use `${workspaceStateDir}`; otherwise the request is
+`plugin.launch.invalidRequest`.
 
 | Field | Meaning |
 | --- | --- |
@@ -216,10 +219,11 @@ receives:
 | `settings` | Effective value of every declared setting that produced this plan; absent when the plugin declares none. |
 | `buildProvider` | Present only for a `buildSystemID` selection: `{buildSystemID, executesProjectCode, mayUseNetwork, languageServer?}`. `languageServer` names the language whose server is the provider; the rest of the plan is then that server's plan, and the host reuses its running session instead of starting a second process. |
 | `vcsProvider` | Present only for a `vcsProviderID` selection: the [provider descriptor](https://github.com/1lck/Lithe-IDEA/blob/preview/shared/contracts/vcs-provider-v1.md#provider-descriptor) the host keeps for the session. |
+| `backend` | Present only for a `backend` selection: `{hostServices}`, the sorted [host services](#host-services-protocol-version-2) the plugin's permissions grant. The host passes them to `lsp.startServer.hostServices` unchanged. |
 
 A language without a server, an undeclared build system, a build system
-without a provider, and an undeclared VCS provider are
-`plugin.launch.unavailable`. Core never creates or
+without a provider, an undeclared VCS provider, and a plugin without a
+backend are `plugin.launch.unavailable`. Core never creates or
 reads any of these paths. The command also serves API 1
 manifests, whose arguments are returned unchanged.
 
@@ -396,7 +400,7 @@ hosts. Level 3 versions each section on its own. A level 3 manifest lists in
 | --- | --- | --- |
 | `languages` | `languages[]` | `1` |
 | `languageServers` | `languageServers[]` apart from their launch fields | `1`, `2` (adds [`workspaceConfiguration`](#workspace-configuration-languageservers-2)) |
-| `serverProcess` | The launch fields of language servers, of build providers with a process of their own, and of VCS providers: `launch`, `arguments`, `validationArguments`, `runtimeDependencies`, `initializationOptions` | `1` |
+| `serverProcess` | The launch fields of language servers, of build providers with a process of their own, of VCS providers, and of the plugin backend: `launch`, `arguments`, `validationArguments`, `runtimeDependencies`, `initializationOptions` | `1` |
 | `executionProviders` | `executionProviders[]` | `1` |
 | `settings` | `settings[]` and `settingActions[]` | `1`, `2` (adds [placement, scope, effect, page buttons](#settings-v2-placement-scope-effect-and-page-buttons)) |
 | `ui` | `ui` | `1`, `2` (adds [web content](#web-content-ui-2)) |
@@ -404,6 +408,7 @@ hosts. Level 3 versions each section on its own. A level 3 manifest lists in
 | `buildProviders` | `buildSystems[].provider`, including own-process and shared language-server providers | `1` |
 | `vcsProviders` | `vcsProviders[]` | `1` |
 | `projectGenerators` | [`projectGenerators[]`](#project-generators): entries of the New Project window | `1` |
+| `backend` | [`backend`](#plugin-backend): the plugin's own long-lived process for its pages | `1` |
 
 Version 1 of every capability means what its section means at level 2
 (runtime launches, launch templates, `initializationOptions`, and so on), so
@@ -425,7 +430,8 @@ moving a level 2 manifest to level 3 only adds `requires`.
   own process or shares a language server. A template-only build plugin must
   omit `buildProviders`. Launch support alone does not implement Provider
   negotiation, requests, and lifecycle. Every VCS provider starts its own
-  process, so `vcsProviders` always comes with `serverProcess`.
+  process, so `vcsProviders` always comes with `serverProcess`, and so does
+  `backend`.
 - The base fields (`schemaVersion`, `id`, `displayName`, `version`, `vendor`,
   `permissions`, `activationEvents`, and `requires` itself) change only with a
   new `pluginAPIVersion`.
@@ -452,7 +458,8 @@ providers and does not declare `buildProviders`. Provider plugins are therefore
 filtered from the market and refused by declarative validation and install
 review; template-only build plugins remain available. It does not declare
 `vcsProviders` either, so VCS provider plugins are filtered the same way until
-the macOS host starts providers. Core supports `buildProviders: 1` and
+the macOS host starts providers. It does not declare `backend` until it
+starts plugin backends. Core supports `backend: 1`, `buildProviders: 1`, and
 `vcsProviders: 1` for validation and plans without a host table. Windows has
 no declarative plugin host and sends no `hostCapabilities`, so it offers no
 level 3 version.
@@ -490,6 +497,8 @@ Rules for publishing across levels and capability versions:
 | `project.generate` | `projectGenerators` is not empty |
 | `ui.contribute` | `ui` is declared |
 | `ui.web` | a tool window shows [web content](#web-content-ui-2) |
+| `backend.launch` | `backend` is declared |
+| `credentials.store` | the backend uses the [credentials host service](#host-services-protocol-version-2); refused without a `backend` |
 
 | Activation event | Meaning |
 | --- | --- |
@@ -998,6 +1007,44 @@ its VCS client (`vcsTool`) and `mayUseNetwork`. Requests go through
 `vcs.decodeReply`. The fields, operations, reply shapes, and error codes are
 defined in [the VCS provider contract](https://github.com/1lck/Lithe-IDEA/blob/preview/shared/contracts/vcs-provider-v1.md).
 
+## Plugin backend
+
+A plugin with its own pages may need code that a page cannot run: database
+drivers, network clients, file formats. `backend` declares one long-lived
+process that serves only the plugin itself, independent of any build system,
+language, or workspace:
+
+```json
+"pluginAPIVersion": 3,
+"requires": { "backend": 1, "serverProcess": 1, "ui": 2 },
+"permissions": ["backend.launch", "credentials.store", "ui.contribute", "ui.web"],
+"backend": { "launch": { "kind": "packaged", "path": "bin/backend" }, "arguments": ["--state", "${stateDir}"] }
+```
+
+- `backend` holds exactly the [`serverProcess`](#capability-versions-level-3)
+  launch fields, with the same templates and install review; the review lists
+  it as `packagedBackend`, `systemCommandBackend`, or `runtimeBackend`. It
+  needs `pluginAPIVersion` 3, `requires.backend: 1`, `requires.serverProcess:
+  1`, and the `backend.launch` permission. `fixtures/backend.plugin.json` is
+  the example; the backend cases of `fixtures/invalid-manifests.json` are the
+  rejections.
+- In `backend` 1 only the plugin's own [web pages](#web-content-ui-2) call it,
+  so a backend without a web tool window is `plugin.manifest.invalid`.
+- It belongs to no workspace: `${workspaceStateDir}` is refused, and its
+  writable state is `${stateDir}`. The host starts it with `${stateDir}` as
+  root and working directory.
+- The host keeps at most one backend process per plugin, starts it on the
+  first `functions.*` call from one of the plugin's pages, and ends it when
+  the plugin is disabled, updated, or uninstalled, and when the host quits.
+  Its consent is the install review: it needs no per-workspace prompt.
+- The backend speaks the [plugin-function protocol](#plugin-functions) and,
+  from version 2, may ask the host for the
+  [host services](#host-services-protocol-version-2) its permissions grant.
+  It owns no domain contract: it never answers `lithe/build/*` or VCS
+  requests.
+- A plugin publishes one archive per platform, so its packaged path does not
+  vary by `${arch}`; a macOS archive may carry a universal binary.
+
 ## Project generators
 
 `projectGenerators` (requires `projectGenerators` 1 and the `project.generate`
@@ -1131,11 +1178,12 @@ cancellation removes the staging directory and leaves nothing behind
 
 ## Plugin functions
 
-A plugin backend (a language server or build provider process the plugin
-starts) can offer **plugin functions**: plugin-private actions with
+A plugin backend (a language server, build provider, or
+[plugin backend](#plugin-backend) process the plugin starts) can offer
+**plugin functions**: plugin-private actions with
 serializable params and results, which the host invokes on behalf of the same
 plugin, for example from that plugin's own window. Functions complement the
-typed domain protocols; they never replace them. Version 1 of the protocol is
+typed domain protocols; they never replace them. Versions 1 and 2 of the protocol are
 implemented in Rust Core (`rust/lithe-core/src/lsp/interface/plugin_function.rs`).
 macOS starts every build provider process as a session of the plugin that
 owns it and invokes its functions from that plugin's web pages (the
@@ -1166,6 +1214,7 @@ Two rules keep these directions from forming a loop:
   domain registry. Each is added to a protocol version together with its
   params, permission, and the operation it must belong to. Version 1 offers
   none: every `lithe/host/*` request is refused with `plugin.host.unavailable`.
+  Version 2 adds the [credentials](#host-services-protocol-version-2) service.
 
 ### Declarative or backend implementation
 
@@ -1187,7 +1236,7 @@ Two rules keep these directions from forming a loop:
 ### Negotiation
 
 For a session owned by a plugin (`lsp.startServer.pluginId`), the host offers
-`capabilities.experimental.litheFunctions: { "versions": [1] }` in
+`capabilities.experimental.litheFunctions: { "versions": [1, 2] }` in
 `initialize`, next to and independent of `litheBuild`. Host-owned sessions do
 not offer or accept this protocol, retain no plugin-function registry, and
 reject register/unregister with `-32601`. A plugin backend that offers
@@ -1288,6 +1337,42 @@ A backend reports progress of a running call with the notification
 normalized report. A malformed report, or one for an operation that is not
 running on that session, is dropped.
 
+### Host services (protocol version 2)
+
+A backend that negotiated version 2 may send these requests to the host.
+Each service is granted by one manifest permission; Core receives the
+granted services as `lsp.startServer.hostServices` (from the launch plan's
+`backend.hostServices`) and checks every request before the host sees it.
+
+| Request | Params | Result | Permission |
+| --- | --- | --- | --- |
+| `lithe/host/credentials/get` | `{ key }` | `{ secret }`, `null` when nothing is stored | `credentials.store` |
+| `lithe/host/credentials/set` | `{ key, secret }` | `null` | `credentials.store` |
+| `lithe/host/credentials/delete` | `{ key }` | `null`, also when nothing was stored | `credentials.store` |
+
+- A `key` is 1–128 ASCII letters, digits, `.`, `_`, `:`, or `-`; a `secret`
+  is a string of at most 16 KiB. Unknown params are refused so a later
+  version can add them.
+- Credentials are private to the plugin ID: the host stores them in the
+  platform's secret store (the Keychain on macOS) in a namespace of that ID,
+  never in `${stateDir}` or the package. They survive disabling and updating
+  the plugin and are deleted when it is uninstalled.
+- Core refuses, without involving the host, in this order: a session that
+  negotiated version 1 or a method version 2 does not define (`-32601`,
+  `plugin.host.unavailable`), a service the plugin is not granted (`-32601`,
+  `plugin.host.permissionDenied`), and malformed params (`-32602`,
+  `plugin.host.invalidParams`). The code is in `error.data.code`.
+- An accepted request becomes the runtime event `hostRequest` with `method`
+  and `result: { hostRequestID, service, params }`. The host answers it with
+  `lsp.hostResponse { sessionId, hostRequestID, result? | error: { message } }`;
+  Core sends `result` (or `null`) to the backend, or `-32603` with
+  `plugin.host.failed` and the host's message cut to 1024 bytes. An unknown
+  `hostRequestID`, including one already answered, is `invalid_request`.
+- A session holds at most 16 unanswered host requests; a further one is
+  refused with `plugin.host.failed`. Unanswered requests end with the session.
+- `hostServices` needs `pluginId` and names only services this Core defines;
+  otherwise `lsp.startServer` is `invalid_request`.
+
 ### Compatibility
 
 - Packages of every API level are unchanged: functions add no manifest field.
@@ -1296,8 +1381,10 @@ running on that session, is dropped.
   function calls, and its function requests are answered with `-32601`.
 - A new host capability or wire field the other side must not ignore needs a
   new protocol version, offered next to the old one.
-- `fixtures/function-protocol.json` holds the golden cases. Rust Core tests run
-  them, and a scripted backend covers routing, result, failure, cancellation,
+- A backend that answers `version: 1` keeps working unchanged: version 2
+  only adds host services.
+- `fixtures/function-protocol.json` holds the golden cases, including the
+  host requests (`hostRequests`). Rust Core tests run them, and a scripted backend covers routing, result, failure, cancellation,
   deadline, late reply, revocation, and compatibility with a build-only
   backend.
 
@@ -1387,6 +1474,9 @@ command payload is a Core `invalid_request` failure instead.
 | `plugin.project.generationFailed` | Host | A command step failed or timed out, a download failed, or the project could not be moved into place |
 | `plugin.function.recursiveCall` | Core | A backend asked the host to dispatch a domain operation or function |
 | `plugin.host.unavailable` | Core | A backend asked for a host capability the negotiated protocol does not offer |
+| `plugin.host.permissionDenied` | Core | A backend asked for a [host service](#host-services-protocol-version-2) its plugin's permissions do not grant |
+| `plugin.host.invalidParams` | Core | A host-service request has malformed or unknown params |
+| `plugin.host.failed` | Core | The host could not complete a host-service request, or too many were unanswered |
 
 Host-facing plugin states are `notInstalled`, `installed` (enabled or
 disabled), `running`, `restartRequired`, `updateRequired`, and `failed`.
@@ -1500,15 +1590,15 @@ their output appears in the host's Build output window.
 | `build.setOptions` | `{ instance, values }` | `{ options }`, checked by `build.resolveOptions` and stored like values set in the host's option list |
 | `workspace.openFile` | `{ path, line?, column? }`, a path inside the workspace | `{}` |
 | `ui.getState`, `ui.setState` | none, `{ state }` | `{ state }`, `{}`; JSON of at most 64 KiB per window and workspace |
-| `functions.list` | `{ instance }` | `{ functions }`: sorted IDs of the functions the instance's provider currently offers; starts the provider |
-| `functions.invoke` | `{ instance, function, params?, call? }`; `params` an object, `call` a page-chosen ID of at most 128 characters that the page never used before | `{ value }`, the function's result |
+| `functions.list` | `{ instance? }` | `{ functions }`: sorted IDs of the functions the instance's provider, or without `instance` the plugin's [backend](#plugin-backend), currently offers; starts that process |
+| `functions.invoke` | `{ instance?, function, params?, call? }`, without `instance` a call to the plugin's backend; `params` an object, `call` a page-chosen ID of at most 128 characters that the page never used before | `{ value }`, the function's result |
 | `functions.cancel` | `{ call }` | `{}`; a call still awaiting consent never starts, a call waiting for its provider to start ends at once while the start goes on, and a call that already ended is ignored |
 
 | Event | Payload |
 | --- | --- |
 | `build.instancesChanged` | `{ instances }`, as `build.instances` returns them |
 | `build.runChanged` | `{ run, instance, state, exitCode? }`, `state` one of `running`, `succeeded`, `failed`, `cancelled` |
-| `functions.progress` | `{ call, instance, function, message?, percentage? }`, only for a call made with `call` |
+| `functions.progress` | `{ call, instance?, function, message?, percentage? }`, only for a call made with `call`; `instance` absent for a backend call |
 | `ui.themeChanged` | `{ theme }` |
 
 Bridge errors are `plugin.web.unknownMethod`, `plugin.web.invalidRequest`,
@@ -1524,9 +1614,10 @@ cancelled or the provider stopped. A page
 has at most 16 function calls accepted at once, counting calls still awaiting
 consent, and closing it cancels them. Reusing a `call` ID is
 `plugin.web.invalidRequest`, also after that call ended.
-`functions.list` and `functions.invoke` ask for the same consent as the
-host's provider requests: once given for a plugin and workspace, it holds
-until the project is closed.
+`functions.list` and `functions.invoke` with an `instance` ask for the same
+consent as the host's provider requests: once given for a plugin and
+workspace, it holds until the project is closed. Calls to the plugin's
+backend ask for none; the install review covered it.
 macOS implements web content with WKWebView and advertises `ui: [1, 2, 3]`
 (including the native controls described below).
 Windows has no WebView2 host yet and still advertises `ui: [1]`, so Core refuses

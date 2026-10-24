@@ -335,6 +335,7 @@ fn real_start_request(
     StartServerRequest {
         provider_id: "java".to_string(),
         plugin_id: None,
+        host_services: Vec::new(),
         executable_path: toolchain
             .root
             .join("bin")
