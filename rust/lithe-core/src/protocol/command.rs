@@ -378,6 +378,22 @@ pub enum CoreCommand {
     GitExecutionConfigure,
     /// Answers a currently owned authentication prompt (`git.authRespond`).
     GitAuthRespond,
+    /// Checks that an SSH connection reaches a supported host (`remote.probe`).
+    RemoteProbe,
+    /// Answers a prompt relayed by a running `remote.probe` (`remote.authRespond`).
+    RemoteAuthRespond,
+    /// Opens a remote connection, installing the server when needed (`remote.connect`).
+    RemoteConnect,
+    /// Lists a directory over an open remote connection (`remote.readDir`).
+    RemoteReadDir,
+    /// Closes a remote connection (`remote.disconnect`).
+    RemoteDisconnect,
+    /// Closes every open remote connection at application exit (`remote.closeAll`).
+    RemoteCloseAll,
+    /// Reads a file over an open remote connection (`remote.readFile`).
+    RemoteReadFile,
+    /// Saves a file over an open remote connection (`remote.writeFile`).
+    RemoteWriteFile,
     /// Inspects repository initialization and scoped commit identity.
     GitRepositorySetup,
     /// Initializes an existing folder outside any repository.
@@ -634,6 +650,14 @@ impl CoreCommand {
             "git.executionInspect" => Some(Self::GitExecutionInspect),
             "git.executionConfigure" => Some(Self::GitExecutionConfigure),
             "git.authRespond" => Some(Self::GitAuthRespond),
+            "remote.probe" => Some(Self::RemoteProbe),
+            "remote.authRespond" => Some(Self::RemoteAuthRespond),
+            "remote.connect" => Some(Self::RemoteConnect),
+            "remote.readDir" => Some(Self::RemoteReadDir),
+            "remote.disconnect" => Some(Self::RemoteDisconnect),
+            "remote.closeAll" => Some(Self::RemoteCloseAll),
+            "remote.readFile" => Some(Self::RemoteReadFile),
+            "remote.writeFile" => Some(Self::RemoteWriteFile),
             "git.historyRewritePreview" => Some(Self::GitHistoryRewritePreview),
             "git.rebasePreview" => Some(Self::GitRebasePreview),
             "git.repositorySetup" => Some(Self::GitRepositorySetup),

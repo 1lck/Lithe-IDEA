@@ -395,6 +395,8 @@ async function main() {
       // Includes mcp-registry-metadata: responses have no copy stage; featured.json
       // and McpIcons follow Git source, never a downloaded/generated resource validator.
       // Includes plugin-web-state: per-window/workspace user JSON has no build identity or copy stage.
+      // Includes remote-server-artifacts: packaging rebuilds them from this worktree's sources.
+      // Includes remote-connection-state: SSH settings, keychain secrets and placeholder roots are user-owned.
       // Includes plugin-disk-install-state: fileStorage temporary snapshots, install staging
       // and active/previous approvals are runtime-owned. Reject before resolving worktrees
       // or calling validatorArguments; a content digest is neither a build stamp nor consent.

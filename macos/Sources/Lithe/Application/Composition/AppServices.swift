@@ -21,6 +21,9 @@ final class AppServices {
     /// Creates projects for the New Project window; `nil` falls back to
     /// choosing an existing folder.
     var projectGeneration: ProjectGenerationService?
+    /// Saved SSH connections and the connection test for the Remote
+    /// Development window; `nil` hides the window's entry points.
+    var remoteConnections: RemoteConnectionServices?
     /// Installed plugins with their enabled state, for the New Project
     /// catalog and the plugins that provide a generator's requirements.
     var projectGeneratorSources: (@MainActor () -> [ProjectGeneratorPluginSource])?

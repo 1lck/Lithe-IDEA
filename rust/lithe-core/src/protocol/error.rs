@@ -29,6 +29,9 @@ pub enum ErrorCode {
     Cancelled,
     /// The operation exceeded its declared deadline.
     TimedOut,
+    /// A long-lived connection the request names is closed or was lost; the
+    /// caller can reconnect and retry.
+    ConnectionClosed,
     /// A failure does not fit a more stable cross-platform category.
     Unknown,
 }

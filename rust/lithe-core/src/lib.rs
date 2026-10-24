@@ -20,6 +20,7 @@ pub mod process;
 mod project;
 mod project_generators;
 mod protocol;
+mod remote;
 mod runtime;
 mod vcs;
 

@@ -12,6 +12,8 @@ crate-type = ["rlib", "staticlib", "cdylib"]
 lithe-git-host = { path = "../lithe-git-host" }
 lithe-agent-host = { path = "../lithe-agent-host" }
 lithe-ide-host = { path = "../lithe-ide-host" }
+lithe-remote-client = { path = "../lithe-remote-client" }
+lithe-remote-protocol = { path = "../lithe-remote-protocol" }
 ammonia = "4.1.4"
 base64 = "0.22"
 chrono = { version = "0.4", default-features = false, features = ["std"] }

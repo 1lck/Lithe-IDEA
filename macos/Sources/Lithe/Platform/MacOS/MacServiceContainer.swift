@@ -111,7 +111,19 @@ final class MacServiceContainer {
         self.runConfigurationStore = runConfigurationStore
         let debugBreakpointStore = MacDebugBreakpointStore(store: store)
         let debugSteppingFilterStore = MacDebugSteppingFilterStore(store: store)
-        let fileOperations = MacWorkspaceFileOperations()
+        // Remote workspaces open under an empty placeholder root; both file
+        // ports route every URL below such a root to the connected host.
+        let remoteWorkspaces = RemoteWorkspaceRegistry()
+        let remoteOperations = RustRemoteConnectionOperations(core: rustCore)
+        // Core owns the OpenSSH trees; closing them at exit also stops the
+        // remote servers they carry.
+        MacLiveProcessGroups.application.setExitAction("remote-connections") {
+            remoteOperations.closeAllBlocking()
+        }
+        let remoteTransport = ConnectionWatchingTransport(base: remoteOperations, registry: remoteWorkspaces)
+        let fileOperations = RemoteRoutingFileOperations(
+            local: MacWorkspaceFileOperations(), registry: remoteWorkspaces, transport: remoteTransport
+        )
         let processRunner = MacProcessRunner(logging: applicationLogging)
         let secureStore = MacLocalSecretStore()
         let databaseSecureStore = MacKeychainSecureStore(
@@ -596,7 +608,11 @@ final class MacServiceContainer {
         }
         let gitOperations = RustGitOperations(core: rustCore)
         let defaultWorkspaceOperations = RustWorkspaceOperations(core: rustCore)
-        let workspaceOperations: any WorkspaceOperations = providedWorkspaceOperations ?? defaultWorkspaceOperations
+        let workspaceOperations: any WorkspaceOperations = RemoteRoutingWorkspaceOperations(
+            local: providedWorkspaceOperations ?? defaultWorkspaceOperations,
+            registry: remoteWorkspaces,
+            transport: remoteTransport
+        )
         let searchOperations: any SearchOperations =
             (providedWorkspaceOperations as? any SearchOperations) ?? defaultWorkspaceOperations
         let gitWatchContextProvider: any GitWatchContextProviding =
@@ -780,7 +796,7 @@ final class MacServiceContainer {
                 directory: fileStorage.applicationSupportDirectory().appendingPathComponent("Lithe/AgentHooks", isDirectory: true)),
             agentProviderConfigurationParser: MacAgentProviderConfigurationParser(core: rustCore),
             aiConfigurationSources: aiConfigurationSources,
-            recentProjectsStore: RecentProjectsStore(store: store),
+            recentProjectsStore: RecentProjectsStore(store: store, excludes: { remoteWorkspaces.contains($0) }),
             recentProjectBranchReader: MacRecentProjectBranchReader(storage: fileStorage),
             workspaceSessionStore: WorkspaceSessionStore(store: store),
             directoryMarkStore: directoryMarkStore,
@@ -835,6 +851,24 @@ final class MacServiceContainer {
         services.processExitCoordinator = ProcessExitCoordinator(
             core: RustProcessLifecycleDecider(core: rustCore),
             presenter: MacProcessExitConfirmationPresenter.shared
+        )
+        // Remote Development window. Passwords and key passphrases use their
+        // own keychain service so they never mix with Git or database secrets.
+        services.remoteConnections = RemoteConnectionServices(
+            store: RemoteConnectionStore(
+                store: store,
+                secureStore: MacKeychainSecureStore(service: fileStorage.identity.keychainService("remote"))
+            ),
+            prober: remoteOperations,
+            sessions: remoteOperations,
+            locator: MacRemoteHostLocator(),
+            workspaces: remoteWorkspaces,
+            prepareWorkspaceRoot: { connectionID, remotePath in
+                try MacRemoteWorkspaceRoots.prepare(
+                    in: fileStorage.applicationSupportDirectory(), connection: connectionID, remotePath: remotePath
+                )
+            },
+            servers: MacRemoteServerBundleLocator.locate()
         )
         // New Project window. Plugin packages are read-only; projects are
         // written into a staging directory inside the folder the user chose.

@@ -22,6 +22,8 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     /// when the page is first shown.
     lazy var mcpServerLibrary = McpServerLibraryFeatureModel(model: self)
     @Published var isChangingAgentProvider = false
+    /// Token of the lost-remote-connection observer; see `observeRemoteConnectionLoss`.
+    var remoteLossObserver: NSObjectProtocol?
     var workspaceURL: URL? { workspaceSessionCoordinator.workspaceURL }
     var standaloneFileURL: URL? { workspaceSessionCoordinator.standaloneFileURL }
     var searchSessionFeature: SearchSessionFeatureModel { featureGraph.searchSession }
@@ -506,6 +508,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         workbenchFeature.configure { [weak self] destination in
             self?.handleSidebarSelectionChanged(destination)
         }
+        observeRemoteConnectionLoss()
         workspaceSessionCoordinator.configureLifecycle(
             with: WorkspaceSessionCoordinator.LifecycleHandlers(
                 prepareForWorkspaceOpen: { [weak self] url in
@@ -682,6 +685,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     }
 
     deinit {
+        if let remoteLossObserver { NotificationCenter.default.removeObserver(remoteLossObserver) }
         for task in contributionActivationTasks.values { task.cancel() }
         sidebarRefreshTask?.cancel()
     }
@@ -999,6 +1003,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     }
 
     private func finishWorkspaceClose(for workspaceURL: URL) {
+        releaseRemoteWorkspace(at: workspaceURL)
         ideCapabilities.disable()
         documentLanguageCoordinator?.stop()
         cancelJavaLanguageServerPreparation()
