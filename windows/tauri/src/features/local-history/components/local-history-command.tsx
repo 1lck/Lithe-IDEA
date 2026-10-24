@@ -162,7 +162,6 @@ function FileLocalHistoryCommandContent({
             snapshotName,
             content,
             false,
-            undefined,
             false,
             true,
           );
@@ -232,7 +231,6 @@ function FileLocalHistoryCommandContent({
           params.title,
           "",
           false,
-          undefined,
           true,
           true,
           diff,

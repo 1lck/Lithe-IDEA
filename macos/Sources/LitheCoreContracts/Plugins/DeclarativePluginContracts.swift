@@ -139,7 +139,9 @@ public struct LanguageServerRuntimeVersionCheck: Equatable, Sendable {
 public struct DeclarativeLanguageServerLaunchRequest: Equatable, Sendable {
     public let pluginDirectory: URL
     public let stateDirectory: URL
-    public let workspaceStateDirectory: URL
+    /// Nil for a process bound to no workspace, such as a plugin backend;
+    /// Core then refuses a launch that names `${workspaceStateDir}`.
+    public let workspaceStateDirectory: URL?
     /// `arm64` or `x86_64`.
     public let architecture: String
     /// Values the user stored for the plugin's settings, by setting ID. Rust
@@ -152,7 +154,7 @@ public struct DeclarativeLanguageServerLaunchRequest: Equatable, Sendable {
     public init(
         pluginDirectory: URL,
         stateDirectory: URL,
-        workspaceStateDirectory: URL,
+        workspaceStateDirectory: URL?,
         architecture: String,
         settings: [String: ToolingJSONValue] = [:],
         projectSettings: [String: ToolingJSONValue] = [:]
@@ -445,6 +447,17 @@ public struct DeclarativeLanguageServerLaunchPlan: Equatable, Sendable {
     public let buildProvider: BuildProvider?
     /// Set when the plan was selected by VCS provider.
     public var vcsProvider: VcsProvider? = nil
+    /// Set when the plan is the plugin's backend: the host services its
+    /// permissions grant, passed to the session unchanged.
+    public var backend: Backend? = nil
+
+    public struct Backend: Equatable, Sendable {
+        public let hostServices: [String]
+
+        public init(hostServices: [String]) {
+            self.hostServices = hostServices
+        }
+    }
 
     public enum Executable: Equatable, Sendable {
         /// Package-relative file.
@@ -589,6 +602,8 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
     public let ui: DeclarativeUIContributions?
     /// Entries the plugin adds to the New Project window.
     public let projectGenerators: [DeclarativeProjectGenerator]
+    /// Whether the plugin declares its own backend process (`backend` 1).
+    public let declaresBackend: Bool
     public let normalizedManifest: Data
 
     public var id: PluginID { pluginManifest.id }
@@ -631,6 +646,7 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
             DeclarativeProjectGenerator(id: $0.id, displayName: $0.displayName, icon: $0.icon)
         }
         ui = decoded.ui
+        declaresBackend = decoded.backend != nil
         settings = try decoded.settings.map { try $0.declaration() }
         settingActions = decoded.settingActions.map { $0.declaration() }
         languages = decoded.languages.map { DeclarativePluginLanguage(id: $0.id, displayName: $0.displayName) }
@@ -1098,6 +1114,9 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
         let settings: [Setting]
         let settingActions: [SettingAction]
         let projectGenerators: [ProjectGenerator]
+        /// Launch fields stay with Rust Core; the host only needs to know
+        /// a backend exists.
+        let backend: ToolingJSONValue?
 
         /// What plugin management lists. Fields and steps stay with Rust Core,
         /// which evaluates the New Project form and plans every step.
@@ -1125,12 +1144,13 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
             settings = try values.decodeIfPresent([Setting].self, forKey: .settings) ?? []
             settingActions = try values.decodeIfPresent([SettingAction].self, forKey: .settingActions) ?? []
             projectGenerators = try values.decodeIfPresent([ProjectGenerator].self, forKey: .projectGenerators) ?? []
+            backend = try values.decodeIfPresent(ToolingJSONValue.self, forKey: .backend)
         }
 
         private enum CodingKeys: String, CodingKey {
             case id, displayName, version, pluginAPIVersion, vendor, permissions, activationEvents
             case languages, languageServers, executionProviders, buildSystems, vcsProviders, ui, settings, settingActions
-            case projectGenerators
+            case projectGenerators, backend
         }
     }
 }
@@ -1234,6 +1254,11 @@ public protocol DeclarativeLanguageServerLaunchPlanning: Sendable {
         vcs: String,
         request: DeclarativeLanguageServerLaunchRequest
     ) throws -> DeclarativeLanguageServerLaunchPlan
+    /// The launch plan of the plugin's backend, with `backend` set.
+    func backendLaunchPlan(
+        manifest: Data,
+        request: DeclarativeLanguageServerLaunchRequest
+    ) throws -> DeclarativeLanguageServerLaunchPlan
 }
 
 public extension DeclarativeLanguageServerLaunchPlanning {
@@ -1256,6 +1281,16 @@ public extension DeclarativeLanguageServerLaunchPlanning {
         throw DeclarativePluginRejection(
             code: "plugin.launch.unavailable",
             message: "This host cannot plan VCS provider launches."
+        )
+    }
+
+    func backendLaunchPlan(
+        manifest _: Data,
+        request _: DeclarativeLanguageServerLaunchRequest
+    ) throws -> DeclarativeLanguageServerLaunchPlan {
+        throw DeclarativePluginRejection(
+            code: "plugin.launch.unavailable",
+            message: "This host cannot plan plugin backend launches."
         )
     }
 }

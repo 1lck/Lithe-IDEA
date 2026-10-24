@@ -10,7 +10,6 @@ interface MarkdownActionsParams {
     name: string,
     content: string,
     isImage?: boolean,
-    databaseType?: any,
     isDiff?: boolean,
     isVirtual?: boolean,
     diffData?: any,
@@ -48,7 +47,6 @@ export const createMarkdownActions = (params: MarkdownActionsParams): Action[] =
           previewName,
           content,
           false, // isImage
-          undefined, // databaseType
           false, // isDiff
           true, // isVirtual
           undefined, // diffData

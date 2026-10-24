@@ -143,6 +143,19 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
         ))
     }
 
+    func backendLaunchPlan(
+        manifest: Data,
+        request: DeclarativeLanguageServerLaunchRequest
+    ) throws -> DeclarativeLanguageServerLaunchPlan {
+        try launchPlan(LaunchPlanPayload(
+            manifest: try Self.json(manifest),
+            languageID: nil,
+            buildSystemID: nil,
+            backend: true,
+            request: LaunchRequest(request)
+        ))
+    }
+
     private func launchPlan(_ payload: LaunchPlanPayload) throws -> DeclarativeLanguageServerLaunchPlan {
         let outcome: Outcome<LaunchPlanResult> = try execute(
             "plugins.declarative.languageServerLaunchPlan",
@@ -191,6 +204,7 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
                 mayUseNetwork: $0.mayUseNetwork ?? false
             )
         }
+        result.backend = plan.backend.map { .init(hostServices: $0.hostServices) }
         return result
     }
 
@@ -320,7 +334,8 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
     private struct LaunchRequest: Encodable {
         let pluginDirectory: String
         let stateDirectory: String
-        let workspaceStateDirectory: String
+        /// Omitted for a process bound to no workspace.
+        let workspaceStateDirectory: String?
         let architecture: String
         let settings: [String: ToolingJSONValue]
         let projectSettings: [String: ToolingJSONValue]
@@ -328,7 +343,7 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
         init(_ request: DeclarativeLanguageServerLaunchRequest) {
             pluginDirectory = request.pluginDirectory.path
             stateDirectory = request.stateDirectory.path
-            workspaceStateDirectory = request.workspaceStateDirectory.path
+            workspaceStateDirectory = request.workspaceStateDirectory?.path
             architecture = request.architecture
             settings = request.settings
             projectSettings = request.projectSettings
@@ -400,6 +415,11 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
         let requiredPackagePaths: [String]
         let buildProvider: BuildProvider?
         let vcsProvider: VcsProvider?
+        let backend: Backend?
+
+        struct Backend: Decodable {
+            let hostServices: [String]
+        }
 
         struct VcsProvider: Decodable {
             struct Tool: Decodable {
@@ -447,6 +467,8 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
         let languageID: String?
         let buildSystemID: String?
         var vcsProviderID: String? = nil
+        /// Selects the plugin backend; omitted for every other process.
+        var backend: Bool? = nil
         let request: LaunchRequest
     }
 

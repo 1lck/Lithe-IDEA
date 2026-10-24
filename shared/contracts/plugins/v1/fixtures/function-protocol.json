@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "protocol": "litheFunctions",
-  "offer": { "versions": [1] },
+  "offer": { "versions": [1, 2] },
   "negotiation": [
     {
       "name": "no answer leaves the protocol off",
@@ -37,8 +37,13 @@
       "expected": { "functions": ["install.finish", "install.prepare"] }
     },
     {
+      "name": "version 2 negotiates the same registry and adds host services",
+      "capabilities": { "experimental": { "litheFunctions": { "version": 2, "functions": [{ "id": "query.run" }] } } },
+      "expected": { "functions": ["query.run"], "version": 2 }
+    },
+    {
       "name": "a version the host never offered is not negotiated",
-      "capabilities": { "experimental": { "litheFunctions": { "version": 2 } } },
+      "capabilities": { "experimental": { "litheFunctions": { "version": 3 } } },
       "expected": { "functions": null }
     },
     {
@@ -265,6 +270,88 @@
       "name": "other methods keep the ordinary JSON-RPC answer",
       "method": "workspace/applyEdit",
       "expected": { "code": null }
+    }
+  ],
+  "hostRequests": [
+    {
+      "name": "version 1 sessions get no host service even when granted",
+      "version": 1,
+      "hostServices": ["credentials"],
+      "method": "lithe/host/credentials/get",
+      "params": { "key": "connection.prod" },
+      "expected": { "rpcCode": -32601, "code": "plugin.host.unavailable" }
+    },
+    {
+      "name": "a granted credential read is forwarded to the host",
+      "version": 2,
+      "hostServices": ["credentials"],
+      "method": "lithe/host/credentials/get",
+      "params": { "key": "connection.prod" },
+      "expected": { "forward": "credentials" }
+    },
+    {
+      "name": "a credential write carries the secret",
+      "version": 2,
+      "hostServices": ["credentials"],
+      "method": "lithe/host/credentials/set",
+      "params": { "key": "connection.prod:password", "secret": "s3cret" },
+      "expected": { "forward": "credentials" }
+    },
+    {
+      "name": "a credential delete names only the key",
+      "version": 2,
+      "hostServices": ["credentials"],
+      "method": "lithe/host/credentials/delete",
+      "params": { "key": "connection.prod" },
+      "expected": { "forward": "credentials" }
+    },
+    {
+      "name": "a service the plugin's permissions do not grant is refused",
+      "version": 2,
+      "hostServices": [],
+      "method": "lithe/host/credentials/get",
+      "params": { "key": "connection.prod" },
+      "expected": { "rpcCode": -32601, "code": "plugin.host.permissionDenied" }
+    },
+    {
+      "name": "a host method version 2 does not define is unavailable",
+      "version": 2,
+      "hostServices": ["credentials"],
+      "method": "lithe/host/process.run",
+      "params": {},
+      "expected": { "rpcCode": -32601, "code": "plugin.host.unavailable" }
+    },
+    {
+      "name": "a key outside the alphabet is invalid",
+      "version": 2,
+      "hostServices": ["credentials"],
+      "method": "lithe/host/credentials/get",
+      "params": { "key": "../other-plugin" },
+      "expected": { "rpcCode": -32602, "code": "plugin.host.invalidParams" }
+    },
+    {
+      "name": "an empty key is invalid",
+      "version": 2,
+      "hostServices": ["credentials"],
+      "method": "lithe/host/credentials/delete",
+      "params": { "key": "" },
+      "expected": { "rpcCode": -32602, "code": "plugin.host.invalidParams" }
+    },
+    {
+      "name": "a write without a string secret is invalid",
+      "version": 2,
+      "hostServices": ["credentials"],
+      "method": "lithe/host/credentials/set",
+      "params": { "key": "connection.prod", "secret": 42 },
+      "expected": { "rpcCode": -32602, "code": "plugin.host.invalidParams" }
+    },
+    {
+      "name": "unknown params are invalid so a later version can add them",
+      "version": 2,
+      "hostServices": ["credentials"],
+      "method": "lithe/host/credentials/get",
+      "params": { "key": "connection.prod", "scope": "global" },
+      "expected": { "rpcCode": -32602, "code": "plugin.host.invalidParams" }
     }
   ]
 }

@@ -131,10 +131,22 @@ enum LitheFeatureAvailability {
 }
 
 struct WorkbenchNotification: Identifiable, Equatable {
+    /// A button that takes the user to where they act on the notification.
+    struct Action: Equatable {
+        /// Localization key of the button title.
+        let title: String
+        let perform: @MainActor () -> Void
+
+        /// Actions are told apart by the button they show.
+        static func == (lhs: Action, rhs: Action) -> Bool { lhs.title == rhs.title }
+    }
+
     let id: UUID
     let message: String
     /// Raw substitutions stay locale-independent until balloon/history rendering.
     let arguments: [String]
+    /// A notification with an action stays until the user uses or dismisses it.
+    let action: Action?
     let createdAt: Date
     /// When the message was shown last. Repeating a message keeps the single
     /// entry but moves this forward, so the list reports fresh activity.
@@ -150,12 +162,14 @@ struct WorkbenchNotification: Identifiable, Equatable {
         id: UUID = UUID(),
         message: String,
         arguments: [String] = [],
+        action: Action? = nil,
         createdAt: Date = Date(),
         isRead: Bool = false
     ) {
         self.id = id
         self.message = message
         self.arguments = arguments
+        self.action = action
         self.createdAt = createdAt
         self.updatedAt = createdAt
         self.isRead = isRead

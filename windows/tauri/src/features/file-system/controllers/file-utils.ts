@@ -1,33 +1,5 @@
-import type { DatabaseType } from "@/features/database/types/provider.types";
 import { getLanguageIdFromPath } from "@/features/editor/utils/language-id";
 import { getBaseName } from "@/utils/path-helpers";
-
-/**
- * Check if a file is a SQLite database based on its extension
- */
-const isSQLiteFile = (path: string): boolean => {
-  const lowerPath = path.toLowerCase();
-  return (
-    lowerPath.endsWith(".sqlite") || lowerPath.endsWith(".db") || lowerPath.endsWith(".sqlite3")
-  );
-};
-
-/**
- * Check if a file is a DuckDB database based on its extension
- */
-const isDuckDBFile = (path: string): boolean => {
-  const lowerPath = path.toLowerCase();
-  return lowerPath.endsWith(".duckdb") || lowerPath.endsWith(".duck");
-};
-
-/**
- * Get the database type from a file path, or null if not a database file
- */
-export const getDatabaseTypeFromPath = (path: string): DatabaseType | null => {
-  if (isSQLiteFile(path)) return "sqlite";
-  if (isDuckDBFile(path)) return "duckdb";
-  return null;
-};
 
 /**
  * Check if a file is an image based on its extension

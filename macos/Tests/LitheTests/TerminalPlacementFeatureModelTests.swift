@@ -120,8 +120,8 @@ struct TerminalPlacementFeatureModelTests {
         await model.shutdownProjectSession()
     }
 
-    @Test(arguments: [false, true])
-    func documentFocusRestoresSelectionAfterTerminalOrDatabase(database: Bool) async throws {
+    @Test
+    func documentFocusRestoresSelectionAfterTerminal() async throws {
         let context = makeTerminalCloseContext()
         let model = context.model
         do {
@@ -132,22 +132,15 @@ struct TerminalPlacementFeatureModelTests {
             model.editorTabOrderFeature.moveToEnd(.terminal(context.session.id))
             #expect(model.editorTabOrderFeature.drop(.terminal(context.session.id), into: group, side: .right))
             model.selectEditorTerminalSession(context.session)
-            if database {
-                model.editorTabOrderFeature.moveToEnd(.database(nil))
-                model.editorTabOrderFeature.databaseSelected = true
-                model.editorTabOrderFeature.focus(.database(nil))
-            }
             #expect(model.activeDocumentID == document.id)
             model.editorDidFocus(document)
             #expect(model.activeEditorTerminalSession == nil)
-            #expect(!model.isDatabaseWorkspaceSelected)
             #expect(model.editorTabOrderFeature.selectedItem(in: group) == .document(document.id))
             model.showFindBar()
             #expect(model.isFindBarVisible)
             #expect(model.requestCloseActiveWorkbenchItem())
             #expect(!model.openDocuments.contains { $0.id == document.id })
             #expect(model.editorTerminalSessions.contains { $0.id == context.session.id })
-            if database { #expect(model.editorTabItems.contains(.database(nil))) }
         } catch { await model.shutdownProjectSession(); throw error }
         await model.shutdownProjectSession()
     }

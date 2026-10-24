@@ -5,7 +5,6 @@ export type SidebarView =
   | "docker"
   | "extensions"
   | "outline"
-  | "databases"
   | "notifications"
   | "agent"
   | (string & {});
@@ -26,7 +25,6 @@ export type SidebarPaneLevel = "primary" | "edge";
 
 const EDGE_SIDEBAR_VIEWS = new Set<SidebarView>([
   "outline",
-  "databases",
   "notifications",
 ]);
 

@@ -259,7 +259,6 @@ extension AppModel {
         guard terminalPlacementFeature.editorSessionIDs.contains(session.id),
               terminalFeature?.selectSession(session) == true else { return }
         editorTabOrderFeature.repositoryDiffSelected = false
-        editorTabOrderFeature.databaseSelected = false
         mediaFeature.deactivate()
         terminalPlacementFeature.activateEditorSession(session.id)
     }
@@ -272,7 +271,6 @@ extension AppModel {
     func moveTerminalToEditor(_ sessionID: UUID) {
         guard let session = terminalSessions.first(where: { $0.id == sessionID }) else { return }
         editorTabOrderFeature.repositoryDiffSelected = false
-        editorTabOrderFeature.databaseSelected = false
         terminalPlacementFeature.moveToEditor(sessionID)
         editorTabOrderFeature.moveToEnd(.terminal(sessionID))
         terminalPlacementFeature.reorderEditorSessions(

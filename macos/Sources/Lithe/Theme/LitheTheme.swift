@@ -569,86 +569,6 @@ enum LitheTheme {
         static var modifiedLine: Color { controlColor(light: 0xE6EFFA, dark: 0x25323E) }
     }
 
-    // Community grid/impl: GridColorSchemeUtil reads editor colors, not Table UI tokens.
-    enum DatabaseGrid {
-        // Structural surfaces share the workbench palette; cell states retain their own tokens.
-        static var background: Color { editor }
-        // GridEditorPanelBase.updateEditorPrefix -> INLINE_PARAMETER_HINT foreground.
-        static var clausePlaceholder: Color { activeTheme == .lithe ? controlColor(light: 0x7A7A7A, dark: 0x858A94) : secondaryText }
-        // SelectionColorLayer -> DataGridUIUtil.softHighlightOf: +/- 0x10 per RGB channel.
-        static var headerBackground: Color { activeTheme == .lithe ? controlColor(light: 0xEFEFEF, dark: 0x292A2C) : raised }
-        // SelectionColorLayer.getRowHeaderBackground -> GRID_CURRENT_ROW / CARET_ROW_COLOR.
-        static var currentRowBackground: Color { activeTheme == .lithe ? controlColor(light: 0xFCFAED, dark: 0x1F2024) : subtleSelection }
-        // Transparent row headers use editor line-number colors, not the cell foreground.
-        static var rowNumber: Color { activeTheme == .lithe ? controlColor(light: 0xADADAD, dark: 0x4B5059) : secondaryText }
-        static var currentRowNumber: Color { activeTheme == .lithe ? controlColor(light: 0xADADAD, dark: 0xA1A3AB) : primaryText }
-        static var border: Color { activeTheme == .lithe ? controlColor(light: 0xE6E6E6, dark: 0x323438) : guide }
-        // TableResultView reserves one logical pixel for each enabled grid line.
-        static let borderWidth: CGFloat = 1
-        static func rowHeaderWidth(rowCount: Int) -> CGFloat {
-            let digits = String(max(1, rowCount)).count
-            let width = (String(repeating: "0", count: digits) as NSString).size(withAttributes: [.font: editorFont(size: 13)]).width
-            return max(24, ceil(width) + 16)
-        }
-
-        static func columnWidths(_ columns: [String], availableWidth: CGFloat, rowHeaderWidth: CGFloat,
-                                 values: (String) -> [String]) -> [String: CGFloat] {
-            let font = editorFont(size: 13)
-            func textWidth(_ text: String) -> CGFloat { ceil((text as NSString).size(withAttributes: [.font: font]).width) }
-            let full = columns.map { max(40, max(textWidth($0) + 61, values($0).map { textWidth($0) + 6 }.max() ?? 0)) }
-            let available = max(40, availableWidth - rowHeaderWidth)
-            let preferred = full.map { min($0, available * (3 - sqrt(5)) / 2) }
-            let extra = max(0, available - preferred.reduce(0, +))
-            let total = max(1, full.reduce(0, +))
-            return Dictionary(columns.indices.map {
-                (columns[$0], preferred[$0] + extra * full[$0] / total)
-            }, uniquingKeysWith: max)
-        }
-        // MutationsColorLayer -> MessageType.ERROR -> Islands Notification.errorBackground.
-        static var failedMutation: Color { controlColor(light: 0xFFF6F5, dark: 0x56272B) }
-        // SelectionColorLayer -> DataGridUIUtil.softHighlightOf, preserving the mutation hue.
-        static func mutationBackground(_ color: Color, highlighted: Bool) -> Color {
-            guard highlighted else { return color }
-            return Color(nsColor: NSColor(name: nil) { appearance in
-                var rgb = NSColor(color)
-                appearance.performAsCurrentDrawingAppearance {
-                    rgb = rgb.usingColorSpace(.deviceRGB) ?? rgb
-                }
-                let step: CGFloat = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? 16.0 / 255 : -16.0 / 255
-                return NSColor(red: min(1, max(0, rgb.redComponent + step)),
-                               green: min(1, max(0, rgb.greenComponent + step)),
-                               blue: min(1, max(0, rgb.blueComponent + step)), alpha: rgb.alphaComponent)
-            })
-        }
-        static var text: Color { activeTheme == .lithe ? controlColor(light: 0x000000, dark: 0xBCBEC4) : primaryText }
-        // GRID_NULL_VALUE inherits DEFAULT_LINE_COMMENT in the editor scheme.
-        static var nullText: Color { activeTheme == .lithe ? controlColor(light: 0x8C8C8C, dark: 0x7A7E85) : secondaryText }
-        static var selected: Color { activeTheme == .lithe ? controlColor(light: 0xA6D2FF, dark: 0x214283) : selection }
-        static var inactiveSelected: Color { activeTheme == .lithe ? controlColor(light: 0xB5B7BD, dark: 0x4C4F56) : subtleSelection }
-        // DarculaUIUtil.paintCellEditorBorder -> Islands Component.focusColor.
-        static var editingBorder: Color { activeTheme == .lithe ? controlColor(light: 0x3871E1, dark: 0x3871E1) : inputFocusBorder }
-        static let editingBorderWidth: CGFloat = 2
-        // TableResultView: font line height + 1pt row margin + 4pt cell insets.
-        static var rowHeight: CGFloat { ceil(NSLayoutManager().defaultLineHeight(for: editorFont(size: 13)) * editorLineHeightMultiple) + 5 }
-    }
-
-    /// Community c7f91397: Islands editor DEFAULT_* attributes, separate from UI semantic colors.
-    enum DatabaseConsole {
-        // CONSOLE_RANGE_TO_EXECUTE (Islands Dark); use its verified green as the Lithe light fallback.
-        // INLAY_TEXT_WITHOUT_BACKGROUND follows Islands Dark / Default light.
-        static var statementOutline: Color { controlColor(light: 0x3D7A49, dark: 0x3D7A49) }
-        static var executionInfo: Color { controlColor(light: 0x7A7A7A, dark: 0x727782) }
-        // EditorNotificationPanel Status.Error -> Islands Banner.errorBorderColor.
-        static var errorBorder: Color { controlColor(light: 0xFFC4C5, dark: 0x80383E) }
-        // Success follows greenCheckmark.svg; failure follows ERRORS_ATTRIBUTES.ERROR_STRIPE_COLOR.
-        static var successStripe: Color { controlColor(light: 0x369650, dark: 0x57965C) }
-        static var failureStripe: Color { controlColor(light: 0xCF5B56, dark: 0xD64D5B) }
-        static var comment: Color { activeTheme == .lithe ? controlColor(light: 0x8C8C8C, dark: 0x7A7E85) : secondaryText }
-        static var keyword: Color { activeTheme == .lithe ? controlColor(light: 0x0033B3, dark: 0xCF8E6D) : skill }
-        static var number: Color { activeTheme == .lithe ? controlColor(light: 0x1750EB, dark: 0x2AACB8) : warning }
-        static var string: Color { activeTheme == .lithe ? controlColor(light: 0x067D17, dark: 0x6AAB73) : success }
-    }
-
     /// Product action buttons own their colors; selection and field focus keep the theme accent.
     enum ActionButton {
         static let cornerRadius: CGFloat = 4
@@ -710,15 +630,6 @@ enum LitheTheme {
         static var border: Color { controlColor(light: 0xD1D3D9, dark: 0x33353B) }
         static var foreground: Color { controlColor(light: 0x000000, dark: 0xD1D3D9) }
         static var infoForeground: Color { controlColor(light: 0x5F6269, dark: 0x9FA2A8) }
-    }
-
-    /// Community c7f91397 ManyIslands: dialog-bg, popup-border, text-default, Label.successForeground.
-    /// A connection result is a balloon over the dialog, not a popup-menu surface.
-    enum DatabaseConnectionResult {
-        static var background: Color { activeTheme == .lithe ? controlColor(light: 0xF7F8F9, dark: 0x191A1C) : editor }
-        static var border: Color { activeTheme == .lithe ? controlColor(light: 0xDDDFE4, dark: 0x33353B) : divider }
-        static var foreground: Color { activeTheme == .lithe ? controlColor(light: 0x000000, dark: 0xD1D3D9) : primaryText }
-        static var success: Color { activeTheme == .lithe ? controlColor(light: 0x338555, dark: 0x6DB083) : LitheTheme.success }
     }
 
     /// Community 915c3c26: Banner status tokens and InlineBannerBase/EditorNotificationPanel metrics.

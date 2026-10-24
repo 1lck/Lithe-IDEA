@@ -1,7 +1,6 @@
 import {
   CommandIcon,
   ArrowUpIcon as ArrowUp,
-  DatabaseIcon as Database,
   FileTextIcon as FileText,
   MicrophoneIcon as Mic,
   StopIcon as Stop,
@@ -430,7 +429,6 @@ const AIChatInputBar = memo(function AIChatInputBar({
         type: "buffer" as const,
         id: buffer.id,
         name: buffer.name,
-        databaseType: buffer.type === "database" ? buffer.databaseType : undefined,
         isDirty: buffer.type === "editor" && buffer.isDirty,
       }));
 
@@ -1228,15 +1226,7 @@ const AIChatInputBar = memo(function AIChatInputBar({
                 }}
               >
                 <AttachmentMedia>
-                  {item.type === "buffer" ? (
-                    item.databaseType ? (
-                      <Database />
-                    ) : (
-                      <FileText />
-                    )
-                  ) : (
-                    <FileText />
-                  )}
+                  <FileText />
                 </AttachmentMedia>
                 <AttachmentContent>
                   <AttachmentTitle>

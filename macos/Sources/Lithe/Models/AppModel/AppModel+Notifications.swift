@@ -17,6 +17,14 @@ extension AppModel {
         notificationFeature.show(message, arguments: arguments)
     }
 
+    func showNotification(_ message: String, arguments: [String] = [], action: WorkbenchNotification.Action) {
+        notificationFeature.show(message, arguments: arguments, action: action)
+    }
+
+    func performNotificationAction(_ id: UUID) {
+        notificationFeature.perform(id)
+    }
+
     func setNotificationHovered(_ id: UUID, isHovered: Bool) {
         notificationFeature.setHovered(id, isHovered: isHovered)
     }

@@ -98,6 +98,36 @@ struct PluginWebBridgeTests {
         #expect(harness.host.consents.allSatisfy { $0.pluginID == "dev.example.web" })
     }
 
+    /// Without `instance` a call goes to the plugin's own backend, which the
+    /// install review covered, so no consent is asked; a plugin without a
+    /// backend is refused.
+    @Test func functionsWithoutAnInstanceGoToThePluginsBackendWithoutConsent() async throws {
+        let harness = try BridgeHarness()
+        defer { harness.cleanUp() }
+        #expect(try await harness.error("functions.list") == "plugin.web.forbidden")
+
+        let backends = FakeBackends(declared: ["dev.example.web"])
+        harness.host.backends = backends
+        var events: [(String, ToolingJSONValue)] = []
+        harness.bridge.emit = { events.append(($0, $1)) }
+
+        #expect(try await harness.ok("functions.list") == .object(["functions": .array([.string("query.run")])]))
+        let value = try await harness.ok("functions.invoke", [
+            "function": .string("query.run"), "params": .object(["sql": .string("select 1")]), "call": .string("c1")
+        ])
+        #expect(value == .object(["value": .object(["sql": .string("select 1")])]))
+        #expect(backends.invocations == ["dev.example.web/query.run"])
+        #expect(events.map(\.0) == ["functions.progress"])
+        #expect(events.first?.1 == .object([
+            "call": .string("c1"), "function": .string("query.run"), "message": .string("Running"),
+        ]))
+        #expect(harness.host.consents.isEmpty)
+        #expect(harness.build.functionListings == 0)
+
+        backends.declared = []
+        #expect(try await harness.error("functions.invoke", ["function": .string("query.run")]) == "plugin.web.forbidden")
+    }
+
     @Test func functionResultsProgressAndPluginFailuresReachThePage() async throws {
         let harness = try BridgeHarness()
         defer { harness.cleanUp() }
@@ -519,6 +549,54 @@ struct PluginWebBridgeTests {
         }
     }
 
+    @Test func fileDialogsNameThePluginAndReturnOnlyTheChosenPath() async throws {
+        let harness = try BridgeHarness()
+        defer { harness.cleanUp() }
+        let chosen = harness.root.appendingPathComponent("exports/rows.csv")
+        harness.host.chooseFile = { _ in chosen }
+
+        #expect(try await harness.ok("dialog.saveFile", [
+            "title": .string("Export rows"), "suggestedName": .string("rows.csv"), "extensions": .array([.string("csv")])
+        ]) == .object(["path": .string(chosen.path)]))
+        #expect(harness.host.fileRequests == [PluginWebFileRequest(
+            kind: .save, pluginID: "dev.example.web", pluginName: "Fixture", title: "Export rows",
+            suggestedName: "rows.csv", allowedExtensions: ["csv"]
+        )])
+
+        harness.host.chooseFile = { _ in nil }
+        #expect(try await harness.ok("dialog.openFile") == .object(["path": .null]))
+        #expect(harness.host.fileRequests.last?.kind == .open)
+
+        #expect(try await harness.error("dialog.saveFile", ["suggestedName": .string("../rows.csv")])
+            == "plugin.web.invalidRequest")
+        #expect(try await harness.error("dialog.openFile", ["extensions": .array([.string(".csv")])])
+            == "plugin.web.invalidRequest")
+        #expect(try await harness.error("dialog.openFile", ["suggestedName": .string("rows.csv")])
+            == "plugin.web.invalidRequest")
+        #expect(harness.host.fileRequests.count == 2)
+    }
+
+    @Test func oneFileDialogAtATimeAndAClosedPageLearnsNoChoice() async throws {
+        let harness = try BridgeHarness()
+        defer { harness.cleanUp() }
+        let shown = TestGate()
+        let answer = TestGate()
+        harness.host.chooseFile = { _ in
+            shown.open()
+            _ = await answer.waitUntilOpen(timeout: .seconds(10))
+            return URL(fileURLWithPath: "/tmp/chosen.sql")
+        }
+
+        let pending = Task { try await harness.error("dialog.openFile") }
+        defer { pending.cancel() }
+        #expect(await shown.waitUntilOpen(), "The dialog was never shown")
+        #expect(try await harness.error("dialog.saveFile") == "plugin.web.invalidRequest")
+        harness.bridge.close()
+        answer.open()
+        #expect(try await pending.value == "plugin.web.forbidden")
+        #expect(harness.host.fileRequests.count == 1)
+    }
+
     @Test func stateIsKeptByTheHostWithinItsLimit() async throws {
         let harness = try BridgeHarness()
         defer { harness.cleanUp() }
@@ -669,7 +747,7 @@ struct PluginWebBridgeTests {
             store: base.store, fileStorage: base.fileStorage, fileOperations: base.fileOperations,
             agentEditRestorer: base.agentEditRestorer, binaryFileViewerRegistry: base.binaryFileViewerRegistry,
             projectRuntimeService: base.projectRuntimeService, gitWatchContextProvider: base.gitWatchContextProvider,
-            githubService: base.githubService, secureStore: base.secureStore, databaseSecureStore: base.databaseSecureStore,
+            githubService: base.githubService, secureStore: base.secureStore,
             diagnosticsExportService: base.diagnosticsExportService, credentialResolver: base.credentialResolver,
             aiConfigurationSources: base.aiConfigurationSources, recentProjectsStore: base.recentProjectsStore,
             recentProjectBranchReader: base.recentProjectBranchReader, workspaceSessionStore: base.workspaceSessionStore,
@@ -928,6 +1006,9 @@ private final class RetainedProjectWebHost: PluginWebBridgeHost {
     func pluginWebConfirmProcessStart(_ consent: PluginWebProcessConsent) async -> Bool {
         await model.pluginWebConfirmProcessStart(consent)
     }
+    func pluginWebChooseFile(_ request: PluginWebFileRequest) async -> URL? {
+        await model.pluginWebChooseFile(request)
+    }
 }
 
 /// Suspends the real manager's teardown so revocation is checked before shutdown ends.
@@ -967,6 +1048,10 @@ private final class FakeHost: PluginWebBridgeHost {
     var outputShown = 0
     var onAccess: (() -> Void)?
     var confirmProcessStart: (@MainActor () async -> Bool)?
+    var fileRequests: [PluginWebFileRequest] = []
+    var chooseFile: (@MainActor (PluginWebFileRequest) async -> URL?)?
+    var backends: FakeBackends?
+    var pluginWebBackends: (any PluginBackendRequesting)? { backends }
 
     init(workspaceURL: URL, build: FakeBuildAccess) {
         pluginWebWorkspaceURL = workspaceURL
@@ -983,6 +1068,30 @@ private final class FakeHost: PluginWebBridgeHost {
         consents.append(consent)
         if let confirmProcessStart { return await confirmProcessStart() }
         return allowsProcesses
+    }
+    func pluginWebChooseFile(_ request: PluginWebFileRequest) async -> URL? {
+        fileRequests.append(request)
+        return await chooseFile?(request)
+    }
+}
+
+/// Echoes a function's params after one progress report.
+@MainActor
+private final class FakeBackends: PluginBackendRequesting {
+    var declared: Set<String>
+    var invocations: [String] = []
+
+    init(declared: Set<String>) { self.declared = declared }
+
+    func declaresBackend(_ pluginID: String) -> Bool { declared.contains(pluginID) }
+    func pluginFunctions(ofPlugin _: String) async throws -> [String] { ["query.run"] }
+    func invokePluginFunction(
+        _ functionID: String, params: ToolingJSONValue, ofPlugin pluginID: String, timeout _: Duration,
+        progress: @escaping @MainActor @Sendable (PluginFunctionProgress) -> Void
+    ) async throws -> ToolingJSONValue {
+        invocations.append("\(pluginID)/\(functionID)")
+        progress(PluginFunctionProgress(message: "Running", percentage: nil))
+        return params
     }
 }
 
@@ -1204,7 +1313,7 @@ struct PluginWebPageTests {
           let fetched = 'blocked';
           try { await fetch('https://example.invalid/'); fetched = 'allowed'; } catch (error) {}
           let replaced = false;
-          try { window.lithe = {}; replaced = window.lithe.version !== 1; } catch (error) {}
+          try { window.lithe = {}; replaced = window.lithe.version !== 2; } catch (error) {}
           lithe.on('ui.themeChanged', (event) => lithe.request('ui.setState', { state: { themeChanged: event.theme } }));
           await lithe.request('ui.setState', { state: {
             version: lithe.version,
@@ -1236,7 +1345,7 @@ struct PluginWebPageTests {
         let webView = try #require(page.webView)
         #expect(!webView.configuration.websiteDataStore.isPersistent)
         let report = try #require(await store.next(timeout: .seconds(10)), "The page never reported its state")
-        #expect(report["version"] == .integer(1))
+        #expect(report["version"] == .integer(2))
         #expect(report["pluginID"] == .string("dev.example.web"))
         #expect(report["theme"] == .string("light"))
         #expect(report["background"].map { $0 != .string("") } == true)

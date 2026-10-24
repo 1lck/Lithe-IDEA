@@ -101,8 +101,6 @@ struct LitheDropdownPopover<Content: View>: NSViewRepresentable {
     @Environment(\.self) private var environment
     @Environment(\.colorScheme) private var colorScheme
     var opensUpward = false
-    var contentProvidesSurface = false
-    var fadeInDuration: TimeInterval = 0
     var opensToSide = false
     var centersMenu = false
     var searchOnTyping = false
@@ -137,8 +135,6 @@ struct LitheDropdownPopover<Content: View>: NSViewRepresentable {
         context.coordinator.onAccept = onAccept
         context.coordinator.environment = environment
         context.coordinator.environment.colorScheme = colorScheme
-        context.coordinator.contentProvidesSurface = contentProvidesSurface
-        context.coordinator.fadeInDuration = fadeInDuration
         context.coordinator.opensUpward = opensUpward
         context.coordinator.opensToSide = opensToSide
         context.coordinator.centersMenu = centersMenu
@@ -167,8 +163,6 @@ struct LitheDropdownPopover<Content: View>: NSViewRepresentable {
         var content: () -> Content
         var environment = EnvironmentValues()
         var opensUpward = false
-        var contentProvidesSurface = false
-        var fadeInDuration: TimeInterval = 0
         var opensToSide = false
         var centersMenu = false
         var searchOnTyping = false
@@ -236,8 +230,7 @@ struct LitheDropdownPopover<Content: View>: NSViewRepresentable {
                 }
                 return
             }
-            let surface = contentProvidesSurface ? AnyView(content()) : AnyView(content().litheContextMenuSurface())
-            let root = AnyView(surface.environment(\.self, environment))
+            let root = AnyView(content().litheContextMenuSurface().environment(\.self, environment))
             if let hostingController {
                 hostingController.rootView = root
                 presenter.resize(contentController: hostingController)
@@ -248,7 +241,7 @@ struct LitheDropdownPopover<Content: View>: NSViewRepresentable {
             presenter.show(
                 contentController: controller, at: point,
                 appearance: appearance, opensUpward: opensUpward,
-                searchOnTyping: searchOnTyping, hasShadow: !contentProvidesSurface, fadeInDuration: fadeInDuration, parentWindow: window, trigger: anchor,
+                searchOnTyping: searchOnTyping, parentWindow: window, trigger: anchor,
                 onAccept: onAccept == nil ? nil : { [weak self] in self?.onAccept?() },
                 resizableWidth: resizableWidth?.wrappedValue, minimumWidth: minimumWidth,
                 resizableHeight: resizableHeight?.wrappedValue, minimumHeight: minimumHeight,

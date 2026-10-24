@@ -54,7 +54,6 @@ extension AppModel {
         selectedChange = nil
         closeBranchComparison()
         editorTabOrderFeature.repositoryDiffSelected = false
-        editorTabOrderFeature.databaseSelected = false
         editorTabOrderFeature.focus(.agentConversation)
         workbenchFeature.setVisibility(.agent, isVisible: true)
     }

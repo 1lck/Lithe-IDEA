@@ -1891,6 +1891,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let workingDirectory: String
         let initializationOptions: ToolingJSONValue?
         let workspaceConfiguration: ToolingJSONValue?
+        /// Host services a plugin backend may request; omitted when none.
+        let hostServices: [String]?
         let runtimeExecutablePath: String?
         let jdtlsLaunchResources: LspJdtlsLaunchResourcesRequest?
         let cacheDirectory: String?
@@ -2054,6 +2056,17 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let function: Reference
         let params: ToolingJSONValue
         let timeoutMilliseconds: Int
+    }
+
+    private struct LspHostResponseRequest: Encodable {
+        struct Failure: Encodable {
+            let message: String
+        }
+
+        let sessionId: String
+        let hostRequestID: String
+        let result: ToolingJSONValue?
+        let error: Failure?
     }
 
     private struct LspCancelOperationRequest: Encodable {
@@ -3656,6 +3669,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         workingDirectoryURL: URL,
         initializationOptions: ToolingJSONValue? = nil,
         workspaceConfiguration: ToolingJSONValue? = nil,
+        hostServices: [String] = [],
         runtimeExecutableURL: URL? = nil,
         jdtlsLaunchResources: JDTLSLaunchResources? = nil,
         cacheDirectoryURL: URL? = nil,
@@ -3678,6 +3692,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 workingDirectory: workingDirectoryURL.standardizedFileURL.path,
                 initializationOptions: initializationOptions,
                 workspaceConfiguration: workspaceConfiguration,
+                hostServices: hostServices.isEmpty ? nil : hostServices,
                 runtimeExecutablePath: runtimeExecutableURL?.standardizedFileURL.path,
                 jdtlsLaunchResources: jdtlsLaunchResources.map {
                     LspJdtlsLaunchResourcesRequest(
@@ -3975,6 +3990,24 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 function: .init(pluginID: pluginID, functionID: functionID),
                 params: params,
                 timeoutMilliseconds: max(1, Self.milliseconds(timeout))
+            )
+        )
+    }
+
+    /// Answers one `hostRequest` event of a plugin backend.
+    func lspHostResponse(
+        sessionID: String,
+        hostRequestID: String,
+        result: ToolingJSONValue?,
+        failureMessage: String?
+    ) -> Result<Void, CoreCallError> {
+        executeVoid(
+            command: "lsp.hostResponse",
+            payload: LspHostResponseRequest(
+                sessionId: sessionID,
+                hostRequestID: hostRequestID,
+                result: failureMessage == nil ? (result ?? .null) : nil,
+                error: failureMessage.map { .init(message: $0) }
             )
         )
     }

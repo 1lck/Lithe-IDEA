@@ -32,7 +32,6 @@ jobs:
       actions: write
     outputs:
       swift: ${{ steps.classify.outputs.swift }}
-      swift_database: ${{ steps.classify.outputs.swift_database }}
       rust_core: ${{ steps.classify.outputs.rust_core }}
       macos_release: ${{ steps.classify.outputs.macos_release }}
       rust_comments: ${{ steps.classify.outputs.rust_comments }}
@@ -123,7 +122,6 @@ jobs:
             {
               echo "ci_scope=pull_request"
               echo "swift=true"
-              echo "swift_database=true"
               echo "rust_core=true"
               echo "macos_release=true"
               echo "rust_comments=false"
@@ -175,7 +173,6 @@ jobs:
           LITHE_CI_CLASSIFICATION: |
             ci_scope=${{ steps.classify.outputs.ci_scope }}
             swift=${{ steps.classify.outputs.swift }}
-            swift_database=${{ steps.classify.outputs.swift_database }}
             rust_core=${{ steps.classify.outputs.rust_core }}
             macos_release=${{ steps.classify.outputs.macos_release }}
         shell: bash
@@ -215,7 +212,6 @@ jobs:
         shell: bash
         env:
           SWIFT: ${{ steps.classify.outputs.swift }}
-          SWIFT_DATABASE: ${{ steps.classify.outputs.swift_database }}
           RUST_CORE: ${{ steps.classify.outputs.rust_core }}
           DRAFT: ${{ github.event.pull_request.draft == true }}
           MACOS_RELEASE: ${{ steps.classify.outputs.macos_release }}
@@ -229,7 +225,6 @@ jobs:
             echo "| Lane | Run |"
             echo "| --- | --- |"
             echo "| Swift tests | $SWIFT |"
-            echo "| Swift database tests | $SWIFT_DATABASE |"
             echo "| Rust Core tests | $RUST_CORE |"
             echo "| Release package verification | $MACOS_RELEASE |"
             echo "| Rust comment verification | $RUST_COMMENTS |"
@@ -241,10 +236,9 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # The main and database Swift suites share one test build. A separate database
-  # job spent about ten minutes compiling the same products for seconds of
-  # filtered tests and held another of the five organization macOS runners.
-  # The Rust Core bridge checks reuse the same build for the same reason.
+  # The Rust Core bridge checks reuse the Swift test build: a separate job
+  # spent about ten minutes compiling the same products and held another of
+  # the five organization macOS runners.
   # Plugin tests stay in macOS Plugin CI so that unrelated changes skip them.
   swift-tests:
     name: Swift tests
@@ -300,7 +294,6 @@ jobs:
             --skip StableRollbackDiskImageIntegrationTests \
             --skip GitStatusObservationTests \
             --skip LitheGitPerformanceTests \
-            --skip '(LitheDatabaseModuleTests|LitheTests\.LitheCoreLogicTests/database)' \
             --skip '([Pp]lugin|LinuxDo)'
 
       - name: Run stable rollback disk image integration test
@@ -340,11 +333,6 @@ jobs:
             --max-seconds 60 --suite-timeout-seconds 150 -- \
             --skip-build \
             --filter StableRollbackDiskImageIntegrationTests
-
-      - name: Run database-focused Swift tests
-        if: needs.changes.outputs.swift_database == 'true'
-        timeout-minutes: 17
-        run: ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh --report .artifacts/test-stability/macos-database.json --suite-timeout-seconds 960 -- --skip-build --filter '(LitheDatabaseModuleTests|LitheTests\.LitheCoreLogicTests/database)'
 
       # A failed build cannot produce reports; the build step already fails the
       # job, so do not stack a second "no reports found" failure on top of it.
@@ -519,8 +507,7 @@ jobs:
           for executable in \
             "$app_path/Contents/MacOS/Lithe" \
             "$app_path/Contents/Frameworks/Sparkle.framework/Sparkle" \
-            "$app_path/Contents/Helpers/lithe-db-sidecar" \
-            "$app_path/Contents/Helpers/lithe-db-mcp"; do
+            "$app_path/Contents/Helpers/lithe-mcp"; do
             test -x "$executable"
             lipo "$executable" -verify_arch "${architectures[@]}"
           done
@@ -591,7 +578,7 @@ jobs:
           RUN_SWIFT: ${{ needs.changes.outputs.run_swift }}
           RUN_RUST: ${{ needs.changes.outputs.run_rust }}
           RUN_RELEASE: ${{ needs.changes.outputs.run_release }}
-          SWIFT_SELECTED: ${{ needs.changes.outputs.swift == 'true' || needs.changes.outputs.swift_database == 'true' || needs.changes.outputs.rust_core == 'true' }}
+          SWIFT_SELECTED: ${{ needs.changes.outputs.swift == 'true' || needs.changes.outputs.rust_core == 'true' }}
           RUST_CORE_SELECTED: ${{ needs.changes.outputs.rust_core }}
           RELEASE_SELECTED: ${{ needs.changes.outputs.macos_release }}
           REUSE: ${{ needs.changes.outputs.reuse }}

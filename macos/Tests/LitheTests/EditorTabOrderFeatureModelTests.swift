@@ -236,22 +236,6 @@ struct EditorTabOrderFeatureModelTests {
         #expect(drag.destination(at: CGPoint(x: 290, y: 250), sourceGroup: group)?.side == .right)
     }
 
-    @Test func databaseTabsKeepTheirSharedWorkspaceWhileDocumentsSplit() throws {
-        let feature = EditorTabOrderFeatureModel()
-        let first = EditorTabItem.document(UUID()), second = EditorTabItem.document(UUID())
-        let database = EditorTabItem.database(UUID()), query = EditorTabItem.databaseQuery(profileID: UUID(), queryID: UUID())
-        feature.moveToEnd(first); feature.moveToEnd(second); feature.moveToEnd(database)
-        let original = try #require(feature.groupLayout.groups.first)
-        #expect(feature.drop(second, into: original, side: .right))
-        let other = try #require(feature.groupLayout.groups.last)
-        feature.moveToEnd(query)
-        #expect(feature.items(in: original).contains(query))
-        #expect(!feature.drop(database, into: other, side: .center))
-        #expect(!feature.move(query, before: second))
-        #expect(feature.move(query, before: database))
-        #expect(feature.items(in: other) == [second])
-    }
-
     @Test(arguments: [true, false], [true, false])
     func sharedTabPaintsActiveBlueAndInactiveGray(dark: Bool, active: Bool) async throws {
         let hosting = NSHostingView(rootView: Text("Example.swift").font(LitheTheme.uiFont(size: 13))

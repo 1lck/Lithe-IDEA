@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import UniformTypeIdentifiers
 
 /// `ui.setState` values in Application Support, beside the plugin's other
 /// state: `PluginState/<plugin>/web-state/<window>/<workspace digest>.json`.
@@ -66,5 +67,31 @@ enum MacPluginWebConsentPrompt {
         alert.addButton(withTitle: String(localized: "Allow"))
         alert.addButton(withTitle: String(localized: "Don’t Allow"))
         return alert.runModal() == .alertFirstButtonReturn
+    }
+}
+
+/// The file dialogs a plugin page opens. The message names the plugin, and
+/// the page learns only the path the user chose.
+enum MacPluginWebFileDialog {
+    @MainActor
+    static func choose(_ request: PluginWebFileRequest) async -> URL? {
+        let panel: NSSavePanel
+        switch request.kind {
+        case .open:
+            let open = NSOpenPanel()
+            open.canChooseFiles = true
+            open.canChooseDirectories = false
+            open.allowsMultipleSelection = false
+            panel = open
+        case .save:
+            panel = NSSavePanel()
+            panel.canCreateDirectories = true
+            if let name = request.suggestedName { panel.nameFieldStringValue = name }
+        }
+        if let title = request.title { panel.title = title }
+        panel.message = String(format: String(localized: "Requested by the plugin “%@”."), request.pluginName)
+        let types = request.allowedExtensions.compactMap { UTType(filenameExtension: $0) }
+        if !types.isEmpty { panel.allowedContentTypes = types }
+        return panel.runModal() == .OK ? panel.url : nil
     }
 }

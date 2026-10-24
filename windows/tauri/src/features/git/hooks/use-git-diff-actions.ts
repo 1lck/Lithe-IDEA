@@ -55,7 +55,7 @@ function openDiffBuffer(
   activateMainEditorPane();
   return useBufferStore
     .getState()
-    .actions.openBuffer(virtualPath, displayName, "", false, undefined, true, true, diffData);
+    .actions.openBuffer(virtualPath, displayName, "", false, true, true, diffData);
 }
 
 function openCommitPreviewBuffer(path: string, name: string, data: MultiFileDiff) {

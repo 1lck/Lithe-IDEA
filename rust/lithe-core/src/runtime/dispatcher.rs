@@ -1719,6 +1719,18 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::LspHostResponse => {
+            match serde_json::from_value::<crate::lsp::PluginHostResponse>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid host-service response")
+                        .with_details(error.to_string())
+                })
+                .and_then(crate::lsp::plugin_host_response)
+            {
+                Ok(()) => CoreResponse::success(id, json!({})),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::LspCancelOperation => {
             match serde_json::from_value::<crate::lsp::CancelOperationRequest>(parsed.payload)
                 .map_err(|error| {

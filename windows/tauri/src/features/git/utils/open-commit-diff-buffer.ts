@@ -93,7 +93,6 @@ export const openCommitDiffBuffer = async ({
         preview.displayName,
         "",
         false,
-        undefined,
         true,
         true,
         preview.diffData,
@@ -126,5 +125,5 @@ export const openCommitDiffBuffer = async ({
 
   return useBufferStore
     .getState()
-    .actions.openBuffer(virtualPath, displayName, "", false, undefined, true, true, multiDiff);
+    .actions.openBuffer(virtualPath, displayName, "", false, true, true, multiDiff);
 };

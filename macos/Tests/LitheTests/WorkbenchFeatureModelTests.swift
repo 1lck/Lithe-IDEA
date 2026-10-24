@@ -36,73 +36,63 @@ struct WorkbenchFeatureModelTests {
     @Test
     func pluginsOpenInSettingsWhileARightToolRemainsVisible() {
         let model = WorkbenchFeatureModel()
-        model.setVisibility(.database, isVisible: true)
+        model.setVisibility(.agent, isVisible: true)
 
         model.presentSettings(category: .plugins)
 
         #expect(model.isSettingsPresented)
         #expect(model.requestedSettingsCategory == .plugins)
-        #expect(model.isVisible(.database))
+        #expect(model.isVisible(.agent))
     }
 
     @Test
     func rightDockedToolDoesNotReplaceBottomTools() {
         let model = WorkbenchFeatureModel()
         model.setVisibility(.terminal, isVisible: true)
-        model.setVisibility(.database, isVisible: true)
+        model.setVisibility(.agent, isVisible: true)
         #expect(model.activeToolWindow == .terminal)
-        #expect(model.isVisible(.database))
+        #expect(model.isVisible(.agent))
 
         model.setVisibility(.run, isVisible: true)
-        #expect(model.isVisible(.database))
+        #expect(model.isVisible(.agent))
         #expect(model.isVisible(.run))
         #expect(!model.isVisible(.terminal))
 
         model.setVisibility(.debug, isVisible: true)
-        #expect(model.isVisible(.database))
+        #expect(model.isVisible(.agent))
         #expect(model.isVisible(.debug))
     }
 
     @Test
     func rightDockedToolAndBuildOutputCloseIndependently() {
         let model = WorkbenchFeatureModel()
-        model.setVisibility(.database, isVisible: true)
+        model.setVisibility(.agent, isVisible: true)
         model.setVisibility(.buildOutput, isVisible: true)
         model.setVisibility(.buildOutput, isVisible: false)
-        #expect(model.isVisible(.database))
+        #expect(model.isVisible(.agent))
         #expect(model.activeToolWindow == nil)
 
         model.setVisibility(.buildOutput, isVisible: true)
-        model.toggleVisibility(.database)
-        #expect(!model.isVisible(.database))
+        model.toggleVisibility(.agent)
+        #expect(!model.isVisible(.agent))
         #expect(model.isVisible(.buildOutput))
 
-        model.toggleVisibility(.database)
+        model.toggleVisibility(.agent)
         model.hideAllToolWindows()
-        #expect(!model.isVisible(.database))
+        #expect(!model.isVisible(.agent))
         #expect(model.activeToolWindow == nil)
     }
 
     @Test
-    func agentDocksBesideTheEditorAndSharesTheRightSlotWithDatabase() {
+    func agentDocksBesideTheEditor() {
         // The Agent conversation must keep the editor visible, so it takes the
-        // right dock instead of the bottom tool window. Database and Agent share
-        // that dock, and neither replaces a bottom tool window.
+        // right dock instead of the bottom tool window and does not replace one.
         let model = WorkbenchFeatureModel()
         model.setVisibility(.terminal, isVisible: true)
         model.setVisibility(.agent, isVisible: true)
         #expect(model.isVisible(.agent))
         #expect(model.activeToolWindow == .terminal)
         #expect(model.activeRightToolWindow == .agent)
-
-        model.setVisibility(.database, isVisible: true)
-        #expect(model.isVisible(.database))
-        #expect(!model.isVisible(.agent))
-        #expect(model.isVisible(.terminal))
-
-        model.toggleVisibility(.agent)
-        #expect(model.isVisible(.agent))
-        #expect(!model.isVisible(.database))
 
         model.hideBottomToolWindow()
         #expect(model.isVisible(.agent))
@@ -114,10 +104,10 @@ struct WorkbenchFeatureModelTests {
     @Test
     func workspaceResetClearsRightAndBottomAreas() {
         let model = WorkbenchFeatureModel()
-        model.setVisibility(.database, isVisible: true)
+        model.setVisibility(.agent, isVisible: true)
         model.setVisibility(.buildOutput, isVisible: true)
         model.reset()
-        #expect(!model.isVisible(.database))
+        #expect(!model.isVisible(.agent))
         #expect(!model.isVisible(.buildOutput))
     }
 
@@ -131,19 +121,19 @@ struct WorkbenchFeatureModelTests {
             moduleLaunchMode: .safeMode
         ).services
         let model = AppModel(settings: settings, services: services)
-        model.workbenchFeature.setVisibility(.database, isVisible: true)
+        model.workbenchFeature.setVisibility(.agent, isVisible: true)
         model.isTerminalVisible = true
 
         model.presentLanguageNavigationResults(.references)
 
-        #expect(model.workbenchFeature.isVisible(.database))
+        #expect(model.workbenchFeature.isVisible(.agent))
         #expect(model.isReferencesVisible)
         #expect(!model.isTerminalVisible)
 
         model.isTerminalVisible = true
         model.presentLanguageNavigationResults(.implementations)
 
-        #expect(model.workbenchFeature.isVisible(.database))
+        #expect(model.workbenchFeature.isVisible(.agent))
         #expect(model.isImplementationChooserVisible)
         #expect(!model.isReferencesVisible)
         #expect(!model.isTerminalVisible)

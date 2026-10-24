@@ -425,6 +425,18 @@ describe("shared open and restore content routing", () => {
     expect(await loadFileContent("app.java")).toEqual({ kind: "binary" });
   });
 
+  test("database files open through the generic text and binary path", async () => {
+    classifyText.mockResolvedValue({ isPlainText: false });
+    readFileContent.mockResolvedValue("SQLite format 3\0");
+    for (const path of ["cache.db", "app.sqlite", "app.sqlite3", "warehouse.duckdb"]) {
+      expect(await loadFileContent(path)).toEqual({ kind: "binary" });
+    }
+
+    classifyText.mockResolvedValue({ isPlainText: true });
+    readFileContent.mockResolvedValue("key=value\n");
+    expect(await loadFileContent("settings.db")).toMatchObject({ kind: "text", content: "key=value\n" });
+  });
+
   test("read errors are not disguised as binary files", async () => {
     readFileContent.mockRejectedValue(new Error("permission denied"));
     await expect(loadFileContent("app.properties")).rejects.toThrow("permission denied");

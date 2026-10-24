@@ -2,7 +2,6 @@ import type { ExtensionCategory, ExtensionManifest } from "../types/extension-ma
 import { filterRetiredExtensions } from "../registry/retired-extensions";
 import {
   getManifestAIProviderContributions,
-  getManifestDatabaseContributions,
   getManifestIconContributions,
   getManifestIntegrationContributions,
 } from "../types/extension-contributions";
@@ -37,7 +36,6 @@ function toExtensionCategories(rawCategories: string[] | undefined): ExtensionCa
 
   return rawCategories.map((category) => {
     const normalized = category.trim().toLowerCase();
-    if (normalized === "database") return "Database";
     if (normalized === "ai") return "AI";
     if (normalized === "integration") return "Integration";
     if (normalized === "agent") return "Agent";
@@ -57,7 +55,6 @@ function toExtensionCategories(rawCategories: string[] | undefined): ExtensionCa
 
 function isContributionExtension(manifest: ExtensionManifest): boolean {
   return Boolean(
-    getManifestDatabaseContributions(manifest).length ||
     manifest.agents?.length ||
     manifest.contributes?.agents?.length ||
     getManifestAIProviderContributions(manifest).length ||

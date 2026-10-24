@@ -576,7 +576,9 @@ struct WorkbenchView: View {
                             messageArguments: notification.arguments,
                             collapsedCount: notification.collapsedCount,
                             occurrenceCount: notification.occurrenceCount,
-                            showHistory: { isNotificationCenterPresented = true }) {
+                            showHistory: { isNotificationCenterPresented = true },
+                            actionTitle: notification.action?.title,
+                            performAction: { model.performNotificationAction(notification.id) }) {
                             model.dismissNotification(notification.id)
                         }
                         .onHover { model.setNotificationHovered(notification.id, isHovered: $0) }
@@ -1959,6 +1961,15 @@ private struct WorkbenchNotificationCenterView: View {
                                         .font(LitheTheme.uiFont(size: 12))
                                         .foregroundStyle(LitheTheme.primaryText)
                                         .fixedSize(horizontal: false, vertical: true)
+
+                                    if let action = notification.action {
+                                        Button(LocalizedStringKey(action.title)) {
+                                            model.performNotificationAction(notification.id)
+                                        }
+                                        .buttonStyle(.litheNoPress)
+                                        .font(LitheTheme.uiFont(size: 12))
+                                        .foregroundStyle(LitheTheme.accent)
+                                    }
 
                                     Text(notification.updatedAt.formatted(date: .omitted, time: .shortened))
                                         .font(LitheTheme.uiFont(size: 10.5))
