@@ -8,6 +8,7 @@ import { DEFAULT_MONO_FONT_FAMILY } from "../config/typography-defaults";
 import { AiCommitSettingsPanel } from "./ai-commit-settings-panel";
 import { AISettings } from "./tabs/ai-settings";
 import { AgentSettingsPanel } from "./tabs/agent-settings-panel";
+import { AgentHooksSettings } from "./tabs/agent-hooks-settings";
 import { getVersion } from "@tauri-apps/api/app";
 import { lazy, Suspense, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { themeRegistry } from "@/extensions/themes/theme-registry";
@@ -63,6 +64,7 @@ export type SettingsCategory =
   | "maven"
   | "ai"
   | "agents"
+  | "hooks"
   | "ai-commit"
   | "logs"
   | "updates";
@@ -626,6 +628,8 @@ export function SettingsPanel({
       return <AISettings />;
     case "agents":
       return <AgentSettingsPanel />;
+    case "hooks":
+      return <AgentHooksSettings />;
     case "ai-commit":
       return <AiCommitSettingsPanel />;
     case "logs":

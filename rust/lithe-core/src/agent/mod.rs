@@ -5,6 +5,7 @@
 
 use std::path::PathBuf;
 
+pub(crate) mod hooks;
 pub(crate) mod instructions;
 
 use serde::Deserialize;

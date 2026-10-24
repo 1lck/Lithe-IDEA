@@ -776,6 +776,8 @@ final class MacServiceContainer {
             agentManagement: RustAgentManagementService(core: rustCore),
             agentInstructions: RustAgentInstructionsService(core: rustCore,
                 sharedDirectory: fileStorage.applicationSupportDirectory().appendingPathComponent("Lithe/AgentInstructions", isDirectory: true)),
+            agentHooks: RustAgentHooksService(core: rustCore,
+                directory: fileStorage.applicationSupportDirectory().appendingPathComponent("Lithe/AgentHooks", isDirectory: true)),
             agentProviderConfigurationParser: MacAgentProviderConfigurationParser(core: rustCore),
             aiConfigurationSources: aiConfigurationSources,
             recentProjectsStore: RecentProjectsStore(store: store),

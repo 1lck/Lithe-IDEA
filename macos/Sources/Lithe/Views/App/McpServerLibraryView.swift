@@ -524,17 +524,7 @@ struct McpAgentSelectionChip: View {
     let selected: Bool
     let action: () -> Void
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: 6) {
-                AgentBrandIcon(name: agent.displayName, size: 16, style: .brand)
-                Text(agent.displayName).font(LitheTheme.settingsFont)
-                if selected { Image(systemName: "checkmark").font(LitheTheme.smallFont) }
-            }
-            .padding(.horizontal, 9).padding(.vertical, 6)
-            .background(selected ? LitheTheme.accent.opacity(0.10) : LitheTheme.settingsControlBackground)
-            .clipShape(RoundedRectangle(cornerRadius: 7))
-            .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(selected ? LitheTheme.accent.opacity(0.5) : LitheTheme.settingsControlBorder))
-        }.buttonStyle(.plain).accessibilityLabel(Text(agent.displayName)).accessibilityValue(Text(selected ? "Selected" : "Not selected"))
+        AgentSelectionChip(title: agent.displayName, brandName: agent.displayName, selected: selected, action: action)
     }
 }
 

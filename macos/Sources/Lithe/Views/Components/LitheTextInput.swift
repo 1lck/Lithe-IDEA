@@ -70,27 +70,28 @@ struct LitheTextField: View {
 struct LitheTextEditor: View {
     @Binding var text: String
     private let height: CGFloat
+    private let font: Font?
     private let focus: FocusState<Bool>.Binding?
     private let label: Text?
     private let info: String?
     private let isEnabled: Bool
 
-    init(text: Binding<String>, height: CGFloat, focus: FocusState<Bool>.Binding? = nil) {
-        _text = text; self.height = height; self.focus = focus
+    init(text: Binding<String>, height: CGFloat, focus: FocusState<Bool>.Binding? = nil, font: Font? = nil) {
+        _text = text; self.height = height; self.focus = focus; self.font = font
         label = nil; info = nil; isEnabled = true
     }
 
     init(text: Binding<String>, rows: Int, label: String, info: String? = nil, isEnabled: Bool = true) {
         _text = text
         height = ceil(NSLayoutManager().defaultLineHeight(for: LitheTheme.editorFont(size: 12))) * CGFloat(rows)
-        focus = nil
+        focus = nil; font = nil
         self.label = Text(verbatim: label); self.info = info; self.isEnabled = isEnabled
     }
 
     var body: some View {
         LitheFormField(title: label, info: info, isEnabled: isEnabled) {
             TextEditor(text: $text)
-                .modifier(LitheSettingsTextEditorModifier(height: height, externalFocus: focus))
+                .modifier(LitheSettingsTextEditorModifier(height: height, font: font, externalFocus: focus))
                 .accessibilityLabel(label ?? Text("Text editor"))
         }
     }
@@ -121,6 +122,7 @@ private struct LitheSettingsTextFieldModifier: ViewModifier {
 private struct LitheSettingsTextEditorModifier: ViewModifier {
     @FocusState private var isFocused: Bool
     let height: CGFloat
+    var font: Font? = nil
     var externalFocus: FocusState<Bool>.Binding? = nil
 
     private var hasFocus: Bool { externalFocus?.wrappedValue ?? isFocused }
@@ -128,7 +130,7 @@ private struct LitheSettingsTextEditorModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .scrollContentBackground(.hidden)
-            .font(LitheTheme.uiFont(size: 12, design: .monospaced))
+            .font(font ?? LitheTheme.uiFont(size: 12, design: .monospaced))
             .focused(externalFocus ?? $isFocused)
             .frame(height: height)
             .padding(5)
