@@ -3,8 +3,8 @@ import LitheAgentConversationModule
 
 /// The agent's reasoning, separate from its reply, styled like a tool group:
 /// a quiet summary line over a rounded Markdown card. Long reasoning scrolls
-/// inside the card and follows the stream. Open while it streams and
-/// collapsed once the reply or a tool call follows; a search keeps it open.
+/// inside the card and follows the stream. It stays collapsed until requested;
+/// a search temporarily reveals matching text.
 struct AgentThoughtRow: View {
     @Environment(\.locale) private var locale
     let text: String
@@ -86,7 +86,7 @@ struct AgentThoughtExpansion: Equatable {
     private var userExpanded: Bool?
 
     func isExpanded(isStreaming: Bool, isSearching: Bool) -> Bool {
-        isSearching || (userExpanded ?? isStreaming)
+        isSearching || (userExpanded ?? false)
     }
 
     mutating func toggle(isStreaming: Bool, isSearching: Bool) {

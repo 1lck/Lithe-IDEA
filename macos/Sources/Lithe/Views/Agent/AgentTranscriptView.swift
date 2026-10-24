@@ -2,10 +2,11 @@ import AppKit
 import SwiftUI
 import LitheAgentConversationModule
 
-/// Groups adjacent ACP tool calls without changing the stored transcript.
-/// Prose and user messages end a group, preserving the order of the conversation.
+/// A turn's intermediate text and tools share one disclosure. The trailing
+/// Agent reply stays outside it; the stored transcript and event order stay intact.
 enum AgentTranscriptItem: Identifiable {
     case message(AgentConversationMessage)
+    case processGroup([AgentConversationMessage])
     case toolGroup([AgentConversationMessage])
     /// `reply` is the ending Agent message, copied from the footer.
     case turnSummary(AgentTurnStatistics, reply: String?)
@@ -13,6 +14,7 @@ enum AgentTranscriptItem: Identifiable {
     var id: String {
         switch self {
         case .message(let message): message.id
+        case .processGroup(let messages): "process:\(messages[0].id)"
         case .toolGroup(let tools): "tools:\(tools[0].id)"
         case .turnSummary(let turn, _): "turn:\(turn.id)"
         }
@@ -21,6 +23,7 @@ enum AgentTranscriptItem: Identifiable {
     var navigationMessageID: String? {
         switch self {
         case .message(let message): message.id
+        case .processGroup(let messages): messages.first?.id
         case .toolGroup(let tools): tools.first?.id
         case .turnSummary(let turn, _): turn.endingMessageID
         }
@@ -36,6 +39,9 @@ enum AgentTranscriptItem: Identifiable {
         guard !searchText.isEmpty else { return true }
         switch self {
         case .message(let message): return message.text.localizedStandardContains(searchText)
+        case .processGroup(let messages): return messages.contains {
+            $0.role == .tool ? Self.toolMatches($0, searchText) : $0.text.localizedStandardContains(searchText)
+        }
         case .toolGroup(let tools): return tools.contains { Self.toolMatches($0, searchText) }
         case .turnSummary: return false
         }
@@ -53,10 +59,42 @@ enum AgentTranscriptItem: Identifiable {
 
     static func grouped(_ messages: [AgentConversationMessage], turns: [AgentTurnStatistics] = []) -> [Self] {
         var items: [Self] = []
-        var tools: [AgentConversationMessage] = []
+        var pending: [AgentConversationMessage] = []
         let summaries = turns.reduce(into: [String: AgentTurnStatistics]()) { result, turn in
             if let ending = turn.endingMessageID { result[ending] = turn }
         }
+        func flush() {
+            // ACP has no final/commentary role. Only text after the last thought
+            // or tool is presented as the reply; earlier prose is process narration.
+            if let lastActivity = pending.lastIndex(where: { $0.role != .agent }) {
+                items.append(.processGroup(Array(pending[...lastActivity])))
+                items += pending.dropFirst(lastActivity + 1).map(Self.message)
+            } else {
+                items += pending.map(Self.message)
+            }
+            pending.removeAll(keepingCapacity: true)
+        }
+        for message in messages {
+            if message.role == .user {
+                flush()
+                items.append(.message(message))
+            } else if message.role == .tool || !message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                pending.append(message)
+            }
+            if let summary = summaries[message.id] {
+                let reply = pending.last.flatMap { $0.role == .agent ? $0.text : nil }
+                flush()
+                items.append(.turnSummary(summary, reply: reply))
+            }
+        }
+        flush()
+        return items
+    }
+
+    /// Within an expanded process, keep prose in order and combine adjacent tools.
+    static func processContents(_ messages: [AgentConversationMessage]) -> [Self] {
+        var items: [Self] = []
+        var tools: [AgentConversationMessage] = []
         for message in messages {
             if message.role == .tool {
                 tools.append(message)
@@ -66,13 +104,6 @@ enum AgentTranscriptItem: Identifiable {
                     tools.removeAll(keepingCapacity: true)
                 }
                 items.append(.message(message))
-            }
-            if let summary = summaries[message.id] {
-                if !tools.isEmpty {
-                    items.append(.toolGroup(tools))
-                    tools.removeAll(keepingCapacity: true)
-                }
-                items.append(.turnSummary(summary, reply: message.role == .agent ? message.text : nil))
             }
         }
         if !tools.isEmpty { items.append(.toolGroup(tools)) }
@@ -146,7 +177,6 @@ struct AgentTranscriptView: View {
         // for every intermediate state is quadratic, so rows wait for the replay to end.
         let isReplaying = conversation?.isLoading == true
         let navigationContent = AgentTranscriptNavigationContent(messages: isReplaying ? [] : messages)
-        // Only reasoning that is still streaming opens by default.
         let liveThoughtID = conversation?.responseStatus == .thinking && messages.last?.role == .thought
             ? messages.last?.id : nil
         VStack(spacing: 0) {
@@ -198,6 +228,7 @@ struct AgentTranscriptView: View {
                                     turnByMessageID: navigationContent.turnByMessageID,
                                     searchText: searchText,
                                     liveThoughtID: liveThoughtID,
+                                    liveProcessMessageID: conversation?.isResponding == true ? messages.last?.id : nil,
                                     isEditorLayout: isEditorLayout,
                                     limit: searchText.isEmpty ? (sessionID.flatMap { windowLimits[$0] } ?? AgentTranscriptWindow.initialItems) : .max,
                                     showEarlier: { anchorID in
@@ -311,6 +342,7 @@ private struct AgentTranscriptRows: View, Equatable {
     let turnByMessageID: [String: String]
     let searchText: String
     let liveThoughtID: String?
+    let liveProcessMessageID: String?
     let isEditorLayout: Bool
     let limit: Int
     let showEarlier: (String) -> Void
@@ -321,6 +353,7 @@ private struct AgentTranscriptRows: View, Equatable {
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.messages == rhs.messages && lhs.completedTurns == rhs.completedTurns
             && lhs.searchText == rhs.searchText && lhs.liveThoughtID == rhs.liveThoughtID && lhs.limit == rhs.limit
+            && lhs.liveProcessMessageID == rhs.liveProcessMessageID
             && lhs.isEditorLayout == rhs.isEditorLayout
             && lhs.thoughtExpansions == rhs.thoughtExpansions
     }
@@ -350,6 +383,17 @@ private struct AgentTranscriptRows: View, Equatable {
                         thoughtExpansion: Binding(
                             get: { thoughtExpansions[message.id] ?? AgentThoughtExpansion() },
                             set: { setThoughtExpansion(message.id, $0) }
+                        ),
+                        onOpenFile: onOpenFile
+                    )
+                case .processGroup(let messages):
+                    AgentProcessGroupView(
+                        messages: messages,
+                        isStreaming: messages.contains { $0.id == liveProcessMessageID },
+                        searchText: searchText,
+                        expansion: Binding(
+                            get: { thoughtExpansions[messages[0].id] ?? AgentThoughtExpansion() },
+                            set: { setThoughtExpansion(messages[0].id, $0) }
                         ),
                         onOpenFile: onOpenFile
                     )

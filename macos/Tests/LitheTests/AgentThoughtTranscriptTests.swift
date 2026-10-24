@@ -9,6 +9,50 @@ import LitheCoreContracts
 @Suite("Thought transcript lifecycle", .serialized)
 struct AgentThoughtTranscriptTests {
     @Test
+    func alternatingThoughtsNarrationAndToolsHaveOneDisclosureAndAVisibleReply() async throws {
+        let application = NSApplication.shared
+        let attribute = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
+        let previousAccessibility = (application.accessibilityAttributeValue(attribute) as? Bool) ?? false
+        application.accessibilitySetValue(true, forAttribute: attribute)
+        defer { application.accessibilitySetValue(previousAccessibility, forAttribute: attribute) }
+        try await withTranscript { feature, host, window in
+            for (kind, text) in [("agent_message_chunk", "I will read the project"),
+                                 ("agent_thought_chunk", "Check the source layout")] {
+                feature.receive("""
+                {"kind":"update","sessionId":"first","update":{"sessionUpdate":"\(kind)",\
+                "content":{"type":"text","text":"\(text)"}}}
+                """)
+            }
+            feature.receive("""
+            {"kind":"update","sessionId":"first","update":{"sessionUpdate":"tool_call",\
+            "toolCallId":"read","title":"Read README","kind":"read","status":"completed"}}
+            """)
+            feature.receive("""
+            {"kind":"update","sessionId":"first","update":{"sessionUpdate":"agent_message_chunk",\
+            "content":{"type":"text","text":"This is the final answer."}}}
+            """)
+            feature.receive("""
+            {"kind":"turnFinished","sessionId":"first"}
+            """)
+            @MainActor func headers() -> [AnyObject] {
+                accessibilityElements(in: host).filter { $0.accessibilityIdentifier?() == "agent-process-group-header" }
+            }
+            try await renderUntil(host, expected: "one process disclosure") { headers().count == 1 }
+            let header = try #require(headers().first)
+            let frame = header.accessibilityFrame?() ?? .zero
+            #expect(frame.height < 32, "Collapsed process should occupy one compact line")
+            let collapsed = try snapshot(host)
+            try record(host, name: "mixed-collapsed")
+            try pressThought(in: host, window: window)
+            try await renderUntil(host, expected: "expanded ordered process") { try snapshot(host) != collapsed }
+            #expect(headers().count == 1, "Individual thoughts must not create nested thinking headers")
+            try record(host, name: "mixed-expanded")
+            try pressThought(in: host, window: window)
+            try await renderUntil(host, expected: "compact reply after collapsing") { try snapshot(host) == collapsed }
+        }
+    }
+
+    @Test
     func manualExpansionSurvivesNonmatchingSearchRemovingAndRecreatingTheRow() async throws {
         try await withTranscript { feature, host, window in
             renderFrame(host)
@@ -132,6 +176,13 @@ struct AgentThoughtTranscriptTests {
                 clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0))
             window.sendEvent(event)
         }
+    }
+
+    private func accessibilityElements(in element: Any) -> [AnyObject] {
+        let accessible = element as AnyObject
+        let children = accessible.accessibilityChildren?() ?? []
+        let descendants: [Any] = children.isEmpty ? ((element as? NSView)?.subviews ?? []) : children
+        return [accessible] + descendants.flatMap { accessibilityElements(in: $0) }
     }
 
     private func renderFrame(_ host: NSView) {
