@@ -351,9 +351,11 @@ Swift 文本文件策略直接调用 Rust Core，因此 `scripts/test-macos.sh` 
 当前工作树的 Core 静态库。它复用现有 `rust/target/macos` 构建路径；这是可变编译状态，
 不允许跨工作树复制或共享，也没有新增可复用资源目录。依赖下载仍按下文清单复用。
 Swift 单元、插件和数据库 CI 通道复用已有 Cargo 下载缓存。先通过
-`./scripts/test-macos.sh list` 构建并发现测试，独立步骤上限为 20 分钟；随后计时工具
+`./scripts/test-macos.sh list` 构建并发现测试，独立步骤上限为 40 分钟；随后计时工具
 传入 `--skip-build`，测试阶段保留 960 秒总时限及 17 分钟外层步骤时限，给超时清理
-与报告留出一分钟。冷构建不再消耗测试执行预算；单测试预算和无输出看门狗保持不变。
+与报告留出一分钟。构建失败时不生成合并报告，避免同一失败被重复计为“未生成测试
+报告”；构建成功而报告缺失仍会失败。冷构建不再消耗测试执行预算；单测试预算和无
+输出看门狗保持不变。
 
 ### 独立工作树的本地编译
 
@@ -667,6 +669,9 @@ Java Support（`dev.lithe.plugin.java-support`）是唯一随 Lithe.app 发行�
 - **资源路径**：组装结果在 `.build/<triple>/<configuration>/OfficialPlugins/dev.lithe.plugin.java-support/`，
   打包后位于 `Lithe.app/Contents/Resources/OfficialPlugins/` 下。包内 `language-server/` 是固定版本的
   JDT LS 及 Lombok、Java Debug、Java Test 扩展，`runtime/<arch>/` 是它运行所用的 JDK。
+  `icons/` 和 `templates/` 是新建项目窗口里 Java、Maven Archetype、Spring Boot 条目的图标和模板，
+  从源码目录直接复制，不下载、与架构无关；模板只读，新项目先写进用户所选目录下的临时目录，
+  完成后整体移动到位，不写 app bundle 或插件包，不影响代码签名和 Sparkle delta。
 - **组装入口**：`Plugins/mac/Official/JavaSupport/assemble-package.sh`，由
   `scripts/build-official-plugins.sh` 调用，`--arch arm64|x86_64|universal` 决定带哪些架构的 JDK
   和 Equinox 配置。应用本身不再包含 `Contents/Resources/LanguageServers`。
@@ -675,7 +680,8 @@ Java Support（`dev.lithe.plugin.java-support`）是唯一随 Lithe.app 发行�
 - **身份约束与校验来源**：JDT LS 的版本、下载地址和校验值来自 `third_party/jdtls/manifest.json`，
   JDK 来自 `third_party/jdk/manifest.json`；`plugin.json` 精确写出入口 jar 的文件名，升级 JDT LS
   后文件名不一致会在组装时失败。组装结果由 `LitheOfficialPluginVerifier` 校验：入口和各架构的
-  `bin/java` 存在，包内没有符号链接，Mach-O 只出现在清单声明的 `runtime/` 目录内。
+  `bin/java` 存在，包内没有符号链接，Mach-O 只出现在清单声明的 `runtime/` 目录内。Rust Core 测试
+  `project_generators` 用源码目录里的模板生成每个生成器的计划。
 - **运行时状态**：语言服务器的可写状态在 `<app-support>/Lithe/PluginState/<plugin-id>/`，
   JDT LS 的工作区索引和 Equinox 配置区仍在 `<cache>/Lithe/language-servers/`（`jdtls/`、`jdtls-configuration/`），
   由 `jdt` 宿主集成在启动时发现没有未卸载的插件声明它后删除。两者都是单次安装的

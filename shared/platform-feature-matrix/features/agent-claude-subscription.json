@@ -1,0 +1,31 @@
+{
+  "id": "agent-claude-subscription",
+  "area": "AI",
+  "group": "Agent 对话",
+  "capability": "Claude 供应商可选官方订阅：直接使用本机 Claude Code 已登录的 claude.ai 账号，与 API Key 模式随时切换，Lithe 不读取任何凭据",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "macos/Sources/LitheCoreContracts/Agent/AgentConversationPorts.swift",
+      "macos/Sources/Lithe/Application/Features/AgentLaunchConfigurationResolver.swift",
+      "macos/Sources/Lithe/Models/AppModel/AppModel+AgentProviders.swift",
+      "macos/Sources/Lithe/Views/Agent/AgentProviderConfigurationView.swift",
+      "macos/Sources/Lithe/Application/Features/AgentSetupDiagnostics.swift",
+      "macos/Tests/LitheTests/AgentLaunchConfigurationResolverTests.swift",
+      "macos/Tests/LitheTests/AgentProviderConfigurationTests.swift",
+      "rust/lithe-agent-host/src/claude_subscription.rs",
+      ".agents/notes/implemented/architecture/2026-09-25-shared-acp-agent-conversation.md"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
+    "evidence": [
+      "rust/lithe-agent-host/src/claude_subscription.rs",
+      "rust/lithe-agent-host/src/lib.rs"
+    ]
+  },
+  "owner": "Agent",
+  "verification": "macOS：本机 Claude Code 已用 /login 登录 claude.ai 账号时，在设置 > AI > Agent 管理 > Claude Agent 的供应商管理中启用「Claude 官方订阅（本机账号）」，预检的 Agent 供应商显示 PASS 并说明使用 claude.ai 账号；打开 Agent 面板新建与恢复会话、发送消息，确认请求不携带 API Key、地址或模型覆盖（Lithe 环境中的 ANTHROPIC_API_KEY、ANTHROPIC_AUTH_TOKEN、ANTHROPIC_BASE_URL、ANTHROPIC_MODEL、CLAUDE_CODE_OAUTH_TOKEN 不传给适配器），模型列表来自 Claude Code。终端执行 claude /logout 后重连，面板显示「Claude Code 尚未登录……用 /login 登录后再重试」，Lithe 不打开浏览器；重新登录后重试恢复。空闲时在订阅与 API Key 供应商之间切换，API Key 模式仍按所选供应商路由并清除 OAuth；Codex 订阅不能用于 Claude，Claude 订阅不能用于 Codex；取消关联后回到未配置。订阅模式不启用模型调用统计代理。Windows：共享 Host 已支持 claudeSubscription 启动与登录检查，设置界面尚未提供该选项，待接入并真机验收。"
+}

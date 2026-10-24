@@ -93,6 +93,137 @@ struct LitheTreeListTests {
         #expect(childBuilds == 1)
     }
 
+    @Test func navigationSkipsPlainHeadersButKeepsExpandableBranches() {
+        let rows: [LitheTreeListHierarchy] = [
+            .init(isSelectable: false), .init(depth: 1), .init(isSelectable: false),
+            .init(depth: 1), .init(isBranch: true, isSelectable: false), .init(depth: 1),
+            .init(isSelectable: false),
+        ]
+        #expect(LitheTreeListNavigation.resolve(.down, current: 1, rows: rows) == .select(3))
+        #expect(LitheTreeListNavigation.resolve(.up, current: 3, rows: rows) == .select(1))
+        #expect(LitheTreeListNavigation.resolve(.down, current: 3, rows: rows) == .select(4))
+        #expect(LitheTreeListNavigation.resolve(.right, current: 4, rows: rows) == .expand(4, true))
+        #expect(LitheTreeListNavigation.resolve(.down, current: nil, rows: rows) == .select(1))
+        #expect(LitheTreeListNavigation.resolve(.up, current: nil, rows: rows) == .select(5))
+        #expect(LitheTreeListNavigation.resolve(.down, current: 5, rows: rows) == .select(5))
+        #expect(LitheTreeListNavigation.resolve(.down, current: nil, rows: [.init(isSelectable: false)]) == nil)
+    }
+
+    @Test func externalSelectionRetargetsMountedKeyboardAndPreservesShiftAnchor() async throws {
+        let app = NSApplication.shared
+        let attribute = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
+        let previous = (app.accessibilityAttributeValue(attribute) as? Bool) ?? false
+        app.accessibilitySetValue(true, forAttribute: attribute)
+        defer { app.accessibilitySetValue(previous, forAttribute: attribute) }
+        let state = TreeListInteractionState()
+        let host = NSHostingView(rootView: TreeKeyboardFixture(state: state))
+        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 300, height: 200),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = host
+        window.makeKeyAndOrderFront(nil)
+        defer { window.makeFirstResponder(nil); window.contentView = nil; window.close() }
+        #expect(try #require(await keyboardRow(in: host, text: "a")).accessibilityPerformPress?() == true)
+        #expect(await keyboardSettled(host) { state.selected == ["a"] })
+        state.selected = ["c"]
+        host.layoutSubtreeIfNeeded()
+        await Task.yield()
+        try sendTreeKey(36, window: window)
+        #expect(await keyboardSettled(host) { state.activated.last == "c" })
+        try sendTreeKey(125, window: window)
+        #expect(await keyboardSettled(host) { state.selected == ["d"] })
+        state.selected = ["c"]
+        host.layoutSubtreeIfNeeded()
+        await Task.yield()
+        try sendTreeKey(126, window: window, modifiers: .shift)
+        #expect(await keyboardSettled(host) { state.selected == ["b", "c"] }, "Selected: \(state.selected)")
+        try sendTreeKey(126, window: window, modifiers: .shift)
+        #expect(await keyboardSettled(host) { state.selected == ["a", "b", "c"] }, "Selected: \(state.selected)")
+        try sendTreeKey(125, window: window, modifiers: .shift)
+        #expect(await keyboardSettled(host) { state.selected == ["b", "c"] }, "Selected: \(state.selected)")
+        try sendTreeKey(36, window: window)
+        #expect(await keyboardSettled(host) { state.activated.last == "b" })
+    }
+
+    @Test func problemsKeyboardCrossesFileHeaderAndOpensTheNextDiagnostic() async throws {
+        let app = NSApplication.shared
+        let attribute = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
+        let previous = (app.accessibilityAttributeValue(attribute) as? Bool) ?? false
+        app.accessibilitySetValue(true, forAttribute: attribute)
+        defer { app.accessibilitySetValue(previous, forAttribute: attribute) }
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("Lithe.ProblemsKeyboard-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let first = directory.appendingPathComponent("A.java"), second = directory.appendingPathComponent("B.java")
+        for file in [first, second] { try "class Test {}\n\n\n".write(to: file, atomically: true, encoding: .utf8) }
+        let domain = "Lithe.ProblemsKeyboard.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let store = MacUserDefaultsStore(defaults: defaults), settings = AppSettings(store: store)
+        let model = AppModel(settings: settings,
+            services: MacServiceContainer(store: store, settings: settings, moduleLaunchMode: .safeMode).services)
+        model.openProjectDirectly(directory)
+        defer { model.workspaceFeature.reset() }
+        let diagnostics = EditorDiagnosticsStore()
+        func diagnostic(_ file: URL, line: Int, message: String) -> EditorDiagnostic {
+            .init(id: file.lastPathComponent, fileURL: file, line: line, utf16Column: 1,
+                  endLine: line, endUTF16Column: 2, severity: .error, message: message,
+                  source: "test", code: nil, tags: [], relatedInformation: [])
+        }
+        diagnostics.replace([first: [diagnostic(first, line: 0, message: "A problem")],
+                             second: [diagnostic(second, line: 2, message: "B problem")]])
+        let host = NSHostingView(rootView: ProblemsView(initialScope: .projectErrors)
+            .environmentObject(model).environmentObject(diagnostics))
+        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 500, height: 300),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = host
+        window.makeKeyAndOrderFront(nil)
+        defer { window.makeFirstResponder(nil); window.contentView = nil; window.close() }
+        #expect(await keyboardSettled(host) { model.projectFiles.contains(first) })
+        #expect(try #require(await keyboardRow(in: host, text: "A problem")).accessibilityPerformPress?() == true)
+        #expect(await keyboardSettled(host) { model.activeDocument?.url.resolvingSymlinksInPath() == first.resolvingSymlinksInPath() }, "Opened: \(String(describing: model.activeDocument?.url))")
+        try sendTreeKey(125, window: window)
+        try sendTreeKey(36, window: window)
+        #expect(await keyboardSettled(host) { model.activeDocument?.url.resolvingSymlinksInPath() == second.resolvingSymlinksInPath() }, "Opened: \(String(describing: model.activeDocument?.url))")
+        #expect(model.editorNavigationTarget?.url == second)
+        #expect(model.editorNavigationTarget?.line == 2)
+        #expect(model.editorNavigationTarget?.utf16Column == 1)
+    }
+
+    private func keyboardSettled(_ host: NSView, until predicate: () -> Bool) async -> Bool {
+        let clock = ContinuousClock(), deadline = clock.now.advanced(by: .seconds(2))
+        repeat {
+            host.layoutSubtreeIfNeeded()
+            if predicate() { return true }
+            await Task.yield()
+        } while clock.now < deadline
+        return predicate()
+    }
+
+    private func keyboardRow(in host: NSView, text: String) async -> AnyObject? {
+        func contains(_ value: Any) -> Bool {
+            let item = value as AnyObject
+            let string: String? = item.accessibilityValue?()
+            return string == text || (item.accessibilityLabel?() ?? "").contains(text)
+                || (item.accessibilityChildren?() ?? []).contains(where: contains)
+        }
+        func find(_ value: Any) -> AnyObject? {
+            let item = value as AnyObject
+            if item.accessibilityRole?() == .button, contains(item) { return item }
+            return (item.accessibilityChildren?() ?? []).lazy.compactMap(find).first
+        }
+        var result: AnyObject?
+        _ = await keyboardSettled(host) { result = find(host); return result != nil }
+        return result
+    }
+
+    private func sendTreeKey(_ code: UInt16, window: NSWindow, modifiers: NSEvent.ModifierFlags = []) throws {
+        let text = code == 36 ? "\r" : code == 125 ? "\u{F701}" : "\u{F700}"
+        let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers,
+            timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: text,
+            charactersIgnoringModifiers: text, isARepeat: false, keyCode: code))
+        NSApp.sendEvent(event)
+    }
+
     @Test func mountedListExposesSelectionAndPreservesEmbeddedActions() async throws {
         let application = NSApplication.shared
         let attribute = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
@@ -320,6 +451,17 @@ struct LitheTreeListTests {
             }
         }
         #expect(failures.isEmpty, "Tree/list callers must use LitheTreeList: \(failures)")
+    }
+}
+
+@MainActor
+private struct TreeKeyboardFixture: View {
+    @ObservedObject var state: TreeListInteractionState
+
+    var body: some View {
+        LitheTreeList(["a", "b", "c", "d"], id: \.self,
+            selection: Binding(get: { state.selected }, set: { state.selected = $0 }),
+            onActivate: { state.activated.append($0) }) { Text($0) }
     }
 }
 

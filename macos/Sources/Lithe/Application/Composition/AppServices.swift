@@ -18,6 +18,12 @@ final class AppServices {
     var mcpTools: (any McpToolsManaging)?
     /// Confirms closing terminals with running programs; `nil` closes directly.
     var processExitCoordinator: ProcessExitCoordinator?
+    /// Creates projects for the New Project window; `nil` falls back to
+    /// choosing an existing folder.
+    var projectGeneration: ProjectGenerationService?
+    /// Installed plugins with their enabled state, for the New Project
+    /// catalog and the plugins that provide a generator's requirements.
+    var projectGeneratorSources: (@MainActor () -> [ProjectGeneratorPluginSource])?
     /// Gives build providers that share a language server the language
     /// sessions; `nil` when the platform starts no build providers.
     var connectBuildProviderLanguageSessions: ((@escaping @MainActor () -> LanguageToolingSessionManager?) -> Void)?

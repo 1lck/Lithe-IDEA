@@ -365,4 +365,21 @@ public enum LanguageExtensionModuleManifests {
             dependencies: [.module(.workspace)]
         )
     }
+
+    /// One module for all project generators of a plugin. The New Project
+    /// window runs without a workspace, so the module is application-scoped
+    /// and owns no process: Core plans and the host creates the project.
+    public static func projectGenerators(
+        pluginID: String,
+        displayName: String,
+        enabledByDefault: Bool = false
+    ) -> ModuleManifest {
+        ModuleManifest(
+            id: .projectGeneratorsExtension(pluginID),
+            displayName: "\(displayName) Project Templates",
+            scope: .application,
+            defaultState: enabledByDefault ? .enabled : .disabled,
+            activationPolicy: .onDemand
+        )
+    }
 }

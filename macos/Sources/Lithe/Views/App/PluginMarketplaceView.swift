@@ -45,6 +45,10 @@ struct PluginMarketplaceView: View {
             flexible: { detail }
         )
         .task { await feature.refreshIfNeeded() }
+        .onReceive(feature.$requestedSearch.compactMap { $0 }) { query in
+            searchText = query
+            feature.requestedSearch = nil
+        }
     }
 
     // MARK: List
@@ -844,6 +848,15 @@ enum PluginMarketplacePresentation {
                 lines.append(localized("May connect to the repository server", locale: locale))
             }
             return (title, lines.joined(separator: "\n"))
+        case .projectGenerator:
+            var lines = [line([program.command ?? ""] + program.argumentTemplate("arguments"))]
+            if program.mayUseNetwork {
+                lines.append(localized("May connect to the internet", locale: locale))
+            }
+            return (
+                String(format: localized("Creates %@ projects", locale: locale), program.generatorID ?? ""),
+                lines.joined(separator: "\n")
+            )
         case .unknown:
             // The full declaration stays behind the disclosure below so an
             // unfamiliar kind cannot push the sheet's buttons off screen.

@@ -54,7 +54,7 @@ struct CloneRepositoryView: View {
                         .focused($focusedField, equals: .folder)
                 }
 
-                Text("Lithe will clone the repository into (destinationDescription).")
+                Text("Lithe will clone the repository into \(destinationDescription).")
                     .font(LitheTheme.uiFont(size: 11.5))
                     .foregroundStyle(LitheTheme.secondaryText)
                     .lineLimit(2)
@@ -176,13 +176,9 @@ struct CloneRepositoryView: View {
     }
 
     private func chooseParentFolder() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        panel.prompt = "Choose"
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        parentFolder = url.path
+        if let path = LitheDirectoryPicker.choose(startingAt: parentFolder) {
+            parentFolder = path
+        }
     }
 
     private func defaultFolderName(from value: String) -> String {

@@ -322,8 +322,9 @@ struct AgentConversationSelectionTests {
                         return view.subviews.lazy.compactMap { historySearch(in: $0) }.first
                     }
                     try capture("chat")
-                    // Editor omits Hide; History is just before Options in that host.
-                    let slots: CGFloat = editor ? 1 : 2
+                    // The tool window has History, Options, Hide; the editor has History,
+                    // Details, Options. History is two slots before the trailing edge in both.
+                    let slots: CGFloat = 2
                     try clickNativeView(host, at: NSPoint(x: width - 7 - slots * 26 - 11, y: 17))
                     try #require(await waitForLayout(host) { historySearch(in: host) != nil }, "History must open the original management page")
                     try capture("history")

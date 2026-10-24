@@ -8,6 +8,8 @@ struct LitheTreeListHierarchy {
     var isExpanded = false
     var isSelectable = true
 
+    var isKeyboardNavigable: Bool { isSelectable || isBranch }
+
     func activate(onExpansion: ((Bool) -> Void)?, onActivate: (() -> Void)?) {
         if isBranch, let onExpansion {
             onExpansion(!isExpanded)
@@ -70,6 +72,7 @@ struct LitheTreeList<Data: RandomAccessCollection, ID: Hashable, RowContent: Vie
     private var nativeRenderer: AnyView?
     @State private var anchor: ID?
     @State private var cursor: ID?
+    @State private var internalSelection: Set<ID>?
     @State private var isActive = false
     @FocusState private var isFocused: Bool
 
@@ -165,15 +168,25 @@ struct LitheTreeList<Data: RandomAccessCollection, ID: Hashable, RowContent: Vie
                     if let cursor { proxy.scrollTo(cursor) }
                 }
                 .onCommand(#selector(NSResponder.insertNewline(_:)), perform: activate)
+                .onCommand(#selector(NSResponder.moveUpAndModifySelection(_:))) { navigate(.up, extending: true) }
+                .onCommand(#selector(NSResponder.moveDownAndModifySelection(_:))) { navigate(.down, extending: true) }
                 .onCommand(#selector(NSResponder.moveToBeginningOfDocument(_:))) { selectBoundary(last: false) }
                 .onCommand(#selector(NSResponder.moveToEndOfDocument(_:))) { selectBoundary(last: true) }
                 .onCommand(#selector(NSResponder.selectAll(_:))) {
                     if allowsMultipleSelection {
-                        selection.wrappedValue = Set(
-                            items.filter { hierarchy($0).isSelectable }.map { $0[keyPath: id] })
+                        let all = Set(items.filter { hierarchy($0).isSelectable }.map { $0[keyPath: id] })
+                        internalSelection = all
+                        selection.wrappedValue = all
                     }
                 }
                 .onChange(of: selection.wrappedValue) { selected in
+                    if native == nil, selected != internalSelection {
+                        // Only external changes reset the range origin. A Shift
+                        // selection must retain its keyboard cursor and anchor.
+                        cursor = items.first { selected.contains($0[keyPath: id]) && hierarchy($0).isSelectable }?[keyPath: id]
+                        anchor = cursor
+                    }
+                    internalSelection = nil
                     if let target = LitheTreeListSelection.revealTarget(
                         cursor: cursor, selected: selected,
                         visible: items.map { $0[keyPath: id] })
@@ -274,12 +287,14 @@ struct LitheTreeList<Data: RandomAccessCollection, ID: Hashable, RowContent: Vie
         }
         let order = items.filter { hierarchy($0).isSelectable }.map { $0[keyPath: id] }
         let previous = cursor ?? order.first { selection.wrappedValue.contains($0) }
-        selection.wrappedValue = LitheTreeListSelection.select(
+        let selected = LitheTreeListSelection.select(
             target, in: order,
             selected: selection.wrappedValue, anchor: anchor ?? previous,
             extending: allowsMultipleSelection && extending, toggling: allowsMultipleSelection && toggling)
         if !extending || anchor == nil { anchor = extending ? previous ?? target : target }
         cursor = target
+        internalSelection = selected
+        selection.wrappedValue = selected
     }
 
     private func selectBoundary(last: Bool) {
@@ -495,21 +510,25 @@ enum LitheTreeListNavigation {
     }
 
     static func resolve(_ key: LitheTreeListNavigationKey, current: Int?, rows: [LitheTreeListHierarchy]) -> Result? {
-        guard !rows.isEmpty else { return nil }
+        let stops = rows.indices.filter { rows[$0].isKeyboardNavigable }
+        guard let first = stops.first, let last = stops.last else { return nil }
         guard let index = current, rows.indices.contains(index) else {
-            return .select(key == .up ? rows.count - 1 : 0)
+            return .select(key == .up ? last : first)
         }
         let row = rows[index]
         switch key {
-        case .up: return .select(max(0, index - 1))
-        case .down: return .select(min(rows.count - 1, index + 1))
+        case .up: return .select(stops.last { $0 < index } ?? (row.isKeyboardNavigable ? index : first))
+        case .down: return .select(stops.first { $0 > index } ?? (row.isKeyboardNavigable ? index : last))
         case .right:
             guard row.isBranch else { return nil }
             if !row.isExpanded { return .expand(index, true) }
-            if index + 1 < rows.count, rows[index + 1].depth > row.depth { return .select(index + 1) }
+            if let child = rows.indices.dropFirst(index + 1).prefix(while: { rows[$0].depth > row.depth })
+                .first(where: { rows[$0].isKeyboardNavigable }) { return .select(child) }
         case .left:
             if row.isBranch && row.isExpanded { return .expand(index, false) }
-            if let parent = rows[..<index].lastIndex(where: { $0.depth < row.depth }) { return .select(parent) }
+            if let parent = rows[..<index].lastIndex(where: { $0.depth < row.depth && $0.isKeyboardNavigable }) {
+                return .select(parent)
+            }
         }
         return nil
     }

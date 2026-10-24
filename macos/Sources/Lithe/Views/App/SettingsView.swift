@@ -221,7 +221,7 @@ struct SettingsView: View {
                             Text(LocalizedStringKey(group.rawValue)).font(LitheTheme.uiFont(size: 13, weight: .medium))
                         }
                     } children: {
-                        visible.map(categoryNode) + pages.map { page in
+                        visible.map { categoryNode($0, nested: true) } + pages.map { page in
                             LitheTreeListNode(id: "plugin:" + page.id, onSelect: {
                                 isSearchFocused = false; viewState.contributedPageID = page.id
                             }) {
@@ -238,11 +238,14 @@ struct SettingsView: View {
         }
     }
 
-    private func categoryNode(_ category: SettingsCategory) -> LitheTreeListNode {
+    private func categoryNode(_ category: SettingsCategory, nested: Bool = false) -> LitheTreeListNode {
         LitheTreeListNode(id: "page:" + category.id, onSelect: {
             isSearchFocused = false; viewState.contributedPageID = nil; viewState.selection = category
         }) {
-            Text(LocalizedStringKey(category.title)).font(LitheTheme.uiFont(size: 12.5))
+            HStack(spacing: 8) {
+                if !nested { SettingsSidebarIcon(style: .page(category)) }
+                Text(LocalizedStringKey(category.title)).font(LitheTheme.uiFont(size: nested ? 12.5 : 13))
+            }
         }
     }
 

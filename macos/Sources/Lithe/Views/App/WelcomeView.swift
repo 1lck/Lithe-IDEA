@@ -108,7 +108,7 @@ struct WelcomeView: View {
 
                 HStack(spacing: LitheTheme.ActionButton.spacing) {
                     Button("New Project") {
-                        model.chooseProject(title: "New Project", prompt: "Choose Folder")
+                        model.showNewProject()
                     }
                     .buttonStyle(LitheActionButtonStyle())
 
