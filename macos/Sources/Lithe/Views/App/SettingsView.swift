@@ -64,7 +64,6 @@ struct SettingsView: View {
     @ObservedObject var settings: AppSettings
     @ObservedObject var viewState: SettingsViewState
     @AppStorage("lithe.settings.categorySidebarWidth") private var categorySidebarWidth = 234.0
-    @State private var categoryListActive = false
     @State private var missingTerminalShellPath: String?
     @State private var expandedSidebarGroups: Set<String> = []
     /// Font shown before the latest font change, so the preview can compare the
@@ -111,7 +110,7 @@ struct SettingsView: View {
                 flexibleMinimum: Self.contentMinimumWidth,
 
                 onCommit: { categorySidebarWidth = Double($0) },
-                sized: { categories.background(LitheToolWindowActivityTracker(isActive: $categoryListActive)) },
+                sized: { categories },
                 flexible: {
                     content.simultaneousGesture(TapGesture().onEnded { isSearchFocused = false })
                 }
@@ -186,31 +185,10 @@ struct SettingsView: View {
                 .padding(.top, 10)
                 .padding(.bottom, 8)
 
-            ScrollView {
-                VStack(spacing: 0) {
-                    ForEach(Array(SettingsSidebarItem.layout.enumerated()), id: \.offset) { _, item in
-                        switch item {
-                        case .group(let group): categoryGroup(group)
-                        case .page(let category): categoryButton(category)
-                        }
-                    }
+            LitheTreeList(nodes: categoryNodes, selection: Binding(
+                get: { viewState.contributedPageID.map { "plugin:" + $0 } ?? "page:" + viewState.selection.id },
+                set: { _ in }))
 
-                    if filteredCategories.isEmpty && filteredContributedPages.isEmpty {
-                        VStack(spacing: 8) {
-                            Image(systemName: "magnifyingglass")
-                                .font(LitheTheme.uiFont(size: 18, weight: .light))
-                            Text("No settings found")
-                                .font(LitheTheme.uiFont(size: 12))
-                        }
-                        .foregroundStyle(LitheTheme.tertiaryText)
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, 28)
-                    }
-                }
-                .padding(.horizontal, 6)
-                .padding(.bottom, 10)
-            }
-            .litheScrollViewChrome(alwaysShowVertical: true, usesCompactScrollers: true)
         }
         .frame(maxWidth: .infinity)
         .frame(maxHeight: .infinity)
@@ -218,115 +196,57 @@ struct SettingsView: View {
     }
 
     private var settingsSearchField: some View {
-        LitheSettingsSearchField("Search settings", text: $viewState.searchQuery, focus: $isSearchFocused)
+        LitheSearchField("Search settings", text: $viewState.searchQuery, focus: $isSearchFocused)
             .accessibilityLabel("Search settings")
     }
 
-    @ViewBuilder
-    private func categoryGroup(_ group: SettingsGroup) -> some View {
-        let title = group.rawValue
-        let visible = group.categories.filter { filteredCategories.contains($0) }
-        let pages = filteredContributedPages.filter { $0.group == group }
-        if !visible.isEmpty || !pages.isEmpty {
-            let expanded = expandedSidebarGroups.contains(title) || !viewState.searchQuery.isEmpty
-            Button {
-                isSearchFocused = false
-                if expandedSidebarGroups.contains(title) {
-                    expandedSidebarGroups.remove(title)
-                } else {
-                    expandedSidebarGroups.insert(title)
-                }
-            } label: {
-                HStack(spacing: 8) {
-                    SettingsSidebarIcon(style: .group(group))
-                    Text(LocalizedStringKey(title))
-                        .font(LitheTheme.uiFont(size: 13, weight: .medium))
-                    Spacer(minLength: 0)
-                    Image(systemName: "chevron.right")
-                        .font(LitheTheme.uiFont(size: 9, weight: .semibold))
-                        .foregroundStyle(LitheTheme.tertiaryText)
-                        .rotationEffect(.degrees(expanded ? 90 : 0))
-                }
-                .padding(.horizontal, 8)
-                .frame(height: 30)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.litheNoPress)
-            .foregroundStyle(LitheTheme.primaryText)
-            .padding(.top, 2)
-            if expanded {
-                ForEach(visible) { category in
-                    categoryButton(category, nested: true)
-                }
-                ForEach(pages) { page in
-                    contributedPageButton(page)
-                }
+    private var categoryNodes: [LitheTreeListNode] {
+        SettingsSidebarItem.layout.flatMap { item -> [LitheTreeListNode] in
+            switch item {
+            case .page(let category):
+                return filteredCategories.contains(category) ? [categoryNode(category)] : []
+            case .group(let group):
+                let visible = group.categories.filter { filteredCategories.contains($0) }
+                let pages = filteredContributedPages.filter { $0.group == group }
+                guard !visible.isEmpty || !pages.isEmpty else { return [] }
+                return [LitheTreeListNode(id: "group:" + group.rawValue,
+                    isExpanded: expandedSidebarGroups.contains(group.rawValue) || !viewState.searchQuery.isEmpty,
+                    isSelectable: false, onExpansion: { expanded in
+                        isSearchFocused = false
+                        if expanded { expandedSidebarGroups.insert(group.rawValue) }
+                        else { expandedSidebarGroups.remove(group.rawValue) }
+                    }) {
+                        HStack(spacing: 8) {
+                            SettingsSidebarIcon(style: .group(group))
+                            Text(LocalizedStringKey(group.rawValue)).font(LitheTheme.uiFont(size: 13, weight: .medium))
+                        }
+                    } children: {
+                        visible.map { categoryNode($0, nested: true) } + pages.map { page in
+                            LitheTreeListNode(id: "plugin:" + page.id, onSelect: {
+                                isSearchFocused = false; viewState.contributedPageID = page.id
+                            }) {
+                                HStack(spacing: 6) {
+                                    Text(verbatim: page.title).lineLimit(1)
+                                    Spacer(minLength: 4)
+                                    Text(verbatim: page.contributions.map(\.pluginName).joined(separator: ", "))
+                                        .font(LitheTheme.uiFont(size: 10)).foregroundStyle(LitheTheme.tertiaryText).lineLimit(1)
+                                }
+                            }
+                        }
+                    }]
             }
         }
     }
 
-    @ViewBuilder
-    private func categoryButton(_ category: SettingsCategory, nested: Bool = false) -> some View {
-        if filteredCategories.contains(category) {
-            let isSelected = viewState.selection == category && viewState.contributedPageID == nil
-            Button {
-                isSearchFocused = false
-                viewState.contributedPageID = nil
-                viewState.selection = category
-            } label: {
-                HStack(spacing: 8) {
-                    if !nested {
-                        SettingsSidebarIcon(style: .page(category))
-                    }
-                    Text(LocalizedStringKey(category.title))
-                        .font(nested
-                              ? LitheTheme.uiFont(size: 12.5, weight: isSelected ? .medium : .regular)
-                              : LitheTheme.uiFont(size: 13, weight: .medium))
-                        .foregroundStyle(nested && !isSelected ? LitheTheme.secondaryText : LitheTheme.primaryText)
-                    Spacer(minLength: 0)
-                }
-                .padding(.leading, nested ? 36 : 8)
-                .padding(.trailing, 8)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .frame(height: nested ? 26 : 30)
-                .litheSelectionRow(isSelected: isSelected, isFocused: categoryListActive, cornerRadius: 6)
-                .contentShape(Rectangle())
+    private func categoryNode(_ category: SettingsCategory, nested: Bool = false) -> LitheTreeListNode {
+        LitheTreeListNode(id: "page:" + category.id, onSelect: {
+            isSearchFocused = false; viewState.contributedPageID = nil; viewState.selection = category
+        }) {
+            HStack(spacing: 8) {
+                if !nested { SettingsSidebarIcon(style: .page(category)) }
+                Text(LocalizedStringKey(category.title)).font(LitheTheme.uiFont(size: nested ? 12.5 : 13))
             }
-            .buttonStyle(.litheNoPress)
-            .padding(.top, nested ? 0 : 2)
         }
-    }
-
-    /// A page plugins registered, drawn like the host's own nested pages
-    /// with the providing plugin named on the trailing edge.
-    private func contributedPageButton(_ page: ContributedSettingsPage) -> some View {
-        let isSelected = viewState.contributedPageID == page.id
-        let providers = page.contributions.map(\.pluginName).joined(separator: ", ")
-        return Button {
-            isSearchFocused = false
-            viewState.contributedPageID = page.id
-        } label: {
-            HStack(spacing: 6) {
-                Text(verbatim: page.title)
-                    .font(LitheTheme.uiFont(size: 12.5, weight: isSelected ? .medium : .regular))
-                    .foregroundStyle(isSelected ? LitheTheme.primaryText : LitheTheme.secondaryText)
-                    .lineLimit(1)
-                Spacer(minLength: 4)
-                Text(verbatim: providers)
-                    .font(LitheTheme.uiFont(size: 10))
-                    .foregroundStyle(LitheTheme.tertiaryText)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-            .padding(.leading, 36)
-            .padding(.trailing, 8)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(height: 26)
-            .litheSelectionRow(isSelected: isSelected, isFocused: categoryListActive, cornerRadius: 6)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.litheNoPress)
-        .help(Text(LocalizedStringKey("Added by plugins")))
     }
 
     private var contributedPages: [ContributedSettingsPage] {
@@ -472,6 +392,8 @@ struct SettingsView: View {
                     case .ai: aiSettings
                     case .instructions:
                         AgentInstructionsSettingsView(feature: model.agentInstructionsFeature)
+                    case .hooks:
+                        AgentHooksSettingsView(feature: model.agentHooksFeature)
                     case .agents:
                         AgentPanelSettingsView(model: model, settings: settings, feature: model.agentManagementFeature)
                             .id(model.settingsCategoryRequest)
@@ -609,8 +531,7 @@ struct SettingsView: View {
         let builtIn = FileVisibilityRules.builtInPatterns
         let shown = builtIn.prefix(3)
         return VStack(alignment: .leading, spacing: 6) {
-            TextEditor(text: $viewState.hiddenPathPatternsDraft)
-                .litheSettingsTextEditor(height: 72)
+            LitheTextEditor(text: $viewState.hiddenPathPatternsDraft, height: 72)
                 .accessibilityLabel(Text("Hidden paths"))
             HStack(spacing: 6) {
                 HStack(spacing: 6) {
@@ -953,8 +874,7 @@ struct SettingsView: View {
                 }
 
                 if editingProvider != nil {
-                    TextField("Provider name", text: editingProviderTextBinding(\.name))
-                        .litheSettingsTextField()
+                    LitheTextField("Provider name", text: editingProviderTextBinding(\.name))
                         .disabled(editingProviderIsConfigurationManaged)
                     row("API protocol") {
                         LitheSettingsSelect(
@@ -966,8 +886,7 @@ struct SettingsView: View {
                         )
                         .disabled(editingProviderIsConfigurationManaged)
                     }
-                    TextField("API URL", text: editingProviderTextBinding(\.endpoint))
-                        .litheSettingsTextField()
+                    LitheTextField("API URL", text: editingProviderTextBinding(\.endpoint))
                         .disabled(editingProviderIsConfigurationManaged)
                     if editingProvider?.usesInsecureHTTP == true {
                         LitheSettingsCheckbox(
@@ -984,13 +903,11 @@ struct SettingsView: View {
                         .font(LitheTheme.smallFont)
                         .foregroundStyle(LitheTheme.warning)
                     }
-                    TextField("Model", text: editingProviderTextBinding(\.model))
-                        .litheSettingsTextField()
+                    LitheTextField("Model", text: editingProviderTextBinding(\.model))
                         .disabled(editingProviderIsConfigurationManaged)
 
                     HStack(spacing: 8) {
-                        SecureField("API key or token", text: $viewState.aiAPIKeyDraft)
-                            .litheSettingsTextField()
+                        LitheTextField("API key or token", text: $viewState.aiAPIKeyDraft, secure: true)
                             .disabled(editingProviderIsConfigurationManaged)
                         Button("Save Key") {
                             if let editingProvider { model.saveAPIKey(viewState.aiAPIKeyDraft, for: editingProvider) }
@@ -1177,8 +1094,7 @@ struct SettingsView: View {
                 if settings.commitMessageAI.format == .custom {
                     Text("Custom instructions")
                         .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
-                    TextEditor(text: $settings.commitMessageAI.customInstructions)
-                        .litheSettingsTextEditor(height: 92)
+                    LitheTextEditor(text: $settings.commitMessageAI.customInstructions, height: 92)
                 }
             }
 
@@ -1207,8 +1123,7 @@ struct SettingsView: View {
                         .lithePointer()
                     }
 
-                    TextEditor(text: $settings.commitMessageAI.pullRequestCustomTemplate)
-                        .litheSettingsTextEditor(height: 150)
+                    LitheTextEditor(text: $settings.commitMessageAI.pullRequestCustomTemplate, height: 150)
                 }
 
                 Label(

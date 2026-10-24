@@ -33,7 +33,9 @@ normally GitHub's test merge commit. Check **macOS CI gate** or **Windows CI
 gate** for the combined test result. The macOS **Swift tests** job builds the
 Swift tests once and runs the main and database suites selected by the
 classifier, so **macOS CI gate** also owns the Swift database result;
-**Database CI gate** checks the Linux Rust database lane. **macOS Plugin CI**
+**Database CI gate** checks the Linux Rust database lane and **Remote Workspace
+CI gate** the Linux remote workspace lane (`scripts/verify-remote-workspace.sh`),
+which draft pull requests keep because it uses no macOS runner. **macOS Plugin CI**
 stays separate: it only reserves a macOS runner when the classifier selects the
 plugin lane, and otherwise **Plugin CI gate** passes on Linux in seconds.
 A failed architecture still fails the macOS gate; `fail-fast: false` lets the
@@ -384,6 +386,18 @@ HTTP/SSE 响应体和 stdio 元数据限制为 2 MiB，原生文件由现有平�
 这些保留值随资料持久化，不能复制到其他工作树；取消/离页释放进程与内存，不写 app bundle 或安装目录。
 用户明确运行包命令可能产生的 npm/uv 缓存归上游运行时管理，不属于可跨工作树复用的 Lithe 构建资源。
 
+随 App 附带的远端工作区服务登记为 `remote-server-artifacts`。`scripts/build-remote-servers.sh`
+每次打包都用本工作树源码重新构建两个 Linux musl 静态版（约 25 秒），输出到
+`rust/target/remote-servers/`，再复制到 `Contents/Resources/RemoteServers/`；构建机需要
+`x86_64-unknown-linux-musl` 和 `aarch64-unknown-linux-musl` 两个 Rust 目标。清单只记录服务版本，
+不带工具链或源码身份，所以不跨工作树复用。运行时只读取这份副本并上传给 SSH 主机，
+不写 bundle，不影响签名和 Sparkle delta。
+
+远程开发的用户状态登记为 `remote-connection-state`：偏好中的 SSH 连接列表、钥匙串服务
+`remote` 中记住的密码或口令、`Application Support/Lithe/RemoteWorkspaces/` 下打开远程文件夹时
+创建的空占位根目录，以及远端主机上 `~/.lithe-server/bin/` 中按 SHA-256 校验后复用的服务。
+它们属于用户资料或远端主机，没有构建身份，所有复用阶段均拒绝复制。
+
 MCP 编辑器、工具面板和指令页的原生验收截图分别输出到
 `.artifacts/test-stability/mcp-ui/` 与 `.artifacts/test-stability/instructions-ui/`，随
 `test-stability-macos` artifact 提供给评审下载。截图只渲染隔离 fixture 的实际产品视图，
@@ -678,6 +692,9 @@ Java Support（`dev.lithe.plugin.java-support`）是唯一随 Lithe.app 发行�
 - **资源路径**：组装结果在 `.build/<triple>/<configuration>/OfficialPlugins/dev.lithe.plugin.java-support/`，
   打包后位于 `Lithe.app/Contents/Resources/OfficialPlugins/` 下。包内 `language-server/` 是固定版本的
   JDT LS 及 Lombok、Java Debug、Java Test 扩展，`runtime/<arch>/` 是它运行所用的 JDK。
+  `icons/` 和 `templates/` 是新建项目窗口里 Java、Maven Archetype、Spring Boot 条目的图标和模板，
+  从源码目录直接复制，不下载、与架构无关；模板只读，新项目先写进用户所选目录下的临时目录，
+  完成后整体移动到位，不写 app bundle 或插件包，不影响代码签名和 Sparkle delta。
 - **组装入口**：`Plugins/mac/Official/JavaSupport/assemble-package.sh`，由
   `scripts/build-official-plugins.sh` 调用，`--arch arm64|x86_64|universal` 决定带哪些架构的 JDK
   和 Equinox 配置。应用本身不再包含 `Contents/Resources/LanguageServers`。
@@ -686,7 +703,8 @@ Java Support（`dev.lithe.plugin.java-support`）是唯一随 Lithe.app 发行�
 - **身份约束与校验来源**：JDT LS 的版本、下载地址和校验值来自 `third_party/jdtls/manifest.json`，
   JDK 来自 `third_party/jdk/manifest.json`；`plugin.json` 精确写出入口 jar 的文件名，升级 JDT LS
   后文件名不一致会在组装时失败。组装结果由 `LitheOfficialPluginVerifier` 校验：入口和各架构的
-  `bin/java` 存在，包内没有符号链接，Mach-O 只出现在清单声明的 `runtime/` 目录内。
+  `bin/java` 存在，包内没有符号链接，Mach-O 只出现在清单声明的 `runtime/` 目录内。Rust Core 测试
+  `project_generators` 用源码目录里的模板生成每个生成器的计划。
 - **运行时状态**：语言服务器的可写状态在 `<app-support>/Lithe/PluginState/<plugin-id>/`，
   JDT LS 的工作区索引和 Equinox 配置区仍在 `<cache>/Lithe/language-servers/`（`jdtls/`、`jdtls-configuration/`），
   由 `jdt` 宿主集成在启动时发现没有未卸载的插件声明它后删除。两者都是单次安装的
@@ -715,3 +733,19 @@ Windows PHP Worker 插件使用 `bun scripts/build-windows-php-plugin.ts` 单独
 在资源清单中注册为不可复用；不随 Windows 应用构建复制。用户导入后的源码与状态
 位于 WebView 用户配置的 `lithe.worker-package:<id>`，也禁止跨 worktree 复用。
 CI 在 Windows frontend lane 构建并上传独立包，同时运行包、Worker 协议和生命周期测试。
+
+### Agent Hook 用户状态
+
+`<app-support>/Lithe/AgentHooks/`（Windows 为平台 app-data 根目录下的
+`AgentHooks/`）保存 `hooks.json` 和 `.sync.lock`。资源库包含用户命令及原生
+配置条目的写入前所有权记录；它没有版本、平台、架构或工具链构建身份，
+任何复制阶段都禁止跨 worktree 复用。仅显式保存、启停、删除或重试会写入。
+每次原子替换产生的 `.lithe-instructions-<UUID>.tmp` 由共用文件 adapter
+在成功和失败后清理；空锁随用户资源库保留。Codex `hooks.json`、Claude
+`settings.json` 仍属于对应用户配置，不属于构建资源。Hook 执行与信任由
+原生 Agent 负责；所有状态都在可写用户目录，运行时不改变发行 bundle、
+代码签名或 Sparkle delta 基线。
+
+原生 UI 截图位于 `.artifacts/test-stability/hooks-ui/`，绑定本次源码、主题、
+语言和窗口尺寸，不作为可复用资源。运行 `node --test scripts/test-reuse-worktree-resources.mjs`
+验证 `agent-hook-library-state` 被复用入口拒绝。

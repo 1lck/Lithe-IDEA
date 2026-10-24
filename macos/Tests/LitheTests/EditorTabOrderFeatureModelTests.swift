@@ -27,11 +27,14 @@ struct EditorTabOrderFeatureModelTests {
                 window.contentView = host
                 defer { window.contentView = nil; window.close() }
                 host.layoutSubtreeIfNeeded()
-                let frame = try await AgentNativeControlTestSupport.frame(of: "agent-composer-attach-files", in: host)
+                // The leading control measures the composer's outer edge: attachment in
+                // the tool window, the Agent switcher in the editor card, which drops
+                // attach and send. Other dropdowns can move without changing the edge.
+                let frame = try await AgentNativeControlTestSupport.frame(
+                    of: editor ? "agent-composer-agent-selector" : "agent-composer-attach-files", in: host)
                 let column = editor ? width * AgentPanelStyle.editorContentWidthFraction : width
-                // The attachment action is the toolbar's leading control. Other
-                // dropdowns can move without changing the composer's outer edge.
-                let composerLeadingEdge = frame.minX - AgentComposerMetrics.toolbarHorizontalInset
+                let toolbarInset = AgentComposerMetrics.toolbarHorizontalInset + (editor ? 3 : 0)
+                let composerLeadingEdge = frame.minX - toolbarInset
                 #expect(abs(composerLeadingEdge - ((width - column) / 2 + AgentComposerMetrics.horizontalInset)) < 1,
                         "Footer frame \(frame), editor \(editor), column \(column)")
                 #expect(frame.minX >= AgentComposerMetrics.horizontalInset)

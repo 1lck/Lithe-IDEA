@@ -149,6 +149,7 @@ fn execute(request: &str) -> CoreResponse {
             agent_response(id, parsed.payload, crate::agent::instructions::shared)
         }
         CoreCommand::AgentSkills => agent_response(id, parsed.payload, crate::agent::skills),
+        CoreCommand::AgentHooks => agent_response(id, parsed.payload, crate::agent::hooks::execute),
         CoreCommand::AgentParseProviderConfiguration => {
             match crate::ai::parse_provider_configuration(parsed.payload) {
                 Ok(data) => CoreResponse::success(id, data),
@@ -182,6 +183,11 @@ fn execute(request: &str) -> CoreResponse {
             Ok(data) => CoreResponse::success(id, data),
             Err(error) => CoreResponse::failure(id, error),
         },
+        CoreCommand::PluginsNativeUIValidateData => plugin_response(
+            id,
+            parsed.payload,
+            crate::plugins::native_ui::validate_data_command,
+        ),
         CoreCommand::PluginsDeclarativeValidate => plugin_response(
             id,
             parsed.payload,
@@ -291,6 +297,31 @@ fn execute(request: &str) -> CoreResponse {
         CoreCommand::VcsDecodeReply => {
             plugin_response(id, parsed.payload, crate::vcs::vcs_decode_reply_command)
         }
+        CoreCommand::ProjectGeneratorCatalog => plugin_response(
+            id,
+            parsed.payload,
+            crate::project_generators::project_generator_catalog_command,
+        ),
+        CoreCommand::ProjectGeneratorForm => plugin_response(
+            id,
+            parsed.payload,
+            crate::project_generators::project_generator_form_command,
+        ),
+        CoreCommand::ProjectGenerationPlan => plugin_response(
+            id,
+            parsed.payload,
+            crate::project_generators::project_generation_plan_command,
+        ),
+        CoreCommand::ProjectCheckName => plugin_response(
+            id,
+            parsed.payload,
+            crate::project_generators::project_check_name_command,
+        ),
+        CoreCommand::ProjectExtractArchive => plugin_response(
+            id,
+            parsed.payload,
+            crate::project_generators::project_extract_archive_command,
+        ),
         CoreCommand::PluginsMarketplaceValidateIndex => plugin_response(
             id,
             parsed.payload,
@@ -2361,6 +2392,128 @@ fn execute(request: &str) -> CoreResponse {
         }
         CoreCommand::GitExecutable => {
             CoreResponse::success(id, git::configuration::locate_executable())
+        }
+        CoreCommand::RemoteProbe => {
+            match serde_json::from_value::<crate::remote::ProbeRequest>(parsed.payload) {
+                Ok(request) => match crate::remote::probe(request) {
+                    Ok(result) => CoreResponse::success(
+                        id,
+                        serde_json::to_value(result).expect("remote probe result should encode"),
+                    ),
+                    Err(error) => CoreResponse::failure(id, error),
+                },
+                Err(error) => CoreResponse::failure(
+                    id,
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid remote probe request")
+                        .with_details(error.to_string()),
+                ),
+            }
+        }
+        CoreCommand::RemoteConnect => {
+            match serde_json::from_value::<crate::remote::sessions::ConnectRequest>(parsed.payload)
+            {
+                Ok(request) => match crate::remote::sessions::connect(request) {
+                    Ok(result) => CoreResponse::success(
+                        id,
+                        serde_json::to_value(result).expect("remote connect result should encode"),
+                    ),
+                    Err(error) => CoreResponse::failure(id, error),
+                },
+                Err(error) => CoreResponse::failure(
+                    id,
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid remote connect request")
+                        .with_details(error.to_string()),
+                ),
+            }
+        }
+        CoreCommand::RemoteReadDir => {
+            match serde_json::from_value::<crate::remote::sessions::ReadDirRequest>(parsed.payload)
+            {
+                Ok(request) => match crate::remote::sessions::read_dir(request) {
+                    Ok(result) => CoreResponse::success(id, result),
+                    Err(error) => CoreResponse::failure(id, error),
+                },
+                Err(error) => CoreResponse::failure(
+                    id,
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid remote directory request",
+                    )
+                    .with_details(error.to_string()),
+                ),
+            }
+        }
+        CoreCommand::RemoteReadFile => {
+            match serde_json::from_value::<crate::remote::sessions::ReadFileRequest>(parsed.payload)
+            {
+                Ok(request) => match crate::remote::sessions::read_file(request) {
+                    Ok(result) => CoreResponse::success(id, result),
+                    Err(error) => CoreResponse::failure(id, error),
+                },
+                Err(error) => CoreResponse::failure(
+                    id,
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid remote file request")
+                        .with_details(error.to_string()),
+                ),
+            }
+        }
+        CoreCommand::RemoteWriteFile => {
+            match serde_json::from_value::<crate::remote::sessions::WriteFileRequest>(
+                parsed.payload,
+            ) {
+                Ok(request) => match crate::remote::sessions::write_file(request) {
+                    Ok(result) => CoreResponse::success(id, result),
+                    Err(error) => CoreResponse::failure(id, error),
+                },
+                Err(error) => CoreResponse::failure(
+                    id,
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid remote file request")
+                        .with_details(error.to_string()),
+                ),
+            }
+        }
+        CoreCommand::RemoteDisconnect => {
+            match serde_json::from_value::<crate::remote::sessions::DisconnectRequest>(
+                parsed.payload,
+            ) {
+                Ok(request) => CoreResponse::success(
+                    id,
+                    json!({ "closed": crate::remote::sessions::disconnect(request) }),
+                ),
+                Err(error) => CoreResponse::failure(
+                    id,
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid remote disconnect request",
+                    )
+                    .with_details(error.to_string()),
+                ),
+            }
+        }
+        CoreCommand::RemoteCloseAll => CoreResponse::success(
+            id,
+            json!({ "closed": crate::remote::sessions::close_all() }),
+        ),
+        CoreCommand::RemoteAuthRespond => {
+            #[derive(serde::Deserialize)]
+            #[serde(rename_all = "camelCase", deny_unknown_fields)]
+            struct Reply {
+                request_id: String,
+                answer: Option<String>,
+            }
+            match serde_json::from_value::<Reply>(parsed.payload) {
+                Ok(reply) => CoreResponse::success(
+                    id,
+                    json!({ "accepted": crate::remote::respond(&reply.request_id, reply.answer) }),
+                ),
+                Err(_) => CoreResponse::failure(
+                    id,
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid remote authentication response",
+                    ),
+                ),
+            }
         }
         CoreCommand::GitExecutionInspect | CoreCommand::GitExecutionConfigure => {
             match git::configuration::dispatch(

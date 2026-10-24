@@ -3,7 +3,6 @@ import LitheDatabaseModule
 
 struct RedisWorkspaceView: View {
     @EnvironmentObject private var feature: DatabaseFeatureModel
-    @State private var keyListActive = false
     @State private var pattern = "*"
     @FocusState private var patternFocused: Bool
     @FocusState private var detailField: String?
@@ -19,10 +18,8 @@ struct RedisWorkspaceView: View {
     var body: some View {
         VStack(spacing: 0) {
             workspaceHeader
-            LitheToolWindowHeaderDivider()
             HStack(spacing: 0) {
                 keyBrowser
-                    .background(LitheToolWindowActivityTracker(isActive: $keyListActive))
                     .frame(minWidth: 250, idealWidth: 300, maxWidth: 350)
                 Rectangle().fill(LitheTheme.divider).frame(width: 1)
                 keyDetail
@@ -97,9 +94,7 @@ struct RedisWorkspaceView: View {
     private var keyBrowser: some View {
         VStack(spacing: 0) {
             HStack(spacing: 6) {
-                LitheSearchTextField("Key pattern, e.g. user:*", text: $pattern)
-                    .focused($patternFocused)
-                    .litheSearchField(isFocused: patternFocused)
+                LitheSearchField("Key pattern, e.g. user:*", text: $pattern, focus: $patternFocused)
                     .onSubmit { Task { await feature.loadRedisKeys(pattern: pattern) } }
                 Button { Task { await feature.loadRedisKeys(pattern: pattern) } } label: {
                     LitheIDEAIcon(resourcePath: "expui/general/search.svg",
@@ -129,33 +124,28 @@ struct RedisWorkspaceView: View {
                 )
                 .foregroundStyle(LitheTheme.secondaryText)
             } else {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 2) {
-                        ForEach(feature.redisKeys) { key in
-                            Button {
-                                Task { await feature.loadRedisKey(key.key) }
-                            } label: {
-                                HStack(spacing: 8) {
-                                    Image(systemName: redisTypeSymbol(key.type))
-                                        .font(LitheTheme.uiFont(size: 10, weight: .medium))
-                                        .foregroundStyle(redisTypeColor(key.type))
-                                        .frame(width: 22, height: 22)
-                                        .background(redisTypeColor(key.type).opacity(0.12))
-                                        .clipShape(RoundedRectangle(cornerRadius: 5))
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(key.key).font(LitheTheme.uiFont(size: 11.5, weight: .medium)).lineLimit(1)
-                                        Text("\(key.type.uppercased()) · \(redisTTLText(key.ttl)) · \(redisSizeText(key.size))")
-                                            .font(LitheTheme.uiFont(size: 9.5)).foregroundStyle(LitheTheme.secondaryText).lineLimit(1)
-                                    }
-                                    Spacer(minLength: 0)
-                                }
-                                .padding(.horizontal, 8).frame(height: 40).frame(maxWidth: .infinity, alignment: .leading)
-                            }
-                            .buttonStyle(.litheNoPress).lithePointer()
-                            .litheSelectionRow(isSelected: feature.redisSelectedKey?.key == key.key, isFocused: keyListActive)
+                LitheTreeList(
+                    feature.redisKeys,
+                    selection: Binding(
+                        get: { feature.redisSelectedKey?.key },
+                        set: { key in if let key { Task { await feature.loadRedisKey(key) } } }), multiline: true
+                ) { key in
+                    HStack(spacing: 8) {
+                        Image(systemName: redisTypeSymbol(key.type))
+                            .font(LitheTheme.uiFont(size: 10, weight: .medium))
+                            .foregroundStyle(redisTypeColor(key.type))
+                            .frame(width: 22, height: 22)
+                            .background(redisTypeColor(key.type).opacity(0.12))
+                            .clipShape(RoundedRectangle(cornerRadius: 5))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(key.key).font(LitheTheme.uiFont(size: 11.5, weight: .medium)).lineLimit(1)
+                            Text("\(key.type.uppercased()) · \(redisTTLText(key.ttl)) · \(redisSizeText(key.size))")
+                                .font(LitheTheme.uiFont(size: 9.5)).foregroundStyle(LitheTheme.secondaryText).lineLimit(
+                                    1)
                         }
+                        Spacer(minLength: 0)
                     }
-                    .padding(.vertical, 6)
+                    .padding(.horizontal, 8).frame(height: 40).frame(maxWidth: .infinity, alignment: .leading)
                 }
                 if feature.redisNextCursor != "0" {
                     Rectangle().fill(LitheTheme.divider).frame(height: 1)
@@ -347,7 +337,6 @@ struct NacosWorkspaceView: View {
     private enum SearchField: Hashable { case dataID, configGroup, service, serviceGroup }
     @FocusState private var focusedSearch: SearchField?
     @FocusState private var detailField: String?
-    @State private var configListActive = false
     @State private var section: NacosSection = .configs
     @State private var dataIDSearch = ""
     @State private var groupSearch = ""
@@ -433,12 +422,8 @@ struct NacosWorkspaceView: View {
         HStack(spacing: 0) {
             VStack(spacing: 0) {
                 HStack(spacing: 6) {
-                    LitheSearchTextField("Data ID", text: $dataIDSearch)
-                        .focused($focusedSearch, equals: .dataID)
-                        .litheSearchField(isFocused: focusedSearch == .dataID)
-                    LitheSearchTextField("Group", text: $groupSearch)
-                        .focused($focusedSearch, equals: .configGroup)
-                        .litheSearchField(isFocused: focusedSearch == .configGroup)
+                    LitheSearchField("Data ID", text: $dataIDSearch, focus: $focusedSearch, equals: .dataID)
+                    LitheSearchField("Group", text: $groupSearch, focus: $focusedSearch, equals: .configGroup)
                     Button { Task { await feature.loadNacosConfigs(dataId: dataIDSearch, group: groupSearch) } } label: { LitheIDEAIcon(resourcePath: "expui/general/search.svg", size: 16, preservesOriginalColors: true) }.litheToolbarIconButton()
                 }
                 .padding(10)
@@ -454,25 +439,31 @@ struct NacosWorkspaceView: View {
                 }
                 .padding(.horizontal, 10).padding(.bottom, 8)
                 Rectangle().fill(LitheTheme.divider).frame(height: 1)
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 2) {
-                        ForEach(feature.nacosConfigs) { config in
-                            Button { Task { await feature.loadNacosConfig(dataId: config.dataId, group: config.group) } } label: {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(config.dataId).font(LitheTheme.uiFont(size: 11.5, weight: .medium)).lineLimit(1)
-                                    Text("\(config.group)\(config.type.map { " · \($0)" } ?? "")")
-                                        .font(LitheTheme.uiFont(size: 9.5)).foregroundStyle(LitheTheme.secondaryText).lineLimit(1)
-                                }
-                                .padding(.horizontal, 9).frame(height: 42).frame(maxWidth: .infinity, alignment: .leading)
+                LitheTreeList(
+                    feature.nacosConfigs,
+                    selection: Binding(
+                        get: {
+                            feature.nacosSelectedConfig.flatMap { selected in
+                                feature.nacosConfigs.first {
+                                    $0.dataId == selected.dataId && $0.group == selected.group
+                                }?.id
                             }
-                            .buttonStyle(.litheNoPress).lithePointer()
-                            .litheSelectionRow(isSelected: feature.nacosSelectedConfig?.dataId == config.dataId && feature.nacosSelectedConfig?.group == config.group, isFocused: configListActive)
-                        }
-                    }.padding(.vertical, 6)
+                        },
+                        set: { id in
+                            if let config = feature.nacosConfigs.first(where: { $0.id == id }) {
+                                Task { await feature.loadNacosConfig(dataId: config.dataId, group: config.group) }
+                            }
+                        }), multiline: true
+                ) { config in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(config.dataId).font(LitheTheme.uiFont(size: 11.5, weight: .medium)).lineLimit(1)
+                        Text("\(config.group)\(config.type.map { " · \($0)" } ?? "")")
+                            .font(LitheTheme.uiFont(size: 9.5)).foregroundStyle(LitheTheme.secondaryText).lineLimit(1)
+                    }
+                    .padding(.horizontal, 9).frame(height: 42).frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
             .frame(minWidth: 285, idealWidth: 340, maxWidth: 390).litheWorkbenchSurface(LitheTheme.sidebar)
-            .background(LitheToolWindowActivityTracker(isActive: $configListActive))
             Rectangle().fill(LitheTheme.divider).frame(width: 1)
             configEditor
         }
@@ -513,12 +504,8 @@ struct NacosWorkspaceView: View {
         HStack(spacing: 0) {
             VStack(spacing: 0) {
                 HStack(spacing: 6) {
-                    LitheSearchTextField("Service", text: $serviceSearch)
-                        .focused($focusedSearch, equals: .service)
-                        .litheSearchField(isFocused: focusedSearch == .service)
-                    LitheSearchTextField("Group", text: $serviceGroupSearch)
-                        .focused($focusedSearch, equals: .serviceGroup)
-                        .litheSearchField(isFocused: focusedSearch == .serviceGroup)
+                    LitheSearchField("Service", text: $serviceSearch, focus: $focusedSearch, equals: .service)
+                    LitheSearchField("Group", text: $serviceGroupSearch, focus: $focusedSearch, equals: .serviceGroup)
                     Button { Task { await feature.loadNacosServices(serviceName: serviceSearch, group: serviceGroupSearch) } } label: { LitheIDEAIcon(resourcePath: "expui/general/search.svg", size: 16, preservesOriginalColors: true) }.litheToolbarIconButton()
                 }.padding(10)
                 Text("\(feature.nacosServiceTotalCount) services")

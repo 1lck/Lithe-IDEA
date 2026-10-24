@@ -9,9 +9,10 @@ Source: https://github.com/JetBrains/intellij-community
 Revision: c7f91397daa3a961b4e78bc634fe467a0a7d9ade
 Each imported SVG retains its upstream copyright and Apache-2.0 header.
 
-Nacos remains from https://github.com/t8y2/dbx
-Snapshot commit: 996ce42e80387bba4b33a2bf1713f590ef79d476
-Both sources use Apache License 2.0, included as LICENSE-APACHE-2.0.txt.
+Nacos has no dedicated provider mark in this Community revision. Its local
+nacos{,_dark}.svg files are unmodified platform/icons/src/expui/general/settings
+variants from the same revision, used as a generic configuration icon.
+Apache License 2.0 is included as LICENSE-APACHE-2.0.txt.
 
 Names and logos are trademarks of their respective owners, used only to
 identify connection types without endorsement or affiliation.

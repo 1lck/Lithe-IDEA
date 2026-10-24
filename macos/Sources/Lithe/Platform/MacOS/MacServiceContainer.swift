@@ -111,7 +111,19 @@ final class MacServiceContainer {
         self.runConfigurationStore = runConfigurationStore
         let debugBreakpointStore = MacDebugBreakpointStore(store: store)
         let debugSteppingFilterStore = MacDebugSteppingFilterStore(store: store)
-        let fileOperations = MacWorkspaceFileOperations()
+        // Remote workspaces open under an empty placeholder root; both file
+        // ports route every URL below such a root to the connected host.
+        let remoteWorkspaces = RemoteWorkspaceRegistry()
+        let remoteOperations = RustRemoteConnectionOperations(core: rustCore)
+        // Core owns the OpenSSH trees; closing them at exit also stops the
+        // remote servers they carry.
+        MacLiveProcessGroups.application.setExitAction("remote-connections") {
+            remoteOperations.closeAllBlocking()
+        }
+        let remoteTransport = ConnectionWatchingTransport(base: remoteOperations, registry: remoteWorkspaces)
+        let fileOperations = RemoteRoutingFileOperations(
+            local: MacWorkspaceFileOperations(), registry: remoteWorkspaces, transport: remoteTransport
+        )
         let processRunner = MacProcessRunner(logging: applicationLogging)
         let secureStore = MacLocalSecretStore()
         let databaseSecureStore = MacKeychainSecureStore(
@@ -596,7 +608,11 @@ final class MacServiceContainer {
         }
         let gitOperations = RustGitOperations(core: rustCore)
         let defaultWorkspaceOperations = RustWorkspaceOperations(core: rustCore)
-        let workspaceOperations: any WorkspaceOperations = providedWorkspaceOperations ?? defaultWorkspaceOperations
+        let workspaceOperations: any WorkspaceOperations = RemoteRoutingWorkspaceOperations(
+            local: providedWorkspaceOperations ?? defaultWorkspaceOperations,
+            registry: remoteWorkspaces,
+            transport: remoteTransport
+        )
         let searchOperations: any SearchOperations =
             (providedWorkspaceOperations as? any SearchOperations) ?? defaultWorkspaceOperations
         let gitWatchContextProvider: any GitWatchContextProviding =
@@ -741,6 +757,7 @@ final class MacServiceContainer {
             pluginCatalog: pluginCatalog,
             pluginUIIconResources: pluginStartup.iconResources,
             pluginWebPages: pluginWebPages,
+            validatePluginNativeUI: declarativePluginOperations.validateNativeNodes,
             languageProviderCatalogSource: languageProviderCatalogSource,
             workspaceLanguageServerPreferences: workspaceLanguageServerPreferences,
             languageProviderCatalogSnapshot: languageProviderCatalogSnapshot,
@@ -775,9 +792,11 @@ final class MacServiceContainer {
             agentManagement: RustAgentManagementService(core: rustCore),
             agentInstructions: RustAgentInstructionsService(core: rustCore,
                 sharedDirectory: fileStorage.applicationSupportDirectory().appendingPathComponent("Lithe/AgentInstructions", isDirectory: true)),
+            agentHooks: RustAgentHooksService(core: rustCore,
+                directory: fileStorage.applicationSupportDirectory().appendingPathComponent("Lithe/AgentHooks", isDirectory: true)),
             agentProviderConfigurationParser: MacAgentProviderConfigurationParser(core: rustCore),
             aiConfigurationSources: aiConfigurationSources,
-            recentProjectsStore: RecentProjectsStore(store: store),
+            recentProjectsStore: RecentProjectsStore(store: store, excludes: { remoteWorkspaces.contains($0) }),
             recentProjectBranchReader: MacRecentProjectBranchReader(storage: fileStorage),
             workspaceSessionStore: WorkspaceSessionStore(store: store),
             directoryMarkStore: directoryMarkStore,
@@ -833,6 +852,56 @@ final class MacServiceContainer {
             core: RustProcessLifecycleDecider(core: rustCore),
             presenter: MacProcessExitConfirmationPresenter.shared
         )
+        // Remote Development window. Passwords and key passphrases use their
+        // own keychain service so they never mix with Git or database secrets.
+        services.remoteConnections = RemoteConnectionServices(
+            store: RemoteConnectionStore(
+                store: store,
+                secureStore: MacKeychainSecureStore(service: fileStorage.identity.keychainService("remote"))
+            ),
+            prober: remoteOperations,
+            sessions: remoteOperations,
+            locator: MacRemoteHostLocator(),
+            workspaces: remoteWorkspaces,
+            prepareWorkspaceRoot: { connectionID, remotePath in
+                try MacRemoteWorkspaceRoots.prepare(
+                    in: fileStorage.applicationSupportDirectory(), connection: connectionID, remotePath: remotePath
+                )
+            },
+            servers: MacRemoteServerBundleLocator.locate()
+        )
+        // New Project window. Plugin packages are read-only; projects are
+        // written into a staging directory inside the folder the user chose.
+        services.projectGeneration = ProjectGenerationService(
+            planner: RustProjectGeneratorOperations(core: rustCore),
+            platform: MacProjectGenerationPlatform(
+                runtime: runtimeService,
+                runner: MacBuildCommandRunner(processRegistry: processRegistry)
+            ),
+            initializeGitRepository: { root in
+                switch gitOperations.initializeRepository(at: root) {
+                case .success: nil
+                case .failure(let failure): failure.message
+                }
+            },
+            recordJavaHome: { root, home in
+                await runtimeService.presetJavaHome(home, for: root)
+            }
+        )
+        let installedPlugins = pluginStartup.registeredPlugins
+        services.projectGeneratorSources = { [pluginManager] in
+            // Enablement is read on every call, so a plugin enabled from the
+            // window shows its entries and satisfies requirements at once.
+            let enabled = Set(pluginManager.snapshots.filter(\.isEnabled).map(\.id))
+            return installedPlugins.map { plugin in
+                ProjectGeneratorPluginSource(
+                    pluginID: plugin.descriptor.id,
+                    manifest: plugin.descriptor.normalizedManifest,
+                    packageURL: plugin.packageURL,
+                    isEnabled: enabled.contains(plugin.descriptor.id)
+                )
+            }
+        }
         moduleLifecycleCoordinator.start()
         Task {
             do {
@@ -918,13 +987,14 @@ final class MacServiceContainer {
                     )
                 }
             }
-            // The build-systems and VCS-providers modules also carry the
-            // enabled state; the host reads it before handing the plugin to
-            // Rust Core.
+            // The build-systems, VCS-providers, and project-generators
+            // modules also carry the enabled state; the host reads it before
+            // handing the plugin to Rust Core or the New Project window.
             let workbench = descriptor.pluginManifest.modules.filter {
                 !$0.contributions.isEmpty
                     || $0.manifest.id == .buildSystemsExtension(descriptor.id.rawValue)
                     || $0.manifest.id == .vcsProvidersExtension(descriptor.id.rawValue)
+                    || $0.manifest.id == .projectGeneratorsExtension(descriptor.id.rawValue)
             }.map { declaration in
                 ModuleFactory(manifest: declaration.manifest, contributions: declaration.contributions) {
                     DeclarativeWorkbenchModule(declaration: declaration)

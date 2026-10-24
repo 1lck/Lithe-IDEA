@@ -20,6 +20,8 @@ public final class TerminalSession: ObservableObject, Identifiable {
     /// Receives decoded child-process output without taking ownership of the
     /// terminal surface.
     public var onOutput: ((String) -> Void)?
+    /// Host callback invoked once this session's process exited on its own, as opposed to being stopped by the host; never fired for launch failures.
+    public var onEnded: ((TerminalSession) -> Void)?
 
     private let transport: any TerminalTransport
     private var workspaceURL: URL?
@@ -33,6 +35,7 @@ public final class TerminalSession: ObservableObject, Identifiable {
             guard let self else { return }
             finishDecodedOutput()
             isRunning = false; isReady = false; lastExitCode = exitCode; endedAt = Date()
+            onEnded?(self)
         }
         transport.onOutput = { [weak self] data in
             guard let self, !data.isEmpty else { return }

@@ -293,6 +293,48 @@ struct TerminalModuleTests {
         feature.createSession(in: URL(fileURLWithPath: "/workspace"), shellPath: "/bin/zsh")
         #expect(transport.shellEnvironments.last?["TERM_PROGRAM_VERSION"] == nil)
     }
+
+    @Test
+    func shellExitNotifiesHostExactlyOnce() {
+        let transport = TestTransport()
+        let feature = TerminalFeatureModel(terminalFactory: { transport })
+        defer { feature.stopAllSessions() }
+        let session = feature.createSession(in: URL(fileURLWithPath: "/workspace"), shellPath: "/bin/zsh")
+        var endedSessions: [TerminalSession] = []
+        session.onEnded = { endedSessions.append($0) }
+
+        transport.onTermination?(0)
+
+        #expect(endedSessions.count == 1)
+        #expect(endedSessions.first === session)
+        #expect(!session.isRunning)
+        #expect(session.lastExitCode == 0)
+        feature.stopAllSessions()
+        #expect(endedSessions.count == 1)
+    }
+
+    @Test
+    func launchFailureAndRestartFailureKeepHostUnnotified() {
+        let transport = TestTransport()
+        let session = TerminalSession(transport: transport)
+        var endedCount = 0
+        session.onEnded = { _ in endedCount += 1 }
+
+        transport.startError = CocoaError(.fileNoSuchFile)
+        session.start(in: URL(fileURLWithPath: "/workspace"), shellPath: "/bin/zsh")
+        #expect(session.launchError != nil)
+        #expect(endedCount == 0)
+
+        transport.startError = nil
+        session.start(in: URL(fileURLWithPath: "/workspace"), shellPath: "/bin/zsh")
+        #expect(session.isRunning)
+        transport.startError = CocoaError(.fileNoSuchFile)
+        session.restart()
+        #expect(session.launchError != nil)
+        #expect(endedCount == 0)
+        session.stop()
+        #expect(endedCount == 0)
+    }
 }
 
 @MainActor

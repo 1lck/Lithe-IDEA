@@ -9,6 +9,13 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
     DeclarativeLanguageServerLaunchPlanning, DeclarativePluginSettingsResolving, LanguageServerRuntimeVersionChecking {
     let core: RustCoreBridge
 
+    func validateNativeNodes(ui: PluginNativeUI, data: ToolingJSONValue) throws -> [PluginNativeUI.Node] {
+        struct Payload: Encodable { let ui: PluginNativeUI; let data: ToolingJSONValue }
+        struct Nodes: Decodable { let nodes: [PluginNativeUI.Node] }
+        let outcome: Outcome<Nodes> = try execute("plugins.nativeUI.validateData", payload: Payload(ui: ui, data: data))
+        return outcome.value.nodes
+    }
+
     func validate(manifest: Data) throws -> DeclarativePluginDescriptor {
         let outcome: Outcome<ValidatedPlugin> = try execute(
             "plugins.declarative.validate",

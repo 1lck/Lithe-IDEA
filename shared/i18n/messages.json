@@ -80002,6 +80002,4542 @@
         "key": "Working copy",
         "arguments": []
       }
+    },
+    {
+      "id": "hooks.add",
+      "description": "Windows UI: hooks.add",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "hooks.agents",
+      "description": "Windows UI: hooks.agents",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "hooks.allAgents",
+      "description": "Windows UI: hooks.allAgents",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "hooks.codexApproval",
+      "description": "Windows UI: hooks.codexApproval",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "hooks.command",
+      "description": "Windows UI: hooks.command",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "hooks.commandHint",
+      "description": "Windows UI: hooks.commandHint",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "hooks.delete",
+      "description": "Windows UI: hooks.delete",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "hooks.deleteHint",
+      "description": "Windows UI: hooks.deleteHint",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "hooks.deleteTitle",
+      "description": "Windows UI: hooks.deleteTitle",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "hooks.description",
+      "description": "Windows UI: hooks.description",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "hooks.descriptionHint",
+      "description": "Windows UI: hooks.descriptionHint",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "hooks.descriptionLabel",
+      "description": "Windows UI: hooks.descriptionLabel",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "hooks.descriptionPlaceholder",
+      "description": "Windows UI: hooks.descriptionPlaceholder",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "hooks.disabledAll",
+      "description": "Windows UI: hooks.disabledAll",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "hooks.edit",
+      "description": "Windows UI: hooks.edit",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "hooks.editTitle",
+      "description": "Windows UI: hooks.editTitle",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "hooks.editor",
+      "description": "Windows UI: hooks.editor",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "hooks.empty",
+      "description": "Windows UI: hooks.empty",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "hooks.enabled",
+      "description": "Windows UI: hooks.enabled",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "hooks.event.prompt",
+      "description": "Windows UI: hooks.event.prompt",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "hooks.intro",
+      "description": "Windows UI: hooks.intro",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "hooks.matcher",
+      "description": "Windows UI: hooks.matcher",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "hooks.matcher.all",
+      "description": "Windows UI: hooks.matcher.all",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "hooks.matcher.edit",
+      "description": "Windows UI: hooks.matcher.edit",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "hooks.matcher.shell",
+      "description": "Windows UI: hooks.matcher.shell",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "hooks.name",
+      "description": "Windows UI: hooks.name",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "hooks.nameHint",
+      "description": "Windows UI: hooks.nameHint",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "hooks.namePlaceholder",
+      "description": "Windows UI: hooks.namePlaceholder",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "hooks.needsSync",
+      "description": "Windows UI: hooks.needsSync",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "hooks.newTitle",
+      "description": "Windows UI: hooks.newTitle",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "hooks.pendingRemoval",
+      "description": "Windows UI: hooks.pendingRemoval",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "hooks.reload",
+      "description": "Windows UI: hooks.reload",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "hooks.retry",
+      "description": "Windows UI: hooks.retry",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "hooks.save",
+      "description": "Windows UI: hooks.save",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "hooks.search",
+      "description": "Windows UI: hooks.search",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "hooks.timeout",
+      "description": "Windows UI: hooks.timeout",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "hooks.timeoutHint",
+      "description": "Windows UI: hooks.timeoutHint",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "hooks.timeoutPlaceholder",
+      "description": "Windows UI: hooks.timeoutPlaceholder",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "hooks.when",
+      "description": "Windows UI: hooks.when",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "keybindings.commands.editor.cursorRedo.description",
+      "description": "Windows UI: keybindings.commands.editor.cursorRedo.description",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "keybindings.commands.editor.cursorRedo.title",
+      "description": "Windows UI: keybindings.commands.editor.cursorRedo.title",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "keybindings.commands.editor.cursorUndo.description",
+      "description": "Windows UI: keybindings.commands.editor.cursorUndo.description",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "keybindings.commands.editor.cursorUndo.title",
+      "description": "Windows UI: keybindings.commands.editor.cursorUndo.title",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "native.aBasicProjectWithAFreeStructure",
+      "description": "Native UI: A basic project with a free structure.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "A basic project with a free structure.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.aFolderWithThisNameAlreadyExists",
+      "description": "Native UI: A folder with this name already exists.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "A folder with this name already exists.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.aHookWithThisNameAlreadyExists",
+      "description": "Native UI: A Hook with this name already exists.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "A Hook with this name already exists.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.aHostNameAnIPAddressOrAHostAliasFromSshConfigSettingsFromThatFileSuchAsProxyJumpAndIdentit",
+      "description": "Native UI: A host name, an IP address, or a Host alias from ~/.ssh/config. Settings from that file, such as ProxyJump and IdentityFile, still apply.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "A host name, an IP address, or a Host alias from ~/.ssh/config. Settings from that file, such as ProxyJump and IdentityFile, still apply.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.aJavaProjectWithNoBuildToolMavenOrGradle",
+      "description": "Native UI: A Java project with no build tool, Maven, or Gradle.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "A Java project with no build tool, Maven, or Gradle.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.aManagedHookWasEditedOutsideLitheRestoreOrRemoveThatNativeEntryBeforeSynchronizing",
+      "description": "Native UI: A managed Hook was edited outside Lithe. Restore or remove that native entry before synchronizing.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "A managed Hook was edited outside Lithe. Restore or remove that native entry before synchronizing.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.aProjectGeneratedByMavenFromAnArchetype",
+      "description": "Native UI: A project generated by Maven from an archetype.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "A project generated by Maven from an archetype.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.aRemovedHookCannotBeSaved",
+      "description": "Native UI: A removed Hook cannot be saved.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "A removed Hook cannot be saved.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.aSpringBootProjectFromSpringInitializr",
+      "description": "Native UI: A Spring Boot project from Spring Initializr.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "A Spring Boot project from Spring Initializr.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.acceptEdits",
+      "description": "Native UI: Accept edits",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Accept edits",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.addHook",
+      "description": "Native UI: Add Hook",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Add Hook",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.addSampleCode",
+      "description": "Native UI: Add sample code",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Add sample code",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.address",
+      "description": "Native UI: Address",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Address",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.advancedSettings",
+      "description": "Native UI: Advanced Settings",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Advanced Settings",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.afterAToolRuns",
+      "description": "Native UI: After a tool runs",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "After a tool runs",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.agentDefault",
+      "description": "Native UI: Agent default",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Agent default",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.agentHooks",
+      "description": "Native UI: Agent hooks",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Agent hooks",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.allSchemas",
+      "description": "Native UI: All schemas",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "All schemas",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.allTools",
+      "description": "Native UI: All tools",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "All tools",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.alreadyExistsChooseAnotherNameOrLocation",
+      "description": "Native UI: %@ already exists. Choose another name or location.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%@ already exists. Choose another name or location.",
+        "arguments": [
+          "arg1"
+        ],
+        "formats": {
+          "arg1": "@"
+        }
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.anIdenticalNativeHookAlreadyExistsLitheKeptItUnchanged",
+      "description": "Native UI: An identical native Hook already exists. Lithe kept it unchanged.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "An identical native Hook already exists. Lithe kept it unchanged.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.anotherHookUpdateIsRunningTryAgain",
+      "description": "Native UI: Another Hook update is running. Try again.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Another Hook update is running. Try again.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.answeredWithStatusLld",
+      "description": "Native UI: %@ answered with status %lld. %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%@ answered with status %lld. %@",
+        "arguments": [
+          "arg1",
+          "arg2",
+          "arg3"
+        ],
+        "formats": {
+          "arg1": "@",
+          "arg2": "lld",
+          "arg3": "@"
+        }
+      },
+      "parameters": {
+        "arg1": "string",
+        "arg2": "integer",
+        "arg3": "string"
+      }
+    },
+    {
+      "id": "native.archetype",
+      "description": "Native UI: Archetype",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Archetype",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.archetypeArtifactId",
+      "description": "Native UI: Archetype ArtifactId",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Archetype ArtifactId",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.archetypeGroupId",
+      "description": "Native UI: Archetype GroupId",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Archetype GroupId",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.archetypeVersion",
+      "description": "Native UI: Archetype version",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Archetype version",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.archiveConversation",
+      "description": "Native UI: Archive conversation",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Archive conversation",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.artifact",
+      "description": "Native UI: Artifact",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Artifact",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.asOfUpdatedOnlyWhileReplying",
+      "description": "Native UI: As of %@; updated only while replying.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "As of %@; updated only while replying.",
+        "arguments": [
+          "arg1"
+        ],
+        "formats": {
+          "arg1": "@"
+        }
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.authentication",
+      "description": "Native UI: Authentication",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Authentication",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.auto",
+      "description": "Native UI: Auto",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Auto",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.automaticTriesYourSSHAgentAndKeysFirstThenAsksForAPasswordLitheAsksInADialogWheneverTheSer",
+      "description": "Native UI: Automatic tries your SSH agent and keys first, then asks for a password. Lithe asks in a dialog whenever the server needs an answer, such as a password, a passphrase, or a verification code.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Automatic tries your SSH agent and keys first, then asks for a password. Lithe asks in a dialog whenever the server needs an answer, such as a password, a passphrase, or a verification code.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.beforeAToolRuns",
+      "description": "Native UI: Before a tool runs",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Before a tool runs",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.browse",
+      "description": "Native UI: Browse…",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Browse…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.buildSystemX797f5735e5",
+      "description": "Native UI: Build system",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Build system",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.bypassPermissions",
+      "description": "Native UI: Bypass permissions",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Bypass permissions",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.cannotAccessHookConfigurationCheckTheFilePermissionsAndAgentProfile",
+      "description": "Native UI: Cannot access Hook configuration. Check the file permissions and Agent profile.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Cannot access Hook configuration. Check the file permissions and Agent profile.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.cannotAccessTheHookLibraryCheckItsPermissions",
+      "description": "Native UI: Cannot access the Hook library. Check its permissions.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Cannot access the Hook library. Check its permissions.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.cannotEncodeHookConfiguration",
+      "description": "Native UI: Cannot encode Hook configuration.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Cannot encode Hook configuration.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.cannotEncodeTheHookLibrary",
+      "description": "Native UI: Cannot encode the Hook library.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Cannot encode the Hook library.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.checkTheHookNameCommandEventAgentsAndTimeout186400Seconds",
+      "description": "Native UI: Check the Hook name, command, event, Agents and timeout (1–86400 seconds).",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Check the Hook name, command, event, Agents and timeout (1–86400 seconds).",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.checked",
+      "description": "Native UI: Checked %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Checked %@",
+        "arguments": [
+          "arg1"
+        ],
+        "formats": {
+          "arg1": "@"
+        }
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.chooseAPrivateKeyFile",
+      "description": "Native UI: Choose a private key file.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Choose a private key file.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.chooseOneOfTheOfferedValues",
+      "description": "Native UI: Choose one of the offered values.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Choose one of the offered values.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.chooseRemoteFolder",
+      "description": "Native UI: Choose Remote Folder",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Choose Remote Folder",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.chooseThisFolder",
+      "description": "Native UI: Choose This Folder",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Choose This Folder",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.claudeCodeHasDisabledAllHooksInItsSettings",
+      "description": "Native UI: Claude Code has disabled all Hooks in its settings.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Claude Code has disabled all Hooks in its settings.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.claudeCodeIsNotSignedInRunClaudeInATerminalSignInWithLoginThenRetry",
+      "description": "Native UI: Claude Code is not signed in. Run `claude` in a terminal, sign in with /login, then retry.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Claude Code is not signed in. Run `claude` in a terminal, sign in with /login, then retry.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.claudeSubscription",
+      "description": "Native UI: Claude subscription",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Claude subscription",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.claudeSubscriptionQuota",
+      "description": "Native UI: Claude subscription quota",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Claude subscription quota",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.codexHookApproval",
+      "description": "Native UI: Codex Hook approval",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Codex Hook approval",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.codexRequiresHooksToBeEnabledAndCommandsToBeTrustedInItsNativeHooksScreenLitheSavesConfigu",
+      "description": "Native UI: Codex requires Hooks to be enabled and commands to be trusted in its native /hooks screen. Lithe saves configuration without granting trust. Editing a command requires approval again. A configured Hook is not proof it ran.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Codex requires Hooks to be enabled and commands to be trusted in its native /hooks screen. Lithe saves configuration without granting trust. Editing a command requires approval again. A configured Hook is not proof it ran.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.collapseDatabase",
+      "description": "Native UI: Collapse database",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Collapse database",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.collapseTable",
+      "description": "Native UI: Collapse table",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Collapse table",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.connectedButLitheCannotRunOnThisPlatformYetLinuxOnX8664OrARM64IsSupported",
+      "description": "Native UI: Connected, but Lithe cannot run on this platform yet. Linux on x86_64 or ARM64 is supported.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Connected, but Lithe cannot run on this platform yet. Linux on x86_64 or ARM64 is supported.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.connectedThisHostCanBeUsedForRemoteDevelopment",
+      "description": "Native UI: Connected. This host can be used for remote development.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Connected. This host can be used for remote development.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.connecting",
+      "description": "Native UI: Connecting…",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Connecting…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.connection",
+      "description": "Native UI: Connection",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Connection",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.connectionSuccessful",
+      "description": "Native UI: Connection successful",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Connection successful",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.connectionTestDurationLldMs",
+      "description": "Native UI: Connection test duration: %lld ms",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Connection test duration: %lld ms",
+        "arguments": [
+          "arg1"
+        ],
+        "formats": {
+          "arg1": "lld"
+        }
+      },
+      "parameters": {
+        "arg1": "integer"
+      }
+    },
+    {
+      "id": "native.connectionTestResult",
+      "description": "Native UI: Connection test result",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Connection test result",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.connectionTimeout",
+      "description": "Native UI: Connection timeout",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Connection timeout",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.conversationActions",
+      "description": "Native UI: Conversation actions",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Conversation actions",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.couldNotOpenTheRemoteFolder",
+      "description": "Native UI: Could not open the remote folder: %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Could not open the remote folder: %@",
+        "arguments": [
+          "arg1"
+        ],
+        "formats": {
+          "arg1": "@"
+        }
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.couldNotSaveTheConnections",
+      "description": "Native UI: Could not save the connections: %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Could not save the connections: %@",
+        "arguments": [
+          "arg1"
+        ],
+        "formats": {
+          "arg1": "@"
+        }
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.createGitRepository",
+      "description": "Native UI: Create Git repository",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Create Git repository",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.createsProjects",
+      "description": "Native UI: Creates %@ projects",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Creates %@ projects",
+        "arguments": [
+          "arg1"
+        ],
+        "formats": {
+          "arg1": "@"
+        }
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.creatingProject",
+      "description": "Native UI: Creating project…",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Creating project…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.creatingThisProjectDownloadsFilesFromTheInternet",
+      "description": "Native UI: Creating this project downloads files from the internet.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Creating this project downloads files from the internet.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.customArchetype",
+      "description": "Native UI: Custom archetype…",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Custom archetype…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.dMinutesAgo",
+      "description": "Native UI: %d minutes ago",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%d minutes ago",
+        "arguments": [
+          "arg1"
+        ],
+        "formats": {
+          "arg1": "d"
+        }
+      },
+      "parameters": {
+        "arg1": "integer"
+      }
+    },
+    {
+      "id": "native.dataSource",
+      "description": "Native UI: Data Source",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Data Source",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.deleteChatX93291d9c41",
+      "description": "Native UI: Delete chat",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Delete chat",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.deleteHook",
+      "description": "Native UI: Delete Hook?",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Delete Hook?",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.didNotFinishWithinLldSeconds",
+      "description": "Native UI: %@ did not finish within %lld seconds.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%@ did not finish within %lld seconds.",
+        "arguments": [
+          "arg1",
+          "arg2"
+        ],
+        "formats": {
+          "arg1": "@",
+          "arg2": "lld"
+        }
+      },
+      "parameters": {
+        "arg1": "string",
+        "arg2": "integer"
+      }
+    },
+    {
+      "id": "native.directories",
+      "description": "Native UI: Directories",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Directories",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.disk",
+      "description": "Native UI: Disk",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Disk",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.doubleClickATableToViewData",
+      "description": "Native UI: Double-click a table to view data",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Double-click a table to view data",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.earlier",
+      "description": "Native UI: Earlier",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Earlier",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editHook",
+      "description": "Native UI: Edit Hook",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Edit Hook",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.emptyProject",
+      "description": "Native UI: Empty Project",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Empty Project",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.enableHook",
+      "description": "Native UI: Enable Hook",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Enable Hook",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.enterAHost",
+      "description": "Native UI: Enter a host.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Enter a host.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.enterAValue",
+      "description": "Native UI: Enter a value.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Enter a value.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.enterAnAbsolutePathThatStartsWith",
+      "description": "Native UI: Enter an absolute path that starts with /.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Enter an absolute path that starts with /.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.enterTheHostWithoutAUserNameOrSpacesPutTheUserInUserName",
+      "description": "Native UI: Enter the host without a user name or spaces; put the user in User name.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Enter the host without a user name or spaces; put the user in User name.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.exitedWithStatusD",
+      "description": "Native UI: %@ exited with status %d.\n%@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%@ exited with status %d.\n%@",
+        "arguments": [
+          "arg1",
+          "arg2",
+          "arg3"
+        ],
+        "formats": {
+          "arg1": "@",
+          "arg2": "d",
+          "arg3": "@"
+        }
+      },
+      "parameters": {
+        "arg1": "string",
+        "arg2": "integer",
+        "arg3": "string"
+      }
+    },
+    {
+      "id": "native.expandDatabase",
+      "description": "Native UI: Expand database",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Expand database",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.expandTable",
+      "description": "Native UI: Expand table",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Expand table",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.fileEdits",
+      "description": "Native UI: File edits",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "File edits",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.filePatterns",
+      "description": "Native UI: File patterns",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "File patterns",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.findInMarketplace",
+      "description": "Native UI: Find in Marketplace",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Find in Marketplace",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.finishedWithoutCreating",
+      "description": "Native UI: %@ finished without creating %@.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%@ finished without creating %@.",
+        "arguments": [
+          "arg1",
+          "arg2"
+        ],
+        "formats": {
+          "arg1": "@",
+          "arg2": "@"
+        }
+      },
+      "parameters": {
+        "arg1": "string",
+        "arg2": "string"
+      }
+    },
+    {
+      "id": "native.folder",
+      "description": "Native UI: Folder",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Folder",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.folderNameIsRequired",
+      "description": "Native UI: Folder name is required.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Folder name is required.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.forExampleNotify",
+      "description": "Native UI: For example, notify",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "For example, notify",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.forExampleNotifyMeWhenATurnEnds",
+      "description": "Native UI: For example, notify me when a turn ends",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "For example, notify me when a turn ends",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.forceRefresh",
+      "description": "Native UI: Force Refresh",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Force Refresh",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.forever",
+      "description": "Native UI: Forever",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Forever",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.forkConversation",
+      "description": "Native UI: Fork conversation",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Fork conversation",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.freeOf",
+      "description": "Native UI: %@ free of %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%@ free of %@",
+        "arguments": [
+          "arg1",
+          "arg2"
+        ],
+        "formats": {
+          "arg1": "@",
+          "arg2": "@"
+        }
+      },
+      "parameters": {
+        "arg1": "string",
+        "arg2": "string"
+      }
+    },
+    {
+      "id": "native.generators",
+      "description": "Native UI: Generators",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Generators",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.getMoreLanguagesAndFrameworksFromPlugins",
+      "description": "Native UI: Get more languages and frameworks from plugins…",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Get more languages and frameworks from plugins…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.go",
+      "description": "Native UI: Go",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Go",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.gradleDSL",
+      "description": "Native UI: Gradle DSL",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Gradle DSL",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.group",
+      "description": "Native UI: Group",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Group",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.homeDirectory",
+      "description": "Native UI: Home directory",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Home directory",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.hook",
+      "description": "Native UI: Hook",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Hook",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.hookCommand",
+      "description": "Native UI: Hook command",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Hook command",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.hookConfigurationChangedOutsideThisEditorReloadBeforeSaving",
+      "description": "Native UI: Hook configuration changed outside this editor. Reload before saving.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Hook configuration changed outside this editor. Reload before saving.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.hookConfigurationMustBeARegularFileNotASymbolicLinkOrDirectory",
+      "description": "Native UI: Hook configuration must be a regular file, not a symbolic link or directory.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Hook configuration must be a regular file, not a symbolic link or directory.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.hookConfigurationMustBeNoLargerThan1MiB",
+      "description": "Native UI: Hook configuration must be no larger than 1 MiB.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Hook configuration must be no larger than 1 MiB.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.hookConfigurationMustUseUTF8Encoding",
+      "description": "Native UI: Hook configuration must use UTF-8 encoding.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Hook configuration must use UTF-8 encoding.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.hookDescription",
+      "description": "Native UI: Hook description",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Hook description",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.hookName",
+      "description": "Native UI: Hook name",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Hook name",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.hookSynchronizationWasCancelled",
+      "description": "Native UI: Hook synchronization was cancelled.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Hook synchronization was cancelled.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.hooks",
+      "description": "Native UI: Hooks",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Hooks",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.hooksRunShellCommandsAtAgentLifecycleEventsTheAgentSuppliesEventJSONOnStandardInputAndRuns",
+      "description": "Native UI: Hooks run shell commands at Agent lifecycle events. The Agent supplies event JSON on standard input and runs the command in the session folder. Changes apply to new sessions; existing sessions keep their own loaded configuration.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Hooks run shell commands at Agent lifecycle events. The Agent supplies event JSON on standard input and runs the command in the session folder. Changes apply to new sessions; existing sessions keep their own loaded configuration.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.hostName",
+      "description": "Native UI: Host name",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Host name",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.httpsGithubComOwnerRepository",
+      "description": "Native UI: https://github.com/owner/repository",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "https://github.com/owner/repository",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.importDataSources",
+      "description": "Native UI: Import Data Sources…",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Import Data Sources…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.invalidHookFileGuards",
+      "description": "Native UI: Invalid Hook file guards.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Invalid Hook file guards.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.isNeededForThisProjectButIsDisabled",
+      "description": "Native UI: %@ is needed for this project but %@ is disabled.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%@ is needed for this project but %@ is disabled.",
+        "arguments": [
+          "arg1",
+          "arg2"
+        ],
+        "formats": {
+          "arg1": "@",
+          "arg2": "@"
+        }
+      },
+      "parameters": {
+        "arg1": "string",
+        "arg2": "string"
+      }
+    },
+    {
+      "id": "native.keepAliveInterval",
+      "description": "Native UI: Keep-alive interval",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Keep-alive interval",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.kernel",
+      "description": "Native UI: Kernel",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Kernel",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.latest",
+      "description": "Native UI: Latest",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Latest",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.leaveEmptyToUseTheAgentDefaultOrEnterAnIntegerFrom1To86400",
+      "description": "Native UI: Leave empty to use the Agent default, or enter an integer from 1 to 86400.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Leave empty to use the Agent default, or enter an integer from 1 to 86400.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.leaveEmptyToUseTheLatestVersionMavenFindsInItsCatalog",
+      "description": "Native UI: Leave empty to use the latest version Maven finds in its catalog.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Leave empty to use the latest version Maven finds in its catalog.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.leaveEmptyToUseThePortFromSshConfigOr22",
+      "description": "Native UI: Leave empty to use the port from ~/.ssh/config, or 22.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Leave empty to use the port from ~/.ssh/config, or 22.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.leaveEmptyToUseTheUserFromSshConfigOrYourLocalUserName",
+      "description": "Native UI: Leave empty to use the user from ~/.ssh/config, or your local user name.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Leave empty to use the user from ~/.ssh/config, or your local user name.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.leaveEmptyToUseTheVersionTheServerRecommends",
+      "description": "Native UI: Leave empty to use the version the server recommends.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Leave empty to use the version the server recommends.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.litheCouldNotFindInstallItOrAddItToPATHThenTryAgain",
+      "description": "Native UI: Lithe could not find %@. Install it or add it to PATH, then try again.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Lithe could not find %@. Install it or add it to PATH, then try again.",
+        "arguments": [
+          "arg1"
+        ],
+        "formats": {
+          "arg1": "@"
+        }
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.litheWillCloneTheRepositoryInto",
+      "description": "Native UI: Lithe will clone the repository into %@.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Lithe will clone the repository into %@.",
+        "arguments": [
+          "arg1"
+        ],
+        "formats": {
+          "arg1": "@"
+        }
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.lldCPUCores",
+      "description": "Native UI: %lld CPU cores",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%lld CPU cores",
+        "arguments": [
+          "arg1"
+        ],
+        "formats": {
+          "arg1": "lld"
+        }
+      },
+      "parameters": {
+        "arg1": "integer"
+      }
+    },
+    {
+      "id": "native.location",
+      "description": "Native UI: Location",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Location",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.lookUpAgain",
+      "description": "Native UI: Look Up Again",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Look Up Again",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.lookUpLocation",
+      "description": "Native UI: Look Up Location",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Look Up Location",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.lookingForInstalledJDKs",
+      "description": "Native UI: Looking for installed JDKs…",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Looking for installed JDKs…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.lookingUpTheLocationSendsThisAddressToIpinfoIoLitheDoesThisOnlyWhenYouClickLookUp",
+      "description": "Native UI: Looking up the location sends this address to ipinfo.io. Lithe does this only when you click Look Up.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Looking up the location sends this address to ipinfo.io. Lithe does this only when you click Look Up.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.manual",
+      "description": "Native UI: Manual",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Manual",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.mavenRunsWithThisJDKAndTheNewProjectUsesIt",
+      "description": "Native UI: Maven runs with this JDK, and the new project uses it.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Maven runs with this JDK, and the new project uses it.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.mayConnectToTheInternet",
+      "description": "Native UI: May connect to the internet",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "May connect to the internet",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.memory",
+      "description": "Native UI: %@ memory",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%@ memory",
+        "arguments": [
+          "arg1"
+        ],
+        "formats": {
+          "arg1": "@"
+        }
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.messaging",
+      "description": "Native UI: Messaging",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Messaging",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.method",
+      "description": "Native UI: Method",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Method",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.mode",
+      "description": "Native UI: Mode",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Mode",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.move",
+      "description": "Native UI: Move",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Move",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.newFolderX633810e9b0",
+      "description": "Native UI: New Folder…",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "New Folder…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.newHook",
+      "description": "Native UI: New Hook",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "New Hook",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.newProjectX6f8d176462",
+      "description": "Native UI: New Project",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "New Project",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.newSSHConnection",
+      "description": "Native UI: New SSH Connection",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "New SSH Connection",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.noAccessibleDatabases",
+      "description": "Native UI: No accessible databases",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No accessible databases",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.noColumnsToDisplay",
+      "description": "Native UI: No columns to display",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No columns to display",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.noHooksYet",
+      "description": "Native UI: No Hooks yet.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No Hooks yet.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.noHostYet",
+      "description": "Native UI: No host yet",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No host yet",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.noInstalledPluginSupportsYet",
+      "description": "Native UI: No installed plugin supports %@ yet.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No installed plugin supports %@ yet.",
+        "arguments": [
+          "arg1"
+        ],
+        "formats": {
+          "arg1": "@"
+        }
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.noItems",
+      "description": "Native UI: No items",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No items",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.noJDKWasFoundInstallAJDKThenReopenThisWindow",
+      "description": "Native UI: No JDK was found. Install a JDK, then reopen this window.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No JDK was found. Install a JDK, then reopen this window.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.noMatchingHooks",
+      "description": "Native UI: No matching Hooks.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No matching Hooks.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.noSSHConnectionsYet",
+      "description": "Native UI: No SSH connections yet.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No SSH connections yet.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.noSchemasSelected",
+      "description": "Native UI: No schemas selected",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No schemas selected",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.notTested",
+      "description": "Native UI: Not tested",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Not tested",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.oneEntryPerLineDirectoryNamesHideMatchingFoldersFileEntriesSupportAnd",
+      "description": "Native UI: One entry per line. Directory names hide matching folders; file entries support * and ?.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "One entry per line. Directory names hide matching folders; file entries support * and ?.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.openATableToInspectItsStructure",
+      "description": "Native UI: Open a table to inspect its structure",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Open a table to inspect its structure",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.operatingSystem",
+      "description": "Native UI: Operating system",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Operating system",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.optionalDescriptionUpTo200CharactersOnlyTheHookLibraryStoresIt",
+      "description": "Native UI: Optional description, up to 200 characters. Only the Hook library stores it.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Optional description, up to 200 characters. Only the Hook library stores it.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.packageName",
+      "description": "Native UI: Package name",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Package name",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.packaging",
+      "description": "Native UI: Packaging",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Packaging",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.passphrase",
+      "description": "Native UI: Passphrase",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Passphrase",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.password",
+      "description": "Native UI: Password",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Password",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.pin",
+      "description": "Native UI: Pin",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Pin",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.pinConversation",
+      "description": "Native UI: Pin conversation",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Pin conversation",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.port",
+      "description": "Native UI: Port",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Port",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.pressEnterOrClickOutsideTheListToApply",
+      "description": "Native UI: Press Enter or click outside the list to apply",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Press Enter or click outside the list to apply",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.previous30Days",
+      "description": "Native UI: Previous 30 days",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Previous 30 days",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.previous7Days",
+      "description": "Native UI: Previous 7 days",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Previous 7 days",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.privateKey",
+      "description": "Native UI: Private Key",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Private Key",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.privateKeyX477bf990a2",
+      "description": "Native UI: Private key",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Private key",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.privateNetwork",
+      "description": "Native UI: Private network",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Private network",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.projectTemplate",
+      "description": "Native UI: Project Template",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Project Template",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.projectWillBeCreatedIn",
+      "description": "Native UI: Project will be created in: %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Project will be created in: %@",
+        "arguments": [
+          "arg1"
+        ],
+        "formats": {
+          "arg1": "@"
+        }
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.providedByADisabledPlugin",
+      "description": "Native UI: Provided by a disabled plugin",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Provided by a disabled plugin",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.publishCoreSelectsDefaultRemote",
+      "description": "Native UI: Publish %@ (Core selects default remote)",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Publish %@ (Core selects default remote)",
+        "arguments": [
+          "arg1"
+        ],
+        "formats": {
+          "arg1": "@"
+        }
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.pushXc68c0bf1cd",
+      "description": "Native UI: Push '%@'?",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Push '%@'?",
+        "arguments": [
+          "arg1"
+        ],
+        "formats": {
+          "arg1": "@"
+        }
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.queryConsole",
+      "description": "Native UI: Query Console",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Query Console",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.quotaX6c105cae1a",
+      "description": "Native UI: Quota",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Quota",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.refreshSelectedStructure",
+      "description": "Native UI: Refresh selected structure",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Refresh selected structure",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.rememberInKeychain",
+      "description": "Native UI: Remember in Keychain",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Remember in Keychain",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.remoteDevelopment",
+      "description": "Native UI: Remote Development",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Remote Development",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.remoteFolder",
+      "description": "Native UI: Remote folder",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Remote folder",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.remoteProject",
+      "description": "Native UI: Remote Project",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Remote Project",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.removalPending",
+      "description": "Native UI: Removal pending",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Removal pending",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.renameFolder",
+      "description": "Native UI: Rename Folder",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Rename Folder",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.resources",
+      "description": "Native UI: Resources",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Resources",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.retryHookSynchronization",
+      "description": "Native UI: Retry Hook synchronization",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Retry Hook synchronization",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.sSH",
+      "description": "Native UI: SSH",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "SSH",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.sSHAgent",
+      "description": "Native UI: SSH Agent",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "SSH Agent",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.sSHAuthentication",
+      "description": "Native UI: SSH Authentication",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "SSH Authentication",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.sSHTLS",
+      "description": "Native UI: SSH / TLS",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "SSH / TLS",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.safetyAndLabels",
+      "description": "Native UI: Safety and Labels",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Safety and Labels",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.save",
+      "description": "Native UI: Save:",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Save:",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.saveHook",
+      "description": "Native UI: Save Hook",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Save Hook",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.savePassword",
+      "description": "Native UI: Save password",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Save password",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.savedInKeychain",
+      "description": "Native UI: Saved in Keychain",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Saved in Keychain",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.savesConnectsAndOpensTheRemoteFolderInThisWindow",
+      "description": "Native UI: Saves, connects, and opens the remote folder in this window.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Saves, connects, and opens the remote folder in this window.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.searchDatabases",
+      "description": "Native UI: Search databases",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Search databases",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.searchHooks",
+      "description": "Native UI: Search Hooks",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Search Hooks",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.searchJDKs",
+      "description": "Native UI: Search JDKs",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Search JDKs",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.secondsBetweenKeepAliveMessagesWhichDetectADroppedNetworkLeaveEmptyFor15Seconds",
+      "description": "Native UI: Seconds between keep-alive messages, which detect a dropped network. Leave empty for 15 seconds.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Seconds between keep-alive messages, which detect a dropped network. Leave empty for 15 seconds.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.secondsToWaitForTheServerToAnswerLeaveEmptyFor15Seconds",
+      "description": "Native UI: Seconds to wait for the server to answer. Leave empty for 15 seconds.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Seconds to wait for the server to answer. Leave empty for 15 seconds.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.security",
+      "description": "Native UI: Security",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Security",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.selectAConnectionInTheDatabaseTree",
+      "description": "Native UI: Select a connection in the database tree",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Select a connection in the database tree",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.selectDatabases",
+      "description": "Native UI: Select databases",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Select databases",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.serverDefault",
+      "description": "Native UI: Server default",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Server default",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.serverURL",
+      "description": "Native UI: Server URL",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Server URL",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.shellCommands",
+      "description": "Native UI: Shell commands",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Shell commands",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.showLldEarlierItems",
+      "description": "Native UI: Show %lld earlier items",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Show %lld earlier items",
+        "arguments": [
+          "arg1"
+        ],
+        "formats": {
+          "arg1": "lld"
+        }
+      },
+      "parameters": {
+        "arg1": "integer"
+      }
+    },
+    {
+      "id": "native.showMore",
+      "description": "Native UI: Show more",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Show more",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.templateEngines",
+      "description": "Native UI: Template Engines",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Template Engines",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.testConnection",
+      "description": "Native UI: Test Connection",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Test Connection",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.testTheConnectionToSeeTheHostSSystemResourcesAndAddress",
+      "description": "Native UI: Test the connection to see the host's system, resources, and address.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Test the connection to see the host's system, resources, and address.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.testing",
+      "description": "Native UI: Testing",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Testing",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.testingConnection",
+      "description": "Native UI: Testing connection…",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Testing connection…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theAddressIsInvalid",
+      "description": "Native UI: The address is invalid.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The address is invalid.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theAgentExecutesThisCommandUsingItsOwnShellAndPassesEventJSONOnStandardInputCommandsRunWit",
+      "description": "Native UI: The Agent executes this command using its own shell and passes event JSON on standard input. Commands run with your user permissions; add only commands you trust.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The Agent executes this command using its own shell and passes event JSON on standard input. Commands run with your user permissions; add only commands you trust.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theAgentProfileChangedRestoreThePreviousProfileBeforeSynchronizingItsHooks",
+      "description": "Native UI: The Agent profile changed. Restore the previous profile before synchronizing its Hooks.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The Agent profile changed. Restore the previous profile before synchronizing its Hooks.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theConnectionFailed",
+      "description": "Native UI: The connection failed.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The connection failed.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theConnectionToTheRemoteHostWasLostReconnectToContinue",
+      "description": "Native UI: The connection to the remote host was lost. Reconnect to continue.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The connection to the remote host was lost. Reconnect to continue.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theDatabaseSelectionIsNoLongerAvailableRefreshAndTryAgain",
+      "description": "Native UI: The database selection is no longer available. Refresh and try again.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The database selection is no longer available. Refresh and try again.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theFieldValueDoesNotMatchItsDeclarationOrExceedsItsSizeLimit",
+      "description": "Native UI: The field value does not match its declaration or exceeds its size limit.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The field value does not match its declaration or exceeds its size limit.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theFieldValueIsInvalidOrExceeds1024UTF8Bytes",
+      "description": "Native UI: The field value is invalid or exceeds 1024 UTF-8 bytes.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The field value is invalid or exceeds 1024 UTF-8 bytes.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theFileSystemThatHoldsTheHomeDirectory",
+      "description": "Native UI: The file system that holds the home directory.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The file system that holds the home directory.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theHookLibraryCanContainAtMost200Hooks",
+      "description": "Native UI: The Hook library can contain at most 200 Hooks.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The Hook library can contain at most 200 Hooks.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theHookLibraryContainsDuplicateHooks",
+      "description": "Native UI: The Hook library contains duplicate Hooks.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The Hook library contains duplicate Hooks.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theHookLibraryDirectoryMustBeAbsolute",
+      "description": "Native UI: The Hook library directory must be absolute.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The Hook library directory must be absolute.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theHookLibraryExceededItsSizeLimit",
+      "description": "Native UI: The Hook library exceeded its size limit.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The Hook library exceeded its size limit.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theHookLibraryIsInvalidRestoreItBeforeMakingChanges",
+      "description": "Native UI: The Hook library is invalid. Restore it before making changes.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The Hook library is invalid. Restore it before making changes.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theHookLibraryLockMustBeARegularFile",
+      "description": "Native UI: The Hook library lock must be a regular file.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The Hook library lock must be a regular file.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theHookLibraryResponseWasNotRecognised",
+      "description": "Native UI: The Hook library response was not recognised.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The Hook library response was not recognised.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theHostCouldNotBeReachedCheckTheHostNameThePortAndYourNetwork",
+      "description": "Native UI: The host could not be reached. Check the host name, the port, and your network.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The host could not be reached. Check the host name, the port, and your network.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theHostKeyWasNotAcceptedIfTheServerWasReinstalledRemoveItsOldEntryFromSshKnownHosts",
+      "description": "Native UI: The host key was not accepted. If the server was reinstalled, remove its old entry from ~/.ssh/known_hosts.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The host key was not accepted. If the server was reinstalled, remove its old entry from ~/.ssh/known_hosts.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theJDKTheNewProjectUsesItMustBeAtLeastTheJavaVersionBelow",
+      "description": "Native UI: The JDK the new project uses. It must be at least the Java version below.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The JDK the new project uses. It must be at least the Java version below.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theLitheServerWasInstalledOnThisHost",
+      "description": "Native UI: The Lithe server was installed on this host.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The Lithe server was installed on this host.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theLocationServiceDidNotAnswer",
+      "description": "Native UI: The location service did not answer.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The location service did not answer.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theNameOfTheArtifactTheBuildProduces",
+      "description": "Native UI: The name of the artifact the build produces.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The name of the artifact the build produces.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theNativeHookConfigurationMustBeValidJSONExistingContentsWereKept",
+      "description": "Native UI: The native Hook configuration must be valid JSON. Existing contents were kept.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The native Hook configuration must be valid JSON. Existing contents were kept.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theNativeHookEventMustContainAnArrayExistingContentsWereKept",
+      "description": "Native UI: The native Hook event must contain an array. Existing contents were kept.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The native Hook event must contain an array. Existing contents were kept.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theNativeHooksFieldMustBeAJSONObjectExistingContentsWereKept",
+      "description": "Native UI: The native hooks field must be a JSON object. Existing contents were kept.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The native hooks field must be a JSON object. Existing contents were kept.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.thePortMustBeBetween1And65535",
+      "description": "Native UI: The port must be between 1 and 65535.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The port must be between 1 and 65535.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theProjectArchiveFromIsTooLarge",
+      "description": "Native UI: The project archive from %@ is too large.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The project archive from %@ is too large.",
+        "arguments": [
+          "arg1"
+        ],
+        "formats": {
+          "arg1": "@"
+        }
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.theProjectFolderOnTheHostBrowseConnectsInstallsTheLitheServerOnTheHostIfNeededAndLetsYouPi",
+      "description": "Native UI: The project folder on the host. Browse connects, installs the Lithe server on the host if needed, and lets you pick a folder.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The project folder on the host. Browse connects, installs the Lithe server on the host if needed, and lets you pick a folder.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theProjectFolderOnTheHostEmptyUsesTheHomeDirectoryBrowseConnectsInstallsTheLitheServerOnTh",
+      "description": "Native UI: The project folder on the host; empty uses the home directory. Browse connects, installs the Lithe server on the host if needed, and lets you pick a folder.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The project folder on the host; empty uses the home directory. Browse connects, installs the Lithe server on the host if needed, and lets you pick a folder.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theProjectWasCreatedButGitCouldNotBeSetUp",
+      "description": "Native UI: The project was created, but Git could not be set up: %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The project was created, but Git could not be set up: %@",
+        "arguments": [
+          "arg1"
+        ],
+        "formats": {
+          "arg1": "@"
+        }
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.theSelectedConnectionFolderNoLongerExists",
+      "description": "Native UI: The selected connection folder no longer exists.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The selected connection folder no longer exists.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theSelectedFolderCannotBeMovedThere",
+      "description": "Native UI: The selected folder cannot be moved there.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The selected folder cannot be moved there.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theServerAskedAgainCheckThePreviousAnswer",
+      "description": "Native UI: The server asked again. Check the previous answer.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The server asked again. Check the previous answer.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theServerRejectedTheCredentialsCheckTheUserNameAndTheAuthenticationMethod",
+      "description": "Native UI: The server rejected the credentials. Check the user name and the authentication method.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The server rejected the credentials. Check the user name and the authentication method.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theSpringInitializrServerThatGeneratesTheProjectChangeItToUseAMirrorOrYourCompanySOwnServe",
+      "description": "Native UI: The Spring Initializr server that generates the project. Change it to use a mirror or your company's own server.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The Spring Initializr server that generates the project. Change it to use a mirror or your company's own server.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theUserNameCannotContainOrSpaces",
+      "description": "Native UI: The user name cannot contain @, : or spaces.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The user name cannot contain @, : or spaces.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theValueIsNotInTheExpectedFormat",
+      "description": "Native UI: The value is not in the expected format.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The value is not in the expected format.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theValueIsTooLong",
+      "description": "Native UI: The value is too long.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The value is too long.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.thisBuildOfLitheDoesNotIncludeTheRemoteServer",
+      "description": "Native UI: This build of Lithe does not include the remote server.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This build of Lithe does not include the remote server.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.thisHookNoLongerExistsReloadTheLibrary",
+      "description": "Native UI: This Hook no longer exists. Reload the library.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This Hook no longer exists. Reload the library.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.thisPanelNeedsExactlyOneMatchingPluginInstanceInTheWorkspace",
+      "description": "Native UI: This panel needs exactly one matching plugin instance in the workspace.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This panel needs exactly one matching plugin instance in the workspace.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.thisRemovesOnlyTheNativeEntriesWrittenByLitheOtherHooksAreKept",
+      "description": "Native UI: This removes only the native entries written by Lithe. Other Hooks are kept.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This removes only the native entries written by Lithe. Other Hooks are kept.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.thisRuntimeIsOlderThanTheGeneratorRequires",
+      "description": "Native UI: This runtime is older than the generator requires.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This runtime is older than the generator requires.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.thisSendsTheSelectedLocalBranchToItsConfiguredRemote",
+      "description": "Native UI: This sends the selected local branch to its configured remote.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This sends the selected local branch to its configured remote.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.thisTemplateComesFromWhichIsDisabled",
+      "description": "Native UI: This template comes from %@, which is disabled.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This template comes from %@, which is disabled.",
+        "arguments": [
+          "arg1"
+        ],
+        "formats": {
+          "arg1": "@"
+        }
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.thisVersionIsNewerThanTheSelectedRuntimeSupports",
+      "description": "Native UI: This version is newer than the selected runtime supports.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This version is newer than the selected runtime supports.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.timeoutSeconds",
+      "description": "Native UI: Timeout (seconds)",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Timeout (seconds)",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toFolder",
+      "description": "Native UI: To Folder…",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "To Folder…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toTopLevel",
+      "description": "Native UI: To Top Level",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "To Top Level",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolFilter",
+      "description": "Native UI: Tool filter",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Tool filter",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.tracking",
+      "description": "Native UI: Tracking %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Tracking %@",
+        "arguments": [
+          "arg1"
+        ],
+        "formats": {
+          "arg1": "@"
+        }
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.unknownDate",
+      "description": "Native UI: Unknown date",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Unknown date",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.unpin",
+      "description": "Native UI: Unpin",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Unpin",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.unpinConversation",
+      "description": "Native UI: Unpin conversation",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Unpin conversation",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.untilRestart",
+      "description": "Native UI: Until restart",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Until restart",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.uptime",
+      "description": "Native UI: Uptime",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Uptime",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.usageAppearsAfterTheNextReply",
+      "description": "Native UI: Usage appears after the next reply.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Usage appears after the next reply.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.use180LettersDigitsHyphensOrUnderscoresNamesMustBeUnique",
+      "description": "Native UI: Use 1–80 letters, digits, hyphens or underscores. Names must be unique.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Use 1–80 letters, digits, hyphens or underscores. Names must be unique.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.useTheClaudeAiAccountYouSignedInToWithClaudeCodeNoAPIKeyOrURLIsNeededLitheNeverReadsItsCre",
+      "description": "Native UI: Use the claude.ai account you signed in to with Claude Code. No API key or URL is needed; Lithe never reads its credentials.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Use the claude.ai account you signed in to with Claude Code. No API key or URL is needed; Lithe never reads its credentials.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.userName",
+      "description": "Native UI: User name",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "User name",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.usesTheClaudeAiAccountSignedInToClaudeCodeSignInWithLoginInClaudeCodeIfTheAgentAsks",
+      "description": "Native UI: Uses the claude.ai account signed in to Claude Code. Sign in with /login in Claude Code if the Agent asks.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Uses the claude.ai account signed in to Claude Code. Sign in with /login in Claude Code if the Agent asks.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.usesYourLocalChatGPTAccount",
+      "description": "Native UI: Uses your local ChatGPT account.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Uses your local ChatGPT account.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.usuallyTheReversedDomainNameOfYourOrganizationSuchAsComExample",
+      "description": "Native UI: Usually the reversed domain name of your organization, such as com.example.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Usually the reversed domain name of your organization, such as com.example.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.whenASessionStarts",
+      "description": "Native UI: When a session starts",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "When a session starts",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.whenATurnEnds",
+      "description": "Native UI: When a turn ends",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "When a turn ends",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.whenSubmittingAPrompt",
+      "description": "Native UI: When submitting a prompt",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "When submitting a prompt",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.whenToRun",
+      "description": "Native UI: When to run",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "When to run",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.withoutItLitheAsksEveryTimeItConnectsARememberedSecretIsAnsweredOnlyTheFirstTimeTheServerA",
+      "description": "Native UI: Without it, Lithe asks every time it connects. A remembered secret is answered only the first time the server asks for it; if it is rejected, Lithe asks you.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Without it, Lithe asks every time it connects. A remembered secret is answered only the first time the server asks for it; if it is rejected, Lithe asks you.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.withoutRememberInKeychainLitheAsksEveryTimeItConnectsARememberedSecretIsAnsweredOnlyTheFir",
+      "description": "Native UI: Without Remember in Keychain, Lithe asks every time it connects. A remembered secret is answered only the first time the server asks for it; if it is rejected, Lithe asks you.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Without Remember in Keychain, Lithe asks every time it connects. A remembered secret is answered only the first time the server asks for it; if it is rejected, Lithe asks you.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.tabs.hooks",
+      "description": "Windows UI: settings.tabs.hooks",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "terminal.dockBottom",
+      "description": "Windows UI: terminal.dockBottom",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "terminal.dockLeft",
+      "description": "Windows UI: terminal.dockLeft",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "terminal.dockRight",
+      "description": "Windows UI: terminal.dockRight",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "terminal.movePanel",
+      "description": "Windows UI: terminal.movePanel",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "terminal.resizePanel",
+      "description": "Windows UI: terminal.resizePanel",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "windows.aHookWithThisNameAlreadyExists",
+      "description": "Windows UI: A Hook with this name already exists.",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "A Hook with this name already exists."
+      }
+    },
+    {
+      "id": "windows.aManagedHookWasEditedOutsideLitheRestoreOrRemoveThatNativeEntryBeforeSynchronizing",
+      "description": "Windows UI: A managed Hook was edited outside Lithe. Restore or remove that native entry before synchronizing.",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "A managed Hook was edited outside Lithe. Restore or remove that native entry before synchronizing."
+      }
+    },
+    {
+      "id": "windows.aRemovedHookCannotBeSaved",
+      "description": "Windows UI: A removed Hook cannot be saved.",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "A removed Hook cannot be saved."
+      }
+    },
+    {
+      "id": "windows.addHook",
+      "description": "Windows UI: Add Hook",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "Add Hook"
+      }
+    },
+    {
+      "id": "windows.afterAToolRuns",
+      "description": "Windows UI: After a tool runs",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "After a tool runs"
+      }
+    },
+    {
+      "id": "windows.agentDefault",
+      "description": "Windows UI: Agent default",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "Agent default"
+      }
+    },
+    {
+      "id": "windows.agentHooks",
+      "description": "Windows UI: Agent hooks",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "Agent hooks"
+      }
+    },
+    {
+      "id": "windows.agents",
+      "description": "Windows UI: Agents",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "Agents"
+      }
+    },
+    {
+      "id": "windows.allTools",
+      "description": "Windows UI: All tools",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "All tools"
+      }
+    },
+    {
+      "id": "windows.anIdenticalNativeHookAlreadyExistsLitheKeptItUnchanged",
+      "description": "Windows UI: An identical native Hook already exists. Lithe kept it unchanged.",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "An identical native Hook already exists. Lithe kept it unchanged."
+      }
+    },
+    {
+      "id": "windows.anotherHookUpdateIsRunningTryAgain",
+      "description": "Windows UI: Another Hook update is running. Try again.",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "Another Hook update is running. Try again."
+      }
+    },
+    {
+      "id": "windows.beforeAToolRuns",
+      "description": "Windows UI: Before a tool runs",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "Before a tool runs"
+      }
+    },
+    {
+      "id": "windows.cannotAccessHookConfigurationCheckTheFilePermissionsAndAgentProfile",
+      "description": "Windows UI: Cannot access Hook configuration. Check the file permissions and Agent profile.",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "Cannot access Hook configuration. Check the file permissions and Agent profile."
+      }
+    },
+    {
+      "id": "windows.cannotAccessTheHookLibraryCheckItsPermissions",
+      "description": "Windows UI: Cannot access the Hook library. Check its permissions.",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "Cannot access the Hook library. Check its permissions."
+      }
+    },
+    {
+      "id": "windows.cannotEncodeHookConfiguration",
+      "description": "Windows UI: Cannot encode Hook configuration.",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "Cannot encode Hook configuration."
+      }
+    },
+    {
+      "id": "windows.cannotEncodeTheHookLibrary",
+      "description": "Windows UI: Cannot encode the Hook library.",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "Cannot encode the Hook library."
+      }
+    },
+    {
+      "id": "windows.checkTheHookNameCommandEventAgentsAndTimeout186400Seconds",
+      "description": "Windows UI: Check the Hook name, command, event, Agents and timeout (1–86400 seconds).",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "Check the Hook name, command, event, Agents and timeout (1–86400 seconds)."
+      }
+    },
+    {
+      "id": "windows.claudeCodeHasDisabledAllHooksInItsSettings",
+      "description": "Windows UI: Claude Code has disabled all Hooks in its settings.",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "Claude Code has disabled all Hooks in its settings."
+      }
+    },
+    {
+      "id": "windows.codexHookApproval",
+      "description": "Windows UI: Codex Hook approval",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "Codex Hook approval"
+      }
+    },
+    {
+      "id": "windows.codexRequiresHooksToBeEnabledAndCommandsToBeTrustedInItsNativeHooksScreenLitheSavesConfigu",
+      "description": "Windows UI: Codex requires Hooks to be enabled and commands to be trusted in its native /hooks screen. Lithe saves configuration without granting trust. Editing a command requires approval again. A configured Hook is not proof it ran.",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "Codex requires Hooks to be enabled and commands to be trusted in its native /hooks screen. Lithe saves configuration without granting trust. Editing a command requires approval again. A configured Hook is not proof it ran."
+      }
+    },
+    {
+      "id": "windows.commandPaletteActionsCursorRedoDescription",
+      "description": "Windows UI: commandPalette.actions.cursor-redo.description",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "commandPalette.actions.cursor-redo.description"
+      }
+    },
+    {
+      "id": "windows.commandPaletteActionsCursorRedoLabel",
+      "description": "Windows UI: commandPalette.actions.cursor-redo.label",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "commandPalette.actions.cursor-redo.label"
+      }
+    },
+    {
+      "id": "windows.commandPaletteActionsCursorUndoDescription",
+      "description": "Windows UI: commandPalette.actions.cursor-undo.description",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "commandPalette.actions.cursor-undo.description"
+      }
+    },
+    {
+      "id": "windows.commandPaletteActionsCursorUndoLabel",
+      "description": "Windows UI: commandPalette.actions.cursor-undo.label",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "commandPalette.actions.cursor-undo.label"
+      }
+    },
+    {
+      "id": "windows.deleteHook",
+      "description": "Windows UI: Delete Hook?",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "Delete Hook?"
+      }
+    },
+    {
+      "id": "windows.enableHook",
+      "description": "Windows UI: Enable Hook",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "Enable Hook"
+      }
+    },
+    {
+      "id": "windows.fileEdits",
+      "description": "Windows UI: File edits",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "File edits"
+      }
+    },
+    {
+      "id": "windows.hook",
+      "description": "Windows UI: Hook",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "Hook"
+      }
+    },
+    {
+      "id": "windows.hookCommand",
+      "description": "Windows UI: Hook command",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "Hook command"
+      }
+    },
+    {
+      "id": "windows.hookConfigurationChangedOutsideThisEditorReloadBeforeSaving",
+      "description": "Windows UI: Hook configuration changed outside this editor. Reload before saving.",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "Hook configuration changed outside this editor. Reload before saving."
+      }
+    },
+    {
+      "id": "windows.hookConfigurationMustBeARegularFileNotASymbolicLinkOrDirectory",
+      "description": "Windows UI: Hook configuration must be a regular file, not a symbolic link or directory.",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "Hook configuration must be a regular file, not a symbolic link or directory."
+      }
+    },
+    {
+      "id": "windows.hookConfigurationMustBeNoLargerThan1MiB",
+      "description": "Windows UI: Hook configuration must be no larger than 1 MiB.",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "Hook configuration must be no larger than 1 MiB."
+      }
+    },
+    {
+      "id": "windows.hookConfigurationMustUseUTF8Encoding",
+      "description": "Windows UI: Hook configuration must use UTF-8 encoding.",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "Hook configuration must use UTF-8 encoding."
+      }
+    },
+    {
+      "id": "windows.hookDescription",
+      "description": "Windows UI: Hook description",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "Hook description"
+      }
+    },
+    {
+      "id": "windows.hookSynchronizationWasCancelled",
+      "description": "Windows UI: Hook synchronization was cancelled.",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "Hook synchronization was cancelled."
+      }
+    },
+    {
+      "id": "windows.hooks",
+      "description": "Windows UI: Hooks",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "Hooks"
+      }
+    },
+    {
+      "id": "windows.hooksEventAfterTool",
+      "description": "Windows UI: hooks.event.after-tool",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "hooks.event.after-tool"
+      }
+    },
+    {
+      "id": "windows.hooksEventBeforeTool",
+      "description": "Windows UI: hooks.event.before-tool",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "hooks.event.before-tool"
+      }
+    },
+    {
+      "id": "windows.hooksEventSessionStart",
+      "description": "Windows UI: hooks.event.session-start",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "hooks.event.session-start"
+      }
+    },
+    {
+      "id": "windows.hooksEventTurnEnd",
+      "description": "Windows UI: hooks.event.turn-end",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "hooks.event.turn-end"
+      }
+    },
+    {
+      "id": "windows.hooksRunShellCommandsAtAgentLifecycleEventsTheAgentSuppliesEventJSONOnStandardInputAndRuns",
+      "description": "Windows UI: Hooks run shell commands at Agent lifecycle events. The Agent supplies event JSON on standard input and runs the command in the session folder. Changes apply to new sessions; existing sessions keep their own loaded configuration.",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "Hooks run shell commands at Agent lifecycle events. The Agent supplies event JSON on standard input and runs the command in the session folder. Changes apply to new sessions; existing sessions keep their own loaded configuration."
+      }
+    },
+    {
+      "id": "windows.invalidHookFileGuards",
+      "description": "Windows UI: Invalid Hook file guards.",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "Invalid Hook file guards."
+      }
+    },
+    {
+      "id": "windows.leaveEmptyToUseTheAgentDefaultOrEnterAnIntegerFrom1To86400",
+      "description": "Windows UI: Leave empty to use the Agent default, or enter an integer from 1 to 86400.",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "Leave empty to use the Agent default, or enter an integer from 1 to 86400."
+      }
+    },
+    {
+      "id": "windows.noHooksYet",
+      "description": "Windows UI: No Hooks yet.",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "No Hooks yet."
+      }
+    },
+    {
+      "id": "windows.noMatchingHooks",
+      "description": "Windows UI: No matching Hooks.",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "No matching Hooks."
+      }
+    },
+    {
+      "id": "windows.optionalDescriptionUpTo200CharactersOnlyTheHookLibraryStoresIt",
+      "description": "Windows UI: Optional description, up to 200 characters. Only the Hook library stores it.",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "Optional description, up to 200 characters. Only the Hook library stores it."
+      }
+    },
+    {
+      "id": "windows.removalPending",
+      "description": "Windows UI: Removal pending",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "Removal pending"
+      }
+    },
+    {
+      "id": "windows.retryHookSynchronization",
+      "description": "Windows UI: Retry Hook synchronization",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "Retry Hook synchronization"
+      }
+    },
+    {
+      "id": "windows.saveHook",
+      "description": "Windows UI: Save Hook",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "Save Hook"
+      }
+    },
+    {
+      "id": "windows.searchHooks",
+      "description": "Windows UI: Search Hooks",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "Search Hooks"
+      }
+    },
+    {
+      "id": "windows.shellCommands",
+      "description": "Windows UI: Shell commands",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "Shell commands"
+      }
+    },
+    {
+      "id": "windows.syncNeeded",
+      "description": "Windows UI: Sync needed",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "Sync needed"
+      }
+    },
+    {
+      "id": "windows.theAgentExecutesThisCommandUsingItsOwnShellAndPassesEventJSONOnStandardInputCommandsRunWit",
+      "description": "Windows UI: The Agent executes this command using its own shell and passes event JSON on standard input. Commands run with your user permissions; add only commands you trust.",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "The Agent executes this command using its own shell and passes event JSON on standard input. Commands run with your user permissions; add only commands you trust."
+      }
+    },
+    {
+      "id": "windows.theAgentProfileChangedRestoreThePreviousProfileBeforeSynchronizingItsHooks",
+      "description": "Windows UI: The Agent profile changed. Restore the previous profile before synchronizing its Hooks.",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "The Agent profile changed. Restore the previous profile before synchronizing its Hooks."
+      }
+    },
+    {
+      "id": "windows.theHookLibraryCanContainAtMost200Hooks",
+      "description": "Windows UI: The Hook library can contain at most 200 Hooks.",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "The Hook library can contain at most 200 Hooks."
+      }
+    },
+    {
+      "id": "windows.theHookLibraryContainsDuplicateHooks",
+      "description": "Windows UI: The Hook library contains duplicate Hooks.",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "The Hook library contains duplicate Hooks."
+      }
+    },
+    {
+      "id": "windows.theHookLibraryDirectoryMustBeAbsolute",
+      "description": "Windows UI: The Hook library directory must be absolute.",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "The Hook library directory must be absolute."
+      }
+    },
+    {
+      "id": "windows.theHookLibraryExceededItsSizeLimit",
+      "description": "Windows UI: The Hook library exceeded its size limit.",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "The Hook library exceeded its size limit."
+      }
+    },
+    {
+      "id": "windows.theHookLibraryIsInvalidRestoreItBeforeMakingChanges",
+      "description": "Windows UI: The Hook library is invalid. Restore it before making changes.",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "The Hook library is invalid. Restore it before making changes."
+      }
+    },
+    {
+      "id": "windows.theHookLibraryLockMustBeARegularFile",
+      "description": "Windows UI: The Hook library lock must be a regular file.",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "The Hook library lock must be a regular file."
+      }
+    },
+    {
+      "id": "windows.theHookLibraryResponseWasNotRecognised",
+      "description": "Windows UI: The Hook library response was not recognised.",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "The Hook library response was not recognised."
+      }
+    },
+    {
+      "id": "windows.theNativeHookConfigurationMustBeValidJSONExistingContentsWereKept",
+      "description": "Windows UI: The native Hook configuration must be valid JSON. Existing contents were kept.",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "The native Hook configuration must be valid JSON. Existing contents were kept."
+      }
+    },
+    {
+      "id": "windows.theNativeHookEventMustContainAnArrayExistingContentsWereKept",
+      "description": "Windows UI: The native Hook event must contain an array. Existing contents were kept.",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "The native Hook event must contain an array. Existing contents were kept."
+      }
+    },
+    {
+      "id": "windows.theNativeHooksFieldMustBeAJSONObjectExistingContentsWereKept",
+      "description": "Windows UI: The native hooks field must be a JSON object. Existing contents were kept.",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "The native hooks field must be a JSON object. Existing contents were kept."
+      }
+    },
+    {
+      "id": "windows.thisHookNoLongerExistsReloadTheLibrary",
+      "description": "Windows UI: This Hook no longer exists. Reload the library.",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "This Hook no longer exists. Reload the library."
+      }
+    },
+    {
+      "id": "windows.thisRemovesOnlyTheNativeEntriesWrittenByLitheOtherHooksAreKept",
+      "description": "Windows UI: This removes only the native entries written by Lithe. Other Hooks are kept.",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "This removes only the native entries written by Lithe. Other Hooks are kept."
+      }
+    },
+    {
+      "id": "windows.timeoutSeconds",
+      "description": "Windows UI: Timeout (seconds)",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "Timeout (seconds)"
+      }
+    },
+    {
+      "id": "windows.toolFilter",
+      "description": "Windows UI: Tool filter",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "Tool filter"
+      }
+    },
+    {
+      "id": "windows.use180LettersDigitsHyphensOrUnderscoresNamesMustBeUnique",
+      "description": "Windows UI: Use 1–80 letters, digits, hyphens or underscores. Names must be unique.",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "Use 1–80 letters, digits, hyphens or underscores. Names must be unique."
+      }
+    },
+    {
+      "id": "windows.whenASessionStarts",
+      "description": "Windows UI: When a session starts",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "When a session starts"
+      }
+    },
+    {
+      "id": "windows.whenATurnEnds",
+      "description": "Windows UI: When a turn ends",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "When a turn ends"
+      }
+    },
+    {
+      "id": "windows.whenSubmittingAPrompt",
+      "description": "Windows UI: When submitting a prompt",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "When submitting a prompt"
+      }
+    },
+    {
+      "id": "windows.whenToRun",
+      "description": "Windows UI: When to run",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "When to run"
+      }
     }
   ]
 }

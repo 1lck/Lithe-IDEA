@@ -14,7 +14,11 @@ struct AgentProviderConfigurationView: View {
     @State private var errorMessage: String?
     @State private var actionTask: Task<Void, Never>?
 
-    private var usesSubscription: Bool { settings.agentConfigurations[agentID]?.authentication == .codexSubscription }
+    /// The account subscription this Agent can use, if any.
+    private var subscription: AgentAuthentication? { AgentAuthentication.subscription(for: agentID) }
+    private var usesSubscription: Bool {
+        subscription != nil && settings.agentConfigurations[agentID]?.authentication == subscription
+    }
     private var selected: AIProviderProfile? { settings.agentProvider(for: agentID) }
     private var sources: [AIConfigurationSourceKind] { source.map { [$0] } ?? AIConfigurationSourceKind.allCases }
     private var providers: [AIProviderProfile] {
@@ -48,7 +52,7 @@ struct AgentProviderConfigurationView: View {
                     .buttonStyle(LitheActionButtonStyle())
                 }
             }
-            if agentID == "codex-acp" { subscriptionRow }
+            if let subscription { subscriptionRow(subscription) }
             ForEach(sources) { kind in
                 localRow(kind)
             }
@@ -89,17 +93,22 @@ struct AgentProviderConfigurationView: View {
         .onDisappear { actionTask?.cancel() }
     }
 
-    private var subscriptionRow: some View {
+    private func subscriptionRow(_ subscription: AgentAuthentication) -> some View {
         HStack(spacing: 8) {
             Image(systemName: usesSubscription ? "checkmark.circle.fill" : "person.crop.circle")
                 .foregroundStyle(usesSubscription ? LitheTheme.accent : LitheTheme.secondaryText)
             HStack(spacing: 4) {
-                Text("Codex subscription").font(LitheTheme.uiFont(size: 12, weight: .medium))
-                LitheInfoTip("Use your local ChatGPT account. No API key or URL is needed.")
+                if subscription == .claudeSubscription {
+                    Text("Claude subscription").font(LitheTheme.uiFont(size: 12, weight: .medium))
+                    LitheInfoTip("Use the claude.ai account you signed in to with Claude Code. No API key or URL is needed; Lithe never reads its credentials.")
+                } else {
+                    Text("Codex subscription").font(LitheTheme.uiFont(size: 12, weight: .medium))
+                    LitheInfoTip("Use your local ChatGPT account. No API key or URL is needed.")
+                }
             }
             Spacer(minLength: 8)
             Button(usesSubscription ? "Enabled" : "Enable") {
-                perform { try await model.useCodexSubscription() }
+                perform { try await model.useAgentSubscription(agentID: agentID, name: name) }
             }
             .buttonStyle(LitheActionButtonStyle())
             .disabled(usesSubscription)
@@ -203,7 +212,7 @@ private struct AgentProviderEditorView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     requiredField("Provider name") {
-                        TextField("Provider name", text: $draft.name).litheSettingsTextField()
+                        LitheTextField("Provider name", text: $draft.name)
                             .accessibilityLabel("Provider name")
                     }
                     if draft.isEditingConfigurationText {
@@ -259,29 +268,21 @@ private struct AgentProviderEditorView: View {
         Group {
             requiredField("API Key") {
                 HStack(spacing: 8) {
-                    Group {
-                        if showsAPIKey {
-                            TextField("Enter API key", text: $draft.apiKey)
-                        } else {
-                            SecureField("Enter API key", text: $draft.apiKey)
-                        }
-                    }
-                    .litheSettingsTextField()
+                    LitheTextField("Enter API key", text: $draft.apiKey, secure: !showsAPIKey)
                     .accessibilityLabel("API Key")
                     Button(showsAPIKey ? "Hide API key" : "Show API key") { showsAPIKey.toggle() }
                         .buttonStyle(LitheActionButtonStyle())
                 }
             }
             requiredField("API request URL") {
-                TextField(draft.source == .codex ? "https://api.example.com/v1" : "https://api.example.com", text: $draft.endpoint)
-                    .litheSettingsTextField()
+                LitheTextField(draft.source == .codex ? "https://api.example.com/v1" : "https://api.example.com", text: $draft.endpoint)
                     .accessibilityLabel("API request URL")
                 AgentSettingsHint(draft.source == .codex
                     ? "Base URL for a service compatible with the OpenAI Responses API."
                     : "Base URL for an Anthropic Messages API service.")
             }
             requiredField("Model") {
-                TextField("Enter model ID", text: $draft.model).litheSettingsTextField()
+                LitheTextField("Enter model ID", text: $draft.model)
                     .accessibilityLabel("Model")
                 AgentSettingsHint("Use a model ID supported by your provider.")
             }

@@ -1149,28 +1149,19 @@ private struct DatabaseTableEmptyState: View {
     let hasConnection: Bool
     var hasColumns = true
 
-    private var title: LocalizedStringKey {
-        hasColumns ? "No Table Selected" : "No Columns"
-    }
-
-    private var detail: LocalizedStringKey {
+    private var instruction: LocalizedStringKey {
         if !hasConnection {
-            "Choose a database connection and then a table from the sidebar."
+            "Select a connection in the database tree"
         } else if hasColumns {
-            "Choose a table from the sidebar to browse and edit data."
+            "Double-click a table to view data"
         } else {
-            "The selected table has no columns to display."
+            "No columns to display"
         }
     }
 
-    private var symbol: String {
-        hasColumns ? "tablecells" : "tablecells.badge.ellipsis"
-    }
-
     var body: some View {
-        LitheUnavailableView(title, systemImage: symbol, description: Text(detail))
-            .foregroundStyle(LitheTheme.secondaryText)
-            .accessibilityElement(children: .combine)
+        LitheToolWindowStatusText(instruction)
+            .accessibilityRepresentation { Text(instruction) }
     }
 }
 

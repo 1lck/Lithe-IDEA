@@ -143,6 +143,9 @@ export interface Settings {
   collapsedActivityRailSections: string[];
   sidebarWidth: number;
   rightToolWindowWidth: number;
+  terminalDockPosition: "bottom" | "left" | "right";
+  terminalDockWidth: number;
+  bottomPaneHeight: number;
   showGitHubPullRequests: boolean;
   showGitHubIssues: boolean;
   showGitHubActions: boolean;

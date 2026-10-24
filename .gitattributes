@@ -3,3 +3,6 @@
 macos/Resources/*.lproj/Localizable.strings text eol=lf
 macos/Sources/Lithe/Models/Settings/AppLanguage.generated.swift text eol=lf
 windows/tauri/src/i18n/shared.generated.ts text eol=lf
+
+# Project generator templates are emitted byte-for-byte; never convert their line endings.
+Plugins/mac/Official/JavaSupport/templates/** -text

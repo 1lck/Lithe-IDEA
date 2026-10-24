@@ -18,8 +18,7 @@ struct BuildSystemToolWindowView: View {
     let pluginID: String
     let buildSystemID: String
     let icons: BuildSystemToolWindowIcons
-    @Environment(\.controlActiveState) private var controlActiveState
-    @State private var treeActive = false
+    @State private var selectedTreeNodeID: String?
     @State private var expandedNodeIDs: Set<String> = []
     @State private var knownRootNodeIDs: Set<String> = []
     @State private var selection: Selection?
@@ -313,30 +312,27 @@ struct BuildSystemToolWindowView: View {
     // MARK: Tree
 
     private var treePane: some View {
-        ScrollView(.vertical) {
-            VStack(alignment: .leading, spacing: 0) {
-                ForEach(treeOptions, id: \.resolved.id) { option in
-                    treeOptionNode(option.resolved)
-                }
-                ForEach(entries) { entry in
-                    entryNode(entry)
-                }
-            }
-            .padding(.horizontal, LitheTheme.Tree.horizontalInset)
-            .padding(.vertical, LitheTheme.Tree.verticalInset)
-        }
+        LitheTreeList(
+            nodes: treeOptions.map { treeOptionNode($0.resolved) } + entries.map(entryNode),
+            selection: Binding(
+                get: { selectedTreeNodeID },
+                set: {
+                    selectedTreeNodeID = $0; selection = nil
+                }),
+            multiline: true
+        )
         .litheWorkbenchSurface(LitheTheme.sidebar)
-        .background(LitheToolWindowActivityTracker(isActive: $treeActive))
     }
 
-    private func treeOptionNode(_ option: BuildResolvedOption) -> some View {
+    private func treeOptionNode(_ option: BuildResolvedOption) -> LitheTreeListNode {
         let nodeID = "option:" + option.id
         let selected = Self.selectedValues(option.value)
         let choices = option.choices.map(\.value) + selected.filter { value in
             !option.choices.contains { $0.value == value }
         }
         return treeNode(id: nodeID, title: option.displayName, iconPath: "expui/nodes/folder.svg") {
-            HStack(spacing: 4) {
+            LitheTreeListNode(id: nodeID + ":editor", isSelectable: false) {
+                HStack(spacing: 4) {
                 if option.allowCustom {
                     Button {
                         customValue = ""
@@ -361,27 +357,21 @@ struct BuildSystemToolWindowView: View {
                 Spacer(minLength: 0)
             }
             .foregroundStyle(LitheTheme.secondaryText)
-            .padding(.leading, 2)
-            ForEach(choices, id: \.self) { value in
-                Toggle(isOn: Binding(
-                    get: { selected.contains(value) },
-                    set: { isOn in
-                        let next = isOn ? selected + [value] : selected.filter { $0 != value }
-                        setOption(option.id, value: .array(next.map(ToolingJSONValue.string)))
+            }
+            for value in choices {
+                LitheTreeListNode(id: nodeID + ":value:" + value, isSelectable: false) {
+                    Toggle(
+                        isOn: Binding(
+                            get: { selected.contains(value) },
+                            set: { isOn in
+                                let next = isOn ? selected + [value] : selected.filter { $0 != value }
+                                setOption(option.id, value: .array(next.map(ToolingJSONValue.string)))
+                            })
+                    ) {
+                        Text(verbatim: option.choices.first { $0.value == value }?.title ?? value).lineLimit(1)
                     }
-                )) {
-                    HStack(spacing: 0) {
-                        Text(verbatim: option.choices.first { $0.value == value }?.title ?? value)
-                            .foregroundStyle(LitheTheme.primaryText)
-                            .lineLimit(1)
-                        Spacer(minLength: 0)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
+                    .toggleStyle(.checkbox)
                 }
-                .toggleStyle(.checkbox)
-                .padding(.leading, LitheTheme.Tree.indent)
-                .litheTreeRow()
             }
         }
     }
@@ -434,13 +424,12 @@ struct BuildSystemToolWindowView: View {
         knownRootNodeIDs = roots
     }
 
-    @ViewBuilder
-    private func entryNode(_ entry: BuildSystemEntry) -> some View {
+    private func entryNode(_ entry: BuildSystemEntry) -> LitheTreeListNode {
         if let project = rootProject(entry), let buildModel = entry.model {
-            projectNode(entry, model: buildModel, project: project, isRoot: true)
+            return projectNode(entry, model: buildModel, project: project, isRoot: true)
         } else {
             let nodeID = "entry:" + entry.id
-            treeNode(
+            return treeNode(
                 id: nodeID,
                 title: entry.instance.displayName,
                 subtitle: entry.instance.root == "." ? nil : entry.instance.root,
@@ -450,11 +439,14 @@ struct BuildSystemToolWindowView: View {
             ) {
                 scopeContent(entry, project: nil, ownerID: nodeID)
                 if let buildModel = entry.model {
-                    ForEach(Self.rootProjects(buildModel)) { project in
+                    for project in Self.rootProjects(buildModel) {
                         projectNode(entry, model: buildModel, project: project, isRoot: false)
                     }
                 } else if entry.instance.loadsModelOnRequest, entry.modelState != .loading {
-                    actionRow(title: String(localized: "Load Project Model"), iconPath: "expui/general/refresh.svg") {
+                    actionRow(
+                        id: nodeID + ":load", title: String(localized: "Load Project Model"),
+                        iconPath: "expui/general/refresh.svg"
+                    ) {
                         feature.loadModel(entry.id)
                     }
                 }
@@ -467,10 +459,10 @@ struct BuildSystemToolWindowView: View {
         model buildModel: BuildModel,
         project: BuildModel.Project,
         isRoot: Bool
-    ) -> AnyView {
+    ) -> LitheTreeListNode {
         let nodeID = projectNodeID(entry, project)
         let children = buildModel.projects.filter { $0.parentID == project.id }
-        return AnyView(treeNode(
+        return treeNode(
             id: nodeID,
             title: project.displayName ?? project.name,
             subtitle: isRoot || project.path == entry.instance.root ? nil : project.path,
@@ -479,25 +471,25 @@ struct BuildSystemToolWindowView: View {
             menu: { scopeMenu(entry, project: project, isRoot: isRoot) }
         ) {
             scopeContent(entry, project: project, isRoot: isRoot, ownerID: nodeID)
-            ForEach(buildModel.targets.filter { $0.projectID == project.id }) { target in
+            for target in buildModel.targets.filter({ $0.projectID == project.id }) {
                 targetNode(entry, project: project, target: target)
             }
-            ForEach(children) { child in
+            for child in children {
                 projectNode(entry, model: buildModel, project: child, isRoot: false)
             }
-        })
+        }
     }
 
     /// Tasks, tests, and dependencies of one node. The instance node, and a
     /// root project standing for it, run workspace-scoped work where the
     /// build system declares it, so a root build covers every project.
-    @ViewBuilder
+    @LitheTreeListNodesBuilder
     private func scopeContent(
         _ entry: BuildSystemEntry,
         project: BuildModel.Project?,
         isRoot: Bool = false,
         ownerID: String
-    ) -> some View {
+    ) -> [LitheTreeListNode] {
         let items = taskItems(entry, project: project, isRoot: isRoot)
         categoryNodes(items, level: 0, ownerID: ownerID, entryID: entry.id)
         if let tests = testRunnable(entry, project: project, isRoot: isRoot) {
@@ -511,16 +503,18 @@ struct BuildSystemToolWindowView: View {
         }
     }
 
-    private func targetNode(_ entry: BuildSystemEntry, project: BuildModel.Project, target: BuildModel.Target) -> some View {
+    @LitheTreeListNodesBuilder
+    private func targetNode(_ entry: BuildSystemEntry, project: BuildModel.Project, target: BuildModel.Target)
+        -> [LitheTreeListNode]
+    {
         let nodeID = "target:" + entry.id + ":" + target.id
         let declaration = entry.declaration
         let tasks = declaration.tasks.filter {
             !$0.fromModel && $0.scopes.contains(.target) && Self.matches(target, tags: $0.targetTags)
         }
         let testable = declaration.testScopes.contains(.target) && Self.matches(target, tags: declaration.testTargetTags)
-        return Group {
-            if !tasks.isEmpty || testable {
-                treeNode(
+        if !tasks.isEmpty || testable {
+            treeNode(
                     id: nodeID, title: target.name,
                     subtitle: target.tags.isEmpty ? nil : target.tags.joined(separator: ", "),
                     iconPath: "expui/nodes/runnableMark.svg"
@@ -535,8 +529,8 @@ struct BuildSystemToolWindowView: View {
                             ), target: target
                         )
                     }
-                    ForEach(tasks) { task in
-                        leafRow(
+                for task in tasks {
+                    leafRow(
                             id: nodeID + ":" + task.id, title: task.displayName, help: task.description,
                             iconPath: "maven/task.svg", entryID: entry.id, project: project,
                             runnable: .task(
@@ -546,7 +540,6 @@ struct BuildSystemToolWindowView: View {
                         )
                     }
                 }
-            }
         }
     }
 
@@ -607,7 +600,8 @@ struct BuildSystemToolWindowView: View {
 
     /// Files tasks under their headings, outermost first, keeping the order
     /// in which each heading first appears.
-    private func categoryNodes(_ items: [TaskItem], level: Int, ownerID: String, entryID: String) -> AnyView {
+    private func categoryNodes(_ items: [TaskItem], level: Int, ownerID: String, entryID: String) -> [LitheTreeListNode]
+    {
         var headings: [String] = []
         var grouped: [String: [TaskItem]] = [:]
         var leaves: [TaskItem] = []
@@ -617,20 +611,22 @@ struct BuildSystemToolWindowView: View {
             if grouped[heading] == nil { headings.append(heading) }
             grouped[heading, default: []].append(item)
         }
-        return AnyView(Group {
-            ForEach(headings, id: \.self) { heading in
-                let nodeID = ownerID + ":category:\(heading.utf8.count):" + heading
+        var nodes: [LitheTreeListNode] = []
+        for heading in headings {
+            let nodeID = ownerID + ":category:\(heading.utf8.count):" + heading
+            nodes.append(
                 treeNode(id: nodeID, title: heading, iconPath: "expui/build/taskGroup.svg") {
                     categoryNodes(grouped[heading] ?? [], level: level + 1, ownerID: nodeID, entryID: entryID)
-                }
-            }
-            ForEach(leaves) { item in
+                })
+        }
+        for item in leaves {
+            nodes.append(
                 leafRow(
                     id: ownerID + ":" + item.id, title: item.title, help: item.help, iconPath: "maven/task.svg",
                     entryID: entryID, project: item.project, runnable: item.runnable
-                )
-            }
-        })
+                ))
+        }
+        return nodes
     }
 
     private var argumentTasks: [DeclarativeBuildSystem.Task] {
@@ -704,7 +700,9 @@ struct BuildSystemToolWindowView: View {
         return nil
     }
 
-    private func dependencyNode(_ entry: BuildSystemEntry, project: BuildModel.Project?, ownerID: String) -> some View {
+    private func dependencyNode(_ entry: BuildSystemEntry, project: BuildModel.Project?, ownerID: String)
+        -> LitheTreeListNode
+    {
         let key = project?.path ?? entry.instance.root
         let nodeID = ownerID + ":dependencies"
         let toggle = {
@@ -725,71 +723,56 @@ struct BuildSystemToolWindowView: View {
         ) {
             switch entry.dependencies[key] {
             case .loading?:
-                HStack(spacing: 6) {
-                    ProgressView().controlSize(.mini)
-                    Text("Loading dependencies…").lineLimit(1)
-                    Spacer(minLength: 0)
+                LitheTreeListNode(id: nodeID + ":loading", isSelectable: false) {
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.mini)
+                        Text("Loading dependencies…").lineLimit(1)
+                    }
                 }
-                .font(LitheTheme.uiFont(size: 11.5))
-                .foregroundStyle(LitheTheme.secondaryText)
-                .padding(.horizontal, 4)
-                .frame(minHeight: 28)
             case .failed(let message)?:
-                VStack(alignment: .leading, spacing: 4) {
-                    Label(message, systemImage: "exclamationmark.triangle.fill")
-                        .font(LitheTheme.uiFont(size: 11.5))
-                        .foregroundStyle(LitheTheme.error)
-                        .lineLimit(3)
-                        .textSelection(.enabled)
-                    Button("Retry") { feature.loadDependencies(entry.id, project: project, reason: .refresh) }
-                        .buttonStyle(.litheNoPress)
+                LitheTreeListNode(id: nodeID + ":error", isSelectable: false) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Label(message, systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(LitheTheme.error).lineLimit(3).textSelection(.enabled)
+                        Button("Retry") { feature.loadDependencies(entry.id, project: project, reason: .refresh) }
+                            .buttonStyle(.litheNoPress)
+                    }
+                    .padding(.vertical, 3)
                 }
-                .padding(.horizontal, 4)
-                .padding(.vertical, 3)
             case .loaded(let tree)?:
                 if tree.dependencies.isEmpty {
-                    Text("No dependencies")
-                        .font(LitheTheme.uiFont(size: 11.5))
-                        .foregroundStyle(LitheTheme.secondaryText)
-                        .padding(.horizontal, 4)
-                        .frame(minHeight: 28)
+                    LitheTreeListNode(id: nodeID + ":empty", isSelectable: false) { Text("No dependencies") }
                 }
-                ForEach(Array(tree.dependencies.enumerated()), id: \.offset) { index, node in
+                for (index, node) in tree.dependencies.enumerated() {
                     dependencyTreeNode(node, id: nodeID + "/\(index)")
                 }
                 if tree.truncated {
-                    Text("Some dependencies are not shown.")
-                        .font(LitheTheme.uiFont(size: 11.5))
-                        .foregroundStyle(LitheTheme.warning)
-                        .padding(.horizontal, 4)
-                        .frame(minHeight: 28)
+                    LitheTreeListNode(id: nodeID + ":truncated", isSelectable: false) {
+                        Text("Some dependencies are not shown.").foregroundStyle(LitheTheme.warning)
+                    }
                 }
-            case nil:
-                EmptyView()
+            case nil: []
             }
         }
     }
 
-    private func dependencyTreeNode(_ node: BuildDependencyNode, id: String) -> AnyView {
+    private func dependencyTreeNode(_ node: BuildDependencyNode, id: String) -> LitheTreeListNode {
         let subtitle = [[node.group, node.version].compactMap { $0 }.joined(separator: ":"), node.scope ?? ""]
             .filter { !$0.isEmpty }.joined(separator: " ")
-        guard !node.children.isEmpty else {
-            return AnyView(HStack(spacing: LitheTheme.Tree.iconTextGap) {
-                treeIcon("expui/nodes/library.svg")
-                Text(verbatim: node.name).lineLimit(1)
-                if !subtitle.isEmpty {
-                    Text(verbatim: subtitle).foregroundStyle(LitheTheme.Tree.secondaryText).lineLimit(1)
+        if node.children.isEmpty {
+            return LitheTreeListNode(id: id) {
+                HStack(spacing: LitheTheme.Tree.iconTextGap) {
+                    treeIcon("expui/nodes/library.svg")
+                    Text(verbatim: node.name).lineLimit(1)
+                    if !subtitle.isEmpty {
+                        Text(verbatim: subtitle).foregroundStyle(LitheTheme.Tree.secondaryText).lineLimit(1)
+                    }
                 }
-                Spacer(minLength: 0)
             }
-            .padding(.leading, LitheTheme.Tree.indent)
-            .litheTreeRow())
         }
-        return AnyView(treeNode(id: id, title: node.name, subtitle: subtitle, iconPath: "expui/nodes/library.svg") {
-            ForEach(Array(node.children.enumerated()), id: \.offset) { index, child in
-                dependencyTreeNode(child, id: id + "/\(index)")
-            }
-        })
+        return treeNode(id: id, title: node.name, subtitle: subtitle, iconPath: "expui/nodes/library.svg") {
+            for (index, child) in node.children.enumerated() { dependencyTreeNode(child, id: id + "/\(index)") }
+        }
     }
 
     // MARK: Menus
@@ -833,111 +816,68 @@ struct BuildSystemToolWindowView: View {
         LitheIDEAIcon(resourcePath: path, size: LitheTheme.Tree.iconSize, preservesOriginalColors: true)
     }
 
-    /// `iconPath` nil is a project: the build system's own icon.
-    private func treeNode<Content: View>(
-        id: String,
-        title: String,
-        subtitle: String? = nil,
-        iconPath: String?,
-        isLoading: Bool = false,
-        onToggle: (() -> Void)? = nil,
+    /// Features describe branch contents and loading; the shared control renders disclosures and rows.
+    private func treeNode(
+        id: String, title: String, subtitle: String? = nil, iconPath: String?,
+        isLoading: Bool = false, onToggle: (() -> Void)? = nil,
         menu: @escaping () -> [LitheContextMenuItem] = { [] },
-        @ViewBuilder content: @escaping () -> Content
-    ) -> some View {
-        let expanded = expandedNodeIDs.contains(id)
-        let toggle = onToggle ?? { toggleNode(id) }
-        return VStack(alignment: .leading, spacing: 0) {
+        @LitheTreeListNodesBuilder content: @escaping () -> [LitheTreeListNode]
+    ) -> LitheTreeListNode {
+        LitheTreeListNode(
+            id: id, isExpanded: expandedNodeIDs.contains(id),
+            onExpansion: { expanded in
+                guard expanded != expandedNodeIDs.contains(id) else { return }
+                if let onToggle { onToggle() } else { toggleNode(id) }
+            }, menu: menu
+        ) {
             HStack(spacing: LitheTheme.Tree.iconTextGap) {
-                Button(action: toggle) {
-                    treeIcon(expanded ? "expui/general/chevronDown.svg" : "expui/general/chevronRight.svg")
-                        .frame(width: LitheTheme.Tree.disclosureSlot, height: LitheTheme.Tree.rowHeight)
-                        .contentShape(Rectangle())
+                if let iconPath {
+                    treeIcon(iconPath)
+                } else {
+                    WorkbenchContributionIcon(asset: icons.window, role: .action)
+                        .frame(width: LitheTheme.Tree.iconSize, height: LitheTheme.Tree.iconSize)
                 }
-                .buttonStyle(.litheNoPress)
-                .accessibilityLabel(Text(verbatim: title))
-                .accessibilityValue(expanded ? Text("Expanded") : Text("Collapsed"))
-
-                Button(action: toggle) {
-                    HStack(spacing: LitheTheme.Tree.iconTextGap) {
-                        if let iconPath {
-                            treeIcon(iconPath)
-                        } else {
-                            WorkbenchContributionIcon(asset: icons.window, role: .action)
-                                .frame(width: LitheTheme.Tree.iconSize, height: LitheTheme.Tree.iconSize)
-                        }
-                        Text(verbatim: title).lineLimit(1)
-                        if let subtitle, !subtitle.isEmpty {
-                            Text(verbatim: "(\(subtitle))").foregroundStyle(LitheTheme.Tree.secondaryText).lineLimit(1)
-                        }
-                        if isLoading {
-                            ProgressView().controlSize(.mini)
-                        }
-                        Spacer(minLength: 0)
-                    }
-                    .frame(maxWidth: .infinity, minHeight: LitheTheme.Tree.rowHeight, alignment: .leading)
-                    .contentShape(Rectangle())
+                Text(verbatim: title).lineLimit(1)
+                if let subtitle, !subtitle.isEmpty {
+                    Text(verbatim: "(\(subtitle))").foregroundStyle(LitheTheme.Tree.secondaryText).lineLimit(1)
                 }
-                .buttonStyle(.litheNoPress)
+                if isLoading { ProgressView().controlSize(.mini) }
             }
-            .litheTreeRow()
-            .litheContextMenu(items: menu)
-
-            if expanded {
-                VStack(alignment: .leading, spacing: 0) {
-                    content()
-                }
-                .padding(.leading, LitheTheme.Tree.indent)
-            }
+        } children: {
+            content()
         }
     }
 
-    /// A runnable row: click selects it for the toolbar's run button,
-    /// double-click runs it.
     private func leafRow(
-        id: String,
-        title: String,
-        help: String?,
-        iconPath: String,
-        entryID: String,
-        project: BuildModel.Project?,
-        runnable: Runnable,
-        target: BuildModel.Target? = nil
-    ) -> some View {
-        let isSelected = selection?.nodeID == id
+        id: String, title: String, help: String?, iconPath: String, entryID: String,
+        project: BuildModel.Project?, runnable: Runnable, target: BuildModel.Target? = nil
+    ) -> LitheTreeListNode {
         let perform = { run(runnable, entryID: entryID) }
-        return Button {
-            selection = Selection(nodeID: id, entryID: entryID, project: project, target: target, runnable: runnable)
-        } label: {
+        return LitheTreeListNode(
+            id: id,
+            onSelect: {
+                selection = Selection(
+                    nodeID: id, entryID: entryID, project: project, target: target, runnable: runnable)
+            },
+            onActivate: { if !feature.isRunning { perform() } },
+            menu: { [.action("Run", isEnabled: !feature.isRunning, action: perform)] }
+        ) {
             HStack(spacing: LitheTheme.Tree.iconTextGap) {
                 treeIcon(iconPath)
                 Text(verbatim: title).lineLimit(1)
-                Spacer(minLength: 0)
-            }
-            .padding(.leading, LitheTheme.Tree.indent)
-            .litheTreeRow(isSelected: isSelected, isFocused: treeActive && controlActiveState == .key)
+            }.help(help ?? title)
         }
-        .buttonStyle(.litheNoPress)
-        .help(help ?? title)
-        .simultaneousGesture(TapGesture(count: 2).onEnded {
-            guard !feature.isRunning else { return }
-            perform()
-        })
-        .litheContextMenu(items: {
-            [.action("Run", isEnabled: !feature.isRunning, action: perform)]
-        })
     }
 
-    private func actionRow(title: String, iconPath: String, perform: @escaping () -> Void) -> some View {
-        Button(action: perform) {
+    private func actionRow(id: String, title: String, iconPath: String, perform: @escaping () -> Void)
+        -> LitheTreeListNode
+    {
+        LitheTreeListNode(id: id, onActivate: perform, onClick: perform) {
             HStack(spacing: LitheTheme.Tree.iconTextGap) {
                 treeIcon(iconPath)
                 Text(verbatim: title).lineLimit(1)
-                Spacer(minLength: 0)
             }
-            .padding(.leading, LitheTheme.Tree.indent)
-            .litheTreeRow()
         }
-        .buttonStyle(.litheNoPress)
     }
 
     // MARK: Running
@@ -958,6 +898,7 @@ struct BuildSystemToolWindowView: View {
     /// A refreshed model or workspace must not leave a toolbar action holding
     /// selections from the previous tree, including an already open prompt.
     private func clearSelection() {
+        selectedTreeNodeID = nil
         selection = nil
         argumentsPrompt = nil
     }

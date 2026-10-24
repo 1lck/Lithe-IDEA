@@ -27,9 +27,10 @@
     "executionProviders": { "enum": [1] },
         "languageServers": { "enum": [1] },
         "languages": { "enum": [1] },
+        "projectGenerators": { "description": "Entries of the New Project window: fields, requirements, and steps.", "enum": [1] },
         "serverProcess": { "description": "The launch fields of language servers, of build providers that start their own process, and of VCS providers.", "enum": [1] },
         "settings": { "enum": [1] },
-        "ui": { "description": "Version 2 adds web content in tool windows.", "enum": [1, 2] },
+        "ui": { "description": "Version 2 adds web content; version 3 adds native controls.", "enum": [1, 2, 3] },
         "vcsProviders": { "description": "Required exactly when vcsProviders is non-empty. The provider protocol itself is negotiated in initialize (shared/contracts/vcs-provider-v1.md).", "enum": [1] }
       }
     },
@@ -45,7 +46,7 @@
     },
     "permissions": {
       "type": "array",
-      "items": { "enum": ["languageServer.launch", "process.build", "process.run", "process.test", "process.vcs", "ui.contribute", "ui.web"] }
+      "items": { "enum": ["languageServer.launch", "process.build", "process.run", "process.test", "process.vcs", "project.generate", "ui.contribute", "ui.web"] }
     },
     "activationEvents": {
       "type": "array",
@@ -76,6 +77,12 @@
       "maxItems": 8,
       "items": { "$ref": "#/$defs/vcsProvider" }
     },
+    "projectGenerators": {
+      "description": "pluginAPIVersion 3 with requires.projectGenerators: entries of the New Project window. Requires the project.generate permission.",
+      "type": "array",
+      "maxItems": 16,
+      "items": { "$ref": "#/$defs/projectGenerator" }
+    },
     "ui": {
       "type": "object",
       "additionalProperties": false,
@@ -97,7 +104,8 @@
             ],
             "oneOf": [
               { "required": ["text"] },
-              { "required": ["web"] }
+              { "required": ["web"] },
+              { "required": ["native"] }
             ],
             "properties": {
               "id": {
@@ -123,6 +131,7 @@
                 "type": "string",
                 "maxLength": 65536
               },
+              "native": { "$ref": "native-ui.schema.json" },
               "web": {
                 "description": "ui 2: the plugin's own page, served from the package into a sandboxed host web view. Needs the ui.web permission.",
                 "type": "object",
@@ -198,6 +207,173 @@
     }
   },
   "$defs": {
+    "generatorCondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["field"],
+      "properties": {
+        "field": { "type": "string", "description": "A field declared earlier in the same generator." },
+        "equals": { "type": ["string", "boolean"] },
+        "notEquals": { "type": ["string", "boolean"] },
+        "oneOf": { "type": "array", "minItems": 1, "items": { "type": ["string", "boolean"] } }
+      },
+      "oneOf": [
+        { "required": ["equals"] },
+        { "required": ["notEquals"] },
+        { "required": ["oneOf"] }
+      ]
+    },
+    "generatorConditions": {
+      "oneOf": [
+        { "$ref": "#/$defs/generatorCondition" },
+        { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/generatorCondition" } }
+      ]
+    },
+    "generatorField": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "title"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z][A-Za-z0-9]*$" },
+        "type": { "enum": ["text", "enum", "boolean", "multiSelect", "runtime"] },
+        "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "description": { "type": "string", "minLength": 1, "maxLength": 480 },
+        "advanced": { "type": "boolean" },
+        "visibleWhen": { "$ref": "#/$defs/generatorConditions" },
+        "default": { "description": "text: a template over ${project.name} and earlier fields; enum: an option; boolean; multiSelect: options. Not allowed for runtime." },
+        "options": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["value", "title"],
+            "properties": {
+              "value": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,120}$" },
+              "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+              "group": { "type": "string", "minLength": 1, "maxLength": 120 }
+            }
+          }
+        },
+        "presentation": { "enum": ["segmented", "menu"] },
+        "pattern": { "type": "string", "maxLength": 256 },
+        "maxLength": { "type": "integer", "minimum": 1, "maximum": 1024 },
+        "placeholder": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "optional": { "type": "boolean" },
+        "runtime": { "enum": ["java"] },
+        "minimumVersion": { "type": "string" },
+        "maximumVersion": { "type": "string", "description": "text and enum: the highest version the value may name, a template over earlier fields such as ${field.jdk.major}." }
+      }
+    },
+    "generatorConditionalValue": {
+      "oneOf": [
+        { "type": "string" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["value", "when"],
+          "properties": { "value": { "type": "string" }, "when": { "$ref": "#/$defs/generatorConditions" } }
+        }
+      ]
+    },
+    "generatorStep": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "source"],
+          "properties": {
+            "kind": { "const": "files" },
+            "source": { "type": "string", "description": "Package-relative template directory." },
+            "target": { "type": "string", "description": "Project-relative directory template." },
+            "when": { "$ref": "#/$defs/generatorConditions" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "command", "mayUseNetwork"],
+          "properties": {
+            "kind": { "const": "command" },
+            "command": { "type": "string", "pattern": "^[^/\\\\\\s]+$" },
+            "arguments": { "type": "array", "maxItems": 64, "items": { "$ref": "#/$defs/generatorConditionalValue" } },
+            "environment": { "type": "object", "maxProperties": 16, "additionalProperties": { "type": "string" } },
+            "collect": { "type": "string" },
+            "mayUseNetwork": { "type": "boolean" },
+            "timeoutSeconds": { "type": "integer", "minimum": 1, "maximum": 1800 },
+            "when": { "$ref": "#/$defs/generatorConditions" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "url"],
+          "properties": {
+            "kind": { "const": "archive" },
+            "url": { "type": "string", "description": "https address without query or fragment; http only for loopback hosts." },
+            "query": {
+              "type": "array",
+              "maxItems": 32,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name", "value"],
+                "properties": {
+                  "name": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,120}$" },
+                  "value": { "type": "string" },
+                  "when": { "$ref": "#/$defs/generatorConditions" },
+                  "omitEmpty": { "type": "boolean" }
+                }
+              }
+            },
+            "when": { "$ref": "#/$defs/generatorConditions" }
+          }
+        }
+      ]
+    },
+    "projectGenerator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "displayName", "section", "steps"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "description": { "type": "string", "minLength": 1, "maxLength": 480 },
+        "section": { "enum": ["project", "generator"] },
+        "icon": { "$ref": "#/$defs/uiIcon" },
+        "order": { "type": "integer", "minimum": 0, "maximum": 1000 },
+        "fields": { "type": "array", "maxItems": 32, "items": { "$ref": "#/$defs/generatorField" } },
+        "requirements": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "languageID": { "type": "string" },
+              "buildSystemID": { "type": "string" },
+              "when": { "$ref": "#/$defs/generatorConditions" }
+            },
+            "oneOf": [ { "required": ["languageID"] }, { "required": ["buildSystemID"] } ]
+          }
+        },
+        "steps": { "type": "array", "minItems": 1, "maxItems": 16, "items": { "$ref": "#/$defs/generatorStep" } },
+        "openFiles": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "oneOf": [
+              { "type": "string" },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["path", "when"],
+                "properties": { "path": { "type": "string" }, "when": { "$ref": "#/$defs/generatorConditions" } }
+              }
+            ]
+          }
+        }
+      }
+    },
     "uiIcon": {
       "type": "object",
       "additionalProperties": false,
@@ -252,6 +428,7 @@
             "terminal",
             "search",
             "refresh",
+            "reset",
             "run",
             "debug",
             "settings",

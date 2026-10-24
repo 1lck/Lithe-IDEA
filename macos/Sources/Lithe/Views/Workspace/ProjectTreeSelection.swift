@@ -1,9 +1,7 @@
 import Foundation
 import LitheCoreContracts
 
-enum ProjectTreeNavigationKey: UInt16 {
-    case left = 123, right = 124, down = 125, up = 126
-}
+typealias ProjectTreeNavigationKey = LitheTreeListNavigationKey
 
 /// Selection follows the displayed tree order, including only expanded children.
 struct ProjectTreeSelection: Equatable {
@@ -14,18 +12,11 @@ struct ProjectTreeSelection: Equatable {
     mutating func select(_ path: String, visiblePaths: @autoclosure () -> [String], extending: Bool, toggling: Bool) {
         focusedPath = path
         let visiblePaths = extending ? visiblePaths() : []
-        if extending, let anchorPath,
-           let start = visiblePaths.firstIndex(of: anchorPath),
-           let end = visiblePaths.firstIndex(of: path) {
-            let range = Set(visiblePaths[min(start, end)...max(start, end)])
-            paths = toggling ? paths.union(range) : range
-        } else if toggling {
-            if !paths.insert(path).inserted { paths.remove(path) }
-            anchorPath = path
-        } else {
-            paths = [path]
-            anchorPath = path
-        }
+        let order = extending ? visiblePaths : [path]
+        paths = LitheTreeListSelection.select(
+            path, in: order, selected: paths, anchor: anchorPath,
+            extending: extending, toggling: toggling)
+        if !extending || anchorPath == nil || !order.contains(anchorPath!) { anchorPath = path }
     }
 
     /// Only explicitly selected rows are highlighted; folders remain atomic action targets.
@@ -151,26 +142,27 @@ struct ProjectTreeSelection: Equatable {
             select(rows[0].id, visiblePaths: [], extending: false, toggling: false)
             return
         }
-        let row = rows[index]
-        var target = index
-        switch key {
-        case .up: target = max(0, index - 1)
-        case .down: target = min(rows.count - 1, index + 1)
-        case .right:
-            guard row.node.isDirectory, row.node.children?.isEmpty != true else { return }
-            if expandedPaths.insert(row.id).inserted {
-                expandedPaths.formUnion(row.node.collapsedAncestorPaths)
-                return
-            }
-            if index + 1 < rows.count, rows[index + 1].depth > row.depth { target = index + 1 }
-        case .left:
-            if row.node.isDirectory, expandedPaths.remove(row.id) != nil {
-                row.node.collapsedAncestorPaths.forEach { expandedPaths.remove($0) }
-                return
-            }
-            if let parent = rows[..<index].lastIndex(where: { $0.depth < row.depth }) { target = parent }
+        let hierarchy = rows.map {
+            LitheTreeListHierarchy(
+                depth: $0.depth,
+                isBranch: $0.node.isDirectory && $0.node.children?.isEmpty != true,
+                isExpanded: expandedPaths.contains($0.id))
         }
-        select(rows[target].id, visiblePaths: rows.map(\.id),
-               extending: extending && (key == .up || key == .down), toggling: false)
+        switch LitheTreeListNavigation.resolve(key, current: index, rows: hierarchy) {
+        case .expand(let target, let expanded):
+            let row = rows[target]
+            if expanded {
+                expandedPaths.insert(row.id)
+                expandedPaths.formUnion(row.node.collapsedAncestorPaths)
+            } else {
+                expandedPaths.remove(row.id)
+                expandedPaths.subtract(row.node.collapsedAncestorPaths)
+            }
+        case .select(let target):
+            select(
+                rows[target].id, visiblePaths: rows.map(\.id),
+                extending: extending && (key == .up || key == .down), toggling: false)
+        case nil: break
+        }
     }
 }

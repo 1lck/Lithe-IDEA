@@ -3,12 +3,23 @@ import Foundation
 /// Resolve product copy at the presentation edge using the selected interface language.
 /// Agent-provided messages, model names and history titles remain verbatim.
 enum AgentLocalization {
+    /// Every Agent label resolves through here on each render. Looking up the
+    /// `.lproj` directory per call made long transcripts and lists measurably slow.
+    private static let localizedBundles = NSCache<NSString, Bundle>()
+
     static func string(_ key: String.LocalizationValue, locale: Locale, bundle: Bundle = .main) -> String {
+        String(localized: key, bundle: localizedBundle(bundle, locale: locale), locale: locale)
+    }
+
+    private static func localizedBundle(_ bundle: Bundle, locale: Locale) -> Bundle {
+        let cacheKey = "\(bundle.bundlePath)|\(locale.identifier)" as NSString
+        if let cached = localizedBundles.object(forKey: cacheKey) { return cached }
         let languages = [locale.identifier, locale.language.languageCode?.identifier ?? locale.identifier]
-        let localizedBundle = languages.lazy.compactMap {
+        let resolved = languages.lazy.compactMap {
             bundle.url(forResource: $0, withExtension: "lproj").flatMap(Bundle.init(url:))
         }.first ?? bundle
-        return String(localized: key, bundle: localizedBundle, locale: locale)
+        localizedBundles.setObject(resolved, forKey: cacheKey)
+        return resolved
     }
 
     static func message(_ value: String, locale: Locale, bundle: Bundle = .main) -> String {

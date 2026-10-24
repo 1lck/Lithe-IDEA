@@ -1,0 +1,32 @@
+{
+  "id": "editor-cursor-history",
+  "area": "编辑器",
+  "group": "文本编辑",
+  "capability": "键盘移动后优先撤销光标，并支持独立光标撤销与重做",
+  "macos": {
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
+    "evidence": [
+      "frontend/editor/src/editor-commands.ts",
+      "frontend/editor/src/workbench.ts"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "frontend/editor/src/editor-commands.ts",
+      "windows/tauri/src/features/editor/engines/monaco/cursor-aware-undo.ts",
+      "windows/tauri/src/features/editor/engines/monaco/cursor-aware-undo.test.ts",
+      "windows/tauri/src/features/editor/components/monaco-editor.tsx",
+      "windows/tauri/src/features/keymaps/commands/editor-command-actions.ts",
+      "windows/tauri/src/features/keymaps/commands/command-registry.ts",
+      "windows/tauri/src/features/keymaps/defaults/default-keymaps.ts",
+      "windows/tauri/src/features/keymaps/hooks/use-keymaps.integration.test.tsx",
+      "windows/tauri/src/features/command-palette/constants/navigation-actions.tsx"
+    ]
+  },
+  "owner": "Editor",
+  "notes": "复用固定 Monaco 0.55.1 的 cursorUndo/cursorRedo；Windows 在键盘移动后第一次 Ctrl+Z 恢复最近一次光标移动，第二次撤销代码，光标恢复后可直接重做移动。文本或模型变化、鼠标/API 移动和视图失活清除待恢复状态。另提供命令面板、快捷键设置和 Ctrl+U/Ctrl+Shift+U 独立入口。macOS 已加载 Monaco 原生能力与共享动作映射，但未接入该策略和宿主命令入口，保持部分实现。",
+  "verification": "Windows 输入代码后误按向下箭头，第一次 Ctrl+Z 应回到之前的行列且内容和脏状态不变，第二次才撤销输入，再重做应恢复文本；通过 Ctrl+Z 或独立 Ctrl+U 恢复光标后，直接 Ctrl+Shift+Z 或 Ctrl+Y 应恢复移动，空光标历史不抢占文本重做。连续多次方向键后仅优先回退最近一次。核对 Ctrl+U/Ctrl+Shift+U、选区、多光标、滚动恢复、只读文件、空历史及继续编辑后清空光标历史；切换文件或分屏后不得恢复其他视图的选区。在命令面板搜索光标撤销/重做并执行，修改快捷键后确认生效，普通输入框、查找和终端保持原输入行为。macOS 原生按键与宿主命令入口需分别验收。"
+}

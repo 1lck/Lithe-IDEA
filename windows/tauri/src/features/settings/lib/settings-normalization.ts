@@ -598,6 +598,23 @@ export function normalizeSettings(settings: Settings): Settings {
     SIDEBAR_WIDTH_MIN,
     SIDEBAR_WIDTH_MAX,
   );
+  normalizedSettings.terminalDockPosition =
+    normalizedSettings.terminalDockPosition === "right" ||
+    normalizedSettings.terminalDockPosition === "left"
+      ? normalizedSettings.terminalDockPosition
+      : "bottom";
+  normalizedSettings.terminalDockWidth = normalizeBoundedWidth(
+    normalizedSettings.terminalDockWidth,
+    defaultSettings.terminalDockWidth,
+    SIDEBAR_WIDTH_MIN,
+    SIDEBAR_WIDTH_MAX,
+  );
+  normalizedSettings.bottomPaneHeight = normalizeBoundedWidth(
+    normalizedSettings.bottomPaneHeight,
+    defaultSettings.bottomPaneHeight,
+    200,
+    2000,
+  );
   normalizedSettings.externalEditor = normalizeExternalEditor(
     (normalizedSettings as { externalEditor?: unknown }).externalEditor,
     normalizedSettings.customEditorCommand,
@@ -732,9 +749,17 @@ export function normalizeSettingValue<K extends keyof Settings>(
     ) as Settings[K];
   }
 
-  if (key === "sidebarWidth" || key === "rightToolWindowWidth") {
+  if (key === "terminalDockPosition") {
+    return (value === "right" || value === "left" ? value : "bottom") as Settings[K];
+  }
+
+  if (key === "bottomPaneHeight") {
+    return normalizeBoundedWidth(value, defaultSettings.bottomPaneHeight, 200, 2000) as Settings[K];
+  }
+
+  if (key === "sidebarWidth" || key === "rightToolWindowWidth" || key === "terminalDockWidth") {
     const fallback =
-      key === "sidebarWidth" ? defaultSettings.sidebarWidth : defaultSettings.rightToolWindowWidth;
+      defaultSettings[key as "sidebarWidth" | "rightToolWindowWidth" | "terminalDockWidth"];
     return normalizeBoundedWidth(
       value,
       fallback,

@@ -1014,7 +1014,7 @@ struct AgentConfiguration: Codable, Equatable {
     var name: String
     var providerID: UUID?
     var authentication: AgentAuthentication
-    var isConfigured: Bool { authentication == .codexSubscription || providerID != nil }
+    var isConfigured: Bool { authentication.isSubscription || providerID != nil }
 
     init(name: String, providerID: UUID?, authentication: AgentAuthentication = .apiKey) {
         self.name = name
@@ -1029,7 +1029,7 @@ struct AgentConfiguration: Codable, Equatable {
         name = try values.decode(String.self, forKey: .name)
         providerID = try values.decodeIfPresent(UUID.self, forKey: .providerID)
         authentication = try values.decodeIfPresent(AgentAuthentication.self, forKey: .authentication) ?? .apiKey
-        if authentication == .codexSubscription { providerID = nil }
+        if authentication.isSubscription { providerID = nil }
     }
 
 }

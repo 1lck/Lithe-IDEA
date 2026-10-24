@@ -895,7 +895,7 @@ struct WorkbenchView: View {
                     isPresented: instantProjectSwitcherPresentation,
                     onNewProject: {
                         updateSwitcherPresentation(project: false)
-                        model.chooseProject(title: "New Project", prompt: "Choose Folder")
+                        model.showNewProject()
                     },
                     onOpenProject: {
                         updateSwitcherPresentation(project: false)

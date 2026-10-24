@@ -12,7 +12,6 @@ struct GitInteractiveRebasePresentation: ViewModifier {
 }
 
 private struct GitInteractiveRebasePlanView: View {
-    @State private var stepListActive = false
     @ObservedObject var editor: GitInteractiveRebaseFeatureModel
 
     var body: some View {
@@ -36,7 +35,6 @@ private struct GitInteractiveRebasePlanView: View {
                 HStack { ProgressView().controlSize(.small); Text("Checking the branch and affected commits…") }.font(LitheTheme.uiFont(size: 12))
             }
             stepList
-                .background(LitheToolWindowActivityTracker(isActive: $stepListActive))
             messageEditor
             Text("\(editor.steps.count) affected commits → \(editor.outputCommitCount) commits. Core creates a recovery reference before starting.")
                 .font(LitheTheme.uiFont(size: 11)).foregroundStyle(LitheTheme.secondaryText)
@@ -62,28 +60,36 @@ private struct GitInteractiveRebasePlanView: View {
     }
 
     private var stepList: some View {
-        ScrollView {
-            LazyVStack(spacing: 2) {
-                ForEach(Array(editor.steps.enumerated()), id: \.element.hash) { index, step in
-                    HStack(spacing: 8) {
-                        Text("\(index + 1)").frame(width: 24, alignment: .trailing).foregroundStyle(LitheTheme.secondaryText)
-                        LitheSettingsSelect(selection: Binding(
-                            get: { step.action }, set: { editor.setAction($0, for: step.hash) }
-                        ), options: GitRebaseAction.allCases, width: 130, accessibilityLabel: "Rebase action", title: { $0.rawValue.capitalized })
-                        .labelsHidden().frame(width: 130)
-                        Text(String(step.hash.prefix(9))).font(LitheTheme.uiFont(size: 11, design: .monospaced))
-                        Text(editor.subject(for: step.hash)).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
-                        Button { editor.move(step.hash, by: -1) } label: { Image(systemName: "arrow.up") }
-                            .disabled(index == 0).help("Move commit earlier").accessibilityLabel("Move commit earlier").lithePointer()
-                        Button { editor.move(step.hash, by: 1) } label: { Image(systemName: "arrow.down") }
-                            .disabled(index == editor.steps.count - 1).help("Move commit later").accessibilityLabel("Move commit later").lithePointer()
-                    }
-                    .font(LitheTheme.uiFont(size: 12)).controlSize(.small).padding(6)
-                    .litheSelectionRow(isSelected: editor.selectedHash == step.hash, isFocused: stepListActive)
-                    .contentShape(Rectangle()).onTapGesture { editor.selectedHash = step.hash }
-                    .accessibilityAddTraits(editor.selectedHash == step.hash ? .isSelected : [])
+        LitheTreeList(editor.steps, id: \.hash, selection: $editor.selectedHash, multiline: true) { step in
+            let index = editor.steps.firstIndex { $0.hash == step.hash } ?? 0
+            HStack(spacing: 8) {
+                Text("\(index + 1)").frame(width: 24, alignment: .trailing).foregroundStyle(LitheTheme.secondaryText)
+                LitheSettingsSelect(
+                    selection: Binding(
+                        get: { step.action }, set: { editor.setAction($0, for: step.hash) }
+                    ), options: GitRebaseAction.allCases, width: 130, accessibilityLabel: "Rebase action",
+                    title: { $0.rawValue.capitalized }
+                )
+                .labelsHidden().frame(width: 130)
+                Text(String(step.hash.prefix(9))).font(LitheTheme.uiFont(size: 11, design: .monospaced))
+                Text(editor.subject(for: step.hash)).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
+                Button {
+                    editor.move(step.hash, by: -1)
+                } label: {
+                    Image(systemName: "arrow.up")
                 }
+                .disabled(index == 0).help("Move commit earlier").accessibilityLabel("Move commit earlier")
+                .lithePointer()
+                Button {
+                    editor.move(step.hash, by: 1)
+                } label: {
+                    Image(systemName: "arrow.down")
+                }
+                .disabled(index == editor.steps.count - 1).help("Move commit later").accessibilityLabel(
+                    "Move commit later"
+                ).lithePointer()
             }
+            .font(LitheTheme.uiFont(size: 12)).controlSize(.small).padding(6)
         }
         .frame(height: 230).background(LitheTheme.inputBackground)
         .overlay(Rectangle().stroke(LitheTheme.divider, lineWidth: 1)).disabled(editor.isBusy)

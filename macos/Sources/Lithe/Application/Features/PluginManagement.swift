@@ -139,6 +139,7 @@ struct PluginCapability: Equatable, Sendable, Identifiable {
         case test
         case debug
         case buildSystem
+        case projectGenerator
         case toolWindow
         case command
     }
@@ -213,6 +214,11 @@ struct PluginCapability: Equatable, Sendable, Identifiable {
             result.append(PluginCapability(
                 kind: .buildSystem, subject: buildSystem.id, title: buildSystem.displayName,
                 detail: tasks > 0 ? .tasks(tasks) : .none
+            ))
+        }
+        for generator in descriptor?.projectGenerators ?? [] {
+            result.append(PluginCapability(
+                kind: .projectGenerator, subject: generator.id, title: generator.displayName, detail: .none
             ))
         }
         for window in descriptor?.ui?.toolWindows ?? [] {

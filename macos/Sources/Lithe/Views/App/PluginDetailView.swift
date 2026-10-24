@@ -521,6 +521,7 @@ struct PluginDetailView<Icon: View>: View {
         case .test: "Test"
         case .debug: "Debugger"
         case .buildSystem: "Build System"
+        case .projectGenerator: "Project Template"
         case .toolWindow: "Tool Window"
         case .command: "Command"
         }

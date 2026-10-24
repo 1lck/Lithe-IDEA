@@ -812,6 +812,44 @@ atomic and partial success is explicit. Cancellation stops remaining targets and
 next page read reconciles actual state. None of these files is a build cache or
 installed resource. The fixture is `fixtures/agent/shared-instructions-v1.json`.
 
+`agent.hooks` manages a platform-owned writable Hook library. Requests take
+`dataDirectory` and a strict `action`: `read`, `save`, `remove`, or `sync`.
+Mutations require `expectedRevision` and native `files` guards containing
+`agentId`, `path`, and `revision`. Guard paths never select write destinations:
+Agent Host resolves `CODEX_HOME/hooks.json` and `CLAUDE_CONFIG_DIR/settings.json`
+using native profile defaults when environment overrides are absent.
+
+`save` also takes `hook`: a UUID `id`, unique ASCII `name` (1–80 letters,
+digits, hyphens or underscores), `description` (at most 200 Unicode scalars),
+`event` (`turn-end`, `after-tool`, `before-tool`, `prompt`, `session-start`),
+`matcher` (`all`, `shell`, `edit`), nonempty UTF-8 `command` (at most 32768 bytes),
+nullable `timeoutSeconds` (1–86400, null inherits the native default), selected
+`agents` (`codex-acp`, `claude-acp`), `enabled`, and `pendingRemoval: false`.
+Only tool events accept a non-`all` matcher. `remove` takes `id`; `sync` retries
+the existing desired state. Neither configuration management nor reading the
+library executes commands or grants native trust.
+
+The result contains source `revision`, flattened `hooks` with actual
+`configuredAgents` and `needsSync`, plus `targets` containing `agentId`, nullable
+`file` guard, nullable `issue`, and `disabled` (Claude's `disableAllHooks`).
+Native configuration contents, which can include secrets, are never returned.
+Desired state is committed before target writes; target failures remain visible
+and removal failures retain a `pendingRemoval` row. A nonblocking OS file lock
+coordinates library writers. Each bounded UTF-8 file replacement is guarded and
+atomic; cross-file synchronization is explicitly partial, with write-ahead
+ownership records permitting recovery after interruption. Native duplicate JSON
+keys, malformed JSON, symlinks, nonregular files and changed snapshots are rejected.
+Existing unknown JSON values survive writes, while formatting is normalized.
+
+Only exact recorded placements can be retired. Native groups are cleared to
+`{"hooks":[]}` instead of compacted, preserving Codex's index-based trust keys.
+Unchanged commands keep their original positions; edited commands do not inherit
+trust. A matching user-owned entry is never claimed or duplicated. Codex still
+requires native Hook enablement and approval in `/hooks`; `configuredAgents`
+does not claim execution. Source, ownership journal, lock and temporary siblings
+are user state outside installed resources and cannot be reused across worktrees.
+The shared fixture is `shared/fixtures/agent/hooks-management-v1.json`.
+
 `agent.status`, `agent.install`, `agent.uninstall`, and `agent.installCli` manage ACP adapters in
 `<dataDirectory>/agents/<agentId>`, using the Node.js and npm the user installed.
 Lithe never installs Node.js or npm; the agents' own command-line tools are installed only through `agent.installCli` on an explicit user action. `agent.status`
@@ -1007,6 +1045,12 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `git.executionInspect` | Inspect executable capabilities, configuration provenance and effective Fetch preferences |
 | `git.executionConfigure` | Explicitly save or clear one allowlisted value in a selected config scope |
 | `git.authRespond` | Answer or cancel a live authentication challenge once |
+| `remote.probe` | Check that an SSH connection reaches a supported host |
+| `remote.authRespond` | Answer or cancel a prompt relayed by `remote.probe` or `remote.connect` once |
+| `remote.connect` | Open a connection, installing the shipped server when needed |
+| `remote.readDir` / `remote.readFile` / `remote.writeFile` | List, read or save over an open connection |
+| `remote.disconnect` | Close an open connection and its OpenSSH process tree |
+| `remote.closeAll` | Close every open connection; the host calls it at application exit |
 | `git.historyRewritePreview` | Review undo, message edit, squash, or drop with complete messages, eligibility, and an immutable checkout expectation |
 | `git.rebasePreview` | Resolve the complete local linear range strictly after a selected unchanged base |
 | `git.rebaseStart` | Start a reviewed native interactive rebase with persisted messages and recovery identity |
@@ -1062,6 +1106,11 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `vcs.detectRoots` | Find the VCS roots of a workspace from static markers, with registered providers, ambiguous directories, and applied mappings |
 | `vcs.ownerOf` | Assign workspace paths to the detected root that owns each |
 | `vcs.decodeReply` | Validate a VCS provider's reply and return the normalized result |
+| `project.generatorCatalog` | List the project generators of the given plugins, with the plugins that provide each requirement |
+| `project.generatorForm` | Evaluate a generator's form: derived defaults, visibility, problems, and active requirements |
+| `project.generationPlan` | Expand a filled-in form into the files, commands, and archive downloads that create a project |
+| `project.checkName` | Check that a name can be a new project's directory name |
+| `project.extractArchive` | Extract a downloaded project archive into the staging directory, refusing unsafe entries |
 | `plugins.marketplace.validateIndex` | Validate a marketplace index and report each plugin's availability for one platform |
 | `plugins.marketplace.resolveSource` | Resolve a user-entered marketplace source to the index URL to fetch |
 | `plugins.marketplace.installReview` | List a package's permissions and programs, and those not yet approved |
@@ -3305,6 +3354,96 @@ levels and 20,000 directories) and the marker names in its ancestors; it never
 reads file contents, writes anything, or starts a process. The other two
 commands touch no file. `shared/fixtures/vcs/model-v1.json` holds the
 detection cases, decoded snapshots, and reply validation cases.
+### Project generators
+
+The `project.*` commands back the New Project window. Payloads, results, and
+problem codes are specified in the plugin contract's
+[Project generators](plugins/v1/README.md#project-generators) section, and
+`shared/contracts/plugins/v1/fixtures/project-plans.json` holds the golden
+answers. Results use the `plugins.declarative.*` envelope: `catalog`, `form`,
+`plan`, `name`, and `extracted`. Commands that take a manifest revalidate it
+and answer `plugin.project.unavailable` for an undeclared generator.
+
+`project.generationPlan` reads template files below `packagePath` (bounded,
+no symbolic links). `project.extractArchive` is the only command that writes:
+it extracts into an existing staging directory the host created and never
+replaces a file. Neither starts a process or downloads anything; the host
+runs command steps, downloads archives, and moves the finished project into
+place.
+
+### Remote connections
+
+`remote.probe` checks a saved SSH connection before a remote workspace is
+opened. The request is `{ connection: { host, port?, user?, authentication?,
+identityFile?, connectTimeoutSeconds?, keepAliveSeconds? } }`; unknown fields,
+including any password, are rejected. `authentication` is `auto` (default),
+`agent`, `privateKey` (requires `identityFile`), or `password`. `host` is a
+name, address, or SSH configuration alias without a user.
+
+Core runs the system `ssh` with the probe of
+[`remote-workspace-protocol-v1`](remote-workspace-protocol-v1.md)'s bootstrap
+and relays every OpenSSH question through the same AskPass transport as Git.
+Each question is an `authentication` event with `requestId`, `prompt`,
+`secret`, and `attempt` on the request's event channel; the host answers it
+once with `remote.authRespond` (`{ requestId, answer: string | null }`,
+returning `{ accepted }`, with the bounds of `git.authRespond`). Null cancels
+the prompt. Core never stores or emits an answer.
+
+The result is `{ status, host, diagnostics }`:
+
+| `status` | Meaning |
+| --- | --- |
+| `connected` | The shell ran and a server build exists; `host` is set |
+| `unsupportedPlatform` | The shell ran, but no server build exists; `host` is set |
+| `authenticationFailed` | Every offered credential was rejected |
+| `hostKeyRejected` | The host key was declined or has changed |
+| `unreachable` | The name did not resolve or the host could not be reached |
+| `failed` | Another failure; see `diagnostics` |
+
+`host` is `{ system, machine, homeDirectory, serverTarget }` from `uname -s`,
+`uname -m` and `$HOME`; `serverTarget` is the server's Rust target or `null`.
+`diagnostics` is the redacted end of OpenSSH's standard error (at most
+4 KiB). A malformed connection is `invalid_request`, a missing `ssh` is
+`runtime_missing`, and cancellation or the five-minute bound are `cancelled`
+and `timed_out`.
+
+`host.details` carries display facts read by the same shell, each nullable:
+`hostName`, `operatingSystem`, `kernel`, `cpuCount`, `memoryBytes`,
+`diskTotalBytes` and `diskAvailableBytes` (the file system holding `$HOME`),
+and `uptimeSeconds`.
+
+#### Remote connections that stay open
+
+`remote.connect` takes `{ connection, servers: [{ target, path }],
+serverVersion, installRoot? }`. `servers` are the read-only server builds the
+host ships, by Rust target; `installRoot` defaults to `$HOME/.lithe-server`.
+One OpenSSH process probes the host, keeps an installed server whose
+`--identity` reports the same SHA-256 or uploads the matching build through
+the same stream, and starts it, so the user authenticates once. Prompts are
+relayed as for `remote.probe`. The result is `{ status, session, host,
+diagnostics }`; `session` is `{ id, uploaded, hostName, userName,
+homeDirectory }` and is set only for `connected`. A host without a matching
+build is `unsupportedPlatform` and nothing is uploaded.
+
+Core keeps an open connection until `remote.disconnect` (`{ sessionId }`,
+returning `{ closed }`) or until the host process exits; ending it terminates
+the OpenSSH process tree. `remote.closeAll` (no payload, returning
+`{ closed }` with the number of connections) ends all of them; the host calls
+it while quitting because exiting without it can leave the OpenSSH tree and
+the remote server running. Requests over it take `sessionId`:
+
+| Command | Request | Result |
+| --- | --- | --- |
+| `remote.readDir` | `{ sessionId, path }` | the remote protocol's `fs.readDir` result |
+| `remote.readFile` | `{ sessionId, path }` | `{ data (base64), size, modifiedMs }`; files over 16 MiB are `not_supported` |
+| `remote.writeFile` | `{ sessionId, path, data, expected? }` | `{ status: "saved", size, modifiedMs }` or `{ status: "conflict" }` |
+
+`remote.writeFile` replaces the file atomically on the host. With
+`expected` (`{ size, modifiedMs }` from the read) a changed file is a
+`conflict`; without it the file must not exist yet. A missing path is
+`workspace_not_found`, a denied one `permission_denied`. A broken connection
+fails with `connection_closed` and is forgotten, so the host reconnects; an
+unknown or closed `sessionId` is also `connection_closed`.
 
 ### Git patch discovery and rebase amendment preconditions
 
@@ -3656,6 +3795,21 @@ an identity that is no longer present. Legacy positional references remain accep
 See `shared/fixtures/git/saved-stash-v1.json`. Native Shelf persistence is platform-owned;
 raw patch bytes are kept separately for index and working-tree versions.
 
+### Native plugin UI data
+
+`plugins.nativeUI.validateData` accepts `{ ui, data }`, where `ui` is the
+validated native schema-1 declaration and `data` is a provider's `{ nodes }`
+reply. It returns `{ status: "ok", nodes }` or
+`{ status: "rejected", error: { code: "plugin.ui.invalidData", message } }`.
+Malformed envelopes remain Core `invalid_request` failures. The operation uses
+the same identity, literal label, nesting and node budgets as manifest validation
+and rejects data above 1 MiB. Form declarations validate bounded input/select/checkbox
+controls (including search/editor/segmented/stepper), typed scalar defaults, choices,
+info, button action references/width policies and onCommit references; form source replies
+require empty nodes. Hosts inject this typed operation into their
+presentation feature; views never call the C ABI. Windows can reuse validation
+when it later adds a native renderer; Core support does not advertise ui 3 on
+that platform.
 
 ### Agent skill management
 

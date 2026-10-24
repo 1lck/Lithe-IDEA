@@ -46,6 +46,8 @@ pub enum CoreCommand {
     AgentInstructionsShared,
     /// Lists native skills or creates/imports one explicitly (`agent.skills`).
     AgentSkills,
+    /// Manages a user Hook library and native Agent configuration (`agent.hooks`).
+    AgentHooks,
     /// Installs a catalog ACP adapter with the user's npm (`agent.install`).
     AgentInstall,
     /// Removes a Lithe-managed ACP adapter install (`agent.uninstall`).
@@ -70,6 +72,8 @@ pub enum CoreCommand {
     McpCommandLine,
     /// Validates and normalizes a declarative plugin manifest (`plugins.declarative.validate`).
     PluginsDeclarativeValidate,
+    /// Validates native plugin UI data with declaration identity and node budgets.
+    PluginsNativeUIValidateData,
     /// Expands a declarative plugin's run template (`plugins.declarative.runPlan`).
     PluginsDeclarativeRunPlan,
     /// Lists a declarative plugin's workspace and file tests (`plugins.declarative.discoverTests`).
@@ -118,6 +122,16 @@ pub enum CoreCommand {
     VcsOwnerOf,
     /// Validates and normalizes a VCS provider's reply (`vcs.decodeReply`).
     VcsDecodeReply,
+    /// Lists plugin project generators and who provides their requirements (`project.generatorCatalog`).
+    ProjectGeneratorCatalog,
+    /// Derives a generator form's defaults, visibility, and field errors (`project.generatorForm`).
+    ProjectGeneratorForm,
+    /// Expands a generator's steps into files, argv, and URLs (`project.generationPlan`).
+    ProjectGenerationPlan,
+    /// Validates a new project's name against its parent directory (`project.checkName`).
+    ProjectCheckName,
+    /// Extracts a downloaded archive inside a bounded staging directory (`project.extractArchive`).
+    ProjectExtractArchive,
     /// Validates and filters a marketplace index (`plugins.marketplace.validateIndex`).
     PluginsMarketplaceValidateIndex,
     /// Resolves a user-entered marketplace source URL (`plugins.marketplace.resolveSource`).
@@ -364,6 +378,22 @@ pub enum CoreCommand {
     GitExecutionConfigure,
     /// Answers a currently owned authentication prompt (`git.authRespond`).
     GitAuthRespond,
+    /// Checks that an SSH connection reaches a supported host (`remote.probe`).
+    RemoteProbe,
+    /// Answers a prompt relayed by a running `remote.probe` (`remote.authRespond`).
+    RemoteAuthRespond,
+    /// Opens a remote connection, installing the server when needed (`remote.connect`).
+    RemoteConnect,
+    /// Lists a directory over an open remote connection (`remote.readDir`).
+    RemoteReadDir,
+    /// Closes a remote connection (`remote.disconnect`).
+    RemoteDisconnect,
+    /// Closes every open remote connection at application exit (`remote.closeAll`).
+    RemoteCloseAll,
+    /// Reads a file over an open remote connection (`remote.readFile`).
+    RemoteReadFile,
+    /// Saves a file over an open remote connection (`remote.writeFile`).
+    RemoteWriteFile,
     /// Inspects repository initialization and scoped commit identity.
     GitRepositorySetup,
     /// Initializes an existing folder outside any repository.
@@ -450,6 +480,7 @@ impl CoreCommand {
             "agent.instructions.save" => Some(Self::AgentInstructionsSave),
             "agent.instructions.shared" => Some(Self::AgentInstructionsShared),
             "agent.skills" => Some(Self::AgentSkills),
+            "agent.hooks" => Some(Self::AgentHooks),
             "agent.install" => Some(Self::AgentInstall),
             "agent.uninstall" => Some(Self::AgentUninstall),
             "agent.installCli" => Some(Self::AgentInstallCli),
@@ -462,6 +493,7 @@ impl CoreCommand {
             "mcp.toolPolicy" => Some(Self::McpToolPolicy),
             "mcp.commandLine" => Some(Self::McpCommandLine),
             "plugins.declarative.validate" => Some(Self::PluginsDeclarativeValidate),
+            "plugins.nativeUI.validateData" => Some(Self::PluginsNativeUIValidateData),
             "plugins.declarative.runPlan" => Some(Self::PluginsDeclarativeRunPlan),
             "plugins.declarative.discoverTests" => Some(Self::PluginsDeclarativeDiscoverTests),
             "plugins.declarative.testPlan" => Some(Self::PluginsDeclarativeTestPlan),
@@ -492,6 +524,11 @@ impl CoreCommand {
             "vcs.detectRoots" => Some(Self::VcsDetectRoots),
             "vcs.ownerOf" => Some(Self::VcsOwnerOf),
             "vcs.decodeReply" => Some(Self::VcsDecodeReply),
+            "project.generatorCatalog" => Some(Self::ProjectGeneratorCatalog),
+            "project.generatorForm" => Some(Self::ProjectGeneratorForm),
+            "project.generationPlan" => Some(Self::ProjectGenerationPlan),
+            "project.checkName" => Some(Self::ProjectCheckName),
+            "project.extractArchive" => Some(Self::ProjectExtractArchive),
             "plugins.marketplace.validateIndex" => Some(Self::PluginsMarketplaceValidateIndex),
             "plugins.marketplace.resolveSource" => Some(Self::PluginsMarketplaceResolveSource),
             "plugins.marketplace.installReview" => Some(Self::PluginsMarketplaceInstallReview),
@@ -613,6 +650,14 @@ impl CoreCommand {
             "git.executionInspect" => Some(Self::GitExecutionInspect),
             "git.executionConfigure" => Some(Self::GitExecutionConfigure),
             "git.authRespond" => Some(Self::GitAuthRespond),
+            "remote.probe" => Some(Self::RemoteProbe),
+            "remote.authRespond" => Some(Self::RemoteAuthRespond),
+            "remote.connect" => Some(Self::RemoteConnect),
+            "remote.readDir" => Some(Self::RemoteReadDir),
+            "remote.disconnect" => Some(Self::RemoteDisconnect),
+            "remote.closeAll" => Some(Self::RemoteCloseAll),
+            "remote.readFile" => Some(Self::RemoteReadFile),
+            "remote.writeFile" => Some(Self::RemoteWriteFile),
             "git.historyRewritePreview" => Some(Self::GitHistoryRewritePreview),
             "git.rebasePreview" => Some(Self::GitRebasePreview),
             "git.repositorySetup" => Some(Self::GitRepositorySetup),

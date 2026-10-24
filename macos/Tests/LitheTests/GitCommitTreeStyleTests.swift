@@ -13,7 +13,7 @@ struct GitCommitTreeStyleTests {
         for state in [NSControl.StateValue.off, .on, .mixed] {
             for enabled in [true, false] {
                 for focused in [true, false] {
-                    let path = GitChangeInclusionCheckbox.assetPath(state: state, enabled: enabled, focused: focused)
+                    let path = LitheTreeCheckbox.assetPath(state: state, enabled: enabled, focused: focused)
                     for dark in [true, false] {
                         let asset = dark ? LitheIcons.darkIdeaAssetPath(for: path) : path
                         paths.insert(asset)

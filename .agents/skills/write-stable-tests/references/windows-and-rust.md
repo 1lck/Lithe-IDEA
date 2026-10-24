@@ -36,7 +36,9 @@ compile the selected Cargo tests once, enumerate the produced test binaries,
 then run every test case individually with a process-level timeout and duration
 report. One suite deadline covers compilation, enumeration, every test process,
 and the clean cache retry; a timeout writes the completed records before the
-runner exits. This isolation makes the exact hanging test visible.
+runner exits. A completed test failure or timeout preserves the report and fails
+without clearing/rebuilding cached binaries. Only failures before any test ran
+remain eligible for the existing one-time cache recovery. This isolation makes the exact hanging test visible.
 
 SharedRust explicitly runs `lithe-agent-host`, `lithe-git-host`, and `lithe-core`, keeping the
 native Git process/AskPass tests in `git-host-rust.json` and Core tests in
@@ -86,14 +88,12 @@ gets 30 seconds after its real-Git source exports passed assertions but took
 Each patch request still has its own 15-second deadline, and the enclosing
 suite deadline remains unchanged. Both SharedRust and the real-JDT lane use
 these narrowly scoped budgets. Core rebase requests use a nested 20-second
-deadline. The workspace commit submodule publication test also gets 30 seconds
-because it creates two local remotes and runs multiple real Git pushes.
-`tests::git_workspace_commit::git_workspace_commit_push_confirms_each_repository_separately`
-also gets 30 seconds in both lanes after run 39914734587 killed it at 15.233
-seconds without an assertion failure. It prepares two divergent local
-repositories/remotes, checks independent confirmations in three preparation
-passes, and commits/pushes each repository. The default case and suite deadlines
-remain unchanged; bounded native subprocess calls and assertions still run. Other
+deadline. The `tests::git_workspace_commit::` module gets 30 seconds because its
+integration cases create multiple repositories/remotes and run real Git pushes.
+Windows run 39947608155 reached the default 15-second deadline in
+`git_workspace_commit_push_confirms_each_repository_separately` at 15.16 seconds
+without an assertion failure; this replaces the previous single-case allowance
+for submodule publication. Other
 multi-repository coverage includes
 `tests::git::git_write_updates_a_noncurrent_branch_without_switching_head`,
 which also gets 30 seconds in both SharedRust and real-JDT lanes: it builds a
@@ -112,6 +112,12 @@ cases retain the normal 15-second budget. The Rust runner's repeatable
 `--test-budget prefix=milliseconds` option uses the most specific matching
 prefix, records each case's effective budget in JSON, uses that budget for
 HTML/JUnit classification, and remains capped by the shared suite deadline.
+The `watch_context_resolves_a_submodule_git_directory_outside_its_workspace`
+integration case also gets 30 seconds in SharedRust: it initializes and commits
+in two real repositories, clones one as a submodule, and resolves its external
+Git directory. Windows run 39933498873 terminated it at 16.1 seconds under the
+15-second watchdog; the resulting clean rebuild/retry then exhausted the CI
+step. Other cases and suite/step deadlines retain their existing budgets.
 Use scoped budgets only for measured
 integration costs, never to bypass an unbounded wait or an assertion failure.
 

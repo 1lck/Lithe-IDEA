@@ -1,13 +1,10 @@
 import SwiftUI
 
-/// Shared title-bar chrome for bottom tool windows. Individual windows provide
+/// Shared title-bar chrome for tool windows. Individual windows provide
 /// their own controls while the title, spacing, and minimize affordance remain
 /// visually consistent.
 struct LitheToolWindowHeader<Actions: View>: View {
     let title: String
-    let systemImage: String?
-    let ideaAssetPath: String?
-    let icon: AnyView?
     let subtitle: String?
     let actions: Actions
     let onMinimize: (() -> Void)?
@@ -15,18 +12,12 @@ struct LitheToolWindowHeader<Actions: View>: View {
 
     init(
         title: String,
-        systemImage: String? = nil,
-        ideaAssetPath: String? = nil,
-        icon: AnyView? = nil,
         subtitle: String? = nil,
         onMinimize: (() -> Void)? = nil,
         usesWorkbenchSurface: Bool = true,
         @ViewBuilder actions: () -> Actions
     ) {
         self.title = title
-        self.systemImage = systemImage
-        self.ideaAssetPath = ideaAssetPath
-        self.icon = icon
         self.subtitle = subtitle
         self.actions = actions()
         self.onMinimize = onMinimize
@@ -35,23 +26,10 @@ struct LitheToolWindowHeader<Actions: View>: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            if let icon {
-                icon.foregroundStyle(LitheTheme.toolWindowText)
-            } else if let ideaAssetPath {
-                LitheIDEAIcon(
-                    resourcePath: ideaAssetPath,
-                    size: 13,
-                    fallbackSystemImage: systemImage ?? "circle"
-                )
-                .foregroundStyle(LitheTheme.toolWindowText)
-            } else if let systemImage {
-                Image(systemName: systemImage)
-                    .font(LitheTheme.uiFont(size: 12, weight: .medium))
-                    .foregroundStyle(LitheTheme.toolWindowText)
-            }
             Text(LocalizedStringKey(title))
-                .font(LitheTheme.uiFont(size: 12.5, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 13, weight: .bold))
                 .foregroundStyle(LitheTheme.toolWindowText)
+                .lineLimit(1)
             if let subtitle, !subtitle.isEmpty {
                 Text(LocalizedStringKey(subtitle))
                     .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
@@ -59,13 +37,15 @@ struct LitheToolWindowHeader<Actions: View>: View {
                     .lineLimit(1)
             }
             Spacer(minLength: 12)
-            actions
-            if let onMinimize {
-                LitheSidebarHideButton(title: title, action: onMinimize)
+            HStack(spacing: LitheTheme.ActionToolbar.actionSpacing) {
+                actions
+                if let onMinimize {
+                    LitheSidebarHideButton(title: title, action: onMinimize)
+                }
             }
         }
         .padding(.leading, 12)
-        .padding(.trailing, 7)
+        .padding(.trailing, 8)
         .frame(height: LitheTheme.Metrics.toolWindowHeaderHeight)
         .background {
             // Opaque feature panels also use this header outside the wallpaper host.
@@ -88,15 +68,11 @@ struct LitheToolWindowHeader<Actions: View>: View {
 extension LitheToolWindowHeader where Actions == EmptyView {
     init(
         title: String,
-        systemImage: String? = nil,
-        ideaAssetPath: String? = nil,
         subtitle: String? = nil,
         onMinimize: (() -> Void)? = nil
     ) {
         self.init(
             title: title,
-            systemImage: systemImage,
-            ideaAssetPath: ideaAssetPath,
             subtitle: subtitle,
             onMinimize: onMinimize
         ) {
