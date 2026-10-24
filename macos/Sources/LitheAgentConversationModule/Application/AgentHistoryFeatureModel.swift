@@ -53,6 +53,14 @@ public final class AgentHistoryFeatureModel: ObservableObject {
             && ids.allSatisfy { known.contains($0) && connection.canExportTranscript($0) }
     }
 
+    /// Per-row form of `canExport` for list rendering. The known-session set is
+    /// built once instead of once per row, which made long history lists quadratic.
+    public func exportableIDs(_ ids: [String]) -> Set<String> {
+        guard !isExporting, exporter != nil else { return [] }
+        let known = Set(connection.sessions.map(\.id))
+        return Set(ids.filter { known.contains($0) && connection.canExportTranscript($0) })
+    }
+
     /// Loads unopened sessions sequentially, without changing the active tab.
     public func export(_ ids: [String]) {
         guard canExport(ids), let exporter else { return }

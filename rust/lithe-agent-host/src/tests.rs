@@ -607,6 +607,7 @@ impl Harness {
             cwd,
             route,
             subscription.then(|| PathBuf::from("/fixture/codex")),
+            false,
             None,
             None,
             observe_subagents,
@@ -4126,4 +4127,134 @@ fn closing_without_preserved_tasks_still_ends_the_agent_tree() {
     let gone = !process_is_alive(agent.task);
     agent.task_may_run = !gone;
     assert!(gone, "agent task outlived the connection");
+}
+
+// Claude subscription mode must launch the signed-in CLI without any API route,
+// key or model pin, and must stay limited to the Claude adapter.
+#[test]
+fn claude_subscription_launches_the_signed_in_cli_without_a_route() {
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let data =
+        std::env::temp_dir().join(format!("lithe-claude-subscription-{}", std::process::id()));
+    let _cleanup = Cleanup(data.clone());
+    let _ = std::fs::remove_dir_all(&data);
+    let launch = |agent_id: &str| AgentLaunch {
+        agent_id: Some(agent_id.into()),
+        command: None,
+        args: vec![],
+        cwd: std::env::temp_dir(),
+        data_directory: Some(data.clone()),
+        provider: None,
+        authentication: AgentAuthentication::ClaudeSubscription,
+        observe_model_calls: false,
+        observe_subagents: false,
+        process_scope: None,
+    };
+    let claude_cli = |command: &str| {
+        (command == "claude").then(|| environment::DetectedTool {
+            version: "2.1.309".into(),
+            path: "/opt/example/bin/claude".into(),
+        })
+    };
+    let not_installed = resolve_with(launch("claude-acp"), &claude_cli)
+        .err()
+        .unwrap();
+    assert!(not_installed.contains("not installed"), "{not_installed}");
+    fake_install(&data, "claude-acp");
+    fake_install(&data, "codex-acp");
+
+    let resolved = resolve_with(launch("claude-acp"), &claude_cli).unwrap();
+    assert!(resolved.claude_subscription);
+    assert!(
+        resolved.gateway.is_none(),
+        "no API route may reach the adapter"
+    );
+    assert!(resolved.secret.is_empty());
+    assert!(
+        resolved.subscription_cli.is_none(),
+        "Codex quota and login must not run"
+    );
+    assert!(
+        resolved
+            .env
+            .iter()
+            .all(|(name, _)| !name.starts_with("ANTHROPIC_")),
+        "{:?}",
+        resolved.env
+    );
+    if !cfg!(windows) {
+        assert_eq!(
+            resolved.env,
+            vec![(
+                "CLAUDE_CODE_EXECUTABLE".to_owned(),
+                "/opt/example/bin/claude".to_owned()
+            )]
+        );
+    }
+    // Neither session option nor restore metadata carries a route or key.
+    assert!(session_routing::metadata(resolved.gateway.as_ref())
+        .unwrap()
+        .is_none());
+    assert!(
+        session_routing::restored_metadata(resolved.gateway.as_ref())
+            .unwrap()
+            .is_none()
+    );
+
+    let codex = resolve_with(launch("codex-acp"), &claude_cli)
+        .err()
+        .unwrap();
+    assert!(codex.contains("only available for Claude Agent"), "{codex}");
+    let missing_cli = resolve_with(launch("claude-acp"), &|_| None).err().unwrap();
+    assert!(!missing_cli.is_empty());
+    let mut relative = launch("claude-acp");
+    relative.cwd = PathBuf::from("relative/workspace");
+    assert!(resolve_with(relative, &claude_cli)
+        .err()
+        .unwrap()
+        .contains("absolute"));
+}
+
+// The adapter's own sign-in report decides; an absent report never blocks.
+#[tokio::test(flavor = "current_thread", start_paused = true)]
+async fn claude_subscription_rejects_only_a_signed_out_cli() {
+    let status = |kind: &str| subscription::AuthStatus {
+        kind: kind.into(),
+        account: None,
+    };
+
+    let (tx, mut rx) = tokio::sync::watch::channel(Some(status("none")));
+    assert_eq!(
+        claude_subscription::ensure_signed_in(&mut rx).await,
+        Err(claude_subscription::SIGN_IN_REQUIRED.to_owned())
+    );
+    for kind in ["account", "api_key", "external", "gateway"] {
+        tx.send_replace(Some(status(kind)));
+        assert_eq!(
+            claude_subscription::ensure_signed_in(&mut rx).await,
+            Ok(()),
+            "{kind}"
+        );
+    }
+
+    // A report that arrives after initialization is still honored.
+    let (late_tx, mut late_rx) = tokio::sync::watch::channel(None::<subscription::AuthStatus>);
+    let waiter =
+        tokio::spawn(async move { claude_subscription::ensure_signed_in(&mut late_rx).await });
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    late_tx.send_replace(Some(status("none")));
+    assert!(waiter.await.unwrap().is_err());
+
+    // No report within the bound is "unknown": the connection continues and
+    // the session request surfaces any real authentication failure.
+    let (_silent_tx, mut silent_rx) = tokio::sync::watch::channel(None::<subscription::AuthStatus>);
+    assert_eq!(
+        claude_subscription::ensure_signed_in(&mut silent_rx).await,
+        Ok(())
+    );
 }

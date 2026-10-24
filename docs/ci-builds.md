@@ -669,6 +669,9 @@ Java Support（`dev.lithe.plugin.java-support`）是唯一随 Lithe.app 发行�
 - **资源路径**：组装结果在 `.build/<triple>/<configuration>/OfficialPlugins/dev.lithe.plugin.java-support/`，
   打包后位于 `Lithe.app/Contents/Resources/OfficialPlugins/` 下。包内 `language-server/` 是固定版本的
   JDT LS 及 Lombok、Java Debug、Java Test 扩展，`runtime/<arch>/` 是它运行所用的 JDK。
+  `icons/` 和 `templates/` 是新建项目窗口里 Java、Maven Archetype、Spring Boot 条目的图标和模板，
+  从源码目录直接复制，不下载、与架构无关；模板只读，新项目先写进用户所选目录下的临时目录，
+  完成后整体移动到位，不写 app bundle 或插件包，不影响代码签名和 Sparkle delta。
 - **组装入口**：`Plugins/mac/Official/JavaSupport/assemble-package.sh`，由
   `scripts/build-official-plugins.sh` 调用，`--arch arm64|x86_64|universal` 决定带哪些架构的 JDK
   和 Equinox 配置。应用本身不再包含 `Contents/Resources/LanguageServers`。
@@ -677,7 +680,8 @@ Java Support（`dev.lithe.plugin.java-support`）是唯一随 Lithe.app 发行�
 - **身份约束与校验来源**：JDT LS 的版本、下载地址和校验值来自 `third_party/jdtls/manifest.json`，
   JDK 来自 `third_party/jdk/manifest.json`；`plugin.json` 精确写出入口 jar 的文件名，升级 JDT LS
   后文件名不一致会在组装时失败。组装结果由 `LitheOfficialPluginVerifier` 校验：入口和各架构的
-  `bin/java` 存在，包内没有符号链接，Mach-O 只出现在清单声明的 `runtime/` 目录内。
+  `bin/java` 存在，包内没有符号链接，Mach-O 只出现在清单声明的 `runtime/` 目录内。Rust Core 测试
+  `project_generators` 用源码目录里的模板生成每个生成器的计划。
 - **运行时状态**：语言服务器的可写状态在 `<app-support>/Lithe/PluginState/<plugin-id>/`，
   JDT LS 的工作区索引和 Equinox 配置区仍在 `<cache>/Lithe/language-servers/`（`jdtls/`、`jdtls-configuration/`），
   由 `jdt` 宿主集成在启动时发现没有未卸载的插件声明它后删除。两者都是单次安装的

@@ -5,12 +5,13 @@ import LitheModuleAPI
 /// and menu styles own hover, selected tint and disabled opacity; template
 /// icons inherit their foreground, while brand assets preserve their pixels.
 struct WorkbenchContributionIcon: View {
-    enum Role { case toolWindow, action, header
+    enum Role { case toolWindow, action, header, listItem
         var size: CGFloat {
             switch self {
             case .toolWindow: ActivityBarMetrics.iconSize
             case .action: LitheTheme.Metrics.toolbarIconSize
             case .header: 13
+            case .listItem: 16
             }
         }
     }

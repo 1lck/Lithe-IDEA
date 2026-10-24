@@ -586,6 +586,8 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
     public let permissions: [String]
     public let activationEvents: [String]
     public let ui: DeclarativeUIContributions?
+    /// Entries the plugin adds to the New Project window.
+    public let projectGenerators: [DeclarativeProjectGenerator]
     public let normalizedManifest: Data
 
     public var id: PluginID { pluginManifest.id }
@@ -624,6 +626,9 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
         }
         buildSystems = decoded.buildSystems.map { $0.declaration() }
         vcsProviders = decoded.vcsProviders.map { DeclarativeVcsProvider(id: $0.id, displayName: $0.displayName) }
+        projectGenerators = decoded.projectGenerators.map {
+            DeclarativeProjectGenerator(id: $0.id, displayName: $0.displayName, icon: $0.icon)
+        }
         ui = decoded.ui
         settings = try decoded.settings.map { try $0.declaration() }
         settingActions = decoded.settingActions.map { $0.declaration() }
@@ -686,6 +691,15 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 contributions: vcsProviders.enumerated().flatMap { index, provider in
                     provider.contributions(pluginID: decoded.id, order: index)
                 }
+            ))
+        }
+        if !projectGenerators.isEmpty {
+            modules.append(PluginModuleDeclaration(
+                manifest: LanguageExtensionModuleManifests.projectGenerators(
+                    pluginID: decoded.id,
+                    displayName: decoded.displayName,
+                    enabledByDefault: enabledByDefault
+                )
             ))
         }
         if let ui = decoded.ui {
@@ -1082,6 +1096,15 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
         let ui: DeclarativeUIContributions?
         let settings: [Setting]
         let settingActions: [SettingAction]
+        let projectGenerators: [ProjectGenerator]
+
+        /// What plugin management lists. Fields and steps stay with Rust Core,
+        /// which evaluates the New Project form and plans every step.
+        struct ProjectGenerator: Decodable {
+            let id: String
+            let displayName: String
+            let icon: PluginUIIcon?
+        }
 
         init(from decoder: Decoder) throws {
             let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -1100,12 +1123,32 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
             vcsProviders = try values.decodeIfPresent([VcsProvider].self, forKey: .vcsProviders) ?? []
             settings = try values.decodeIfPresent([Setting].self, forKey: .settings) ?? []
             settingActions = try values.decodeIfPresent([SettingAction].self, forKey: .settingActions) ?? []
+            projectGenerators = try values.decodeIfPresent([ProjectGenerator].self, forKey: .projectGenerators) ?? []
         }
 
         private enum CodingKeys: String, CodingKey {
             case id, displayName, version, pluginAPIVersion, vendor, permissions, activationEvents
             case languages, languageServers, executionProviders, buildSystems, vcsProviders, ui, settings, settingActions
+            case projectGenerators
         }
+    }
+}
+
+/// One entry of the New Project window, as plugin management lists it.
+public struct DeclarativeProjectGenerator: Equatable, Sendable {
+    public let id: String
+    public let displayName: String
+    public let icon: PluginUIIcon?
+
+    public init(id: String, displayName: String, icon: PluginUIIcon?) {
+        self.id = id
+        self.displayName = displayName
+        self.icon = icon
+    }
+
+    /// Key of the generator's icon among the plugin icon resources.
+    public static func iconID(pluginID: String, generatorID: String) -> String {
+        "\(pluginID).project-generator.\(generatorID)"
     }
 }
 

@@ -150,6 +150,14 @@ final class ProjectRuntimeService: ObservableObject {
         await performRuntimeRefresh()
     }
 
+    /// JDKs for the New Project window, which can open without a project.
+    /// Leaves the open project's discovery state untouched.
+    func discoverJavaRuntimesForNewProject() async -> [JavaRuntimeCandidate] {
+        if hasDiscoveredRuntimes { return javaRuntimes }
+        let runtimeLocator = runtimeLocator
+        return await Task.detached(priority: .userInitiated) { runtimeLocator.discoverJavaRuntimes() }.value
+    }
+
     func refreshAvailableRuntimes() async {
         runtimeSessionID = UUID()
         runtimeLocator.invalidateProbeCache()
@@ -749,6 +757,16 @@ final class ProjectRuntimeService: ObservableObject {
         if next != settings {
             updateSettings(next)
         }
+    }
+
+    /// Records the JDK a new project was created with, before the project
+    /// opens, so its first language-server start and run use it. A project
+    /// that already has saved settings keeps them.
+    func presetJavaHome(_ path: String, for projectURL: URL) {
+        let key = Self.settingsKey(for: projectURL.standardizedFileURL)
+        guard store.data(forKey: key) == nil,
+              let data = try? JSONEncoder().encode(ProjectRuntimeSettings(javaHomePath: path)) else { return }
+        store.set(data, forKey: key)
     }
 
     private func loadSettings(for projectURL: URL) -> ProjectRuntimeSettings {

@@ -1,0 +1,83 @@
+{
+  "schemaVersion": 2,
+  "id": "dev.lithe.fixture.project-generator",
+  "displayName": "Project Generator Fixture",
+  "version": "1.0.0",
+  "pluginAPIVersion": 3,
+  "requires": {"projectGenerators": 1},
+  "vendor": {"id": "org.example", "displayName": "Example", "signatureRequirement": "publisherPackage"},
+  "permissions": ["project.generate"],
+  "activationEvents": [],
+  "projectGenerators": [
+    {
+      "id": "app",
+      "displayName": "App",
+      "section": "project",
+      "fields": [
+        {"id": "buildSystem", "type": "enum", "title": "Build system", "presentation": "segmented",
+         "options": [{"value": "none", "title": "None"}, {"value": "maven", "title": "Maven"}]},
+        {"id": "jdk", "type": "runtime", "title": "JDK", "runtime": "java", "minimumVersion": "17"},
+        {"id": "sample", "type": "boolean", "title": "Add sample code", "default": true},
+        {"id": "groupId", "type": "text", "title": "Group", "advanced": true, "default": "com.example",
+         "pattern": "[a-z][a-z0-9]*(\\.[a-z][a-z0-9]*)*",
+         "visibleWhen": {"field": "buildSystem", "equals": "maven"}}
+      ],
+      "requirements": [
+        {"languageID": "java"},
+        {"buildSystemID": "maven", "when": {"field": "buildSystem", "equals": "maven"}}
+      ],
+      "steps": [
+        {"kind": "files", "source": "project-generator-templates/app"},
+        {"kind": "files", "source": "project-generator-templates/main",
+         "target": "src/${field.groupId|package|path}",
+         "when": [{"field": "buildSystem", "equals": "maven"}, {"field": "sample", "equals": true}]}
+      ],
+      "openFiles": [
+        {"path": "src/${field.groupId|path}/Main.java",
+         "when": [{"field": "buildSystem", "equals": "maven"}, {"field": "sample", "equals": true}]}
+      ]
+    },
+    {
+      "id": "archetype",
+      "displayName": "Archetype",
+      "section": "generator",
+      "fields": [
+        {"id": "jdk", "type": "runtime", "title": "JDK", "runtime": "java"},
+        {"id": "artifactId", "type": "text", "title": "Artifact", "default": "${project.name|lower}",
+         "pattern": "[a-z0-9-]+"},
+        {"id": "version", "type": "text", "title": "Archetype version", "optional": true, "pattern": "[0-9.]+"}
+      ],
+      "steps": [
+        {"kind": "command", "command": "mvn", "mayUseNetwork": true,
+         "arguments": [
+           "-B", "archetype:generate",
+           "-DartifactId=${field.artifactId}",
+           {"value": "-DarchetypeVersion=${field.version}", "when": {"field": "version", "notEquals": ""}}
+         ],
+         "environment": {"JAVA_HOME": "${field.jdk}"},
+         "collect": "${field.artifactId}"}
+      ]
+    },
+    {
+      "id": "initializr",
+      "displayName": "Initializr",
+      "section": "generator",
+      "order": 5,
+      "fields": [
+        {"id": "serverUrl", "type": "text", "title": "Server URL", "default": "https://start.example.com",
+         "pattern": "https?://[a-z0-9.:-]+"},
+        {"id": "dependencies", "type": "multiSelect", "title": "Dependencies",
+         "options": [{"value": "web", "title": "Web"}, {"value": "jpa", "title": "JPA"}]},
+        {"id": "bootVersion", "type": "text", "title": "Boot", "optional": true, "pattern": "[0-9.]+"}
+      ],
+      "steps": [
+        {"kind": "archive", "url": "${field.serverUrl}/starter.zip",
+         "query": [
+           {"name": "name", "value": "${project.name}"},
+           {"name": "bootVersion", "value": "${field.bootVersion}", "omitEmpty": true},
+           {"name": "dependencies", "value": "${field.dependencies}", "omitEmpty": true}
+         ]}
+      ]
+    }
+  ]
+}

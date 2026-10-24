@@ -268,64 +268,44 @@ struct SettingsView: View {
     @ViewBuilder
     private func categoryButton(_ category: SettingsCategory, nested: Bool = false) -> some View {
         if filteredCategories.contains(category) {
-            let isSelected = viewState.selection == category && viewState.contributedPageID == nil
-            Button {
+            LitheSidebarRow(
+                Text(LocalizedStringKey(category.title)),
+                style: nested ? .nested : .page,
+                isSelected: viewState.selection == category && viewState.contributedPageID == nil,
+                isFocused: categoryListActive
+            ) {
                 isSearchFocused = false
                 viewState.contributedPageID = nil
                 viewState.selection = category
-            } label: {
-                HStack(spacing: 8) {
-                    if !nested {
-                        SettingsSidebarIcon(style: .page(category))
-                    }
-                    Text(LocalizedStringKey(category.title))
-                        .font(nested
-                              ? LitheTheme.uiFont(size: 12.5, weight: isSelected ? .medium : .regular)
-                              : LitheTheme.uiFont(size: 13, weight: .medium))
-                        .foregroundStyle(nested && !isSelected ? LitheTheme.secondaryText : LitheTheme.primaryText)
-                    Spacer(minLength: 0)
+            } leading: {
+                if !nested {
+                    SettingsSidebarIcon(style: .page(category))
                 }
-                .padding(.leading, nested ? 36 : 8)
-                .padding(.trailing, 8)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .frame(height: nested ? 26 : 30)
-                .litheSelectionRow(isSelected: isSelected, isFocused: categoryListActive, cornerRadius: 6)
-                .contentShape(Rectangle())
             }
-            .buttonStyle(.litheNoPress)
-            .padding(.top, nested ? 0 : 2)
         }
     }
 
     /// A page plugins registered, drawn like the host's own nested pages
     /// with the providing plugin named on the trailing edge.
     private func contributedPageButton(_ page: ContributedSettingsPage) -> some View {
-        let isSelected = viewState.contributedPageID == page.id
-        let providers = page.contributions.map(\.pluginName).joined(separator: ", ")
-        return Button {
+        LitheSidebarRow(
+            Text(verbatim: page.title),
+            style: .nested,
+            isSelected: viewState.contributedPageID == page.id,
+            isFocused: categoryListActive,
+            spacing: 6
+        ) {
             isSearchFocused = false
             viewState.contributedPageID = page.id
-        } label: {
-            HStack(spacing: 6) {
-                Text(verbatim: page.title)
-                    .font(LitheTheme.uiFont(size: 12.5, weight: isSelected ? .medium : .regular))
-                    .foregroundStyle(isSelected ? LitheTheme.primaryText : LitheTheme.secondaryText)
-                    .lineLimit(1)
-                Spacer(minLength: 4)
-                Text(verbatim: providers)
-                    .font(LitheTheme.uiFont(size: 10))
-                    .foregroundStyle(LitheTheme.tertiaryText)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-            .padding(.leading, 36)
-            .padding(.trailing, 8)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(height: 26)
-            .litheSelectionRow(isSelected: isSelected, isFocused: categoryListActive, cornerRadius: 6)
-            .contentShape(Rectangle())
+        } leading: {
+            EmptyView()
+        } trailing: {
+            Text(verbatim: page.contributions.map(\.pluginName).joined(separator: ", "))
+                .font(LitheTheme.uiFont(size: 10))
+                .foregroundStyle(LitheTheme.tertiaryText)
+                .lineLimit(1)
+                .truncationMode(.tail)
         }
-        .buttonStyle(.litheNoPress)
         .help(Text(LocalizedStringKey("Added by plugins")))
     }
 

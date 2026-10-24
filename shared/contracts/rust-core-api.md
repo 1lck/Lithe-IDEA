@@ -1100,6 +1100,11 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `vcs.detectRoots` | Find the VCS roots of a workspace from static markers, with registered providers, ambiguous directories, and applied mappings |
 | `vcs.ownerOf` | Assign workspace paths to the detected root that owns each |
 | `vcs.decodeReply` | Validate a VCS provider's reply and return the normalized result |
+| `project.generatorCatalog` | List the project generators of the given plugins, with the plugins that provide each requirement |
+| `project.generatorForm` | Evaluate a generator's form: derived defaults, visibility, problems, and active requirements |
+| `project.generationPlan` | Expand a filled-in form into the files, commands, and archive downloads that create a project |
+| `project.checkName` | Check that a name can be a new project's directory name |
+| `project.extractArchive` | Extract a downloaded project archive into the staging directory, refusing unsafe entries |
 | `plugins.marketplace.validateIndex` | Validate a marketplace index and report each plugin's availability for one platform |
 | `plugins.marketplace.resolveSource` | Resolve a user-entered marketplace source to the index URL to fetch |
 | `plugins.marketplace.installReview` | List a package's permissions and programs, and those not yet approved |
@@ -3343,6 +3348,22 @@ levels and 20,000 directories) and the marker names in its ancestors; it never
 reads file contents, writes anything, or starts a process. The other two
 commands touch no file. `shared/fixtures/vcs/model-v1.json` holds the
 detection cases, decoded snapshots, and reply validation cases.
+### Project generators
+
+The `project.*` commands back the New Project window. Payloads, results, and
+problem codes are specified in the plugin contract's
+[Project generators](plugins/v1/README.md#project-generators) section, and
+`shared/contracts/plugins/v1/fixtures/project-plans.json` holds the golden
+answers. Results use the `plugins.declarative.*` envelope: `catalog`, `form`,
+`plan`, `name`, and `extracted`. Commands that take a manifest revalidate it
+and answer `plugin.project.unavailable` for an undeclared generator.
+
+`project.generationPlan` reads template files below `packagePath` (bounded,
+no symbolic links). `project.extractArchive` is the only command that writes:
+it extracts into an existing staging directory the host created and never
+replaces a file. Neither starts a process or downloads anything; the host
+runs command steps, downloads archives, and moves the finished project into
+place.
 
 ### Git patch discovery and rebase amendment preconditions
 
