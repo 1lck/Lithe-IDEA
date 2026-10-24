@@ -228,5 +228,15 @@ extension AgentSetupDiagnosticsTests {
         #expect(!AgentSetupDiagnostics.canInstallAdapter(blockedChecks))
         #expect(AgentSetupDiagnostics.canInstallAdapter(checks))
         #expect(AgentSetupDiagnostics.summary(of: []) == nil)
+
+        // A subscription passes without an API key and says which account pays.
+        let english = Locale(identifier: "en")
+        for (authentication, phrase) in [(AgentAuthentication.claudeSubscription, "claude.ai"),
+                                         (.codexSubscription, "ChatGPT"), (.apiKey, "API key")] {
+            let provider = AgentSetupDiagnostics.preflight(for: blocked, environment: oldNode, hasProvider: true,
+                                                           authentication: authentication).first { $0.id == "provider" }
+            #expect(provider?.status == .pass)
+            #expect(provider?.message.contains(phrase) == true, "\(authentication) in \(english.identifier)")
+        }
     }
 }

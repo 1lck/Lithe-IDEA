@@ -10,13 +10,17 @@ struct AgentLaunchConfigurationResolver {
     let credentialResolver: any AIProviderCredentialResolver
 
     func resolve(agentID: String, workspaceURL: URL, dataDirectory: URL) throws -> AgentLaunchConfiguration {
-        if settings.agentConfigurations[agentID]?.authentication == .codexSubscription {
-            guard agentID == "codex-acp" else { throw AgentConversationError.missingProvider }
+        if let authentication = settings.agentConfigurations[agentID]?.authentication, authentication.isSubscription {
+            // A subscription belongs to one adapter; never hand it to another Agent.
+            guard AgentAuthentication.subscription(for: agentID) == authentication else {
+                throw AgentConversationError.missingProvider
+            }
             return AgentLaunchConfiguration(agentID: agentID, command: "", arguments: [],
                 workspaceURL: workspaceURL, dataDirectory: dataDirectory,
                 providerProtocol: "", providerEndpoint: "", apiKey: "", providerName: "", model: "",
-                allowsInsecureHTTP: false, authentication: .codexSubscription,
-                observesModelCalls: settings.agentModelCallStatistics)
+                allowsInsecureHTTP: false, authentication: authentication,
+                // Only the Codex account route has an observable inference endpoint.
+                observesModelCalls: authentication == .codexSubscription && settings.agentModelCallStatistics)
         }
         guard var provider = settings.agentProvider(for: agentID) else {
             throw AgentConversationError.missingProvider

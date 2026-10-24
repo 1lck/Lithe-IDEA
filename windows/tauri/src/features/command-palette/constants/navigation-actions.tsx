@@ -1,4 +1,6 @@
 import {
+  ArrowClockwiseIcon,
+  ArrowCounterClockwiseIcon,
   FileTextIcon as FileText,
   FolderOpenIcon as FolderOpen,
   GitBranchIcon as GitBranch,
@@ -6,6 +8,10 @@ import {
   ListBulletsIcon as ListBullets,
   MagnifyingGlassIcon as Search,
 } from "@/ui/icons";
+import {
+  redoActiveEditorCursor,
+  undoActiveEditorCursor,
+} from "@/features/keymaps/commands/editor-command-actions";
 import type { SidebarView } from "@/features/layout/utils/sidebar-pane-utils";
 import type { SettingsTab } from "@/features/window/stores/ui-state/types/ui-state.types";
 import type { Action } from "../types/action.types";
@@ -31,6 +37,30 @@ export const createNavigationActions = (params: NavigationActionsParams): Action
   } = params;
 
   return [
+    {
+      id: "cursor-undo",
+      label: "Edit: Cursor Undo",
+      description: "Restore the previous cursor and selection without changing text",
+      icon: <ArrowCounterClockwiseIcon />,
+      category: "Edit",
+      commandId: "editor.cursorUndo",
+      action: () => {
+        onClose();
+        undoActiveEditorCursor();
+      },
+    },
+    {
+      id: "cursor-redo",
+      label: "Edit: Cursor Redo",
+      description: "Restore the next cursor and selection without changing text",
+      icon: <ArrowClockwiseIcon />,
+      category: "Edit",
+      commandId: "editor.cursorRedo",
+      action: () => {
+        onClose();
+        redoActiveEditorCursor();
+      },
+    },
     {
       id: "view-show-files",
       label: "View: Show Files",

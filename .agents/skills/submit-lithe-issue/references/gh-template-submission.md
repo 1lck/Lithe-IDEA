@@ -1,7 +1,8 @@
 # gh 模板提交规则
 
-此文件是 `submit-lithe-issue` 的强制提交规则。必须同时满足“正文严格符合当前
-模板”和“通过真实模板入口创建”，仅把正文写得像模板不算通过。
+此文件是 `submit-lithe-issue` 的强制提交规则。无论走哪条路径，提交的正文都必须
+严格符合当前模板：字段标题、顺序、下拉选项和检查项与线上表单一致，必填字段
+真实填写。gh 能原生选择模板时走路径一，不能时走路径二。
 
 ## 读取线上模板与 gh 能力
 
@@ -50,47 +51,66 @@ gh issue create --repo 1lck/Lithe-IDEA \
 标题前缀来自选定模板，功能建议不能照用 `[Bug]`。需要标签时仅使用已核实的
 类型、平台、模块和优先级标签；模板来源标记必须由真实模板流程产生。
 
-没有 TTY、编辑器或可操作的模板交互时，交付草稿及具体限制。不能为了无交互
-执行而退回自由正文命令，也不能把 `yes`、空答案或脚本伪装成用户完成检查。
+没有 TTY、编辑器或可操作的模板交互时，按路径二的正文格式生成完整正文后用
+`--body-file` 提交；不能退回不符合模板的自由正文，也不能把 `yes`、空答案或脚本
+伪装成用户完成检查。
 
-## 路径二：gh 不支持仓库当前表单
+## 路径二：gh 不支持仓库当前表单，按表单字段提交正文
 
-本 Skill 创建时实测（2026-10-17，`gh 2.102.0`）：
+GitHub GraphQL `repository.issueTemplates` 只返回 Markdown 模板（`.md`），不返回
+YAML Issue Forms（`.yml`/`.yaml`）。`gh` 的 `--template` 依赖这个接口，所以仓库只有
+YAML 表单时，`gh` 列不出任何模板，反复重试 `--template` 也没有用。这是 gh 的已知
+限制（[cli/cli#5865](https://github.com/cli/cli/issues/5865)，自 2022-06 未解决；
+[cli/cli#11681](https://github.com/cli/cli/issues/11681) 维护者确认只支持 Markdown
+模板），不是仓库配置错误。2026-10-24 对比 facebook/react、rust-lang/rust、golang/go
+时规律一致：同目录下的 `.md` 被返回，`.yml`/`.yaml` 全部缺席。
 
-- 仓库使用 `bug_report.yml` 与 `feature_request.yml` 两种 YAML Issue Forms，
-  `blank_issues_enabled: false`。
-- GitHub GraphQL `repository.issueTemplates` 返回空列表，当前 `gh` 无法从中
-  选择这两种表单。不能通过反复重试 `--template` 解决。
-- `gh issue create` 明确禁止 `--template` 与 `--body` 或 `--body-file` 同时使用。
-  删掉 `--template` 再传完整正文会绕过原生模板流程，即使章节看起来一致也禁止。
+仓库的 Issue 门禁（见 `.agents/notes/implemented/process/2026-10-01-issue-form-enforcement.md`）
+接受两种表单证明：`issue-form:*` 标签，或正文包含某个表单全部必填字段的
+`### 字段名`。按表单逐字段生成正文，维护者拿到的信息与网页表单相同，Bot 也会
+按正文里的优先级、平台、模块和标题前缀自动打分派标签。因此原生模板不可用时，
+用 `gh issue create --body-file` 提交按表单生成的正文。
 
-这些是当时的能力快照，后续任务必须重新检测，不能把它当成永久限制。
+### 正文格式
 
-在不支持时，完成查重、追问、采集、脱敏和逐字段草稿后，交付选定模板的
-GitHub 官方表单入口，由用户在该表单中填写并完成提交：
+完全模仿 GitHub 渲染表单提交结果的格式，按选定模板 `body` 中输入字段的顺序生成：
 
-- [Bug report / 问题报告](https://github.com/1lck/Lithe-IDEA/issues/new?template=bug_report.yml)
-- [Feature request / 功能建议](https://github.com/1lck/Lithe-IDEA/issues/new?template=feature_request.yml)
+- 每个 `input`、`textarea`、`dropdown`、`checkboxes` 字段对应一段
+  `### <attributes.label>`，标题逐字复制线上模板，包括中英双语和斜杠、空格。
+  `markdown` 类型的静态说明不写入正文。
+- `dropdown` 只写一个模板 `options` 中逐字存在的选项；多选下拉用逗号分隔。
+- `checkboxes` 逐条保留原文，写成 `- [x] <label>` 或 `- [ ] <label>`，只勾选
+  真实完成的事项；必选项未完成时不能提交。
+- `textarea` 带 `render` 时把内容放进对应语言的代码块。
+- 必填字段必须有实质内容；可选字段缺失时按 SKILL 第 5 节写明原因，不删除标题。
+- 标题使用模板 `title` 的前缀，例如 `[Bug] ` 或 `[Feature] `。
 
-以实际仓库 `html_url` 和模板文件名生成链接，不依赖上面的固定示例。
-直接给出链接即可，不要求启用浏览器自动化。必须明确“草稿已完成，尚未提交；
-当前 gh 原生模板接口没有暴露此 YAML 表单，继续提交会绕过模板”。
+正文先写到工作区之外或 `.artifacts/` 下被 git 忽略的临时文件，提交前做第二轮
+脱敏复查，再逐项对照模板 YAML 检查字段标题与选项：
 
-`gh issue create --web` 只代表打开网页；不能把它说成已通过模板校验或已提交。
-将来 CLI 能原生处理选定表单时，再走路径一。
+```bash
+gh issue create --repo 1lck/Lithe-IDEA \
+  --title '[Bug] 触发条件下的具体异常' \
+  --body-file .artifacts/issue-drafts/<草稿文件>.md
+```
 
-## 任何情况下都禁止的绕过方式
+以上命令是占位示例，标题和文件路径替换成本次实际内容。不要用 `--label` 添加
+`issue-form:*`；`P*`、`platform:*`、`area:*`、`bug`、`enhancement` 由 Bot 按正文
+自动维护，提交后回读确认，Bot 未处理且当前账号有权限时再按下文补普通标签。
 
-- 不选模板，直接执行 `gh issue create --title ... --body ...` 或 `--body-file ...`。
-- 把手工拼接的模板正文、转换后的 Markdown 或 stdin 当作已完成的表单提交。
-  Markdown 草稿可供审阅和逐字段填写，不能用来替代模板入口。
-- 使用 `gh api` POST/GraphQL mutation、`curl`、SDK 或其他客户端直接创建 Issue。
-- 手工附加 `issue-form:bug`、`issue-form:feature` 或其他来源标记，以绕过机器人
-  门禁。拥有管理员权限、机器人未关闭 Issue、模板标签存在，都不能证明合规。
-- 把表单内容放进网页 `body=` 参数、丢失 `template=`、选择空白 Issue，或使用
-  其他模板来逃避必填、选项和检查项校验。
-- 修改模板、仓库配置或门禁；省略字段、伪造日志/附件、用占位符填必填项，或
-  勾选未执行的检查项。
+### 何时改用网页表单
+
+以下情况交付脱敏正文和选定模板的官方表单链接，由用户在网页提交，并明确
+“尚未提交”：
+
+- 当前 `gh` 没有登录态、没有创建 Issue 权限或网络受限。
+- 用户明确要求走网页表单，或需要上传 gh 无法处理的附件。
+
+链接以仓库 `html_url` 和模板文件名生成，例如
+`https://github.com/1lck/Lithe-IDEA/issues/new?template=bug_report.yml`。
+`gh issue create --web` 只代表打开网页，不能说成已提交。
+
+将来 `gh` 能原生选择 YAML 表单时，优先走路径一。
 
 ## 成功、部分失败与权限
 
