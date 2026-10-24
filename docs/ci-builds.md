@@ -33,7 +33,9 @@ normally GitHub's test merge commit. Check **macOS CI gate** or **Windows CI
 gate** for the combined test result. The macOS **Swift tests** job builds the
 Swift tests once and runs the main and database suites selected by the
 classifier, so **macOS CI gate** also owns the Swift database result;
-**Database CI gate** checks the Linux Rust database lane. **macOS Plugin CI**
+**Database CI gate** checks the Linux Rust database lane and **Remote Workspace
+CI gate** the Linux remote workspace lane (`scripts/verify-remote-workspace.sh`),
+which draft pull requests keep because it uses no macOS runner. **macOS Plugin CI**
 stays separate: it only reserves a macOS runner when the classifier selects the
 plugin lane, and otherwise **Plugin CI gate** passes on Linux in seconds.
 A failed architecture still fails the macOS gate; `fail-fast: false` lets the

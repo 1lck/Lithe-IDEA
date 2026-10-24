@@ -1,0 +1,26 @@
+{
+  "id": "remote-development-workspace",
+  "area": "工作区",
+  "group": "远程开发",
+  "capability": "在 SSH 主机、容器和远程 Mac 上打开并开发项目",
+  "macos": {
+    "evidence": [
+      "rust/lithe-remote-protocol",
+      "rust/lithe-remote-server",
+      "rust/lithe-remote-client",
+      "shared/contracts/remote-workspace-protocol-v1.md",
+      ".agents/notes/proposed/architecture/2026-10-24-remote-development-workspace-host.md"
+    ],
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/wsl/controllers/wsl-workspace.ts"
+    ],
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable"
+  },
+  "owner": "Workspace",
+  "verification": "接入产品后，分别连接一台 Linux SSH 主机、一个 Docker 容器和一台远程 Mac：打开远程文件夹、编辑保存、在终端运行命令、构建运行项目，断开连接后确认远端没有残留进程。当前只有 Rust 核心（协议、远端服务、传输链），由 scripts/verify-remote-workspace.sh 验证，尚无产品入口。"
+}
