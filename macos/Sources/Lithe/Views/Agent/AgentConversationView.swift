@@ -621,18 +621,15 @@ private struct AgentConnectionView: View {
     }
 
     private var searchBar: some View {
-        HStack(spacing: 6) {
-            LitheIDEAIcon(resourcePath: "expui/general/search.svg", size: LitheTheme.Metrics.toolbarIconSize, preservesOriginalColors: true)
-            LitheSearchTextField("Search conversation", text: $searchText)
+        LitheSearchField("Search conversation", text: $searchText) {
             Button { showsSearch = false; searchText = "" } label: {
                 LitheIDEAIcon(resourcePath: "expui/general/close.svg", size: LitheTheme.Metrics.toolbarIconSize, preservesOriginalColors: true)
             }
-                .litheToolbarIconButton()
-                .help("Close search")
+            .litheToolbarIconButton()
+            .help("Close search")
         }
         .padding(.leading, 12)
         .padding(.trailing, 6)
-        .frame(height: 34)
         .litheWorkbenchSurface(AgentPanelStyle.context)
     }
 

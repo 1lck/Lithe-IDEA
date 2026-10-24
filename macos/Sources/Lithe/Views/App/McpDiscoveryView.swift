@@ -22,7 +22,7 @@ struct McpDiscoveryView: View {
                     .foregroundStyle(LitheTheme.tertiaryText)
             }
             HStack(spacing: 8) {
-                LitheSettingsSearchField("Search MCP servers — GitHub, browsers, documentation…", text: $query)
+                LitheSearchField("Search MCP servers — GitHub, browsers, documentation…", text: $query)
                     .onSubmit { search() }
                     .onChange(of: query) { value in
                         if value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { search() }
@@ -183,8 +183,7 @@ struct McpJsonImportView: View {
                 Spacer()
             }
             Divider()
-            TextEditor(text: $json).font(LitheTheme.uiFont(size: 12, design: .monospaced))
-                .litheSettingsTextEditor(height: 240)
+            LitheTextEditor(text: $json, height: 240)
                 .accessibilityLabel(Text("MCP JSON"))
                 .onChange(of: json) { _ in drafts = []; error = nil }
             if let error { Text(error).foregroundStyle(LitheTheme.error).font(LitheTheme.smallFont) }

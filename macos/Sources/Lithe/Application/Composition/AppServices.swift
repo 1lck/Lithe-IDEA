@@ -36,6 +36,7 @@ final class AppServices {
     let pluginUIIconResources: [String: PluginUIIconResources]
     /// Plugin pages shown in host tool windows (`ui` 2).
     let pluginWebPages: PluginWebPages
+    let validatePluginNativeUI: ((PluginNativeUI, ToolingJSONValue) throws -> [PluginNativeUI.Node])?
     /// Unified language-pack composition. The derived catalog and focused
     /// registries remain exposed below for source compatibility with existing
     /// feature models while new composition should use this value.
@@ -96,6 +97,7 @@ final class AppServices {
         pluginCatalog: ValidatedPluginCatalog,
         pluginUIIconResources: [String: PluginUIIconResources] = [:],
         pluginWebPages: PluginWebPages? = nil,
+        validatePluginNativeUI: ((PluginNativeUI, ToolingJSONValue) throws -> [PluginNativeUI.Node])? = nil,
         languageProviderCatalogSource: any LanguageProviderCatalogSource,
         workspaceLanguageServerPreferences: any WorkspaceLanguageServerPreferencesStoring,
         languageProviderCatalogSnapshot: LanguageProviderCatalogSnapshot? = nil,
@@ -146,6 +148,7 @@ final class AppServices {
         self.pluginCatalog = pluginCatalog
         self.pluginUIIconResources = pluginUIIconResources
         self.pluginWebPages = pluginWebPages ?? PluginWebPages()
+        self.validatePluginNativeUI = validatePluginNativeUI
         self.languageProviderCatalogSource = languageProviderCatalogSource
         self.workspaceLanguageServerPreferences = workspaceLanguageServerPreferences
         let resolvedCatalogSnapshot = languageProviderCatalogSnapshot

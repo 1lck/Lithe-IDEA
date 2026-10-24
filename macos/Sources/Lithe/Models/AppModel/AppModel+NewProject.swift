@@ -37,7 +37,7 @@ extension AppModel {
 
     /// Opens plugin management on the Marketplace tab, searching for `query`.
     func showPluginMarketplace(searching query: String) {
-        UserDefaults.standard.set(PluginManagementView.Tab.marketplace.rawValue, forKey: "lithe.settings.pluginTab")
+        services.store.set(PluginManagementView.Tab.marketplace.rawValue, forKey: "lithe.settings.pluginTab")
         pluginMarketplaceFeature.requestedSearch = query
         showSettings(category: .plugins)
     }

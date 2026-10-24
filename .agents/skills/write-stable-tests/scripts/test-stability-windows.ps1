@@ -77,8 +77,7 @@ function Invoke-TimedRustTests {
             foreach ($prefix in @(
                 "tests::git_history_rewrite::",
                 "tests::git_remote_checkout::",
-                "tests::git_workspace_commit::git_workspace_commit_push_checks_submodule_publication_before_updating_the_remote",
-                "tests::git_workspace_commit::git_workspace_commit_push_confirms_each_repository_separately",
+                "tests::git_workspace_commit::",
                 "tests::git::git_write_squashes_",
                 "tests::git::git_write_deletes_a_local_commit_",
                 "tests::git::git_write_edits_a_local_commit_message_",
@@ -93,6 +92,9 @@ function Invoke-TimedRustTests {
             )) {
                 $arguments += @("--test-budget", "${prefix}=30000")
             }
+            # Two repositories plus a real submodule clone exceeded the 15s
+            # process budget (16.1s) in Windows run 39933498873.
+            $arguments += @("--test-budget", "watch_context_resolves_a_submodule_git_directory_outside_its_workspace=30000")
             # This six-commit conflict/skip/squash case reached the 30s cutoff
             # on a hosted Windows runner without an assertion failure.
             $arguments += @("--test-budget", "tests::git_history_rewrite::native_rebase_skip_omits_conflicted_message_from_later_squash=45000")
@@ -112,15 +114,21 @@ function Invoke-TimedRustTests {
     if ($LASTEXITCODE -eq 0) { return }
     if (Test-Path -LiteralPath $Report) {
         $suiteTimedOut = $false
+        $testsRan = $false
         try {
             $timingReport = Get-Content -LiteralPath $Report -Raw | ConvertFrom-Json
             $suiteTimedOut = $null -ne $timingReport.suite -and $timingReport.suite.timedOut -eq $true
+            $testsRan = @($timingReport.tests | Where-Object { $_.name -ne "Cargo test compilation" }).Count -gt 0
         } catch {
             Write-Warning "Could not inspect the Rust timing report after failure: $($_.Exception.Message)"
         }
         if ($suiteTimedOut) {
             throw "Rust test suite exceeded the shared $SuiteTimeoutSeconds second deadline."
         }
+        # A test assertion or budget failure is not evidence of a corrupt build.
+        # Keep its report and cache; a clean rebuild only repeats the test and
+        # can consume the entire CI step before reporting the original failure.
+        if ($testsRan) { throw "Rust tests failed; preserving test results without a clean rebuild." }
     }
     if ($env:LITHE_CARGO_BUILD_CACHE_RESTORED -ne "true") {
         throw "Rust timing tests failed."

@@ -466,16 +466,13 @@ private struct CustomAgentDetailView: View {
                 Text("Agent executable")
                     .font(LitheTheme.smallFont)
                     .foregroundStyle(LitheTheme.secondaryText)
-                TextField("Agent executable", text: $settings.agentCommand)
-                    .litheSettingsTextField()
+                LitheTextField("Agent executable", text: $settings.agentCommand)
             }
             VStack(alignment: .leading, spacing: 4) {
                 Text("Arguments (one per line)")
                     .font(LitheTheme.smallFont)
                     .foregroundStyle(LitheTheme.secondaryText)
-                TextEditor(text: $settings.agentArguments)
-                    .font(LitheTheme.uiFont(size: 12, design: .monospaced))
-                    .litheSettingsTextEditor(height: 52)
+                LitheTextEditor(text: $settings.agentArguments, height: 52)
             }
         }
         AgentProviderConfigurationView(

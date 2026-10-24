@@ -53,24 +53,7 @@ struct BranchSwitcherPopover: View {
 
     private var searchBar: some View {
         HStack(spacing: 6) {
-            HStack(spacing: 2) {
-                LitheIDEAIcon(resourcePath: "expui/general/search.svg", size: LitheDropdownMetrics.iconSize,
-                              preservesOriginalColors: true)
-                LitheSearchTextField("Search for branches and actions", text: $searchQuery)
-                    .focused($searchFocused)
-                if !searchQuery.isEmpty {
-                    Button { searchQuery = "" } label: {
-                        LitheIDEAIcon(resourcePath: "expui/general/closeSmall.svg", size: LitheDropdownMetrics.iconSize,
-                                      preservesOriginalColors: true)
-                    }
-                    .buttonStyle(LitheIconButtonStyle(size: 20, cornerRadius: 4))
-                    .padding(.leading, 1)
-                    .accessibilityLabel("Clear search")
-                }
-            }
-            // GitBranchesPopupBase passes Popup.BACKGROUND to the same search
-            // wrapper used by Git Log; opening the tree doesn't focus its editor.
-            .litheSearchField(isFocused: searchFocused, background: LitheTheme.popupBackground)
+            LitheSearchField("Search for branches and actions", text: $searchQuery, focus: $searchFocused, background: LitheTheme.popupBackground)
             .accessibilityIdentifier("branch-popup-search")
 
             Button(action: onManageBranches) {

@@ -3748,6 +3748,30 @@
 "Print…" = "打印…";
 "Export as PDF…" = "导出为 PDF…";
 
+"One entry per line. Directory names hide matching folders; file entries support * and ?." = "每行输入一项。目录名用于隐藏匹配的文件夹；文件条目支持 * 和 ?。";
+
+"Directories" = "目录";
+
+"File patterns" = "文件模式";
+
+"This sends the selected local branch to its configured remote." = "这会将选中的本地分支推送到已配置的远程仓库。";
+
+"Push '%@'?" = "推送“%@”？";
+
+"Tracking %@" = "跟踪 %@";
+
+"Publish %@ (Core selects default remote)" = "发布 %@（自动选择默认远程仓库）";
+
+"https://github.com/owner/repository" = "https://github.com/owner/repository";
+
+"No items" = "暂无项目";
+
+"This panel needs exactly one matching plugin instance in the workspace." = "此面板要求工作区中恰好有一个匹配的插件实例。";
+
+"The field value is invalid or exceeds 1024 UTF-8 bytes." = "字段值无效或超过 1024 个 UTF-8 字节。";
+
+"The field value does not match its declaration or exceeds its size limit." = "字段值不符合声明或超过大小限制。";
+
 /* 插件 VCS Provider：安装审核、工具窗口、项目树和差异比较。 */
 "%@ provider (inside the plugin)" = "%@ Provider（插件内置）";
 "%@ provider (installed on this Mac)" = "%@ Provider（使用本机已安装的程序）";

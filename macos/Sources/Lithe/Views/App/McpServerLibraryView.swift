@@ -110,7 +110,7 @@ struct McpServerLibraryView: View {
                     .lithePointer()
             }
             if feature.rows.count > 5 || !query.isEmpty {
-                LitheSettingsSearchField("Search MCP servers", text: $query)
+                LitheSearchField("Search MCP servers", text: $query)
             }
             VStack(alignment: .leading, spacing: 8) {
                 if !feature.isAvailable {
@@ -394,8 +394,7 @@ struct McpServerEditorView: View {
     private var serverSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             McpSettingsRow("Name", info: "Use letters, digits, dots, dashes or underscores. The name must start with a letter or digit.") {
-                TextField("Name", text: $draft.name)
-                    .litheSettingsTextField()
+                LitheTextField("Name", text: $draft.name)
             }
             McpSettingsRow("Transport") {
                 LitheSettingsSegmentedControl(
@@ -407,9 +406,9 @@ struct McpServerEditorView: View {
             }
             if draft.transport == .stdio {
                 McpSettingsRow("Command", info: "Enter the executable and arguments as in a terminal. Quote paths with spaces. Lithe passes exact arguments without running a shell; pipes and redirects are not evaluated.") {
-                    TextField("npx -y @playwright/mcp", text: $commandLine, axis: .vertical)
+                    LitheTextField("npx -y @playwright/mcp", text: $commandLine, axis: .vertical)
                         .font(LitheTheme.uiFont(size: 11.5, design: .monospaced))
-                        .lineLimit(1...3).litheSettingsTextField()
+                        .lineLimit(1...3)
                         .onChange(of: commandLine) { line in
                             do { try feature.tools.updateCommandLine(line, draft: &draft); commandError = nil }
                             catch { commandError = String(localized: "Check command-line quotes before saving.") }
@@ -417,8 +416,7 @@ struct McpServerEditorView: View {
                 }
             } else {
                 McpSettingsRow("URL") {
-                    TextField("https://example.com/mcp", text: $draft.url)
-                        .litheSettingsTextField()
+                    LitheTextField("https://example.com/mcp", text: $draft.url)
                 }
             }
         }
@@ -542,11 +540,9 @@ private struct McpKeyValueEditor: View {
         VStack(alignment: .leading, spacing: 6) {
             ForEach(entries.indices, id: \.self) { index in
                 HStack(spacing: 6) {
-                    TextField(keyPlaceholder, text: $entries[index].key)
-                        .litheSettingsTextField()
+                    LitheTextField(keyPlaceholder, text: $entries[index].key)
                         .frame(maxWidth: .infinity)
-                    SecureField(valuePlaceholder, text: $entries[index].value)
-                        .litheSettingsTextField()
+                    LitheTextField(valuePlaceholder, text: $entries[index].value, secure: true)
                         .frame(maxWidth: .infinity)
                     Button {
                         entries.remove(at: index)

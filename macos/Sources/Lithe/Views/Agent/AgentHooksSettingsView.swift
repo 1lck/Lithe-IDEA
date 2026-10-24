@@ -156,13 +156,11 @@ private struct AgentHookEditor: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: Layout.rowSpacing) {
                     row("Name", info: "Use 1–80 letters, digits, hyphens or underscores. Names must be unique.") {
-                        TextField(localized("For example, notify"), text: field(\.name, fallback: ""))
-                            .litheSettingsTextField().focused($nameFocused)
+                        LitheTextField(key("For example, notify"), text: field(\.name, fallback: ""), focus: $nameFocused)
                             .accessibilityLabel(Text(key("Hook name"))).accessibilityIdentifier("hook-editor.name")
                     }
                     row("Description", info: "Optional description, up to 200 characters. Only the Hook library stores it.", alignment: .top) {
-                        TextEditor(text: field(\.description, fallback: ""))
-                            .litheSettingsTextEditor(height: 84, focus: $descriptionFocused, font: LitheTheme.settingsFont)
+                        LitheTextEditor(text: field(\.description, fallback: ""), height: 84, focus: $descriptionFocused, font: LitheTheme.settingsFont)
                             .overlay(alignment: .topLeading) {
                                 if feature.draft?.description.isEmpty == true, !descriptionFocused {
                                     Text(key("For example, notify me when a turn ends"))
@@ -183,12 +181,11 @@ private struct AgentHookEditor: View {
                         }
                     }
                     row("Command", info: "The Agent executes this command using its own shell and passes event JSON on standard input. Commands run with your user permissions; add only commands you trust.", alignment: .top) {
-                        TextEditor(text: field(\.command, fallback: ""))
-                            .litheSettingsTextEditor(height: 46)
+                        LitheTextEditor(text: field(\.command, fallback: ""), height: 46)
                             .accessibilityLabel(Text(key("Hook command"))).accessibilityIdentifier("hook-editor.command")
                     }
                     row("Timeout (seconds)", info: "Leave empty to use the Agent default, or enter an integer from 1 to 86400.") {
-                        TextField(localized("Agent default"), text: $timeout).litheSettingsTextField()
+                        LitheTextField(key("Agent default"), text: $timeout)
                             .frame(width: 200).accessibilityLabel(Text(key("Timeout (seconds)")))
                             .accessibilityIdentifier("hook-editor.timeout")
                             .onChange(of: timeout) { value in feature.draft?.timeoutSeconds = value.isEmpty ? nil : Int(value) }

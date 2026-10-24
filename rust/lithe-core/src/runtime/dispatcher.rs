@@ -183,6 +183,11 @@ fn execute(request: &str) -> CoreResponse {
             Ok(data) => CoreResponse::success(id, data),
             Err(error) => CoreResponse::failure(id, error),
         },
+        CoreCommand::PluginsNativeUIValidateData => plugin_response(
+            id,
+            parsed.payload,
+            crate::plugins::native_ui::validate_data_command,
+        ),
         CoreCommand::PluginsDeclarativeValidate => plugin_response(
             id,
             parsed.payload,

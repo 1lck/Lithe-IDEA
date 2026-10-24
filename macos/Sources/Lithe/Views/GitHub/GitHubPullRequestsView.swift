@@ -61,7 +61,6 @@ private enum GitHubMergeChoice: String, Identifiable {
 
 struct GitHubPullRequestsSidebarView: View {
     @EnvironmentObject private var model: AppModel
-    @State private var requestListActive = false
     @State private var searchQuery = ""
 
     var body: some View {
@@ -218,7 +217,6 @@ struct GitHubPullRequestsSidebarView: View {
             filters
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
             pullRequestList
-                .background(LitheToolWindowActivityTracker(isActive: $requestListActive))
         }
     }
 
@@ -331,20 +329,19 @@ struct GitHubPullRequestsSidebarView: View {
                     : "Try another title, author, number, or label."
             )
         } else {
-            ScrollView {
-                LazyVStack(spacing: 2) {
-                    ForEach(filteredPullRequests) { request in
-                        GitHubPullRequestRow(
-                            request: request,
-                            isSelected: model.githubFeature.selectedPullRequest?.number == request.number,
-                            isFocused: requestListActive
-                        ) {
-                            model.githubFeature.clearOperationStatus()
-                            Task { await model.githubFeature.selectPullRequest(number: request.number) }
-                        }
-                    }
-                }
-                .padding(5)
+            LitheTreeList(
+                filteredPullRequests, id: \.number,
+                selection: Binding(
+                    get: { model.githubFeature.selectedPullRequest?.number },
+                    set: { number in
+                        guard let number else { return }
+                        model.githubFeature.clearOperationStatus()
+                        Task { await model.githubFeature.selectPullRequest(number: number) }
+                    }), multiline: true
+            ) { request in
+                GitHubPullRequestRow(
+                    request: request,
+                    isSelected: model.githubFeature.selectedPullRequest?.number == request.number)
             }
             .overlay(alignment: .top) {
                 if isContentLoading {
@@ -821,11 +818,8 @@ struct GitHubFeatureUnavailableView: View {
 private struct GitHubPullRequestRow: View {
     let request: GitHubPullRequest
     let isSelected: Bool
-    let isFocused: Bool
-    let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
             HStack(alignment: .top, spacing: 8) {
                 GitHubStateMark(request: request, compact: true)
                     .padding(.top, 2)
@@ -858,14 +852,10 @@ private struct GitHubPullRequestRow: View {
                     }
                 }
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 8)
+        .padding(.horizontal, LitheTheme.Tree.iconTextGap)
+        .padding(.vertical, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
-        }
-        .buttonStyle(.litheNoPress)
-        .lithePointer()
-        .litheSelectionRow(isSelected: isSelected, isFocused: isFocused)
     }
 }
 

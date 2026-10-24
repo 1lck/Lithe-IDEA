@@ -2139,6 +2139,23 @@
 /* Embedded HTML preview browser: context menu, print and PDF. */
 "Print…" = "Print…";
 "Export as PDF…" = "Export as PDF…";
+
+"Push '%@'?" = "Push '%@'?";
+
+"Tracking %@" = "Tracking %@";
+
+"Publish %@ (Core selects default remote)" = "Publish %@ (Core selects default remote)";
+
+"This sends the selected local branch to its configured remote." = "This sends the selected local branch to its configured remote.";
+
+"No items" = "No items";
+
+"This panel needs exactly one matching plugin instance in the workspace." = "This panel needs exactly one matching plugin instance in the workspace.";
+
+"The field value is invalid or exceeds 1024 UTF-8 bytes." = "The field value is invalid or exceeds 1024 UTF-8 bytes.";
+
+"The field value does not match its declaration or exceeds its size limit." = "The field value does not match its declaration or exceeds its size limit.";
+
 "Instructions" = "Instructions";
 "Global instructions" = "Global instructions";
 "Instruction Agent" = "Instruction Agent";

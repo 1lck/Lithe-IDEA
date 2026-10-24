@@ -531,6 +531,7 @@ public struct DeclarativeUIContributions: Equatable, Codable, Sendable {
         public let text: String?
         /// `ui` 2: a package HTML page shown inside the host-owned window shell.
         public let web: Web?
+        public let native: PluginNativeUI?
         public let icon: PluginUIIcon?
     }
     public struct Web: Equatable, Codable, Sendable {
@@ -554,7 +555,7 @@ public struct DeclarativeUIContributions: Equatable, Codable, Sendable {
                 id: window.id, kind: .toolWindow, title: window.title,
                 placement: window.placement == "left" ? .leftSidebar : (window.placement == "right" ? .rightSidebar : .activityBar),
                 order: window.order, actionID: window.id + ".toggle", rendererID: window.id,
-                text: window.text, uiIcon: window.icon, webEntry: window.web?.entry
+                text: window.text, uiIcon: window.icon, webEntry: window.web?.entry, nativeUI: window.native
             )
         } + commands.flatMap { command in
             command.placements.map { placement in

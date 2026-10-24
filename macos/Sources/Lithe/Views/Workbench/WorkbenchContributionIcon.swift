@@ -25,6 +25,7 @@ struct WorkbenchContributionIcon: View {
             "terminal": "terminal/terminal@20x20.svg",
             "search": "expui/general/search.svg",
             "refresh": "expui/general/refresh.svg",
+            "reset": "expui/general/reset.svg",
             "run": "expui/toolwindows/run@20x20.svg",
             "debug": "expui/toolwindows/debug@20x20.svg",
             "settings": "expui/general/settings@20x20.svg",
@@ -32,6 +33,14 @@ struct WorkbenchContributionIcon: View {
             "remove": "expui/general/delete.svg",
             "git": "expui/toolwindows/vcs@20x20.svg",
             "problems": "expui/toolwindows/problems@20x20.svg"
+        ]
+        // Activity-rail assets keep their 20pt geometry. Actions use the existing
+        // 16pt source instead of scaling the rail's heavier strokes.
+        static let actionPaths: [String: String] = [
+            "expui/toolwindows/run@20x20.svg": "expui/toolwindows/run.svg",
+            "expui/toolwindows/debug@20x20.svg": "expui/run/debug_stroke.svg",
+            "expui/general/settings@20x20.svg": "expui/general/settings.svg",
+            "expui/toolwindows/vcs@20x20.svg": "expui/general/vcs.svg"
         ]
         let hostPath: String?
         let mode: PluginUIIcon.Mode
@@ -46,6 +55,11 @@ struct WorkbenchContributionIcon: View {
                 ?? (light == nil ? Self.hostPaths["tool-window"] : nil)
         }
 
+        func hostPath(for role: Role) -> String? {
+            guard let hostPath else { return nil }
+            return role == .action ? Self.actionPaths[hostPath] ?? hostPath : hostPath
+        }
+
         func image(isDark: Bool) -> NSImage? { isDark ? dark ?? light : light }
     }
 
@@ -54,7 +68,7 @@ struct WorkbenchContributionIcon: View {
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        if let hostPath = asset.hostPath {
+        if let hostPath = asset.hostPath(for: role) {
             LitheIDEAIcon(resourcePath: hostPath, size: role.size, fallbackSystemImage: "square.grid.2x2",
                           preservesOriginalColors: asset.mode == .original)
                 .accessibilityHidden(true)

@@ -143,6 +143,7 @@ struct CommitActionButtonStyleTests {
         #expect(image.height == 56)
     }
 
+
     @Test(arguments: [ColorScheme.dark, .light], [
         (primary: false, enabled: false), (primary: false, enabled: true),
         (primary: true, enabled: false), (primary: true, enabled: true)

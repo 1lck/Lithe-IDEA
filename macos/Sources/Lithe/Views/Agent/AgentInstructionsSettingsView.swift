@@ -7,8 +7,8 @@ struct AgentInstructionsSettingsView: View {
     var localizationBundle: Bundle = .main
     @ObservedObject var feature: AgentInstructionsFeatureModel
     @State private var operations: [UUID: Task<Void, Never>] = [:]
-    private enum Editor: Hashable { case shared, native }
-    @FocusState private var focusedEditor: Editor?
+    @FocusState private var sharedEditorFocused: Bool
+    @FocusState private var nativeEditorFocused: Bool
     @State private var expandsShared = false
     @State private var confirmsReload = false
     @State private var reloadsShared = false
@@ -71,10 +71,8 @@ struct AgentInstructionsSettingsView: View {
             }.buttonStyle(.plain).accessibilityIdentifier("shared-instructions-expand")
             if expandsShared {
                 VStack(alignment: .leading, spacing: 10) {
-                    TextEditor(text: Binding(get: { feature.sharedDraft }, set: feature.editShared))
-                        .font(LitheTheme.uiFont(size: 12, design: .monospaced)).autocorrectionDisabled()
-                        .litheSettingsTextEditor(height: 230)
-                        .focused($focusedEditor, equals: .shared)
+                    LitheTextEditor(text: Binding(get: { feature.sharedDraft }, set: feature.editShared), height: 230, focus: $sharedEditorFocused)
+                        .autocorrectionDisabled()
                         .disabled(feature.sharedLibrary == nil || feature.isSharedBusy)
                         .accessibilityLabel(Text(key("Shared instructions")))
                     ViewThatFits(in: .horizontal) {
@@ -98,7 +96,7 @@ struct AgentInstructionsSettingsView: View {
         Button(localized("Save shared instructions")) { run { await feature.saveShared() } }
             .buttonStyle(LitheActionButtonStyle(isPrimary: true))
             .disabled(!feature.canSaveShared).opacity(feature.canSaveShared ? 1 : 0.5)
-            .keyboardShortcut(focusedEditor == .shared ? KeyboardShortcut("s", modifiers: .command) : nil)
+            .keyboardShortcut(sharedEditorFocused ? KeyboardShortcut("s", modifiers: .command) : nil)
         Button(localized("Reload from disk")) { requestReload(shared: true) }
             .buttonStyle(LitheActionButtonStyle()).disabled(feature.isSharedBusy)
         if feature.isSharedBusy { ProgressView().controlSize(.small) }
@@ -172,10 +170,8 @@ struct AgentInstructionsSettingsView: View {
                 if !file.exists {
                     Text(key("The file will be created when you save.")).font(LitheTheme.smallFont).foregroundStyle(LitheTheme.secondaryText)
                 }
-                TextEditor(text: Binding(get: { feature.draft }, set: feature.edit))
-                    .font(LitheTheme.uiFont(size: 12, design: .monospaced)).autocorrectionDisabled()
-                    .litheSettingsTextEditor(height: 280)
-                    .focused($focusedEditor, equals: .native).disabled(feature.isBusy || feature.isSharedBusy)
+                LitheTextEditor(text: Binding(get: { feature.draft }, set: feature.edit), height: 280, focus: $nativeEditorFocused)
+                    .autocorrectionDisabled().disabled(feature.isBusy || feature.isSharedBusy)
                     .accessibilityLabel(Text(key("Global instructions")))
             }
             ViewThatFits(in: .horizontal) {
@@ -195,7 +191,7 @@ struct AgentInstructionsSettingsView: View {
         Button(localized("Save instructions")) { run { await feature.save() } }
             .buttonStyle(LitheActionButtonStyle(isPrimary: true))
             .disabled(!feature.canSave).opacity(feature.canSave ? 1 : 0.5)
-            .keyboardShortcut(focusedEditor == .native ? KeyboardShortcut("s", modifiers: .command) : nil)
+            .keyboardShortcut(nativeEditorFocused ? KeyboardShortcut("s", modifiers: .command) : nil)
         Button(localized("Reload from disk")) { requestReload(shared: false) }
             .buttonStyle(LitheActionButtonStyle()).disabled(feature.isBusy || feature.isSharedBusy)
         if feature.isBusy { ProgressView().controlSize(.small) }

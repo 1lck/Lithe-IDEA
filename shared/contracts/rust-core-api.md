@@ -3715,6 +3715,21 @@ an identity that is no longer present. Legacy positional references remain accep
 See `shared/fixtures/git/saved-stash-v1.json`. Native Shelf persistence is platform-owned;
 raw patch bytes are kept separately for index and working-tree versions.
 
+### Native plugin UI data
+
+`plugins.nativeUI.validateData` accepts `{ ui, data }`, where `ui` is the
+validated native schema-1 declaration and `data` is a provider's `{ nodes }`
+reply. It returns `{ status: "ok", nodes }` or
+`{ status: "rejected", error: { code: "plugin.ui.invalidData", message } }`.
+Malformed envelopes remain Core `invalid_request` failures. The operation uses
+the same identity, literal label, nesting and node budgets as manifest validation
+and rejects data above 1 MiB. Form declarations validate bounded input/select/checkbox
+controls (including search/editor/segmented/stepper), typed scalar defaults, choices,
+info, button action references/width policies and onCommit references; form source replies
+require empty nodes. Hosts inject this typed operation into their
+presentation feature; views never call the C ABI. Windows can reuse validation
+when it later adds a native renderer; Core support does not advertise ui 3 on
+that platform.
 
 ### Agent skill management
 

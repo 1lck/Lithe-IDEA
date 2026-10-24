@@ -84,10 +84,10 @@ struct AgentSkillCreateSheet: View {
                     .font(LitheTheme.smallFont).foregroundStyle(LitheTheme.secondaryText)
                 Spacer(minLength: 0)
             } else {
-                TextField("Skill name (lowercase-with-hyphens)", text: $name).litheSettingsTextField()
-                TextField("When should this skill be used?", text: $description).litheSettingsTextField()
+                LitheTextField("Skill name (lowercase-with-hyphens)", text: $name)
+                LitheTextField("When should this skill be used?", text: $description)
                 Text("Skill instructions").font(LitheTheme.smallFont)
-                TextEditor(text: $instructions).font(LitheTheme.codeFont).litheSettingsTextEditor(height: 230)
+                LitheTextEditor(text: $instructions, height: 230)
             }
             if let error = feature.error { AgentSettingsIssue(error) }
             HStack(spacing: LitheTheme.ActionButton.spacing) {

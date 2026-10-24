@@ -72,6 +72,8 @@ pub enum CoreCommand {
     McpCommandLine,
     /// Validates and normalizes a declarative plugin manifest (`plugins.declarative.validate`).
     PluginsDeclarativeValidate,
+    /// Validates native plugin UI data with declaration identity and node budgets.
+    PluginsNativeUIValidateData,
     /// Expands a declarative plugin's run template (`plugins.declarative.runPlan`).
     PluginsDeclarativeRunPlan,
     /// Lists a declarative plugin's workspace and file tests (`plugins.declarative.discoverTests`).
@@ -475,6 +477,7 @@ impl CoreCommand {
             "mcp.toolPolicy" => Some(Self::McpToolPolicy),
             "mcp.commandLine" => Some(Self::McpCommandLine),
             "plugins.declarative.validate" => Some(Self::PluginsDeclarativeValidate),
+            "plugins.nativeUI.validateData" => Some(Self::PluginsNativeUIValidateData),
             "plugins.declarative.runPlan" => Some(Self::PluginsDeclarativeRunPlan),
             "plugins.declarative.discoverTests" => Some(Self::PluginsDeclarativeDiscoverTests),
             "plugins.declarative.testPlan" => Some(Self::PluginsDeclarativeTestPlan),

@@ -103,10 +103,8 @@ struct PluginTextSettingField: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            TextField(placeholder ?? "", text: $text)
-                .litheSettingsTextField()
+            LitheTextField(verbatim: placeholder ?? "", text: $text, focus: $isFocused)
                 .frame(minWidth: isFlexible ? 0 : width, idealWidth: width, maxWidth: width)
-                .focused($isFocused)
                 .accessibilityLabel(Text(verbatim: accessibilityLabel))
                 .onSubmit(commit)
                 .onChange(of: text) { _ in

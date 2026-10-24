@@ -1527,17 +1527,17 @@ consent, and closing it cancels them. Reusing a `call` ID is
 `functions.list` and `functions.invoke` ask for the same consent as the
 host's provider requests: once given for a plugin and workspace, it holds
 until the project is closed.
-macOS implements web content with WKWebView and advertises `ui: [1, 2]`.
+macOS implements web content with WKWebView and advertises `ui: [1, 2, 3]`
+(including the native controls described below).
 Windows has no WebView2 host yet and still advertises `ui: [1]`, so Core refuses
 `ui` 2 plugins there with `plugin.api.unsupported`.
 
 ### Future public extension direction (not implemented in API level 2)
 
 - Plugins may bring their own UI as [web content](#web-content-ui-2) inside
-  host-owned windows. A separately versioned JSON component tree
-  (Tree/List/Form/Input/Button, data sources and events) rendered by native
-  platform adapters remains the direction for plugins that want native
-  controls without writing a page. Built-in or trusted native modules may
+  host-owned windows. Native trees/lists and panel actions now use the separately versioned
+  [native schema](#host-rendered-native-content-ui-3-native-schema-1).
+  Forms and broader component composition remain follow-up work. Built-in or trusted native modules may
   register Native View/Renderer Factories under the same host window
   management. This does not restore arbitrary dynamic third-party Swift
   Bundle loading; ABI, signing and isolation need separate design.
@@ -1627,8 +1627,10 @@ optional; without it the same resource is used in both themes. Brand authors
 must make that resource legible in both themes or provide a dark variant.
 `host` cannot be combined with resource paths or original-color mode.
 
-The host owns icon size: 20pt tool-window rail, 16pt actions/menus/palette, 13pt
-window header. Aspect ratio is preserved inside that slot. Plugin-specified
+The host owns icon size: 20pt tool-window rail and 16pt actions/menus/palette.
+Panel titles are text-only: no title icon, outline or bottom divider. A declared
+window icon remains available in the activity rail and management menus.
+Aspect ratio is preserved inside each icon slot. Plugin-specified
 size, color, stroke, arbitrary style, remote URLs and SF Symbol names are rejected.
 Stroke geometry belongs to the asset; authors should follow the host icon
 weight, rather than expecting the host to rewrite paths or PNG pixels.
@@ -1743,3 +1745,112 @@ without it reject new-style plugins before decoding unknown fields. Published
 0.1.0/0.1.1 archives remain immutable; migration is a new plugin version.
 
 See [`build-tool-path.plugin.json`](fixtures/build-tool-path.plugin.json).
+
+### Host-rendered native content (`ui` 3, native schema 1)
+
+macOS supports `requires.ui: 3` for a tool window whose sole body is `native`.
+Text and Web windows retain their existing behavior. Windows does not advertise
+ui 3 and rejects these packages before installing them. The independently
+versioned [native schema](native-ui.schema.json) has no style, script, HTML or
+host-action fields. The host renders every control with its shared theme.
+
+See [native-panel.plugin.json](fixtures/native-panel.plugin.json) and the runnable
+[Node SDK Sample Explorer](https://github.com/Lithe-IDEA/lithe-plugin-docs/blob/main/sdk/node/examples/sample-build/plugin.json).
+`native.kind` is `tree`, `list` or `form`; `nodes` contains literal `id`, `label` and
+optional `children`. IDs are stable, case-sensitive ASCII letters/digits plus
+`._-` (1–128 bytes). The component, initial nodes and actions have distinct IDs.
+The entire node set is limited to 2000 nodes and depth 16 (root depth 0); labels
+are nonblank and at most 1024 UTF-8 bytes. Lists reject nested children.
+
+A `form` declares `nodes: []`, an empty `contextMenu`, at most 32 `controls`
+and 16 `buttons`; at least one control or button is required.
+Tree/list panels cannot contain controls. Each control has a unique `id`, literal
+`label` (1–256 UTF-8 bytes), `kind`, initial `value`, optional `enabled` (default
+true), and optional `onCommit` referencing a declared `invoke` action that does
+not require a selection. An optional literal `info` (1–1024 UTF-8 bytes) renders the shared information
+icon beside the label; tooltip timing, pinning, accessibility and styling are host-owned.
+
+- `input` / `search`: string `value` (at most 1024 UTF-8 bytes), optional `placeholder`
+  (at most 256 UTF-8 bytes), no options. Uses the IDE settings text-field owner.
+- `select`: string `value` equal to one of 1–128 unique `options: [{id,label}]`;
+  option IDs use the standard identifier rule, labels are 1–256 UTF-8 bytes.
+  No placeholder. Uses `LitheSettingsSelect`, including its popup and keyboard behavior.
+- `segmented`: string value and 1–8 options, using the same option contract and
+  the shared segmented selector; no placeholder.
+- `editor`: string value up to 8192 UTF-8 bytes, optional `rows` (2–12, default 4),
+  no placeholder/options/onCommit. Reuses the shared multiline editor; Enter inserts
+  a newline and form buttons submit its current value.
+- `stepper`: finite numeric value, required `minimum`, `maximum` and positive
+  `step`; bounds and step are limited to ±1e9/1e9, and value must fit the range.
+  No placeholder/options. Uses the shared settings stepper and bound behavior.
+- `checkbox`: boolean `value`, no options or placeholder. Uses `LitheSettingsCheckbox`.
+
+Forms may declare `layout: {"columns":12}` (1–12 columns). Each control may
+provide `span` (1–columns); omitted span fills a row. Controls pack in declaration
+order, wrapping before a span would exceed the row. Without layout, the form
+retains its original single-column presentation and must omit span. Layout is
+form-only. Gaps, alignment and breakpoints remain host-owned; plugins cannot
+supply pixels, CSS or gap values. macOS uses a native `Layout`, 12pt gaps,
+top-aligned variable-height rows, and switches to one column below 640pt of
+content width. Reflow preserves the same controls, local values and focus.
+
+Buttons reference an existing non-selection action through `action`, have stable
+`id`, literal `label`, optional `primary`, `enabled` and `info`.
+Text actions reuse the host's shared natural-width button style and 6pt action
+spacing; a narrow action group falls back to vertical stacking. Deprecated
+`buttons[].width` (`content`/`fill`) and `buttons[].span` are accepted for older
+experimental packages, but do not change button width or action-group layout.
+Grid spans continue to apply to value controls. The declaration cannot override
+button colors, fonts, chrome, padding or fixed/max widths.
+
+Input/search editing saves local values without executing plugin code; Return commits.
+Selectors, segmented selectors, steppers and checkboxes commit after a changed value. Omit `onCommit` to keep
+a field local. Commits pass **all** current fields as `params.values` (strings,
+booleans and numbers keyed by stable control ID), together with `selectedID: null`.
+The subsequent form source call also receives `{values}` and returns `{nodes: []}`.
+Disabled fields still contribute their values; they cannot edit or commit.
+A pending call disables all fields. Values use the existing 64 KiB per-plugin,
+per-window, per-workspace state store; removed fields, invalid types and removed
+options are discarded when restoring. Provider replies never overwrite local
+fields. Form declarations and choices are static in this version.
+See [native-form.plugin.json](fixtures/native-form.plugin.json) and
+[host UI acceptance fixture](https://github.com/1lck/Lithe-IDEA/blob/preview/macos/Tests/Fixtures/native-ui-lab/README.md) for acceptance.
+
+An optional `source` names this plugin's `buildSystemID` and a function returning
+`{ nodes: [...] }`. This phase uses the existing provider transport; it adds no
+new backend, provider registry, or process protocol. There must be exactly one
+detected instance of that build system in the workspace; zero or multiple
+matches produce an error instead of silently targeting a different root.
+Static panels omit `source` and declare empty actions and placements.
+
+`actions` declares at most 64 independent handlers with `id`, literal `title`,
+`kind` (`refresh` or `invoke`) and `requiresSelection`. A refresh reloads the
+source and cannot require selection or name a function. An invoke names a
+`function` and receives `{ selectedID: string | null }` (forms also include `values`). Invocations return an
+optional `{ message }`, then the host reloads the source. `toolbar` and
+`contextMenu` contain distinct references to declared action IDs in display
+order. Toolbar actions are icon-only and appear when the pointer enters the whole
+panel, like the host hide control; keyboard and accessibility focus also reveal them.
+An optional `icon: {"host":"search"}` reuses the host icon vocabulary (including
+`reset`); native actions do not load custom package icons. Without an icon, refresh
+uses the refresh icon and invoke uses the generic run icon. The literal title is
+the tooltip and accessibility name. A context-menu action selects its clicked row before running; selecting
+a row alone never starts a provider function. These are panel-local actions;
+this phase does not change API-v2 commands into arbitrary function handlers.
+
+The host allows one operation per panel, disables actions while busy, and
+shows loading, empty, failure and success feedback. A source reply is at most
+1 MiB and follows the same node limits; invalid data preserves the last valid
+rows. Selection and expansion use stable IDs and the existing per-plugin,
+window and workspace state store (at most 64 KiB). Arrow keys move selection,
+expand/collapse nodes and select a parent; hidden/reopened panels restore state.
+Provider calls retain existing consent, scope checks, timeout and cancellation.
+Hiding a native panel cancels its pending operation. Disable, package replacement
+and workspace close synchronously invalidate it through the existing shared
+plugin-page lifecycle; late replies cannot publish. All state is outside the
+installed package and application bundle.
+
+Schema 1 loads the complete node set on refresh. Forms, lazy child data sources,
+multi-instance selectors, global function commands, native renderer factories
+and Windows rendering remain follow-up work under #1209; this subset does not
+claim completion of that whole issue.

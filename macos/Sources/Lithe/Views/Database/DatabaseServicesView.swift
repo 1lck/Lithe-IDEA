@@ -22,7 +22,6 @@ struct DatabaseServicesView: View {
             LitheToolWindowHeader(title: "Services", onMinimize: {
                 model.workbenchFeature.setVisibility(.databaseServices, isVisible: false)
             }) { EmptyView() }
-            LitheToolWindowHeaderDivider()
             GeometryReader { geometry in
                 LitheSplitPaneView(axis: .horizontal, placement: .leading,
                     defaultSize: geometry.size.width * 0.3, minimum: 120,
@@ -60,36 +59,41 @@ struct DatabaseServicesView: View {
     }
 
     private var connections: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                HStack(spacing: 4) {
-                    LitheIcon(kind: .folder, size: 16)
-                    Text("Database")
-                }.frame(height: LitheTheme.Tree.rowHeight)
-                if let profile = feature.selectedProfile {
-                    HStack(spacing: 4) {
-                        DatabaseBrandIcon(kind: profile.kind, size: 16)
-                        Text(profile.name).lineLimit(1)
-                    }.padding(.leading, LitheTheme.Tree.indent).frame(height: LitheTheme.Tree.rowHeight)
-                    ForEach(feature.sqlTabs) { tab in
-                        Button {
-                            model.selectDatabaseWorkspace(profileID: profile.id, queryID: tab.id)
-                        } label: {
-                            HStack(spacing: 4) {
-                                DatabaseBrandIcon(kind: profile.kind, size: 16)
-                                Text(tab.title == "Query 1" ? "console" : "console \(tab.title)").lineLimit(1)
-                                if let execution = tab.execution {
-                                    Text("\(execution.durationMilliseconds) ms").foregroundStyle(LitheTheme.DatabaseConsole.executionInfo)
-                                }
-                                Spacer(minLength: 0)
-                            }.padding(.leading, LitheTheme.Tree.indent * 2).frame(height: LitheTheme.Tree.rowHeight)
-                        }
-                        .buttonStyle(.litheNoPress)
-                        .litheTreeRow(isSelected: tab.id == feature.selectedSQLTabID, isFocused: active)
+        LitheTreeList(
+            nodes: [
+                LitheTreeListNode(id: "database:", isExpanded: true, isSelectable: false) {
+                    HStack(spacing: LitheTheme.Tree.iconTextGap) {
+                        LitheIcon(kind: .folder, size: LitheTheme.Tree.iconSize)
+                        Text("Database")
                     }
+                } children: {
+                    guard let profile = feature.selectedProfile else { return [] }
+                    return [
+                        LitheTreeListNode(id: profile.id.uuidString, isExpanded: true, isSelectable: false) {
+                            HStack(spacing: LitheTheme.Tree.iconTextGap) {
+                                DatabaseBrandIcon(kind: profile.kind, size: LitheTheme.Tree.iconSize)
+                                Text(profile.name).lineLimit(1)
+                            }
+                        } children: {
+                            feature.sqlTabs.map { tab in
+                                LitheTreeListNode(
+                                    id: tab.id.uuidString,
+                                    onSelect: { model.selectDatabaseWorkspace(profileID: profile.id, queryID: tab.id) }
+                                ) {
+                                    HStack(spacing: LitheTheme.Tree.iconTextGap) {
+                                        DatabaseBrandIcon(kind: profile.kind, size: LitheTheme.Tree.iconSize)
+                                        Text(tab.title == "Query 1" ? "console" : "console \(tab.title)").lineLimit(1)
+                                        if let execution = tab.execution {
+                                            Text("\(execution.durationMilliseconds) ms").foregroundStyle(
+                                                LitheTheme.DatabaseConsole.executionInfo)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    ]
                 }
-            }.font(LitheTheme.uiFont(size: 13)).foregroundStyle(LitheTheme.Tree.text).padding(.horizontal, 12).padding(.vertical, 4)
-        }.litheScrollViewChrome()
+            ], selection: Binding(get: { feature.selectedSQLTabID?.uuidString }, set: { _ in }))
     }
 
     private var resultTabs: some View {
@@ -186,7 +190,6 @@ struct DatabaseQueryHistoryDialog: View {
     let profileID: UUID?
     let onClose: () -> Void
     let onPaste: (DatabaseSQLHistoryEntry) -> Void
-    @State private var historyListActive = false
     @State private var selectedID: UUID?
 
     private var entries: [DatabaseSQLHistoryEntry] { feature.sqlHistory.filter { $0.profileID == profileID } }
@@ -198,19 +201,16 @@ struct DatabaseQueryHistoryDialog: View {
                 LitheSplitPaneView(axis: .horizontal, placement: .leading,
                     defaultSize: geometry.size.width * 0.3, minimum: 120,
                     maximum: max(120, geometry.size.width - 180), flexibleMinimum: 180) {
-                    ScrollView {
-                        LazyVStack(spacing: 0) {
-                            ForEach(entries) { entry in
-                                Button { selectedID = entry.id } label: {
-                                    Text(verbatim: entry.sql.replacingOccurrences(of: "\n", with: "↵   "))
-                                        .font(LitheTheme.codeFont).lineLimit(1)
-                                        .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 8).frame(height: 24)
-                                }.buttonStyle(.litheNoPress).litheSelectionRow(isSelected: selected?.id == entry.id,
-                                    isFocused: historyListActive)
-                            }
-                        }
-                    }.litheScrollViewChrome().background(LitheTheme.editor)
-                        .background(LitheToolWindowActivityTracker(isActive: $historyListActive))
+                    LitheTreeList(
+                        entries,
+                        selection: Binding(
+                            get: { selected?.id }, set: { selectedID = $0 }),
+                        onActivate: { onPaste($0) }
+                    ) { entry in
+                        Text(verbatim: entry.sql.replacingOccurrences(of: "\n", with: "↵   "))
+                            .font(LitheTheme.codeFont).lineLimit(1)
+                    }
+                    .background(LitheTheme.editor)
                 } flexible: {
                     SQLSyntaxEditor(text: .constant(selected?.sql ?? ""), completions: [], onRun: {}, onSelectionChange: { _ in },
                                     isEditable: false)

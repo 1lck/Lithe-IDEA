@@ -8,7 +8,6 @@ struct LanguageTestsView: View {
     @ObservedObject var service: LanguageTestService
 
     @State private var testToolActive = false
-    @State private var itemListActive = false
     @State private var selectedItemID: String?
     @State private var collapsedProviderIDs: Set<String> = []
     @AppStorage("lithe.tests.itemListWidth") private var itemListWidth = 250.0
@@ -70,7 +69,7 @@ struct LanguageTestsView: View {
                             minimum: minimumListWidth,
                             maximum: maximumListWidth,
                             onCommit: { itemListWidth = Double($0) },
-                            sized: { testItemList.background(LitheToolWindowActivityTracker(isActive: $itemListActive)) },
+                            sized: { testItemList },
                             flexible: { selectedTestContent }
                         )
                     }
@@ -226,17 +225,69 @@ struct LanguageTestsView: View {
             .first { $0.id == selectedItemID }
     }
 
+    private struct TestTreeRow: Identifiable {
+        var id: String
+        var descriptor: LanguageProviderDescriptor?
+        var item: LanguageTestItem?
+        var hierarchy: LitheTreeListHierarchy
+        var hasChildren = false
+    }
+
+    private var testRows: [TestTreeRow] {
+        var rows: [TestTreeRow] = []
+        let grouped = testProviderDescriptors.count > 1
+        for descriptor in testProviderDescriptors {
+            let items = presentedItems(for: descriptor.id)
+            let resultTree = !items.isEmpty && items.allSatisfy { $0.kind == .testCase }
+            let collapsed = collapsedProviderIDs.contains(descriptor.id)
+            if grouped {
+                rows.append(
+                    .init(
+                        id: "provider:" + descriptor.id, descriptor: descriptor,
+                        hierarchy: .init(isBranch: true, isExpanded: !collapsed, isSelectable: false)))
+            }
+            guard !grouped || !collapsed else { continue }
+            let parents = Set(
+                zip(items, items.dropFirst()).compactMap { current, next in
+                    next.depth > current.depth ? current.id : nil
+                })
+            for item in Self.visibleItems(items, collapsed: collapsedTestIDs) {
+                rows.append(
+                    .init(
+                        id: item.id, item: item,
+                        hierarchy: .init(
+                            depth: max(0, item.depth - (resultTree ? 1 : 0)) + (grouped ? 1 : 0),
+                            isBranch: parents.contains(item.id), isExpanded: !collapsedTestIDs.contains(item.id)),
+                        hasChildren: parents.contains(item.id)))
+            }
+        }
+        return rows
+    }
+
     private var testItemList: some View {
-        ScrollView(.vertical) {
-            LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(testProviderDescriptors) { descriptor in
-                    providerSection(descriptor)
+        LitheTreeList(
+            testRows, selection: $selectedItemID, hierarchy: { $0.hierarchy },
+            onExpansion: { row, expanded in
+                if let descriptor = row.descriptor {
+                    if expanded {
+                        collapsedProviderIDs.remove(descriptor.id)
+                    } else {
+                        collapsedProviderIDs.insert(descriptor.id)
+                    }
+                } else if let item = row.item {
+                    if expanded { collapsedTestIDs.remove(item.id) } else { collapsedTestIDs.insert(item.id) }
                 }
             }
-            .padding(.horizontal, LitheTheme.Tree.horizontalInset)
-            .padding(.vertical, LitheTheme.Tree.verticalInset)
-        }
-        .litheScrollViewChrome()
+        ) { row in
+            if let descriptor = row.descriptor {
+                HStack(spacing: LitheTheme.Tree.iconTextGap) {
+                    providerIcon(for: descriptor)
+                    Text(descriptor.displayName).lineLimit(1)
+                }
+            } else if let item = row.item {
+                testItemContent(item, hasChildren: row.hasChildren)
+            }
+            }
         .litheWorkbenchSurface(LitheTheme.editor)
     }
 
@@ -254,99 +305,36 @@ struct LanguageTestsView: View {
         return outcomes.isEmpty ? discovered : synthesizeResultItems(from: outcomes, providerID: providerID)
     }
 
-    private func providerSection(_ descriptor: LanguageProviderDescriptor) -> some View {
-        let items = presentedItems(for: descriptor.id)
-        let isResultTree = !items.isEmpty && items.allSatisfy { $0.kind == .testCase }
-
-        let isCollapsed = collapsedProviderIDs.contains(descriptor.id)
-        let parentIDs = Set(zip(items, items.dropFirst()).compactMap { current, next in
-            next.depth > current.depth ? current.id : nil
-        })
-
-        return VStack(alignment: .leading, spacing: 0) {
-            if testProviderDescriptors.count > 1 {
-                Button {
-                    if isCollapsed { collapsedProviderIDs.remove(descriptor.id) }
-                    else { collapsedProviderIDs.insert(descriptor.id) }
-                } label: {
-                    HStack(spacing: LitheTheme.Tree.iconTextGap) {
-                        LitheIDEAIcon(resourcePath: "expui/general/chevron\(isCollapsed ? "Right" : "Down").svg",
-                            size: LitheTheme.Tree.iconSize, preservesOriginalColors: true)
-                            .frame(width: LitheTheme.Tree.disclosureSlot)
-                        providerIcon(for: descriptor)
-                        Text(descriptor.displayName).lineLimit(1)
-                    }
-                    .litheTreeRow()
-                }
-                .buttonStyle(.litheNoPress)
-            }
-            if !isCollapsed || testProviderDescriptors.count == 1 {
-                ForEach(Self.visibleItems(items, collapsed: collapsedTestIDs)) { item in
-                    testItemRow(item, hasChildren: parentIDs.contains(item.id), usesResultTree: isResultTree)
-                }
-            }
-        }
-    }
-
-    private func testItemRow(_ item: LanguageTestItem, hasChildren: Bool, usesResultTree: Bool) -> some View {
-        let isCollapsed = collapsedTestIDs.contains(item.id)
-        let selected = selectedItemID == item.id
+    private func testItemContent(_ item: LanguageTestItem, hasChildren: Bool) -> some View {
         let ownsResults = service.activePlan?.providerID == item.providerID
         let status = ownsResults ? resultStatuses[Self.resultKey(item)] : nil
         let duration = ownsResults ? testDurations[Self.resultKey(item)] : nil
         return HStack(spacing: LitheTheme.Tree.iconTextGap) {
-            if hasChildren {
-                Button {
-                    if isCollapsed { collapsedTestIDs.remove(item.id) }
-                    else { collapsedTestIDs.insert(item.id) }
-                } label: {
-                    LitheIDEAIcon(resourcePath: "expui/general/chevron\(isCollapsed ? "Right" : "Down").svg",
-                        size: LitheTheme.Tree.iconSize, preservesOriginalColors: true)
-                        .frame(width: LitheTheme.Tree.disclosureSlot, height: LitheTheme.Tree.rowHeight)
-                }
-                .buttonStyle(.litheNoPress)
-                .accessibilityLabel(isCollapsed ? "Expand test group" : "Collapse test group")
+            if status == nil, item.kind == .file {
+                LitheIcon(
+                    kind: item.fileURL.map { LitheIcons.kind(for: $0, isDirectory: false) } ?? .generic,
+                    size: LitheTheme.Tree.iconSize)
             } else {
-                Color.clear.frame(width: LitheTheme.Tree.disclosureSlot)
+                LitheIDEAIcon(
+                    resourcePath: Self.testItemIcon(status: status, kind: item.kind, hasChildren: hasChildren),
+                    size: LitheTheme.Tree.iconSize, preservesOriginalColors: true)
             }
-            Button {
-                selectedItemID = item.id
-            } label: {
-                HStack(spacing: LitheTheme.Tree.iconTextGap) {
-                    if status == nil, item.kind == .file {
-                        LitheIcon(kind: item.fileURL.map { LitheIcons.kind(for: $0, isDirectory: false) } ?? .generic,
-                                  size: LitheTheme.Tree.iconSize)
-                    } else {
-                        LitheIDEAIcon(resourcePath: Self.testItemIcon(status: status, kind: item.kind, hasChildren: hasChildren),
-                                      size: LitheTheme.Tree.iconSize, preservesOriginalColors: true)
-                    }
-                    HStack(spacing: 4) {
-                        Text(item.label)
-                            .font(LitheTheme.uiFont(size: 13, weight: .regular))
-                            .foregroundStyle(LitheTheme.Tree.text)
-                            .lineLimit(1)
-                        if let duration, !duration.isEmpty {
-                            Text(hasChildren ? ": \(duration)" : duration)
-                                .font(LitheTheme.uiFont(size: 11, weight: .regular))
-                                .foregroundStyle(LitheTheme.secondaryText)
-                                .lineLimit(1)
-                        }
-                    }
-                    Spacer(minLength: 0)
+            HStack(spacing: 4) {
+                Text(item.label)
+                    .font(LitheTheme.uiFont(size: 13, weight: .regular))
+                    .foregroundStyle(LitheTheme.Tree.text)
+                    .lineLimit(1)
+                if let duration, !duration.isEmpty {
+                    Text(hasChildren ? ": \(duration)" : duration)
+                        .font(LitheTheme.uiFont(size: 11, weight: .regular))
+                        .foregroundStyle(LitheTheme.secondaryText)
+                        .lineLimit(1)
                 }
-                .contentShape(Rectangle())
             }
-            .buttonStyle(.litheNoPress)
-            .simultaneousGesture(TapGesture(count: 2).onEnded {
-                guard hasChildren else { return }
-                if isCollapsed { collapsedTestIDs.remove(item.id) }
-                else { collapsedTestIDs.insert(item.id) }
-            })
-            .accessibilityValue(Text(status == "Ignored" ? localization.text("Skipped") : status.map(localization.text) ?? ""))
+            Spacer(minLength: 0)
         }
-        .padding(.leading, CGFloat(max(0, item.depth - (usesResultTree ? 1 : 0))) * LitheTheme.Tree.indent)
-        .padding(.trailing, 4)
-        .litheTreeRow(isSelected: selected, isFocused: itemListActive)
+        .accessibilityValue(
+            Text(status == "Ignored" ? localization.text("Skipped") : status.map(localization.text) ?? ""))
     }
 
     static func parseDurations(

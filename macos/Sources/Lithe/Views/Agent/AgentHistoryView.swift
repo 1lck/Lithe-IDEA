@@ -58,11 +58,15 @@ struct AgentHistoryRowModel: Identifiable, Equatable {
 enum AgentHistoryListItem: Identifiable, Equatable {
     case header(AgentHistoryGroup, Int)
     case row(AgentHistoryRowModel)
+    case archiveHeader
+    case archivedRow(AgentHistoryRowModel)
 
     var id: String {
         switch self {
         case .header(let group, _): "header-\(group.title)"
         case .row(let model): model.id
+        case .archiveHeader: "archived-group"
+        case .archivedRow(let model): "archived-" + model.id
         }
     }
 }
@@ -544,7 +548,7 @@ struct AgentHistoryView: View {
 
     private var searchControls: some View {
         HStack(spacing: 8) {
-            LitheSettingsSearchField("Search conversation titles or IDs…", text: $query)
+            LitheSearchField("Search conversation titles or IDs…", text: $query)
                 .accessibilityIdentifier("agent-history-search")
             LitheMenu {
                 for mode in AgentHistoryFilter.allCases {
@@ -599,8 +603,7 @@ struct AgentHistoryView: View {
         let built = rowsCache.items(for: key) {
             buildItems(rows: rows, archivedRows: archivedRows, key: key, now: now)
         }
-        return ScrollView {
-            AgentHistoryList(
+        return AgentHistoryList(
                 items: built.items, archived: built.archived, revision: built.revision,
                 isArchivedExpanded: archivedExpansion ?? (isSearching && !archivedRows.isEmpty),
                 isArchivedBusy: feature.isRefreshingArchivedSessions || feature.unarchivingSessionID != nil,
@@ -609,8 +612,6 @@ struct AgentHistoryView: View {
                 isFocused: historyListActive, actions: rowActions
             )
             .equatable()
-        }
-        .litheScrollViewChrome()
         .background(LitheToolWindowActivityTracker(isActive: $historyListActive))
     }
 
@@ -717,16 +718,33 @@ private struct AgentHistoryList: View, Equatable {
     }
 
     var body: some View {
-        LazyVStack(spacing: 0) {
-            ForEach(items) { item in itemView(item) }
-            if !archived.isEmpty { archivedSection }
-        }
-    }
-
-    @ViewBuilder private func itemView(_ item: AgentHistoryListItem) -> some View {
-        switch item {
-        case .header(let group, let count): header(group, count: count)
-        case .row(let model): row(model)
+        let visible = items + (archived.isEmpty ? [] : [.archiveHeader]
+            + (isArchivedExpanded ? archived.map(AgentHistoryListItem.archivedRow) : []))
+        LitheTreeList(visible, id: \.id, selection: Binding<Set<String>>(
+            get: { selectedIDs },
+            set: { next in
+                for id in next.symmetricDifference(selectedIDs) { actions.toggleSelection(id) }
+            }), togglesSelectionOnClick: isSelecting,
+            hierarchy: { item in
+                switch item {
+                case .header: .init(isSelectable: false)
+                case .archiveHeader: .init(isBranch: true, isExpanded: isArchivedExpanded, isSelectable: false)
+                case .row: .init(isSelectable: isSelecting)
+                case .archivedRow: .init(depth: 1, isSelectable: false)
+                }
+            }, onExpansion: { item, expanded in
+                if case .archiveHeader = item, expanded != isArchivedExpanded { actions.toggleArchived() }
+            }, multiline: true
+        ) { item in
+            switch item {
+            case .header(let group, let count): header(group, count: count)
+            case .row(let model): row(model)
+            case .archiveHeader: archiveHeader
+            case .archivedRow(let model):
+                AgentHistoryRow(model: model, isArchived: true, isRemoved: isRemovedFilter, isSelecting: false,
+                                isSelected: false, isFocused: isFocused, isEditing: false,
+                                editingTitle: editingTitle, actions: actions)
+            }
         }
     }
 
@@ -748,32 +766,18 @@ private struct AgentHistoryList: View, Equatable {
         .accessibilityAddTraits(.isHeader)
     }
 
-    private var archivedSection: some View {
-        VStack(spacing: 0) {
-            Button(action: actions.toggleArchived) {
-                HStack(spacing: 6) {
-                    LitheSystemIcon(systemImage: isArchivedExpanded ? "chevron.down" : "chevron.right", size: 10)
-                    Text(String(format: AgentLocalization.string("Archived (%d)", locale: locale), archived.count))
-                        .font(LitheTheme.uiFont(size: 12, weight: .semibold))
-                    if isArchivedBusy { ProgressView().controlSize(.mini) }
-                    Spacer(minLength: 0)
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.litheNoPress).lithePointer()
-            .foregroundStyle(AgentPanelStyle.secondary)
-            .padding(.horizontal, 20).padding(.vertical, 10)
-            .overlay(alignment: .bottom) { Rectangle().fill(AgentPanelStyle.border).frame(height: 1) }
-            .accessibilityIdentifier("agent-history-archived")
-            if isArchivedExpanded {
-                ForEach(archived) { model in
-                    AgentHistoryRow(model: model, isArchived: true, isRemoved: isRemovedFilter, isSelecting: false,
-                                    isSelected: false, isFocused: isFocused, isEditing: false,
-                                    editingTitle: editingTitle, actions: actions)
-                }
-            }
+    private var archiveHeader: some View {
+        HStack(spacing: 6) {
+            Text(String(format: AgentLocalization.string("Archived (%d)", locale: locale), archived.count))
+                .font(LitheTheme.uiFont(size: 12, weight: .semibold))
+            if isArchivedBusy { ProgressView().controlSize(.mini) }
+            Spacer(minLength: 0)
         }
+        .foregroundStyle(AgentPanelStyle.secondary)
+        .padding(.vertical, 10)
+        .accessibilityIdentifier("agent-history-archived")
     }
+
 }
 
 private struct AgentHistoryRow: View {
@@ -803,7 +807,6 @@ private struct AgentHistoryRow: View {
         .foregroundStyle(AgentPanelStyle.text)
         .padding(.horizontal, 16)
         .frame(maxWidth: .infinity, minHeight: Self.height, maxHeight: Self.height, alignment: .leading)
-        .litheSelectionRow(isSelected: isSelected, isFocused: isFocused, cornerRadius: 0)
         .background(model.isCurrent && !isSelected ? AgentPanelStyle.header : .clear)
         .overlay(alignment: .bottom) { Rectangle().fill(AgentPanelStyle.border).frame(height: 1) }
         .onHover { isHovering = $0 }

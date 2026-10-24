@@ -27,7 +27,6 @@ struct NewProjectView: View {
     @ObservedObject var feature: NewProjectFeatureModel
     @Environment(\.dismiss) private var dismiss
     @FocusState private var isSearchFocused: Bool
-    @State private var listActive = true
 
     private static let sidebarWidth: CGFloat = 240
     private static let labelWidth: CGFloat = 120
@@ -53,40 +52,13 @@ struct NewProjectView: View {
 
     private var sidebar: some View {
         VStack(spacing: 0) {
-            LitheSettingsSearchField("Search", text: $feature.searchText, focus: $isSearchFocused)
+            LitheSearchField("Search", text: $feature.searchText, focus: $isSearchFocused)
                 .padding(.horizontal, 10)
                 .padding(.top, 10)
                 .padding(.bottom, 4)
-            ScrollView {
-                VStack(spacing: 0) {
-                    LitheSidebarHeading("New Project")
-                    ForEach(feature.entries(in: .project)) { entry in
-                        entryRow(entry)
-                    }
-                    if feature.showsEmptyProject {
-                        LitheSidebarRow(
-                            Text(LocalizedStringKey("Empty Project")),
-                            style: .item,
-                            isSelected: feature.selection == .empty,
-                            isFocused: listActive
-                        ) {
-                            feature.selection = .empty
-                        } leading: {
-                            LitheIDEAIcon(resourcePath: "expui/nodes/folder.svg", size: 16, fallbackSystemImage: "folder")
-                        }
-                    }
-                    let generators = feature.entries(in: .generator)
-                    if !generators.isEmpty {
-                        LitheSidebarHeading("Generators")
-                        ForEach(generators) { entry in
-                            entryRow(entry)
-                        }
-                    }
-                }
-                .padding(.horizontal, 6)
-                .padding(.bottom, 10)
-            }
-            .litheScrollViewChrome(alwaysShowVertical: false, usesCompactScrollers: true)
+            LitheTreeList(nodes: sidebarNodes, selection: Binding<String?>(
+                get: { if case .generator(let id) = feature.selection { return "generator:" + id }; return "empty" },
+                set: { _ in }))
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
             Button {
                 feature.openMarketplace(searching: "")
@@ -104,22 +76,35 @@ struct NewProjectView: View {
         .background(LitheTheme.settingsSidebar)
     }
 
-    private func entryRow(_ entry: ProjectGeneratorEntry) -> some View {
-        LitheSidebarRow(
-            Text(LocalizedStringKey(entry.generator.displayName)),
-            style: .item,
-            isSelected: feature.selection == .generator(entry.id),
-            isFocused: listActive
-        ) {
-            feature.selection = .generator(entry.id)
-        } leading: {
-            WorkbenchContributionIcon(
-                asset: .init(entry.generator.icon, resources: feature.icon(for: entry)),
-                role: .listItem
-            )
-            .opacity(entry.pluginEnabled ? 1 : 0.5)
+    private var sidebarNodes: [LitheTreeListNode] {
+        var nodes = [LitheTreeListNode(id: "heading-project", isSelectable: false) { LitheSidebarHeading("New Project") }]
+        nodes += feature.entries(in: .project).map(entryNode)
+        if feature.showsEmptyProject {
+            nodes.append(LitheTreeListNode(id: "empty", onSelect: { feature.selection = .empty }) {
+                HStack(spacing: 8) {
+                    LitheIDEAIcon(resourcePath: "expui/nodes/folder.svg", size: 16, fallbackSystemImage: "folder")
+                    Text("Empty Project")
+                }
+            })
         }
-        .help(entry.pluginEnabled ? Text(verbatim: entry.pluginName) : Text(LocalizedStringKey("Provided by a disabled plugin")))
+        let generators = feature.entries(in: .generator)
+        if !generators.isEmpty {
+            nodes.append(LitheTreeListNode(id: "heading-generators", isSelectable: false) { LitheSidebarHeading("Generators") })
+            nodes += generators.map(entryNode)
+        }
+        return nodes
+    }
+
+    private func entryNode(_ entry: ProjectGeneratorEntry) -> LitheTreeListNode {
+        LitheTreeListNode(id: "generator:" + entry.id, onSelect: { feature.selection = .generator(entry.id) }) {
+            HStack(spacing: 8) {
+                WorkbenchContributionIcon(
+                    asset: .init(entry.generator.icon, resources: feature.icon(for: entry)), role: .listItem)
+                    .opacity(entry.pluginEnabled ? 1 : 0.5)
+                Text(LocalizedStringKey(entry.generator.displayName)).lineLimit(1)
+            }
+            .help(entry.pluginEnabled ? Text(verbatim: entry.pluginName) : Text(LocalizedStringKey("Provided by a disabled plugin")))
+        }
     }
 
     // MARK: Detail
@@ -157,8 +142,7 @@ struct NewProjectView: View {
     private var projectFields: some View {
         VStack(alignment: .leading, spacing: 10) {
             row("Name") {
-                TextField("", text: $feature.projectName)
-                    .litheSettingsTextField()
+                LitheTextField("", text: $feature.projectName)
                     .frame(maxWidth: 360)
                     .accessibilityLabel(Text(LocalizedStringKey("Name")))
             } footer: {
@@ -166,8 +150,7 @@ struct NewProjectView: View {
             }
             row("Location") {
                 HStack(spacing: 6) {
-                    TextField("", text: $feature.location)
-                        .litheSettingsTextField()
+                    LitheTextField("", text: $feature.location)
                         .accessibilityLabel(Text(LocalizedStringKey("Location")))
                     Button {
                         if let path = LitheDirectoryPicker.choose(startingAt: feature.location) {

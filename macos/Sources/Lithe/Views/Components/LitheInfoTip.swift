@@ -7,9 +7,11 @@ import SwiftUI
 /// (Space/Return when focused) opens it too, for users who do not hover. The
 /// text is also the accessibility hint, so VoiceOver reads it without opening.
 struct LitheInfoTip: View {
+    static let size: CGFloat = 18
+    static let labelSpacing: CGFloat = 4
     private static let hoverDelayNanoseconds: UInt64 = 500_000_000
 
-    private let text: LocalizedStringKey
+    private let text: Text
     @State private var isPresented = false
     @State private var isPinned = false
     /// Reference box rather than `@State`: assigning and cancelling the timer
@@ -17,7 +19,11 @@ struct LitheInfoTip: View {
     @State private var hoverTask = HoverTaskBox()
 
     init(_ text: LocalizedStringKey) {
-        self.text = text
+        self.text = Text(text)
+    }
+
+    init(verbatim text: String) {
+        self.text = Text(verbatim: text)
     }
 
     var body: some View {
@@ -28,7 +34,7 @@ struct LitheInfoTip: View {
             Image(systemName: "info.circle")
                 .font(LitheTheme.uiFont(size: 12))
                 .foregroundStyle(isPresented ? LitheTheme.accent : LitheTheme.secondaryText)
-                .frame(width: 18, height: 18)
+                .frame(width: Self.size, height: Self.size)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.litheNoPress)
@@ -54,7 +60,7 @@ struct LitheInfoTip: View {
         .overlay {
             if isPresented {
                 LitheDropdownPopover(isPresented: $isPresented) {
-                    Text(text)
+                    text
                         .font(LitheTheme.uiFont(size: 12))
                         .foregroundStyle(LitheTheme.primaryText)
                         .fixedSize(horizontal: false, vertical: true)
@@ -75,7 +81,9 @@ struct LitheInfoTip: View {
             hoverTask.task = nil
         }
         .accessibilityLabel(Text("More information"))
-        .accessibilityHint(Text(text))
+        .accessibilityHint(text)
+        // Explanations remain reachable when the surrounding field or section is disabled.
+        .environment(\.isEnabled, true)
     }
 }
 

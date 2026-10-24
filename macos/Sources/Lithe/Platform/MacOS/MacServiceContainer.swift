@@ -741,6 +741,7 @@ final class MacServiceContainer {
             pluginCatalog: pluginCatalog,
             pluginUIIconResources: pluginStartup.iconResources,
             pluginWebPages: pluginWebPages,
+            validatePluginNativeUI: declarativePluginOperations.validateNativeNodes,
             languageProviderCatalogSource: languageProviderCatalogSource,
             workspaceLanguageServerPreferences: workspaceLanguageServerPreferences,
             languageProviderCatalogSnapshot: languageProviderCatalogSnapshot,

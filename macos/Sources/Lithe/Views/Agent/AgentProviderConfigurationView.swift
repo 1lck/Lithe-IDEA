@@ -212,7 +212,7 @@ private struct AgentProviderEditorView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     requiredField("Provider name") {
-                        TextField("Provider name", text: $draft.name).litheSettingsTextField()
+                        LitheTextField("Provider name", text: $draft.name)
                             .accessibilityLabel("Provider name")
                     }
                     if draft.isEditingConfigurationText {
@@ -268,29 +268,21 @@ private struct AgentProviderEditorView: View {
         Group {
             requiredField("API Key") {
                 HStack(spacing: 8) {
-                    Group {
-                        if showsAPIKey {
-                            TextField("Enter API key", text: $draft.apiKey)
-                        } else {
-                            SecureField("Enter API key", text: $draft.apiKey)
-                        }
-                    }
-                    .litheSettingsTextField()
+                    LitheTextField("Enter API key", text: $draft.apiKey, secure: !showsAPIKey)
                     .accessibilityLabel("API Key")
                     Button(showsAPIKey ? "Hide API key" : "Show API key") { showsAPIKey.toggle() }
                         .buttonStyle(LitheActionButtonStyle())
                 }
             }
             requiredField("API request URL") {
-                TextField(draft.source == .codex ? "https://api.example.com/v1" : "https://api.example.com", text: $draft.endpoint)
-                    .litheSettingsTextField()
+                LitheTextField(draft.source == .codex ? "https://api.example.com/v1" : "https://api.example.com", text: $draft.endpoint)
                     .accessibilityLabel("API request URL")
                 AgentSettingsHint(draft.source == .codex
                     ? "Base URL for a service compatible with the OpenAI Responses API."
                     : "Base URL for an Anthropic Messages API service.")
             }
             requiredField("Model") {
-                TextField("Enter model ID", text: $draft.model).litheSettingsTextField()
+                LitheTextField("Enter model ID", text: $draft.model)
                     .accessibilityLabel("Model")
                 AgentSettingsHint("Use a model ID supported by your provider.")
             }
