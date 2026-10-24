@@ -6,8 +6,11 @@ set -euo pipefail
 # JDT LS distribution with its Lombok, Debug, and Test extensions, and the
 # JDK it runs on. Everything is fetched and checksum-verified by the shared
 # prepare scripts; this script only arranges the result in the layout
-# plugin.json declares. The assembled package is read-only at runtime.
-# See .agents/notes/implemented/architecture/2026-10-13-java-language-server-as-declarative-plugin.md.
+# plugin.json declares, plus the icons and template directories of the New
+# Project entries (Java, Maven Archetype, Spring Boot). The assembled package
+# is read-only at runtime; projects are generated in the user's chosen folder.
+# See .agents/notes/implemented/architecture/2026-10-13-java-language-server-as-declarative-plugin.md
+# and .agents/notes/implemented/feature/2026-10-23-plugin-project-generators.md.
 
 PLUGIN_DIR="${0:A:h}"
 ROOT_DIR="${PLUGIN_DIR:h:h:h:h}"
@@ -30,7 +33,9 @@ esac
 
 jdtls_root=$(LITHE_ARCH="$ARCH" "$ROOT_DIR/scripts/prepare-jdtls.sh")
 language_server="$OUTPUT_DIR/language-server"
-rm -rf "$language_server" "$OUTPUT_DIR/runtime"
+rm -rf "$language_server" "$OUTPUT_DIR/runtime" "$OUTPUT_DIR/icons" "$OUTPUT_DIR/templates"
+cp -R "$PLUGIN_DIR/icons" "$OUTPUT_DIR/icons"
+cp -R "$PLUGIN_DIR/templates" "$OUTPUT_DIR/templates"
 mkdir -p "$language_server/configuration"
 
 # Only what a macOS launch reads is packaged. The wrapper scripts and the

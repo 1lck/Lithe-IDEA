@@ -118,6 +118,16 @@ pub enum CoreCommand {
     VcsOwnerOf,
     /// Validates and normalizes a VCS provider's reply (`vcs.decodeReply`).
     VcsDecodeReply,
+    /// Lists plugin project generators and who provides their requirements (`project.generatorCatalog`).
+    ProjectGeneratorCatalog,
+    /// Derives a generator form's defaults, visibility, and field errors (`project.generatorForm`).
+    ProjectGeneratorForm,
+    /// Expands a generator's steps into files, argv, and URLs (`project.generationPlan`).
+    ProjectGenerationPlan,
+    /// Validates a new project's name against its parent directory (`project.checkName`).
+    ProjectCheckName,
+    /// Extracts a downloaded archive inside a bounded staging directory (`project.extractArchive`).
+    ProjectExtractArchive,
     /// Validates and filters a marketplace index (`plugins.marketplace.validateIndex`).
     PluginsMarketplaceValidateIndex,
     /// Resolves a user-entered marketplace source URL (`plugins.marketplace.resolveSource`).
@@ -492,6 +502,11 @@ impl CoreCommand {
             "vcs.detectRoots" => Some(Self::VcsDetectRoots),
             "vcs.ownerOf" => Some(Self::VcsOwnerOf),
             "vcs.decodeReply" => Some(Self::VcsDecodeReply),
+            "project.generatorCatalog" => Some(Self::ProjectGeneratorCatalog),
+            "project.generatorForm" => Some(Self::ProjectGeneratorForm),
+            "project.generationPlan" => Some(Self::ProjectGenerationPlan),
+            "project.checkName" => Some(Self::ProjectCheckName),
+            "project.extractArchive" => Some(Self::ProjectExtractArchive),
             "plugins.marketplace.validateIndex" => Some(Self::PluginsMarketplaceValidateIndex),
             "plugins.marketplace.resolveSource" => Some(Self::PluginsMarketplaceResolveSource),
             "plugins.marketplace.installReview" => Some(Self::PluginsMarketplaceInstallReview),

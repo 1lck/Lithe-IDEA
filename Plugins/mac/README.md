@@ -11,7 +11,7 @@ does not need to be rebuilt for each Lithe release; compatibility is decided by
 
 | Package | Distribution | Language server |
 | --- | --- | --- |
-| `JavaSupport` | Bundled in Lithe.app, same Team ID as the host | JDT LS packaged with Lithe |
+| `JavaSupport` | Bundled in Lithe.app, same Team ID as the host | JDT LS packaged with Lithe; New Project entries for Java, Maven Archetype, and Spring Boot ([project generators](../../shared/contracts/plugins/v1/README.md#project-generators)) |
 
 ## Go and PHP moved to Lithe Store
 
