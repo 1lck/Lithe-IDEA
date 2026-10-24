@@ -169,6 +169,7 @@
 "Accept" = "接受";
 "Accept edits" = "接受编辑";
 "Accepts all permissions" = "跳过常规权限审批，仍受环境和管理策略限制。";
+"Account %@" = "账号 %@";
 "Action for %@" = "%@ 的操作";
 "Actions" = "操作";
 "Actions for %@" = "%@ 的操作";
@@ -184,6 +185,7 @@
 "Add a class or method name" = "添加类名或方法名";
 "Add a memory usage indicator to the status bar" = "在状态栏添加内存占用指示器";
 "Add an AI provider in AI Providers first." = "请先在“AI 服务商”中添加服务商。";
+"Add another account" = "添加另一个账号";
 "Add at least one absolute allowed folder path after the Filesystem package argument." = "请在 Filesystem 包参数后至少添加一个允许访问的文件夹绝对路径。";
 "Add at least one absolute folder path after the package argument, one per line. Filesystem can read and write only in the folders you allow. Requires Node.js 24 or later." = "在包参数后至少添加一个文件夹的绝对路径，每行一个。Filesystem 只可读写你允许的文件夹。需要 Node.js 24 或更高版本。";
 "Add database connection" = "添加数据库连接";
@@ -321,6 +323,7 @@
 "Arguments from the page:" = "页面提供的参数：";
 "Arguments passed to the program" = "传递给程序的参数";
 "Artifact" = "工件";
+"As of %@; not refreshed by Lithe." = "截至 %@，本次未主动刷新";
 "As of %@; updated only while replying." = "截至 %@，仅在回复时更新。";
 "Ask before closing a tab with running programs" = "关闭仍有程序运行的标签页前先确认";
 "Ask before stopping" = "停止前询问";
@@ -958,6 +961,7 @@
 "Deep reasoning for complex tasks" = "深度推理，适合复杂任务";
 "Default" = "默认";
 "Default ChangeList" = "默认更改列表";
+"Default account" = "默认账号";
 "Default directory" = "默认目录";
 "Default instructions" = "默认指令";
 "Default options" = "默认参数";
@@ -1103,6 +1107,7 @@
 "Duplicate Connection" = "复制连接";
 "Duration: %lld ms" = "耗时：%lld 毫秒";
 "Each Agent keeps its own configuration file. Turning an Agent off removes only the entry Lithe wrote; an entry created outside Lithe is never removed without taking ownership first." = "每个 Agent 使用各自的配置文件。关闭某个 Agent 只会移除 Lithe 写入的条目；在 Lithe 之外创建的条目必须先接管所有权才会被移除。";
+"Each account is a separate configuration folder of the official CLI. Sign-in runs the CLI's own login command in the background and opens your browser, so Lithe never reads or copies credentials. Switching restarts this project's connection for this Agent and is refused while a reply or permission request is pending. Lithe never switches accounts by itself when a limit is reached." = "每个账号对应官方 CLI 的一个独立配置目录。登录会在后台运行 CLI 自己的登录命令并打开浏览器，Lithe 不会读取或复制任何凭据。切换账号会重启当前项目中该 Agent 的连接，正在回复或等待授权时会被拒绝。额度用尽时 Lithe 不会自动换账号。";
 "Each built-in preset includes a preview of the generated message." = "三个内置预设都会显示生成信息示例。";
 "Each repository has its own commit. Completed steps are kept if another repository fails." = "每个仓库会分别提交。某个仓库失败时，已完成的步骤仍会保留。";
 "Each row explains the setting, the value Git is actually using, and where that value comes from." = "每一行都会说明设置用途、Git 实际采用的值，以及这个值来自哪里。";
@@ -2301,6 +2306,7 @@
 "Overview" = "概览";
 "PHP Support" = "PHP 支持";
 "PHP language support will be removed after restarting Lithe." = "重启 Lithe 后将移除 PHP 语言支持。";
+"Pace %@" = "配速 %@";
 "Package" = "包";
 "Package name" = "软件包名称";
 "Package the redacted application log with an environment and performance snapshot into a zip you can attach to a bug report. Credentials, tokens, and home-directory paths are removed automatically, and you can review the file list before anything is written." = "将脱敏后的应用日志与环境和性能快照打包成一个 zip 压缩包，可附在错误报告中。凭据、令牌和用户目录路径会被自动移除，你也可以在写入任何内容之前先查看文件清单。";
@@ -2376,6 +2382,7 @@
 "Port" = "端口";
 "Posting comment…" = "正在发表评论…";
 "PowerShell Support" = "PowerShell 支持";
+"Preferred" = "首选";
 "Preflight" = "预检";
 "Preparing conversation…" = "正在准备对话…";
 "Preparing download…" = "正在准备下载…";
@@ -2630,6 +2637,7 @@
 "Remove All" = "全部移除";
 "Remove Connection" = "移除连接";
 "Remove Worktree…" = "删除工作树…";
+"Remove account" = "移除账号";
 "Remove file %@" = "移除文件 %@";
 "Remove from Recent Projects" = "从最近项目中移除";
 "Remove from favorites" = "取消收藏";
@@ -2641,6 +2649,7 @@
 "Remove stale remote branches" = "清理失效的远程分支";
 "Remove stale tags" = "清理失效标签";
 "Remove the selected commit and its changes from this branch. Later commits will be replayed. A recovery reference will retain the original history." = "从当前分支历史中移除所选提交及其更改，并重放后续提交。恢复引用会保留原始历史。";
+"Remove this account from Lithe? Its sign-in folder is left on disk untouched." = "从 Lithe 中移除此账号？它的登录目录会原样保留在磁盘上。";
 "Remove worktree?" = "删除工作树？";
 "Removed" = "已删除";
 "Removed %@" = "已删除 %@";
@@ -2707,6 +2716,7 @@
 "Reset current branch?" = "重置当前分支？";
 "Reset this setting to its inherited value" = "将此设置重置为继承值";
 "Reset to Default" = "恢复默认值";
+"Resets %@" = "重置于 %@";
 "Resets: %@" = "重置时间：%@";
 "Resident Memory" = "驻留内存";
 "Resident memory of Lithe and its managed process trees" = "Lithe 及其托管进程树的常驻内存";
@@ -2984,6 +2994,7 @@
 "Session" = "会话";
 "Session statistics" = "会话统计";
 "Set Up Agent File Attachments…" = "设置 Agent 文件附件…";
+"Set as preferred" = "设为首选";
 "Set the custom Agent's executable in the panel settings." = "请在设置窗口的 Agent 页面中填写自定义 Agent 的可执行文件。";
 "Set the defaults used by ordinary Fetch in every project. Credentials use your existing Git helper and SSH configuration." = "设置所有项目中普通 Fetch 使用的默认行为。凭据使用现有的 Git 凭据助手和 SSH 配置。";
 "Set your Git name and email in Settings before committing." = "提交前，请先在设置页填写 Git 姓名和邮箱。";
@@ -3073,10 +3084,13 @@
 "Showing the previous Java entries while the Java language service prepares the project." = "Java 语言服务正在准备项目，暂时显示上次的 Java 入口。";
 "Shown across the entire workbench, including toolbars, project tree, editor, tabs, terminals, and status bar." = "显示在整个工作台内，包括工具栏、项目文件树、编辑区、标签栏、终端和状态栏。";
 "Side-by-side" = "并排";
+"Sign in again" = "重新登录";
 "Sign in to Codex" = "登录 Codex";
 "Sign in to GitHub" = "登录 GitHub";
 "Sign in to view and manage pull requests." = "登录后即可查看和管理拉取请求。";
 "Sign in with ChatGPT" = "登录 ChatGPT";
+"Sign-in did not finish. Check that the Agent's CLI is installed, then try again." = "登录没有完成。请确认已安装该 Agent 的 CLI，然后重试。";
+"Sign-in timed out. Try again." = "登录超时，请重试。";
 "Signals that the changes are ready to merge. A summary is optional." = "表示这些更改已可合并，可选择填写说明。";
 "Signature" = "签名";
 "Signed in through the ACP gateway with the API key from your local configuration." = "使用本机配置中的 API 密钥通过 ACP 网关登录。";
@@ -3225,6 +3239,7 @@
 "Subagents" = "子代理";
 "Subject maximum length" = "标题最大长度";
 "Submitting review…" = "正在提交审查…";
+"Subscription accounts" = "订阅账号";
 "Succeeded" = "成功";
 "Succeeded, line %d" = "成功，第 %d 行";
 "Supplementary message cancelled." = "补充消息已取消。";
@@ -3471,6 +3486,7 @@
 "Thinking…" = "思考中…";
 "This Agent" = "该 Agent";
 "This Agent cannot reopen earlier conversations. Start a new conversation." = "该 Agent 无法重新打开更早的对话，请新建对话。";
+"This Agent has no account sign-in." = "此 Agent 不支持账号登录。";
 "This Agent has no global MCP configuration file." = "该 Agent 没有全局 MCP 配置文件。";
 "This Agent is no longer configured. Open Agent settings to configure it." = "此 Agent 已取消配置，请打开 Agent 设置重新配置。";
 "This Agent's provider has no API key. Update its local configuration or edit the custom provider in the panel settings." = "此 Agent 的供应商未配置 API 密钥，请更新本机配置或在设置窗口的 Agent 页面中编辑自定义供应商。";
@@ -3695,6 +3711,7 @@
 "Upstream branch" = "上游分支";
 "Uptime" = "运行时长";
 "Usage appears after the next reply." = "下一次回复后显示用量。";
+"Usage is whatever the Agent last reported. Claude Code reports it while a reply runs; Codex is also refreshed about once a minute while the Agent panel is open. Lithe never queries the account itself, so a value can be out of date, and an account you are not using keeps its last values until you switch back. A window that has already reset is shown without a reset time or pace." = "用量是 Agent 最近一次报告的值。Claude Code 只在回复过程中报告；Codex 在 Agent 面板打开时还会约每分钟刷新一次。Lithe 不会自己查询账号，所以数值可能已经过时；没在使用的账号会保留最后的值，直到你切换回去。已经重置的窗口不再显示重置时间和配速。";
 "Usages" = "调用位置";
 "Use %@ configuration" = "使用 %@ 配置";
 "Use 1–80 letters, digits, hyphens or underscores. Names must be unique." = "使用 1–80 个字母、数字、连字符或下划线，名称不能重复。";
@@ -3788,6 +3805,7 @@
 "Waiting for GitHub…" = "正在等待 GitHub 授权…";
 "Waiting for JVM performance data…" = "正在等待 JVM 性能数据…";
 "Waiting for a local test JVM…" = "正在等待本地测试 JVM…";
+"Waiting for browser sign-in…" = "正在等待浏览器登录…";
 "Waiting for debugger output…" = "等待调试器输出…";
 "Waiting for download data. Check your network or proxy if this continues." = "正在等待下载数据。如果持续无进展，请检查网络或代理。";
 "Waiting for permission…" = "等待授权…";
@@ -3993,6 +4011,23 @@
 "native.afterAToolRuns" = "工具运行后";
 "native.afterLitheClosesUnexpectedly" = "Lithe 意外关闭后";
 "native.agent" = "Agent";
+"native.agentAccountAdd" = "添加另一个账号";
+"native.agentAccountDefaultName" = "账号 %1$@";
+"native.agentAccountPace" = "配速 %1$@";
+"native.agentAccountPreferred" = "首选";
+"native.agentAccountRemove" = "移除账号";
+"native.agentAccountRemoveMessage" = "从 Lithe 中移除此账号？它的登录目录会原样保留在磁盘上。";
+"native.agentAccountResets" = "重置于 %1$@";
+"native.agentAccountSetPreferred" = "设为首选";
+"native.agentAccountSignInAgain" = "重新登录";
+"native.agentAccountSignInFailed" = "登录没有完成。请确认已安装该 Agent 的 CLI，然后重试。";
+"native.agentAccountSignInTimedOut" = "登录超时，请重试。";
+"native.agentAccountSignInUnsupported" = "此 Agent 不支持账号登录。";
+"native.agentAccountSnapshotNote" = "截至 %1$@，本次未主动刷新";
+"native.agentAccountUsageInfo" = "用量是 Agent 最近一次报告的值。Claude Code 只在回复过程中报告；Codex 在 Agent 面板打开时还会约每分钟刷新一次。Lithe 不会自己查询账号，所以数值可能已经过时；没在使用的账号会保留最后的值，直到你切换回去。已经重置的窗口不再显示重置时间和配速。";
+"native.agentAccountWaiting" = "正在等待浏览器登录…";
+"native.agentAccounts" = "订阅账号";
+"native.agentAccountsInfo" = "每个账号对应官方 CLI 的一个独立配置目录。登录会在后台运行 CLI 自己的登录命令并打开浏览器，Lithe 不会读取或复制任何凭据。切换账号会重启当前项目中该 Agent 的连接，正在回复或等待授权时会被拒绝。额度用尽时 Lithe 不会自动换账号。";
 "native.agentChangeRollbackIsUnavailable" = "当前无法回撤 Agent 修改。";
 "native.agentCommands" = "Agent 命令";
 "native.agentConfiguration" = "Agent 配置";
@@ -4769,6 +4804,7 @@
 "native.decreaseFontSize" = "减小字号";
 "native.deepReasoningForComplexTasks" = "深度推理，适合复杂任务";
 "native.default" = "默认";
+"native.defaultAgentAccount" = "默认账号";
 "native.defaultChangeList" = "默认更改列表";
 "native.defaultDirectory" = "默认目录";
 "native.defaultInstructions" = "默认指令";

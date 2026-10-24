@@ -794,6 +794,7 @@ final class MacServiceContainer {
                 sharedDirectory: fileStorage.applicationSupportDirectory().appendingPathComponent("Lithe/AgentInstructions", isDirectory: true)),
             agentHooks: RustAgentHooksService(core: rustCore,
                 directory: fileStorage.applicationSupportDirectory().appendingPathComponent("Lithe/AgentHooks", isDirectory: true)),
+            agentAccountSignIn: MacAgentAccountSignIn(runner: processRunner),
             agentProviderConfigurationParser: MacAgentProviderConfigurationParser(core: rustCore),
             aiConfigurationSources: aiConfigurationSources,
             recentProjectsStore: RecentProjectsStore(store: store, excludes: { remoteWorkspaces.contains($0) }),

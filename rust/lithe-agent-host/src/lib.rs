@@ -116,6 +116,15 @@ pub struct AgentLaunch {
     /// Exported as [`AGENT_SCOPE_ENVIRONMENT`] to the agent process tree.
     #[serde(default)]
     pub process_scope: Option<String>,
+    /// Claude Code configuration directory of one account, exported as
+    /// `CLAUDE_CONFIG_DIR`. Only the Claude subscription mode accepts it; the
+    /// directory holds the official CLI's own login and Lithe never reads it.
+    #[serde(default)]
+    pub claude_config_dir: Option<PathBuf>,
+    /// Codex home directory of one account, exported as `CODEX_HOME`, including
+    /// to the quota probe. Only the Codex subscription mode accepts it.
+    #[serde(default)]
+    pub codex_home: Option<PathBuf>,
 }
 
 /// Subscription access is explicit: each mode is limited to its own installed adapter.
@@ -218,6 +227,8 @@ struct ResolvedLaunch {
     subscription_cli: Option<PathBuf>,
     /// The signed-in Claude Code CLI pays: no route, key or token is injected.
     claude_subscription: bool,
+    /// Account directory the Codex quota probe must share with the adapter.
+    codex_home: Option<PathBuf>,
 }
 
 #[cfg(test)]
@@ -299,6 +310,7 @@ fn resolve_with(
             secret: provider.api_key,
             subscription_cli: None,
             claude_subscription: false,
+            codex_home: None,
         });
     };
     let agent = catalog::find(&agent_id).ok_or_else(|| format!("Unknown agent `{agent_id}`"))?;
@@ -356,6 +368,7 @@ fn resolve_with(
         secret: provider.api_key,
         subscription_cli: None,
         claude_subscription: false,
+        codex_home: None,
     })
 }
 
@@ -1138,6 +1151,7 @@ async fn run_agent(
         launch.cwd,
         launch.gateway,
         launch.subscription_cli,
+        launch.codex_home,
         claude_subscription,
         history,
         context_recovery,
@@ -1287,6 +1301,7 @@ async fn run_connection<OB, IB>(
     cwd: PathBuf,
     gateway: Option<GatewaySignIn>,
     subscription_cli: Option<PathBuf>,
+    codex_home: Option<PathBuf>,
     claude_subscription: bool,
     history: Option<codex_history::CodexHistory>,
     context_recovery: Option<Arc<codex_context::Recovery>>,
@@ -1515,9 +1530,12 @@ where
                 .map_err(|_| internal("The Agent did not finish API key sign-in in time"))??;
             }
             if claude_subscription {
-                claude_subscription::ensure_signed_in(&mut auth_rx)
+                let account = claude_subscription::ensure_signed_in(&mut auth_rx)
                     .await
                     .map_err(|message| internal(&message))?;
+                if let Some(account) = account {
+                    emit(AgentEvent::Account { account });
+                }
             }
             let account = if subscription_cli.is_some() {
                 if !initialized.auth_methods.iter().any(|method| method.id().0.as_ref() == "chat-gpt") {
@@ -1596,9 +1614,9 @@ where
                         if quota_running.load(Ordering::SeqCst) || last_quota.is_some_and(|time| time.elapsed() < subscription::QUOTA_INTERVAL) { continue; }
                         quota_running.store(true, Ordering::SeqCst);
                         last_quota = Some(tokio::time::Instant::now());
-                        let (cli, cwd, account, emit, running) = (cli.clone(), cwd.clone(), account.clone(), emit.clone(), quota_running.clone());
+                        let (cli, cwd, account, emit, running, home) = (cli.clone(), cwd.clone(), account.clone(), emit.clone(), quota_running.clone(), codex_home.clone());
                         tasks.spawn(async move {
-                            let result = subscription::read_quota(&cli, &cwd, &account).await;
+                            let result = subscription::read_quota(&cli, &cwd, &account, home.as_deref()).await;
                             emit(match result {
                                 Ok(snapshot) => AgentEvent::Quota { snapshot },
                                 Err(code) => AgentEvent::QuotaFailed { code: code.into() },

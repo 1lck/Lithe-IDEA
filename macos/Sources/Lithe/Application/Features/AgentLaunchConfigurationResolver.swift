@@ -20,7 +20,8 @@ struct AgentLaunchConfigurationResolver {
                 providerProtocol: "", providerEndpoint: "", apiKey: "", providerName: "", model: "",
                 allowsInsecureHTTP: false, authentication: authentication,
                 // Only the Codex account route has an observable inference endpoint.
-                observesModelCalls: authentication == .codexSubscription && settings.agentModelCallStatistics)
+                observesModelCalls: authentication == .codexSubscription && settings.agentModelCallStatistics,
+                accountDirectory: settings.preferredAgentAccountDirectory(for: agentID))
         }
         guard var provider = settings.agentProvider(for: agentID) else {
             throw AgentConversationError.missingProvider

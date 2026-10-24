@@ -35,6 +35,8 @@ pub(crate) struct CodexHistory {
     executable: PathBuf,
     cwd: PathBuf,
     model_provider: &'static str,
+    /// Account directory, so archived history belongs to the selected account.
+    codex_home: Option<PathBuf>,
 }
 
 impl CodexHistory {
@@ -51,6 +53,7 @@ impl CodexHistory {
             executable,
             cwd: cwd.clone(),
             model_provider: SUBSCRIPTION_PROVIDER,
+            codex_home: None,
         };
         probe
             .exchange_cancellable(
@@ -94,6 +97,7 @@ impl CodexHistory {
             executable,
             cwd: cwd.clone(),
             model_provider: SUBSCRIPTION_PROVIDER,
+            codex_home: None,
         };
         probe
             .exchange_cancellable(
@@ -129,6 +133,7 @@ impl CodexHistory {
             executable,
             cwd: launch.cwd.clone(),
             model_provider,
+            codex_home: launch.codex_home.clone(),
         })
     }
 
@@ -236,6 +241,9 @@ impl CodexHistory {
         let mut process = std::process::Command::new(&self.executable);
         // History needs no credentials; never hand API overrides to this process.
         subscription::isolate_environment(&mut process);
+        if let Some(home) = &self.codex_home {
+            process.env(subscription::CODEX_HOME_ENVIRONMENT, home);
+        }
         process
             .arg("app-server")
             .current_dir(&self.cwd)

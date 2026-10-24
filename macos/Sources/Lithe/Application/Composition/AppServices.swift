@@ -81,6 +81,8 @@ final class AppServices {
     let agentManagement: any AgentManagementService
     let agentInstructions: any AgentInstructionsService
     let agentHooks: any AgentHooksService
+    /// Runs the official CLI login for an extra subscription account.
+    let agentAccountSignIn: any AgentAccountSigningIn
     let agentProviderConfigurationParser: any AgentProviderConfigurationParsing
     let aiConfigurationSources: [any AIConfigurationSource]
     let recentProjectsStore: RecentProjectsStore
@@ -129,6 +131,7 @@ final class AppServices {
         agentManagement: any AgentManagementService = UnavailableAgentManagementService(),
         agentInstructions: any AgentInstructionsService = UnavailableAgentInstructionsService(),
         agentHooks: any AgentHooksService = UnavailableAgentHooksService(),
+        agentAccountSignIn: any AgentAccountSigningIn = UnavailableAgentAccountSignIn(),
         agentProviderConfigurationParser: any AgentProviderConfigurationParsing = UnavailableAgentProviderConfigurationParser(),
         aiConfigurationSources: [any AIConfigurationSource],
         recentProjectsStore: RecentProjectsStore,
@@ -189,6 +192,7 @@ final class AppServices {
         self.agentManagement = agentManagement
         self.agentInstructions = agentInstructions
         self.agentHooks = agentHooks
+        self.agentAccountSignIn = agentAccountSignIn
         self.agentProviderConfigurationParser = agentProviderConfigurationParser
         self.aiConfigurationSources = aiConfigurationSources
         self.recentProjectsStore = recentProjectsStore
