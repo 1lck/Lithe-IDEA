@@ -170,7 +170,7 @@ struct CoreRejection: Decodable, Equatable, Sendable, Error {
 
 /// Why Rust Core does not accept a value. Hosts localize by code.
 enum ProjectFieldProblem: String, Decodable, Equatable, Sendable {
-    case required, tooLong, invalidFormat, unsupportedValue, runtimeTooOld
+    case required, tooLong, invalidFormat, unsupportedValue, runtimeTooOld, versionTooHigh
 }
 
 /// A selected runtime installation of a runtime field.

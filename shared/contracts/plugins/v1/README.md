@@ -1040,11 +1040,17 @@ generator ID.
 
 | `type` | Value | Properties |
 | --- | --- | --- |
-| `text` | A string | `default` (a template over `${project.name}` and earlier fields, re-evaluated until the user edits the field), `pattern` (matched as a whole), `maxLength` (default 256, at most 1024), `placeholder`, `optional` |
-| `enum` | One option | `options` (1–16 `{value, title}`), `default` (the first option otherwise), `presentation` (`segmented` or `menu`) |
+| `text` | A string | `default` (a template over `${project.name}` and earlier fields, re-evaluated until the user edits the field), `pattern` (matched as a whole), `maxLength` (default 256, at most 1024), `placeholder`, `optional`, `maximumVersion` |
+| `enum` | One option | `options` (1–16 `{value, title}`), `default` (the first option otherwise), `presentation` (`segmented` or `menu`), `maximumVersion` |
 | `boolean` | `true` or `false` | `default` |
 | `multiSelect` | A list of options, kept in declaration order | `options` (1–128, each with an optional `group` heading), `default` |
 | `runtime` | A host-discovered installation | `runtime` (`java`), `minimumVersion`, `optional`. The host chooses the initial value. |
+
+`maximumVersion` is a template over earlier fields naming the highest version
+the value may be, compared numerically by dotted components. A target Java
+release that must not exceed the selected JDK declares
+`"maximumVersion": "${field.jdk.major}"`; while the bound expands to an empty
+string (no JDK chosen yet) nothing is checked.
 
 Every field takes `id` (lowerCamelCase), `title`, `description` (shown behind
 an info tip), `advanced` (listed under the collapsed "Advanced Settings"
@@ -1111,8 +1117,8 @@ file, and 8 MiB in total; archives to 20,000 entries and 512 MiB extracted.
 to values; a text value counts only when its ID is in `edited`, so derived
 defaults keep following the fields they read. `runtimes` maps runtime field
 IDs to `{home, version}` of the user's selection. A field `problem` is one of
-`required`, `tooLong`, `invalidFormat`, `unsupportedValue`, and
-`runtimeTooOld`; hosts localize by code. Plan steps are `{kind:
+`required`, `tooLong`, `invalidFormat`, `unsupportedValue`, `runtimeTooOld`,
+and `versionTooHigh`; hosts localize by code. Plan steps are `{kind:
 "writeFiles", files: [{path, contents, executable}]}`, `{kind: "command",
 command, arguments, environment, collect, mayUseNetwork, timeoutSeconds}`, and
 `{kind: "archive", url, host, format: "zip"}`.

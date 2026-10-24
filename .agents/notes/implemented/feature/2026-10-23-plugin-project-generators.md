@@ -33,7 +33,7 @@
 
 ### 2. 清单：`projectGenerators` 1
 
-每个生成器只声明：展示（`displayName`、`section`、`icon`、`order`）、字段（`fields`）、需要的语言或构建系统（`requirements`）、步骤（`steps`）、创建后打开的文件（`openFiles`）。字段类型沿用插件设置的命名（`text`、`enum`、`boolean`、`multiSelect`），另加 `runtime`（宿主发现的 JDK）。字段只能读在它之前声明的字段，所以默认值一次求完，显示条件不会成环。
+每个生成器只声明：展示（`displayName`、`section`、`icon`、`order`）、字段（`fields`）、需要的语言或构建系统（`requirements`）、步骤（`steps`）、创建后打开的文件（`openFiles`）。字段类型沿用插件设置的命名（`text`、`enum`、`boolean`、`multiSelect`），另加 `runtime`（宿主发现的 JDK）。字段只能读在它之前声明的字段，所以默认值一次求完，显示条件不会成环。跨字段的版本约束也按这个顺序声明：`text`、`enum` 字段的 `maximumVersion` 是读取前面字段的模板，Spring Boot 的目标 Java 写 `${field.jdk.major}`，Core 在表单和计划阶段都拒绝高于所选 JDK 的组合（`versionTooHigh`），宿主不用为生成器写分支。
 
 步骤三种，按顺序在临时目录里执行：
 
@@ -57,6 +57,8 @@
 2. 宿主在目标父目录下建 `.<name>.lithe-creating-<随机>` 临时目录，按步骤执行。压缩包由 Core 的 `project.extractArchive` 解压：拒绝目录外路径、符号链接、覆盖已有文件，并限制实际写出的字节数。
 3. 全部成功才原子移动到最终位置；目标已存在就拒绝。失败或取消时删除临时目录。
 4. 所选 JDK 通过 `ProjectRuntimeService.presetJavaHome` 写成新项目的 JDK；勾选 Git 时用 `git.initialize` 建仓库；`openFiles` 写进新项目的工作区会话，项目在哪个窗口打开都会恢复这些标签。
+
+压缩包边下载边计数，超过 256 MiB 立即取消，不先占满磁盘；服务器拒绝请求时最多读 64 KiB 的错误说明。
 
 插件包、app bundle 只读；写入只发生在用户选的目录和一个临时下载文件里，不影响代码签名和 Sparkle delta。
 

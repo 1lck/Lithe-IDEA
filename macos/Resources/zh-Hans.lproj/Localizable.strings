@@ -4028,6 +4028,7 @@
 "The value is not in the expected format." = "格式不正确。";
 "Choose one of the offered values." = "请从提供的选项中选择。";
 "This runtime is older than the generator requires." = "此运行时版本低于模板要求。";
+"This version is newer than the selected runtime supports." = "该版本高于所选运行时支持的版本。";
 "%@ already exists. Choose another name or location." = "%@ 已存在，请更换名称或位置。";
 "%@ finished without creating %@." = "%1$@ 已结束，但没有生成 %2$@。";
 "Lithe could not find %@. Install it or add it to PATH, then try again." = "Lithe 找不到 %@。请安装它或将它加入 PATH 后重试。";

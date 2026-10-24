@@ -8,7 +8,10 @@ import LitheCoreContracts
 /// nothing is written to the application bundle or a plugin package.
 final class MacProjectGenerationPlatform: ProjectGenerationPlatform, @unchecked Sendable {
     /// Largest archive Lithe downloads for a new project.
-    static let maximumDownloadBytes: Int64 = 256 * 1024 * 1024
+    static let defaultMaximumDownloadBytes: Int64 = 256 * 1024 * 1024
+    /// Largest error body read for the server's explanation.
+    static let maximumErrorBodyBytes = 64 * 1024
+    private static let writeChunkBytes = 256 * 1024
     /// Lines of tool output kept for an error message.
     private static let outputTailLines = 20
 
@@ -19,6 +22,7 @@ final class MacProjectGenerationPlatform: ProjectGenerationPlatform, @unchecked 
     private let executable: @MainActor (String) -> URL?
     private let runner: any BuildCommandRunning
     private let session: URLSession
+    private let maximumDownloadBytes: Int64
     private let fileManager: FileManager
 
     init(
@@ -26,12 +30,14 @@ final class MacProjectGenerationPlatform: ProjectGenerationPlatform, @unchecked 
         executable: @escaping @MainActor (String) -> URL?,
         runner: any BuildCommandRunning,
         session: URLSession = .shared,
+        maximumDownloadBytes: Int64 = defaultMaximumDownloadBytes,
         fileManager: FileManager = .default
     ) {
         self.environment = environment
         self.executable = executable
         self.runner = runner
         self.session = session
+        self.maximumDownloadBytes = maximumDownloadBytes
         self.fileManager = fileManager
     }
 
@@ -114,26 +120,58 @@ final class MacProjectGenerationPlatform: ProjectGenerationPlatform, @unchecked 
         }
     }
 
+    /// Streams the archive to a temporary file and stops as soon as it
+    /// passes the download budget, so an oversized or endless response
+    /// never fills the disk first. A refused request reads at most
+    /// `maximumErrorBodyBytes` of the server's explanation.
     func download(_ url: URL) async throws -> URL {
         var request = URLRequest(url: url, timeoutInterval: 120)
         request.setValue("application/zip", forHTTPHeaderField: "Accept")
-        let (temporary, response) = try await session.download(for: request)
-        let destination = fileManager.temporaryDirectory
-            .appendingPathComponent("lithe-project-\(UUID().uuidString).zip")
-        try fileManager.moveItem(at: temporary, to: destination)
+        let (bytes, response) = try await session.bytes(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-        let size = (try? fileManager.attributesOfItem(atPath: destination.path)[.size] as? Int64) ?? 0
-        guard (200..<300).contains(status), size <= Self.maximumDownloadBytes else {
-            let detail = Self.serverMessage(at: destination)
-            removeItem(at: destination)
-            if size > Self.maximumDownloadBytes {
-                throw ProjectGenerationError(message: String(localized: "The project archive from \(url.host ?? "") is too large."))
-            }
+        guard (200..<300).contains(status) else {
+            let detail = await Self.serverMessage(in: bytes)
+            bytes.task.cancel()
             throw ProjectGenerationError(message: String(
                 localized: "\(url.host ?? "The server") answered with status \(status). \(detail)"
             ))
         }
-        return destination
+        let tooLarge = ProjectGenerationError(message: String(
+            localized: "The project archive from \(url.host ?? "") is too large."
+        ))
+        // A declared length over the limit is refused before reading the body.
+        guard response.expectedContentLength <= maximumDownloadBytes else {
+            bytes.task.cancel()
+            throw tooLarge
+        }
+        let destination = fileManager.temporaryDirectory
+            .appendingPathComponent("lithe-project-\(UUID().uuidString).zip")
+        guard fileManager.createFile(atPath: destination.path, contents: nil) else {
+            bytes.task.cancel()
+            throw ProjectGenerationError(message: String(localized: "Lithe could not create a temporary download file."))
+        }
+        do {
+            let handle = try FileHandle(forWritingTo: destination)
+            defer { try? handle.close() }
+            var buffer = Data()
+            buffer.reserveCapacity(Self.writeChunkBytes)
+            var received: Int64 = 0
+            for try await byte in bytes {
+                received += 1
+                guard received <= maximumDownloadBytes else { throw tooLarge }
+                buffer.append(byte)
+                if buffer.count >= Self.writeChunkBytes {
+                    try handle.write(contentsOf: buffer)
+                    buffer.removeAll(keepingCapacity: true)
+                }
+            }
+            try handle.write(contentsOf: buffer)
+            return destination
+        } catch {
+            bytes.task.cancel()
+            removeItem(at: destination)
+            throw error
+        }
     }
 
     func collect(_ subdirectory: URL, into root: URL) throws {
@@ -165,10 +203,18 @@ final class MacProjectGenerationPlatform: ProjectGenerationPlatform, @unchecked 
     }
 
     /// Spring Initializr and similar servers explain a refused request in a
-    /// small JSON body; anything else is not shown.
-    private static func serverMessage(at url: URL) -> String {
-        guard let data = try? Data(contentsOf: url), data.count < 64 * 1024,
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+    /// small JSON body; a longer or different body is not shown.
+    private static func serverMessage(in bytes: URLSession.AsyncBytes) async -> String {
+        var data = Data()
+        do {
+            for try await byte in bytes {
+                guard data.count < maximumErrorBodyBytes else { return "" }
+                data.append(byte)
+            }
+        } catch {
+            return ""
+        }
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let message = object["message"] as? String else { return "" }
         return message
     }

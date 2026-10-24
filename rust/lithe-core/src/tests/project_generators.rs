@@ -185,6 +185,8 @@ fn official_java_templates_validate_and_plan() {
         .1;
     assert!(pom.contains("<artifactId>demo-app</artifactId>"));
     assert!(pom.contains("<maven.compiler.release>25</maven.compiler.release>"));
+    // Maven 3.8's default Compiler 3.1 ignores the release property.
+    assert!(pom.contains("<artifactId>maven-compiler-plugin</artifactId>"));
     assert_eq!(
         maven["plan"]["openFiles"],
         json!(["src/main/java/org/example/Main.java"])
@@ -337,7 +339,10 @@ fn project_generators_need_api_level_3() {
 fn generator_commands_require_install_review_again() {
     let mut manifest = json(FIXTURE);
     let generators = manifest["projectGenerators"].as_array_mut().unwrap();
-    let archetype = generators.iter().position(|g| g["id"] == "archetype").unwrap();
+    let archetype = generators
+        .iter()
+        .position(|g| g["id"] == "archetype")
+        .unwrap();
     let command_generator = generators.remove(archetype);
     let first = install_review_command(json!({ "manifest": manifest })).unwrap();
     assert_eq!(first["status"], "ok", "{first}");
@@ -381,4 +386,24 @@ fn generator_commands_require_install_review_again() {
         1,
         "{changed}"
     );
+}
+
+/// Spring Boot's target Java release follows the selected JDK, so a project
+/// the saved JDK cannot compile is refused before anything is downloaded.
+#[test]
+fn spring_boot_refuses_a_java_release_newer_than_the_jdk() {
+    let plan = |jdk: &str, java: &str| {
+        project_generation_plan_command(json!({
+            "manifest": json(OFFICIAL_JAVA),
+            "generatorID": "spring-boot",
+            "packagePath": official_package_path(),
+            "form": {"projectName": "demo", "values": {"javaVersion": java},
+                     "runtimes": {"jdk": {"home": "/jdk", "version": jdk}}},
+        }))
+        .unwrap()
+    };
+    let refused = plan("17.0.12", "21");
+    assert_ne!(refused["status"], "ok", "{refused}");
+    assert!(refused.to_string().contains("versionTooHigh"), "{refused}");
+    assert_eq!(plan("21.0.4", "21")["status"], "ok");
 }

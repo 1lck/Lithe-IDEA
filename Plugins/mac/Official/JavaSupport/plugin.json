@@ -394,6 +394,7 @@
           "id": "javaVersion",
           "type": "enum",
           "title": "Java",
+          "maximumVersion": "${field.jdk.major}",
           "presentation": "menu",
           "default": "17",
           "options": [

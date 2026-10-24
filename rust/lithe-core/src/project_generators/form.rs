@@ -51,6 +51,8 @@ pub(crate) enum FieldProblem {
     InvalidFormat,
     UnsupportedValue,
     RuntimeTooOld,
+    /// The value names a newer version than `maximumVersion` allows.
+    VersionTooHigh,
 }
 
 impl FieldProblem {
@@ -61,6 +63,7 @@ impl FieldProblem {
             Self::InvalidFormat => "invalidFormat",
             Self::UnsupportedValue => "unsupportedValue",
             Self::RuntimeTooOld => "runtimeTooOld",
+            Self::VersionTooHigh => "versionTooHigh",
         }
     }
 }
@@ -108,6 +111,7 @@ pub(crate) fn evaluate(generator: &ProjectGeneratorDeclaration, input: &FormInpu
     for field in &generator.fields {
         let visible = holds(field.visible_when.as_ref(), &values);
         let (value, template_value, problem) = resolve(field, input, &values);
+        let problem = problem.or_else(|| version_too_high(field, input, &values, &template_value));
         if visible {
             values.insert(field.id.clone(), template_value);
         }
@@ -276,6 +280,29 @@ fn resolve(
     }
 }
 
+/// Compares a value with the field's `maximumVersion`, expanded over the
+/// earlier fields. An empty value or bound (no JDK chosen yet) is left to the
+/// fields' own checks.
+fn version_too_high(
+    field: &GeneratorField,
+    input: &FormInput,
+    earlier: &BTreeMap<String, FieldValue>,
+    value: &FieldValue,
+) -> Option<FieldProblem> {
+    let parts = field.maximum_version_template()?;
+    let bound = Values {
+        project_name: &input.project_name,
+        fields: earlier,
+    }
+    .expand(&parts);
+    let value = value.text();
+    if bound.is_empty() || value.is_empty() {
+        return None;
+    }
+    (version_components(&value) > version_components(&bound))
+        .then_some(FieldProblem::VersionTooHigh)
+}
+
 fn text_problem(field: &GeneratorField, text: &str) -> Option<FieldProblem> {
     if text.is_empty() {
         return (!field.optional).then_some(FieldProblem::Required);
@@ -411,6 +438,40 @@ mod tests {
             field(&state, "jdk").problem,
             Some(FieldProblem::RuntimeTooOld)
         );
+    }
+
+    /// A target release newer than the selected JDK cannot compile, so the
+    /// bound follows the JDK; before a JDK is chosen nothing is compared.
+    #[test]
+    fn maximum_version_follows_an_earlier_runtime() {
+        let generator = generator(json!([
+            {"id": "jdk", "type": "runtime", "title": "JDK", "runtime": "java", "minimumVersion": "17"},
+            {"id": "javaVersion", "type": "enum", "title": "Java", "maximumVersion": "${field.jdk.major}",
+             "options": [{"value": "17", "title": "17"}, {"value": "21", "title": "21"}]}
+        ]));
+        let mut form = input("demo", json!({"javaVersion": "21"}), &[]);
+        assert_eq!(
+            field(&evaluate(&generator, &form), "javaVersion").problem,
+            None
+        );
+        for (version, problem) in [
+            ("17.0.12", Some(FieldProblem::VersionTooHigh)),
+            ("21.0.4", None),
+            ("25", None),
+        ] {
+            form.runtimes.insert(
+                "jdk".into(),
+                RuntimeSelection {
+                    home: "/jdk".into(),
+                    version: version.into(),
+                },
+            );
+            assert_eq!(
+                field(&evaluate(&generator, &form), "javaVersion").problem,
+                problem,
+                "{version}"
+            );
+        }
     }
 
     #[test]

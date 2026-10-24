@@ -149,6 +149,7 @@ final class ProjectGenerationService: Sendable {
         case .invalidFormat: String(localized: "The value is not in the expected format.")
         case .unsupportedValue: String(localized: "Choose one of the offered values.")
         case .runtimeTooOld: String(localized: "This runtime is older than the generator requires.")
+        case .versionTooHigh: String(localized: "This version is newer than the selected runtime supports.")
         }
     }
 }

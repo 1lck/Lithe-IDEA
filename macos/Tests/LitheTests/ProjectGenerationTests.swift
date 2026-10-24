@@ -187,6 +187,42 @@ struct ProjectGenerationTests {
         #expect(!FileManager.default.fileExists(atPath: platform.downloadedCopy?.path ?? "/nonexistent"))
     }
 
+    // MARK: Downloading archives
+
+    /// An oversized body is cut off while it streams, whether or not the
+    /// server declares its length, and a small one is kept whole.
+    @Test
+    func downloadsStopAtTheBudgetWhileStreaming() async throws {
+        let platform = Self.downloadPlatform(maximumBytes: 1024)
+        let small = try await platform.download(GeneratorServerURLProtocol.url(status: 200, bytes: 512))
+        defer { try? FileManager.default.removeItem(at: small) }
+        #expect(try Data(contentsOf: small).count == 512)
+        for declaresLength in [false, true] {
+            let url = GeneratorServerURLProtocol.url(status: 200, bytes: 64 * 1024, declaresLength: declaresLength)
+            await #expect(throws: ProjectGenerationError.self) { _ = try await platform.download(url) }
+        }
+    }
+
+    /// A refused request shows a short JSON explanation, but a large error
+    /// body is neither read whole nor shown.
+    @Test
+    func refusedDownloadsReadABoundedExplanation() async throws {
+        let platform = Self.downloadPlatform(maximumBytes: 1024)
+        do {
+            _ = try await platform.download(GeneratorServerURLProtocol.url(status: 400, bytes: 0, json: true))
+            Issue.record("A refused request must fail")
+        } catch let error as ProjectGenerationError {
+            #expect(error.message.contains("Invalid Java version"))
+        }
+        do {
+            let huge = MacProjectGenerationPlatform.maximumErrorBodyBytes * 4
+            _ = try await platform.download(GeneratorServerURLProtocol.url(status: 500, bytes: huge))
+            Issue.record("A refused request must fail")
+        } catch let error as ProjectGenerationError {
+            #expect(error.message.hasSuffix("status 500. "))
+        }
+    }
+
     // MARK: Window state
 
     @Test
@@ -300,6 +336,19 @@ struct ProjectGenerationTests {
         )
     }
 
+    private static func downloadPlatform(maximumBytes: Int64) -> MacProjectGenerationPlatform {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [GeneratorServerURLProtocol.self]
+        configuration.timeoutIntervalForRequest = 10
+        return MacProjectGenerationPlatform(
+            environment: { $0 },
+            executable: { _ in nil },
+            runner: ScaffoldingRunner(creates: nil),
+            session: URLSession(configuration: configuration),
+            maximumDownloadBytes: maximumBytes
+        )
+    }
+
     private static func platform(runner: any BuildCommandRunning = ScaffoldingRunner(creates: nil)) -> MacProjectGenerationPlatform {
         MacProjectGenerationPlatform(
             environment: { $0.merging(["PATH": "/usr/bin:/bin"]) { override, _ in override } },
@@ -351,6 +400,47 @@ struct ProjectGenerationTests {
 }
 
 // MARK: - Test doubles
+
+/// Serves `https://generator.invalid/<status>/<bytes>` as that many zero
+/// bytes, optionally with a Content-Length header, or a Spring Initializr
+/// style JSON error, so downloads are exercised without a network.
+private final class GeneratorServerURLProtocol: URLProtocol {
+    static func url(status: Int, bytes: Int, declaresLength: Bool = false, json: Bool = false) -> URL {
+        let query = json ? "?json" : declaresLength ? "?length" : ""
+        return URL(string: "https://generator.invalid/\(status)/\(bytes)\(query)")!
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        request.url?.host == "generator.invalid"
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        let parts = request.url?.pathComponents.dropFirst().compactMap { Int($0) } ?? []
+        guard let url = request.url, parts.count == 2 else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badURL))
+            return
+        }
+        let body = url.query == "json"
+            ? Data(#"{"message":"Invalid Java version"}"#.utf8)
+            : Data(count: parts[1])
+        var headers: [String: String] = [:]
+        if url.query == "length" { headers["Content-Length"] = String(body.count) }
+        let response = HTTPURLResponse(url: url, statusCode: parts[0], httpVersion: "HTTP/1.1", headerFields: headers)!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        // Several chunks, like a real body.
+        var offset = 0
+        while offset < body.count {
+            let end = min(offset + 4096, body.count)
+            client?.urlProtocol(self, didLoad: body.subdata(in: offset..<end))
+            offset = end
+        }
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+}
 
 private extension ProjectGeneratorPluginSource {
     func with(enabled: Bool) -> Self {

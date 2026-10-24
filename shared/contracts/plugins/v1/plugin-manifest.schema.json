@@ -258,7 +258,8 @@
         "placeholder": { "type": "string", "minLength": 1, "maxLength": 120 },
         "optional": { "type": "boolean" },
         "runtime": { "enum": ["java"] },
-        "minimumVersion": { "type": "string" }
+        "minimumVersion": { "type": "string" },
+        "maximumVersion": { "type": "string", "description": "text and enum: the highest version the value may name, a template over earlier fields such as ${field.jdk.major}." }
       }
     },
     "generatorConditionalValue": {

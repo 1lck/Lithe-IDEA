@@ -132,6 +132,11 @@ pub(crate) struct GeneratorField {
     /// Oldest acceptable runtime version.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) minimum_version: Option<String>,
+    /// Highest version a text or enum value may name, as a template over
+    /// earlier fields, such as `${field.jdk.major}` so a target Java
+    /// release never exceeds the selected JDK. An empty bound checks nothing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) maximum_version: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -386,6 +391,10 @@ impl GeneratorField {
             .and_then(|pattern| Regex::new(&format!("^(?:{pattern})$")).ok())
     }
 
+    pub(crate) fn maximum_version_template(&self) -> Option<Vec<TemplatePart<Variable>>> {
+        self.maximum_version.as_deref().and_then(template::parse)
+    }
+
     pub(crate) fn default_template(&self) -> Option<Vec<TemplatePart<Variable>>> {
         match (&self.default, self.is(FIELD_TEXT)) {
             (Some(Value::String(text)), true) => template::parse(text),
@@ -526,6 +535,7 @@ impl GeneratorField {
             "text" => kind == FIELD_TEXT,
             "optional" => matches!(kind, FIELD_TEXT | FIELD_RUNTIME),
             "runtime" => kind == FIELD_RUNTIME,
+            "maximumVersion" => matches!(kind, FIELD_TEXT | FIELD_ENUM),
             _ => false,
         };
         let present = [
@@ -540,6 +550,7 @@ impl GeneratorField {
                 "runtime",
                 self.runtime.is_some() || self.minimum_version.is_some(),
             ),
+            ("maximumVersion", self.maximum_version.is_some()),
         ];
         if let Some((name, _)) = present
             .iter()
@@ -549,6 +560,16 @@ impl GeneratorField {
                 field,
                 format!("A {kind} field does not take {name} properties."),
             ));
+        }
+
+        if let Some(maximum) = &self.maximum_version {
+            let parts = template::parse(maximum).ok_or_else(|| {
+                invalid(
+                    format!("{field}.maximumVersion"),
+                    "maximumVersion has an unknown or unterminated variable.",
+                )
+            })?;
+            check_variables(&parts, &format!("{field}.maximumVersion"), earlier)?;
         }
 
         match kind {
