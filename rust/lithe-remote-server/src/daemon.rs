@@ -253,7 +253,10 @@ pub fn run_daemon(options: &PersistentOptions) -> io::Result<()> {
 
     let session = Session::new(true)?;
     let attached = Arc::new(AtomicUsize::new(0));
-    let current: Arc<Mutex<Option<UnixStream>>> = Arc::new(Mutex::new(None));
+    // The attached connection's id and a copy of its socket, kept so that a
+    // replacing connection can disconnect it.
+    let current: Arc<Mutex<Option<(u64, UnixStream)>>> = Arc::new(Mutex::new(None));
+    let mut next_connection: u64 = 0;
     let shutdown = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let mut idle_since = Instant::now();
 
@@ -267,9 +270,14 @@ pub fn run_daemon(options: &PersistentOptions) -> io::Result<()> {
                 stream.set_nonblocking(false)?;
                 // A new connection replaces the current one. The old one may
                 // be half-dead after a network change and not yet noticed.
-                if let Some(previous) = crate::lock(&current).replace(stream.try_clone()?) {
+                next_connection += 1;
+                let connection_id = next_connection;
+                if let Some((_, previous)) =
+                    crate::lock(&current).replace((connection_id, stream.try_clone()?))
+                {
                     let _ = previous.shutdown(std::net::Shutdown::Both);
                 }
+                let current = Arc::clone(&current);
                 attached.fetch_add(1, Ordering::AcqRel);
                 let session = Arc::clone(&session);
                 let attached = Arc::clone(&attached);
@@ -286,6 +294,17 @@ pub fn run_daemon(options: &PersistentOptions) -> io::Result<()> {
                             }
                         };
                         let ended = connection::serve(&session, input, stream);
+                        // The copy kept for replacement is the last open
+                        // descriptor of this socket. Closing it delivers
+                        // end-of-file to the proxy, which would otherwise
+                        // linger on the host after every disconnect.
+                        // (`shutdown` is not enough: BSD rejects it with
+                        // ENOTCONN once the peer has half-closed.)
+                        let mut current = crate::lock(&current);
+                        if matches!(&*current, Some((id, _)) if *id == connection_id) {
+                            current.take();
+                        }
+                        drop(current);
                         if matches!(ended, Ok(Ended::Shutdown)) {
                             shutdown.store(true, Ordering::Release);
                         }
@@ -306,7 +325,7 @@ pub fn run_daemon(options: &PersistentOptions) -> io::Result<()> {
 
     let _ = fs::remove_file(&paths.socket);
     session.terminate_all();
-    if let Some(stream) = crate::lock(&current).take() {
+    if let Some((_, stream)) = crate::lock(&current).take() {
         let _ = stream.shutdown(std::net::Shutdown::Both);
     }
     drop(lock);

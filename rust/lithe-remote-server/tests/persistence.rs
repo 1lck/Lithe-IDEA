@@ -210,3 +210,40 @@ fn subscribed_events_bypass_the_general_channel() {
     session.shutdown(STEP_TIMEOUT);
     assert!(daemon.wait_until_stopped());
 }
+
+// Regression: the daemon kept a copy of each connection's socket, so the
+// proxy never saw end-of-file and stayed on the host after every disconnect.
+#[test]
+fn the_proxy_exits_by_itself_when_its_client_disconnects() {
+    let daemon = Daemon::new("proxy-exit");
+    // Start the daemon through an ordinary session first.
+    let (session, _events) = daemon.connect(None);
+    drop(session);
+
+    let command = daemon.command();
+    let mut proxy = std::process::Command::new(&command[0])
+        .args(&command[1..])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    // Closing standard input is what a dropped SSH connection does.
+    drop(proxy.stdin.take());
+    let deadline = Instant::now() + STEP_TIMEOUT;
+    let status = loop {
+        if let Some(status) = proxy.try_wait().unwrap() {
+            break status;
+        }
+        if Instant::now() >= deadline {
+            let _ = proxy.kill();
+            let _ = proxy.wait();
+            panic!("the proxy kept running after its input closed");
+        }
+        // test-stability: allow(rust-real-sleep) reason: the proxy is a child process whose exit is polled with try_wait under a monotonic deadline; std offers no timed wait.
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    assert!(status.success(), "{status}");
+    let (session, _events) = daemon.connect(None);
+    session.shutdown(STEP_TIMEOUT);
+    assert!(daemon.wait_until_stopped());
+}
