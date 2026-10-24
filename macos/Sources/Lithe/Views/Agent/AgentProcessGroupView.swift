@@ -37,7 +37,7 @@ struct AgentProcessGroupView: View {
     }
 
     private var images: [AgentImage] {
-        messages.flatMap(\.toolDetails.images)
+        messages.flatMap(\.toolDetails.images).uniquedByID
     }
 
     var body: some View {

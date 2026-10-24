@@ -1223,7 +1223,8 @@ public final class AgentConnectionModel: ObservableObject {
     private func append(_ text: String, role: AgentConversationMessage.Role, to sessionID: String,
                         subagentSessionID: String? = nil, image: AgentImage? = nil) {
         func attach(_ image: AgentImage?, to message: inout AgentConversationMessage) {
-            if let image, message.images.count < AgentImage.maximumPerMessage { message.images.append(image) }
+            if let image, message.images.count < AgentImage.maximumPerMessage,
+               !message.images.contains(where: { $0.id == image.id }) { message.images.append(image) }
         }
         if conversations[sessionID]?.isLoading == true {
             if let last = replayMessages[sessionID]?.indices.last, replayMessages[sessionID]?[last].role == role,

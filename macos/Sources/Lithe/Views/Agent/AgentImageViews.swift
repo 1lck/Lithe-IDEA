@@ -36,35 +36,54 @@ extension EnvironmentValues {
 /// Decodes bounded renditions off the main thread. Inline pictures can be several
 /// megabytes, so rows ask for a thumbnail-sized decode and share it through a cache.
 enum AgentImageLoader {
-    private static let cache = NSCache<NSString, NSImage>()
+    private static let cache: NSCache<NSString, NSImage> = {
+        let cache = NSCache<NSString, NSImage>()
+        // Large renditions are tens of megabytes decoded, so bound by pixels, not just count.
+        cache.totalCostLimit = 192 * 1024 * 1024
+        cache.countLimit = 400
+        return cache
+    }()
 
     static func cachedImage(for image: AgentImage, maxPixel: Int) -> NSImage? {
         cache.object(forKey: key(image, maxPixel))
     }
 
+    /// Nil when the picture cannot be decoded, or when the calling task was cancelled.
     static func image(for image: AgentImage, maxPixel: Int) async -> NSImage? {
         if let cached = cachedImage(for: image, maxPixel: maxPixel) { return cached }
         let source = image.source
-        let rendition = await Task.detached(priority: .utility) { () -> CGImage? in
+        let cacheKey = key(image, maxPixel)
+        let decode = Task.detached(priority: .utility) { () -> CGImage? in
+            if Task.isCancelled { return nil }
             let imageSource: CGImageSource?
             switch source {
             case .data(let data): imageSource = CGImageSourceCreateWithData(data as CFData, nil)
             case .file(let path): imageSource = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil)
             }
-            guard let imageSource else { return nil }
+            guard let imageSource, !Task.isCancelled else { return nil }
             return CGImageSourceCreateThumbnailAtIndex(imageSource, 0, [
                 kCGImageSourceCreateThumbnailFromImageAlways: true,
                 kCGImageSourceCreateThumbnailWithTransform: true,
                 kCGImageSourceThumbnailMaxPixelSize: maxPixel,
             ] as CFDictionary)
-        }.value
+        }
+        // A row scrolled away cancels its task; stop the decode instead of finishing unseen work.
+        let rendition = await withTaskCancellationHandler { await decode.value } onCancel: { decode.cancel() }
         guard let rendition else { return nil }
         let result = NSImage(cgImage: rendition, size: NSSize(width: rendition.width, height: rendition.height))
-        cache.setObject(result, forKey: key(image, maxPixel))
+        cache.setObject(result, forKey: cacheKey, cost: rendition.width * rendition.height * 4)
         return result
     }
 
-    private static func key(_ image: AgentImage, _ maxPixel: Int) -> NSString { "\(image.id)@\(maxPixel)" as NSString }
+    /// Files carry their modification time, so a screenshot rewritten at the same path is decoded again.
+    private static func key(_ image: AgentImage, _ maxPixel: Int) -> NSString {
+        var stamp = ""
+        if case .file(let path) = image.source,
+           let date = try? URL(fileURLWithPath: path).resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate {
+            stamp = "@\(date.timeIntervalSinceReferenceDate)"
+        }
+        return "\(image.id)\(stamp)@\(maxPixel)" as NSString
+    }
 }
 
 /// A picture that fills its frame, or fits inside it, once decoded.
@@ -73,6 +92,7 @@ struct AgentImageThumbnail: View {
     var maxPixel = 160
     var fills = true
     @State private var rendition: NSImage?
+    @State private var failed = false
 
     var body: some View {
         ZStack {
@@ -80,11 +100,20 @@ struct AgentImageThumbnail: View {
                 Image(nsImage: rendition).resizable().aspectRatio(contentMode: fills ? .fill : .fit)
             } else {
                 Rectangle().fill(LitheTheme.raised)
+                if failed {
+                    Image(systemName: "photo").foregroundStyle(LitheTheme.secondaryText).imageScale(.small)
+                }
             }
         }
         .task(id: image.id) {
+            failed = false
             rendition = AgentImageLoader.cachedImage(for: image, maxPixel: maxPixel)
-            if rendition == nil { rendition = await AgentImageLoader.image(for: image, maxPixel: maxPixel) }
+            if rendition == nil {
+                let decoded = await AgentImageLoader.image(for: image, maxPixel: maxPixel)
+                if Task.isCancelled { return }
+                rendition = decoded
+                failed = decoded == nil
+            }
         }
     }
 }
@@ -163,6 +192,8 @@ private struct AgentImagePreviewCard: View {
 struct AgentUserImages: View {
     @Environment(\.agentImageViewer) private var viewer
     let images: [AgentImage]
+    /// References past the per-message cap, summarised as `+N` like the tool strip.
+    var hiddenCount = 0
 
     var body: some View {
         HStack(spacing: 6) {
@@ -179,6 +210,11 @@ struct AgentUserImages: View {
                     .accessibilityLabel(Text(verbatim: image.title ?? "Image"))
                     .accessibilityHint(Text("Enlarge image"))
             }
+            if hiddenCount > 0 {
+                Text(verbatim: "+\(hiddenCount)")
+                    .font(LitheTheme.uiFont(size: 12.5))
+                    .foregroundStyle(LitheTheme.secondaryText)
+            }
         }
         .accessibilityIdentifier("agent-user-images")
     }
@@ -194,6 +230,9 @@ struct AgentImageViewer: View {
     @State private var pinchBase: CGFloat = 1
     @State private var pan: CGSize = .zero
     @State private var panBase: CGSize = .zero
+    @State private var viewport: CGSize = .zero
+    /// Arrow keys page only while the viewer holds focus, so a caret in the composer keeps them.
+    @FocusState private var hasFocus: Bool
     private static let zoomRange: ClosedRange<CGFloat> = 0.25...8
 
     var body: some View {
@@ -207,6 +246,10 @@ struct AgentImageViewer: View {
                     .scaleEffect(zoom)
                     .offset(pan)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(GeometryReader { proxy in
+                        Color.clear.onAppear { viewport = proxy.size }
+                            .onChange(of: proxy.size) { viewport = $0 }
+                    })
                     .clipped()
                     .shadow(color: .black.opacity(0.35), radius: 12)
                     .contentShape(Rectangle())
@@ -214,8 +257,8 @@ struct AgentImageViewer: View {
                         .onChanged { setZoom(pinchBase * $0) }
                         .onEnded { _ in pinchBase = zoom })
                     .simultaneousGesture(DragGesture()
-                        .onChanged { if zoom > 1 { pan = CGSize(width: panBase.width + $0.translation.width,
-                                                                height: panBase.height + $0.translation.height) } }
+                        .onChanged { if zoom > 1 { pan = clamped(CGSize(width: panBase.width + $0.translation.width,
+                                                                        height: panBase.height + $0.translation.height)) } }
                         .onEnded { _ in panBase = pan })
                     .onTapGesture(count: 2) { withAnimation(.none) { zoom > 1 ? resetZoom() : setZoom(2) } }
                     .onChange(of: gallery.index) { _ in resetZoom() }
@@ -236,11 +279,11 @@ struct AgentImageViewer: View {
             .padding(.vertical, 40)
             HStack {
                 if gallery.images.count > 1 {
-                    step(-1, systemImage: "chevron.left", key: .leftArrow, label: "Previous image")
+                    step(-1, systemImage: "chevron.left", label: "Previous image")
                 }
                 Spacer()
                 if gallery.images.count > 1 {
-                    step(1, systemImage: "chevron.right", key: .rightArrow, label: "Next image")
+                    step(1, systemImage: "chevron.right", label: "Next image")
                 }
             }
             .padding(.horizontal, 12)
@@ -264,8 +307,21 @@ struct AgentImageViewer: View {
             }
             .padding(12)
         }
+        .modifier(AgentImagePagingKeys(hasFocus: $hasFocus, canPage: gallery.images.count > 1, page: { page($0) }))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("agent-image-viewer")
+    }
+
+    /// Keeps at least the picture's edge in view: the scaled picture may overhang the pane by half its extra size.
+    private func clamped(_ offset: CGSize) -> CGSize {
+        let limitX = viewport.width * (zoom - 1) / 2, limitY = viewport.height * (zoom - 1) / 2
+        return CGSize(width: min(max(offset.width, -limitX), limitX), height: min(max(offset.height, -limitY), limitY))
+    }
+
+    private func page(_ delta: Int) {
+        let count = gallery.images.count
+        guard count > 1 else { return }
+        state.gallery?.index = (gallery.index + delta + count) % count
     }
 
     private var zoomControls: some View {
@@ -306,17 +362,16 @@ struct AgentImageViewer: View {
     private func setZoom(_ value: CGFloat) {
         zoom = min(max(value, Self.zoomRange.lowerBound), Self.zoomRange.upperBound)
         pinchBase = zoom
-        if zoom <= 1 { pan = .zero; panBase = .zero }
+        if zoom <= 1 { pan = .zero; panBase = .zero } else { pan = clamped(pan); panBase = pan }
     }
 
     private func resetZoom() {
         zoom = 1; pinchBase = 1; pan = .zero; panBase = .zero
     }
 
-    private func step(_ delta: Int, systemImage: String, key: KeyEquivalent, label: LocalizedStringKey) -> some View {
+    private func step(_ delta: Int, systemImage: String, label: LocalizedStringKey) -> some View {
         Button {
-            let count = gallery.images.count
-            state.gallery?.index = (gallery.index + delta + count) % count
+            page(delta)
         } label: {
             Image(systemName: systemImage).font(LitheTheme.uiFont(size: 14, weight: .semibold))
                 .frame(width: 32, height: 32)
@@ -325,9 +380,30 @@ struct AgentImageViewer: View {
         }
         .buttonStyle(.litheNoPress)
         .foregroundStyle(.white)
-        .keyboardShortcut(key, modifiers: [])
         .lithePointer()
         .help(label)
         .accessibilityLabel(label)
+    }
+}
+
+/// ←/→ page the viewer only while it holds focus, so the composer keeps its caret keys.
+/// Key handling needs macOS 14; macOS 13 pages with the on-screen arrows.
+private struct AgentImagePagingKeys: ViewModifier {
+    var hasFocus: FocusState<Bool>.Binding
+    let canPage: Bool
+    let page: (Int) -> Void
+
+    func body(content: Content) -> some View {
+        if #available(macOS 14.0, *) {
+            content
+                .focusable()
+                .focusEffectDisabled()
+                .focused(hasFocus)
+                .onAppear { hasFocus.wrappedValue = true }
+                .onKeyPress(.leftArrow) { canPage ? { page(-1); return .handled }() : .ignored }
+                .onKeyPress(.rightArrow) { canPage ? { page(1); return .handled }() : .ignored }
+        } else {
+            content
+        }
     }
 }

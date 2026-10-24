@@ -1,4 +1,6 @@
+import CryptoKit
 import Foundation
+import ImageIO
 
 /// An image the Agent produced or the user attached, shown beside the tool call
 /// or message that carries it. Inline bytes stay bounded; file references are
@@ -46,11 +48,12 @@ public struct AgentImage: Identifiable, Equatable, Sendable {
         let uri = block["uri"] as? String
         let uriTitle = uri.flatMap { URL(string: $0)?.lastPathComponent }.flatMap { $0.isEmpty ? nil : $0 }
         if let encoded = block["data"] as? String, !encoded.isEmpty {
-            if let mime = block["mimeType"] as? String, !mime.lowercased().hasPrefix("image/") { return nil }
+            let mime = (block["mimeType"] as? String)?.lowercased()
+            if let mime, !mime.hasPrefix("image/") { return nil }
             // Base64 inflates by a third; refuse before allocating the decoded copy.
             guard encoded.utf8.count <= maximumBytes / 3 * 4,
                   let data = Data(base64Encoded: encoded, options: .ignoreUnknownCharacters), !data.isEmpty,
-                  data.count <= maximumBytes else { return nil }
+                  data.count <= maximumBytes, isDecodable(data) else { return nil }
             return Self(data: data, title: uriTitle)
         }
         if let uri, let url = URL(string: uri), url.isFileURL, isImageFile(url.path) {
@@ -59,11 +62,26 @@ public struct AgentImage: Identifiable, Equatable, Sendable {
         return nil
     }
 
-    /// FNV-1a over the bytes: stable within a run and cheap next to base64 decoding.
+    /// Reads only the container header, so a payload that no decoder recognises
+    /// never becomes a thumbnail that stays blank.
+    private static func isDecodable(_ data: Data) -> Bool {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return false }
+        return CGImageSourceGetCount(source) > 0
+    }
+
+    /// SHA-256 is hardware accelerated, so even a 10 MB payload hashes in a few
+    /// milliseconds on the main actor; a byte loop over `Data` is far slower.
     private static func fingerprint(_ data: Data) -> String {
-        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
-        for byte in data { hash = (hash ^ UInt64(byte)) &* 0x100_0000_01b3 }
-        return String(hash, radix: 16)
+        SHA256.hash(data: data).prefix(12).map { String(format: "%02x", $0) }.joined()
+    }
+}
+
+extension Sequence where Element == AgentImage {
+    /// Keeps the first of each id. `ForEach` and the viewer's paging need unique ids,
+    /// and the same screenshot read twice would otherwise appear twice.
+    public var uniquedByID: [AgentImage] {
+        var seen = Set<String>()
+        return filter { seen.insert($0.id).inserted }
     }
 }
 
@@ -71,6 +89,8 @@ public struct AgentImage: Identifiable, Equatable, Sendable {
 public struct AgentUserMessageContent: Equatable, Sendable {
     public var text: String
     public var images: [AgentImage]
+    /// Image references beyond `AgentImage.maximumPerMessage`: removed from the text, not shown.
+    public var hiddenImageCount = 0
 
     private static let attachmentMarker = "📎 "
 
@@ -83,6 +103,16 @@ public struct AgentUserMessageContent: Equatable, Sendable {
     private static let imagePlaceholder = try! NSRegularExpression(
         pattern: #"\[Image: (?:source: ([^\]\n]+)|original [^\]\n]*)\]"#)
 
+    /// The composer's `📎 /path` line, with its line break.
+    private static let attachmentLine = try! NSRegularExpression(pattern: "^📎 ([^\\n]*)(?:\\n|$)", options: .anchorsMatchLines)
+
+    /// One image reference found in the message: where it sits and the file it names.
+    /// `path` is nil for a placeholder that carries no file; it is removed without a thumbnail.
+    private struct Reference {
+        var range: NSRange
+        var path: String?
+    }
+
     /// Image attachments become thumbnails; other attachments and the user's own
     /// words stay as text. Two shapes occur: the composer's `📎 /path` lines, and
     /// file links (`[@name](file:///path)`, bare `file://` URLs) that an agent
@@ -91,51 +121,60 @@ public struct AgentUserMessageContent: Equatable, Sendable {
         guard message.contains(attachmentMarker) || message.contains("file://") || message.contains("[Image: ") else {
             return Self(text: message, images: [])
         }
-        var images: [AgentImage] = []
-        var seen = Set<String>()
-        func add(_ path: String) -> Bool {
-            guard path.hasPrefix("/"), AgentImage.isImageFile(path), images.count < AgentImage.maximumPerMessage else { return false }
-            if seen.insert(path).inserted { images.append(AgentImage(filePath: path)) }
-            return true
-        }
+        let ns = message as NSString
+        let whole = NSRange(location: 0, length: ns.length)
+        func isImagePath(_ path: String) -> Bool { path.hasPrefix("/") && AgentImage.isImageFile(path) }
         func path(ofFileURL raw: String) -> String? {
             let trimmed = raw.trimmingCharacters(in: .whitespaces)
             if let url = URL(string: trimmed), url.isFileURL { return url.path }
             // An unencoded space makes the address an invalid URL; decode it by hand.
             return trimmed.hasPrefix("file://") ? String(trimmed.dropFirst("file://".count)).removingPercentEncoding : nil
         }
-        // Links first, replacing from the end so earlier ranges stay valid.
-        var working = message
-        let ns = working as NSString
-        for match in fileLink.matches(in: working, range: NSRange(location: 0, length: ns.length)).reversed() {
+
+        // Every candidate is located in the original text, so thumbnails follow reading order.
+        var found: [Reference] = []
+        for match in fileLink.matches(in: message, range: whole) {
             let raw = ns.substring(with: match.range(at: match.range(at: 1).location != NSNotFound ? 1 : 2))
-            guard let filePath = path(ofFileURL: raw), add(filePath),
-                  let range = Range(match.range, in: working) else { continue }
-            working.replaceSubrange(range, with: "")
+            if let filePath = path(ofFileURL: raw), isImagePath(filePath) { found.append(Reference(range: match.range, path: filePath)) }
         }
-        let placeholderText = working as NSString
-        for match in imagePlaceholder.matches(in: working, range: NSRange(location: 0, length: placeholderText.length)).reversed() {
+        for match in imagePlaceholder.matches(in: message, range: whole) {
             let source = match.range(at: 1)
-            if source.location != NSNotFound, !add(placeholderText.substring(with: source)) { continue }
-            if let range = Range(match.range, in: working) { working.replaceSubrange(range, with: "") }
-        }
-        var kept: [Substring] = []
-        for line in working.split(separator: "\n", omittingEmptySubsequences: false) {
-            if line.hasPrefix(attachmentMarker) {
-                let value = String(line.dropFirst(attachmentMarker.count))
-                if add(value) { continue }
+            if source.location == NSNotFound {
+                found.append(Reference(range: match.range, path: nil))
+            } else if isImagePath(ns.substring(with: source)) {
+                found.append(Reference(range: match.range, path: ns.substring(with: source)))
             }
-            kept.append(line)
         }
-        guard !images.isEmpty else { return Self(text: message, images: []) }
-        // Pre-reversal order: the regex pass walked backwards, so restore reading order.
-        let ordered = images.sorted { lhs, rhs in
-            (message.range(of: lhs.title ?? "")?.lowerBound ?? message.endIndex) < (message.range(of: rhs.title ?? "")?.lowerBound ?? message.endIndex)
+        for match in attachmentLine.matches(in: message, range: whole) {
+            let value = ns.substring(with: match.range(at: 1))
+            if isImagePath(value) { found.append(Reference(range: match.range, path: value)) }
         }
-        let text = kept.joined(separator: "\n").replacingOccurrences(of: "[ \\t]+\\n", with: "\n", options: .regularExpression)
+        found.sort { $0.range.location < $1.range.location }
+
+        var images: [AgentImage] = []
+        var seen = Set<String>()
+        var hidden = 0
+        var removed: [NSRange] = []
+        for reference in found {
+            // An earlier reference already claimed this text (a link inside a 📎 line).
+            if let last = removed.last, NSMaxRange(last) > reference.range.location { continue }
+            if let path = reference.path {
+                if seen.insert((path as NSString).standardizingPath).inserted {
+                    if images.count < AgentImage.maximumPerMessage { images.append(AgentImage(filePath: path)) } else { hidden += 1 }
+                }
+            }
+            removed.append(reference.range)
+        }
+        guard !removed.isEmpty else { return Self(text: message, images: []) }
+        var working = message
+        for range in removed.reversed() {
+            if let swift = Range(range, in: working) { working.replaceSubrange(swift, with: "") }
+        }
+        guard !images.isEmpty || hidden > 0 else { return Self(text: message, images: []) }
+        let text = working.replacingOccurrences(of: "[ \\t]+\\n", with: "\n", options: .regularExpression)
             .replacingOccurrences(of: "\n{3,}", with: "\n\n", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        return Self(text: text, images: ordered)
+        return Self(text: text, images: images, hiddenImageCount: hidden)
     }
 }
 
@@ -205,17 +244,30 @@ public enum AgentClaudeCodeMarkup {
     ])
     private static let summaryPrefix = "This session is being continued from a previous conversation"
     private static let skillPrefix = "Base directory for this skill:"
-    private static let hiddenBlock = try! NSRegularExpression(
-        pattern: "<(" + hiddenTags.joined(separator: "|") + ")>[\\s\\S]*?</\\1>")
-
-    /// Removes model-only blocks wherever they sit, so reminders appended to a
-    /// typed message never show up as part of it.
+    /// Removes model-only blocks that open or close the message, which is where
+    /// Claude Code adds them. A block the user quoted in the middle of their own
+    /// words stays, so what they typed is never swallowed.
     public static func removingModelOnlyBlocks(_ message: String) -> String {
         guard hiddenTags.contains(where: { message.contains("<\($0)>") }) else { return message }
-        let range = NSRange(location: 0, length: (message as NSString).length)
-        return hiddenBlock.stringByReplacingMatches(in: message, range: range, withTemplate: "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        var text = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        var removedAny = true
+        while removedAny {
+            removedAny = false
+            for tag in hiddenTags {
+                let open = "<\(tag)>", close = "</\(tag)>"
+                if text.hasPrefix(open), let end = text.range(of: close) {
+                    text = String(text[end.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+                    removedAny = true
+                } else if text.hasSuffix(close), let start = text.range(of: open, options: .backwards),
+                          !text[start.upperBound...].dropLast(close.count).contains(close) {
+                    text = String(text[..<start.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+                    removedAny = true
+                }
+            }
+        }
+        return text
     }
+
 
     /// Nil unless the whole message is Claude Code markup. An empty result means
     /// the message is entirely model-only and should not be shown.

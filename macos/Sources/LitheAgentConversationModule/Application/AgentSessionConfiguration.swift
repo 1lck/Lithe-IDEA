@@ -110,17 +110,21 @@ public struct AgentToolDetails: Equatable, Sendable {
                             additions: validStats ? (stats?["added"] as? Int).flatMap { $0 >= 0 ? $0 : nil } : nil,
                             deletions: validStats ? (stats?["removed"] as? Int).flatMap { $0 >= 0 ? $0 : nil } : nil)
             }
-            let reported = content.prefix(100).compactMap { item -> AgentImage? in
-                guard item["type"] as? String == "content", let block = item["content"] as? [String: Any] else { return nil }
-                return AgentImage.parse(block: block)
-            }
+            // Parse each picture once; an `image` block no decoder accepts falls back to a text entry.
+            var parsedIndices = Set<Int>()
+            let reported = content.prefix(100).enumerated().compactMap { index, item -> AgentImage? in
+                guard item["type"] as? String == "content", let block = item["content"] as? [String: Any],
+                      let image = AgentImage.parse(block: block) else { return nil }
+                parsedIndices.insert(index)
+                return image
+            }.uniquedByID
             // An update without pictures must not erase ones an earlier update delivered.
             if !reported.isEmpty { images = Array(reported.prefix(AgentImage.maximumPerMessage)) }
-            self.content = content.prefix(100).compactMap { item in
+            self.content = content.prefix(100).enumerated().compactMap { index, item in
                 switch item["type"] as? String {
                 case "content":
                     guard let block = item["content"] as? [String: Any] else { return nil }
-                    if block["type"] as? String == "image" { return nil }
+                    if parsedIndices.contains(index) { return nil }
                     if let text = block["text"] as? String {
                         return Content(title: "Output", text: Self.bounded(text))
                     }
@@ -163,8 +167,9 @@ public struct AgentToolDetails: Equatable, Sendable {
     /// Untitled pictures borrow the file name or the tool's own caption.
     private mutating func titleImages() {
         if images.isEmpty, kind == "read" {
-            images = locations.lazy.map(\.path).filter(AgentImage.isImageFile).prefix(AgentImage.maximumPerMessage)
-                .map { AgentImage(filePath: $0) }
+            // Only files that exist: a failed or stale read must not leave a blank thumbnail.
+            images = locations.lazy.map(\.path).filter { AgentImage.isImageFile($0) && FileManager.default.fileExists(atPath: $0) }
+                .map { AgentImage(filePath: $0) }.uniquedByID.prefix(AgentImage.maximumPerMessage).map { $0 }
         }
         guard images.contains(where: { $0.title == nil }) else { return }
         let caption = locations.first.map { ($0.path as NSString).lastPathComponent }

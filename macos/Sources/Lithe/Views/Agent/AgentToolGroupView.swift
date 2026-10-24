@@ -73,7 +73,7 @@ struct AgentToolGroupView: View {
     @State private var showsAllRows = false
     @State private var expandedToolID: String?
 
-    private var groupImages: [AgentImage] { messages.flatMap(\.toolDetails.images) }
+    private var groupImages: [AgentImage] { messages.flatMap(\.toolDetails.images).uniquedByID }
     private var failedCount: Int { messages.filter { $0.toolStatus == .failed }.count }
     private var isRunning: Bool { messages.contains { $0.toolStatus == .inProgress || $0.toolStatus == .pending } }
     private var hasExpandedDetails: Bool {

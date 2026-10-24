@@ -75,7 +75,7 @@ enum AgentTranscriptItem: Identifiable {
             pending.removeAll(keepingCapacity: true)
         }
         for message in messages {
-            if message.role == .user, AgentClaudeCodeMarkup.parse(message.text)?.isEmpty == true {
+            if message.role == .user, case .markup(let entries) = AgentUserMessagePresentation.of(message), entries.isEmpty {
                 // Model-only reminders and caveats are not conversation.
                 continue
             }
@@ -548,7 +548,7 @@ private struct AgentMessageRow: View {
     var body: some View {
         switch message.role {
         case .user:
-            if let entries = AgentClaudeCodeMarkup.parse(message.text) {
+            if case .markup(let entries) = AgentUserMessagePresentation.of(message) {
                 VStack(alignment: .leading, spacing: 4) {
                     ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
                         AgentClaudeCodeEntryRow(entry: entry)
@@ -581,8 +581,9 @@ private struct AgentMessageRow: View {
     /// Attached image files and replayed pictures show as thumbnails that open
     /// the viewer; the text keeps the user's words and non-image attachments.
     private var userBubble: some View {
-        let content = AgentUserMessageContent.parse(AgentClaudeCodeMarkup.removingModelOnlyBlocks(message.text))
-        let images = message.images + content.images
+        var content = AgentUserMessageContent.parse("")
+        if case .bubble(let parsed) = AgentUserMessagePresentation.of(message) { content = parsed }
+        let images = (message.images + content.images).uniquedByID
         return HStack(alignment: .bottom, spacing: 4) {
             Spacer(minLength: 40)
             if !content.text.isEmpty {
@@ -591,7 +592,7 @@ private struct AgentMessageRow: View {
                     .allowsHitTesting(isHovered)
             }
             VStack(alignment: .trailing, spacing: 6) {
-                if !images.isEmpty { AgentUserImages(images: images) }
+                if !images.isEmpty { AgentUserImages(images: images, hiddenCount: content.hiddenImageCount) }
                 if !content.text.isEmpty { Text(content.text) }
                 if let delivery = message.delivery {
                     Group {
@@ -613,6 +614,33 @@ private struct AgentMessageRow: View {
                             in: RoundedRectangle(cornerRadius: isEditorLayout ? 16 : 10))
         }
         .onHover { isHovered = $0 }
+    }
+}
+
+/// How a user message is drawn, parsed once. The regex scans touch the whole text,
+/// and rows re-evaluate on hover and while the transcript streams, so the result is cached.
+private enum AgentUserMessagePresentation {
+    case markup([AgentClaudeCodeEntry])
+    case bubble(AgentUserMessageContent)
+
+    private final class Box { let value: AgentUserMessagePresentation; init(_ value: AgentUserMessagePresentation) { self.value = value } }
+    private static let cache: NSCache<NSString, Box> = {
+        let cache = NSCache<NSString, Box>()
+        cache.countLimit = 500
+        return cache
+    }()
+
+    static func of(_ message: AgentConversationMessage) -> Self {
+        let key = "\(message.id)#\(message.text.utf8.count)" as NSString
+        if let cached = cache.object(forKey: key) { return cached.value }
+        let value: Self
+        if let entries = AgentClaudeCodeMarkup.parse(message.text) {
+            value = .markup(entries)
+        } else {
+            value = .bubble(AgentUserMessageContent.parse(AgentClaudeCodeMarkup.removingModelOnlyBlocks(message.text)))
+        }
+        cache.setObject(Box(value), forKey: key)
+        return value
     }
 }
 

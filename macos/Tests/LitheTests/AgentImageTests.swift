@@ -5,7 +5,8 @@ import Testing
 
 @Suite("Agent images and task notifications")
 struct AgentImageTests {
-    private static let pixel = Data([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+    /// A real 1x1 PNG: inline pictures must be recognised by ImageIO to become thumbnails.
+    private static let pixel = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==")!
 
     private func imageBlock(_ data: Data = pixel, mime: String = "image/png") -> [String: Any] {
         ["type": "content", "content": ["type": "image", "data": data.base64EncodedString(), "mimeType": mime]]
@@ -32,11 +33,16 @@ struct AgentImageTests {
 
     @Test
     func readingAnImageFileWithoutInlineDataShowsTheFile() {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let shot = directory.appendingPathComponent("shot.PNG").path
+        try? Self.pixel.write(to: URL(fileURLWithPath: shot))
         var details = AgentToolDetails()
-        details.merge(["kind": "read", "locations": [["path": "/tmp/shot.PNG"], ["path": "/tmp/notes.txt"]]])
-        #expect(details.images.map(\.title) == ["shot.PNG"])
+        details.merge(["kind": "read", "locations": [["path": shot], ["path": "/tmp/notes.txt"], ["path": "/tmp/missing-\(UUID()).png"]]])
+        #expect(details.images.map(\.title) == ["shot.PNG"], "Missing files get no blank thumbnail")
         var edit = AgentToolDetails()
-        edit.merge(["kind": "edit", "locations": [["path": "/tmp/shot.png"]]])
+        edit.merge(["kind": "edit", "locations": [["path": shot]]])
         #expect(edit.images.isEmpty, "Only a read implies viewing the file")
     }
 
@@ -154,6 +160,47 @@ struct AgentImageTests {
         #expect(AgentClaudeCodeMarkup.removingModelOnlyBlocks(message) == "继续")
         #expect(AgentClaudeCodeMarkup.parse(message) == nil, "Typed text stays an ordinary message")
         #expect(AgentClaudeCodeMarkup.removingModelOnlyBlocks("plain") == "plain")
+    }
+
+    @Test
+    func quotedReminderInsideTypedTextIsKept() {
+        let message = "比较一下 <system-reminder>x</system-reminder> 这个标签"
+        #expect(AgentClaudeCodeMarkup.removingModelOnlyBlocks(message) == message)
+        let both = "<system-reminder>a</system-reminder>\n你好\n<system-reminder>b</system-reminder>"
+        #expect(AgentClaudeCodeMarkup.removingModelOnlyBlocks(both) == "你好")
+    }
+
+    @Test
+    func imageReferencesKeepReadingOrderEvenWithEncodedOrRepeatedNames() {
+        let content = AgentUserMessageContent.parse(
+            "a [@my shot.png](file:///x/my%20shot.png)\n📎 /y/a.png\n[Image: source: /z/a.png]\n[@dup](file:///x/my%20shot.png)")
+        #expect(content.images.map(\.id) == ["file:/x/my shot.png", "file:/y/a.png", "file:/z/a.png"])
+        #expect(content.text == "a")
+    }
+
+    @Test
+    func referencesBeyondTheCapAreCountedInsteadOfLeftAsRawText() {
+        let lines = (0..<(AgentImage.maximumPerMessage + 3)).map { "📎 /tmp/\($0).png" }.joined(separator: "\n")
+        let content = AgentUserMessageContent.parse("hi\n" + lines)
+        #expect(content.images.count == AgentImage.maximumPerMessage)
+        #expect(content.hiddenImageCount == 3)
+        #expect(content.text == "hi")
+    }
+
+    @Test
+    func identicalPicturesShareAnIdAndCollapseToOne() {
+        let first = AgentImage(data: Data(repeating: 7, count: 64))
+        let same = AgentImage(data: Data(repeating: 7, count: 64))
+        let other = AgentImage(data: Data(repeating: 8, count: 64))
+        #expect(first.id == same.id && first.id != other.id)
+        #expect([first, same, other].uniquedByID.count == 2)
+    }
+
+    @Test
+    func inlineDataThatNoDecoderRecognisesIsRejected() {
+        let junk = Data(repeating: 1, count: 32).base64EncodedString()
+        #expect(AgentImage.parse(block: ["type": "image", "data": junk]) == nil)
+        #expect(AgentImage.parse(block: ["type": "image", "data": junk, "mimeType": "image/png"]) == nil)
     }
 
     @Test
