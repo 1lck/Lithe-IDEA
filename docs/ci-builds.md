@@ -712,3 +712,19 @@ Windows PHP Worker 插件使用 `bun scripts/build-windows-php-plugin.ts` 单独
 在资源清单中注册为不可复用；不随 Windows 应用构建复制。用户导入后的源码与状态
 位于 WebView 用户配置的 `lithe.worker-package:<id>`，也禁止跨 worktree 复用。
 CI 在 Windows frontend lane 构建并上传独立包，同时运行包、Worker 协议和生命周期测试。
+
+### Agent Hook 用户状态
+
+`<app-support>/Lithe/AgentHooks/`（Windows 为平台 app-data 根目录下的
+`AgentHooks/`）保存 `hooks.json` 和 `.sync.lock`。资源库包含用户命令及原生
+配置条目的写入前所有权记录；它没有版本、平台、架构或工具链构建身份，
+任何复制阶段都禁止跨 worktree 复用。仅显式保存、启停、删除或重试会写入。
+每次原子替换产生的 `.lithe-instructions-<UUID>.tmp` 由共用文件 adapter
+在成功和失败后清理；空锁随用户资源库保留。Codex `hooks.json`、Claude
+`settings.json` 仍属于对应用户配置，不属于构建资源。Hook 执行与信任由
+原生 Agent 负责；所有状态都在可写用户目录，运行时不改变发行 bundle、
+代码签名或 Sparkle delta 基线。
+
+原生 UI 截图位于 `.artifacts/test-stability/hooks-ui/`，绑定本次源码、主题、
+语言和窗口尺寸，不作为可复用资源。运行 `node --test scripts/test-reuse-worktree-resources.mjs`
+验证 `agent-hook-library-state` 被复用入口拒绝。

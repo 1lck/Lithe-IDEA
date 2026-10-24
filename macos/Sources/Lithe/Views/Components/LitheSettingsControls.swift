@@ -1165,6 +1165,7 @@ private struct LitheSettingsTextFieldModifier: ViewModifier {
 private struct LitheSettingsTextEditorModifier: ViewModifier {
     @FocusState private var isFocused: Bool
     let height: CGFloat
+    var font: Font? = nil
     var externalFocus: FocusState<Bool>.Binding? = nil
 
     private var hasFocus: Bool { externalFocus?.wrappedValue ?? isFocused }
@@ -1172,7 +1173,7 @@ private struct LitheSettingsTextEditorModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .scrollContentBackground(.hidden)
-            .font(LitheTheme.uiFont(size: 12, design: .monospaced))
+            .font(font ?? LitheTheme.uiFont(size: 12, design: .monospaced))
             .focused(externalFocus ?? $isFocused)
             .frame(height: height)
             .padding(5)
@@ -1219,7 +1220,7 @@ extension View {
         modifier(LitheSettingsTextFieldModifier())
     }
 
-    func litheSettingsTextEditor(height: CGFloat, focus: FocusState<Bool>.Binding? = nil) -> some View {
-        modifier(LitheSettingsTextEditorModifier(height: height, externalFocus: focus))
+    func litheSettingsTextEditor(height: CGFloat, focus: FocusState<Bool>.Binding? = nil, font: Font? = nil) -> some View {
+        modifier(LitheSettingsTextEditorModifier(height: height, font: font, externalFocus: focus))
     }
 }

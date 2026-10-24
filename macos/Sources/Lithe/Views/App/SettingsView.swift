@@ -452,6 +452,8 @@ struct SettingsView: View {
                     case .ai: aiSettings
                     case .instructions:
                         AgentInstructionsSettingsView(feature: model.agentInstructionsFeature)
+                    case .hooks:
+                        AgentHooksSettingsView(feature: model.agentHooksFeature)
                     case .agents:
                         AgentPanelSettingsView(model: model, settings: settings, feature: model.agentManagementFeature)
                             .id(model.settingsCategoryRequest)

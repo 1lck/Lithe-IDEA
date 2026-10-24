@@ -13,6 +13,7 @@ mod codex_context;
 mod codex_history;
 mod codex_retry;
 pub mod environment;
+pub mod hooks;
 pub mod install;
 pub mod instructions;
 pub mod mcp_probe;
