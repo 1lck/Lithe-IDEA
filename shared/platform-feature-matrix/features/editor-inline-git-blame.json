@@ -1,0 +1,22 @@
+{
+  "id": "editor-inline-git-blame",
+  "area": "编辑器",
+  "group": "Git 变更",
+  "capability": "当前行的行内 Git Blame 提示随未提交内容的行尾位置更新",
+  "macos": {
+    "implementationStatus": "missing",
+    "verificationStatus": "pending",
+    "evidence": ["macos/Sources/Lithe/Views/Editor"]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "windows/tauri/src/features/editor/components/monaco-editor.tsx",
+      "windows/tauri/src/features/editor/engines/monaco/inline-git-blame-layout.ts",
+      "windows/tauri/src/features/editor/engines/monaco/inline-git-blame-layout.test.ts"
+    ]
+  },
+  "owner": "Editor / Git",
+  "verification": "Windows 开启行内 Git Blame，在已有未提交修改的当前行继续输入、删除字符，确认 Uncommitted changes 提示始终位于新行尾，不覆盖代码；相同行尾及提示内容不变时复用布局。切换行或文件时使用新的位置。运行 inline-git-blame-layout.test.ts 验证布局身份；真实 WebView2 中的提示位置仍需实机验收。macOS 的行号 Blame 菜单不代表已支持本项行内提示。"
+}

@@ -126,6 +126,7 @@ import {
 } from "../engines/monaco/hover-widgets";
 import { toMonacoLanguageId } from "../engines/monaco/language";
 import { ensureMonacoLanguageTokenizer } from "../engines/monaco/language-contributions";
+import { inlineGitBlameLayoutKey } from "../engines/monaco/inline-git-blame-layout";
 import {
   createInlineGitBlameWidget,
   type InlineGitBlameWidget,
@@ -607,10 +608,17 @@ export function MonacoEditor({
     const blameContent = blameLine.is_uncommitted
       ? "  Uncommitted changes"
       : `  ${blameLine.author}, ${formatRelativeTime(blameLine.time)}`;
-    const decorationKey = `${filePath}:${lineNumber}:${blameLine.commit_hash}:${blameContent}`;
+    const column = model.getLineMaxColumn(lineNumber);
+    const decorationKey = inlineGitBlameLayoutKey({
+      filePath,
+      lineNumber,
+      column,
+      commitHash: blameLine.commit_hash,
+      content: blameContent,
+    });
     if (renderedGitBlameKeyRef.current === decorationKey) return;
 
-    widget.show(lineNumber, model.getLineMaxColumn(lineNumber), blameContent);
+    widget.show(lineNumber, column, blameContent);
     renderedGitBlameKeyRef.current = decorationKey;
   }, [filePath, getBlameForLine, inlineGitBlameEnabled, isActiveSurface]);
   renderInlineGitBlameRef.current = renderInlineGitBlame;
