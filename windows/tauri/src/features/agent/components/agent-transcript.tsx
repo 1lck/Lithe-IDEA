@@ -35,6 +35,7 @@ import {
   activitySummary,
   groupTranscript,
   itemMatches,
+  processContents,
   toolMatches,
 } from "../services/agent-transcript-items";
 import {
@@ -288,17 +289,21 @@ function PlanEntryIcon({
 }
 
 /**
- * Reasoning stays a quiet summary line over a rounded Markdown card. It opens
- * while it streams or the user asks, and a matching search keeps it open.
+ * A turn's process stays behind one quiet disclosure, including while streaming.
+ * Search temporarily reveals matches without replacing the user's preference.
  */
 function ReasoningRow({
-  text,
+  text = "",
+  messages,
+  searchText = "",
   isStreaming = false,
   isSearching = false,
   expandedKey,
   onOpenLocation,
 }: {
-  text: string;
+  text?: string;
+  messages?: AgentConversationMessage[];
+  searchText?: string;
   isStreaming?: boolean;
   isSearching?: boolean;
   expandedKey: string;
@@ -309,7 +314,7 @@ function ReasoningRow({
   const setReasoningExpanded = useAgentSurfaceStore(
     (state) => state.actions.setReasoningExpanded,
   );
-  const expanded = isSearching || (manualExpanded ?? isStreaming);
+  const expanded = isSearching || (manualExpanded ?? false);
   const scrollRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     if (!isStreaming || !expanded) return;
@@ -331,7 +336,7 @@ function ReasoningRow({
       >
         {isStreaming ? <Spinner className="size-3 shrink-0" /> : null}
         <span>
-          {isStreaming ? t("agent.transcript.thinking") : t("agent.transcript.reasoning")}
+          {isStreaming && messages === undefined ? t("agent.transcript.thinking") : t("agent.transcript.reasoning")}
         </span>
         <CaretDownIcon
           className={cn("size-2.5 shrink-0 transition-transform", !expanded && "-rotate-90")}
@@ -340,14 +345,27 @@ function ReasoningRow({
       {expanded ? (
         <div
           ref={scrollRef}
-          className="max-h-60 select-text overflow-y-auto rounded-[8px] border border-border bg-surface/50 px-3 py-2.5 text-subtle-foreground ui-text-caption"
+          className={cn("select-text text-subtle-foreground ui-text-caption", messages === undefined
+            ? "max-h-60 overflow-y-auto rounded-[8px] border border-border bg-surface/50 px-3 py-2.5"
+            : "pl-2.5")}
         >
           <div className="space-y-2 select-text">
-            <MarkdownRenderer
+            {messages === undefined ? <MarkdownRenderer
               content={text.trim()}
               showLinkIcons
               onOpenLink={(href) => openAgentLink(href, onOpenLocation)}
-            />
+            /> : processContents(messages).filter((item) => itemMatches(item, searchText)).map((item) => {
+              switch (item.kind) {
+                case "message":
+                  return <MarkdownRenderer key={item.id} content={item.message.text.trim()} showLinkIcons
+                    onOpenLink={(href) => openAgentLink(href, onOpenLocation)} />;
+                case "toolGroup":
+                  return <ToolGroup key={item.id} tools={item.tools} searchText={searchText}
+                    initiallyExpanded onOpenLocation={onOpenLocation} />;
+                default:
+                  return null;
+              }
+            })}
           </div>
         </div>
       ) : null}
@@ -433,13 +451,15 @@ function ToolGroup({
   tools,
   searchText,
   onOpenLocation,
+  initiallyExpanded = false,
 }: {
   tools: AgentConversationMessage[];
   searchText: string;
   onOpenLocation: (location: AgentToolLocation) => void;
+  initiallyExpanded?: boolean;
 }) {
   const { t } = useTranslation();
-  const [isExpanded, setIsExpanded] = useState(searchText.length > 0);
+  const [isExpanded, setIsExpanded] = useState(initiallyExpanded || searchText.length > 0);
   const [expandedToolID, setExpandedToolID] = useState<string | null>(null);
   useEffect(() => {
     if (searchText.length > 0) setIsExpanded(true);
@@ -1037,6 +1057,19 @@ export function AgentTranscript({
                         onOpenLocation={onOpenLocation}
                       />
                     </div>
+                  );
+                case "processGroup":
+                  return (
+                    <ReasoningRow
+                      key={item.id}
+                      messages={item.messages}
+                      searchText={searchText}
+                      expandedKey={`${sessionID ?? "pending"}:${item.messages[0].id}`}
+                      isSearching={searchText.length > 0}
+                      isStreaming={conversation?.isResponding === true &&
+                        item.messages.some((message) => message.id === messages[messages.length - 1]?.id)}
+                      onOpenLocation={onOpenLocation}
+                    />
                   );
                 case "toolGroup":
                   return (
