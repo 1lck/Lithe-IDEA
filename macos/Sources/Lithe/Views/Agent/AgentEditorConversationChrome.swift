@@ -69,10 +69,6 @@ struct AgentEditorDetailsColumn: View {
     var onKeep: ([AgentFileChange]) -> Void = { _ in }
     /// Reverses only the reported Agent edits after the user confirms.
     var onRestore: ([AgentFileChange]) async -> Void = { _ in }
-    var showsSubscriptionQuota = false
-    var subscriptionQuota: AgentSubscriptionQuota? = nil
-    var subscriptionAccount: String? = nil
-    var quotaFailure: String? = nil
     var activity: AgentActivitySummaryBar? = nil
     var onOpenFile: (AgentToolDetails.Location) -> Void = { _ in }
     @AppStorage("lithe.agent.editor.detailsCollapsed") private var collapsedRaw = ""
@@ -87,7 +83,7 @@ struct AgentEditorDetailsColumn: View {
         let changes: [AgentFileChange]
     }
 
-    private enum Section: String { case context, changes, activity, quota, session }
+    private enum Section: String { case context, changes, activity, session }
     /// Changes beyond this many files fold behind "Show more".
     private static let changePreviewCount = 5
 
@@ -103,11 +99,6 @@ struct AgentEditorDetailsColumn: View {
                 card(.changes, title: "Changes") { changesContent }
                 if hasActivity, let activity {
                     card(.activity, title: "Activity") { activity }
-                }
-                if showsSubscriptionQuota {
-                    card(.quota, title: "Quota") {
-                        AgentSubscriptionQuotaView(quota: subscriptionQuota, account: subscriptionAccount, failure: quotaFailure)
-                    }
                 }
                 if let statistics {
                     card(.session, title: "Session") {

@@ -164,6 +164,7 @@ private struct AgentDetailView: View {
         let bundle = Bundle.main.url(forResource: settings.language.rawValue, withExtension: "lproj")
             .flatMap(Bundle.init(url:)) ?? .main
         return AgentSetupDiagnostics.preflight(for: agent, environment: environment, hasProvider: hasProvider,
+                                               authentication: settings.agentConfigurations[agent.id]?.authentication ?? .apiKey,
                                                bundle: bundle)
     }
 

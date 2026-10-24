@@ -70,13 +70,22 @@ extension AppModel {
     }
 
     func useCodexSubscription() async throws {
+        try await useAgentSubscription(agentID: "codex-acp", name: "Codex")
+    }
+
+    /// Bind a built-in Agent to its own account subscription. API providers stay
+    /// saved; switching back is the existing provider choice.
+    func useAgentSubscription(agentID: String, name: String) async throws {
+        guard let authentication = AgentAuthentication.subscription(for: agentID) else {
+            throw AgentProviderConfigurationError.unavailable
+        }
         try beginAgentProviderChange()
         defer { finishAgentProviderChange() }
-        try await stopAgentsForProviderChange(["codex-acp"])
-        settings.agentConfigurations["codex-acp"] = AgentConfiguration(name: "Codex", providerID: nil,
-                                                                      authentication: .codexSubscription)
+        try await stopAgentsForProviderChange([agentID])
+        settings.agentConfigurations[agentID] = AgentConfiguration(name: name, providerID: nil,
+                                                                   authentication: authentication)
         agentConversationFeatureIfActive?.setAgents(configuredAgentOptions)
-        selectAgentConversationAgent("codex-acp")
+        selectAgentConversationAgent(agentID)
     }
 
     func useLocalAgentProvider(source: AIConfigurationSourceKind, agentID: String, name: String) async throws {

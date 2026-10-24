@@ -8,6 +8,16 @@ private enum AgentSelectorLayout {
 
 /// Presentation only; the Agent still owns IDs, choices and confirmed values.
 enum AgentSessionSelectorPresentation {
+    /// Upstream approval-mode ids of the pinned adapters and their product titles:
+    /// Claude Agent (`default`, `acceptEdits`, `plan`, `auto`, `bypassPermissions`)
+    /// and Codex (`read-only`, `agent`, `agent-full-access`). Unknown ids keep the
+    /// Agent's own name.
+    private static let knownModeTitles: [String: String] = [
+        "default": "Manual", "acceptEdits": "Accept edits", "plan": "Plan", "auto": "Auto",
+        "bypassPermissions": "Bypass permissions",
+        "read-only": "Ask for approval", "agent": "Approve for me", "agent-full-access": "Full access",
+    ]
+
     static func title(_ option: AgentSessionConfigOption, locale: Locale = .current) -> String {
         if option.category == "thought_level" { return AgentLocalization.string("Thinking level", locale: locale) }
         if option.id == "fast-mode" { return AgentLocalization.string("Speed", locale: locale) }
@@ -21,14 +31,8 @@ enum AgentSessionSelectorPresentation {
         }
         // Known approval modes keep a stable localized label. Unknown mode,
         // model and thinking-level names stay verbatim below.
-        if option.category == "mode" {
-            switch choice.id {
-            case "auto": return localized("Auto", bundle: bundle, locale: locale)
-            case "manual": return localized("Manual", bundle: bundle, locale: locale)
-            case "plan": return localized("Plan", bundle: bundle, locale: locale)
-            case "acceptEdits": return localized("Accept edits", bundle: bundle, locale: locale)
-            default: break
-            }
+        if option.category == "mode", let title = knownModeTitles[choice.id] {
+            return localized(title, bundle: bundle, locale: locale)
         }
         // Agent-owned names must not collide with translations used elsewhere in the app.
         if option.category == "model" || option.category == "mode" || option.category == "thought_level" {

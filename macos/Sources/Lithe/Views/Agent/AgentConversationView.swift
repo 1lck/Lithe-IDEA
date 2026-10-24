@@ -548,10 +548,6 @@ private struct AgentConnectionView: View {
             onRestore: { changes in
                 if let sessionID { await feature.restoreFileChanges(changes, in: sessionID, restore: onRestoreFile) }
             },
-            showsSubscriptionQuota: feature.usesSubscription,
-            subscriptionQuota: feature.subscriptionQuota,
-            subscriptionAccount: feature.subscriptionEmail,
-            quotaFailure: feature.quotaFailure,
             activity: activity(includesEdits: false),
             onOpenFile: onOpenFile
         )

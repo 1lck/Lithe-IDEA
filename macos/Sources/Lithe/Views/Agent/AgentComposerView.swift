@@ -41,8 +41,8 @@ struct AgentComposerView: View {
     var draftText: Binding<String>? = nil
     var draftFiles: Binding<[AgentFileReference]>? = nil
     var focusRequest: UInt = 0
-    /// Editor tab: a rounded card holding the Agent, approval mode, model, attach
-    /// and send; quota and session details live in the trailing details column.
+    /// Editor tab: a rounded card holding the Agent, approval mode, model and the
+    /// quota and context rings; session details live in the trailing details column.
     var isEditorLayout = false
     @State private var completion = AgentCommandCompletion()
     @State private var files: [AgentFileReference] = []
@@ -136,9 +136,9 @@ struct AgentComposerView: View {
         }
     }
 
-    /// Claude Desktop layout: the agent switcher, approval mode, model selector
-    /// and send action all live inside the card. Quota, context and the activity
-    /// summary move to the trailing details column so the reading area stays clean.
+    /// Claude Desktop layout: the agent switcher, approval mode and model on the
+    /// leading edge, quota and context rings on the trailing edge. The activity
+    /// summary and session figures live in the trailing details column.
     private var editorCardToolbar: some View {
         HStack(spacing: 4) {
             agentMenu
@@ -159,8 +159,15 @@ struct AgentComposerView: View {
                     .foregroundStyle(AgentPanelStyle.secondary).help(model)
             }
             Spacer(minLength: 0)
-            attachButton
-            primaryActionButton
+            // Return sends and files arrive by drag, paste or @; the card keeps
+            // only live status. Stop stays reachable while a turn runs.
+            if showsStopAction { primaryActionButton }
+            if showsSubscriptionQuota {
+                AgentSubscriptionQuotaView(quota: subscriptionQuota, account: subscriptionAccount, failure: quotaFailure)
+                    .id(sessionID ?? selectedAgent?.id)
+            }
+            AgentContextUsageView(usage: contextUsage, composition: sessionStatistics?.modelCalls?.latestContext,
+                                  showsPercentage: false, isHiddenUntilReported: true)
         }
         .padding(.horizontal, AgentComposerMetrics.toolbarHorizontalInset + 3)
         .frame(height: AgentComposerMetrics.toolbarHeight - 2)

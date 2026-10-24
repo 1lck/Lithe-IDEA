@@ -248,6 +248,8 @@
 "Maven source" = "Maven 来源";
 "Automatic" = "自动";
 "Accept edits" = "接受编辑";
+"Mode" = "模式";
+"Bypass permissions" = "跳过权限确认";
 "Manual" = "手动";
 "Auto" = "自动";
 "Maven Wrapper" = "Maven Wrapper";
@@ -2606,6 +2608,11 @@
 "Repository needs attention" = "仓库需要处理";
 
 "Codex subscription" = "Codex 官方订阅（本机账号）";
+"Claude subscription" = "Claude 官方订阅（本机账号）";
+"Use the claude.ai account you signed in to with Claude Code. No API key or URL is needed; Lithe never reads its credentials." = "使用你在 Claude Code 中登录的 claude.ai 账号，无需 API Key 或地址；Lithe 不会读取它的登录凭据。";
+"Claude Code is not signed in. Run `claude` in a terminal, sign in with /login, then retry." = "Claude Code 尚未登录。请在终端运行 `claude`，用 /login 登录后再重试。";
+"Uses your local ChatGPT account." = "使用本机 ChatGPT 账号。";
+"Uses the claude.ai account signed in to Claude Code. Sign in with /login in Claude Code if the Agent asks." = "使用 Claude Code 中登录的 claude.ai 账号；如提示未登录，请在 Claude Code 中用 /login 登录。";
 "Loading session settings…" = "正在加载会话设置…";
 
 "Use your local ChatGPT account. No API key or URL is needed." = "使用本机已登录的 ChatGPT 账号，无需 API Key 或 URL。";
