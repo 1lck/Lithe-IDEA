@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::io::Read;
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
@@ -109,6 +110,29 @@ impl Connection {
     }
 }
 
+/// Set once the application is quitting; connections still being opened stop.
+static CLOSING: AtomicBool = AtomicBool::new(false);
+
+/// Number of `connect` calls that have not returned yet.
+static CONNECTING: AtomicUsize = AtomicUsize::new(0);
+
+/// Counts a connection attempt so application exit can wait for its OpenSSH
+/// tree to be killed.
+struct ConnectingGuard;
+
+impl ConnectingGuard {
+    fn enter() -> Self {
+        CONNECTING.fetch_add(1, Ordering::SeqCst);
+        Self
+    }
+}
+
+impl Drop for ConnectingGuard {
+    fn drop(&mut self) {
+        CONNECTING.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
 fn registry() -> &'static Mutex<HashMap<String, Arc<Connection>>> {
     static CONNECTIONS: OnceLock<Mutex<HashMap<String, Arc<Connection>>>> = OnceLock::new();
     CONNECTIONS.get_or_init(Mutex::default)
@@ -133,7 +157,9 @@ pub(super) fn connect_with(
     request: ConnectRequest,
     ssh_program: Option<&str>,
 ) -> Result<ConnectResult, CoreError> {
-    let artifacts = request
+    // Only the build for the host's platform is read and hashed, once the
+    // probe reports it; here the target names are just validated.
+    let servers = request
         .servers
         .iter()
         .map(|server| {
@@ -141,20 +167,13 @@ pub(super) fn connect_with(
                 CoreError::new(ErrorCode::InvalidRequest, "Unknown remote server target")
                     .with_details(server.target.clone())
             })?;
-            ServerArtifact::from_file(
-                target,
-                server.path.clone().into(),
-                request.server_version.clone(),
-            )
-            .map_err(|error| {
-                CoreError::new(
-                    ErrorCode::RuntimeMissing,
-                    "A bundled remote server is unreadable",
-                )
-                .with_details(error.to_string())
-            })
+            Ok((target, server.path.clone()))
         })
-        .collect::<Result<Vec<_>, _>>()?;
+        .collect::<Result<Vec<_>, CoreError>>()?;
+    let server_version = request.server_version.clone();
+    let unreadable = Arc::new(Mutex::new(None::<String>));
+    let unreadable_in_launch = Arc::clone(&unreadable);
+    let _connecting = ConnectingGuard::enter();
 
     let mut hop = ssh_hop(&request.connection)?;
     if let Some(program) = ssh_program {
@@ -221,10 +240,16 @@ pub(super) fn connect_with(
     std::thread::spawn(move || {
         let result = launch(&mut output, &mut input, |report| {
             let target = report.target()?;
-            artifacts
-                .iter()
-                .find(|artifact| artifact.target == target)
-                .cloned()
+            let (_, path) = servers.iter().find(|(known, _)| *known == target)?;
+            match ServerArtifact::from_file(target, path.clone().into(), server_version.clone()) {
+                Ok(artifact) => Some(artifact),
+                Err(error) => {
+                    *unreadable_in_launch
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(error.to_string());
+                    None
+                }
+            }
         });
         let _ = finished.send((result, output, input));
     });
@@ -237,6 +262,12 @@ pub(super) fn connect_with(
     let (result, output, input) = loop {
         if let Err(error) = crate::protocol::cancellation::check() {
             return abandon(error, &mut child);
+        }
+        if CLOSING.load(Ordering::SeqCst) {
+            return abandon(
+                CoreError::new(ErrorCode::Cancelled, "The application is closing"),
+                &mut child,
+            );
         }
         if Instant::now() >= deadline {
             return abandon(
@@ -325,6 +356,17 @@ pub(super) fn connect_with(
             let report = *report;
             let _ = tree.kill();
             let _ = child.wait();
+            let unreadable = unreadable
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .take();
+            if let Some(details) = unreadable {
+                return Err(CoreError::new(
+                    ErrorCode::RuntimeMissing,
+                    "A bundled remote server is unreadable",
+                )
+                .with_details(details));
+            }
             let host = ProbedHost {
                 server_target: report.target().map(ServerTarget::rust_target),
                 system: report.system,
@@ -426,6 +468,10 @@ pub(crate) fn read_dir(request: ReadDirRequest) -> Result<serde_json::Value, Cor
         .map_err(|error| request_error(&request.session_id, error))
 }
 
+/// Slowest link a save is expected to survive, in bytes per second; it
+/// extends the request deadline for large files.
+const WRITE_BYTES_PER_SECOND: u64 = 64 * 1024;
+
 /// Largest file opened for editing; bigger files stay on the host.
 const MAX_EDIT_BYTES: u64 = 16 * 1024 * 1024;
 
@@ -454,6 +500,13 @@ pub(crate) fn read_file(request: ReadFileRequest) -> Result<serde_json::Value, C
         .session
         .read_file(&request.path)
         .map_err(|error| request_error(&request.session_id, error))?;
+    // The file may have grown since `stat`.
+    if content.len() as u64 > MAX_EDIT_BYTES {
+        return Err(
+            CoreError::new(ErrorCode::NotSupported, "The file is too large to open")
+                .with_details(format!("{} bytes", content.len())),
+        );
+    }
     Ok(serde_json::json!({
         "data": methods::encode_bytes(&content),
         "size": metadata.size,
@@ -491,10 +544,28 @@ pub(crate) fn write_file(request: WriteFileRequest) -> Result<serde_json::Value,
         overwrite: false,
         create_parents: false,
     };
-    match connection
+    // The whole file travels in one request, so the deadline grows with it.
+    let timeout =
+        REQUEST_TIMEOUT + Duration::from_secs(content.len() as u64 / WRITE_BYTES_PER_SECOND);
+    let params = methods::WriteFileParams {
+        path: request.path.clone(),
+        data: methods::encode_bytes(&content),
+        expected: options.expected,
+        overwrite: options.overwrite,
+        create_parents: options.create_parents,
+    };
+    let written = connection
         .session
-        .write_file(&request.path, &content, options)
-    {
+        .request_value(
+            methods::FS_WRITE_FILE,
+            serde_json::to_value(&params).expect("write parameters serialize"),
+            timeout,
+        )
+        .and_then(|value| {
+            serde_json::from_value::<methods::FileMetadata>(value)
+                .map_err(|error| ClientError::Protocol(error.to_string()))
+        });
+    match written {
         Ok(metadata) => Ok(serde_json::json!({
             "status": "saved",
             "size": metadata.size,
@@ -535,6 +606,19 @@ pub(crate) fn disconnect(request: DisconnectRequest) -> bool {
 /// Closes every open connection, for application exit. Connections close in
 /// parallel so a dead host costs one grace period, not one per connection.
 pub(crate) fn close_all() -> usize {
+    CLOSING.store(true, Ordering::SeqCst);
+    let count = close_registered();
+    // Attempts still opening notice the flag within one poll interval and
+    // kill their OpenSSH tree; give them a moment to do so.
+    let deadline = Instant::now() + EXIT_GRACE;
+    while CONNECTING.load(Ordering::SeqCst) > 0 && Instant::now() < deadline {
+        std::thread::sleep(POLL_INTERVAL);
+    }
+    count
+}
+
+/// Closes the registered connections in parallel.
+pub(super) fn close_registered() -> usize {
     let connections: Vec<Arc<Connection>> = registry()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())

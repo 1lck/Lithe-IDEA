@@ -37,9 +37,18 @@ extension AppModel {
         )
     }
 
+    /// Ends the connection of a closed remote workspace, so its OpenSSH
+    /// process and remote server do not outlive the project.
+    func releaseRemoteWorkspace(at root: URL) {
+        guard let services = services.remoteConnections,
+              let binding = services.workspaces.unregister(root: root) else { return }
+        let sessions = services.sessions
+        Task { await sessions.disconnect(session: binding.sessionID) }
+    }
+
     /// Opens `folder` on the connected host as this window's workspace. A
     /// workspace already open for the same folder hands over to the new
-    /// connection, whose session the registry keeps until the app quits.
+    /// connection, whose session the registry keeps until the project closes or the app quits.
     private func openRemoteWorkspace(
         connection: RemoteSSHConnection, folder: String, session: RemoteOpenedSession,
         services: RemoteConnectionServices

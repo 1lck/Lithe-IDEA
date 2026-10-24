@@ -162,6 +162,11 @@ final class RemoteRoutingFileOperations: WorkspaceFileOperations, @unchecked Sen
     private var versions: [String: RemoteFileVersion] = [:]
     private var versionOrder: [String] = []
     private static let rememberedVersions = 512
+    /// Parent listings used to answer existence checks, so a burst of
+    /// `fileExists` calls costs one round trip; short-lived because remote
+    /// files are not watched. Writes drop them.
+    private var listings: [String: (entries: [RemoteDirectoryEntry], at: Date)] = [:]
+    private static let listingLifetime: TimeInterval = 3
 
     init(local: any WorkspaceFileOperations, registry: RemoteWorkspaceRegistry, transport: any RemoteWorkspaceTransport) {
         self.local = local
@@ -214,6 +219,7 @@ final class RemoteRoutingFileOperations: WorkspaceFileOperations, @unchecked Sen
             }
             expected = current.version
         }
+        lock.withLock { listings.removeAll() }
         switch try transport.writeFile(data, to: path, expected: expected, session: binding.sessionID) {
         case .saved(let version):
             let identity = Self.identity(of: data)
@@ -261,10 +267,20 @@ final class RemoteRoutingFileOperations: WorkspaceFileOperations, @unchecked Sen
         guard let (binding, _) = registry.resolve(url) else { return nil }
         if url.standardizedFileURL == binding.root.standardizedFileURL { return (true, true) }
         guard let (_, parentPath) = registry.resolve(url.deletingLastPathComponent()),
-              let entries = try? transport.listDirectory(parentPath, session: binding.sessionID),
+              let entries = cachedListing(parentPath, session: binding.sessionID),
               let entry = entries.first(where: { $0.name == url.lastPathComponent })
         else { return (false, false) }
         return (true, entry.isDirectory)
+    }
+
+    private func cachedListing(_ path: String, session: String) -> [RemoteDirectoryEntry]? {
+        let key = "\(session)\n\(path)"
+        if let hit = lock.withLock({ listings[key] }), Date().timeIntervalSince(hit.at) < Self.listingLifetime {
+            return hit.entries
+        }
+        guard let entries = try? transport.listDirectory(path, session: session) else { return nil }
+        lock.withLock { listings[key] = (entries, Date()) }
+        return entries
     }
 
     func fileExists(at url: URL) -> Bool {

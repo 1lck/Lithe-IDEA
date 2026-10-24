@@ -243,8 +243,11 @@ private final class FakeTransport: RemoteWorkspaceTransport, @unchecked Sendable
         lock.withLock { files[path].map { String(decoding: $0.0, as: UTF8.self) } }
     }
 
+    private(set) var listCount = 0
+
     func listDirectory(_ path: String, session id: String) throws -> [RemoteDirectoryEntry] {
-        directories[path] ?? []
+        lock.withLock { listCount += 1 }
+        return directories[path] ?? []
     }
 
     func readFile(_ path: String, session id: String) throws -> (data: Data, version: RemoteFileVersion) {
@@ -392,5 +395,13 @@ struct RemoteWorkspaceRoutingTests {
             #expect(MacRemoteHostLocator.isPrivate(address), "\(address)")
         }
         #expect(!MacRemoteHostLocator.isPrivate("8.8.8.8"))
+    }
+
+    @Test
+    func repeatedExistenceChecksShareOneListing() {
+        let (files, _, transport, _) = routing()
+        transport.directories["/srv/app"] = [entry("a.txt", "file")]
+        for _ in 0..<5 { _ = files.fileExists(at: root.appendingPathComponent("a.txt")) }
+        #expect(transport.listCount == 1)
     }
 }
