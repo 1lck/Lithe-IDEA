@@ -91,6 +91,19 @@ struct AgentHooksAppearanceTests {
             let content = try #require(sheet.contentView)
             content.layoutSubtreeIfNeeded()
             let editor = try #require(textViews(content).first { $0.string == "printf done" })
+            let description = try #require(textViews(content).first { $0.string == "文件编辑后处理" })
+            let name = try #require(editableFields(content).first { $0.stringValue == "custom_notify" })
+            let descriptionScroll = try #require(description.enclosingScrollView)
+            let commandScroll = try #require(editor.enclosingScrollView)
+            let nameRect = name.convert(name.bounds, to: content)
+            let descriptionRect = descriptionScroll.convert(descriptionScroll.bounds, to: content)
+            let commandRect = commandScroll.convert(commandScroll.bounds, to: content)
+            #expect(abs(descriptionRect.minX - commandRect.minX) < 1)
+            #expect(abs(nameRect.minX - descriptionRect.minX) <= 10)
+            #expect(descriptionRect.height > commandRect.height)
+            for rect in [nameRect, descriptionRect, commandRect] {
+                #expect(rect.minX >= 0 && rect.maxX <= content.bounds.width + 1)
+            }
             #expect(editor.isEditable)
             #expect(feature.draft?.event == .afterTool && feature.draft?.matcher == .edit)
             sheet.makeFirstResponder(editor)
@@ -98,6 +111,11 @@ struct AgentHooksAppearanceTests {
             let typingDeadline = clock.now.advanced(by: .seconds(2))
             while feature.draft?.command != "printf done 中文" && clock.now < typingDeadline { await Task.yield() }
             #expect(feature.draft?.command == "printf done 中文")
+            sheet.makeFirstResponder(description)
+            description.insertText("\n第二行说明", replacementRange: NSRange(location: description.string.utf16.count, length: 0))
+            let descriptionDeadline = clock.now.advanced(by: .seconds(2))
+            while feature.draft?.description != "文件编辑后处理\n第二行说明" && clock.now < descriptionDeadline { await Task.yield() }
+            #expect(feature.draft?.description == "文件编辑后处理\n第二行说明")
             #expect(feature.canSave)
             #expect(feature.library?.hooks.count == 1, "native typing must not save automatically")
             let folder = DeclarativePluginTestSupport.repositoryRoot.appendingPathComponent(".artifacts/test-stability/hooks-ui")

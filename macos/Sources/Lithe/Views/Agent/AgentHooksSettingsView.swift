@@ -126,6 +126,15 @@ private struct AgentHookEditor: View {
     let onSave: () -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var timeout = ""
+    @FocusState private var nameFocused: Bool
+    @FocusState private var descriptionFocused: Bool
+
+    private enum Layout {
+        static let width: CGFloat = 700
+        static let labelWidth: CGFloat = 144
+        static let padding: CGFloat = 20
+        static let rowSpacing: CGFloat = 18
+    }
 
     private func field<Value>(_ keyPath: WritableKeyPath<AgentHook, Value>, fallback: Value) -> Binding<Value> {
         Binding(get: { feature.draft?[keyPath: keyPath] ?? fallback }, set: { feature.draft?[keyPath: keyPath] = $0 })
@@ -135,54 +144,100 @@ private struct AgentHookEditor: View {
     }
     private func key(_ value: String.LocalizationValue) -> LocalizedStringKey { LocalizedStringKey(localized(value)) }
     private var timeoutValid: Bool { timeout.isEmpty || (Int(timeout).map { (1...86400).contains($0) } ?? false) }
+    private var isNew: Bool { !(feature.library?.hooks.contains { $0.id == feature.draft?.id } ?? false) }
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text(key("Hook")).font(LitheTheme.uiFont(size: 16, weight: .semibold))
-            LitheSettingsRow(key("Name"), info: key("Use 1–80 letters, digits, hyphens or underscores. Names must be unique.")) {
-                TextField("notify", text: field(\.name, fallback: "")).litheSettingsTextField()
-            }
-            LitheSettingsRow(key("Description"), info: key("Optional description, up to 200 characters. Only the Hook library stores it.")) {
-                TextField(localized("Hook description"), text: field(\.description, fallback: "")).litheSettingsTextField()
-            }
-            LitheSettingsRow(key("When to run")) {
-                LitheSettingsSelect(selection: field(\.event, fallback: .turnEnd), options: AgentHookEvent.allCases,
-                    width: 240, accessibilityLabel: "When to run", title: { localized(String.LocalizationValue($0.title)) }, localizesTitles: false)
-            }
-            if feature.draft?.event.supportsMatcher == true {
-                LitheSettingsRow(key("Tool filter")) {
-                    LitheSettingsSelect(selection: field(\.matcher, fallback: .all), options: AgentHookMatcher.allCases,
-                        width: 240, accessibilityLabel: "Tool filter", title: { localized(String.LocalizationValue($0.title)) }, localizesTitles: false)
-                }
-            }
-            LitheSettingsLabel(key("Command"), info: key("The Agent executes this command using its own shell and passes event JSON on standard input. Commands run with your user permissions; add only commands you trust."))
-            TextEditor(text: field(\.command, fallback: "")).font(LitheTheme.codeFont)
-                .litheSettingsTextEditor(height: 120).accessibilityLabel(Text(key("Hook command")))
-            LitheSettingsRow(key("Timeout (seconds)"), info: key("Leave empty to use the Agent default, or enter an integer from 1 to 86400.")) {
-                TextField(localized("Agent default"), text: $timeout).litheSettingsTextField()
-                    .onChange(of: timeout) { value in feature.draft?.timeoutSeconds = value.isEmpty ? nil : Int(value) }
-            }
-            LitheSettingsRow(key("Agents")) {
-                HStack(spacing: 16) {
-                    ForEach(AgentInstructionKind.allCases) { agent in
-                        Toggle(agent.title, isOn: Binding(get: { feature.draft?.agents.contains(agent.rawValue) ?? false }, set: { value in
-                            feature.draft?.agents.removeAll { $0 == agent.rawValue }
-                            if value { feature.draft?.agents.append(agent.rawValue) }
-                        })).toggleStyle(.checkbox)
+        VStack(spacing: 0) {
+            HStack {
+                Text(isNew ? key("New Hook") : key("Edit Hook"))
+                    .font(LitheTheme.uiFont(size: 16, weight: .semibold))
+                Spacer()
+            }.padding(Layout.padding)
+            Divider()
+            ScrollView {
+                VStack(alignment: .leading, spacing: Layout.rowSpacing) {
+                    row("Name", info: "Use 1–80 letters, digits, hyphens or underscores. Names must be unique.") {
+                        TextField(localized("For example, notify"), text: field(\.name, fallback: ""))
+                            .litheSettingsTextField().focused($nameFocused)
+                            .accessibilityLabel(Text(key("Hook name"))).accessibilityIdentifier("hook-editor.name")
                     }
-                }
-            }
-            if case .failed(let message) = feature.phase { AgentSettingsIssue(localized(String.LocalizationValue(message))) }
+                    row("Description", info: "Optional description, up to 200 characters. Only the Hook library stores it.", alignment: .top) {
+                        TextEditor(text: field(\.description, fallback: ""))
+                            .litheSettingsTextEditor(height: 84, focus: $descriptionFocused, font: LitheTheme.settingsFont)
+                            .overlay(alignment: .topLeading) {
+                                if feature.draft?.description.isEmpty == true, !descriptionFocused {
+                                    Text(key("For example, notify me when a turn ends"))
+                                        .foregroundStyle(LitheTheme.tertiaryText).padding(9)
+                                        .allowsHitTesting(false).accessibilityHidden(true)
+                                }
+                            }
+                            .accessibilityLabel(Text(key("Hook description"))).accessibilityIdentifier("hook-editor.description")
+                    }
+                    row("When to run") {
+                        LitheSettingsSelect(selection: field(\.event, fallback: .turnEnd), options: AgentHookEvent.allCases,
+                            width: 240, accessibilityLabel: "When to run", title: { localized(String.LocalizationValue($0.title)) }, localizesTitles: false)
+                    }
+                    if feature.draft?.event.supportsMatcher == true {
+                        row("Tool filter") {
+                            LitheSettingsSelect(selection: field(\.matcher, fallback: .all), options: AgentHookMatcher.allCases,
+                                width: 240, accessibilityLabel: "Tool filter", title: { localized(String.LocalizationValue($0.title)) }, localizesTitles: false)
+                        }
+                    }
+                    row("Command", info: "The Agent executes this command using its own shell and passes event JSON on standard input. Commands run with your user permissions; add only commands you trust.", alignment: .top) {
+                        TextEditor(text: field(\.command, fallback: ""))
+                            .litheSettingsTextEditor(height: 46)
+                            .accessibilityLabel(Text(key("Hook command"))).accessibilityIdentifier("hook-editor.command")
+                    }
+                    row("Timeout (seconds)", info: "Leave empty to use the Agent default, or enter an integer from 1 to 86400.") {
+                        TextField(localized("Agent default"), text: $timeout).litheSettingsTextField()
+                            .frame(width: 200).accessibilityLabel(Text(key("Timeout (seconds)")))
+                            .accessibilityIdentifier("hook-editor.timeout")
+                            .onChange(of: timeout) { value in feature.draft?.timeoutSeconds = value.isEmpty ? nil : Int(value) }
+                    }
+                    row("Agent") {
+                        HStack(spacing: 8) {
+                            AgentSelectionChip(title: localized("All"), selected: feature.draft?.agents.count == AgentInstructionKind.allCases.count) {
+                                feature.draft?.agents = AgentInstructionKind.allCases.map(\.rawValue)
+                            }
+                            ForEach(AgentInstructionKind.allCases) { agent in
+                                AgentSelectionChip(title: agent.title, brandName: agent.title,
+                                                   selected: feature.draft?.agents.contains(agent.rawValue) == true) {
+                                    if feature.draft?.agents.contains(agent.rawValue) == true {
+                                        feature.draft?.agents.removeAll { $0 == agent.rawValue }
+                                    } else { feature.draft?.agents.append(agent.rawValue) }
+                                }
+                            }
+                        }
+                    }
+                    if case .failed(let message) = feature.phase { AgentSettingsIssue(localized(String.LocalizationValue(message))) }
+                }.padding(Layout.padding)
+            }.frame(maxHeight: 510).fixedSize(horizontal: false, vertical: true)
+            Divider()
             HStack(spacing: LitheTheme.ActionButton.spacing) {
                 if feature.isBusy { ProgressView().controlSize(.small) }
                 Spacer()
                 Button(key("Cancel")) { feature.draft = nil; dismiss() }.buttonStyle(LitheActionButtonStyle()).keyboardShortcut(.cancelAction)
-                Button(key("Save Hook"), action: onSave).buttonStyle(LitheActionButtonStyle(isPrimary: true))
+                Button(isNew ? key("Add Hook") : key("Save Hook"), action: onSave)
+                    .buttonStyle(LitheActionButtonStyle(isPrimary: true))
                     .disabled(!feature.canSave || !timeoutValid).keyboardShortcut(.defaultAction)
-            }
-        }.font(LitheTheme.settingsFont).padding(20).frame(width: 620).background(LitheTheme.settingsSurface)
+            }.padding(Layout.padding)
+        }.font(LitheTheme.settingsFont).frame(width: Layout.width).background(LitheTheme.settingsSurface)
             .disabled(feature.isBusy)
-            .onAppear { timeout = feature.draft?.timeoutSeconds.map(String.init) ?? "" }
+            .onAppear {
+                timeout = feature.draft?.timeoutSeconds.map(String.init) ?? ""
+                nameFocused = true
+            }
             .onChange(of: feature.draft?.event) { event in if event?.supportsMatcher != true { feature.draft?.matcher = .all } }
             .interactiveDismissDisabled(feature.isBusy)
+    }
+
+    private func row<Content: View>(_ title: String.LocalizationValue, info: String.LocalizationValue? = nil,
+                                   alignment: VerticalAlignment = .center, @ViewBuilder content: () -> Content) -> some View {
+        HStack(alignment: alignment, spacing: 16) {
+            LitheSettingsLabel(key(title), info: info.map(key))
+                .frame(width: Layout.labelWidth, alignment: .trailing)
+                .padding(.top, alignment == .top ? 6 : 0)
+            HStack(spacing: 0) { content() }
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }.frame(minHeight: SettingsSelectMetrics.controlHeight)
     }
 }

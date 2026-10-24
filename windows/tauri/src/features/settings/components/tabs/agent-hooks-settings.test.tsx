@@ -31,7 +31,7 @@ test("Hook editor retains a failed draft, retries with its guard and updates nat
     if (action === "remove") return { ...library, revision: "removed", hooks: [] };
     return library;
   });
-  const frame = spyOn(dialog, "default").mockImplementation(({ children, footer }) => <div role="dialog">{children}{footer}</div>);
+  const frame = spyOn(dialog, "default").mockImplementation(({ children, footer, title }) => <div role="dialog"><h2>{title}</h2>{children}{footer}</div>);
   const confirms = spyOn(dialog, "showConfirmDialog").mockResolvedValue(true);
   const toggle = spyOn(switchControl, "default").mockImplementation(({ checked, onChange, disabled, "aria-label": label }) => (
     <button aria-label={label} aria-checked={checked} disabled={disabled} onClick={() => onChange(!checked)}>native-switch</button>
@@ -48,10 +48,19 @@ test("Hook editor retains a failed draft, retries with its guard and updates nat
     expect(container.textContent).toContain("Sync needed");
     await act(async () => button("Edit").click());
     expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(container.textContent).toContain("Edit Hook");
+    expect(container.querySelector<HTMLTextAreaElement>('textarea[aria-label="Description"]')?.value).toBe(fixture.hook.description);
+    await act(async () => button("Codex").click());
+    await act(async () => button("Claude Code").click());
+    expect(button("Save Hook").disabled).toBe(true);
+    expect(writes).toHaveLength(0);
+    await act(async () => button("All").click());
+    expect(button("Codex").getAttribute("aria-pressed")).toBe("true");
+    expect(button("Claude Code").getAttribute("aria-pressed")).toBe("true");
     await act(async () => button("Save Hook").click());
     expect(container.textContent).toContain("Fixture conflict");
     expect(container.querySelector('[role="dialog"]')).not.toBeNull();
-    expect(container.querySelector<HTMLTextAreaElement>("textarea")?.value).toBe("printf done");
+    expect(container.querySelector<HTMLTextAreaElement>('textarea[aria-label="Command"]')?.value).toBe("printf done");
     fails = false;
     await act(async () => button("Save Hook").click());
     expect(container.querySelector('[role="dialog"]')).toBeNull();
@@ -63,6 +72,11 @@ test("Hook editor retains a failed draft, retries with its guard and updates nat
     await act(async () => button("Delete").click());
     expect(confirms).toHaveBeenCalledTimes(1);
     expect(container.textContent).toContain("No Hooks yet.");
+    await act(async () => button("Add Hook").click());
+    expect(container.textContent).toContain("New Hook");
+    expect(container.querySelector<HTMLInputElement>('input[aria-label="Name"]')?.value).toBe("");
+    await act(async () => button("Cancel").click());
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
   } finally {
     try { await act(async () => root.unmount()); }
     finally {

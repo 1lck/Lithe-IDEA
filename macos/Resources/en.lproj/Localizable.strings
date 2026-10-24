@@ -2361,6 +2361,11 @@
 "Claude Code has MCP tool restrictions. Update its native rules before renaming a server so disabled tools do not become available under a new name." = "Claude Code has MCP tool restrictions. Update its native rules before renaming a server so disabled tools do not become available under a new name.";
 
 /* Agent Hooks */
+"New Hook" = "New Hook";
+"Edit Hook" = "Edit Hook";
+"Hook name" = "Hook name";
+"For example, notify" = "For example, notify";
+"For example, notify me when a turn ends" = "For example, notify me when a turn ends";
 "Hooks" = "Hooks";
 "Hook" = "Hook";
 "Agent hooks" = "Agent hooks";

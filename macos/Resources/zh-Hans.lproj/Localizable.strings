@@ -4005,6 +4005,11 @@
 "Claude Code has MCP tool restrictions. Update its native rules before renaming a server so disabled tools do not become available under a new name." = "Claude Code 存在 MCP 工具限制。重命名服务器前请先更新其原生规则，以免已禁用的工具在新名称下重新可用。";
 
 /* Agent Hooks */
+"New Hook" = "新 Hook";
+"Edit Hook" = "编辑 Hook";
+"Hook name" = "Hook 名称";
+"For example, notify" = "例如 notify";
+"For example, notify me when a turn ends" = "例如：一轮结束时提醒我";
 "Hooks" = "Hooks";
 "Hook" = "Hook";
 "Agent hooks" = "Agent 钩子";

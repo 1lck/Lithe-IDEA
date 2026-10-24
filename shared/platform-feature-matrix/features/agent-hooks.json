@@ -14,7 +14,9 @@
       "macos/Tests/LitheTests/AgentHooksAppearanceTests.swift",
       "rust/lithe-agent-host/src/hooks.rs",
       "shared/fixtures/agent/hooks-management-v1.json",
-      ".agents/notes/implemented/feature/2026-10-24-agent-hooks.md"
+      ".agents/notes/implemented/feature/2026-10-24-agent-hooks.md",
+      "macos/Sources/Lithe/Views/Agent/AgentSelectionChip.swift",
+      "macos/Sources/Lithe/Views/Components/LitheSettingsControls.swift"
     ]
   },
   "windows": {
@@ -29,6 +31,6 @@
     ]
   },
   "owner": "Agent",
-  "verification": "在 macOS 与真实 Windows 中打开 AI > Hooks，创建、编辑、搜索、启停和删除命令；确认五种事件和 Shell/文件编辑筛选映射正确，超时空值沿用原生默认。使用隔离用户目录运行真实 Codex/Claude Agent，批准原生信任后触发会话开始、提示词、工具前后和回合结束，并验证 JSON stdin 与工作目录。保留已有设置及用户 Hook；删除后其他组的位置不变，Codex trust 配置不变；外部修改、只读、非法 JSON、符号链接、原生单项失败、中断和取消显示可重试状态。运行 Host Hook、Core 契约、Swift 功能/外观/设置导航测试与 Windows frontend 验证，检查中英文深浅色窄宽页面及编辑面板。比较操作前后发行 bundle 文件清单与哈希不变。",
-  "notes": "源与所有权日志由平台 storage adapter 提供可写目录；1 MiB 有界读写，非阻塞 OS 锁，逐文件原子替换，跨文件部分失败明确可见。原生 JSON 保留未知字段值但规范化格式；非法 JSON/重复键拒绝覆盖。Codex 仍须在原生 /hooks 中启用与信任命令，配置已写入不表示已执行。macOS 已通过 51 项相关 Swift 计时测试、14 项 Hook 文件测试和真实界面 CRUD/搜索/启停/冲突恢复验收；10 个原生 CLI 与 4 个 ACP 真实模型会话覆盖 Codex 0.160.0、Claude Code 2.1.310、Codex ACP 1.13.1、Claude ACP 0.81.2，验证五种事件、工具筛选、JSON stdin、会话目录、命令修改、停用/删除/重新启用和原生超时。1382 个 bundle 文件哈希不变，测试配置与进程已清理。完整 Host lane 为 231 通过、39 个 opt-in 跳过。Windows 实机运行尚未执行，verificationStatus 保持 pending。 Windows frontend 的 9 项计时测试与类型检查通过，包含重新加载不携带写入快照的请求边界回归；这不替代 Windows 实机验收。"
+  "verification": "在 macOS 与真实 Windows 中打开 AI > Hooks，创建、编辑、搜索、启停和删除命令；确认五种事件和 Shell/文件编辑筛选映射正确，超时空值沿用原生默认。使用隔离用户目录运行真实 Codex/Claude Agent，批准原生信任后触发会话开始、提示词、工具前后和回合结束，并验证 JSON stdin 与工作目录。保留已有设置及用户 Hook；删除后其他组的位置不变，Codex trust 配置不变；外部修改、只读、非法 JSON、符号链接、原生单项失败、中断和取消显示可重试状态。运行 Host Hook、Core 契约、Swift 功能/外观/设置导航测试与 Windows frontend 验证，检查中英文深浅色窄宽页面及编辑面板。比较操作前后发行 bundle 文件清单与哈希不变。 按参考页检查编辑器两列标签对齐、多行描述与命令、创建/编辑标题和固定底部动作；验证 Agent 品牌选择按钮、全部恢复和全不选时禁用保存。",
+  "notes": "源与所有权日志由平台 storage adapter 提供可写目录；1 MiB 有界读写，非阻塞 OS 锁，逐文件原子替换，跨文件部分失败明确可见。原生 JSON 保留未知字段值但规范化格式；非法 JSON/重复键拒绝覆盖。Codex 仍须在原生 /hooks 中启用与信任命令，配置已写入不表示已执行。macOS 已通过 51 项相关 Swift 计时测试、14 项 Hook 文件测试和真实界面 CRUD/搜索/启停/冲突恢复验收；10 个原生 CLI 与 4 个 ACP 真实模型会话覆盖 Codex 0.160.0、Claude Code 2.1.310、Codex ACP 1.13.1、Claude ACP 0.81.2，验证五种事件、工具筛选、JSON stdin、会话目录、命令修改、停用/删除/重新启用和原生超时。1382 个 bundle 文件哈希不变，测试配置与进程已清理。完整 Host lane 为 231 通过、39 个 opt-in 跳过。Windows 实机运行尚未执行，verificationStatus 保持 pending。 Windows frontend 的 9 项计时测试与类型检查通过，包含重新加载不携带写入快照的请求边界回归；这不替代 Windows 实机验收。 编辑器按参考设计采用两列表单、独立标题/底栏和品牌选择按钮；macOS 复用 MCP 原有选择按钮，新增布局与输入回归。 布局调整后 78 项 macOS Swift 计时测试和 9 项 frontend 测试通过，类型检查通过；已检查中英文深浅色编辑器截图，并在真实预览验证焦点、多行描述、全部/单选和工具事件切换。"
 }
