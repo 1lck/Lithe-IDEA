@@ -610,3 +610,40 @@ fn bootstrap_uploads_once_and_reuses_the_verified_binary() {
     session.stat("/").unwrap();
     session.shutdown(STEP_TIMEOUT);
 }
+
+// One connection probes, installs and starts the server, so a host that
+// asks for a password asks once; the second launch reuses the install.
+#[test]
+fn one_connection_installs_once_and_starts_the_server() {
+    use lithe_remote_client::launch::{launch, launch_command};
+    let install = TempDir::new("launch");
+    let root = install.path().to_str().unwrap().to_owned();
+    for expected_upload in [true, false] {
+        let mut child = Command::new("sh")
+            .args(&launch_command(Some(&root), &["--stdio"])[1..])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut input = child.stdin.take().unwrap();
+        let mut output = child.stdout.take().unwrap();
+        let launched = launch(&mut output, &mut input, |report| {
+            let target = report.target()?;
+            Some(
+                ServerArtifact::from_file(target, SERVER.into(), env!("CARGO_PKG_VERSION"))
+                    .unwrap(),
+            )
+        })
+        .unwrap();
+        assert_eq!(launched.uploaded, expected_upload);
+        let options = lithe_remote_client::session::ConnectOptions {
+            client_name: "test".into(),
+            handshake_timeout: STEP_TIMEOUT,
+            ..Default::default()
+        };
+        let (session, _events) = RemoteSession::from_streams(output, input, &options).unwrap();
+        session.stat("/").unwrap();
+        session.shutdown(STEP_TIMEOUT);
+        assert!(child.wait().unwrap().success());
+    }
+}

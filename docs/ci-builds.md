@@ -361,6 +361,16 @@ Swift 单元、插件和数据库 CI 通道复用已有 Cargo 下载缓存。先
 
 ### 独立工作树的本地编译
 
+共享翻译源文件位于 `shared/i18n/`。每个工作树通过 Git 获取源文件和已提交的
+macOS 字符串表、`AppLanguage.generated.swift`、Windows `shared.generated.ts`，
+然后运行 `node scripts/generate-i18n.mjs --check` 校验。修改源翻译后运行不带
+`--check` 的同一命令，在当前工作树重新生成。资源身份由当前语言清单、词条、翻译
+共同决定，跨平台和架构均不需要下载；没有独立的工具链或
+可复用 identity stamp。`worktree-resources.json` 将它登记为 `shared-i18n` 不可复用项，
+复用脚本拒绝所有复制阶段。不要从其他工作树或已签名应用复制生成文件。
+macOS 打包只在本次构建的目标目录转换为二进制字符串表，签名前完成；应用运行时
+只读取，不产生缓存或修改安装资源。维护步骤见 [共享翻译说明](../shared/i18n/README.md)。
+
 共享指令的 `Lithe/AgentInstructions/Shared.md`、`.sync.lock` 和同目录原子保存暂存文件登记为
 `agent-instruction-library-state`，由平台 storage adapter 的 Application Support 根目录提供。
 它们是可变用户配置，不具有版本/平台/架构/工具链身份；所有工作树复用阶段均拒绝复制，
@@ -375,6 +385,18 @@ HTTP/SSE 响应体和 stdio 元数据限制为 2 MiB，原生文件由现有平�
 同一用户资料的服务器账本 `toolFilters`，重新添加时恢复，不作为活动文件的所有权证明。
 这些保留值随资料持久化，不能复制到其他工作树；取消/离页释放进程与内存，不写 app bundle 或安装目录。
 用户明确运行包命令可能产生的 npm/uv 缓存归上游运行时管理，不属于可跨工作树复用的 Lithe 构建资源。
+
+随 App 附带的远端工作区服务登记为 `remote-server-artifacts`。`scripts/build-remote-servers.sh`
+每次打包都用本工作树源码重新构建两个 Linux musl 静态版（约 25 秒），输出到
+`rust/target/remote-servers/`，再复制到 `Contents/Resources/RemoteServers/`；构建机需要
+`x86_64-unknown-linux-musl` 和 `aarch64-unknown-linux-musl` 两个 Rust 目标。清单只记录服务版本，
+不带工具链或源码身份，所以不跨工作树复用。运行时只读取这份副本并上传给 SSH 主机，
+不写 bundle，不影响签名和 Sparkle delta。
+
+远程开发的用户状态登记为 `remote-connection-state`：偏好中的 SSH 连接列表、钥匙串服务
+`remote` 中记住的密码或口令、`Application Support/Lithe/RemoteWorkspaces/` 下打开远程文件夹时
+创建的空占位根目录，以及远端主机上 `~/.lithe-server/bin/` 中按 SHA-256 校验后复用的服务。
+它们属于用户资料或远端主机，没有构建身份，所有复用阶段均拒绝复制。
 
 MCP 编辑器、工具面板和指令页的原生验收截图分别输出到
 `.artifacts/test-stability/mcp-ui/` 与 `.artifacts/test-stability/instructions-ui/`，随
@@ -396,7 +418,6 @@ MCP 发现页读取的官方 Registry 在线响应登记为 `mcp-registry-metada
 生成 identity stamp 或跨工作树复制阶段；版本由当前 Git 源码和清单哈希决定，
 不从其他工作树或已安装应用提取。运行时只读并在内存缓存解码结果，不访问图标网络，
 不改写签名包或 Sparkle delta 基线；Windows 未消费此 macOS 资源目录。
-
 Cargo 社区插件在 [独立仓库](https://github.com/Lithe-IDEA/lithe-plugin-cargo) 中构建，
 最终 ZIP、摘要、vendored Node SDK 和集成测试产物由该仓库的 `dist/`、`.artifacts/` 持有，
 不作为 Lithe 主仓库的下载缓存或可复用资源。Cargo 专属清单、模型金样与兼容性测试也由

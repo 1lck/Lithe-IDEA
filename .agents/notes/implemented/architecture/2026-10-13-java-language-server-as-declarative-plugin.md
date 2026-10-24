@@ -126,6 +126,15 @@ dev.lithe.plugin.java-support/
 - 不要为了恢复某个语言的调试或测试，把能力目录的合并规则改成“插件没声明就保留宿主原有能力”，也不要在目录或注册表里按 `java` 放行。前者让 PHP、Go 的插件停用后宿主重新运行内置工具，后者是按名字的特判。
 - 不要往插件包里写任何东西。可写状态用 `${stateDir}`、`${workspaceStateDir}`，或像 JDT 那样由集成放进宿主缓存。
 
+### Java 调用补全留空实参
+
+构造器和方法补全由共享 JDT 适配器设置 `java.completion.guessMethodArguments: "off"`，Windows 和 macOS 一致。输入 `new No` 后接受 Node 候选得到 `Node()`，括号内保留光标，由用户填写实参；方法候选仍可展示签名，自动导入和其他语言的 snippet 不受影响。初始化、配置通知及按 section 拉取配置必须返回相同值，防止 JDT LS 后续恢复参数占位。
+
+来源是当前固定的 [JDT LS v1.61.0](https://github.com/eclipse-jdtls/eclipse.jdt.ls/tree/v1.61.0)：`Preferences.java` 默认选择 `INSERT_PARAMETER_NAMES`，`CompletionProposalReplacementProvider.appendGuessingCompletion` 在 `OFF` 时只插入光标。正确做法是使用该上游设置，同时保留插件声明的其他 completion 项；不要在 Monaco 中用正则删除参数或禁用通用 snippet。后两种方案会误伤方法体模板、其他语言和补全解析后的自动导入。代价是 Java 默认不再提供可逐个替换的参数名占位，JDT LS 也会将构造器重载候选合并为类型候选；这次不增加新的设置界面。
+
+`java_completion_leaves_arguments_empty_across_configuration_channels` 和 `shared/fixtures/lsp/java-completion-v1.json` 验证三个配置入口及插件其他 completion 项的保留；实机验收仍需分别确认两端 Tab 接受候选后的位置和自动导入。
+运行会话保留初始化时插件声明的 completion 对象，配置通知和 `java`、`java.completion` 及其叶节点请求均从同一份对象应用 `guessMethodArguments=off`。例如插件声明的 `favoriteStaticMembers`、`filteredTypes` 不得在初始化后被通知或拉取结果清空；引擎测试同时检查真实会话接线，不能只用默认设置证明三个入口一致。
+
 ## 考虑过的备选方案
 
 ### 只把文件搬进插件包，宿主继续扫描目录

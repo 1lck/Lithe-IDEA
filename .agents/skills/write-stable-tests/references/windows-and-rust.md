@@ -93,7 +93,15 @@ integration cases create multiple repositories/remotes and run real Git pushes.
 Windows run 39947608155 reached the default 15-second deadline in
 `git_workspace_commit_push_confirms_each_repository_separately` at 15.16 seconds
 without an assertion failure; this replaces the previous single-case allowance
-for submodule publication. Other
+for submodule publication. That case additionally gets 60 seconds in both
+SharedRust and real-JDT. It initializes two working repositories and two bare
+remotes, prepares three independent confirmation states, then commits and pushes
+both repositories. A local Windows profile completed all assertions in 49.9
+seconds across 287 Git processes, with every Git process exiting and no
+individual Git operation taking more than 0.6 seconds internally, so the
+module's 30-second allowance is not enough for it. Each Git request retains its
+native deadline and process-tree cleanup, and the suite deadline remains
+unchanged. Other
 multi-repository coverage includes
 `tests::git::git_write_updates_a_noncurrent_branch_without_switching_head`,
 which also gets 30 seconds in both SharedRust and real-JDT lanes: it builds a

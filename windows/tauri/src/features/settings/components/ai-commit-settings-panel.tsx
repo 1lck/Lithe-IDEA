@@ -1,3 +1,4 @@
+import { createTranslator } from "@/i18n/locale";
 import Input from "@/ui/input";
 import Textarea from "@/ui/textarea";
 import { Checkbox } from "@/ui/checkbox";
@@ -429,8 +430,8 @@ export function AiCommitSettingsPanel() {
               update({ language: selectedValue as CommitAISettings["language"] })
             }
             options={[
-              { value: "english", label: "English" },
-              { value: "simplifiedChinese", label: "简体中文" },
+              { value: "english", label: t("aiCommit.languageEnglish") },
+              { value: "simplifiedChinese", label: t("aiCommit.languageChinese") },
             ]}
           />
         </Field>
@@ -462,9 +463,7 @@ export function AiCommitSettingsPanel() {
         ) : (
           <p className="rounded bg-surface p-2 font-mono">
             {t("aiCommit.example")}: {settings.format === "conventional" ? "feat(editor): " : ""}
-            {settings.language === "simplifiedChinese"
-              ? "添加编辑器内存占用指示器"
-              : "Add an editor memory indicator"}
+            {createTranslator(settings.language === "simplifiedChinese" ? "zh-CN" : "en-US")("aiCommit.exampleMessage")}
           </p>
         )}
         <label className="flex items-center gap-2">

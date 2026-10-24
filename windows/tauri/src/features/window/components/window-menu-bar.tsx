@@ -491,7 +491,7 @@ const WindowMenuBar = ({
           <MenubarItem
             onClick={() => handleCommand("database.connect")}
             disabled={!isBackendCapabilityAvailable("database")}
-            title={BACKEND_UNAVAILABLE_TOOLTIP}
+            title={t(BACKEND_UNAVAILABLE_TOOLTIP)}
           >
             {t("menu.databases")}
           </MenubarItem>
@@ -617,7 +617,7 @@ const WindowMenuBar = ({
               title={
                 (menuName === "Terminal" && !isBackendCapabilityAvailable("terminal")) ||
                 (menuName === "Run" && !isBackendCapabilityAvailable("debugger"))
-                  ? BACKEND_UNAVAILABLE_TOOLTIP
+                  ? t(BACKEND_UNAVAILABLE_TOOLTIP)
                   : undefined
               }
             >

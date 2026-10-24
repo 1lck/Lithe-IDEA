@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "bun ./node_modules/vite-plus/bin/vp dev",
-    "build": "bunx vp build",
+    "dev": "node ../../scripts/generate-i18n.mjs --check && bun ./node_modules/vite-plus/bin/vp dev",
+    "build": "node ../../scripts/generate-i18n.mjs --check && bunx vp build",
     "preview": "bunx vp preview",
     "tauri": "tauri",
     "desktop:dev": "tauri dev --config src-tauri/tauri.windows.conf.json",

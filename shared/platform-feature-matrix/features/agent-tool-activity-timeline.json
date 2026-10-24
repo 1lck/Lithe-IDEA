@@ -2,12 +2,14 @@
   "id": "agent-tool-activity-timeline",
   "area": "AI",
   "group": "Agent 对话",
-  "capability": "连续 Agent 工具调用（执行命令、列文件、读文件与编辑等）合并为默认折叠的时间线卡片，汇总总数与失败/中断/完成进度，并逐条展开输入、输出与文件位置",
+  "capability": "每轮工具调用与思考、过程说明放进同一个默认折叠的过程区；展开后相邻工具保留有序时间线、状态、输入输出和文件位置，最终回复单独展示",
   "macos": {
     "evidence": [
       "macos/Sources/Lithe/Views/Agent/AgentTranscriptView.swift",
       "macos/Sources/Lithe/Views/Agent/AgentToolGroupView.swift",
-      "macos/Tests/LitheTests/AgentConversationPresentationTests.swift"
+      "macos/Tests/LitheTests/AgentConversationPresentationTests.swift",
+      "macos/Sources/Lithe/Views/Agent/AgentProcessGroupView.swift",
+      "macos/Tests/LitheTests/AgentThoughtTranscriptTests.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -21,12 +23,13 @@
       "windows/tauri/src/features/agent/components/agent-edit-review.tsx",
       "windows/tauri/src/features/agent/services/agent-edit-review.test.ts",
       "windows/tauri/crates/project/src/document_file.rs",
-      "scripts/test-windows-agent-recycle.ps1"
+      "scripts/test-windows-agent-recycle.ps1",
+      "windows/tauri/src/features/agent/components/agent-transcript.process.test.tsx"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
   },
   "owner": "Agent",
-  "verification": "macOS：让真实 Agent 连续列文件、读取文件、执行命令和编辑，确认相邻工具调用只显示一张默认折叠的时间线卡片；展开后每条状态、完整输入、输出和文件位置仍可查看，进行中、全部完成、失败和中断时汇总正确。用 Agent 文字说明和新一轮用户消息隔开工具调用，确认保留文字顺序且不会跨边界合并；搜索工具输入、输出或文件路径时自动展开匹配组；覆盖文件路径仅由 diff 内容上报、未出现在工具标题、输入输出或 locations 中的情况，历史恢复结果与实时流一致。在窄宽面板及深浅主题检查长标题截断、悬停全文、列表滚动和详情可读性。Tasks/Running/Edits 使用共享工具栏按钮的 hover、按下和选中状态，普通标签字体、16pt 图标、2pt 图文间距和4pt水平留白；无独立外框或竖分隔，左右与输入框对齐，原生鼠标验证三项弹框及文件操作仍可用。 Windows 相邻工具调用按 macOS 合并为可折叠的“工具操作（N）”组，头部显示失败/中断/全部完成/已完成 n/N 摘要，失败组红框，行内状态点与证据展开（输入、内容、结果、文件位置），列表最多 4 行高；对话下方常驻任务/运行中/编辑统计条，搜索命中时自动展开；实机验证待完成。Tasks/Running/Edits 使用共享工具栏按钮的 hover、按下和选中状态，普通标签字体、16pt 图标、2pt 图文间距和4pt水平留白；无独立外框或竖分隔，左右与输入框对齐，原生鼠标验证三项弹框及文件操作仍可用。 Windows：在真实 Tauri 窗口执行 Windows 展示上游工具时间线及按文件汇总的修改审阅。Keep 只确认精确版本；Revert 拒绝脏缓冲区、外部磁盘变化、不完整证据、工作区外路径及末端重解析点。明确创建证据才允许按预期字节身份移入回收站，冲突保留恢复位置。 单元测试不替代运行时验收，未执行的真实服务及平台动作保持 pending。 Windows 撤销回归必须拒绝精确文本及换行归一化后的重叠片段歧义。原生 Shell 边界转换 canonicalize 产生的盘符和 UNC 扩展路径，并拒绝别名变化或过长路径；交互式执行 scripts/test-windows-agent-recycle.ps1 确认真实回收站条目、字节、恢复与清理。",
-  "notes": "2026-10-22：Windows 展示上游工具时间线及按文件汇总的修改审阅。Keep 只确认精确版本；Revert 拒绝脏缓冲区、外部磁盘变化、不完整证据、工作区外路径及末端重解析点。明确创建证据才允许按预期字节身份移入回收站，冲突保留恢复位置。 Windows 撤销回归必须拒绝精确文本及换行归一化后的重叠片段歧义。原生 Shell 边界转换 canonicalize 产生的盘符和 UNC 扩展路径，并拒绝别名变化或过长路径；交互式执行 scripts/test-windows-agent-recycle.ps1 确认真实回收站条目、字节、恢复与清理。"
+  "verification": "macOS 与 Windows：构造思考→过程说明→读文件→思考→执行命令→最终回复，确认每轮只有一个过程入口且默认收起，流式也不自动展开；收起时过程文字与工具行不占高度，最终回复始终可读。展开按原顺序呈现，只有相邻工具合并，状态与证据可继续查看。纯空白思考、过程说明不产生空行，没有思考和工具的直接回答不产生入口；新用户消息、已记录的轮次结束分别切断分组，工具或思考结束而没有最终回复时不伪造回复。搜索过程文字及工具输入、输出、文件路径，匹配组临时展开且不能在搜索期间收起，清空后恢复手动选择；切换和关闭会话验证偏好隔离与释放。深浅主题、窄宽面板、历史恢复和实时流均验证；历史导出、文件审阅、权限卡片、轮次统计和回复复制继续可用。单元测试与组件回放不替代真实 Agent 和 Windows Tauri 运行验收，未执行部分保持 pending。",
+  "notes": "2026-10-24：改为每轮一个默认折叠的过程区，包含思考、工具和中间说明；只改变呈现，不改写历史或 ACP 协议。ACP 无最终回复角色，按最后一条思考或工具的位置保留末尾正文；后续活动到达时才将先前正文移入过程。"
 }

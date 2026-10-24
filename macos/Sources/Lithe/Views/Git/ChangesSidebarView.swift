@@ -438,7 +438,7 @@ struct ChangesSidebarView: View {
     }
 
     private func inclusionCheckbox(_ changes: [GitChange]) -> some View {
-        GitChangeInclusionCheckbox(state: stagingState(for: changes)) { setStaging(changes, !allChangesStaged(changes)) }
+        LitheTreeCheckbox(state: stagingState(for: changes), accessibilityTitle: "Include in commit") { setStaging(changes, !allChangesStaged(changes)) }
             .disabled(feature.isCommitting || feature.changelistStorageFailed || !changes.contains(where: \.canToggleStaging))
             .help(LocalizedStringKey(allChangesStaged(changes) ? "Unstage all files" : "Stage all files"))
     }
@@ -450,7 +450,7 @@ struct ChangesSidebarView: View {
         includesRepositoryRootInParentPath: Bool = true
     ) -> some View {
         return HStack(spacing: LitheTheme.Tree.iconTextGap) {
-            GitChangeInclusionCheckbox(state: isEffectivelyStaged(change) ? .on : .off) {
+            LitheTreeCheckbox(state: isEffectivelyStaged(change) ? .on : .off, accessibilityTitle: "Include in commit") {
                 let targets = selection.actionTargets(in: displayedChanges, clicked: change)
                 setStaging(targets, !isEffectivelyStaged(change))
             }

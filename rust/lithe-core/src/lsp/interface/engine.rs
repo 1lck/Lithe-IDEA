@@ -715,6 +715,9 @@ struct RuntimeSession {
     plugin_configuration: Mutex<Option<Arc<Value>>>,
     /// JDKs JDT LS may bind projects to, one per execution environment.
     jdt_java_runtimes: Vec<JdtJavaRuntime>,
+    /// Plugin completion options fixed at initialize, retained for later Java
+    /// configuration notifications and section pulls through the same adapter.
+    jdt_completion: Option<Value>,
     /// Gradle import settings JDT LS holds. Fixed for the session's lifetime
     /// because the wrapper is a property of the workspace root at startup.
     jdt_gradle_configuration: Option<JdtGradleConfiguration>,
@@ -960,6 +963,7 @@ impl RuntimeSession {
     /// Java settings Lithe owns for this session, as sent to JDT LS.
     fn jdt_settings<'a>(&'a self, maven: Option<&'a JdtMavenConfiguration>) -> JdtSettings<'a> {
         JdtSettings {
+            completion: self.jdt_completion.as_ref(),
             maven,
             gradle: self.jdt_gradle_configuration.as_ref(),
             java_runtimes: &self.jdt_java_runtimes,
@@ -1552,6 +1556,12 @@ impl LspEngine {
         let java_build_timeout = Duration::from_millis(request.java_build_timeout_milliseconds);
         let shutdown_timeout = Duration::from_millis(request.shutdown_timeout_milliseconds);
         let jdt_java_runtimes = jdt_java_runtimes(&request.java_runtimes);
+        let jdt_completion = request
+            .initialization_options
+            .as_ref()
+            .and_then(|options| options.pointer("/settings/java/completion"))
+            .filter(|completion| completion.is_object())
+            .cloned();
         let workspace_configuration =
             checked_workspace_configuration(request.workspace_configuration)?;
         let initialize = client_initialize_for_plugin(
@@ -1564,6 +1574,7 @@ impl LspEngine {
                     request.initialization_options,
                     &java_extension_bundle_paths,
                     JdtSettings {
+                        completion: jdt_completion.as_ref(),
                         maven: jdt_maven_configuration.as_deref(),
                         gradle: request.java_gradle.as_ref(),
                         java_runtimes: &jdt_java_runtimes,
@@ -1595,6 +1606,7 @@ impl LspEngine {
             maven_update_order: Mutex::new(()),
             plugin_configuration: Mutex::new(workspace_configuration.map(Arc::new)),
             jdt_java_runtimes,
+            jdt_completion,
             jdt_gradle_configuration: request.java_gradle,
             root_uri: request.root_uri,
             outbound_order: Mutex::new(()),
@@ -8671,6 +8683,10 @@ mod tests {
 
     #[test]
     fn java_start_enables_and_normalizes_class_file_navigation() {
+        let completion_fixture: Value = serde_json::from_str(include_str!(
+            "../../../../../shared/fixtures/lsp/java-completion-v1.json"
+        ))
+        .unwrap();
         let root = std::env::temp_dir().join(format!(
             "lithe-core-java-navigation-tests-{}",
             std::process::id()
@@ -8693,7 +8709,8 @@ mod tests {
             });
             request.initialization_options = Some(json!({
                 "extendedClientCapabilities": { "customCapability": true },
-                "bundles": ["/plugins/catalog.jar"]
+                "bundles": ["/plugins/catalog.jar"],
+                "settings": { "java": { "completion": completion_fixture["pluginCompletion"] } }
             }));
         });
         let initialize = harness
@@ -8725,6 +8742,48 @@ mod tests {
             .server
             .complete_java_initialize(json!({ "definitionProvider": true }));
         harness.await_state(LspLifecycleState::Ready);
+        let expected_completion = &completion_fixture["javaSettings"]["completion"];
+        assert_eq!(
+            initialize["params"]["initializationOptions"]["settings"]["java"]["completion"],
+            *expected_completion,
+        );
+        assert!(harness
+            .server
+            .await_notification("workspace/didChangeConfiguration"));
+        let notification = harness
+            .server
+            .messages()
+            .into_iter()
+            .find(|message| message["method"] == "workspace/didChangeConfiguration")
+            .unwrap();
+        assert_eq!(
+            notification["params"]["settings"]["java"]["completion"],
+            *expected_completion
+        );
+        harness.server.send(json!({
+            "jsonrpc": "2.0", "id": "java-completion-config", "method": "workspace/configuration",
+            "params": { "items": completion_fixture["workspaceConfigurationSections"]
+                .as_array().unwrap().iter().map(|section| json!({ "section": section })).collect::<Vec<_>>() }
+        }));
+        let configuration = await_reply(&harness, "java-completion-config");
+        assert_eq!(
+            configuration["result"][0]["completion"],
+            *expected_completion
+        );
+        assert_eq!(configuration["result"][1], *expected_completion);
+        assert_eq!(
+            configuration["result"][2],
+            expected_completion["guessMethodArguments"]
+        );
+        assert_eq!(
+            configuration["result"][3],
+            expected_completion["favoriteStaticMembers"]
+        );
+        assert_eq!(
+            configuration["result"][4],
+            expected_completion["filteredTypes"]
+        );
+        assert_eq!(configuration["result"][5], Value::Null);
         let uri = "file:///workspace/Main.java";
         harness.sync(uri, "class Main { String value; }");
         let operation_id = harness.request(LspSemanticOperation::Definition, uri);

@@ -7,11 +7,14 @@ struct LitheTreeListHierarchy {
     var isBranch = false
     var isExpanded = false
     var isSelectable = true
+    var activatesOnDoubleClick = false
+    var disclosureLabel: String? = nil
+    var accessibilityTitle: String? = nil
 
     var isKeyboardNavigable: Bool { isSelectable || isBranch }
 
     func activate(onExpansion: ((Bool) -> Void)?, onActivate: (() -> Void)?) {
-        if isBranch, let onExpansion {
+        if isBranch && !activatesOnDoubleClick, let onExpansion {
             onExpansion(!isExpanded)
         } else {
             onActivate?()
@@ -210,7 +213,8 @@ struct LitheTreeList<Data: RandomAccessCollection, ID: Hashable, RowContent: Vie
                     LitheTreeDisclosureIcon(isExpanded: state.isExpanded)
                 }
                 .buttonStyle(.litheNoPress)
-                .accessibilityLabel(state.isExpanded ? Text("Collapse") : Text("Expand"))
+                .accessibilityLabel(state.disclosureLabel.map { Text(verbatim: $0) }
+                    ?? (state.isExpanded ? Text("Collapse") : Text("Expand")))
                 .accessibilityValue(state.isExpanded ? Text("Expanded") : Text("Collapsed"))
             } else if onExpansion != nil {
                 Color.clear.frame(width: LitheTheme.Tree.disclosureSlot)
@@ -278,6 +282,7 @@ struct LitheTreeList<Data: RandomAccessCollection, ID: Hashable, RowContent: Vie
                 onExpansion?(item, !state.isExpanded)
             }
         }
+        .modifier(LitheTreeListRowAccessibility(title: state.accessibilityTitle))
     }
 
     private func select(_ target: ID, extending: Bool = false, toggling: Bool = false) {
@@ -405,6 +410,9 @@ struct LitheTreeListNode: Identifiable {
     var depth = 0
     var isExpanded: Bool?
     var isSelectable = true
+    var activatesOnDoubleClick = false
+    var disclosureLabel: String? = nil
+    var accessibilityTitle: String? = nil
     var onExpansion: ((Bool) -> Void)?
     var onSelect: (() -> Void)?
     var onActivate: (() -> Void)?
@@ -414,7 +422,8 @@ struct LitheTreeListNode: Identifiable {
     var children: () -> [LitheTreeListNode]
 
     init<Content: View>(
-        id: String, isExpanded: Bool? = nil, isSelectable: Bool = true,
+        id: String, isExpanded: Bool? = nil, isSelectable: Bool = true, activatesOnDoubleClick: Bool = false,
+        disclosureLabel: String? = nil, accessibilityTitle: String? = nil,
         onExpansion: ((Bool) -> Void)? = nil, onSelect: (() -> Void)? = nil,
         onActivate: (() -> Void)? = nil, onClick: (() -> Void)? = nil,
         menu: @escaping () -> [LitheContextMenuItem] = { [] },
@@ -423,6 +432,9 @@ struct LitheTreeListNode: Identifiable {
         self.id = id
         self.isExpanded = isExpanded
         self.isSelectable = isSelectable
+        self.activatesOnDoubleClick = activatesOnDoubleClick
+        self.disclosureLabel = disclosureLabel
+        self.accessibilityTitle = accessibilityTitle
         self.onExpansion = onExpansion
         self.onSelect = onSelect
         self.onActivate = onActivate
@@ -461,7 +473,9 @@ extension LitheTreeList where Data == [LitheTreeListNode], ID == String, RowCont
             hierarchy: {
                 .init(
                     depth: $0.depth, isBranch: $0.isExpanded != nil,
-                    isExpanded: $0.isExpanded == true, isSelectable: $0.isSelectable)
+                    isExpanded: $0.isExpanded == true, isSelectable: $0.isSelectable,
+                    activatesOnDoubleClick: $0.activatesOnDoubleClick, disclosureLabel: $0.disclosureLabel,
+                    accessibilityTitle: $0.accessibilityTitle)
             }, onExpansion: { $0.onExpansion?($1) },
             onActivate: { ($0.onActivate ?? $0.onClick)?() }, onClick: { $0.onClick?() }, contextMenu: { $0.menu() }, multiline: multiline, row: { $0.content })
     }
@@ -489,7 +503,9 @@ extension LitheTreeList where Data == [LitheTreeListNode], ID == String, RowCont
             hierarchy: {
                 .init(
                     depth: $0.depth, isBranch: $0.isExpanded != nil,
-                    isExpanded: $0.isExpanded == true, isSelectable: $0.isSelectable)
+                    isExpanded: $0.isExpanded == true, isSelectable: $0.isSelectable,
+                    activatesOnDoubleClick: $0.activatesOnDoubleClick, disclosureLabel: $0.disclosureLabel,
+                    accessibilityTitle: $0.accessibilityTitle)
             }, onExpansion: { $0.onExpansion?($1) }, onActivate: { ($0.onActivate ?? $0.onClick)?() }, onClick: { $0.onClick?() },
             contextMenu: { $0.menu() }, multiline: multiline, row: { $0.content })
     }
@@ -576,6 +592,15 @@ struct LitheTreeListRowSurface: ViewModifier {
             activeBackground: isFocused && controlActiveState == .key
                 ? LitheTheme.Tree.focusedSelection : LitheTheme.Tree.inactiveSelection,
             hoverBackground: LitheTheme.Tree.hover)
+    }
+}
+
+private struct LitheTreeListRowAccessibility: ViewModifier {
+    let title: String?
+
+    @ViewBuilder func body(content: Content) -> some View {
+        if let title { content.accessibilityLabel(Text(verbatim: title)) }
+        else { content }
     }
 }
 

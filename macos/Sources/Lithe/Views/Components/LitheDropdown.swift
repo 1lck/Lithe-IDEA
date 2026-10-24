@@ -69,8 +69,9 @@ extension View {
     func litheDropdown<Content: View>(isPresented: Binding<Bool>, opensUpward: Bool = false, searchOnTyping: Bool = false,
                                       resizableWidth: Binding<CGFloat>? = nil, minimumWidth: CGFloat = 0,
                                       resizableHeight: Binding<CGFloat?>? = nil, minimumHeight: CGFloat = 0,
+                                      onAccept: (() -> Void)? = nil,
                                       @ViewBuilder content: @escaping () -> Content) -> some View {
-        overlay { LitheDropdownPopover(opensUpward: opensUpward, searchOnTyping: searchOnTyping, resizableWidth: resizableWidth, minimumWidth: minimumWidth, resizableHeight: resizableHeight, minimumHeight: minimumHeight, isPresented: isPresented, content: content) }
+        overlay { LitheDropdownPopover(opensUpward: opensUpward, searchOnTyping: searchOnTyping, resizableWidth: resizableWidth, minimumWidth: minimumWidth, resizableHeight: resizableHeight, minimumHeight: minimumHeight, isPresented: isPresented, onAccept: onAccept, content: content) }
     }
 }
 
@@ -100,7 +101,10 @@ struct LitheDropdownPopover<Content: View>: NSViewRepresentable {
     @Environment(\.self) private var environment
     @Environment(\.colorScheme) private var colorScheme
     var opensUpward = false
+    var contentProvidesSurface = false
+    var fadeInDuration: TimeInterval = 0
     var opensToSide = false
+    var centersMenu = false
     var searchOnTyping = false
     var resizableWidth: Binding<CGFloat>? = nil
     var minimumWidth: CGFloat = 0
@@ -108,6 +112,7 @@ struct LitheDropdownPopover<Content: View>: NSViewRepresentable {
     var minimumHeight: CGFloat = 0
     @Binding var isPresented: Bool
     var items: [LitheContextMenuItem]? = nil
+    var onAccept: (() -> Void)? = nil
     let content: () -> Content
 
     func makeCoordinator() -> Coordinator {
@@ -129,10 +134,14 @@ struct LitheDropdownPopover<Content: View>: NSViewRepresentable {
     func updateNSView(_ nsView: NSView, context: Context) {
         context.coordinator.content = content
         context.coordinator.items = items
+        context.coordinator.onAccept = onAccept
         context.coordinator.environment = environment
         context.coordinator.environment.colorScheme = colorScheme
+        context.coordinator.contentProvidesSurface = contentProvidesSurface
+        context.coordinator.fadeInDuration = fadeInDuration
         context.coordinator.opensUpward = opensUpward
         context.coordinator.opensToSide = opensToSide
+        context.coordinator.centersMenu = centersMenu
         context.coordinator.searchOnTyping = searchOnTyping
         context.coordinator.resizableWidth = resizableWidth
         context.coordinator.minimumWidth = minimumWidth
@@ -158,7 +167,10 @@ struct LitheDropdownPopover<Content: View>: NSViewRepresentable {
         var content: () -> Content
         var environment = EnvironmentValues()
         var opensUpward = false
+        var contentProvidesSurface = false
+        var fadeInDuration: TimeInterval = 0
         var opensToSide = false
+        var centersMenu = false
         var searchOnTyping = false
         var resizableWidth: Binding<CGFloat>?
         var minimumWidth: CGFloat = 0
@@ -166,6 +178,7 @@ struct LitheDropdownPopover<Content: View>: NSViewRepresentable {
         var minimumHeight: CGFloat = 0
         private let presenter = LitheContextMenuPresenter()
         var items: [LitheContextMenuItem]?
+        var onAccept: (() -> Void)?
         private var menuIsPresented = false
         private var hostingController: LitheDropdownHostingController?
         private var pendingPresentationID: UUID?
@@ -205,8 +218,14 @@ struct LitheDropdownPopover<Content: View>: NSViewRepresentable {
             if let items {
                 guard !menuIsPresented else { return }
                 menuIsPresented = true
+                let menuPoint: NSPoint
+                if centersMenu {
+                    let width = LitheContextMenuPresenter.menuWidth(for: items, locale: environment.locale)
+                    let height = LitheContextMenuPresenter.menuHeight(for: items, width: width, locale: environment.locale)
+                    menuPoint = NSPoint(x: window.frame.midX - width / 2, y: window.frame.midY + height / 2)
+                } else { menuPoint = point }
                 presenter.show(
-                    items: items, at: point, appearance: appearance,
+                    items: items, at: menuPoint, appearance: appearance,
                     locale: environment.locale, opensUpward: opensUpward, anchored: true,
                     adjacentTo: opensToSide ? NSRect(x: window.frame.minX, y: rect.minY,
                         width: window.frame.width, height: rect.height) : nil, parentWindow: window, trigger: anchor
@@ -217,7 +236,8 @@ struct LitheDropdownPopover<Content: View>: NSViewRepresentable {
                 }
                 return
             }
-            let root = AnyView(content().litheContextMenuSurface().environment(\.self, environment))
+            let surface = contentProvidesSurface ? AnyView(content()) : AnyView(content().litheContextMenuSurface())
+            let root = AnyView(surface.environment(\.self, environment))
             if let hostingController {
                 hostingController.rootView = root
                 presenter.resize(contentController: hostingController)
@@ -228,7 +248,8 @@ struct LitheDropdownPopover<Content: View>: NSViewRepresentable {
             presenter.show(
                 contentController: controller, at: point,
                 appearance: appearance, opensUpward: opensUpward,
-                searchOnTyping: searchOnTyping, parentWindow: window, trigger: anchor,
+                searchOnTyping: searchOnTyping, hasShadow: !contentProvidesSurface, fadeInDuration: fadeInDuration, parentWindow: window, trigger: anchor,
+                onAccept: onAccept == nil ? nil : { [weak self] in self?.onAccept?() },
                 resizableWidth: resizableWidth?.wrappedValue, minimumWidth: minimumWidth,
                 resizableHeight: resizableHeight?.wrappedValue, minimumHeight: minimumHeight,
                 onSizeChanged: { [weak self] size in

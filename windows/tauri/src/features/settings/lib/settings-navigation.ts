@@ -1,10 +1,9 @@
 import type { SettingsTab } from "@/features/window/stores/ui-state.store";
 import type { SettingsCategory } from "../components/settings-panels";
 import { matchesSearchQuery } from "@/utils/search-match";
-import { createTranslator } from "@/i18n/locale";
+import { createTranslator, DISPLAY_LANGUAGES } from "@/i18n/locale";
 
-const englishLabel = createTranslator("en-US");
-const chineseLabel = createTranslator("zh-CN");
+const registeredLabels = DISPLAY_LANGUAGES.map(createTranslator);
 
 /**
  * 分组与页面的归属只在这里声明；侧栏、面包屑和展开逻辑都从它推导。
@@ -419,7 +418,7 @@ export function settingsGroupForCategory(category: SettingsCategory) {
   return settingsGroups.find((group) => (group.categories as readonly string[]).includes(category));
 }
 
-/** Index the current panels' labels in both languages without mounting hidden pages. */
+/** Index the current panels' labels in every registered language without mounting hidden pages. */
 export function filterSettingsCategories(query: string, translate: (key: string) => string) {
   return settingsCategories.filter((category) => {
     const group = settingsGroupForCategory(category.id);
@@ -428,7 +427,7 @@ export function filterSettingsCategories(query: string, translate: (key: string)
       query,
       terms.flatMap((term) =>
         term.includes(".") && !term.endsWith(".xml")
-          ? [translate(term), englishLabel(term), chineseLabel(term)]
+          ? [translate(term), ...registeredLabels.map(label => label(term))]
           : [term],
       ),
     );

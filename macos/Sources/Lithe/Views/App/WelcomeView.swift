@@ -121,6 +121,13 @@ struct WelcomeView: View {
                         model.showCloneRepository()
                     }
                     .buttonStyle(LitheActionButtonStyle())
+
+                    if model.canManageRemoteConnections {
+                        Button("Remote Development") {
+                            model.showRemoteConnections()
+                        }
+                        .buttonStyle(LitheActionButtonStyle())
+                    }
                 }
             }
             .padding(.horizontal, 14)

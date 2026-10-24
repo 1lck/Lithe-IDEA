@@ -358,6 +358,42 @@
       ],
       "identity": "Mutable user-authored Hook definitions, guarded native snapshots and write-ahead ownership placements; no reusable version/platform/architecture/toolchain build identity.",
       "reason": "Platform storage supplies the writable application-support directory. Agent Host performs bounded explicit JSON writes; pending placements survive interrupted native commits and only exact matching native groups can be retired. Sibling temporary files are removed on success/failure, an empty OS lock remains user-owned. Never copy or share at any worktree stage. Native Agent runtimes own execution and trust; installed bundles and Sparkle baselines remain read-only."
+    },
+    {
+      "id": "remote-server-artifacts",
+      "reusable": false,
+      "locations": [
+        "rust/target/remote-servers/<rust-target>/lithe-remote-server",
+        "rust/target/remote-servers/manifest.json",
+        "<app-bundle>/Contents/Resources/RemoteServers"
+      ],
+      "identity": "Release builds of lithe-remote-server for the Linux musl targets, rebuilt from this worktree's sources by scripts/build-remote-servers.sh; the manifest carries only the crate version, not a toolchain or source stamp.",
+      "reason": "Packaging rebuilds the servers on every run (about 25 seconds) inside this worktree's Cargo target directory, so a copy would only risk shipping binaries from other sources. The bundle copy is read-only: the app streams it to SSH hosts and never writes into RemoteServers, keeping code signing and Sparkle deltas intact."
+    },
+    {
+      "id": "remote-connection-state",
+      "reusable": false,
+      "locations": [
+        "<user-preferences>/lithe.remote.ssh-connections.v1",
+        "<keychain>/<remote service>/remote.ssh.<UUID>.secret",
+        "<app-support>/Lithe/RemoteWorkspaces/<connection>/<path-hash>/<folder>",
+        "<remote-host>/~/.lithe-server/bin/<version>-<sha256-prefix>"
+      ],
+      "identity": "User-owned SSH connection settings, remembered secrets, empty placeholder roots of opened remote workspaces, and servers installed on remote hosts; no build identity.",
+      "reason": "Connections and secrets belong to the user's profile and the keychain. Placeholder roots are empty directories that key per-project state for remote folders and hold no files. Remote installs live on the hosts and are verified by SHA-256 before reuse. None has a copy stage between worktrees, and none is written into the app bundle or installation directory."
+    },
+    {
+      "id": "shared-i18n",
+      "reusable": false,
+      "locations": [
+        "shared/i18n",
+        ".artifacts/i18n-windows/",
+        "macos/Resources/<locale>.lproj/Localizable.strings",
+        "macos/Sources/Lithe/Models/Settings/AppLanguage.generated.swift",
+        "windows/tauri/src/i18n/shared.generated.ts"
+      ],
+      "identity": "Current worktree shared locale manifest, message registry, per-locale translations and all generated native string-table bytes. Generated outputs have no sealed version/platform/architecture/toolchain reuse identity stamp.",
+      "reason": "Git owns source and checked-in generated outputs. Regenerate and validate them in each target worktree with scripts/generate-i18n.mjs; no download, cache validator or cross-worktree copy stage is permitted. Packaging copies registered native tables into its own build destination before signing and converts only that copy to binary plist. Runtime only reads bundled tables; it creates no state and changes neither code-signature bytes nor the Sparkle delta baseline."
     }
   ]
 }

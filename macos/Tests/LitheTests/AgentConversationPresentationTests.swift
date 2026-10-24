@@ -122,9 +122,9 @@ struct AgentConversationPresentationTests {
                         AgentConversationMessage(id: "read", role: .tool, text: "Read file"),
                         AgentConversationMessage(id: "user-2", role: .user, text: "Continue")]
         let items = AgentTranscriptItem.grouped(messages, turns: [first, second])
-        #expect(items.map(\.id) == ["user-1", "tools:list", "turn:user-1", "user-2", "turn:user-2"])
-        #expect(items.filter { $0.matches("Read") }.map(\.id) == ["user-1", "tools:list"])
-        #expect(AgentTranscriptItem.grouped(messages).map(\.id) == ["user-1", "tools:list", "user-2"])
+        #expect(items.map(\.id) == ["user-1", "process:list", "turn:user-1", "user-2", "turn:user-2"])
+        #expect(items.filter { $0.matches("Read") }.map(\.id) == ["user-1", "process:list"])
+        #expect(AgentTranscriptItem.grouped(messages).map(\.id) == ["user-1", "process:list", "user-2"])
     }
 
     @Test
@@ -177,7 +177,7 @@ struct AgentConversationPresentationTests {
     }
 
     @Test
-    func adjacentMixedToolsShareOneStableTimelineWithoutHidingNarration() throws {
+    func intermediateNarrationAndToolsShareOneStableProcessPerPrompt() throws {
         func tool(_ id: String, kind: String) -> AgentConversationMessage {
             var message = AgentConversationMessage(id: id, role: .tool, text: id, toolStatus: .pending)
             message.toolDetails.kind = kind
@@ -195,9 +195,9 @@ struct AgentConversationPresentationTests {
             tool("next-command", kind: "execute")
         ]
         let grouped = AgentTranscriptItem.grouped(messages)
-        #expect(grouped.map(\.id) == ["tools:list", "reply", "tools:command", "follow-up", "tools:next-command"])
-        if case .toolGroup(let first) = try #require(grouped.first) {
-            #expect(first.map(\.id) == ["list", "read-1", "read-2"])
+        #expect(grouped.map(\.id) == ["process:list", "follow-up", "process:next-command"])
+        if case .processGroup(let first) = try #require(grouped.first) {
+            #expect(first.map(\.id) == ["list", "read-1", "read-2", "reply", "command", "edit"])
         } else {
             Issue.record("Adjacent file tools were not grouped")
         }
@@ -243,7 +243,7 @@ struct AgentConversationPresentationTests {
     }
 
     @Test
-    func reasoningSplitsToolTimelinesAndIsSearchableButNotCountedAsAMessage() throws {
+    func reasoningAndToolsShareOneSearchableProcessWithoutChangingHistoryCounts() throws {
         let messages = [
             AgentConversationMessage(id: "list", role: .tool, text: "List files"),
             AgentConversationMessage(id: "why", role: .thought, text: "The manifest names the entry point"),
@@ -251,8 +251,8 @@ struct AgentConversationPresentationTests {
             AgentConversationMessage(id: "reply", role: .agent, text: "Done")
         ]
         let items = AgentTranscriptItem.grouped(messages)
-        #expect(items.map(\.id) == ["tools:list", "why", "tools:read", "reply"])
-        #expect(items.filter { $0.matches("entry point") }.map(\.id) == ["why"])
+        #expect(items.map(\.id) == ["process:list", "reply"])
+        #expect(items.filter { $0.matches("entry point") }.map(\.id) == ["process:list"])
 
         var conversation = AgentConversation()
         conversation.isAttached = true
@@ -261,11 +261,53 @@ struct AgentConversationPresentationTests {
     }
 
     @Test
+    func processKeepsAllIntermediateTextInOrderAndOmitsWhitespaceRows() throws {
+        let messages: [AgentConversationMessage] = [
+            .init(id: "user", role: .user, text: "Explain"),
+            .init(id: "thought", role: .thought, text: "Check the manifest"),
+            .init(id: "narration", role: .agent, text: "I will read the project"),
+            .init(id: "blank", role: .thought, text: " \n "),
+            .init(id: "read", role: .tool, text: "Read README"),
+            .init(id: "command", role: .tool, text: "Run command"),
+            .init(id: "thought-2", role: .thought, text: "Now summarize"),
+            .init(id: "reply", role: .agent, text: "This is a student management system"),
+            .init(id: "empty", role: .agent, text: "\n")
+        ]
+        let items = AgentTranscriptItem.grouped(messages)
+        #expect(items.map(\.id) == ["user", "process:thought", "reply"])
+        guard case .processGroup(let process) = items[1] else { Issue.record("Missing process"); return }
+        #expect(process.map(\.id) == ["thought", "narration", "read", "command", "thought-2"])
+        #expect(AgentTranscriptItem.processContents(process).map(\.id) == ["thought", "narration", "tools:read", "thought-2"])
+        #expect(items.filter { $0.matches("student") }.map(\.id) == ["reply"])
+        #expect(items.filter { $0.matches("manifest") }.map(\.id) == ["process:thought"])
+        // New streamed activity must keep the same disclosure identity and own the earlier narration.
+        let streaming = AgentTranscriptItem.grouped(Array(messages.prefix(3)))
+        #expect(streaming.map(\.id) == ["user", "process:thought", "narration"])
+    }
+
+    @Test
+    func recordedTurnEndingsSeparateProcessesEvenWithoutReplayedUserPrompts() {
+        let start = ContinuousClock.Instant.now
+        var turn = AgentTurnStatistics(id: "turn", startedAt: start)
+        turn.finish(at: start, endingMessageID: "tool", usage: nil)
+        let items = AgentTranscriptItem.grouped([
+            .init(id: "thought", role: .thought, text: "Inspect"),
+            .init(id: "tool", role: .tool, text: "Read"),
+            .init(id: "next", role: .thought, text: "Continue"),
+            .init(id: "reply", role: .agent, text: "Done")
+        ], turns: [turn])
+        #expect(items.map(\.id) == ["process:thought", "turn:turn", "process:next", "reply"])
+        if case .turnSummary(_, let reply) = items[1] { #expect(reply == nil) }
+        else { Issue.record("Missing footer") }
+    }
+
+    @Test
     func thoughtSearchRevealsAManuallyCollapsedMatchAndRestoresItsPreference() {
         var expansion = AgentThoughtExpansion()
+        #expect(!expansion.isExpanded(isStreaming: true, isSearching: false))
+        expansion.toggle(isStreaming: true, isSearching: false)
         #expect(expansion.isExpanded(isStreaming: true, isSearching: false))
         expansion.toggle(isStreaming: true, isSearching: false)
-        #expect(!expansion.isExpanded(isStreaming: true, isSearching: false))
 
         // Search changes the effective disclosure without replacing the stored preference.
         #expect(expansion.isExpanded(isStreaming: false, isSearching: true))
@@ -279,9 +321,9 @@ struct AgentConversationPresentationTests {
     }
 
     @Test
-    func thoughtStreamingCollapsesAutomaticallyButKeepsManualExpansion() {
+    func processDefaultsToCollapsedDuringStreamingAndKeepsManualExpansion() {
         var expansion = AgentThoughtExpansion()
-        #expect(expansion.isExpanded(isStreaming: true, isSearching: false))
+        #expect(!expansion.isExpanded(isStreaming: true, isSearching: false))
         #expect(!expansion.isExpanded(isStreaming: false, isSearching: false))
         #expect(expansion.isExpanded(isStreaming: false, isSearching: true))
         #expect(!expansion.isExpanded(isStreaming: false, isSearching: false))
@@ -449,7 +491,7 @@ struct AgentConversationPresentationTests {
         #expect(group.matches("sample-project"))
         #expect(group.matches("README.md"))
         #expect(!group.matches("missing file"))
-        if case .toolGroup(let tools) = group {
+        if case .processGroup(let tools) = group {
             #expect(tools.map(\.id) == ["list", "read"])
         } else {
             Issue.record("Search changed the tool group")

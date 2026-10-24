@@ -12,20 +12,7 @@ extension DatabaseKind {
         case .sqlserver: "sqlserver.svg"
         case .mongodb: "mongodb.svg"
         case .redis: "redis.svg"
-        case .nacos: "nacos.png"
-        }
-    }
-
-    var brandIconFallbackSymbol: String {
-        switch self {
-        case .mysql: "cylinder.fill"
-        case .mariadb: "cylinder.fill"
-        case .postgresql: "cylinder.split.1x2.fill"
-        case .sqlite: "externaldrive.fill"
-        case .sqlserver: "server.rack"
-        case .mongodb: "leaf.fill"
-        case .redis: "square.stack.3d.up.fill"
-        case .nacos: "slider.horizontal.3"
+        case .nacos: "nacos.svg"
         }
     }
 }
@@ -64,8 +51,7 @@ private enum DatabaseBrandIconLoader {
     }
 }
 
-/// Database vendor mark used only for type recognition. The system-image
-/// fallback keeps unbundled development builds and future platforms usable.
+/// Community provider marks; Nacos uses its generic configuration icon.
 struct DatabaseBrandIcon: View {
     @Environment(\.colorScheme) private var colorScheme
     let kind: DatabaseKind
@@ -80,9 +66,7 @@ struct DatabaseBrandIcon: View {
                     .interpolation(.high)
                     .aspectRatio(contentMode: .fit)
             } else {
-                Image(systemName: kind.brandIconFallbackSymbol)
-                    .font(LitheTheme.uiFont(size: size, weight: .medium))
-                    .foregroundStyle(LitheTheme.accent)
+                LitheIDEAIcon(resourcePath: "expui/nodes/dataTables.svg", size: size, preservesOriginalColors: true)
             }
         }
         .frame(width: size, height: size)

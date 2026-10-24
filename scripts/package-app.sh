@@ -135,6 +135,11 @@ for plugin_package in "$plugin_root"/*(/N); do
     cp -R "$plugin_package" "$OFFICIAL_PLUGIN_DESTINATION/${plugin_package:t}"
 done
 
+# Remote workspace servers ship read-only; Lithe uploads them to SSH hosts
+# and never writes into this directory.
+remote_server_root=$(scripts/build-remote-servers.sh)
+cp -R "$remote_server_root" "$APP_DIR/Contents/Resources/RemoteServers"
+
 # The official marketplace index ships read-only so the catalog works
 # offline; refreshed copies are written to the user's Caches at runtime.
 mkdir -p "$APP_DIR/Contents/Resources/PluginMarketplace"
