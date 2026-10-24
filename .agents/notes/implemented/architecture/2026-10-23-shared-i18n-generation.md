@@ -75,7 +75,7 @@ Windows 只替换一轮占位符，避免把用户传入的 `{name}` 当成另�
 ## 验证
 
 - `node scripts/generate-i18n.mjs --check`：清单、参数、覆盖和产物一致性；只读。
-- `node --test --test-timeout=15000 scripts/test-i18n.mjs`：非法输入、生成物所有权、新增语言、
+- `node --test --test-timeout=60000 scripts/test-i18n.mjs`：非法输入、生成物所有权、新增语言、
   平台覆盖、回退链和 macOS 二进制打包；比较打包前后源文件字节。
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`：稳定性静态规则。
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'SharedI18nTests|AppLocalizationTests|LocalizationPackagingTests|GitLocalizationTests'`：原生资源查找、兼容 key、实际参数格式化、切换及原有行为。
@@ -90,6 +90,10 @@ Windows 只替换一轮占位符，避免把用户传入的 `{name}` 当成另�
 测试并输出单项计时；Draft PR 只运行 Linux，转为 ready 后再触发三系统校验，
 同一 PR 的旧 i18n 校验会取消。macOS 才运行原生打包用例。完整产品在中英文设置中切换、关闭重开并
 检查保存值和其他模块页面；Windows WebView2 整机验收仍须在 Windows 上执行。
+
+Node 22 会把命令行超时同时应用到整份文件。词条增加后，macOS CI 在第 32 项之后
+触及原 15 秒文件预算，单项没有断言失败。文件预算因此为 60 秒；源码中单项最长
+15 秒、打包子进程 5 秒和 CI 步骤两分钟的边界都保留，不能通过扩大单项预算处理套件成本。
 
 ## 适用范围
 

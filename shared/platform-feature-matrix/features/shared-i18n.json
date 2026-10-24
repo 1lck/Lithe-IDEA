@@ -27,6 +27,6 @@
     ]
   },
   "owner": "Settings",
-  "verification": "运行 node scripts/generate-i18n.mjs --check 与 node --test --test-timeout=15000 scripts/test-i18n.mjs，验证重复 key、参数、覆盖率、平台范围与过期输出拒绝；临时增加 ja-JP，确认生成语言选项、Swift 枚举和原生打包列表并按显式链回退。macOS 运行 SharedI18nTests、AppLocalizationTests、LocalizationPackagingTests，检查语义 key 与旧 key、原生格式化和打包源字节不变；运行 verify-runtime-bundle-immutability.sh。两端真实产品切换中英文，检查通用操作、语言设置、文件数量、Finder/File Explorer 文案、其他模块页面与关闭重开后的语言；默认值与保存标识保持。Windows 在 WebView2 实机验收，前端自动化不替代原生检查。",
+  "verification": "运行 node scripts/generate-i18n.mjs --check 与 node --test --test-timeout=60000 scripts/test-i18n.mjs，验证重复 key、参数、覆盖率、平台范围与过期输出拒绝；临时增加 ja-JP，确认生成语言选项、Swift 枚举和原生打包列表并按显式链回退。macOS 运行 SharedI18nTests、AppLocalizationTests、LocalizationPackagingTests，检查语义 key 与旧 key、原生格式化和打包源字节不变；运行 verify-runtime-bundle-immutability.sh。两端真实产品切换中英文，检查通用操作、语言设置、文件数量、Finder/File Explorer 文案、其他模块页面与关闭重开后的语言；默认值与保存标识保持。Windows 在 WebView2 实机验收，前端自动化不替代原生检查。",
   "notes": "全部自有语言资源已迁入shared/i18n，删除Windows旧字典并迁出95处原生页面双语表达式。未把上游消息、用户内容或搜索同义词当作翻译改写；原先缺译的文案保留英文回退，无运行时语言包。 本地证据：macOS原生资源与日志页中英文深浅渲染通过；Windows VM生成器、53项前端回归、完整类型检查与生产前端构建通过。全工作台手工巡检及Windows原生安装包尚未验证，故整机verificationStatus仍为pending。 已同步preview 3a8e94d08新增的293条原生词条与122条Windows词条（含Hook字典），共享源共9078条；原生en 2174条、zh-Hans 3926条和Windows每语言5089条基线逐项比对一致。"
 }

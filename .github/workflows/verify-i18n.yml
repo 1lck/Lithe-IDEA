@@ -60,7 +60,9 @@ jobs:
         timeout-minutes: 2
         run: |
           mkdir -p .artifacts/test-stability
-          node --test --test-timeout=15000 --test-reporter=spec --test-reporter-destination=stdout \
+          # Node 22 also applies this timeout to the whole file. Each case keeps
+          # its explicit 15s (or lower) bound in test-i18n.mjs.
+          node --test --test-timeout=60000 --test-reporter=spec --test-reporter-destination=stdout \
             --test-reporter=junit --test-reporter-destination=.artifacts/test-stability/i18n-node.junit.xml \
             scripts/test-i18n.mjs
       - name: Generate per-test timing report

@@ -20,13 +20,15 @@ macOS 的字符串表、Windows 的完整翻译字典，以及原先页面内的
 node scripts/generate-i18n.mjs
 node scripts/generate-i18n.mjs --check
 node scripts/generate-i18n.mjs --coverage
-node --test --test-timeout=15000 scripts/test-i18n.mjs
+node --test --test-timeout=60000 scripts/test-i18n.mjs
 ```
 
 提交共享源文件和生成结果。Windows `shared.generated.ts`、macOS
 `AppLanguage.generated.swift` 和各语言的整个 `Localizable.strings` 都是生成物。
 不要手工维护这些文件，不要在 Windows 再添加一份翻译字典，也不要在页面重新判断中英文。
 开发、构建、打包与独立跨平台 CI 会检查结果是否最新；`--check` 只读，不写文件。
+测试文件总预算为 60 秒；单项测试仍由源码中的独立超时控制，最长 15 秒，
+打包子进程最长 5 秒，避免把整份顺序测试的耗时误算成单项超时。
 生成文件由根目录 `.gitattributes` 固定使用 LF 换行，Windows 启用 Git 自动换行转换时
 也应保持相同字节；不要通过重新生成或跳过校验掩盖检出格式差异。
 
