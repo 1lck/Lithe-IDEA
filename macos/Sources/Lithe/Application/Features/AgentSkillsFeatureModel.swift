@@ -79,6 +79,13 @@ final class AgentSkillsFeatureModel: ObservableObject {
         refreshTask = Task { [weak self] in await self?.refresh(next) }
     }
 
+    /// The preferred account changed, so listings and directories belong to another account.
+    func accountDidChange() {
+        guard let current = context else { return }
+        context = nil
+        reload(current)
+    }
+
     func refresh(_ next: Context) async {
         // A manual refresh must not invalidate a write in the same context.
         guard !isWriting || context != next else { return }

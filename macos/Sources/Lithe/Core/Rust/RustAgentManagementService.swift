@@ -6,15 +6,25 @@ import LitheRustCore
 /// task cancels the Core operation, which stops a running npm install.
 struct RustAgentManagementService: AgentManagementService {
     let core: RustCoreBridge
+    /// Preferred account directory of an Agent, so Codex skills follow the selected account.
+    var accountDirectory: @Sendable (String) async -> URL? = { _ in nil }
 
     private struct SkillsPayload: Encodable, Sendable {
         var action = "list"
         let agentId: String
         let workspace: String?
+        var codexHome: String?
+        var claudeConfigDir: String?
     }
     private struct SkillDirectoriesResult: Decodable, Sendable { let directories: [String: String] }
+    /// The selected account's directory for this Agent, as the variable Core expects.
+    private func accounts(_ agentID: String) async -> (codexHome: String?, claudeConfigDir: String?) {
+        let path = await accountDirectory(agentID)?.path
+        return (agentID == "codex-acp" ? path : nil, agentID == "claude-acp" ? path : nil)
+    }
     func skillDirectories(agentID: String, workspace: URL?) async throws -> [String: String] {
-        let result: SkillDirectoriesResult = try await run("agent.skills", SkillsPayload(action: "directories", agentId: agentID, workspace: workspace?.path))
+        let account = await accounts(agentID)
+        let result: SkillDirectoriesResult = try await run("agent.skills", SkillsPayload(action: "directories", agentId: agentID, workspace: workspace?.path, codexHome: account.codexHome, claudeConfigDir: account.claudeConfigDir))
         return result.directories
     }
     private struct SkillReadPayload: Encodable, Sendable {
@@ -30,16 +40,22 @@ struct RustAgentManagementService: AgentManagementService {
     private struct SkillWriteResult: Decodable, Sendable { let path: String }
 
     func listSkills(agentID: String, workspace: URL?) async throws -> AgentSkillListing {
-        try await run("agent.skills", SkillsPayload(agentId: agentID, workspace: workspace?.path))
+        let account = await accounts(agentID)
+        return try await run("agent.skills", SkillsPayload(agentId: agentID, workspace: workspace?.path, codexHome: account.codexHome, claudeConfigDir: account.claudeConfigDir))
     }
 
     func writeSkill(_ request: AgentSkillWrite) async throws -> URL {
+        var request = request
+        request.claudeConfigDir = await accounts(request.agentId).claudeConfigDir
         let result: SkillWriteResult = try await run("agent.skills", request)
         return URL(fileURLWithPath: result.path)
     }
 
     func setSkillEnabled(_ request: AgentSkillEnablement) async throws -> AgentSkillListing {
-        try await run("agent.skills", request)
+        var request = request
+        let account = await accounts(request.agentId)
+        request.codexHome = account.codexHome; request.claudeConfigDir = account.claudeConfigDir
+        return try await run("agent.skills", request)
     }
 
     private struct StatusPayload: Encodable { let dataDirectory: String }

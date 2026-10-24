@@ -24,6 +24,10 @@ public struct AgentSkillEnablement: Encodable, Sendable {
     public let scope: String
     public let source: String
     public let enabled: Bool
+    /// Selected Codex account directory; nil keeps the default account.
+    public var codexHome: String?
+    /// Selected Claude account directory; nil keeps the default account.
+    public var claudeConfigDir: String?
 
     public init(agentID: String, workspace: URL?, skill: AgentSkill, enabled: Bool) {
         agentId = agentID; self.workspace = workspace?.path; scope = skill.scope; source = skill.path; self.enabled = enabled
@@ -52,6 +56,8 @@ public struct AgentSkillWrite: Encodable, Sendable {
     public let description: String?
     public let instructions: String?
     public let source: String?
+    /// Selected Claude account directory; nil keeps the default account.
+    public var claudeConfigDir: String?
 
     public init(agentID: String, workspace: URL?, scope: String, name: String, description: String, instructions: String) {
         action = "create"; agentId = agentID; self.workspace = workspace?.path; self.scope = scope

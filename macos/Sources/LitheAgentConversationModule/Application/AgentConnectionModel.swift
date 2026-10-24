@@ -23,6 +23,14 @@ public final class AgentConnectionModel: ObservableObject {
     @Published public private(set) var subscriptionPlan: String?
     @Published public private(set) var subscriptionQuota: AgentSubscriptionQuota?
     @Published public private(set) var quotaFailure: String?
+    /// Account directory the current subscription connection was launched with;
+    /// `nil` is the CLI's default account.
+    public private(set) var accountDirectory: URL?
+    /// Reports the account and the latest usage windows of a subscription
+    /// connection so the app can keep the last known values per account. Lithe
+    /// requests nothing for this; these are only what the Host or adapter pushed.
+    public var onAccountObserved: ((_ directory: URL?, _ email: String?, _ plan: String?,
+                                    _ quota: AgentSubscriptionQuota?) -> Void)?
 
     /// Name and version the agent reported on `ready`, for the panel header.
     @Published public private(set) var agentName: String?
@@ -164,6 +172,7 @@ public final class AgentConnectionModel: ObservableObject {
         isClaudeConnection = configuration.agentID == "claude-acp"
         usesSubscription = configuration.authentication == .codexSubscription
         usesClaudeSubscription = configuration.authentication == .claudeSubscription
+        accountDirectory = configuration.authentication.isSubscription ? configuration.accountDirectory : nil
         subscriptionEmail = nil
         subscriptionPlan = nil
         subscriptionQuota = nil
@@ -610,14 +619,16 @@ public final class AgentConnectionModel: ObservableObject {
             guard usesSubscription else { return }
             connectionState = .authenticating
         case "account":
-            guard usesSubscription, let account = event["account"] as? [String: Any] else { return }
+            guard usesSubscription || usesClaudeSubscription, let account = event["account"] as? [String: Any] else { return }
             subscriptionEmail = account["email"] as? String
             subscriptionPlan = account["plan"] as? String
+            onAccountObserved?(accountDirectory, subscriptionEmail, subscriptionPlan, subscriptionQuota)
         case "quota":
             guard usesSubscription, connectionState == .ready else { return }
             if let snapshot = AgentSubscriptionQuota.parse(event["snapshot"]) {
                 subscriptionQuota = snapshot
                 quotaFailure = nil
+                onAccountObserved?(accountDirectory, subscriptionEmail, subscriptionPlan, snapshot)
             } else { quotaFailure = "unparsable" }
         case "quotaFailed":
             guard usesSubscription, connectionState == .ready else { return }
@@ -936,6 +947,7 @@ public final class AgentConnectionModel: ObservableObject {
                 if let merged = subscriptionQuota?.mergingClaudeRateLimit(info, at: now)
                     ?? AgentSubscriptionQuota.claudeRateLimit(info, at: now) {
                     subscriptionQuota = merged
+                    onAccountObserved?(accountDirectory, subscriptionEmail, subscriptionPlan, merged)
                 }
             }
             if conversations[sessionID]?.isResponding == false { persistStatistics(sessionID) }

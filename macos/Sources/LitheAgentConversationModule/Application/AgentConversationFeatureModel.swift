@@ -31,6 +31,9 @@ public final class AgentConversationFeatureModel: ObservableObject {
     private var attention: Set<String> = []
     private var histories: [String: AgentHistoryFeatureModel] = [:]
     private var workspaceURL: URL?
+    /// Maps an agent to the identity its history annotations are stored under, so
+    /// one agent with several accounts keeps each account's annotations apart.
+    public var historyIdentity: (String) -> String = { $0 }
     private let historyPersistence: (any AgentHistoryPersisting)?
     private let historyExporter: (any AgentHistoryExporting)?
     private let statisticsPersistence: (any AgentSessionStatisticsPersisting)?
@@ -99,7 +102,9 @@ public final class AgentConversationFeatureModel: ObservableObject {
     public func history(for agentID: String) -> AgentHistoryFeatureModel {
         if let history = histories[agentID] { return history }
         let history = AgentHistoryFeatureModel(connection: connection(for: agentID), workspaceURL: workspaceURL,
-                                              agentID: agentID, persistence: historyPersistence, exporter: historyExporter)
+                                              agentID: agentID,
+                                              identity: { [weak self] in self?.historyIdentity(agentID) ?? agentID },
+                                              persistence: historyPersistence, exporter: historyExporter)
         histories[agentID] = history
         return history
     }
