@@ -64,7 +64,7 @@ extension AppModel {
             preferredToolTabTitle: shellPath.map { URL(fileURLWithPath: $0).lastPathComponent },
             showsWorkbenchBackground: workbenchBackgroundFeature.hasImage
         )
-        configureTerminalSession(session)
+        configureInteractiveTerminalSession(session)
         terminalPlacementFeature.registerSession(session.id)
         showToolWindow(.terminal)
         return session
@@ -74,6 +74,24 @@ extension AppModel {
         let sessionID = session.id
         session.onLink = { [weak self] link, params in
             self?.openTerminalLink(link, params: params, sessionID: sessionID)
+        }
+    }
+
+    /// Wires an interactive terminal session's host callbacks, including closing its tab when the shell exits on its own.
+    func configureInteractiveTerminalSession(_ session: TerminalSession) {
+        configureTerminalSession(session)
+        session.onEnded = { [weak self] ended in
+            self?.handleTerminalSessionEnded(ended)
+        }
+    }
+
+    /// Closes a terminal whose shell exited on its own, hiding the terminal panel with the last one.
+    /// A restart replaces the process of the same session, so a queued close is dropped when the launch that exited is no longer current.
+    private func handleTerminalSessionEnded(_ session: TerminalSession) {
+        let exitedLaunchStartedAt = session.startedAt
+        Task { @MainActor [weak self] in
+            guard session.startedAt == exitedLaunchStartedAt else { return }
+            self?.closeTerminalSession(session)
         }
     }
 
