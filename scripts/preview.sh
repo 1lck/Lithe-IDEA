@@ -49,6 +49,9 @@ plugin_root=$(scripts/build-official-plugins.sh \
 for plugin_package in "$plugin_root"/*(/N); do
     cp -R "$plugin_package" "$APP_DIR/Contents/Resources/OfficialPlugins/${plugin_package:t}"
 done
+# Read-only remote workspace servers, uploaded to SSH hosts on connect.
+remote_server_root=$(scripts/build-remote-servers.sh)
+cp -R "$remote_server_root" "$APP_DIR/Contents/Resources/RemoteServers"
 # Read-only official marketplace index; refreshed copies go to Caches.
 mkdir -p "$APP_DIR/Contents/Resources/PluginMarketplace"
 cp "$ROOT_DIR/Plugins/marketplace/index.json" "$APP_DIR/Contents/Resources/PluginMarketplace/index.json"

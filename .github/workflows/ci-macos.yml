@@ -454,7 +454,8 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.architecture == 'arm64' && 'aarch64-apple-darwin' || matrix.architecture == 'x86_64' && 'x86_64-apple-darwin' || 'aarch64-apple-darwin,x86_64-apple-darwin' }}
+          # The app bundles the Linux remote workspace servers (scripts/build-remote-servers.sh).
+          targets: ${{ format('{0},x86_64-unknown-linux-musl,aarch64-unknown-linux-musl', matrix.architecture == 'arm64' && 'aarch64-apple-darwin' || matrix.architecture == 'x86_64' && 'x86_64-apple-darwin' || 'aarch64-apple-darwin,x86_64-apple-darwin') }}
 
       - name: Prepare verified dependency caches
         id: dependency_cache

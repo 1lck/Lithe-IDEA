@@ -1045,6 +1045,11 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `git.executionInspect` | Inspect executable capabilities, configuration provenance and effective Fetch preferences |
 | `git.executionConfigure` | Explicitly save or clear one allowlisted value in a selected config scope |
 | `git.authRespond` | Answer or cancel a live authentication challenge once |
+| `remote.probe` | Check that an SSH connection reaches a supported host |
+| `remote.authRespond` | Answer or cancel a prompt relayed by `remote.probe` or `remote.connect` once |
+| `remote.connect` | Open a connection, installing the shipped server when needed |
+| `remote.readDir` / `remote.readFile` / `remote.writeFile` | List, read or save over an open connection |
+| `remote.disconnect` | Close an open connection and its OpenSSH process tree |
 | `git.historyRewritePreview` | Review undo, message edit, squash, or drop with complete messages, eligibility, and an immutable checkout expectation |
 | `git.rebasePreview` | Resolve the complete local linear range strictly after a selected unchanged base |
 | `git.rebaseStart` | Start a reviewed native interactive rebase with persisted messages and recovery identity |
@@ -3364,6 +3369,77 @@ it extracts into an existing staging directory the host created and never
 replaces a file. Neither starts a process or downloads anything; the host
 runs command steps, downloads archives, and moves the finished project into
 place.
+
+### Remote connections
+
+`remote.probe` checks a saved SSH connection before a remote workspace is
+opened. The request is `{ connection: { host, port?, user?, authentication?,
+identityFile?, connectTimeoutSeconds?, keepAliveSeconds? } }`; unknown fields,
+including any password, are rejected. `authentication` is `auto` (default),
+`agent`, `privateKey` (requires `identityFile`), or `password`. `host` is a
+name, address, or SSH configuration alias without a user.
+
+Core runs the system `ssh` with the probe of
+[`remote-workspace-protocol-v1`](remote-workspace-protocol-v1.md)'s bootstrap
+and relays every OpenSSH question through the same AskPass transport as Git.
+Each question is an `authentication` event with `requestId`, `prompt`,
+`secret`, and `attempt` on the request's event channel; the host answers it
+once with `remote.authRespond` (`{ requestId, answer: string | null }`,
+returning `{ accepted }`, with the bounds of `git.authRespond`). Null cancels
+the prompt. Core never stores or emits an answer.
+
+The result is `{ status, host, diagnostics }`:
+
+| `status` | Meaning |
+| --- | --- |
+| `connected` | The shell ran and a server build exists; `host` is set |
+| `unsupportedPlatform` | The shell ran, but no server build exists; `host` is set |
+| `authenticationFailed` | Every offered credential was rejected |
+| `hostKeyRejected` | The host key was declined or has changed |
+| `unreachable` | The name did not resolve or the host could not be reached |
+| `failed` | Another failure; see `diagnostics` |
+
+`host` is `{ system, machine, homeDirectory, serverTarget }` from `uname -s`,
+`uname -m` and `$HOME`; `serverTarget` is the server's Rust target or `null`.
+`diagnostics` is the redacted end of OpenSSH's standard error (at most
+4 KiB). A malformed connection is `invalid_request`, a missing `ssh` is
+`runtime_missing`, and cancellation or the five-minute bound are `cancelled`
+and `timed_out`.
+
+`host.details` carries display facts read by the same shell, each nullable:
+`hostName`, `operatingSystem`, `kernel`, `cpuCount`, `memoryBytes`,
+`diskTotalBytes` and `diskAvailableBytes` (the file system holding `$HOME`),
+and `uptimeSeconds`.
+
+#### Remote connections that stay open
+
+`remote.connect` takes `{ connection, servers: [{ target, path }],
+serverVersion, installRoot? }`. `servers` are the read-only server builds the
+host ships, by Rust target; `installRoot` defaults to `$HOME/.lithe-server`.
+One OpenSSH process probes the host, keeps an installed server whose
+`--identity` reports the same SHA-256 or uploads the matching build through
+the same stream, and starts it, so the user authenticates once. Prompts are
+relayed as for `remote.probe`. The result is `{ status, session, host,
+diagnostics }`; `session` is `{ id, uploaded, hostName, userName,
+homeDirectory }` and is set only for `connected`. A host without a matching
+build is `unsupportedPlatform` and nothing is uploaded.
+
+Core keeps an open connection until `remote.disconnect` (`{ sessionId }`,
+returning `{ closed }`) or until the host process exits; ending it terminates
+the OpenSSH process tree. Requests over it take `sessionId`:
+
+| Command | Request | Result |
+| --- | --- | --- |
+| `remote.readDir` | `{ sessionId, path }` | the remote protocol's `fs.readDir` result |
+| `remote.readFile` | `{ sessionId, path }` | `{ data (base64), size, modifiedMs }`; files over 16 MiB are `not_supported` |
+| `remote.writeFile` | `{ sessionId, path, data, expected? }` | `{ status: "saved", size, modifiedMs }` or `{ status: "conflict" }` |
+
+`remote.writeFile` replaces the file atomically on the host. With
+`expected` (`{ size, modifiedMs }` from the read) a changed file is a
+`conflict`; without it the file must not exist yet. A missing path is
+`workspace_not_found`, a denied one `permission_denied`. A broken connection
+fails with `process_failed` and is forgotten, so the host reconnects; an
+unknown `sessionId` is `invalid_request`.
 
 ### Git patch discovery and rebase amendment preconditions
 

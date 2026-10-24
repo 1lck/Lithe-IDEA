@@ -322,6 +322,14 @@ private struct ActiveSessionChrome: View {
                 }
             }
             .sheet(isPresented: Binding(
+                get: { session.workbenchFeature.isRemoteConnectionsPresented },
+                set: { session.workbenchFeature.isRemoteConnectionsPresented = $0 }
+            )) {
+                if let feature = session.makeRemoteConnectionsFeature() {
+                    RemoteConnectionsSheet(feature: feature)
+                }
+            }
+            .sheet(isPresented: Binding(
                 get: { session.diagnosticsFeature.isPresented },
                 set: { session.diagnosticsFeature.isPresented = $0 }
             )) {
