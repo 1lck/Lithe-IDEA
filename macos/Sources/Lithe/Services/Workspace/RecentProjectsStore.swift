@@ -3,9 +3,13 @@ import Foundation
 struct RecentProjectsStore {
     private static let key = "lithe.recent-projects"
     private let store: any KeyValueStore
+    /// Roots that are not worth reopening from the list, such as remote
+    /// workspace placeholders that need a live connection.
+    private let excludes: (URL) -> Bool
 
-    init(store: any KeyValueStore) {
+    init(store: any KeyValueStore, excludes: @escaping (URL) -> Bool = { _ in false }) {
         self.store = store
+        self.excludes = excludes
     }
 
     func load() -> [RecentProject] {
@@ -17,6 +21,7 @@ struct RecentProjectsStore {
     }
 
     func record(_ url: URL, branch: String? = nil, in projects: [RecentProject]) -> [RecentProject] {
+        guard !excludes(url) else { return projects }
         var updated = projects.filter { $0.path != url.path }
         // Replace the entry instead of editing it so an old branch of a folder
         // that is no longer a repository is cleared rather than kept stale.

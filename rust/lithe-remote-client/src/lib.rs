@@ -4,6 +4,8 @@
 //!   command line that runs a program at the end of the chain.
 //! - [`bootstrap`] makes sure a matching `lithe-remote-server` is installed at
 //!   the end of the chain, uploading it through the same chain if needed.
+//! - [`launch`] probes, installs and starts the server over one connection,
+//!   so a host that asks for a password asks only once.
 //! - [`session`] starts the server, exchanges protocol messages with it and
 //!   routes each resource's events to its subscriber.
 //! - [`api`] offers typed operations and resource handles on a session.
@@ -18,6 +20,7 @@ pub mod api;
 pub mod bootstrap;
 pub mod command;
 pub mod forward;
+pub mod launch;
 pub mod session;
 pub mod transport;
 

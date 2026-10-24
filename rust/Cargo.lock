@@ -2039,6 +2039,8 @@ dependencies = [
  "lithe-agent-host",
  "lithe-git-host",
  "lithe-ide-host",
+ "lithe-remote-client",
+ "lithe-remote-protocol",
  "quick-xml",
  "rand 0.8.7",
  "regex",
