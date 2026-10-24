@@ -392,6 +392,8 @@ package protocol DatabaseOperations: Sendable {
     func pageTable(connection: DatabaseConnection, schema: String, table: String, limit: Int, offset: Int, filters: [DatabaseFilter], sort: [DatabaseSort]) throws -> DatabaseQueryResult
     func query(connection: DatabaseConnection, sql: String, values: [DatabaseValue], limit: Int) throws -> DatabaseQueryResult
     func execute(connection: DatabaseConnection, sql: String, values: [DatabaseValue], confirmed: Bool, allowWrite: Bool) throws -> DatabaseExecuteResult
+    /// Whether `execute` would reject `sql` under production protection until confirmed; does not connect.
+    func requiresWriteConfirmation(connection: DatabaseConnection, sql: String) throws -> Bool
     func applyChanges(connection: DatabaseConnection, schema: String, mutations: [DatabaseMutation], confirmed: Bool, allowWrite: Bool) throws -> DatabaseExecuteResult
     func applySchemaChange(connection: DatabaseConnection, schema: String, change: DatabaseSchemaChange, confirmed: Bool, allowWrite: Bool) throws -> DatabaseExecuteResult
     func explain(connection: DatabaseConnection, sql: String, format: String) throws -> DatabaseQueryResult
@@ -529,6 +531,11 @@ package final class DatabaseSidecarService: DatabaseOperations, @unchecked Senda
 
     package func execute(connection: DatabaseConnection, sql: String, values: [DatabaseValue] = [], confirmed: Bool = false, allowWrite: Bool = false) throws -> DatabaseExecuteResult {
         try request(method: "execute", params: QueryParams(connection: connection, sql: sql, values: values, confirmed: confirmed, allowWrite: allowWrite))
+    }
+
+    package func requiresWriteConfirmation(connection: DatabaseConnection, sql: String) throws -> Bool {
+        let result: WriteProtectionResult = try request(method: "checkWriteProtection", params: QueryParams(connection: connection, sql: sql))
+        return result.requiresConfirmation
     }
 
     package func applyChanges(connection: DatabaseConnection, schema: String = "", mutations: [DatabaseMutation], confirmed: Bool = false, allowWrite: Bool = false) throws -> DatabaseExecuteResult {
@@ -701,6 +708,7 @@ private struct EmptyParams: Codable {}
 private struct ConnectionParams: Codable { let connection: DatabaseConnection }
 private struct ConnectedResult: Codable { let connected: Bool }
 private struct EmptyResult: Codable {}
+private struct WriteProtectionResult: Codable { let requiresConfirmation: Bool }
 private struct DatabaseRowsResult: Decodable {
     package let rows: [DatabaseRow]
 

@@ -1984,6 +1984,61 @@ struct LitheCoreLogicTests {
 
     @Test
     @MainActor
+    func databaseSQLConfirmationAsksTheHelperBeforeProtectedWrites() async throws {
+        let preferences = DatabaseTestKeyValueStore()
+        let store = DatabaseConnectionStore(store: preferences, secureStore: DatabaseTestSecureStore())
+        let protected = DatabaseProfile(name: "Production", kind: .sqlite, path: "/tmp/lithe-protected.sqlite", productionProtection: true)
+        let local = DatabaseProfile(name: "Local", kind: .sqlite, path: "/tmp/lithe-local.sqlite")
+        try store.save([protected, local])
+        let runner = RecordingProcessRunner { request in
+            let object = try! JSONSerialization.jsonObject(with: try! #require(request.standardInput)) as! [String: Any]
+            let id = object["id"] as! String
+            let sql = (object["params"] as? [String: Any])?["sql"] as? String ?? ""
+            guard object["method"] as? String == "checkWriteProtection" else {
+                return ProcessResult(output: #"{"id":"\#(id)","ok":true,"result":[]}"#, exitCode: 0)
+            }
+            // Stand-in for the helper's lexer: the subquery WHERE does not bound the outer UPDATE.
+            let requires = sql.contains("SELECT")
+            return ProcessResult(output: #"{"id":"\#(id)","ok":true,"result":{"requiresConfirmation":\#(requires)}}"#, exitCode: 0)
+        }
+        let feature = DatabaseFeatureModel(
+            operations: DatabaseSidecarService(processRunner: runner, executableURL: URL(fileURLWithPath: "/tmp/lithe-db-sidecar")),
+            connectionStore: store
+        )
+        func checkedSQL() -> [String] {
+            runner.requests.compactMap { request in
+                guard let input = request.standardInput,
+                      let object = try? JSONSerialization.jsonObject(with: input) as? [String: Any],
+                      object["method"] as? String == "checkWriteProtection" else { return nil }
+                return (object["params"] as? [String: Any])?["sql"] as? String
+            }
+        }
+
+        await feature.select(protected)
+        feature.addSQLTab(sql: "UPDATE items SET value = (SELECT max(value) FROM items WHERE id = 1)")
+        let tabID = try #require(feature.selectedSQLTabID)
+        // The local analyzer sees a WHERE token, so only the helper can ask for confirmation here.
+        #expect(!feature.analysis(forSQLTab: tabID).requiresConfirmation)
+        let risk = try #require(await feature.sqlConfirmation(forSQLTab: tabID))
+        #expect(risk.requiresConfirmation)
+        #expect(risk.warning == "Production protection requires confirmation before this SQL runs.")
+
+        // A bounded write and a read-only query run without a prompt; queries never reach the helper check.
+        feature.updateSQL("UPDATE items SET value = 2\nWHERE id = 1", in: tabID)
+        #expect(await feature.sqlConfirmation(forSQLTab: tabID) == nil)
+        feature.updateSQL("SELECT 1", in: tabID)
+        #expect(await feature.sqlConfirmation(forSQLTab: tabID) == nil)
+        #expect(checkedSQL().count == 2)
+
+        // Without production protection the helper is not consulted, even for SQL it would flag.
+        await feature.select(local)
+        feature.addSQLTab(sql: "UPDATE items SET value = 2 WHERE id = (SELECT 1)")
+        #expect(await feature.sqlConfirmation(forSQLTab: try #require(feature.selectedSQLTabID)) == nil)
+        #expect(checkedSQL().count == 2)
+    }
+
+    @Test
+    @MainActor
     func databaseSQLBatchStopsAfterTheFirstFailedStatement() async throws {
         let preferences = DatabaseTestKeyValueStore()
         let store = DatabaseConnectionStore(store: preferences, secureStore: DatabaseTestSecureStore())

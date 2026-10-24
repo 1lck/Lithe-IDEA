@@ -182,6 +182,7 @@ struct DatabaseSQLWorkspaceView: View {
     @State private var pendingScope: DatabaseSQLExecutionScope = .all
     @State private var pendingTabID: UUID?
     @State private var showsRiskConfirmation = false
+    @State private var isCheckingRisk = false
     @State private var sqlSelection = ""
     @State private var sqlSelectionRange = NSRange(location: 0, length: 0)
     @State private var showsQueryHistory = false
@@ -240,7 +241,7 @@ struct DatabaseSQLWorkspaceView: View {
             }
             .litheToolbarIconButton()
             .accessibilityLabel("Run")
-            .disabled(feature.selectedSQLTab?.isRunning == true || feature.selectedProfile == nil)
+            .disabled(feature.selectedSQLTab?.isRunning == true || feature.selectedProfile == nil || isCheckingRisk)
             .help(hasSQLSelection ? "Run selected SQL (Command-Return)" : "Run all SQL (Command-Return)")
 
             LitheMenu {
@@ -251,7 +252,7 @@ struct DatabaseSQLWorkspaceView: View {
                 LitheIDEAIcon(resourcePath: "expui/general/chevronDown.svg", size: LitheTheme.Metrics.toolbarIconSize, preservesOriginalColors: true)
             }
             .litheToolbarIconButton()
-            .disabled(feature.selectedSQLTab?.isRunning == true || feature.selectedProfile == nil)
+            .disabled(feature.selectedSQLTab?.isRunning == true || feature.selectedProfile == nil || isCheckingRisk)
             .workbenchHoverHelp(Text("Choose SQL execution scope"))
             .accessibilityLabel("Choose SQL execution scope")
 
@@ -390,17 +391,21 @@ struct DatabaseSQLWorkspaceView: View {
     }
 
     private func run(scope: DatabaseSQLExecutionScope) {
-        guard let tabID = feature.selectedSQLTabID else { return }
-        let analysis = feature.analysis(forSQLTab: tabID, scope: scope)
-        if analysis.requiresConfirmation {
-            pendingRisk = analysis
-            pendingScope = scope
-            pendingTabID = tabID
-            showsRiskConfirmation = true
-        } else {
-            model.showToolWindow(.databaseServices)
-            let selection = sqlSelectionRange
-            Task { await feature.runSQL(in: tabID, scope: scope, selectionRange: selection) }
+        guard let tabID = feature.selectedSQLTabID, !isCheckingRisk else { return }
+        let selection = sqlSelectionRange
+        isCheckingRisk = true
+        Task {
+            let risk = await feature.sqlConfirmation(forSQLTab: tabID, scope: scope)
+            isCheckingRisk = false
+            if let risk {
+                pendingRisk = risk
+                pendingScope = scope
+                pendingTabID = tabID
+                showsRiskConfirmation = true
+            } else {
+                model.showToolWindow(.databaseServices)
+                await feature.runSQL(in: tabID, scope: scope, selectionRange: selection)
+            }
         }
     }
 

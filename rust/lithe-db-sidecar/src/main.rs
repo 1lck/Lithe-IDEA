@@ -275,6 +275,8 @@ async fn dispatch(request: Request) -> Response {
             "databaseTypes": ["mysql", "mariadb", "postgresql", "sqlite", "sqlserver", "mongodb", "redis", "nacos"],
             "features": ["testConnection", "schema", "indexes", "foreignKeys", "objects", "schemaChanges", "pagedFilterSort", "transactionalCrud", "query", "explain", "diagnostics", "csvImportExport", "jsonImportExport", "sqlBackupRestore", "writeProtection", "sqlServerDataGrid", "mongoCollections", "mongoDocumentEditor", "redisScan", "redisStringHashEditor", "redisTTL", "redisFlushDatabase", "nacosConfigManagement", "nacosServiceDiscovery"]
         }))
+    } else if request.method == "checkWriteProtection" {
+        check_write_protection(request.params)
     } else {
         database_method(&request.method, request.params).await
     };
@@ -282,6 +284,17 @@ async fn dispatch(request: Request) -> Response {
         Ok(value) => Response::success(id, value),
         Err((code, message)) => Response::failure(id, code, message),
     }
+}
+
+/// Reports whether `execute` would reject `sql` until the user confirms, without
+/// connecting. Clients ask before running a batch so a statement rejected by
+/// production protection cannot stop it after earlier statements were applied.
+fn check_write_protection(value: Value) -> DbResult {
+    let params: Params =
+        serde_json::from_value(value).map_err(|e| ("invalid_params".into(), e.to_string()))?;
+    let requires_confirmation = params.connection.production_protection
+        && is_dangerous_sql(&params.connection.kind, &params.sql);
+    Ok(json!({"requiresConfirmation": requires_confirmation}))
 }
 
 async fn database_method(method: &str, value: Value) -> DbResult {
@@ -2810,7 +2823,7 @@ fn ensure_write_allowed(
             "This connection is configured as read-only".into(),
         ));
     }
-    if connection.production_protection && is_dangerous_sql(sql) && !confirmed {
+    if connection.production_protection && is_dangerous_sql(&connection.kind, sql) && !confirmed {
         return Err((
             "confirmation_required".into(),
             "Production protection requires explicit confirmation".into(),
@@ -2858,7 +2871,7 @@ fn ensure_transaction_allowed(
     if connection.production_protection
         && statements
             .iter()
-            .any(|statement| is_dangerous_sql(&statement.sql))
+            .any(|statement| is_dangerous_sql(&connection.kind, &statement.sql))
         && !confirmed
     {
         return Err((
@@ -2869,13 +2882,199 @@ fn ensure_transaction_allowed(
     Ok(())
 }
 
-fn is_dangerous_sql(sql: &str) -> bool {
-    let upper = sql.trim_start().to_ascii_uppercase();
-    upper == "RESTORE"
-        || upper.starts_with("DROP ")
-        || upper.starts_with("TRUNCATE ")
-        || (upper.starts_with("UPDATE ") && !upper.contains(" WHERE "))
-        || (upper.starts_with("DELETE ") && !upper.contains(" WHERE "))
+/// Decides whether production protection must ask before running `sql`.
+///
+/// The script is lexed rather than pattern-matched so that line breaks, comments,
+/// string literals and quoted identifiers cannot hide or fake a keyword. A
+/// statement is dangerous when it restores a backup, drops or truncates
+/// anything, or contains an `UPDATE`/`DELETE` whose own clause has no `WHERE`
+/// (a `WHERE` inside a subquery does not bound the outer write). Every
+/// statement of a multi-statement script is checked.
+fn is_dangerous_sql(kind: &str, sql: &str) -> bool {
+    sql_statements(kind, sql)
+        .iter()
+        .any(|statement| is_dangerous_statement(statement))
+}
+
+/// Structural SQL token. Literals, quoted identifiers and comments produce no
+/// token, so their contents never read as keywords.
+#[derive(Debug, PartialEq)]
+enum SqlToken {
+    /// Unquoted word, uppercased.
+    Word(String),
+    Open,
+    Close,
+}
+
+/// Splits `sql` into top-level statements of structural tokens.
+fn sql_statements(kind: &str, sql: &str) -> Vec<Vec<SqlToken>> {
+    // MySQL and MariaDB treat backslash as an escape inside quotes by default;
+    // the other dialects only escape by doubling the quote character.
+    let backslash_escapes = matches!(kind, "mysql" | "mariadb");
+    let chars: Vec<char> = sql.chars().collect();
+    let mut statements = vec![Vec::new()];
+    let mut index = 0;
+    while index < chars.len() {
+        let character = chars[index];
+        let next = chars.get(index + 1).copied();
+        let tokens = statements
+            .last_mut()
+            .expect("statement list is never empty");
+        match character {
+            '-' if next == Some('-') => {
+                while index < chars.len() && chars[index] != '\n' {
+                    index += 1;
+                }
+            }
+            '/' if next == Some('*') => {
+                // PostgreSQL nests block comments; a nested opener in other
+                // dialects is rare enough that over-skipping is acceptable.
+                let mut depth = 0;
+                while index < chars.len() {
+                    if chars[index] == '/' && chars.get(index + 1) == Some(&'*') {
+                        depth += 1;
+                        index += 2;
+                    } else if chars[index] == '*' && chars.get(index + 1) == Some(&'/') {
+                        depth -= 1;
+                        index += 2;
+                        if depth == 0 {
+                            break;
+                        }
+                    } else {
+                        index += 1;
+                    }
+                }
+            }
+            '\'' => {
+                // PostgreSQL E'...' strings accept backslash escapes.
+                let escape_string = tokens.last() == Some(&SqlToken::Word("E".into()))
+                    && index > 0
+                    && chars[index - 1].eq_ignore_ascii_case(&'e');
+                if escape_string {
+                    tokens.pop();
+                }
+                index = skip_quoted(&chars, index, '\'', backslash_escapes || escape_string);
+            }
+            '"' => index = skip_quoted(&chars, index, '"', backslash_escapes),
+            '`' => index = skip_quoted(&chars, index, '`', false),
+            '[' if kind == "sqlserver" => index = skip_quoted(&chars, index, ']', false),
+            '$' => match dollar_quote_tag(&chars, index) {
+                Some(tag) => {
+                    let start = index + tag.len();
+                    index = (start..=chars.len().saturating_sub(tag.len()))
+                        .find(|&end| chars[end..end + tag.len()] == tag[..])
+                        .map_or(chars.len(), |end| end + tag.len());
+                }
+                None => index += 1,
+            },
+            '(' => {
+                tokens.push(SqlToken::Open);
+                index += 1;
+            }
+            ')' => {
+                tokens.push(SqlToken::Close);
+                index += 1;
+            }
+            ';' => {
+                statements.push(Vec::new());
+                index += 1;
+            }
+            _ if character.is_alphanumeric() || character == '_' => {
+                let start = index;
+                while index < chars.len()
+                    && (chars[index].is_alphanumeric() || matches!(chars[index], '_' | '$'))
+                {
+                    index += 1;
+                }
+                let word: String = chars[start..index].iter().collect();
+                tokens.push(SqlToken::Word(word.to_uppercase()));
+            }
+            _ => index += 1,
+        }
+    }
+    statements.retain(|tokens| !tokens.is_empty());
+    statements
+}
+
+/// Returns the index just past the closing `close` of a quoted run that opens
+/// at `start`. A doubled closing character is an escaped literal character.
+fn skip_quoted(chars: &[char], start: usize, close: char, backslash_escapes: bool) -> usize {
+    let mut index = start + 1;
+    while index < chars.len() {
+        if backslash_escapes && chars[index] == '\\' {
+            index += 2;
+        } else if chars[index] == close {
+            if chars.get(index + 1) == Some(&close) {
+                index += 2;
+            } else {
+                return index + 1;
+            }
+        } else {
+            index += 1;
+        }
+    }
+    chars.len()
+}
+
+/// Returns the `$tag$` opener at `start`, if any. `$1` style placeholders are
+/// not dollar quotes because a tag cannot start with a digit.
+fn dollar_quote_tag(chars: &[char], start: usize) -> Option<Vec<char>> {
+    let mut index = start + 1;
+    if chars
+        .get(index)
+        .is_some_and(|character| character.is_ascii_digit())
+    {
+        return None;
+    }
+    while chars
+        .get(index)
+        .is_some_and(|character| character.is_alphanumeric() || *character == '_')
+    {
+        index += 1;
+    }
+    (chars.get(index) == Some(&'$')).then(|| chars[start..=index].to_vec())
+}
+
+fn is_dangerous_statement(tokens: &[SqlToken]) -> bool {
+    let word = |index: usize| match tokens.get(index) {
+        Some(SqlToken::Word(word)) => Some(word.as_str()),
+        _ => None,
+    };
+    if word(0) == Some("RESTORE") {
+        return true;
+    }
+    let mut depths = Vec::with_capacity(tokens.len());
+    let mut depth = 0usize;
+    for token in tokens {
+        if *token == SqlToken::Close {
+            depth = depth.saturating_sub(1);
+        }
+        depths.push(depth);
+        if *token == SqlToken::Open {
+            depth += 1;
+        }
+    }
+    (0..tokens.len()).any(|index| match word(index) {
+        // TRUNCATE(x, d) is MySQL's numeric function, not the statement.
+        Some("DROP" | "TRUNCATE") => tokens.get(index + 1) != Some(&SqlToken::Open),
+        // Only a verb opens a write: at statement start, as a subquery or CTE
+        // body after `(`, or as the main statement after a `WITH ... )` list.
+        // This excludes FOR UPDATE, ON DELETE CASCADE, GRANT UPDATE, trigger
+        // events and MERGE/upsert actions, which are bounded elsewhere.
+        Some("UPDATE" | "DELETE")
+            if index == 0 || matches!(tokens[index - 1], SqlToken::Open | SqlToken::Close) =>
+        {
+            let clause_depth = depths[index];
+            !tokens[index + 1..]
+                .iter()
+                .zip(&depths[index + 1..])
+                .take_while(|(_, depth)| **depth >= clause_depth)
+                .any(|(token, depth)| {
+                    *depth == clause_depth && *token == SqlToken::Word("WHERE".into())
+                })
+        }
+        _ => false,
+    })
 }
 
 async fn apply_changes(
@@ -4198,14 +4397,96 @@ mod tests {
 
     #[test]
     fn write_protection_classifies_dangerous_sql() {
-        assert!(is_dangerous_sql("RESTORE"));
-        assert!(is_dangerous_sql("DROP TABLE users"));
-        assert!(is_dangerous_sql("UPDATE users SET active = 0"));
+        for sql in [
+            "RESTORE",
+            "DROP TABLE users",
+            "drop table users",
+            "TRUNCATE users",
+            "ALTER TABLE users DROP COLUMN email",
+            "UPDATE users SET active = 0",
+            "DELETE FROM users",
+            "DELETE\nFROM users",
+            // Comments must not hide the verb from the check.
+            "-- cleanup\nDELETE FROM users",
+            "/* cleanup */ DELETE FROM users",
+            // A WHERE in a comment, literal or subquery does not bound the write.
+            "DELETE FROM users -- WHERE id = 1",
+            "UPDATE users SET note = 'WHERE id = 1'",
+            "UPDATE users SET rank = (SELECT max(rank) FROM ranks WHERE ranks.id = 1)",
+            "DELETE FROM \"where\"",
+            "WITH stale AS (SELECT id FROM users WHERE active = 0) DELETE FROM users",
+            "WITH gone AS (DELETE FROM users RETURNING id) SELECT count(*) FROM gone",
+            "SELECT 1; DELETE FROM users",
+            "UPDATE users SET active = 0 WHERE id = 1; DELETE FROM users",
+        ] {
+            assert!(is_dangerous_sql("postgresql", sql), "{sql}");
+        }
+        for sql in [
+            "SELECT * FROM users",
+            "INSERT INTO users (name) VALUES ('drop table')",
+            // Regression: a WHERE on its own line or after a tab used to be missed.
+            "UPDATE users SET active = 0 WHERE id = 1",
+            "UPDATE users\nSET active = 0\nWHERE id = 1",
+            "DELETE FROM users\tWHERE id = 1",
+            "DELETE FROM users\nwhere id = 1;",
+            "WITH stale AS (SELECT id FROM users) DELETE FROM users WHERE id IN (SELECT id FROM stale)",
+            "SELECT * FROM users FOR UPDATE",
+            "CREATE TABLE posts (author_id INT REFERENCES users(id) ON DELETE CASCADE)",
+            "INSERT INTO users (id) VALUES (1) ON DUPLICATE KEY UPDATE id = id",
+            "GRANT UPDATE, DELETE ON users TO app",
+            "SELECT TRUNCATE(1.25, 1)",
+            "SELECT $$DELETE FROM users$$",
+            "SELECT $body$ DROP TABLE users $body$",
+            "SELECT * FROM users WHERE id = $1",
+            "/* outer /* nested */ DROP TABLE users */ SELECT 1",
+            "",
+            "-- only a comment",
+        ] {
+            assert!(!is_dangerous_sql("postgresql", sql), "{sql}");
+        }
+    }
+
+    #[test]
+    fn write_protection_check_matches_execute_guard_without_connecting() {
+        let request = |production_protection: bool, sql: &str| {
+            json!({
+                "connection": {"kind": "postgresql", "productionProtection": production_protection},
+                "sql": sql,
+            })
+        };
+        let requires = |value: Value| {
+            check_write_protection(value).unwrap()["requiresConfirmation"]
+                .as_bool()
+                .unwrap()
+        };
+        assert!(requires(request(true, "UPDATE users SET active = 0")));
+        assert!(!requires(request(
+            true,
+            "UPDATE users SET active = 0\nWHERE id = 1"
+        )));
+        assert!(!requires(request(false, "DROP TABLE users")));
+    }
+
+    #[test]
+    fn write_protection_lexes_quotes_per_dialect() {
+        // MySQL backslash-escapes quotes, so the WHERE stays inside the literal.
+        let sql = r"UPDATE users SET note = 'it\' WHERE 1 = 1 --'";
+        assert!(is_dangerous_sql("mysql", sql));
+        assert!(is_dangerous_sql("mariadb", sql));
+        // Standard strings end at the first quote; E'' strings escape like MySQL.
         assert!(!is_dangerous_sql(
-            "UPDATE users SET active = 0 WHERE id = 1"
+            "postgresql",
+            r"UPDATE users SET path = 'C:\' WHERE id = 1"
         ));
+        assert!(is_dangerous_sql(
+            "postgresql",
+            r"UPDATE users SET note = E'it\' WHERE 1 = 1 --'"
+        ));
+        // SQL Server bracket identifiers can contain keywords.
+        assert!(is_dangerous_sql("sqlserver", "DELETE FROM [where]"));
         assert!(!is_dangerous_sql(
-            "INSERT INTO users (name) VALUES ('drop table')"
+            "sqlserver",
+            "DELETE FROM [users] WHERE [id] = 1"
         ));
     }
 

@@ -5,7 +5,10 @@
   "capability": "SQL 查询、历史与分页",
   "macos": {
     "evidence": [
-      "macos/Sources/Lithe/Views/Database"
+      "macos/Sources/Lithe/Views/Database",
+      "macos/Sources/LitheDatabaseModule/Application/DatabaseFeatureModel.swift",
+      "rust/lithe-db-sidecar/src/main.rs",
+      "macos/Tests/LitheTests/LitheCoreLogicTests.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -18,5 +21,5 @@
     "verificationStatus": "not-applicable"
   },
   "owner": "Database",
-  "verification": "执行查询、取消查询、查看 SQL 历史和分页结果，确认长结果不阻塞界面。"
+  "verification": "执行查询、取消查询、查看 SQL 历史和分页结果，确认长结果不阻塞界面。 macOS 生产保护连接：带 WHERE 的 UPDATE/DELETE（WHERE 换行或缩进）直接执行不弹窗；无 WHERE、WHERE 只在子查询/注释/字符串里、WITH … DELETE、DROP/TRUNCATE（含 ALTER … DROP）在第一条语句执行前弹出确认框，确认后整批执行一次；SELECT … FOR UPDATE 不弹窗。危险判定以数据库 helper（lithe-db-sidecar）为准，执行 cargo test -p lithe-db-sidecar write_protection 与 LitheCoreLogicTests/databaseSQLConfirmation。"
 }
