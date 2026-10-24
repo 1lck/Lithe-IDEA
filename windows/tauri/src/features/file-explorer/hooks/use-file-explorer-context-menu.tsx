@@ -366,7 +366,6 @@ export function useFileExplorerContextMenu({
               t("git.diff.uncommitted"),
               "",
               false,
-              undefined,
               true,
               true,
               multiDiff,

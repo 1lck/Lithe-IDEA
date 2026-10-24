@@ -143,7 +143,6 @@ async function openToolDiff(path: string, output: unknown) {
         displayName,
         "",
         false,
-        undefined,
         true,
         true,
         diff,

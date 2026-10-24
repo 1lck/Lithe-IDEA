@@ -342,7 +342,7 @@ enum ProblemsPanelScope: CaseIterable {
     @MainActor
     static func currentFileURL(in model: AppModel) -> URL? {
         // Match FileEditorManager.selectedEditor, including non-text editor selection.
-        guard !model.isAgentEditorSelected, !model.isDatabaseWorkspaceSelected, !model.isRepositoryDiffSelected,
+        guard !model.isAgentEditorSelected, !model.isRepositoryDiffSelected,
               model.gitFeatureIfActive?.selectedChange == nil,
               model.gitFeatureIfActive?.branchComparison == nil,
               model.activeEditorTerminalSession == nil,

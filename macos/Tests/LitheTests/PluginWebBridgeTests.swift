@@ -747,7 +747,7 @@ struct PluginWebBridgeTests {
             store: base.store, fileStorage: base.fileStorage, fileOperations: base.fileOperations,
             agentEditRestorer: base.agentEditRestorer, binaryFileViewerRegistry: base.binaryFileViewerRegistry,
             projectRuntimeService: base.projectRuntimeService, gitWatchContextProvider: base.gitWatchContextProvider,
-            githubService: base.githubService, secureStore: base.secureStore, databaseSecureStore: base.databaseSecureStore,
+            githubService: base.githubService, secureStore: base.secureStore,
             diagnosticsExportService: base.diagnosticsExportService, credentialResolver: base.credentialResolver,
             aiConfigurationSources: base.aiConfigurationSources, recentProjectsStore: base.recentProjectsStore,
             recentProjectBranchReader: base.recentProjectBranchReader, workspaceSessionStore: base.workspaceSessionStore,

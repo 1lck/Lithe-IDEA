@@ -190,8 +190,7 @@ const GitBranchManager = ({
       state.isCommandPaletteVisible ||
       state.isGlobalSearchVisible ||
       state.isSettingsDialogVisible ||
-      state.isProjectPickerVisible ||
-      state.isDatabaseConnectionVisible,
+      state.isProjectPickerVisible,
   );
   const { showToast } = useToast();
   const activeBranch = currentBranch ?? "";

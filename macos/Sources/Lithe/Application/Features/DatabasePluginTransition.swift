@@ -1,7 +1,7 @@
 import Foundation
 import LitheModuleAPI
 
-// Note: 数据库改为插件后的老用户提示与迁移见 .agents/notes/proposed/architecture/2026-10-24-database-provider-plugin.md
+// Note: 数据库改为插件后的老用户提示与迁移见 .agents/notes/implemented/architecture/2026-10-24-database-provider-plugin.md
 
 /// Lithe no longer contains a database module; the official Database plugin
 /// replaces it. Someone who saved connections in the old module learns that

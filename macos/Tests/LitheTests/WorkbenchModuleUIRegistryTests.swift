@@ -121,26 +121,6 @@ struct WorkbenchModuleUIRegistryTests {
         try registry.validate(contributions: contributions)
     }
 
-    @Test func databaseUsesTheRightDockWithoutReplacingTheProjectTreeOrTerminal() throws {
-        let contributions = BuiltInModuleCatalog.contributions(for: .database)
-        let database = try #require(contributions.first { $0.id == "database.workspace" })
-        let registry = WorkbenchModuleUIComposition.builtIn
-        #expect(database.placement == .rightSidebar)
-        #expect(registry.renderer(for: database)?.rightSidebarBehavior == .docked)
-        try registry.validate(contributions: contributions)
-
-        let workbench = WorkbenchFeatureModel()
-        workbench.setVisibility(.terminal, isVisible: true)
-        workbench.setVisibility(.database, isVisible: true)
-        #expect(workbench.selectedSidebar == .project)
-        #expect(workbench.isSidebarVisible)
-        #expect(workbench.activeToolWindow == .terminal)
-        #expect(workbench.activeRightToolWindow == .database)
-        workbench.setVisibility(.agent, isVisible: true)
-        #expect(!workbench.isVisible(.database))
-        #expect(workbench.isVisible(.terminal))
-    }
-
     @Test func duplicateActionIDsAreRejected() {
         let first = WorkbenchModuleUIRegistry.Registration(actions: [
             .init(id: "test.action", perform: { _ in })

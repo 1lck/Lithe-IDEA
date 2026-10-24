@@ -95,7 +95,6 @@ fi
   abort "AI must be disabled by default" unless modules.find { |m| m.fetch("id") == "dev.lithe.ai-assistance" }.fetch("defaultState") == "disabled"
   agent = modules.find { |m| m.fetch("id") == "dev.lithe.agent-conversation" }
   abort "Agent must be disabled and on demand" unless agent.fetch("defaultState") == "disabled" && agent.fetch("activationPolicy") == "onDemand"
-  abort "Database must be disabled by default" unless modules.find { |m| m.fetch("id") == "dev.lithe.database" }.fetch("defaultState") == "disabled"
   allowed_states = ["enabled", "disabled"]
   allowed_scopes = ["application", "workspace"]
   allowed_policies = ["eager", "onDemand", "manual"]

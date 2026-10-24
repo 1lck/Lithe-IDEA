@@ -14,7 +14,7 @@
 //! every plugin server process. It is not bound to a workspace, so
 //! `${workspaceStateDir}` is refused.
 //!
-//! Note: the decision is recorded in .agents/notes/proposed/architecture/2026-10-24-database-provider-plugin.md
+//! Note: the decision is recorded in .agents/notes/implemented/architecture/2026-10-24-database-provider-plugin.md
 
 use super::declarative::{invalid, ServerProcess, ServerRole, Validation};
 use super::settings::DeclaredSettings;

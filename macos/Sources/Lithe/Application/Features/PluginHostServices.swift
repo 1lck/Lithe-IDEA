@@ -1,7 +1,7 @@
 import Foundation
 import LitheCoreContracts
 
-// Note: 插件后端与宿主凭据服务的决策见 .agents/notes/proposed/architecture/2026-10-24-database-provider-plugin.md
+// Note: 插件后端与宿主凭据服务的决策见 .agents/notes/implemented/architecture/2026-10-24-database-provider-plugin.md
 
 /// Secrets plugin backends store through the `credentials` host service.
 /// Every entry belongs to one plugin ID: a plugin can never name another

@@ -488,14 +488,6 @@ const WindowMenuBar = ({
       ),
       Tools: (
         <MenubarContent>
-          <MenubarItem
-            onClick={() => handleCommand("database.connect")}
-            disabled={!isBackendCapabilityAvailable("database")}
-            title={t(BACKEND_UNAVAILABLE_TOOLTIP)}
-          >
-            {t("menu.databases")}
-          </MenubarItem>
-          <MenubarSeparator />
           <MenubarItem shortcut="mod+alt+i" onClick={handleOpenWebInspector}>
             {t("menu.webInspector")}
           </MenubarItem>

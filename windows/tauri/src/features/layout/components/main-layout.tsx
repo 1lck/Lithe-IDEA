@@ -45,11 +45,6 @@ import { getUpdateControlVisibility } from "../utils/update-control-visibility";
 import { TerminalDockLayout } from "./terminal-dock-layout";
 
 const CommandPalette = lazy(() => import("@/features/command-palette/components/command-palette"));
-const ConnectionDialog = lazy(() =>
-  import("@/features/database/components/connection/connection-dialog").then((module) => ({
-    default: module.ConnectionDialog,
-  })),
-);
 const LinuxFolderPickerDialog = lazy(
   () => import("@/features/file-system/components/linux-folder-picker-dialog"),
 );
@@ -97,10 +92,6 @@ export function MainLayout() {
   const mavenProject = useMavenStore((state) => state.project);
   const sidebarWidth = useSettingsStore((state) => state.settings.sidebarWidth);
   const showStatusBar = useSettingsStore((state) => state.settings.showStatusBar);
-  const isDatabaseConnectionVisible = useUIState((state) => state.isDatabaseConnectionVisible);
-  const setIsDatabaseConnectionVisible = useUIState(
-    (state) => state.setIsDatabaseConnectionVisible,
-  );
   const leftPaneReservedWidth =
     COLLAPSED_ACTIVITY_RAIL_WIDTH + (isSidebarVisible ? sidebarWidth : 0);
   const isNotificationsVisible =
@@ -353,11 +344,6 @@ export function MainLayout() {
           <QuickOpen />
           <CommandPalette />
           <ProjectNameMenu />
-
-          <ConnectionDialog
-            isOpen={isDatabaseConnectionVisible}
-            onClose={() => setIsDatabaseConnectionVisible(false)}
-          />
           <LinuxFolderPickerDialog />
           <WindowCloseGuard />
           <ExtensionDialogs />

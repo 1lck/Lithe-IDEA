@@ -10,8 +10,6 @@ export const GENERATED_CDN_DIR = join(EXTENSIONS_ROOT, "generated", "cdn");
 export const CATALOG_DIR = join(EXTENSION_DOMAIN_ROOT, "catalog");
 
 const CONTRIBUTION_ALIASES: Record<string, string[]> = {
-  databases: ["databases", "databaseProviders"],
-  databaseProviders: ["databases", "databaseProviders"],
   icons: ["icons", "iconThemes"],
   iconThemes: ["icons", "iconThemes"],
 };
@@ -97,7 +95,6 @@ export function getExtensionSourceDir(folder: string): string {
 
 export function getExtensionCdnPath(folder: string, manifest: ExtensionManifestRecord): string {
   const slug = basename(folder);
-  const databases = getContributionArray(manifest, "databases");
   const agents = getContributionArray(manifest, "agents");
   const themes = getContributionArray(manifest, "themes");
   const icons = getContributionArray(manifest, "icons");
@@ -105,10 +102,6 @@ export function getExtensionCdnPath(folder: string, manifest: ExtensionManifestR
 
   if (integrations.length > 0 && typeof integrations[0].id === "string") {
     return `integration/${integrations[0].id}`;
-  }
-
-  if (databases.length > 0 && typeof databases[0].id === "string") {
-    return `database/${databases[0].id}`;
   }
 
   if (agents.length > 0 && typeof agents[0].id === "string") {

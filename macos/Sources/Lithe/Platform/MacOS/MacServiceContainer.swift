@@ -3,7 +3,6 @@ import LitheAIAssistanceModule
 import LitheAgentConversationModule
 import LitheApplicationKernel
 import LitheCoreContracts
-import LitheDatabaseModule
 import LitheDebugModule
 import LitheExecutionModule
 import LitheGitModule
@@ -126,10 +125,6 @@ final class MacServiceContainer {
         )
         let processRunner = MacProcessRunner(logging: applicationLogging)
         let secureStore = MacLocalSecretStore()
-        let databaseSecureStore = MacKeychainSecureStore(
-            service: fileStorage.identity.keychainService("database"),
-            legacyStore: secureStore
-        )
         let githubService = GitHubService(
             core: RustGitHubCore(bridge: rustCore),
             transport: MacGitHubHTTPTransport(),
@@ -157,13 +152,7 @@ final class MacServiceContainer {
         )
         let ideCapabilityRegistry = IdeCapabilityRegistry()
         let languageExecutionHost = MacLanguageExecutionHost(processRegistry: processRegistry)
-        let databaseSidecarURL = MacDatabaseSidecarLocator(fileStorage: fileStorage).executableURL()
         let moduleStore = providedModuleStore ?? MacModuleConfigurationStore(store: store)
-        // Database is now an internal on-demand workspace feature, so an old
-        // plugin-market preference must not leave the workspace inaccessible.
-        if moduleStore.enabledState(for: .database) == false {
-            moduleStore.setEnabledState(true, for: .database)
-        }
         let moduleRuntime = ModuleRuntime(
             configurationStore: moduleStore,
             recoveryStore: moduleStore,
@@ -221,19 +210,6 @@ final class MacServiceContainer {
                     historyPersistence: MacAgentHistoryPersistence(store: store),
                     historyExporter: MacAgentHistoryExporter(storage: fileStorage),
                     statisticsPersistence: MacAgentSessionStatisticsPersistence(store: store)
-                )
-            })
-            try moduleRegistry.register(ModuleFactory(manifest: DatabaseModule.moduleManifest, contributions: DatabaseModule.moduleContributions) {
-                DatabaseModule(
-                    processRunner: processRunner,
-                    executableURL: databaseSidecarURL,
-                    preferenceStore: MacDatabasePreferenceStore(store: store),
-                    secureStore: MacKeychainSecureStore(
-                        service: fileStorage.identity.keychainService("database"),
-                        legacyStore: MacLocalSecretStore()
-                    ),
-                    recoveryStore: MacDatabaseRecoveryStore(fileStorage: fileStorage),
-                    fileStorage: fileStorage
                 )
             })
             try moduleRegistry.register(ModuleFactory(manifest: TerminalModule.moduleManifest, contributions: TerminalModule.moduleContributions) {
@@ -832,7 +808,6 @@ final class MacServiceContainer {
             gitWatchContextProvider: gitWatchContextProvider,
             githubService: githubService,
             secureStore: secureStore,
-            databaseSecureStore: databaseSecureStore,
             diagnosticsExportService: diagnosticsExportService,
             credentialResolver: credentialResolver,
             agentManagement: RustAgentManagementService(core: rustCore),

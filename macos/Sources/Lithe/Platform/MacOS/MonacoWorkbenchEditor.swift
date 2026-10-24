@@ -354,7 +354,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
 
     private func isActiveDocument(_ id: UUID, model: AppModel) -> Bool {
         model.activeDocumentID == id && model.activeEditorTerminalSession == nil
-            && model.activeMediaDocument == nil && !model.isDatabaseWorkspaceSelected && !model.isRepositoryDiffSelected
+            && model.activeMediaDocument == nil && !model.isRepositoryDiffSelected
             && model.editorTabOrderFeature.groupLayout.groups.contains {
                 model.editorTabOrderFeature.selectedItem(in: $0) == .document(id)
             }

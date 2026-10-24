@@ -11,18 +11,18 @@ struct ModuleRuntimeTests {
         let runtime = ModuleRuntime()
         try runtime.register(
             testFactory(
-                id: .database,
+                id: .search,
                 defaultState: .disabled,
                 recorder: recorder
             )
         )
 
-        await #expect(throws: ModuleRuntimeError.moduleDisabled(.database)) {
-            _ = try await runtime.activate(.database)
+        await #expect(throws: ModuleRuntimeError.moduleDisabled(.search)) {
+            _ = try await runtime.activate(.search)
         }
         #expect(recorder.factoryCalls == [])
-        #expect(try runtime.snapshot(for: .database).state == .disabled)
-        #expect(try !runtime.snapshot(for: .database).isInstantiated)
+        #expect(try runtime.snapshot(for: .search).state == .disabled)
+        #expect(try !runtime.snapshot(for: .search).isInstantiated)
     }
 
     @Test
@@ -222,31 +222,31 @@ struct ModuleRuntimeTests {
     func sleepStopsResourcesReleasesInstanceAndWakeReconstructsIt() async throws {
         let recorder = ModuleTestRecorder()
         let runtime = ModuleRuntime()
-        try runtime.register(testFactory(id: .database, recorder: recorder))
+        try runtime.register(testFactory(id: .search, recorder: recorder))
 
         let firstReference = WeakReference<TestModule>()
-        var first: TestModule? = try #require(try await runtime.activate(.database) as? TestModule)
+        var first: TestModule? = try #require(try await runtime.activate(.search) as? TestModule)
         firstReference.value = first
         #expect(first?.resource?.isModuleResourceActive == true)
         first = nil
-        try await runtime.sleep(.database)
+        try await runtime.sleep(.search)
 
-        #expect(recorder.resourceStops == [.database])
-        #expect(try runtime.snapshot(for: .database).state == .sleeping)
-        #expect(try !runtime.snapshot(for: .database).isInstantiated)
+        #expect(recorder.resourceStops == [.search])
+        #expect(try runtime.snapshot(for: .search).state == .sleeping)
+        #expect(try !runtime.snapshot(for: .search).isInstantiated)
         #expect(firstReference.value == nil)
 
-        let second = try #require(try await runtime.activate(.database) as? TestModule)
-        #expect(recorder.factoryCalls == [.database, .database])
+        let second = try #require(try await runtime.activate(.search) as? TestModule)
+        #expect(recorder.factoryCalls == [.search, .search])
         #expect(second !== firstReference.value)
-        #expect(try runtime.snapshot(for: .database).state == .active)
+        #expect(try runtime.snapshot(for: .search).state == .active)
     }
 
     @Test
     func activeResourceCannotUnregisterBeforeItStops() async {
         let recorder = ModuleTestRecorder()
-        let scope = ModuleResourceScope(moduleID: .database)
-        let resource = TestResource(moduleID: .database, recorder: recorder)
+        let scope = ModuleResourceScope(moduleID: .search)
+        let resource = TestResource(moduleID: .search, recorder: recorder)
         let resourceID = scope.register(resource)
 
         scope.unregisterResource(id: resourceID)
@@ -264,13 +264,13 @@ struct ModuleRuntimeTests {
         let recorder = ModuleTestRecorder()
         let runtime = ModuleRuntime()
         try runtime.register(testFactory(id: .terminal, recorder: recorder))
-        try runtime.register(testFactory(id: .database, recorder: recorder))
+        try runtime.register(testFactory(id: .search, recorder: recorder))
         _ = try await runtime.activate(.terminal)
-        _ = try await runtime.activate(.database)
+        _ = try await runtime.activate(.search)
 
         await runtime.shutdownAll()
 
-        #expect(Set(recorder.shutdowns) == Set([.terminal, .database]))
+        #expect(Set(recorder.shutdowns) == Set([.terminal, .search]))
         #expect(runtime.snapshots().allSatisfy { !$0.isInstantiated })
         #expect(runtime.snapshots().allSatisfy { $0.activity.activeResourceCount == 0 })
     }
@@ -324,7 +324,7 @@ struct ModuleRuntimeTests {
             .map(\.manifest)
         for manifest in manifests {
             let registeredManifest: ModuleManifest
-            if manifest.id == .database {
+            if manifest.id == .search {
                 registeredManifest = ModuleManifest(
                     id: manifest.id,
                     displayName: manifest.displayName,
@@ -348,8 +348,8 @@ struct ModuleRuntimeTests {
         }
 
         #expect(throws: PluginCatalogError.moduleFactoryMismatch(
-            plugin: BuiltInPluginCatalog.manifest(forModule: .database)!.id,
-            module: .database
+            plugin: BuiltInPluginCatalog.manifest(forModule: .search)!.id,
+            module: .search
         )) {
             try registry.validate()
         }

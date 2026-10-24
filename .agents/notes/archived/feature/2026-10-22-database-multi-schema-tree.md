@@ -1,6 +1,11 @@
 # Agent 笔记：MySQL 连接下的多数据库树
 
 状态：已实现
+归档日期：2026-10-24
+
+## 归档原因
+
+macOS 内置数据库模块已删除，数据库改由官方插件 `dev.lithe.plugin.database` 提供，多数据库树和“显示哪些库”的选择在插件网页里重新实现。本 Note 描述的 SwiftUI 侧栏、`DatabaseFeatureModel` 和对应测试都已不存在。当前决策见[数据库拆成双端共用的独立插件](../../implemented/architecture/2026-10-24-database-provider-plugin.md)。
 
 ## 先说结论
 

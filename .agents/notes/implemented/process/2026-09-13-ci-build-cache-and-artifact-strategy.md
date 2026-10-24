@@ -180,10 +180,10 @@ macOS runner（GitHub 托管的 Mac 构建机）按组织共享，Free 计划同
 5 个 macOS job，超出的 job 只能排队。排队不是配额耗尽，也不是滥用信号，
 但会拖慢所有 PR 的反馈。因此：
 
-- 主 Swift 测试和数据库 Swift 测试共用 macOS CI 的 **Swift tests** job，只执行
+- 主 Swift 测试和 Rust Core 桥接检查共用 macOS CI 的 **Swift tests** job，只执行
   一次 `./scripts/test-macos.sh list` 编译，再按分类结果运行各自的过滤测试。
-  过去数据库 job 单独编译约 10 分钟，只为运行十几秒测试。Database CI 只保留
-  Linux 上的 Rust 数据库测试和 gate。
+  过去独立的数据库 job 单独编译约 10 分钟，只为运行十几秒测试；数据库改为插件
+  后，这条 lane 和 Database CI 已一起删除。
 - 远程工作区的三个 crate（`lithe-remote-*`）走独立的 Remote Workspace CI，只在
   Linux 上运行。Linux runner 能执行服务的 Linux 适配器，同时交叉检查 macOS 目标，
   所以不需要为它申请 macOS runner；这些 crate 暂未被产品链接，改动它们也不会触发
@@ -356,11 +356,11 @@ macOS CI 失败来修复。
 插件过滤测试和官方插件打包验证串进主 Swift job，延长包含插件改动的 PR 的
 主反馈路径，因此插件 CI 保持独立并依赖分类器跳过。
 
-### 用 workflow 的 `paths` 过滤跳过插件或数据库 CI
+### 用 workflow 的 `paths` 过滤跳过插件 CI
 
-`Plugin CI gate` 和 `Database CI gate` 是 `preview` ruleset 的必需检查。
-workflow 被 `paths` 过滤掉后不会上报状态，PR 会一直等待这个检查，因此继续
-使用“Linux 分类 job + gate”的方式：未选中时 gate 在 Linux 上几秒内通过。
+gate 检查一旦被设为 `preview` ruleset 的必需检查，workflow 被 `paths` 过滤掉后
+就不会上报状态，PR 会一直等待这个检查，因此继续使用“Linux 分类 job + gate”的
+方式：未选中时 gate 在 Linux 上几秒内通过。
 
 ### 为所有 CI 任务强制上传完整安装包
 
@@ -403,7 +403,7 @@ Swift 测试已经编译完整 Lithe 目标。再生成两个 DMG 会在普通�
 
 ## 验证
 
-- `actionlint .github/workflows/ci-macos.yml .github/workflows/ci-windows.yml .github/workflows/ci-database.yml .github/workflows/ci-plugins.yml .github/workflows/ci-remote.yml`
+- `actionlint .github/workflows/ci-macos.yml .github/workflows/ci-windows.yml .github/workflows/ci-plugins.yml .github/workflows/ci-remote.yml`
 - `./scripts/test-classify-ci-changes.sh`：包含 Draft PR 关闭 runner lane、保留 Linux lane，以及 macOS Java 不触发 real-JDT、共享引擎和 Windows Java 仍触发的正反例。
 - `node --test scripts/ci-workflow-gates.test.mjs scripts/plan-ci-lane-reuse.test.mjs scripts/verify-reused-ci-jobs.test.mjs`：从实际工作流执行 gate shell，验证取消条件、分类/测试失败、lane 覆盖及复用来源的失败传播。
 - `node --test scripts/cancel-closed-pr-runs.test.mjs`：用离线 GitHub CLI 替身执行关闭清理，验证分页历史运行、来源隔离、关闭时间、取消竞争和 API 失败传播。
@@ -429,7 +429,6 @@ Swift 测试已经编译完整 Lithe 目标。再生成两个 DMG 会在普通�
 - `docs/ci-builds.md`
 - `.github/workflows/ci-macos.yml`
 - `.github/workflows/ci-windows.yml`
-- `.github/workflows/ci-database.yml`
 - `.github/workflows/ci-remote.yml`
 - `.github/workflows/ci-plugins.yml`
 - `scripts/classify-ci-changes.sh`

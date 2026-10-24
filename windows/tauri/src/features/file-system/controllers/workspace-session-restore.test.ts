@@ -425,7 +425,7 @@ describe("shared open and restore content routing", () => {
     expect(await loadFileContent("app.java")).toEqual({ kind: "binary" });
   });
 
-  test("database files use the generic path while the database backend is unavailable", async () => {
+  test("database files open through the generic text and binary path", async () => {
     classifyText.mockResolvedValue({ isPlainText: false });
     readFileContent.mockResolvedValue("SQLite format 3\0");
     for (const path of ["cache.db", "app.sqlite", "app.sqlite3", "warehouse.duckdb"]) {

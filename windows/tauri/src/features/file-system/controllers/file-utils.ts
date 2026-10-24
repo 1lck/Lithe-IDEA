@@ -1,38 +1,5 @@
-import { isBackendCapabilityAvailable } from "@/config/backend-capabilities";
-import type { DatabaseType } from "@/features/database/types/provider.types";
 import { getLanguageIdFromPath } from "@/features/editor/utils/language-id";
 import { getBaseName } from "@/utils/path-helpers";
-
-/**
- * Check if a file is a SQLite database based on its extension
- */
-const isSQLiteFile = (path: string): boolean => {
-  const lowerPath = path.toLowerCase();
-  return (
-    lowerPath.endsWith(".sqlite") || lowerPath.endsWith(".db") || lowerPath.endsWith(".sqlite3")
-  );
-};
-
-/**
- * Check if a file is a DuckDB database based on its extension
- */
-const isDuckDBFile = (path: string): boolean => {
-  const lowerPath = path.toLowerCase();
-  return lowerPath.endsWith(".duckdb") || lowerPath.endsWith(".duck");
-};
-
-/**
- * Get the database viewer type for a file path, or null when the file should
- * open through the generic text/binary path. The viewer needs the database
- * backend; while that capability is unavailable, `.db` and similar files are
- * not routed into a viewer whose every request is rejected.
- */
-export const getDatabaseTypeFromPath = (path: string): DatabaseType | null => {
-  if (!isBackendCapabilityAvailable("database")) return null;
-  if (isSQLiteFile(path)) return "sqlite";
-  if (isDuckDBFile(path)) return "duckdb";
-  return null;
-};
 
 /**
  * Check if a file is an image based on its extension

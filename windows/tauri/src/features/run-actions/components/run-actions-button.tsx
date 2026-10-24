@@ -109,8 +109,7 @@ export default function RunActionsButton() {
       state.isCommandPaletteVisible ||
       state.isGlobalSearchVisible ||
       state.isSettingsDialogVisible ||
-      state.isProjectPickerVisible ||
-      state.isDatabaseConnectionVisible,
+      state.isProjectPickerVisible,
   );
   const { addAction, updateAction, deleteAction, getActionsForWorkspace } =
     useRunActionsStore.getState().actions;

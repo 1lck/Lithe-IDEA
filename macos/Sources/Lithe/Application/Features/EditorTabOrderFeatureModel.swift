@@ -40,7 +40,7 @@ final class EditorTabOrderFeatureModel: ObservableObject {
     }
 
     func canDrop(_ item: EditorTabItem, into group: UUID, side: EditorGroupDropSide) -> Bool {
-        guard !item.isDatabaseTab, items.contains(item), groupLayout.groups.contains(group) else { return false }
+        guard items.contains(item), groupLayout.groups.contains(group) else { return false }
         return placements[item] != group || (side != .center && items(in: group).count > 1)
     }
 
@@ -71,8 +71,7 @@ final class EditorTabOrderFeatureModel: ObservableObject {
         let groups = groupLayout.groups
         let destination = focusedGroup.flatMap { groups.contains($0) ? $0 : nil } ?? groups[0]
         placements = placements.filter { items.contains($0.key) }
-        let databaseGroup = items.first(where: { $0.isDatabaseTab && placements[$0] != nil }).flatMap { placements[$0] } ?? destination
-        for item in items where placements[item] == nil { placements[item] = item.isDatabaseTab ? databaseGroup : destination }
+        for item in items where placements[item] == nil { placements[item] = destination }
         let occupied = Set(placements.values)
         groupLayout = groupLayout.keeping(occupied) ?? .group(groups[0])
         let remaining = groupLayout.groups
@@ -85,11 +84,6 @@ final class EditorTabOrderFeatureModel: ObservableObject {
         }
         if selections != groupSelections { groupSelections = selections }
     }
-
-    @Published var databaseSelected = false
-    @Published var databaseProfileSelected: UUID?
-    @Published var databaseOverviewSelected = false
-    @Published var databaseQuerySelected: UUID?
 
     @Published var repositoryDiffSelected = false
     var repositoryDiffReturnTab: EditorTabItem?
@@ -165,7 +159,7 @@ final class EditorTabOrderFeatureModel: ObservableObject {
                       reorderedExistingIDs.indices.contains(existingIndex) else { continue }
                 next.append(.document(reorderedExistingIDs[existingIndex]))
                 existingIndex += 1
-            case .terminal, .media, .repositoryDiff, .agentConversation, .database, .databaseQuery, .databaseOverview:
+            case .terminal, .media, .repositoryDiff, .agentConversation:
                 next.append(item)
             }
         }
@@ -218,7 +212,6 @@ final class EditorTabOrderFeatureModel: ObservableObject {
         next.removeAll { $0 == item }
         guard let targetIndex = next.firstIndex(of: target) else { return false }
         next.insert(item, at: targetIndex + (insertAfter ? 1 : 0))
-        guard !item.isDatabaseTab || placements[item] == placements[target] else { return false }
         guard next != items || placements[item] != placements[target] else { return false }
         if let destination = placements[target] { placements[item] = destination }
         items = next

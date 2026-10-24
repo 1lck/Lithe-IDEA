@@ -276,7 +276,6 @@ export function GitSavedChanges({
         selection?.entry.message ?? "",
         "",
         false,
-        undefined,
         true,
         true,
         data,

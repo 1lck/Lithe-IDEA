@@ -59,7 +59,7 @@ Codex, Claude Code, and other AI coding tools can now handle much of the impleme
 
 Lithe is a lightweight IntelliJ IDEA alternative built first for Java and Spring Boot developers. It keeps the core workflows for browsing, editing, navigation, search, Maven, run and debug, Git diff review, local history, and databases.
 
-The Lithe application typically uses about **300–400 MB of baseline memory** after opening a regular project. Language servers, terminals, build tools, debuggers, and database helpers start on demand. Actual usage varies with the project and active services.
+The Lithe application typically uses about **300–400 MB of baseline memory** after opening a regular project. Language servers, terminals, build tools, and debuggers start on demand. Actual usage varies with the project and active services.
 
 > **AI writes the code. Lithe helps you understand it, run it, and review it.**
 
@@ -102,7 +102,7 @@ Only use these steps for an app whose source you trust. Homebrew installations u
 14. Automatic project entry-point detection with one-click run support for Spring Boot, Java, Maven, Gradle, npm, Cargo, Go, Python, Make, Docker Compose, Procfile, and shell projects.
 15. Per-language service switches so language servers can be enabled or disabled independently to match the machine's resources.
 16. Multi-line editor tabs for keeping more files visible in the same workspace.
-17. Database connection workspace (currently macOS only) with multiple database types, connection management, SQL history, table browsing, and database operations.
+17. Database connections as an official plugin (currently macOS only), installed from the Plugin Marketplace: multiple database types, connection management, SQL history, table browsing, and database operations.
 18. Ongoing bug fixes and user experience improvements.
 
 </details>
@@ -145,11 +145,6 @@ Only use these steps for an app whose source you trust. Homebrew installations u
 
 <p align="center">
   <img src="./docs/assets/screenshots/multi-line-editor-tabs.png" width="49%" alt="Multi-line editor tabs">
-  <img src="./docs/assets/screenshots/database-workspace-overview.png" width="49%" alt="Database connection workspace">
-</p>
-
-<p align="center">
-  <img src="./docs/assets/screenshots/database-sql-operation.png" width="49%" alt="Database SQL operation and table structure">
 </p>
 
 </details>

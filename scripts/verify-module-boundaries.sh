@@ -4,9 +4,9 @@ set -euo pipefail
 ROOT_DIR="${0:A:h:h}"
 cd "$ROOT_DIR"
 
-module_ids=(workspace git search localHistory languageIntelligence execution debug terminal database aiAssistance)
-module_types=(WorkspaceFoundation Database Git Search History LanguageIntelligence Execution Debug Terminal AIAssistance)
-module_targets=(LitheWorkspaceModule LitheDatabaseModule LitheGitModule LitheSearchModule LitheLocalHistoryModule LitheLanguageIntelligenceModule LitheExecutionModule LitheDebugModule LitheTerminalModule LitheAIAssistanceModule)
+module_ids=(workspace git search localHistory languageIntelligence execution debug terminal aiAssistance)
+module_types=(WorkspaceFoundation Git Search History LanguageIntelligence Execution Debug Terminal AIAssistance)
+module_targets=(LitheWorkspaceModule LitheGitModule LitheSearchModule LitheLocalHistoryModule LitheLanguageIntelligenceModule LitheExecutionModule LitheDebugModule LitheTerminalModule LitheAIAssistanceModule)
 
 for id in "${module_ids[@]}"; do
     if ! rg -q "static let ${id} = ModuleID" macos/Sources/LitheModuleAPI/Lifecycle/ModuleTypes.swift; then
@@ -32,7 +32,7 @@ for index in {1..${#module_types[@]}}; do
     fi
 done
 
-for contribution_type in Database Git Search History LanguageIntelligence Execution Debug Terminal AIAssistance; do
+for contribution_type in Git Search History LanguageIntelligence Execution Debug Terminal AIAssistance; do
     if ! rg -q "${contribution_type}Module\.moduleContributions" macos/Sources/Lithe/Platform/MacOS/MacServiceContainer.swift; then
         print -u2 "Missing lazy contribution registration: ${contribution_type}Module"
         exit 1
@@ -57,7 +57,7 @@ if rg -n 'Contents/PlugIns' scripts/package-app.sh scripts/preview.sh; then
     exit 1
 fi
 
-if rg -n "final class (WorkspaceFoundation|Database|Git|Search|History|LanguageIntelligence|Execution|Debug|Terminal|AIAssistance)Module([[:space:]:{])" macos/Sources/Lithe; then
+if rg -n "final class (WorkspaceFoundation|Git|Search|History|LanguageIntelligence|Execution|Debug|Terminal|AIAssistance)Module([[:space:]:{])" macos/Sources/Lithe; then
     print -u2 "Module lifecycle implementation leaked back into the executable target"
     exit 1
 fi
@@ -200,32 +200,6 @@ fi
 
 if rg -n 'terminal\.sessions|git\.log|language\.problems|execution\.(maven|run|tests)|debug\.session' macos/Sources/Lithe/Views/Workbench/WorkbenchView.swift; then
     print -u2 "Workbench switches on concrete module contribution IDs"
-    exit 1
-fi
-
-for legacy_database_file in \
-    macos/Sources/Lithe/Application/DatabaseFeatureModel.swift \
-    macos/Sources/Lithe/Application/DatabaseSQLSupport.swift \
-    macos/Sources/Lithe/Application/DatabaseSchemaDiff.swift \
-    macos/Sources/Lithe/Services/DatabaseConnectionStore.swift \
-    macos/Sources/Lithe/Services/DatabaseDBXImportService.swift \
-    macos/Sources/Lithe/Services/DatabaseSidecarService.swift \
-    macos/Sources/Lithe/Core/Ports/DatabaseRecovery.swift; do
-    if [[ -e "$legacy_database_file" ]]; then
-        print -u2 "Database implementation leaked outside LitheDatabaseModule: $legacy_database_file"
-        exit 1
-    fi
-done
-
-for database_type in DatabaseFeatureModel DatabaseSidecarService DatabaseConnectionStore DatabaseProcessRunning DatabaseRecoveryStoring; do
-    rg -q "(class|struct|protocol|enum) ${database_type}" macos/Sources/LitheDatabaseModule || {
-        print -u2 "Database module is missing real implementation: ${database_type}"
-        exit 1
-    }
-done
-
-if rg -n 'FeatureModuleHandle|ProcessRunner|KeyValueStore|SecureStore|FileStorage' macos/Sources/LitheDatabaseModule | rg -v 'Database(ProcessRunner|PreferenceStore|SecureStore|FileStorage)'; then
-    print -u2 "Database must own its graph through database-scoped ports"
     exit 1
 fi
 

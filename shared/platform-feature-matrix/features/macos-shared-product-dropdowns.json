@@ -15,7 +15,6 @@
       "macos/Sources/Lithe/Views/Workspace/ProjectSidebarView.swift",
       "macos/Sources/Lithe/Views/Workbench/WorkbenchView.swift",
       "macos/Sources/Lithe/Views/Agent/AgentSessionSelectors.swift",
-      "macos/Sources/Lithe/Views/Database/DatabaseTableView.swift",
       "macos/Sources/Lithe/Views/Debug/GenericDebugView.swift",
       "macos/Tests/LitheTests/ContextMenuCoverageTests.swift",
       "macos/Tests/LitheTests/WorkbenchRenderingSafetyTests.swift",

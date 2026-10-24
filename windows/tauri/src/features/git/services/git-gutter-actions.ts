@@ -40,5 +40,5 @@ export async function openGitGutterFullDiff(
   activateMainEditorPane();
   return useBufferStore
     .getState()
-    .actions.openBuffer("diff://working-tree/all-files", title, "", false, undefined, true, true, multiDiff);
+    .actions.openBuffer("diff://working-tree/all-files", title, "", false, true, true, multiDiff);
 }

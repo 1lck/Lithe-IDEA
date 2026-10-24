@@ -1,6 +1,6 @@
 import Foundation
 
-// Note: 数据库改为插件后的老用户迁移见 .agents/notes/proposed/architecture/2026-10-24-database-provider-plugin.md
+// Note: 数据库改为插件后的老用户迁移见 .agents/notes/implemented/architecture/2026-10-24-database-provider-plugin.md
 
 /// Moves what Lithe's former built-in database module saved into the
 /// database plugin, once, before the plugin's backend first starts: the

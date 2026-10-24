@@ -148,7 +148,6 @@ export default function Breadcrumb({
       previewName,
       bufferContent,
       false, // isImage
-      undefined, // databaseType
       false, // isDiff
       true, // isVirtual
       undefined, // diffData

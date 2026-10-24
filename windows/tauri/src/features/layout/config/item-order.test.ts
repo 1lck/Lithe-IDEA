@@ -9,14 +9,13 @@ import {
 } from "./item-order";
 
 describe("footer item order", () => {
-  test("keeps editor status chips on the trailing status row without Database or Git Log", () => {
+  test("keeps editor status chips on the trailing status row without Git Log", () => {
     const ordered = normalizeItemOrder(["notifications"], FOOTER_TRAILING_ITEM_IDS);
 
     expect(ordered).not.toContain("terminal");
     expect(ordered).not.toContain("diagnostics");
     expect(ordered).not.toContain("run");
     expect(ordered).not.toContain("gitLog");
-    expect(ordered).not.toContain("databases");
     expect(ordered).toContain("gitChanges");
     expect(ordered).toContain("cursor");
     expect(ordered).toContain("memory");
@@ -42,10 +41,6 @@ describe("sidebar activity order", () => {
 
     expect(hidden).toEqual(["run"]);
     expect(setSidebarActivityItemVisibility(hidden, "run", true)).toEqual([]);
-  });
-
-  test("does not expose an unavailable Database placeholder", () => {
-    expect([...SIDEBAR_ACTIVITY_ITEM_IDS]).not.toContain("database");
   });
 
   test("keeps the Settings entry out of the activity rail because it moved to the title bar", () => {

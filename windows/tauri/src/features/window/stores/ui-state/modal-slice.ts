@@ -13,7 +13,6 @@ interface ModalState {
   isBranchManagerVisible: boolean;
   isProjectPickerVisible: boolean;
   projectPickerMode: ProjectPickerMode;
-  isDatabaseConnectionVisible: boolean;
   settingsInitialTab: SettingsTab | null;
   /**
    * Increments with every request for a specific tab, so an open dialog moves
@@ -33,7 +32,6 @@ interface ModalActions {
   setIsSettingsDialogVisible: (v: boolean) => void;
   setIsBranchManagerVisible: (v: boolean) => void;
   setIsProjectPickerVisible: (v: boolean, mode?: ProjectPickerMode) => void;
-  setIsDatabaseConnectionVisible: (v: boolean) => void;
   setSettingsInitialTab: (tab: SettingsTab) => void;
   openSettingsDialog: (tab?: SettingsTab) => void;
   hasOpenModal: () => boolean;
@@ -54,7 +52,6 @@ export const createModalSlice: StateCreator<ModalSlice, [], [], ModalSlice> = (s
   isBranchManagerVisible: false,
   isProjectPickerVisible: false,
   projectPickerMode: "picker",
-  isDatabaseConnectionVisible: false,
   settingsInitialTab: null,
   settingsTabRequest: 0,
   isReferencesPopoverVisible: false,
@@ -70,7 +67,6 @@ export const createModalSlice: StateCreator<ModalSlice, [], [], ModalSlice> = (s
       state.isSettingsDialogVisible ||
       state.isBranchManagerVisible ||
       state.isProjectPickerVisible ||
-      state.isDatabaseConnectionVisible ||
       state.isReferencesPopoverVisible
     );
   },
@@ -110,10 +106,6 @@ export const createModalSlice: StateCreator<ModalSlice, [], [], ModalSlice> = (s
       set({ isBranchManagerVisible: false });
       return true;
     }
-    if (state.isDatabaseConnectionVisible) {
-      set({ isDatabaseConnectionVisible: false });
-      return true;
-    }
     return false;
   },
 
@@ -127,7 +119,6 @@ export const createModalSlice: StateCreator<ModalSlice, [], [], ModalSlice> = (s
         isSettingsDialogVisible: false,
         isBranchManagerVisible: false,
         isProjectPickerVisible: false,
-        isDatabaseConnectionVisible: false,
       });
     } else {
       set({ isQuickOpenVisible: v });
@@ -145,7 +136,6 @@ export const createModalSlice: StateCreator<ModalSlice, [], [], ModalSlice> = (s
         isSettingsDialogVisible: false,
         isBranchManagerVisible: false,
         isProjectPickerVisible: false,
-        isDatabaseConnectionVisible: false,
       });
     } else {
       set({ isCommandPaletteVisible: v });
@@ -162,7 +152,6 @@ export const createModalSlice: StateCreator<ModalSlice, [], [], ModalSlice> = (s
       isSettingsDialogVisible: false,
       isBranchManagerVisible: false,
       isProjectPickerVisible: false,
-      isDatabaseConnectionVisible: false,
     });
   },
 
@@ -176,7 +165,6 @@ export const createModalSlice: StateCreator<ModalSlice, [], [], ModalSlice> = (s
         isSettingsDialogVisible: false,
         isBranchManagerVisible: false,
         isProjectPickerVisible: false,
-        isDatabaseConnectionVisible: false,
       });
     } else {
       set({ isAgentLauncherVisible: v });
@@ -193,7 +181,6 @@ export const createModalSlice: StateCreator<ModalSlice, [], [], ModalSlice> = (s
         isSettingsDialogVisible: false,
         isBranchManagerVisible: false,
         isProjectPickerVisible: false,
-        isDatabaseConnectionVisible: false,
       });
     } else {
       set({ isGlobalSearchVisible: v });
@@ -210,7 +197,6 @@ export const createModalSlice: StateCreator<ModalSlice, [], [], ModalSlice> = (s
         isGlobalSearchVisible: false,
         isBranchManagerVisible: false,
         isProjectPickerVisible: false,
-        isDatabaseConnectionVisible: false,
       });
     } else {
       set({ isSettingsDialogVisible: v });
@@ -227,7 +213,6 @@ export const createModalSlice: StateCreator<ModalSlice, [], [], ModalSlice> = (s
         isGlobalSearchVisible: false,
         isSettingsDialogVisible: false,
         isProjectPickerVisible: false,
-        isDatabaseConnectionVisible: false,
       });
     } else {
       set({ isBranchManagerVisible: v });
@@ -244,26 +229,9 @@ export const createModalSlice: StateCreator<ModalSlice, [], [], ModalSlice> = (s
         isGlobalSearchVisible: false,
         isSettingsDialogVisible: false,
         isBranchManagerVisible: false,
-        isDatabaseConnectionVisible: false,
       });
     } else {
       set({ isProjectPickerVisible: false, projectPickerMode: "picker" });
-    }
-  },
-
-  setIsDatabaseConnectionVisible: (v: boolean) => {
-    if (v) {
-      set({
-        isDatabaseConnectionVisible: true,
-        isQuickOpenVisible: false,
-        isCommandPaletteVisible: false,
-        isGlobalSearchVisible: false,
-        isSettingsDialogVisible: false,
-        isBranchManagerVisible: false,
-        isProjectPickerVisible: false,
-      });
-    } else {
-      set({ isDatabaseConnectionVisible: v });
     }
   },
 
@@ -278,7 +246,6 @@ export const createModalSlice: StateCreator<ModalSlice, [], [], ModalSlice> = (s
       isGlobalSearchVisible: false,
       isBranchManagerVisible: false,
       isProjectPickerVisible: false,
-      isDatabaseConnectionVisible: false,
       settingsInitialTab: tab ?? null,
       settingsTabRequest: tab ? get().settingsTabRequest + 1 : get().settingsTabRequest,
     }),

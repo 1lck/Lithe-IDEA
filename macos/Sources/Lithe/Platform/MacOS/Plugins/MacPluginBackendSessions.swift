@@ -3,7 +3,7 @@ import LitheCoreContracts
 import LitheLanguageIntelligenceModule
 import LitheModuleAPI
 
-// Note: 插件后端与宿主凭据服务的决策见 .agents/notes/proposed/architecture/2026-10-24-database-provider-plugin.md
+// Note: 插件后端与宿主凭据服务的决策见 .agents/notes/implemented/architecture/2026-10-24-database-provider-plugin.md
 
 /// The backends of plugins (`backend` 1): one process per plugin for the
 /// whole application, shared by every project window, because what a

@@ -2,7 +2,7 @@ import Foundation
 import LocalAuthentication
 import Security
 
-// Note: 插件后端与宿主凭据服务的决策见 .agents/notes/proposed/architecture/2026-10-24-database-provider-plugin.md
+// Note: 插件后端与宿主凭据服务的决策见 .agents/notes/implemented/architecture/2026-10-24-database-provider-plugin.md
 
 /// Plugin credentials in the user's login Keychain. Each plugin gets a
 /// Keychain service of its own (`<bundle>.plugin-credentials.<pluginID>`),

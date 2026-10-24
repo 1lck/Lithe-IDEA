@@ -39,7 +39,6 @@ export function getExplorerTargetPath(activeBuffer: PaneContent | null): string 
     activeBuffer.type === "image" ||
     activeBuffer.type === "pdf" ||
     activeBuffer.type === "binary" ||
-    activeBuffer.type === "database" ||
     activeBuffer.type === "externalEditor"
   ) {
     return activeBuffer.path;

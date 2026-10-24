@@ -41,7 +41,6 @@ const openBuffer = mock(
     _displayName: string,
     _content: string,
     _preview: boolean,
-    _undefined: undefined,
     _pinned: boolean,
     _restored: boolean,
     diffData: Record<string, unknown>,
@@ -175,7 +174,7 @@ describe("GitLineHistoryPopup", () => {
     expect(args.reference).toBe(`${"d".repeat(40)}..${"c".repeat(40)}`);
     expect(args.pathspecs).toEqual(["doc.txt"]);
     expect(openBuffer).toHaveBeenCalledTimes(1);
-    const diffData = openBuffer.mock.calls[0][7] as Record<string, unknown>;
+    const diffData = openBuffer.mock.calls[0][6] as Record<string, unknown>;
     expect(diffData.commitFilePreview).toBe(true);
     expect(diffData.initialRevealRange).toEqual({ startLine: 3, endLine: 3 });
 
@@ -219,7 +218,7 @@ describe("GitLineHistoryPopup", () => {
     // current path lands the preview.
     expect(args.pathspecs).toEqual(["original.txt", "renamed.txt"]);
     expect(openBuffer).toHaveBeenCalledTimes(1);
-    const diffData = openBuffer.mock.calls[0][7] as Record<string, unknown>;
+    const diffData = openBuffer.mock.calls[0][6] as Record<string, unknown>;
     expect(diffData.commitFilePreview).toBe(true);
     expect(diffData.initialRevealRange).toEqual({ startLine: 3, endLine: 3 });
 
@@ -250,7 +249,7 @@ describe("GitLineHistoryPopup", () => {
     // The whole-commit entry resolves through the repository the query
     // reported, not the workspace root, and keeps the generic stack.
     expect(String(discoverArgs?.path ?? "")).toContain("C:/nested/repo");
-    const wholeDiff = openBuffer.mock.calls[0][7] as Record<string, unknown>;
+    const wholeDiff = openBuffer.mock.calls[0][6] as Record<string, unknown>;
     expect(wholeDiff.commitFilePreview).toBeUndefined();
 
     await act(async () => {

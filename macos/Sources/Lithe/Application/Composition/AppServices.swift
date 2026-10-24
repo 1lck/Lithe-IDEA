@@ -74,7 +74,6 @@ final class AppServices {
     let gitWatchContextProvider: any GitWatchContextProviding
     let githubService: GitHubService
     let secureStore: any SecureStore
-    let databaseSecureStore: any SecureStore
     let diagnosticsExportService: DiagnosticsExportService
     let credentialResolver: any AIProviderCredentialResolver
     /// Detects Node.js and installs ACP adapters for the Agents settings page.
@@ -123,7 +122,6 @@ final class AppServices {
         gitWatchContextProvider: any GitWatchContextProviding,
         githubService: GitHubService,
         secureStore: any SecureStore,
-        databaseSecureStore: any SecureStore,
         diagnosticsExportService: DiagnosticsExportService,
         credentialResolver: any AIProviderCredentialResolver,
         agentManagement: any AgentManagementService = UnavailableAgentManagementService(),
@@ -183,7 +181,6 @@ final class AppServices {
         self.gitWatchContextProvider = gitWatchContextProvider
         self.githubService = githubService
         self.secureStore = secureStore
-        self.databaseSecureStore = databaseSecureStore
         self.diagnosticsExportService = diagnosticsExportService
         self.credentialResolver = credentialResolver
         self.agentManagement = agentManagement

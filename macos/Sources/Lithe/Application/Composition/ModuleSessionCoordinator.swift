@@ -45,9 +45,7 @@ final class ModuleSessionCoordinator {
         // Shutdown must finish even if the shell is released in the meantime.
         shutdownTask = Task { @MainActor [weak self] in
             await shutdownRuntime()
-            guard let self else { return }
-            self.shutdownTask = nil
-            self.clearBindings(for: .database)
+            self?.shutdownTask = nil
         }
     }
 
@@ -73,9 +71,8 @@ final class ModuleSessionCoordinator {
     private func handle(_ event: ModuleEvent) {
         if event.name == "module.sleeping" || event.name == "module.shutdown" {
             // Idle sleep keeps a visible window open: its renderer shows a loading
-            // placeholder and re-activates the module. Only Database, whose content
-            // cannot re-activate itself, closes on sleep; shutdown closes every window.
-            if event.name == "module.shutdown" || event.source == .database {
+            // placeholder and re-activates the module; shutdown closes every window.
+            if event.name == "module.shutdown" {
                 workbench.releaseContributions(for: event.source)
             }
             clearBindings(for: event.source)

@@ -1930,9 +1930,6 @@ JDT Run marker 的测试元数据，不根据文件名包含 Test 推断。深�
 
 数据库范围列表复用共享树样式，不使用普通菜单行。Git 原有的 IDEA 三态复选框提升为 `LitheTreeCheckbox`，仍消费原 `commit/checkBox*.svg` 的完整深浅/焦点/禁用状态，Git 调用显式传入提交语义，Run 浏览器沿用批量选择语义；数据库通过可选标题组成完整可点击树行。`LitheSettingsCheckbox` 保持设置页原行为，不增加菜单专用变体。范围列表使用 `litheTreeRow` 与共享树边距，底部说明复用弹层背景；整个选择面板局部禁用小手，入口徽标保留小手且没有悬停提示。数据库宿主回归在库名右侧空白发送真实鼠标事件，Git 原资源检查继续覆盖全部状态。
 
-### 2026-10-23 结果气泡保留宿主、独立绘制表面
-
-数据库测试结果并非菜单。`LitheDropdownPopover.contentProvidesSurface` 默认为 false，仅该结果气泡显式启用，跳过 `litheContextMenuSurface` 的背景/圆角/字体包装；仍复用现有 presenter 的定位、父子窗口、键盘/外部点击关闭与销毁。不改普通菜单背景或全局圆角，不复制窗口生命周期。气泡的 Community 来源、locale 字体分支与截图适配边界见[数据库多库树 Note](../feature/2026-10-22-database-multi-schema-tree.md)。用 ContextMenuCoverageTests 验证默认调用者，数据库深浅主题像素检查验证背景、边框、指针和透明底带。
 ### 公共树的展开入口补齐（2026-10-21）
 
 项目树与声明式插件树共用 `LitheTreeDisclosureIcon`，由它持有原始 chevron SVG、
