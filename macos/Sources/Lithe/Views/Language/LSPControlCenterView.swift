@@ -175,7 +175,7 @@ struct LSPControlCenterView: View {
     /// the uninstall-and-restart step while the retired official one remains.
     private func migratedPluginNotice(_ entry: OfficialPluginCatalog.Entry, replacementID: PluginID) -> String? {
         let name = entry.displayName
-        let language = entry.languageDisplayName ?? entry.displayName
+        let language = entry.languageDisplayName
         if let retired = pluginSnapshot(entry) {
             if retired.installationStatus == .uninstallPending {
                 return usesChinese
@@ -204,7 +204,7 @@ struct LSPControlCenterView: View {
 
     private func pluginNotice(_ entry: OfficialPluginCatalog.Entry) -> String {
         let name = entry.displayName
-        let language = entry.languageDisplayName ?? entry.displayName
+        let language = entry.languageDisplayName
         guard let snapshot = pluginSnapshot(entry) else {
             return usesChinese
                 ? "检测到 \(language) 项目，请先在插件管理中下载并安装 \(name)。"

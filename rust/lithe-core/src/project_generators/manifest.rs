@@ -7,7 +7,7 @@ use crate::plugins::declarative::{
 };
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Most generators one plugin may declare.
@@ -331,6 +331,40 @@ impl GeneratorStep {
             Self::Archive { .. } => true,
         }
     }
+}
+
+/// Install-review entries: one per scaffolding command. The whole step
+/// (executable, argument templates, environment, guard, and network flag)
+/// is the approved value, so an update that adds a command or changes what
+/// one runs is a new program the user must approve. File and archive steps
+/// start no process and are covered by the `project.generate` permission.
+pub(crate) fn programs(generator: &ProjectGeneratorDeclaration) -> Vec<Value> {
+    generator
+        .steps
+        .iter()
+        .filter_map(|step| match step {
+            GeneratorStep::Command {
+                command,
+                arguments,
+                environment,
+                collect,
+                may_use_network,
+                timeout_seconds,
+                when,
+            } => Some(json!({
+                "kind": "projectGenerator",
+                "generatorID": generator.id,
+                "command": command,
+                "arguments": arguments,
+                "environment": environment,
+                "collect": collect,
+                "mayUseNetwork": may_use_network,
+                "timeoutSeconds": timeout_seconds,
+                "when": when,
+            })),
+            GeneratorStep::Files { .. } | GeneratorStep::Archive { .. } => None,
+        })
+        .collect()
 }
 
 impl GeneratorField {

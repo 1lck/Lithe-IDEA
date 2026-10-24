@@ -6,7 +6,7 @@
 
 「New Project」原来只是选一个文件夹再打开。现在它是参照 IDEA 的新建项目窗口：左栏分「新建项目」和「生成器」两组，右侧是所选条目的表单。窗口外框、名称、位置、「创建 Git 仓库」和「空项目」归宿主；其余条目由插件声明的**项目生成器**（Project Generator，插件声明的一种新建项目方式）注入。
 
-契约上**没有升 `pluginAPIVersion`**，只在级别 3 新增能力 `projectGenerators: 1`。Java、Maven Archetype、Spring Boot 三个生成器放在一个**独立的内置插件** Java Project Templates 里，不放进 Java Support：这样停用任一个都不影响另一个，Java Support 停用时向导还能提示用户启用它。
+契约上**没有升 `pluginAPIVersion`**，只在级别 3 新增能力 `projectGenerators: 1`。Java、Maven Archetype、Spring Boot 三个生成器**直接声明在 Java Support 里**，不另设模板插件：模板属于对应语言插件，用户不用多管一个插件。Java Support 停用时条目照样列出、变灰，并提示「启用」。
 
 界面复用 #1395 设置窗口的原生 SwiftUI 组件。为此把设置侧栏行、插件字段控件和文件夹选择器抽成了共享组件，设置窗口和克隆仓库窗口改用它们。
 
@@ -15,7 +15,7 @@
 - **入口什么都没做。** 欢迎页和项目切换器的「New Project…」调用 `chooseProject(title: "New Project")`，与「打开」只差一个标题。
 - **生态知识没有地方放。** Cargo、Spring Initializr、Maven Archetype 各有自己的脚手架。写进宿主会违反「宿主不按插件名分支」；写进 Core 会重演 `execution/detectors/` 写死生态表的问题。
 - **基础环境要重复配置。** 建完 Java 项目后还得去设置里再选一次 JDK。
-- **能力版本的副作用。** [按能力分版本](../architecture/2026-10-17-plugin-capability-versions.md)要求 `requires` 恰好列出用到的能力，宿主缺任何一项就整个插件不可装。把生成器塞进语言插件，会让不支持生成器的宿主连语言支持一起看不到。
+- **能力版本的副作用。** [按能力分版本](../architecture/2026-10-17-plugin-capability-versions.md)要求 `requires` 恰好列出用到的能力，宿主缺任何一项就整个插件不可装。生成器放进语言插件后，不支持生成器的宿主连这一版语言支持一起看不到。Java Support 只在 macOS 分发、随同版本的 Lithe.app 内置，所以影响的只是「旧宿主拿不到新版 Java Support」；社区语言插件加生成器前要权衡这一点。
 
 ## 决策
 
@@ -27,7 +27,7 @@
 | 契约与标准答案 | 共享契约 | `shared/contracts/plugins/v1/README.md` 的 Project generators 一节，`fixtures/project-generator.plugin.json`、`fixtures/project-plans.json` |
 | 窗口、名称、位置、Git、空项目、启用插件提示 | macOS 宿主 | `NewProjectView`、`NewProjectFeatureModel` |
 | 执行计划：临时目录、写文件、跑命令、下载、移动到位 | macOS 宿主 | `ProjectGenerationService`（编排）+ `MacProjectGenerationPlatform`（平台操作） |
-| Java、Maven Archetype、Spring Boot 的字段、模板和步骤 | 插件 | `Plugins/mac/Official/JavaProjectTemplates/` |
+| Java、Maven Archetype、Spring Boot 的字段、模板和步骤 | 插件 | `Plugins/mac/Official/JavaSupport/`（`plugin.json` 的 `projectGenerators`、`icons/`、`templates/`） |
 
 宿主里没有任何生成器 ID 分支。项目打开后由已有的 `build.detect` 按 markers 识别 Maven、Gradle，生成器不声明「按什么导入」。
 
@@ -41,7 +41,7 @@
 - `command`：调用脚手架（例如 `mvn archetype:generate`），可用 `collect` 把工具生成的子目录内容上移到项目根。
 - `archive`：拼 HTTPS 地址下载 zip 并解压（Spring Initializr）。
 
-需要 `project.generate` 权限；`command` 必须写 `mayUseNetwork`，`archive` 一律算联网。
+需要 `project.generate` 权限；`command` 必须写 `mayUseNetwork`，`archive` 一律算联网。每条 `command` 步骤整体（命令、参数模板、环境、`when`、`collect`、超时、联网标记）是安装确认里的一条 `projectGenerator` 程序；插件更新新增命令或改了其中任何一项，都会作为新程序要求用户重新确认。`files` 和 `archive` 不启动进程，由权限覆盖。
 
 ### 3. 模板语法
 
@@ -65,6 +65,7 @@
 - macOS 的插件启用状态来自它的模块。只有生成器的插件原本没有模块，会永远显示为停用。所以描述符为生成器合成一个 `ModuleID.projectGeneratorsExtension(pluginID)` 模块：应用级、不启动任何东西，只控制条目是否可用。
 - `project.generatorCatalog` 接收全部已安装插件和启用状态，为每个 requirement 列出提供它的插件。宿主据此提示：有提供者但已停用，显示「启用」；没有提供者，显示「在插件市场中查找」。requirement 从不阻止创建。
 - 生成器自己的插件停用时，条目照样列出但变灰，必须先启用才能创建。
+- requirement 的提供者就是生成器自己的插件时（Java Support 的 Java 模板需要 Java 语言），不再单独提示：上一条的「启用」已经覆盖它，避免同一个插件出现两次。
 
 ### 6. 界面复用
 
@@ -91,9 +92,13 @@
 
 ## 考虑过的备选方案
 
-### 引入「可选能力」，把生成器放进 Java Support
+### 独立的内置模板插件 Java Project Templates
 
-最有吸引力的地方：用户少一个插件。没有采用：`requires` 属于基础字段，改它要升 `pluginAPIVersion`；而且 Java Support 停用时生成器会跟着消失，向导就没法提示「启用 Java Support」。
+最有吸引力的地方：停用 Java Support 不影响模板，`requires` 不用让语言插件多依赖一个能力。最初按这个方案实现，后来没有采用：用户把模板看作 Java 支持的一部分，多一个只有模板的内置插件反而难以理解，打包、校验脚本和资源清单也要多维护一份。停用后条目变灰并提示启用，已经能解决「停用后向导无从提示」的顾虑；契约仍允许只有生成器的插件，社区插件可以这样做，宿主为它合成模块。
+
+### 引入「可选能力」
+
+最有吸引力的地方：语言插件加生成器后，旧宿主仍能装它，只是不显示条目。没有采用：`requires` 属于基础字段，改它要升 `pluginAPIVersion`；Java Support 与宿主同版本发行，暂时不需要。
 
 ### 生成器只用后端进程
 
@@ -112,7 +117,7 @@
 - 收益：社区插件只靠声明就能加新建项目条目；表单规则和计划在 Core，两个平台给出同样的答案；失败不留残留。
 - 收益：设置窗口、克隆窗口和向导共用侧栏行、字段控件和文件夹选择器，样式不会各自漂移。
 - 代价：Spring Boot 的版本和依赖列表写在插件里，会随时间过时，要靠插件发版更新；动态列表要等 Provider 能力。
-- 代价：多了一个内置官方插件，打包、校验脚本和资源清单都要同时维护它。
+- 代价：Java Support 的 `requires` 多了 `projectGenerators: 1`，不支持生成器的宿主装不了这一版；停用 Java Support 时模板一起停用。
 - 暂不支持：JavaFX、Quarkus、Micronaut、Jakarta EE 等其他 Java 生成器；Windows 宿主（不声明 `projectGenerators`，需要它的插件在 Windows 市场中隐藏）。
 
 ## 验证
@@ -131,7 +136,7 @@ cargo test --manifest-path rust/Cargo.toml -p lithe-core project_generators
 - `rust/lithe-core/src/plugins/declarative.rs`
 - `rust/lithe-core/src/plugins/capabilities.rs`
 - `shared/contracts/plugins/v1/`
-- `Plugins/mac/Official/JavaProjectTemplates/`
+- `Plugins/mac/Official/JavaSupport/`
 - `macos/Sources/Lithe/Views/Workspace/NewProjectView.swift`
 - `macos/Sources/Lithe/Application/Features/NewProjectFeatureModel.swift`
 - `macos/Sources/Lithe/Services/ProjectGeneration/`

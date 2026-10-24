@@ -192,6 +192,9 @@ final class NewProjectFeatureModel: ObservableObject {
             guard entry.requirements.indices.contains(index) else { return nil }
             let requirement = entry.requirements[index]
             guard !requirement.providers.contains(where: \.enabled) else { return nil }
+            // A plugin that provides what its own templates need is covered
+            // by the notice that offers to enable the template's plugin.
+            guard !requirement.providers.contains(where: { $0.pluginID == entry.pluginID }) else { return nil }
             if let provider = requirement.providers.first {
                 return RequirementNotice(
                     subject: requirement.subject,

@@ -693,12 +693,6 @@ struct PluginManagementListContent {
                 tint: LitheTheme.accent,
                 summary: "Retired official Go plugin. Go support is now the community plugin Go Support in Lithe Store."
             )
-        case OfficialPluginCatalog.javaProjectTemplatesPluginID:
-            Presentation(
-                systemImage: "folder.badge.plus",
-                tint: LitheTheme.accent,
-                summary: "Adds Java, Maven Archetype, and Spring Boot to the New Project window."
-            )
         case OfficialPluginCatalog.javaPluginID:
             Presentation(
                 systemImage: "cup.and.saucer",

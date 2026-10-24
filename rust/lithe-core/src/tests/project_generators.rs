@@ -1,4 +1,5 @@
 use crate::plugins::declarative::validate_command;
+use crate::plugins::marketplace::install_review_command;
 use crate::project_generators::{
     project_check_name_command, project_generation_plan_command, project_generator_catalog_command,
     project_generator_form_command,
@@ -17,10 +18,6 @@ const PLANS: &str = include_str!(concat!(
 const MAVEN_BUILD_FIXTURE: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../shared/contracts/plugins/v1/fixtures/build-host-integration.plugin.json"
-));
-const OFFICIAL_TEMPLATES: &str = include_str!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../Plugins/mac/Official/JavaProjectTemplates/plugin.json"
 ));
 const OFFICIAL_JAVA: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -41,8 +38,22 @@ fn fixtures_path() -> PathBuf {
     repository_path("shared/contracts/plugins/v1/fixtures")
 }
 
+/// Java Support without its own New Project entries, so catalog tests see
+/// it only as the provider of the Java language.
+fn java_language_only() -> Value {
+    let mut manifest = json(OFFICIAL_JAVA);
+    let object = manifest.as_object_mut().unwrap();
+    object.remove("projectGenerators");
+    object["requires"]
+        .as_object_mut()
+        .unwrap()
+        .remove("projectGenerators");
+    object["permissions"] = json!(["languageServer.launch"]);
+    manifest
+}
+
 fn official_package_path() -> PathBuf {
-    repository_path("Plugins/mac/Official/JavaProjectTemplates")
+    repository_path("Plugins/mac/Official/JavaSupport")
 }
 
 fn host() -> Value {
@@ -83,7 +94,7 @@ fn catalog_lists_generators_with_requirement_providers() {
         "plugins": [
             {"manifest": json(FIXTURE), "enabled": true},
             {"manifest": json(MAVEN_BUILD_FIXTURE), "enabled": false},
-            {"manifest": json(OFFICIAL_JAVA), "enabled": true},
+            {"manifest": java_language_only(), "enabled": true},
             {"manifest": {"schemaVersion": 2, "id": "broken"}, "enabled": true}
         ],
         "hostCapabilities": host(),
@@ -130,7 +141,7 @@ fn catalog_skips_plugins_the_host_cannot_run() {
 
 #[test]
 fn official_java_templates_validate_and_plan() {
-    let manifest = json(OFFICIAL_TEMPLATES);
+    let manifest = json(OFFICIAL_JAVA);
     let validated =
         validate_command(json!({"manifest": manifest, "hostCapabilities": host()})).unwrap();
     assert_eq!(validated["status"], "ok", "{validated}");
@@ -231,7 +242,7 @@ fn official_java_templates_validate_and_plan() {
 #[test]
 fn spring_boot_refuses_a_jdk_older_than_17() {
     let result = project_generation_plan_command(json!({
-        "manifest": json(OFFICIAL_TEMPLATES),
+        "manifest": json(OFFICIAL_JAVA),
         "generatorID": "spring-boot",
         "packagePath": official_package_path(),
         "form": {"projectName": "demo", "runtimes": {"jdk": {"home": "/jdk11", "version": "11.0.22"}}},
@@ -317,4 +328,57 @@ fn project_generators_need_api_level_3() {
     manifest.as_object_mut().unwrap().remove("requires");
     let result = validate_command(json!({"manifest": manifest})).unwrap();
     assert_eq!(result["status"], "rejected");
+}
+
+/// A generator command runs a program on the user's Mac, so the install
+/// review must list it, and an update that adds one or changes its argv must
+/// ask again; template-only edits must not.
+#[test]
+fn generator_commands_require_install_review_again() {
+    let mut manifest = json(FIXTURE);
+    let generators = manifest["projectGenerators"].as_array_mut().unwrap();
+    let archetype = generators.iter().position(|g| g["id"] == "archetype").unwrap();
+    let command_generator = generators.remove(archetype);
+    let first = install_review_command(json!({ "manifest": manifest })).unwrap();
+    assert_eq!(first["status"], "ok", "{first}");
+    let approved = first["review"]["programs"].clone();
+    assert_eq!(approved, json!([]), "files and archives start no program");
+
+    manifest["version"] = json!("1.0.1");
+    manifest["projectGenerators"]
+        .as_array_mut()
+        .unwrap()
+        .push(command_generator);
+    let added = install_review_command(json!({
+        "manifest": manifest, "approvedPrograms": approved,
+    }))
+    .unwrap();
+    assert_eq!(added["status"], "ok", "{added}");
+    let programs = added["review"]["newPrograms"].as_array().unwrap();
+    assert_eq!(programs.len(), 1, "{added}");
+    assert_eq!(programs[0]["kind"], "projectGenerator");
+    assert_eq!(programs[0]["generatorID"], "archetype");
+    let approved = added["review"]["programs"].clone();
+
+    let last = manifest["projectGenerators"].as_array().unwrap().len() - 1;
+    manifest["projectGenerators"][last]["displayName"] = json!("Renamed");
+    let renamed = install_review_command(json!({
+        "manifest": manifest, "approvedPrograms": approved,
+    }))
+    .unwrap();
+    assert_eq!(renamed["review"]["newPrograms"], json!([]), "{renamed}");
+
+    manifest["projectGenerators"][last]["steps"][0]["arguments"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!("-Dchanged=true"));
+    let changed = install_review_command(json!({
+        "manifest": manifest, "approvedPrograms": approved,
+    }))
+    .unwrap();
+    assert_eq!(
+        changed["review"]["newPrograms"].as_array().unwrap().len(),
+        1,
+        "{changed}"
+    );
 }

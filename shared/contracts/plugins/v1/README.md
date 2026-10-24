@@ -638,6 +638,7 @@ the plugin, sorted by `kind`, language, and tool:
 | `runtime` | `tool`, `minimumVersion`? | Runtime the host discovers and passes to a language server, build provider, or VCS provider |
 | `run` | `languageID`, `executable`, `arguments` | Run command and its argument template |
 | `test` | `languageID`, `executable`, `workspaceArguments`, `fileArguments`, `testCaseArguments` | Test command and its argument templates |
+| `projectGenerator` | `generatorID`, `command`, `arguments`, `environment`, `collect`, `mayUseNetwork`, `timeoutSeconds`, `when` | A `command` step of a [project generator](#project-generators); `files` and `archive` steps start no program |
 
 Each entry carries everything that decides what actually runs, so an update
 that keeps the same executable but changes its arguments, argument templates,

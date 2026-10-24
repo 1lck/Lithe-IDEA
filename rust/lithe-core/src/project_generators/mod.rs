@@ -25,4 +25,4 @@ mod plan;
 mod template;
 
 pub(crate) use commands::*;
-pub(crate) use manifest::{validate_declarations, ProjectGeneratorDeclaration};
+pub(crate) use manifest::{programs, validate_declarations, ProjectGeneratorDeclaration};

@@ -1420,6 +1420,9 @@ impl DeclarativePluginManifest {
         for provider in &self.vcs_providers {
             programs.extend(crate::vcs::programs(provider));
         }
+        for generator in &self.project_generators {
+            programs.extend(crate::project_generators::programs(generator));
+        }
         // Order by kind, then language or tool, then the full serialized
         // value as a total tie-breaker; duplicates (two servers needing the
         // same runtime) collapse to one entry.
