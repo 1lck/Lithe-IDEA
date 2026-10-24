@@ -29,6 +29,7 @@ const frontendTrace = mock(() => undefined);
 const cancelCoreOperation = mock(async () => false);
 const commands: string[] = [];
 let scenario:
+  | "held-plugin-start"
   | "poll-failure"
   | "preparation-snapshot"
   | "capabilities"
@@ -39,6 +40,9 @@ let scenario:
   | "semantic-request"
   | "structured-log"
   | "virtual-document" = "failure";
+let pluginStartGate: Promise<void> | undefined;
+let pluginStartEntered: (() => void) | undefined;
+let releasePluginStart: (() => void) | undefined;
 let startPayload: Record<string, unknown> | undefined;
 let requestPayload: Record<string, unknown> | undefined;
 const requestPayloads: Record<string, unknown>[] = [];
@@ -110,6 +114,10 @@ const executeCore = mock(
     if (request.command === "lsp.startServer") {
       startCount += 1;
       startPayload = request.payload;
+      if (scenario === "held-plugin-start") {
+        pluginStartEntered?.();
+        await pluginStartGate;
+      }
       const sessionId =
         scenario === "failure"
           ? "failed-java-session"
@@ -1820,4 +1828,44 @@ describe("Rust Core LSP adapter failures", () => {
       }
     }
   });
+  test("declarative launch forwards Core plugin identity and configuration", async () => {
+    scenario = "capabilities";
+    await invokeLsp("lsp_start_for_file", {
+      workspacePath: "C:/work", filePath: "C:/work/Main.go", languageId: "go",
+      providerId: "acme.lang", pluginId: "acme.lang", serverPath: "fixture.exe",
+      workspaceConfiguration: { gopls: { enabled: true } },
+    });
+    expect(startPayload?.pluginId).toBe("acme.lang");
+    expect(startPayload?.workspaceConfiguration).toEqual({ gopls: { enabled: true } });
+  }, 5000);
+
+  test("provider stop drains and destroys an in-flight Core start", async () => {
+    const entered = new Promise<void>((resolve) => { pluginStartEntered = resolve; });
+    pluginStartGate = new Promise<void>((resolve) => { releasePluginStart = resolve; });
+    scenario = "held-plugin-start";
+    const starting = invokeLsp("lsp_start_for_file", {
+      workspacePath: "C:/work", filePath: "C:/work/Main.go", languageId: "go",
+      providerId: "acme.lang", pluginId: "acme.lang", serverPath: "fixture.exe",
+    });
+    const outcome = starting.then(() => "started", () => "cancelled");
+    let stopping: Promise<unknown> | undefined;
+    try {
+      await entered;
+      stopping = invokeLsp("lsp_stop_for_provider", { providerId: "acme.lang" });
+      scenario = "capabilities";
+      releasePluginStart?.();
+      await stopping;
+      expect(await outcome).toBe("cancelled");
+      expect(commands).toContain("lsp.stopServer");
+      expect(commands).toContain("lsp.destroyServer");
+      expect(getLspWorkspaceSessionSnapshot({ workspacePath: "C:/work", languageId: "go" })).toBeNull();
+    } finally {
+      releasePluginStart?.();
+      await Promise.allSettled([outcome, stopping]);
+      pluginStartEntered = undefined;
+      pluginStartGate = undefined;
+      releasePluginStart = undefined;
+    }
+  }, 5000);
+
 });

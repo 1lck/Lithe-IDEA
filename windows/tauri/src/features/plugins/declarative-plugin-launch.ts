@@ -1,3 +1,6 @@
+import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
+import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
+import { pluginPlanGuard } from "./declarative-plugin-lifecycle";
 import { invoke } from "@/platform/tauri-core";
 import { getPluginWebAppearance } from "./plugin-web-appearance";
 
@@ -6,7 +9,7 @@ import { getPluginWebAppearance } from "./plugin-web-appearance";
  * `plugin_host` module owns package storage and scanning; these wrappers are
  * the only frontend entry points. Decisions about the declarative host and
  * its coexistence with the Worker extension model are recorded in
- * .agents/notes/proposed/architecture/2026-10-22-windows-declarative-plugin-host.md
+ * .agents/notes/implemented/architecture/2026-10-22-windows-declarative-plugin-host.md
  */
 
 export interface DeclarativePluginLanguage {
@@ -77,14 +80,17 @@ export function listDeclarativePlugins(): Promise<DeclarativePluginSummary[]> {
  * Resolves the launch of the enabled plugin that owns `filePath`, or `null`
  * when no accepted declarative plugin claims the file.
  */
-export function resolveDeclarativePluginLaunch(
+export async function resolveDeclarativePluginLaunch(
   filePath: string,
   workspacePath: string,
 ): Promise<DeclarativePluginLaunch | null> {
-  return invoke<DeclarativePluginLaunch | null>("declarative_plugins_language_launch", {
+  const guard = pluginPlanGuard();
+  const launch = await invoke<DeclarativePluginLaunch | null>("declarative_plugins_language_launch", {
     filePath,
     workspacePath,
   });
+  if (launch) guard(launch.pluginId);
+  return launch;
 }
 
 /** Core's install review for one prepared package. */
@@ -243,7 +249,7 @@ export function resolveDeclarativeTestPlan(
   });
 }
 
-/** One declared web tool window (ui capability 2). */
+/** One host-rendered text or web tool window (ui capabilities 1 and 2). */
 export interface DeclarativeWebToolWindow {
   windowId: string;
   pluginId: string;
@@ -261,13 +267,14 @@ export function listDeclarativeWebWindows(): Promise<DeclarativeWebToolWindow[]>
 /** Opens (or focuses) the web view of one tool window. */
 export function openDeclarativeWebWindow(pluginId: string, windowId: string): Promise<void> {
   return invoke<void>("declarative_plugins_open_web_window", {
-    pluginId, windowId, appearance: getPluginWebAppearance(),
+    pluginId, windowId, workspaceId: workspaceRuntimeRegistry.getActiveWorkspaceId(),
+    workspacePath: useFileSystemStore.getState().rootFolderPath, appearance: getPluginWebAppearance(),
   });
 }
 
 /** Destroys the web view of one tool window. */
 export function closeDeclarativeWebWindow(pluginId: string, windowId: string): Promise<void> {
-  return invoke<void>("declarative_plugins_close_web_window", { pluginId, windowId });
+  return invoke<void>("declarative_plugins_close_web_window", { pluginId, windowId, workspaceId: workspaceRuntimeRegistry.getActiveWorkspaceId() });
 }
 
 /** Returns the raw manifest of one accepted declarative plugin. */

@@ -1,3 +1,4 @@
+import { assertPluginActive } from "@/features/plugins/declarative-plugin-lifecycle";
 import {
   getProjectPreparation,
   failProjectPreparation,
@@ -61,6 +62,7 @@ interface Session {
   languageId: string;
   /** Provider identity used to stop all sessions owned by a plugin. */
   providerId: string;
+  pluginId?: string;
   files: Set<string>;
   lifecycle: LspSessionLifecycle;
   eventPump: EventPumpOwner | null;
@@ -86,6 +88,7 @@ interface StoredSession {
   workspacePath: string;
   languageId: string;
   providerId?: string;
+  pluginId?: string;
   files: string[];
   features?: string[];
 }
@@ -138,6 +141,8 @@ export interface LspSessionSnapshot {
 const sessions = new Map<string, Session>();
 const fileSessions = new Map<string, FileAttachment>();
 const sessionStarts = new Map<string, Promise<Session>>();
+const startOwners = new Map<string, string>();
+const providerGenerations = new Map<string, number>();
 const sessionStops = new Map<string, Promise<void>>();
 const stoppingSessionIds = new Set<string>();
 const pendingFileSessions = new Map<string, PendingFileAttachment>();
@@ -174,6 +179,7 @@ function persistSessions(): void {
       workspacePath: session.workspacePath,
       languageId: session.languageId,
       providerId: session.providerId,
+      pluginId: session.pluginId,
       files: [...session.files].sort(),
       features:
         session.featureState.phase === "known"
@@ -271,6 +277,7 @@ function restorePersistedSessions(): void {
         workspacePath: stored.workspacePath,
         languageId: stored.languageId,
         providerId: stored.providerId ?? stored.languageId,
+        pluginId: stored.pluginId,
         files: new Set(),
         // Persisted entries are projections of Core state. They must be
         // validated before any new document can attach after a reload.
@@ -677,21 +684,7 @@ async function cleanupFailedStart(
   operationId: string,
 ): Promise<void> {
   if (session.languageId === "java") failProjectPreparation(session.workspacePath, session.id);
-  stoppingSessionIds.add(session.id);
-  if (sessions.get(key) === session) sessions.delete(key);
-  removeSessionMappings(session);
-  persistSessions();
-  try {
-    await stopAndDestroySession(session, operationId);
-  } catch (reason) {
-    frontendTrace("warn", "lsp.runtime", "Language-server cleanup failed", {
-      operationId,
-      sessionId: session.id,
-      error: reason instanceof Error ? reason.message : String(reason),
-    });
-  } finally {
-    stoppingSessionIds.delete(session.id);
-  }
+  await stopSession(session, true);
 }
 
 function sessionForFile(filePath: string, attachmentId?: string): Session {
@@ -788,10 +781,17 @@ async function recoverSession(session: Session): Promise<Session | null> {
   }
 }
 
-async function createSession(args: JsonRecord, key: string): Promise<Session> {
+async function createSession(args: JsonRecord, key: string, generation: number): Promise<Session> {
   const workspacePath = String(args.workspacePath ?? "");
   const languageId = String(args.languageId ?? "plaintext");
   const providerId = String(args.providerId ?? languageId);
+  const assertCurrent = () => {
+    if (args.pluginId) assertPluginActive(args.pluginId);
+    if ((providerGenerations.get(providerId) ?? 0) !== generation) {
+      throw new Error("Language server start was cancelled by its provider.");
+    }
+  };
+  assertCurrent();
   const operationId = crypto.randomUUID();
   const operation = new LspOperationLog("sessionStart", operationId, {
     workspacePath,
@@ -808,6 +808,7 @@ async function createSession(args: JsonRecord, key: string): Promise<Session> {
       "lsp.startServer",
       {
         providerId,
+        pluginId: args.pluginId ?? null,
         executablePath: args.serverPath,
         arguments: args.serverArgs ?? [],
         environment,
@@ -837,6 +838,7 @@ async function createSession(args: JsonRecord, key: string): Promise<Session> {
     workspacePath,
     languageId,
     providerId,
+    pluginId: args.pluginId,
     files: new Set(),
     lifecycle: createSessionLifecycle(started.state ?? "initializing", operationId),
     eventPump: null,
@@ -845,11 +847,18 @@ async function createSession(args: JsonRecord, key: string): Promise<Session> {
     completed: new Map(),
     documentVersions: new Map(),
   };
+  try {
+    assertCurrent();
+  } catch (reason) {
+    await stopSession(session);
+    throw reason;
+  }
   sessions.set(key, session);
   if (session.languageId === "java") beginProjectPreparation(session.workspacePath, session.id);
   persistSessions();
   try {
     await waitUntilReady(session);
+    assertCurrent();
   } catch (reason) {
     if (isInitializationTimeout(reason)) {
       const code = (reason as Error & { code?: string }).code;
@@ -891,7 +900,7 @@ async function waitForProjectedReadiness(
   }
 }
 
-async function resolveSession(args: JsonRecord, key: string): Promise<Session> {
+async function resolveSession(args: JsonRecord, key: string, generation: number): Promise<Session> {
   const stopping = sessionStops.get(key);
   if (stopping) await stopping;
 
@@ -908,10 +917,11 @@ async function resolveSession(args: JsonRecord, key: string): Promise<Session> {
     await stopSession(existing);
   }
 
-  return createSession(args, key);
+  return createSession(args, key, generation);
 }
 
 async function start(args: JsonRecord): Promise<void> {
+  if (args.pluginId) assertPluginActive(args.pluginId);
   const workspacePath = String(args.workspacePath ?? "");
   const languageId = String(args.languageId ?? "plaintext");
   const key = sessionKey(workspacePath, languageId);
@@ -941,7 +951,19 @@ async function start(args: JsonRecord): Promise<void> {
     if (!session || !isSessionReady(session.lifecycle)) {
       let startPromise = sessionStarts.get(key);
       if (!startPromise) {
-        startPromise = resolveSession(args, key).finally(() => sessionStarts.delete(key));
+        const providerId = String(args.providerId ?? languageId);
+        const generation = providerGenerations.get(providerId) ?? 0;
+        startOwners.set(key, providerId);
+        startPromise = resolveSession(args, key, generation).then(async (resolved) => {
+          if ((providerGenerations.get(providerId) ?? 0) !== generation) {
+            await stopSession(resolved);
+            throw new Error("Language server start was cancelled by its provider.");
+          }
+          return resolved;
+        }).finally(() => {
+          sessionStarts.delete(key);
+          startOwners.delete(key);
+        });
         sessionStarts.set(key, startPromise);
       }
       session = await startPromise;
@@ -981,8 +1003,8 @@ async function start(args: JsonRecord): Promise<void> {
   }
 }
 
-async function stopSession(session: Session): Promise<void> {
-  if (session.languageId === "java") clearProjectPreparation(session.workspacePath, session.id);
+async function stopSession(session: Session, preservePreparation = false): Promise<void> {
+  if (session.languageId === "java" && !preservePreparation) clearProjectPreparation(session.workspacePath, session.id);
   const key = sessionKey(session.workspacePath, session.languageId);
   stoppingSessionIds.add(session.id);
   removeSessionMappings(session);
@@ -999,12 +1021,15 @@ async function stopSession(session: Session): Promise<void> {
       .then((outcome) => {
         if (outcome === "timedOut") {
           operation.timedOut({ stage: "cleanup" });
+          throw new Error("Language server cleanup timed out.");
         } else {
           operation.succeeded();
         }
       })
       .catch((reason) => {
         operation.failed(reason);
+        sessions.set(key, session);
+        persistSessions();
         throw reason;
       })
       .finally(() => {
@@ -1454,9 +1479,11 @@ export async function pushDeclarativeWorkspaceConfiguration(args: {
   workspacePath: string;
   languageId: string;
   configuration: unknown;
+  pluginId: string;
 }): Promise<boolean> {
   const session = sessions.get(sessionKey(args.workspacePath, args.languageId));
-  if (!session || !isSessionReady(session.lifecycle)) return false;
+  if (!session || session.pluginId !== args.pluginId || !isSessionReady(session.lifecycle)) return false;
+  assertPluginActive(args.pluginId);
   await core(
     "lsp.updateWorkspaceConfiguration",
     { sessionId: session.id, configuration: args.configuration },
@@ -1487,8 +1514,18 @@ export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Prom
   if (command === "lsp_stop_for_provider") {
     const providerId = typeof args.providerId === "string" ? args.providerId : "";
     if (!providerId) return undefined as T;
+    providerGenerations.set(providerId, (providerGenerations.get(providerId) ?? 0) + 1);
+    const pending = [...sessionStarts.entries()]
+      .filter(([key]) => startOwners.get(key) === providerId)
+      .map(([, promise]) => promise);
     const matches = [...sessions.values()].filter((session) => session.providerId === providerId);
-    await Promise.all(matches.map(stopSession));
+    await Promise.all(matches.map((session) => stopSession(session)));
+    // A late Core response still owns a process. Its cancelled start cleans it
+    // up before this barrier acknowledges that package files can be changed.
+    await Promise.allSettled(pending);
+    if ([...sessions.values()].some((session) => session.providerId === providerId)) {
+      throw new Error("Plugin language server cleanup failed; package files must be preserved.");
+    }
     return undefined as T;
   }
   if (command === "lsp_stop") {
@@ -1498,7 +1535,7 @@ export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Prom
       (session) =>
         normalizedPathKey(session.workspacePath) === normalizedPathKey(args.workspacePath),
     );
-    await Promise.all(matches.map(stopSession));
+    await Promise.all(matches.map((session) => stopSession(session)));
     return undefined as T;
   }
   if (command === "lsp_retry_maven_profiles") {

@@ -15,6 +15,7 @@ import { ensureWorkspaceGitBootstrap } from "@/features/workspace/services/works
 
 export interface EditorLspLaunch {
   providerId: string;
+  pluginId?: string;
   languageId: string;
   serverPath: string;
   serverArgs: string[];
@@ -119,6 +120,7 @@ async function resolveDeclarativeFallback(
   if (!launch) return null;
   return {
     providerId: launch.pluginId,
+    pluginId: launch.pluginId,
     languageId: launch.languageId,
     serverPath: launch.serverPath,
     serverArgs: launch.serverArgs,

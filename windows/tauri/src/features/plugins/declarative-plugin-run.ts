@@ -1,3 +1,4 @@
+import { assertPluginActive, pluginPlanGuard } from "./declarative-plugin-lifecycle";
 import { saveWorkspaceBeforeLaunch } from "@/features/editor/services/save-workspace-before-launch";
 import { ensureRunProcessListeners } from "@/features/run/hooks/use-run-process-events";
 import { resolveRunLaunch, startRunProcess, stopRunProcess } from "@/features/run/api/run-host-api";
@@ -15,7 +16,6 @@ import {
   getDeclarativePluginManifest,
   resolveDeclarativeRunPlan,
   resolveDeclarativeTestPlan,
-  type DeclarativeRunPlan,
 } from "./declarative-plugin-launch";
 import { declarativePluginProcessOwner } from "./declarative-plugin-process-owner";
 
@@ -62,26 +62,20 @@ export async function runDeclarativeAction(
 ): Promise<void> {
   const owner = action.declarativeOwner;
   if (!owner) throw new Error("The action does not name a declarative plugin.");
-  const relative = toWorkspaceRelative(filePath, root);
-  const plan = action.declarativeTest
-    ? await resolveDeclarativeTestPlan(owner.pluginId, owner.languageId, root)
-    : await resolveDeclarativeRunPlan(owner.pluginId, owner.languageId, relative);
-  await startDeclarativePlan(plan, workspaceId, root, filePath);
-}
-
-async function startDeclarativePlan(
-  plan: DeclarativeRunPlan,
-  workspaceId: string,
-  root: string,
-  title: string,
-): Promise<void> {
-  const id = `declarative:${plan.pluginId}:${crypto.randomUUID()}`;
+  assertPluginActive(owner.pluginId);
+  const guard = pluginPlanGuard();
+  const id = `declarative:${owner.pluginId}:${crypto.randomUUID()}`;
   const store = useRunStore.getStore(workspaceId);
   await declarativePluginProcessOwner.start(
     id,
     workspaceId,
-    plan.pluginId,
+    owner.pluginId,
     async () => {
+      const relative = toWorkspaceRelative(filePath, root);
+      const plan = action.declarativeTest
+        ? await resolveDeclarativeTestPlan(owner.pluginId, owner.languageId, root)
+        : await resolveDeclarativeRunPlan(owner.pluginId, owner.languageId, relative);
+      guard(owner.pluginId);
       await ensureRunProcessListeners();
       await saveWorkspaceBeforeLaunch(workspaceId);
       const resolved = await resolveRunLaunch({
@@ -89,6 +83,7 @@ async function startDeclarativePlan(
         executable: plan.executable,
         workingDirectory: plan.workingDirectory,
       });
+      guard(owner.pluginId);
       bindRunSessionWorkspace(id, workspaceId);
       store.setState((state) => ({
         sessions: [
@@ -96,7 +91,7 @@ async function startDeclarativePlan(
           {
             id,
             configurationId: id,
-            title: `${title} (declarative)`,
+            title: `${filePath} (declarative)`,
             output: "",
             isRunning: true,
             exitCode: null,

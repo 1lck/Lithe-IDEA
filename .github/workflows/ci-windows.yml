@@ -290,6 +290,20 @@ jobs:
           node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-notifications.json -- src/features/notifications
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Test declarative plugin lifecycle and UI
+        shell: pwsh
+        timeout-minutes: 9
+        run: |
+          $runner = ".agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs"
+          # Native/event and presentation mocks must not leak between suites.
+          $pluginSuites = @('declarative-plugin-lifecycle', 'declarative-plugin-run', 'declarative-plugin-ui', 'plugin-lifecycle-listener', 'plugin-web-open-file', 'plugin-web-appearance')
+          foreach ($suite in $pluginSuites) {
+            node $runner --suite-timeout-ms 60000 --report ".artifacts/test-stability/windows-$suite.json" -- "src/features/plugins/$suite.test.ts"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-plugin-lsp-launch.json -- src/features/editor/lsp/resolve-editor-lsp-launch.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Test Agent panel and capability gate
         shell: pwsh
         run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-agent.json -- src/features/agent src/features/editor/stores/buffer-agent-conversation.test.ts src/utils/markdown-links.test.ts src/config/backend-capabilities.test.ts src/i18n src/features/file-system/utils/file-system-drop-controller.test.ts src/ui/icons.test.tsx

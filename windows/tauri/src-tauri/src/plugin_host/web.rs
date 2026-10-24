@@ -39,7 +39,110 @@ const HOST_BRIDGE_PATH: &str = "__lithe_host__/bridge.js";
 #[derive(Default)]
 pub struct WebPageHostState {
     states: Mutex<HashMap<String, Value>>,
+    owners: Mutex<HashMap<String, PageOwner>>,
+    workspace_generations: Mutex<HashMap<String, u64>>,
+    open_files: Mutex<HashMap<String, PendingOpenFile>>,
     appearances: Mutex<HashMap<String, WebPageAppearance>>,
+}
+
+struct PendingOpenFile {
+    host_label: String,
+    page_label: String,
+    completion: tokio::sync::oneshot::Sender<Result<(), String>>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct PageOwner {
+    generation: u64,
+    workspace_generation: u64,
+    host_label: String,
+    workspace_id: String,
+    workspace_path: String,
+    plugin_id: String,
+    window_id: String,
+    state_id: String,
+}
+
+static OPEN_PAGE_SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+fn workspace_generation(state: &WebPageHostState, host: &str, workspace: &str) -> u64 {
+    state
+        .workspace_generations
+        .lock()
+        .expect("workspace page generations")
+        .get(&workspace_label_suffix(host, workspace))
+        .copied()
+        .unwrap_or(0)
+}
+
+/// Effects and revocation share the owners lock. A request cloned before
+/// close cannot recreate state or register an event after authority is gone.
+fn with_page_owner<T>(
+    state: &WebPageHostState,
+    label: &str,
+    identity: &BridgeIdentity,
+    effect: impl FnOnce() -> Result<T, String>,
+) -> Result<T, String> {
+    let owners = state.owners.lock().expect("page owners");
+    if !owners.get(label).is_some_and(|owner| {
+        owner.generation == identity.generation
+            && owner.workspace_generation
+                == workspace_generation(state, &owner.host_label, &owner.workspace_id)
+    }) {
+        return Err(bridge_error(
+            "plugin.web.forbidden",
+            "page ownership was revoked",
+        ));
+    }
+    effect()
+}
+
+fn revoke_owners(
+    state: &WebPageHostState,
+    matches: impl Fn(&PageOwner) -> bool,
+    clear_state: bool,
+) -> Vec<String> {
+    let mut owners = state.owners.lock().expect("page owners");
+    let labels: Vec<_> = owners
+        .iter()
+        .filter(|(_, owner)| matches(owner))
+        .map(|(label, _)| label.clone())
+        .collect();
+    owners.retain(|label, _| !labels.contains(label));
+    state
+        .open_files
+        .lock()
+        .expect("open file requests")
+        .retain(|_, request| !labels.contains(&request.page_label));
+    state
+        .appearances
+        .lock()
+        .expect("page appearances")
+        .retain(|label, _| !labels.contains(label));
+    if clear_state {
+        state
+            .states
+            .lock()
+            .expect("page state")
+            .retain(|key, _| !labels.iter().any(|label| key.ends_with(label)));
+    }
+    labels
+}
+
+fn workspace_label_suffix(host_label: &str, workspace_id: &str) -> String {
+    format!(
+        "--h{}--s{}",
+        hex_label_part(host_label),
+        hex_label_part(workspace_id)
+    )
+}
+
+fn owned_label(owner: &PageOwner) -> String {
+    format!(
+        "plugin-web-{}{}",
+        web_window_label(&owner.plugin_id, &owner.window_id),
+        workspace_label_suffix(&owner.host_label, &owner.workspace_id)
+    )
 }
 
 /// Resolved workbench locale and theme tokens; supplied only by host windows.
@@ -98,7 +201,12 @@ pub struct WebToolWindow {
 pub fn declarative_plugins_web_windows(app: AppHandle) -> Vec<WebToolWindow> {
     let mut windows = Vec::new();
     for package in app.state::<super::PluginHostState>().packages() {
-        if package.entry.status != "accepted" || !package.entry.enabled {
+        if package.entry.status != "accepted"
+            || !package.entry.enabled
+            || app
+                .state::<super::lifecycle::LifecycleState>()
+                .blocked(&package.entry.plugin_id)
+        {
             continue;
         }
         collect_web_windows(&package, &mut windows);
@@ -115,8 +223,13 @@ fn collect_web_windows(package: &ScannedPackage, windows: &mut Vec<WebToolWindow
         return;
     };
     for window in tool_windows {
-        let Some(entry) = window["web"]["entry"].as_str() else {
-            continue;
+        let entry = match window["web"]["entry"].as_str() {
+            Some(entry) => entry.to_string(),
+            None if window["text"].is_string() => format!(
+                "__lithe_host__/text/{}.html",
+                hex_label_part(window["id"].as_str().unwrap_or_default())
+            ),
+            _ => continue,
         };
         windows.push(WebToolWindow {
             window_id: window["id"].as_str().unwrap_or_default().to_string(),
@@ -124,7 +237,7 @@ fn collect_web_windows(package: &ScannedPackage, windows: &mut Vec<WebToolWindow
             title: window["title"].as_str().unwrap_or_default().to_string(),
             placement: window["placement"].as_str().unwrap_or("bottom").to_string(),
             order: window["order"].as_u64().map(|order| order as u32),
-            entry: entry.to_string(),
+            entry,
         });
     }
 }
@@ -134,10 +247,45 @@ fn collect_web_windows(package: &ScannedPackage, windows: &mut Vec<WebToolWindow
 #[tauri::command]
 pub async fn declarative_plugins_open_web_window(
     app: AppHandle,
+    caller: tauri::WebviewWindow,
     plugin_id: String,
     window_id: String,
+    workspace_id: String,
+    workspace_path: String,
     appearance: WebPageAppearance,
 ) -> Result<(), String> {
+    if workspace_id.is_empty()
+        || workspace_path.is_empty()
+        || app
+            .state::<super::lifecycle::LifecycleState>()
+            .blocked(&plugin_id)
+    {
+        return Err("plugin page requires an active workspace and package".into());
+    }
+    // Register the whole asynchronous creation, not just resource reads.
+    // Mutation waits for this lease before collecting and closing owners.
+    let _native_page = app
+        .state::<super::lifecycle::LifecycleState>()
+        .acquire(&plugin_id)?;
+    let owner = PageOwner {
+        generation: OPEN_PAGE_SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+        workspace_generation: workspace_generation(
+            &app.state::<WebPageHostState>(),
+            caller.label(),
+            &workspace_id,
+        ),
+        host_label: caller.label().into(),
+        workspace_id,
+        workspace_path,
+        plugin_id: plugin_id.clone(),
+        window_id: window_id.clone(),
+        state_id: String::new(),
+    };
+    let label = owned_label(&owner);
+    let owner = PageOwner {
+        state_id: label.clone(),
+        ..owner
+    };
     let Some(window) = declarative_plugins_web_windows(app.clone())
         .into_iter()
         .find(|window| window.plugin_id == plugin_id && window.window_id == window_id)
@@ -146,10 +294,11 @@ pub async fn declarative_plugins_open_web_window(
             "{plugin_id}/{window_id} is not a declared web tool window"
         ));
     };
-    let label = format!(
-        "plugin-web-{}",
-        web_window_label(&window.plugin_id, &window.window_id)
-    );
+    app.state::<WebPageHostState>()
+        .owners
+        .lock()
+        .expect("page owners")
+        .insert(label.clone(), owner);
     app.state::<WebPageHostState>()
         .appearances
         .lock()
@@ -179,6 +328,7 @@ pub async fn declarative_plugins_open_web_window(
     let setup: Result<(), String> = async {
         #[cfg(windows)]
         network::restrict_requests(&view, request_plugin_id).await?;
+        bridge_identity(&app, &label)?;
         view.navigate(target_url).map_err(|error| error.to_string())
     }
     .await;
@@ -216,12 +366,20 @@ fn appearance_script(appearance: &WebPageAppearance) -> String {
 #[tauri::command]
 pub fn declarative_plugins_web_update_appearance(
     app: AppHandle,
+    caller: tauri::WebviewWindow,
     appearance: WebPageAppearance,
 ) -> Result<(), String> {
     let windows: Vec<_> = app
         .webview_windows()
         .into_iter()
-        .filter(|(label, _)| label.starts_with("plugin-web-"))
+        .filter(|(label, _)| {
+            app.state::<WebPageHostState>()
+                .owners
+                .lock()
+                .expect("page owners")
+                .get(label)
+                .is_some_and(|owner| owner.host_label == caller.label())
+        })
         .collect();
     {
         let state = app.state::<WebPageHostState>();
@@ -245,11 +403,30 @@ pub fn declarative_plugins_web_update_appearance(
 
 /// Native window destruction releases its cached appearance, including X-close.
 pub fn forget_window_appearance<R: tauri::Runtime>(app: &AppHandle<R>, label: &str) {
-    app.state::<WebPageHostState>()
-        .appearances
+    let state = app.state::<WebPageHostState>();
+    let children = revoke_owners(
+        &state,
+        |owner| owner.host_label == label || owned_label(owner) == label,
+        !label.starts_with("plugin-web-"),
+    );
+    let host_prefix = format!("--h{}--s", hex_label_part(label));
+    state
+        .states
         .lock()
-        .expect("appearance mutex")
-        .remove(label);
+        .expect("page state")
+        .retain(|key, _| !key.contains(&host_prefix));
+    state
+        .workspace_generations
+        .lock()
+        .expect("workspace page generations")
+        .retain(|scope, _| !scope.starts_with(&host_prefix));
+    for child in children {
+        if child != label {
+            if let Some(view) = app.get_webview_window(&child) {
+                let _ = view.close();
+            }
+        }
+    }
 }
 
 /// Destroys the web view of one tool window; used on plugin disable,
@@ -257,10 +434,21 @@ pub fn forget_window_appearance<R: tauri::Runtime>(app: &AppHandle<R>, label: &s
 #[tauri::command]
 pub fn declarative_plugins_close_web_window(
     app: AppHandle,
+    caller: tauri::WebviewWindow,
+    workspace_id: String,
     plugin_id: String,
     window_id: String,
 ) -> Result<(), String> {
-    let label = format!("plugin-web-{}", web_window_label(&plugin_id, &window_id));
+    let label = owned_label(&PageOwner {
+        generation: 0,
+        workspace_generation: 0,
+        host_label: caller.label().into(),
+        workspace_id,
+        workspace_path: String::new(),
+        plugin_id,
+        window_id,
+        state_id: String::new(),
+    });
     if let Some(existing) = app.get_webview_window(&label) {
         existing
             .close()
@@ -453,25 +641,27 @@ fn handle_bridge_request(invoke: tauri::ipc::Invoke<tauri::Wry>) {
         }
     };
     let app = webview.app_handle().clone();
-    let result = bridge_dispatch(&app, &webview, params);
-    match result {
-        Ok(value) => {
-            invoke
-                .resolver
-                .respond::<tauri::ipc::InvokeResponseBody>(Ok(serde_json::to_string(&value)
-                    .map(tauri::ipc::InvokeResponseBody::Json)
-                    .unwrap_or_else(|_| tauri::ipc::InvokeResponseBody::Json("{}".into()))));
+    tauri::async_runtime::spawn(async move {
+        let result = bridge_dispatch(&app, &webview, params).await;
+        match result {
+            Ok(value) => {
+                invoke
+                    .resolver
+                    .respond::<tauri::ipc::InvokeResponseBody>(Ok(serde_json::to_string(&value)
+                        .map(tauri::ipc::InvokeResponseBody::Json)
+                        .unwrap_or_else(|_| tauri::ipc::InvokeResponseBody::Json("{}".into()))));
+            }
+            Err(message) => {
+                invoke
+                    .resolver
+                    .respond::<tauri::ipc::InvokeResponseBody>(Err(tauri::ipc::InvokeError(
+                        // `message` is already the JSON error envelope from `bridge_error`.
+                        serde_json::from_str(&message)
+                            .unwrap_or(serde_json::json!({ "message": message })),
+                    )));
+            }
         }
-        Err(message) => {
-            invoke
-                .resolver
-                .respond::<tauri::ipc::InvokeResponseBody>(Err(tauri::ipc::InvokeError(
-                    // `message` is already the JSON error envelope from `bridge_error`.
-                    serde_json::from_str(&message)
-                        .unwrap_or(serde_json::json!({ "message": message })),
-                )));
-        }
-    }
+    });
 }
 
 #[derive(serde::Deserialize)]
@@ -482,7 +672,7 @@ struct BridgeArgs {
     params: Option<Value>,
 }
 
-fn bridge_dispatch(
+async fn bridge_dispatch(
     app: &AppHandle,
     webview: &tauri::Webview,
     args: BridgeArgs,
@@ -495,27 +685,34 @@ fn bridge_dispatch(
         .map_err(|error| bridge_error("plugin.web.forbidden", error.to_string()))?;
     require_package_url(&url, &identity.plugin_id)?;
     match method {
-        "ui.getState" => Ok(json!({
-            "state": declarative_plugins_web_get_state(
-                app.clone(),
-                identity.plugin_id,
-                identity.window_id,
-            )
-        })),
+        "ui.getState" => with_page_owner(
+            &app.state::<WebPageHostState>(),
+            webview.label(),
+            &identity,
+            || {
+                Ok(json!({
+                    "state": declarative_plugins_web_get_state(app.clone(), identity.plugin_id.clone(), identity.state_id.clone())
+                }))
+            },
+        ),
         "ui.setState" => {
-            let Some(state) = params.get("state") else {
-                return Err(bridge_error(
-                    "plugin.web.invalidRequest",
-                    "setState requires state",
-                ));
-            };
-            declarative_plugins_web_set_state(
-                app.clone(),
-                identity.plugin_id,
-                identity.window_id,
-                state.clone(),
-            )?;
-            Ok(json!({}))
+            let state = params.get("state").ok_or_else(|| {
+                bridge_error("plugin.web.invalidRequest", "setState requires state")
+            })?;
+            with_page_owner(
+                &app.state::<WebPageHostState>(),
+                webview.label(),
+                &identity,
+                || {
+                    declarative_plugins_web_set_state(
+                        app.clone(),
+                        identity.plugin_id.clone(),
+                        identity.state_id.clone(),
+                        state.clone(),
+                    )?;
+                    Ok(json!({}))
+                },
+            )
         }
         "workspace.openFile" => {
             let Some(path) = params["path"].as_str() else {
@@ -525,16 +722,66 @@ fn bridge_dispatch(
                 ));
             };
             use tauri::Emitter;
-            app.emit(
-                "plugin-web-open-file",
-                json!({
-                    "pluginId": identity.plugin_id,
-                    "path": path,
-                    "line": params["line"].as_u64(),
-                    "column": params["column"].as_u64(),
-                }),
-            )
-            .map_err(|error| error.to_string())?;
+            let operation_id = format!(
+                "{}-{}",
+                webview.label(),
+                OPEN_FILE_SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            );
+            let (sender, receiver) = tokio::sync::oneshot::channel();
+            let pending = OpenFileRequest {
+                app: app.clone(),
+                operation_id: operation_id.clone(),
+            };
+            with_page_owner(
+                &app.state::<WebPageHostState>(),
+                webview.label(),
+                &identity,
+                || {
+                    let state = app.state::<WebPageHostState>();
+                    let mut requests = state.open_files.lock().expect("open file requests");
+                    if requests.len() >= 128 {
+                        return Err(bridge_error(
+                            "plugin.web.invalidRequest",
+                            "too many pending file open requests",
+                        ));
+                    }
+                    requests.insert(
+                        operation_id.clone(),
+                        PendingOpenFile {
+                            host_label: identity.host_label.clone(),
+                            page_label: webview.label().into(),
+                            completion: sender,
+                        },
+                    );
+                    drop(requests);
+                    app.emit_to(
+                        &identity.host_label,
+                        "plugin-web-open-file",
+                        json!({
+                            "pluginId": identity.plugin_id,
+                            "operationId": operation_id,
+                            "workspaceId": identity.workspace_id,
+                            "workspacePath": identity.workspace_path,
+                            "path": path,
+                            "line": params["line"].as_u64(),
+                            "column": params["column"].as_u64(),
+                        }),
+                    )
+                    .map_err(|error| error.to_string())
+                },
+            )?;
+            tokio::time::timeout(std::time::Duration::from_secs(10), receiver)
+                .await
+                .map_err(|_| {
+                    bridge_error(
+                        "plugin.web.openFileFailed",
+                        "file open acknowledgement timed out",
+                    )
+                })?
+                .map_err(|_| bridge_error("plugin.web.forbidden", "page was closed"))?
+                .map_err(|error| bridge_error("plugin.web.openFileFailed", error))?;
+            drop(pending);
+            bridge_identity(app, webview.label())?;
             Ok(json!({}))
         }
         "build.instances" | "build.refresh" | "build.runTask" | "build.runTests"
@@ -550,11 +797,53 @@ fn bridge_dispatch(
     }
 }
 
+static OPEN_FILE_SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+struct OpenFileRequest {
+    app: AppHandle,
+    operation_id: String,
+}
+impl Drop for OpenFileRequest {
+    fn drop(&mut self) {
+        self.app
+            .state::<WebPageHostState>()
+            .open_files
+            .lock()
+            .expect("open file requests")
+            .remove(&self.operation_id);
+    }
+}
+
+#[tauri::command]
+pub fn declarative_plugins_web_open_file_ack(
+    app: AppHandle,
+    caller: tauri::WebviewWindow,
+    operation_id: String,
+    error: Option<String>,
+) -> Result<(), String> {
+    let state = app.state::<WebPageHostState>();
+    let mut pending = state.open_files.lock().expect("open file requests");
+    if !pending
+        .get(&operation_id)
+        .is_some_and(|request| request.host_label == caller.label())
+    {
+        return Err("file request does not belong to this product window".into());
+    }
+    if let Some(request) = pending.remove(&operation_id) {
+        let _ = request.completion.send(error.map_or(Ok(()), Err));
+    }
+    Ok(())
+}
+
 /// Identity of a bridge caller, derived from its window label.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BridgeIdentity {
+    pub generation: u64,
     pub plugin_id: String,
     pub window_id: String,
+    pub host_label: String,
+    pub workspace_id: String,
+    pub workspace_path: String,
+    pub state_id: String,
 }
 
 /// Resolves and authorizes a bridge caller from its webview label. The label
@@ -568,40 +857,59 @@ fn bridge_identity<R: tauri::Runtime>(
     app: &AppHandle<R>,
     label: &str,
 ) -> Result<BridgeIdentity, String> {
-    const LABEL_PREFIX: &str = "plugin-web-";
-    let Some(remainder) = label.strip_prefix(LABEL_PREFIX) else {
+    let owner = app
+        .state::<WebPageHostState>()
+        .owners
+        .lock()
+        .expect("page owners")
+        .get(label)
+        .cloned()
+        .ok_or_else(|| bridge_error("plugin.web.forbidden", "page ownership was revoked"))?;
+    if owner.workspace_generation
+        != workspace_generation(
+            &app.state::<WebPageHostState>(),
+            &owner.host_label,
+            &owner.workspace_id,
+        )
+        || owned_label(&owner) != label
+        || app.get_webview_window(&owner.host_label).is_none()
+        || app
+            .state::<super::lifecycle::LifecycleState>()
+            .blocked(&owner.plugin_id)
+    {
         return Err(bridge_error(
             "plugin.web.forbidden",
-            "bridge requests are only accepted from plugin pages",
+            "page owner is inactive",
         ));
-    };
-    let packages = app.state::<super::PluginHostState>().packages();
-    for package in &packages {
-        if package.entry.status != "accepted" || !package.entry.enabled {
-            continue;
-        }
-        let Some(tool_windows) = package.manifest["ui"]["toolWindows"].as_array() else {
-            continue;
-        };
-        for window in tool_windows {
-            let Some(window_id) = window["id"].as_str() else {
-                continue;
-            };
-            if window["web"]["entry"].is_null() {
-                continue;
-            }
-            if web_window_label(&package.entry.plugin_id, window_id) == remainder {
-                return Ok(BridgeIdentity {
-                    plugin_id: package.entry.plugin_id.clone(),
-                    window_id: window_id.to_string(),
-                });
-            }
+    }
+    let declared = declarative_windows_for(app)
+        .into_iter()
+        .any(|window| window.plugin_id == owner.plugin_id && window.window_id == owner.window_id);
+    if !declared {
+        return Err(bridge_error(
+            "plugin.web.forbidden",
+            "package no longer declares this page",
+        ));
+    }
+    Ok(BridgeIdentity {
+        generation: owner.generation,
+        plugin_id: owner.plugin_id,
+        window_id: owner.window_id,
+        host_label: owner.host_label,
+        workspace_id: owner.workspace_id,
+        workspace_path: owner.workspace_path,
+        state_id: owner.state_id,
+    })
+}
+
+fn declarative_windows_for<R: tauri::Runtime>(app: &AppHandle<R>) -> Vec<WebToolWindow> {
+    let mut windows = Vec::new();
+    for package in app.state::<super::PluginHostState>().packages() {
+        if package.entry.status == "accepted" && package.entry.enabled {
+            collect_web_windows(&package, &mut windows);
         }
     }
-    Err(bridge_error(
-        "plugin.web.forbidden",
-        "the calling window does not belong to an enabled plugin page",
-    ))
+    windows
 }
 
 /// The webview label of one tool window: a collision-free hexadecimal encoding
@@ -666,44 +974,55 @@ pub fn declarative_plugins_web_resolve_file(
     })
 }
 
-/// Declared web window IDs of one plugin from the current catalog.
-pub fn web_windows_of_plugin<R: tauri::Runtime>(
-    app: &AppHandle<R>,
-    plugin_id: &str,
-) -> Vec<String> {
-    app.state::<super::PluginHostState>()
-        .packages()
-        .into_iter()
-        .filter(|package| package.entry.plugin_id == plugin_id)
-        .flat_map(|package| {
-            package.manifest["ui"]["toolWindows"]
-                .as_array()
-                .map(|windows| {
-                    windows
-                        .iter()
-                        .filter_map(|window| window["id"].as_str().map(str::to_string))
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_default()
-        })
-        .collect()
+/// Revoke bridge access before closing; close failures stop package mutation.
+pub fn close_plugin_windows(app: &AppHandle, plugin_id: &str) -> Result<(), String> {
+    close_owned_pages(app, |owner| owner.plugin_id == plugin_id)?;
+    forget_plugin_state(app, plugin_id);
+    Ok(())
 }
 
-/// Closes one web window by declared window ID, tolerating absence.
-pub fn close_web_window_by_id<R: tauri::Runtime>(
-    app: &AppHandle<R>,
-    plugin_id: &str,
-    window_id: &str,
-) {
-    let label = format!("plugin-web-{}", web_window_label(plugin_id, window_id));
-    app.state::<WebPageHostState>()
-        .appearances
-        .lock()
-        .expect("appearance mutex")
-        .remove(&label);
-    if let Some(existing) = app.get_webview_window(&label) {
-        let _ = existing.close();
+fn close_owned_pages(app: &AppHandle, matches: impl Fn(&PageOwner) -> bool) -> Result<(), String> {
+    let labels = revoke_owners(&app.state::<WebPageHostState>(), matches, true);
+    let mut failures = Vec::new();
+    for label in labels {
+        if let Some(view) = app.get_webview_window(&label) {
+            if let Err(error) = view.close() {
+                failures.push(error.to_string());
+            }
+        }
     }
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(failures.join("; "))
+    }
+}
+
+#[tauri::command]
+pub fn declarative_plugins_close_workspace_pages(
+    app: AppHandle,
+    caller: tauri::WebviewWindow,
+    workspace_id: String,
+) -> Result<(), String> {
+    let scope = workspace_label_suffix(caller.label(), &workspace_id);
+    {
+        let state = app.state::<WebPageHostState>();
+        let mut generations = state
+            .workspace_generations
+            .lock()
+            .expect("workspace page generations");
+        *generations.entry(scope).or_default() += 1;
+    }
+    close_owned_pages(&app, |owner| {
+        owner.host_label == caller.label() && owner.workspace_id == workspace_id
+    })?;
+    let suffix = workspace_label_suffix(caller.label(), &workspace_id);
+    app.state::<WebPageHostState>()
+        .states
+        .lock()
+        .expect("page state")
+        .retain(|key, _| !key.ends_with(&suffix));
+    Ok(())
 }
 
 // MARK: scheme file service
@@ -875,11 +1194,38 @@ pub fn handle_scheme_request<R: tauri::Runtime>(
     // Wry restores `http://lithe-plugin.<pluginID>/...` to the original
     // `lithe-plugin://<pluginID>/...` before invoking this scheme handler.
     let plugin_id = request.uri().host().unwrap_or_default();
+    let _native_read = match app
+        .state::<super::lifecycle::LifecycleState>()
+        .acquire(plugin_id)
+    {
+        Ok(lease) => lease,
+        Err(_) => return refused("plugin package is changing"),
+    };
     let identity = match bridge_identity(app, webview_label) {
         Ok(identity) if identity.plugin_id == plugin_id => identity,
         _ => return refused("resource request is outside its plugin page"),
     };
     let path = request.uri().path().trim_start_matches('/');
+    if path.starts_with("__lithe_host__/text/") {
+        let package = app
+            .state::<super::PluginHostState>()
+            .packages()
+            .into_iter()
+            .find(|package| package.entry.plugin_id == identity.plugin_id);
+        let text = package
+            .as_ref()
+            .and_then(|package| package.manifest["ui"]["toolWindows"].as_array())
+            .and_then(|windows| {
+                windows
+                    .iter()
+                    .find(|window| window["id"].as_str() == Some(&identity.window_id))
+            })
+            .and_then(|window| window["text"].as_str());
+        return match text {
+            Some(text) => ok("text/html; charset=utf-8", text_page(text)),
+            None => refused("text window is no longer declared"),
+        };
+    }
     if path == HOST_BRIDGE_PATH {
         let appearance = app
             .state::<WebPageHostState>()
@@ -903,6 +1249,18 @@ pub fn handle_scheme_request<R: tauri::Runtime>(
         Ok((content_type, body)) => ok(content_type, body),
         Err(message) => refused(&message),
     }
+}
+
+/// ui:1 text is literal content, escaped into a host-owned shell. No package
+/// markup or scripts execute; theme follows the same host bridge as web pages.
+fn text_page(text: &str) -> Vec<u8> {
+    let escaped = text
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;");
+    page_with_host_bridge(format!("<!doctype html><html><head><meta charset=\"utf-8\"><style>body{{margin:16px;background:var(--lithe-background);color:var(--lithe-foreground);font:var(--lithe-font-size) var(--lithe-font-family)}}pre{{white-space:pre-wrap;font:inherit}}</style></head><body><pre>{escaped}</pre></body></html>").into_bytes())
 }
 
 /// Inserts the host script before package code without rewriting the package.
@@ -1266,6 +1624,49 @@ mod tests {
         );
     }
     #[test]
+    fn workspace_pages_have_distinct_labels_and_state() {
+        let first = PageOwner {
+            generation: 1,
+            workspace_generation: 0,
+            host_label: "main".into(),
+            workspace_id: "a".into(),
+            workspace_path: "C:/a".into(),
+            plugin_id: "test.plugin".into(),
+            window_id: "panel".into(),
+            state_id: String::new(),
+        };
+        let second = PageOwner {
+            workspace_id: "b".into(),
+            ..first.clone()
+        };
+        let other_window = PageOwner {
+            generation: 1,
+            workspace_generation: 0,
+            host_label: "workspace-other".into(),
+            ..first.clone()
+        };
+        assert_ne!(owned_label(&first), owned_label(&second));
+        assert_ne!(owned_label(&first), owned_label(&other_window));
+        assert_ne!(
+            state_key("test.plugin", &owned_label(&first)),
+            state_key("test.plugin", &owned_label(&second))
+        );
+    }
+
+    #[test]
+    fn text_window_is_literal_and_hello_fixture_is_registered() {
+        let page = String::from_utf8(text_page("<script>alert('test')</script>&")).unwrap();
+        assert!(!page.contains("<script>alert"));
+        assert!(page.contains("&lt;script&gt;"));
+        assert!(page.contains("/__lithe_host__/bridge.js"));
+        let manifest: Value = serde_json::from_str(include_str!(
+            "../../../../../shared/contracts/plugins/v1/fixtures/hello-lithe.plugin.json"
+        ))
+        .unwrap();
+        assert!(manifest["ui"]["toolWindows"][0]["text"].is_string());
+    }
+
+    #[test]
     fn state_keys_separate_plugins_and_windows() {
         assert_ne!(state_key("a.plugin", "w1"), state_key("a.plugin", "w2"));
         assert_ne!(state_key("a.plugin", "w1"), state_key("b.plugin", "w1"));
@@ -1309,5 +1710,127 @@ mod serve_tests {
         assert!(PAGE_CSP.contains("script-src 'self'"));
         assert!(!PAGE_CSP.contains("wasm-unsafe-eval"));
         assert!(PAGE_CSP.contains("frame-ancestors 'none'"));
+    }
+    fn registered_test_page(state: &WebPageHostState) -> (String, BridgeIdentity) {
+        let owner = PageOwner {
+            generation: 1,
+            workspace_generation: 0,
+            host_label: "main".into(),
+            workspace_id: "a".into(),
+            workspace_path: "C:/a".into(),
+            plugin_id: "test.plugin".into(),
+            window_id: "test.window".into(),
+            state_id: String::new(),
+        };
+        let label = owned_label(&owner);
+        let identity = BridgeIdentity {
+            generation: owner.generation,
+            plugin_id: owner.plugin_id.clone(),
+            window_id: owner.window_id.clone(),
+            host_label: owner.host_label.clone(),
+            workspace_id: owner.workspace_id.clone(),
+            workspace_path: owner.workspace_path.clone(),
+            state_id: label.clone(),
+        };
+        state.owners.lock().unwrap().insert(
+            label.clone(),
+            PageOwner {
+                state_id: label.clone(),
+                ..owner
+            },
+        );
+        (label, identity)
+    }
+
+    #[test]
+    fn page_revocation_clears_committed_effects_and_refuses_late_effects() {
+        use std::sync::{mpsc, Arc};
+        use std::time::Duration;
+        let state = Arc::new(WebPageHostState::default());
+        let (label, identity) = registered_test_page(&state);
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let (done_tx, done_rx) = mpsc::channel();
+        let (sender, mut receiver) = tokio::sync::oneshot::channel();
+        std::thread::scope(|scope| {
+            let writing = state.clone();
+            let label = label.clone();
+            let identity = identity.clone();
+            scope.spawn(move || {
+                with_page_owner(&writing, &label, &identity, || {
+                    entered_tx.send(()).unwrap();
+                    release_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+                    writing
+                        .states
+                        .lock()
+                        .unwrap()
+                        .insert(state_key(&identity.plugin_id, &label), json!({"a":1}));
+                    writing.open_files.lock().unwrap().insert(
+                        "request".into(),
+                        PendingOpenFile {
+                            host_label: identity.host_label.clone(),
+                            page_label: label.clone(),
+                            completion: sender,
+                        },
+                    );
+                    Ok(())
+                })
+                .unwrap();
+            });
+            entered_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+            assert!(state.owners.try_lock().is_err());
+            let closing = state.clone();
+            scope.spawn(move || {
+                revoke_owners(&closing, |_| true, true);
+                done_tx.send(()).unwrap();
+            });
+            release_tx.send(()).unwrap();
+            done_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        });
+        assert!(state.states.lock().unwrap().is_empty());
+        assert!(state.open_files.lock().unwrap().is_empty());
+        assert_eq!(
+            receiver.try_recv(),
+            Err(tokio::sync::oneshot::error::TryRecvError::Closed)
+        );
+        let mut applied = false;
+        assert!(with_page_owner(&state, &label, &identity, || {
+            applied = true;
+            Ok(())
+        })
+        .is_err());
+        assert!(!applied);
+        // Reopening the same logical page cannot revive a request from its old instance.
+        let (_, mut replacement) = registered_test_page(&state);
+        state
+            .owners
+            .lock()
+            .unwrap()
+            .get_mut(&label)
+            .unwrap()
+            .generation = 2;
+        assert!(with_page_owner(&state, &label, &identity, || Ok(())).is_err());
+        replacement.generation = 2;
+        assert!(with_page_owner(&state, &label, &replacement, || Ok(())).is_ok());
+    }
+
+    #[test]
+    fn workspace_close_revokes_a_page_created_from_an_older_workspace_epoch() {
+        let state = WebPageHostState::default();
+        let (label, identity) = registered_test_page(&state);
+        state
+            .workspace_generations
+            .lock()
+            .unwrap()
+            .insert(workspace_label_suffix("main", "a"), 1);
+        assert!(with_page_owner(&state, &label, &identity, || Ok(())).is_err());
+        state
+            .owners
+            .lock()
+            .unwrap()
+            .get_mut(&label)
+            .unwrap()
+            .workspace_generation = 1;
+        assert!(with_page_owner(&state, &label, &identity, || Ok(())).is_ok());
     }
 }

@@ -12,6 +12,7 @@ pub mod install;
 #[cfg(test)]
 mod install_tests;
 pub mod launch;
+pub mod lifecycle;
 pub mod run_plans;
 pub mod scan;
 pub mod settings;
@@ -113,10 +114,27 @@ pub struct ScannedPackage {
 /// then reads this state for registration and launch queries.
 #[derive(Default)]
 pub struct PluginHostState {
+    scan_lock: Mutex<()>,
     packages: Mutex<Vec<ScannedPackage>>,
 }
 
 impl PluginHostState {
+    /// Serialize discovery through publication. Independent package mutations
+    /// may overlap, but an older full scan must never overwrite a newer scan.
+    pub(crate) fn refresh(
+        &self,
+        discover: impl FnOnce() -> Result<Vec<ScannedPackage>, String>,
+    ) -> Result<usize, String> {
+        let _scan = self
+            .scan_lock
+            .lock()
+            .map_err(|_| "plugin catalog scan lock poisoned")?;
+        let packages = discover()?;
+        let count = packages.len();
+        self.set_packages(packages);
+        Ok(count)
+    }
+
     pub fn set_packages(&self, packages: Vec<ScannedPackage>) {
         *self.packages.lock().expect("plugin host catalog mutex") = packages;
     }
@@ -132,10 +150,8 @@ impl PluginHostState {
 /// Rescans bundled and installed packages and replaces the cached catalog.
 #[tauri::command]
 pub fn declarative_plugins_rescan(app: AppHandle) -> Result<usize, String> {
-    let packages = scan::build_catalog(&app)?;
-    let count = packages.len();
-    app.state::<PluginHostState>().set_packages(packages);
-    Ok(count)
+    app.state::<PluginHostState>()
+        .refresh(|| scan::build_catalog(&app))
 }
 
 /// Returns the cached scan result. Call `declarative_plugins_rescan` first;

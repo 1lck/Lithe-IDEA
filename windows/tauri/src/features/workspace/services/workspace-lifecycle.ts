@@ -488,6 +488,8 @@ async function closeWorkspaceRuntimeOnce(
   await disableMcp(workspaceId);
   await extensionProcessOwner.stop(workspaceId);
   await declarativePluginProcessOwner.stop(workspaceId);
+  const { invoke: invokePluginHost } = await import("@/platform/tauri-core");
+  await invokePluginHost("declarative_plugins_close_workspace_pages", { workspaceId });
   await dispose?.(path);
 
   // Defensive: nothing can reactivate a closing project, but never leave the registry

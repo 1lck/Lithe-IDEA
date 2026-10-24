@@ -24,7 +24,7 @@ Windows 新增一套契约 v1 声明式插件宿主，与现有 Worker 扩展模
 
 ### 能力声明渐进开放
 
-宿主在 `plugins.declarative.validate` 的 payload 里声明 `hostCapabilities = { languages:[1], languageServers:[1,2], serverProcess:[1], settings:[1,2], ui:[1,2] }`。Core 的 `capabilities.rs` 会拒绝声明了宿主未开放能力的插件，宿主不需要自己写拒绝逻辑。后续按里程碑提升：M3 增 `executionProviders:1`、`settings:1`，并把 `languageServers` 提到 2、`settings` 提到 2（注册设置页与 `workspaceConfiguration` 下推）；M4 增 `ui:[1,2]`。宿主不声明的能力，市场侧按不支持展示。
+宿主在 `plugins.declarative.validate` 的 payload 里声明 `hostCapabilities = { languages:[1], languageServers:[1,2], serverProcess:[1], settings:[1,2], ui:[1,2] }`。Core 的 `capabilities.rs` 会拒绝声明了宿主未开放能力的插件，宿主不需要自己写拒绝逻辑。M3 已把 `languageServers` 与 `settings` 提到 2，注册设置页并下推 `workspaceConfiguration`；M4 已增 `ui:[1,2]`。`executionProviders`、`buildProviders` 与 `buildSystems` 仍未开放，运行/测试计划命令的存在不代表这些插件能力可安装。宿主不声明的能力，市场侧按不支持展示。
 
 ### 存储、信任与安装（v0）
 
@@ -56,6 +56,24 @@ WebView2 的 NavigationStarting 可以阻止外站文档提交，但实测外站
 
 版本探测复用 `lithe_git_host::run` 的原生进程执行器。虽然它位于 Git adapter crate，其进程树、非阻塞管道与清理能力不解释 Git 参数；探测只设置五秒取消期限和每条输出流 64 KiB 上限，解析仍交 Core。Windows 在进程运行第一条指令之前把它放入 Job Object（内核管理的进程组），因此父进程退出后仍占用 stdout 的后代也会被清理。不要只给 `try_wait` 加超时后无期限 `join` 读取线程，也不要靠退出后遍历父 PID 找后代。代价是异常进程退出后最多还需执行器自身的有界清理时间。
 
+### 禁用、替换和卸载必须先收回使用权
+
+插件包正在执行时直接删目录，会在 Windows 上遇到可执行文件被占用，并可能只删掉一部分文件。因此所有启停、安装替换、回滚和卸载先经过 `lifecycle.rs`：禁止新的原生启动计划和网页读取，等待已经开始的版本探测、校验进程、网页创建和资源读取退出，再关闭所有所属页面，并要求每个产品窗口确认其运行与 Core LSP 会话都已停止。原生使用计数和禁止新请求共用锁，避免刚检查完就漏进新的操作；等待原生使用者和窗口确认各有 45 秒上限。失败时保留包文件并继续禁止使用，用户重试管理操作后才能恢复。
+
+前端在调用第一个异步操作前登记启动归属。停止操作必须覆盖已启动和正在等待 Core 响应的会话；晚到的会话先停止、再拒绝返回。停止失败的会话仍留在登记表中，后续管理操作必须继续等它，不能误报没有进程。包目录与扫描目录只有在变更和重新扫描都成功后才恢复使用。完整扫描从发现到提交缓存共用一把锁，避免不同插件并发管理时，旧扫描覆盖新目录。
+
+正确做法：先收回新请求、等待所有使用者退出，再修改包；不要发一个不等待结果的停止事件就删除文件。每个窗口只能确认自己的操作，窗口消失算失败，不能假定它的 Core 子进程已经退出。探测与读取沿用既有 `plugin-state` 和包读取路径，没有新增可跨工作树复用的资源；校验命令在平台可写的插件状态目录执行，发行资源保持只读。
+
+### 插件身份、工作区和声明式界面
+
+`pluginId` 是 Core 校验配置更新的插件身份，`providerId` 是语言服务实例的来源，两者必须分别传递和保存。设置的即时生效请求必须带插件 ID，并只发送到仍有效且属于该插件的会话；Java 和 Worker 启动继续使用自己的来源。
+
+每个网页由创建它的产品窗口、工作区和插件共同持有，窗口标签使用无碰撞的编码。状态按这组归属隔离，关闭工作区或禁用插件时清理；工作区关闭会提升该工作区页面的版本，关闭前已发起但尚未注册的页面也不能复活。状态写入与文件打开的登记和撤销共用所有者锁，旧页面实例不能在重新打开后继续写状态；网页不能通过参数自行指定所属工作区。`workspace.openFile` 只发给所属窗口，并等待带操作 ID 的确认。目标窗口在真实路径解析前后都复核当前工作区，复核目标缓冲区确实存在且处于活动状态后才确认成功；共享文件打开函数在读取失败或请求过期时也可能正常返回，不能仅凭其 Promise 完成判断成功；工作区切换、窗口关闭和十秒确认超时都返回失败。待确认请求最多 128 个，避免插件无限积累请求。
+
+启动前检查 Core 的 `requiredPackagePaths`、`runtimeRequirements` 和 `validationArguments`。包资源允许普通目录，但实际可执行入口必须是普通文件；路径逃逸和 reparse point 都拒绝。依赖与发现型启动运行时优先使用用户显式导出，再查系统 PATH；包内 `packagedRuntime` 则严格执行已审批的那个文件，不接受用户覆盖，满足最低版本才继续；校验命令即使输出文本，只要退出码非零仍失败。探测复用现有五秒、每条输出流 64 KiB 的原生执行器和进程树清理能力。
+
+`ui:1` 的文本工具窗口由宿主生成转义后的 HTML，`ui.commands` 接入已有的命令、菜单和工具栏展示注册表，工具窗口也有活动栏入口。复用展示注册表不等于进入 Worker 执行模型。禁用时同步撤销入口，异步刷新按插件检查版本，避免撤销 B 时取消 A 的刷新，防止旧结果恢复入口。目前页面仍是独立 WebView 窗口；声明的停靠位置、图标、动作可用/勾选状态和布局持久化尚未与 macOS 对齐，因此矩阵继续记为 partial，不能称为完整的 ui 1/2 产品形态。
+
 ### 与 Worker 扩展模型共存（产品分工）
 
 - 两套模型互不桥接：契约插件不进 Worker 宿主，Worker 扩展不冒充契约能力。
@@ -78,11 +96,17 @@ M1 包存储 + 启动校验 + 语言注册 + LSP 启动（已落地）；M2 磁�
 ## 后果
 
 - 收益：Windows 用户开始能安装与运行契约 v1 语言插件，语言插件包与 macOS/Lithe Store 同格式；契约验收（同组 fixtures）成为 Windows 持续回归的一部分；后续里程碑只增不改这条链路。
-- 代价：双模型并存是用户可见的复杂度，M2 管理界面必须分组；`minimumVersion` 探测与内容摘要复查尚未接入（分别随 M2 安装链接入），此前被篡改的包只能靠清单校验与路径闸门拦截。
-- 已知风险：签名延后意味着 v0 社区包信任完全依赖审批界面（M2），文案必须明示未认证状态；Windows 的 reparse point/junction 语义与 macOS symlink 不完全相同，包内路径逃逸判断已按 Windows 语义单独测试；WebView2 对自定义 scheme 与 CSP 的实现细节与 WKWebView 有差异，M4 需要实机验证后再声明 `ui:2`。
+- 代价：双模型并存是用户可见的复杂度，管理界面必须分组。`minimumVersion`、内容摘要复查与启动前校验已接入；发行者签名仍延后，不能把完整性检查当作发布者身份验证。
+- 已知风险：签名延后意味着 v0 社区包信任完全依赖审批界面（M2），文案必须明示未认证状态；Windows 的 reparse point/junction 语义与 macOS symlink 不完全相同，包内路径逃逸判断已按 Windows 语义单独测试；WebView2 对自定义 scheme 与 CSP 的实现细节与 WKWebView 有差异，`ui:2` 网页链路已用 Windows Release/WebView2 实机验证，停靠、图标、动作状态及布局仍为 partial。
 - M2–M4 里程碑：磁盘/市场安装链路 + 管理界面；声明式设置 + 运行/测试计划 + PHP 契约包替换；Web 工具窗口。每个里程碑独立 PR，能力声明与矩阵条目随代码同 PR 更新。
 
 ## 验证
+
+- 多窗口事件投递必须显式指定当前产品窗口的 `Window` target。Tauri 默认 `Any` 监听也接收发给其他 label 的事件，原生 `emit_to(ownerLabel)` 本身不足以隔离接收者；文件请求与生命周期确认均绑定当前窗口，防止其他工作区误处理请求或重复确认。`plugin-lifecycle-listener.test.ts` 检查两类监听的目标。
+- 2026-10-24 Windows Release 实机验收：Playwright/CDP 连接真实 WebView2，测试包安装、ui 1 文本渲染、工作区关闭重开、状态隔离、两个产品窗口归属、主题/语言与重载、过期工作区 openFile 拒绝、双窗口卸载关闭全部插件页均通过；无重复确认异常，外站 HTTP GET 为零，安装包及发行资源哈希不变，应用正常退出。该测试包不替代真实语言服务器的完整安装→启动→即时设置验收，也不覆盖停靠布局。
+- 管理并发回归：`lifecycle.rs` 覆盖原生使用计数排空、禁止晚到获取、逐窗口确认、停止失败、窗口断开和有界超时；`lsp-core-adapter.test.ts` 用可控 Core 响应覆盖停止期间晚到的服务器，断言先停止再拒绝，且 `pluginId` 没有丢失。`plugin-lifecycle-listener.test.ts` 验证收到停用事件立即撤销入口、等待运行和 LSP 两方后才确认。
+- 工作区与界面回归：`web.rs` 覆盖双工作区窗口/状态键隔离和文本转义；`plugin-lifecycle-listener.test.ts` 验证其他工作区请求、路径解析中切换工作区以及成功确认；`workspace-lifecycle.test.ts` 验证关闭工作区时清理网页。`declarative-plugin-ui.test.ts` 用 Hello Lithe fixture 验证文本窗口与命令面板、菜单、工具栏三处贡献及撤销，受控刷新同时覆盖相关与无关插件的撤销。CI 按文件分进程执行插件套件，避免原生命令和事件 mock 跨套件泄漏。
+- 启动计划回归：`launch.rs` 验证必需资源缺失、运行时依赖缺失、目录资源与普通文件入口的区别，以及有输出但非零退出的校验命令。`tests.rs` 还覆盖完整扫描的有序发布，`web.rs` 用有界通道覆盖写入与撤销交错、旧页面实例和旧工作区版本拒绝。Windows Rust 最终计时运行记录 357 项，其中 354 通过、3 项夹具跳过；前端受影响测试分别在隔离进程中运行，报告保存在 `.artifacts/test-stability/`。这些测试不替代双工作区真实 WebView2、真实语言服务器与停靠界面的产品验收。
 
 - 网页隔离与上下文回归：`web.rs` 覆盖同包和外站 URL 的导航/桥接共用检查、真实路径与内部/外部目录链接；Windows 用无需提权的 junction，Unix 用目录符号链接。`plugin-web-appearance.test.ts` 执行原生宿主桥脚本，验证语言、主题、根变量、主题事件与外站不暴露桥；前端文件测试验证原生真实目标传递与拒绝传播。
 - 版本探测回归：`runtime_probe_collects_output_and_rejects_overflow`、`runtime_probe_reclaims_inherited_pipes_after_parent_exit` 使用当前测试二进制作为固定夹具；后者让父进程退出、后代保留管道，断言调用有界结束且后代已退出。测试环境变量仅附加到子进程，不改测试运行器的全局环境。运行 WindowsRust 与 Frontend 计时 harness，检查 `.artifacts/test-stability/index.html`；真实 WebView2 验证还要由本机 HTTP 计数器确认外站 GET 为零，同时检查导航、弹窗/下载、动态主题、包文件和发行目录哈希不变；单凭页面 URL 没变不能证明请求未外发。

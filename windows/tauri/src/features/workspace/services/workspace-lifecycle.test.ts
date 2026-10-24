@@ -9,6 +9,10 @@ const released: string[] = [];
 const ownedByThisWindow = new Set<string>();
 const revokedIdeWorkspaces: string[] = [];
 const stoppedDeclarativeWorkspaces: string[] = [];
+const closedPluginWorkspaces: string[] = [];
+mock.module("@/platform/tauri-core", () => ({ invoke: async (command: string, args: { workspaceId: string }) => {
+  if (command === "declarative_plugins_close_workspace_pages") closedPluginWorkspaces.push(args.workspaceId);
+} }));
 mock.module("@/features/host-api/mcp-connection", () => ({
   disableMcp: async (id: string) => {
     revokedIdeWorkspaces.push(id);
@@ -100,6 +104,7 @@ beforeEach(() => {
   ownedByThisWindow.clear();
   revokedIdeWorkspaces.length = 0;
   stoppedDeclarativeWorkspaces.length = 0;
+  closedPluginWorkspaces.length = 0;
 });
 afterEach(() => {
   mock.restore();
@@ -181,6 +186,7 @@ test("closing a project revokes IDE access before disposal and then releases own
   ).toBe(true);
   expect(disposed).toBe(true);
   expect(stoppedDeclarativeWorkspaces).toEqual([id]);
+  expect(closedPluginWorkspaces).toEqual([id]);
   expect(released).toEqual([id]);
   expect(tabs).toEqual([]);
 });

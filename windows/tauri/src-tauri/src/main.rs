@@ -65,7 +65,11 @@ fn main() {
     let application = tauri::Builder::default()
         .plugin(plugin_host::web::bridge_plugin())
         .register_uri_scheme_protocol("lithe-plugin", |context, request| {
-            plugin_host::web::handle_scheme_request(context.app_handle(), context.webview_label(), request)
+            plugin_host::web::handle_scheme_request(
+                context.app_handle(),
+                context.webview_label(),
+                request,
+            )
         })
         .plugin(tauri_plugin_single_instance::init(|app, arguments, _| {
             host::enqueue_cli_arguments(app, arguments);
@@ -141,6 +145,7 @@ fn main() {
             app.manage(debug::DebugAdapterManager::default());
             app.manage(plugin_host::PluginHostState::default());
             app.manage(plugin_host::web::WebPageHostState::default());
+            app.manage(plugin_host::lifecycle::LifecycleState::default());
             run::cleanup_legacy_appdata(app.handle());
             maven::clear_dependency_outputs(app.handle());
             plugin_host::install::cleanup_stale_snapshots(app.handle());
@@ -155,6 +160,7 @@ fn main() {
         .on_window_event(|window, event| {
             if matches!(event, tauri::WindowEvent::Destroyed) {
                 plugin_host::web::forget_window_appearance(window.app_handle(), window.label());
+                plugin_host::lifecycle::window_destroyed(window.app_handle(), window.label());
                 run::release_window_processes(window.label());
                 core::close_ide_hosts(window.label());
                 agent::close_window_connections(window.label());
@@ -290,8 +296,10 @@ fn main() {
                             run::run_stop_process,
                             run::run_list_owned_processes,
                             run::run_stop_owned_processes,
+                            plugin_host::lifecycle::declarative_plugins_lifecycle_ack,
                             plugin_host::declarative_plugins_rescan,
                             plugin_host::declarative_plugins_state,
+                            plugin_host::web::declarative_plugins_web_open_file_ack,
                             plugin_host::web::declarative_plugins_web_resolve_file,
                             plugin_host::web::declarative_plugins_web_update_appearance,
                             plugin_host::declarative_plugins_manifest,
@@ -308,6 +316,7 @@ fn main() {
                             plugin_host::settings::declarative_plugins_workspace_configuration,
                             plugin_host::run_plans::declarative_plugins_run_plan,
                             plugin_host::run_plans::declarative_plugins_test_plan,
+                            plugin_host::web::declarative_plugins_close_workspace_pages,
                             plugin_host::web::declarative_plugins_web_windows,
                             plugin_host::web::declarative_plugins_open_web_window,
                             plugin_host::web::declarative_plugins_close_web_window,

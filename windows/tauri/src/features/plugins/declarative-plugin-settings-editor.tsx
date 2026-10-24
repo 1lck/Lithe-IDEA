@@ -90,6 +90,7 @@ export function DeclarativePluginSettingsEditor({
         );
         if (outcome.status === "ok" && outcome.configuration !== null) {
           await pushDeclarativeWorkspaceConfiguration({
+            pluginId,
             workspacePath,
             languageId,
             configuration: outcome.configuration,

@@ -128,13 +128,13 @@ pub fn declarative_plugins_prepare_disk_install(
 /// review. The confirm call re-validates the snapshot bytes and re-runs the
 /// review, so a snapshot swapped between prepare and confirm is rejected.
 #[tauri::command]
-pub fn declarative_plugins_confirm_disk_install(
+pub async fn declarative_plugins_confirm_disk_install(
     app: AppHandle,
     session_id: String,
     manifest_digest: String,
 ) -> Result<CatalogEntry, String> {
     let snapshot = snapshot_path(&app, &session_id)?;
-    let result = (|| {
+    let result = async {
         let manifest = read_snapshot_manifest(&snapshot)?;
         if content_digest(&manifest) != manifest_digest {
             return Err("the package changed after review; the import was cancelled".to_string());
@@ -159,14 +159,15 @@ pub fn declarative_plugins_confirm_disk_install(
 
         // A version switch invalidates the page's package bytes and bridge
         // authorization, so destroy all owned webviews before staging starts.
-        close_plugin_web_windows(&app, &plugin_id);
-        notify_plugin_lifecycle_change(&app, &plugin_id);
+        let mutation = super::lifecycle::begin(&app, &plugin_id).await?;
         staging_install(&install_root, &plugin_id, &version, &snapshot)?;
         write_installation_record(&install_root, &plugin_id, &version)?;
-        rescan_after_change(&app);
+        rescan_after_change(&app)?;
+        mutation.complete(true);
         Ok(catalog_entry_of(&app, &plugin_id)
             .unwrap_or_else(|| accepted_entry_fallback(&plugin_id, &version)))
-    })();
+    }
+    .await;
     discard_snapshot(&snapshot);
     result
 }
@@ -200,25 +201,18 @@ fn snapshot_path(app: &AppHandle, session_id: &str) -> Result<PathBuf, String> {
         .join(session_id))
 }
 
-/// Closes every web window of one plugin and drops its page state. Called
-/// before an install-record change takes effect so a disabled, uninstalled,
-/// or replaced package never keeps live pages.
-fn close_plugin_web_windows(app: &AppHandle, plugin_id: &str) {
-    let windows = crate::plugin_host::web::web_windows_of_plugin(app, plugin_id);
-    for window_id in windows {
-        let _ = crate::plugin_host::web::close_web_window_by_id(app, plugin_id, &window_id);
-    }
-    crate::plugin_host::web::forget_plugin_state(app, plugin_id);
-}
-
 /// Removes an installed package. Bundled packages cannot be uninstalled.
 #[tauri::command]
-pub fn declarative_plugins_uninstall(app: AppHandle, plugin_id: String) -> Result<(), String> {
+pub async fn declarative_plugins_uninstall(
+    app: AppHandle,
+    plugin_id: String,
+) -> Result<(), String> {
     let install_root = store::install_root(&app)?;
     let plugin_directory = install_root.join(&plugin_id);
     if !plugin_directory.is_dir() {
         return Err(format!("{plugin_id} is not an installed plugin"));
     }
+    let mutation = super::lifecycle::begin(&app, &plugin_id).await?;
     std::fs::remove_dir_all(&plugin_directory)
         .map_err(|error| format!("{plugin_id} could not be removed: {error}"))?;
     let state_directory = store::plugin_state_directory(&app, &plugin_id)?;
@@ -226,16 +220,15 @@ pub fn declarative_plugins_uninstall(app: AppHandle, plugin_id: String) -> Resul
         std::fs::remove_dir_all(&state_directory)
             .map_err(|error| format!("state directory could not be removed: {error}"))?;
     }
-    close_plugin_web_windows(&app, &plugin_id);
-    notify_plugin_lifecycle_change(&app, &plugin_id);
-    rescan_after_change(&app);
+    rescan_after_change(&app)?;
+    mutation.complete(false);
     Ok(())
 }
 
 /// Enables or disables an installed plugin; bundled packages are always
 /// enabled and reject the call.
 #[tauri::command]
-pub fn declarative_plugins_set_enabled(
+pub async fn declarative_plugins_set_enabled(
     app: AppHandle,
     plugin_id: String,
     enabled: bool,
@@ -247,6 +240,7 @@ pub fn declarative_plugins_set_enabled(
             .map_err(|error| format!("{plugin_id} has no readable install record: {error}"))?,
     )
     .map_err(|error| format!("{plugin_id} has a corrupted install record: {error}"))?;
+    let mutation = super::lifecycle::begin(&app, &plugin_id).await?;
     record.enabled = enabled;
     // Write via temp + rename so a crash never leaves a truncated record.
     let temp_path = record_path.with_extension("json.tmp");
@@ -256,30 +250,16 @@ pub fn declarative_plugins_set_enabled(
     )
     .map_err(|error| error.to_string())?;
     std::fs::rename(&temp_path, &record_path).map_err(|error| error.to_string())?;
-    if !enabled {
-        close_plugin_web_windows(&app, &plugin_id);
-        notify_plugin_lifecycle_change(&app, &plugin_id);
-    }
-    rescan_after_change(&app);
+    rescan_after_change(&app)?;
+    mutation.complete(enabled);
     Ok(())
-}
-
-/// Tells the frontend that a plugin changed state, so owned run sessions and
-/// other live resources are released (the process owner lives in the
-/// frontend's run layer).
-fn notify_plugin_lifecycle_change(app: &AppHandle, plugin_id: &str) {
-    use tauri::Emitter;
-    let _ = app.emit(
-        "declarative-plugin-lifecycle",
-        serde_json::json!({ "pluginId": plugin_id, "active": false }),
-    );
 }
 
 /// Restores the previous version directory of an installed package. Rollback
 /// requires a retained previous version and always re-enables the package so
 /// a broken update cannot leave it disabled and forgotten.
 #[tauri::command]
-pub fn declarative_plugins_rollback(app: AppHandle, plugin_id: String) -> Result<(), String> {
+pub async fn declarative_plugins_rollback(app: AppHandle, plugin_id: String) -> Result<(), String> {
     let install_root = store::install_root(&app)?;
     let plugin_directory = install_root.join(&plugin_id);
     let record: InstallationRecord = serde_json::from_str(
@@ -306,8 +286,7 @@ pub fn declarative_plugins_rollback(app: AppHandle, plugin_id: String) -> Result
             "{plugin_id} has no previous version to roll back to"
         ));
     };
-    close_plugin_web_windows(&app, &plugin_id);
-    notify_plugin_lifecycle_change(&app, &plugin_id);
+    let mutation = super::lifecycle::begin(&app, &plugin_id).await?;
     staging_install(
         &install_root,
         &plugin_id,
@@ -315,7 +294,8 @@ pub fn declarative_plugins_rollback(app: AppHandle, plugin_id: String) -> Result
         &plugin_directory.join(&previous),
     )?;
     write_installation_record(&install_root, &plugin_id, &previous)?;
-    rescan_after_change(&app);
+    rescan_after_change(&app)?;
+    mutation.complete(true);
     Ok(())
 }
 
@@ -610,10 +590,10 @@ fn string_list(value: &serde_json::Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
-fn rescan_after_change(app: &AppHandle) {
-    if let Ok(packages) = super::scan::build_catalog(app) {
-        app.state::<PluginHostState>().set_packages(packages);
-    }
+fn rescan_after_change(app: &AppHandle) -> Result<(), String> {
+    app.state::<PluginHostState>()
+        .refresh(|| super::scan::build_catalog(app))
+        .map(|_| ())
 }
 
 fn catalog_entry_of(app: &AppHandle, plugin_id: &str) -> Option<CatalogEntry> {

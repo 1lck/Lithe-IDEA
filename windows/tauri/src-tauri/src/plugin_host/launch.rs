@@ -60,6 +60,11 @@ pub fn declarative_plugins_language_launch(
     let Some(package) = owning_package(&app, &file_path) else {
         return Ok(None);
     };
+    let _native_launch = app
+        .state::<super::lifecycle::LifecycleState>()
+        .acquire(&package.entry.plugin_id)?;
+    let package = package_by_id(&app, &package.entry.plugin_id)
+        .ok_or("plugin was removed during launch resolution")?;
     let Some(language_id) = owning_language_id(&package, &file_path) else {
         return Ok(None);
     };
@@ -86,11 +91,18 @@ pub fn declarative_plugins_language_launch(
     let workspace_state_directory =
         state_directory.join(store::workspace_state_key(&workspace_path));
     prepare_required_directories(resolved_plan, &state_directory, &workspace_state_directory)?;
-    resolve_launch(&package, &language_id, resolved_plan).map(Some)
+    std::fs::create_dir_all(&state_directory).map_err(|error| error.to_string())?;
+    resolve_launch(&package, &language_id, resolved_plan, &state_directory).map(Some)
 }
 
 /// Finds an accepted, enabled scanned package by plugin ID.
 pub(crate) fn package_by_id(app: &AppHandle, plugin_id: &str) -> Option<ScannedPackage> {
+    if app
+        .state::<super::lifecycle::LifecycleState>()
+        .blocked(plugin_id)
+    {
+        return None;
+    }
     app.state::<super::PluginHostState>()
         .packages()
         .into_iter()
@@ -127,7 +139,11 @@ fn owning_package(app: &AppHandle, file_path: &str) -> Option<ScannedPackage> {
     app.state::<super::PluginHostState>()
         .packages()
         .into_iter()
-        .find(|package| package_matches_file(package, file_path))
+        .find(|package| {
+            !app.state::<super::lifecycle::LifecycleState>()
+                .blocked(&package.entry.plugin_id)
+                && package_matches_file(package, file_path)
+        })
 }
 
 fn package_matches_file(package: &ScannedPackage, file_path: &str) -> bool {
@@ -227,7 +243,11 @@ fn resolve_launch(
     package: &ScannedPackage,
     language_id: &str,
     plan: &Value,
+    probe_directory: &Path,
 ) -> Result<ResolvedLaunch, String> {
+    for relative in string_arguments(&plan["requiredPackagePaths"]) {
+        verified_package_resource(&package.root, &relative)?;
+    }
     let launch = &plan["launch"];
     let kind = launch["kind"].as_str().unwrap_or_default();
     let mut environment: BTreeMap<String, String> = BTreeMap::new();
@@ -257,30 +277,78 @@ fn resolve_launch(
             let tool = launch["tool"]
                 .as_str()
                 .ok_or("runtime launch has no tool")?;
-            let path = match launch["packagedRuntime"].as_str() {
-                Some(packaged) => {
-                    let path = verified_packaged_path(&package.root, packaged)?;
-                    prepend_path(
-                        &mut environment,
-                        path.parent().unwrap_or(package.root.as_path()),
-                    );
-                    path
-                }
-                None => {
-                    let path_env = std::env::var_os("PATH");
-                    super::super::language_tools::find_system_tool(path_env.as_deref(), tool)
-                        .ok_or_else(|| format!("runtime tool {tool} is not on PATH"))?
-                }
+            let key = format!("LITHE_{}_PATH", tool.to_uppercase().replace('-', "_"));
+            let path = if let Some(packaged) = launch["packagedRuntime"].as_str() {
+                // Packaged runtimes are fixed by the approved package.
+                verified_packaged_path(&package.root, packaged)?
+            } else if let Some(explicit) = std::env::var_os(&key).filter(|value| !value.is_empty())
+            {
+                PathBuf::from(explicit)
+            } else {
+                super::super::language_tools::find_system_tool(
+                    std::env::var_os("PATH").as_deref(),
+                    tool,
+                )
+                .ok_or_else(|| format!("runtime tool {tool} is not on PATH"))?
             };
-            environment.insert(
-                format!("LITHE_{}_PATH", tool.to_uppercase().replace('-', "_")),
-                path.to_string_lossy().to_string(),
-            );
-            verify_runtime_version(&path, tool, launch)?;
+            if !path.is_absolute() || !path.is_file() {
+                return Err(format!(
+                    "runtime {tool} must name an absolute executable file"
+                ));
+            }
+            if let Some(directory) = path.parent() {
+                prepend_path(&mut environment, directory);
+            }
+            environment.insert(key, path.to_string_lossy().to_string());
+            verify_runtime_version(&path, tool, launch, probe_directory)?;
             path
         }
         other => return Err(format!("unsupported launch kind {other}")),
     };
+    for requirement in plan["runtimeRequirements"].as_array().into_iter().flatten() {
+        let tool = requirement["tool"]
+            .as_str()
+            .ok_or("runtime requirement has no tool")?;
+        let key = format!("LITHE_{}_PATH", tool.to_uppercase().replace('-', "_"));
+        // Explicit user exports take precedence; project-local runtimes are
+        // never selected by PATH discovery for automatic server starts.
+        let path = std::env::var_os(&key)
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from)
+            .or_else(|| environment.get(&key).map(PathBuf::from))
+            .or_else(|| {
+                super::super::language_tools::find_system_tool(
+                    std::env::var_os("PATH").as_deref(),
+                    tool,
+                )
+            })
+            .ok_or_else(|| format!("required runtime {tool} is unavailable"))?;
+        if !path.is_absolute() || !path.is_file() {
+            return Err(format!(
+                "runtime {tool} must name an absolute executable file"
+            ));
+        }
+        let mut version = requirement.clone();
+        version["versionArguments"] = serde_json::json!(if tool == "java" {
+            vec!["-version"]
+        } else {
+            vec!["--version"]
+        });
+        verify_runtime_version(&path, tool, &version, probe_directory)?;
+        environment.insert(key, path.to_string_lossy().into_owned());
+        if let Some(directory) = path.parent() {
+            prepend_path(&mut environment, directory);
+        }
+    }
+    let validation = string_arguments(&plan["validationArguments"]);
+    if !validation.is_empty() {
+        let mut command = Command::new(&server_path);
+        command
+            .args(&validation)
+            .envs(&environment)
+            .current_dir(probe_directory);
+        run_process_probe(&mut command, "language server validation", true)?;
+    }
     Ok(ResolvedLaunch {
         plugin_id: package.entry.plugin_id.clone(),
         language_id: language_id.to_string(),
@@ -302,7 +370,12 @@ fn resolve_launch(
 /// declared `minimumVersion`. Probes run at every launch because the PATH
 /// candidate can change between sessions; a failing or unreadable probe is a
 /// rejection, not a fallback.
-fn verify_runtime_version(path: &Path, tool: &str, launch: &Value) -> Result<(), String> {
+fn verify_runtime_version(
+    path: &Path,
+    tool: &str,
+    launch: &Value,
+    probe_directory: &Path,
+) -> Result<(), String> {
     let Some(minimum) = launch["minimumVersion"].as_str() else {
         return Ok(());
     };
@@ -317,7 +390,7 @@ fn verify_runtime_version(path: &Path, tool: &str, launch: &Value) -> Result<(),
         .ok_or_else(|| {
             format!("runtime launch declares minimumVersion without versionArguments")
         })?;
-    let output = bounded_version_probe(path, &version_arguments, tool)?;
+    let output = bounded_version_probe(path, &version_arguments, tool, probe_directory)?;
     let text = format!(
         "{}{}",
         String::from_utf8_lossy(&output.0),
@@ -361,13 +434,22 @@ fn bounded_version_probe(
     path: &Path,
     arguments: &[String],
     tool: &str,
+    probe_directory: &Path,
 ) -> Result<(Vec<u8>, Vec<u8>), String> {
     let mut command = Command::new(path);
-    command.args(arguments);
+    command.args(arguments).current_dir(probe_directory);
     run_version_probe(&mut command, tool)
 }
 
 fn run_version_probe(command: &mut Command, tool: &str) -> Result<(Vec<u8>, Vec<u8>), String> {
+    run_process_probe(command, tool, false)
+}
+
+fn run_process_probe(
+    command: &mut Command,
+    tool: &str,
+    require_success: bool,
+) -> Result<(Vec<u8>, Vec<u8>), String> {
     let deadline = Instant::now() + RUNTIME_PROBE_TIMEOUT;
     let stdout_bytes = Cell::new(0_usize);
     let stderr_bytes = Cell::new(0_usize);
@@ -399,6 +481,9 @@ fn run_version_probe(command: &mut Command, tool: &str) -> Result<(Vec<u8>, Vec<
             "runtime tool {tool} version probe failed or timed out: {failure:?}"
         ));
     }
+    if require_success && outcome.status.is_none_or(|status| !status.success()) {
+        return Err(format!("{tool} probe exited unsuccessfully"));
+    }
     if outcome.status.is_none_or(|status| !status.success())
         && outcome.stdout.is_empty()
         && outcome.stderr.is_empty()
@@ -413,6 +498,30 @@ fn run_version_probe(command: &mut Command, tool: &str) -> Result<(Vec<u8>, Vec<
 /// Joins a package-relative plan path and proves it stays inside the package
 /// as a regular file. Every launch the host executes passes through here.
 fn verified_packaged_path(root: &Path, relative: &str) -> Result<PathBuf, String> {
+    let candidate = verified_package_resource(root, relative)?;
+    if !candidate.is_file() {
+        return Err(format!(
+            "packaged entry {} is not a regular file",
+            candidate.display()
+        ));
+    }
+    Ok(candidate)
+}
+
+/// Required resources may be files or directories. Canonical containment and
+/// reparse checks apply before the process starts, including runtime entry files.
+fn verified_package_resource(root: &Path, relative: &str) -> Result<PathBuf, String> {
+    let relative_path = Path::new(relative);
+    if relative_path.is_absolute()
+        || relative_path.components().any(|part| {
+            matches!(
+                part,
+                std::path::Component::ParentDir | std::path::Component::Prefix(_)
+            )
+        })
+    {
+        return Err("required package resource must stay inside the package".into());
+    }
     let candidate = root.join(relative);
     let metadata = std::fs::symlink_metadata(&candidate).map_err(|error| {
         format!(
@@ -434,7 +543,7 @@ fn verified_packaged_path(root: &Path, relative: &str) -> Result<PathBuf, String
             candidate.display()
         ));
     }
-    if !metadata.is_file() {
+    if !metadata.is_file() && !metadata.is_dir() {
         return Err(format!(
             "packaged entry {} is not a regular file",
             candidate.display()
@@ -463,7 +572,10 @@ fn verified_packaged_path(root: &Path, relative: &str) -> Result<PathBuf, String
 }
 
 fn prepend_path(environment: &mut BTreeMap<String, String>, directory: &Path) {
-    let existing = std::env::var("PATH").unwrap_or_default();
+    let existing = environment
+        .get("PATH")
+        .cloned()
+        .unwrap_or_else(|| std::env::var("PATH").unwrap_or_default());
     let separator = if cfg!(windows) { ";" } else { ":" };
     environment.insert(
         "PATH".to_string(),
@@ -495,6 +607,10 @@ mod tests {
         use std::io::Write;
         match std::env::var("LITHE_PROBE_FIXTURE").as_deref() {
             Ok("output") => println!("v21.0.0"),
+            Ok("failure-output") => {
+                println!("version text cannot mask probe failure");
+                std::process::exit(7);
+            }
             Ok("overflow") => {
                 std::io::stdout()
                     .write_all(&vec![b'x'; MAX_RUNTIME_PROBE_OUTPUT_BYTES + 1])
@@ -578,6 +694,97 @@ mod tests {
                 assert_eq!(waited, 0, "version helper survived process-tree cleanup");
             }
         }
+    }
+
+    /// The child receives explicit runtime configuration without changing the
+    /// test runner's environment or depending on its installed PATH tools.
+    #[test]
+    fn runtime_launch_uses_the_same_explicit_executable_as_its_dependency() {
+        let executable = std::env::current_exe().unwrap();
+        let mut command = Command::new(&executable);
+        command
+            .args([
+                "--exact",
+                "plugin_host::launch::tests::explicit_runtime_fixture",
+                "--ignored",
+                "--nocapture",
+            ])
+            .env("LITHE_NODE_PATH", &executable);
+        run_process_probe(&mut command, "explicit runtime fixture", true).unwrap();
+    }
+
+    #[test]
+    #[ignore = "launched with a scoped runtime export by the regression test"]
+    fn explicit_runtime_fixture() {
+        struct TempRoot(PathBuf);
+        impl Drop for TempRoot {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let root = TempRoot(unique_temp_root("explicit-runtime"));
+        std::fs::write(root.0.join("fallback.exe"), b"must not execute").unwrap();
+        let package = package_with_root(root.0.clone(), serde_json::json!({}));
+        let plan = serde_json::json!({
+            "launch": {"kind":"runtime", "tool":"node"},
+            "runtimeRequirements":[{"tool":"node"}]
+        });
+        let resolved = resolve_launch(&package, "test", &plan, &package.root).unwrap();
+        let executable = std::env::current_exe()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        assert_eq!(resolved.server_path, executable);
+        assert_eq!(resolved.environment["LITHE_NODE_PATH"], executable);
+        let mut packaged = plan.clone();
+        packaged["launch"]["packagedRuntime"] = serde_json::json!("fallback.exe");
+        packaged["runtimeRequirements"] = serde_json::json!([]);
+        let resolved = resolve_launch(&package, "test", &packaged, &package.root).unwrap();
+        let expected = verified_packaged_path(&package.root, "fallback.exe")
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        assert_eq!(resolved.server_path, expected);
+        assert_eq!(resolved.environment["LITHE_NODE_PATH"], expected);
+    }
+
+    #[test]
+    fn validation_requires_zero_exit_even_when_probe_prints_output() {
+        run_process_probe(&mut probe_fixture_command("output"), "validation", true).unwrap();
+        let error = run_process_probe(
+            &mut probe_fixture_command("failure-output"),
+            "validation",
+            true,
+        )
+        .unwrap_err();
+        assert!(error.contains("unsuccessfully"), "{error}");
+    }
+
+    #[test]
+    fn launch_rejects_missing_required_resources_and_runtime_dependencies() {
+        struct TempRoot(PathBuf);
+        impl Drop for TempRoot {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let root = TempRoot(unique_temp_root("requirements"));
+        std::fs::write(root.0.join("server.exe"), b"fixture").unwrap();
+        let package = package_with_root(root.0.clone(), serde_json::json!({}));
+        let mut plan = serde_json::json!({ "launch": {"kind": "packaged", "path": "server.exe"}, "requiredPackagePaths": ["missing.js"] });
+        assert!(resolve_launch(&package, "test", &plan, &package.root)
+            .unwrap_err()
+            .contains("missing.js"));
+        plan["requiredPackagePaths"] = serde_json::json!([]);
+        plan["runtimeRequirements"] =
+            serde_json::json!([{ "tool": "lithe-fixture-absent-runtime-9416" }]);
+        assert!(resolve_launch(&package, "test", &plan, &package.root)
+            .unwrap_err()
+            .contains("required runtime"));
+        std::fs::create_dir(root.0.join("resources")).unwrap();
+        assert!(verified_package_resource(&root.0, "resources").is_ok());
+        assert!(verified_packaged_path(&root.0, "resources").is_err());
+        assert!(verified_package_resource(&root.0, "../escape").is_err());
     }
 
     /// Unique per-run temp root; mirrors the temp-dir convention used by the
@@ -759,7 +966,8 @@ mod tests {
         assert_eq!(response["status"], "ok", "{response}");
         // The production path passes the wrapped outcome; only the inner
         // plan carries the launch.
-        let resolved = resolve_launch(&package, "php", &response["plan"]).expect("resolves");
+        let resolved =
+            resolve_launch(&package, "php", &response["plan"], &package.root).expect("resolves");
         assert_eq!(resolved.server_path, server.to_string_lossy());
         let _ = std::fs::remove_dir_all(&temporary);
     }
@@ -776,7 +984,7 @@ mod tests {
             "launch": { "kind": "packaged", "path": "bin/server.exe" },
             "arguments": ["--stdio"]
         });
-        let resolved = resolve_launch(&package, "php", &plan).expect("resolves");
+        let resolved = resolve_launch(&package, "php", &plan, &package.root).expect("resolves");
         assert_eq!(resolved.server_path, server.to_string_lossy());
         assert_eq!(resolved.server_args, vec!["--stdio".to_string()]);
         assert_eq!(resolved.initialization_options, None);
@@ -786,7 +994,7 @@ mod tests {
             "launch": { "kind": "packaged", "path": "../outside.exe" },
             "arguments": []
         });
-        assert!(resolve_launch(&package, "php", &escape_plan).is_err());
+        assert!(resolve_launch(&package, "php", &escape_plan, &package.root).is_err());
     }
 
     #[test]
@@ -806,7 +1014,7 @@ mod tests {
             },
             "arguments": ["-jar", "server.jar"]
         });
-        let resolved = resolve_launch(&package, "java", &plan).expect("resolves");
+        let resolved = resolve_launch(&package, "java", &plan, &package.root).expect("resolves");
         assert_eq!(resolved.server_path, runtime.to_string_lossy());
         assert_eq!(
             resolved.environment.get("LITHE_JAVA_PATH"),

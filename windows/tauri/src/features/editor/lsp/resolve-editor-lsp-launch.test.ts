@@ -120,6 +120,7 @@ test("falls back to a declarative plugin launch when the registry has no server"
   );
   expect(launch).toEqual({
     providerId: "dev.lithe.plugin.php-support",
+    pluginId: "dev.lithe.plugin.php-support",
     languageId: "php",
     serverPath: "C:/Users/example/AppData/Local/Lithe/plugins/dev.lithe.plugin.php-support/1.0.0/language-server/bin/intelephense.js",
     serverArgs: ["--stdio"],

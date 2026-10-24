@@ -1,3 +1,5 @@
+import { useDeclarativePluginUI } from "@/features/plugins/declarative-plugin-ui";
+import { openDeclarativeWebWindow } from "@/features/plugins/declarative-plugin-launch";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { AgentTrigger } from "@/features/agent/components/agent-trigger";
 import {
@@ -20,6 +22,7 @@ const STRIPE_BUTTON_CLASS_NAME = "size-[30px] rounded-[6px]";
 
 export function PluginActivityRail() {
   const { t } = useTranslation();
+  const pluginWindows = useDeclarativePluginUI((state) => state.windows);
   const terminalDock = useTerminalDock();
   const terminalEnabled = useSettingsStore((state) => state.settings.coreFeatures.terminal);
   const terminalHidden = useSettingsStore((state) =>
@@ -76,6 +79,13 @@ export function PluginActivityRail() {
       >
         <PuzzlePieceIcon className="size-5" />
       </Button>
+      {pluginWindows.map((window) => (
+        <Button key={`${window.pluginId}:${window.windowId}`} variant="ghost" size="icon-sm"
+          className={STRIPE_BUTTON_CLASS_NAME} tooltip={window.title} aria-label={window.title}
+          onClick={() => { void openDeclarativeWebWindow(window.pluginId, window.windowId).catch(console.error); }}>
+          <PuzzlePieceIcon className="size-5" />
+        </Button>
+      ))}
       <NotificationsTrigger className={STRIPE_BUTTON_CLASS_NAME} />
       <AgentTrigger className={STRIPE_BUTTON_CLASS_NAME} />
       {isMavenAvailable ? (

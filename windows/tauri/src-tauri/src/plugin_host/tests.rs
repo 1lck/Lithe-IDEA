@@ -494,3 +494,50 @@ fn bundled_php_contract_package_expands_plans() {
     .expect("resolve settings executes");
     assert_eq!(settings["status"], "ok", "{settings}");
 }
+
+/// A scan owns discovery and publication together, so the second discover
+/// cannot snapshot the old catalog and overwrite a newer published result.
+#[test]
+fn concurrent_catalog_refreshes_publish_in_discovery_order() {
+    use std::sync::{mpsc, Arc};
+    use std::time::Duration;
+    let state = Arc::new(super::PluginHostState::default());
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let (done_tx, done_rx) = mpsc::channel();
+    std::thread::scope(|scope| {
+        let first = state.clone();
+        let done = done_tx.clone();
+        scope.spawn(move || {
+            first
+                .refresh(|| {
+                    entered_tx.send(()).unwrap();
+                    release_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+                    Ok(Vec::new())
+                })
+                .unwrap();
+            done.send(()).unwrap();
+        });
+        entered_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        assert!(state.scan_lock.try_lock().is_err());
+        let second = state.clone();
+        scope.spawn(move || {
+            second
+                .refresh(|| {
+                    // This closure runs only after the first publication.
+                    assert!(second.scan_lock.try_lock().is_err());
+                    Ok(vec![scan_package_at(
+                        &PathBuf::from("catalog-new.plugin"),
+                        None,
+                    )])
+                })
+                .unwrap();
+            done_tx.send(()).unwrap();
+        });
+        release_tx.send(()).unwrap();
+        done_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        done_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+    });
+    assert_eq!(state.packages().len(), 1);
+    assert_eq!(state.packages()[0].entry.plugin_id, "catalog-new.plugin");
+}
