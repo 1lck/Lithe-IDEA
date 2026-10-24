@@ -505,10 +505,7 @@ async fn sql_database_method(method: &str, params: Params) -> DbResult {
     if let Some(direct) = direct {
         direct.close().await;
     }
-    if let Some(mut tunnel) = tunnel {
-        let _ = tunnel.child.kill();
-        let _ = tunnel.child.wait();
-    }
+    drop(tunnel);
     result
 }
 
@@ -522,10 +519,7 @@ async fn redis_method(method: &str, params: Params) -> DbResult {
         params.connection.clone()
     };
     let result = redis_method_with_connection(method, &params, &connection).await;
-    if let Some(mut tunnel) = tunnel {
-        let _ = tunnel.child.kill();
-        let _ = tunnel.child.wait();
-    }
+    drop(tunnel);
     result
 }
 
@@ -1026,10 +1020,7 @@ async fn nacos_method(method: &str, params: Params) -> DbResult {
         Ok(mut client) => nacos_method_with_client(method, &params, &connection, &mut client).await,
         Err(error) => Err(error),
     };
-    if let Some(mut tunnel) = tunnel {
-        let _ = tunnel.child.kill();
-        let _ = tunnel.child.wait();
-    }
+    drop(tunnel);
     result
 }
 
@@ -1689,6 +1680,17 @@ impl Connection {
 
 struct SshTunnel {
     child: Child,
+}
+
+/// Ends the `ssh` client once the method that opened the tunnel is done,
+/// whether it finished, returned early with an error, or was cancelled by
+/// dropping its future. Without this the client outlives the method and
+/// keeps holding the local port.
+impl Drop for SshTunnel {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
 }
 
 async fn open_ssh_tunnel(connection: &Connection) -> Result<Option<SshTunnel>, (String, String)> {
@@ -4197,6 +4199,17 @@ impl Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn dropping_a_tunnel_ends_its_ssh_client() {
+        let child = Command::new("sleep").arg("30").spawn().unwrap();
+        let pid = child.id().to_string();
+        drop(SshTunnel { child });
+        // The client was killed and reaped, so the PID no longer exists.
+        let alive = Command::new("kill").args(["-0", &pid]).status().unwrap();
+        assert!(!alive.success(), "ssh client {pid} outlived its tunnel");
+    }
 
     #[test]
     fn connections_read_the_proxy_url_lithe_sends() {
