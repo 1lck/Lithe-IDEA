@@ -299,14 +299,32 @@ final class MacServiceContainer {
         // first project window creates them, and every window registers the
         // same startup snapshot. Nothing starts until a page calls one.
         let pluginBackends = MacPluginBackendSessions.shared {
-            MacPluginBackendSessions(
+            // The former built-in database module's connections and
+            // passwords move into the database plugin before its backend
+            // first starts; the old data is read, never changed.
+            let databaseKeychain = MacKeychainSecureStore(service: fileStorage.identity.keychainService("database"))
+            let databaseMigration = MacDatabasePluginMigration(
+                preferences: store,
+                legacyPassword: { [secureStore] key in databaseKeychain.read(key: key) ?? secureStore.read(key: key) },
+                credentials: pluginCredentials,
+                log: { [applicationLogging] message in
+                    applicationLogging?.record(level: "warn", scope: "plugins.migration", message: message, fields: [:])
+                }
+            )
+            return MacPluginBackendSessions(
                 launchResolver: pluginLaunchResolver,
                 tools: MacBuildToolResolver(runtime: runtimeService, processRunner: processRunner, fileStorage: fileStorage),
                 versionChecker: declarativePluginOperations,
                 runtime: runtimeService,
                 core: rustCore,
                 processRegistry: processRegistry,
-                credentials: pluginCredentials
+                credentials: pluginCredentials,
+                prepareState: { [applicationLogging] pluginID, stateDirectory in
+                    if case let .migrated(profiles, passwords) = databaseMigration.prepare(pluginID: pluginID, stateDirectory: stateDirectory) {
+                        applicationLogging?.record(level: "info", scope: "plugins.migration", message: "database connections moved into the plugin",
+                            fields: ["profiles": String(profiles), "passwords": String(passwords)])
+                    }
+                }
             )
         }
         pluginBackends.register(pluginStartup.registeredPlugins)

@@ -33,6 +33,25 @@ struct MacPluginBackendSessionsTests {
         #expect(FileManager.default.fileExists(atPath: stateDirectory.path))
     }
 
+    /// Host migrations into a plugin's state finish before its backend
+    /// starts, once per start, with the backend's own state directory.
+    @Test
+    func stateIsPreparedBeforeTheBackendStarts() async throws {
+        let prepared = PreparedStates()
+        let fixture = try BackendFixture { pluginID, stateDirectory in
+            try? FileManager.default.createDirectory(at: stateDirectory, withIntermediateDirectories: true)
+            try? Data("moved".utf8).write(to: stateDirectory.appendingPathComponent("migrated.json"))
+            prepared.record(pluginID: pluginID, stateDirectory: stateDirectory)
+        }
+        defer { fixture.remove() }
+
+        _ = try await fixture.sessions.pluginFunctions(ofPlugin: BackendFixture.pluginID)
+
+        let stateDirectory = try #require(fixture.core.starts.first?.rootURL)
+        #expect(prepared.calls == [.init(pluginID: BackendFixture.pluginID, path: stateDirectory.standardizedFileURL.path)])
+        #expect(FileManager.default.fileExists(atPath: stateDirectory.appendingPathComponent("migrated.json").path))
+    }
+
     /// A credential request is answered from the plugin's own entries, and
     /// a store failure reaches the backend without the secret.
     @Test
@@ -126,6 +145,23 @@ private struct FailingCredentialStore: PluginCredentialStoring {
     func deleteAll(pluginID _: String) throws { throw Locked() }
 }
 
+/// The state preparations a fixture's sessions ran, from any thread.
+private final class PreparedStates: @unchecked Sendable {
+    struct Call: Equatable {
+        let pluginID: String
+        let path: String
+    }
+
+    private let lock = NSLock()
+    private var recorded: [Call] = []
+
+    var calls: [Call] { lock.withLock { recorded } }
+
+    func record(pluginID: String, stateDirectory: URL) {
+        lock.withLock { recorded.append(Call(pluginID: pluginID, path: stateDirectory.standardizedFileURL.path)) }
+    }
+}
+
 /// The backend fixture of the shared contract as an installed package.
 @MainActor
 private struct BackendFixture {
@@ -138,7 +174,7 @@ private struct BackendFixture {
     let core = ScriptedBackendCore()
     let sessions: MacPluginBackendSessions
 
-    init() throws {
+    init(prepareState: @escaping @Sendable (_ pluginID: String, _ stateDirectory: URL) -> Void = { _, _ in }) throws {
         root = FileManager.default.temporaryDirectory
             .appendingPathComponent("lithe-plugin-backend-\(UUID().uuidString)", isDirectory: true)
         packageURL = root.appendingPathComponent("package", isDirectory: true)
@@ -169,6 +205,7 @@ private struct BackendFixture {
             core: core,
             processRegistry: nil,
             credentials: credentials,
+            prepareState: prepareState,
             endBackendProcesses: { _, _ in }
         )
         sessions.register([InstalledPluginPackage(

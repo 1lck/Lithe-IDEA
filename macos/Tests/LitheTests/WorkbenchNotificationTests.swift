@@ -3,6 +3,7 @@ import AppKit
 import SwiftUI
 import Testing
 @testable import Lithe
+import LitheModuleAPI
 
 @Suite("Workbench notifications", .serialized)
 @MainActor
@@ -28,6 +29,44 @@ struct WorkbenchNotificationTests {
             #expect(WorkbenchNotificationPresentation.message(notification.message, arguments: notification.arguments,
                 occurrenceCount: notification.occurrenceCount, locale: Locale(identifier: language), bundle: bundle) == expected)
         }
+    }
+
+    /// A notification with an action never times out; using the action
+    /// runs it, closes the balloon, and keeps the history entry.
+    @Test
+    func anActionStaysUntilUsed() {
+        let clock = NotificationTestClock()
+        let feature = WorkbenchNotificationFeatureModel(now: { clock.now }, sleep: { try await clock.sleep($0) })
+        defer { feature.clear(); clock.releaseAll() }
+        var opened = 0
+        feature.show("Database is now a plugin.", arguments: [],
+                     action: WorkbenchNotification.Action(title: "Open Marketplace") { opened += 1 })
+        #expect(clock.pending.isEmpty)
+        clock.advance(.seconds(100))
+        let id = feature.activeNotifications[0].id
+        #expect(feature.activeNotifications.count == 1)
+
+        feature.perform(id)
+        #expect(opened == 1)
+        #expect(feature.activeNotifications.isEmpty)
+        #expect(feature.notifications.first?.isRead == true)
+        #expect(feature.notifications.first?.action?.title == "Open Marketplace")
+    }
+
+    @Test
+    func theDatabasePluginIsSuggestedOnceToPeopleWithSavedConnections() throws {
+        let store = NotificationTestStore()
+        let none = Set<PluginID>()
+        #expect(!DatabasePluginTransition.shouldSuggest(store: store, installedPluginIDs: none))
+        store.set(try JSONSerialization.data(withJSONObject: []), forKey: DatabasePluginTransition.legacyProfilesKey)
+        #expect(!DatabasePluginTransition.shouldSuggest(store: store, installedPluginIDs: none))
+        store.set(try JSONSerialization.data(withJSONObject: [["id": "A", "name": "Production"]]),
+                  forKey: DatabasePluginTransition.legacyProfilesKey)
+        #expect(DatabasePluginTransition.shouldSuggest(store: store, installedPluginIDs: none))
+        #expect(!DatabasePluginTransition.shouldSuggest(store: store,
+            installedPluginIDs: [OfficialPluginCatalog.databasePluginID]))
+        store.set(true, forKey: DatabasePluginTransition.suggestionKey)
+        #expect(!DatabasePluginTransition.shouldSuggest(store: store, installedPluginIDs: none))
     }
 
     @Test func mavenRuntimeErrorUsesApplicationLanguage() throws {
@@ -442,6 +481,15 @@ private final class NotificationTestClock {
 private final class WorkbenchNotificationTestStore: KeyValueStore, @unchecked Sendable {
     private var values: [String: Any] = [:]
 
+    func data(forKey key: String) -> Data? { values[key] as? Data }
+    func object(forKey key: String) -> Any? { values[key] }
+    func string(forKey key: String) -> String? { values[key] as? String }
+    func stringArray(forKey key: String) -> [String]? { values[key] as? [String] }
+    func set(_ value: Any?, forKey key: String) { values[key] = value }
+}
+
+private final class NotificationTestStore: KeyValueStore {
+    private var values: [String: Any] = [:]
     func data(forKey key: String) -> Data? { values[key] as? Data }
     func object(forKey key: String) -> Any? { values[key] }
     func string(forKey key: String) -> String? { values[key] as? String }

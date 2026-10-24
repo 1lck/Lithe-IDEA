@@ -44,10 +44,14 @@ struct PluginManagerTests {
         let officialLanguagePlugins = try ["GoSupport", "JavaSupport", "PhpSupport"].map {
             try DeclarativePluginTestSupport.officialDescriptor($0).pluginManifest
         }
-        #expect(Set(officialLanguagePlugins.map(\.id)) == Set(OfficialPluginCatalog.entries.map(\.id)))
+        #expect(Set(officialLanguagePlugins.map(\.id)) == Set(OfficialPluginCatalog.entries.filter { $0.language != nil }.map(\.id)))
         // Go and PHP moved to Lithe Store: installed copies keep their pinned
         // publisher signature, but the host no longer suggests them.
-        #expect(OfficialPluginCatalog.publishedEntries.map(\.id) == [OfficialPluginCatalog.javaPluginID])
+        #expect(OfficialPluginCatalog.publishedEntries.map(\.id)
+            == [OfficialPluginCatalog.databasePluginID, OfficialPluginCatalog.javaPluginID])
+        // Database supports no language and must carry a publisher signature.
+        #expect(OfficialPluginCatalog.entry(for: OfficialPluginCatalog.databasePluginID)?.language == nil)
+        #expect(OfficialPluginCatalog.entry(for: OfficialPluginCatalog.databasePluginID)?.signatureRequirement == .publisherPackage)
         #expect(OfficialPluginCatalog.entry(for: OfficialPluginCatalog.goPluginID)?.communityReplacementID
             == PluginID("io.github.lithe-idea.go-support"))
         #expect(OfficialPluginCatalog.entry(for: OfficialPluginCatalog.phpPluginID)?.communityReplacementID

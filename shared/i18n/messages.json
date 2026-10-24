@@ -84538,6 +84538,28 @@
       "windows": {
         "key": "When to run"
       }
+    },
+    {
+      "id": "native.databaseIsNowAPluginInstallItFromTheMarketplace",
+      "description": "Native UI: Database is now a plugin. Install it from the Marketplace, and your saved connections and passwords move into it.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Database is now a plugin. Install it from the Marketplace, and your saved connections and passwords move into it.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.openMarketplace",
+      "description": "Native UI: Open Marketplace",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Open Marketplace",
+        "arguments": []
+      }
     }
   ]
 }

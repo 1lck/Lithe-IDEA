@@ -47,6 +47,7 @@ final class MacPluginBackendSessions: PluginBackendRequesting {
     private let core: any LanguageServerRuntimeCore
     private weak var processRegistry: (any LanguageServerProcessRegistry)?
     private let credentials: any PluginCredentialStoring
+    private let prepareState: @Sendable (_ pluginID: String, _ stateDirectory: URL) -> Void
     private let endBackendProcesses: @MainActor (_ token: String, _ immediately: Bool) -> Void
     private let stuckSendGrace: Duration
     private var packages: [String: Package] = [:]
@@ -76,6 +77,7 @@ final class MacPluginBackendSessions: PluginBackendRequesting {
         core: any LanguageServerRuntimeCore,
         processRegistry: (any LanguageServerProcessRegistry)?,
         credentials: any PluginCredentialStoring,
+        prepareState: @escaping @Sendable (_ pluginID: String, _ stateDirectory: URL) -> Void = { _, _ in },
         stuckSendGrace: Duration = .seconds(2),
         endBackendProcesses: @escaping @MainActor (_ token: String, _ immediately: Bool) -> Void = { token, immediately in
             MacPluginBackendProcesses.end(
@@ -91,6 +93,7 @@ final class MacPluginBackendSessions: PluginBackendRequesting {
         self.core = core
         self.processRegistry = processRegistry
         self.credentials = credentials
+        self.prepareState = prepareState
         self.stuckSendGrace = stuckSendGrace
         self.endBackendProcesses = endBackendProcesses
     }
@@ -204,6 +207,14 @@ final class MacPluginBackendSessions: PluginBackendRequesting {
         pluginID: String,
         entry: Running
     ) async throws -> LanguageServerRuntimeSession {
+        // Data the host moves into a plugin lands before its backend reads
+        // its state. The work touches files and the Keychain, so it runs
+        // off the main actor.
+        let prepareState = prepareState
+        let stateDirectory = backend.stateDirectory
+        await Task.detached(priority: .userInitiated) { prepareState(pluginID, stateDirectory) }.value
+        try Task.checkCancellation()
+        guard running[pluginID] === entry else { throw CancellationError() }
         var (executableURL, environment) = try await resolveExecutable(backend.process, directory: backend.stateDirectory)
         try Task.checkCancellation()
         guard running[pluginID] === entry else { throw CancellationError() }

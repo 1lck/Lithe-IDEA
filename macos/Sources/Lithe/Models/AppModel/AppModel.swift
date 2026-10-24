@@ -589,6 +589,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
             guard let self, let root = self.workspaceURL else { return }
             self.searchFeatureIfActive?.invalidateIndex(at: root, visibilityRules: self.settings.searchEverywhereVisibilityRules.searchRules)
         }
+        suggestDatabasePluginIfNeeded()
         detectedAIConfigurations = loadAIConfigurations()
         let activeProviderHasAPIKey = settings.activeCommitMessageProvider
             .flatMap { services.credentialResolver.readAPIKey(for: $0) }

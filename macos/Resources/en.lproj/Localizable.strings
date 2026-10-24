@@ -944,6 +944,7 @@
 "Data Tools" = "Data Tools";
 "Database" = "Database";
 "Database Overview" = "Database Overview";
+"Database is now a plugin. Install it from the Marketplace, and your saved connections and passwords move into it." = "Database is now a plugin. Install it from the Marketplace, and your saved connections and passwords move into it.";
 "Database types" = "Database types";
 "Date" = "Date";
 "Debug" = "Debug";
@@ -2233,6 +2234,7 @@
 "Open GitHub profile" = "Open GitHub profile";
 "Open HTML in Browser" = "Open HTML in Browser";
 "Open Log Directory" = "Open Log Directory";
+"Open Marketplace" = "Open Marketplace";
 "Open Patch…" = "Open Patch…";
 "Open Plugin Management" = "Open Plugin Management";
 "Open Project" = "Open Project";
@@ -4755,6 +4757,7 @@
 "native.dataSource" = "Data Source";
 "native.dataTools" = "Data Tools";
 "native.database" = "Database";
+"native.databaseIsNowAPluginInstallItFromTheMarketplace" = "Database is now a plugin. Install it from the Marketplace, and your saved connections and passwords move into it.";
 "native.databaseOverview" = "Database Overview";
 "native.databaseTypes" = "Database types";
 "native.date" = "Date";
@@ -6250,6 +6253,7 @@
 "native.openInNewWindow" = "Open in New Window";
 "native.openInRightSplit" = "Open in Right Split";
 "native.openLogDirectory" = "Open Log Directory";
+"native.openMarketplace" = "Open Marketplace";
 "native.openModulePomXml" = "Open module pom.xml";
 "native.openNotificationHistory" = "Open notification history";
 "native.openPagesClickTypeAndInspectABrowserThroughItsAccessibilityTree" = "Open pages, click, type and inspect a browser through its accessibility tree.";

@@ -944,6 +944,7 @@
 "Data Tools" = "数据工具";
 "Database" = "数据库连接";
 "Database Overview" = "数据库概览";
+"Database is now a plugin. Install it from the Marketplace, and your saved connections and passwords move into it." = "数据库已改为插件。从插件市场安装后，已保存的连接和密码会自动迁入。";
 "Database types" = "数据库类型";
 "Date" = "日期";
 "Debug" = "调试";
@@ -2233,6 +2234,7 @@
 "Open GitHub profile" = "打开 GitHub 个人主页";
 "Open HTML in Browser" = "在系统浏览器中打开";
 "Open Log Directory" = "打开日志目录";
+"Open Marketplace" = "打开插件市场";
 "Open Patch…" = "打开补丁…";
 "Open Plugin Management" = "打开插件管理";
 "Open Project" = "打开项目";
@@ -4755,6 +4757,7 @@
 "native.dataSource" = "数据源";
 "native.dataTools" = "数据工具";
 "native.database" = "数据库连接";
+"native.databaseIsNowAPluginInstallItFromTheMarketplace" = "数据库已改为插件。从插件市场安装后，已保存的连接和密码会自动迁入。";
 "native.databaseOverview" = "数据库概览";
 "native.databaseTypes" = "数据库类型";
 "native.date" = "日期";
@@ -6250,6 +6253,7 @@
 "native.openInNewWindow" = "在新窗口中打开";
 "native.openInRightSplit" = "在右侧分栏打开";
 "native.openLogDirectory" = "打开日志目录";
+"native.openMarketplace" = "打开插件市场";
 "native.openModulePomXml" = "打开所属模块的 pom.xml";
 "native.openNotificationHistory" = "打开通知历史";
 "native.openPagesClickTypeAndInspectABrowserThroughItsAccessibilityTree" = "打开网页、点击、输入，并通过无障碍树读取浏览器页面。";

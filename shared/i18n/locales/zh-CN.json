@@ -9077,7 +9077,9 @@
     "windows.whenASessionStarts": "会话开始时",
     "windows.whenATurnEnds": "一轮结束时",
     "windows.whenSubmittingAPrompt": "提交提示词时",
-    "windows.whenToRun": "何时运行"
+    "windows.whenToRun": "何时运行",
+    "native.databaseIsNowAPluginInstallItFromTheMarketplace": "数据库已改为插件。从插件市场安装后，已保存的连接和密码会自动迁入。",
+    "native.openMarketplace": "打开插件市场"
   },
   "overrides": {
     "macos": {

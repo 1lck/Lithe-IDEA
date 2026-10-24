@@ -9077,7 +9077,9 @@
     "windows.whenASessionStarts": "When a session starts",
     "windows.whenATurnEnds": "When a turn ends",
     "windows.whenSubmittingAPrompt": "When submitting a prompt",
-    "windows.whenToRun": "When to run"
+    "windows.whenToRun": "When to run",
+    "native.databaseIsNowAPluginInstallItFromTheMarketplace": "Database is now a plugin. Install it from the Marketplace, and your saved connections and passwords move into it.",
+    "native.openMarketplace": "Open Marketplace"
   },
   "overrides": {
     "windows": {
