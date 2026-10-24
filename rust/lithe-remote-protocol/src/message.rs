@@ -32,6 +32,12 @@ pub enum Message {
         event: String,
         #[serde(default)]
         params: Value,
+        /// Position in the session's event stream, increasing by one per
+        /// event. Clients acknowledge it with `server.ack` and resume after
+        /// it with `server.resume`, so no event is lost or repeated across a
+        /// reconnection.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        seq: Option<u64>,
     },
 }
 
@@ -164,7 +170,8 @@ mod tests {
             event,
             Message::Event {
                 event: "process.exit".into(),
-                params: Value::Null
+                params: Value::Null,
+                seq: None,
             }
         );
     }

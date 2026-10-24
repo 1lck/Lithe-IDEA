@@ -28,8 +28,18 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-/// Bound for the proxy to see a freshly started daemon's socket.
-const DAEMON_START_TIMEOUT: Duration = Duration::from_secs(5);
+/// Bound for the proxy to see a freshly started daemon's socket. It covers a
+/// predecessor that is still ending its session (terminating process groups
+/// and draining requests takes up to about 13 seconds) before the new daemon
+/// can take the lock.
+const DAEMON_START_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Bound for a new daemon to wait for a predecessor's lock.
+const LOCK_WAIT_TIMEOUT: Duration = Duration::from_secs(25);
+
+/// Pause after a failed `accept`, such as `EMFILE`, which otherwise repeats
+/// immediately and spins.
+const ACCEPT_FAILURE_BACKOFF: Duration = Duration::from_millis(200);
 const DAEMON_START_POLL: Duration = Duration::from_millis(20);
 
 /// Longest wait for a connection before the daemon re-checks its idle
@@ -228,16 +238,14 @@ fn relay(stream: UnixStream) -> io::Result<()> {
 /// Implements `--daemon`: serves the persistent session for `options.key`.
 pub fn run_daemon(options: &PersistentOptions) -> io::Result<()> {
     let paths = options.paths()?;
-    // The lock decides which daemon owns the key. A second daemon, started
-    // by a racing proxy, exits here and that proxy connects to the first.
+    // The lock decides which daemon owns the key.
     let lock = OpenOptions::new()
         .create(true)
         .truncate(false)
         .write(true)
         .mode(0o600)
         .open(&paths.lock)?;
-    // SAFETY: flock on a descriptor this process owns.
-    if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == -1 {
+    if !acquire_lock(&lock, &paths.socket) {
         return Ok(());
     }
     write_pid(&lock)?;
@@ -252,12 +260,23 @@ pub fn run_daemon(options: &PersistentOptions) -> io::Result<()> {
     listener.set_nonblocking(true)?;
 
     let session = Session::new(true)?;
+    let shutdown = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    {
+        // A client that reconnects right after `server.shutdown` must not
+        // reach this ending session: the socket disappears before the
+        // response, so its proxy starts a new daemon, which waits for the lock.
+        let socket = paths.socket.clone();
+        let shutdown = Arc::clone(&shutdown);
+        session.set_shutdown_hook(move || {
+            shutdown.store(true, Ordering::Release);
+            let _ = fs::remove_file(socket);
+        });
+    }
     let attached = Arc::new(AtomicUsize::new(0));
     // The attached connection's id and a copy of its socket, kept so that a
     // replacing connection can disconnect it.
     let current: Arc<Mutex<Option<(u64, UnixStream)>>> = Arc::new(Mutex::new(None));
     let mut next_connection: u64 = 0;
-    let shutdown = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let mut idle_since = Instant::now();
 
     while !shutdown.load(Ordering::Acquire) {
@@ -319,7 +338,12 @@ pub fn run_daemon(options: &PersistentOptions) -> io::Result<()> {
                 }
                 wait_for_connection(&listener, IDLE_CHECK_INTERVAL);
             }
-            Err(error) => eprintln!("lithe-remote-server: accept failed: {error}"),
+            Err(error) => {
+                // Persistent failures such as EMFILE return immediately; the
+                // pause keeps the loop from spinning and flooding the log.
+                eprintln!("lithe-remote-server: accept failed: {error}");
+                thread::sleep(ACCEPT_FAILURE_BACKOFF);
+            }
         }
     }
 
@@ -330,6 +354,29 @@ pub fn run_daemon(options: &PersistentOptions) -> io::Result<()> {
     }
     drop(lock);
     Ok(())
+}
+
+/// Takes the exclusive lock for the key. Another daemon holding it is either
+/// serving the key, then this daemon is redundant and exits, or ending its
+/// session after removing the socket, then this daemon waits for it so the
+/// proxy that started it finds a fresh session instead of nothing.
+fn acquire_lock(lock: &File, socket: &Path) -> bool {
+    let deadline = Instant::now() + LOCK_WAIT_TIMEOUT;
+    loop {
+        // SAFETY: flock on a descriptor this process owns.
+        if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
+            return true;
+        }
+        if UnixStream::connect(socket).is_ok() {
+            eprintln!("lithe-remote-server: another daemon serves this session; exiting");
+            return false;
+        }
+        if Instant::now() >= deadline {
+            eprintln!("lithe-remote-server: the previous daemon did not release the session lock");
+            return false;
+        }
+        thread::sleep(DAEMON_START_POLL);
+    }
 }
 
 fn wait_for_connection(listener: &UnixListener, timeout: Duration) {

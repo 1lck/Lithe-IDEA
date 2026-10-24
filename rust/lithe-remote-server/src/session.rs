@@ -29,6 +29,27 @@ pub(crate) const TERMINATION_GRACE: Duration = Duration::from_secs(2);
 /// request moves at most 8 MiB, so a healthy disk finishes well within this.
 const WORKER_DRAIN_GRACE: Duration = Duration::from_secs(5);
 
+/// How often sessions kept for their remaining members are checked. A
+/// process id can only be reused after its session emptied, so forgetting an
+/// emptied session promptly keeps a later signal from reaching an unrelated
+/// process that received the same id.
+const REAP_INTERVAL: Duration = Duration::from_millis(500);
+
+/// Prunes emptied sessions until the session is dropped.
+fn start_reaper(session: std::sync::Weak<Session>) -> std::io::Result<()> {
+    std::thread::Builder::new()
+        .name("remote-reaper".into())
+        .spawn(move || loop {
+            std::thread::sleep(REAP_INTERVAL);
+            let Some(session) = session.upgrade() else {
+                return;
+            };
+            session.processes.reap();
+            session.terminals.reap();
+        })
+        .map(|_| ())
+}
+
 pub(crate) struct Session {
     pub(crate) persistent: bool,
     pub(crate) link: Link,
@@ -47,13 +68,16 @@ pub(crate) struct Session {
     had_client: AtomicBool,
     next_connection: AtomicU64,
     idle_timeout: Mutex<Duration>,
+    /// Runs once when a client requests `server.shutdown`, before the
+    /// response. The daemon uses it to stop being reachable at once.
+    shutdown_hook: Mutex<Option<Box<dyn FnOnce() + Send>>>,
 }
 
 impl Session {
     pub(crate) fn new(persistent: bool) -> std::io::Result<Arc<Self>> {
-        Ok(Arc::new(Self {
+        let session = Arc::new(Self {
             persistent,
-            link: Link::new(persistent),
+            link: Link::new(),
             spawner: Spawner::new()?,
             ids: IdWatermark::default(),
             environment: EnvironmentCache::default(),
@@ -66,7 +90,21 @@ impl Session {
             had_client: AtomicBool::new(false),
             next_connection: AtomicU64::new(0),
             idle_timeout: Mutex::new(DEFAULT_IDLE_TIMEOUT),
-        }))
+            shutdown_hook: Mutex::new(None),
+        });
+        start_reaper(Arc::downgrade(&session))?;
+        Ok(session)
+    }
+
+    pub(crate) fn set_shutdown_hook(&self, hook: impl FnOnce() + Send + 'static) {
+        *crate::lock(&self.shutdown_hook) = Some(Box::new(hook));
+    }
+
+    /// Called for `server.shutdown` before it is answered.
+    pub(crate) fn begin_shutdown(&self) {
+        if let Some(hook) = crate::lock(&self.shutdown_hook).take() {
+            hook();
+        }
     }
 
     pub(crate) fn next_connection_id(&self) -> u64 {

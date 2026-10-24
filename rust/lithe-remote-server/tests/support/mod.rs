@@ -21,6 +21,7 @@ pub fn options() -> ConnectOptions {
         client_name: "lithe-remote-server-tests".into(),
         handshake_timeout: STEP_TIMEOUT,
         idle_timeout: None,
+        ..ConnectOptions::default()
     }
 }
 
@@ -136,7 +137,19 @@ impl Daemon {
     pub fn connect(&self, idle_timeout: Option<Duration>) -> (RemoteSession, Receiver<Event>) {
         let mut options = options();
         options.idle_timeout = idle_timeout;
-        RemoteSession::connect(&TransportChain::local(), &self.command(), &options).unwrap_or_else(
+        self.connect_with(&options)
+    }
+
+    /// Connects without starting event delivery; the caller subscribes and
+    /// then calls `resume`, as a reconnecting client does.
+    pub fn connect_deferred(&self) -> (RemoteSession, Receiver<Event>) {
+        let mut options = options();
+        options.resume = lithe_remote_client::ResumeMode::Deferred;
+        self.connect_with(&options)
+    }
+
+    pub fn connect_with(&self, options: &ConnectOptions) -> (RemoteSession, Receiver<Event>) {
+        RemoteSession::connect(&TransportChain::local(), &self.command(), options).unwrap_or_else(
             |error| panic!("connect to the persistent session: {error}\n{}", self.log()),
         )
     }

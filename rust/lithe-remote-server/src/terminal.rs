@@ -9,8 +9,8 @@ use crate::connection::Context;
 use crate::fs::host_path;
 use crate::platform::{self, ChildKind};
 use crate::process::{
-    exit_parts, prune, queue_input, spawn_error, start_input_writer, terminate_groups, Leader,
-    OutputGate,
+    exit_parts, has_exited_leaders, prune, queue_input, spawn_error, start_input_writer,
+    terminate_groups, Leader, OutputGate,
 };
 use crate::resources::Registry;
 use crate::session::{Session, TERMINATION_GRACE};
@@ -252,6 +252,7 @@ impl TerminalTable {
     /// whole session, including background jobs, and `SIGKILL` after a grace
     /// period to whatever ignored it.
     fn close(&self, session: &Arc<Session>, params: TerminalParams) -> Result<(), RemoteError> {
+        prune(&self.registry, |terminal| &terminal.leader);
         let pid = {
             let mut terminals = self.registry.lock();
             let terminal = terminals
@@ -280,13 +281,20 @@ impl TerminalTable {
                 // Jobs that are not the server's children report no exit, so
                 // the wait also wakes periodically to re-check the session.
                 let remaining = deadline.saturating_duration_since(std::time::Instant::now());
-                terminals.wait_for_change(remaining.min(std::time::Duration::from_millis(20)));
+                terminals.wait_for_change(remaining.min(crate::process::SESSION_POLL_INTERVAL));
             }
             if owned() {
                 let _ = platform::signal_session(pid, libc::SIGKILL);
             }
         });
         Ok(())
+    }
+
+    /// Forgets sessions that emptied after their shell exited.
+    pub(crate) fn reap(&self) {
+        if has_exited_leaders(&self.registry, |terminal| &terminal.leader) {
+            prune(&self.registry, |terminal| &terminal.leader);
+        }
     }
 
     pub(crate) fn terminate_all(&self, grace: std::time::Duration) {

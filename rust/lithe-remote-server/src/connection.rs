@@ -1,16 +1,19 @@
 //! One client connection: handshake, request routing and the writer thread.
 //!
 //! Requests that change a running resource in order (terminal input, standard
-//! input, resizes, kills) run inline on the reading thread, so they are applied
+//! input, resizes) run inline on the reading thread, so they are applied
 //! exactly in the order the client sent them. They never block: each one only
-//! queues data or sends a signal. Requests that can take time run on worker
-//! threads and may complete in any order.
+//! queues data. Requests that can take time run on worker threads and may
+//! complete in any order; `process.kill` and `terminal.close` are among them
+//! because finding every member of a session scans the process table.
 
 use crate::link::{Outbox, Outgoing};
 use crate::session::Session;
 use crate::{environment, fs, parse, platform, ports, to_value};
 use lithe_remote_protocol::frame::{read_frame, write_frame};
-use lithe_remote_protocol::methods::{self, HelloParams, HelloResult, SessionInfo};
+use lithe_remote_protocol::methods::{
+    self, AckParams, HelloParams, HelloResult, ResumeParams, ResumeResult, SessionInfo,
+};
 use lithe_remote_protocol::{ErrorCode, Message, RemoteError, PREAMBLE, PROTOCOL_VERSION};
 use serde_json::{json, Value};
 use std::io::{self, Read, Write};
@@ -56,7 +59,8 @@ pub(crate) fn serve(
         connection: session.next_connection_id(),
     };
     let mut input = io::BufReader::new(input);
-    let mut attached = false;
+    let mut handshaken = false;
+    let mut resumed = false;
     let mut ended = Ended::Disconnected;
 
     loop {
@@ -81,9 +85,9 @@ pub(crate) fn serve(
             }
         };
 
-        if !attached {
+        if !handshaken {
             if method == methods::SERVER_HELLO {
-                attached = hello(&context, id, params, &outbox);
+                handshaken = hello(&context, id, params, &outbox);
             } else {
                 outbox.send(Message::failure(
                     id,
@@ -99,7 +103,28 @@ pub(crate) fn serve(
                     RemoteError::new(ErrorCode::InvalidRequest, "already said hello"),
                 ));
             }
+            methods::SERVER_RESUME if resumed => {
+                outbox.send(Message::failure(
+                    id,
+                    RemoteError::new(ErrorCode::InvalidRequest, "already resumed"),
+                ));
+            }
+            methods::SERVER_RESUME => match parse::<ResumeParams>(params) {
+                Ok(params) => {
+                    resumed = true;
+                    session.link.resume(
+                        context.connection,
+                        outbox.clone(),
+                        params.after_seq.unwrap_or(0),
+                        |truncated| respond(id, to_value(ResumeResult { truncated })),
+                    );
+                }
+                Err(error) => {
+                    outbox.send(Message::failure(id, error));
+                }
+            },
             methods::SERVER_SHUTDOWN => {
+                session.begin_shutdown();
                 outbox.send(Message::success(id, Value::Null));
                 ended = Ended::Shutdown;
                 break;
@@ -122,7 +147,7 @@ pub(crate) fn serve(
     }
 }
 
-/// Handles `server.hello` and attaches the connection to the session.
+/// Handles `server.hello`. Events start flowing only after `server.resume`.
 /// Returns whether the handshake succeeded.
 fn hello(context: &Context, id: u64, params: Value, outbox: &Outbox) -> bool {
     let params: HelloParams = match parse(params) {
@@ -151,24 +176,20 @@ fn hello(context: &Context, id: u64, params: Value, outbox: &Outbox) -> bool {
         session.set_idle_timeout(seconds);
     }
     let resumed = session.mark_client();
-    session
-        .link
-        .attach(context.connection, outbox.clone(), |truncated| {
-            respond(
-                id,
-                to_value(HelloResult {
-                    protocol_version: PROTOCOL_VERSION,
-                    server_version: env!("CARGO_PKG_VERSION").into(),
-                    host: platform::host_capabilities(),
-                    session: SessionInfo {
-                        persistent: session.persistent,
-                        resumed,
-                        replay_truncated: truncated,
-                        next_resource_id: session.ids.next(),
-                    },
-                }),
-            )
-        });
+    outbox.send(respond(
+        id,
+        to_value(HelloResult {
+            protocol_version: PROTOCOL_VERSION,
+            server_version: env!("CARGO_PKG_VERSION").into(),
+            host: platform::host_capabilities(),
+            session: SessionInfo {
+                persistent: session.persistent,
+                resumed,
+                next_resource_id: session.ids.next(),
+                last_event_seq: session.link.last_seq(),
+            },
+        }),
+    ));
     true
 }
 
@@ -177,13 +198,13 @@ fn is_inline(method: &str) -> bool {
         method,
         methods::SERVER_PING
             | methods::SERVER_STATE
+            | methods::SERVER_ACK
             | methods::PROCESS_WRITE_STDIN
             | methods::PROCESS_CLOSE_STDIN
-            | methods::PROCESS_KILL
             | methods::TERMINAL_WRITE
             | methods::TERMINAL_RESIZE
-            | methods::TERMINAL_CLOSE
             | methods::TUNNEL_WRITE
+            | methods::TUNNEL_SHUTDOWN_WRITE
             | methods::TUNNEL_CLOSE
             | methods::WATCH_STOP
             | methods::WALK_CANCEL
@@ -195,6 +216,11 @@ fn handle(context: &Context, method: &str, params: Value) -> Result<Value, Remot
     match method {
         methods::SERVER_PING => Ok(json!({})),
         methods::SERVER_STATE => to_value(session.state()),
+        methods::SERVER_ACK => {
+            let params: AckParams = parse(params)?;
+            session.link.acknowledge(params.seq);
+            Ok(Value::Null)
+        }
         method if method.starts_with("fs.") => fs::handle(method, params),
         method if method.starts_with("walk.") => session.walks.handle(context, method, params),
         method if method.starts_with("watch.") => session.watches.handle(context, method, params),

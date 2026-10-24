@@ -24,5 +24,5 @@ pub mod transport;
 pub use api::{SpawnSpec, TerminalSpec, WriteOptions};
 pub use bootstrap::{Bootstrapper, InstallLocation, ServerArtifact, ServerTarget};
 pub use forward::PortForward;
-pub use session::{ClientError, ConnectOptions, Event, RemoteSession};
+pub use session::{ClientError, ConnectOptions, Event, RemoteSession, ResumeMode};
 pub use transport::{ContainerEngine, ContainerHop, Hop, SshHop, TransportChain, TransportError};

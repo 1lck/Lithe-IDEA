@@ -38,14 +38,16 @@ uses this stream.
 {"type": "request", "id": 1, "method": "fs.stat", "params": {"path": "/srv"}}
 {"type": "response", "id": 1, "result": {"kind": "directory", "size": 4096, "modifiedMs": 1761300000000, "readonly": false, "mode": 493}}
 {"type": "response", "id": 2, "error": {"code": "NOT_FOUND", "message": "…", "details": {"path": "/x", "osError": 2}}}
-{"type": "event", "event": "process.exit", "params": {"processId": 1, "exitCode": 0, "signal": null}}
+{"type": "event", "event": "process.exit", "params": {"processId": 1, "exitCode": 0, "signal": null}, "seq": 42}
 ```
 
 - Request `id`s are chosen by the client and unique per connection.
   Responses may arrive in any order. A client that stops waiting discards a
   late response.
 - The first request must be `server.hello`; anything earlier fails with
-  `INVALID_REQUEST`.
+  `INVALID_REQUEST`. Events reach a connection only after it calls
+  `server.resume`, once.
+- Every event carries `seq`, increasing by one per event in the session.
 - Field names are camelCase. Byte payloads (`data`) are standard Base64.
 - Paths are absolute paths on the remote host. Relative paths fail with
   `INVALID_PATH`.
@@ -72,6 +74,8 @@ subscribe before creating the resource.
 | Method | Params | Result |
 | --- | --- | --- |
 | `server.hello` | `protocolVersion`, `clientName`, `idleTimeoutSeconds?` | `protocolVersion`, `serverVersion`, `host`, `session` |
+| `server.resume` | `afterSeq?` | `truncated`; then every kept event after `afterSeq`, followed by live events |
+| `server.ack` | `seq` | `null`; events up to `seq` may be forgotten |
 | `server.shutdown` | — | `null`; the session ends |
 | `server.ping` | — | `{}` |
 | `server.state` | — | running `processes`, `terminals`, `watches` |
@@ -82,7 +86,7 @@ subscribe before creating the resource.
 | `fs.createDir` | `path`, `recursive` | `null` |
 | `fs.remove` | `path`, `recursive` | `null`; links are removed, never followed |
 | `fs.rename` | `from`, `to`, `overwrite` | `null` |
-| `fs.copy` | `from`, `to`, `recursive`, `overwrite` | `null`; links are copied as links |
+| `fs.copy` | `from`, `to`, `recursive`, `overwrite` | `skippedSpecialFiles`; links are copied as links |
 | `fs.realPath` | `path` | `path` with links resolved |
 | `fs.setPermissions` | `path`, `mode` (≤ `0o7777`) | `null` |
 | `fs.volumeInfo` | `path` | `caseSensitive` (`null` when unknown) |
@@ -101,8 +105,15 @@ subscribe before creating the resource.
 | `environment.resolve` | `refresh` | `environment`, `source`, `diagnostics?` |
 | `tunnel.open` | `tunnelId`, `target` (`{kind: tcp, host, port}` / `{kind: unix, path}`) | `null`; `CONNECT_FAILED` on failure |
 | `tunnel.write` | `tunnelId`, `data` | `null`; `BUSY` when the peer stops reading |
-| `tunnel.close` | `tunnelId` | `null` |
+| `tunnel.shutdownWrite` | `tunnelId` | `null`; queued data is sent, then the write side is shut down; replies keep arriving |
+| `tunnel.close` | `tunnelId` | `null`; aborts both directions, queued data is discarded |
 | `ports.listening` | — | sorted `ports` (`address`, `port`) |
+
+`fs.copy` refuses, with `INVALID_REQUEST`, to copy a file onto itself —
+directly, through a symbolic link in either direction or onto a hard link —
+and to copy a directory into itself after resolving links. Sockets, FIFOs and
+devices are never copied: at the top level the request fails with
+`UNSUPPORTED`, inside a tree they are skipped and counted.
 
 `fs.writeFile` replaces the file atomically through a temporary sibling and
 writes through symbolic links. With `expected` (`size`, `modifiedMs`) it fails
@@ -143,15 +154,29 @@ environment and caches it for the session. `process.spawn` with
 `watch.changed` batches are coalesced and sorted by path. With `overflow`
 changes were lost and the client must rescan the watched tree.
 
-## Persistent sessions
+## Event delivery and persistent sessions
 
 `server.hello` returns `session` with `persistent`, `resumed`,
-`replayTruncated` and `nextResourceId`. While no client is attached, a
-persistent session keeps processes, terminals and watches running and
-buffers their events (up to 8 MiB). The next client receives them, in order,
-directly after its hello response. With `replayTruncated` the oldest events
-were dropped; the client calls `server.state` and rescans watches. Tunnels
-and walks belong to the connection that opened them and end with it.
+`nextResourceId` and `lastEventSeq`. The session keeps every event until the
+client acknowledges it with `server.ack` (clients acknowledge periodically,
+for example every 256 events), up to 8 MiB; beyond that the oldest kept
+events are dropped. Written to a socket is not received: when a connection
+dies, events may still sit in its outbox or in kernel buffers, so they stay
+kept until acknowledged.
+
+`server.resume` with `afterSeq` — the last `seq` the client received on an
+earlier connection — sends every kept event after it, then live events, so
+each event arrives exactly once. A reconnecting client first calls
+`server.state` and subscribes to the resources it reattaches to, then
+resumes, so their missed events reach those subscriptions. `truncated` means
+events after `afterSeq` were dropped; the client re-reads state and rescans
+watches.
+
+While no client is attached, a persistent session keeps processes, terminals
+and watches running. Tunnels and walks belong to the connection that opened
+them and end with it. After `server.shutdown` a persistent session is no
+longer reachable, even while it is still terminating its processes; the next
+connection with the same key starts a fresh session.
 
 ## Host capabilities
 

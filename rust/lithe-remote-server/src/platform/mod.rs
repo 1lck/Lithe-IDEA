@@ -29,7 +29,7 @@ pub(crate) use host::{
     case_sensitive, listening_ports, peer_uid, prepare_child, rename_no_replace,
 };
 pub(crate) use unix::{
-    collect_output, current_account, current_uid, open_pty, session_exists, set_window_size,
+    collect_output, current_account, current_uid, live_sessions, open_pty, set_window_size,
     signal_process_group, signal_session,
 };
 

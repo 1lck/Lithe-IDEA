@@ -8,16 +8,17 @@
 
 use crate::session::{ClientError, Event, RemoteSession};
 use lithe_remote_protocol::methods::{
-    self, decode_bytes, encode_bytes, CopyParams, CreateDirParams, EnvironmentResolveParams,
-    EnvironmentResolveResult, EnvironmentSource, FileMetadata, FileVersion, KillParams,
-    ListeningPort, ListeningPortsResult, OutputStream, PathParams, ProcessExitEvent,
-    ProcessOutputEvent, ProcessParams, ReadDirResult, ReadFileParams, ReadFileResult,
-    RealPathResult, RemoveParams, RenameParams, ServerState, SetPermissionsParams, SpawnParams,
-    SpawnResult, TerminalExitEvent, TerminalOpenParams, TerminalOpenResult, TerminalOutputEvent,
-    TerminalParams, TerminalResizeParams, TerminalWriteParams, TunnelClosedEvent, TunnelDataEvent,
-    TunnelOpenParams, TunnelParams, TunnelTarget, TunnelWriteParams, VolumeInfo, WalkDoneEvent,
-    WalkEntriesEvent, WalkEntry, WalkParams, WalkStartParams, WatchChangedEvent, WatchErrorEvent,
-    WatchParams, WatchStartParams, WatchStartResult, WriteFileParams, MAX_TRANSFER_BYTES,
+    self, decode_bytes, encode_bytes, CopyParams, CopyResult, CreateDirParams,
+    EnvironmentResolveParams, EnvironmentResolveResult, EnvironmentSource, FileMetadata,
+    FileVersion, KillParams, ListeningPort, ListeningPortsResult, OutputStream, PathParams,
+    ProcessExitEvent, ProcessOutputEvent, ProcessParams, ReadDirResult, ReadFileParams,
+    ReadFileResult, RealPathResult, RemoveParams, RenameParams, ServerState, SetPermissionsParams,
+    SpawnParams, SpawnResult, TerminalExitEvent, TerminalOpenParams, TerminalOpenResult,
+    TerminalOutputEvent, TerminalParams, TerminalResizeParams, TerminalWriteParams,
+    TunnelClosedEvent, TunnelDataEvent, TunnelOpenParams, TunnelParams, TunnelTarget,
+    TunnelWriteParams, VolumeInfo, WalkDoneEvent, WalkEntriesEvent, WalkEntry, WalkParams,
+    WalkStartParams, WatchChangedEvent, WatchErrorEvent, WatchParams, WatchStartParams,
+    WatchStartResult, WriteFileParams, MAX_TRANSFER_BYTES,
 };
 use lithe_remote_protocol::{ErrorCode, RemoteError};
 use serde::de::DeserializeOwned;
@@ -240,14 +241,16 @@ impl RemoteSession {
         )
     }
 
+    /// Copies a file or, with `recursive`, a tree. Special files inside a
+    /// tree are skipped and counted in the result.
     pub fn copy(
         &self,
         from: &str,
         to: &str,
         recursive: bool,
         overwrite: bool,
-    ) -> Result<(), ClientError> {
-        self.call_unit(
+    ) -> Result<CopyResult, ClientError> {
+        self.call(
             methods::FS_COPY,
             &CopyParams {
                 from: from.into(),
@@ -638,6 +641,10 @@ impl<'a> TunnelHandle<'a> {
         self.writer().write(data)
     }
 
+    pub fn shutdown_write(&self) -> Result<(), ClientError> {
+        self.writer().shutdown_write()
+    }
+
     pub fn close(&self) -> Result<(), ClientError> {
         self.writer().close()
     }
@@ -681,6 +688,16 @@ impl TunnelWriter<'_> {
         )
     }
 
+    /// Ends the outgoing direction after the queued data, like shutting down
+    /// a socket's write side; the remote reply keeps arriving.
+    pub fn shutdown_write(&self) -> Result<(), ClientError> {
+        self.session.call_unit(
+            methods::TUNNEL_SHUTDOWN_WRITE,
+            &TunnelParams { tunnel_id: self.id },
+        )
+    }
+
+    /// Aborts both directions; queued data is discarded.
     pub fn close(&self) -> Result<(), ClientError> {
         self.session
             .call_unit(methods::TUNNEL_CLOSE, &TunnelParams { tunnel_id: self.id })

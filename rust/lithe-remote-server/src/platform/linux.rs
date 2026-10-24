@@ -2,6 +2,7 @@
 
 use super::{unix, ChildKind};
 use lithe_remote_protocol::methods::{ListeningPort, OperatingSystem, OrphanProtection};
+use std::collections::HashSet;
 use std::io;
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::os::fd::RawFd;
@@ -78,19 +79,31 @@ pub(crate) fn case_sensitive(path: &Path) -> Option<bool> {
 
 /// Processes whose session id is `session`, read from `/proc/<pid>/stat`.
 pub(crate) fn session_members(session: u32) -> Vec<u32> {
-    let Ok(entries) = std::fs::read_dir("/proc") else {
-        return Vec::new();
-    };
-    entries
+    process_sessions()
+        .filter(|(_, member_session)| *member_session == session)
+        .map(|(pid, _)| pid)
+        .collect()
+}
+
+/// The sessions among `sessions` that have a member, from one scan.
+pub(crate) fn sessions_with_members(sessions: &HashSet<u32>) -> HashSet<u32> {
+    process_sessions()
+        .map(|(_, session)| session)
+        .filter(|session| sessions.contains(session))
+        .collect()
+}
+
+/// `(pid, session id)` of every process.
+fn process_sessions() -> impl Iterator<Item = (u32, u32)> {
+    std::fs::read_dir("/proc")
+        .into_iter()
+        .flatten()
         .flatten()
         .filter_map(|entry| entry.file_name().to_str()?.parse::<u32>().ok())
-        .filter(|pid| {
-            std::fs::read_to_string(format!("/proc/{pid}/stat"))
-                .ok()
-                .and_then(|stat| stat_session(&stat))
-                == Some(session)
+        .filter_map(|pid| {
+            let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+            Some((pid, stat_session(&stat)?))
         })
-        .collect()
 }
 
 /// The session id is the fourth field after the command name, which is

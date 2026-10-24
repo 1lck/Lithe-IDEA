@@ -2,6 +2,7 @@
 
 use super::{unix, ChildKind};
 use lithe_remote_protocol::methods::{ListeningPort, OperatingSystem, OrphanProtection};
+use std::collections::HashSet;
 use std::io;
 use std::os::fd::RawFd;
 use std::os::unix::process::CommandExt;
@@ -68,6 +69,24 @@ pub(crate) fn case_sensitive(path: &Path) -> Option<bool> {
 /// Processes whose session id is `session`. macOS has no `/proc`; the pid
 /// list comes from libproc and each session id from `getsid`.
 pub(crate) fn session_members(session: u32) -> Vec<u32> {
+    process_sessions()
+        .into_iter()
+        .filter(|(_, member_session)| *member_session == session)
+        .map(|(pid, _)| pid)
+        .collect()
+}
+
+/// The sessions among `sessions` that have a member, from one scan.
+pub(crate) fn sessions_with_members(sessions: &HashSet<u32>) -> HashSet<u32> {
+    process_sessions()
+        .into_iter()
+        .map(|(_, session)| session)
+        .filter(|session| sessions.contains(session))
+        .collect()
+}
+
+/// `(pid, session id)` of every process.
+fn process_sessions() -> Vec<(u32, u32)> {
     // SAFETY: a null buffer asks for the number of pids.
     let count = unsafe { libc::proc_listallpids(std::ptr::null_mut(), 0) };
     if count <= 0 {
@@ -84,9 +103,11 @@ pub(crate) fn session_members(session: u32) -> Vec<u32> {
     pids.truncate(filled as usize);
     pids.into_iter()
         .filter(|pid| *pid > 0)
-        // SAFETY: getsid has no memory-safety preconditions.
-        .filter(|pid| unsafe { libc::getsid(*pid) } == session as libc::pid_t)
-        .map(|pid| pid as u32)
+        .filter_map(|pid| {
+            // SAFETY: getsid has no memory-safety preconditions.
+            let session = unsafe { libc::getsid(pid) };
+            (session > 0).then_some((pid as u32, session as u32))
+        })
         .collect()
 }
 
@@ -112,11 +133,20 @@ pub(crate) fn listening_ports() -> io::Result<Vec<ListeningPort>> {
         .stderr(Stdio::null());
     let child = command.spawn()?;
     let (status, stdout) = unix::collect_output(child, LSOF_TIMEOUT)?;
-    // lsof exits with 1 when nothing matches, which is an empty list.
-    if !status.success() && !stdout.is_empty() {
-        return Err(io::Error::other(format!("lsof failed with {status}")));
+    interpret_lsof(status.code(), &stdout)
+}
+
+/// lsof exits with 1 both when nothing matches and when it could not
+/// inspect some processes, which is normal without root. Its output is
+/// complete for the user's own sockets either way. Other statuses are real
+/// failures.
+fn interpret_lsof(status: Option<i32>, stdout: &[u8]) -> io::Result<Vec<ListeningPort>> {
+    match status {
+        Some(0) | Some(1) => Ok(parse_lsof(&String::from_utf8_lossy(stdout))),
+        other => Err(io::Error::other(format!(
+            "lsof failed with status {other:?}"
+        ))),
     }
-    Ok(parse_lsof(&String::from_utf8_lossy(&stdout)))
 }
 
 fn parse_lsof(output: &str) -> Vec<ListeningPort> {
@@ -141,6 +171,17 @@ fn parse_lsof(output: &str) -> Vec<ListeningPort> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // As a regular user lsof exits 1 because other users' processes are not
+    // inspectable, yet it printed the user's own sockets.
+    #[test]
+    fn lsof_partial_success_still_lists_ports() {
+        let ports = interpret_lsof(Some(1), b"p1\nf3\nn127.0.0.1:8080\n").unwrap();
+        assert_eq!(ports.len(), 1);
+        assert!(interpret_lsof(Some(1), b"").unwrap().is_empty());
+        assert!(interpret_lsof(Some(2), b"").is_err());
+        assert!(interpret_lsof(None, b"").is_err());
+    }
 
     #[test]
     fn lsof_field_output_yields_addresses_and_ports() {

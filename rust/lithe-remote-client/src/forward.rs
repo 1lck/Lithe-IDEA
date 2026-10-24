@@ -17,6 +17,9 @@ use std::time::Duration;
 
 const READ_CHUNK_BYTES: usize = 32 * 1024;
 
+/// Pause after a failed `accept`.
+const ACCEPT_FAILURE_BACKOFF: Duration = Duration::from_millis(200);
+
 /// How long a tunnel waits for remote data before checking whether the
 /// local side has gone away. Data ends the wait immediately.
 const IDLE_CHECK: Duration = Duration::from_secs(1);
@@ -47,8 +50,14 @@ impl PortForward {
                         if stopping.load(Ordering::Acquire) {
                             return;
                         }
-                        let Ok(connection) = connection else {
-                            continue;
+                        let connection = match connection {
+                            Ok(connection) => connection,
+                            Err(_) => {
+                                // Failures such as EMFILE repeat immediately;
+                                // pausing keeps the acceptor from spinning.
+                                thread::sleep(ACCEPT_FAILURE_BACKOFF);
+                                continue;
+                            }
                         };
                         let session = Arc::clone(&session);
                         let target = target.clone();
@@ -109,20 +118,26 @@ fn bridge(
         let writer = tunnel.writer();
         scope.spawn(move || {
             let mut buffer = vec![0_u8; READ_CHUNK_BYTES];
-            loop {
+            let local_ended = loop {
                 match to_remote.read(&mut buffer) {
-                    Ok(0) | Err(_) => break,
+                    Ok(0) => break true,
                     Ok(read) => {
                         if writer.write(&buffer[..read]).is_err() {
-                            break;
+                            break false;
                         }
                     }
+                    Err(_) => break false,
                 }
-            }
+            };
             local_done_writer.store(true, Ordering::Release);
-            // The remote side sees end-of-file and closes, which ends the
-            // other direction.
-            let _ = writer.close();
+            if local_ended {
+                // The local client finished sending, as HTTP/1.0 clients and
+                // `nc -N` do, and now waits for the reply: pass the half-close
+                // on after the queued data, and keep receiving.
+                let _ = writer.shutdown_write();
+            } else {
+                let _ = writer.close();
+            }
         });
         loop {
             match tunnel.next_event(IDLE_CHECK) {

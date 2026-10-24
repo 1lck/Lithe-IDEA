@@ -44,7 +44,7 @@ pub(crate) const OUTPUT_DRAIN_GRACE: Duration = Duration::from_millis(500);
 /// Interval for checking whether signalled sessions are empty during
 /// cleanup. Members that are not the server's children report no exit to
 /// it, so the wait polls them within the caller's deadline.
-const SESSION_POLL_INTERVAL: Duration = Duration::from_millis(20);
+pub(crate) const SESSION_POLL_INTERVAL: Duration = Duration::from_millis(50);
 
 /// The leader of a session the server started, kept after the leader exits
 /// for as long as the session has members.
@@ -62,15 +62,35 @@ impl Leader {
     pub(crate) fn new(pid: u32) -> Self {
         Self { pid, exited: false }
     }
-
-    pub(crate) fn still_owned(&self) -> bool {
-        !self.exited || platform::session_exists(self.pid)
-    }
 }
 
-/// Forgets entries whose leader exited and whose session is empty.
+/// Forgets entries whose leader exited and whose session is empty. One call
+/// checks all exited leaders together, scanning the process table at most
+/// once.
 pub(crate) fn prune<T>(registry: &Registry<T>, leader: impl Fn(&T) -> &Leader) {
-    registry.retain(|entry| leader(entry).still_owned());
+    let exited: Vec<u32> = registry
+        .lock()
+        .values()
+        .map(&leader)
+        .filter(|leader| leader.exited)
+        .map(|leader| leader.pid)
+        .collect();
+    if exited.is_empty() {
+        return;
+    }
+    let live = platform::live_sessions(&exited);
+    registry.retain(|entry| {
+        let leader = leader(entry);
+        !leader.exited || live.contains(&leader.pid)
+    });
+}
+
+/// Whether any entry is kept only for its session's remaining members.
+pub(crate) fn has_exited_leaders<T>(
+    registry: &Registry<T>,
+    leader: impl Fn(&T) -> &Leader,
+) -> bool {
+    registry.lock().values().any(|entry| leader(entry).exited)
 }
 
 pub(crate) struct ProcessTable {
@@ -253,6 +273,9 @@ impl ProcessTable {
     /// Signals the whole session, also after the leader exited while other
     /// members still run.
     fn kill(&self, params: KillParams) -> Result<(), RemoteError> {
+        // A session that emptied since the last check must not be signalled:
+        // its id may already belong to an unrelated process.
+        prune(&self.registry, |process| &process.leader);
         let pid = self
             .registry
             .lock()
@@ -271,6 +294,13 @@ impl ProcessTable {
                 Err(self.registry.unknown(params.process_id))
             }
             Err(error) => Err(io_error(error, "")),
+        }
+    }
+
+    /// Forgets sessions that emptied after their leader exited.
+    pub(crate) fn reap(&self) {
+        if has_exited_leaders(&self.registry, |process| &process.leader) {
+            prune(&self.registry, |process| &process.leader);
         }
     }
 

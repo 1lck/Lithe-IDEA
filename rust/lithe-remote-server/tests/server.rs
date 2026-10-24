@@ -480,6 +480,83 @@ fn copies_keep_links_and_permissions_and_refuse_to_nest() {
     session.shutdown(STEP_TIMEOUT);
 }
 
+// Regression: overwriting truncates the target before the source is read,
+// so copying a file onto itself, through a link or a hard link, erased it.
+#[test]
+fn copying_a_file_onto_itself_is_refused_and_keeps_the_file() {
+    let directory = TempDir::new("self-copy");
+    let file = directory.path().join("a.txt");
+    std::fs::write(&file, b"precious").unwrap();
+    std::os::unix::fs::symlink("a.txt", directory.path().join("link")).unwrap();
+    std::fs::hard_link(&file, directory.path().join("hard")).unwrap();
+    let (session, _events) = connect();
+    for (from, to) in [
+        ("a.txt", "a.txt"),
+        ("a.txt", "link"),
+        ("link", "a.txt"),
+        ("a.txt", "hard"),
+        ("hard", "a.txt"),
+    ] {
+        assert_eq!(
+            code(session.copy(&directory.join(from), &directory.join(to), false, true)),
+            ErrorCode::InvalidRequest,
+            "{from} -> {to}"
+        );
+        assert_eq!(std::fs::read(&file).unwrap(), b"precious", "{from} -> {to}");
+    }
+    // Two links to one file may still replace each other.
+    std::os::unix::fs::symlink("a.txt", directory.path().join("other")).unwrap();
+    session
+        .copy(
+            &directory.join("link"),
+            &directory.join("other"),
+            false,
+            true,
+        )
+        .unwrap();
+    assert_eq!(std::fs::read(&file).unwrap(), b"precious");
+    session.shutdown(STEP_TIMEOUT);
+}
+
+// Regression: copying a tree that contains a FIFO blocked forever on opening
+// it and kept a worker slot.
+#[test]
+fn copies_skip_special_files() {
+    let directory = TempDir::new("fifo-copy");
+    let source = directory.path().join("source");
+    std::fs::create_dir(&source).unwrap();
+    std::fs::write(source.join("data.txt"), b"data").unwrap();
+    let fifo = std::ffi::CString::new(source.join("pipe").to_str().unwrap()).unwrap();
+    // SAFETY: the path is a NUL-terminated string that outlives the call.
+    assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o600) }, 0);
+    let (session, _events) = connect();
+
+    let result = session
+        .copy(
+            &directory.join("source"),
+            &directory.join("copy"),
+            true,
+            false,
+        )
+        .unwrap();
+    assert_eq!(result.skipped_special_files, 1);
+    assert_eq!(
+        std::fs::read(directory.path().join("copy/data.txt")).unwrap(),
+        b"data"
+    );
+    assert!(!directory.path().join("copy/pipe").exists());
+    assert_eq!(
+        code(session.copy(
+            &directory.join("source/pipe"),
+            &directory.join("pipe"),
+            false,
+            false
+        )),
+        ErrorCode::Unsupported
+    );
+    session.shutdown(STEP_TIMEOUT);
+}
+
 #[test]
 fn shell_banners_before_the_server_are_ignored() {
     let (session, _events) = connect_command(&[

@@ -7,7 +7,7 @@
 
 use crate::connection::Context;
 use crate::parse;
-use crate::process::{queue_input, start_input_writer};
+use crate::process::{queue_input, INPUT_QUEUE_CAPACITY};
 use crate::resources::Registry;
 use crate::session::Session;
 use lithe_remote_protocol::methods::{
@@ -33,7 +33,9 @@ pub(crate) struct TunnelTable {
 
 struct OpenTunnel {
     connection: u64,
-    input: SyncSender<Vec<u8>>,
+    /// `None` after `tunnel.shutdownWrite`: the writer then sends what is
+    /// queued and half-closes the stream.
+    input: Option<SyncSender<Vec<u8>>>,
     stream: Stream,
 }
 
@@ -50,10 +52,10 @@ impl Stream {
         })
     }
 
-    fn shutdown(&self) {
+    fn shutdown(&self, how: Shutdown) {
         let _ = match self {
-            Self::Tcp(stream) => stream.shutdown(Shutdown::Both),
-            Self::Unix(stream) => stream.shutdown(Shutdown::Both),
+            Self::Tcp(stream) => stream.shutdown(how),
+            Self::Unix(stream) => stream.shutdown(how),
         };
     }
 }
@@ -107,16 +109,34 @@ impl TunnelTable {
                 let tunnel = tunnels
                     .get(&params.tunnel_id)
                     .ok_or_else(|| self.registry.unknown(params.tunnel_id))?;
-                queue_input(&tunnel.input, data).map(|()| Value::Null)
+                let Some(input) = &tunnel.input else {
+                    return Err(RemoteError::new(
+                        ErrorCode::InvalidRequest,
+                        "the tunnel's write side is shut down",
+                    ));
+                };
+                queue_input(input, data).map(|()| Value::Null)
+            }
+            methods::TUNNEL_SHUTDOWN_WRITE => {
+                // Like `shutdown(SHUT_WR)` on a socket: the peer reads
+                // end-of-file after the queued data, and its reply still
+                // arrives as `tunnel.data` until it closes.
+                let params: TunnelParams = parse(params)?;
+                let mut tunnels = self.registry.lock();
+                let tunnel = tunnels
+                    .get_mut(&params.tunnel_id)
+                    .ok_or_else(|| self.registry.unknown(params.tunnel_id))?;
+                tunnel.input = None;
+                Ok(Value::Null)
             }
             methods::TUNNEL_CLOSE => {
+                // Aborts both directions; queued data is discarded.
                 let params: TunnelParams = parse(params)?;
                 let tunnels = self.registry.lock();
                 let tunnel = tunnels
                     .get(&params.tunnel_id)
                     .ok_or_else(|| self.registry.unknown(params.tunnel_id))?;
-                // The reader then sees end-of-file and reports the closure.
-                tunnel.stream.shutdown();
+                tunnel.stream.shutdown(Shutdown::Both);
                 Ok(Value::Null)
             }
             _ => Err(RemoteError::new(
@@ -129,14 +149,14 @@ impl TunnelTable {
     pub(crate) fn close_owned_by(&self, connection: u64) {
         for tunnel in self.registry.lock().values() {
             if tunnel.connection == connection {
-                tunnel.stream.shutdown();
+                tunnel.stream.shutdown(Shutdown::Both);
             }
         }
     }
 
     pub(crate) fn close_all(&self) {
         for tunnel in self.registry.lock().values() {
-            tunnel.stream.shutdown();
+            tunnel.stream.shutdown(Shutdown::Both);
         }
     }
 
@@ -155,7 +175,7 @@ impl TunnelTable {
             params.tunnel_id,
             OpenTunnel {
                 connection: context.connection,
-                input: start_input_writer(writer),
+                input: Some(start_tunnel_writer(writer)),
                 stream,
             },
         )?;
@@ -167,6 +187,22 @@ impl TunnelTable {
             .map_err(io_failure)?;
         Ok(())
     }
+}
+
+/// Writes queued chunks to the remote stream. When the queue's sender is
+/// dropped (`tunnel.shutdownWrite`), the queued data is still written and
+/// then only the write side is shut down, so the peer can still answer.
+fn start_tunnel_writer(mut stream: Stream) -> SyncSender<Vec<u8>> {
+    let (sender, receiver) = std::sync::mpsc::sync_channel::<Vec<u8>>(INPUT_QUEUE_CAPACITY);
+    thread::spawn(move || {
+        while let Ok(chunk) = receiver.recv() {
+            if stream.write_all(&chunk).is_err() {
+                return;
+            }
+        }
+        stream.shutdown(Shutdown::Write);
+    });
+    sender
 }
 
 fn connect(target: &TunnelTarget) -> io::Result<Stream> {
@@ -209,7 +245,7 @@ fn forward(session: &Session, tunnel_id: u64, mut reader: Stream) {
         }
     };
     if let Some(tunnel) = session.tunnels.registry.remove(tunnel_id) {
-        tunnel.stream.shutdown();
+        tunnel.stream.shutdown(Shutdown::Both);
     }
     session.link.emit(
         methods::EVENT_TUNNEL_CLOSED,

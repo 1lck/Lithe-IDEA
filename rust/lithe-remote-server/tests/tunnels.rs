@@ -179,6 +179,55 @@ fn port_forwards_bridge_local_connections_to_the_remote() {
         .unwrap();
 }
 
+// Regression: a local client that half-closes after its request, as
+// HTTP/1.0 clients and `nc -N` do, had the tunnel aborted. Queued data was
+// lost and the reply never arrived.
+#[test]
+fn half_closed_requests_still_get_their_reply() {
+    // The server answers only after reading the whole request to its end.
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        stream.set_read_timeout(Some(STEP_TIMEOUT)).unwrap();
+        let mut request = Vec::new();
+        stream.read_to_end(&mut request).unwrap();
+        stream
+            .write_all(format!("received {} bytes", request.len()).as_bytes())
+            .unwrap();
+    });
+    let (session, _events) = connect();
+    let session = Arc::new(session);
+    let forward = PortForward::start(
+        Arc::clone(&session),
+        "127.0.0.1:0".parse().unwrap(),
+        TunnelTarget::Tcp {
+            host: "127.0.0.1".into(),
+            port,
+        },
+    )
+    .unwrap();
+
+    let mut local = TcpStream::connect(forward.local_address()).unwrap();
+    local.set_read_timeout(Some(STEP_TIMEOUT)).unwrap();
+    // Several chunks, so some are still queued when the half-close arrives.
+    let request = vec![b'x'; 1 << 20];
+    local.write_all(&request).unwrap();
+    local.shutdown(std::net::Shutdown::Write).unwrap();
+    let mut reply = String::new();
+    local.read_to_string(&mut reply).unwrap();
+    assert_eq!(reply, format!("received {} bytes", request.len()));
+    server.join().unwrap();
+    drop(forward);
+    session
+        .request_value(
+            lithe_remote_protocol::methods::SERVER_SHUTDOWN,
+            serde_json::Value::Null,
+            STEP_TIMEOUT,
+        )
+        .unwrap();
+}
+
 #[test]
 fn listening_ports_include_a_local_listener() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();

@@ -45,7 +45,6 @@ fn processes_survive_a_disconnect_and_their_output_is_replayed() {
     let (session, events) = daemon.connect(None);
     let hello = session.hello();
     assert!(hello.session.resumed);
-    assert!(!hello.session.replay_truncated);
     assert!(hello.session.next_resource_id > process_id);
 
     let deadline = Instant::now() + STEP_TIMEOUT;
@@ -79,10 +78,14 @@ fn processes_survive_a_disconnect_and_their_output_is_replayed() {
 }
 
 // After an app restart the client learns from `server.state` which
-// terminals still run and attaches to them.
+// terminals still run, attaches to them, and only then resumes, so output
+// produced while it was away reaches the terminal handle instead of the
+// general channel.
 #[test]
 fn terminals_can_be_reattached_after_reconnecting() {
     let daemon = Daemon::new("reattach");
+    let gate = TempDir::new("reattach-gate");
+    let release = gate.join("release");
     let (session, _events) = daemon.connect(None);
     let terminal = session
         .open_terminal(TerminalSpec {
@@ -97,11 +100,18 @@ fn terminals_can_be_reattached_after_reconnecting() {
             rows: 24,
         })
         .unwrap();
+    // The answer is printed only after the test creates the gate file while
+    // no client is connected.
+    let command =
+        format!("while [ ! -e '{release}' ]; do sleep 0.05; done; echo later-$((40+2))\n");
+    terminal.write(command.as_bytes()).unwrap();
     let terminal_id = terminal.id;
     drop(terminal);
+    let seen = session.last_event_seq();
     drop(session);
+    std::fs::write(&release, b"").unwrap();
 
-    let (session, _events) = daemon.connect(None);
+    let (session, events) = daemon.connect_deferred();
     let state = session.state().unwrap();
     let running = state
         .terminals
@@ -109,16 +119,107 @@ fn terminals_can_be_reattached_after_reconnecting() {
         .find(|running| running.terminal_id == terminal_id)
         .expect("the terminal survived the disconnect");
     let terminal = session.attach_terminal(running.terminal_id, running.pid);
-    terminal.write(b"echo still-$((40+2))\n").unwrap();
+    let resumed = session.resume(Some(seen)).unwrap();
+    assert!(!resumed.truncated);
     let deadline = Instant::now() + STEP_TIMEOUT;
     let mut output = Vec::new();
-    while !String::from_utf8_lossy(&output).contains("still-42") {
+    while !String::from_utf8_lossy(&output).contains("later-42") {
+        match terminal.next_event(deadline.saturating_duration_since(Instant::now())) {
+            Ok(Some(TerminalEvent::Output(bytes))) => output.extend(bytes),
+            other => panic!("{other:?}; output {:?}", String::from_utf8_lossy(&output)),
+        }
+    }
+    assert!(
+        events
+            .try_iter()
+            .all(|event| event.resource() != Some(("terminal", terminal_id))),
+        "replayed terminal output went to the general channel"
+    );
+    terminal.write(b"echo still-$((40+3))\n").unwrap();
+    while !String::from_utf8_lossy(&output).contains("still-43") {
         match terminal.next_event(deadline.saturating_duration_since(Instant::now())) {
             Ok(Some(TerminalEvent::Output(bytes))) => output.extend(bytes),
             other => panic!("{other:?}; output {:?}", String::from_utf8_lossy(&output)),
         }
     }
     drop(terminal);
+    session.shutdown(STEP_TIMEOUT);
+    assert!(daemon.wait_until_stopped());
+}
+
+// Regression: events the dying connection's outbox or socket had already
+// accepted were lost. The client resumes after the last event it actually
+// processed and must then receive every later event exactly once.
+#[test]
+fn resuming_after_a_lost_connection_delivers_every_event_exactly_once() {
+    let daemon = Daemon::new("lossless");
+    let lines = 20_000;
+    let (session, _events) = daemon.connect(None);
+    let process_id = session.allocate_id();
+    let subscription = session.subscribe("process", process_id);
+    session
+        .request_value(
+            methods::PROCESS_SPAWN,
+            serde_json::json!({
+                "processId": process_id,
+                "argv": ["awk", format!("BEGIN {{ for (i = 1; i <= {lines}; i++) print i }}")],
+            }),
+            STEP_TIMEOUT,
+        )
+        .unwrap();
+    // Process only the first event. Every later event, up to the exit, is
+    // sent over this connection but treated as lost in transit, as events in
+    // a dying connection's outbox or socket buffers are.
+    let first = subscription
+        .recv_timeout(STEP_TIMEOUT)
+        .expect("first output");
+    let output: ProcessOutputEvent = first.decode().unwrap();
+    let mut stdout = methods::decode_bytes(&output.data).unwrap();
+    let last_processed = first.seq.unwrap();
+    let deadline = Instant::now() + STEP_TIMEOUT;
+    loop {
+        let event = subscription
+            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+            .expect("the process exit on the first connection");
+        if event.event == methods::EVENT_PROCESS_EXIT {
+            break;
+        }
+    }
+    drop(subscription);
+    drop(session);
+
+    let (session, _events) = daemon.connect_deferred();
+    let subscription = session.subscribe("process", process_id);
+    assert!(!session.resume(Some(last_processed)).unwrap().truncated);
+    let deadline = Instant::now() + STEP_TIMEOUT;
+    let mut previous = last_processed;
+    loop {
+        let event = subscription
+            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+            .expect("the process exit after resuming");
+        let seq = event.seq.unwrap();
+        assert!(
+            seq > previous,
+            "event {seq} repeated or out of order after {previous}"
+        );
+        previous = seq;
+        match event.event.as_str() {
+            methods::EVENT_PROCESS_OUTPUT => {
+                let output: ProcessOutputEvent = event.decode().unwrap();
+                stdout.extend(methods::decode_bytes(&output.data).unwrap());
+            }
+            methods::EVENT_PROCESS_EXIT => break,
+            _ => {}
+        }
+    }
+    let expected: String = (1..=lines).map(|line| format!("{line}\n")).collect();
+    assert!(
+        stdout == expected.as_bytes(),
+        "output has {} of {} bytes",
+        stdout.len(),
+        expected.len()
+    );
+    drop(subscription);
     session.shutdown(STEP_TIMEOUT);
     assert!(daemon.wait_until_stopped());
 }
@@ -244,6 +345,76 @@ fn the_proxy_exits_by_itself_when_its_client_disconnects() {
     };
     assert!(status.success(), "{status}");
     let (session, _events) = daemon.connect(None);
+    session.shutdown(STEP_TIMEOUT);
+    assert!(daemon.wait_until_stopped());
+}
+
+// Regression: a daemon ending its session (here waiting out a process that
+// ignores SIGTERM) removed its socket but still held the lock, so a client
+// reconnecting in that window got a daemon that exited at once and a
+// connection failure.
+#[test]
+fn reconnecting_while_the_previous_daemon_shuts_down_starts_a_fresh_session() {
+    let daemon = Daemon::new("handover");
+    let (session, _events) = daemon.connect(None);
+    let stubborn = session
+        .spawn(SpawnSpec {
+            argv: argv(&["sh", "-c", "trap '' TERM; while :; do sleep 0.1; done"]),
+            ..SpawnSpec::default()
+        })
+        .unwrap();
+    let stubborn_pid = stubborn.pid;
+    drop(stubborn);
+    session.shutdown(STEP_TIMEOUT);
+
+    let (session, _events) = daemon.connect(None);
+    assert!(!session.hello().session.resumed, "reached the old session");
+    assert!(
+        wait_until_gone(stubborn_pid),
+        "the old session's process survived"
+    );
+    session.shutdown(STEP_TIMEOUT);
+    assert!(daemon.wait_until_stopped());
+}
+
+// Regression: a session kept after its leader exited was forgotten only on
+// the next spawn or kill. Until then its id could be reused by an unrelated
+// process, which a later kill or the final cleanup would have signalled.
+#[test]
+fn emptied_sessions_are_forgotten_without_further_requests() {
+    let daemon = Daemon::new("reaper");
+    let (session, _events) = daemon.connect(None);
+    let process = session
+        .spawn(SpawnSpec {
+            argv: argv(&["sh", "-c", "sleep 0.3 >/dev/null 2>&1 & echo $!"]),
+            ..SpawnSpec::default()
+        })
+        .unwrap();
+    let output = process.wait(STEP_TIMEOUT).unwrap();
+    let member: u32 = String::from_utf8(output.stdout)
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    let process_id = process.id;
+    drop(process);
+    assert!(wait_until_gone(member));
+    // `server.state` only reads; nothing else would prune the entry.
+    let deadline = Instant::now() + STEP_TIMEOUT;
+    while session
+        .state()
+        .unwrap()
+        .processes
+        .iter()
+        .any(|running| running.process_id == process_id)
+    {
+        assert!(
+            Instant::now() < deadline,
+            "the emptied session was never forgotten"
+        );
+        // test-stability: allow(rust-real-sleep) reason: the reaper runs on its own interval inside another process; the poll observes it through server.state under a monotonic deadline.
+        std::thread::sleep(Duration::from_millis(50));
+    }
     session.shutdown(STEP_TIMEOUT);
     assert!(daemon.wait_until_stopped());
 }

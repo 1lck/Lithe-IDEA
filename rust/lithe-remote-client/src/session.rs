@@ -16,7 +16,9 @@
 
 use crate::transport::{TransportChain, TransportError};
 use lithe_remote_protocol::frame::{read_frame, skip_preamble, write_frame};
-use lithe_remote_protocol::methods::{self, HelloParams, HelloResult};
+use lithe_remote_protocol::methods::{
+    self, AckParams, HelloParams, HelloResult, ResumeParams, ResumeResult,
+};
 use lithe_remote_protocol::{FrameError, Message, RemoteError, PROTOCOL_VERSION};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -40,6 +42,11 @@ const PREAMBLE_NOISE_LIMIT: usize = 64 * 1024;
 /// Tail of the transport's standard error kept for diagnostics.
 const STDERR_TAIL_BYTES: usize = 8 * 1024;
 
+/// Events received between two acknowledgements. The session keeps every
+/// unacknowledged event for redelivery, so this bounds what a reconnecting
+/// client may receive twice in the worst case and what the server retains.
+const ACK_INTERVAL: u64 = 256;
+
 /// Bytes of request frames queued for the writer thread. Requests wait for
 /// room within their deadline; one frame larger than this is still accepted
 /// when the queue is empty.
@@ -54,6 +61,8 @@ const EXIT_POLL_INTERVAL: Duration = Duration::from_millis(20);
 pub struct Event {
     pub event: String,
     pub params: Value,
+    /// Position in the session's event stream.
+    pub seq: Option<u64>,
 }
 
 impl Event {
@@ -129,6 +138,19 @@ pub struct ConnectOptions {
     pub handshake_timeout: Duration,
     /// How long a persistent session keeps running without a client.
     pub idle_timeout: Option<Duration>,
+    pub resume: ResumeMode,
+}
+
+/// When event delivery starts after the handshake.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ResumeMode {
+    /// Right after `server.hello`, with every kept event after the given
+    /// sequence number (`None`: every kept event). Suits new sessions.
+    Immediately { after_seq: Option<u64> },
+    /// Only when the caller calls [`RemoteSession::resume`]. A reconnecting
+    /// client first reads `server.state` and subscribes to the resources it
+    /// reattaches to, so their missed events reach those subscriptions.
+    Deferred,
 }
 
 impl Default for ConnectOptions {
@@ -137,6 +159,7 @@ impl Default for ConnectOptions {
             client_name: "lithe".into(),
             handshake_timeout: Duration::from_secs(30),
             idle_timeout: None,
+            resume: ResumeMode::Immediately { after_seq: None },
         }
     }
 }
@@ -184,6 +207,19 @@ impl Outgoing {
         Ok(true)
     }
 
+    /// Queues a frame only if there is room now. Used by the reader thread,
+    /// which must never block on the writer.
+    fn try_push(&self, id: u64, payload: Vec<u8>) -> bool {
+        let mut state = lock(&self.state);
+        if state.closed || state.bytes + payload.len() > OUTGOING_QUEUE_BYTES {
+            return false;
+        }
+        state.bytes += payload.len();
+        state.frames.push_back((id, payload));
+        self.changed.notify_all();
+        true
+    }
+
     /// Drops a frame that was not written yet, for a request that timed out.
     fn withdraw(&self, id: u64) {
         let mut state = lock(&self.state);
@@ -227,8 +263,10 @@ pub struct RemoteSession {
     outgoing: Arc<Outgoing>,
     pending: Arc<Mutex<Pending>>,
     routes: Arc<Routes>,
-    next_request: AtomicU64,
+    next_request: Arc<AtomicU64>,
     next_resource: AtomicU64,
+    /// Sequence number of the latest event received.
+    last_seq: Arc<AtomicU64>,
     child: Mutex<Option<Child>>,
     stderr_tail: Arc<Mutex<VecDeque<u8>>>,
     hello: Option<HelloResult>,
@@ -285,6 +323,8 @@ impl RemoteSession {
         let (event_sender, events) = mpsc::sync_channel(EVENT_CAPACITY);
         let (ready_sender, ready) = mpsc::channel();
         let outgoing = Arc::new(Outgoing::default());
+        let next_request = Arc::new(AtomicU64::new(0));
+        let last_seq = Arc::new(AtomicU64::new(0));
         {
             let outgoing = Arc::clone(&outgoing);
             let pending = Arc::clone(&pending);
@@ -294,19 +334,26 @@ impl RemoteSession {
                 .map_err(ClientError::Spawn)?;
         }
         {
-            let pending = Arc::clone(&pending);
-            let routes = Arc::clone(&routes);
+            let reader_context = ReaderContext {
+                pending: Arc::clone(&pending),
+                routes: Arc::clone(&routes),
+                events: event_sender,
+                outgoing: Arc::clone(&outgoing),
+                next_request: Arc::clone(&next_request),
+                last_seq: Arc::clone(&last_seq),
+            };
             thread::Builder::new()
                 .name("remote-reader".into())
-                .spawn(move || read_loop(reader, pending, routes, event_sender, ready_sender))
+                .spawn(move || read_loop(reader, reader_context, ready_sender))
                 .map_err(ClientError::Spawn)?;
         }
         let mut session = Self {
             outgoing,
             pending,
             routes,
-            next_request: AtomicU64::new(0),
+            next_request,
             next_resource: AtomicU64::new(1),
+            last_seq,
             child: Mutex::new(child),
             stderr_tail,
             hello: None,
@@ -347,7 +394,29 @@ impl RemoteSession {
             .next_resource
             .store(hello.session.next_resource_id.max(1), Ordering::Release);
         session.hello = Some(hello);
+        if let ResumeMode::Immediately { after_seq } = options.resume {
+            session.resume(after_seq)?;
+        }
         Ok((session, events))
+    }
+
+    /// Starts event delivery, first with every kept event after `after_seq`,
+    /// the [`RemoteSession::last_event_seq`] of an earlier connection to the
+    /// same session. Call it once, after subscribing to the resources whose
+    /// missed events should reach their subscriptions.
+    pub fn resume(&self, after_seq: Option<u64>) -> Result<ResumeResult, ClientError> {
+        self.request(
+            methods::SERVER_RESUME,
+            &ResumeParams { after_seq },
+            Duration::from_secs(30),
+        )
+    }
+
+    /// Sequence number of the latest event this connection received. Pass it
+    /// to [`RemoteSession::resume`] on the next connection to continue
+    /// without gaps or repeats.
+    pub fn last_event_seq(&self) -> u64 {
+        self.last_seq.load(Ordering::Acquire)
     }
 
     /// Handshake result, including the host capabilities.
@@ -494,13 +563,29 @@ impl Drop for RemoteSession {
     }
 }
 
-fn read_loop(
-    reader: impl Read,
+/// What the reader thread shares with the session.
+struct ReaderContext {
     pending: Arc<Mutex<Pending>>,
     routes: Arc<Routes>,
     events: SyncSender<Event>,
+    outgoing: Arc<Outgoing>,
+    next_request: Arc<AtomicU64>,
+    last_seq: Arc<AtomicU64>,
+}
+
+fn read_loop(
+    reader: impl Read,
+    context: ReaderContext,
     ready: mpsc::Sender<Result<(), FrameError>>,
 ) {
+    let ReaderContext {
+        pending,
+        routes,
+        events,
+        outgoing,
+        next_request,
+        last_seq,
+    } = context;
     let mut reader = BufReader::new(reader);
     if let Err(error) = skip_preamble(&mut reader, PREAMBLE_NOISE_LIMIT) {
         let _ = ready.send(Err(error));
@@ -508,6 +593,7 @@ fn read_loop(
         return;
     }
     let _ = ready.send(Ok(()));
+    let mut acknowledged = 0;
     while let Ok(Some(frame)) = read_frame(&mut reader) {
         match serde_json::from_slice::<Message>(&frame) {
             Ok(Message::Response { id, result, error }) => {
@@ -520,9 +606,16 @@ fn read_loop(
                     let _ = waiter.send(reply);
                 }
             }
-            Ok(Message::Event { event, params }) => {
-                let event = Event { event, params };
-                route(&routes, &events, event);
+            Ok(Message::Event { event, params, seq }) => {
+                route(&routes, &events, Event { event, params, seq });
+                if let Some(seq) = seq {
+                    last_seq.store(seq, Ordering::Release);
+                    if seq >= acknowledged + ACK_INTERVAL
+                        && acknowledge(&outgoing, &next_request, seq)
+                    {
+                        acknowledged = seq;
+                    }
+                }
             }
             Ok(Message::Request { .. }) | Err(_) => break,
         }
@@ -530,6 +623,22 @@ fn read_loop(
     close(&pending);
     // Ending every subscription tells consumers the stream is gone.
     lock(&routes).clear();
+}
+
+/// Queues `server.ack` without waiting for its response, which the reader
+/// discards because no request waits for it. Returns `false` when the queue
+/// is full; the next acknowledgement then covers this one.
+fn acknowledge(outgoing: &Outgoing, next_request: &AtomicU64, seq: u64) -> bool {
+    let id = next_request.fetch_add(1, Ordering::Relaxed) + 1;
+    let message = Message::Request {
+        id,
+        method: methods::SERVER_ACK.into(),
+        params: serde_json::to_value(AckParams { seq }).unwrap_or(Value::Null),
+    };
+    match serde_json::to_vec(&message) {
+        Ok(payload) => outgoing.try_push(id, payload),
+        Err(_) => false,
+    }
 }
 
 fn write_loop(mut writer: Box<dyn Write + Send>, outgoing: &Outgoing, pending: &Mutex<Pending>) {
@@ -607,11 +716,13 @@ mod tests {
         let event = Event {
             event: "terminal.output".into(),
             params: json!({ "terminalId": 7, "data": "" }),
+            seq: Some(1),
         };
         assert_eq!(event.resource(), Some(("terminal", 7)));
         let unrelated = Event {
             event: "watch.changed".into(),
             params: json!({ "terminalId": 7 }),
+            seq: Some(2),
         };
         assert_eq!(unrelated.resource(), None);
     }

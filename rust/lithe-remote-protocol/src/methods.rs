@@ -19,6 +19,8 @@ pub const SERVER_HELLO: &str = "server.hello";
 pub const SERVER_SHUTDOWN: &str = "server.shutdown";
 pub const SERVER_PING: &str = "server.ping";
 pub const SERVER_STATE: &str = "server.state";
+pub const SERVER_RESUME: &str = "server.resume";
+pub const SERVER_ACK: &str = "server.ack";
 
 pub const FS_STAT: &str = "fs.stat";
 pub const FS_READ_DIR: &str = "fs.readDir";
@@ -52,6 +54,7 @@ pub const ENVIRONMENT_RESOLVE: &str = "environment.resolve";
 
 pub const TUNNEL_OPEN: &str = "tunnel.open";
 pub const TUNNEL_WRITE: &str = "tunnel.write";
+pub const TUNNEL_SHUTDOWN_WRITE: &str = "tunnel.shutdownWrite";
 pub const TUNNEL_CLOSE: &str = "tunnel.close";
 pub const PORTS_LISTENING: &str = "ports.listening";
 
@@ -112,15 +115,44 @@ pub struct HelloResult {
 pub struct SessionInfo {
     /// Whether the session survives disconnection (`--connect` servers).
     pub persistent: bool,
-    /// Whether this connection attached to a session that already had a
-    /// client. Events buffered while detached follow the hello response.
+    /// Whether a client was attached to this session before. Its unseen
+    /// events are delivered after `server.resume`.
     pub resumed: bool,
-    /// Events were dropped while detached because the replay buffer was
-    /// full. The client must re-read state, for example rescan watched trees
-    /// and call `server.state`.
-    pub replay_truncated: bool,
     /// Smallest resource id not used yet in this session.
     pub next_resource_id: u64,
+    /// Sequence number of the latest event the session produced, `0` before
+    /// the first one.
+    pub last_event_seq: u64,
+}
+
+/// Starts event delivery to this connection. Until it is called, events are
+/// kept for the connection, so a client can subscribe to the resources it
+/// knows before their missed events arrive.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResumeParams {
+    /// Last event sequence number this client received, from an earlier
+    /// connection to the same session. Kept events after it are sent first.
+    /// `None` sends every event still kept.
+    #[serde(default)]
+    pub after_seq: Option<u64>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResumeResult {
+    /// Events after `afterSeq` were dropped because the session's retention
+    /// limit was reached. The client must re-read state, for example call
+    /// `server.state` and rescan watched trees.
+    pub truncated: bool,
+}
+
+/// Confirms that the client received every event up to `seq`, which the
+/// session may then forget. Clients send it periodically; it has no result.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AckParams {
+    pub seq: u64,
 }
 
 /// Facts about the remote host that clients must use instead of assuming a
@@ -390,6 +422,14 @@ pub struct CopyParams {
     pub recursive: bool,
     #[serde(default)]
     pub overwrite: bool,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CopyResult {
+    /// Sockets, FIFOs and device files inside a copied tree. They are not
+    /// copied: reading a FIFO can block forever and devices are not content.
+    pub skipped_special_files: u64,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

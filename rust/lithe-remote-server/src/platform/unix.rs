@@ -96,10 +96,24 @@ pub(crate) fn process_group_exists(group: u32) -> bool {
     io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
 }
 
-/// Whether the session led by `leader` still has a member: its own process
-/// group, or a job-control group that left it.
-pub(crate) fn session_exists(leader: u32) -> bool {
-    process_group_exists(leader) || !super::host::session_members(leader).is_empty()
+/// The leaders among `leaders` whose sessions still have a member. Groups
+/// are checked with a signal first; the process table is scanned at most
+/// once, for the leaders whose own group is already empty.
+pub(crate) fn live_sessions(leaders: &[u32]) -> std::collections::HashSet<u32> {
+    let mut live: std::collections::HashSet<u32> = leaders
+        .iter()
+        .copied()
+        .filter(|leader| process_group_exists(*leader))
+        .collect();
+    let remaining: std::collections::HashSet<u32> = leaders
+        .iter()
+        .copied()
+        .filter(|leader| !live.contains(leader))
+        .collect();
+    if !remaining.is_empty() {
+        live.extend(super::host::sessions_with_members(&remaining));
+    }
+    live
 }
 
 /// Sends `signal` to every process of the session led by `leader`: its own
