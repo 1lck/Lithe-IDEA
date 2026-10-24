@@ -978,9 +978,10 @@ public final class AgentConnectionModel: ObservableObject {
             // Live input is already shown locally, including pending steering.
             // Replay still rebuilds the upstream-owned transcript while loading.
             guard conversations[sessionID]?.isResponding != true else { return }
-            guard let text = Self.text(of: update) else { return }
+            let image = (update["content"] as? [String: Any]).flatMap(AgentImage.parse(block:))
+            guard let text = Self.text(of: update) ?? (image == nil ? nil : "") else { return }
             flushPendingText()
-            append(text, role: .user, to: sessionID, subagentSessionID: subagentSessionID)
+            append(text, role: .user, to: sessionID, subagentSessionID: subagentSessionID, image: image)
         case "tool_call", "tool_call_update":
             guard let toolCallID = update["toolCallId"] as? String else { return }
             flushPendingText()
@@ -1207,14 +1208,20 @@ public final class AgentConnectionModel: ObservableObject {
         replayToolIndex[sessionID] = nil
     }
 
-    private func append(_ text: String, role: AgentConversationMessage.Role, to sessionID: String, subagentSessionID: String? = nil) {
+    private func append(_ text: String, role: AgentConversationMessage.Role, to sessionID: String,
+                        subagentSessionID: String? = nil, image: AgentImage? = nil) {
+        func attach(_ image: AgentImage?, to message: inout AgentConversationMessage) {
+            if let image, message.images.count < AgentImage.maximumPerMessage { message.images.append(image) }
+        }
         if conversations[sessionID]?.isLoading == true {
             if let last = replayMessages[sessionID]?.indices.last, replayMessages[sessionID]?[last].role == role,
                replayMessages[sessionID]?[last].subagentSessionID == subagentSessionID {
                 replayMessages[sessionID]?[last].text += text
+                attach(image, to: &replayMessages[sessionID]![last])
             } else {
                 var message = AgentConversationMessage(role: role, text: text)
                 message.subagentSessionID = subagentSessionID
+                attach(image, to: &message)
                 replayMessages[sessionID, default: []].append(message)
             }
             return
@@ -1223,9 +1230,12 @@ public final class AgentConnectionModel: ObservableObject {
         if let last = conversation.messages.indices.last, conversation.messages[last].role == role,
            conversation.messages[last].subagentSessionID == subagentSessionID {
             conversation.messages[last].text += text
+            attach(image, to: &conversation.messages[last])
         } else {
-            conversation.messages.append(AgentConversationMessage(role: role, text: text))
-            conversation.messages[conversation.messages.count - 1].subagentSessionID = subagentSessionID
+            var message = AgentConversationMessage(role: role, text: text)
+            message.subagentSessionID = subagentSessionID
+            attach(image, to: &message)
+            conversation.messages.append(message)
         }
         conversations[sessionID] = conversation
     }

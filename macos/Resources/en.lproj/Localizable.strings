@@ -373,6 +373,8 @@
 "Background Services" = "Background Services";
 "Background services" = "Background services";
 "Background services started in Lithe are still running" = "Background services started in Lithe are still running";
+"Background task ended" = "Background task ended";
+"Background task finished" = "Background task finished";
 "Balanced reasoning" = "Balanced reasoning";
 "Base" = "Base";
 "Base %@ → Target %@" = "Base %@ → Target %@";
@@ -1180,6 +1182,7 @@
 "End on next launch" = "End on next launch";
 "End without asking" = "End without asking";
 "English" = "English";
+"Enlarge image" = "Enlarge image";
 "Enter API key" = "Enter API key";
 "Enter a ChangeList name (1–100 characters)." = "Enter a ChangeList name (1–100 characters).";
 "Enter a branch name" = "Enter a branch name";
@@ -1627,6 +1630,7 @@
 "Invalid shared instruction request." = "Invalid shared instruction request.";
 "Invert" = "Invert";
 "It can read files, run commands and edit code after asking for permission." = "It can read files, run commands and edit code after asking for permission.";
+"Item %lld of %lld" = "Item %lld of %lld";
 "Its details and actions will appear here." = "Its details and actions will appear here.";
 "JDK Home" = "JDK Home";
 "JDK home" = "JDK home";
@@ -2014,6 +2018,7 @@
 "Next console expression" = "Next console expression";
 "Next diff match" = "Next diff match";
 "Next difference" = "Next difference";
+"Next image" = "Next image";
 "Next match" = "Next match";
 "Next match (Return)" = "Next match (Return)";
 "Next run" = "Next run";
@@ -2399,6 +2404,7 @@
 "Previous console expression" = "Previous console expression";
 "Previous diff match" = "Previous diff match";
 "Previous difference" = "Previous difference";
+"Previous image" = "Previous image";
 "Previous match" = "Previous match";
 "Previous match (Shift+Return)" = "Previous match (Shift+Return)";
 "Previous session" = "Previous session";
@@ -4175,6 +4181,8 @@
 "native.backgroundServices" = "Background Services";
 "native.backgroundServices.variant2" = "Background services";
 "native.backgroundServicesStartedInLitheAreStillRunning" = "Background services started in Lithe are still running";
+"native.backgroundTaskEnded" = "Background task ended";
+"native.backgroundTaskFinished" = "Background task finished";
 "native.balancedReasoning" = "Balanced reasoning";
 "native.base" = "Base";
 "native.base.variant2" = "Base: %1$@";
@@ -4995,6 +5003,7 @@
 "native.endThisTerminal" = "End This Terminal";
 "native.endWithoutAsking" = "End without asking";
 "native.english" = "English";
+"native.enlargeImage" = "Enlarge image";
 "native.enterABranchName" = "Enter a branch name";
 "native.enterABranchName.variant2" = "Enter a branch name.";
 "native.enterABranchNameBeforePublishing" = "Enter a branch name before publishing.";
@@ -5551,6 +5560,7 @@
 "native.isNotInstalledLitheInstallsItWithYourNpmIntoItsApplicationData" = "%1$@ is not installed. Lithe installs it with your npm into its application data.";
 "native.isVersionOrNewerIsRequired" = "%1$@ is version %2$@; %3$@ or newer is required.";
 "native.itCanReadFilesRunCommandsAndEditCodeAfterAskingForPermission" = "It can read files, run commands and edit code after asking for permission.";
+"native.itemLldOfLld" = "Item %1$lld of %2$lld";
 "native.itsDetailsAndActionsWillAppearHere" = "Its details and actions will appear here.";
 "native.japaneseCharacters" = "Japanese characters";
 "native.javaApplication" = "Java Application";
@@ -6003,6 +6013,7 @@
 "native.nextDiffMatch" = "Next diff match";
 "native.nextDifference" = "Next difference";
 "native.nextFile" = "Next File";
+"native.nextImage" = "Next image";
 "native.nextMatch" = "Next Match";
 "native.nextMatch.variant2" = "Next match";
 "native.nextMatchReturn" = "Next match (Return)";
@@ -6391,6 +6402,7 @@
 "native.previousDiffMatch" = "Previous diff match";
 "native.previousDifference" = "Previous difference";
 "native.previousFile" = "Previous File";
+"native.previousImage" = "Previous image";
 "native.previousMatch" = "Previous Match";
 "native.previousMatch.variant2" = "Previous match";
 "native.previousMatchShiftReturn" = "Previous match (Shift+Return)";

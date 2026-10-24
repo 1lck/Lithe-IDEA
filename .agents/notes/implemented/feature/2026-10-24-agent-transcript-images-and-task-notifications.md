@@ -1,0 +1,64 @@
+# Agent 笔记：对话中的图片缩略图、放大查看与后台任务通知
+
+状态：已实现
+
+## 先说结论
+
+工具读取或截取图片时，对应的工具行（以及整组工具的标题行）右侧显示缩略图：
+最多三张，其余用 `+N` 表示，悬停出大图预览，点击进入统一的放大查看器。用户消息里附带的图片也用同一套缩略图和查看器。
+Claude Code 发出的 `<task-notification>` 不再原样显示为用户气泡，而是一行状态文字。
+图片数据只在内存中以受限大小保存，原图由视图层按需异步解码。
+
+## 问题
+
+ACP（Agent Client Protocol，Agent 与客户端之间的协议）的工具结果可以携带 `image` 内容块，
+但原先解析时只保留了类型名，图片本身被丢弃，用户看不到 Agent 读到的截图。
+用户发送的图片附件只以 `📎 路径` 文字出现，无法预览。Claude Code 的后台任务完成通知是协议标记，
+却被当成用户输入显示。
+
+## 决策
+
+- `AgentToolDetails.images` 与 `AgentConversationMessage.images` 保存 `AgentImage`。内联图片解码后
+  不超过 10 MB、每条消息最多 24 张，超限直接丢弃，不进入会话状态。
+  `AgentImage` 按内容指纹或路径判等，转录行的相等比较不会去比较像素。
+- 只提供文件路径的 `read` 工具调用（例如读取 `.png`）直接显示该文件。其他类型的工具不会因为位置是图片就当作“查看”。
+- 一次更新如果没有图片，不会清掉之前已收到的图片，避免最终状态更新把缩略图抹掉。
+- 缩略图在视图层用 ImageIO 在后台线程按需生成并放入 `NSCache`；历史回放只保存数据，不解码。
+  悬停预览复用 `workbenchHoverCard`，放大查看器是转录区域上的覆盖层，状态放在
+  `AgentImageViewerState`，行只持有引用，打开或关闭不会重绘全部行。
+- `<task-notification>` 只有在整条用户消息完全由通知块组成时才解析，用户自己输入的相同文字不会被吞掉。
+  这是协议标记的呈现，不按 Agent 名称在宿主里分支。
+
+### 不要这样做
+
+- 不要把图片 `Data` 放进 `Equatable` 的逐字节比较，也不要在主线程解码原图。
+- 不要为放大查看另起一套弹窗样式或使用 `.popover`；悬停预览与查看器共用本 Note 中的入口。
+
+## 考虑过的备选方案
+
+### 把图片写到缓存目录再引用路径
+
+好处是内存占用更小。但应用层不能直接做文件系统写入，需要新增平台存储适配；在单张和总量都有上限的前提下，
+先在内存中保留，需要时再评估。
+
+### 保留“复制”按钮并在工具行内渲染
+
+issue #1462 指出的多余复制按钮来自不属于最终回复的过程文字。#1464 已把这类文字收进默认折叠的过程区，
+空白回复也不再生成行，因此本次没有再改动复制按钮的显示规则。
+
+## 后果
+
+- 收益：Agent 看过的图片可以直接在对话里确认；用户附件可点击放大。
+- 代价：长会话里的内联图片占用内存，最坏情况每条消息 24 × 10 MB。
+- 需要重新评估：出现明显内存压力，或需要 Windows 端对齐时。
+
+## 验证
+
+- `./scripts/test-macos.sh --filter AgentImageTests`
+- `./scripts/verify-agent-notes.sh`
+
+## 适用范围
+
+- `macos/Sources/LitheAgentConversationModule/Application/AgentImage.swift`
+- `macos/Sources/Lithe/Views/Agent/AgentImageViews.swift`
+- `macos/Sources/Lithe/Views/Agent/AgentToolGroupView.swift`

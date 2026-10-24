@@ -163,6 +163,7 @@ struct AgentTranscriptView: View {
     var isEditorLayout = false
     @State private var navigation = AgentTranscriptNavigationState()
     @State private var showsAgentPicker = false
+    @StateObject private var imageViewer = AgentImageViewerState()
     // A filtered-out row can be destroyed. Keep its preference in the owning
     // transcript view, isolated by session and message, until the actual data goes away.
     @State private var thoughtExpansions: [String: [String: AgentThoughtExpansion]] = [:]
@@ -309,6 +310,8 @@ struct AgentTranscriptView: View {
                 .id(sessionID)
             }
         }
+        .environment(\.agentImageViewer, imageViewer)
+        .overlay { AgentImageViewerOverlay(state: imageViewer) }
         .onChange(of: feature.openSessionIDs) { sessionIDs in
             thoughtExpansions = thoughtExpansions.filter { sessionIDs.contains($0.key) }
             windowLimits = windowLimits.filter { sessionIDs.contains($0.key) }
@@ -328,6 +331,17 @@ struct AgentTranscriptView: View {
             AgentPermissionCard(permission: permission, answer: { feature.answerPermission(optionID: $0) }, onOpenFile: onOpenFile)
         } else if let sessionID = feature.selectedSessionID, let notice = feature.selectedConversation?.notice {
             AgentSessionNoticeView(notice: notice) { feature.dismissNotice(notice.id, in: sessionID) }
+        }
+    }
+}
+
+/// Only this overlay observes the viewer, so opening an image leaves the rows untouched.
+private struct AgentImageViewerOverlay: View {
+    @ObservedObject var state: AgentImageViewerState
+
+    var body: some View {
+        if let gallery = state.gallery {
+            AgentImageViewer(state: state, gallery: gallery)
         }
     }
 }
@@ -529,33 +543,16 @@ private struct AgentMessageRow: View {
     var body: some View {
         switch message.role {
         case .user:
-            HStack(alignment: .bottom, spacing: 4) {
-                Spacer(minLength: 40)
-                AgentCopyButton(text: message.text, help: "Copy message")
-                    .opacity(isHovered ? 1 : 0)
-                    .allowsHitTesting(isHovered)
-                VStack(alignment: .trailing, spacing: 4) {
-                    Text(message.text)
-                    if let delivery = message.delivery {
-                        Group {
-                            switch delivery {
-                            case .sending: Text("Sending…")
-                            case .received: Text("Agent received")
-                            case .failed(let reason): Text(AgentLocalization.message(reason, locale: locale)).foregroundStyle(LitheTheme.error)
-                            }
-                        }
-                        .font(LitheTheme.uiFont(size: 10))
-                        .foregroundStyle(AgentPanelStyle.secondary)
+            if let notifications = AgentTaskNotification.parse(message.text) {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(Array(notifications.enumerated()), id: \.offset) { _, notification in
+                        AgentTaskNotificationRow(notification: notification)
                     }
                 }
-                    .font(LitheTheme.uiFont(size: isEditorLayout ? 14 : 13))
-                    .textSelection(.enabled)
-                    .padding(.horizontal, isEditorLayout ? 14 : 12)
-                    .padding(.vertical, isEditorLayout ? 10 : 8)
-                    .background(isEditorLayout ? AnyShapeStyle(AgentPanelStyle.context) : AnyShapeStyle(LitheTheme.accent.opacity(0.18)),
-                                in: RoundedRectangle(cornerRadius: isEditorLayout ? 16 : 10))
+                .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                userBubble
             }
-            .onHover { isHovered = $0 }
         case .agent:
             VStack(alignment: .leading, spacing: 2) {
                 AgentMarkdownMessage(text: message.text)
@@ -574,5 +571,64 @@ private struct AgentMessageRow: View {
         case .tool:
             AgentToolGroupView(messages: [message], searchText: "", onOpenFile: onOpenFile)
         }
+    }
+
+    /// Attached image files and replayed pictures show as thumbnails that open
+    /// the viewer; the text keeps the user's words and non-image attachments.
+    private var userBubble: some View {
+        let content = AgentUserMessageContent.parse(message.text)
+        let images = message.images + content.images
+        return HStack(alignment: .bottom, spacing: 4) {
+            Spacer(minLength: 40)
+            AgentCopyButton(text: content.text, help: "Copy message")
+                .opacity(isHovered ? 1 : 0)
+                .allowsHitTesting(isHovered)
+            VStack(alignment: .trailing, spacing: 6) {
+                if !images.isEmpty { AgentUserImages(images: images) }
+                if !content.text.isEmpty { Text(content.text) }
+                if let delivery = message.delivery {
+                    Group {
+                        switch delivery {
+                        case .sending: Text("Sending…")
+                        case .received: Text("Agent received")
+                        case .failed(let reason): Text(AgentLocalization.message(reason, locale: locale)).foregroundStyle(LitheTheme.error)
+                        }
+                    }
+                    .font(LitheTheme.uiFont(size: 10))
+                    .foregroundStyle(AgentPanelStyle.secondary)
+                }
+            }
+                .font(LitheTheme.uiFont(size: isEditorLayout ? 14 : 13))
+                .textSelection(.enabled)
+                .padding(.horizontal, isEditorLayout ? 14 : 12)
+                .padding(.vertical, isEditorLayout ? 10 : 8)
+                .background(isEditorLayout ? AnyShapeStyle(AgentPanelStyle.context) : AnyShapeStyle(LitheTheme.accent.opacity(0.18)),
+                            in: RoundedRectangle(cornerRadius: isEditorLayout ? 16 : 10))
+        }
+        .onHover { isHovered = $0 }
+    }
+}
+
+/// A Claude Code background-task report, shown as a quiet status line instead of the raw markup.
+private struct AgentTaskNotificationRow: View {
+    @Environment(\.locale) private var locale
+    let notification: AgentTaskNotification
+
+    private var failed: Bool { ["failed", "error", "killed", "stopped"].contains(notification.status?.lowercased() ?? "") }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: failed ? "exclamationmark.circle" : "checkmark.circle")
+                .font(LitheTheme.uiFont(size: 11))
+                .foregroundStyle(failed ? LitheTheme.error : LitheTheme.tertiaryText)
+            Text(verbatim: notification.summary ?? AgentLocalization.string(
+                failed ? "Background task ended" : "Background task finished", locale: locale))
+                .lineLimit(2)
+        }
+        .font(LitheTheme.uiFont(size: 12.5))
+        .foregroundStyle(LitheTheme.secondaryText)
+        .help(notification.outputFile ?? "")
+        .textSelection(.enabled)
+        .accessibilityIdentifier("agent-task-notification")
     }
 }

@@ -373,6 +373,8 @@
 "Background Services" = "后台服务";
 "Background services" = "后台服务";
 "Background services started in Lithe are still running" = "在 Lithe 中启动的后台服务仍在运行";
+"Background task ended" = "后台任务已结束";
+"Background task finished" = "后台任务已完成";
 "Balanced reasoning" = "平衡思考深度与响应速度";
 "Base" = "目标";
 "Base %@ → Target %@" = "基准 %@ → 目标 %@";
@@ -1180,6 +1182,7 @@
 "End on next launch" = "下次启动时结束";
 "End without asking" = "直接结束";
 "English" = "英文";
+"Enlarge image" = "放大查看图片";
 "Enter API key" = "填写 API Key";
 "Enter a ChangeList name (1–100 characters)." = "请输入更改列表名称（1–100 个字符）。";
 "Enter a branch name" = "请输入分支名称";
@@ -1627,6 +1630,7 @@
 "Invalid shared instruction request." = "共享指令请求无效。";
 "Invert" = "反选";
 "It can read files, run commands and edit code after asking for permission." = "它可以在征得你的许可后读取文件、运行命令和修改代码。";
+"Item %lld of %lld" = "第 %lld 项，共 %lld 项";
 "Its details and actions will appear here." = "工作树详情和可用操作会显示在这里。";
 "JDK Home" = "JDK 主目录";
 "JDK home" = "JDK 主目录";
@@ -2014,6 +2018,7 @@
 "Next console expression" = "下一条表达式";
 "Next diff match" = "下一个 Diff 匹配项";
 "Next difference" = "下一个差异";
+"Next image" = "下一张图片";
 "Next match" = "下一个匹配";
 "Next match (Return)" = "下一个匹配项（Return）";
 "Next run" = "下次运行";
@@ -2399,6 +2404,7 @@
 "Previous console expression" = "上一条表达式";
 "Previous diff match" = "上一个 Diff 匹配项";
 "Previous difference" = "上一个差异";
+"Previous image" = "上一张图片";
 "Previous match" = "上一个匹配";
 "Previous match (Shift+Return)" = "上一个匹配项（Shift+Return）";
 "Previous session" = "上一次会话";
@@ -4175,6 +4181,8 @@
 "native.backgroundServices" = "后台服务";
 "native.backgroundServices.variant2" = "后台服务";
 "native.backgroundServicesStartedInLitheAreStillRunning" = "在 Lithe 中启动的后台服务仍在运行";
+"native.backgroundTaskEnded" = "后台任务已结束";
+"native.backgroundTaskFinished" = "后台任务已完成";
 "native.balancedReasoning" = "平衡思考深度与响应速度";
 "native.base" = "目标";
 "native.base.variant2" = "基点：%1$@";
@@ -4995,6 +5003,7 @@
 "native.endThisTerminal" = "结束此终端";
 "native.endWithoutAsking" = "直接结束";
 "native.english" = "英文";
+"native.enlargeImage" = "放大查看图片";
 "native.enterABranchName" = "请输入分支名称";
 "native.enterABranchName.variant2" = "请输入分支名称。";
 "native.enterABranchNameBeforePublishing" = "请输入分支名称后再发布。";
@@ -5551,6 +5560,7 @@
 "native.isNotInstalledLitheInstallsItWithYourNpmIntoItsApplicationData" = "%1$@ 尚未安装。Lithe 会用你的 npm 把它安装到应用数据目录。";
 "native.isVersionOrNewerIsRequired" = "%1$@ 的版本是 %2$@，需要 %3$@ 或更高版本。";
 "native.itCanReadFilesRunCommandsAndEditCodeAfterAskingForPermission" = "它可以在征得你的许可后读取文件、运行命令和修改代码。";
+"native.itemLldOfLld" = "第 %1$lld 项，共 %2$lld 项";
 "native.itsDetailsAndActionsWillAppearHere" = "工作树详情和可用操作会显示在这里。";
 "native.japaneseCharacters" = "日文字符";
 "native.javaApplication" = "Java 应用";
@@ -6003,6 +6013,7 @@
 "native.nextDiffMatch" = "下一个 Diff 匹配项";
 "native.nextDifference" = "下一个差异";
 "native.nextFile" = "下一个文件";
+"native.nextImage" = "下一张图片";
 "native.nextMatch" = "下一个匹配项";
 "native.nextMatch.variant2" = "下一个匹配";
 "native.nextMatchReturn" = "下一个匹配项（Return）";
@@ -6391,6 +6402,7 @@
 "native.previousDiffMatch" = "上一个 Diff 匹配项";
 "native.previousDifference" = "上一个差异";
 "native.previousFile" = "上一个文件";
+"native.previousImage" = "上一张图片";
 "native.previousMatch" = "上一个匹配项";
 "native.previousMatch.variant2" = "上一个匹配";
 "native.previousMatchShiftReturn" = "上一个匹配项（Shift+Return）";

@@ -33,6 +33,8 @@ public struct AgentConversationMessage: Identifiable, Equatable, Sendable {
     public var delivery: Delivery?
     public var toolStatus: ToolStatus?
     public var toolDetails = AgentToolDetails()
+    /// Pictures carried by a replayed user message; live attachments are parsed from its text.
+    public var images: [AgentImage] = []
     /// Child output is retained with its owner, separate from the parent's reply.
     public var subagentSessionID: String?
 

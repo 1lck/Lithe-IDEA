@@ -73,6 +73,7 @@ struct AgentToolGroupView: View {
     @State private var showsAllRows = false
     @State private var expandedToolID: String?
 
+    private var groupImages: [AgentImage] { messages.flatMap(\.toolDetails.images) }
     private var failedCount: Int { messages.filter { $0.toolStatus == .failed }.count }
     private var isRunning: Bool { messages.contains { $0.toolStatus == .inProgress || $0.toolStatus == .pending } }
     private var hasExpandedDetails: Bool {
@@ -107,7 +108,15 @@ struct AgentToolGroupView: View {
 
     private var header: some View {
         let summary = AgentToolGroupPresentation.summary(messages, locale: locale)
-        return Button { expanded.toggle() } label: {
+        return HStack(spacing: 8) {
+            headerButton(summary: summary)
+            Spacer(minLength: 8)
+            if !groupImages.isEmpty { AgentImageStrip(images: groupImages) }
+        }
+    }
+
+    private func headerButton(summary: String) -> some View {
+        Button { expanded.toggle() } label: {
             HStack(spacing: 5) {
                 if isRunning { ProgressView().controlSize(.mini) }
                 Text(verbatim: summary).lineLimit(1)
@@ -172,6 +181,7 @@ struct AgentToolGroupView: View {
                         .lineLimit(1)
                         .truncationMode(.middle)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                    if !message.toolDetails.images.isEmpty { AgentImageStrip(images: message.toolDetails.images) }
                     status(message.toolStatus)
                     if hasDetails {
                         Image(systemName: "chevron.right")

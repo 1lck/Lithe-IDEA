@@ -80698,6 +80698,28 @@
       }
     },
     {
+      "id": "native.backgroundTaskEnded",
+      "description": "Native UI: Background task ended",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Background task ended",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.backgroundTaskFinished",
+      "description": "Native UI: Background task finished",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Background task finished",
+        "arguments": []
+      }
+    },
+    {
       "id": "native.beforeAToolRuns",
       "description": "Native UI: Before a tool runs",
       "platforms": [
@@ -81307,6 +81329,17 @@
       }
     },
     {
+      "id": "native.enlargeImage",
+      "description": "Native UI: Enlarge image",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Enlarge image",
+        "arguments": []
+      }
+    },
+    {
       "id": "native.enterAHost",
       "description": "Native UI: Enter a host.",
       "platforms": [
@@ -81805,6 +81838,24 @@
       }
     },
     {
+      "id": "native.itemLldOfLld",
+      "description": "Native UI: Item %lld of %lld",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Item %lld of %lld",
+        "arguments": [
+          "arg1",
+          "arg2"
+        ]
+      },
+      "parameters": {
+        "arg1": "integer",
+        "arg2": "integer"
+      }
+    },
+    {
       "id": "native.keepAliveInterval",
       "description": "Native UI: Keep-alive interval",
       "platforms": [
@@ -82145,6 +82196,17 @@
       }
     },
     {
+      "id": "native.nextImage",
+      "description": "Native UI: Next image",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Next image",
+        "arguments": []
+      }
+    },
+    {
       "id": "native.noAccessibleDatabases",
       "description": "Native UI: No accessible databases",
       "platforms": [
@@ -82424,6 +82486,17 @@
       ],
       "macos": {
         "key": "Previous 7 days",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.previousImage",
+      "description": "Native UI: Previous image",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Previous image",
         "arguments": []
       }
     },
