@@ -54,13 +54,47 @@ fn scan_package(package: DiscoveredPackage) -> ScannedPackage {
     }
     match validate_manifest(&manifest) {
         Ok(plugin) => {
+            let plugin_id = plugin["id"].as_str().unwrap_or(&fallback_id).to_string();
+            let version = plugin["version"].as_str().unwrap_or("0").to_string();
+            // The trust gate runs after manifest validation so Core's stable
+            // manifest codes stay primary, and before the package is
+            // registered: signature policy, origin, and the approved content
+            // digest must all hold for the bytes on disk right now.
+            let Some(origin) = package.origin else {
+                return quarantined(
+                    package,
+                    plugin_id,
+                    &version,
+                    catalog_rejection(
+                        super::signature::TrustError::ProvenanceMissing.code(),
+                        super::signature::TrustError::ProvenanceMissing.message(),
+                        None,
+                    ),
+                );
+            };
+            if let Err(error) = super::signature::verify_for_origin(
+                &package.root,
+                &plugin_id,
+                &version,
+                &manifest,
+                origin,
+                package.content_digest.as_deref(),
+                super::signature::trusted_keys(),
+            ) {
+                return quarantined(
+                    package,
+                    plugin_id,
+                    &version,
+                    catalog_rejection(error.code(), error.message(), None),
+                );
+            }
             let entry = CatalogEntry {
-                plugin_id: plugin["id"].as_str().unwrap_or(&fallback_id).to_string(),
+                plugin_id: plugin_id.clone(),
                 display_name: plugin["displayName"]
                     .as_str()
                     .unwrap_or("plugin")
                     .to_string(),
-                version: plugin["version"].as_str().unwrap_or("0").to_string(),
+                version: version.clone(),
                 api_version: plugin["pluginAPIVersion"].as_u64().unwrap_or(0) as u32,
                 source: package.source,
                 enabled: package.enabled,
@@ -85,6 +119,10 @@ fn scan_package(package: DiscoveredPackage) -> ScannedPackage {
                 entry,
                 root: package.root,
                 manifest,
+                trust: Some(super::TrustEvidence {
+                    origin,
+                    expected_content_digest: package.content_digest,
+                }),
             }
         }
         Err(rejection) => quarantined(
@@ -119,6 +157,7 @@ fn quarantined(
         },
         root: package.root,
         manifest: Value::Null,
+        trust: None,
     }
 }
 

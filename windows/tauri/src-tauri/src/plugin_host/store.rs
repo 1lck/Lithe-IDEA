@@ -55,7 +55,12 @@ pub fn workspace_state_key(workspace_path: &str) -> String {
     format!("{hash:016x}")
 }
 
-/// Persistent install record of one installed plugin.
+/// Persistent install record of one installed plugin (schema 2). The record
+/// is the only trust evidence for installed packages: which origin the
+/// package came from, which byte digest the user approved, and which
+/// programs were approved. Schema 1 records carry no provenance; the scan
+/// quarantines them instead of reconstructing trust from `enabled` or the
+/// manifest.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InstallationRecord {
@@ -63,12 +68,80 @@ pub struct InstallationRecord {
     pub plugin_id: String,
     /// Active version directory name under the plugin directory.
     pub version: String,
+    /// Version the user can roll back to; verified with its own provenance.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub previous_version: Option<String>,
     #[serde(default = "default_enabled")]
     pub enabled: bool,
+    /// Where the active version came from. `None` marks a schema 1 record
+    /// written before provenance existed; such records never load.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<super::signature::InstallOrigin>,
+    /// Origin of `previousVersion`; rollback verifies the restored package
+    /// by how it was installed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub previous_origin: Option<super::signature::InstallOrigin>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub marketplace: Option<MarketplaceProvenance>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub previous_marketplace: Option<MarketplaceProvenance>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disk: Option<DiskProvenance>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub previous_disk: Option<DiskProvenance>,
+}
+
+impl InstallationRecord {
+    /// Provenance of the active version: exactly one source owns an approval,
+    /// so marketplace and disk provenance are mutually exclusive.
+    pub fn active_content_digest(&self) -> Option<&str> {
+        match (&self.marketplace, &self.disk) {
+            (Some(_), Some(_)) | (None, None) => None,
+            (Some(marketplace), None) => Some(&marketplace.content_digest),
+            (None, Some(disk)) => Some(&disk.content_digest),
+        }
+    }
+
+    /// Content digest recorded for `previousVersion`, for rollback checks.
+    pub fn previous_content_digest(&self) -> Option<&str> {
+        match (&self.previous_marketplace, &self.previous_disk) {
+            (Some(_), Some(_)) | (None, None) => None,
+            (Some(marketplace), None) => Some(&marketplace.content_digest),
+            (None, Some(disk)) => Some(&disk.content_digest),
+        }
+    }
 }
 
 fn default_enabled() -> bool {
     true
+}
+
+/// A user-selected local package, without any claim of repository
+/// verification. The content digest binds the approval to the installed
+/// files. Mirrors the macOS `PluginDiskProvenance`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiskProvenance {
+    pub file_name: String,
+    pub archive_sha256: Option<String>,
+    pub content_digest: String,
+    /// Canonical JSON of every approved program from the install review.
+    pub approved_programs: Vec<String>,
+}
+
+/// Where a marketplace installation came from and what the user approved.
+/// Reserved for the marketplace milestone (M2), which writes this record;
+/// the scan already rechecks its digest for community origin. Mirrors the
+/// macOS `PluginMarketplaceProvenance`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MarketplaceProvenance {
+    pub source_id: String,
+    pub source_name: String,
+    pub repository: String,
+    pub archive_sha256: String,
+    pub content_digest: String,
+    pub approved_programs: Vec<String>,
 }
 
 /// One package directory candidate found on disk.
@@ -77,6 +150,12 @@ pub struct DiscoveredPackage {
     pub root: PathBuf,
     pub source: &'static str,
     pub enabled: bool,
+    /// Trust origin recorded for this package. Bundled packages carry
+    /// `Bundled`; `None` marks a schema 1 record without provenance, which
+    /// the scan quarantines.
+    pub origin: Option<super::signature::InstallOrigin>,
+    /// Provenance of the active version (digest of the approved bytes).
+    pub content_digest: Option<String>,
     /// Set when the package was found but its install record is missing or
     /// invalid; scan quarantines the package with this reason.
     pub record_problem: Option<String>,
@@ -106,6 +185,8 @@ pub fn discover_installed_in(install_root: &Path) -> Result<Vec<DiscoveredPackag
             root: plugin_directory.clone(),
             source: "installed",
             enabled: false,
+            origin: None,
+            content_digest: None,
             record_problem: Some(problem),
         };
         let record: InstallationRecord =
@@ -125,11 +206,33 @@ pub fn discover_installed_in(install_root: &Path) -> Result<Vec<DiscoveredPackag
                     continue;
                 }
             };
-        if record.schema_version != 1 {
+        if record.schema_version > 2 {
             packages.push(quarantined(format!(
                 "unsupported installation record schema {}",
                 record.schema_version
             )));
+            continue;
+        }
+        if record.schema_version == 1 {
+            // A schema 1 record predates provenance: the enabled flag and the
+            // manifest say nothing about which bytes were approved, so the
+            // package is quarantined until the user reinstalls it.
+            packages.push(quarantined(
+                "the install record predates content provenance; reinstall the plugin to \
+                 approve it with the current trust rules"
+                    .to_string(),
+            ));
+            continue;
+        }
+        if record.plugin_id
+            != plugin_directory
+                .file_name()
+                .map(|name| name.to_string_lossy().to_string())
+                .unwrap_or_default()
+        {
+            packages.push(quarantined(
+                "the install record does not match its plugin directory".to_string(),
+            ));
             continue;
         }
         let version_directory = plugin_directory.join(&record.version);
@@ -140,10 +243,20 @@ pub fn discover_installed_in(install_root: &Path) -> Result<Vec<DiscoveredPackag
             )));
             continue;
         }
+        if record.active_content_digest().is_none()
+            && record.origin == Some(super::signature::InstallOrigin::Community)
+        {
+            packages.push(quarantined(
+                super::signature::TrustError::ProvenanceMissing.message(),
+            ));
+            continue;
+        }
         packages.push(DiscoveredPackage {
             root: version_directory,
             source: "installed",
             enabled: record.enabled,
+            origin: record.origin,
+            content_digest: record.active_content_digest().map(str::to_string),
             record_problem: None,
         });
     }
@@ -171,12 +284,7 @@ pub fn discover_bundled_in(bundled_root: &Path) -> Result<Vec<DiscoveredPackage>
             continue;
         }
         if package_directory.join("plugin.json").is_file() {
-            packages.push(DiscoveredPackage {
-                root: package_directory,
-                source: "bundled",
-                enabled: true,
-                record_problem: None,
-            });
+            packages.push(bundled_package(package_directory));
             continue;
         }
         let mut versions: Vec<(String, PathBuf)> = Vec::new();
@@ -200,14 +308,23 @@ pub fn discover_bundled_in(bundled_root: &Path) -> Result<Vec<DiscoveredPackage>
         else {
             continue;
         };
-        packages.push(DiscoveredPackage {
-            root: best,
-            source: "bundled",
-            enabled: true,
-            record_problem: None,
-        });
+        packages.push(bundled_package(best));
     }
     Ok(packages)
+}
+
+/// A bundled package discovered inside the host installation. Bundled
+/// packages carry no install record: they ship with the app and are trusted
+/// through their location, subject to the pinned signature policy.
+fn bundled_package(root: PathBuf) -> DiscoveredPackage {
+    DiscoveredPackage {
+        root,
+        source: "bundled",
+        enabled: true,
+        origin: Some(super::signature::InstallOrigin::Bundled),
+        content_digest: None,
+        record_problem: None,
+    }
 }
 
 /// Dot-separated version comparison with numeric-aware chunks, so `1.10`

@@ -63,8 +63,7 @@ pub fn declarative_plugins_language_launch(
     let _native_launch = app
         .state::<super::lifecycle::LifecycleState>()
         .acquire(&package.entry.plugin_id)?;
-    let package = package_by_id(&app, &package.entry.plugin_id)
-        .ok_or("plugin was removed during launch resolution")?;
+    let package = verified_package_by_id(&app, &package.entry.plugin_id)?;
     let Some(language_id) = owning_language_id(&package, &file_path) else {
         return Ok(None);
     };
@@ -111,6 +110,35 @@ pub(crate) fn package_by_id(app: &AppHandle, plugin_id: &str) -> Option<ScannedP
                 && package.entry.enabled
                 && package.entry.plugin_id == plugin_id
         })
+}
+
+/// Finds an accepted package by plugin ID and re-verifies its trust against
+/// the live bytes before anything is launched: the pinned signature policy,
+/// the origin, and the recorded content digest must hold for the files on
+/// disk right now. Every process-starting entry (language launch, run plan,
+/// test plan) goes through here, so a package tampered after the scan is
+/// refused at launch instead of being started once.
+pub(crate) fn verified_package_by_id(
+    app: &AppHandle,
+    plugin_id: &str,
+) -> Result<ScannedPackage, String> {
+    let package = package_by_id(app, plugin_id)
+        .ok_or_else(|| format!("{plugin_id} is not an accepted declarative plugin"))?;
+    let trust = package
+        .trust
+        .as_ref()
+        .expect("accepted packages carry trust evidence");
+    super::signature::verify_for_origin(
+        &package.root,
+        &package.entry.plugin_id,
+        &package.entry.version,
+        &package.manifest,
+        trust.origin,
+        trust.expected_content_digest.as_deref(),
+        super::signature::trusted_keys(),
+    )
+    .map_err(|error| format!("{} trust check failed: {}", plugin_id, error.message()))?;
+    Ok(package)
 }
 
 /// Returns the enabled declarative plugin that owns a file, for the run and
@@ -820,6 +848,7 @@ mod tests {
             },
             root,
             manifest,
+            trust: None,
         }
     }
 

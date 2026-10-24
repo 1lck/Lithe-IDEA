@@ -34,8 +34,7 @@ pub fn declarative_plugins_run_plan(
     relative_file_path: String,
     user_arguments: Vec<String>,
 ) -> Result<DeclarativeRunPlan, String> {
-    let package = super::launch::package_by_id(&app, &plugin_id)
-        .ok_or_else(|| format!("{plugin_id} is not an accepted declarative plugin"))?;
+    let package = super::launch::verified_package_by_id(&app, &plugin_id)?;
     expand_plan(
         &package.manifest,
         &plugin_id,
@@ -58,8 +57,7 @@ pub fn declarative_plugins_test_plan(
     language_id: String,
     workspace_path: String,
 ) -> Result<DeclarativeRunPlan, String> {
-    let package = super::launch::package_by_id(&app, &plugin_id)
-        .ok_or_else(|| format!("{plugin_id} is not an accepted declarative plugin"))?;
+    let package = super::launch::verified_package_by_id(&app, &plugin_id)?;
     let relative_project_file_paths =
         existing_project_markers(&package.manifest, &language_id, Path::new(&workspace_path));
     expand_plan(

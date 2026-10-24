@@ -6,14 +6,16 @@
 //! the input is copied to a private snapshot first, Core's
 //! `plugins.marketplace.installReview` produces the permission and program
 //! summary the user confirms, and installation re-validates the staged bytes
-//! before they replace the active version. Package trust comes only from this
-//! explicit review; there is no signature verification in v0 (recorded gap in
-//! the declarative plugin host note).
+//! before they replace the active version. Disk packages are community
+//! origin: the installation record stores the content digest and the
+//! approved programs of the confirmed review, and every later load rechecks
+//! them. A publisher signature document is verified whenever one is present;
+//! it never substitutes for the user's review.
 
 use super::scan::{core_execute, validate_manifest};
-use super::store::{self, InstallationRecord};
+use super::store::{self, DiskProvenance, InstallationRecord};
 use super::{CatalogEntry, PluginHostState};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -78,6 +80,15 @@ pub struct InstallReview {
     pub new_programs: Vec<serde_json::Value>,
 }
 
+/// Source facts recorded beside the snapshot, so the installation record can
+/// name what the user installed without changing the confirm-call contract.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SnapshotSource {
+    file_name: String,
+    archive_sha256: Option<String>,
+}
+
 /// Prepares a disk import from a ZIP archive or an unpacked directory. The
 /// source is copied to a private snapshot under the app's temporary
 /// directory; nothing is installed and nothing outside the snapshot is
@@ -97,6 +108,16 @@ pub fn declarative_plugins_prepare_disk_install(
     let snapshot = temporary_root.join(&session_id);
     let source = PathBuf::from(&source_path);
     let result = (|| {
+        let file_name = source
+            .file_name()
+            .map(|name| name.to_string_lossy().to_string())
+            .ok_or("the source has no file name")?;
+        let archive_sha256 =
+            if source.extension().and_then(|extension| extension.to_str()) == Some("zip") {
+                Some(archive_digest(&source)?)
+            } else {
+                None
+            };
         if source.extension().and_then(|extension| extension.to_str()) == Some("zip") {
             extract_zip_snapshot(&source, &snapshot)?;
         } else if source.is_dir() {
@@ -107,9 +128,20 @@ pub fn declarative_plugins_prepare_disk_install(
                 source.display()
             ));
         }
-        let manifest = read_snapshot_manifest(&snapshot)?;
+        let manifest = read_package_manifest(&snapshot)?;
+        // Source facts live beside the snapshot, not inside it: every file
+        // under the snapshot becomes an installed package file.
+        std::fs::write(
+            snapshot_source_path(&temporary_root, &session_id),
+            serde_json::to_string(&SnapshotSource {
+                file_name,
+                archive_sha256,
+            })
+            .map_err(|error| error.to_string())?,
+        )
+        .map_err(|error| error.to_string())?;
         Ok(PreparedInstall {
-            session_id,
+            session_id: session_id.clone(),
             review: review_snapshot(&manifest, None)?,
             manifest_digest: content_digest(&manifest),
             display_name: manifest["displayName"]
@@ -119,7 +151,8 @@ pub fn declarative_plugins_prepare_disk_install(
         })
     })();
     if result.is_err() {
-        discard_snapshot(&snapshot);
+        discard_snapshot(&temporary_root.join(&session_id));
+        discard_source_metadata(&temporary_root, &session_id);
     }
     result
 }
@@ -127,23 +160,32 @@ pub fn declarative_plugins_prepare_disk_install(
 /// Installs a previously prepared snapshot after the user confirmed the
 /// review. The confirm call re-validates the snapshot bytes and re-runs the
 /// review, so a snapshot swapped between prepare and confirm is rejected.
+/// The staged copy is re-verified against the recorded content digest before
+/// it becomes the active version, and the installation record is written in
+/// the same transaction as the version swap: a failure at any point leaves
+/// the previous version and its record untouched.
 #[tauri::command]
 pub async fn declarative_plugins_confirm_disk_install(
     app: AppHandle,
     session_id: String,
     manifest_digest: String,
 ) -> Result<CatalogEntry, String> {
+    let temporary_root = snapshot_root(&app)?;
     let snapshot = snapshot_path(&app, &session_id)?;
+    let source_record_path = snapshot_source_path(&temporary_root, &session_id);
     let result = async {
-        let manifest = read_snapshot_manifest(&snapshot)?;
+        let source: SnapshotSource = serde_json::from_str(
+            &std::fs::read_to_string(&source_record_path)
+                .map_err(|error| format!("the install session has no source record: {error}"))?,
+        )
+        .map_err(|error| format!("the install session source record is unreadable: {error}"))?;
+        let manifest = read_package_manifest(&snapshot)?;
         if content_digest(&manifest) != manifest_digest {
             return Err("the package changed after review; the import was cancelled".to_string());
         }
         // Re-review with no previously approved programs: a disk install always
         // requires a fresh full confirmation, matching the macOS rule.
-        let _ = review_snapshot(&manifest, None)?;
-
-        let install_root = store::install_root(&app)?;
+        let review = review_snapshot(&manifest, None)?;
         let plugin_id = manifest["id"]
             .as_str()
             .ok_or("manifest has no id")?
@@ -156,12 +198,83 @@ pub async fn declarative_plugins_confirm_disk_install(
         // Validate the final manifest against this host's capabilities before
         // anything is written into the install root.
         validate_manifest(&manifest).map_err(|rejection| rejection.message)?;
+        // Disk installs are community origin. The pinned trust policy still
+        // applies (an official ID cannot install as an unsigned community
+        // package), and a signature document present in the package must
+        // verify even though the community digest is the recorded evidence.
+        super::signature::verify_for_install(
+            &snapshot,
+            &plugin_id,
+            &version,
+            &manifest,
+            super::signature::InstallOrigin::Community,
+            super::signature::trusted_keys(),
+        )
+        .map_err(|error| error.message())?;
+        let approved_digest =
+            super::signature::content_digest(&snapshot).map_err(|error| error.message())?;
 
         // A version switch invalidates the page's package bytes and bridge
         // authorization, so destroy all owned webviews before staging starts.
         let mutation = super::lifecycle::begin(&app, &plugin_id).await?;
-        staging_install(&install_root, &plugin_id, &version, &snapshot)?;
-        write_installation_record(&install_root, &plugin_id, &version)?;
+        let install_root = store::install_root(&app)?;
+        let existing = read_installation_record(&install_root, &plugin_id);
+        let replaces_active = existing
+            .as_ref()
+            .map(|record| record.version == version)
+            .unwrap_or(false);
+        // The same-version rule keeps the previous chain intact: replacing
+        // the active version in place does not overwrite what the user can
+        // still roll back to.
+        let (previous_version, previous_origin) = if replaces_active {
+            (
+                existing
+                    .as_ref()
+                    .and_then(|record| record.previous_version.clone()),
+                existing.as_ref().and_then(|record| record.previous_origin),
+            )
+        } else {
+            (
+                existing.as_ref().map(|record| record.version.clone()),
+                existing.as_ref().and_then(|record| record.origin),
+            )
+        };
+        let (previous_marketplace, previous_disk) = if replaces_active {
+            (
+                existing
+                    .as_ref()
+                    .and_then(|record| record.previous_marketplace.clone()),
+                existing
+                    .as_ref()
+                    .and_then(|record| record.previous_disk.clone()),
+            )
+        } else {
+            (
+                existing
+                    .as_ref()
+                    .and_then(|record| record.marketplace.clone()),
+                existing.as_ref().and_then(|record| record.disk.clone()),
+            )
+        };
+        let record = InstallationRecord {
+            schema_version: 2,
+            plugin_id: plugin_id.clone(),
+            version: version.clone(),
+            previous_version,
+            enabled: true,
+            origin: Some(super::signature::InstallOrigin::Community),
+            previous_origin,
+            marketplace: None,
+            previous_marketplace,
+            disk: Some(DiskProvenance {
+                file_name: source.file_name,
+                archive_sha256: source.archive_sha256,
+                content_digest: approved_digest,
+                approved_programs: canonical_programs(&review.programs),
+            }),
+            previous_disk,
+        };
+        publish_installed_version(&install_root, &plugin_id, &version, &snapshot, record)?;
         rescan_after_change(&app)?;
         mutation.complete(true);
         Ok(catalog_entry_of(&app, &plugin_id)
@@ -169,6 +282,7 @@ pub async fn declarative_plugins_confirm_disk_install(
     }
     .await;
     discard_snapshot(&snapshot);
+    discard_source_metadata(&temporary_root, &session_id);
     result
 }
 
@@ -178,10 +292,12 @@ pub fn declarative_plugins_cancel_disk_install(
     app: AppHandle,
     session_id: String,
 ) -> Result<(), String> {
+    let temporary_root = snapshot_root(&app)?;
     let snapshot = snapshot_path(&app, &session_id)?;
     if snapshot.exists() {
         std::fs::remove_dir_all(snapshot).map_err(|error| error.to_string())?;
     }
+    discard_source_metadata(&temporary_root, &session_id);
     Ok(())
 }
 
@@ -193,12 +309,23 @@ fn snapshot_path(app: &AppHandle, session_id: &str) -> Result<PathBuf, String> {
     {
         return Err("invalid install session".to_string());
     }
+    Ok(snapshot_root(app)?.join(session_id))
+}
+
+fn snapshot_root(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(app
         .path()
         .app_local_data_dir()
         .map_err(|error| error.to_string())?
-        .join("plugin-temp")
-        .join(session_id))
+        .join("plugin-temp"))
+}
+
+fn snapshot_source_path(temporary_root: &Path, session_id: &str) -> PathBuf {
+    temporary_root.join(format!("{session_id}.source.json"))
+}
+
+fn discard_source_metadata(temporary_root: &Path, session_id: &str) {
+    let _ = std::fs::remove_file(snapshot_source_path(temporary_root, session_id));
 }
 
 /// Removes an installed package. Bundled packages cannot be uninstalled.
@@ -255,9 +382,13 @@ pub async fn declarative_plugins_set_enabled(
     Ok(())
 }
 
-/// Restores the previous version directory of an installed package. Rollback
-/// requires a retained previous version and always re-enables the package so
-/// a broken update cannot leave it disabled and forgotten.
+/// Restores the previous version of an installed package. The restored
+/// package is verified with its own recorded provenance — a community
+/// version is rechecked against the digest approved for it, and a signature
+/// document present in it must still verify — before the record swaps, so a
+/// rollback can never activate bytes the host would refuse to load.
+/// Rollback requires a retained previous version and always re-enables the
+/// package so a broken update cannot leave it disabled and forgotten.
 #[tauri::command]
 pub async fn declarative_plugins_rollback(app: AppHandle, plugin_id: String) -> Result<(), String> {
     let install_root = store::install_root(&app)?;
@@ -267,33 +398,49 @@ pub async fn declarative_plugins_rollback(app: AppHandle, plugin_id: String) -> 
             .map_err(|error| format!("{plugin_id} has no readable install record: {error}"))?,
     )
     .map_err(|error| error.to_string())?;
-    let mut versions: Vec<String> = std::fs::read_dir(&plugin_directory)
-        .map_err(|error| error.to_string())?
-        .flatten()
-        .filter_map(|entry| {
-            let name = entry.file_name().to_string_lossy().to_string();
-            let path = entry.path();
-            (path.is_dir() && path.join("plugin.json").is_file()).then_some(name)
-        })
-        .collect();
-    versions.sort_by(|left, right| store::compare_versions(left, right));
-    versions.reverse();
-    let Some(previous) = versions
-        .into_iter()
-        .find(|version| *version != record.version)
-    else {
+    let Some(previous) = record.previous_version.clone() else {
         return Err(format!(
             "{plugin_id} has no previous version to roll back to"
         ));
     };
-    let mutation = super::lifecycle::begin(&app, &plugin_id).await?;
-    staging_install(
-        &install_root,
+    let Some(previous_origin) = record.previous_origin.or(record.origin) else {
+        return Err(format!(
+            "{plugin_id} has no recorded origin to verify the previous version with"
+        ));
+    };
+    let previous_directory = plugin_directory.join(&previous);
+    let manifest = read_package_manifest(&previous_directory)?;
+    if manifest["id"].as_str() != Some(plugin_id.as_str())
+        || manifest["version"].as_str() != Some(previous.as_str())
+    {
+        return Err("the previous package does not match its installation record".to_string());
+    }
+    validate_manifest(&manifest).map_err(|rejection| rejection.message)?;
+    super::signature::verify_for_origin(
+        &previous_directory,
         &plugin_id,
         &previous,
-        &plugin_directory.join(&previous),
-    )?;
-    write_installation_record(&install_root, &plugin_id, &previous)?;
+        &manifest,
+        previous_origin,
+        record.previous_content_digest(),
+        super::signature::trusted_keys(),
+    )
+    .map_err(|error| error.message())?;
+    let mutation = super::lifecycle::begin(&app, &plugin_id).await?;
+    let swapped = InstallationRecord {
+        schema_version: 2,
+        plugin_id: record.plugin_id.clone(),
+        version: previous,
+        previous_version: Some(record.version.clone()),
+        enabled: true,
+        origin: record.previous_origin,
+        previous_origin: record.origin,
+        marketplace: record.previous_marketplace.clone(),
+        previous_marketplace: record.marketplace.clone(),
+        disk: record.previous_disk.clone(),
+        previous_disk: record.disk.clone(),
+    };
+    write_installation_record(&install_root, &swapped)?;
     rescan_after_change(&app)?;
     mutation.complete(true);
     Ok(())
@@ -332,15 +479,17 @@ fn review_snapshot(
     })
 }
 
-/// Copies the snapshot into the install root, then validates the copied
-/// manifest. Staging first keeps a failed copy from destroying the current
-/// version: the active version directory is only replaced after the staged
-/// copy validates.
-pub(crate) fn staging_install(
+/// Publishes a validated package as the active version of an installed
+/// plugin. The staged copy is verified against the recorded provenance
+/// before it replaces the active version, and the installation record is
+/// written in the same transaction: a failure at any point restores the
+/// previous version directory and leaves the old record readable.
+pub(crate) fn publish_installed_version(
     install_root: &Path,
     plugin_id: &str,
     version: &str,
     source: &Path,
+    record: InstallationRecord,
 ) -> Result<(), String> {
     let plugin_directory = install_root.join(plugin_id);
     std::fs::create_dir_all(&plugin_directory).map_err(|error| error.to_string())?;
@@ -349,21 +498,49 @@ pub(crate) fn staging_install(
     if staging_directory.exists() {
         std::fs::remove_dir_all(&staging_directory).map_err(|error| error.to_string())?;
     }
-    copy_directory_snapshot(source, &staging_directory)?;
-    let result = staging_validate_and_activate(&staging_directory, &version_directory);
+    let result = (|| {
+        copy_directory_snapshot(source, &staging_directory)?;
+        // The staged bytes are what gets installed: re-validate the copy,
+        // then bind it to the digest recorded for the approved snapshot.
+        let staged_manifest = read_package_manifest(&staging_directory)?;
+        validate_manifest(&staged_manifest).map_err(|rejection| rejection.message)?;
+        let origin = record
+            .origin
+            .ok_or("the installation record has no origin")?;
+        super::signature::verify_for_install(
+            &staging_directory,
+            plugin_id,
+            version,
+            &staged_manifest,
+            origin,
+            super::signature::trusted_keys(),
+        )
+        .map_err(|error| error.message())?;
+        if let Some(expected) = record.active_content_digest() {
+            let staged_digest = super::signature::content_digest(&staging_directory)
+                .map_err(|error| error.message())?;
+            if staged_digest != expected {
+                return Err(super::signature::TrustError::ContentChanged.message());
+            }
+        }
+        activate_staged_version(&staging_directory, &version_directory)?;
+        // The record only ever points at bytes that are already in place; if
+        // this write fails, the backup restore below keeps the old version
+        // and the old record consistent.
+        write_installation_record(install_root, &record)
+    })();
     if result.is_err() {
-        // A failed install never leaves staging bytes behind.
         let _ = std::fs::remove_dir_all(&staging_directory);
     }
     result
 }
 
-fn staging_validate_and_activate(
+/// Replaces `version_directory` with the staged copy, keeping a backup so a
+/// failed rename never leaves the install record pointing at missing bytes.
+fn activate_staged_version(
     staging_directory: &Path,
     version_directory: &Path,
 ) -> Result<(), String> {
-    let staged_manifest = read_snapshot_manifest(staging_directory)?;
-    validate_manifest(&staged_manifest).map_err(|rejection| rejection.message)?;
     if !version_directory.exists() {
         return std::fs::rename(staging_directory, version_directory)
             .map_err(|error| format!("activation failed: {error}"));
@@ -389,30 +566,65 @@ fn staging_validate_and_activate(
     Ok(())
 }
 
+/// Reads the current install record of a plugin; `None` when the plugin has
+/// no record yet or the record is unreadable, which a fresh install then
+/// replaces with a complete record.
+fn read_installation_record(install_root: &Path, plugin_id: &str) -> Option<InstallationRecord> {
+    let text =
+        std::fs::read_to_string(install_root.join(plugin_id).join("installation.json")).ok()?;
+    serde_json::from_str(&text).ok()
+}
+
+/// Writes an installation record through temp + rename so a crash never
+/// leaves a truncated record.
 pub(crate) fn write_installation_record(
     install_root: &Path,
-    plugin_id: &str,
-    version: &str,
+    record: &InstallationRecord,
 ) -> Result<(), String> {
-    let record_path = install_root.join(plugin_id).join("installation.json");
-    let record = InstallationRecord {
-        schema_version: 1,
-        plugin_id: plugin_id.to_string(),
-        version: version.to_string(),
-        enabled: true,
-    };
+    let record_path = install_root
+        .join(&record.plugin_id)
+        .join("installation.json");
     std::fs::create_dir_all(record_path.parent().ok_or("record path")?)
         .map_err(|error| error.to_string())?;
+    let temp_path = record_path.with_extension("json.tmp");
     std::fs::write(
-        &record_path,
-        serde_json::to_string_pretty(&record).map_err(|error| error.to_string())?,
+        &temp_path,
+        serde_json::to_string_pretty(record).map_err(|error| error.to_string())?,
     )
     .map_err(|error| error.to_string())?;
+    std::fs::rename(&temp_path, &record_path).map_err(|error| error.to_string())?;
     Ok(())
 }
 
-fn read_snapshot_manifest(snapshot: &Path) -> Result<serde_json::Value, String> {
-    let text = std::fs::read_to_string(snapshot.join("plugin.json"))
+/// Serializes every approved program of the review into its canonical JSON
+/// text, the same evidence the macOS record keeps for re-approval checks.
+fn canonical_programs(programs: &[serde_json::Value]) -> Vec<String> {
+    programs
+        .iter()
+        .map(|program| serde_json::to_string(program).unwrap_or_default())
+        .collect()
+}
+
+/// SHA-256 of the source archive, recorded with the disk provenance.
+fn archive_digest(source: &Path) -> Result<String, String> {
+    let mut file = std::fs::File::open(source)
+        .map_err(|error| format!("{} could not be opened: {error}", source.display()))?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0u8; 64 * 1024];
+    loop {
+        let read = file
+            .read(&mut buffer)
+            .map_err(|error| format!("{} could not be read: {error}", source.display()))?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+fn read_package_manifest(package_root: &Path) -> Result<serde_json::Value, String> {
+    let text = std::fs::read_to_string(package_root.join("plugin.json"))
         .map_err(|error| format!("the package has no readable plugin.json: {error}"))?;
     serde_json::from_str(&text).map_err(|error| format!("plugin.json is not valid JSON: {error}"))
 }
@@ -530,6 +742,15 @@ fn extract_zip_snapshot_inner(source: &Path, snapshot: &Path) -> Result<(), Stri
         if let Some(parent) = target.parent() {
             std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
         }
+        // Windows paths are case-insensitive: two entries that differ only in
+        // case (or a duplicated name) would silently overwrite each other and
+        // break the approved file set, so the second one is a rejection.
+        if target.exists() {
+            return Err(format!(
+                "archive entry {} conflicts with an earlier entry",
+                name.display()
+            ));
+        }
         let mut output = std::fs::File::create(&target).map_err(|error| error.to_string())?;
         let declared_size = entry.size();
         let copied = std::io::copy(&mut entry.by_ref().take(declared_size + 1), &mut output)
@@ -544,7 +765,7 @@ fn extract_zip_snapshot_inner(source: &Path, snapshot: &Path) -> Result<(), Stri
     // A ZIP that unpacked into a single wrapper directory still yields a
     // package root containing plugin.json directly.
     unwrap_single_directory(snapshot);
-    read_snapshot_manifest(snapshot)?;
+    read_package_manifest(snapshot)?;
     Ok(())
 }
 
@@ -650,7 +871,13 @@ pub fn cleanup_stale_snapshots(app: &AppHandle) {
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().to_string();
         if name.starts_with(SNAPSHOT_PREFIX) {
-            let _ = std::fs::remove_dir_all(entry.path());
+            // Snapshot directories and their `.source.json` sidecar records
+            // share the session-id prefix.
+            if entry.path().is_dir() {
+                let _ = std::fs::remove_dir_all(entry.path());
+            } else {
+                let _ = std::fs::remove_file(entry.path());
+            }
         }
     }
 }
