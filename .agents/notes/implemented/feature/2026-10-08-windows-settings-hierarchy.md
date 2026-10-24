@@ -79,7 +79,7 @@ Windows 设置组件使用 `settings-panels.tsx`、`SettingsPanel` 和 `Settings
 - `windows/tauri/src/features/settings/components/settings-section.tsx`
 - `windows/tauri/src/features/settings/components/settings-panels.tsx`
 - `windows/tauri/src/i18n/locale.ts`
-- `windows/tauri/src/i18n/ai-commit.ts`
+- `shared/i18n/messages.json`
 - `windows/tauri/src/features/settings/lib/settings-effects.ts`
 - `windows/tauri/src/features/settings/lib/theme-resolution.ts`
 - `windows/tauri/src/features/settings/lib/settings-theme-sync.test.ts`

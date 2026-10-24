@@ -234,7 +234,7 @@ export function GitHubNotificationsMenu() {
     ? notificationCount
       ? t("github.notificationsCount", { count: notificationCount })
       : t("github.notifications")
-    : BACKEND_UNAVAILABLE_TOOLTIP;
+    : t(BACKEND_UNAVAILABLE_TOOLTIP);
 
   return (
     <>

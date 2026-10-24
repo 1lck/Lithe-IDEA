@@ -5,10 +5,8 @@ import LitheCoreContracts
 extension AppModel {
     func chooseLanguageServerExecutable(providerName: String) -> URL? {
         platformUI.chooseFile(
-            title: settings.language == .simplifiedChinese
-                ? "选择 \(providerName) 语言服务器"
-                : "Choose \(providerName) language server",
-            prompt: settings.language == .simplifiedChinese ? "选择" : "Choose"
+            title: settings.language.localizedFormat("native.inline.chooseArg1LanguageServer", String(describing: providerName)),
+            prompt: settings.language.localizedString("native.inline.choose")
         )
     }
 

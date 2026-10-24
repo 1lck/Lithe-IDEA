@@ -7,9 +7,7 @@ extension AppModel {
     func rebuildJavaIndex() {
         guard let identity = currentWorkspaceIdentity else {
             showNotification(
-                settings.language == .simplifiedChinese
-                    ? "请先打开一个项目"
-                    : "Open a project before rebuilding the Java index."
+                settings.language.localizedString("native.inline.openAProjectBeforeRebuildingTheJavaIndex")
             )
             return
         }
@@ -22,14 +20,10 @@ extension AppModel {
                 cancelJavaLanguageServerPreparation()
                 languageIntelligenceModuleCoordinator.resetWorkspaceState(languageToolingFeature)
                 showNotification(
-                    settings.language == .simplifiedChinese
-                        ? "Java 索引已清除，重新打开 Java 文件时将自动重建"
-                        : "Java index cleared. Reopen a Java file to rebuild."
+                    settings.language.localizedString("native.inline.javaIndexClearedReopenAJavaFileToRebuild")
                 )
             } catch {
-                let prefix = settings.language == .simplifiedChinese
-                    ? "清除 Java 索引失败"
-                    : "Failed to clear the Java index"
+                let prefix = settings.language.localizedString("native.inline.failedToClearTheJavaIndex")
                 showNotification("\(prefix): \(error.localizedDescription)")
             }
         }

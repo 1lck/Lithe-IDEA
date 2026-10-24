@@ -361,6 +361,16 @@ Swift 单元、插件和数据库 CI 通道复用已有 Cargo 下载缓存。先
 
 ### 独立工作树的本地编译
 
+共享翻译源文件位于 `shared/i18n/`。每个工作树通过 Git 获取源文件和已提交的
+macOS 字符串表、`AppLanguage.generated.swift`、Windows `shared.generated.ts`，
+然后运行 `node scripts/generate-i18n.mjs --check` 校验。修改源翻译后运行不带
+`--check` 的同一命令，在当前工作树重新生成。资源身份由当前语言清单、词条、翻译
+共同决定，跨平台和架构均不需要下载；没有独立的工具链或
+可复用 identity stamp。`worktree-resources.json` 将它登记为 `shared-i18n` 不可复用项，
+复用脚本拒绝所有复制阶段。不要从其他工作树或已签名应用复制生成文件。
+macOS 打包只在本次构建的目标目录转换为二进制字符串表，签名前完成；应用运行时
+只读取，不产生缓存或修改安装资源。维护步骤见 [共享翻译说明](../shared/i18n/README.md)。
+
 共享指令的 `Lithe/AgentInstructions/Shared.md`、`.sync.lock` 和同目录原子保存暂存文件登记为
 `agent-instruction-library-state`，由平台 storage adapter 的 Application Support 根目录提供。
 它们是可变用户配置，不具有版本/平台/架构/工具链身份；所有工作树复用阶段均拒绝复制，
@@ -408,7 +418,6 @@ MCP 发现页读取的官方 Registry 在线响应登记为 `mcp-registry-metada
 生成 identity stamp 或跨工作树复制阶段；版本由当前 Git 源码和清单哈希决定，
 不从其他工作树或已安装应用提取。运行时只读并在内存缓存解码结果，不访问图标网络，
 不改写签名包或 Sparkle delta 基线；Windows 未消费此 macOS 资源目录。
-
 Cargo 社区插件在 [独立仓库](https://github.com/Lithe-IDEA/lithe-plugin-cargo) 中构建，
 最终 ZIP、摘要、vendored Node SDK 和集成测试产物由该仓库的 `dist/`、`.artifacts/` 持有，
 不作为 Lithe 主仓库的下载缓存或可复用资源。Cargo 专属清单、模型金样与兼容性测试也由

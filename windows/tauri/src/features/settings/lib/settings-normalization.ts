@@ -1,3 +1,4 @@
+import { normalizeDisplayLanguage } from "@/i18n/locale";
 import { getProviderById } from "@/features/ai/types/providers.types";
 import { normalizeCommitAI } from "@/features/git/types/ai-commit";
 import { normalizeOllamaBaseUrl } from "@/features/ai/lib/ollama-endpoint";
@@ -487,6 +488,7 @@ function normalizeAISettings(settings: Settings): Settings {
 
 export function normalizeSettings(settings: Settings): Settings {
   const normalizedSettings = normalizeAISettings(settings);
+  normalizedSettings.displayLanguage = normalizeDisplayLanguage(settings.displayLanguage);
   normalizedSettings.aiCommit = normalizeCommitAI(settings.aiCommit);
   normalizedSettings.gitExecutable =
     typeof settings.gitExecutable === "string" ? settings.gitExecutable : "";
@@ -780,6 +782,10 @@ export function normalizeSettingValue<K extends keyof Settings>(
 
   if (key === "lastSettingsTab") {
     return normalizeSettingsSection(value) as Settings[K];
+  }
+
+  if (key === "displayLanguage") {
+    return normalizeDisplayLanguage(value) as Settings[K];
   }
 
   if (key === "iconTheme") {

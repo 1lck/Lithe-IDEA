@@ -1,3 +1,4 @@
+import { LANGUAGE_OPTIONS, type DisplayLanguage } from "@/i18n/locale";
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@/platform/tauri-core";
 import { useEffect, useRef, useState } from "react";
@@ -161,11 +162,8 @@ export const GeneralSettings = () => {
       >
         <SettingsSelect
           value={displayLanguage}
-          options={[
-            { value: "en-US", label: t("settings.languageEnglish") },
-            { value: "zh-CN", label: t("settings.languageChinese") },
-          ]}
-          onChange={(value) => updateSetting("displayLanguage", value as "en-US" | "zh-CN")}
+          options={LANGUAGE_OPTIONS.map((option) => ({ ...option }))}
+          onChange={(value) => updateSetting("displayLanguage", value as DisplayLanguage)}
           className={SETTINGS_CONTROL_WIDTHS.default}
         />
       </SettingRow>
