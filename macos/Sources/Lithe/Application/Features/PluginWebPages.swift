@@ -19,6 +19,7 @@ final class PluginWebPages {
     /// The application's plugin backends, shared with every project window.
     let backends: (any PluginBackendRequesting)?
     private let prompt: @MainActor (PluginWebProcessConsent) async -> Bool
+    let chooseFile: @MainActor (PluginWebFileRequest) async -> URL?
     private var pages: [String: any PluginWebPageHandle] = [:]
     private var nativeOwners: [String: String] = [:]
     private var unavailablePluginIDs: Set<String> = []
@@ -30,12 +31,14 @@ final class PluginWebPages {
         windows: [PluginWebWindow] = [],
         stateStore: (any PluginWebStateStoring)? = nil,
         backends: (any PluginBackendRequesting)? = nil,
-        prompt: @escaping @MainActor (PluginWebProcessConsent) async -> Bool = { _ in false }
+        prompt: @escaping @MainActor (PluginWebProcessConsent) async -> Bool = { _ in false },
+        chooseFile: @escaping @MainActor (PluginWebFileRequest) async -> URL? = { _ in nil }
     ) {
         self.windows = Dictionary(windows.map { ($0.windowID, $0) }, uniquingKeysWith: { first, _ in first })
         self.stateStore = stateStore ?? MemoryPluginWebStateStore()
         self.backends = backends
         self.prompt = prompt
+        self.chooseFile = chooseFile
     }
 
     /// The open page of a window, created by `make` on first use.

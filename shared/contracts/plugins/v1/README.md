@@ -1582,8 +1582,10 @@ Hosts load a page under these rules:
 - The root element carries `data-theme` (`light` or `dark`) and the host's
   `--lithe-*` CSS colour and font variables, updated with the theme.
 
-Before the page's scripts run, the host defines `window.lithe` (bridge
-version 1): `lithe.context` (`pluginID`, `windowID`, `platform`, `locale`,
+Before the page's scripts run, the host defines `window.lithe`:
+`lithe.version`, the bridge version (2 on current macOS hosts; version 2
+adds the file dialogs to version 1, so a page checks it before offering
+them), `lithe.context` (`pluginID`, `windowID`, `platform`, `locale`,
 `theme`), `lithe.request(method, params)`, which returns a promise of the
 result or rejects with `{ code, message }`, and `lithe.on(event, listener)`,
 which returns an unsubscribe function. A page reaches only its own plugin's
@@ -1605,6 +1607,8 @@ their output appears in the host's Build output window.
 | `functions.list` | `{ instance? }` | `{ functions }`: sorted IDs of the functions the instance's provider, or without `instance` the plugin's [backend](#plugin-backend), currently offers; starts that process |
 | `functions.invoke` | `{ instance?, function, params?, call? }`, without `instance` a call to the plugin's backend; `params` an object, `call` a page-chosen ID of at most 128 characters that the page never used before | `{ value }`, the function's result |
 | `functions.cancel` | `{ call }` | `{}`; a call still awaiting consent never starts, a call waiting for its provider to start ends at once while the start goes on, and a call that already ended is ignored |
+| `dialog.openFile` (bridge 2) | `{ title?, extensions? }` | `{ path }`: the absolute path of the file the user chose, or `null` when the dialog was cancelled |
+| `dialog.saveFile` (bridge 2) | `{ title?, suggestedName?, extensions? }` | `{ path }` as for `dialog.openFile`; the host has asked before replacing an existing file, and nothing is written |
 
 | Event | Payload |
 | --- | --- |
@@ -1612,6 +1616,13 @@ their output appears in the host's Build output window.
 | `build.runChanged` | `{ run, instance, state, exitCode? }`, `state` one of `running`, `succeeded`, `failed`, `cancelled` |
 | `functions.progress` | `{ call, instance?, function, message?, percentage? }`, only for a call made with `call`; `instance` absent for a backend call |
 | `ui.themeChanged` | `{ theme }` |
+
+The file dialogs are the host's: they name the plugin that asks, a page
+has at most one open at a time, and the page learns only the path the user
+chose. `extensions` are up to 16 file name extensions without the dot;
+`suggestedName` is a file name, not a path. A page passes the path to its
+backend, which reads or writes the file; the page itself still reaches no
+file.
 
 Bridge errors are `plugin.web.unknownMethod`, `plugin.web.invalidRequest`,
 and `plugin.web.forbidden`. Build requests also report the `build.*` codes.

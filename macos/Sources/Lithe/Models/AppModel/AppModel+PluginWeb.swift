@@ -30,6 +30,10 @@ extension AppModel: PluginWebBridgeHost {
         await services.pluginWebPages.confirmProcessStart(consent)
     }
 
+    func pluginWebChooseFile(_ request: PluginWebFileRequest) async -> URL? {
+        await services.pluginWebPages.chooseFile(request)
+    }
+
     var pluginWebBackends: (any PluginBackendRequesting)? { services.pluginWebPages.backends }
 
     /// True while the window's plugin has a new version, a rollback, or an

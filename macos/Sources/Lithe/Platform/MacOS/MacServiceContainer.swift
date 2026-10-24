@@ -702,7 +702,8 @@ final class MacServiceContainer {
                 fileStorage: fileStorage
             ),
             backends: pluginBackends,
-            prompt: MacPluginWebConsentPrompt.confirm
+            prompt: MacPluginWebConsentPrompt.confirm,
+            chooseFile: MacPluginWebFileDialog.choose
         )
         pluginWebPageLifecycle.register(pluginWebPages)
         let pluginMarketplaceEvaluator = RustPluginMarketplaceOperations(core: rustCore)

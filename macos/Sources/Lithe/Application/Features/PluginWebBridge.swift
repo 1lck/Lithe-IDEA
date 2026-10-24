@@ -53,6 +53,24 @@ struct PluginWebProcessConsent: Equatable, Sendable {
     let userArguments: [String]
 }
 
+/// A file the user picks for a page (bridge version 2). The host names the
+/// plugin in the dialog, so a page cannot pass its request off as Lithe's.
+struct PluginWebFileRequest: Equatable, Sendable {
+    enum Kind: Equatable, Sendable {
+        case open
+        case save
+    }
+
+    let kind: Kind
+    let pluginID: String
+    let pluginName: String
+    let title: String?
+    /// The proposed file name of a save dialog.
+    let suggestedName: String?
+    /// File name extensions without the dot; empty allows every file.
+    let allowedExtensions: [String]
+}
+
 /// The build feature as a page may use it: the same entry points as the
 /// host's own build controls.
 @MainActor
@@ -104,6 +122,8 @@ protocol PluginWebBridgeHost: AnyObject {
     /// Opens a workspace file at a 1-based line and column; false when it does not exist.
     func pluginWebOpenFile(_ url: URL, line: Int?, column: Int?) -> Bool
     func pluginWebConfirmProcessStart(_ consent: PluginWebProcessConsent) async -> Bool
+    /// Shows a file dialog; nil when the user cancels it.
+    func pluginWebChooseFile(_ request: PluginWebFileRequest) async -> URL?
     /// The application's plugin backends; nil on hosts that run none.
     var pluginWebBackends: (any PluginBackendRequesting)? { get }
 }
@@ -164,6 +184,7 @@ final class PluginWebBridge {
     private var waiters: [Waiter] = []
     private var isCheckScheduled = false
     private var isClosed = false
+    private var isChoosingFile = false
     private let requestTimeout: Duration
 
     private struct Run {
@@ -255,7 +276,7 @@ final class PluginWebBridge {
         let known: Set<String> = [
             "build.instances", "build.refresh", "build.runTask", "build.runTests", "build.cancel",
             "build.dependencies", "build.setOptions", "workspace.openFile", "ui.getState", "ui.setState",
-            "functions.list", "functions.invoke", "functions.cancel"
+            "functions.list", "functions.invoke", "functions.cancel", "dialog.openFile", "dialog.saveFile"
         ]
         guard known.contains(method) else { throw PluginWebBridgeFailure.unknownMethod(method) }
         let workspaceURL = try currentWorkspace()
@@ -305,6 +326,10 @@ final class PluginWebBridge {
             // awaiting consent is marked and never starts.
             functionCalls[call]?.cancel()
             return .object([:])
+        case "dialog.openFile":
+            return try await chooseFile(.open, Parameters(params, allowed: ["title", "extensions"]))
+        case "dialog.saveFile":
+            return try await chooseFile(.save, Parameters(params, allowed: ["title", "suggestedName", "extensions"]))
         case "ui.getState":
             _ = try Parameters(params, allowed: [])
             guard let data = stateStore.state(pluginID: window.pluginID, windowID: window.windowID, workspaceURL: workspaceURL),
@@ -734,6 +759,33 @@ final class PluginWebBridge {
             throw PluginWebBridgeFailure.invalidRequest("The workspace has no file \(path).")
         }
         return .object([:])
+    }
+
+    /// `{ path }`, the absolute path the user chose, or `{ path: null }`
+    /// when the dialog was cancelled. One dialog per page at a time.
+    private func chooseFile(_ kind: PluginWebFileRequest.Kind, _ params: Parameters) async throws -> ToolingJSONValue {
+        let title = try params.optionalString("title", limit: 256)
+        let suggestedName = try params.optionalString("suggestedName", limit: 255)
+        if let suggestedName, suggestedName.contains("/") || suggestedName.hasPrefix(".") {
+            throw PluginWebBridgeFailure.invalidRequest("suggestedName must be a file name.")
+        }
+        let extensions = try params.strings("extensions", count: 16, limit: 16) ?? []
+        guard extensions.allSatisfy({ !$0.isEmpty && $0.unicodeScalars.allSatisfy { CharacterSet.alphanumerics.contains($0) && $0.isASCII } }) else {
+            throw PluginWebBridgeFailure.invalidRequest("extensions must be file name extensions without a dot.")
+        }
+        guard !isChoosingFile else {
+            throw PluginWebBridgeFailure.invalidRequest("A file dialog of this page is already open.")
+        }
+        guard let host else { throw PluginWebBridgeFailure.forbidden("The page was closed.") }
+        isChoosingFile = true
+        defer { isChoosingFile = false }
+        let url = await host.pluginWebChooseFile(PluginWebFileRequest(
+            kind: kind, pluginID: window.pluginID, pluginName: window.pluginName, title: title,
+            suggestedName: suggestedName, allowedExtensions: extensions
+        ))
+        // A page closed while the dialog was open learns nothing of the choice.
+        guard !isClosed else { throw PluginWebBridgeFailure.forbidden("The page was closed.") }
+        return .object(["path": url.map { .string($0.standardizedFileURL.path) } ?? .null])
     }
 
     private func match<Item: PluginWebSelectable>(_ selection: Parameters.Selection, in items: [Item]?, what: String) throws -> Item {
