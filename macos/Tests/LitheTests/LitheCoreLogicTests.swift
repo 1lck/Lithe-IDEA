@@ -1431,7 +1431,7 @@ struct LitheCoreLogicTests {
     func databaseBrandIconCatalogCoversSupportedKinds() {
         #expect(DatabaseKind.allCases.map(\.brandIconFilename) == [
             "mysql.svg", "mariadb.svg", "postgres.svg", "sqlite.svg",
-            "sqlserver.svg", "mongodb.svg", "redis.svg", "nacos.png"
+            "sqlserver.svg", "mongodb.svg", "redis.svg", "nacos.svg"
         ])
     }
 

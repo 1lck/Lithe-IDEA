@@ -9,18 +9,15 @@ struct GitChangeSelection {
     mutating func select(_ id: String, orderedIDs: [String], command: Bool, shift: Bool) {
         retain(orderedIDs)
         guard orderedIDs.contains(id) else { return }
-        if shift, let anchor, let start = orderedIDs.firstIndex(of: anchor),
-           let end = orderedIDs.firstIndex(of: id) {
-            let range = Set(orderedIDs[min(start, end)...max(start, end)])
-            ids = command ? ids.union(range) : range
-        } else {
-            if command {
-                if !ids.insert(id).inserted { ids.remove(id) }
-            } else {
-                ids = [id]
-            }
-            anchor = id
-        }
+        ids = LitheTreeListSelection.select(
+            id, in: orderedIDs, selected: ids, anchor: anchor,
+            extending: shift, toggling: command)
+        if !shift || anchor == nil { anchor = id }
+    }
+
+    mutating func replace(with ids: Set<String>) {
+        self.ids = ids
+        if let anchor, !ids.contains(anchor) { self.anchor = nil }
     }
 
     func actionTargets(in changes: [GitChange], clicked: GitChange? = nil) -> [GitChange] {

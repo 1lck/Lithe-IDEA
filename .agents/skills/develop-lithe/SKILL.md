@@ -80,7 +80,6 @@ individual upstream commands were called.
 | `Plugins/win/` | Windows-owned plugin packages |
 | `frontend/editor/` | Shared Monaco presentation, tokenization, and editor model lifecycle; no platform APIs |
 | `shared/` | Cross-platform contracts and fixtures, not compiled implementation |
-| `sdk/` | Official plugin backend SDKs and their samples; they implement `shared/contracts/plugins/` and never define protocol |
 | `infra/` | Repository-level development and validation infrastructure |
 | `third_party/` | Upstream code; leave unchanged unless the task explicitly targets it |
 
@@ -243,8 +242,8 @@ the existing stack can reasonably avoid.
   bounds in `LitheDropdownMetrics`; Project measures content width and Branch
   uses the Community New UI 375pt baseline. Do not copy the top-bar Project
   switcher's previous fixed width or create another search-field style:
-  searchable popup inputs use `LitheSearchTextField` + `litheSearchField` in
-  `macos/Sources/Lithe/Theme/LitheTheme.swift`, as Git Log does.
+  searchable popup inputs use the complete `LitheSearchField` owner in
+  `macos/Sources/Lithe/Views/Components/LitheSearchField.swift`, as Git Log does.
   Width is role-specific, not globally equal: action menus measure localized
   titles, icons, shortcuts and checks through the presenter; settings selectors
   retain their shared trigger/content measurement. Do not add per-caller magic
@@ -269,11 +268,20 @@ the existing stack can reasonably avoid.
   System dialogs, the macOS application menu, editor completion/caret popups
   and hover documentation are separate interactions; this rule does not
   replace them with product dropdowns.
-- For search inputs use `LitheSearchTextField` and `litheSearchField`; preserve
-  native IME composition and the I-beam cursor before focus. Do not patch each
-  feature's placeholder, border or hover cursor separately.
-  Their owner is `macos/Sources/Lithe/Theme/LitheTheme.swift`; read its metrics
-  rather than copying height, inset, radius, font, placeholder or focus colors.
+- Search controls use the complete `LitheSearchField` owner, including external
+  boolean/enum focus and semantic accessories. Its internal native editor and
+  chrome reuse `LitheSearchTextField` / `litheSearchField`; ordinary callers must
+  not assemble that recipe. Multiline agent task composition remains a distinct
+  editor using the native editing primitive with `axis: .vertical`.
+- Ordinary shared single-line/secure and multiline form inputs use `LitheTextField`
+  and `LitheTextEditor` in `Views/Components/LitheTextInput.swift`. They own native
+  editing, focus, cursor, chrome and optional labels; `LitheFormField` owns label
+  spacing and input-only disabled state. The old `litheSettingsTextField` /
+  `litheSettingsTextEditor` recipes and `LitheSettingsSearchField` entry are retired.
+  Existing specialized table/editor/commit-dialog renderers retain their owners.
+  `LitheInfoTip` remains interactive even inside a disabled field or section.
+  Preserve native IME composition and the I-beam cursor before focus. Read shared
+  metrics rather than copying height, inset, radius, font, placeholder or focus colors.
   A binding that is still empty during marked text must not restore the prompt.
   Multiline commit text keeps `CommitMessageEditor` in
   `macos/Sources/Lithe/Views/Git/CommitMessageEditor.swift`; do not substitute a
@@ -289,29 +297,36 @@ the existing stack can reasonably avoid.
   feedback and default arrow cursor. Its 22pt hit area is not a rule for every
   button: main-toolbar switches and other existing controls retain their own
   shared metrics. Pointer and I-beam behavior are explicit control semantics.
-- Tree rows use `litheTreeRow` and `LitheTheme.Tree` in `LitheTheme.swift` for
-  the existing single-line tree style: font, row height, hover and focused versus
-  inactive selection. Read shared indentation/icon metrics; do not add local
-  row padding, selection colors or per-row separator lines. Preserve disclosure,
-  multiselect, context actions and accessibility. Native trees keep their
-  existing renderer and consume the same tokens; do not replace them with
-  SwiftUI rows. Multiline project-menu entries, tables and commit graph rows
-  keep their own existing shared renderer/metrics rather than using tree rows.
-- Persistent tree/list selection uses `litheSelectionRow(isSelected:isFocused:)`
-  in `LitheTheme.swift`; `litheTreeRow` delegates to it. The shared renderer
-  paints `LitheTheme.Tree.focusedSelection` only when the owning region is
-  focused **and** `controlActiveState == .key`; otherwise it paints
-  `Tree.inactiveSelection`. Multiline lists keep their geometry and use this
-  renderer directly. Never paint persistent selection with fixed `selection`,
-  `subtleSelection`, `settingsSelection`, accent opacity, or local RGB values.
-- Observe focus at the selected list/tree region with the existing
-  `LitheToolWindowActivityTracker`, not at the entire workbench; neighboring
-  lists and detail editors must not activate each other's selections. Project
-  uses `ProjectTreeKeyboardCommands`' ownership callback because its file-open
-  flow can asynchronously focus WebKit. Include focus in custom `Equatable`
-  comparisons. Native renderers keep the same theme tokens, check key-window
-  and responder/region ownership, and invalidate drawing when window focus
-  changes even if selection/data did not change.
+- Ordinary tool-window title bars use `LitheToolWindowHeader`. It owns the current
+  41pt height, 13pt Bold title, outer insets and action spacing. Panel titles are
+  text-only: no title icon, outline or bottom divider, and no appended
+  `LitheToolWindowHeaderDivider`. A real session-tab
+  bar keeps its existing tab semantics; do not imitate tabs for a static title.
+- Ordinary trees and persistent lists use the complete `LitheTreeList` owner in
+  `macos/Sources/Lithe/Views/Components/LitheTreeList.swift`. Callers provide stable
+  row IDs, selection, hierarchy and business actions. The owner installs gutters,
+  scrolling, focus observation/effect suppression, hover/selection rendering,
+  keyboard navigation, range selection and accessibility. Recursive business trees
+  may provide `LitheTreeListNode`; hidden children must not be materialized.
+  Do not recreate a ScrollView/row-style/focus-modifier recipe at the call site.
+  The former `litheTreeRow` and `litheSelectionRow` extensions are retired;
+  `LitheTreeListRowSurface` is internal rendering, never a business entry point.
+- Native viewport renderers use `LitheTreeList(native:)` and the same
+  `LitheTreeListAppearance` / `LitheTreeListNavigation` policy. Keep their renderer
+  and virtualization; do not replace native trees with one SwiftUI view per row.
+  Project's `LitheTreeListNativeInteraction` retains drag/clipboard and asynchronous
+  editor-focus ownership, while using shared selection/navigation decisions.
+  Preserve the existing configurable Project row height. Other rows use Tree
+  metrics; multiline lists retain their content geometry.
+- Selection changes and primary click/activation are separate actions. Moving the
+  keyboard cursor must not accidentally activate an editor or run a task.
+  Search Everywhere retains its search-input-driven focus and category shortcuts;
+  tables, commit graphs, menus and editor completion retain their own owners.
+  Native list focus comes from the first responder and key window, not a page's
+  manually supplied boolean. Verify neighboring fields, inactive windows, dark/light
+  rendering, multiselect, keyboard bounds, context targets, expansion, and scrolling.
+  Run `LitheTreeListTests`, `LitheTreeRowStyleTests`, the affected native regressions
+  and the real product workflow. The source coverage test rejects retired recipes.
 - Keep selection distinct from checkbox inclusion, chosen settings values,
   status badges, activity-rail buttons, menu highlight, tool-window tabs and
   editor text selection. Those retain their owning styles; tool-window tabs

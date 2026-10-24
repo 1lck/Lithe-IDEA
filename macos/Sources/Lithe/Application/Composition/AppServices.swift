@@ -14,11 +14,24 @@ final class AppServices {
     /// Codex and Claude Code MCP configuration files. `nil` before platform
     /// composition, which leaves the settings page read-only.
     var mcpConfigurationStore: (any McpConfigurationStore)?
+    var mcpRegistry: (any McpRegistryProviding)?
+    var mcpTools: (any McpToolsManaging)?
     /// Confirms closing terminals with running programs; `nil` closes directly.
     var processExitCoordinator: ProcessExitCoordinator?
+    /// Creates projects for the New Project window; `nil` falls back to
+    /// choosing an existing folder.
+    var projectGeneration: ProjectGenerationService?
+    /// Saved SSH connections and the connection test for the Remote
+    /// Development window; `nil` hides the window's entry points.
+    var remoteConnections: RemoteConnectionServices?
+    /// Installed plugins with their enabled state, for the New Project
+    /// catalog and the plugins that provide a generator's requirements.
+    var projectGeneratorSources: (@MainActor () -> [ProjectGeneratorPluginSource])?
     /// Gives build providers that share a language server the language
     /// sessions; `nil` when the platform starts no build providers.
     var connectBuildProviderLanguageSessions: ((@escaping @MainActor () -> LanguageToolingSessionManager?) -> Void)?
+    /// Plugin VCS providers; `nil` when no installed plugin declares one.
+    var vcsProviders: VcsProvidersFeatureModel?
     let moduleRuntime: ModuleRuntime
     let pluginManager: any PluginManaging
     let pluginMarketplace: any PluginMarketplaceServicing
@@ -26,6 +39,7 @@ final class AppServices {
     let pluginUIIconResources: [String: PluginUIIconResources]
     /// Plugin pages shown in host tool windows (`ui` 2).
     let pluginWebPages: PluginWebPages
+    let validatePluginNativeUI: ((PluginNativeUI, ToolingJSONValue) throws -> [PluginNativeUI.Node])?
     /// Unified language-pack composition. The derived catalog and focused
     /// registries remain exposed below for source compatibility with existing
     /// feature models while new composition should use this value.
@@ -65,6 +79,8 @@ final class AppServices {
     let credentialResolver: any AIProviderCredentialResolver
     /// Detects Node.js and installs ACP adapters for the Agents settings page.
     let agentManagement: any AgentManagementService
+    let agentInstructions: any AgentInstructionsService
+    let agentHooks: any AgentHooksService
     let agentProviderConfigurationParser: any AgentProviderConfigurationParsing
     let aiConfigurationSources: [any AIConfigurationSource]
     let recentProjectsStore: RecentProjectsStore
@@ -84,6 +100,7 @@ final class AppServices {
         pluginCatalog: ValidatedPluginCatalog,
         pluginUIIconResources: [String: PluginUIIconResources] = [:],
         pluginWebPages: PluginWebPages? = nil,
+        validatePluginNativeUI: ((PluginNativeUI, ToolingJSONValue) throws -> [PluginNativeUI.Node])? = nil,
         languageProviderCatalogSource: any LanguageProviderCatalogSource,
         workspaceLanguageServerPreferences: any WorkspaceLanguageServerPreferencesStoring,
         languageProviderCatalogSnapshot: LanguageProviderCatalogSnapshot? = nil,
@@ -110,6 +127,8 @@ final class AppServices {
         diagnosticsExportService: DiagnosticsExportService,
         credentialResolver: any AIProviderCredentialResolver,
         agentManagement: any AgentManagementService = UnavailableAgentManagementService(),
+        agentInstructions: any AgentInstructionsService = UnavailableAgentInstructionsService(),
+        agentHooks: any AgentHooksService = UnavailableAgentHooksService(),
         agentProviderConfigurationParser: any AgentProviderConfigurationParsing = UnavailableAgentProviderConfigurationParser(),
         aiConfigurationSources: [any AIConfigurationSource],
         recentProjectsStore: RecentProjectsStore,
@@ -132,6 +151,7 @@ final class AppServices {
         self.pluginCatalog = pluginCatalog
         self.pluginUIIconResources = pluginUIIconResources
         self.pluginWebPages = pluginWebPages ?? PluginWebPages()
+        self.validatePluginNativeUI = validatePluginNativeUI
         self.languageProviderCatalogSource = languageProviderCatalogSource
         self.workspaceLanguageServerPreferences = workspaceLanguageServerPreferences
         let resolvedCatalogSnapshot = languageProviderCatalogSnapshot
@@ -167,6 +187,8 @@ final class AppServices {
         self.diagnosticsExportService = diagnosticsExportService
         self.credentialResolver = credentialResolver
         self.agentManagement = agentManagement
+        self.agentInstructions = agentInstructions
+        self.agentHooks = agentHooks
         self.agentProviderConfigurationParser = agentProviderConfigurationParser
         self.aiConfigurationSources = aiConfigurationSources
         self.recentProjectsStore = recentProjectsStore

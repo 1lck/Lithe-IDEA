@@ -360,22 +360,7 @@ struct RepositoryDiffView: View {
     }
 
     private func diffSearchControl(proxy: ScrollViewProxy) -> some View {
-        HStack(spacing: 4) {
-            LitheSystemIcon(systemImage: "magnifyingglass")
-                .font(LitheTheme.uiFont(size: 10.5))
-                .foregroundStyle(LitheTheme.secondaryText)
-
-            LitheSearchTextField("Search diff", text: $diffSearchQuery)
-                .font(LitheTheme.uiFont(size: 11.5))
-                .frame(width: 145)
-                .focused($diffSearchFocused)
-                .macReturnKeyHandler(isEnabled: diffSearchFocused) { isShiftPressed in
-                    navigateDiffSearch(
-                        by: isShiftPressed ? -1 : 1,
-                        proxy: proxy
-                    )
-                }
-
+        LitheSearchField("Search diff", text: $diffSearchQuery, focus: $diffSearchFocused) {
             Text(diffSearchLabel)
                 .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
                 .foregroundStyle(LitheTheme.secondaryText)
@@ -400,7 +385,9 @@ struct RepositoryDiffView: View {
             .disabled(diffSearchMatches.isEmpty)
             .help("Next diff match")
         }
-        .litheSearchField(isFocused: diffSearchFocused)
+        .macReturnKeyHandler(isEnabled: diffSearchFocused) { isShiftPressed in
+            navigateDiffSearch(by: isShiftPressed ? -1 : 1, proxy: proxy)
+        }
         .onAppear { diffSearchFocused = false }
     }
 

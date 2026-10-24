@@ -4,6 +4,21 @@ import Foundation
 public enum AgentAuthentication: String, Codable, Equatable, Sendable {
     case apiKey
     case codexSubscription
+    /// The user's signed-in Claude Code CLI pays. Lithe passes no key or route
+    /// and never reads the CLI's credentials.
+    case claudeSubscription
+
+    public var isSubscription: Bool { self != .apiKey }
+
+    /// The account subscription a built-in Agent can use, if any. Each
+    /// subscription belongs to exactly one adapter.
+    public static func subscription(for agentID: String) -> AgentAuthentication? {
+        switch agentID {
+        case "codex-acp": .codexSubscription
+        case "claude-acp": .claudeSubscription
+        default: nil
+        }
+    }
 }
 
 /// Settings required to launch one ACP agent for a workspace.

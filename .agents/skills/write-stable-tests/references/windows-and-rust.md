@@ -36,12 +36,22 @@ compile the selected Cargo tests once, enumerate the produced test binaries,
 then run every test case individually with a process-level timeout and duration
 report. One suite deadline covers compilation, enumeration, every test process,
 and the clean cache retry; a timeout writes the completed records before the
-runner exits. This isolation makes the exact hanging test visible.
+runner exits. A completed test failure or timeout preserves the report and fails
+without clearing/rebuilding cached binaries. Only failures before any test ran
+remain eligible for the existing one-time cache recovery. This isolation makes the exact hanging test visible.
 
 SharedRust explicitly runs `lithe-agent-host`, `lithe-git-host`, and `lithe-core`, keeping the
 native Git process/AskPass tests in `git-host-rust.json` and Core tests in
 `shared-rust.json`. Testing a Cargo package does not run its dependencies' own
 tests. macOS's `verify-rust-core.sh` runs the same native adapter timing lane.
+
+In macOS's Rust-only lane, Agent Host uses the Rust runner's default 20-minute
+suite budget, including compilation. Run 39939156503 exhausted the old two-minute
+override while still compiling Agent Host and its ACP/MCP dependencies; no test
+had started. Git Host keeps its smaller two-minute suite allowance. Agent Host's
+individual cases retain the default 15-second watchdog, and the CI job keeps its
+30-minute limit. A warm-cache pass does not verify this path: use an empty Cargo
+target directory and inspect both compilation time and per-case report budgets.
 
 Every Bun and Rust lane writes JUnit XML plus a self-contained HTML dashboard
 below `.artifacts/test-stability/`. The dashboard groups Rust cases by crate
@@ -78,20 +88,20 @@ gets 30 seconds after its real-Git source exports passed assertions but took
 Each patch request still has its own 15-second deadline, and the enclosing
 suite deadline remains unchanged. Both SharedRust and the real-JDT lane use
 these narrowly scoped budgets. Core rebase requests use a nested 20-second
-deadline. The workspace commit submodule publication test also gets 30 seconds
-because it creates two local remotes and runs multiple real Git pushes. Other
-workspace coverage includes
-`tests::git_workspace_commit::git_workspace_commit_push_confirms_each_repository_separately`,
-which gets 60 seconds in both SharedRust and real-JDT. It initializes two working
-repositories and two bare remotes, prepares three independent confirmation states,
-then commits and pushes both repositories. Windows run 39925982060 reached the
-15-second process deadline in SharedRust without an assertion failure; the same
-revision passed it in 12.3 seconds in real-JDT. A local Windows profile completed
-all assertions in 49.9 seconds across 287 Git processes, with every Git process
-exiting and no individual Git operation taking more than 0.6 seconds internally.
-The total process and filesystem cost also exceeded a 30-second trial budget.
-Each Git request retains its native
-deadline and process-tree cleanup, and the suite deadline remains unchanged. Other
+deadline. The `tests::git_workspace_commit::` module gets 30 seconds because its
+integration cases create multiple repositories/remotes and run real Git pushes.
+Windows run 39947608155 reached the default 15-second deadline in
+`git_workspace_commit_push_confirms_each_repository_separately` at 15.16 seconds
+without an assertion failure; this replaces the previous single-case allowance
+for submodule publication. That case additionally gets 60 seconds in both
+SharedRust and real-JDT. It initializes two working repositories and two bare
+remotes, prepares three independent confirmation states, then commits and pushes
+both repositories. A local Windows profile completed all assertions in 49.9
+seconds across 287 Git processes, with every Git process exiting and no
+individual Git operation taking more than 0.6 seconds internally, so the
+module's 30-second allowance is not enough for it. Each Git request retains its
+native deadline and process-tree cleanup, and the suite deadline remains
+unchanged. Other
 multi-repository coverage includes
 `tests::git::git_write_updates_a_noncurrent_branch_without_switching_head`,
 which also gets 30 seconds in both SharedRust and real-JDT lanes: it builds a
@@ -110,8 +120,37 @@ cases retain the normal 15-second budget. The Rust runner's repeatable
 `--test-budget prefix=milliseconds` option uses the most specific matching
 prefix, records each case's effective budget in JSON, uses that budget for
 HTML/JUnit classification, and remains capped by the shared suite deadline.
+The `watch_context_resolves_a_submodule_git_directory_outside_its_workspace`
+integration case also gets 30 seconds in SharedRust: it initializes and commits
+in two real repositories, clones one as a submodule, and resolves its external
+Git directory. Windows run 39933498873 terminated it at 16.1 seconds under the
+15-second watchdog; the resulting clean rebuild/retry then exhausted the CI
+step. Other cases and suite/step deadlines retain their existing budgets.
 Use scoped budgets only for measured
 integration costs, never to bypass an unbounded wait or an assertion failure.
+
+`git_paths_roundtrip_` imports the production TypeScript path normalizer in
+real Node subprocesses between native Git/Core requests. Windows run 39933419913
+cancelled Node at the fixture's 10-second subprocess deadline in the long-path
+case; no path-result mismatch was reported. Only Node's Windows allowance is
+20 seconds; Git setup stays at 10 seconds and Core requests at 5 seconds. Both
+SharedRust and real-JDT give these path roundtrip cases a 60-second case budget
+for the repeated subprocess exchanges. Other cases keep their default budget,
+the suite deadline is unchanged, and cancellation still reclaims the process
+tree through the native Git Host. Do not replace the frontend import with a
+Rust copy of its normalization logic or retry a failed assertion.
+The prefix matches the raw Rust test name, without the Cargo target printed
+before it in the console. Check each report's `maxMs` to confirm the allowance
+actually applies; a successful fast run alone does not prove prefix matching.
+
+`tests::git::git_write_executes_checkout_preflight_clone_and_validation`
+gets 30 seconds in both Windows lanes. Run 39935852248 reported its assertions
+passing in 15.22 seconds, but the complete test process took 18.529 seconds and
+exceeded the default 15-second budget. It creates divergent branches, checks
+clean/dirty/untracked checkout preflights, performs smart and forced checkouts,
+and clones a real local repository. The cache retry then exhausted the existing
+suite deadline; that secondary timeout does not justify extending the whole
+suite. Keep every checkout/clone assertion and the existing request deadlines.
 
 ## Windows verification
 

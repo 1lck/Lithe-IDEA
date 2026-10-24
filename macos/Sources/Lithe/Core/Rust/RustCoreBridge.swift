@@ -2034,6 +2034,16 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let timeoutMilliseconds: Int
     }
 
+    private struct LspVcsRequest: Encodable {
+        let sessionId: String
+        let vcs: String
+        let operation: String
+        let root: String
+        let tool: String?
+        let arguments: ToolingJSONValue
+        let timeoutMilliseconds: Int
+    }
+
     private struct LspFunctionRequest: Encodable {
         struct Reference: Encodable {
             let pluginID: String
@@ -3918,6 +3928,32 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 sessionId: sessionID,
                 method: method,
                 params: params,
+                timeoutMilliseconds: max(1, Self.milliseconds(timeout))
+            )
+        )
+    }
+
+    /// Sends one VCS-provider operation. Core plans the method and params
+    /// and refuses the request unless the session negotiated a provider of
+    /// `vcs` with the operation's capability.
+    func lspVcsRequest(
+        sessionID: String,
+        vcs: String,
+        operation: String,
+        root: String,
+        tool: String?,
+        arguments: ToolingJSONValue,
+        timeout: TimeInterval
+    ) -> Result<LspOperationPayload, CoreCallError> {
+        executeResult(
+            command: "lsp.vcsRequest",
+            payload: LspVcsRequest(
+                sessionId: sessionID,
+                vcs: vcs,
+                operation: operation,
+                root: root,
+                tool: tool,
+                arguments: arguments,
                 timeoutMilliseconds: max(1, Self.milliseconds(timeout))
             )
         )

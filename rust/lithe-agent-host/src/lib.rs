@@ -7,12 +7,16 @@
 //! See `.agents/notes/implemented/architecture/2026-09-25-shared-acp-agent-conversation.md`.
 
 pub mod catalog;
+mod claude_subscription;
 pub mod cli_update;
 mod codex_context;
 mod codex_history;
 mod codex_retry;
 pub mod environment;
+pub mod hooks;
 pub mod install;
+pub mod instructions;
+pub mod mcp_probe;
 mod model_calls;
 mod model_proxy;
 mod prompt;
@@ -20,6 +24,7 @@ mod prompt_retry;
 mod session_defaults;
 mod session_restore;
 mod session_routing;
+pub mod skills;
 mod steering;
 mod subagents;
 mod subscription;
@@ -113,13 +118,15 @@ pub struct AgentLaunch {
     pub process_scope: Option<String>,
 }
 
-/// Subscription access is explicit and limited to the installed Codex adapter.
+/// Subscription access is explicit: each mode is limited to its own installed adapter.
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum AgentAuthentication {
     #[default]
     ApiKey,
     CodexSubscription,
+    /// The user's signed-in Claude Code CLI pays; see [`claude_subscription`].
+    ClaudeSubscription,
 }
 
 /// User-supplied AI provider endpoint and API key.
@@ -209,6 +216,8 @@ struct ResolvedLaunch {
     secret: String,
     /// The already detected Codex executable; never a separately downloaded runtime.
     subscription_cli: Option<PathBuf>,
+    /// The signed-in Claude Code CLI pays: no route, key or token is injected.
+    claude_subscription: bool,
 }
 
 #[cfg(test)]
@@ -233,8 +242,12 @@ fn resolve_with(
     launch: AgentLaunch,
     find_cli: &dyn Fn(&str) -> Option<environment::DetectedTool>,
 ) -> Result<ResolvedLaunch, String> {
-    if launch.authentication == AgentAuthentication::CodexSubscription {
-        return subscription::resolve(launch, find_cli);
+    match launch.authentication {
+        AgentAuthentication::CodexSubscription => return subscription::resolve(launch, find_cli),
+        AgentAuthentication::ClaudeSubscription => {
+            return claude_subscription::resolve(launch, find_cli)
+        }
+        AgentAuthentication::ApiKey => {}
     }
     let provider = launch.provider.ok_or("An API provider is required")?;
     if provider.api_key.trim().is_empty() {
@@ -285,6 +298,7 @@ fn resolve_with(
             gateway: Some(gateway(&provider)?),
             secret: provider.api_key,
             subscription_cli: None,
+            claude_subscription: false,
         });
     };
     let agent = catalog::find(&agent_id).ok_or_else(|| format!("Unknown agent `{agent_id}`"))?;
@@ -341,6 +355,7 @@ fn resolve_with(
         gateway,
         secret: provider.api_key,
         subscription_cli: None,
+        claude_subscription: false,
     })
 }
 
@@ -1039,7 +1054,11 @@ async fn run_agent(
         None
     };
     let mut command = std::process::Command::new(&launch.command);
-    if launch
+    if launch.claude_subscription {
+        for name in claude_subscription::INHERITED_OVERRIDES {
+            command.env_remove(name);
+        }
+    } else if launch
         .gateway
         .as_ref()
         .is_some_and(|route| route.protocol == ProviderProtocol::AnthropicMessages)
@@ -1109,7 +1128,9 @@ async fn run_agent(
             }
         }
     });
-    let subscription = launch.subscription_cli.is_some();
+    // Account credentials belong to the CLI in both subscription modes.
+    let subscription = launch.subscription_cli.is_some() || launch.claude_subscription;
+    let claude_subscription = launch.claude_subscription;
     let secret = launch.secret.clone();
     let transport = ByteStreams::new(stdin.compat_write(), stdout.compat());
     let result = run_connection(
@@ -1117,6 +1138,7 @@ async fn run_agent(
         launch.cwd,
         launch.gateway,
         launch.subscription_cli,
+        claude_subscription,
         history,
         context_recovery,
         observe_subagents,
@@ -1140,6 +1162,11 @@ async fn run_agent(
     child_pid.store(0, Ordering::SeqCst);
     let _ = tokio::time::timeout(STOP_TIMEOUT, stderr_task).await;
     result.map_err(|message| {
+        // The protocol error wraps this text as JSON data; return it verbatim so
+        // clients can localize the one actionable sign-in instruction.
+        if claude_subscription && message.contains(claude_subscription::SIGN_IN_REQUIRED) {
+            return claude_subscription::SIGN_IN_REQUIRED.to_owned();
+        }
         let message = redact(&message, &secret);
         // Subscription credentials belong to Codex, so Lithe has no secret to
         // redact. Do not surface arbitrary upstream stderr for this mode.
@@ -1260,6 +1287,7 @@ async fn run_connection<OB, IB>(
     cwd: PathBuf,
     gateway: Option<GatewaySignIn>,
     subscription_cli: Option<PathBuf>,
+    claude_subscription: bool,
     history: Option<codex_history::CodexHistory>,
     context_recovery: Option<Arc<codex_context::Recovery>>,
     observe_subagents: bool,
@@ -1485,6 +1513,11 @@ where
                 )
                 .await
                 .map_err(|_| internal("The Agent did not finish API key sign-in in time"))??;
+            }
+            if claude_subscription {
+                claude_subscription::ensure_signed_in(&mut auth_rx)
+                    .await
+                    .map_err(|message| internal(&message))?;
             }
             let account = if subscription_cli.is_some() {
                 if !initialized.auth_methods.iter().any(|method| method.id().0.as_ref() == "chat-gpt") {

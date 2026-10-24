@@ -323,11 +323,8 @@ private struct SearchEverywhereContent: View {
     }
 
     private var searchField: some View {
-        HStack(spacing: 6) {
-            LitheIDEAIcon(resourcePath: "expui/general/search.svg", size: 16, preservesOriginalColors: true)
-            LitheSearchTextField("", text: Binding(get: { query }, set: { query = $0 }))
-                .accessibilityLabel("Search Everywhere")
-                .background(LitheToolWindowActivityTracker(isActive: $searchFocused))
+        LitheSearchField("", text: Binding(get: { query }, set: { query = $0 }),
+                         background: LitheTheme.SearchEverywhere.background) {
             if feature.isSearchingEverywhere {
                 ProgressView().controlSize(.mini)
                     .frame(width: 16, height: 16)
@@ -337,17 +334,9 @@ private struct SearchEverywhereContent: View {
                 .font(LitheTheme.uiFont(size: 13))
                 .foregroundStyle(LitheTheme.searchFieldPlaceholder)
                 .allowsHitTesting(false)
-            if !query.isEmpty {
-                Button {
-                    query = ""
-                } label: {
-                    LitheIDEAIcon(resourcePath: "expui/general/closeSmall.svg", size: 16, preservesOriginalColors: true)
-                }
-                .buttonStyle(LitheIconButtonStyle(size: 16))
-                .accessibilityLabel("Clear search")
-            }
         }
-        .litheSearchField(isFocused: searchFocused, background: LitheTheme.SearchEverywhere.background)
+        .accessibilityLabel("Search Everywhere")
+        .background(LitheToolWindowActivityTracker(isActive: $searchFocused))
         .padding(.horizontal, 5)
         .padding(.vertical, 3)
     }
@@ -417,24 +406,15 @@ private struct SearchEverywhereContent: View {
                 placeholder(resultSource.emptyResultsMessage)
             }
         } else {
-            ScrollViewReader { proxy in
-                ScrollView(.vertical) {
-                    LazyVStack(spacing: 0) {
-                        ForEach(Array(visibleItems.enumerated()), id: \.offset) { index, item in
-                            itemRow(item, index: index)
-                                .id(index)
-                        }
-                        if isTruncated {
-                            moreRow
-                        }
-                    }
-                    .padding(.vertical, 4)
-                }
-                .onChange(of: selectionRevealRevision) { _ in
-                    guard visibleItems.indices.contains(selectedIndex) else { return }
-                    proxy.scrollTo(selectedIndex)
-                }
+            LitheTreeList(
+                Array(visibleItems.enumerated()), id: \.offset,
+                selection: Binding(
+                    get: { selectedIndex }, set: { if let index = $0 { selectedIndex = index } }),
+                retainsSearchFocus: true
+            ) { index, item in
+                itemRow(item, index: index)
             }
+            if isTruncated { moreRow }
         }
     }
 
@@ -550,8 +530,6 @@ private struct SearchEverywhereContent: View {
         .padding(.horizontal, 10)
         .frame(maxWidth: .infinity)
         .frame(height: 24)
-        // The whole popup owns selection focus, including its preview editor.
-        .litheSelectionRow(isSelected: index == selectedIndex, isFocused: true)
         .litheContextMenu {
             [
                 .action("Open", systemImage: "doc.text", action: {
@@ -621,7 +599,6 @@ private struct SearchEverywhereContent: View {
             .padding(.horizontal, 10)
             .frame(maxWidth: .infinity)
             .frame(height: 24)
-            .litheSelectionRow(isSelected: index == selectedIndex, isFocused: true)
             .contentShape(Rectangle())
         }
         .buttonStyle(.litheNoPress)
@@ -715,8 +692,7 @@ struct SearchEverywhereExclusionsEditor: View {
                 .font(LitheTheme.uiFont(size: 13))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
-            TextEditor(text: $draft)
-                .litheSettingsTextEditor(height: 140, focus: $focused)
+            LitheTextEditor(text: $draft, height: 140, focus: $focused)
                 .accessibilityLabel("Search exclusions")
             HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Spacer()

@@ -59,6 +59,10 @@ const DEFAULT_SHUTDOWN_TIMEOUT_MS: u64 = 2_000;
 /// large build, so it may outlive the ordinary request timeout, but never
 /// stays pending without a deadline.
 const MAX_BUILD_PROVIDER_TIMEOUT_MS: u64 = 60 * 60_000;
+/// Upper bound of one VCS-provider request. An update or check-in of a large
+/// working copy over a slow link can take long, but never stays pending
+/// without a deadline.
+const MAX_VCS_PROVIDER_TIMEOUT_MS: u64 = 60 * 60_000;
 const MONITOR_INTERVAL_MS: u64 = 10;
 /// JSON-RPC method carrying Java Debug Server build commands.
 const JAVA_BUILD_METHOD: &str = "workspace/executeCommand";
@@ -386,6 +390,37 @@ pub struct BuildProviderRequest {
     pub params: Value,
     /// Deadline of this request, in milliseconds, capped at
     /// `MAX_BUILD_PROVIDER_TIMEOUT_MS`; the session's request timeout when absent.
+    #[serde(default)]
+    pub timeout_milliseconds: Option<u64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+/// One VCS-provider request. Core plans the method and params from the
+/// operation and its arguments, so the host never writes a raw method. The
+/// result arrives as a `requestCompleted` event whose `result.value` is the
+/// provider's reply, which the host passes to `vcs.decodeReply`; a failure
+/// carries a `vcs.*` code.
+pub struct VcsProviderRequest {
+    pub session_id: String,
+    #[serde(default)]
+    pub operation_id: Option<String>,
+    /// The VCS the host launched the session for; a session that negotiated
+    /// another VCS is refused.
+    pub vcs: String,
+    /// Operation name, such as `status` or `checkin`.
+    pub operation: String,
+    /// Native absolute path of the working-copy root.
+    pub root: String,
+    /// Absolute path of the VCS client the host resolved, when the provider
+    /// declares one.
+    #[serde(default)]
+    pub tool: Option<String>,
+    /// Operation arguments; see `crate::vcs` for each operation's shape.
+    #[serde(default)]
+    pub arguments: Value,
+    /// Deadline of this request, in milliseconds, capped at
+    /// `MAX_VCS_PROVIDER_TIMEOUT_MS`; the session's request timeout when absent.
     #[serde(default)]
     pub timeout_milliseconds: Option<u64>,
 }
@@ -1226,6 +1261,18 @@ pub fn build_provider_request(
     Ok(OperationResponse { operation_id })
 }
 
+/// Sends one VCS-provider request to a session that negotiated the protocol.
+pub fn vcs_provider_request(request: VcsProviderRequest) -> Result<OperationResponse, CoreError> {
+    let operation_id = request
+        .operation_id
+        .clone()
+        .unwrap_or_else(|| engine().next_operation_id());
+    engine()
+        .session(&request.session_id)?
+        .vcs_request(request, operation_id.clone())?;
+    Ok(OperationResponse { operation_id })
+}
+
 /// Invokes one plugin function on a session of the function's plugin.
 pub fn plugin_function_request(
     request: PluginFunctionRequest,
@@ -2019,6 +2066,84 @@ impl RuntimeSession {
                     kind: PendingKind::Feature,
                     operation_id: Some(operation_id.clone()),
                     method: request.method,
+                    document_uri: None,
+                    document_version: None,
+                    created_at: now,
+                    deadline: now + timeout,
+                },
+            );
+            state
+                .request_by_operation
+                .insert(operation_id, request_id.clone());
+            (response.messages, request_id)
+        };
+        self.send_request_or_fail(&outbound_order, messages, &request_id)
+    }
+
+    /// Writes a VCS-provider request planned by `crate::vcs::plan`, which
+    /// checks the operation's arguments and negotiated capability.
+    fn vcs_request(
+        &self,
+        request: VcsProviderRequest,
+        operation_id: String,
+    ) -> Result<(), CoreError> {
+        let operation = crate::vcs::Operation::parse(&request.operation).ok_or_else(|| {
+            CoreError::new(ErrorCode::InvalidRequest, "Unknown VCS operation")
+                .with_details(request.operation.clone())
+        })?;
+        let outbound_order = self.lock_outbound_order()?;
+        let (messages, request_id) = {
+            let mut state = self.lock_state()?;
+            if state.lifecycle != LspLifecycleState::Ready || !state.client.initialized {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Language server is not ready.",
+                ));
+            }
+            if state.request_by_operation.contains_key(&operation_id)
+                || state.java_builds.contains(&operation_id)
+            {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "The language-server operation ID is already pending.",
+                ));
+            }
+            let negotiation = state
+                .client
+                .vcs_provider
+                .as_ref()
+                .filter(|negotiation| negotiation.vcs == request.vcs)
+                .ok_or_else(|| {
+                    CoreError::new(
+                        ErrorCode::NotSupported,
+                        format!("The process is not a negotiated {} provider.", request.vcs),
+                    )
+                    .with_details("vcs.provider.unavailable")
+                })?;
+            let planned = crate::vcs::plan(
+                operation,
+                &request.root,
+                request.tool.as_deref(),
+                request.arguments,
+                &negotiation.capabilities,
+            )?;
+            let timeout = request
+                .timeout_milliseconds
+                .map(|milliseconds| {
+                    Duration::from_millis(milliseconds.clamp(1, MAX_VCS_PROVIDER_TIMEOUT_MS))
+                })
+                .unwrap_or(state.request_timeout);
+            let response =
+                allocate_raw_request(state.client.clone(), planned.method, planned.params)?;
+            let request_id = (response.state.next_request_id - 1).to_string();
+            let now = Instant::now();
+            state.client = response.state;
+            state.pending.insert(
+                request_id.clone(),
+                PendingRequest {
+                    kind: PendingKind::Feature,
+                    operation_id: Some(operation_id.clone()),
+                    method: planned.method.to_string(),
                     document_uri: None,
                     document_version: None,
                     created_at: now,
@@ -2916,6 +3041,40 @@ impl RuntimeSession {
                         );
                     }
                 }
+                Some(PendingKind::Feature)
+                    if pending_before
+                        .as_ref()
+                        .is_some_and(|pending| crate::vcs::is_vcs_method(&pending.method)) =>
+                {
+                    if let Some(pending) = pending_before.as_ref() {
+                        if let Some(operation_id) = &pending.operation_id {
+                            let (result, error) = match super::vcs_provider::reply_outcome(&value) {
+                                Ok(result) => (Some(result), None),
+                                Err(failure) => (
+                                    None,
+                                    Some(runtime_error(
+                                        self,
+                                        failure.code,
+                                        "request",
+                                        Some(&pending.method),
+                                        None,
+                                        &failure.message,
+                                        None,
+                                        None,
+                                    )),
+                                ),
+                            };
+                            push_request_event(
+                                self,
+                                &mut state,
+                                operation_id,
+                                &pending.method,
+                                result,
+                                error,
+                            );
+                        }
+                    }
+                }
                 Some(PendingKind::Feature) => {
                     if let Some(pending) = pending_before.as_ref() {
                         if let Some(operation_id) = &pending.operation_id {
@@ -3538,6 +3697,8 @@ impl RuntimeSession {
                     push_functions_event(self, &mut state, result);
                 } else if event.kind == "functionProgress" {
                     push_function_progress_locked(self, &mut state, event.result);
+                } else if event.kind == super::vcs_provider::NEGOTIATED_EVENT {
+                    push_vcs_provider_event(self, &mut state, event.result.unwrap_or_default());
                 } else if event.kind == "diagnostics" {
                     if let Some(uri) = event.uri.as_deref() {
                         push_diagnostics_event(
@@ -5288,6 +5449,37 @@ fn push_function_progress_locked(
     );
 }
 
+/// Publishes the VCS and capabilities a provider negotiated, so the host can
+/// check the VCS against the manifest entry and decide which actions to show.
+fn push_vcs_provider_event(session: &RuntimeSession, state: &mut SessionState, result: Value) {
+    let sequence = take_sequence(state);
+    enqueue_runtime_event(
+        session,
+        state,
+        LspRuntimeEvent {
+            kind: "vcsProvider".to_string(),
+            sequence,
+            provider_id: session.provider_id.clone(),
+            session_id: session.id.clone(),
+            state: None,
+            operation_id: None,
+            method: None,
+            uri: None,
+            version: None,
+            diagnostics: None,
+            result: Some(result),
+            error: None,
+            capabilities: None,
+            server_info: None,
+            level: None,
+            message: None,
+            detail: None,
+            maven_profile_project: None,
+            maven_profile_task: None,
+        },
+    );
+}
+
 /// Publishes the session's registered functions after a registry change.
 fn push_functions_event(session: &RuntimeSession, state: &mut SessionState, result: Value) {
     let sequence = take_sequence(state);
@@ -5872,6 +6064,7 @@ fn clear_runtime_state(session: &RuntimeSession, state: &mut SessionState) {
     state.request_by_operation.clear();
     state.function_by_operation.clear();
     clear_function_registry(session, state);
+    state.client.vcs_provider = None;
     state.linked_document_paths = LinkedDocumentPaths::default();
     state.java_navigation_marker_batches.clear();
     state.java_navigation_marker_cache.clear();
@@ -10885,6 +11078,260 @@ public class Main {
         assert!(harness.server.await_notification("$/cancelRequest"));
     }
 
+    // VCS providers against a scripted backend. Only a plugin-owned session
+    // is offered `litheVcs`, and only one whose process answered with a VCS
+    // ID and every required capability receives requests, each planned by
+    // Core from an operation name.
+
+    const VCS_PLUGIN: &str = "dev.lithe.fixture.vcs-provider";
+
+    fn vcs_capabilities() -> Value {
+        json!({ "status": 1, "baseContent": 1, "checkin": 1, "rollback": 1, "update": 1 })
+    }
+
+    fn vcs_backend(answer: Value) -> Harness {
+        let mut harness = Harness::start(|request| {
+            request.plugin_id = Some(VCS_PLUGIN.to_string());
+        });
+        harness
+            .server
+            .complete_initialize(json!({ "experimental": { "litheVcs": answer } }));
+        harness.await_state(LspLifecycleState::Ready);
+        harness
+    }
+
+    fn negotiated_vcs_provider() -> Harness {
+        vcs_backend(json!({ "version": 1, "vcs": "svn", "capabilities": vcs_capabilities() }))
+    }
+
+    /// A native absolute path on every platform the tests run on.
+    fn working_copy() -> String {
+        std::env::temp_dir()
+            .join("lithe-vcs-working-copy")
+            .to_string_lossy()
+            .into_owned()
+    }
+
+    fn vcs_request(
+        harness: &Harness,
+        vcs: &str,
+        operation: &str,
+        arguments: Value,
+    ) -> Result<String, CoreError> {
+        let operation_id = harness.engine.next_operation_id();
+        harness
+            .session()
+            .vcs_request(
+                VcsProviderRequest {
+                    session_id: harness.session_id.clone(),
+                    operation_id: Some(operation_id.clone()),
+                    vcs: vcs.to_string(),
+                    operation: operation.to_string(),
+                    root: working_copy(),
+                    tool: None,
+                    arguments,
+                    timeout_milliseconds: None,
+                },
+                operation_id.clone(),
+            )
+            .map(|()| operation_id)
+    }
+
+    /// Feature names the session recorded from the provider's answer.
+    fn vcs_features(harness: &Harness) -> Vec<String> {
+        let session = harness.session();
+        let state = session.lock_state().expect("state");
+        state.client.server_capabilities.clone()
+    }
+
+    fn no_vcs_request_written(harness: &Harness) -> bool {
+        harness.server.messages().iter().all(|message| {
+            !message["method"]
+                .as_str()
+                .is_some_and(|method| method.starts_with("lithe/vcs/"))
+        })
+    }
+
+    #[test]
+    fn host_sessions_are_not_offered_the_vcs_protocol() {
+        let harness = Harness::ready();
+        let initialize = harness
+            .server
+            .messages()
+            .into_iter()
+            .find(|message| message["method"] == "initialize")
+            .expect("initialize should have been written");
+        assert!(initialize["params"]["capabilities"]["experimental"]
+            .get("litheVcs")
+            .is_none());
+        let error = vcs_request(&harness, "svn", "status", json!({}))
+            .expect_err("a host session is never a provider");
+        assert!(matches!(error.code, ErrorCode::NotSupported));
+        assert_eq!(error.details.as_deref(), Some("vcs.provider.unavailable"));
+        assert!(no_vcs_request_written(&harness));
+    }
+
+    /// The negotiated VCS and capabilities reach the host as one event, so
+    /// it can check the VCS against the manifest and pick the actions to show.
+    #[test]
+    fn a_negotiated_provider_is_announced_with_its_capabilities() {
+        let mut harness = negotiated_vcs_provider();
+        let event = harness
+            .await_event(|event| event.kind == "vcsProvider")
+            .clone();
+        assert_eq!(
+            event.result,
+            Some(json!({ "vcs": "svn", "capabilities": vcs_capabilities() }))
+        );
+        assert!(vcs_features(&harness)
+            .iter()
+            .any(|feature| feature == "litheVcs"));
+    }
+
+    /// Version 1 has no host side for credentials or console routing yet: an
+    /// authentication request is refused so the provider fails with
+    /// `vcs.authentication.failed`, and an execution report is passed on as a
+    /// session log entry.
+    #[test]
+    fn provider_authentication_is_refused_and_execution_reports_pass_through() {
+        let mut harness = negotiated_vcs_provider();
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "id": "auth-1",
+            "method": "lithe/vcs/authenticate",
+            "params": { "realm": "<https://svn.example.invalid:443> Example" }
+        }));
+        assert_eq!(await_reply(&harness, "auth-1")["error"]["code"], -32601);
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "method": "lithe/vcs/execution",
+            "params": { "kind": "started", "arguments": ["status", "--xml"] }
+        }));
+        let event = harness
+            .await_event(|event| {
+                event.kind == "log" && event.message.as_deref() == Some("lithe/vcs/execution")
+            })
+            .clone();
+        assert!(event
+            .detail
+            .as_deref()
+            .is_some_and(|detail| detail.contains("--xml")));
+    }
+
+    /// An answer without a required capability makes the process a plain
+    /// plugin session: no announcement, no feature, and no request.
+    #[test]
+    fn an_incomplete_vcs_answer_is_not_a_provider() {
+        let mut harness = vcs_backend(json!({
+            "version": 1, "vcs": "svn", "capabilities": { "status": 1, "baseContent": 1 }
+        }));
+        harness.poll();
+        assert!(harness
+            .events
+            .iter()
+            .all(|event| event.kind != "vcsProvider"));
+        assert!(vcs_features(&harness)
+            .iter()
+            .all(|feature| feature != "litheVcs"));
+        let error = vcs_request(&harness, "svn", "status", json!({})).expect_err("refused");
+        assert_eq!(error.details.as_deref(), Some("vcs.provider.unavailable"));
+        assert!(no_vcs_request_written(&harness));
+    }
+
+    #[test]
+    fn a_vcs_request_is_planned_from_its_operation_and_returns_the_reply() {
+        let mut harness = negotiated_vcs_provider();
+        let operation = vcs_request(
+            &harness,
+            "svn",
+            "checkin",
+            json!({ "paths": ["src/b.txt", "src/a.txt"], "message": "Fix" }),
+        )
+        .expect("accepted");
+        let request_id = harness
+            .server
+            .await_request("lithe/vcs/checkin")
+            .expect("the request should reach the provider");
+        assert_eq!(
+            harness.written_request(&request_id)["params"],
+            json!({
+                "paths": ["src/a.txt", "src/b.txt"],
+                "message": "Fix",
+                "root": { "path": working_copy() },
+                "tool": null
+            })
+        );
+        let reply = json!({ "revision": { "id": "12", "display": "r12", "kind": "number" } });
+        harness
+            .server
+            .send(json!({ "jsonrpc": "2.0", "id": request_id, "result": reply }));
+        let completed = harness
+            .await_event(|event| {
+                event.kind == "requestCompleted"
+                    && event.operation_id.as_deref() == Some(operation.as_str())
+            })
+            .clone();
+        assert!(completed.error.is_none(), "{:?}", completed.error);
+        assert_eq!(completed.result, Some(json!({ "value": reply })));
+        assert!(harness.snapshot().pending_operation_ids.is_empty());
+    }
+
+    /// The host names an operation, never a method, so the session cannot
+    /// be used as a tunnel; another VCS, an unknown operation, a capability
+    /// the provider lacks, or a path leaving the root never reach the wire.
+    #[test]
+    fn vcs_requests_are_refused_before_they_are_written() {
+        let harness = negotiated_vcs_provider();
+        let error = vcs_request(&harness, "hg", "status", json!({})).expect_err("wrong VCS");
+        assert_eq!(error.details.as_deref(), Some("vcs.provider.unavailable"));
+        let error =
+            vcs_request(&harness, "svn", "shutdown", json!({})).expect_err("no such operation");
+        assert!(matches!(error.code, ErrorCode::InvalidRequest));
+        let error = vcs_request(&harness, "svn", "annotate", json!({ "path": "a.txt" }))
+            .expect_err("not negotiated");
+        assert!(matches!(error.code, ErrorCode::NotSupported));
+        assert_eq!(error.details.as_deref(), Some("vcs.capability.unsupported"));
+        let error = vcs_request(&harness, "svn", "rollback", json!({ "paths": ["../x"] }))
+            .expect_err("outside the root");
+        assert!(matches!(error.code, ErrorCode::InvalidRequest));
+        assert!(no_vcs_request_written(&harness));
+    }
+
+    /// A provider may name one of the contract's failure codes; any other
+    /// code, including one of Lithe's own, becomes the generic failure.
+    #[test]
+    fn vcs_failures_keep_only_contract_codes() {
+        let mut harness = negotiated_vcs_provider();
+        for (index, (data, expected)) in [
+            (json!({ "code": "vcs.outOfDate" }), "vcs.outOfDate"),
+            (
+                json!({ "code": "plugin.vcs.invalidOutput" }),
+                "vcs.provider.failed",
+            ),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let operation = vcs_request(&harness, "svn", "update", json!({})).expect("sent");
+            let request_id = harness
+                .server
+                .await_request_at("lithe/vcs/update", index)
+                .expect("the request should reach the provider");
+            harness.server.send(json!({
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "error": { "code": -32000, "message": "Working copy is out of date.", "data": data }
+            }));
+            let error = harness
+                .await_event(|event| event.operation_id.as_deref() == Some(operation.as_str()))
+                .error
+                .clone()
+                .expect("an error reply fails the request");
+            assert_eq!(error.code, expected);
+            assert_eq!(error.message, "Working copy is out of date.");
+        }
+    }
+
     // Plugin functions against a scripted backend. The scripted server plays
     // the plugin process, so every outcome (result, failure, cancellation,
     // deadline, late reply, revocation, and compatibility with a backend that
@@ -11051,7 +11498,11 @@ public class Main {
             .expect("initialize should have been written");
         assert_eq!(
             initialize["params"]["capabilities"]["experimental"],
-            json!({ "litheBuild": { "versions": [1] }, "litheFunctions": { "versions": [1] } })
+            json!({
+                "litheBuild": { "versions": [1] },
+                "litheFunctions": { "versions": [1] },
+                "litheVcs": { "versions": [1] }
+            })
         );
 
         // Another plugin's reference never reaches this process.
@@ -11293,12 +11744,13 @@ public class Main {
             revoked.error.as_ref().map(|error| error.code.as_str()),
             Some("plugin.function.revoked")
         );
-        assert!(harness
+        // The revocation is published before the cancellation is written, so
+        // the write is awaited rather than expected to be there already.
+        let cancel = harness
             .server
-            .messages()
-            .iter()
-            .any(|message| message["method"] == "$/cancelRequest"
-                && message["params"]["id"] == request_id));
+            .await_notification_at("$/cancelRequest", 0)
+            .expect("the revoked call should be cancelled on the wire");
+        assert_eq!(cancel["params"]["id"], request_id);
         let error = invoke(&harness, FUNCTION_PLUGIN, "snapshot.clear", None)
             .expect_err("a withdrawn function is unknown");
         assert_eq!(error.details.as_deref(), Some("plugin.function.unknown"));

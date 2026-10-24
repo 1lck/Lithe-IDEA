@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://lithe.dev/contracts/plugins/v1/plugin-manifest.schema.json",
+  "$id": "https://raw.githubusercontent.com/Lithe-IDEA/lithe-plugin-docs/main/contract/v1/plugin-manifest.schema.json",
   "title": "Lithe declarative plugin manifest (plugin contract v1)",
   "description": "Shape of plugin.json for a declarative plugin. Semantic rules that JSON Schema cannot express (cross references, permissions, activation events, template variables) are defined in README.md and enforced by plugins.declarative.validate.",
   "type": "object",
@@ -27,9 +27,11 @@
     "executionProviders": { "enum": [1] },
         "languageServers": { "enum": [1] },
         "languages": { "enum": [1] },
-        "serverProcess": { "description": "The launch fields of language servers and of build providers that start their own process.", "enum": [1] },
+        "projectGenerators": { "description": "Entries of the New Project window: fields, requirements, and steps.", "enum": [1] },
+        "serverProcess": { "description": "The launch fields of language servers, of build providers that start their own process, and of VCS providers.", "enum": [1] },
         "settings": { "enum": [1] },
-        "ui": { "description": "Version 2 adds web content in tool windows.", "enum": [1, 2] }
+        "ui": { "description": "Version 2 adds web content; version 3 adds native controls.", "enum": [1, 2, 3] },
+        "vcsProviders": { "description": "Required exactly when vcsProviders is non-empty. The provider protocol itself is negotiated in initialize (shared/contracts/vcs-provider-v1.md).", "enum": [1] }
       }
     },
     "vendor": {
@@ -44,11 +46,11 @@
     },
     "permissions": {
       "type": "array",
-      "items": { "enum": ["languageServer.launch", "process.build", "process.run", "process.test", "ui.contribute", "ui.web"] }
+      "items": { "enum": ["languageServer.launch", "process.build", "process.run", "process.test", "process.vcs", "project.generate", "ui.contribute", "ui.web"] }
     },
     "activationEvents": {
       "type": "array",
-      "items": { "type": "string", "pattern": "^(onLanguage|onRun|onTest|onView|onCommand|onBuildSystem):[a-z0-9.+_-]+$" }
+      "items": { "type": "string", "pattern": "^(onLanguage|onRun|onTest|onView|onCommand|onBuildSystem|onVcsRoot):[a-z0-9.+_-]+$" }
     },
     "languages": {
       "type": "array",
@@ -68,6 +70,18 @@
       "type": "array",
       "maxItems": 16,
       "items": { "$ref": "#/$defs/buildSystem" }
+    },
+    "vcsProviders": {
+      "description": "pluginAPIVersion 3: version control systems the plugin provides, each through its own LSP base-protocol process. Requires languageServer.launch, process.vcs, and one onVcsRoot:<id> activation event per provider.",
+      "type": "array",
+      "maxItems": 8,
+      "items": { "$ref": "#/$defs/vcsProvider" }
+    },
+    "projectGenerators": {
+      "description": "pluginAPIVersion 3 with requires.projectGenerators: entries of the New Project window. Requires the project.generate permission.",
+      "type": "array",
+      "maxItems": 16,
+      "items": { "$ref": "#/$defs/projectGenerator" }
     },
     "ui": {
       "type": "object",
@@ -90,7 +104,8 @@
             ],
             "oneOf": [
               { "required": ["text"] },
-              { "required": ["web"] }
+              { "required": ["web"] },
+              { "required": ["native"] }
             ],
             "properties": {
               "id": {
@@ -116,6 +131,7 @@
                 "type": "string",
                 "maxLength": 65536
               },
+              "native": { "$ref": "native-ui.schema.json" },
               "web": {
                 "description": "ui 2: the plugin's own page, served from the package into a sandboxed host web view. Needs the ui.web permission.",
                 "type": "object",
@@ -191,6 +207,173 @@
     }
   },
   "$defs": {
+    "generatorCondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["field"],
+      "properties": {
+        "field": { "type": "string", "description": "A field declared earlier in the same generator." },
+        "equals": { "type": ["string", "boolean"] },
+        "notEquals": { "type": ["string", "boolean"] },
+        "oneOf": { "type": "array", "minItems": 1, "items": { "type": ["string", "boolean"] } }
+      },
+      "oneOf": [
+        { "required": ["equals"] },
+        { "required": ["notEquals"] },
+        { "required": ["oneOf"] }
+      ]
+    },
+    "generatorConditions": {
+      "oneOf": [
+        { "$ref": "#/$defs/generatorCondition" },
+        { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/generatorCondition" } }
+      ]
+    },
+    "generatorField": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "title"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z][A-Za-z0-9]*$" },
+        "type": { "enum": ["text", "enum", "boolean", "multiSelect", "runtime"] },
+        "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "description": { "type": "string", "minLength": 1, "maxLength": 480 },
+        "advanced": { "type": "boolean" },
+        "visibleWhen": { "$ref": "#/$defs/generatorConditions" },
+        "default": { "description": "text: a template over ${project.name} and earlier fields; enum: an option; boolean; multiSelect: options. Not allowed for runtime." },
+        "options": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["value", "title"],
+            "properties": {
+              "value": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,120}$" },
+              "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+              "group": { "type": "string", "minLength": 1, "maxLength": 120 }
+            }
+          }
+        },
+        "presentation": { "enum": ["segmented", "menu"] },
+        "pattern": { "type": "string", "maxLength": 256 },
+        "maxLength": { "type": "integer", "minimum": 1, "maximum": 1024 },
+        "placeholder": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "optional": { "type": "boolean" },
+        "runtime": { "enum": ["java"] },
+        "minimumVersion": { "type": "string" },
+        "maximumVersion": { "type": "string", "description": "text and enum: the highest version the value may name, a template over earlier fields such as ${field.jdk.major}." }
+      }
+    },
+    "generatorConditionalValue": {
+      "oneOf": [
+        { "type": "string" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["value", "when"],
+          "properties": { "value": { "type": "string" }, "when": { "$ref": "#/$defs/generatorConditions" } }
+        }
+      ]
+    },
+    "generatorStep": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "source"],
+          "properties": {
+            "kind": { "const": "files" },
+            "source": { "type": "string", "description": "Package-relative template directory." },
+            "target": { "type": "string", "description": "Project-relative directory template." },
+            "when": { "$ref": "#/$defs/generatorConditions" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "command", "mayUseNetwork"],
+          "properties": {
+            "kind": { "const": "command" },
+            "command": { "type": "string", "pattern": "^[^/\\\\\\s]+$" },
+            "arguments": { "type": "array", "maxItems": 64, "items": { "$ref": "#/$defs/generatorConditionalValue" } },
+            "environment": { "type": "object", "maxProperties": 16, "additionalProperties": { "type": "string" } },
+            "collect": { "type": "string" },
+            "mayUseNetwork": { "type": "boolean" },
+            "timeoutSeconds": { "type": "integer", "minimum": 1, "maximum": 1800 },
+            "when": { "$ref": "#/$defs/generatorConditions" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "url"],
+          "properties": {
+            "kind": { "const": "archive" },
+            "url": { "type": "string", "description": "https address without query or fragment; http only for loopback hosts." },
+            "query": {
+              "type": "array",
+              "maxItems": 32,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name", "value"],
+                "properties": {
+                  "name": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,120}$" },
+                  "value": { "type": "string" },
+                  "when": { "$ref": "#/$defs/generatorConditions" },
+                  "omitEmpty": { "type": "boolean" }
+                }
+              }
+            },
+            "when": { "$ref": "#/$defs/generatorConditions" }
+          }
+        }
+      ]
+    },
+    "projectGenerator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "displayName", "section", "steps"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "description": { "type": "string", "minLength": 1, "maxLength": 480 },
+        "section": { "enum": ["project", "generator"] },
+        "icon": { "$ref": "#/$defs/uiIcon" },
+        "order": { "type": "integer", "minimum": 0, "maximum": 1000 },
+        "fields": { "type": "array", "maxItems": 32, "items": { "$ref": "#/$defs/generatorField" } },
+        "requirements": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "languageID": { "type": "string" },
+              "buildSystemID": { "type": "string" },
+              "when": { "$ref": "#/$defs/generatorConditions" }
+            },
+            "oneOf": [ { "required": ["languageID"] }, { "required": ["buildSystemID"] } ]
+          }
+        },
+        "steps": { "type": "array", "minItems": 1, "maxItems": 16, "items": { "$ref": "#/$defs/generatorStep" } },
+        "openFiles": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "oneOf": [
+              { "type": "string" },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["path", "when"],
+                "properties": { "path": { "type": "string" }, "when": { "$ref": "#/$defs/generatorConditions" } }
+              }
+            ]
+          }
+        }
+      }
+    },
     "uiIcon": {
       "type": "object",
       "additionalProperties": false,
@@ -245,6 +428,7 @@
             "terminal",
             "search",
             "refresh",
+            "reset",
             "run",
             "debug",
             "settings",
@@ -362,7 +546,7 @@
       }
     },
     "serverProcess": {
-      "description": "The launch fields a language server and a pluginAPIVersion 3 build provider share; both are LSP base-protocol processes and pass the same validation.",
+      "description": "The launch fields a language server, a pluginAPIVersion 3 build provider, and a VCS provider share; all are LSP base-protocol processes and pass the same validation.",
       "type": "object",
       "required": ["launch"],
       "properties": {
@@ -451,6 +635,66 @@
           }
         }
       ]
+    },
+    "vcsProvider": {
+      "description": "pluginAPIVersion 3: a VCS provider process (shared/contracts/vcs-provider-v1.md). Detection uses the markers only and never starts the process; capabilities are negotiated, not declared.",
+      "type": "object",
+      "$ref": "#/$defs/serverProcess",
+      "unevaluatedProperties": false,
+      "required": ["id", "displayName", "detection", "mayUseNetwork"],
+      "properties": {
+        "id": {
+          "description": "Stable VCS ID; git is reserved for the built-in support.",
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,31}$",
+          "not": { "const": "git" }
+        },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "detection": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["markers"],
+          "properties": {
+            "markers": {
+              "description": "Entries directly inside a root that mark it.",
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 8,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name", "type"],
+                "properties": {
+                  "name": { "type": "string", "minLength": 1, "maxLength": 255, "pattern": "^[^/\\\\]+$", "not": { "enum": [".", ".."] } },
+                  "type": { "enum": ["directory", "file"] }
+                }
+              }
+            }
+          }
+        },
+        "metadataPaths": {
+          "description": "Root-relative paths the host watches; a change means the status may be stale.",
+          "type": "array",
+          "maxItems": 16,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "tool": {
+          "description": "The VCS client the provider drives. The host resolves it like a systemCommand launch and passes its absolute path with every request.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["commands"],
+          "properties": {
+            "commands": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 8,
+              "items": { "type": "string", "pattern": "^[^/\\\\\\s]+$" }
+            },
+            "validationArguments": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "mayUseNetwork": { "type": "boolean" }
+      }
     },
     "minimumVersion": {
       "description": "pluginAPIVersion 2: one to three dot-separated numbers, for example 21 or 18.17.",

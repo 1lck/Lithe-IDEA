@@ -11,45 +11,65 @@ struct McpServerLibraryView: View {
     let workspaceURL: URL?
 
     @State private var editing: McpServerDraft?
+    @State private var showsImporter = false
+    @State private var query = ""
+    @Environment(\.locale) private var locale
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            if editing != nil {
-                McpServerEditorView(feature: feature, draft: editorBinding) {
-                    editing = nil
+        VStack(alignment: .leading, spacing: 20) {
+            header
+            if let error = feature.error {
+                LitheBanner(status: .warning) {
+                    Text(error)
+                        .font(LitheTheme.smallFont)
+                        .textSelection(.enabled)
                 }
-            } else {
-                header
-                if let error = feature.error {
-                    LitheBanner(status: .warning) {
-                        Text(error)
-                            .font(LitheTheme.smallFont)
-                            .textSelection(.enabled)
-                    }
-                }
-                if !feature.loadErrors.isEmpty {
-                    LitheBanner(status: .warning) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            ForEach(feature.loadErrors, id: \.self) { message in
-                                Text(message).font(LitheTheme.smallFont)
-                            }
+            }
+            if !feature.loadErrors.isEmpty {
+                LitheBanner(status: .warning) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(feature.loadErrors, id: \.self) { message in
+                            Text(message).font(LitheTheme.smallFont)
                         }
                     }
                 }
-                librarySection
-                if let backup = feature.lastBackupURL {
-                    backupLine(backup)
-                }
-                McpSettingsView(
-                    feature: access,
-                    library: feature,
-                    workspaceURL: workspaceURL
-                )
             }
+            librarySection
+            if let backup = feature.lastBackupURL {
+                backupLine(backup)
+            }
+            McpDiscoveryView(feature: feature.discovery) { editing = $0 }
+            Divider()
+            McpSettingsView(feature: access, library: feature, workspaceURL: workspaceURL)
         }
-        .frame(maxWidth: 760, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .sheet(isPresented: Binding(get: { editing != nil || showsImporter }, set: {
+            if !$0 { editing = nil; showsImporter = false; feature.error = nil }
+        })) {
+            Group {
+                if showsImporter {
+                    McpJsonImportView(feature: feature, cancel: closeEditor) { draft in
+                        showsImporter = false
+                        editing = draft
+                    }
+                } else {
+                    McpServerEditorView(feature: feature, draft: editorBinding, onClose: closeEditor)
+                }
+            }
+            .padding(20)
+            .frame(width: 640, height: showsImporter ? 580 : 500)
+            .background(LitheTheme.settingsSurface)
+            .environment(\.locale, locale)
+        }
         .onAppear { feature.refreshIfNeeded() }
         .onChange(of: workspaceURL) { _ in feature.refresh() }
+        .onDisappear { feature.tools.leavePage() }
+    }
+
+    private func closeEditor() {
+        editing = nil
+        showsImporter = false
+        feature.error = nil
     }
 
     private var editorBinding: Binding<McpServerDraft> {
@@ -60,34 +80,38 @@ struct McpServerLibraryView: View {
     }
 
     private var header: some View {
-        HStack(alignment: .top, spacing: 10) {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(LitheTheme.accent.opacity(0.12))
-                .frame(width: 32, height: 32)
-                .overlay {
-                    Image(systemName: "server.rack")
-                        .font(LitheTheme.uiFont(size: 14, weight: .semibold))
-                        .foregroundStyle(LitheTheme.accent)
-                }
-
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 4) {
-                    Text("MCP servers")
-                        .font(LitheTheme.uiFont(size: 15, weight: .semibold))
-                        .foregroundStyle(LitheTheme.primaryText)
-                    LitheInfoTip("Lithe reads the servers registered in your Codex and Claude Code configuration. Saving writes only the changed entry, keeps backups in Application Support, and never overwrites an entry created outside Lithe. Agents read MCP configuration when a session starts, so restart a session to apply changes.")
-                }
+        HStack(spacing: 10) {
+            HStack(spacing: 6) {
+                Text("MCP servers")
+                    .font(LitheTheme.uiFont(size: 17, weight: .semibold))
+                    .foregroundStyle(LitheTheme.primaryText)
+                LitheInfoTip("Lithe reads the servers registered in your Codex and Claude Code configuration. Saving writes only the changed entry, keeps backups in Application Support, and never overwrites an entry created outside Lithe. Agents read MCP configuration when a session starts, so restart a session to apply changes.")
             }
-
             Spacer(minLength: 12)
-
-            Button("Refresh") { feature.refresh() }
-                .buttonStyle(LitheActionButtonStyle())
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
+                Button("Import JSON") { showsImporter = true }
+                    .buttonStyle(LitheActionButtonStyle())
+                Button("Add server") { editing = feature.makeDraft() }
+                    .buttonStyle(LitheActionButtonStyle(isPrimary: true))
+            }
         }
     }
 
     private var librarySection: some View {
-        LitheSettingsSection("Server library") {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Server library").font(LitheTheme.settingsFont).foregroundStyle(LitheTheme.secondaryText)
+                Text(verbatim: "\(feature.rows.count)").font(LitheTheme.smallFont).foregroundStyle(LitheTheme.tertiaryText)
+                Spacer()
+                Button("Refresh") { feature.refresh() }
+                    .buttonStyle(.plain)
+                    .font(LitheTheme.smallFont)
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .lithePointer()
+            }
+            if feature.rows.count > 5 || !query.isEmpty {
+                LitheSearchField("Search MCP servers", text: $query)
+            }
             VStack(alignment: .leading, spacing: 8) {
                 if !feature.isAvailable {
                     Text("MCP configuration management is unavailable.")
@@ -95,9 +119,13 @@ struct McpServerLibraryView: View {
                         .foregroundStyle(LitheTheme.secondaryText)
                 } else if feature.rows.isEmpty {
                     emptyState
+                } else if filteredRows.isEmpty {
+                    Text("No matching MCP servers")
+                        .font(LitheTheme.settingsFont).foregroundStyle(LitheTheme.secondaryText)
+                        .padding(16)
                 } else {
                     VStack(spacing: 6) {
-                        ForEach(feature.rows) { row in
+                        ForEach(filteredRows) { row in
                             McpServerRowView(feature: feature, row: row) {
                                 editing = feature.draft(for: row)
                             }
@@ -105,40 +133,31 @@ struct McpServerLibraryView: View {
                     }
                 }
 
-                if feature.isAvailable {
-                    Button {
-                        editing = feature.makeDraft()
-                    } label: {
-                        Label("Add server", systemImage: "plus")
-                            .font(LitheTheme.uiFont(size: 12, weight: .medium))
-                    }
-                    .buttonStyle(LitheActionButtonStyle())
-                }
             }
         }
     }
 
-    private var emptyState: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "tray")
-                .font(LitheTheme.uiFont(size: 15))
-                .foregroundStyle(LitheTheme.tertiaryText)
-                .frame(width: 22)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text("No MCP servers registered")
-                    .font(LitheTheme.uiFont(size: 12.5, weight: .medium))
-                    .foregroundStyle(LitheTheme.primaryText)
-                Text("Add one here, or register a server with Codex or Claude Code and refresh.")
-                    .font(LitheTheme.smallFont)
-                    .foregroundStyle(LitheTheme.secondaryText)
-            }
-            Spacer(minLength: 0)
+    private var filteredRows: [McpServerRow] {
+        feature.rows.filter {
+            query.isEmpty || $0.name.localizedCaseInsensitiveContains(query)
+                || $0.summary.localizedCaseInsensitiveContains(query)
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 8) {
+            Text("No MCP servers registered")
+                .font(LitheTheme.uiFont(size: 12.5, weight: .medium))
+                .foregroundStyle(LitheTheme.primaryText)
+            Text("Add one here, or register a server with Codex or Claude Code and refresh.")
+                .font(LitheTheme.smallFont)
+                .foregroundStyle(LitheTheme.secondaryText)
+        }
+        .padding(28)
+        .frame(maxWidth: .infinity)
         .background(LitheTheme.settingsControlBackground)
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(LitheTheme.settingsControlBorder, style: StrokeStyle(lineWidth: 1, dash: [4])))
     }
 
     private func backupLine(_ url: URL) -> some View {
@@ -157,13 +176,15 @@ struct McpServerLibraryView: View {
 }
 
 /// One library row: identity, a one-line command summary and per-Agent chips.
-private struct McpServerRowView: View {
+struct McpServerRowView: View {
     @ObservedObject var feature: McpServerLibraryFeatureModel
     let row: McpServerRow
     let edit: () -> Void
+    @State private var expanded = false
 
     var body: some View {
-        HStack(spacing: 10) {
+        VStack(alignment: .leading, spacing: 10) {
+          HStack(spacing: 10) {
             Button(action: edit) {
                 HStack(spacing: 10) {
                     icon
@@ -187,10 +208,14 @@ private struct McpServerRowView: View {
             }
 
             if !row.isProjectOnly {
-                Image(systemName: "chevron.right")
-                    .font(LitheTheme.uiFont(size: 9, weight: .semibold))
-                    .foregroundStyle(LitheTheme.tertiaryText)
+                Button { expanded.toggle() } label: {
+                    Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                        .font(LitheTheme.uiFont(size: 10, weight: .semibold))
+                }.buttonStyle(.plain).foregroundStyle(LitheTheme.secondaryText)
+                    .accessibilityLabel(Text("Server tools"))
             }
+          }
+          if expanded { McpToolsPanel(feature: feature.tools, row: row) }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
@@ -204,14 +229,8 @@ private struct McpServerRowView: View {
     }
 
     private var icon: some View {
-        RoundedRectangle(cornerRadius: 6, style: .continuous)
-            .fill(LitheTheme.accent.opacity(0.10))
-            .frame(width: 26, height: 26)
-            .overlay {
-                Image(systemName: row.definition.transport == .stdio ? "terminal" : "network")
-                    .font(LitheTheme.uiFont(size: 11, weight: .medium))
-                    .foregroundStyle(LitheTheme.accent)
-            }
+        McpBrandIcon(entry: feature.catalogEntry(for: row.definition) ?? McpRegistryEntry(
+            id: row.id, title: row.name, summary: "", version: "", website: nil, draft: row.definition))
     }
 
     private var identity: some View {
@@ -220,6 +239,7 @@ private struct McpServerRowView: View {
                 Text(row.name)
                     .font(LitheTheme.uiFont(size: 12.5, weight: .medium))
                     .foregroundStyle(LitheTheme.primaryText)
+                McpToolStatusBadge(feature: feature.tools, row: row)
                 if row.isLitheRegistration {
                     badge("Lithe", color: LitheTheme.accent)
                 } else if row.isProjectOnly {
@@ -270,6 +290,7 @@ private struct McpAgentChip: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 3) {
+                AgentBrandIcon(name: agent.displayName, size: 13, style: .brand)
                 Image(systemName: isOn ? "checkmark" : "plus")
                     .font(LitheTheme.uiFont(size: 8.5, weight: .bold))
                 Text(agent.displayName)
@@ -298,12 +319,14 @@ private struct McpAgentChip: View {
 }
 
 /// Detail editor for one server definition.
-private struct McpServerEditorView: View {
+struct McpServerEditorView: View {
     @ObservedObject var feature: McpServerLibraryFeatureModel
     @Binding var draft: McpServerDraft
     let onClose: () -> Void
 
     @State private var didAttemptSave = false
+    @State private var commandLine = ""
+    @State private var commandError: String?
 
     private var original: McpServerRow? {
         guard let id = draft.originalRowID else { return nil }
@@ -311,107 +334,96 @@ private struct McpServerEditorView: View {
     }
 
     private var validationMessage: String? {
-        feature.validationMessage(for: draft)
+        (draft.transport == .stdio ? commandError : nil) ?? feature.validationMessage(for: draft)
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            backBar
-            serverSection
-            if draft.transport == .stdio {
-                environmentSection
-            } else {
-                headersSection
-            }
-            agentsSection
-            destinationSection
-
-            if didAttemptSave, let message = validationMessage {
-                LitheBanner(status: .warning) {
-                    Text(message).font(LitheTheme.smallFont)
+        VStack(alignment: .leading, spacing: 12) {
+            heading
+            Divider()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    if let message = draft.setupMessage {
+                        Text(message).font(LitheTheme.smallFont).foregroundStyle(LitheTheme.secondaryText)
+                    }
+                    serverSection
+                    if draft.transport == .stdio {
+                        environmentSection
+                    } else {
+                        headersSection
+                    }
+                    agentsSection
+                    if let message = validationMessage, didAttemptSave || commandError != nil {
+                        LitheBanner(status: .warning) { Text(message).font(LitheTheme.smallFont) }
+                    }
+                    if let error = feature.error {
+                        LitheBanner(status: .warning) {
+                            Text(error).font(LitheTheme.smallFont).textSelection(.enabled)
+                        }
+                    }
                 }
+                .padding(.vertical, 2)
             }
-            if let error = feature.error {
-                LitheBanner(status: .warning) {
-                    Text(error)
-                        .font(LitheTheme.smallFont)
-                        .textSelection(.enabled)
-                }
-            }
-
+            Divider()
             footer
+        }
+        .onAppear {
+            guard draft.transport == .stdio else { return }
+            do { commandLine = try feature.tools.commandLine(draft) }
+            catch { commandError = String(localized: "Could not read the command line.") }
+        }
+        .onChange(of: draft.transport) { value in
+            if value == .stdio {
+                do { commandLine = try feature.tools.commandLine(draft); commandError = nil }
+                catch { commandError = String(localized: "Could not read the command line.") }
+            }
         }
     }
 
-    private var backBar: some View {
+    private var heading: some View {
         HStack(spacing: 8) {
-            Button(action: onClose) {
-                HStack(spacing: 3) {
-                    Image(systemName: "chevron.left")
-                        .font(LitheTheme.uiFont(size: 9, weight: .semibold))
-                    Text("All servers")
-                        .font(LitheTheme.uiFont(size: 12, weight: .medium))
-                }
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(LitheTheme.accent)
-            .lithePointer()
-
+            McpBrandIcon(entry: feature.catalogEntry(for: definition) ?? McpRegistryEntry(
+                id: draft.name, title: draft.name, summary: "", version: "", website: nil, draft: definition))
+            Text(draft.name.isEmpty ? String(localized: "New MCP server") : draft.name)
+                .font(LitheTheme.uiFont(size: 16, weight: .semibold))
             Spacer(minLength: 8)
 
-            if original != nil {
-                Button(role: .destructive) {
-                    guard let original, feature.delete(original) else { return }
-                    onClose()
-                } label: {
-                    Label("Delete", systemImage: "trash")
-                        .font(LitheTheme.uiFont(size: 12, weight: .medium))
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(LitheTheme.error)
-                .lithePointer()
-            }
         }
     }
 
     private var serverSection: some View {
-        LitheSettingsSection("Server") {
-            VStack(alignment: .leading, spacing: 9) {
-                McpSettingsRow("Name") {
-                    TextField("Name", text: $draft.name)
-                        .litheSettingsTextField()
-                        .frame(width: 240)
+        VStack(alignment: .leading, spacing: 12) {
+            McpSettingsRow("Name", info: "Use letters, digits, dots, dashes or underscores. The name must start with a letter or digit.") {
+                LitheTextField("Name", text: $draft.name)
+            }
+            McpSettingsRow("Transport") {
+                LitheSettingsSegmentedControl(
+                    selection: $draft.transport,
+                    options: McpTransport.allCases,
+                    width: 210,
+                    title: { $0.title }
+                )
+            }
+            if draft.transport == .stdio {
+                McpSettingsRow("Command", info: "Enter the executable and arguments as in a terminal. Quote paths with spaces. Lithe passes exact arguments without running a shell; pipes and redirects are not evaluated.") {
+                    LitheTextField("npx -y @playwright/mcp", text: $commandLine, axis: .vertical)
+                        .font(LitheTheme.uiFont(size: 11.5, design: .monospaced))
+                        .lineLimit(1...3)
+                        .onChange(of: commandLine) { line in
+                            do { try feature.tools.updateCommandLine(line, draft: &draft); commandError = nil }
+                            catch { commandError = String(localized: "Check command-line quotes before saving.") }
+                        }
                 }
-                McpSettingsRow("Transport") {
-                    LitheSettingsSegmentedControl(
-                        selection: $draft.transport,
-                        options: McpTransport.allCases,
-                        width: 210,
-                        title: { $0.title }
-                    )
-                }
-                if draft.transport == .stdio {
-                    McpSettingsRow("Command") {
-                        TextField("Command", text: $draft.command)
-                            .litheSettingsTextField()
-                    }
-                    McpSettingsRow("Arguments", info: "One argument per line. Arguments keep spaces without quoting.") {
-                        TextEditor(text: $draft.argumentsText)
-                            .font(LitheTheme.uiFont(size: 11.5, design: .monospaced))
-                            .litheSettingsTextEditor(height: 64)
-                    }
-                } else {
-                    McpSettingsRow("URL") {
-                        TextField("https://example.com/mcp", text: $draft.url)
-                            .litheSettingsTextField()
-                    }
+            } else {
+                McpSettingsRow("URL") {
+                    LitheTextField("https://example.com/mcp", text: $draft.url)
                 }
             }
         }
     }
 
     private var environmentSection: some View {
-        LitheSettingsSection("Environment variables") {
+        McpSettingsRow("Environment variables", info: "Values are masked here but stored as plain text in the Agent's configuration file.") {
             McpKeyValueEditor(
                 entries: $draft.env,
                 keyPlaceholder: "Name",
@@ -422,7 +434,7 @@ private struct McpServerEditorView: View {
     }
 
     private var headersSection: some View {
-        LitheSettingsSection("Headers") {
+        McpSettingsRow("Headers", info: "Values are masked here but stored as plain text in the Agent's configuration file.") {
             McpKeyValueEditor(
                 entries: $draft.headers,
                 keyPlaceholder: "Header",
@@ -433,31 +445,25 @@ private struct McpServerEditorView: View {
     }
 
     private var agentsSection: some View {
-        LitheSettingsSection(
-            title: "Available to Agents",
-            accessory: {
-                LitheInfoTip("Each Agent keeps its own configuration file. Turning an Agent off removes only the entry Lithe wrote; an entry created outside Lithe is never removed without taking ownership first.")
-            },
-            content: {
-                VStack(alignment: .leading, spacing: 7) {
-                    ForEach(McpAgent.allCases) { agent in
-                        agentRow(agent)
-                    }
+        McpSettingsRow("Available to Agents", info: "Each Agent keeps its own configuration file. Turning an Agent off removes only the entry Lithe wrote; an entry created outside Lithe is never removed without taking ownership first.") {
+            HStack(alignment: .top, spacing: 16) {
+                Button("All") { draft.enabledAgents = Set(McpAgent.allCases) }
+                    .buttonStyle(LitheActionButtonStyle())
+                ForEach(McpAgent.allCases) { agent in
+                    agentRow(agent)
                 }
             }
-        )
+        }
     }
 
     private func agentRow(_ agent: McpAgent) -> some View {
         let isOn = binding(for: agent)
         let owned = original?.ownedGlobalAgents.contains(agent) == true
         return VStack(alignment: .leading, spacing: 2) {
-            LitheSettingsCheckbox(isOn: isOn, title: LocalizedStringKey(agent.displayName))
+            McpAgentSelectionChip(agent: agent, selected: isOn.wrappedValue) { isOn.wrappedValue.toggle() }
             if isOn.wrappedValue, original != nil, !owned {
                 HStack(spacing: 4) {
-                    Text("Created outside Lithe.")
-                        .font(LitheTheme.smallFont)
-                        .foregroundStyle(LitheTheme.secondaryText)
+                    LitheInfoTip("Created outside Lithe.")
                     Button("Take ownership") {
                         if let original {
                             feature.takeOwnership(of: original, agent: agent)
@@ -468,7 +474,6 @@ private struct McpServerEditorView: View {
                     .foregroundStyle(LitheTheme.accent)
                     .lithePointer()
                 }
-                .padding(.leading, 20)
             }
         }
     }
@@ -486,34 +491,17 @@ private struct McpServerEditorView: View {
         )
     }
 
-    private var destinationSection: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text("Saving writes to")
-                .font(LitheTheme.uiFont(size: 11, weight: .medium))
-                .foregroundStyle(LitheTheme.secondaryText)
-            let urls = feature.destinationURLs(for: draft)
-            if urls.isEmpty {
-                Text("No Agent is selected.")
-                    .font(LitheTheme.smallFont)
-                    .foregroundStyle(LitheTheme.secondaryText)
-            } else {
-                ForEach(urls, id: \.self) { url in
-                    Text(url.path)
-                        .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
-                        .foregroundStyle(LitheTheme.secondaryText)
-                        .textSelection(.enabled)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
-            }
-        }
-    }
-
     private var footer: some View {
         HStack(spacing: LitheTheme.ActionButton.spacing) {
+            if let original {
+                Button("Remove from library", role: .destructive) {
+                    guard feature.delete(original) else { return }; onClose()
+                }.buttonStyle(.plain).foregroundStyle(LitheTheme.secondaryText)
+            }
             Spacer(minLength: 12)
             Button("Cancel", action: onClose)
                 .buttonStyle(LitheActionButtonStyle())
+                .keyboardShortcut(.cancelAction)
             Button("Save") {
                 didAttemptSave = true
                 guard feature.save(draft) else { return }
@@ -523,6 +511,20 @@ private struct McpServerEditorView: View {
             .disabled(validationMessage != nil)
         }
         .padding(.top, 2)
+    }
+
+    private var definition: McpServerDefinition {
+        McpServerDefinition(name: draft.name, transport: draft.transport, command: draft.command,
+            args: draft.arguments, env: draft.env, url: draft.url, headers: draft.headers, definitionHash: "")
+    }
+}
+
+struct McpAgentSelectionChip: View {
+    let agent: McpAgent
+    let selected: Bool
+    let action: () -> Void
+    var body: some View {
+        AgentSelectionChip(title: agent.displayName, brandName: agent.displayName, selected: selected, action: action)
     }
 }
 
@@ -538,11 +540,9 @@ private struct McpKeyValueEditor: View {
         VStack(alignment: .leading, spacing: 6) {
             ForEach(entries.indices, id: \.self) { index in
                 HStack(spacing: 6) {
-                    TextField(keyPlaceholder, text: $entries[index].key)
-                        .litheSettingsTextField()
+                    LitheTextField(keyPlaceholder, text: $entries[index].key)
                         .frame(maxWidth: .infinity)
-                    SecureField(valuePlaceholder, text: $entries[index].value)
-                        .litheSettingsTextField()
+                    LitheTextField(valuePlaceholder, text: $entries[index].value, secure: true)
                         .frame(maxWidth: .infinity)
                     Button {
                         entries.remove(at: index)
@@ -566,10 +566,6 @@ private struct McpKeyValueEditor: View {
             .buttonStyle(.plain)
             .foregroundStyle(LitheTheme.accent)
             .lithePointer()
-
-            Text("Values are masked here but stored as plain text in the Agent's configuration file.")
-                .font(LitheTheme.smallFont)
-                .foregroundStyle(LitheTheme.secondaryText)
         }
     }
 }
@@ -589,7 +585,7 @@ private struct McpSettingsRow<Content: View>: View {
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
             LitheSettingsLabel(title, info: info)
-                .frame(width: 110, alignment: .leading)
+                .frame(width: 155, alignment: .leading)
             content
                 .frame(maxWidth: .infinity, alignment: .leading)
         }

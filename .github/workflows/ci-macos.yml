@@ -271,8 +271,12 @@ jobs:
           cargo: "true"
 
       # Compile and discover tests before starting the test execution deadline.
+      # A cold Rust/Swift build still compiling Lithe exceeded 20 minutes in
+      # run 39943871840, matching the plugin lane's 39741361768. Keep this hang
+      # guard separate from test execution; test steps keep their own budgets.
       - name: Build Swift tests
-        timeout-minutes: 20
+        id: build
+        timeout-minutes: 40
         run: ./scripts/test-macos.sh list > /dev/null
 
       - name: Verify the Rust Core Swift bridge
@@ -342,8 +346,10 @@ jobs:
         timeout-minutes: 17
         run: ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh --report .artifacts/test-stability/macos-database.json --suite-timeout-seconds 960 -- --skip-build --filter '(LitheDatabaseModuleTests|LitheTests\.LitheCoreLogicTests/database)'
 
+      # A failed build cannot produce reports; the build step already fails the
+      # job, so do not stack a second "no reports found" failure on top of it.
       - name: Generate combined Swift test report
-        if: always()
+        if: always() && steps.build.outcome == 'success'
         run: node .agents/skills/write-stable-tests/scripts/generate-test-report.mjs
 
       - name: Upload Swift test reports
@@ -385,24 +391,7 @@ jobs:
         with:
           cargo: "true"
 
-      # The Java plugin SDK targets Java 8: its tests and sample backend run on
-      # a Java 8 runtime, while Maven builds with the newer JDK set up last.
-      - name: Set up Java 8 runtime for the plugin SDK
-        id: java8
-        uses: actions/setup-java@v5
-        with:
-          distribution: zulu
-          java-version: '8'
-
-      - name: Set up Java 21 for Maven
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: '21'
-
       - name: Run Rust Core tests
-        env:
-          LITHE_PLUGIN_SDK_JAVA_RUNTIME: ${{ steps.java8.outputs.path }}/bin/java
         run: ./scripts/verify-rust-core-crates.sh
 
       - name: Upload Rust test reports
@@ -415,7 +404,6 @@ jobs:
             .artifacts/test-stability/agent-host-rust.*
             .artifacts/test-stability/ide-host-rust.*
             .artifacts/test-stability/rust-comment-checker.xml
-            .artifacts/test-stability/TEST-io.github.litheidea.plugin.sdk.*.xml
           if-no-files-found: ignore
           retention-days: 14
 
@@ -466,7 +454,8 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.architecture == 'arm64' && 'aarch64-apple-darwin' || matrix.architecture == 'x86_64' && 'x86_64-apple-darwin' || 'aarch64-apple-darwin,x86_64-apple-darwin' }}
+          # The app bundles the Linux remote workspace servers (scripts/build-remote-servers.sh).
+          targets: ${{ format('{0},x86_64-unknown-linux-musl,aarch64-unknown-linux-musl', matrix.architecture == 'arm64' && 'aarch64-apple-darwin' || matrix.architecture == 'x86_64' && 'x86_64-apple-darwin' || 'aarch64-apple-darwin,x86_64-apple-darwin') }}
 
       - name: Prepare verified dependency caches
         id: dependency_cache

@@ -70,6 +70,14 @@ public protocol TerminalTransport: AnyObject {
     var onTitle: ((String) -> Void)? { get set }
     var onDirectoryUpdate: ((String?) -> Void)? { get set }
     var onLink: ((String, [String: String]) -> Void)? { get set }
+    /// Whether the host terminal renders a light background, advertised through `COLORFGBG`
+    /// so TUIs pick a palette without querying; hosts that cannot tell keep it unset.
+    var reportsLightBackground: Bool? { get }
+
+    /// Applies the host surface state to the native view before the shell
+    /// starts, so the exported `COLORFGBG` matches the OSC 11 answer the
+    /// mounted view will report. Hosts without wallpaper keep it a no-op.
+    func configureInitialSurface(showsWorkbenchBackground: Bool)
 
     func defaultShellPath() -> String
     func defaultEnvironment() -> [String: String]
@@ -94,4 +102,7 @@ public extension TerminalTransport {
     var termProgramVersion: String? { nil }
     func stopAndWait() async { stop() }
     func runningPrograms() -> [TerminalRunningProgram] { [] }
+    var reportsLightBackground: Bool? { nil }
+    /// Hosts without wallpaper keep the initial surface configuration a no-op.
+    func configureInitialSurface(showsWorkbenchBackground: Bool) {}
 }

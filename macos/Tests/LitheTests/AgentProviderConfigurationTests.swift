@@ -25,6 +25,24 @@ struct AgentProviderConfigurationTests {
         #expect(settings.agentConfigurations["codex-acp"]?.isConfigured == false)
     }
 
+    @Test func claudeSubscriptionBindingRoundTripsAndBelongsOnlyToClaude() throws {
+        let settings = AppSettings(store: ProviderSettingsStore())
+        let configuration = AgentConfiguration(name: "Claude", providerID: nil, authentication: .claudeSubscription)
+        settings.agentConfigurations["claude-acp"] = configuration
+        #expect(settings.agentProvider(for: "claude-acp") == nil)
+        let decoded = try JSONDecoder().decode(AgentConfiguration.self, from: JSONEncoder().encode(configuration))
+        #expect(decoded == configuration && decoded.isConfigured)
+        // A stale provider id never survives next to a subscription.
+        let stale = try JSONDecoder().decode(AgentConfiguration.self, from: Data(
+            #"{"name":"Claude","providerID":"00000000-0000-0000-0000-000000000001","authentication":"claudeSubscription"}"#.utf8))
+        #expect(stale.providerID == nil)
+        #expect(AgentAuthentication.subscription(for: "claude-acp") == .claudeSubscription)
+        #expect(AgentAuthentication.subscription(for: "codex-acp") == .codexSubscription)
+        #expect(AgentAuthentication.subscription(for: "custom") == nil)
+        settings.setAgentProvider(nil, for: "claude-acp", name: "Claude")
+        #expect(settings.agentConfigurations["claude-acp"]?.authentication == .apiKey)
+    }
+
     @Test func configurationInputKeepsLiteralSyntax() {
         let editor = MacConfigurationTextView()
         #expect(!editor.isAutomaticQuoteSubstitutionEnabled)

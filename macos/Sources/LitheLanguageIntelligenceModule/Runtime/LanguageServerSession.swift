@@ -91,6 +91,9 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     /// `functionsChanged` event listed them.
     package private(set) var functionIDs: [String] = []
     package var onFunctionsChange: (([String]) -> Void)?
+    /// The VCS provider the process negotiated in `initialize`, as Core's
+    /// `vcsProvider` event reported it; nil for every other session.
+    package private(set) var vcsNegotiation: VcsProviderNegotiation?
     package var onServerInfoChange: ((LanguageServerInfo?) -> Void)?
     package var javaTestRunnerURL: URL? {
         hostIntegrationLaunch?.coreLaunch?.jdtlsLaunchResources?.javaTestRunnerURL
@@ -582,6 +585,51 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         }
     }
 
+    /// Sends one operation of the negotiated VCS-provider protocol and
+    /// returns the provider's raw reply, which the caller passes to
+    /// `vcs.decodeReply`. A refusal or failure throws
+    /// `LanguageServerRequestFailure` with the `vcs.*` code.
+    package func vcsRequest(
+        vcs: String,
+        operation: String,
+        root: String,
+        tool: String?,
+        arguments: ToolingJSONValue,
+        timeout: TimeInterval
+    ) async throws -> ToolingJSONValue {
+        guard let sessionID, state == .ready else {
+            throw LanguageServerRuntimeSessionError.notReady
+        }
+        let started: LanguageServerRuntimeOperation
+        switch await send(timeout: timeout, { core in
+            core.requestVcsProvider(
+                sessionID: sessionID, vcs: vcs, operation: operation, root: root, tool: tool,
+                arguments: arguments, timeout: timeout
+            )
+        }) {
+        case .success(let operation): started = operation
+        case .failure(let error):
+            sendsInFlight -= 1
+            try Task.checkCancellation()
+            throw LanguageServerRuntimeSessionError.requestRejected(error.userMessage)
+        }
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                registerPendingOperation(started, name: "vcs.\(operation)") { result in
+                    continuation.resume(with: result.flatMap { event in
+                        guard case .object(let object)? = event.result, let value = object["value"] else {
+                            return .failure(LanguageServerRuntimeSessionError.missingResult)
+                        }
+                        return .success(value)
+                    })
+                }
+                sendsInFlight -= 1
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in self?.cancelOffMain(started.operationID) }
+        }
+    }
+
     /// Invokes a plugin function of the plugin that owns this session. Core
     /// checks ownership and registration; a refusal or a failed call throws
     /// `PluginFunctionFailure`, and cancelling the task cancels the call.
@@ -994,6 +1042,12 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
             if case .integer(let value)? = object["percentage"] { percentage = value }
             listener(PluginFunctionProgress(message: message, percentage: percentage))
             return false
+        case "vcsProvider":
+            switch Self.decodeEventResult(event, as: VcsProviderNegotiation.self) {
+            case .success(let negotiation): vcsNegotiation = negotiation
+            case .failure(let error): onLog?(.error, "Invalid VCS provider event", error.localizedDescription, nil)
+            }
+            return false
         case "featuresChanged":
             updateFeatures(capabilityNames: event.capabilities ?? [])
             return false
@@ -1068,6 +1122,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
             functionIDs = []
             onFunctionsChange?([])
         }
+        vcsNegotiation = nil
         let released = onReleased
         onReleased = nil
         released?()

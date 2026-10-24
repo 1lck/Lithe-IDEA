@@ -53,6 +53,8 @@ private struct AgentsManagementPage: View {
             statisticsRow
         }
         agentPicker
+        Button("Manage Skills…") { model.showSettings(category: .skills) }
+            .buttonStyle(LitheActionButtonStyle())
         checkFeedback
         switch selectedEntry {
         case .agent(let id):
@@ -162,6 +164,7 @@ private struct AgentDetailView: View {
         let bundle = Bundle.main.url(forResource: settings.language.rawValue, withExtension: "lproj")
             .flatMap(Bundle.init(url:)) ?? .main
         return AgentSetupDiagnostics.preflight(for: agent, environment: environment, hasProvider: hasProvider,
+                                               authentication: settings.agentConfigurations[agent.id]?.authentication ?? .apiKey,
                                                bundle: bundle)
     }
 
@@ -463,16 +466,13 @@ private struct CustomAgentDetailView: View {
                 Text("Agent executable")
                     .font(LitheTheme.smallFont)
                     .foregroundStyle(LitheTheme.secondaryText)
-                TextField("Agent executable", text: $settings.agentCommand)
-                    .litheSettingsTextField()
+                LitheTextField("Agent executable", text: $settings.agentCommand)
             }
             VStack(alignment: .leading, spacing: 4) {
                 Text("Arguments (one per line)")
                     .font(LitheTheme.smallFont)
                     .foregroundStyle(LitheTheme.secondaryText)
-                TextEditor(text: $settings.agentArguments)
-                    .font(LitheTheme.uiFont(size: 12, design: .monospaced))
-                    .litheSettingsTextEditor(height: 52)
+                LitheTextEditor(text: $settings.agentArguments, height: 52)
             }
         }
         AgentProviderConfigurationView(

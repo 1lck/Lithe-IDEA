@@ -1,0 +1,913 @@
+{
+  "schemaVersion": 2,
+  "id": "org.example.native-ui-lab",
+  "displayName": "UI 验收实验室",
+  "version": "0.3.4",
+  "pluginAPIVersion": 3,
+  "requires": {
+    "buildProviders": 1,
+    "buildSystems": 1,
+    "serverProcess": 1,
+    "ui": 3
+  },
+  "vendor": {
+    "id": "org.example",
+    "displayName": "Example",
+    "signatureRequirement": "publisherPackage"
+  },
+  "permissions": [
+    "languageServer.launch",
+    "process.build",
+    "ui.contribute"
+  ],
+  "activationEvents": [
+    "onBuildSystem:native-ui-lab",
+    "onView:org.example.native-ui-lab.tree",
+    "onView:org.example.native-ui-lab.list",
+    "onView:org.example.native-ui-lab.static-tree",
+    "onView:org.example.native-ui-lab.static-list",
+    "onView:org.example.native-ui-lab.empty",
+    "onView:org.example.native-ui-lab.form",
+    "onView:org.example.native-ui-lab.buttons"
+  ],
+  "languages": [],
+  "buildSystems": [
+    {
+      "id": "native-ui-lab",
+      "displayName": "UI Lab Provider",
+      "detection": {
+        "markers": [
+          "lithe-ui-lab.json"
+        ],
+        "nesting": "outermost"
+      },
+      "invocation": {
+        "executables": [
+          {
+            "kind": "command",
+            "command": "node"
+          }
+        ]
+      },
+      "provider": {
+        "launch": {
+          "kind": "runtime",
+          "tool": "node",
+          "minimumVersion": "20.3",
+          "entry": "backend/main.mjs"
+        },
+        "arguments": [],
+        "executesProjectCode": false,
+        "mayUseNetwork": false
+      },
+      "model": {
+        "source": "provider"
+      },
+      "tasks": [],
+      "dependencies": {
+        "source": "provider",
+        "scopes": [
+          "workspace",
+          "project"
+        ]
+      },
+      "sync": {
+        "watch": [
+          "lithe-ui-lab.json"
+        ]
+      }
+    }
+  ],
+  "ui": {
+    "toolWindows": [
+      {
+        "id": "org.example.native-ui-lab.tree",
+        "title": "UI Lab · 动态树",
+        "placement": "right",
+        "native": {
+          "schemaVersion": 1,
+          "id": "tree",
+          "kind": "tree",
+          "nodes": [],
+          "actions": [
+            {
+              "id": "refresh",
+              "title": "刷新",
+              "kind": "refresh",
+              "requiresSelection": false,
+              "icon": {
+                "host": "refresh"
+              }
+            },
+            {
+              "id": "inspect",
+              "title": "检查",
+              "kind": "invoke",
+              "function": "tree.inspect",
+              "requiresSelection": true,
+              "icon": {
+                "host": "search"
+              }
+            },
+            {
+              "id": "reset",
+              "title": "重置",
+              "kind": "invoke",
+              "function": "tree.reset",
+              "requiresSelection": false,
+              "icon": {
+                "host": "reset"
+              }
+            },
+            {
+              "id": "rename",
+              "title": "修改标签",
+              "kind": "invoke",
+              "function": "tree.rename",
+              "requiresSelection": true
+            },
+            {
+              "id": "add",
+              "title": "添加节点",
+              "kind": "invoke",
+              "function": "tree.add",
+              "requiresSelection": false
+            },
+            {
+              "id": "remove",
+              "title": "移除所选",
+              "kind": "invoke",
+              "function": "tree.remove",
+              "requiresSelection": true
+            },
+            {
+              "id": "reverse",
+              "title": "反转顺序",
+              "kind": "invoke",
+              "function": "tree.reverse",
+              "requiresSelection": false
+            },
+            {
+              "id": "empty",
+              "title": "切换空数据",
+              "kind": "invoke",
+              "function": "tree.empty",
+              "requiresSelection": false
+            },
+            {
+              "id": "large",
+              "title": "加载长数据（600 项）",
+              "kind": "invoke",
+              "function": "tree.large",
+              "requiresSelection": false
+            },
+            {
+              "id": "slow",
+              "title": "慢加载（3 秒）",
+              "kind": "invoke",
+              "function": "tree.slow",
+              "requiresSelection": false
+            },
+            {
+              "id": "fail",
+              "title": "模拟动作失败",
+              "kind": "invoke",
+              "function": "tree.fail",
+              "requiresSelection": false
+            },
+            {
+              "id": "source-error",
+              "title": "模拟数据加载失败",
+              "kind": "invoke",
+              "function": "tree.sourceError",
+              "requiresSelection": false
+            },
+            {
+              "id": "invalid",
+              "title": "模拟重复 ID",
+              "kind": "invoke",
+              "function": "tree.invalid",
+              "requiresSelection": false
+            }
+          ],
+          "toolbar": [
+            "refresh",
+            "inspect",
+            "reset"
+          ],
+          "contextMenu": [
+            "inspect",
+            "reset",
+            "rename",
+            "add",
+            "remove",
+            "reverse",
+            "empty",
+            "large",
+            "slow",
+            "fail",
+            "source-error",
+            "invalid"
+          ],
+          "source": {
+            "buildSystemID": "native-ui-lab",
+            "function": "tree.nodes"
+          }
+        }
+      },
+      {
+        "id": "org.example.native-ui-lab.list",
+        "title": "UI Lab · 动态列表",
+        "placement": "left",
+        "native": {
+          "schemaVersion": 1,
+          "id": "list",
+          "kind": "list",
+          "nodes": [],
+          "actions": [
+            {
+              "id": "refresh",
+              "title": "刷新",
+              "kind": "refresh",
+              "requiresSelection": false,
+              "icon": {
+                "host": "refresh"
+              }
+            },
+            {
+              "id": "inspect",
+              "title": "检查",
+              "kind": "invoke",
+              "function": "list.inspect",
+              "requiresSelection": true,
+              "icon": {
+                "host": "search"
+              }
+            },
+            {
+              "id": "reset",
+              "title": "重置",
+              "kind": "invoke",
+              "function": "list.reset",
+              "requiresSelection": false,
+              "icon": {
+                "host": "reset"
+              }
+            },
+            {
+              "id": "rename",
+              "title": "修改标签",
+              "kind": "invoke",
+              "function": "list.rename",
+              "requiresSelection": true
+            },
+            {
+              "id": "add",
+              "title": "添加节点",
+              "kind": "invoke",
+              "function": "list.add",
+              "requiresSelection": false
+            },
+            {
+              "id": "remove",
+              "title": "移除所选",
+              "kind": "invoke",
+              "function": "list.remove",
+              "requiresSelection": true
+            },
+            {
+              "id": "reverse",
+              "title": "反转顺序",
+              "kind": "invoke",
+              "function": "list.reverse",
+              "requiresSelection": false
+            },
+            {
+              "id": "empty",
+              "title": "切换空数据",
+              "kind": "invoke",
+              "function": "list.empty",
+              "requiresSelection": false
+            },
+            {
+              "id": "large",
+              "title": "加载长数据（600 项）",
+              "kind": "invoke",
+              "function": "list.large",
+              "requiresSelection": false
+            },
+            {
+              "id": "slow",
+              "title": "慢加载（3 秒）",
+              "kind": "invoke",
+              "function": "list.slow",
+              "requiresSelection": false
+            },
+            {
+              "id": "fail",
+              "title": "模拟动作失败",
+              "kind": "invoke",
+              "function": "list.fail",
+              "requiresSelection": false
+            },
+            {
+              "id": "source-error",
+              "title": "模拟数据加载失败",
+              "kind": "invoke",
+              "function": "list.sourceError",
+              "requiresSelection": false
+            },
+            {
+              "id": "invalid",
+              "title": "模拟重复 ID",
+              "kind": "invoke",
+              "function": "list.invalid",
+              "requiresSelection": false
+            }
+          ],
+          "toolbar": [
+            "refresh",
+            "inspect",
+            "reset"
+          ],
+          "contextMenu": [
+            "inspect",
+            "reset",
+            "rename",
+            "add",
+            "remove",
+            "reverse",
+            "empty",
+            "large",
+            "slow",
+            "fail",
+            "source-error",
+            "invalid"
+          ],
+          "source": {
+            "buildSystemID": "native-ui-lab",
+            "function": "list.nodes"
+          }
+        }
+      },
+      {
+        "id": "org.example.native-ui-lab.static-tree",
+        "title": "UI Lab · 静态树",
+        "placement": "right",
+        "native": {
+          "schemaVersion": 1,
+          "id": "static-tree",
+          "kind": "tree",
+          "nodes": [
+            {
+              "id": "root",
+              "label": "无需 Provider 的静态树",
+              "children": [
+                {
+                  "id": "group",
+                  "label": "第二层",
+                  "children": [
+                    {
+                      "id": "leaf",
+                      "label": "第三层：中文 / English / 😀"
+                    }
+                  ]
+                },
+                {
+                  "id": "long",
+                  "label": "长标签截断验收：中文与 English 混排 — 中文与 English 混排 — 中文与 English 混排 — 中文与 English 混排 — 中文与 English 混排 — 中文与 English 混排 — 中文与 English 混排 — 中文与 English 混排 — 中文与 English 混排 — 中文与 English 混排 — 中文与 English 混排 — 中文与 English 混排 — "
+                },
+                {
+                  "id": "empty-branch",
+                  "label": "显式 children: [] 的叶节点",
+                  "children": []
+                }
+              ]
+            }
+          ],
+          "actions": [],
+          "toolbar": [],
+          "contextMenu": []
+        }
+      },
+      {
+        "id": "org.example.native-ui-lab.static-list",
+        "title": "UI Lab · 静态列表",
+        "placement": "left",
+        "native": {
+          "schemaVersion": 1,
+          "id": "static-list",
+          "kind": "list",
+          "nodes": [
+            {
+              "id": "item-1",
+              "label": "01 · English item"
+            },
+            {
+              "id": "item-2",
+              "label": "02 · Emoji 😀🚀"
+            },
+            {
+              "id": "item-3",
+              "label": "03 · Symbols <>& / \\ \""
+            },
+            {
+              "id": "item-4",
+              "label": "04 · 中文条目"
+            },
+            {
+              "id": "item-5",
+              "label": "05 · English item"
+            },
+            {
+              "id": "item-6",
+              "label": "06 · Emoji 😀🚀"
+            },
+            {
+              "id": "item-7",
+              "label": "07 · Symbols <>& / \\ \""
+            },
+            {
+              "id": "item-8",
+              "label": "08 · 中文条目"
+            },
+            {
+              "id": "item-9",
+              "label": "09 · English item"
+            },
+            {
+              "id": "item-10",
+              "label": "10 · Emoji 😀🚀"
+            },
+            {
+              "id": "item-11",
+              "label": "11 · Symbols <>& / \\ \""
+            },
+            {
+              "id": "item-12",
+              "label": "12 · 中文条目"
+            },
+            {
+              "id": "item-13",
+              "label": "13 · English item"
+            },
+            {
+              "id": "item-14",
+              "label": "14 · Emoji 😀🚀"
+            },
+            {
+              "id": "item-15",
+              "label": "15 · Symbols <>& / \\ \""
+            },
+            {
+              "id": "item-16",
+              "label": "16 · 中文条目"
+            },
+            {
+              "id": "item-17",
+              "label": "17 · English item"
+            },
+            {
+              "id": "item-18",
+              "label": "18 · Emoji 😀🚀"
+            },
+            {
+              "id": "item-19",
+              "label": "19 · Symbols <>& / \\ \""
+            },
+            {
+              "id": "item-20",
+              "label": "20 · 中文条目"
+            },
+            {
+              "id": "item-21",
+              "label": "21 · English item"
+            },
+            {
+              "id": "item-22",
+              "label": "22 · Emoji 😀🚀"
+            },
+            {
+              "id": "item-23",
+              "label": "23 · Symbols <>& / \\ \""
+            },
+            {
+              "id": "item-24",
+              "label": "24 · 中文条目"
+            }
+          ],
+          "actions": [],
+          "toolbar": [],
+          "contextMenu": []
+        }
+      },
+      {
+        "id": "org.example.native-ui-lab.empty",
+        "title": "UI Lab · 空面板",
+        "placement": "bottom",
+        "native": {
+          "schemaVersion": 1,
+          "id": "empty",
+          "kind": "list",
+          "nodes": [],
+          "actions": [],
+          "toolbar": [],
+          "contextMenu": []
+        }
+      },
+      {
+        "id": "org.example.native-ui-lab.form",
+        "title": "UI Lab · 表单控件",
+        "placement": "bottom",
+        "native": {
+          "schemaVersion": 1,
+          "id": "form",
+          "kind": "form",
+          "nodes": [],
+          "controls": [
+            {
+              "id": "name",
+              "kind": "input",
+              "label": "名称（输入后按回车）",
+              "value": "UI Lab",
+              "placeholder": "输入中文、English 或 😀🚀",
+              "onCommit": "changed",
+              "span": 6,
+              "info": "使用 IDE 公共控件。当前值会在提交时传给示例插件，界面样式由宿主管理。"
+            },
+            {
+              "id": "query",
+              "kind": "input",
+              "label": "空输入框与占位提示",
+              "value": "",
+              "placeholder": "试试中文输入法、粘贴、撤销",
+              "onCommit": "changed",
+              "span": 6,
+              "info": "使用 IDE 公共控件。当前值会在提交时传给示例插件，界面样式由宿主管理。"
+            },
+            {
+              "id": "environment",
+              "kind": "select",
+              "label": "环境（切换后自动提交）",
+              "value": "dev",
+              "options": [
+                {
+                  "id": "dev",
+                  "label": "开发环境"
+                },
+                {
+                  "id": "test",
+                  "label": "测试环境 / English"
+                },
+                {
+                  "id": "prod",
+                  "label": "生产环境 😀"
+                }
+              ],
+              "onCommit": "changed",
+              "span": 6,
+              "info": "使用 IDE 公共控件。当前值会在提交时传给示例插件，界面样式由宿主管理。"
+            },
+            {
+              "id": "notify",
+              "kind": "checkbox",
+              "label": "启用通知（切换后自动提交）",
+              "value": true,
+              "onCommit": "changed",
+              "span": 6,
+              "info": "使用 IDE 公共控件。当前值会在提交时传给示例插件，界面样式由宿主管理。"
+            },
+            {
+              "id": "offline",
+              "kind": "checkbox",
+              "label": "离线模式（仅本地保存）",
+              "value": false,
+              "span": 6,
+              "info": "使用 IDE 公共控件。当前值会在提交时传给示例插件，界面样式由宿主管理。"
+            },
+            {
+              "id": "locked-input",
+              "kind": "input",
+              "label": "禁用输入框",
+              "value": "不可编辑",
+              "enabled": false,
+              "span": 6,
+              "info": "禁用输入框：输入已禁用；说明仍可悬停、点击固定或通过键盘打开。"
+            },
+            {
+              "id": "locked-select",
+              "kind": "select",
+              "label": "禁用下拉选择",
+              "value": "locked",
+              "options": [
+                {
+                  "id": "locked",
+                  "label": "固定选项"
+                }
+              ],
+              "enabled": false,
+              "span": 6,
+              "info": "禁用下拉选择：输入已禁用；说明仍可悬停、点击固定或通过键盘打开。"
+            },
+            {
+              "id": "locked-check",
+              "kind": "checkbox",
+              "label": "禁用复选框",
+              "value": true,
+              "enabled": false,
+              "span": 6,
+              "info": "禁用复选框：输入已禁用；说明仍可悬停、点击固定或通过键盘打开。"
+            },
+            {
+              "id": "search",
+              "kind": "search",
+              "label": "搜索框（回车提交）",
+              "value": "",
+              "placeholder": "搜索中文 / English / 😀",
+              "onCommit": "changed",
+              "info": "复用共享搜索输入、焦点样式、I形光标和清空按钮。清空仅修改本地值。",
+              "span": 6
+            },
+            {
+              "id": "notes",
+              "kind": "editor",
+              "label": "多行输入（使用下方按钮提交）",
+              "value": "第一行：中文\nSecond line 😀",
+              "rows": 4,
+              "info": "Enter 换行，支持组合输入、选择和撤销；最多8192 UTF-8字节。",
+              "span": 6
+            },
+            {
+              "id": "mode",
+              "kind": "segmented",
+              "label": "分段选择",
+              "value": "safe",
+              "options": [
+                {
+                  "id": "fast",
+                  "label": "快速"
+                },
+                {
+                  "id": "safe",
+                  "label": "安全"
+                },
+                {
+                  "id": "debug",
+                  "label": "调试 😀"
+                }
+              ],
+              "onCommit": "changed",
+              "info": "复用设置页分段选择，传递稳定选项ID。",
+              "span": 6
+            },
+            {
+              "id": "concurrency",
+              "kind": "stepper",
+              "label": "数字步进器",
+              "value": 2,
+              "minimum": 1,
+              "maximum": 8,
+              "step": 1,
+              "onCommit": "changed",
+              "info": "最小1、最大8、步长1；到边界后对应按钮禁用。",
+              "span": 6
+            },
+            {
+              "id": "disabled-search",
+              "kind": "search",
+              "label": "禁用 · 搜索框（回车提交）",
+              "value": "",
+              "placeholder": "搜索中文 / English / 😀",
+              "onCommit": "changed",
+              "info": "禁用 · 搜索框（回车提交）：输入已禁用；说明仍可悬停、点击固定或通过键盘打开。",
+              "enabled": false,
+              "span": 6
+            },
+            {
+              "id": "disabled-notes",
+              "kind": "editor",
+              "label": "禁用 · 多行输入（使用下方按钮提交）",
+              "value": "第一行：中文\nSecond line 😀",
+              "rows": 4,
+              "info": "禁用 · 多行输入（使用下方按钮提交）：输入已禁用；说明仍可悬停、点击固定或通过键盘打开。",
+              "enabled": false,
+              "span": 6
+            },
+            {
+              "id": "disabled-mode",
+              "kind": "segmented",
+              "label": "禁用 · 分段选择",
+              "value": "safe",
+              "options": [
+                {
+                  "id": "fast",
+                  "label": "快速"
+                },
+                {
+                  "id": "safe",
+                  "label": "安全"
+                },
+                {
+                  "id": "debug",
+                  "label": "调试 😀"
+                }
+              ],
+              "onCommit": "changed",
+              "info": "禁用 · 分段选择：输入已禁用；说明仍可悬停、点击固定或通过键盘打开。",
+              "enabled": false,
+              "span": 6
+            },
+            {
+              "id": "disabled-concurrency",
+              "kind": "stepper",
+              "label": "禁用 · 数字步进器",
+              "value": 2,
+              "minimum": 1,
+              "maximum": 8,
+              "step": 1,
+              "onCommit": "changed",
+              "info": "禁用 · 数字步进器：输入已禁用；说明仍可悬停、点击固定或通过键盘打开。",
+              "enabled": false,
+              "span": 6
+            }
+          ],
+          "source": {
+            "buildSystemID": "native-ui-lab",
+            "function": "form.nodes"
+          },
+          "actions": [
+            {
+              "id": "changed",
+              "title": "提交控件值",
+              "kind": "invoke",
+              "function": "form.changed",
+              "requiresSelection": false
+            },
+            {
+              "id": "form-slow",
+              "title": "慢提交",
+              "kind": "invoke",
+              "function": "form.slow",
+              "requiresSelection": false
+            },
+            {
+              "id": "form-fail",
+              "title": "模拟提交失败",
+              "kind": "invoke",
+              "function": "form.fail",
+              "requiresSelection": false
+            }
+          ],
+          "toolbar": [],
+          "contextMenu": [],
+          "layout": {
+            "columns": 12
+          },
+          "buttons": [
+            {
+              "id": "secondary-content",
+              "label": "普通按钮（内容宽度）",
+              "action": "changed",
+              "info": "短文案使用共享最小宽度；鼠标、键盘和禁用状态都复用公共按钮。"
+            },
+            {
+              "id": "secondary-fill",
+              "label": "普通按钮 · 较长文案自然增长",
+              "action": "changed",
+              "info": "按钮按文案自然增长，不填满栅格；颜色、字体和内边距均由宿主统一。"
+            },
+            {
+              "id": "primary-content",
+              "label": "主要按钮（内容宽度）",
+              "action": "changed",
+              "primary": true
+            },
+            {
+              "id": "primary-fill",
+              "label": "主要按钮 · 较长文案自然增长",
+              "action": "changed",
+              "primary": true
+            },
+            {
+              "id": "disabled-button",
+              "label": "禁用普通按钮",
+              "action": "changed",
+              "enabled": false,
+              "info": "禁用普通按钮：动作已禁用；说明仍可查看，点击此提示不会执行动作。"
+            },
+            {
+              "id": "disabled-primary",
+              "label": "禁用主要按钮",
+              "action": "changed",
+              "primary": true,
+              "enabled": false,
+              "info": "禁用主要按钮：动作已禁用；说明仍可查看，点击此提示不会执行动作。"
+            },
+            {
+              "id": "slow-button",
+              "label": "慢提交（3秒，检查禁用/取消）",
+              "action": "form-slow"
+            },
+            {
+              "id": "failure-button",
+              "label": "模拟提交失败",
+              "action": "form-fail"
+            }
+          ]
+        }
+      },
+      {
+        "id": "org.example.native-ui-lab.buttons",
+        "title": "UI Lab · 按钮验收 0.3.4",
+        "placement": "bottom",
+        "native": {
+          "schemaVersion": 1,
+          "id": "buttons",
+          "kind": "form",
+          "controls": [],
+          "source": {
+            "buildSystemID": "native-ui-lab",
+            "function": "form.nodes"
+          },
+          "actions": [
+            {
+              "id": "inspect-buttons",
+              "title": "检查按钮动作",
+              "kind": "invoke",
+              "function": "buttons.inspect",
+              "requiresSelection": false
+            },
+            {
+              "id": "form-slow",
+              "title": "慢提交",
+              "kind": "invoke",
+              "function": "form.slow",
+              "requiresSelection": false
+            },
+            {
+              "id": "form-fail",
+              "title": "模拟提交失败",
+              "kind": "invoke",
+              "function": "form.fail",
+              "requiresSelection": false
+            }
+          ],
+          "toolbar": [],
+          "contextMenu": [],
+          "buttons": [
+            {
+              "id": "secondary-content",
+              "label": "取消",
+              "action": "inspect-buttons",
+              "info": "短文案使用共享最小宽度；鼠标、键盘和禁用状态都复用公共按钮。"
+            },
+            {
+              "id": "secondary-fill",
+              "label": "普通按钮 · 较长文案自然增长",
+              "action": "inspect-buttons",
+              "info": "按钮按文案自然增长，不填满栅格；颜色、字体和内边距均由宿主统一。"
+            },
+            {
+              "id": "primary-content",
+              "label": "应用",
+              "action": "inspect-buttons",
+              "primary": true
+            },
+            {
+              "id": "primary-fill",
+              "label": "主要按钮 · 较长文案自然增长",
+              "action": "inspect-buttons",
+              "primary": true
+            },
+            {
+              "id": "disabled-button",
+              "label": "禁用普通按钮",
+              "action": "inspect-buttons",
+              "enabled": false,
+              "info": "禁用普通按钮：动作已禁用；说明仍可查看，点击此提示不会执行动作。"
+            },
+            {
+              "id": "disabled-primary",
+              "label": "禁用主要按钮",
+              "action": "inspect-buttons",
+              "primary": true,
+              "enabled": false,
+              "info": "禁用主要按钮：动作已禁用；说明仍可查看，点击此提示不会执行动作。"
+            },
+            {
+              "id": "slow-button",
+              "label": "慢提交（3秒，检查禁用/取消）",
+              "action": "form-slow"
+            },
+            {
+              "id": "failure-button",
+              "label": "模拟提交失败",
+              "action": "form-fail"
+            }
+          ],
+          "nodes": []
+        }
+      }
+    ]
+  }
+}

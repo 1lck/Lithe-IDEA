@@ -104,6 +104,18 @@ struct McpServerDraft: Equatable {
     var env: [McpKeyValue] = []
     var headers: [McpKeyValue] = []
     var enabledAgents: Set<McpAgent> = []
+    /// Present only while reviewing an incomplete featured template.
+    var setup: McpRegistrySetup?
+
+    var setupMessage: String? {
+        switch setup {
+        case .bearerToken:
+            String(localized: "GitHub requires a personal access token. Set the Authorization header to Bearer followed by your token. It is stored in the Agent configuration file.")
+        case .allowedDirectories:
+            String(localized: "Add at least one absolute folder path after the package argument, one per line. Filesystem can read and write only in the folders you allow. Requires Node.js 24 or later.")
+        case nil: nil
+        }
+    }
 
     var isNew: Bool { originalRowID == nil }
 
@@ -133,6 +145,32 @@ struct McpServerDraft: Equatable {
         env = row.definition.env
         headers = row.definition.headers
         enabledAgents = row.enabledGlobalAgents
+    }
+
+    init(definition: McpServerDefinition) {
+        name = definition.name
+        transport = definition.transport
+        command = definition.command ?? ""
+        url = definition.url ?? ""
+        originalArguments = definition.args
+        argumentsText = definition.args.joined(separator: "\n")
+        env = definition.env
+        headers = definition.headers
+    }
+
+    mutating func setCommand(_ value: String, arguments: [String]) {
+        command = value
+        originalArguments = arguments
+        argumentsText = arguments.joined(separator: "\n")
+    }
+
+    init?(entry: McpRegistryEntry) {
+        guard let definition = entry.draft else { return nil }
+        self.init(definition: definition)
+        if entry.source == .featured {
+            setup = entry.setup
+            if setup == .bearerToken { headers = [McpKeyValue(key: "Authorization", value: "")] }
+        }
     }
 }
 
@@ -177,9 +215,16 @@ enum McpLibraryError: LocalizedError {
 /// Application dependencies used by the MCP library.
 @MainActor
 protocol McpServerLibraryActions: AnyObject {
+    var mcpTools: (any McpToolsManaging)? { get }
+    var mcpRegistry: (any McpRegistryProviding)? { get }
     var mcpConfigurationStore: (any McpConfigurationStore)? { get }
     var mcpWorkspaceURL: URL? { get }
     var mcpLedgerStore: any KeyValueStore { get }
+}
+
+extension McpServerLibraryActions {
+    var mcpTools: (any McpToolsManaging)? { nil }
+    var mcpRegistry: (any McpRegistryProviding)? { nil }
 }
 
 /// Discovers, edits and removes MCP servers registered with Codex and Claude Code.
@@ -190,6 +235,8 @@ protocol McpServerLibraryActions: AnyObject {
 /// included in errors.
 @MainActor
 final class McpServerLibraryFeatureModel: ObservableObject {
+    let tools: McpToolsFeatureModel
+    let discovery: McpRegistryFeatureModel
     @Published private(set) var rows: [McpServerRow] = []
     @Published private(set) var isAvailable = false
     @Published private(set) var loadErrors: [String] = []
@@ -211,6 +258,11 @@ final class McpServerLibraryFeatureModel: ObservableObject {
 
     init(model: any McpServerLibraryActions) {
         self.model = model
+        tools = McpToolsFeatureModel(service: model.mcpTools)
+        discovery = McpRegistryFeatureModel(registry: model.mcpRegistry)
+        tools.didChangePolicy = { [weak self] row, snapshot in
+            self?.recordToolPolicy(row: row, snapshot: snapshot)
+        }
     }
 
     // MARK: - Discovery
@@ -282,6 +334,15 @@ final class McpServerLibraryFeatureModel: ObservableObject {
             return left.definition.definitionHash < right.definition.definitionHash
         }
         hasLoaded = true
+        tools.reconcile(rows)
+    }
+
+    func catalogEntry(for definition: McpServerDefinition) -> McpRegistryEntry? {
+        discovery.entries.first { entry in
+            guard entry.source == .featured, let draft = entry.draft else { return false }
+            if definition.transport != .stdio { return draft.transport == definition.transport && draft.url == definition.url }
+            return draft.transport == .stdio && draft.command == definition.command && draft.args == Array(definition.args.prefix(draft.args.count))
+        }
     }
 
     /// Files a save writes to, shown in the editor before committing.
@@ -295,6 +356,17 @@ final class McpServerLibraryFeatureModel: ObservableObject {
     // MARK: - Drafts
 
     func makeDraft() -> McpServerDraft { McpServerDraft() }
+
+    /// Import is a preview only. Existing Core parsing validates the JSON;
+    /// no configuration or ownership record changes until the editor saves.
+    func importedDrafts(_ json: String) throws -> [McpServerDraft] {
+        guard let store = model?.mcpConfigurationStore,
+              let file = store.configurationFiles(workspace: nil).first(where: { $0.agent == .claudeCode && $0.scope == .global })
+        else { throw McpLibraryError.unavailable }
+        let servers = try store.parse(file, content: json)
+        guard !servers.isEmpty else { throw McpLibraryError.invalidDraft(String(localized: "Paste a JSON object containing mcpServers.")) }
+        return servers.map(McpServerDraft.init(definition:))
+    }
 
     func draft(for row: McpServerRow) -> McpServerDraft { McpServerDraft(row: row) }
 
@@ -331,6 +403,20 @@ final class McpServerLibraryFeatureModel: ObservableObject {
                 return String(localized: "Enter a complete server URL.")
             }
         }
+        switch draft.setup {
+        case .bearerToken:
+            let value = draft.headers.first { $0.key.lowercased() == "authorization" }?.value ?? ""
+            let parts = value.split(whereSeparator: \.isWhitespace)
+            if draft.transport == .stdio || parts.count != 2 || parts[0].lowercased() != "bearer" {
+                return String(localized: "Enter an Authorization header with Bearer and your GitHub token.")
+            }
+        case .allowedDirectories:
+            let folders = Array(draft.arguments.dropFirst(2))
+            if draft.transport != .stdio || folders.isEmpty || folders.contains(where: { !$0.hasPrefix("/") }) {
+                return String(localized: "Add at least one absolute allowed folder path after the Filesystem package argument.")
+            }
+        case nil: break
+        }
         return nil
     }
 
@@ -353,6 +439,12 @@ final class McpServerLibraryFeatureModel: ObservableObject {
         let targetFiles = files.filter { draft.enabledAgents.contains($0.agent) }
         let originalName = draft.originalName
         let originalSources = draft.originalSources
+        if let originalName, originalName != draft.name.trimmingCharacters(in: .whitespacesAndNewlines),
+           let original = rows.first(where: { $0.id == draft.originalRowID }) {
+            do {
+                try model?.mcpTools?.validateRename(McpToolTarget(definition: original.definition, files: originalSources.map(\.file)))
+            } catch { self.error = error.localizedDescription; return false }
+        }
 
         var definition = McpServerDefinition(
             name: draft.name.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -512,9 +604,10 @@ final class McpServerLibraryFeatureModel: ObservableObject {
               !source.isOwnedByLithe else { return }
         error = nil
         var entries = ledgerEntries(for: source.file)
+        let filters = entries.first { $0.name == row.name }?.toolFilters
         entries.removeAll { $0.name == row.name }
         entries.append(McpOwnedEntry(
-            name: row.name, definitionHash: source.definitionHash, sourceHash: source.sourceHash
+            name: row.name, definitionHash: source.definitionHash, sourceHash: source.sourceHash, toolFilters: filters
         ))
         setLedger(entries, for: source.file)
         refresh()
@@ -724,7 +817,8 @@ final class McpServerLibraryFeatureModel: ObservableObject {
             name: name,
             previousName: previousName,
             owned: owned,
-            expectedHash: expectedHash
+            expectedHash: expectedHash,
+            toolFilters: server.flatMap { server in owned.first(where: { $0.name == server.name })?.toolFilters?[file.url.path] }
         )
     }
 
@@ -774,9 +868,10 @@ final class McpServerLibraryFeatureModel: ObservableObject {
                         completedRenames[previousName] = expectedHash
                     }
                     if let hash = plan.definitionHash {
+                        let filters = entries.first { $0.name == server.name }?.toolFilters
                         entries.removeAll { $0.name == server.name }
                         entries.append(McpOwnedEntry(
-                            name: server.name, definitionHash: hash, sourceHash: plan.sourceHash
+                            name: server.name, definitionHash: hash, sourceHash: plan.sourceHash, toolFilters: filters
                         ))
                     }
                 case .remove(let name, let expectedHash):
@@ -804,7 +899,17 @@ final class McpServerLibraryFeatureModel: ObservableObject {
                     }
                     content = plan.content
                     changed = changed || plan.changed
-                    entries.removeAll { $0.name == name }
+                    // Rename already carries the native fields to the new name.
+                    // Ordinary removal retains only non-secret restrictions,
+                    // without a source hash that could authorize a future edit.
+                    if plan.action == "removed" {
+                        var filters = entries.first { $0.name == name }?.toolFilters ?? [:]
+                        filters[file.url.path] = plan.toolFilters
+                        entries.removeAll { $0.name == name }
+                        if !filters.isEmpty, let hash = plan.definitionHash {
+                            entries.append(McpOwnedEntry(name: name, definitionHash: hash, toolFilters: filters))
+                        }
+                    }
                 }
             }
             planned.append((file, source, content, entries, changed))
@@ -817,6 +922,11 @@ final class McpServerLibraryFeatureModel: ObservableObject {
         lastBackupURL = receipts.last?.backupURL ?? lastBackupURL
         // A later failure must not publish ownership for an earlier write.
         for entry in planned where entry.changed {
+            for operation in operations[entry.file] ?? [] {
+                if case .set(let server, _, let previousName?) = operation {
+                    model?.mcpTools?.serverRenamed(from: previousName, to: server.name, in: entry.file)
+                }
+            }
             setLedger(entry.entries, for: entry.file)
         }
     }
@@ -856,6 +966,21 @@ final class McpServerLibraryFeatureModel: ObservableObject {
 
     private func ledgerEntries(for file: McpConfigurationFile) -> [McpOwnedEntry] {
         ledgerSnapshot()[Self.identity(of: file)] ?? []
+    }
+
+    private func recordToolPolicy(row: McpServerRow, snapshot: McpToolPolicySnapshot) {
+        // Tool filters change Codex's full source hash, but not the connection
+        // identity. Advance only ownership that matched before our guarded edit.
+        if snapshot.agent == .codex, let previous = snapshot.previousSourceHash,
+           let next = snapshot.sourceHash, let source = row.globalSources.first(where: { $0.file.agent == .codex }) {
+            var entries = ledgerEntries(for: source.file)
+            if let index = entries.firstIndex(where: { $0.name == row.name && $0.sourceHash == previous }) {
+                entries[index] = McpOwnedEntry(name: row.name, definitionHash: row.definition.definitionHash,
+                    sourceHash: next, toolFilters: entries[index].toolFilters)
+                setLedger(entries, for: source.file)
+            }
+        }
+        refresh()
     }
 
     /// Reads the shared ledger every time instead of caching it per window.

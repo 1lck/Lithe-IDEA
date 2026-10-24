@@ -464,6 +464,11 @@ enum LitheTheme {
     }
 
     /// IDEA Islands Tree + DefaultControl/ClassicPainter, regular density.
+    enum FormGrid {
+        static let spacing: CGFloat = 12
+        static let singleColumnBreakpoint: CGFloat = 640
+    }
+
     enum Tree {
         static let rowHeight: CGFloat = 24
         static let iconSize: CGFloat = 16
@@ -705,6 +710,15 @@ enum LitheTheme {
         static var border: Color { controlColor(light: 0xD1D3D9, dark: 0x33353B) }
         static var foreground: Color { controlColor(light: 0x000000, dark: 0xD1D3D9) }
         static var infoForeground: Color { controlColor(light: 0x5F6269, dark: 0x9FA2A8) }
+    }
+
+    /// Community c7f91397 ManyIslands: dialog-bg, popup-border, text-default, Label.successForeground.
+    /// A connection result is a balloon over the dialog, not a popup-menu surface.
+    enum DatabaseConnectionResult {
+        static var background: Color { activeTheme == .lithe ? controlColor(light: 0xF7F8F9, dark: 0x191A1C) : editor }
+        static var border: Color { activeTheme == .lithe ? controlColor(light: 0xDDDFE4, dark: 0x33353B) : divider }
+        static var foreground: Color { activeTheme == .lithe ? controlColor(light: 0x000000, dark: 0xD1D3D9) : primaryText }
+        static var success: Color { activeTheme == .lithe ? controlColor(light: 0x338555, dark: 0x6DB083) : LitheTheme.success }
     }
 
     /// Community 915c3c26: Banner status tokens and InlineBannerBase/EditorNotificationPanel metrics.
@@ -1055,7 +1069,7 @@ enum LitheTheme {
         static let treeFontSize: CGFloat = 13
         static let tabHeight: CGFloat = 34
         static let toolbarHeight: CGFloat = 40
-        static let toolWindowHeaderHeight: CGFloat = 30
+        static let toolWindowHeaderHeight: CGFloat = 41
         static let statusBarHeight: CGFloat = 24
         static let cornerRadius: CGFloat = 5
         static let popupCornerRadius: CGFloat = 10
@@ -1107,7 +1121,9 @@ enum LitheTheme {
 
 extension View {
     func litheToolbarIconButton(isEnabled: Bool = true, isIconOnly: Bool = true) -> some View {
-        buttonStyle(LitheIconButtonStyle(size: LitheTheme.Metrics.toolbarIconButtonSize, isIconOnly: isIconOnly))
+        buttonStyle(LitheIconButtonStyle(
+            size: LitheTheme.Metrics.toolbarIconButtonSize, isIconOnly: isIconOnly,
+            foreground: LitheTheme.ActionToolbar.icon))
             .disabled(!isEnabled)
     }
 
@@ -1171,20 +1187,6 @@ extension View {
             }
     }
 
-    func litheTreeRow(isSelected: Bool = false, isFocused: Bool = false) -> some View {
-        font(LitheTheme.uiFont(size: 13, weight: .regular))
-            .foregroundStyle(LitheTheme.Tree.text)
-            .frame(maxWidth: .infinity, minHeight: LitheTheme.Tree.rowHeight,
-                   maxHeight: LitheTheme.Tree.rowHeight, alignment: .leading)
-            .contentShape(Rectangle())
-            .litheSelectionRow(isSelected: isSelected, isFocused: isFocused)
-    }
-
-    /// Tree/list selection shares colors and window focus, without changing row geometry.
-    func litheSelectionRow(isSelected: Bool, isFocused: Bool, cornerRadius: CGFloat = 4) -> some View {
-        modifier(LitheSelectionRowStyle(isSelected: isSelected, isFocused: isFocused, cornerRadius: cornerRadius))
-    }
-
     /// 给行/单元格加统一的悬停高亮，替代各处手写的 onHover + background。
     func litheRowHover(
         isActive: Bool = false,
@@ -1205,26 +1207,10 @@ extension View {
     }
 }
 
-private struct LitheSelectionRowStyle: ViewModifier {
-    @Environment(\.controlActiveState) private var controlActiveState
-    let isSelected: Bool
-    let isFocused: Bool
-    let cornerRadius: CGFloat
-
-    func body(content: Content) -> some View {
-        content.litheRowHover(
-            isActive: isSelected,
-            cornerRadius: cornerRadius,
-            activeBackground: isFocused && controlActiveState == .key
-                ? LitheTheme.Tree.focusedSelection : LitheTheme.Tree.inactiveSelection,
-            hoverBackground: LitheTheme.Tree.hover
-        )
-    }
-}
-
 struct LitheIconButtonStyle: ButtonStyle {
     var size: CGFloat = 28
     var isIconOnly = true
+    var foreground: Color = LitheTheme.toolWindowText
     var disabledOpacity: Double = 0.45
     var cornerRadius: CGFloat = LitheTheme.Metrics.cornerRadius
     var isSelected = false
@@ -1235,7 +1221,7 @@ struct LitheIconButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .foregroundStyle(LitheTheme.toolWindowText)
+            .foregroundStyle(foreground)
             .opacity(isEnabled ? 1 : disabledOpacity)
             .frame(width: isIconOnly ? size : nil, height: size)
             .background(
@@ -1401,6 +1387,7 @@ struct LitheSearchTextField: View {
     let title: LocalizedStringKey
     @Binding var text: String
     let axis: Axis?
+    private var literalTitle: String?
     @State private var hasEditingText = false
 
     init(_ title: LocalizedStringKey, text: Binding<String>, axis: Axis? = nil) {
@@ -1409,9 +1396,18 @@ struct LitheSearchTextField: View {
         self.axis = axis
     }
 
+    init(verbatim title: String, text: Binding<String>) {
+        self.title = ""
+        _text = text
+        axis = nil
+        literalTitle = title
+    }
+
+    private var titleText: Text { literalTitle.map { Text(verbatim: $0) } ?? Text(title) }
+
     var body: some View {
         field
-            .accessibilityLabel(title)
+            .accessibilityLabel(titleText)
             .textFieldStyle(.plain)
             .font(axis == .vertical ? LitheTheme.uiFont : LitheTheme.settingsFont)
             .foregroundColor(LitheTheme.searchFieldText)
@@ -1419,7 +1415,7 @@ struct LitheSearchTextField: View {
             .background(LitheTextFieldEditingObserver { hasEditingText = $0 })
             .overlay(alignment: axis == .vertical ? .topLeading : .leading) {
                 if text.isEmpty && !hasEditingText {
-                    Text(title)
+                    titleText
                         .font(axis == .vertical ? LitheTheme.uiFont : LitheTheme.settingsFont)
                         .foregroundColor(LitheTheme.searchFieldPlaceholder)
                         .lineLimit(1)

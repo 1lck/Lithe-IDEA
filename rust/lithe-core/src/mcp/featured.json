@@ -1,0 +1,183 @@
+{
+  "reviewed": "2026-10-22",
+  "servers": [
+    {
+      "server": {
+        "name": "lithe.featured/context7",
+        "title": "Context7",
+        "publisher": "Upstash",
+        "description": "Current library documentation and code examples for coding agents.",
+        "websiteUrl": "https://github.com/upstash/context7",
+        "remotes": [
+          {
+            "type": "streamable-http",
+            "url": "https://mcp.context7.com/mcp"
+          }
+        ]
+      }
+    },
+    {
+      "server": {
+        "name": "lithe.featured/playwright",
+        "title": "Playwright",
+        "publisher": "Microsoft",
+        "description": "Open pages, click, type and inspect a browser through its accessibility tree.",
+        "version": "0.0.83",
+        "websiteUrl": "https://github.com/microsoft/playwright-mcp",
+        "packages": [
+          {
+            "registryType": "npm",
+            "identifier": "@playwright/mcp",
+            "version": "0.0.83",
+            "transport": {
+              "type": "stdio"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "server": {
+        "name": "lithe.featured/chrome-devtools",
+        "title": "Chrome DevTools",
+        "publisher": "Google",
+        "description": "Inspect Chrome pages, console messages, network requests and performance.",
+        "version": "1.11.0",
+        "websiteUrl": "https://github.com/ChromeDevTools/chrome-devtools-mcp",
+        "packages": [
+          {
+            "registryType": "npm",
+            "identifier": "chrome-devtools-mcp",
+            "version": "1.11.0",
+            "transport": {
+              "type": "stdio"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "server": {
+        "name": "lithe.featured/microsoft-learn",
+        "title": "Microsoft Learn",
+        "publisher": "Microsoft",
+        "description": "Search official Microsoft and Azure documentation and code samples.",
+        "websiteUrl": "https://github.com/MicrosoftDocs/mcp",
+        "remotes": [
+          {
+            "type": "streamable-http",
+            "url": "https://learn.microsoft.com/api/mcp"
+          }
+        ]
+      }
+    },
+    {
+      "server": {
+        "name": "lithe.featured/github",
+        "title": "GitHub",
+        "publisher": "GitHub",
+        "description": "Work with GitHub repositories, issues, pull requests and Actions. A personal access token is required.",
+        "websiteUrl": "https://github.com/github/github-mcp-server",
+        "remotes": [
+          {
+            "type": "streamable-http",
+            "url": "https://api.githubcopilot.com/mcp/"
+          }
+        ]
+      },
+      "setup": "bearer-token"
+    },
+    {
+      "server": {
+        "name": "lithe.featured/deepwiki",
+        "title": "DeepWiki",
+        "publisher": "Cognition",
+        "description": "Ask questions about public GitHub repositories and read their generated documentation.",
+        "websiteUrl": "https://docs.devin.ai/work-with-devin/deepwiki-mcp",
+        "remotes": [
+          {
+            "type": "streamable-http",
+            "url": "https://mcp.deepwiki.com/mcp"
+          }
+        ]
+      }
+    },
+    {
+      "server": {
+        "name": "lithe.featured/exa",
+        "title": "Exa",
+        "publisher": "Exa",
+        "description": "Search the web and code, and retrieve page content for coding agents.",
+        "websiteUrl": "https://exa.ai/docs/get-started/exa-mcp",
+        "remotes": [
+          {
+            "type": "streamable-http",
+            "url": "https://mcp.exa.ai/mcp"
+          }
+        ]
+      }
+    },
+    {
+      "server": {
+        "name": "lithe.featured/filesystem",
+        "title": "Filesystem",
+        "publisher": "Model Context Protocol",
+        "description": "Read, write and search files only in the directories you allow. Requires Node.js 24 or later.",
+        "websiteUrl": "https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem",
+        "version": "2.0.0",
+        "packages": [
+          {
+            "registryType": "npm",
+            "identifier": "@modelcontextprotocol/server-filesystem",
+            "version": "2.0.0",
+            "transport": {
+              "type": "stdio"
+            }
+          }
+        ]
+      },
+      "setup": "allowed-directories"
+    },
+    {
+      "server": {
+        "name": "lithe.featured/fetch",
+        "title": "Fetch",
+        "publisher": "Model Context Protocol",
+        "description": "Fetch web pages and convert their content to Markdown. Requires uv and Python 3.10 or later.",
+        "websiteUrl": "https://github.com/modelcontextprotocol/servers/tree/main/src/fetch",
+        "version": "2026.10.19",
+        "packages": [
+          {
+            "registryType": "pypi",
+            "identifier": "mcp-server-fetch",
+            "version": "2026.10.19",
+            "transport": {
+              "type": "stdio"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "server": {
+        "name": "lithe.featured/memory",
+        "title": "Memory",
+        "publisher": "Model Context Protocol",
+        "description": "Keep a persistent knowledge graph between conversations. Requires Node.js 24 or later.",
+        "websiteUrl": "https://github.com/modelcontextprotocol/servers/tree/main/src/memory",
+        "version": "2.0.0",
+        "packages": [
+          {
+            "registryType": "npm",
+            "identifier": "@modelcontextprotocol/server-memory",
+            "version": "2.0.0",
+            "transport": {
+              "type": "stdio"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "metadata": {}
+}

@@ -7,7 +7,6 @@ struct ProjectRuntimeSettingsView: View {
     /// which the settings window's `SettingsModelContext` does not republish.
     @EnvironmentObject private var model: AppModel
     @ObservedObject var feature: RuntimeSettingsFeatureModel
-    @State private var subprojectListActive = false
     @State private var selectedSubprojectID = ProjectRuntimeInventory.projectDefaultsID
     /// Editing waits until the form is seeded from this project's saved defaults.
     /// An earlier edit could not reach `.lithe/run/local.json`, and adopting the
@@ -22,7 +21,6 @@ struct ProjectRuntimeSettingsView: View {
             } else {
                 HStack(spacing: 0) {
                     subprojectList
-                        .background(LitheToolWindowActivityTracker(isActive: $subprojectListActive))
                     Rectangle().fill(LitheTheme.divider).frame(width: 1)
                     detail
                 }
@@ -96,37 +94,38 @@ struct ProjectRuntimeSettingsView: View {
     }
 
     private var subprojectList: some View {
-        ScrollView {
-            VStack(spacing: 1) {
-                ForEach(feature.subprojects) { subproject in
-                    subprojectRow(subproject)
-                }
-            }
-            .padding(8)
+        LitheTreeList(
+            feature.subprojects,
+            selection: Binding(get: { selectedSubprojectID }, set: { if let id = $0 { selectedSubprojectID = id } }),
+            hierarchy: { .init(depth: $0.parentID == nil ? 0 : 1) }, multiline: true
+        ) { subproject in
+            subprojectRow(subproject)
         }
         .frame(width: 230)
         .frame(maxHeight: .infinity)
         .background(LitheTheme.settingsSurface)
-        .litheScrollViewChrome(alwaysShowVertical: true, usesCompactScrollers: true)
     }
 
     private func subprojectRow(_ subproject: ProjectRuntimeSubproject) -> some View {
         let isSelected = selectedSubprojectID == subproject.id
-        return Button {
-            selectedSubprojectID = subproject.id
-        } label: {
+        return
             HStack(spacing: 8) {
                 Image(systemName: icon(for: subproject.kind))
                     .font(LitheTheme.uiFont(size: 12, weight: .medium))
                     .frame(width: 16)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(subproject.title)
-                        .font(LitheTheme.uiFont(size: 12.5, weight: subproject.kind == .projectDefaults ? .semibold : .regular))
+                        .font(
+                            LitheTheme.uiFont(
+                                size: 12.5, weight: subproject.kind == .projectDefaults ? .semibold : .regular)
+                        )
                         .lineLimit(1)
                     if subproject.displaysPath {
                         Text(subproject.relativePath)
                             .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
-                            .foregroundStyle(isSelected ? LitheTheme.settingsSelectionText.opacity(0.8) : LitheTheme.tertiaryText)
+                            .foregroundStyle(
+                                isSelected ? LitheTheme.settingsSelectionText.opacity(0.8) : LitheTheme.tertiaryText
+                            )
                             .lineLimit(1)
                     }
                 }
@@ -135,13 +134,7 @@ struct ProjectRuntimeSettingsView: View {
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .litheSelectionRow(isSelected: isSelected, isFocused: subprojectListActive, cornerRadius: LitheTheme.Metrics.cornerRadius)
-            .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.cornerRadius))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.litheNoPress)
-        .foregroundStyle(isSelected ? LitheTheme.settingsSelectionText : LitheTheme.primaryText)
-        .padding(.leading, subproject.parentID == nil ? 0 : 12)
+            .foregroundStyle(LitheTheme.primaryText)
     }
 
     private var selectedSubproject: ProjectRuntimeSubproject? {
@@ -533,8 +526,7 @@ struct ProjectRuntimeSettingsView: View {
             Text(LocalizedStringKey(title))
                 .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
             HStack(spacing: 6) {
-                TextField(LocalizedStringKey(placeholder), text: value)
-                    .litheSettingsTextField()
+                LitheTextField(LocalizedStringKey(placeholder), text: value)
                     .help(Text(verbatim: placeholder))
                 Button {
                     value.wrappedValue = ""

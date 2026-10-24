@@ -48,9 +48,12 @@ public final class TerminalFeatureModel: ObservableObject {
     public func createSession(
         in workspaceURL: URL,
         shellPath: String? = nil,
-        preferredToolTabTitle: String? = nil
+        preferredToolTabTitle: String? = nil,
+        showsWorkbenchBackground: Bool = false
     ) -> TerminalSession {
-        let session = TerminalSession(transport: terminalFactory(), preferredToolTabTitle: preferredToolTabTitle)
+        let transport = terminalFactory()
+        transport.configureInitialSurface(showsWorkbenchBackground: showsWorkbenchBackground)
+        let session = TerminalSession(transport: transport, preferredToolTabTitle: preferredToolTabTitle)
         session.start(in: workspaceURL, shellPath: shellPath)
         terminalSessions.append(session)
         activeTerminalSessionID = session.id
@@ -60,9 +63,12 @@ public final class TerminalFeatureModel: ObservableObject {
     @discardableResult
     public func createProcessSession(
         _ launch: TerminalProcessLaunch,
+        showsWorkbenchBackground: Bool = false,
         onOutput: ((String) -> Void)? = nil
     ) throws -> (session: TerminalSession, processID: Int32) {
-        let session = TerminalSession(transport: terminalFactory())
+        let transport = terminalFactory()
+        transport.configureInitialSurface(showsWorkbenchBackground: showsWorkbenchBackground)
+        let session = TerminalSession(transport: transport)
         session.onOutput = onOutput
         let processID = try session.startProcess(launch)
         terminalSessions.append(session)

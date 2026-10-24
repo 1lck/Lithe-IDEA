@@ -31,6 +31,6 @@
     ]
   },
   "owner": "Agent",
-  "verification": "macOS：已有 Codex ChatGPT 登录直接对话；未登录只显示登录按钮，点击才打开浏览器，取消与超时清理进程；API Key 与订阅空闲切换后验证实际计费来源，不携带旧 key/URL/模型、不改提交服务商；忙碌时拒绝切换，账号变化后断开；老配置仍走 API Key，Claude 不显示订阅选项。真实账号与 macOS UI 待验证；Windows 连接桥已接通共享 host，UI 待接入；2026-10-16 删除了从未接入后端的「Codex 集成」设置页与 Codex app-server 客户端死代码，AI 设置不再显示 Codex CLI 状态或连接按钮。 Windows：Codex 设置显示 macOS 同款订阅行，未启用时只提供 Enable，启用后提供 “Use API key” 返回 API Key 模式；切换按钮在连接中、创建会话、回复中、加载历史、等待权限或配置确认时禁用，避免中断当前工作。订阅启动不携带 provider 的 key、地址或模型；未登录时 Agent 面板只显示“Sign in with ChatGPT”，点击后才启动登录，登录中可取消并清理连接。旧配置仍按 API Key 读取；Claude 不显示订阅入口。真实 ChatGPT 账号验收待执行。",
+  "verification": "macOS：已有 Codex ChatGPT 登录直接对话；未登录只显示登录按钮，点击才打开浏览器，取消与超时清理进程；API Key 与订阅空闲切换后验证实际计费来源，不携带旧 key/URL/模型、不改提交服务商；忙碌时拒绝切换，账号变化后断开；老配置仍走 API Key，Codex 订阅不能用于 Claude（Claude 订阅见 agent-claude-subscription）。真实账号与 macOS UI 待验证；Windows 连接桥已接通共享 host，UI 待接入；2026-10-16 删除了从未接入后端的「Codex 集成」设置页与 Codex app-server 客户端死代码，AI 设置不再显示 Codex CLI 状态或连接按钮。 Windows：Codex 设置显示 macOS 同款订阅行，未启用时只提供 Enable，启用后提供 “Use API key” 返回 API Key 模式；切换按钮在连接中、创建会话、回复中、加载历史、等待权限或配置确认时禁用，避免中断当前工作。订阅启动不携带 provider 的 key、地址或模型；未登录时 Agent 面板只显示“Sign in with ChatGPT”，点击后才启动登录，登录中可取消并清理连接。旧配置仍按 API Key 读取；Claude 不显示订阅入口。真实 ChatGPT 账号验收待执行。",
   "notes": "2026-10-18 Windows：设置页订阅入口改成 macOS 的启用/切换行；`reconnect` 从设置 store 读取刚保存的值，避免切换登录方式后仍用旧配置重连；默认模型随供应商初始化（Codex `gpt-6.1-sol`，Claude `claude-fable-5-1`）。"
 }

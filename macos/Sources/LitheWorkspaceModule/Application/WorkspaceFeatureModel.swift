@@ -67,6 +67,9 @@ package final class WorkspaceFeatureModel: ObservableObject {
     private var notify: (@MainActor (String) -> Void)?
     private var recordHistory: (@MainActor (URL, LocalHistoryReason) async -> Void)?
     private var relocateHistory: (@MainActor (URL, URL) async -> Void)?
+    /// Moves an item through the version control that tracks it, so the
+    /// move is recorded; false leaves the move to the file system.
+    private var moveTrackedItem: (@MainActor (URL, URL) async -> Bool)?
     private var relocateOpenDocuments: (@MainActor (URL, URL) -> Void)?
     private var closeDocuments: (@MainActor (URL) -> Void)?
     private var processExternalChanges: (@MainActor ([URL]) -> Bool)?
@@ -108,6 +111,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         notify: @escaping @MainActor (String) -> Void,
         recordHistory: @escaping @MainActor (URL, LocalHistoryReason) async -> Void,
         relocateHistory: @escaping @MainActor (URL, URL) async -> Void,
+        moveTrackedItem: @escaping @MainActor (URL, URL) async -> Bool = { _, _ in false },
         relocateOpenDocuments: @escaping @MainActor (URL, URL) -> Void,
         closeDocuments: @escaping @MainActor (URL) -> Void,
         processExternalChanges: @escaping @MainActor ([URL]) -> Bool,
@@ -129,6 +133,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         self.notify = notify
         self.recordHistory = recordHistory
         self.relocateHistory = relocateHistory
+        self.moveTrackedItem = moveTrackedItem
         self.relocateOpenDocuments = relocateOpenDocuments
         self.closeDocuments = closeDocuments
         self.processExternalChanges = processExternalChanges
@@ -557,7 +562,12 @@ package final class WorkspaceFeatureModel: ObservableObject {
         }
 
         let fileOperations = self.fileOperations
-        let errorMessage = await Task.detached(priority: .userInitiated) { () -> String? in
+        var movedByVersionControl = false
+        if request.kind == .rename, let moveTrackedItem {
+            let exists = await Task.detached(priority: .userInitiated) { fileOperations.fileExists(at: destination) }.value
+            if !exists { movedByVersionControl = await moveTrackedItem(request.targetURL, destination) }
+        }
+        let errorMessage = movedByVersionControl ? nil : await Task.detached(priority: .userInitiated) { () -> String? in
             guard !fileOperations.fileExists(at: destination) else {
                 return "An item named '\(name)' already exists"
             }
@@ -662,7 +672,14 @@ package final class WorkspaceFeatureModel: ObservableObject {
             }
             let historyFiles = projectFiles.filter { urlContains(source, child: $0) }
             let previousMarks = directoryMarks
-            let error = await Task.detached(priority: .userInitiated) { () -> String? in
+            var movedByVersionControl = false
+            if let moveTrackedItem {
+                let preflight = await Task.detached(priority: .userInitiated) {
+                    Self.projectMoveError([source], to: target, workspace: workspace, files: fileOperations)
+                }.value
+                if preflight == nil { movedByVersionControl = await moveTrackedItem(source, destination) }
+            }
+            let error = movedByVersionControl ? nil : await Task.detached(priority: .userInitiated) { () -> String? in
                 do {
                     // Recheck just before writing; the native move also refuses overwrite.
                     if let error = Self.projectMoveError([source], to: target, workspace: workspace, files: fileOperations) {

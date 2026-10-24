@@ -118,6 +118,69 @@ struct TerminalModuleTests {
     }
 
     @Test
+    func interactiveShellEnvironmentExportsColorFgbgForLightBackground() throws {
+        let transport = TestTransport()
+        transport.reportsLightBackground = true
+        let session = TerminalSession(transport: transport)
+        defer { session.stop() }
+        session.start(in: URL(fileURLWithPath: "/workspace"), shellPath: "/bin/zsh")
+
+        #expect(session.isRunning)
+        #expect(transport.shellEnvironments.first?["COLORFGBG"] == "0;15")
+    }
+
+    @Test
+    func interactiveShellEnvironmentExportsColorFgbgForDarkBackground() throws {
+        let transport = TestTransport()
+        transport.reportsLightBackground = false
+        let session = TerminalSession(transport: transport)
+        defer { session.stop() }
+        session.start(in: URL(fileURLWithPath: "/workspace"), shellPath: "/bin/zsh")
+
+        #expect(session.isRunning)
+        #expect(transport.shellEnvironments.first?["COLORFGBG"] == "15;0")
+    }
+
+    @Test
+    func interactiveShellEnvironmentOmitsColorFgbgWhenHostCannotTell() throws {
+        let transport = TestTransport()
+        let session = TerminalSession(transport: transport)
+        defer { session.stop() }
+        session.start(in: URL(fileURLWithPath: "/workspace"), shellPath: "/bin/zsh")
+
+        #expect(session.isRunning)
+        #expect(transport.shellEnvironments.first?["COLORFGBG"] == nil)
+    }
+
+    @Test
+    func createSessionAppliesWallpaperStateBeforeSpawn() throws {
+        let transport = TestTransport()
+        transport.reportsLightBackground = true
+        let feature = TerminalFeatureModel(terminalFactory: { transport })
+        defer { feature.stopAllSessions() }
+        let session = feature.createSession(
+            in: URL(fileURLWithPath: "/workspace"),
+            shellPath: "/bin/zsh",
+            showsWorkbenchBackground: true
+        )
+        defer { session.stop() }
+
+        #expect(transport.shellEnvironments.first?["COLORFGBG"] == "15;0")
+    }
+
+    @Test
+    func interactiveShellEnvironmentClearsInheritedColorFgbgWhenHostCannotTell() throws {
+        let transport = TestTransport()
+        transport.inheritedEnvironment["COLORFGBG"] = "7;0"
+        let session = TerminalSession(transport: transport)
+        defer { session.stop() }
+        session.start(in: URL(fileURLWithPath: "/workspace"), shellPath: "/bin/zsh")
+
+        #expect(session.isRunning)
+        #expect(transport.shellEnvironments.first?["COLORFGBG"] == nil)
+    }
+
+    @Test
     func managedProcessForwardsInputToItsOwnPTY() throws {
         let transport = TestTransport()
         let feature = TerminalFeatureModel(terminalFactory: { transport })
@@ -230,6 +293,48 @@ struct TerminalModuleTests {
         feature.createSession(in: URL(fileURLWithPath: "/workspace"), shellPath: "/bin/zsh")
         #expect(transport.shellEnvironments.last?["TERM_PROGRAM_VERSION"] == nil)
     }
+
+    @Test
+    func shellExitNotifiesHostExactlyOnce() {
+        let transport = TestTransport()
+        let feature = TerminalFeatureModel(terminalFactory: { transport })
+        defer { feature.stopAllSessions() }
+        let session = feature.createSession(in: URL(fileURLWithPath: "/workspace"), shellPath: "/bin/zsh")
+        var endedSessions: [TerminalSession] = []
+        session.onEnded = { endedSessions.append($0) }
+
+        transport.onTermination?(0)
+
+        #expect(endedSessions.count == 1)
+        #expect(endedSessions.first === session)
+        #expect(!session.isRunning)
+        #expect(session.lastExitCode == 0)
+        feature.stopAllSessions()
+        #expect(endedSessions.count == 1)
+    }
+
+    @Test
+    func launchFailureAndRestartFailureKeepHostUnnotified() {
+        let transport = TestTransport()
+        let session = TerminalSession(transport: transport)
+        var endedCount = 0
+        session.onEnded = { _ in endedCount += 1 }
+
+        transport.startError = CocoaError(.fileNoSuchFile)
+        session.start(in: URL(fileURLWithPath: "/workspace"), shellPath: "/bin/zsh")
+        #expect(session.launchError != nil)
+        #expect(endedCount == 0)
+
+        transport.startError = nil
+        session.start(in: URL(fileURLWithPath: "/workspace"), shellPath: "/bin/zsh")
+        #expect(session.isRunning)
+        transport.startError = CocoaError(.fileNoSuchFile)
+        session.restart()
+        #expect(session.launchError != nil)
+        #expect(endedCount == 0)
+        session.stop()
+        #expect(endedCount == 0)
+    }
 }
 
 @MainActor
@@ -241,6 +346,7 @@ private final class TestTransport: TerminalTransport {
     var termProgramVersion: String?
     var shellStarts: [String] = []
     var shellEnvironments: [[String: String]] = []
+    var reportsLightBackground: Bool?
     var inheritedEnvironment: [String: String] = ["REMOVE_ME": "old"]
     var startError: Error?
     var onTermination: ((Int32?) -> Void)?
@@ -253,6 +359,9 @@ private final class TestTransport: TerminalTransport {
     var processEnvironments: [[String: String]] = []
     var sentInputs: [String] = []
     var outputOnStart: String?
+    func configureInitialSurface(showsWorkbenchBackground: Bool) {
+        if showsWorkbenchBackground { reportsLightBackground = false }
+    }
     func defaultShellPath() -> String { "/bin/zsh" }
     func defaultEnvironment() -> [String: String] { inheritedEnvironment }
     func start(workingDirectory: String, shellPath: String, environment: [String: String]) throws {

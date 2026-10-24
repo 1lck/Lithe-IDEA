@@ -347,6 +347,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
+name = "base64"
+version = "0.23.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
+
+[[package]]
 name = "base64ct"
 version = "1.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1998,21 +2004,28 @@ dependencies = [
  "agent-client-protocol",
  "bytes",
  "flate2",
+ "fs2",
  "futures",
+ "http",
  "http-body-util",
  "hyper",
  "hyper-util",
  "kill_tree",
  "libc",
  "reqwest",
+ "rmcp",
  "semver",
  "serde",
  "serde_json",
+ "serde_yaml_ng",
+ "sha2",
+ "sse-stream",
  "tokio",
  "tokio-util",
  "tungstenite",
  "url",
  "uuid",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2026,6 +2039,8 @@ dependencies = [
  "lithe-agent-host",
  "lithe-git-host",
  "lithe-ide-host",
+ "lithe-remote-client",
+ "lithe-remote-protocol",
  "quick-xml",
  "rand 0.8.7",
  "regex",
@@ -2036,6 +2051,7 @@ dependencies = [
  "serde_yaml_ng",
  "sha1",
  "sha2",
+ "shell-words",
  "toml",
  "toml_edit",
  "tree-sitter",
@@ -2101,6 +2117,37 @@ dependencies = [
  "sha2",
  "tokio",
  "uuid",
+]
+
+[[package]]
+name = "lithe-remote-client"
+version = "0.1.0"
+dependencies = [
+ "lithe-remote-protocol",
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
+name = "lithe-remote-protocol"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "lithe-remote-server"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "lithe-remote-client",
+ "lithe-remote-protocol",
+ "serde",
+ "serde_json",
+ "sha2",
 ]
 
 [[package]]
@@ -3072,16 +3119,21 @@ version = "3.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fae7019994ae0fe4ada40b732f798f3ff26f0f04facb1477f1bf37eb4f18a2d3"
 dependencies = [
+ "base64 0.23.1",
+ "bytes",
  "chrono",
  "futures",
+ "http",
  "indexmap 2.14.0",
  "pastey",
  "pin-project-lite",
  "schemars 1.2.2",
  "serde",
  "serde_json",
+ "sse-stream",
  "thiserror 2.0.20",
  "tokio",
+ "tokio-stream",
  "tokio-util",
  "tracing",
  "uuid",
@@ -3865,6 +3917,19 @@ dependencies = [
  "tracing",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "sse-stream"
+version = "0.2.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c25ac7aff0abd1dbc474536e40416e1102c7dd9bfba0b9861c6d357f835dcfb4"
+dependencies = [
+ "bytes",
+ "futures-util",
+ "http-body",
+ "http-body-util",
+ "pin-project-lite",
 ]
 
 [[package]]

@@ -103,6 +103,11 @@ final class WorkbenchFeatureModel: ObservableObject {
     /// has since navigated away.
     @Published private(set) var settingsCategoryRequest = 0
     @Published var isCloneRepositoryPresented = false
+    @Published var isRemoteConnectionsPresented = false
+    /// The remote workspace whose connection was lost; the Remote Development
+    /// window then reconnects that folder instead of opening a new one.
+    @Published var remoteReconnect: RemoteConnectionLoss?
+    @Published var isNewProjectPresented = false
     var activeToolWindow: ToolWindow? { activeTool(in: .init(anchor: .bottom, group: .primary)) }
     var activeRightToolWindow: ToolWindow? { activeTool(in: .init(anchor: .right, group: .primary)) }
 
@@ -393,6 +398,8 @@ final class WorkbenchFeatureModel: ObservableObject {
         isSettingsPresented = false
         requestedSettingsCategory = .general
         isCloneRepositoryPresented = false
+        isNewProjectPresented = false
+        isRemoteConnectionsPresented = false
     }
 
     func loadLayout(for workspaceURL: URL) -> WorkbenchLayout {

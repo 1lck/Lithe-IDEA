@@ -11,7 +11,7 @@ does not need to be rebuilt for each Lithe release; compatibility is decided by
 
 | Package | Distribution | Language server |
 | --- | --- | --- |
-| `JavaSupport` | Bundled in Lithe.app, same Team ID as the host | JDT LS packaged with Lithe |
+| `JavaSupport` | Bundled in Lithe.app, same Team ID as the host | JDT LS packaged with Lithe; New Project entries for Java, Maven Archetype, and Spring Boot ([project generators](../../shared/contracts/plugins/v1/README.md#project-generators)) |
 
 ## Go and PHP moved to Lithe Store
 
@@ -47,6 +47,18 @@ Cargo-specific compatibility tests run in the plugin repository against a pinned
 Lithe Core through its public JSON API. This repository retains generic plugin
 contract tests; it does not keep Cargo community plugin snapshots.
 
+## Subversion community plugin
+
+[Subversion](https://github.com/Lithe-IDEA/lithe-plugin-svn)
+(`io.github.lithe-idea.svn-support`) is a VCS provider plugin maintained and
+released independently in the same way. It needs a Lithe build that declares
+the `vcsProviders` host capability, and runs the user's `svn` 1.8+ through a
+Node SDK provider. Its svn output fixtures and Core compatibility tests live in
+the plugin repository. This repository keeps the generic VCS provider contract,
+its manifest fixture, and the Core tests; the SDK's sample provider
+(`sample-vcs`) lives with the SDK in
+[lithe-plugin-docs](https://github.com/Lithe-IDEA/lithe-plugin-docs).
+
 ## Downloadable official plugins
 
 No downloadable official plugin is configured right now:
@@ -64,6 +76,10 @@ direct package build fails instead of producing an unsigned package. Keep the
 key in a protected file or environment variable and never commit it.
 
 ## Local development packages
+
+This section is for official plugins built in this repository. Community plugin
+authors follow [lithe-plugin-docs](https://github.com/Lithe-IDEA/lithe-plugin-docs)
+instead.
 
 Plugin authors can test without the publisher key. Build an unsigned
 development package with `--development-unsigned`, then install it from disk in

@@ -43,6 +43,7 @@ plugins=false
 swift_database=false
 rust_core=false
 rust_database=false
+rust_remote=false
 macos_release=false
 windows=false
 windows_rust=false
@@ -57,6 +58,7 @@ enable_all_validation() {
     swift_database=true
     rust_core=true
     rust_database=true
+    rust_remote=true
     macos_release=true
     windows=true
     windows_rust=true
@@ -104,6 +106,9 @@ classify_path() {
         .github/workflows/ci-database.yml)
             swift_database=true
             rust_database=true
+            ;;
+        .github/workflows/ci-remote.yml|scripts/verify-remote-workspace.sh)
+            rust_remote=true
             ;;
         .github/workflows/ci-windows.yml)
             windows=true
@@ -304,6 +309,7 @@ classify_path() {
         rust/cargo.toml|rust/cargo.lock)
             rust_core=true
             rust_database=true
+            rust_remote=true
             macos_release=true
             windows=true
             windows_rust=true
@@ -313,6 +319,12 @@ classify_path() {
             # Database helpers are shipped as macOS executables, so Linux crate
             # tests are not sufficient to validate their production target.
             macos_release=true
+            ;;
+        rust/lithe-remote-protocol/*|rust/lithe-remote-server/*|rust/lithe-remote-client/*)
+            # The remote workspace crates are not linked into a shipped product
+            # yet. Their Linux lane also exercises the server's Linux adapter,
+            # which macOS runners cannot.
+            rust_remote=true
             ;;
         rust/*)
             # Unknown Rust workspace paths fail closed across all Rust-backed
@@ -414,11 +426,6 @@ classify_path() {
         infra/docker/*)
             rust_database=true
             ;;
-        sdk/*)
-            # Plugin backend SDKs are verified in the Rust Core lane, which runs
-            # their unit tests and drives their samples through Core sessions.
-            rust_core=true
-            ;;
         *)
             # New or unclassified repository areas are validated conservatively
             # until their ownership is made explicit above.
@@ -498,6 +505,7 @@ case "$ci_scope" in
         swift_database=false
         rust_core=false
         rust_database=false
+        rust_remote=false
         macos_release="$package_affected"
         windows=false
         windows_rust=false
@@ -512,6 +520,7 @@ case "$ci_scope" in
         swift_database=false
         rust_core=false
         rust_database=false
+        rust_remote=false
         macos_release=false
         windows=false
         windows_rust=false
@@ -531,6 +540,7 @@ printf 'plugins=%s\n' "$plugins"
 printf 'swift_database=%s\n' "$swift_database"
 printf 'rust_core=%s\n' "$rust_core"
 printf 'rust_database=%s\n' "$rust_database"
+printf 'rust_remote=%s\n' "$rust_remote"
 printf 'macos_release=%s\n' "$macos_release"
 printf 'windows=%s\n' "$windows"
 printf 'windows_rust=%s\n' "$windows_rust"

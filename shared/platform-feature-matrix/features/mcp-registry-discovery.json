@@ -1,0 +1,34 @@
+{
+  "id": "mcp-registry-discovery",
+  "area": "AI",
+  "group": "IDE MCP",
+  "capability": "同页上方管理服务器资源库，下方默认显示离线可用的内置精选；搜索时查询官方 MCP Registry、分页并与精选去重，失败保留可用匹配并提供显式直连重试；静态远程或简单固定版本 npm/PyPI 入口进入平铺编辑弹窗，选择 Agent 并确认后保存；十个常用精选随应用打包品牌图标和运行方式标签，GitHub 令牌及 Filesystem 允许目录须补全后保存",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "rust/lithe-core/src/mcp/registry.rs",
+      "shared/contracts/mcp-registry-page.json",
+      "macos/Sources/Lithe/Core/Ports/McpRegistry.swift",
+      "macos/Sources/Lithe/Platform/MacOS/MCP/MacMcpRegistry.swift",
+      "macos/Sources/Lithe/Application/Features/McpRegistryFeatureModel.swift",
+      "macos/Sources/Lithe/Views/App/McpDiscoveryView.swift",
+      "macos/Tests/LitheTests/McpRegistryTests.swift",
+      "rust/lithe-core/src/mcp/featured.json",
+      "macos/Tests/LitheTests/McpRegistryIntegrationTests.swift",
+      "macos/Sources/Lithe/Theme/McpBrandIcon.swift",
+      "macos/Sources/Lithe/Resources/McpIcons/NOTICE.json",
+      "macos/Tests/LitheTests/McpArgumentRoundTripTests.swift",
+      "shared/fixtures/mcp/featured-setup-v1.json"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
+    "evidence": [
+      "shared/contracts/rust-core-api.md"
+    ]
+  },
+  "owner": "Agent",
+  "verification": "Core 验证精选目录、删除记录过滤、固定包版本、复杂输入不猜配置、链接和大小上限；模型覆盖离线首页不请求网络、失败保留精选、显式直连和路由分页隔离、在线连接去重、取消和旧响应。实机打开页面立即显示精选，标题右侧来源标记为灰色普通文字“精选，以及官方 MCP Registry”，辅助功能树不包含该标记的链接或按钮；系统代理失败时仍显示匹配，点击直连重试后经生产 adapter 查询官方目录并加载更多，再切回系统代理确认模式生效；添加草稿取消不改 Agent 配置。公开目录请求继续校验证书，系统代理、Agent 网络和发行目录保持不变。联网集成用 LITHE_RUN_MCP_REGISTRY_INTEGRATION=1 显式开启，普通测试不依赖网络。Windows UI 尚未接入。 新增精选应检查十项本地图标完整且公开条目回退传输图标；深浅色宽窄卡片保持可读；GitHub 空令牌、Filesystem 缺少或相对目录不能保存，补全后经两 Agent 原生格式写入并回读，目录空格保持。未执行或联网调用服务器不计作实际服务验收。"
+}

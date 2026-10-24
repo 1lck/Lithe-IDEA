@@ -87,12 +87,14 @@ classification() {
     local git_validation="${11:-false}"
     local java_jdt="${12:-false}"
     local ci_scope="${13:-pull_request}"
+    local rust_remote="${14:-false}"
 
     printf 'swift=%s\n' "$swift"
     printf 'plugins=%s\n' "$plugins"
     printf 'swift_database=%s\n' "$swift_database"
     printf 'rust_core=%s\n' "$rust_core"
     printf 'rust_database=%s\n' "$rust_database"
+    printf 'rust_remote=%s\n' "$rust_remote"
     printf 'macos_release=%s\n' "$macos_release"
     printf 'windows=%s\n' "$windows"
     printf 'windows_rust=%s\n' "$windows_rust"
@@ -127,9 +129,16 @@ modify_readme() { printf '%s\n' '# Updated' > README.md; }
 modify_rust_comment() { printf '%s\n' '//! Updated test module.' 'pub fn value() -> u8 { 1 }' > rust/lithe-core/src/lib.rs; }
 modify_rust_code() { printf '%s\n' '//! Test module.' 'pub fn value() -> u8 { 2 }' > rust/lithe-core/src/lib.rs; }
 modify_rust_test() { printf '%s\n' '#[test]' 'fn value_is_two() { assert_eq!(2, 2); }' > rust/lithe-core/tests/value.rs; }
-modify_plugin_sdk() { mkdir -p sdk/node/src && printf '%s\n' 'export const value = 2;' > sdk/node/src/index.mjs; }
 modify_rust_source_test() { printf '%s\n' '#[test]' 'fn source_test() { assert_eq!(2, 2); }' > rust/lithe-core/src/lsp/tests.rs; }
 modify_database_rust() { printf '%s\n' 'fn main() { println!("updated"); }' > rust/lithe-db-sidecar/src/main.rs; }
+modify_remote_rust() {
+    mkdir -p rust/lithe-remote-server/src
+    printf '%s\n' '//! Remote server.' > rust/lithe-remote-server/src/lib.rs
+}
+modify_remote_workflow() {
+    mkdir -p .github/workflows
+    printf '%s\n' 'name: Remote Workspace CI' > .github/workflows/ci-remote.yml
+}
 modify_database_docker() { printf '%s\n' 'services:' '  mariadb: {}' > infra/docker/database-validation/compose.yaml; }
 modify_macos_package_verifier() { printf '%s\n' '#!/bin/zsh' 'print -- updated-package' > scripts/verify-macos-package.sh; }
 modify_localization_packaging() { printf '%s\n' '#!/bin/zsh' 'print -- localizations' > scripts/package-macos-localizations.sh; }
@@ -232,15 +241,19 @@ assert_classification rust-code \
 assert_classification rust-test \
     "$(classification false false false true false false false false false false)" \
     modify_rust_test
-assert_classification plugin-sdk \
-    "$(classification false false false true false false false false false false)" \
-    modify_plugin_sdk
 assert_classification rust-source-test \
     "$(classification false false false true false false false false false false)" \
     modify_rust_source_test
 assert_classification database-rust \
     "$(classification false false false false true true false false false false)" \
     modify_database_rust
+# Remote workspace crates select only their own Linux lane.
+assert_classification remote-rust \
+    "$(classification false false false false false false false false false false false false pull_request true)" \
+    modify_remote_rust
+assert_classification remote-workflow \
+    "$(classification false false false false false false false false false false false false pull_request true)" \
+    modify_remote_workflow
 assert_classification database-docker \
     "$(classification false false false false true false false false false false)" \
     modify_database_docker
@@ -266,7 +279,7 @@ assert_classification macos-performance-baseline \
     "$(classification false false false false false true false false false false)" \
     modify_macos_performance_baseline
 assert_classification unknown-script \
-    "$(classification true true true true true true true true false false true true)" \
+    "$(classification true true true true true true true true false false true true pull_request true)" \
     modify_unknown_script
 assert_classification swift-test \
     "$(classification true false false false false false false false false false)" \
@@ -346,7 +359,7 @@ assert_classification shared-jdt-engine \
     "$(classification false false false true false true true true false false false true)" \
     add_shared_jdt_engine
 assert_classification bundled-jdt-manifest \
-    "$(classification true true true true true true true true false false true true)" \
+    "$(classification true true true true true true true true false false true true pull_request true)" \
     add_bundled_jdt_manifest
 assert_classification jdk-preparation \
     "$(classification false false false false false true false false false false false true)" \
@@ -384,10 +397,10 @@ assert_classification metadata \
     "$(classification false false false false false false false false false true)" \
     modify_metadata
 assert_classification classifier \
-    "$(classification true true true true true true true true false false true true)" \
+    "$(classification true true true true true true true true false false true true pull_request true)" \
     modify_classifier
 LITHE_CI_DRAFT_PULL_REQUEST=true assert_classification draft-defers-runner-lanes \
-    "$(classification false false false false true false false false false false false false)" \
+    "$(classification false false false false true false false false false false false false pull_request true)" \
     modify_unknown_script
 LITHE_CI_DRAFT_PULL_REQUEST=true assert_classification draft-keeps-linux-lanes \
     "$(classification false false false false false false false false true false)" \

@@ -16,7 +16,6 @@ import { usePaneKeyboard } from "@/features/panes/hooks/use-pane-keyboard";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { useVimStore } from "@/features/vim/stores/vim.store";
 import { isWslPath } from "@/features/wsl/utils/wsl-path";
-import { useTerminalStore } from "@/features/terminal/stores/terminal.store";
 import { useMenuEventsWrapper } from "@/features/window/hooks/use-menu-events-wrapper";
 import { useAutoUpdate } from "@/features/settings/hooks/use-auto-update";
 import { useWorkspaceTabsStore } from "@/features/window/stores/workspace-tabs.store";
@@ -37,15 +36,13 @@ import { ProjectTabBar } from "../../window/components/project-tab-bar";
 import Footer from "./footer/footer";
 import { WorkbenchErrorBoundary } from "./workbench-error-boundary";
 import { ResizablePane } from "./resizable-pane";
-import {
-  MainSidebar,
-  SidebarActivityRail,
-} from "./sidebar/main-sidebar";
+import { MainSidebar, SidebarActivityRail } from "./sidebar/main-sidebar";
 import { COLLAPSED_ACTIVITY_RAIL_WIDTH } from "@/features/layout/constants/activity-rail";
 import { PluginActivityRail } from "./plugin-activity-rail";
 import { WelcomeScreen } from "./welcome-screen";
 import { AppUpdateDetailsDialog } from "./app-update-details-dialog";
 import { getUpdateControlVisibility } from "../utils/update-control-visibility";
+import { TerminalDockLayout } from "./terminal-dock-layout";
 
 const CommandPalette = lazy(() => import("@/features/command-palette/components/command-palette"));
 const ConnectionDialog = lazy(() =>
@@ -119,8 +116,7 @@ export function MainLayout() {
   const handleOpenFolderByPath = useFileSystemStore.use.handleOpenFolderByPath?.();
   const handleFileOpen = useFileSystemStore.use.handleFileOpen?.();
   const rootFolderPath = useFileSystemStore.use.rootFolderPath?.();
-  const { showTitleBarControl, showWelcomeControl } =
-    getUpdateControlVisibility(rootFolderPath);
+  const { showTitleBarControl, showWelcomeControl } = getUpdateControlVisibility(rootFolderPath);
   const switchToProject = useFileSystemStore.use.switchToProject?.();
   const setIsSwitchingProject = useFileSystemStore.use.setIsSwitchingProject?.();
   const onboardingOpen = useOnboardingStore((state) => state.isOpen);
@@ -153,7 +149,6 @@ export function MainLayout() {
     }
   }, !rootFolderPath);
 
-  const terminalWidthMode = useTerminalStore((state) => state.widthMode);
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
       window.setTimeout(() => setDeferredSurfacesReady(true), 0);
@@ -212,7 +207,8 @@ export function MainLayout() {
           console.warn("Persisted workspace no longer exists:", activeTab.path, error);
         }
 
-        const { projectWindowRouting } = await import("@/features/window/services/project-window-routing");
+        const { projectWindowRouting } =
+          await import("@/features/window/services/project-window-routing");
         await projectWindowRouting.release(activeTab.id);
         useWorkspaceTabsStore.getState().actions.removeProjectTab(activeTab.id);
         toast.warning(
@@ -283,19 +279,14 @@ export function MainLayout() {
       {rootFolderPath && !showWelcomeControl ? (
         <>
           <div className="lithe-workbench-glass relative z-10 flex flex-1 flex-col overflow-hidden">
-            <div
-              className="flex flex-1 flex-row overflow-hidden"
-              style={{ minHeight: 0 }}
-            >
+            <div className="flex flex-1 flex-row overflow-hidden" style={{ minHeight: 0 }}>
               {/* Both activity rails stay outside the middle column so they span the full
                   workbench height; the full-width bottom pane only stretches between them. */}
-              <SidebarActivityRail expanded={false} />
-
-              <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-                <div
-                  className="flex flex-1 flex-row overflow-hidden"
-                  style={{ minHeight: 0 }}
-                >
+              <TerminalDockLayout
+                workspaceKey={rootFolderPath}
+                leftRail={<SidebarActivityRail expanded={false} />}
+                rightRail={<PluginActivityRail />}
+                sidebar={
                   <ResizablePane
                     position="left"
                     widthKey="sidebarWidth"
@@ -304,20 +295,15 @@ export function MainLayout() {
                   >
                     <MainSidebar />
                   </ResizablePane>
-
-                  <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-                    <div className="lithe-glass-island relative min-h-0 flex-1 overflow-hidden rounded-(--lithe-island-radius) bg-background">
-                      <WorkbenchErrorBoundary>
-                        <CachedWorkspaceSplitViews />
-                      </WorkbenchErrorBoundary>
-                    </div>
-                    {terminalWidthMode === "editor" && deferredSurfacesReady && (
-                      <Suspense fallback={null}>
-                        <BottomPane />
-                      </Suspense>
-                    )}
+                }
+                editor={
+                  <div className="lithe-glass-island relative min-h-0 flex-1 overflow-hidden rounded-(--lithe-island-radius) bg-background">
+                    <WorkbenchErrorBoundary>
+                      <CachedWorkspaceSplitViews />
+                    </WorkbenchErrorBoundary>
                   </div>
-
+                }
+                tools={
                   <ResizablePane
                     position="right"
                     widthKey="rightToolWindowWidth"
@@ -340,16 +326,15 @@ export function MainLayout() {
                       </Suspense>
                     ) : null}
                   </ResizablePane>
-                </div>
-
-                {terminalWidthMode === "full" && deferredSurfacesReady && (
-                  <Suspense fallback={null}>
-                    <BottomPane />
-                  </Suspense>
-                )}
-              </div>
-
-              <PluginActivityRail />
+                }
+                panel={
+                  deferredSurfacesReady && (
+                    <Suspense fallback={null}>
+                      <BottomPane />
+                    </Suspense>
+                  )
+                }
+              />
             </div>
           </div>
 

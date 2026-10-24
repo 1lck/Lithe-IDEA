@@ -1,0 +1,28 @@
+{
+  "id": "macos-shared-tree-list-control",
+  "area": "工作台",
+  "group": "公共控件",
+  "capability": "macOS 原生树与列表使用完整公共入口，统一焦点、两侧留白、悬停、活动/失焦选择、方向键、范围多选、双击展开及回车；项目树与插件树共用展开箭头控件；既有页面与声明式插件共用；保留原生视口、拖放、业务加载与输入编辑；右键选择与数据库打开分离，空节点菜单不拦截行内业务菜单，无障碍默认按下执行激活并保留独立行内按钮；外部选择更新同步键盘游标及范围锚点，Shift扩缩选保留锚点，上下键跳过普通不可选标题并保留可展开分组导航",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "macos/Sources/Lithe/Views/Components/LitheTreeList.swift",
+      "macos/Tests/LitheTests/LitheTreeListTests.swift",
+      "macos/Tests/LitheTests/LitheTreeRowStyleTests.swift",
+      "macos/Sources/Lithe/Views/Workspace/ProjectSidebarView.swift",
+      "macos/Sources/Lithe/Views/Workbench/PluginNativeToolWindowView.swift",
+      ".agents/notes/implemented/simplification/2026-09-30-macos-shared-dropdown-style.md",
+      "macos/Tests/LitheTests/DatabaseWorkspaceLifecycleTests.swift"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
+    "evidence": [
+      "windows/tauri/src/ui"
+    ]
+  },
+  "owner": "Workbench UI",
+  "verification": "运行 LitheTreeListTests、LitheTreeRowStyleTests、PluginNativeUITests、ProjectTreeSelectionTests、GitChangeSelectionTests、原生 Git 文件树和 Worktree 及焦点回归；实机验证 Sample Explorer 与 Project/Commit/构建/设置列表的两侧留白、焦点边框、选择、悬停、方向键、范围选择、双击名称展开/收起、箭头一致性、回车与嵌入输入；深浅色及窗口失焦分别验收。组件验证不代替全部页面实机验收；Windows 后续独立同步。 #1423审查回归：表A保留单元格草稿/新增行/删除行时，右键表B再Escape不改变活动表且三类草稿不丢；明确打开B仍可导航。单选/多选节点空菜单时运行/依赖内嵌菜单可打开并执行；无障碍默认按下打开对应结果文档，行内按钮保持独立。 运行 externalSelectionRetargetsMountedKeyboardAndPreservesShiftAnchor 和 problemsKeyboardCrossesFileHeaderAndOpensTheNextDiagnostic，验证 Return、连续 Shift 扩缩选和 Problems 跨文件后实际打开目标行列。"
+}

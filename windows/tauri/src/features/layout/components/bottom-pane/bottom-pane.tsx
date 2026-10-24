@@ -24,6 +24,11 @@ import { cn } from "@/utils/cn";
 import { useProjectStore } from "@/features/window/stores/project.store";
 import { useUIState } from "@/features/window/stores/ui-state.store";
 import { WorkbenchFullscreenSurface } from "@/features/window/components/workbench-fullscreen-surface";
+import {
+  startDocumentResizeSession,
+  type DocumentResizeSession,
+} from "@/utils/document-resize-session";
+import { useTerminalDock } from "../terminal-dock-layout";
 import { BottomBufferPane } from "./bottom-buffer-pane";
 
 const BottomPane = () => {
@@ -46,6 +51,12 @@ const BottomPane = () => {
   const { moveBufferToPane } = usePaneStore.use.actions();
   const { openTerminalBuffer } = useBufferStore.use.actions();
   const [height, setHeight] = useState(320);
+  const dock = useTerminalDock();
+  const isRightDocked = dock?.position === "right";
+  const isLeftDocked = dock?.position === "left";
+  const isSideDocked = isRightDocked || isLeftDocked;
+  const paneHeight = dock?.height ?? height;
+  const resizeSession = useRef<DocumentResizeSession | null>(null);
   const [isResizing, setIsResizing] = useState(false);
   const [isFullScreen, setIsFullScreen] = useState(false);
   const [isInternalHoverTarget, setIsInternalHoverTarget] = useState(false);
@@ -106,53 +117,53 @@ const BottomPane = () => {
     }
   }, [bottomPaneActiveTab, bottomPaneBufferIds.length, isBottomPaneVisible]);
 
-  // Resize logic
-  const handleMouseDown = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
-      setIsResizing(true);
+  useEffect(() => {
+    const frame = paneFrameRef.current;
+    if (frame) {
+      frame.style.height = isSideDocked
+        ? "100%"
+        : `calc(${paneHeight}px + var(--lithe-bottom-pane-gap))`;
+      frame.style.width = isSideDocked ? `calc(${dock!.width}px + var(--lithe-workbench-gap))` : "";
+    }
+    return () => resizeSession.current?.dispose({ commit: false });
+  }, [
+    rootFolderPath,
+    dock?.position,
+    isSideDocked,
+    isFullScreen,
+    isBottomPaneVisible,
+    dock?.width,
+    paneHeight,
+  ]);
 
-      const startY = e.clientY;
-      const startHeight = height;
-      const frameEl = paneFrameRef.current;
-      let currentHeight = startHeight;
-      let rafId: number | null = null;
-
-      const handleMouseMove = (e: MouseEvent) => {
-        const deltaY = startY - e.clientY;
-        currentHeight = Math.min(Math.max(startHeight + deltaY, 200), window.innerHeight * 0.8);
-
-        if (rafId !== null) cancelAnimationFrame(rafId);
-        rafId = requestAnimationFrame(() => {
-          if (frameEl) {
-            frameEl.style.height = `calc(${currentHeight}px + var(--lithe-bottom-pane-gap))`;
-          }
-        });
-      };
-
-      const handleMouseUp = () => {
-        if (rafId !== null) {
-          cancelAnimationFrame(rafId);
-          rafId = null;
-        }
-        if (frameEl) {
-          frameEl.style.height = `calc(${currentHeight}px + var(--lithe-bottom-pane-gap))`;
-        }
-        setHeight(currentHeight);
-        setIsResizing(false);
-        document.removeEventListener("mousemove", handleMouseMove);
-        document.removeEventListener("mouseup", handleMouseUp);
-        document.body.style.cursor = "";
-        document.body.style.userSelect = "";
-      };
-
-      document.addEventListener("mousemove", handleMouseMove);
-      document.addEventListener("mouseup", handleMouseUp);
-      document.body.style.cursor = "ns-resize";
-      document.body.style.userSelect = "none";
-    },
-    [height],
-  );
+  const handlePointerDown = (event: React.PointerEvent) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    resizeSession.current?.dispose({ commit: false });
+    const frame = paneFrameRef.current!;
+    const applySize = (size: number) => {
+      if (isSideDocked) frame.style.width = `calc(${size}px + var(--lithe-workbench-gap))`;
+      else frame.style.height = `calc(${size}px + var(--lithe-bottom-pane-gap))`;
+    };
+    resizeSession.current = startDocumentResizeSession({
+      startX: isSideDocked ? event.clientX : event.clientY,
+      startWidth: isSideDocked ? dock!.width : paneHeight,
+      direction: isLeftDocked ? 1 : -1,
+      axis: isSideDocked ? "x" : "y",
+      cursor: isSideDocked ? "ew-resize" : "ns-resize",
+      clampWidth: isSideDocked
+        ? dock!.clampWidth
+        : (dock?.clampHeight ??
+          ((value) => Math.min(Math.max(value, 200), window.innerHeight * 0.8))),
+      applyWidth: applySize,
+      commitWidth: (size) => {
+        applySize(size);
+        if (dock) dock.resize(size);
+        else setHeight(size);
+      },
+      onActiveChange: setIsResizing,
+    });
+  };
 
   const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
     if (!e.dataTransfer.types.includes("application/tab-data") && !getInternalTabDragData()) {
@@ -222,11 +233,17 @@ const BottomPane = () => {
 
   const resizeGutter = !isFullScreen ? (
     <div
-      onMouseDown={handleMouseDown}
-      className="relative flex h-(--lithe-bottom-pane-gap) w-full shrink-0 cursor-ns-resize items-center justify-center"
+      onPointerDown={handlePointerDown}
+      className={cn(
+        "relative shrink-0 touch-none",
+        isSideDocked
+          ? "h-full w-(--lithe-workbench-gap) cursor-ew-resize"
+          : "h-(--lithe-bottom-pane-gap) w-full cursor-ns-resize",
+        isLeftDocked && "order-last",
+      )}
       role="separator"
-      aria-orientation="horizontal"
-      aria-label={t("layout.resizeBottomPane")}
+      aria-orientation={isSideDocked ? "vertical" : "horizontal"}
+      aria-label={t(isSideDocked ? "terminal.resizePanel" : "layout.resizeBottomPane")}
     />
   ) : null;
 
@@ -234,7 +251,7 @@ const BottomPane = () => {
     <div
       data-bottom-pane-drop-target
       className={cn(
-        "lithe-glass-island relative flex min-h-0 flex-col overflow-hidden rounded-(--lithe-island-radius) bg-background",
+        "lithe-glass-island relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-(--lithe-island-radius) bg-background",
         isInternalHoverTarget && "ring-2 ring-primary ring-inset",
         isFullScreen && "size-full rounded-none border-0 shadow-none ring-0",
         !isFullScreen && "flex-1",
@@ -326,14 +343,26 @@ const BottomPane = () => {
   return (
     <div
       ref={paneFrameRef}
-      className={cn("flex shrink-0 flex-col", !isBottomPaneVisible && "hidden")}
+      className={cn(
+        "flex min-h-0 min-w-0 shrink-0",
+        isSideDocked ? "h-full flex-row" : "flex-col",
+        !isBottomPaneVisible && "hidden",
+      )}
       style={{
-        height: `calc(${height}px + var(--lithe-bottom-pane-gap))`,
+        height: isSideDocked ? "100%" : `calc(${paneHeight}px + var(--lithe-bottom-pane-gap))`,
+        width: isSideDocked ? `calc(${dock!.width}px + var(--lithe-workbench-gap))` : undefined,
       }}
     >
       {resizeGutter}
       {pane}
-      {isResizing ? <div className="fixed inset-0 z-40 cursor-ns-resize" /> : null}
+      {isResizing ? (
+        <div
+          className={cn(
+            "fixed inset-0 z-40",
+            isSideDocked ? "cursor-ew-resize" : "cursor-ns-resize",
+          )}
+        />
+      ) : null}
     </div>
   );
 };

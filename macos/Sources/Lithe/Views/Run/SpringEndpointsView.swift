@@ -8,7 +8,6 @@ struct SpringEndpointsView: View {
         VStack(spacing: 0) {
             LitheToolWindowHeader(
                 title: "Spring Endpoints",
-                systemImage: "point.3.connected.trianglepath.dotted",
                 subtitle: "\(filteredEndpoints.count) routes",
                 onMinimize: { model.workbenchFeature.setVisibility(.spring, isVisible: false) }
             )

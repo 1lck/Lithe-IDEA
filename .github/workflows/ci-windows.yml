@@ -381,6 +381,11 @@ jobs:
         shell: pwsh
         run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-git-gutter.json -- src/features/git/utils/git-gutter-changes.test.ts src/features/editor/engines/monaco/git-gutter-peek-session.test.ts src/features/git/api/git-line-history-api.test.ts src/features/git/utils/line-history-selection.test.ts src/features/git/components/git-line-history-popup.test.tsx
 
+      - name: Test cursor-aware undo and keyboard routing
+        shell: pwsh
+        timeout-minutes: 2
+        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-cursor-undo.json -- src/features/editor/engines/monaco/cursor-aware-undo.test.ts src/features/keymaps/hooks/use-keymaps.integration.test.tsx
+
       - name: Test editor tab scrolling and lifecycle
         shell: pwsh
         run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-tabs.json -- src/features/tabs src/features/editor/stores/buffer-new-tab.test.ts src/features/editor/stores/buffer-close-saved-tabs.test.ts
@@ -779,6 +784,7 @@ jobs:
             --package lithe-core `
             --warn-ms 1000 `
             --max-ms 15000 `
+            --test-budget git_paths_roundtrip_=60000 `
             --test-budget lsp::interface::engine::real_jdt_tests::real_jdtls_discovers_builds_and_launches_java_25_entrypoints=600000 `
             --test-budget tests::git_history_rewrite::=30000 `
             --test-budget tests::git_history_rewrite::native_rebase_skip_omits_conflicted_message_from_later_squash=45000 `
@@ -789,6 +795,7 @@ jobs:
             --test-budget tests::git::git_write_deletes_a_local_commit_=30000 `
             --test-budget tests::git::git_write_edits_a_local_commit_message_=30000 `
             --test-budget tests::git::git_write_updates_a_noncurrent_branch_without_switching_head=30000 `
+            --test-budget tests::git::git_write_executes_checkout_preflight_clone_and_validation=30000 `
             --test-budget tests::git_patch_exchange::patch_exchange_detects_index_flags_and_hidden_destination_edits=30000 `
             --test-budget tests::git_patch_exchange::patch_exchange_rejects_stale_preview_and_forward_conflicts_without_writing=30000 `
             --test-budget tests::git_patch_exchange::patch_exchange_roundtrips_renames_deletes_and_platform_file_modes=30000 `

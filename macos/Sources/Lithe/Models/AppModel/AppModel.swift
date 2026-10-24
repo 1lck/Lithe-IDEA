@@ -22,6 +22,8 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     /// when the page is first shown.
     lazy var mcpServerLibrary = McpServerLibraryFeatureModel(model: self)
     @Published var isChangingAgentProvider = false
+    /// Token of the lost-remote-connection observer; see `observeRemoteConnectionLoss`.
+    var remoteLossObserver: NSObjectProtocol?
     var workspaceURL: URL? { workspaceSessionCoordinator.workspaceURL }
     var standaloneFileURL: URL? { workspaceSessionCoordinator.standaloneFileURL }
     var searchSessionFeature: SearchSessionFeatureModel { featureGraph.searchSession }
@@ -98,6 +100,9 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         service: services.agentManagement,
         dataDirectory: agentDataDirectory
     )
+    lazy var agentInstructionsFeature = AgentInstructionsFeatureModel(service: services.agentInstructions)
+    lazy var agentHooksFeature = AgentHooksFeatureModel(service: services.agentHooks)
+    lazy var agentSkillsFeature = AgentSkillsFeatureModel(service: services.agentManagement)
     /// Settings › Plugins marketplace and plugin repositories, created when
     /// the page is first shown.
     lazy var pluginMarketplaceFeature = PluginMarketplaceFeatureModel(
@@ -503,6 +508,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         workbenchFeature.configure { [weak self] destination in
             self?.handleSidebarSelectionChanged(destination)
         }
+        observeRemoteConnectionLoss()
         workspaceSessionCoordinator.configureLifecycle(
             with: WorkspaceSessionCoordinator.LifecycleHandlers(
                 prepareForWorkspaceOpen: { [weak self] url in
@@ -679,6 +685,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     }
 
     deinit {
+        if let remoteLossObserver { NotificationCenter.default.removeObserver(remoteLossObserver) }
         for task in contributionActivationTasks.values { task.cancel() }
         sidebarRefreshTask?.cancel()
     }
@@ -709,6 +716,9 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         // closing its workspace. Revoke page requests before teardown can yield.
         services.pluginWebPages.closeAll()
         workbenchFeature.endLayoutSession()
+        // VCS providers too: their pending refreshes, or a scan still loading
+        // the workspace, would otherwise start a process for a closed window.
+        vcsProvidersFeature?.shutdown()
         await ideCapabilities.shutdown()
         shortcutSessionCoordinator?.shutdown()
         documentLanguageCoordinator?.stop()
@@ -954,6 +964,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
             tests: languageTestServiceIfActive,
             buildSystems: buildSystemsFeatureIfActive
         )
+        vcsProvidersFeature?.reset(workspaceURL: nil)
         runWorkflowCoordinator.resetPendingAction()
         debugModuleCoordinator.resetFeature(genericDebugFeatureIfActive)
         debugBreakpointPresentation.reset()
@@ -992,6 +1003,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     }
 
     private func finishWorkspaceClose(for workspaceURL: URL) {
+        releaseRemoteWorkspace(at: workspaceURL)
         ideCapabilities.disable()
         documentLanguageCoordinator?.stop()
         cancelJavaLanguageServerPreparation()
@@ -1020,6 +1032,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
             tests: languageTestServiceIfActive,
             buildSystems: buildSystemsFeatureIfActive
         )
+        vcsProvidersFeature?.reset(workspaceURL: nil)
         runWorkflowCoordinator.resetPendingAction()
         debugModuleCoordinator.resetFeature(genericDebugFeatureIfActive)
         debugBreakpointPresentation.reset()

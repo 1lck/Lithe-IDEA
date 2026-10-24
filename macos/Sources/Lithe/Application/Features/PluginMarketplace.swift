@@ -309,6 +309,9 @@ final class PluginMarketplaceFeatureModel: ObservableObject {
     @Published private(set) var diskInstallError: String?
     /// The source chosen in the detail pane for plugins listed by several.
     @Published var selectedSourceIDs: [PluginID: String] = [:]
+    /// A search another window asked the marketplace to show, such as a
+    /// missing build system from New Project; the page adopts and clears it.
+    @Published var requestedSearch: String?
 
     private let service: any PluginMarketplaceServicing
     private let pluginManager: any PluginManaging

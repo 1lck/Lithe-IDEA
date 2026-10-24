@@ -133,6 +133,7 @@ extension AgentSetupDiagnostics {
         for agent: AgentCatalogStatus,
         environment: AgentRuntimeEnvironment,
         hasProvider: Bool,
+        authentication: AgentAuthentication = .apiKey,
         bundle: Bundle = .main
     ) -> [AgentPreflightCheck] {
         var checks: [AgentPreflightCheck] = []
@@ -269,12 +270,20 @@ extension AgentSetupDiagnostics {
                                 message: String(format: String(localized: "Installed %@", bundle: bundle), installed)))
         }
 
+        let signedInMessage = switch authentication {
+        case .apiKey:
+            String(localized: "Signed in through the ACP gateway with the API key from your local configuration.", bundle: bundle)
+        case .codexSubscription:
+            String(localized: "Uses your local ChatGPT account.", bundle: bundle)
+        case .claudeSubscription:
+            String(localized: "Uses the claude.ai account signed in to Claude Code. Sign in with /login in Claude Code if the Agent asks.", bundle: bundle)
+        }
         checks.append(.init(
             id: "provider",
             title: String(localized: "Agent provider", bundle: bundle),
             status: hasProvider ? .pass : .fail,
             message: hasProvider
-                ? String(localized: "Signed in through the ACP gateway with the API key from your local configuration.", bundle: bundle)
+                ? signedInMessage
                 : String(localized: "Choose a local or custom provider so the Agent can sign in.", bundle: bundle),
             fix: hasProvider ? nil : .fetchLocalConfiguration
         ))

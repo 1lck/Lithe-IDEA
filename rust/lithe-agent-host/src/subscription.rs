@@ -177,6 +177,7 @@ pub(super) fn resolve(
         gateway: None,
         secret: String::new(),
         subscription_cli: Some(executable),
+        claude_subscription: false,
     })
 }
 

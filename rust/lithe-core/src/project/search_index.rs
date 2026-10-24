@@ -523,9 +523,12 @@ mod tests {
         }
         let _cleanup = Cleanup(root.clone());
         fs::write(root.join("src/Name.java"), "class Name {}\n").unwrap();
+        // This guards enumeration decisions, not filesystem throughput. Both generated
+        // roots only need enough entries to exceed the result cap on every platform.
+        let generated_files_per_directory = 16;
         for directory in [".build", "node_modules"] {
             fs::create_dir(root.join(directory)).unwrap();
-            for number in 0..1000 {
+            for number in 0..generated_files_per_directory {
                 fs::write(root.join(directory).join(format!("Name{number}.bin")), "").unwrap();
             }
         }
@@ -564,7 +567,8 @@ mod tests {
                 .sum();
             assert_eq!(
                 resident_files,
-                usize::from(files > 0) * 2001 + usize::from(content > 0 || symbols > 0)
+                usize::from(files > 0) * (2 * generated_files_per_directory + 1)
+                    + usize::from(content > 0 || symbols > 0)
             );
             eprintln!("Cold source caps files={files} content={content} symbols={symbols}: {:?}, indexes={}, resident files={resident_files}, results={}",
                 started.elapsed(), built.len(), response.matches.len());
