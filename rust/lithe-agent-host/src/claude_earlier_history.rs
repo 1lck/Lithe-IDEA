@@ -128,6 +128,9 @@ enum Chunk {
 struct Converter {
     updates: Vec<Value>,
     last: Option<Chunk>,
+    /// `uuid` of the row being converted; stamps user chunks so the client can
+    /// tell consecutive user messages apart, as the adapter's own replay does.
+    row_id: Option<String>,
 }
 
 impl Converter {
@@ -136,6 +139,7 @@ impl Converter {
         if row["isSidechain"] == true || row["isMeta"] == true {
             return;
         }
+        self.row_id = row["uuid"].as_str().map(str::to_owned);
         let role = match row["type"].as_str() {
             Some("user") => Chunk::User,
             Some("assistant") => Chunk::Agent,
@@ -182,14 +186,19 @@ impl Converter {
             Chunk::Agent => "agent_message_chunk",
             Chunk::Thought => "agent_thought_chunk",
         };
-        let text = if self.last == Some(kind) {
+        // Same-kind chunks of one reply are fused by the client, so a new
+        // reply needs a break; user messages are told apart by message id.
+        let text = if kind != Chunk::User && self.last == Some(kind) {
             format!("\n\n{text}")
         } else {
             text.to_owned()
         };
         self.last = Some(kind);
-        self.updates
-            .push(json!({"sessionUpdate": name, "content": {"type": "text", "text": text}}));
+        let mut update = json!({"sessionUpdate": name, "content": {"type": "text", "text": text}});
+        if let (Chunk::User, Some(id)) = (kind, &self.row_id) {
+            update["messageId"] = json!(id);
+        }
+        self.updates.push(update);
     }
 
     fn tool_call(&mut self, block: &Value) {
@@ -316,7 +325,7 @@ mod tests {
     }
 
     fn user(text: &str) -> Value {
-        json!({"type": "user", "message": {"role": "user", "content": text}})
+        json!({"type": "user", "uuid": text, "message": {"role": "user", "content": text}})
     }
 
     fn boundary() -> Value {
@@ -362,10 +371,8 @@ mod tests {
         assert_eq!(updates[3]["kind"], "execute");
         assert_eq!(updates[4]["content"][0]["content"]["text"], "a\nb");
         // Two user rows in a row must not fuse into one bubble.
-        assert!(updates[6]["content"]["text"]
-            .as_str()
-            .unwrap()
-            .starts_with("\n\n"));
+        assert_ne!(updates[5]["messageId"], updates[6]["messageId"]);
+        assert!(updates[5]["messageId"].is_string());
     }
 
     #[test]
