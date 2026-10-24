@@ -458,8 +458,8 @@ providers and does not declare `buildProviders`. Provider plugins are therefore
 filtered from the market and refused by declarative validation and install
 review; template-only build plugins remain available. It does not declare
 `vcsProviders` either, so VCS provider plugins are filtered the same way until
-the macOS host starts providers. It does not declare `backend` until it
-starts plugin backends. Core supports `backend: 1`, `buildProviders: 1`, and
+the macOS host starts providers. It declares `backend: [1]`: it starts
+plugin backends and serves their credentials from the Keychain. Core supports `backend: 1`, `buildProviders: 1`, and
 `vcsProviders: 1` for validation and plans without a host table. Windows has
 no declarative plugin host and sends no `hostCapabilities`, so it offers no
 level 3 version.

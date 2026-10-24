@@ -98,6 +98,36 @@ struct PluginWebBridgeTests {
         #expect(harness.host.consents.allSatisfy { $0.pluginID == "dev.example.web" })
     }
 
+    /// Without `instance` a call goes to the plugin's own backend, which the
+    /// install review covered, so no consent is asked; a plugin without a
+    /// backend is refused.
+    @Test func functionsWithoutAnInstanceGoToThePluginsBackendWithoutConsent() async throws {
+        let harness = try BridgeHarness()
+        defer { harness.cleanUp() }
+        #expect(try await harness.error("functions.list") == "plugin.web.forbidden")
+
+        let backends = FakeBackends(declared: ["dev.example.web"])
+        harness.host.backends = backends
+        var events: [(String, ToolingJSONValue)] = []
+        harness.bridge.emit = { events.append(($0, $1)) }
+
+        #expect(try await harness.ok("functions.list") == .object(["functions": .array([.string("query.run")])]))
+        let value = try await harness.ok("functions.invoke", [
+            "function": .string("query.run"), "params": .object(["sql": .string("select 1")]), "call": .string("c1")
+        ])
+        #expect(value == .object(["value": .object(["sql": .string("select 1")])]))
+        #expect(backends.invocations == ["dev.example.web/query.run"])
+        #expect(events.map(\.0) == ["functions.progress"])
+        #expect(events.first?.1 == .object([
+            "call": .string("c1"), "function": .string("query.run"), "message": .string("Running"),
+        ]))
+        #expect(harness.host.consents.isEmpty)
+        #expect(harness.build.functionListings == 0)
+
+        backends.declared = []
+        #expect(try await harness.error("functions.invoke", ["function": .string("query.run")]) == "plugin.web.forbidden")
+    }
+
     @Test func functionResultsProgressAndPluginFailuresReachThePage() async throws {
         let harness = try BridgeHarness()
         defer { harness.cleanUp() }
@@ -967,6 +997,8 @@ private final class FakeHost: PluginWebBridgeHost {
     var outputShown = 0
     var onAccess: (() -> Void)?
     var confirmProcessStart: (@MainActor () async -> Bool)?
+    var backends: FakeBackends?
+    var pluginWebBackends: (any PluginBackendRequesting)? { backends }
 
     init(workspaceURL: URL, build: FakeBuildAccess) {
         pluginWebWorkspaceURL = workspaceURL
@@ -983,6 +1015,26 @@ private final class FakeHost: PluginWebBridgeHost {
         consents.append(consent)
         if let confirmProcessStart { return await confirmProcessStart() }
         return allowsProcesses
+    }
+}
+
+/// Echoes a function's params after one progress report.
+@MainActor
+private final class FakeBackends: PluginBackendRequesting {
+    var declared: Set<String>
+    var invocations: [String] = []
+
+    init(declared: Set<String>) { self.declared = declared }
+
+    func declaresBackend(_ pluginID: String) -> Bool { declared.contains(pluginID) }
+    func pluginFunctions(ofPlugin _: String) async throws -> [String] { ["query.run"] }
+    func invokePluginFunction(
+        _ functionID: String, params: ToolingJSONValue, ofPlugin pluginID: String, timeout _: Duration,
+        progress: @escaping @MainActor @Sendable (PluginFunctionProgress) -> Void
+    ) async throws -> ToolingJSONValue {
+        invocations.append("\(pluginID)/\(functionID)")
+        progress(PluginFunctionProgress(message: "Running", percentage: nil))
+        return params
     }
 }
 

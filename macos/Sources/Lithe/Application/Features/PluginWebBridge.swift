@@ -80,6 +80,20 @@ extension BuildSystemsFeatureModel: PluginWebBuildAccess {
     var changes: AnyPublisher<Void, Never> { objectWillChange.map { _ in () }.eraseToAnyPublisher() }
 }
 
+/// Plugin backends (`backend` 1) as pages reach them: one process per
+/// plugin, shared by every project window. Core checks the owner again on
+/// every call.
+@MainActor
+protocol PluginBackendRequesting: AnyObject {
+    func declaresBackend(_ pluginID: String) -> Bool
+    /// Functions the plugin's backend registers; starts it.
+    func pluginFunctions(ofPlugin pluginID: String) async throws -> [String]
+    func invokePluginFunction(
+        _ functionID: String, params: ToolingJSONValue, ofPlugin pluginID: String, timeout: Duration,
+        progress: @escaping @MainActor @Sendable (PluginFunctionProgress) -> Void
+    ) async throws -> ToolingJSONValue
+}
+
 /// What a page may cause in its host window.
 @MainActor
 protocol PluginWebBridgeHost: AnyObject {
@@ -90,6 +104,12 @@ protocol PluginWebBridgeHost: AnyObject {
     /// Opens a workspace file at a 1-based line and column; false when it does not exist.
     func pluginWebOpenFile(_ url: URL, line: Int?, column: Int?) -> Bool
     func pluginWebConfirmProcessStart(_ consent: PluginWebProcessConsent) async -> Bool
+    /// The application's plugin backends; nil on hosts that run none.
+    var pluginWebBackends: (any PluginBackendRequesting)? { get }
+}
+
+extension PluginWebBridgeHost {
+    var pluginWebBackends: (any PluginBackendRequesting)? { nil }
 }
 
 /// Page state kept by the host, per window and workspace.
@@ -483,10 +503,16 @@ final class PluginWebBridge {
 
     // MARK: Plugin functions
 
-    /// Functions are reached through one of this plugin's own instances, so
-    /// a page can call only its plugin's provider process; Core checks the
-    /// process owner again.
+    /// Functions are reached through one of this plugin's own instances, or
+    /// without `instance` through the plugin's own backend, so a page can
+    /// call only its plugin's processes; Core checks the process owner again.
     private func listFunctions(_ params: Parameters, workspaceURL: URL) async throws -> ToolingJSONValue {
+        guard params.values["instance"] != nil else {
+            let backends = try backendAccess()
+            let functions = try await functionOutcome { try await backends.pluginFunctions(ofPlugin: window.pluginID) }
+            _ = try currentWorkspace()
+            return .object(["functions": .array(functions.map(ToolingJSONValue.string))])
+        }
         let (build, entry) = try await entry(params)
         try await consent(String(localized: "Start the \(entry.instance.displayName) provider"), workspaceURL: workspaceURL)
         let functions = try await functionOutcome { try await build.pluginFunctions(entry.id) }
@@ -495,7 +521,13 @@ final class PluginWebBridge {
     }
 
     private func invokeFunction(_ params: Parameters, workspaceURL: URL) async throws -> ToolingJSONValue {
-        let (build, entry) = try await entry(params)
+        let target: FunctionTarget
+        if params.values["instance"] == nil {
+            target = .backend(try backendAccess())
+        } else {
+            let (build, entry) = try await entry(params)
+            target = .instance(build, entry)
+        }
         let functionID = try params.string("function", limit: 128)
         let input = params.values["params"] ?? .object([:])
         guard case .object = input else {
@@ -515,23 +547,35 @@ final class PluginWebBridge {
         functionCalls[call] = reservation
         if let pageCall { usedCallIDs.insert(pageCall) }
         defer { if functionCalls[call] === reservation { functionCalls[call] = nil } }
-        try await consent(String(localized: "Run \(functionID) of \(entry.instance.displayName)"), workspaceURL: workspaceURL)
+        // The install review covered the backend; a build provider asks
+        // the same consent as the host's own provider requests.
+        if case .instance(_, let entry) = target {
+            try await consent(String(localized: "Run \(functionID) of \(entry.instance.displayName)"), workspaceURL: workspaceURL)
+        }
         guard !reservation.isCancelled else {
             throw PluginWebBridgeFailure(code: "requestCancelled", message: "The function call was cancelled.")
         }
-        let entryID = entry.id
         let timeout = requestTimeout
-        let task = Task { @MainActor [weak self, weak reservation] in
-            try await build.invokePluginFunction(
-                entryID, functionID: functionID, params: input, timeout: timeout
-            ) { progress in
-                guard let self, let pageCall, let reservation, self.functionCalls[pageCall] === reservation else { return }
-                var payload: [String: ToolingJSONValue] = [
-                    "call": .string(pageCall), "instance": .string(entryID), "function": .string(functionID)
-                ]
-                if let message = progress.message { payload["message"] = .string(message) }
-                if let percentage = progress.percentage { payload["percentage"] = .integer(percentage) }
-                self.emit?("functions.progress", .object(payload))
+        let pluginID = window.pluginID
+        let instanceID: String? = if case .instance(_, let entry) = target { entry.id } else { nil }
+        let progress: @MainActor @Sendable (PluginFunctionProgress) -> Void = { [weak self, weak reservation] progress in
+            guard let self, let pageCall, let reservation, self.functionCalls[pageCall] === reservation else { return }
+            var payload: [String: ToolingJSONValue] = ["call": .string(pageCall), "function": .string(functionID)]
+            if let instanceID { payload["instance"] = .string(instanceID) }
+            if let message = progress.message { payload["message"] = .string(message) }
+            if let percentage = progress.percentage { payload["percentage"] = .integer(percentage) }
+            self.emit?("functions.progress", .object(payload))
+        }
+        let task = Task { @MainActor in
+            switch target {
+            case .instance(let build, let entry):
+                try await build.invokePluginFunction(
+                    entry.id, functionID: functionID, params: input, timeout: timeout, progress: progress
+                )
+            case .backend(let backends):
+                try await backends.invokePluginFunction(
+                    functionID, params: input, ofPlugin: pluginID, timeout: timeout, progress: progress
+                )
             }
         }
         reservation.task = task
@@ -542,6 +586,20 @@ final class PluginWebBridge {
         }
         _ = try currentWorkspace()
         return .object(["value": value])
+    }
+
+    private enum FunctionTarget {
+        case instance(any PluginWebBuildAccess, BuildSystemEntry)
+        case backend(any PluginBackendRequesting)
+    }
+
+    /// The plugin's backend, when it declares one.
+    private func backendAccess() throws -> any PluginBackendRequesting {
+        guard let host else { throw PluginWebBridgeFailure.forbidden("The host window was closed.") }
+        guard let backends = host.pluginWebBackends, backends.declaresBackend(window.pluginID) else {
+            throw PluginWebBridgeFailure.forbidden("\(window.pluginName) declares no backend.")
+        }
+        return backends
     }
 
     /// Passes Core's outcome codes through unchanged, so a page sees the same

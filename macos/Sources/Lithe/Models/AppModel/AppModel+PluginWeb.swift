@@ -30,6 +30,8 @@ extension AppModel: PluginWebBridgeHost {
         await services.pluginWebPages.confirmProcessStart(consent)
     }
 
+    var pluginWebBackends: (any PluginBackendRequesting)? { services.pluginWebPages.backends }
+
     /// True while the window's plugin has a new version, a rollback, or an
     /// uninstall waiting for restart: its old page is not shown again.
     func pluginWebPageAwaitsRestart(_ windowID: String) -> Bool {

@@ -171,9 +171,13 @@ final class MacServiceContainer {
         )
         moduleLifecycleCoordinator = ModuleLifecycleCoordinator(runtime: moduleRuntime)
         let declarativePluginOperations = RustDeclarativePluginOperations(core: rustCore)
+        let pluginCredentials = MacPluginCredentialStore(
+            servicePrefix: fileStorage.identity.keychainService("plugin-credentials")
+        )
         let pluginPackageStore = MacPluginPackageStore(
             fileStorage: fileStorage,
-            validator: declarativePluginOperations
+            validator: declarativePluginOperations,
+            credentials: pluginCredentials
         )
         let pluginSettings = MacPluginSettingsStore(store: store)
         let pluginLaunchResolver = MacPluginLanguageServerLaunchResolver(
@@ -291,6 +295,21 @@ final class MacServiceContainer {
             core: rustCore,
             processRegistry: processRegistry
         )
+        // Plugin backends, one per plugin for the whole application: the
+        // first project window creates them, and every window registers the
+        // same startup snapshot. Nothing starts until a page calls one.
+        let pluginBackends = MacPluginBackendSessions.shared {
+            MacPluginBackendSessions(
+                launchResolver: pluginLaunchResolver,
+                tools: MacBuildToolResolver(runtime: runtimeService, processRunner: processRunner, fileStorage: fileStorage),
+                versionChecker: declarativePluginOperations,
+                runtime: runtimeService,
+                core: rustCore,
+                processRegistry: processRegistry,
+                credentials: pluginCredentials
+            )
+        }
+        pluginBackends.register(pluginStartup.registeredPlugins)
         let rustLanguageProviderCatalogSource = RustLanguageProviderCatalogSource(core: rustCore)
         // Installation owns the process-backed language boundary even when a
         // package is disabled, quarantined, or failed to load. Only the active
@@ -682,6 +701,7 @@ final class MacServiceContainer {
                 directories: MacPluginStateDirectories(fileStorage: fileStorage),
                 fileStorage: fileStorage
             ),
+            backends: pluginBackends,
             prompt: MacPluginWebConsentPrompt.confirm
         )
         pluginWebPageLifecycle.register(pluginWebPages)
@@ -694,10 +714,17 @@ final class MacServiceContainer {
             launchMode: moduleLaunchMode,
             startup: pluginStartup,
             managedBuiltInPlugins: bundledLanguageManifests,
-            invalidateWebPages: { id in pluginWebPageLifecycle.disable(id.rawValue) },
-            enableWebPages: { id in pluginWebPageLifecycle.enable(id.rawValue) },
+            invalidateWebPages: { id in
+                pluginWebPageLifecycle.disable(id.rawValue)
+                pluginBackends.disable(id.rawValue)
+            },
+            enableWebPages: { id in
+                pluginBackends.enable(id.rawValue)
+                pluginWebPageLifecycle.enable(id.rawValue)
+            },
             beforePackageReplacement: { id in
                 pluginWebPageLifecycle.packageWillChange(id.rawValue)
+                pluginBackends.packageWillChange(id.rawValue)
                 // The running provider still executes the old files; the
                 // build systems' plugin list is a startup snapshot and does
                 // not see the replacement.

@@ -440,7 +440,9 @@ pub struct VcsProviderRequest {
 /// service a plugin backend asked for. Exactly one of `result` and `error`.
 pub struct PluginHostResponse {
     pub session_id: String,
-    /// The `hostRequestID` of the `hostRequest` event being answered.
+    /// The `hostRequestID` of the `hostRequest` event being answered,
+    /// spelled as the event spells it.
+    #[serde(rename = "hostRequestID")]
     pub host_request_id: String,
     /// The service's result; `null` for a write or delete.
     #[serde(default)]
@@ -12429,14 +12431,21 @@ public class Main {
         result: Option<Value>,
         error: Option<&str>,
     ) -> Result<(), CoreError> {
-        harness.session().host_response(PluginHostResponse {
-            session_id: harness.session_id.clone(),
-            host_request_id: host_request_id.to_string(),
-            result,
-            error: error.map(|message| PluginHostFailure {
-                message: message.to_string(),
-            }),
-        })
+        // Decoded from the wire shape `lsp.hostResponse` documents, so the
+        // field spelling is checked with the round trip.
+        let mut wire = json!({
+            "sessionId": harness.session_id,
+            "hostRequestID": host_request_id,
+        });
+        if let Some(result) = result {
+            wire["result"] = result;
+        }
+        if let Some(message) = error {
+            wire["error"] = json!({ "message": message });
+        }
+        let response: PluginHostResponse =
+            serde_json::from_value(wire).expect("documented wire shape");
+        harness.session().host_response(response)
     }
 
     /// A granted credential request reaches the host as `hostRequest`. The

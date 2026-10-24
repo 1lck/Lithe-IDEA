@@ -16,6 +16,8 @@ final class PluginWebPages {
     /// By tool-window contribution ID.
     let windows: [String: PluginWebWindow]
     let stateStore: any PluginWebStateStoring
+    /// The application's plugin backends, shared with every project window.
+    let backends: (any PluginBackendRequesting)?
     private let prompt: @MainActor (PluginWebProcessConsent) async -> Bool
     private var pages: [String: any PluginWebPageHandle] = [:]
     private var nativeOwners: [String: String] = [:]
@@ -27,10 +29,12 @@ final class PluginWebPages {
     init(
         windows: [PluginWebWindow] = [],
         stateStore: (any PluginWebStateStoring)? = nil,
+        backends: (any PluginBackendRequesting)? = nil,
         prompt: @escaping @MainActor (PluginWebProcessConsent) async -> Bool = { _ in false }
     ) {
         self.windows = Dictionary(windows.map { ($0.windowID, $0) }, uniquingKeysWith: { first, _ in first })
         self.stateStore = stateStore ?? MemoryPluginWebStateStore()
+        self.backends = backends
         self.prompt = prompt
     }
 
