@@ -70,6 +70,11 @@ pub(super) fn resolve(
             directory.to_string_lossy().into_owned(),
         ));
     }
+    let claude_projects = crate::claude_earlier_history::projects_directory(
+        env.iter()
+            .find(|(name, _)| name == CONFIG_DIR_ENVIRONMENT)
+            .map(|(_, value)| std::path::Path::new(value)),
+    );
     Ok(ResolvedLaunch {
         command: install::installed_command(&data, agent),
         args: launch.args,
@@ -80,6 +85,7 @@ pub(super) fn resolve(
         subscription_cli: None,
         claude_subscription: true,
         codex_home: None,
+        claude_projects,
     })
 }
 

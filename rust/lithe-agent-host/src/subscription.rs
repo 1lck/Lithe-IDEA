@@ -196,6 +196,7 @@ pub(super) fn resolve(
         subscription_cli: Some(executable),
         claude_subscription: false,
         codex_home,
+        claude_projects: None,
     })
 }
 

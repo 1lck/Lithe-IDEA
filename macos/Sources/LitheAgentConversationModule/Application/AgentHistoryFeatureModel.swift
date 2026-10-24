@@ -158,9 +158,14 @@ public struct AgentHistoryDocument: Sendable {
                 case .tool: role = String(localized: "Tool")
                 }
                 // Reasoning is exported as a quote so it stays distinct from the reply.
-                let body = message.role == .thought
-                    ? message.text.components(separatedBy: .newlines).map { "> " + $0 }.joined(separator: "\n")
-                    : message.text
+                // A replayed plan snapshot is exported as a task list.
+                let body = if let plan = message.plan {
+                    plan.entries.map { "- [\($0.status == .completed ? "x" : " ")] \($0.content)" }.joined(separator: "\n")
+                } else if message.role == .thought {
+                    message.text.components(separatedBy: .newlines).map { "> " + $0 }.joined(separator: "\n")
+                } else {
+                    message.text
+                }
                 var content = "## \(role)\n\n\(body)"
                 if let status = message.toolStatus { content += "\n\nStatus: \(status.rawValue)" }
                 for detail in [message.toolDetails.input, message.toolDetails.output].compactMap({ $0 }) {

@@ -210,7 +210,7 @@ enum AgentHistoryPresentation {
         var hasTranscript = false
         for message in conversation.messages where message.subagentSessionID == nil || message.role == .tool {
             hasTranscript = true
-            if message.role == .user || message.role == .agent { count += 1 }
+            if message.role == .user || (message.role == .agent && message.plan == nil) { count += 1 }
         }
         return conversation.isAttached || hasTranscript ? count : nil
     }

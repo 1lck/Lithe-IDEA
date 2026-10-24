@@ -16,7 +16,8 @@ struct AgentTranscriptNavigationContent {
 
     init(messages: [AgentConversationMessage]) {
         for message in messages {
-            if message.role == .user {
+            // Claude Code's own markup (commands, notifications, recaps) is not a prompt the user wrote.
+            if message.role == .user, AgentClaudeCodeMarkup.parse(message.text) == nil {
                 entries.append(Entry(id: message.id, prompt: String(message.text.prefix(320))))
             }
             guard let turnID = entries.last?.id else { continue }

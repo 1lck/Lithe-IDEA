@@ -374,8 +374,12 @@
 "Back to all references" = "返回所有引用";
 "Back to the conversation" = "返回对话";
 "Background Services" = "后台服务";
+"Background command ended (exit code %@): %@" = "后台命令已结束（退出码 %@）：%@";
+"Background command finished: %@" = "后台命令已完成：%@";
 "Background services" = "后台服务";
 "Background services started in Lithe are still running" = "在 Lithe 中启动的后台服务仍在运行";
+"Background task ended" = "后台任务已结束";
+"Background task finished" = "后台任务已完成";
 "Balanced reasoning" = "平衡思考深度与响应速度";
 "Base" = "目标";
 "Base %@ → Target %@" = "基准 %@ → 目标 %@";
@@ -807,6 +811,7 @@
 "Conventional Commits" = "Conventional Commits 规范";
 "Conversation" = "讨论";
 "Conversation actions" = "会话操作";
+"Conversation continued from a summary" = "对话已从摘要继续";
 "Conversation history" = "对话历史";
 "Conversation history is unavailable" = "当前无法读取对话历史";
 "Conversation tabs" = "会话标签";
@@ -1185,6 +1190,7 @@
 "End on next launch" = "下次启动时结束";
 "End without asking" = "直接结束";
 "English" = "英文";
+"Enlarge image" = "放大查看图片";
 "Enter API key" = "填写 API Key";
 "Enter a ChangeList name (1–100 characters)." = "请输入更改列表名称（1–100 个字符）。";
 "Enter a branch name" = "请输入分支名称";
@@ -1344,6 +1350,7 @@
 "Find references to the selected symbol" = "查找所选符号的引用";
 "Finished" = "已完成";
 "First %lld locations" = "前 %lld 个位置";
+"Fit to Window" = "适应窗口";
 "Fix the failing checks below before installing." = "请先解决下方未通过的检测项，再进行安装。";
 "Fixup" = "合并并丢弃消息";
 "Folder" = "分组";
@@ -1632,6 +1639,7 @@
 "Invalid shared instruction request." = "共享指令请求无效。";
 "Invert" = "反选";
 "It can read files, run commands and edit code after asking for permission." = "它可以在征得你的许可后读取文件、运行命令和修改代码。";
+"Item %lld of %lld" = "第 %lld 项，共 %lld 项";
 "Its details and actions will appear here." = "工作树详情和可用操作会显示在这里。";
 "JDK Home" = "JDK 主目录";
 "JDK home" = "JDK 主目录";
@@ -2019,6 +2027,7 @@
 "Next console expression" = "下一条表达式";
 "Next diff match" = "下一个 Diff 匹配项";
 "Next difference" = "下一个差异";
+"Next image" = "下一张图片";
 "Next match" = "下一个匹配";
 "Next match (Return)" = "下一个匹配项（Return）";
 "Next run" = "下次运行";
@@ -2406,6 +2415,7 @@
 "Previous console expression" = "上一条表达式";
 "Previous diff match" = "上一个 Diff 匹配项";
 "Previous difference" = "上一个差异";
+"Previous image" = "上一张图片";
 "Previous match" = "上一个匹配";
 "Previous match (Shift+Return)" = "上一个匹配项（Shift+Return）";
 "Previous session" = "上一次会话";
@@ -3101,6 +3111,7 @@
 "Skill files" = "技能文件";
 "Skill imports cannot contain symbolic links or special files." = "导入的技能不能包含符号链接或特殊文件。";
 "Skill instructions" = "技能正文";
+"Skill loaded: %@" = "已加载技能：%@";
 "Skill name (lowercase-with-hyphens)" = "技能名称（小写字母与连字符）";
 "Skill project" = "当前项目";
 "Skill saved. Refresh or reconnect the Agent if it does not appear in the conversation." = "技能已保存。如果对话中未显示，请刷新或重新连接 Agent。";
@@ -4207,9 +4218,13 @@
 "native.backToAllReferences" = "返回所有引用";
 "native.backToTheConversation" = "返回对话";
 "native.backUpDatabaseAsSQL" = "将数据库备份为 SQL…";
+"native.backgroundCommandEndedExitCodeArg1Arg2" = "后台命令已结束（退出码 %1$@）：%2$@";
+"native.backgroundCommandFinished" = "后台命令已完成：%1$@";
 "native.backgroundServices" = "后台服务";
 "native.backgroundServices.variant2" = "后台服务";
 "native.backgroundServicesStartedInLitheAreStillRunning" = "在 Lithe 中启动的后台服务仍在运行";
+"native.backgroundTaskEnded" = "后台任务已结束";
+"native.backgroundTaskFinished" = "后台任务已完成";
 "native.balancedReasoning" = "平衡思考深度与响应速度";
 "native.base" = "目标";
 "native.base.variant2" = "基点：%1$@";
@@ -4645,6 +4660,7 @@
 "native.conventionalCommits" = "Conventional Commits 规范";
 "native.conversation" = "讨论";
 "native.conversationActions" = "会话操作";
+"native.conversationContinuedFromASummary" = "对话已从摘要继续";
 "native.conversationHistory" = "对话历史";
 "native.conversationHistoryIsUnavailable" = "当前无法读取对话历史";
 "native.conversationTabs" = "会话标签";
@@ -5031,6 +5047,7 @@
 "native.endThisTerminal" = "结束此终端";
 "native.endWithoutAsking" = "直接结束";
 "native.english" = "英文";
+"native.enlargeImage" = "放大查看图片";
 "native.enterABranchName" = "请输入分支名称";
 "native.enterABranchName.variant2" = "请输入分支名称。";
 "native.enterABranchNameBeforePublishing" = "请输入分支名称后再发布。";
@@ -5194,6 +5211,7 @@
 "native.finished" = "已完成";
 "native.finishedWithoutCreating" = "%1$@ 已结束，但没有生成 %2$@。";
 "native.firstLldLocations" = "前 %1$lld 个位置";
+"native.fitToWindow" = "适应窗口";
 "native.fixTheFailingChecksBelowBeforeInstalling" = "请先解决下方未通过的检测项，再进行安装。";
 "native.fixup" = "合并并丢弃消息";
 "native.folder" = "分组";
@@ -5587,6 +5605,7 @@
 "native.isNotInstalledLitheInstallsItWithYourNpmIntoItsApplicationData" = "%1$@ 尚未安装。Lithe 会用你的 npm 把它安装到应用数据目录。";
 "native.isVersionOrNewerIsRequired" = "%1$@ 的版本是 %2$@，需要 %3$@ 或更高版本。";
 "native.itCanReadFilesRunCommandsAndEditCodeAfterAskingForPermission" = "它可以在征得你的许可后读取文件、运行命令和修改代码。";
+"native.itemLldOfLld" = "第 %1$lld 项，共 %2$lld 项";
 "native.itsDetailsAndActionsWillAppearHere" = "工作树详情和可用操作会显示在这里。";
 "native.japaneseCharacters" = "日文字符";
 "native.javaApplication" = "Java 应用";
@@ -6039,6 +6058,7 @@
 "native.nextDiffMatch" = "下一个 Diff 匹配项";
 "native.nextDifference" = "下一个差异";
 "native.nextFile" = "下一个文件";
+"native.nextImage" = "下一张图片";
 "native.nextMatch" = "下一个匹配项";
 "native.nextMatch.variant2" = "下一个匹配";
 "native.nextMatchReturn" = "下一个匹配项（Return）";
@@ -6427,6 +6447,7 @@
 "native.previousDiffMatch" = "上一个 Diff 匹配项";
 "native.previousDifference" = "上一个差异";
 "native.previousFile" = "上一个文件";
+"native.previousImage" = "上一张图片";
 "native.previousMatch" = "上一个匹配项";
 "native.previousMatch.variant2" = "上一个匹配";
 "native.previousMatchShiftReturn" = "上一个匹配项（Shift+Return）";
@@ -7108,6 +7129,7 @@
 "native.skillFiles" = "技能文件";
 "native.skillImportsCannotContainSymbolicLinksOrSpecialFiles" = "导入的技能不能包含符号链接或特殊文件。";
 "native.skillInstructions" = "技能正文";
+"native.skillLoaded" = "已加载技能：%1$@";
 "native.skillMdExceedsThe128KibLimit" = "SKILL.md 超过了 128 KiB 的大小限制。";
 "native.skillMdFrontmatterIsNotClosed" = "SKILL.md 的文件头缺少结束标记。";
 "native.skillMdHasInvalidYamlFrontmatter" = "SKILL.md 的 YAML 文件头格式不正确。";

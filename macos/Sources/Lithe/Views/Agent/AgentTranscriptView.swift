@@ -38,7 +38,9 @@ enum AgentTranscriptItem: Identifiable {
     func matches(_ searchText: String) -> Bool {
         guard !searchText.isEmpty else { return true }
         switch self {
-        case .message(let message): return message.text.localizedStandardContains(searchText)
+        case .message(let message):
+            return message.text.localizedStandardContains(searchText)
+                || message.plan?.entries.contains { $0.content.localizedStandardContains(searchText) } == true
         case .processGroup(let messages): return messages.contains {
             $0.role == .tool ? Self.toolMatches($0, searchText) : $0.text.localizedStandardContains(searchText)
         }
@@ -67,7 +69,13 @@ enum AgentTranscriptItem: Identifiable {
             // ACP has no final/commentary role. Only text after the last thought
             // or tool is presented as the reply; earlier prose is process narration.
             if let lastActivity = pending.lastIndex(where: { $0.role != .agent }) {
-                items.append(.processGroup(Array(pending[...lastActivity])))
+                let process = Array(pending[...lastActivity])
+                // Notices that triggered no thinking or tool use have no process to join.
+                if process.allSatisfy(Self.isQuietNotification) {
+                    items += process.map(Self.message)
+                } else {
+                    items.append(.processGroup(process))
+                }
                 items += pending.dropFirst(lastActivity + 1).map(Self.message)
             } else {
                 items += pending.map(Self.message)
@@ -75,7 +83,21 @@ enum AgentTranscriptItem: Identifiable {
             pending.removeAll(keepingCapacity: true)
         }
         for message in messages {
-            if message.role == .user {
+            if message.role == .user, case .markup(let entries) = AgentUserMessagePresentation.of(message), entries.isEmpty {
+                // Model-only reminders and caveats are not conversation.
+                continue
+            }
+            if message.plan != nil {
+                // A replayed plan snapshot is what the Agent reported at that point;
+                // it stays on the transcript like Claude Desktop's checklist.
+                flush()
+                items.append(.message(message))
+            } else if Self.isQuietNotification(message) {
+                // A finished background task wakes the Agent for a follow-up turn.
+                // The notice joins that turn's collapsed process instead of
+                // interrupting the transcript between two replies.
+                pending.append(message)
+            } else if message.role == .user {
                 flush()
                 items.append(.message(message))
             } else if message.role == .tool || !message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -89,6 +111,16 @@ enum AgentTranscriptItem: Identifiable {
         }
         flush()
         return items
+    }
+
+    /// A successful background-task notice: protocol markup that needs no attention.
+    /// Failures stay on the transcript where the user can see them.
+    static func isQuietNotification(_ message: AgentConversationMessage) -> Bool {
+        guard message.role == .user, case .markup(let entries) = AgentUserMessagePresentation.of(message), !entries.isEmpty else { return false }
+        return entries.allSatisfy {
+            if case .taskNotification(let notification) = $0 { return !notification.isFailure }
+            return false
+        }
     }
 
     /// Within an expanded process, keep prose in order and combine adjacent tools.
@@ -163,6 +195,8 @@ struct AgentTranscriptView: View {
     var isEditorLayout = false
     @State private var navigation = AgentTranscriptNavigationState()
     @State private var showsAgentPicker = false
+    // A reference the rows share; only the overlay observes it, so opening an image does not re-evaluate this view.
+    @State private var imageViewer = AgentImageViewerState()
     // A filtered-out row can be destroyed. Keep its preference in the owning
     // transcript view, isolated by session and message, until the actual data goes away.
     @State private var thoughtExpansions: [String: [String: AgentThoughtExpansion]] = [:]
@@ -309,6 +343,8 @@ struct AgentTranscriptView: View {
                 .id(sessionID)
             }
         }
+        .environment(\.agentImageViewer, imageViewer)
+        .overlay { AgentImageViewerOverlay(state: imageViewer) }
         .onChange(of: feature.openSessionIDs) { sessionIDs in
             thoughtExpansions = thoughtExpansions.filter { sessionIDs.contains($0.key) }
             windowLimits = windowLimits.filter { sessionIDs.contains($0.key) }
@@ -328,6 +364,17 @@ struct AgentTranscriptView: View {
             AgentPermissionCard(permission: permission, answer: { feature.answerPermission(optionID: $0) }, onOpenFile: onOpenFile)
         } else if let sessionID = feature.selectedSessionID, let notice = feature.selectedConversation?.notice {
             AgentSessionNoticeView(notice: notice) { feature.dismissNotice(notice.id, in: sessionID) }
+        }
+    }
+}
+
+/// Only this overlay observes the viewer, so opening an image leaves the rows untouched.
+private struct AgentImageViewerOverlay: View {
+    @ObservedObject var state: AgentImageViewerState
+
+    var body: some View {
+        if let gallery = state.gallery {
+            AgentImageViewer(state: state, gallery: gallery)
         }
     }
 }
@@ -373,6 +420,8 @@ private struct AgentTranscriptRows: View, Equatable {
         ForEach(transcript) { item in
             Group {
                 switch item {
+                case .message(let message) where message.plan != nil:
+                    AgentPlanView(plan: message.plan!, isResponding: false, horizontalInset: 0)
                 case .message(let message):
                     AgentMessageRow(
                         message: message,
@@ -529,33 +578,16 @@ private struct AgentMessageRow: View {
     var body: some View {
         switch message.role {
         case .user:
-            HStack(alignment: .bottom, spacing: 4) {
-                Spacer(minLength: 40)
-                AgentCopyButton(text: message.text, help: "Copy message")
-                    .opacity(isHovered ? 1 : 0)
-                    .allowsHitTesting(isHovered)
-                VStack(alignment: .trailing, spacing: 4) {
-                    Text(message.text)
-                    if let delivery = message.delivery {
-                        Group {
-                            switch delivery {
-                            case .sending: Text("Sending…")
-                            case .received: Text("Agent received")
-                            case .failed(let reason): Text(AgentLocalization.message(reason, locale: locale)).foregroundStyle(LitheTheme.error)
-                            }
-                        }
-                        .font(LitheTheme.uiFont(size: 10))
-                        .foregroundStyle(AgentPanelStyle.secondary)
+            if case .markup(let entries) = AgentUserMessagePresentation.of(message) {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
+                        AgentClaudeCodeEntryRow(entry: entry)
                     }
                 }
-                    .font(LitheTheme.uiFont(size: isEditorLayout ? 14 : 13))
-                    .textSelection(.enabled)
-                    .padding(.horizontal, isEditorLayout ? 14 : 12)
-                    .padding(.vertical, isEditorLayout ? 10 : 8)
-                    .background(isEditorLayout ? AnyShapeStyle(AgentPanelStyle.context) : AnyShapeStyle(LitheTheme.accent.opacity(0.18)),
-                                in: RoundedRectangle(cornerRadius: isEditorLayout ? 16 : 10))
+                .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                userBubble
             }
-            .onHover { isHovered = $0 }
         case .agent:
             VStack(alignment: .leading, spacing: 2) {
                 AgentMarkdownMessage(text: message.text)
@@ -573,6 +605,205 @@ private struct AgentMessageRow: View {
                             expansion: thoughtExpansion)
         case .tool:
             AgentToolGroupView(messages: [message], searchText: "", onOpenFile: onOpenFile)
+        }
+    }
+
+    /// Attached image files and replayed pictures show as thumbnails that open
+    /// the viewer; the text keeps the user's words and non-image attachments.
+    private var userBubble: some View {
+        var content = AgentUserMessageContent.parse("")
+        if case .bubble(let parsed) = AgentUserMessagePresentation.of(message) { content = parsed }
+        let images = (message.images + content.images).uniquedByID
+        return HStack(alignment: .bottom, spacing: 4) {
+            Spacer(minLength: 40)
+            if !content.text.isEmpty {
+                AgentCopyButton(text: content.text, help: "Copy message")
+                    .opacity(isHovered ? 1 : 0)
+                    .allowsHitTesting(isHovered)
+            }
+            VStack(alignment: .trailing, spacing: 6) {
+                if !images.isEmpty { AgentUserImages(images: images, hiddenCount: content.hiddenImageCount) }
+                if !content.text.isEmpty { Text(content.text) }
+                if let delivery = message.delivery {
+                    Group {
+                        switch delivery {
+                        case .sending: Text("Sending…")
+                        case .received: Text("Agent received")
+                        case .failed(let reason): Text(AgentLocalization.message(reason, locale: locale)).foregroundStyle(LitheTheme.error)
+                        }
+                    }
+                    .font(LitheTheme.uiFont(size: 10))
+                    .foregroundStyle(AgentPanelStyle.secondary)
+                }
+            }
+                .font(LitheTheme.uiFont(size: isEditorLayout ? 14 : 13))
+                .textSelection(.enabled)
+                .padding(.horizontal, isEditorLayout ? 14 : 12)
+                .padding(.vertical, isEditorLayout ? 10 : 8)
+                .background(isEditorLayout ? AnyShapeStyle(AgentPanelStyle.context) : AnyShapeStyle(LitheTheme.accent.opacity(0.18)),
+                            in: RoundedRectangle(cornerRadius: isEditorLayout ? 16 : 10))
+        }
+        .onHover { isHovered = $0 }
+    }
+}
+
+/// How a user message is drawn, parsed once. The regex scans touch the whole text,
+/// and rows re-evaluate on hover and while the transcript streams, so the result is cached.
+private enum AgentUserMessagePresentation {
+    case markup([AgentClaudeCodeEntry])
+    case bubble(AgentUserMessageContent)
+
+    private final class Box { let value: AgentUserMessagePresentation; init(_ value: AgentUserMessagePresentation) { self.value = value } }
+    private static let cache: NSCache<NSString, Box> = {
+        let cache = NSCache<NSString, Box>()
+        cache.countLimit = 500
+        return cache
+    }()
+
+    static func of(_ message: AgentConversationMessage) -> Self {
+        let key = "\(message.id)#\(message.text.utf8.count)" as NSString
+        if let cached = cache.object(forKey: key) { return cached.value }
+        let value: Self
+        if let entries = AgentClaudeCodeMarkup.parse(message.text) {
+            value = .markup(entries)
+        } else {
+            value = .bubble(AgentUserMessageContent.parse(AgentClaudeCodeMarkup.removingModelOnlyBlocks(message.text)))
+        }
+        cache.setObject(Box(value), forKey: key)
+        return value
+    }
+}
+
+extension AgentTaskNotification {
+    private static let shellSummary = try! NSRegularExpression(
+        pattern: "^Background command \"(.+)\" (?:completed|failed) \\(exit code (-?\\d+)\\)$")
+
+    /// One line for the transcript. Claude Code words shell-task summaries in
+    /// English (`Background command "…" completed (exit code 0)`); those are
+    /// shown in the interface language, and any other summary is kept verbatim.
+    func displayText(locale: Locale) -> String {
+        guard let summary else {
+            return AgentLocalization.string(isFailure ? "Background task ended" : "Background task finished", locale: locale)
+        }
+        guard let match = Self.shellSummary.firstMatch(in: summary, range: NSRange(summary.startIndex..., in: summary)),
+              let name = Range(match.range(at: 1), in: summary), let code = Range(match.range(at: 2), in: summary) else {
+            return summary
+        }
+        if summary[code] == "0" {
+            return String(format: AgentLocalization.string("Background command finished: %@", locale: locale), String(summary[name]))
+        }
+        return String(format: AgentLocalization.string("Background command ended (exit code %@): %@", locale: locale),
+                      String(summary[code]), String(summary[name]))
+    }
+}
+
+/// Claude Code's own markup in a user message, shown as a quiet status line or output block.
+struct AgentClaudeCodeEntryRow: View {
+    @Environment(\.locale) private var locale
+    let entry: AgentClaudeCodeEntry
+
+    var body: some View {
+        switch entry {
+        case .taskNotification(let notification):
+            let failed = notification.isFailure
+            line(systemImage: failed ? "exclamationmark.circle" : "checkmark.circle", isError: failed,
+                 text: notification.displayText(locale: locale))
+                .help(notification.outputFile ?? "")
+                .accessibilityIdentifier("agent-task-notification")
+        case .command(let name, let arguments):
+            line(systemImage: "chevron.right.square", isError: false,
+                 text: [name, arguments].compactMap { $0 }.joined(separator: " "), monospaced: true)
+                .accessibilityIdentifier("agent-command-entry")
+        case .shell(let command):
+            line(systemImage: "terminal", isError: false, text: command, monospaced: true)
+                .accessibilityIdentifier("agent-shell-entry")
+        case .output(let text, let isError):
+            Text(verbatim: text)
+                .font(LitheTheme.uiFont(size: 12, design: .monospaced))
+                .foregroundStyle(isError ? LitheTheme.error : LitheTheme.secondaryText)
+                .lineLimit(12)
+                .textSelection(.enabled)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(LitheTheme.raised.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+                .accessibilityIdentifier("agent-command-output")
+        case .interrupted(let text):
+            line(systemImage: "pause.circle", isError: false, text: text)
+                .accessibilityIdentifier("agent-interrupted-entry")
+        case .summary(let text, let tools):
+            AgentCollapsedBlock(title: AgentLocalization.string("Conversation continued from a summary", locale: locale),
+                                systemImage: "text.append", detail: tools, text: text)
+                .accessibilityIdentifier("agent-summary-entry")
+        case .skill(let name, let body):
+            AgentCollapsedBlock(title: String(format: AgentLocalization.string("Skill loaded: %@", locale: locale), name),
+                                systemImage: "sparkles", detail: nil, text: body)
+                .accessibilityIdentifier("agent-skill-entry")
+        case .context(let name, let body):
+            AgentCollapsedBlock(title: String(format: AgentLocalization.string("Context: %@", locale: locale), name),
+                                systemImage: "tray.full", detail: nil, text: body)
+                .accessibilityIdentifier("agent-context-entry")
+        }
+    }
+
+    private func line(systemImage: String, isError: Bool, text: String, monospaced: Bool = false) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: systemImage)
+                .font(LitheTheme.uiFont(size: 11))
+                .foregroundStyle(isError ? LitheTheme.error : LitheTheme.tertiaryText)
+            Text(verbatim: text)
+                .font(monospaced ? LitheTheme.uiFont(size: 12, design: .monospaced) : LitheTheme.uiFont(size: 12.5))
+                .lineLimit(2)
+        }
+        .foregroundStyle(LitheTheme.secondaryText)
+        .textSelection(.enabled)
+    }
+}
+
+/// Long Claude Code-owned text (recap, skill instructions, host context) behind a one-line header.
+private struct AgentCollapsedBlock: View {
+    let title: String
+    let systemImage: String
+    let detail: String?
+    let text: String
+    @State private var expanded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Button { expanded.toggle() } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: systemImage)
+                        .font(LitheTheme.uiFont(size: 11))
+                        .foregroundStyle(LitheTheme.tertiaryText)
+                    Text(verbatim: title).lineLimit(1)
+                    Image(systemName: "chevron.down")
+                        .font(LitheTheme.uiFont(size: 9, weight: .semibold))
+                        .rotationEffect(.degrees(expanded ? 0 : -90))
+                }
+                .font(LitheTheme.uiFont(size: 12.5))
+                .foregroundStyle(LitheTheme.secondaryText)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.litheNoPress)
+            .lithePointer()
+            .accessibilityValue(expanded ? Text("Expanded") : Text("Collapsed"))
+            if expanded {
+                VStack(alignment: .leading, spacing: 6) {
+                    if let detail {
+                        Text(verbatim: detail)
+                            .font(LitheTheme.uiFont(size: 11, design: .monospaced))
+                            .foregroundStyle(LitheTheme.tertiaryText)
+                    }
+                    AgentMarkdownMessage(text: text, size: 12)
+                        .equatable()
+                        .foregroundStyle(LitheTheme.secondaryText)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(LitheTheme.raised.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+                .textSelection(.enabled)
+            }
         }
     }
 }

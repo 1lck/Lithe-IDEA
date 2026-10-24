@@ -103,12 +103,15 @@ struct AgentPlanView: View {
     let plan: AgentPlan
     let isResponding: Bool
     let embedded: Bool
+    /// Pinned plans align with the composer; transcript entries align with messages.
+    let horizontalInset: CGFloat
     @State private var expanded = false
 
-    init(plan: AgentPlan, isResponding: Bool, expanded: Bool = false, embedded: Bool = false) {
+    init(plan: AgentPlan, isResponding: Bool, expanded: Bool = false, embedded: Bool = false, horizontalInset: CGFloat = 18) {
         self.plan = plan
         self.isResponding = isResponding
         self.embedded = embedded
+        self.horizontalInset = horizontalInset
         _expanded = State(initialValue: expanded)
     }
 
@@ -162,7 +165,7 @@ struct AgentPlanView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(embedded ? Color.clear : AgentPanelStyle.header, in: RoundedRectangle(cornerRadius: 5))
         .overlay(RoundedRectangle(cornerRadius: 5).stroke(embedded ? Color.clear : AgentPanelStyle.border, lineWidth: 1))
-        .padding(.horizontal, embedded ? 0 : 18)
+        .padding(.horizontal, embedded ? 0 : horizontalInset)
         .padding(.bottom, embedded ? 0 : 4)
     }
 
