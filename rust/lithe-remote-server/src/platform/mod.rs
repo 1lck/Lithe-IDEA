@@ -18,7 +18,7 @@ mod macos;
 use macos as host;
 
 pub(crate) use host::{case_sensitive, prepare_child, rename_no_replace};
-pub(crate) use unix::signal_process_group;
+pub(crate) use unix::{process_group_exists, signal_process_group};
 
 use lithe_remote_protocol::methods::{Feature, HostCapabilities, ProcessCapabilities};
 

@@ -15,8 +15,8 @@ clients. Design rationale lives in
 2. Every following unit is a frame: a 4-byte big-endian length and that many
    bytes of UTF-8 JSON. Frames larger than 16 MiB are rejected.
 3. Closing the client-to-server stream is a disconnect. The server then
-   terminates every process group it started (`SIGTERM`, then `SIGKILL`
-   after 2 seconds) and exits.
+   terminates every process group it still owns (`SIGTERM`, then `SIGKILL`
+   after 2 seconds to groups that still have members) and exits.
 
 The server never listens on a network port; all traffic, including future
 port forwarding, uses this stream.
@@ -55,12 +55,19 @@ port forwarding, uses this stream.
 | `process.spawn` | `argv`, `cwd`, `env`, `pipeStdin` | `processId`, `pid` |
 | `process.writeStdin` | `processId`, `data` | `null`; `BUSY` when the process stops reading |
 | `process.closeStdin` | `processId` | `null` |
-| `process.kill` | `processId`, `force` | `null`; signals the whole process group |
+| `process.kill` | `processId`, `force` | `null`; signals the whole process group, also after `process.exit` while other members run; `PROCESS_NOT_FOUND` once the group is empty |
 
 `fs.writeFile` replaces the file atomically through a temporary sibling and
 writes through symbolic links. With `expected` (`size`, `modifiedMs`) it fails
 with `CONFLICT` unless the file still matches; without it, an existing file is
-only replaced when `overwrite` is set.
+only replaced when `overwrite` is set. A write with neither `expected` nor
+`overwrite` only creates: when two such writes race, exactly one succeeds and
+the other fails with `ALREADY_EXISTS`. When a file is replaced, the temporary
+file never has broader permissions than the original.
+
+`process.exit` reports the group leader. The server keeps owning the process
+group until no member is left, so members that outlive the leader can still
+be killed and are cleaned up on disconnect.
 
 ## Events
 

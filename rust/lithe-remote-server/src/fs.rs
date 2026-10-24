@@ -14,6 +14,7 @@ use lithe_remote_protocol::{ErrorCode, RemoteError};
 use serde_json::{json, Value};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::UNIX_EPOCH;
@@ -232,8 +233,17 @@ fn write_file(params: WriteFileParams) -> Result<FileMetadata, RemoteError> {
         std::process::id(),
         TEMPORARY_FILE_COUNTER.fetch_add(1, Ordering::Relaxed)
     ));
-    let written = write_temporary(&temporary, &data, current.as_ref())
-        .and_then(|()| fs::rename(&temporary, &target));
+    // Without `expected` or `overwrite` the request only creates. The
+    // existence check above cannot protect the commit from a concurrent
+    // creation of the same path, so the commit itself must refuse to replace.
+    let create_only = params.expected.is_none() && !params.overwrite;
+    let written = write_temporary(&temporary, &data, current.as_ref()).and_then(|()| {
+        if create_only {
+            platform::rename_no_replace(&temporary, &target)
+        } else {
+            fs::rename(&temporary, &target)
+        }
+    });
     if let Err(error) = written {
         let _ = fs::remove_file(&temporary);
         return Err(io_error(error, &params.path));
@@ -241,13 +251,27 @@ fn write_file(params: WriteFileParams) -> Result<FileMetadata, RemoteError> {
     stat(&target, &params.path)
 }
 
+/// Writes the replacement content. When a file is replaced, the temporary
+/// file is created with at most the original's permission bits, so content
+/// of an owner-only file is never readable by other users through the
+/// temporary name; the umask can only remove bits, and the exact original
+/// mode is restored before the rename publishes the file.
 fn write_temporary(path: &Path, data: &[u8], replaced: Option<&fs::Metadata>) -> io::Result<()> {
-    let mut file = OpenOptions::new().write(true).create_new(true).open(path)?;
+    let mut file = create_temporary(path, replaced)?;
     file.write_all(data)?;
     if let Some(metadata) = replaced {
         file.set_permissions(metadata.permissions())?;
     }
     file.sync_all()
+}
+
+fn create_temporary(path: &Path, replaced: Option<&fs::Metadata>) -> io::Result<File> {
+    let mode = replaced.map_or(0o666, |metadata| metadata.permissions().mode() & 0o777);
+    OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(mode)
+        .open(path)
 }
 
 fn create_dir(params: CreateDirParams) -> Result<(), RemoteError> {
@@ -307,4 +331,39 @@ pub(crate) fn io_error(error: io::Error, path: &str) -> RemoteError {
     };
     RemoteError::new(code, error.to_string())
         .with_details(json!({ "path": path, "osError": error.raw_os_error() }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Other users must not be able to open the temporary file while it holds
+    // the new content of an owner-only file; tightening the mode afterwards
+    // would not revoke a descriptor they already opened.
+    #[test]
+    fn temporary_file_for_an_owner_only_file_starts_owner_only() {
+        let directory = std::env::temp_dir().join(format!(
+            "lithe-remote-fs-mode-{}-{}",
+            std::process::id(),
+            TEMPORARY_FILE_COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(&directory).unwrap();
+        let _cleanup = RemoveOnDrop(directory.clone());
+        let original = directory.join("secret");
+        fs::write(&original, b"old").unwrap();
+        fs::set_permissions(&original, fs::Permissions::from_mode(0o600)).unwrap();
+        let replaced = fs::metadata(&original).unwrap();
+
+        let temporary = directory.join("secret.tmp");
+        let file = create_temporary(&temporary, Some(&replaced)).unwrap();
+        assert_eq!(file.metadata().unwrap().permissions().mode() & 0o777, 0o600);
+    }
+
+    struct RemoveOnDrop(PathBuf);
+
+    impl Drop for RemoveOnDrop {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
 }

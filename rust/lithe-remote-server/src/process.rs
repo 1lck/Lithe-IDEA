@@ -3,6 +3,11 @@
 //! Each process leads its own process group. Output is streamed as events in
 //! bounded chunks; the exit event is sent after the process's own output has
 //! drained, so clients can treat it as the end of the stream.
+//!
+//! The exit event reports the group leader. Other members of the group, such
+//! as build daemons started in the background, may outlive it; the server
+//! keeps owning the group until it is empty, so `process.kill` and the
+//! disconnect cleanup still reach them.
 
 use crate::fs::io_error;
 use crate::{parse, platform, to_value, Outbox};
@@ -32,6 +37,11 @@ const STDIN_QUEUE_CAPACITY: usize = 64;
 /// later output is dropped so the exit event remains the last event.
 const OUTPUT_DRAIN_GRACE: Duration = Duration::from_millis(500);
 
+/// Interval for checking whether signalled groups are empty during cleanup.
+/// Members that are not the server's children report no exit to it, so the
+/// wait polls the group within the caller's deadline.
+const GROUP_POLL_INTERVAL: Duration = Duration::from_millis(20);
+
 pub(crate) struct ProcessTable {
     state: Arc<(Mutex<TableState>, Condvar)>,
     outbox: Outbox,
@@ -40,13 +50,27 @@ pub(crate) struct ProcessTable {
 #[derive(Default)]
 struct TableState {
     next_id: u64,
-    running: BTreeMap<u64, RunningProcess>,
+    /// Every process group the server still owns, keyed by process id.
+    groups: BTreeMap<u64, OwnedGroup>,
 }
 
-struct RunningProcess {
+struct OwnedGroup {
+    /// Process id of the leader, which is also the process group id.
     pid: u32,
     /// `None` when standard input was not piped or has been closed.
     stdin: Option<SyncSender<Vec<u8>>>,
+    /// Set when the leader exited and its exit event was sent.
+    leader_exited: bool,
+}
+
+impl TableState {
+    /// Forgets groups whose leader exited and that have no members left.
+    /// POSIX does not reuse a process id while a group with that id exists,
+    /// so a group id stays safe to signal for as long as it is kept here.
+    fn prune_empty_groups(&mut self) {
+        self.groups
+            .retain(|_, group| !group.leader_exited || platform::process_group_exists(group.pid));
+    }
 }
 
 impl ProcessTable {
@@ -107,11 +131,17 @@ impl ProcessTable {
         let stdin = child.stdin.take().map(|pipe| self.start_stdin_writer(pipe));
         let process_id = {
             let mut state = self.lock();
+            state.prune_empty_groups();
             state.next_id += 1;
             let process_id = state.next_id;
-            state
-                .running
-                .insert(process_id, RunningProcess { pid, stdin });
+            state.groups.insert(
+                process_id,
+                OwnedGroup {
+                    pid,
+                    stdin,
+                    leader_exited: false,
+                },
+            );
             process_id
         };
         self.start_monitor(process_id, child);
@@ -184,7 +214,11 @@ impl ProcessTable {
             {
                 let (lock, changed) = &*state;
                 let mut table = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-                table.running.remove(&process_id);
+                if let Some(group) = table.groups.get_mut(&process_id) {
+                    group.leader_exited = true;
+                    group.stdin = None;
+                }
+                table.prune_empty_groups();
                 changed.notify_all();
             }
             let (exit_code, signal) = match status {
@@ -236,39 +270,48 @@ impl ProcessTable {
     fn close_stdin(&self, params: ProcessParams) -> Result<(), RemoteError> {
         let mut state = self.lock();
         let process = state
-            .running
+            .groups
             .get_mut(&params.process_id)
+            .filter(|group| !group.leader_exited)
             .ok_or_else(|| process_not_found(params.process_id))?;
         process.stdin = None;
         Ok(())
     }
 
+    /// Signals the whole group, also after the leader exited while other
+    /// members still run.
     fn kill(&self, params: KillParams) -> Result<(), RemoteError> {
-        let pid = running(&self.lock(), params.process_id)?.pid;
         let signal = if params.force {
             libc::SIGKILL
         } else {
             libc::SIGTERM
         };
+        let mut state = self.lock();
+        let pid = state
+            .groups
+            .get(&params.process_id)
+            .ok_or_else(|| process_not_found(params.process_id))?
+            .pid;
         match platform::signal_process_group(pid, signal) {
             Ok(()) => Ok(()),
             Err(error) if error.raw_os_error() == Some(libc::ESRCH) => {
+                state.prune_empty_groups();
                 Err(process_not_found(params.process_id))
             }
             Err(error) => Err(io_error(error, "")),
         }
     }
 
-    /// Ends every process group: `SIGTERM`, a bounded grace period, then
-    /// `SIGKILL` for groups that are still running.
+    /// Ends every owned process group: `SIGTERM`, a bounded grace period,
+    /// then `SIGKILL` for groups that still have members. A group counts as
+    /// gone only when it is empty, not when its leader exited.
     pub(crate) fn terminate_all(&self, grace: Duration) {
         for signal in [libc::SIGTERM, libc::SIGKILL] {
-            let leaders: Vec<u32> = self
-                .lock()
-                .running
-                .values()
-                .map(|process| process.pid)
-                .collect();
+            let leaders: Vec<u32> = {
+                let mut state = self.lock();
+                state.prune_empty_groups();
+                state.groups.values().map(|group| group.pid).collect()
+            };
             if leaders.is_empty() {
                 return;
             }
@@ -278,18 +321,21 @@ impl ProcessTable {
             let deadline = Instant::now() + grace;
             let (lock, changed) = &*self.state;
             let mut state = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-            while !state.running.is_empty() {
+            loop {
+                state.prune_empty_groups();
                 let remaining = deadline.saturating_duration_since(Instant::now());
-                if remaining.is_zero() {
+                if state.groups.is_empty() || remaining.is_zero() {
                     break;
                 }
+                // Leader exits notify the condition; other members are
+                // only observed by polling.
                 state = changed
-                    .wait_timeout(state, remaining)
+                    .wait_timeout(state, remaining.min(GROUP_POLL_INTERVAL))
                     .unwrap_or_else(|poisoned| poisoned.into_inner())
                     .0;
             }
         }
-        let survivors = self.lock().running.len();
+        let survivors = self.lock().groups.len();
         if survivors > 0 {
             eprintln!("lithe-remote-server: {survivors} process groups did not exit after SIGKILL");
         }
@@ -303,10 +349,12 @@ impl ProcessTable {
     }
 }
 
-fn running(state: &TableState, process_id: u64) -> Result<&RunningProcess, RemoteError> {
+/// Group whose leader is still running; only those accept input.
+fn running(state: &TableState, process_id: u64) -> Result<&OwnedGroup, RemoteError> {
     state
-        .running
+        .groups
         .get(&process_id)
+        .filter(|group| !group.leader_exited)
         .ok_or_else(|| process_not_found(process_id))
 }
 

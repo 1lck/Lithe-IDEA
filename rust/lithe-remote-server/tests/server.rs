@@ -173,6 +173,49 @@ fn files_are_written_atomically_and_guarded_against_concurrent_changes() {
     session.shutdown(STEP_TIMEOUT);
 }
 
+// Two creations of one path both pass the existence check before either
+// commits. The commit must refuse to replace, or the first file is lost
+// while both requests report success.
+#[test]
+fn concurrent_creations_of_one_path_keep_exactly_one_file() {
+    let directory = TempDir::new("create-race");
+    let (session, _events) = connect();
+    for round in 0..20 {
+        let file = directory.join(&format!("{round}.txt"));
+        let results: Vec<_> = std::thread::scope(|scope| {
+            let writers: Vec<_> = [b"left".as_slice(), b"right".as_slice()]
+                .into_iter()
+                .map(|data| {
+                    let (session, file) = (&session, &file);
+                    scope.spawn(move || {
+                        let result = call(
+                            session,
+                            methods::FS_WRITE_FILE,
+                            json!({ "path": file, "data": encode_bytes(data) }),
+                        );
+                        (data, result)
+                    })
+                })
+                .collect();
+            writers
+                .into_iter()
+                .map(|writer| writer.join().unwrap())
+                .collect()
+        });
+        let winners: Vec<&[u8]> = results
+            .iter()
+            .filter(|(_, result)| result.is_ok())
+            .map(|(data, _)| *data)
+            .collect();
+        assert_eq!(winners.len(), 1, "round {round}: {results:?}");
+        for (_, result) in results.into_iter().filter(|(_, result)| result.is_err()) {
+            assert_eq!(error_code(result), ErrorCode::AlreadyExists);
+        }
+        assert_eq!(std::fs::read(&file).unwrap(), winners[0]);
+    }
+    session.shutdown(STEP_TIMEOUT);
+}
+
 #[test]
 fn writing_through_a_symbolic_link_keeps_the_link() {
     let directory = TempDir::new("links");
@@ -377,6 +420,162 @@ fn disconnecting_terminates_spawned_processes() {
         "process {} outlived the session",
         spawned.pid
     );
+}
+
+/// Starts a group whose leader exits right away while a member keeps
+/// running, as a build tool that leaves a daemon behind does. Returns the
+/// process id and the surviving member's pid after the leader's exit event.
+fn spawn_group_that_outlives_its_leader(
+    session: &RemoteSession,
+    events: &std::sync::mpsc::Receiver<lithe_remote_client::session::Event>,
+) -> (u64, u32) {
+    let spawned: SpawnResult = session
+        .request(
+            methods::PROCESS_SPAWN,
+            &json!({ "argv": ["sh", "-c", "sleep 60 >/dev/null 2>&1 & echo $!"] }),
+            STEP_TIMEOUT,
+        )
+        .unwrap();
+    let finished = wait_for_exit(events, spawned.process_id);
+    assert_eq!(finished.exit.unwrap().exit_code, Some(0));
+    let member = String::from_utf8(finished.stdout)
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    (spawned.process_id, member)
+}
+
+#[test]
+fn kill_reaches_members_that_outlive_the_leader() {
+    let (session, events) = connect();
+    let (process_id, member) = spawn_group_that_outlives_its_leader(&session, &events);
+    call(
+        &session,
+        methods::PROCESS_KILL,
+        json!({ "processId": process_id, "force": true }),
+    )
+    .unwrap();
+    assert!(
+        wait_until_gone(member),
+        "member {member} survived the group kill"
+    );
+    session.shutdown(STEP_TIMEOUT);
+}
+
+#[test]
+fn disconnecting_terminates_members_that_outlive_the_leader() {
+    let (session, events) = connect();
+    let (_, member) = spawn_group_that_outlives_its_leader(&session, &events);
+    drop(events);
+    drop(session);
+    assert!(
+        wait_until_gone(member),
+        "member {member} outlived the session"
+    );
+}
+
+/// Reader that blocks while its gate is closed, standing in for a server
+/// whose input stopped being consumed.
+struct GatedReader {
+    inner: std::io::PipeReader,
+    gate: std::sync::Arc<Gate>,
+}
+
+#[derive(Default)]
+struct Gate {
+    closed: std::sync::Mutex<bool>,
+    changed: std::sync::Condvar,
+}
+
+impl Gate {
+    fn set_closed(&self, closed: bool) {
+        *self.closed.lock().unwrap() = closed;
+        self.changed.notify_all();
+    }
+}
+
+impl std::io::Read for GatedReader {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        let mut closed = self.gate.closed.lock().unwrap();
+        while *closed {
+            closed = self.gate.changed.wait(closed).unwrap();
+        }
+        drop(closed);
+        self.inner.read(buffer)
+    }
+}
+
+/// Opens the gate on drop so the server thread can finish after a failure.
+struct OpenOnDrop(std::sync::Arc<Gate>);
+
+impl Drop for OpenOnDrop {
+    fn drop(&mut self) {
+        self.0.set_closed(false);
+    }
+}
+
+// A request whose frame cannot be written because the peer stopped reading
+// must still end at its timeout, and must not hold up later requests.
+#[test]
+fn a_peer_that_stops_reading_cannot_block_requests_past_their_timeout() {
+    let (server_input, client_output) = std::io::pipe().unwrap();
+    let (client_input, server_output) = std::io::pipe().unwrap();
+    let gate = std::sync::Arc::new(Gate::default());
+    let _open = OpenOnDrop(std::sync::Arc::clone(&gate));
+    let (served, server_done) = std::sync::mpsc::channel();
+    {
+        let reader = GatedReader {
+            inner: server_input,
+            gate: std::sync::Arc::clone(&gate),
+        };
+        std::thread::spawn(move || {
+            let _ = served.send(lithe_remote_server::serve(reader, server_output));
+        });
+    }
+    let options = lithe_remote_client::session::ConnectOptions {
+        client_name: "test".into(),
+        handshake_timeout: STEP_TIMEOUT,
+    };
+    let (session, _events) =
+        RemoteSession::from_streams(client_input, client_output, &options).unwrap();
+    let session = std::sync::Arc::new(session);
+    let directory = TempDir::new("stalled");
+
+    gate.set_closed(true);
+    // The requests run on a helper thread so that a regression fails at the
+    // test's own deadline instead of hanging the suite.
+    let (finished, stalled) = std::sync::mpsc::channel();
+    {
+        let session = std::sync::Arc::clone(&session);
+        // Far larger than a pipe buffer, so writing it blocks.
+        let large =
+            json!({ "path": directory.join("large"), "data": encode_bytes(&vec![0; 1 << 20]) });
+        std::thread::spawn(move || {
+            let short = std::time::Duration::from_millis(200);
+            let first = session.request_value(methods::FS_WRITE_FILE, large, short);
+            let second = session.request_value(methods::FS_STAT, json!({ "path": "/" }), short);
+            // Released before reporting, so the test can take the session back.
+            drop(session);
+            let _ = finished.send((first, second));
+        });
+    }
+    let (first, second) = stalled
+        .recv_timeout(STEP_TIMEOUT)
+        .expect("requests blocked past their timeout");
+    assert!(matches!(first, Err(ClientError::Timeout)), "{first:?}");
+    assert!(matches!(second, Err(ClientError::Timeout)), "{second:?}");
+
+    gate.set_closed(false);
+    let session = std::sync::Arc::try_unwrap(session)
+        .ok()
+        .expect("the helper thread released the session");
+    call(&session, methods::FS_STAT, json!({ "path": "/" })).unwrap();
+    session.shutdown(STEP_TIMEOUT);
+    server_done
+        .recv_timeout(STEP_TIMEOUT)
+        .expect("server did not stop after shutdown")
+        .unwrap();
 }
 
 #[test]

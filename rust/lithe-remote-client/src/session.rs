@@ -4,6 +4,10 @@
 //! request waiting for it and forwards events to a bounded channel. Callers
 //! must drain that channel: when it is full the reader stops, and with it the
 //! server's output, which is the intended backpressure for chatty processes.
+//!
+//! A writer thread owns the outgoing stream. Requests queue their frames for
+//! it, so a peer that stops reading blocks only that thread, and every request
+//! still ends at its own deadline.
 
 use crate::transport::{TransportChain, TransportError};
 use lithe_remote_protocol::frame::{read_frame, skip_preamble, write_frame};
@@ -18,7 +22,7 @@ use std::io::{self, BufReader, Read, Write};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -30,6 +34,11 @@ const PREAMBLE_NOISE_LIMIT: usize = 64 * 1024;
 
 /// Tail of the transport's standard error kept for diagnostics.
 const STDERR_TAIL_BYTES: usize = 8 * 1024;
+
+/// Bytes of request frames queued for the writer thread. Requests wait for
+/// room within their deadline; one frame larger than this is still accepted
+/// when the queue is empty.
+const OUTGOING_QUEUE_BYTES: usize = 32 * 1024 * 1024;
 
 /// Time the server gets to exit after `server.shutdown` before it is killed.
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(2);
@@ -106,8 +115,90 @@ impl Default for ConnectOptions {
     }
 }
 
+/// Frames waiting for the writer thread.
+#[derive(Default)]
+struct OutgoingState {
+    frames: VecDeque<(u64, Vec<u8>)>,
+    bytes: usize,
+    /// Set when the session is dropped or a write failed.
+    closed: bool,
+}
+
+#[derive(Default)]
+struct Outgoing {
+    state: Mutex<OutgoingState>,
+    changed: Condvar,
+}
+
+impl Outgoing {
+    /// Queues a frame, waiting until `deadline` for room. `Ok(false)` means
+    /// the queue is closed.
+    fn push(&self, id: u64, payload: Vec<u8>, deadline: Instant) -> Result<bool, ClientError> {
+        let mut state = lock(&self.state);
+        loop {
+            if state.closed {
+                return Ok(false);
+            }
+            if state.frames.is_empty() || state.bytes + payload.len() <= OUTGOING_QUEUE_BYTES {
+                break;
+            }
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Err(ClientError::Timeout);
+            }
+            state = self
+                .changed
+                .wait_timeout(state, remaining)
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .0;
+        }
+        state.bytes += payload.len();
+        state.frames.push_back((id, payload));
+        self.changed.notify_all();
+        Ok(true)
+    }
+
+    /// Drops a frame that was not written yet, for a request that timed out.
+    fn withdraw(&self, id: u64) {
+        let mut state = lock(&self.state);
+        if let Some(index) = state.frames.iter().position(|(queued, _)| *queued == id) {
+            if let Some((_, payload)) = state.frames.remove(index) {
+                state.bytes -= payload.len();
+                self.changed.notify_all();
+            }
+        }
+    }
+
+    fn close(&self) {
+        let mut state = lock(&self.state);
+        state.closed = true;
+        state.frames.clear();
+        state.bytes = 0;
+        self.changed.notify_all();
+    }
+
+    /// Next frame for the writer thread, or `None` once closed.
+    fn pop(&self) -> Option<Vec<u8>> {
+        let mut state = lock(&self.state);
+        loop {
+            if state.closed {
+                return None;
+            }
+            if let Some((_, payload)) = state.frames.pop_front() {
+                state.bytes -= payload.len();
+                self.changed.notify_all();
+                return Some(payload);
+            }
+            state = self
+                .changed
+                .wait(state)
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+        }
+    }
+}
+
 pub struct RemoteSession {
-    writer: Mutex<Option<Box<dyn Write + Send>>>,
+    outgoing: Arc<Outgoing>,
     pending: Arc<Mutex<Pending>>,
     next_id: AtomicU64,
     child: Mutex<Option<Child>>,
@@ -164,6 +255,7 @@ impl RemoteSession {
         let pending = Arc::new(Mutex::new(Pending::default()));
         let (event_sender, events) = mpsc::sync_channel(EVENT_CAPACITY);
         let (ready_sender, ready) = mpsc::channel();
+        let outgoing = Arc::new(Outgoing::default());
         {
             let pending = Arc::clone(&pending);
             thread::Builder::new()
@@ -171,8 +263,16 @@ impl RemoteSession {
                 .spawn(move || read_loop(reader, pending, event_sender, ready_sender))
                 .map_err(ClientError::Spawn)?;
         }
+        {
+            let outgoing = Arc::clone(&outgoing);
+            let pending = Arc::clone(&pending);
+            thread::Builder::new()
+                .name("remote-writer".into())
+                .spawn(move || write_loop(writer, &outgoing, &pending))
+                .map_err(ClientError::Spawn)?;
+        }
         let mut session = Self {
-            writer: Mutex::new(Some(writer)),
+            outgoing,
             pending,
             next_id: AtomicU64::new(0),
             child: Mutex::new(child),
@@ -238,6 +338,7 @@ impl RemoteSession {
         params: Value,
         timeout: Duration,
     ) -> Result<Value, ClientError> {
+        let deadline = Instant::now() + timeout;
         let id = self.next_id.fetch_add(1, Ordering::Relaxed) + 1;
         let (reply_sender, reply) = mpsc::sync_channel(1);
         {
@@ -252,18 +353,20 @@ impl RemoteSession {
             method: method.into(),
             params,
         };
-        if let Err(error) = self.send(&message) {
+        if let Err(error) = self.send(id, &message, deadline) {
             lock(&self.pending).waiting.remove(&id);
             return Err(error);
         }
-        match reply.recv_timeout(timeout) {
+        match reply.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
             Ok(Ok(value)) => Ok(value),
             Ok(Err(ClientError::Disconnected { .. }))
             | Err(mpsc::RecvTimeoutError::Disconnected) => Err(self.disconnected()),
             Ok(Err(error)) => Err(error),
             Err(mpsc::RecvTimeoutError::Timeout) => {
-                // Removing the waiter makes the reader drop a late response.
+                // Removing the waiter makes the reader drop a late response;
+                // a frame still queued is not sent at all.
                 lock(&self.pending).waiting.remove(&id);
+                self.outgoing.withdraw(id);
                 Err(ClientError::Timeout)
             }
         }
@@ -276,14 +379,13 @@ impl RemoteSession {
         // Drop closes the stream and reaps the transport process.
     }
 
-    fn send(&self, message: &Message) -> Result<(), ClientError> {
+    fn send(&self, id: u64, message: &Message, deadline: Instant) -> Result<(), ClientError> {
         let payload = serde_json::to_vec(message)
             .map_err(|error| ClientError::Protocol(error.to_string()))?;
-        let mut writer = lock(&self.writer);
-        let Some(stream) = writer.as_mut() else {
-            return Err(self.disconnected());
-        };
-        write_frame(stream, &payload).map_err(|_| self.disconnected())
+        match self.outgoing.push(id, payload, deadline)? {
+            true => Ok(()),
+            false => Err(self.disconnected()),
+        }
     }
 
     fn disconnected(&self) -> ClientError {
@@ -318,8 +420,10 @@ impl RemoteSession {
 
 impl Drop for RemoteSession {
     fn drop(&mut self) {
-        // Closing standard input is the server's disconnect signal.
-        lock(&self.writer).take();
+        // The writer thread then drops standard input, which is the server's
+        // disconnect signal. A writer blocked on a peer that stopped reading
+        // is released when the transport is killed below.
+        self.outgoing.close();
         if !self.wait_for_transport_exit(SHUTDOWN_GRACE) {
             if let Some(child) = lock(&self.child).as_mut() {
                 let _ = child.kill();
@@ -363,6 +467,18 @@ fn read_loop(
         }
     }
     close(&pending);
+}
+
+fn write_loop(mut writer: Box<dyn Write + Send>, outgoing: &Outgoing, pending: &Mutex<Pending>) {
+    while let Some(payload) = outgoing.pop() {
+        if write_frame(&mut writer, &payload).is_err() {
+            // A broken stream fails every waiting request now instead of at
+            // its deadline.
+            outgoing.close();
+            close(pending);
+            return;
+        }
+    }
 }
 
 fn close(pending: &Mutex<Pending>) {

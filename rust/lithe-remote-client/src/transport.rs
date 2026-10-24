@@ -10,7 +10,9 @@
 //! one string. That shell may be sh, bash, zsh, fish or csh, which disagree on
 //! escapes, so arguments that cross an SSH hop are single-quoted and the
 //! characters any of those shells treat specially inside single quotes are
-//! rejected instead of being escaped.
+//! rejected instead of being escaped. The one exception is the command line
+//! an inner SSH hop generates: its own single quotes are escaped as `'"'"'`,
+//! which every supported shell reads back unchanged, so SSH hops can nest.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -136,14 +138,14 @@ impl TransportChain {
 
     /// Local command line that runs `argv` at the end of the chain.
     pub fn command(&self, argv: &[String]) -> Result<Vec<String>, TransportError> {
-        let mut current = argv.to_vec();
+        let mut current: Vec<Word> = argv.iter().cloned().map(Word::Raw).collect();
         for hop in self.hops.iter().rev() {
             current = match hop {
                 Hop::Ssh(hop) => ssh_command(hop, &current)?,
                 Hop::Container(hop) => container_command(hop, current)?,
             };
         }
-        Ok(current)
+        Ok(current.into_iter().map(Word::into_string).collect())
     }
 
     /// Stable identity of the chain, for example `ssh:devbox/docker:api`.
@@ -167,9 +169,26 @@ impl TransportChain {
     }
 }
 
-fn ssh_command(hop: &SshHop, remote: &[String]) -> Result<Vec<String>, TransportError> {
+/// One argument of a command line under construction.
+#[derive(Clone, Debug)]
+enum Word {
+    /// Caller or hop input, validated before it crosses an SSH hop.
+    Raw(String),
+    /// Remote command string built by [`shell_join`] for an inner SSH hop.
+    Generated(String),
+}
+
+impl Word {
+    fn into_string(self) -> String {
+        match self {
+            Self::Raw(text) | Self::Generated(text) => text,
+        }
+    }
+}
+
+fn ssh_command(hop: &SshHop, remote: &[Word]) -> Result<Vec<Word>, TransportError> {
     validate_ssh_destination(&hop.destination)?;
-    let mut command = vec![
+    let mut command: Vec<String> = vec![
         hop.program.clone(),
         // No pseudo-terminal: the protocol stream must stay byte-exact.
         "-T".into(),
@@ -200,14 +219,13 @@ fn ssh_command(hop: &SshHop, remote: &[String]) -> Result<Vec<String>, Transport
     }
     command.push("--".into());
     command.push(hop.destination.clone());
-    command.push(shell_join(remote)?);
-    Ok(command)
+    let remote_command = shell_join(remote)?;
+    let mut words: Vec<Word> = command.into_iter().map(Word::Raw).collect();
+    words.push(Word::Generated(remote_command));
+    Ok(words)
 }
 
-fn container_command(
-    hop: &ContainerHop,
-    inner: Vec<String>,
-) -> Result<Vec<String>, TransportError> {
+fn container_command(hop: &ContainerHop, inner: Vec<Word>) -> Result<Vec<Word>, TransportError> {
     if !is_container_reference(&hop.container) {
         return Err(TransportError::InvalidHop {
             reason: format!("invalid container name {:?}", hop.container),
@@ -244,8 +262,9 @@ fn container_command(
     // The engine stops parsing its own options at the container name, so the
     // inner command needs no separator.
     command.push(hop.container.clone());
-    command.extend(inner);
-    Ok(command)
+    let mut words: Vec<Word> = command.into_iter().map(Word::Raw).collect();
+    words.extend(inner);
+    Ok(words)
 }
 
 fn validate_ssh_destination(destination: &str) -> Result<(), TransportError> {
@@ -277,11 +296,22 @@ fn is_environment_name(name: &str) -> bool {
 
 /// Joins arguments into one string that every supported login shell splits
 /// back into the same arguments.
-pub(crate) fn shell_join(argv: &[String]) -> Result<String, TransportError> {
+fn shell_join(argv: &[Word]) -> Result<String, TransportError> {
     argv.iter()
-        .map(|argument| shell_quote(argument))
+        .map(|word| match word {
+            Word::Raw(argument) => shell_quote(argument),
+            Word::Generated(command) => Ok(quote_generated(command)),
+        })
         .collect::<Result<Vec<_>, _>>()
         .map(|quoted| quoted.join(" "))
+}
+
+/// Quotes a command line produced by [`shell_join`]. It is built only from
+/// validated arguments, so it holds no `\`, `!` or control characters, and
+/// its own single quotes leave the quote, appear inside double quotes, and
+/// reopen it.
+fn quote_generated(command: &str) -> String {
+    format!("'{}'", command.replace('\'', "'\"'\"'"))
 }
 
 fn shell_quote(argument: &str) -> Result<String, TransportError> {
@@ -383,6 +413,77 @@ mod tests {
                 .unwrap(),
             "printf ''"
         );
+    }
+
+    // Each SSH hop hands its remote command to a login shell, so the command
+    // an inner hop generates must survive one more round of parsing. A fake
+    // `ssh` runs that string with a real shell, for every supported login
+    // shell installed here.
+    #[test]
+    fn nested_ssh_hops_deliver_arguments_unchanged() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = std::env::temp_dir().join(format!(
+            "lithe-remote-nested-ssh-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        std::fs::create_dir_all(&directory).unwrap();
+        let _cleanup = RemoveOnDrop(directory.clone());
+        let argv = strings(&[
+            "sh",
+            "-c",
+            "printf %s/%s \"$0\" \"$1\"",
+            "two words",
+            "$HOME \"quoted\" * ; |",
+        ]);
+        let mut tested = 0;
+        for shell in [
+            "/bin/sh",
+            "/bin/bash",
+            "/bin/zsh",
+            "/bin/csh",
+            "/usr/bin/fish",
+        ] {
+            if !std::path::Path::new(shell).exists() {
+                continue;
+            }
+            let fake_ssh = directory.join(format!("ssh-{}", shell.rsplit('/').next().unwrap()));
+            std::fs::write(
+                &fake_ssh,
+                format!("#!/bin/sh\nfor last; do :; done\nexec {shell} -c \"$last\"\n"),
+            )
+            .unwrap();
+            std::fs::set_permissions(&fake_ssh, std::fs::Permissions::from_mode(0o755)).unwrap();
+            let hop = || {
+                let mut hop = SshHop::new("box");
+                hop.program = fake_ssh.to_str().unwrap().into();
+                Hop::Ssh(hop)
+            };
+            let chain = TransportChain::new(vec![hop(), hop(), hop()]);
+            let output = crate::command::run(
+                &chain.command(&argv).unwrap(),
+                None,
+                std::time::Duration::from_secs(10),
+            )
+            .unwrap();
+            assert_eq!(
+                String::from_utf8_lossy(&output.stdout),
+                "two words/$HOME \"quoted\" * ; |",
+                "through {shell}: {}",
+                output.stderr_text()
+            );
+            tested += 1;
+        }
+        assert!(tested > 0, "no supported shell found");
+    }
+
+    struct RemoveOnDrop(std::path::PathBuf);
+
+    impl Drop for RemoveOnDrop {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
     }
 
     #[test]

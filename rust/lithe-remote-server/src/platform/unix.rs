@@ -81,6 +81,20 @@ pub(crate) fn signal_process_group(leader: u32, signal: libc::c_int) -> io::Resu
     Ok(())
 }
 
+/// Whether any process is still in the process group `group`. A zombie
+/// member counts until it is reaped; `EPERM` means a member exists that the
+/// server may not signal.
+pub(crate) fn process_group_exists(group: u32) -> bool {
+    let Ok(group) = libc::pid_t::try_from(group) else {
+        return false;
+    };
+    // SAFETY: signal 0 performs only the existence and permission check.
+    if unsafe { libc::killpg(group, 0) } == 0 {
+        return true;
+    }
+    io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+}
+
 /// Determines case sensitivity without writing: it looks up the nearest
 /// component with letters under its swapped-case spelling and checks whether
 /// that resolves to the same file. Only components on the same device as
