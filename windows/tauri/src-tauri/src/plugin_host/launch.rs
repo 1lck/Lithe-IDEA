@@ -13,12 +13,11 @@ use super::store;
 use super::ScannedPackage;
 use serde::Serialize;
 use serde_json::Value;
+use std::cell::Cell;
 use std::collections::BTreeMap;
-use std::io::Read;
 use std::path::Path;
 use std::path::PathBuf;
-use std::process::{Child, Command, Stdio};
-use std::thread;
+use std::process::Command;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager};
 
@@ -355,110 +354,60 @@ fn verify_runtime_version(path: &Path, tool: &str, launch: &Value) -> Result<(),
     Ok(())
 }
 
-/// Runs a runtime version command with bounded lifetime and output capture.
-/// The two reader threads continue draining pipes after the memory cap is
-/// reached so a noisy child cannot deadlock on a full pipe before the timeout.
+/// Reuses the native executor's Job Object, nonblocking pipes and bounded
+/// process-tree cleanup. The deadline covers pipe draining after parent exit;
+/// package-selected background helpers cannot keep an LSP launch waiting.
 fn bounded_version_probe(
     path: &Path,
     arguments: &[String],
     tool: &str,
 ) -> Result<(Vec<u8>, Vec<u8>), String> {
-    let mut child = Command::new(path)
-        .args(arguments)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|error| format!("runtime tool {tool} could not be executed: {error}"))?;
-    let stdout = match child.stdout.take() {
-        Some(stdout) => stdout,
-        None => {
-            terminate_probe(&mut child);
-            return Err(format!("runtime tool {tool} has no stdout pipe"));
-        }
-    };
-    let stderr = match child.stderr.take() {
-        Some(stderr) => stderr,
-        None => {
-            terminate_probe(&mut child);
-            return Err(format!("runtime tool {tool} has no stderr pipe"));
-        }
-    };
-    let stdout_reader = thread::spawn(move || read_probe_stream(stdout));
-    let stderr_reader = thread::spawn(move || read_probe_stream(stderr));
+    let mut command = Command::new(path);
+    command.args(arguments);
+    run_version_probe(&mut command, tool)
+}
+
+fn run_version_probe(command: &mut Command, tool: &str) -> Result<(Vec<u8>, Vec<u8>), String> {
     let deadline = Instant::now() + RUNTIME_PROBE_TIMEOUT;
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break status,
-            Ok(None) if Instant::now() < deadline => {
-                thread::sleep(Duration::from_millis(10));
-            }
-            Ok(None) => {
-                terminate_probe(&mut child);
-                let _ = stdout_reader.join();
-                let _ = stderr_reader.join();
-                return Err(format!("runtime tool {tool} version probe timed out"));
-            }
-            Err(error) => {
-                terminate_probe(&mut child);
-                let _ = stdout_reader.join();
-                let _ = stderr_reader.join();
-                return Err(format!("runtime tool {tool} version probe failed: {error}"));
-            }
-        }
+    let stdout_bytes = Cell::new(0_usize);
+    let stderr_bytes = Cell::new(0_usize);
+    let exceeded = || {
+        stdout_bytes.get() > MAX_RUNTIME_PROBE_OUTPUT_BYTES
+            || stderr_bytes.get() > MAX_RUNTIME_PROBE_OUTPUT_BYTES
     };
-    let stdout = stdout_reader
-        .join()
-        .map_err(|_| format!("runtime tool {tool} stdout reader failed"))?
-        .map_err(|error| format!("runtime tool {tool} stdout could not be read: {error}"))?;
-    let stderr = stderr_reader
-        .join()
-        .map_err(|_| format!("runtime tool {tool} stderr reader failed"))?
-        .map_err(|error| format!("runtime tool {tool} stderr could not be read: {error}"))?;
-    if stdout.1 || stderr.1 {
+    let outcome = lithe_git_host::run(
+        command,
+        None,
+        || exceeded() || Instant::now() >= deadline,
+        || {},
+        |stream, bytes| {
+            let count = match stream {
+                lithe_git_host::Stream::Stdout => &stdout_bytes,
+                lithe_git_host::Stream::Stderr => &stderr_bytes,
+            };
+            count.set(count.get().saturating_add(bytes.len()));
+        },
+    );
+    if exceeded() {
         return Err(format!(
             "runtime tool {tool} version probe output exceeds {} bytes",
             MAX_RUNTIME_PROBE_OUTPUT_BYTES
         ));
     }
-    if !status.success() && stdout.0.is_empty() && stderr.0.is_empty() {
+    if let Some(failure) = outcome.failure {
         return Err(format!(
-            "runtime tool {tool} version probe exited with {status}"
+            "runtime tool {tool} version probe failed or timed out: {failure:?}"
         ));
     }
-    Ok((stdout.0, stderr.0))
-}
-
-fn read_probe_stream<R: Read>(mut stream: R) -> std::io::Result<(Vec<u8>, bool)> {
-    let mut output = Vec::with_capacity(MAX_RUNTIME_PROBE_OUTPUT_BYTES.min(8192));
-    let mut buffer = [0_u8; 8192];
-    let mut truncated = false;
-    loop {
-        let count = stream.read(&mut buffer)?;
-        if count == 0 {
-            break;
-        }
-        let remaining = MAX_RUNTIME_PROBE_OUTPUT_BYTES.saturating_sub(output.len());
-        if remaining > 0 {
-            output.extend_from_slice(&buffer[..count.min(remaining)]);
-        }
-        if count > remaining {
-            truncated = true;
-        }
-    }
-    Ok((output, truncated))
-}
-
-/// Kills a probe process and any descendants that may have inherited its
-/// output handles, then waits for the direct child to leave the process table.
-fn terminate_probe(child: &mut Child) {
-    #[cfg(windows)]
+    if outcome.status.is_none_or(|status| !status.success())
+        && outcome.stdout.is_empty()
+        && outcome.stderr.is_empty()
     {
-        let _ = Command::new("taskkill")
-            .args(["/PID", &child.id().to_string(), "/T", "/F"])
-            .status();
+        return Err(format!(
+            "runtime tool {tool} version probe exited without version output"
+        ));
     }
-    let _ = child.kill();
-    let _ = child.wait();
+    Ok((outcome.stdout, outcome.stderr))
 }
 
 /// Joins a package-relative plan path and proves it stays inside the package
@@ -537,7 +486,99 @@ fn string_arguments(value: &Value) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Cursor;
+
+    /// Child-only fixture: environment is attached to Command, never mutated
+    /// in the test runner. Its libtest entry is also the executable on CI.
+    #[test]
+    #[ignore = "launched by runtime probe regression tests"]
+    fn version_probe_fixture() {
+        use std::io::Write;
+        match std::env::var("LITHE_PROBE_FIXTURE").as_deref() {
+            Ok("output") => println!("v21.0.0"),
+            Ok("overflow") => {
+                std::io::stdout()
+                    .write_all(&vec![b'x'; MAX_RUNTIME_PROBE_OUTPUT_BYTES + 1])
+                    .unwrap();
+            }
+            Ok("parent") => {
+                let mut command = probe_fixture_command("hold-pipes");
+                command.stdin(std::process::Stdio::null());
+                command.spawn().expect("inheriting helper");
+                println!("v21.0.0");
+            }
+            Ok("hold-pipes") => {
+                let marker = std::env::var("LITHE_PROBE_MARKER").expect("marker path");
+                std::fs::write(marker, std::process::id().to_string()).expect("record helper");
+                // The helper's guard only prevents a leaked fixture from living
+                // forever; the production Job Object must terminate it first.
+                let (_sender, receiver) = std::sync::mpsc::channel::<()>();
+                let _ = receiver.recv_timeout(Duration::from_secs(30));
+            }
+            _ => panic!("fixture requires a scoped child environment"),
+        }
+    }
+
+    fn probe_fixture_command(mode: &str) -> Command {
+        let mut command = Command::new(std::env::current_exe().expect("test executable"));
+        command
+            .args([
+                "--exact",
+                "plugin_host::launch::tests::version_probe_fixture",
+                "--ignored",
+                "--nocapture",
+            ])
+            .env("LITHE_PROBE_FIXTURE", mode);
+        command
+    }
+
+    #[test]
+    fn runtime_probe_collects_output_and_rejects_overflow() {
+        let output =
+            run_version_probe(&mut probe_fixture_command("output"), "fixture").expect("probe");
+        assert!(String::from_utf8_lossy(&output.0).contains("v21.0.0"));
+        let error =
+            run_version_probe(&mut probe_fixture_command("overflow"), "fixture").unwrap_err();
+        assert!(error.contains("output exceeds"), "{error}");
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn runtime_probe_reclaims_inherited_pipes_after_parent_exit() {
+        struct TempRoot(PathBuf);
+        impl Drop for TempRoot {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let root = TempRoot(unique_temp_root("inherited-pipes"));
+        let marker = root.0.join("helper.pid");
+        let mut command = probe_fixture_command("parent");
+        command.env("LITHE_PROBE_MARKER", &marker);
+        let began = Instant::now();
+        let error = run_version_probe(&mut command, "fixture").unwrap_err();
+        assert!(
+            began.elapsed() < RUNTIME_PROBE_TIMEOUT + Duration::from_secs(3),
+            "{error}"
+        );
+        let pid: u32 = std::fs::read_to_string(marker)
+            .expect("helper started")
+            .parse()
+            .unwrap();
+        // The parent is already gone: a PID walk could no longer own this helper.
+        // Opening a terminated process may still succeed while the kernel reaps it.
+        use windows_sys::Win32::{
+            Foundation::CloseHandle,
+            System::Threading::{OpenProcess, WaitForSingleObject, PROCESS_SYNCHRONIZE},
+        };
+        unsafe {
+            let handle = OpenProcess(PROCESS_SYNCHRONIZE, 0, pid);
+            if !handle.is_null() {
+                let waited = WaitForSingleObject(handle, 1000);
+                CloseHandle(handle);
+                assert_eq!(waited, 0, "version helper survived process-tree cleanup");
+            }
+        }
+    }
 
     /// Unique per-run temp root; mirrors the temp-dir convention used by the
     /// other src-tauri tests (std::env::temp_dir + pid + timestamp).
@@ -679,14 +720,6 @@ mod tests {
         )
         .is_err());
         let _ = std::fs::remove_dir_all(&temporary);
-    }
-
-    #[test]
-    fn runtime_probe_output_is_capped_without_truncating_the_reader() {
-        let input = vec![b'x'; MAX_RUNTIME_PROBE_OUTPUT_BYTES + 1];
-        let (output, truncated) = read_probe_stream(Cursor::new(input)).expect("read probe");
-        assert_eq!(output.len(), MAX_RUNTIME_PROBE_OUTPUT_BYTES);
-        assert!(truncated);
     }
 
     #[test]

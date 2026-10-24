@@ -1,4 +1,5 @@
 import { invoke } from "@/platform/tauri-core";
+import { getPluginWebAppearance } from "./plugin-web-appearance";
 
 /**
  * Host API for contract v1 declarative plugin packages. The Rust
@@ -259,7 +260,9 @@ export function listDeclarativeWebWindows(): Promise<DeclarativeWebToolWindow[]>
 
 /** Opens (or focuses) the web view of one tool window. */
 export function openDeclarativeWebWindow(pluginId: string, windowId: string): Promise<void> {
-  return invoke<void>("declarative_plugins_open_web_window", { pluginId, windowId });
+  return invoke<void>("declarative_plugins_open_web_window", {
+    pluginId, windowId, appearance: getPluginWebAppearance(),
+  });
 }
 
 /** Destroys the web view of one tool window. */

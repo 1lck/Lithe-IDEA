@@ -42,7 +42,21 @@ Windows 新增一套契约 v1 声明式插件宿主，与现有 Worker 扩展模
 - 语言服务器进程仍由共享 Core 的 `lsp.startServer` 拉起：前端 `resolve-editor-lsp-launch.ts` 在 Worker 扩展清单没有对应服务器时，回落到 `declarative_plugins_language_launch`（契约插件排在 Worker 之后，已由 Worker 声明的语言保持现状，直到 M3 包迁移）。
 - 启动扫描在应用 bootstrap 的 "declarative plugins" 步骤执行一次；扫描结果缓存在 Tauri state，前端经 `declarative_plugins_state` 只读消费。
 
-### 与 Worker 扩展模型共存
+### 网页与版本探测的运行边界
+
+Tauri 把插件自定义协议页面视为远端来源，空 capability 会在进入 Rust handler 前拒绝所有 IPC。宿主采用 Tauri 官方 inlined plugin（应用内命令插件）扩展点：`declarative-web` 命名空间只声明一个 `request` 权限，仅匹配 `plugin-web-*` 窗口和 `http://lithe-plugin.*/*` 来源；不授予 fs/http/event 等命令，也不启用会改变全部主窗口命令的 app ACL。编译后的 Tauri authority 回归验证这条边界，不能用只检查 handler 的测试代替。
+
+插件网页的窗口标签只用于定位所属包，不能单独证明当前文档可信。`web.rs` 使用 Tauri 的导航、新窗口和下载拦截器，只允许本包来源；每次桥接请求还读取 WebView 当前 URL，再核对插件来源、启用状态和窗口声明。宿主脚本也只在本包主框架定义桥，窗口使用非持久浏览会话，避免外站文档继承桥或页面存储。例如本包的 `ui/next.html` 可以导航，`https://example.com`、另一个插件的来源、带用户信息或端口的地址会被拒绝；不要用 CSP 或窗口标签代替导航与请求来源检查。
+
+WebView2 的 NavigationStarting 可以阻止外站文档提交，但实测外站服务器仍可能先收到 GET。因此 `web_network.rs` 使用微软的 WebResourceRequested 接口，在请求层把非本包、非 Tauri IPC 的网络请求完成为本地 403。窗口先创建为惰性空白页，五秒期限内安装过滤器成功后才导航到包页面；失败时销毁空白窗口，不能留下可运行但未受保护的页面。Wry 只在初次创建时转换自定义协议，延迟 navigate 必须显式使用同一 http://lithe-plugin.<插件 ID>/ 映射地址，否则页面会停在空白文档；这个地址构造和来源检查共用同一回归。注册跟随 WebView 的生命周期，不在页面每次加载时叠加。复用 Wry 已依赖的 webview2-com 0.38.2 API，独立声明同一固定版本，没有新增另一套浏览器或网络后端。
+
+`workspace.openFile` 必须先经原生文件系统解析真实目标，再检查它仍在同样经过解析的工作区根内。前端把这个目标交给既有文件打开入口，保留行列位置，并在等待解析后复查工作区有没有切换。工作区内指向内部文件的链接可以打开，指向外部目录的 junction（Windows 的目录联接）不能借路径文本绕过检查。不能仅比较 `C:/work/link/file.txt` 的文本前缀。
+
+网页的语言、浅色或深色状态、颜色和字体变量从已解析的 Windows 工作台主题取得。主窗口创建页面时传入初值，主题注册表与设置的订阅把后续变化送到原生页面；根元素的 `data-theme`、`--lithe-*` 变量和只读 `lithe.context` 随之更新，再发 `ui.themeChanged`。每个 HTML 响应会在插件脚本前加载一个保留路径下的宿主同源外部脚本，由原生协议 handler 按可信窗口标签读取最新快照；因此页面重载、同包导航和带 UTF-8 BOM 的页面在运行插件代码前也能取得当前主题，HTML parser 已创建根元素。宿主脚本插在真实 head 起始标签后；省略 head 时退到 html 后，两者都省略时放在文档声明之后。扫描仅处理 HTML 前导区，跳过注释并识别带引号的属性，保留原有根样式、head 属性、BOM 和文档模式。这种响应字节插入不改包文件，也不给 CSP 增加内联脚本例外。订阅随 bootstrap 清理，不在插件内复制另一套主题值。
+
+版本探测复用 `lithe_git_host::run` 的原生进程执行器。虽然它位于 Git adapter crate，其进程树、非阻塞管道与清理能力不解释 Git 参数；探测只设置五秒取消期限和每条输出流 64 KiB 上限，解析仍交 Core。Windows 在进程运行第一条指令之前把它放入 Job Object（内核管理的进程组），因此父进程退出后仍占用 stdout 的后代也会被清理。不要只给 `try_wait` 加超时后无期限 `join` 读取线程，也不要靠退出后遍历父 PID 找后代。代价是异常进程退出后最多还需执行器自身的有界清理时间。
+
+### 与 Worker 扩展模型共存（产品分工）
 
 - 两套模型互不桥接：契约插件不进 Worker 宿主，Worker 扩展不冒充契约能力。
 - PhpSupport 迁移（M3 调整）：契约版 PHP 包（`Plugins/win/Official/PhpSupportContract`，`sameTeamAsHost` bundled）随安装器分发并完成 validate/launch/runPlan 端到端测试，但 Worker 版**保留不移除**。原因：Worker 版提供 composer scripts 的动态运行动作发现（读取工作区 composer.json 生成动作列表），契约 v1 的 `executionProviders` 是静态声明，没有等价能力；删除 Worker 版会丢失用户可见功能。完整迁移等契约补齐动态运行动作后再做。两包并存时 Worker 版优先（Worker 扩展清单先解析），契约包不重复注册语言。
@@ -70,6 +84,9 @@ M1 包存储 + 启动校验 + 语言注册 + LSP 启动（已落地）；M2 磁�
 
 ## 验证
 
+- 网页隔离与上下文回归：`web.rs` 覆盖同包和外站 URL 的导航/桥接共用检查、真实路径与内部/外部目录链接；Windows 用无需提权的 junction，Unix 用目录符号链接。`plugin-web-appearance.test.ts` 执行原生宿主桥脚本，验证语言、主题、根变量、主题事件与外站不暴露桥；前端文件测试验证原生真实目标传递与拒绝传播。
+- 版本探测回归：`runtime_probe_collects_output_and_rejects_overflow`、`runtime_probe_reclaims_inherited_pipes_after_parent_exit` 使用当前测试二进制作为固定夹具；后者让父进程退出、后代保留管道，断言调用有界结束且后代已退出。测试环境变量仅附加到子进程，不改测试运行器的全局环境。运行 WindowsRust 与 Frontend 计时 harness，检查 `.artifacts/test-stability/index.html`；真实 WebView2 验证还要由本机 HTTP 计数器确认外站 GET 为零，同时检查导航、弹窗/下载、动态主题、包文件和发行目录哈希不变；单凭页面 URL 没变不能证明请求未外发。
+
 - M4 Web 工具窗口：`plugin_host/web.rs` 测试覆盖包路径规范化（`..`、编码分隔符、空段拒绝）、CSP 内容断言（default-src none、无 wasm-unsafe-eval、frame-ancestors none）、桥脚本冻结与作用域、状态键隔离；web-panel fixture 随 `ui:[1,2]` 声明提升转为被宿主接受（能力门控测试同步）。桥 v0 的 build.*/functions.* 返回 `plugin.web.unknownMethod`，等构建系统能力接入。
 
 
@@ -87,6 +104,8 @@ M1 包存储 + 启动校验 + 语言注册 + LSP 启动（已落地）；M2 磁�
 - M1 尚属静态与进程内验证：真实插件包安装→启用→语言服务器拉起的全链路实机验收随 M2/M3 完成，期间矩阵 `verificationStatus` 保持 pending。`./scripts/verify-windows-boundaries.sh`、`./scripts/verify-platform-feature-matrix-change.sh <base> HEAD` 随 PR 通过。
 
 ## 适用范围
+
+- `windows/tauri/src-tauri/build.rs`、`capabilities/plugin-web.json` 与 `permissions/declarative-web/bridge.toml`（应用内桥插件及最小来源权限）
 
 - `windows/tauri/src-tauri/src/plugin_host/`（存储、扫描、启动接线与 fixtures 验收测试）
 - `windows/tauri/src-tauri/src/main.rs`（模块注册与命令注册）

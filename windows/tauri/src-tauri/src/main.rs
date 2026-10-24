@@ -63,8 +63,9 @@ fn main() {
         window.create = false;
     }
     let application = tauri::Builder::default()
+        .plugin(plugin_host::web::bridge_plugin())
         .register_uri_scheme_protocol("lithe-plugin", |context, request| {
-            plugin_host::web::handle_scheme_request(context.app_handle(), request)
+            plugin_host::web::handle_scheme_request(context.app_handle(), context.webview_label(), request)
         })
         .plugin(tauri_plugin_single_instance::init(|app, arguments, _| {
             host::enqueue_cli_arguments(app, arguments);
@@ -153,6 +154,7 @@ fn main() {
         })
         .on_window_event(|window, event| {
             if matches!(event, tauri::WindowEvent::Destroyed) {
+                plugin_host::web::forget_window_appearance(window.app_handle(), window.label());
                 run::release_window_processes(window.label());
                 core::close_ide_hosts(window.label());
                 agent::close_window_connections(window.label());
@@ -170,10 +172,8 @@ fn main() {
                 }
             }
         })
-        // Plugin pages (labels `plugin-web-*`) reach exactly one audited
-        // command; every other application command is refused before any
-        // handler runs, so a package page cannot invoke host commands
-        // (process launch, filesystem, HTTP) through raw Tauri IPC.
+        // Plugin commands have their own ACL. The dedicated page bridge is
+        // registered above; plugin pages reach no product application command.
         .invoke_handler(
             |invoke: tauri::ipc::Invoke<tauri::Wry>| match plugin_gate(invoke) {
                 PluginGate::Handled => true,
@@ -292,6 +292,8 @@ fn main() {
                             run::run_stop_owned_processes,
                             plugin_host::declarative_plugins_rescan,
                             plugin_host::declarative_plugins_state,
+                            plugin_host::web::declarative_plugins_web_resolve_file,
+                            plugin_host::web::declarative_plugins_web_update_appearance,
                             plugin_host::declarative_plugins_manifest,
                             plugin_host::launch::declarative_plugins_language_launch,
                             plugin_host::launch::declarative_plugins_language_owner,
@@ -349,15 +351,9 @@ fn plugin_gate(invoke: tauri::ipc::Invoke<tauri::Wry>) -> PluginGate {
         .starts_with("plugin-web-")
     {
         let command = invoke.message.command().to_string();
-        if command != "declarative_plugins_web_bridge_request" {
-            invoke.resolver.reject(format!(
-                "command {command} is not available to plugin pages"
-            ));
-            return PluginGate::Handled;
-        }
-        // The bridge consumes the raw Invoke itself; nothing else in the
-        // application command surface is reachable from here.
-        plugin_host::web::declarative_plugins_web_bridge_request(invoke);
+        invoke.resolver.reject(format!(
+            "command {command} is not available to plugin pages"
+        ));
         return PluginGate::Handled;
     }
     PluginGate::Pass(invoke)

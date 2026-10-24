@@ -10,12 +10,16 @@
 //! this module.
 
 use super::scan::ScannedPackage;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
+
+#[cfg(windows)]
+#[path = "web_network.rs"]
+mod network;
 
 /// Largest package file the scheme serves; a page cannot map the whole
 /// package into memory through one request.
@@ -29,10 +33,46 @@ const PAGE_CSP: &str = "default-src 'none'; script-src 'self'; style-src 'self' 
 /// Per-window page state (`ui.getState` / `ui.setState`), kept in the host so
 /// web storage can stay non-persistent. Bounded per contract.
 const MAX_PAGE_STATE_BYTES: usize = 64 * 1024;
+/// Reserved same-origin host script, served before any package-authored code.
+const HOST_BRIDGE_PATH: &str = "__lithe_host__/bridge.js";
 
 #[derive(Default)]
 pub struct WebPageHostState {
     states: Mutex<HashMap<String, Value>>,
+    appearances: Mutex<HashMap<String, WebPageAppearance>>,
+}
+
+/// Resolved workbench locale and theme tokens; supplied only by host windows.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebPageAppearance {
+    pub locale: String,
+    pub theme: String,
+    pub variables: BTreeMap<String, String>,
+}
+
+/// Checks the real document origin, including WebView2's custom-scheme mapping.
+/// Navigation and IPC share this predicate so a window label alone grants nothing.
+fn is_package_url(url: &url::Url, plugin_id: &str) -> bool {
+    if !url.username().is_empty() || url.password().is_some() || url.port().is_some() {
+        return false;
+    }
+    let private_origin = url.scheme() == "lithe-plugin" && url.host_str() == Some(plugin_id);
+    let mapped_origin = cfg!(windows)
+        && url.scheme() == "http"
+        && url.host_str() == Some(format!("lithe-plugin.{plugin_id}").as_str());
+    (private_origin || mapped_origin) && sanitize_package_path(url.path()).is_ok()
+}
+
+fn require_package_url(url: &url::Url, plugin_id: &str) -> Result<(), String> {
+    if is_package_url(url, plugin_id) {
+        Ok(())
+    } else {
+        Err(bridge_error(
+            "plugin.web.forbidden",
+            "the document is outside its plugin package",
+        ))
+    }
 }
 
 /// State key of one page: plugin ID and tool window ID.
@@ -92,10 +132,11 @@ fn collect_web_windows(package: &ScannedPackage, windows: &mut Vec<WebToolWindow
 /// Opens (or focuses) the web view of one tool window. The URL is the
 /// plugin-private scheme origin with the declared entry path.
 #[tauri::command]
-pub fn declarative_plugins_open_web_window(
+pub async fn declarative_plugins_open_web_window(
     app: AppHandle,
     plugin_id: String,
     window_id: String,
+    appearance: WebPageAppearance,
 ) -> Result<(), String> {
     let Some(window) = declarative_plugins_web_windows(app.clone())
         .into_iter()
@@ -109,28 +150,106 @@ pub fn declarative_plugins_open_web_window(
         "plugin-web-{}",
         web_window_label(&window.plugin_id, &window.window_id)
     );
+    app.state::<WebPageHostState>()
+        .appearances
+        .lock()
+        .expect("appearance mutex")
+        .insert(label.clone(), appearance.clone());
     if let Some(existing) = app.get_webview_window(&label) {
         let _ = existing.set_focus();
         return Ok(());
     }
-    let url = format!(
-        "lithe-plugin://{}/{}",
-        urlencoding_encode(&window.plugin_id),
-        window.entry
-    );
-    // Initialisation script defines the frozen `window.lithe` bridge before
-    // any page script runs.
-    let bridge = bridge_script(&window.plugin_id, &window.window_id);
-    WebviewWindowBuilder::new(
+    let target_url = package_page_url(&window.plugin_id, &window.entry)?;
+    let request_plugin_id = window.plugin_id.clone();
+    let plugin_id = window.plugin_id.clone();
+    // Start inert. The request filter must be installed before package code
+    // can navigate or otherwise cause an outbound request.
+    let view = WebviewWindowBuilder::new(
         &app,
         &label,
-        WebviewUrl::CustomProtocol(url.parse().map_err(|error| format!("{error}"))?),
+        WebviewUrl::External("about:blank".parse().expect("blank URL")),
     )
     .title(window.title)
-    .initialization_script(&bridge)
+    .incognito(true)
+    .on_navigation(move |url| is_package_url(url, &plugin_id))
+    .on_new_window(|_, _| tauri::webview::NewWindowResponse::Deny)
+    .on_download(|_, _| false)
     .build()
-    .map(|_| ())
-    .map_err(|error| format!("web window could not open: {error}"))
+    .map_err(|error| format!("web window could not open: {error}"))?;
+    let setup: Result<(), String> = async {
+        #[cfg(windows)]
+        network::restrict_requests(&view, request_plugin_id).await?;
+        view.navigate(target_url).map_err(|error| error.to_string())
+    }
+    .await;
+    if let Err(error) = setup {
+        forget_window_appearance(&app, &label);
+        if let Err(close_error) = view.close() {
+            return Err(format!(
+                "{error}; failed to close the inactive page: {close_error}"
+            ));
+        }
+        return Err(error);
+    }
+    Ok(())
+}
+
+fn package_page_url(plugin_id: &str, entry: &str) -> Result<url::Url, String> {
+    // Wry maps custom schemes only at creation. A later navigate() reaches
+    // WebView2 directly, so it must use the same mapped origin explicitly.
+    #[cfg(windows)]
+    let url = format!("http://lithe-plugin.{plugin_id}/{entry}");
+    #[cfg(not(windows))]
+    let url = format!("lithe-plugin://{plugin_id}/{entry}");
+    url.parse()
+        .map_err(|error: url::ParseError| error.to_string())
+}
+
+fn appearance_script(appearance: &WebPageAppearance) -> String {
+    format!(
+        "window.__litheDeliverEvent?.('ui.themeChanged', {});",
+        json!(appearance)
+    )
+}
+
+/// Applies a workbench change to existing pages and their next reload.
+#[tauri::command]
+pub fn declarative_plugins_web_update_appearance(
+    app: AppHandle,
+    appearance: WebPageAppearance,
+) -> Result<(), String> {
+    let windows: Vec<_> = app
+        .webview_windows()
+        .into_iter()
+        .filter(|(label, _)| label.starts_with("plugin-web-"))
+        .collect();
+    {
+        let state = app.state::<WebPageHostState>();
+        let mut appearances = state.appearances.lock().expect("appearance mutex");
+        for (label, _) in &windows {
+            appearances.insert(label.clone(), appearance.clone());
+        }
+    }
+    let mut failures = Vec::new();
+    for (label, window) in windows {
+        if let Err(error) = window.eval(appearance_script(&appearance)) {
+            failures.push(format!("{label}: {error}"));
+        }
+    }
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(failures.join("; "))
+    }
+}
+
+/// Native window destruction releases its cached appearance, including X-close.
+pub fn forget_window_appearance<R: tauri::Runtime>(app: &AppHandle<R>, label: &str) {
+    app.state::<WebPageHostState>()
+        .appearances
+        .lock()
+        .expect("appearance mutex")
+        .remove(label);
 }
 
 /// Destroys the web view of one tool window; used on plugin disable,
@@ -198,18 +317,20 @@ pub fn forget_plugin_state(app: &AppHandle, plugin_id: &str) {
     guard.retain(|key, _| !key.starts_with(&prefix));
 }
 
-/// The document-start script that defines the frozen `window.lithe` bridge.
+/// The first parser-blocking script defines the frozen `window.lithe` bridge.
 /// v0 methods: context, request (state + openFile), on; build.* and
 /// functions.* resolve to `plugin.web.unknownMethod` until their Windows
 /// capabilities land.
-fn bridge_script(plugin_id: &str, window_id: &str) -> String {
+fn bridge_script(plugin_id: &str, window_id: &str, appearance: &WebPageAppearance) -> String {
     let context = json!({
         "pluginID": plugin_id,
         "windowID": window_id,
         "platform": "windows",
+        "locale": appearance.locale,
     });
     const_bridge_script()
         .replace("__LITHE_CONTEXT__", &context.to_string())
+        .replace("__LITHE_APPEARANCE__", &json!(appearance).to_string())
         .replace("__LITHE_PLUGIN__", &json!(plugin_id).to_string())
         .replace("__LITHE_WINDOW__", &json!(window_id).to_string())
 }
@@ -219,10 +340,28 @@ fn bridge_script(plugin_id: &str, window_id: &str) -> String {
 fn const_bridge_script() -> &'static str {
     r#"(() => {
   "use strict";
-  const context = Object.freeze(__LITHE_CONTEXT__);
+  const initial = __LITHE_CONTEXT__;
+  // Never expose a bridge in another document, even if native navigation
+  // policy regresses or a page fetches this reserved script explicitly.
+  const url = new URL(window.location.href);
+  if (window !== window.top || url.username || url.password || url.port ||
+      !((url.protocol === 'lithe-plugin:' && url.hostname === initial.pluginID) ||
+        (url.protocol === 'http:' && url.hostname === 'lithe-plugin.' + initial.pluginID))) return;
+  let appearance = __LITHE_APPEARANCE__;
+  const context = Object.freeze({ ...initial,
+    get locale() { return appearance.locale; },
+    get theme() { return appearance.theme; },
+  });
+  const applyTheme = () => {
+    const root = document.documentElement;
+    if (!root) { document.addEventListener('readystatechange', applyTheme, { once: true }); return; }
+    root.setAttribute('data-theme', appearance.theme);
+    root.lang = appearance.locale;
+    for (const [name, value] of Object.entries(appearance.variables)) root.style.setProperty(name, value);
+  };
   const listeners = new Map();
   const invoke = (method, params) => window.__TAURI_INTERNALS__.invoke(
-    "declarative_plugins_web_bridge_request",
+    "plugin:declarative-web|request",
     { method, params },
   );
   const bridge = {
@@ -246,12 +385,32 @@ fn const_bridge_script() -> &'static str {
   Object.freeze(bridge);
   Object.defineProperty(window, "lithe", { value: Object.freeze(bridge), configurable: false, writable: false });
   window.__litheDeliverEvent = (event, payload) => {
+    if (event === 'ui.themeChanged') {
+      appearance = payload;
+      applyTheme();
+      payload = { theme: appearance.theme };
+    }
     const set = listeners.get(event);
     if (set) for (const listener of [...set]) {
       try { listener(payload); } catch { /* a failing listener must not break the pump */ }
     }
   };
+  applyTheme();
 })();"#
+}
+
+/// Minimal Tauri plugin namespace so custom-protocol pages can receive one
+/// ACL-granted command without changing the main application's command ACL.
+pub fn bridge_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
+    tauri::plugin::Builder::new("declarative-web")
+        .invoke_handler(|invoke| {
+            if invoke.message.command() != "request" {
+                return false;
+            }
+            handle_bridge_request(invoke);
+            true
+        })
+        .build()
 }
 
 /// The single Tauri entry behind `lithe.request`. The calling page's
@@ -261,10 +420,9 @@ fn const_bridge_script() -> &'static str {
 /// declare this window and be enabled. A page can only reach its own
 /// plugin's state and the workspace layer.
 ///
-/// This consumes the raw `Invoke` (the invoke handler in `main.rs` dispatches
-/// plugin-page traffic here directly) so no other command can be reached
-/// through this path.
-pub fn declarative_plugins_web_bridge_request(invoke: tauri::ipc::Invoke<tauri::Wry>) {
+/// The inlined plugin's ACL admits only this request, and this handler then
+/// enforces document and package identity before dispatching any method.
+fn handle_bridge_request(invoke: tauri::ipc::Invoke<tauri::Wry>) {
     let webview = invoke.message.webview_ref().clone();
     // The bridge payload arrives as the command's JSON arguments envelope.
     let params: BridgeArgs = match invoke.message.payload() {
@@ -332,6 +490,10 @@ fn bridge_dispatch(
     let method = args.method.as_str();
     let params = args.params.unwrap_or(Value::Null);
     let identity = bridge_identity(app, webview.label())?;
+    let url = webview
+        .url()
+        .map_err(|error| bridge_error("plugin.web.forbidden", error.to_string()))?;
+    require_package_url(&url, &identity.plugin_id)?;
     match method {
         "ui.getState" => Ok(json!({
             "state": declarative_plugins_web_get_state(
@@ -396,8 +558,7 @@ pub struct BridgeIdentity {
 }
 
 /// Resolves and authorizes a bridge caller from its webview label. The label
-/// is `plugin-web-<sanitized windowID>` (see `open_web_window`); the window ID
-/// is the label-safe form of a declared tool-window ID, so authorization
+/// includes a collision-free encoding of plugin and window IDs; authorization
 /// re-derives it from the owning package's current catalog entry. Anything
 /// that does not round-trip — a label from another window kind, a window the
 /// plugin no longer declares, a disabled or uninstalled plugin, or a forged
@@ -465,6 +626,46 @@ fn bridge_error(code: &str, message: impl Into<String>) -> String {
     json!({ "code": code, "message": message.into() }).to_string()
 }
 
+/// Resolves symlinks/junctions before the workspace file-open entry can read.
+/// Returning the canonical target also avoids re-resolving the original link
+/// using stale file-tree metadata in `handleFileSelect`.
+#[tauri::command]
+pub fn declarative_plugins_web_resolve_file(
+    workspace_path: PathBuf,
+    path: PathBuf,
+) -> Result<String, String> {
+    let root = workspace_path.canonicalize().map_err(|error| {
+        bridge_error(
+            "plugin.web.forbidden",
+            format!("workspace is unreadable: {error}"),
+        )
+    })?;
+    let target = if path.is_absolute() {
+        path
+    } else {
+        root.join(path)
+    };
+    let target = target.canonicalize().map_err(|error| {
+        bridge_error(
+            "plugin.web.forbidden",
+            format!("file is unreadable: {error}"),
+        )
+    })?;
+    if target == root || !target.starts_with(&root) || !target.is_file() {
+        return Err(bridge_error(
+            "plugin.web.forbidden",
+            "the file is outside the workspace",
+        ));
+    }
+    let path = target.to_string_lossy().replace('\\', "/");
+    // Keep the editor's conventional drive/UNC spelling after canonicalize.
+    Ok(if let Some(unc) = path.strip_prefix("//?/UNC/") {
+        format!("//{unc}")
+    } else {
+        path.strip_prefix("//?/").unwrap_or(&path).to_string()
+    })
+}
+
 /// Declared web window IDs of one plugin from the current catalog.
 pub fn web_windows_of_plugin<R: tauri::Runtime>(
     app: &AppHandle<R>,
@@ -495,6 +696,11 @@ pub fn close_web_window_by_id<R: tauri::Runtime>(
     window_id: &str,
 ) {
     let label = format!("plugin-web-{}", web_window_label(plugin_id, window_id));
+    app.state::<WebPageHostState>()
+        .appearances
+        .lock()
+        .expect("appearance mutex")
+        .remove(&label);
     if let Some(existing) = app.get_webview_window(&label) {
         let _ = existing.close();
     }
@@ -640,17 +846,11 @@ fn content_type(path: &Path) -> &'static str {
     }
 }
 
-fn urlencoding_encode(value: &str) -> String {
-    // Plugin IDs are reverse-DNS ASCII after Core validation; only the
-    // characters the URL parser cares about need escaping.
-    value.replace('.', ".")
-}
-
-/// Tauri scheme handler for `lithe-plugin://<pluginID>/<path>`. Windows
-/// routes custom schemes through `http://lithe-plugin.<host>/`, so the
-/// plugin ID arrives in the URI host and the path in the request path.
+/// Tauri scheme handler for `lithe-plugin://<pluginID>/<path>`. Wry restores
+/// the original URI before delivery; its context supplies the trusted label.
 pub fn handle_scheme_request<R: tauri::Runtime>(
     app: &AppHandle<R>,
+    webview_label: &str,
     request: http::Request<Vec<u8>>,
 ) -> http::Response<Vec<u8>> {
     let ok = |content_type: &'static str, body: Vec<u8>| {
@@ -672,29 +872,173 @@ pub fn handle_scheme_request<R: tauri::Runtime>(
             .body(message.as_bytes().to_vec())
             .expect("response builds")
     };
-    // Windows routes custom schemes as `http://<scheme>.<host>/<path>`, so
-    // the URL host is `<pluginID>.lithe-plugin` (scheme suffix, dots kept).
-    let host = request.uri().host().unwrap_or_default().to_string();
-    let plugin_id = restore_plugin_id(&host);
-    let path = request.uri().path().trim_start_matches('/').to_string();
-    match serve_package_file(app, &plugin_id, &path) {
+    // Wry restores `http://lithe-plugin.<pluginID>/...` to the original
+    // `lithe-plugin://<pluginID>/...` before invoking this scheme handler.
+    let plugin_id = request.uri().host().unwrap_or_default();
+    let identity = match bridge_identity(app, webview_label) {
+        Ok(identity) if identity.plugin_id == plugin_id => identity,
+        _ => return refused("resource request is outside its plugin page"),
+    };
+    let path = request.uri().path().trim_start_matches('/');
+    if path == HOST_BRIDGE_PATH {
+        let appearance = app
+            .state::<WebPageHostState>()
+            .appearances
+            .lock()
+            .expect("appearance mutex")
+            .get(webview_label)
+            .cloned();
+        return match appearance {
+            Some(appearance) => ok(
+                "text/javascript; charset=utf-8",
+                bridge_script(&identity.plugin_id, &identity.window_id, &appearance).into_bytes(),
+            ),
+            None => refused("page is no longer active"),
+        };
+    }
+    match serve_package_file(app, plugin_id, path) {
+        Ok((content_type, body)) if content_type.starts_with("text/html") => {
+            ok(content_type, page_with_host_bridge(body))
+        }
         Ok((content_type, body)) => ok(content_type, body),
         Err(message) => refused(&message),
     }
 }
 
-/// Restores the reverse-DNS plugin ID from the URL host form: WebView2
-/// routes `lithe-plugin://id/path` to the host `id.lithe-plugin`, so the
-/// scheme suffix is stripped and dots are kept as-is.
-fn restore_plugin_id(host: &str) -> String {
-    host.strip_suffix(".lithe-plugin")
-        .unwrap_or(host)
-        .to_string()
+/// Inserts the host script before package code without rewriting the package.
+/// Only the HTML prologue is scanned: comments/declarations and the optional
+/// html/head opening tags. Stop before any other tag or text, so a literal
+/// <head> inside script/style content is never interpreted as markup here.
+fn page_with_host_bridge(body: Vec<u8>) -> Vec<u8> {
+    let offset = bridge_insertion_offset(&body);
+    let tag = format!("<script src=\"/{HOST_BRIDGE_PATH}\"></script>");
+    let mut response = Vec::with_capacity(body.len() + tag.len());
+    response.extend_from_slice(&body[..offset]);
+    response.extend_from_slice(tag.as_bytes());
+    response.extend_from_slice(&body[offset..]);
+    response
+}
+
+fn bridge_insertion_offset(body: &[u8]) -> usize {
+    let mut index = if body.starts_with(b"\xef\xbb\xbf") {
+        3
+    } else {
+        0
+    };
+    let mut fallback = index;
+    loop {
+        while body.get(index).is_some_and(u8::is_ascii_whitespace) {
+            index += 1;
+        }
+        if body[index..].starts_with(b"<!--") {
+            let Some(end) = body[index + 4..].windows(3).position(|part| part == b"-->") else {
+                return fallback;
+            };
+            index += 4 + end + 3;
+            fallback = index;
+            continue;
+        }
+        if body[index..].starts_with(b"<!") || body[index..].starts_with(b"<?") {
+            let Some(end) = opening_tag_end(body, index + 2) else {
+                return fallback;
+            };
+            index = end;
+            fallback = index;
+            continue;
+        }
+        if body.get(index) != Some(&b'<') {
+            return fallback;
+        }
+        let name_start = index + 1;
+        let mut name_end = name_start;
+        while body.get(name_end).is_some_and(u8::is_ascii_alphabetic) {
+            name_end += 1;
+        }
+        let name = &body[name_start..name_end];
+        if !body
+            .get(name_end)
+            .is_some_and(|value| value.is_ascii_whitespace() || *value == b'>' || *value == b'/')
+        {
+            return fallback;
+        }
+        if !name.eq_ignore_ascii_case(b"html") && !name.eq_ignore_ascii_case(b"head") {
+            return fallback;
+        }
+        let Some(end) = opening_tag_end(body, name_end) else {
+            return fallback;
+        };
+        if name.eq_ignore_ascii_case(b"head") {
+            return end;
+        }
+        index = end;
+        fallback = end;
+    }
+}
+
+/// HTML attribute quotes can contain `>`; they do not close the opening tag.
+fn opening_tag_end(body: &[u8], mut index: usize) -> Option<usize> {
+    let mut quote = None;
+    while let Some(&value) = body.get(index) {
+        match quote {
+            Some(expected) if value == expected => quote = None,
+            Some(_) => {}
+            None if value == b'\'' || value == b'"' => quote = Some(value),
+            None if value == b'>' => return Some(index + 1),
+            None => {}
+        }
+        index += 1;
+    }
+    None
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn compiled_acl_grants_only_the_bridge_to_plugin_private_origins() {
+        // Exercise Tauri's actual compiled capability resolution, including
+        // its distinction between the app's origin and custom-protocol pages.
+        let mut context: tauri::Context<tauri::Wry> = tauri::generate_context!();
+        let acl = context.runtime_authority_mut();
+        let label = "plugin-web-fixture";
+        let own = tauri::ipc::Origin::Remote {
+            url: url::Url::parse("http://lithe-plugin.acme.php/ui/index.html").unwrap(),
+        };
+        assert!(acl
+            .resolve_access("plugin:declarative-web|request", label, label, &own)
+            .is_some());
+        for command in [
+            "plugin:fs|read_text_file",
+            "plugin:http|fetch",
+            "plugin:event|emit",
+            "core_execute",
+            "read_local_file",
+        ] {
+            assert!(
+                acl.resolve_access(command, label, label, &own).is_none(),
+                "{command}"
+            );
+        }
+        let foreign = tauri::ipc::Origin::Remote {
+            url: url::Url::parse("https://example.test/ui/index.html").unwrap(),
+        };
+        assert!(acl
+            .resolve_access("plugin:declarative-web|request", label, label, &foreign)
+            .is_none());
+        assert!(acl
+            .resolve_access("plugin:declarative-web|request", "main", "main", &own)
+            .is_none());
+        let manifests: Value = serde_json::from_str(include_str!(concat!(
+            env!("OUT_DIR"),
+            "/acl-manifests.json"
+        )))
+        .unwrap();
+        assert!(
+            manifests.get("__app__").is_none(),
+            "the product's custom-command ACL must stay unchanged"
+        );
+    }
 
     #[test]
     fn package_paths_reject_traversal_and_empty() {
@@ -722,10 +1066,171 @@ mod tests {
 
     #[test]
     fn bridge_script_is_frozen_and_scoped() {
-        let script = bridge_script("acme.php", "window-id");
+        let script = bridge_script(
+            "acme.php",
+            "window-id",
+            &WebPageAppearance {
+                locale: "zh-CN".into(),
+                theme: "dark".into(),
+                variables: BTreeMap::new(),
+            },
+        );
         assert!(script.contains(r#""pluginID":"acme.php""#));
         assert!(script.contains("Object.freeze(bridge)"));
         assert!(script.contains("writable: false"));
+    }
+
+    #[test]
+    fn html_loads_the_fresh_host_bridge_before_package_code() {
+        let tag = "<script src=\"/__lithe_host__/bridge.js\"></script>";
+        let prologue = "<!doctype html><!-- <head>ignored</head> --><HTML style=\"--package-gap:8px\"><HEAD data-test=\"x>y\">";
+        let tail = "<script src=\"page.js\"></script></HEAD><body></body></HTML>";
+        for bom in ["", "\u{feff}"] {
+            let body = format!("{bom}{prologue}{tail}");
+            let response = String::from_utf8(page_with_host_bridge(body.into_bytes())).unwrap();
+            assert_eq!(response, format!("{bom}{prologue}{tag}{tail}"));
+        }
+        // No synthetic doctype or root tags: preserve the package's HTML mode
+        // and attributes even when its html/head tags are legitimately omitted.
+        for (prefix, tail) in [
+            (
+                "<!doctype html><html style='--gap:8px'>",
+                "<body><script src='page.js'></script></body>",
+            ),
+            (
+                "<!doctype html><head data-test='a>b'>",
+                "<script src='page.js'></script>",
+            ),
+            (
+                "<!doctype html><!-- header -->",
+                "<script src='page.js'></script>",
+            ),
+            ("", "<script>const text='<head>';</script>"),
+        ] {
+            assert_eq!(
+                String::from_utf8(page_with_host_bridge(
+                    format!("{prefix}{tail}").into_bytes()
+                ))
+                .unwrap(),
+                format!("{prefix}{tag}{tail}")
+            );
+        }
+        assert!(!PAGE_CSP.contains("script-src 'self' 'unsafe-inline'"));
+    }
+
+    #[test]
+    fn navigation_and_bridge_refuse_foreign_documents() {
+        let initial = package_page_url("acme.php", "ui/index.html").unwrap();
+        assert!(is_package_url(&initial, "acme.php"));
+        assert_eq!(
+            initial.as_str(),
+            if cfg!(windows) {
+                "http://lithe-plugin.acme.php/ui/index.html"
+            } else {
+                "lithe-plugin://acme.php/ui/index.html"
+            }
+        );
+        for address in [
+            "lithe-plugin://acme.php/ui/index.html",
+            "lithe-plugin://acme.php/ui/next.html#section",
+        ] {
+            assert!(require_package_url(&url::Url::parse(address).unwrap(), "acme.php").is_ok());
+        }
+        for address in [
+            "https://example.com/ui/index.html",
+            "http://lithe-plugin.acme.php.evil.test/ui/index.html",
+            "lithe-plugin://other.plugin/ui/index.html",
+            "lithe-plugin://user@acme.php/ui/index.html",
+            "lithe-plugin://acme.php:1234/ui/index.html",
+            "about:blank",
+            "data:text/html,evil",
+            "file:///tmp/index.html",
+            "lithe-plugin://acme.php/%2e%2e%2foutside.html",
+        ] {
+            let error =
+                require_package_url(&url::Url::parse(address).unwrap(), "acme.php").unwrap_err();
+            assert!(error.contains("plugin.web.forbidden"), "{address}");
+        }
+        assert_eq!(
+            is_package_url(
+                &url::Url::parse("http://lithe-plugin.acme.php/ui/index.html").unwrap(),
+                "acme.php"
+            ),
+            cfg!(windows)
+        );
+    }
+
+    #[test]
+    fn open_file_resolves_targets_before_checking_workspace_boundary() {
+        struct TempRoot(PathBuf);
+        impl Drop for TempRoot {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let root = TempRoot(super::serve_tests::unique_temp_root("workspace-paths"));
+        let workspace = root.0.join("workspace");
+        std::fs::create_dir(&workspace).unwrap();
+        let inside = workspace.join("inside");
+        let outside = root.0.join("outside");
+        std::fs::create_dir(&inside).unwrap();
+        std::fs::create_dir(&outside).unwrap();
+        std::fs::write(inside.join("file.txt"), "inside").unwrap();
+        std::fs::write(outside.join("file.txt"), "outside").unwrap();
+        assert!(
+            declarative_plugins_web_resolve_file(workspace.clone(), "inside/file.txt".into())
+                .is_ok()
+        );
+        assert!(
+            declarative_plugins_web_resolve_file(workspace.clone(), outside.join("file.txt"))
+                .is_err()
+        );
+        link_directory(&inside, &workspace.join("inside-link"));
+        link_directory(&outside, &workspace.join("outside-link"));
+        let resolved =
+            declarative_plugins_web_resolve_file(workspace.clone(), "inside-link/file.txt".into())
+                .unwrap();
+        assert!(resolved.ends_with("/inside/file.txt"));
+        assert!(declarative_plugins_web_resolve_file(
+            workspace.clone(),
+            "outside-link/file.txt".into()
+        )
+        .is_err());
+        // Canonicalize both sides so a workspace opened through a link works.
+        link_directory(&workspace, &root.0.join("linked-root"));
+        assert!(declarative_plugins_web_resolve_file(
+            root.0.join("linked-root"),
+            "inside/file.txt".into()
+        )
+        .is_ok());
+    }
+
+    fn link_directory(target: &Path, link: &Path) {
+        #[cfg(windows)]
+        {
+            // Junctions need no developer-mode/admin privilege and protect
+            // the same reparse-point escape boundary as directory symlinks.
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            let mut command = std::process::Command::new("cmd");
+            command
+                .args(["/D", "/C", "mklink", "/J"])
+                .arg(link)
+                .arg(target);
+            let outcome = lithe_git_host::run(
+                &mut command,
+                None,
+                || std::time::Instant::now() >= deadline,
+                || {},
+                |_, _| {},
+            );
+            assert!(
+                outcome.failure.is_none() && outcome.status.is_some_and(|status| status.success()),
+                "junction creation failed: {}",
+                String::from_utf8_lossy(&outcome.stderr)
+            );
+        }
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(target, link).expect("directory symlink");
     }
 
     #[test]
@@ -771,7 +1276,7 @@ mod tests {
 mod serve_tests {
     use super::*;
 
-    fn unique_temp_root(label: &str) -> PathBuf {
+    pub(super) fn unique_temp_root(label: &str) -> PathBuf {
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .expect("system clock")

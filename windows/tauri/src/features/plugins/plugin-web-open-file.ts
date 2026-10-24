@@ -2,7 +2,8 @@ import { listen } from "@tauri-apps/api/event";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { invokeLsp } from "@/platform/lsp-core-adapter";
 import { declarativePluginProcessOwner } from "./declarative-plugin-process-owner";
-import { normalizeWorkspacePath, pathIsInsideWorkspace } from "./plugin-web-path";
+import { resolvePluginWebFilePath } from "./plugin-web-path";
+import { initializePluginWebAppearanceSync } from "./plugin-web-appearance";
 
 interface PluginWebOpenFilePayload {
   pluginId: string;
@@ -21,26 +22,25 @@ interface PluginWebOpenFilePayload {
 export async function initializePluginWebOpenFileListener(): Promise<() => void> {
   const unlisten = await listen<PluginWebOpenFilePayload>(
     "plugin-web-open-file",
-    ({ payload }) => {
+    async ({ payload }) => {
       if (!payload?.path) return;
       const store = useFileSystemStore.getState();
       const root = store.rootFolderPath;
-      if (!root || !pathIsInsideWorkspace(payload.path, root)) return;
-      const normalizedPath = normalizeWorkspacePath(payload.path);
-      if (!normalizedPath) return;
-      void store
-        .handleFileSelect(
-          normalizedPath,
+      if (!root) return;
+      try {
+        const resolvedPath = await resolvePluginWebFilePath(payload.path, root);
+        if (useFileSystemStore.getState().rootFolderPath !== root) return;
+        await store.handleFileSelect(
+          resolvedPath,
           false,
           payload.line ?? undefined,
           payload.column ?? undefined,
           undefined,
           false,
-        )
-        .catch(() => {
-          // A failed open is reported by the store's own error surface; the
-          // page only gets an ack either way.
-        });
+        );
+      } catch (error) {
+        console.warn("Plugin workspace.openFile request was rejected", error);
+      }
     },
   );
   return unlisten;
@@ -67,8 +67,10 @@ async function initializePluginLifecycleListener(): Promise<() => void> {
 export async function initializePluginWebListeners(): Promise<() => void> {
   const unlistenOpen = await initializePluginWebOpenFileListener();
   const unlistenLifecycle = await initializePluginLifecycleListener();
+  const stopAppearanceSync = initializePluginWebAppearanceSync();
   return () => {
     unlistenOpen();
     unlistenLifecycle();
+    stopAppearanceSync();
   };
 }
