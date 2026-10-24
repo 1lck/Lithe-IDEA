@@ -1,13 +1,21 @@
 import Foundation
 
+package enum DatabasePasswordPersistence: String, Codable, CaseIterable, Sendable {
+    case untilRestart
+    case forever
+}
+
 package struct DatabaseProfile: Codable, Equatable, Identifiable, Sendable {
     package let id: UUID
     package var name: String
     package var kind: DatabaseKind
     package var host: String
     package var port: UInt16
+    package var passwordPersistence: DatabasePasswordPersistence = .forever
     package var username: String
     package var database: String
+    /// nil follows all accessible databases, while [] explicitly hides all databases.
+    package var visibleDatabases: [String]?
     package var path: String
     package var ssl: Bool
     /// Legacy display grouping. New profiles use folderID; retain this field so
@@ -29,7 +37,7 @@ package struct DatabaseProfile: Codable, Equatable, Identifiable, Sendable {
     package var proxyURL: String
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, kind, host, port, username, database, path, ssl, group, folderID, colorHex
+        case id, name, kind, host, port, passwordPersistence, username, database, visibleDatabases, path, ssl, group, folderID, colorHex
         case readOnly, productionProtection, maskSensitiveFields, sensitiveColumnPatterns
         case caCertificatePath, serverName, sshHost, sshPort, sshUsername, sshKeyPath, sshLocalPort, proxyURL
     }
@@ -50,7 +58,9 @@ package struct DatabaseProfile: Codable, Equatable, Identifiable, Sendable {
         port = try container.decodeIfPresent(UInt16.self, forKey: .port) ?? 0
         username = try container.decodeIfPresent(String.self, forKey: .username) ?? ""
         database = try container.decodeIfPresent(String.self, forKey: .database) ?? ""
+        visibleDatabases = try container.decodeIfPresent([String].self, forKey: .visibleDatabases)
         path = try container.decodeIfPresent(String.self, forKey: .path) ?? ""
+        passwordPersistence = try container.decodeIfPresent(DatabasePasswordPersistence.self, forKey: .passwordPersistence) ?? .forever
         ssl = try container.decodeIfPresent(Bool.self, forKey: .ssl) ?? false
         group = try container.decodeIfPresent(String.self, forKey: .group) ?? ""
         folderID = try container.decodeIfPresent(UUID.self, forKey: .folderID)
@@ -103,6 +113,14 @@ package final class DatabaseConnectionStore: @unchecked Sendable {
         store.set(try JSONEncoder().encode(profiles), forKey: Self.profilesKey)
     }
 
+    package func saveOrganization(profiles: [DatabaseProfile], folders: [DatabaseConnectionFolder]) throws {
+        // Encode both values before publishing either preference; no credential storage is involved.
+        let profileData = try JSONEncoder().encode(profiles)
+        let folderData = try JSONEncoder().encode(folders)
+        store.set(folderData, forKey: Self.foldersKey)
+        store.set(profileData, forKey: Self.profilesKey)
+    }
+
     package func loadFolders() -> [DatabaseConnectionFolder] {
         guard let data = store.data(forKey: Self.foldersKey) else { return [] }
         return (try? JSONDecoder().decode([DatabaseConnectionFolder].self, from: data)) ?? []
@@ -141,9 +159,44 @@ package final class DatabaseConnectionStore: @unchecked Sendable {
         try saveBackupSchedules(loadBackupSchedules().filter { $0.profileID != profileID })
     }
 
-    package func password(for id: UUID) -> String { secureStore.read(key: passwordKey(id)) ?? "" }
-    package func hasPassword(for id: UUID) -> Bool { secureStore.read(key: passwordKey(id)) != nil }
-    package func savePassword(_ password: String, for id: UUID) throws { try secureStore.write(password, key: passwordKey(id)) }
-    package func deletePassword(for id: UUID) throws { try secureStore.delete(key: passwordKey(id)) }
+    // Process-owned secrets survive module reloads but never reach disk. UUIDs isolate profiles.
+    private static let passwordLock = NSLock()
+    nonisolated(unsafe) private static var temporaryPasswords: [UUID: String] = [:]
+
+    package func password(for id: UUID) -> String {
+        Self.passwordLock.withLock {
+            if let value = Self.temporaryPasswords[id] { return value }
+            if persistence(for: id) == .untilRestart { return "" }
+            return secureStore.read(key: passwordKey(id)) ?? ""
+        }
+    }
+    package func hasPassword(for id: UUID) -> Bool {
+        Self.passwordLock.withLock {
+            Self.temporaryPasswords[id] != nil ||
+                (persistence(for: id) == .forever && secureStore.read(key: passwordKey(id)) != nil)
+        }
+    }
+    private func persistence(for id: UUID) -> DatabasePasswordPersistence {
+        load().first { $0.id == id }?.passwordPersistence ?? .forever
+    }
+    package func savePassword(_ password: String, for id: UUID, persistence: DatabasePasswordPersistence? = nil) throws {
+        // ponytail: synchronous credential IO is serialized; use a dedicated credential actor if it becomes contended.
+        try Self.passwordLock.withLock {
+            switch persistence ?? self.persistence(for: id) {
+            case .untilRestart:
+                try secureStore.delete(key: passwordKey(id))
+                Self.temporaryPasswords[id] = password
+            case .forever:
+                try secureStore.write(password, key: passwordKey(id))
+                Self.temporaryPasswords.removeValue(forKey: id)
+            }
+        }
+    }
+    package func deletePassword(for id: UUID) throws {
+        try Self.passwordLock.withLock {
+            try secureStore.delete(key: passwordKey(id))
+            Self.temporaryPasswords.removeValue(forKey: id)
+        }
+    }
     private func passwordKey(_ id: UUID) -> String { "database.connection.\(id.uuidString).password" }
 }

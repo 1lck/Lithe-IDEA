@@ -406,3 +406,9 @@ Project toolbar: locate, refresh, hide, expandAll and collapseAll (including dar
 siblings) verified against unmodified platform/icons/src/expui/general assets at
 Community e74205a077adefec3b3500499be794f8fafb8e2c. Expand/Collapse action mapping
 is from PlatformActions.xml and PlatformIconMappings.json at that revision.
+
+Database New menu dropdown: expui/general/dropdown{,_dark}.svg; database
+brand fallback: expui/nodes/dataTables{,_dark}.svg. These are unmodified
+Community platform/icons/src assets from revision
+c7f91397daa3a961b4e78bc634fe467a0a7d9ade (Apache-2.0).
+The New menu Data Source entry reuses the Database dock dbms icon above.

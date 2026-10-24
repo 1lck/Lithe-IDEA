@@ -33,6 +33,7 @@ struct LitheCenteredPopup<PopupContent: View>: NSViewRepresentable {
     var dialogTitle: String? = nil
     var topInset: CGFloat? = nil
     var focusFirstTextField = false
+    var resizesToContent = false
     var contentUpdateKey: AnyHashable? = nil
     @ViewBuilder var content: () -> PopupContent
 
@@ -54,6 +55,7 @@ struct LitheCenteredPopup<PopupContent: View>: NSViewRepresentable {
             guard let view, let coordinator, coordinator.revision == revision else { return }
             coordinator.presenter.allowsDismiss = allowsDismiss
             coordinator.presenter.topInset = topInset
+            coordinator.presenter.resizesToContent = resizesToContent
             guard let popupContent, let parent = view.window else {
                 coordinator.presenter.close()
                 coordinator.host = nil
@@ -65,10 +67,10 @@ struct LitheCenteredPopup<PopupContent: View>: NSViewRepresentable {
                     coordinator.contentUpdateKey = contentUpdateKey
                 }
                 if let dialogTitle { host.view.window?.title = dialogTitle }
-                if topInset != nil { coordinator.presenter.center() }
+                if topInset != nil || resizesToContent { coordinator.presenter.center() }
             } else {
                 let host = LitheDropdownHostingController(rootView: popupContent)
-                if contentUpdateKey != nil {
+                if contentUpdateKey != nil || resizesToContent {
                     host.sizingOptions = [.preferredContentSize]
                     host.sizeChanged = { [weak coordinator] in coordinator?.presenter.center() }
                 }
@@ -126,6 +128,7 @@ final class LitheCenteredPopupPresenter: NSObject, NSWindowDelegate, ObservableO
     @Published private(set) var controlActiveState: ControlActiveState = .inactive
     var allowsDismiss = true
     var topInset: CGFloat?
+    var resizesToContent = false
     private var panel: NSPanel?
     private var parentObservers: [NSObjectProtocol] = []
     private var onDismiss: (() -> Void)?
@@ -214,6 +217,12 @@ final class LitheCenteredPopupPresenter: NSObject, NSWindowDelegate, ObservableO
                                   width: size.width, height: size.height)
             if frame != panel.frame { panel.setFrame(frame, display: true) }
             return
+        }
+        if resizesToContent, let content = panel.contentViewController?.view {
+            let size = content.fittingSize
+            if size.width > 0, size.height > 0, size != panel.contentLayoutRect.size {
+                panel.setContentSize(size)
+            }
         }
         panel.setFrameOrigin(NSPoint(x: parent.frame.midX - panel.frame.width / 2,
                                      y: parent.frame.midY - panel.frame.height / 2))

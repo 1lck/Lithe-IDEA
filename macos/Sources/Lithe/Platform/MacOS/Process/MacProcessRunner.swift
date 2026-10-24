@@ -12,6 +12,9 @@ final class MacProcessRunner: ProcessRunner, @unchecked Sendable {
     init(logging: (any ApplicationLogging)? = nil) { self.logging = logging }
 
     func run(_ request: ProcessRequest) -> ProcessResult {
+        if Task<Never, Never>.isCancelled {
+            return ProcessResult(output: "Process cancelled", exitCode: 130)
+        }
         let operation = request.operationID ?? UUID().uuidString
         let started = ContinuousClock.now
         let executable = URL(fileURLWithPath: request.executablePath).lastPathComponent
@@ -68,7 +71,16 @@ final class MacProcessRunner: ProcessRunner, @unchecked Sendable {
                 Date().addingTimeInterval(TimeInterval($0) / 1000)
             }
             var timedOut = false
+            var cancelled = false
             while process.isRunning {
+                if Task<Never, Never>.isCancelled {
+                    cancelled = true
+                    process.terminateAndWait(
+                        gracePeriod: Self.terminationGracePeriod,
+                        forcedTerminationTimeout: Self.forcedTerminationGracePeriod
+                    )
+                    break
+                }
                 if let deadline, Date() >= deadline {
                     timedOut = true
                     process.terminateAndWait(
@@ -95,14 +107,14 @@ final class MacProcessRunner: ProcessRunner, @unchecked Sendable {
             outputPipe.fileHandleForReading.readabilityHandler = nil
             try? outputPipe.fileHandleForReading.close()
             let data = outputLock.withLock { output }
-            logging?.record(level: timedOut || process.terminationStatus != 0 ? "error" : "info",
-                scope: "run.process", message: timedOut ? "process timed out" : "process finished",
+            logging?.record(level: timedOut || cancelled || process.terminationStatus != 0 ? "error" : "info",
+                scope: "run.process", message: timedOut ? "process timed out" : cancelled ? "process cancelled" : "process finished",
                 fields: ["operation_id": operation, "executable": executable,
-                    "exit_code": String(timedOut ? 124 : process.terminationStatus),
+                    "exit_code": String(timedOut ? 124 : cancelled ? 130 : process.terminationStatus),
                     "duration": String(describing: started.duration(to: .now))])
             return ProcessResult(
                 output: String(data: data, encoding: .utf8) ?? "",
-                exitCode: timedOut ? 124 : process.terminationStatus
+                exitCode: timedOut ? 124 : cancelled ? 130 : process.terminationStatus
             )
         } catch {
             try? inputPipe?.fileHandleForReading.close()

@@ -73,6 +73,10 @@ struct LitheTreeListTests {
         #expect(activations == 1)
         LitheTreeListHierarchy(isBranch: true).activate(onExpansion: nil, onActivate: activate)
         #expect(activations == 2)
+        LitheTreeListHierarchy(isBranch: true, activatesOnDoubleClick: true)
+            .activate(onExpansion: expand, onActivate: activate)
+        #expect(activations == 3)
+        #expect(expansions == [true, false])
     }
 
     @Test func collapsedBranchesDoNotBuildHiddenDescendants() {

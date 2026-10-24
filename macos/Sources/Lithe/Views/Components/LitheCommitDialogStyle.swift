@@ -26,10 +26,10 @@ struct LitheCommitDialogInputStyle: ViewModifier {
             .padding(.horizontal, 8)
             .frame(height: 28, alignment: .center)
             .litheTextEditingCursor()
-            .background(LitheCommitDialogStyle.editorBackground)
-            .overlay {
-                Rectangle().strokeBorder(focused ? LitheTheme.settingsControlAccent : LitheTheme.settingsControlBorder,
-                                         lineWidth: focused ? 2 : 1)
-            }
+            .litheSettingsControlChrome(
+                background: LitheCommitDialogStyle.editorBackground,
+                border: focused ? LitheTheme.settingsControlAccent : LitheTheme.settingsControlBorder,
+                lineWidth: focused ? 2 : 1
+            )
     }
 }
