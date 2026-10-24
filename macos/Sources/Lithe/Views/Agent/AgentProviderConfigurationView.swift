@@ -14,7 +14,11 @@ struct AgentProviderConfigurationView: View {
     @State private var errorMessage: String?
     @State private var actionTask: Task<Void, Never>?
 
-    private var usesSubscription: Bool { settings.agentConfigurations[agentID]?.authentication == .codexSubscription }
+    /// The account subscription this Agent can use, if any.
+    private var subscription: AgentAuthentication? { AgentAuthentication.subscription(for: agentID) }
+    private var usesSubscription: Bool {
+        subscription != nil && settings.agentConfigurations[agentID]?.authentication == subscription
+    }
     private var selected: AIProviderProfile? { settings.agentProvider(for: agentID) }
     private var sources: [AIConfigurationSourceKind] { source.map { [$0] } ?? AIConfigurationSourceKind.allCases }
     private var providers: [AIProviderProfile] {
@@ -48,7 +52,7 @@ struct AgentProviderConfigurationView: View {
                     .buttonStyle(LitheActionButtonStyle())
                 }
             }
-            if agentID == "codex-acp" { subscriptionRow }
+            if let subscription { subscriptionRow(subscription) }
             ForEach(sources) { kind in
                 localRow(kind)
             }
@@ -89,17 +93,22 @@ struct AgentProviderConfigurationView: View {
         .onDisappear { actionTask?.cancel() }
     }
 
-    private var subscriptionRow: some View {
+    private func subscriptionRow(_ subscription: AgentAuthentication) -> some View {
         HStack(spacing: 8) {
             Image(systemName: usesSubscription ? "checkmark.circle.fill" : "person.crop.circle")
                 .foregroundStyle(usesSubscription ? LitheTheme.accent : LitheTheme.secondaryText)
             HStack(spacing: 4) {
-                Text("Codex subscription").font(LitheTheme.uiFont(size: 12, weight: .medium))
-                LitheInfoTip("Use your local ChatGPT account. No API key or URL is needed.")
+                if subscription == .claudeSubscription {
+                    Text("Claude subscription").font(LitheTheme.uiFont(size: 12, weight: .medium))
+                    LitheInfoTip("Use the claude.ai account you signed in to with Claude Code. No API key or URL is needed; Lithe never reads its credentials.")
+                } else {
+                    Text("Codex subscription").font(LitheTheme.uiFont(size: 12, weight: .medium))
+                    LitheInfoTip("Use your local ChatGPT account. No API key or URL is needed.")
+                }
             }
             Spacer(minLength: 8)
             Button(usesSubscription ? "Enabled" : "Enable") {
-                perform { try await model.useCodexSubscription() }
+                perform { try await model.useAgentSubscription(agentID: agentID, name: name) }
             }
             .buttonStyle(LitheActionButtonStyle())
             .disabled(usesSubscription)

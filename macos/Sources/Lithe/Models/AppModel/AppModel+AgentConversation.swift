@@ -221,7 +221,11 @@ extension AppModel {
             }
             .map { id, configuration -> AgentOption in
                 let provider = settings.agentProvider(for: id)
-                let model = configuration.authentication == .codexSubscription ? "Codex subscription" : (provider?.model.trimmingCharacters(in: .whitespacesAndNewlines) ?? "")
+                let model = switch configuration.authentication {
+                case .codexSubscription: "Codex subscription"
+                case .claudeSubscription: "Claude subscription"
+                case .apiKey: provider?.model.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                }
                 return AgentOption(id: id, name: configuration.name, modelName: model.isEmpty ? provider?.name : model)
             }
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }

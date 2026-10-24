@@ -143,6 +143,29 @@ struct AgentLaunchConfigurationResolverTests {
     }
 
     @Test
+    func claudeSubscriptionUsesTheSignedInCLIAndStaysWithClaude() throws {
+        let settings = AppSettings(store: LaunchSettingsStore())
+        settings.agentModelCallStatistics = true
+        settings.agentConfigurations["claude-acp"] = AgentConfiguration(name: "Claude", providerID: nil,
+            authentication: .claudeSubscription)
+        let cli = LaunchConfigurationSource(snapshots: [snapshot(.claude, revision: "must-not-load")])
+        let keys = LaunchCredentialResolver(key: "must-not-use-this-key")
+        let resolver = AgentLaunchConfigurationResolver(settings: settings,
+            configurationSources: [cli], credentialResolver: keys)
+        let launch = try resolve(resolver, agentID: "claude-acp")
+        #expect(launch.authentication == .claudeSubscription)
+        #expect(launch.providerEndpoint.isEmpty && launch.apiKey.isEmpty && launch.model.isEmpty)
+        // Claude's account route has no observable endpoint; nothing is proxied.
+        #expect(!launch.observesModelCalls)
+        // Neither subscription may be handed to the other adapter.
+        settings.agentConfigurations["codex-acp"] = AgentConfiguration(name: "Codex", providerID: nil,
+            authentication: .claudeSubscription)
+        #expect(throws: AgentConversationError.missingProvider) { try resolve(resolver, agentID: "codex-acp") }
+        #expect(cli.loadCount == 0 && cli.modelLoadCount == 0)
+        #expect(keys.readCount == 0)
+    }
+
+    @Test
     func refreshRejectsOtherSourcesManualProfilesAndDeletedIdentities() {
         let settings = AppSettings(store: LaunchSettingsStore())
         let imported = settings.importAIConfiguration(snapshot(.codex, revision: "old"))

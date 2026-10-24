@@ -13,6 +13,7 @@ fn launch(env: Vec<(String, String)>, subscription_cli: Option<PathBuf>) -> Reso
         gateway: None,
         secret: String::new(),
         subscription_cli,
+        claude_subscription: false,
     }
 }
 
