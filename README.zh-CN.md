@@ -102,7 +102,7 @@ Lithe 是一款主要面向 Java 和 Spring Boot 开发者的轻量级 IDEA 替�
 14. 自动识别 Spring Boot、Java、Maven、Gradle、npm、Cargo、Go、Python、Make、Docker Compose、Procfile 和 Shell 项目的可运行入口，并支持一键运行。
 15. 支持按语言独立开关语言服务，可根据电脑配置自由启用或停用。
 16. 支持类似 IDEA 的多行编辑器标签，同时展示更多打开的文件。
-17. 新增数据库连接工作台，支持多种数据库类型、连接管理、SQL 历史、表浏览和数据库操作。
+17. 新增数据库连接工作台（目前仅支持 macOS），支持多种数据库类型、连接管理、SQL 历史、表浏览和数据库操作。
 18. 持续修复问题并优化用户体验。
 
 </details>

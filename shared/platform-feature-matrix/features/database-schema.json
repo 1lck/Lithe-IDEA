@@ -12,10 +12,10 @@
   },
   "windows": {
     "evidence": [
-      "windows/tauri/src/features/database"
+      "windows/tauri/src/config/backend-capabilities.ts"
     ],
-    "implementationStatus": "implemented",
-    "verificationStatus": "pending"
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable"
   },
   "owner": "Database",
   "verification": "展开数据库、Schema、表和列，验证刷新、筛选和空结果展示。"
